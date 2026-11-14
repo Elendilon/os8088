@@ -8684,6 +8684,18 @@ SOAK = [
         "or a bot's kill not credited.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("wabotarms", "soak", py("tests/wabotarms.py"), 30.0,
+        "WIREARENA'S BOTS ARM THEMSELVES (docs/plans/WIREARENA-AI-PLAN.md "
+        "3.3, B4). A bot reaching the ramp platform's spawn takes what is "
+        "there (its weapon, a pickup's rounds, the spawn empty); a roaming "
+        "bot at 30 health FETCHES the health pack by its node and takes it; "
+        "a bot's rocket is its own (the owner byte), hurts the player, "
+        "spares the bot in its own splash and credits the bot with the kill; "
+        "the chaingun fires at its own short gap, a railgun hit is 100 and a "
+        "close shotgun hit 60. Red with nothing taken at nodes (the spawn "
+        "and the fetch) or a bot's rocket passing through the player.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

@@ -477,3 +477,62 @@ kill not credited.
 
 The renderer part is now 61,780 bytes (the bigger overlay), with 3,244
 left of 65,024.
+
+### 8.4 B4: the bots' arms (2026-11-14)
+
+- **Taking** (`wa_btake`): at each node a bot reaches, a present pickup
+  whose node it is, if it helps: health below 100, the shield below 100, a
+  weapon not its own or low. It takes the weapon and a pickup's rounds
+  (`F_BWPN`, `F_BAMMO`). arenagen's table gives each pickup the route node
+  within 40 of it: health 7, the ramp platform's spawn 1, the tower's 16;
+  the shield none (it needs a jump).
+- **FETCH** (`wa_bfetch`): a roaming bot below 40 health, with the health
+  pack there, or with the pistol alone and a weapon spawn there, makes the
+  pickup's node its goal and walks the next hops to it (HUNT's walk).
+- **Firing by weapon** (`wa_bshoot`):
+
+| | pistol | shotgun | chaingun | grenades | rockets | railgun |
+|---|---|---|---|---|---|---|
+| hit | 20 | 60 within 4 m, 35 within 8, 15 past | 8 | a projectile | a projectile | 100 |
+| gap | the difficulty's | 30 | 4 | 30 | 36 | 45 |
+| accuracy | the difficulty's | +15 | -10 | (it flies) | (it flies) | the difficulty's |
+
+  A weapon out of rounds falls back to the pistol.
+- **A bot's projectile** (`wa_blaunch`):
+  - launched from its chest along its facing;
+  - its climb set to reach the player's chest after the ticks the distance
+    takes (bounded, so the divide cannot fault); a grenade's against
+    gravity too;
+  - its OWNER in the projectile's record (`RG_OWN`; `WA_RKGSZ` 16). It
+    meets the PLAYER (`wa_rkhitp`: player-fired ones never did), spares its
+    owner in a figure hit and in its splash, and its kills are its owner's
+    (`wa_killer`, which `wa_kill` credits).
+  - A bot's splash hurts the player whole; the player's own, half.
+
+**A bug found on the way**: the respawn points' and the pickups' nodes'
+pointers were rounded to a word on the ABSOLUTE address. But the copy of
+the block (`wa_gph`) can sit at an odd one, and B4's new variables put it
+there. Both pointers read a byte early. A bot took a phantom "pickup" past
+the table's end (kind 0: a shotgun) - found by `wabotarms`. The offset is
+rounded within the block now. In B3's build the block was even, which is
+why `wascore`'s respawns were right there.
+
+**Checked**: `tests/wabotarms.py`, a soak row (~22 s).
+
+- A bot reaching the platform's spawn takes the grenade launcher written
+  there (8 rounds), and the spawn is empty.
+- A bot at 30 health FETCHES node 7 and takes the pack.
+- A bot's rocket is owned by it and hurts the player. The bot's own splash
+  spares it (the player 80 units off). The kill is the bot's.
+- The chaingun fired 44 rounds in 150 ticks. A railgun hit is 100, a close
+  shotgun hit 60.
+- **Red** with nothing taken at nodes (the spawn and the fetch), and with a
+  bot's rocket passing through the player.
+
+All six WireArena rows pass. **In play**, by the breakpoint trace,
+`wa_bthink` is now 698 clk a call, 1.3% of the frame. The benches are as
+before (P 20.0 / 16.6; heights 40 13.1 / 14.8 / 32.7 / 12.5 / 25.9).
+
+**Bytes**: the game 14,096 (+2,705 over the four waves: routes, sight,
+states, the score and board, the arms), the renderer part 61,780,
+`WARENA.O88` 34,114.

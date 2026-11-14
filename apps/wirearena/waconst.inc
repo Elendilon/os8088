@@ -75,5 +75,5 @@ F_BSEE  equ 49                  ; byte: it sees the player (bit 0)...
 F_BWPN  equ 50                  ; byte: its weapon
 F_BGOAL equ 51                  ; byte: the node it heads for (hunting)
 F_BTA   equ 52                  ; the bearing it last saw the player on
-F_BPAD  equ 54                  ; (spare)
+F_BAMMO equ 54                  ; byte: its weapon's rounds left (B4)
 F_SIZE  equ 56

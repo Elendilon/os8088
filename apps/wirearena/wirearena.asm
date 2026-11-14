@@ -394,7 +394,9 @@ wa_spawne:                      ; AL = the edge it starts on
     mov [di+F_ANG], ax
     mov byte [di+F_BWAIT], 0
     mov word [di+F_BST], 0      ; (roaming, no reaction, no gap,
-    mov word [di+F_BGAP], 0     ; unseeing)
+    mov word [di+F_BGAP], 0     ; unseeing, the pistol)
+    mov byte [di+F_BWPN], 0
+    mov byte [di+F_BAMMO], 0
     mov byte [di+F_HP], WA_FHP
     xor ax, ax                  ; dummy 0 lives with a full shield: its chest
     cmp di, wa_figs             ; yellow and a second pool to shoot through
@@ -1275,6 +1277,7 @@ wa_lset0:
 WA_BROAM    equ 0
 WA_BENG     equ 1
 WA_BHUNT    equ 2
+WA_BFETCH   equ 3               ; (B4: to a pickup's node)
 WA_SGRID    equ 128             ; the sight grid's bytes (32 x 32 bits)
 WA_BDMG     equ 20              ; a bot's round (its pistol: wave B4 arms it)
 WA_BLOST    equ 19              ; looks (8 ticks each) a hunt lasts: 5 s
@@ -1566,20 +1569,50 @@ wa_sgrow:
 ; it hit: its difficulty's accuracy at 4 m, 5 points less each further 4 m
 ; (the axes' larger distance and half the smaller), a quarter less if the
 ; player is moving. Keeps DI
+; THE BOTS' ARMS (AI-PLAN 3.3, B4), by weapon (0 the pistol .. 5 the railgun):
+; a hitscan's damage (the shotgun's by range, below; 0 a projectile's), its
+; gap (0: the difficulty's), its accuracy's adjustment, its tone
+;            pistol shotgun chaingun grenades rockets railgun
+wa_bwdmg:  db 20,    0,      8,       0,       0,      100
+wa_bwgap:  db 0,     30,     4,       30,      36,     45
+wa_bwacc:  db 0,     15,     -10,     0,       0,      0
+wa_bwtone: dw 900,   220,    700,     300,     150,    2400
+
 wa_bshoot:
     inc word [wa_bshots]        ; (the bots' shots and hits: the score's,
-    mov bl, [wa_diff]           ; and tests/wabots.py's)
-    xor bh, bh
+    mov byte [di+F_FLASH], 0x86 ; and tests/wabots.py's) - its cue, five
+    mov bl, [di+F_BWPN]         ; ticks, so a 10 fps frame at 80 columns
+    xor bh, bh                  ; cannot miss it
+    mov [wa_bw], bl
+    mov al, [wa_bwgap+bx]       ; its gap
+    or al, al
+    jnz .gap
+    mov bl, [wa_diff]
     mov al, [wa_bgap+bx]
+.gap:
     mov [di+F_BGAP], al
-    mov byte [di+F_FLASH], 0x86 ; (its cue: five ticks, so a 10 fps frame
-                                ; at 80 columns cannot miss it)
-    mov al, [wa_bacc+bx]
-    push ax
-    mov ax, 900
+    mov bl, [wa_bw]
+    shl bx, 1
+    mov ax, [wa_bwtone+bx]
     mov cx, 1
     mov dl, 0x40
     call OSAPI_SND_TONE
+    mov bl, [wa_bw]
+    xor bh, bh
+    or bl, bl                   ; a round of its weapon: out, the pistol
+    jz .armed
+    dec byte [di+F_BAMMO]
+    jnz .armed
+    mov byte [di+F_BWPN], 0
+.armed:
+    cmp bl, 3
+    je .gren
+    cmp bl, 4
+    je .rocket
+    mov al, [wa_bwacc+bx]       ; THE HITSCANS: the roll's accuracy
+    mov bl, [wa_diff]
+    add al, [wa_bacc+bx]
+    mov [wa_bacc2], al
     mov ax, [wa_px]             ; the distance, near enough
     sub ax, [di+F_X]
     call wa_abs
@@ -1593,7 +1626,8 @@ wa_bshoot:
 .big:
     shr bx, 1
     add ax, bx                  ; AX = the distance, units
-    pop bx                      ; BL = the accuracy, %
+    mov [wa_bdist], ax
+    mov bl, [wa_bacc2]          ; BL = the accuracy, %
     sub ax, 256
     jbe .near
     mov cl, 8                   ; 5 points a further 256 units (4 m)
@@ -1623,17 +1657,297 @@ wa_bshoot:
     call OSAPI_SND_TONE
     mov byte [wa_phit], 6
     inc word [wa_bhits]
-    mov ax, di                  ; (who: the score's kill if it is one)
-    sub ax, wa_figs
-    mov cl, F_SIZE
-    div cl
+    call wa_bidx                ; (who: the score's kill if it is one)
     inc al
     mov [wa_hurtby], al
-    mov al, WA_BDMG
+    mov bl, [wa_bw]
+    xor bh, bh
+    mov al, [wa_bwdmg+bx]
+    cmp bl, 1
+    jne .dmg
+    mov al, 60                  ; the shotgun: 60 within 4 m, 35 within 8,
+    cmp word [wa_bdist], 256    ; 15 past
+    jbe .dmg
+    mov al, 35
+    cmp word [wa_bdist], 512
+    jbe .dmg
+    mov al, 15
+.dmg:
     push di
     call wa_phurt
     pop di
 .miss:
+    ret
+.gren:
+    mov al, 1
+    jmp wa_blaunch
+.rocket:
+    xor al, al
+    jmp wa_blaunch
+
+; wa_bidx - DI = a figure: AL = its index, 0.. Keeps all but AX
+wa_bidx:
+    push cx
+    mov ax, di
+    sub ax, wa_figs
+    mov cl, F_SIZE
+    div cl
+    pop cx
+    ret
+
+; wa_blaunch - DI = a bot on target, AL = 0 a rocket, 1 a grenade: one
+; from its chest along its facing, its climb set to arrive at the player's
+; chest after the ticks its distance takes (a grenade's against gravity
+; too), its owner the bot. Keeps DI
+wa_blaunch:
+    mov [wa_lt], al
+    push di
+    mov [wa_bfig], di
+    mov si, wa_rks
+    mov di, wa_rkg
+.slot:
+    cmp byte [si+WA_RKST], 0
+    je .have
+    add si, WA_RKSZ
+    add di, WA_RKGSZ
+    cmp si, wa_rks + WA_NRK*WA_RKSZ
+    jb .slot
+    pop di
+    ret
+.have:
+    inc byte [wa_rkn]
+    mov bx, [wa_bfig]
+    mov al, [wa_lt]
+    mov [si+WA_RKTYP], al
+    mov byte [si+WA_RKST], WA_RKFLY
+    mov ax, [bx+F_X]
+    mov [si+WA_RKX], ax
+    mov ax, [bx+F_Y]
+    mov [si+WA_RKY], ax
+    mov ax, [bx+F_Z]
+    add ax, 90
+    mov [si+WA_RKZ], ax
+    xor ax, ax
+    mov [di+RG_XF], ax
+    mov [di+RG_YF], ax
+    mov [di+RG_ZF], ax
+    push di
+    mov di, bx
+    call wa_bidx
+    pop di
+    inc al
+    mov [di+RG_OWN], al
+    mov word [di+RG_LIFE], WA_RKLIFE
+    mov ax, [bx+F_ANG]
+    call wa_sincos              ; AX = sin, DX = cos (Q14)
+    sar dx, 1                   ; a rocket's 32 a tick...
+    sar ax, 1
+    mov cl, 5
+    cmp byte [wa_lt], 0
+    je .v
+    sar dx, 1                   ; ...a grenade's 16
+    sar ax, 1
+    inc cl
+    mov word [di+RG_LIFE], WA_GFUSE
+.v:
+    mov [di+RG_VX], dx
+    mov [di+RG_VY], ax
+    mov ax, [wa_px]             ; the ticks there: its distance / speed
+    sub ax, [bx+F_X]
+    call wa_abs
+    mov dx, ax
+    mov ax, [wa_py]
+    sub ax, [bx+F_Y]
+    call wa_abs
+    add ax, dx                  ; (the axes' sum: a little long - it
+    shr ax, cl                  ; arrives a little low, at the legs)
+    jnz .t
+    inc ax
+.t:
+    mov cx, ax                  ; CX = ticks
+    mov ax, [wa_eye]            ; the climb: to the player's chest
+    sub ax, 40
+    sub ax, [si+WA_RKZ]
+    cmp ax, 120                 ; (bounded: the quotient stays in 16 bits)
+    jle .z1
+    mov ax, 120
+.z1:
+    cmp ax, -120
+    jge .z2
+    mov ax, -120
+.z2:
+    mov dx, 256
+    imul dx
+    idiv cx                     ; 8.8 a tick
+    cmp byte [wa_lt], 0
+    je .vz
+    push ax                     ; a grenade: and gravity's fall over them,
+    mov ax, WA_GRAV / 2         ; GRAV / 2 x ticks, up
+    mul cx
+    pop dx
+    add ax, dx
+    cmp ax, 16000
+    jle .vz
+    mov ax, 16000
+.vz:
+    mov [di+RG_VZ], ax
+    pop di
+    ret
+
+; wa_bfetch - DI = a roaming bot at node BL: health below 40 and the
+; health pack there, or the pistol alone and a weapon spawn there - FETCH
+; it (its node the goal). Keeps all but AX
+wa_bfetch:
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, [wa_gpkn]
+    lodsw
+    mov cx, ax
+    jcxz .out
+    xor dx, dx
+.p:
+    lodsb
+    cmp al, 0xFF                ; (no node: no bot reaches it)
+    je .n
+    mov bh, al
+    mov al, 1
+    push cx
+    mov cl, dl
+    shl al, cl
+    pop cx
+    test [wa_pkon], al
+    jz .n
+    push bx
+    mov bx, dx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov ah, [wa_pks+bx+6]
+    pop bx
+    cmp ah, 5
+    je .hp
+    ja .n                       ; (the shield: no)
+    cmp byte [di+F_BWPN], 0
+    jne .n
+    jmp .go
+.hp:
+    cmp byte [di+F_HP], 40
+    jae .n
+.go:
+    mov [di+F_BGOAL], bh
+    mov byte [di+F_BST], WA_BFETCH
+    jmp .out
+.n:
+    inc dx
+    loop .p
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; wa_btake - DI = a bot at node BL: a pickup there (arenagen's table: its
+; node) that helps is taken - health below 100, the shield below 100, a
+; weapon other than its own or low - and gone till its time is up. Keeps
+; all but AX
+wa_btake:
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, [wa_gpkn]
+    lodsw
+    mov cx, ax                  ; CX = the pickups
+    or cx, cx
+    jnz .some
+    jmp .out
+.some:
+    xor dx, dx                  ; DX = the pickup's index
+.p:
+    lodsb
+    cmp al, bl
+    jne .n
+    mov al, 1                   ; ...there: and present?
+    push cx
+    mov cl, dl
+    shl al, cl
+    pop cx
+    test [wa_pkon], al
+    jz .n
+    push bx
+    mov bx, dx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov ah, [wa_pks+bx+6]       ; its kind
+    pop bx
+    cmp ah, 5
+    jb .wpn
+    je .hp
+    cmp byte [di+F_SH], WA_FHP  ; (the shield)
+    jae .n
+    mov byte [di+F_SH], WA_FHP
+    jmp .took
+.hp:
+    cmp byte [di+F_HP], WA_FHP
+    jae .n
+    mov byte [di+F_HP], WA_FHP
+    jmp .took
+.wpn:
+    inc ah                      ; AH = the weapon
+    push bx
+    mov bl, ah
+    xor bh, bh
+    mov ah, [wa_wgive+bx]
+    cmp bl, [di+F_BWPN]
+    jne .new
+    cmp [di+F_BAMMO], ah
+    jae .full
+.new:
+    mov [di+F_BWPN], bl
+    mov [di+F_BAMMO], ah
+    pop bx
+    jmp .took
+.full:
+    pop bx
+    jmp .n
+.took:
+    mov al, 1                   ; gone till its time
+    push cx
+    mov cl, dl
+    shl al, cl
+    pop cx
+    not al
+    and [wa_pkon], al
+    push bx
+    mov bx, dx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov al, [wa_pks+bx+6]       ; its kind's respawn time
+    xor ah, ah
+    shr bx, 1
+    shr bx, 1
+    push bx
+    mov bx, ax
+    shl bx, 1
+    mov ax, [wa_pkresp+bx]
+    pop bx
+    mov [wa_pkt+bx], ax
+    pop bx
+.n:
+    inc dx
+    dec cx
+    jz .out
+    jmp .p
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; --- routes (docs/plans/WIREARENA-AI-PLAN.md 3) --------------------------------
@@ -1687,9 +2001,16 @@ wa_bnext:
     add si, [di+F_LEG]
     mov bl, [si+WA_GETO]
     mov ch, [si+WA_GEREV]       ; CH = the way back
-    cmp byte [di+F_BST], WA_BHUNT ; HUNTING (AI-PLAN 3.2): the next hop
-    jne .roam                   ; toward where it last saw the player -
-    mov al, [di+F_BGOAL]        ; there, it roams again
+    cmp byte [wa_bdet], 0       ; (a bench: its home loop, nothing else)
+    jne .roam
+    call wa_btake               ; a pickup here that helps (AI-PLAN 3.3)
+    cmp byte [di+F_BST], WA_BROAM ; roaming: FETCH health below 40, or a
+    jne .goal                   ; weapon with the pistol alone
+    call wa_bfetch
+.goal:
+    cmp byte [di+F_BST], WA_BHUNT ; HUNTING or FETCHING (AI-PLAN 3.2): the
+    jb .roam                    ; next hop toward the goal - there, it
+    mov al, [di+F_BGOAL]        ; roams again
     cmp al, bl
     je .there
     mov dl, bl
@@ -2204,6 +2525,7 @@ wa_reload:
 ; wa_fire - the trigger, pressed (one shot a press): the weapon held fires if
 ; it is loaded, not reloading and past its gap; an empty one reloads
 wa_fire:
+    mov byte [wa_killer], 0     ; (the player's shots: the player's kills)
     cmp byte [wa_rld], 0
     jne .out
     cmp byte [wa_cool], 0
@@ -2421,6 +2743,7 @@ wa_launch:
     mov [di+RG_YF], ax
     mov [di+RG_ZF], ax
     mov word [di+RG_LIFE], WA_RKLIFE
+    mov byte [di+RG_OWN], 0     ; (the player's)
     mov ax, [wa_ang]
     mov cl, 6
     shr ax, cl
@@ -2485,11 +2808,12 @@ wa_hurt:
 wa_kill:
     push ax                     ; the score (AI-PLAN 5): the player's kill,
     push cx                     ; the bot's death
-    inc byte [wa_kills]
-    mov ax, di
-    sub ax, wa_figs
-    mov cl, F_SIZE
-    div cl
+    mov al, [wa_killer]         ; (whoever's weapon: the player's, or a
+    xor ah, ah                  ; bot's projectile)
+    xchg ax, si
+    inc byte [wa_kills+si]
+    xchg ax, si
+    call wa_bidx
     xor ah, ah
     xchg ax, si
     inc byte [wa_deaths+1+si]
@@ -2650,7 +2974,8 @@ RG_VX       equ 6               ; velocity, 8.8 units a tick
 RG_VY       equ 8
 RG_VZ       equ 10
 RG_LIFE     equ 12
-WA_RKGSZ    equ 14
+RG_OWN      equ 14              ; who fired it: 0 the player, 1.. a bot
+WA_RKGSZ    equ 16
 
 ; wa_rktick - each rocket a tick: an explosion's count; a flight's step, and
 ; what it meets - out of the room (gone over the walls, or into them), the
@@ -2713,6 +3038,8 @@ wa_rktick:
     jle .boom
 .hit:
     call wa_rkhit               ; a figure met: killed outright
+    jc .boom
+    call wa_rkhitp              ; a bot's, the player met: it goes off
     jc .boom
     jmp .n
 .gren:                          ; A GRENADE: its fuse, gravity, then each
@@ -2826,12 +3153,18 @@ wa_rkmv:
 ; and between its feet and its head is killed outright (the bits). CF = 1
 ; then. Keeps all but AX, CX
 wa_rkhit:
+    mov al, [di+RG_OWN]         ; (its owner: not hit by its own, and its
+    mov [wa_killer], al         ; kill)
     push di
     mov di, wa_figs
     mov cx, WA_NFIG
 .f:
     cmp byte [di+F_DEAD], 0
     jne .fn
+    call wa_bidx
+    inc al
+    cmp al, [wa_killer]
+    je .fn
     mov ax, [si+WA_RKX]
     sub ax, [di+F_X]
     call wa_abs
@@ -2859,6 +3192,36 @@ wa_rkhit:
     clc
     ret
 
+; wa_rkhitp - SI, DI = a projectile's records: a bot's (its owner not the
+; player) meets the player - inside the player's square and between the
+; feet and 120 over them - CF = 1. Keeps all but AX, DX
+wa_rkhitp:
+    cmp byte [di+RG_OWN], 0
+    je .no
+    cmp byte [wa_pdead], 0
+    jne .no
+    mov ax, [si+WA_RKX]
+    sub ax, [wa_px]
+    call wa_abs
+    cmp ax, WA_HITR
+    jge .no
+    mov ax, [si+WA_RKY]
+    sub ax, [wa_py]
+    call wa_abs
+    cmp ax, WA_HITR
+    jge .no
+    call wa_fabs                ; DX = the feet
+    mov ax, [si+WA_RKZ]
+    sub ax, dx
+    js .no
+    cmp ax, 120
+    jg .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
 ; wa_abs - AX = |AX|
 wa_abs:
     or ax, ax
@@ -2872,6 +3235,8 @@ wa_abs:
 ; distances, from their middle 56 up) take WA_SPLR less it - the player
 ; half. Keeps SI, DI
 wa_boom:
+    mov al, [di+RG_OWN]         ; (its owner: spared, and credited)
+    mov [wa_killer], al
     push di
     mov byte [si+WA_RKST], WA_RKBOOM
     mov ax, 80
@@ -2883,6 +3248,10 @@ wa_boom:
 .f:
     cmp byte [di+F_DEAD], 0
     jne .fn
+    call wa_bidx
+    inc al
+    cmp al, [wa_killer]
+    je .fn
     mov ax, [di+F_X]
     mov bx, [di+F_Y]
     mov dx, [di+F_Z]
@@ -2900,9 +3269,13 @@ wa_boom:
     mov bx, [wa_py]
     call wa_reach
     jae .out
+    mov ah, [wa_killer]         ; (a bot's: whole, and the bot's kill; the
+    mov [wa_hurtby], ah         ; player's own: half, a suicide)
+    or ah, ah
+    jnz .whole
     shr al, 1
     jz .out
-    mov byte [wa_hurtby], 0     ; (the player's own: a suicide)
+.whole:
     call wa_phurt
 .out:
     pop di
@@ -4250,12 +4623,22 @@ wa_loadarena:
     add ax, WA_PVSN
     mov [wa_ghp], ax
     mov bx, ax                  ; ...and the respawn points after the next
-    mov al, [wa_gph]            ; hops (word-aligned)
-    mul al
-    add ax, bx
+    mov al, [wa_gph]            ; hops, word-aligned IN THE BLOCK (wa_gph
+    mul al                      ; itself may sit at an odd address: the
+    add ax, bx                  ; rounding is of the offset from it)
+    sub ax, wa_gph
     inc ax
     and al, 0xFE
+    add ax, wa_gph
     mov [wa_grp], ax
+    mov bx, ax                  ; ...and the pickups' nodes after them
+    mov ax, [bx]
+    mov cl, 3
+    shl ax, cl
+    add ax, bx
+    inc ax
+    inc ax
+    mov [wa_gpkn], ax
     call wa_sgrow
     pop ax
     call op_drop
@@ -4394,7 +4777,13 @@ WA_VAR wa_bname,4                ; the bots' names (wa_names' index)
 WA_VAR wa_sbon,1                 ; Tab held: the scoreboard shown
 WA_VAR wa_sord,4                 ; ...its order
 WA_VAR wa_sbbuf,WA_SBW           ; ...a row of it
-WA_VAR wa_grp,2                  ; the arena's respawn points
+WA_VAR wa_grp,2                  ; the arena's respawn points...
+WA_VAR wa_gpkn,2                 ; ...and its pickups' route nodes
+WA_VAR wa_killer,1               ; whose weapon: 0 the player, 1.. a bot
+WA_VAR wa_bw,1                   ; a bot's shot: its weapon, accuracy,
+WA_VAR wa_bacc2,1                ;   distance
+WA_VAR wa_bdist,2
+WA_VAR wa_bfig,2                 ; wa_blaunch's bot
 WA_VAR wa_sgrid,1024              ; the sight grid, a byte a 64-unit cell
 WA_VAR wa_bshots,2               ; the bots' shots fired, and hits
 WA_VAR wa_bhits,2

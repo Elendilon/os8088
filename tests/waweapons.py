@@ -91,7 +91,12 @@ class Arena(Game):
         """Pickup i back now (its timer at 1: the next tick rolls it), and
         then the kind wanted written over the roll"""
         self.put("wa_pkt", 1, 2 * i)
-        self.tick(4)                # (a tick runs at the next frame's start)
+        for _ in range(12):         # (a tick runs at the next frame's start:
+            self.tick(1)            # until the timer has run out and rolled)
+            if struct.unpack('<H', self.p.read(
+                    self.sym["wa_pkt"] + 2 * i, 2))[0] == 0:
+                break
+        self.tick(1)
         if kind is not None:
             self.p.write(self.sym["wa_pks"] + i * PKSZ + 6, bytes([kind]))
 
@@ -157,7 +162,7 @@ class Arena(Game):
 
 
 PKSZ = 8                        # WA_PKSZ (wafb.inc)
-RKGSZ = 14                      # WA_RKGSZ (wirearena.asm)
+RKGSZ = 16                      # WA_RKGSZ (wirearena.asm)
 WR_FB = 32                      # the frame block's offset in the part
 A_ = {}
 

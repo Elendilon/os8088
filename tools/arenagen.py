@@ -412,6 +412,16 @@ def graph_block(tag, boxes):
     out += struct.pack('<H', len(rs))
     for (x, y, a, n) in rs:
         out += struct.pack('<hhHBB', x, y, a, n, 0)
+    # each pickup's route node, where a bot takes it (AI-PLAN 3.3): one
+    # within WA_PKR (the player's reach) of it, or 0xFF - none walks there
+    pk = pickups(tag, boxes)
+    out += struct.pack('<H', len(pk))
+    for (k, x, y, z, ch) in pk:
+        near = [i for i, (nx, ny) in enumerate(nodes)
+                if abs(nx - x) < 40 and abs(ny - y) < 40]
+        out.append(near[0] if near else 0xFF)
+    if len(out) & 1:
+        out.append(0)
     return bytes(out)
 
 
