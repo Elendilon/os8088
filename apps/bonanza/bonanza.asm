@@ -100,7 +100,7 @@ BZC_BLKOFF  equ 12              ; block 0's offset (bz_hxlat, bz_cexp)
 BZC_OCCIDX  equ 14              ; OCCIDX: BROWS + 1 words, each the offset of
                                 ; the block row's first occluder record
 BZC_OCCREC  equ 16              ; the first record (bz_cexp's COUNTS)
-BZC_MASKOFF equ 20              ; mask 0 (D's MASKTAB read it; D was deleted, 128.15.5.3)
+BZC_MASKOFF equ 20              ; mask 0 (bz_cexp's MASKTAB)
 BZC_NMASK   equ 22              ; the masks
 BZC_ROWB    equ 24              ; 2 COLS: the map row's byte stride, READ by the
                                 ; column writer through DS = the part (128.10.6.4)
@@ -670,6 +670,13 @@ bz_crshdr:
     mov [bz_nway], ax
     mov ax, [es:di + BZG_ROUTE]
     mov [bz_wayoff], ax
+    mov al, [es:BZC_SB]         ; the occluder pass's biases and mask table
+    cbw                         ; (SPEC.md 128.15.4.1, 128.15.5.2): SB signed
+    mov [bz_osbias], ax
+    mov ax, [es:BZC_TB]
+    mov [bz_otb], ax
+    mov ax, [es:BZC_MTAB]
+    mov [bz_mtab], ax
     mov ax, [bz_x0]             ; the projection's constants, 24.8 (128.10.8):
     sub ax, 8                   ; bz_kx = (X0 - 8) << 8 ...
     call .k
@@ -748,17 +755,16 @@ bz_cxtab:
     dw bz_cxmap                 ; 1 ROWPLANES
     dw bz_cxcnt                 ; 2 COUNTS
     dw bz_cxdif                 ; 3 WDIFF
-    dw bz_cxret                 ; 4 MASKTAB: the 4-byte record's (D), not
-BZ_CXFORMS  equ 0EFh            ; shipped - C's parts carry no mask table
-                                ; (SPEC.md 128.15.5.3, 128.15.5.4's verdict)
+    dw bz_cxmtb                 ; 4 MASKTAB (the 4-byte record's, D)
+BZ_CXFORMS  equ 0FFh
     dw bz_cxrtb                 ; 5 ROWTAB
     dw bz_cxway                 ; 6 WAYS
     dw bz_cxcel                 ; 7 CELLS
 %if BZ_FORMS & ~BZ_CXFORMS
  %error "bz_cexp: a course part uses a stored form its dispatch table does not hold"
 %endif
-%if BZ_REC != 8
- %error "bonanza: the occluder pass reads C's 8-byte records (SPEC.md 128.15.5.4); bzcourse.inc's BZ_REC is not 8"
+%if BZ_REC != 4
+ %error "bonanza: the occluder pass reads D's 4-byte records (SPEC.md 128.15.5.4); bzcourse.inc's BZ_REC is not 4"
 %endif
 
 ; 1 ROWPLANES: block row r stored as C/4 high bytes (cell j's two high bits at
@@ -845,6 +851,13 @@ bz_cxdif:
     loop .w
 .out:
     ret
+
+; 4 MASKTAB: MTAB[m] = MASKOFF + 16 m, NMASK counts
+bz_cxmtb:
+    mov cx, [es:BZC_NMASK]
+    mov ax, [es:BZC_MASKOFF]
+    mov dx, 16
+    jmp short bz_cxramp
 
 ; 5 ROWTAB: ROWTAB[r] = GRIDOFF + 32 + 4 KW r, NROWS counts (BZG1, before it)
 bz_cxrtb:

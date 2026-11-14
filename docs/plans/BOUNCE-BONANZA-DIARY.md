@@ -1979,3 +1979,112 @@ course budget is still read on D's form (PEAK 3 bytes under). On C's
 shipped form PEAK is 897 bytes over in LZ4, though under its cap and under
 budget in LZB.
 
+## 2026-11-14 (wave 5b, the D/C decision re-opened: the owner's smoothness rule)
+
+The owner read the verdict above and re-opened it, in these words:
+
+> "Variance shouldn't break what we may need as a memory savings in order
+> to do a course. Do try again. A few dropped frames at 50 or 60fps is not
+> user noticeable; we just want to stay smooth."
+
+The point is fair, and the record above supports it. Almost all of D's
++23.5 on the CGA was MILL's camera landing in its high mode. C landed
+there in half its runs too, and PEAK differed by 2.5 misses a run. The old
+rule summed raw miss totals, so a coin-flip between two camera modes
+could decide a 13KB memory lever, the lever long courses need.
+
+**What changed (intentions, not yet measured):**
+- D's code is back behind the `BZREC` knob, taken from the last copies
+  saved before the deletion. The default is now 8, so the shipped build is
+  still C, byte for byte.
+- The rule is now about smoothness. SPEC.md 128.15.5.4 has it in full;
+  in short:
+  - **Count missed refreshes off the flip.** A frame held three refreshes
+    missed two. The time a frame is reported presented jitters too much to
+    count by; the flip is locked to the refresh.
+  - **Compare like for like.** Both builds play the same steps, so rates are
+    per second of the same play. MILL's runs are compared only within the
+    same camera mode. The mode cannot be pinned: GLIDE reads the frames
+    that were actually presented, so the timing race itself picks the mode.
+    So each run is classified by how far its camera panned.
+  - **The rate.** D may add at most one missed refresh a second over C's.
+    One isolated missed refresh a second, on an otherwise perfect display,
+    takes the evenness measure of PERFORMANCE.md Part 3.2 to about 0.13 on
+    the CGA and 0.14 on the Hercules, a quarter of the roughly 0.5 where
+    unevenness is noticed.
+  - **No new stutter.** The longest run of missed refreshes in a row, and
+    how many runs of two or more there are, must stay within the range C's
+    own runs show. This uses the median of D's runs, so one odd run cannot
+    fail D.
+- `bonanzaperf --rec-ab` now computes exactly that verdict, and it has a red
+  arm, `occslow`, which pads D's walk by about 25k clocks a frame and must
+  fail the rate clause.
+
+**What is checked:** the leg's arithmetic, on made-up runs (holds when D
+matches C's high mode; fails the rate at 4.6 against 29.7 a second; fails
+stutter on a hitch in every run); `--check` (every red arm assembles,
+`occslow` over D's art, +7 bytes); `checkdocs`. No emulator row has run.
+
+**Read against the new rule, the old figures suggest D holds**: in MILL's
+high mode D missed about what C did, PEAK's 2.5 a run is under 0.1 a
+second, and the Hercules favoured D. That is a prediction. The next final
+pass runs `--rec-ab` and `occslow` and decides.
+
+## 2026-11-14 (wave 5b, the D/C decision taken again: D ships)
+
+The re-measurement ran under the owner's smoothness rule, at one tree:
+C the default build, D a private tree, MILL's and PEAK's demos through
+`D`, the speaker on, six runs a build on each card. The two cards ran in
+parallel, about five and a half minutes each.
+
+**What was measured.** Missed refreshes a second of play, off each frame's
+flip (D - C):
+
+| card | MILL | PEAK |
+|---|---|---|
+| CGA | -0.01 in the low camera mode, -0.04 in the high one | +0.16 |
+| Hercules | -0.08 (one mode) | -0.14 |
+
+The rule allowed +1.0. Four of the five comparisons favoured D. The
+longest run of missed refreshes in a row and the number of runs of two or
+more stayed inside C's own range everywhere (the longest 12 - 13 on the
+CGA and 10 - 11 on the Hercules in both builds; one run of two or more a
+MILL run and two a PEAK run, every run of both): they are stretches of the
+demos, not of the record. The occluder pass cost D a median of +382 to
++438 clk a frame over C, like for like, and at worst +850: the first
+pass's figures again.
+
+**The camera's coin.** This time D landed in MILL's low camera mode in 2
+runs of 6, and C in 3. In the first pass D landed there in none, which is
+what made D look 23.5 misses worse. The tipping is the timing race the
+owner suspected, not the record, and comparing within a mode is what made
+that visible.
+
+**The red arm.** `occslow` pads D's walk by about 27k clk a pass frame. It
+failed the rate clause by +2.10 a second on MILL and +11.50 on PEAK, and
+the stutter clauses too. So the rule can see a real cost when there is
+one.
+
+**What shipped.** C's arm and the `BZREC` knob were deleted; the tool's
+default stride is now 4. Nothing in D's build moved across the deletion
+(`cmp` against a `BZREC=4` build taken just before it). The six courses
+now hold 179,680 bytes of RAM against C's 221,764, 42,084 less. PEAK's
+claim is 47,148 bytes, 17,876 under the 65,024 cap (C's was 5,592). That
+is the memory the owner wanted kept for long courses. The image is 99
+bytes larger than C's and the package 2,256 smaller.
+
+**The rows, once, on the D build.** Seven of nine passed at once.
+`bonanzawheel` failed only its known check (6) on the CGA. `bonanzaperf`
+failed once: one wheel lane was late (`bz_rwlate` 1) in PEAK's demo on the
+CGA with the sound on. Re-run alone, it passed. That is the open race in
+SPEC.md 128.13.17 item 6, which was first seen on MILL in wave 3b; D's
+extra clocks are one more input to it, and it stays open. The by-hand
+BENCH A/B against `ef59209a` passed: +314 clk on the CGA and -143 on the
+Hercules, against a limit of +500. C was at -19, so D uses most of that
+guard on the CGA's BENCH.
+
+**One test was wrong.** `recstep` (the walk stepping 8 over 4-byte
+records) had never run on the emulator. On BENCH it stayed green on the
+CGA: none of BENCH's six occluded frames met a skipped record. Its leg is
+now the W4 part, and there it went red on MOON's demo on both cards. A red
+arm that is only assembled is not yet known to work; this is why.

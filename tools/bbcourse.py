@@ -120,8 +120,9 @@ COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 HDR = 48                      # BZC2's header: the map's offset, BZC_MAP (SPEC.md 128.15.4.1)
 HDR1 = 32                     # BZC1's (wave 4's parts; the item 1 comparison writes it back)
 GHDR = 32                     # BZG1's header
-REC = 8                       # RECB, the occluder record's RAM size: 8, C, SHIPS (128.15.5.4's verdict:
-                              # D, 4, failed the CGA); `--rec 4` still writes D's form for the host checks
+REC = 4                       # RECB, the occluder record's RAM size: 4, D, SHIPS (128.15.5.4's verdict under the
+                              # owner's smoothness rule); `--rec 8` still writes C's form for the host checks
+                              # (the identity is over the RECB 8 layout either way, 128.15.7)
 DIRENT = 8                    # a directory entry (128.15.4.2)
 NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
@@ -5900,7 +5901,7 @@ def emit_inc(courses):
         "",
         "BZ_NCRS         equ %d        ; courses, BZ_COURSES's order" % len(courses),
         "BZ_P_CRS        equ 3        ; course 0's row; course K's is BZ_P_CRS + K",
-        "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 8 (C, shipped) or 4 (D, "
+        "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
         "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
         "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 128.15.4.5)"
         % part_forms(courses),
@@ -6171,11 +6172,10 @@ def packed_len(data, fmt="lz4"):
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
     packed as LZ4 - whatever BZPARTZ is - at most 1.5 times its budget.  The
-    part read is the RECB 4 stored form whatever --rec is, as the contract was
-    written while BZREC was a knob (C's 8-byte records pack larger: MILL's
-    9,439 against its 9,412 cap before the follow-up).  C ships now
-    (128.15.5.4); which form the budget reads is SPEC.md 128.15.15's open
-    question.  -> the packed bytes, or
+    part read is the RECB 4 stored form whatever --rec is, which is the
+    shipped form since 128.15.5.4's verdict shipped D (C's 8-byte records pack
+    larger: MILL's 9,439 against its 9,412 cap before the follow-up).
+    -> the packed bytes, or
     None for a course 0 with no target"""
     if c.target is None:
         if k:
@@ -10208,8 +10208,8 @@ def main():
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
-                    help="RECB, the occluder record's RAM size: 8 (C, the default and the shipped form) or 4 "
-                         "(D, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
+                    help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
+                         "(C, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 128.15.12.2); about a minute a course")

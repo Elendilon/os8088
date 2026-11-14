@@ -251676,9 +251676,11 @@ record each would lay the same pixels on the same verdicts.) Nothing is
 refused for its shape: every pixel is keyed, and what the tool refuses is the
 BOUNDS below.
 
-*Amended by 128.15.5: this 8-byte record is the RAM record of `BZREC=8`
-(idea C, 128.15.5.3). Under `BZREC=4` the record is 4 bytes (128.15.5.1).
-The rule, the bounds and the merge below are unchanged.*
+*Amended by 128.15.5: this 8-byte record was idea C's RAM record
+(128.15.5.3), and it did not ship: 128.15.5.4's second measurement shipped
+D, whose RAM record is 4 bytes (128.15.5.1). The tool still lays this one
+out for the identity (128.15.7) and under `--rec 8`. The rule, the bounds
+and the merge below are unchanged.*
 
 | record, 8 bytes | |
 |---|---|
@@ -261444,8 +261446,8 @@ where the zeros go and the map's stored form (128.15.4.3).
 | sections | a **tagged directory** at the part's end, 8 bytes an entry, in RAM order | 128.15.4.2; waves 7 - 9 add entries |
 | where the zeros go | **each section's stored bytes at the END of its own slot**, a zero hole in front of them inside the slot | every section expands inside its own slot, so no section is moved (128.15.4.3) |
 | the occluder record | **4 bytes in RAM**: column, `s - br + SB`, `top - TB`, a mask index; the mask's offset from a table in the part | the report's idea D: -43.8KB of RAM on the six courses, -35.4KB packed (128.15.5) |
-| the record's fallback | **idea C**: the same stored form, today's 8-byte records in RAM, today's frame code | one knob, `BZREC=4|8` (128.15.5.3) |
-| D or C | **D ships only if** `bonanzaperf` on `MILL`'s and `PEAK`'s demos, both cards, speaker ON, shows at most 2 more misses a card than C, the two demos' misses summed on each card. **MEASURED: C SHIPS** - D +23.50 on the CGA (six runs a build), -4.17 on the Hercules; D's arm and `BZREC` are deleted | the owner's HUD rule (128.15.5.4) |
+| the record's fallback | **idea C**: the same stored form, today's 8-byte records in RAM, today's frame code | one knob, `BZREC=4|8`, while the decision stood (128.15.5.3); deleted with C's arm |
+| D or C | **D ships only if it stays smooth: the owner's smoothness rule** (2026-11-14). `bonanzaperf` on `MILL`'s and `PEAK`'s demos, both cards, speaker ON, six runs a build: D's missed refreshes a second of play at most **1.0** over C's, and no new stutter (the longest run of consecutive missed refreshes and the runs of two or more within C's spread), `MILL` compared camera mode for like. *First measured under the HUD rule, at most 2 more misses a card: C shipped* (D +23.50 on the CGA, almost all `MILL`'s camera mode; -4.17 on the Hercules). Re-opened by the owner and **MEASURED again under the smoothness rule: D ships** (missed refreshes a second D - C: CGA `MILL` -0.01 and -0.04 in its two camera modes, `PEAK` +0.16; Hercules -0.08 and -0.14; no new stutter on either card). C's arm and `BZREC` were deleted | 128.15.5.4 |
 | the map | block indices as **row planes**: a block row's 2-bit high bits, then its low bytes | 1.25 bytes a cell; the order that expands in place (128.15.4.4) |
 | `ROWTAB`, the mask table | **computed** at the fetch, nothing stored | 128.15.4.4 |
 | the route | **way tiles**, 2 bytes a way, kept on every course | the rows' autopilot drives every course (128.15.4.4) |
@@ -261471,9 +261473,9 @@ only.
   into `BZ<K>.BIN`, keeps the RAM form as the course's `cga`, gains
   `--sizes`, `--rec` and the `target` statement, and its build checks gain
   the directory's (128.15.12).
-- **128.10.4.4** *(in place)*: the record table describes `BZREC=8`'s RAM
-  record (idea C). Under `BZREC=4` the record is 128.15.5.1's. The rule,
-  the bounds and the merge are unchanged.
+- **128.10.4.4** *(in place)*: the record table describes idea C's 8-byte
+  RAM record, which did not ship. The shipped record is 128.15.5.1's (D).
+  The rule, the bounds and the merge are unchanged.
 - **128.10.4.6**: `--selfcheck` gains items 10, 11 and 12 (128.15.12.3);
   item 8 loses its HUD clause and its `underhud` control (128.15.3).
 - **128.10.5.1** *(in place)*: `BZC1` is replaced by `BZC2` (128.15.4).
@@ -261486,8 +261488,8 @@ only.
   place (128.15.4.5) before anything reads it.
 - **128.10.6.4**: the expansion is held to the same kern_mega rule
   (128.15.11).
-- **128.10.9, 128.11.15**: the occluder pass's cost under `BZREC=4` is
-  128.15.5.2's.
+- **128.10.9, 128.11.15**: the occluder pass's cost under D, the shipped
+  record, is 128.15.5.2's (MEASURED in 128.15.5.4).
 - **128.11.4.1**: the merge runs on the UNDITHERED masks. The checker is
   ORed in after it, and the masks are deduplicated again (128.15.10.1).
 - **128.12.8** *(in place)*: the identity is taken over the RAM form as
@@ -261637,8 +261639,8 @@ assembled constant in seven writers (`add ax, BZC_MAP`), and a larger
 constant costs nothing. The directory's size varies with the course, so it
 cannot sit in front of the map without making that offset a variable.
 
-Every reader of a `BZC1` field keeps its constant. Under `BZREC=4`,
-`bz_crshdr` also copies three fields into the package's data for the
+Every reader of a `BZC1` field keeps its constant. Under D (the shipped
+record, 128.15.5.4), `bz_crshdr` also copies three fields into the package's data for the
 occluder pass: `SB` sign-extended (`cbw`) into the word `bz_osbias`, `TB`
 into `bz_otb` and `MTAB` into `bz_mtab`. 128.15.14 lists every new cell.
 *As built*: the SB cell is `bz_osbias`, not `bz_osb` as first written here,
@@ -261987,8 +261989,8 @@ same, as priced; with the shipped LZB parts 4.21 s and 4.47 s.*
 
 ##### 128.15.5.1 The record and its biases
 
-Under `BZREC=4` a record is 4 bytes in RAM. It holds the same facts as
-128.10.4.4's 8:
+Under D a record is 4 bytes in RAM (D shipped, 128.15.5.4). It holds the
+same facts as 128.10.4.4's 8:
 
 | at | |
 |---|---|
@@ -262129,8 +262131,10 @@ worst**.
 
 *MEASURED in the final pass* (128.15.5.4): on the demos' frames, like for
 like, D - C was a median of +380 to +448 clk and at worst +869 to +878, on
-both cards. D's arms were then deleted (C ships); the `bzvideo.inc` arms
-named above are in no shipped source.
+both cards. D's arms were then deleted (C shipped under the first rule).
+*MEASURED again under the owner's smoothness rule* (128.15.5.4): a median
+of +382 to +438 clk and at worst +483 to +850, on both cards; **D ships**,
+and the arms named above are the shipped source, C's 8-byte arms deleted.
 
 ##### 128.15.5.3 The fallback C, and the switch
 
@@ -262143,8 +262147,12 @@ T10 (wave 10).
 
 **The switch is one Makefile knob**, `BZREC ?= 4`, stamp-tracked like every
 knob and carrying a `#> [Knobs]` line for `make help`. *(Deleted with D's
-arm at the verdict, 128.15.5.4: C ships, and `bbcourse.py`'s `--rec`
-defaults to 8.)*
+arm at the first verdict, 128.15.5.4, and RESTORED on 2026-11-14 when the
+owner re-opened the decision under the smoothness rule, with the default
+`BZREC ?= 8` until the re-measurement decided. It decided D, and the knob
+was deleted with C's arm: `bbcourse.py`'s `--rec` defaults to 4, D, and
+`--rec 8` remains for the host checks. The paragraphs below describe the
+knob while it stood.)*
 - It reaches the tool as `--rec $(BZREC)`, and the tool writes `BZ_REC
   equ 4` or `8` into `bzcourse.inc`. The course stamp (`.bz-crs`) carries
   `BZREC`, so changing it recompiles the courses.
@@ -262171,51 +262179,150 @@ nothing else: no identity, demo or best moves.
   every other arm of 128.15.13 has a target under both strides. The rows
   128.15.13 names run once more on the C build.
 
-##### 128.15.5.4 The acceptance measurement (the owner's HUD rule)
+*As done (2026-11-14), D won the second measurement.* C's arms left
+`bz_occ`, `bz_oand`, `bz_crshdr`, MASKTAB's dispatch (form 4 is
+`bz_cxmtb`, `BZ_CXFORMS` FFh) and the cell block; the four cells and
+`BZ_OCLAMP` are unconditional; a `bzcourse.inc` whose `BZ_REC` is not 4 is
+an assembly `%error`, and `BZREC` left the Makefile. **No byte of D's build
+moved**: `bonanza.bin` (33,469), `BONANZA.O88` (75,063), all four
+`bonanza*.img` and every `BZ<K>.BIN` and `BZD<K>.BIN` are `cmp` EQUAL
+between `make BUILD=<dir> BZREC=4 bonanzadisk` before the deletion and the
+default build after it (`bzcourse.inc` differs in its `BZ_REC` comment).
+The walk's strides stay written as `BZ_REC`, which `recstep` patches.
+`recstep` stays (`bonanzaring`, now over the shipped art), and the A/B leg
+(`--rec-ab`) and `occslow` left `bonanzaperf`.
 
-At ONE commit, build the default tree (`BZREC=4`) and a private tree with
-`BZREC=8`. The identities and demos are the same in both (128.15.7), so
-the two `D` runs of a demo play the same trajectory.
+##### 128.15.5.4 The acceptance measurement (the owner's smoothness rule)
 
-- **What runs.** `bonanzaperf`'s `D` legs: `BZD3` (`MILL`) and `BZD5`
-  (`PEAK`), on the CGA and on the Hercules, speaker ON, **three runs
-  each** on each build: 24 runs.
+**The rule was re-written by the owner** on 2026-11-14, after the first
+measurement (below) shipped C on a difference that was almost all one
+course's run-to-run variance:
+
+> "Variance shouldn't break what we may need as a memory savings in order
+> to do a course. Do try again. A few dropped frames at 50 or 60fps is not
+> user noticeable; we just want to stay smooth."
+
+So D is judged on whether it stays SMOOTH, like for like, and not on raw
+miss totals. This replaces the HUD rule's "at most 2 more misses a card"
+for this decision; the plan's HUD rule for new per-frame features is not
+changed by it.
+
+At ONE commit, build the default tree (`BZREC=8`, C, the shipped build) and
+a private tree with `BZREC=4` (D). The identities and demos are the same in
+both (128.15.7), so the two `D` runs of a demo play the same trajectory,
+step for step.
+
+- **What runs.** `bonanzaperf --rec-ab`: `BZD3` (`MILL`) and `BZD5`
+  (`PEAK`) through `D`, on the CGA and on the Hercules, speaker ON, **six
+  runs each on each build** (48 runs), with no extension. Six is what the
+  first measurement needed on both cards anyway, and it gives C's own
+  spread on every figure below.
 - **How `D` is pressed.** The row pauses the guest, steps it to the card's
   next completed frame (`frame_count()` increments), and injects `D` there,
   so the key's phase against the refresh is the same in every run. The
   disk's rotation and the timer at that moment still differ between runs,
-  so runs of one build are not identical, and the C - C spread below is
-  what measures that.
-- **The rule, as the owner gave it: "at most 2 more misses a card".** For
-  each card, the two demos' misses are SUMMED (`BZD3` + `BZD5`), and D
-  ships if, on both cards, the mean of D's three sums is **at most 2 more**
-  than the mean of C's. Otherwise C ships. This is the stricter of the two
-  readings: D may not spend 2 misses on each demo, 4 on a card.
-- **When the runs are too noisy to decide.** Beside the rule the row
-  reports C's own spread on each card (the largest minus the smallest of
-  its three sums). If that spread is over 4, twice the margin, three more
-  runs a leg are taken on both builds and the rule is applied to the
-  means of six. That is the only extension; its verdict stands.
-- **Reported beside it** (not deciding): every run's misses, the busy
-  mean, the occluder pass's part of `D`'s breakdown and its worst frame,
-  and the occluder pass's clocks D - C on frames drawn at the same step `n`
-  in both builds. That span is NOT deterministic between the builds: the
-  box set follows the last PRESENTED frame, which falls at another step in
-  each, and an int 08h (54.6 Hz under `FSXF_FASTTICK`) inside the span adds
-  its whole cost. So it is compared like for like (the review's S3): only
-  frames where both builds laid as many groups (`bz_olay` calls) into as
-  many boxes (`bz_boxw`) and took no int 08h (`sch_isr`) inside the pass,
-  reported as the median, minimum, mean and worst, with the count of common
-  frames set aside.
+  so runs of one build are not identical. C's spread is what measures that.
+- **What is counted: missed refreshes, read off the FLIP.** A frame's hold
+  is the number of refreshes between its flip (`bz_tf`, the end of the
+  retrace wait, which is locked to the card's vertical retrace) and the
+  previous frame's flip, rounded. A frame held `k` refreshes MISSED `k - 1`,
+  and those `k - 1` are one RUN of consecutive missed refreshes, since the
+  picture did not change on any of them. `bz_presented` is not used here:
+  it follows the box writes, so its periods jitter by up to a quarter of a
+  refresh (the first measurement logged periods of 1.75 and 2.24 refreshes
+  alternating). Frames of a full write are left out, as the miss count
+  leaves them: a cut, which both builds take at the same step.
+- **Like for like: the same steps.** Seconds of play are the demo's steps
+  over **54.62** (one step a FASTTICK sub-tick, 1,193,182 / 21,845 Hz,
+  `BZ_SUB`). Both builds replay one log, so both play the same steps, and a
+  rate a second compares the same stretch of play. The windows below are
+  cut by step `n` for the same reason. The occluder pass's own clocks are
+  compared frame for frame at the same step `n`, as before.
+- **Like for like: MILL's camera mode.** `MILL`'s demo plays in one of two
+  camera modes (the measurement below). **The mode cannot be pinned by a
+  deterministic start.** GLIDE's "fast" verdict reads the ball's travel over
+  the last four PRESENTED frames (128.11.11.1), so the camera's path
+  depends on which steps were presented, and that is the timing race itself.
+  The frame-boundary press already fixes everything the row can fix, and
+  the mode still split C's runs three and three. Pinning it would mean
+  changing the camera, which this decision may not do. So the runs are
+  CLASSIFIED. A `MILL` run's mode is the number of columns its camera panned
+  (frames with a column, the row's `columns` line: about 49 in the low mode,
+  84 - 88 in the high one). A card's `MILL` runs, both builds pooled, are
+  split at the widest gap between their sorted column counts when that gap
+  is at least **12 columns** (a quarter of the low mode's 49; the measured
+  modes are 35 apart). Otherwise they are one mode.
+  - Each mode that both builds reached is compared on its own.
+  - A mode only one build reached is reported, not compared. How many runs
+    of each build landed in each mode is reported too, so the owner can see
+    any tipping.
+  - If no mode was reached by both builds, the runs are compared pooled,
+    and the row says so.
+  - `PEAK` shows no such modes (C's six CGA runs missed 294 - 312 at
+    `bz_presented`) and is compared whole.
+- **The rule, the owner's smoothness.** On each card, for `MILL` (each
+  shared mode) and for `PEAK`:
+  1. **The rate.** D's missed refreshes a second of play, the mean over its
+     runs, are **at most 1.0 more** than C's.
+  2. **No new stutter.** Each run has a LONGEST run of consecutive missed
+     refreshes and a count of RUNS OF TWO OR MORE (frames held three
+     refreshes or longer). The median of each over D's runs is at most C's
+     largest single-run value, which is the top of C's spread. The median is
+     used so that one odd run of D's cannot fail the clause, while a hitch in
+     most of D's runs does.
+
+  D ships if every comparison holds on both cards. Otherwise C ships.
+- **Why one a second.** PERFORMANCE.md Part 3.2: the eye objects to the
+  VARIANCE of the update intervals, not their rate, and its headline,
+  evenness = sd / mean, is about 0.5 where the irregularity starts to be
+  noticed. One isolated missed refresh a second, added to a display that is
+  otherwise a perfect metronome, gives an evenness of **0.13** at the CGA's
+  59.92 Hz (58 intervals of one refresh and one of two) and **0.14** at the
+  Hercules' 50.9 Hz. That is about a quarter of the line, in the worst case,
+  where nothing else moves. Against C's own pace the step is smaller still:
+  `MILL` on the CGA already misses about 90 - 145 refreshes in its roughly
+  10 s. And GLIDE pans by the ball's real travel (128.11.11.1), so a missed
+  refresh delays a picture but loses no position. This is the owner's "a
+  few dropped frames at 50 or 60fps". The stutter clause catches what a
+  mean hides: the same missed refreshes concentrated into hitches.
+- **Reported beside it** (not deciding):
+  - every run's missed refreshes, seconds, rate, longest run, runs of two or
+    more, columns and mode, and C's spread of each;
+  - the misses at `bz_presented` and their sums over the two demos (the
+    first rule's figure);
+  - the worst one-second window by step, D's missed refreshes over C's
+    (means of the runs compared);
+  - the busy mean, and the occluder pass's span a frame and its worst;
+  - **the cause**: the occluder pass's clocks D - C on frames drawn at the
+    same step `n` in both builds. That span is NOT deterministic between the
+    builds: the box set follows the last PRESENTED frame, which falls at
+    another step in each, and an int 08h (54.6 Hz under `FSXF_FASTTICK`)
+    inside the span adds its whole cost. So it is compared like for like
+    (the review's S3): only frames where both builds laid as many groups
+    (`bz_olay` calls) into as many boxes (`bz_boxw`) and took no int 08h
+    (`sch_isr`) inside the pass. It is reported as the median, minimum, mean
+    and worst, with the count of common frames set aside.
+- **Its red arm.** `bonanzaperf --red occslow` pads D's walk at `.key` (a
+  `loop` of 1,500, about 25.5k clk on each frame the pass runs, in D's arm
+  alone). It runs on the CGA, two runs a build, and must fail at the rate
+  clause. PREDICTED: the CGA's busy, about 61k of a 79.6k refresh, passes
+  the refresh on every pass frame (about 150 of `MILL`'s and 1,000 of
+  `PEAK`'s). `--check` assembles it over D's art (`BZ_REC` 4), where the
+  padding is in the assembled arm (+7 bytes).
 - **Where the figures go.** They and the verdict are written into this
   subsection as MEASURED. The losing arm then goes, as 128.15.5.3 says, and
-  the A/B leg goes with it: it is 5b's final pass's measurement, not a
-  standing check.
+  the A/B leg and `occslow` go with it. It is a final pass's measurement,
+  not a standing check.
 
 The rest of 5b (the stored forms, the dither, the disk plan) is the same
 under both, so it does not wait for this.
 
-**MEASURED, 5b's final pass (2026-11-14), and the verdict: C SHIPS.**
+**MEASURED, 5b's final pass (2026-11-14), under the FIRST rule ("at most 2
+more misses a card"): C shipped.** The figures stand as the record; the
+verdict was re-opened by the owner (above and at the end). The first rule
+summed each card's misses (`bz_presented` periods over 1.5 refreshes) over
+the two demos, and D shipped if, on both cards, the mean of its sums was
+at most 2 more than C's; three runs a leg, six if C's spread was over 4.
 `bonanzaperf --rec-ab` at one tree, MartyPC's `os8088_5150_cga_gla` and
 `os8088_5150_herc_gla`, the speaker ON, `D` on a frame boundary. C's
 spread over its first three sums was 69 on the CGA and 13 on the
@@ -262274,6 +262381,98 @@ misses, `MILL` + `PEAK` = the sum:
   `BZ_REC` line's comment). The A/B leg (`--rec-ab`) and `recstep`
   (`bonanzaring`) went with the arm. **D's 43.8KB of RAM waits for T10
   (wave 10)**, and `PEAK`'s claim is 59,432 bytes, 5,592 under 65,024.
+- **Re-opened (the owner, 2026-11-14, quoted at the top of this
+  subsection).** D's arms in `bz_occ`, `bz_oand` and `bz_crshdr`, its cells,
+  MASKTAB's handler and the `BZREC` knob are restored from the last copies
+  taken before the deletion. The default is `BZREC ?= 8`, so the shipped
+  build is still C, byte for byte. `--rec-ab` came back, now computing the
+  smoothness rule above, and `recstep` came back, built over its own D art.
+  **Read against the new rule, the first figures PREDICT that D holds**, but
+  the re-measurement decides:
+  - In `MILL`'s high mode on the CGA, D's runs missed 139 - 148 at
+    `bz_presented` against C's 144 - 146, and D's one run between the modes
+    (68 columns) missed 121. Under the new classifier that run falls in the
+    high mode.
+  - `PEAK`'s +2.5 misses a run over about 35 s of play (2,108 frames) is
+    under 0.1 a second.
+  - The Hercules favoured D.
+
+  The flip-based counts and the stutter clauses were not taken in that
+  pass. The next final pass runs `--rec-ab` and `--red occslow`, writes the
+  figures here as MEASURED, and the losing arm goes as 128.15.5.3 says.
+
+**MEASURED, the second pass (2026-11-14), under the owner's smoothness
+rule: D holds on both cards, so D ships.** `bonanzaperf --rec-ab` at one
+tree (C the default build, D this tree's `bbcourse.py --rec 4` into a copy
+of the art, its demos checked equal), MartyPC's `os8088_5150_cga_gla` and
+`os8088_5150_herc_gla`, the speaker ON, `D` on a frame boundary, six runs
+a build on each card (48 runs, 326 s on the CGA and 314 s on the Hercules,
+the cards in parallel). Seconds of play: `MILL` 12.4, `PEAK` 40.4. Missed
+refreshes a run, off the flip:
+
+| card | demo | D's six runs | C's six runs | **missed a second, D / C** (C's spread) | **D - C** |
+|---|---|---|---|---|---|
+| CGA | `MILL`, low mode | 106, 105 | 107, 106, 104 | 8.52 / 8.54 (8.40 - 8.65) | **-0.01** |
+| CGA | `MILL`, high mode | 155, 158, 152, 153 | 159, 157, 149 | 12.48 / 12.52 (12.04 - 12.85) | **-0.04** |
+| CGA | `PEAK` | 326, 331, 329, 327, 318, 322 | 311, 316, 315, 332, 312, 329 | 8.07 / 7.91 (7.71 - 8.23) | **+0.16** |
+| Hercules | `MILL` (one mode) | 30, 32, 28, 31, 30, 32 | 31, 33, 31, 32, 32, 30 | 2.46 / 2.55 (2.42 - 2.67) | **-0.08** |
+| Hercules | `PEAK` | 126, 114, 114, 102, 127, 112 | 114, 120, 128, 123, 120, 124 | 2.87 / 3.01 (2.83 - 3.17) | **-0.14** |
+
+Each figure is far inside the rule's +1.0, and four of the five favour D.
+- **`MILL`'s camera modes, CGA**: split at 49 columns (the low runs panned
+  49, the high 68 - 88). D landed low in 2 of 6 runs and C in 3 of 6, so
+  both builds reached both modes and each was compared on its own. In the
+  first pass D landed low in none; this pass shows the tipping is the race
+  128.15.5.4 describes, not D's. The Hercules' `MILL` runs all panned 37
+  columns: one mode.
+- **No new stutter.** The longest run of consecutive missed refreshes was
+  13 in every D run on the CGA (C's 12 - 13) and 10 - 11 on the Hercules
+  (C's 10 - 11). Runs of two or more: 1 a `MILL` run and 2 a `PEAK` run
+  in every run of both builds. Both are the same stretches of play in
+  both builds, so the medians hold at C's top.
+- **Reported, not deciding.** The first rule's figure, the misses at
+  `bz_presented` summed over the two demos: CGA D 428.33, C 414.67
+  (+13.67, against the first pass's +23.50); Hercules D 119.17, C 125.50
+  (-6.33). The worst one-second window by step, D over C (means of the
+  runs): CGA `MILL` +2.00 (low) and +1.92 (high), `PEAK` +4.00; Hercules
+  `MILL` 0.00, `PEAK` +4.00 - one refresh-scale hitch each, single
+  windows. The busy means (clk): CGA `MILL` D 59,846 and C 59,306, `PEAK`
+  60,962 and 60,829; Hercules `MILL` 59,275 and 59,171, `PEAK` 62,683 and
+  62,930. The occluder pass a frame, mean / worst: CGA `MILL` D 8,059 /
+  14,656, C 7,669 / 15,560; `PEAK` D 13,267 / 33,724, C 12,772 / 32,882;
+  Hercules `MILL` D 8,056 / 15,626, C 7,638 / 17,050; `PEAK` D 13,494 /
+  33,738, C 12,896 / 32,874.
+- **The occluder pass D - C, like for like** (the first runs; the same
+  step `n`, as many `bz_olay` calls into as many boxes, no int 08h inside
+  the pass in both):
+
+  | card | demo | frames compared (of common) | median | minimum | mean | worst |
+  |---|---|---|---|---|---|---|
+  | CGA | `MILL` | 61 of 96 | +392 | +232 | +383 | +508 |
+  | CGA | `PEAK` | 588 of 866 | +428 | +98 | +427 | +850 |
+  | Hercules | `MILL` | 119 of 159 | +382 | +219 | +380 | +483 |
+  | Hercules | `PEAK` | 620 of 881 | +438 | +101 | +439 | +850 |
+
+  The first pass's figures again, within a few clocks: about 0.5% of a
+  refresh in the median and about 1% at worst.
+- **The red arm, `occslow`** (D's walk padded by a `loop` of 1,500, the
+  CGA, two runs a build, 177 s): **red at its own check.** D's pass cost
+  +27,428 clk (`MILL`, median) and +27,479 (`PEAK`) over C's. `MILL`'s
+  runs split by build (D's two panned 62 columns, C's 84), so they were
+  compared pooled, and the row said so: D 14.83 a second against C's
+  12.73, **+2.10**. `PEAK`: D 19.33 against 7.83, **+11.50**. Both failed
+  the rate clause, and the stutter clauses failed too (`MILL`'s longest
+  run 13 past C's 12, `PEAK`'s runs of two or more 2.50 past C's 2).
+- **What follows** (128.15.5.3, *As done*): C's arm and the `BZREC` knob
+  were deleted, and no byte of D's build moved (`cmp`). The rows that read
+  the RAM form or time frames ran once on the D build, and `recstep`
+  (128.15.13). **The shipped RAM per course** (the claim, bytes, headroom
+  under 65,024): `BENCH` 38,764 (26,260), `FIRST` 8,754 (56,270),
+  `TRIAL` 15,452 (49,572), `MILL` 28,690 (36,334), `MOON` 40,872
+  (24,152), **`PEAK` 47,148 (17,876; C's was 5,592)**; the six 179,680
+  against C's 221,764, **42,084 bytes less**. The image is 33,469 bytes
+  (+99 over C's) with 7,660 of bss (+7), and `BONANZA.O88` 75,063 (-2,256),
+  81 clusters of `bonanza360.img` (C 83).
 
 #### 128.15.6 The grid's derivable fields (the follow-up)
 
@@ -262508,10 +262707,10 @@ seconds (CD3).
   never depends on a previous build's files.
 
 **Refused**:
-- a course whose packed part (*as built*: its `RECB` 4 stored form whatever
-  `BZREC` is, so that whether the tree builds depends on neither knob - C's
-  8-byte records pack larger, and `MILL`'s C form, 9,439 bytes before the
-  follow-up, is over its 9,412 cap), **packed as LZ4** whatever `BZPARTZ` is, is
+- a course whose packed part (*as built*: its `RECB` 4 stored form, which
+  is the shipped form since 128.15.5.4 shipped D - C's 8-byte records pack
+  larger, and `MILL`'s C form, 9,439 bytes before the follow-up, was over
+  its 9,412 cap), **packed as LZ4** whatever `BZPARTZ` is, is
   over **1.5 x** its budget (`floor`, so 9,412 for 30 s). That is R4's
   ratio of 16KB to 10.5KB. LZ4 is the larger of the two formats, so a
   course that passes fits under either, and whether the tree builds never
@@ -262589,7 +262788,7 @@ the option if we actually need it". It is recorded here and NOT built in
 - **When it is taken**: only when a course actually exceeds one part, which
   under D is about 73 s at MOON's and PEAK's pace (the plan's CD3), and
   about 81 s at `PEAK`'s own. Its clocks are measured then, against the
-  owner's HUD rule (128.15.5.4's shape).
+  owner's smoothness rule (128.15.5.4's shape).
 - **kern_mega**: each part is a selector of its own (128.15.11), and no
   segment arithmetic is done between them.
 
@@ -263046,8 +263245,9 @@ lattice, identities, mask counts and `nodither` where they differ.*
 - **kern_mega**:
   - The expanders read and write the course part through its own segment
     from `op_seg` (on kern_mega an LDT selector), in DS or ES, at offsets
-    inside its `len`. (D's `MTAB`, read with DS = the part, went with D:
-    128.15.5.3.)
+    inside its `len`. D's `MTAB` (the shipped record, 128.15.5.4) is read
+    the same way, with DS = the part, at `MTAB + 2 m` inside its `len`, and
+    MASKTAB writes it through ES = the part like ROWTAB.
   - Nothing is written through CS, nothing is added to a segment, and no
     immediate is patched (128.10.6.4's rule), so **no `PKG_MEGA` arm is
     needed**.
@@ -263084,8 +263284,8 @@ lattice, identities, mask counts and `nodither` where they differ.*
     `RECB` 8 from its model (`ram_identity`).
 - **`--rec 4|8`** comes from `BZREC`, and `bzcourse.inc` gains `BZ_REC`
   and `BZ_FORMS`. The tool takes no format flag (128.15.8). *(After
-  128.15.5.4's verdict the knob is gone: `--rec` defaults to 8, C, the
-  shipped stride, and `--rec 4` remains for the host checks.)*
+  128.15.5.4's second verdict the knob is gone: `--rec` defaults to 4, D,
+  the shipped stride, and `--rec 8` remains for the host checks.)*
 - *As built*: the tool compiles each course to a MODEL with no offset in it
   (`c.model`), and every form is a serialisation of it - `encode_part(m, 4|8)`
   the RAM forms (`c.cga4`, `c.cga8`), `stored_form` the stored ones
@@ -263217,14 +263417,16 @@ in 5b's final pass: one `os88test.py soak -k ...` of their union, with the
 A/B legs in that same pass (R5). The follow-up (128.15.6) lands before it.
 
 Every arm below has a target under both strides, except `recstep`, which
-is D's walk and goes with D's arm if C wins (128.15.5.3).
+is D's walk and goes with D's arm if C wins (128.15.5.3). *D won
+(128.15.5.4), so `recstep` stays; `occslow`, the A/B leg's own arm, left
+with the leg.*
 
 | row | tier | what changes | new red arms, and the check each must fail at |
 |---|---|---|---|
 | `bonanzacourse` | soak, host | items 10 - 12; item 8's HUD clause and `underhud` gone; item 1 over both forms; the row text's "BENCH ... byte for byte 573eec83's parts" replaced by the RAM forms' new identities and `--sizes`' figures; its `secs` re-measured (128.15.12.1) | host controls only (item 10's seven, item 11's two, item 12's), each at its item |
-| `bonanzaring` | soak, MartyPC | the oracle lays records less the checker (128.15.10.3); `MILL`'s lift frames card = oracle with the slab whole, over and under the ball; `PEAK`'s demo card = oracle through the moat stretch (ghosts drawn); 5a's HUD legs gone | `nodither`, made at the DATA: a copy of `build/bonanza-art` whose every `BZ<K>.BIN` is the tool's UNDITHERED compile of the same course (`_hack` `no_dither`, the art's `RECB`) with the shipped identity word stamped over its own, packed into a package by `build_tree` from that copy, so the demos still play and nothing is re-authored, and the arm differs from the shipped build in exactly the dither (128.15.10.6; the first form, the shipped masks ANDed with `NOT CHK(i)`, also cleared a record's own kept bits). It fails card = oracle on the first frame that lays a record over a ball pixel where `ghost` is true. `recstep` (D only): the walk steps 8 over 4-byte records, so it skips every second record of a block word. It fails card = oracle on the first frame whose pass should lay a record it skips |
+| `bonanzaring` | soak, MartyPC | the oracle lays records less the checker (128.15.10.3); `MILL`'s lift frames card = oracle with the slab whole, over and under the ball; `PEAK`'s demo card = oracle through the moat stretch (ghosts drawn); 5a's HUD legs gone | `nodither`, made at the DATA: a copy of `build/bonanza-art` whose every `BZ<K>.BIN` is the tool's UNDITHERED compile of the same course (`_hack` `no_dither`, the art's `RECB`) with the shipped identity word stamped over its own, packed into a package by `build_tree` from that copy, so the demos still play and nothing is re-authored, and the arm differs from the shipped build in exactly the dither (128.15.10.6; the first form, the shipped masks ANDed with `NOT CHK(i)`, also cleared a record's own kept bits). It fails card = oracle on the first frame that lays a record over a ball pixel where `ghost` is true. `recstep` (D only): the walk steps 8 over 4-byte records, so it skips every second record of a block word. It fails card = oracle on the first frame whose pass should lay a record it skips. *As run: on the W4 part (MOON's demo, then `PEAK`'s hidden stretches), not `BENCH`, whose six occluded frames on the CGA met no skipped record* |
 | `bonanzaexit` | soak, MartyPC | **the CLAIM leg**: at a breakpoint on `bz_launch`'s `OSAPI_FSX_RUN` call (after `bz_cexp`, and `bz_hxlat` on the Hercules; before the lanes' writer, 128.15.4.5), on both cards, the course claim (`bz_cseg`, read through the heap map) equals the tool's RAM form (CGA) or its `htab()` translation (Hercules), byte for byte. At every launch the row makes: `FIRST`, `MILL`, `MOON`, `PEAK`, `BENCH` (B), the tour's (`FIRST`, and `MOON` at the cup) and `D`'s (`FIRST`'s demo); and one launch of `TRIAL` added for this leg (Enter, then Esc), so all six shipped courses are compared. `V` opens no bracket and is checked as before | `expoff1`: WDIFF's count one record short. `rowtab1`: ROWTAB writes `NROWS - 1` words. `cellsafe` (with the follow-up): the guest's SAFE rule without the `OBS` test. Each fails the claim leg at its first differing offset: `expoff1` and `rowtab1` on the first launch, `cellsafe` on `MILL` |
-| `bonanzaperf` | soak, MartyPC | **the A/B of 128.15.5.4**, in 5b's final pass only (C in a private tree, `D` injected on a frame boundary, three runs a leg and six if C's spread is over 4, the rule ASSERTED on each card's summed misses, every figure REPORTED; it leaves with the losing arm); **the format A/B of 128.15.9** (`PEAK`'s and `MOON`'s launch to the bracket, `BZPARTZ=lz4` in a private tree, both cards, REPORTED); **the BENCH A/B anchored at 5a's commit** in this pass (its package is `ef59209a`'s byte for byte), so its assertion, BENCH's mean busy at most 0.5k over the anchor, is the standing guard on D's frame cost; it is re-anchored at 5b's commit only for later waves; 5a's HUD legs gone | none new: its existing arms re-run |
+| `bonanzaperf` | soak, MartyPC | **the A/B of 128.15.5.4**, in a final pass only (the other stride in a private tree, `D` injected on a frame boundary, six runs a leg, **the owner's smoothness rule** ASSERTED on each card - missed refreshes a second off the flip at most 1.0 over C's and no new stutter, `MILL` camera mode for like - every figure REPORTED, its red arm `occslow`; it leaves with the losing arm); **the format A/B of 128.15.9** (`PEAK`'s and `MOON`'s launch to the bracket, `BZPARTZ=lz4` in a private tree, both cards, REPORTED); **the BENCH A/B anchored at 5a's commit** in this pass (its package is `ef59209a`'s byte for byte), so its assertion, BENCH's mean busy at most 0.5k over the anchor, is the standing guard on D's frame cost; it is re-anchored at 5b's commit only for later waves; 5a's HUD legs gone | none new: its existing arms re-run |
 | `bonanzamega` | soak, 86Box | the launches expand through their selectors on kern_mega (CGA arm on the Paradise VGA and the Hercules); LZB parts decoded there; no fault, no leak; 5a's HUD legs gone | `expcs`: ROWTAB's stores through a CS override. It fails the no-fault check: a #GP charged to BONANZA at the launch |
 | `bonanzademo` | soak, MartyPC | `V`'s five demos with the new identities, each `D`'d to the model's end; the hostile set's "another build's identity" file now carries `MOON`'s wave 4 identity (EB84h); a `.BZR` written by a wave 4 build refused with "Another course's log" | none new |
 | `bonanzawheel` | soak, MartyPC | unchanged in logic: it reads the prop records and cells through the RAM form's offsets, which moved; re-run on the new parts; 5a's HUD check (14) gone | none new |
@@ -263256,8 +263458,9 @@ read the table above differently:
   the art's `BZ<K>.BIN` is the same compile's stored form, and names the
   first differing offset's section from the RAM form's directory. The full
   run also asserts that all six courses were compared.
-- **`bonanzaperf`'s three A/Bs are by-hand flags**, as wave 4's `--ab` was:
-  `python3 tests/bonanza_perf.py --ab --rec-ab --fmt-ab`, the registered row
+- **`bonanzaperf`'s A/Bs are by-hand flags**, as wave 4's `--ab` was:
+  `python3 tests/bonanza_perf.py --ab --fmt-ab` (the third, `--rec-ab`, left
+  with C once D shipped: 128.15.5.4), the registered row
   running this build's legs alone. `--ab`'s anchor is `ef59209a`: 5a has no
   commit of its own yet, and its package is `ef59209a`'s byte for byte
   (128.15.3), so the anchor is the same bytes. The occluder pass's span is
@@ -263304,7 +263507,8 @@ check (6) on the CGA**, the light corner step's open failure of 3b
 sync's rise this run). `secs` re-registered from these times.
 - **The A/Bs**: `--ab` (BENCH against `ef59209a`, sound OFF, `bz_hvoff` 1)
   PASSES, the mean busy **-19 clk on the CGA and -22 on the Hercules**
-  (at most +500); `--rec-ab` decided C (128.15.5.4); `--fmt-ab`, three
+  (at most +500); `--rec-ab` decided C under the first rule (128.15.5.4;
+  re-opened by the owner under the smoothness rule); `--fmt-ab`, three
   runs, is 128.15.9's table.
 - **Every red arm, once: 88, all red at their own check.** The new ones:
   `expoff1` (the claim leg at `FIRST`, 5 bytes in `R`, both cards),
@@ -263326,6 +263530,38 @@ sync's rise this run). `secs` re-registered from these times.
   held under it (the slab whole over it) - the same on both cards, the
   ball behind the nearer block drawn as the ghost. `bonanzaring`'s `MILL`
   legs (the ride and `pover`) hold card = oracle on those frames.
+
+*MEASURED, 5b's re-take on the shipped D build (2026-11-14, after
+128.15.5.4's second verdict).* One `os88test.py soak -k ...` of the rows
+that read the RAM form or time frames (three emulator lanes, 759 s):
+**7 of 9 pass at once** - `bonanzaring` 293.7 s, `bonanzaexit` 207.0 (the
+claim leg on all six courses, both cards, now D's 4-byte form),
+`bonanzamega` 63.6, `bonanzademo` 283.9, `bonanzagame` 321.2,
+`bonanzaphys` 249.3, `bonanzareplay` 78.9. `bonanzawheel` fails only its
+check (6) on the CGA, the open failure above (`bz_tw` 50 - 59k clk after
+the sync's rise). **`bonanzaperf` failed once**: on the CGA, `PEAK`'s demo
+with the sound ON ended with `bz_rwlate` 1 (one lane due and shown for 8
+frames). Re-run alone it **passed** (354.5 s), so the case did not
+reproduce. It is 128.13.17's open item 6 - a due lane that waits past
+`BZ_WLAG` on a run of frames whose contact slot goes to must-draw rotors,
+a lighting post or a slab box, display only - first seen on `MILL`'s
+autopilot under the speaker in 3b; D's +0.4k clk a pass frame is one
+more input to that race, and the open item stands. `bonanzacourse` ran
+too, since the tool's default stride moved (128.15.5.3): it passes
+(179.4 s). `secs` are re-registered from these times.
+- **`--ab`** (BENCH against `ef59209a`, sound OFF, `bz_hvoff` 1, the
+  by-hand run): **PASSES on D**, the mean busy **+314 clk on the CGA**
+  (43,831 against 43,517) and **-143 on the Hercules** (at most +500).
+  C's was -19 and -22, so D spends about 330 of the guard's 500 on the
+  CGA's `BENCH`.
+- **The red arms whose target moved, once each**: `recstep` red at its own
+  check on both cards (card != oracle on MOON's demo, CGA frame 451 and
+  Hercules frame 205), after one harness fix: its first run, on `BENCH`,
+  stayed green on the CGA (none of `BENCH`'s six occluded frames met a
+  skipped record), so its leg is now the W4 part. `occ` (the pass skipped:
+  LAID frames card != oracle), `nodither` (card != oracle on `BENCH`)
+  and `expoff1` (the claim leg at `FIRST`, both cards) red at their own
+  checks over D's form. `occslow` (128.15.5.4) went red before it left.
 
 #### 128.15.14 Bytes and clocks (the sizes MEASURED on the host, the rest PREDICTED)
 
@@ -263489,19 +263725,20 @@ and about 77 with LZB for the image (128.15.9).
   about 1.2 s longer with LZB parts (an upper bound, 128.15.9) - all
   PRICED (128.15.4.6) until `bonanzaperf --fmt-ab` measures them.
 
-**The shipped build, after 128.15.5.4's verdict (C)**, MEASURED in 5b's
-final pass (`bbcourse.py --sizes`, the package header, `--fmt-ab`):
+**The shipped build, after 128.15.5.4's second verdict (D)**, MEASURED
+(`bbcourse.py --sizes` and `compile_course`, the package header,
+`--fmt-ab`; 5b's first final pass shipped C, whose column is kept):
 
-| | wave 4 (`ef59209a`) | **5b as shipped (C)** | D, not shipped |
+| | wave 4 (`ef59209a`) | **5b as shipped (D)** | C, not shipped |
 |---|---|---|---|
-| the six courses packed, LZ4 / LZB | 83,152 / - | **45,918 / 37,409** | 43,247 / 35,062 |
-| the six courses' RAM | 223,420 | **221,764** | 179,680 |
-| `PEAK`'s claim (headroom under 65,024) | 60,856 (4,168) | **59,432 (5,592)** | 47,148 (17,876) |
-| the image / bss | 32,640 / 7,653 | **33,370 / 7,653** (+730: `bz_cexp` 328 and CELLS 397, `bz_launch` +5) | 33,469 / 7,660 |
-| `BONANZA.O88`, LZB parts (LZ4 parts) | 103,687, LZ4 | **77,319** (88,634) | 75,063 (86,042) |
-| `bonanza360.img`, clusters of 354, LZB parts (LZ4) | 130 | **83** (94) | 81 (92) |
-| `PEAK`'s launch to its bracket, CGA / Hercules, LZB (LZ4) | 3.9 - 4.0 s | **4.2 / 4.5 s** (3.8 / 4.2 s) | 4.1 / 4.6 s (3.3 / 3.8 s), one run |
-| the occluder pass, a frame | - | **0 clk** (wave 4's walk) | median +380 - +448 clk MEASURED (128.15.5.4) |
+| the six courses packed, LZ4 / LZB | 83,152 / - | **43,247 / 35,062** | 45,918 / 37,409 |
+| the six courses' RAM | 223,420 | **179,680** | 221,764 |
+| `PEAK`'s claim (headroom under 65,024) | 60,856 (4,168) | **47,148 (17,876)** | 59,432 (5,592) |
+| the image / bss | 32,640 / 7,653 | **33,469 / 7,660** (+829: `bz_cexp` 342 and CELLS 397, the walk +63, `bz_crshdr` +22, `bz_launch` +5) | 33,370 / 7,653 |
+| `BONANZA.O88`, LZB parts (LZ4 parts) | 103,687, LZ4 | **75,063** (86,042) | 77,319 (88,634) |
+| `bonanza360.img`, clusters of 354, LZB parts (LZ4) | 130 | **81** (92) | 83 (94) |
+| `PEAK`'s launch to its bracket, CGA / Hercules, LZB (LZ4) | 3.9 - 4.0 s | **4.1 / 4.6 s** (3.3 / 3.8 s), one run of an earlier D tree | 4.2 / 4.5 s (3.8 / 4.2 s) |
+| the occluder pass, a frame, over wave 4's | - | **median +382 - +438 clk, worst +850** MEASURED (128.15.5.4) | 0 clk (wave 4's walk) |
 
 Per course under C (bytes): `BENCH` 49,144 RAM, 7,387 LZ4, 5,924 LZB;
 `FIRST` 9,836, 2,242, 1,802; `TRIAL` 18,486, 4,168, 3,360; `MILL`
@@ -263520,27 +263757,35 @@ Per course under C (bytes): `BENCH` 49,144 RAM, 7,387 LZ4, 5,924 LZB;
   in 5b's final pass (128.15.9), on the shipped C build: about 4.2 s on
   the CGA and about 4.5 s on the Hercules with LZB parts, about +0.3 -
   0.4 s over LZ4** (3.8 s and 4.2 s), 83 clusters of `bonanza360.img`
-  against LZ4's 94. The figure to tell the owner.
+  against LZ4's 94. The shipped D build is 81 clusters with LZB parts;
+  its launch was not re-timed (D's RAM form is smaller, so the expansion
+  is no slower). The figure to tell the owner.
 - **A course past one part** (128.15.8): the two-part course is the
   documented escape, taken only if a course needs it ("we can look into
   the option if we actually need it", the owner, 2026-11-14).
 - **LZB for the image** (128.15.9): -3 clusters, +0.64 s at each opening of
   the window. Offered, not taken.
-- **D or C** is not a question. 128.15.5.4's measurement decides it by
-  the owner's HUD rule, read as each card's misses summed over the two
-  demos: D may add at most 2 on a card, not 2 a demo. If the owner meant
-  2 a demo, that is the one reading to correct. *Decided, MEASURED: C
-  ships* (the CGA's D +23.5, almost all of it `MILL` falling out of its
-  lower camera mode; the Hercules' -4.2). Under either reading D fails
-  on the CGA. D's 43.8KB of RAM waits for T10 (wave 10), which a cheaper
-  occluder walk, or `MILL`'s rebuild in wave 13, may reopen.
-- **Which form the course budget reads** (128.15.8), a NEW question: it
-  was set to the `RECB` 4 stored form while `BZREC` was a knob, so that
-  no build depended on it. C ships, and C's form is the larger: `PEAK`
-  is 13,447 LZ4 under C (897 over its 60 s budget, under its 18,825 cap;
-  11,104 LZB, under) against 12,547 under D (3 under), and `MILL` 9,156
-  under C (256 under its 9,412 cap). The tool still reads D's form; reading
-  the shipped one is a one-line change and the owner's call.
+- **D or C**: **DECIDED, D ships** (128.15.5.4's second measurement,
+  2026-11-14). It was not a question for the owner: 128.15.5.4's
+  measurement decides it. The
+  first rule was the owner's HUD rule, read as each card's misses summed
+  over the two demos: D could add at most 2 on a card. *Measured under it,
+  C shipped* (the CGA's D +23.5, almost all of it `MILL` falling out of its
+  lower camera mode; the Hercules' -4.2). **The owner re-opened it on
+  2026-11-14 under the smoothness rule** ("A few dropped frames at 50 or
+  60fps is not user noticeable; we just want to stay smooth"): D may add at
+  most one missed refresh a second over C's and no new stutter, with
+  `MILL` compared camera mode for like. **Measured under it, D holds on
+  both cards** (at most +0.16 missed refreshes a second, no new stutter),
+  so D ships and C's arm and `BZREC` are deleted. D's 42,084 bytes of RAM
+  on the six courses (`PEAK` 17,876 under 65,024) is the lever long
+  courses need (128.15.8).
+- **Which form the course budget reads** (128.15.8): **closed by D
+  shipping.** It was set to the `RECB` 4 stored form while `BZREC` was a
+  knob, so that no build depended on it, and became a question while C
+  shipped (C's form is the larger: `PEAK` 13,447 LZ4 against D's 12,547).
+  D ships, so the budget reads the shipped form: `PEAK` 3 bytes under its
+  60 s budget, `MILL` at 8,801, 611 under its 9,412 cap.
 - **The ghost in pits** (128.15.10.2): the dither covers pits too. The
   first look boot shows it, and narrowing it to walls (+986 bytes packed)
   is the owner's call if it reads badly.
