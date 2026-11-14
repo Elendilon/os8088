@@ -1273,13 +1273,18 @@ def stale_plan(g, ref):
                 for dx in range(8):
                     cen = cen or R.probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
                                                 flags=BB.FL_OCC | BB.FL_OCCG)
-            # just over the band's TOP edge: the centre line 2 lines above L/3 (TRICKLE steps up past it, one
-            # row, and the ball is back inside the band), the centre column as the full write's (no column)
-            for dx in range(0, 8):
-                up = up or R.probe_ground(crs, left + 4 * Wc - 8 + dx, top + L // 3 - 8 - 2, grid, 1, clear=16,
-                                          flags=BB.FL_OCC | BB.FL_OCCG)
-            if cen and up:
-                return i, R0, c0, cen, up
+            # just over the band's TOP edge: the centre line 1 - rl lines above L/3 (TRICKLE steps up past it,
+            # one row, and the ball is back inside the band), in the dead zone (no column).  Wave 6's final
+            # pass: the cut's point stays airborne (the cut centres the window on the BALL), but from the
+            # frame after it the ball is HELD RESTING in the band (R.rest_in_window), and the row's point
+            # rests too: a ball held airborne puts the camera on the GROUND line under it (SPEC.md 128.16.7),
+            # and TRICKLE panned the window 36 rows down after it before the row, so no rotor entered
+            up = R.rest_in_window(crs, grid, top, left, Wc, range(L // 3 - 8 - rl, L // 3 - 8),
+                                  flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
+            hold = up and R.rest_in_window(crs, grid, top, left, Wc, range(70, 112), flags=BB.FL_OCC | BB.FL_OCCG,
+                                           slopes=True)
+            if cen and up and hold:
+                return i, R0, c0, cen, up, hold
     return None
 
 
@@ -1309,7 +1314,7 @@ def stale_leg(g, ref):
         rep.append("(9) the STALE scene: SKIP - no window on this card puts a MILL rotor wholly above its top with "
                    "the ball centred on a floor (the `lanestale` arm is UNJUDGED here)")
     else:
-        lane, R0w, c0w, cen, up = plan
+        lane, R0w, c0w, cen, up, hold = plan
         rec = recs[lane]
         q = lane_cells(rects, lane, lsh)
         pics = ref._lanes[lane]["pics"]
@@ -1326,7 +1331,10 @@ def stale_leg(g, ref):
                 st["k"] += 1
                 k = st["k"]
                 if st["step"] is None:
-                    R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1, same_cell=k > 0)
+                    if k == 0:
+                        R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+                    else:
+                        R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=k > 1)
                     if k == 0:
                         g.putb("bz_first", 1)     # the NEXT frame is the centred full write
                     elif k == 2:                  # (after it: the pose it drew, and the steps from there)
@@ -1337,9 +1345,9 @@ def stale_leg(g, ref):
                         far = [rotor_pose(rec, x) for x in (n - 1, n, n + 1)]
                         if n - st["n0"] >= STALE_STEPS and all(low_rows(p) != low_rows(st["fw"]) for p in far):
                             st["step"] = k        # THE ROW: just over the band's top edge
-                            R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=1)
+                            R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=0)
                 else:
-                    R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=1, same_cell=True)
+                    R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=0, same_cell=True)
                 return None
             out = pres_snap(g)
             out["k"] = st["k"]

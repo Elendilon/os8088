@@ -73,6 +73,17 @@ BONANZA plays on a CGA or a Hercules only - and then:
      to the model's end - L's staging claim used whole through its selector;
   9  LAST, the DOUBLE-CLICK of PEAKA.BZR in B:'s Disk window: a second
      BONANZA opens holding it (bz_rlog, [bz_lsv] 2);
+ 10  WAVE 6 (SPEC.md 128.16.12, 128.16.14), before 7 - 9: the PLAYGROUND on
+     the Hercules ([bz_crsel] and [bz_matsel] poked to it and its ball,
+     Enter): the launch fetches the course and its THREE ball rows (its three
+     pads: 1 + 3 claims inside), so rubber's part with its STRETCH entry is
+     translated through its own selector (bz_hxball's +12 + +14 entries);
+     a play with a Hop and its BOOST - Space held for STEPS, the second
+     press when a model poked from the guest's state says the Hop's first
+     contact is 1 - 3 steps off (three tries) - so the stretch is DRAWN
+     there; left by Esc: [bz_nboost] at least 1, the model's run of the log
+     the play's end and boosting too; then its REPLAY by R to the same end;
+     no fault, no leak;
 
 The B: window lists SYSTEM\\APPDATA's folder first since wave 4 (SPEC.md
 19.4: folders first, then by name), so every row's point is computed from
@@ -112,6 +123,11 @@ the row FAILS at its own check:
   expcs     (wave 5b, SPEC.md 128.15.11) ROWTAB's stores (bz_cexp's form 5)
             through a CS override: on kern_mega a code selector takes no
             write - a #GP charged to BONANZA at the first launch (B)
+  stretchcs (wave 6) the stretch entry's translation written through CS
+            (bz_hxball, rubber's part only: +14 not 0): its run is case 10
+            ALONE, so the exception is charged to BONANZA at the PLAYGROUND's
+            launch (every launch on the Hercules that fetches rubber's part
+            would fault the same way)
 
 WAVE 5B (SPEC.md 128.15.11, 128.15.13): every launch above fetches its course
 part in BZC2's STORED form and expands it in place (bz_cexp) through the
@@ -627,7 +643,83 @@ def mill_cases(b, pkg, base_rows, base_claims, hs, eq):
     check_after("6. the ride's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
 
 
-def run(img_b, keep, tmp):
+class _PkgS(object):
+    """bonanza_replay.ghost's reader over the package's bss (bz_ztop, signed)"""
+
+    def __init__(self, b, pkg):
+        self.b, self.pkg = b, pkg
+
+    def s(self, n):
+        return struct.unpack("<h", self.b.memr(self.pkg.a(n), 2))[0]
+
+
+def play_case(b, pkg, base_rows, base_claims, hs, eq):
+    """10 (wave 6, SPEC.md 128.16.14 bonanzamega): the PLAYGROUND on kern_mega's
+    Hercules - its three ball rows through their selectors, a play with a Hop
+    and its boost, its replay to the same end"""
+    import bonanza_replay as RP
+    k = R.CRS_K["play"]
+    c = R.course("play")
+    nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
+    memw(b, pkg.a("bz_crsel"), bytes([k]))
+    memw(b, pkg.a("bz_matsel"), bytes([c.ball]))
+    b.tap("return", gap=300)
+    b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "the PLAYGROUND's play", 60000, 100)
+    want(pkg.byte("bz_crs") == k and pkg.byte("bz_mode") == 0 and pkg.byte("bz_herc") == 1,
+         "10. Enter plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
+             pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
+    inside = claims(b, pkg, hs, eq)
+    want(len(inside) == len(base_claims) + 1 + nballs, "10. inside: the course and its %d ball rows claimed (%d "
+         "claims against %d)" % (nballs, len(inside), len(base_claims)))
+    steps(b, pkg, 5, "the PLAYGROUND's first steps")
+    rd = _PkgS(b, pkg)
+    boosted, tries = False, 0
+    for tries in (1, 2, 3):
+        nb0 = pkg.word("bz_nboost")
+        hold(b, pkg, "space", 2)                        # the Hop, from rest
+        b.until(lambda: pkg.byte("bz_air") == 1 or pkg.word("bz_nboost") != nb0, "the Hop airborne", 20000, 5)
+        for _ in range(120):                            # (a flight is ~22 steps; bounded anyway)
+            st = phys(b, pkg)
+            if not st[7]:
+                break                                   # landed: the window missed
+            q = RP.ghost(rd, "play", c.ball, st, ((0, 0, 0, 0), 0, 0, 0, 0, 0, 0))
+            n = RP.to_contact(q)
+            if n is not None and n <= 3:
+                hold(b, pkg, "space", 2)                # Space inside the window: the BOOST
+                break
+            steps(b, pkg, 1, "the Hop's flight")        # the machine is HELD: run it on a step
+        steps(b, pkg, 90, "the flight and its landing")
+        if pkg.word("bz_nboost") > nb0:
+            boosted = True
+            break
+    want(boosted, "10. a Hop and its BOOST on the PLAYGROUND, Space held for steps ([bz_nboost] %d after %d "
+         "tr%s): the stretch drawn from rubber's translated part" % (pkg.word("bz_nboost"), tries,
+                                                                   "y" if tries == 1 else "ies"))
+    b.tap("escape", gap=300)
+    b.until(lambda: pkg.byte("bz_fs") == 0, "the PLAYGROUND's play to end on Esc", 30000, 100)
+    b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+    b.ui_done(limit_ms=30000)
+    play_end = phys(b, pkg)
+    keys = log_keys(b, pkg)
+    p = BB.Physics(c, play=True, mat=c.ball)
+    for kb in keys:
+        p.step(kb)
+    want(p.state() == play_end and p.nboost >= 1, "10. the model's run of the play's log (%d steps) ends at the "
+         "play's state and boosts: %s, nboost %d (the play %s)" % (len(keys), p.state(), p.nboost, play_end))
+    check_after("10. the PLAYGROUND's play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    b.tap("r", gap=300)
+    b.until(lambda: pkg.byte("bz_fs") == 1, "R's PLAYGROUND replay", 60000, 100)
+    want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_herc") == 1, "10. R replays it on the Hercules")
+    b.until(lambda: pkg.byte("bz_fs") == 0, "the PLAYGROUND replay to reach its end", 120000, 100)
+    b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+    b.ui_done(limit_ms=30000)
+    rep_end = phys(b, pkg)
+    want(rep_end == play_end, "10. the PLAYGROUND's replay ends where the play did: %s (the play %s)" % (
+        rep_end, play_end))
+    check_after("10. the PLAYGROUND's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+
+
+def run(img_b, keep, tmp, cases=None):
     eq = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))[2]
     off = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))[0]
     img = os.path.join(tmp, "mega.img")             # (named mega*: os88box then reads megak/'s map)
@@ -674,6 +766,10 @@ def run(img_b, keep, tmp):
         base_rows, base_claims = pkg.rows(), claims(b, pkg, hs, eq)
         print("   desktop: %d part rows, none fetched: %s; the instance's claims %s" % (
             len(base_rows), all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
+        if cases is not None:                           # (a red arm's run: its own case alone)
+            if "play" in cases:
+                play_case(b, pkg, base_rows, base_claims, hs, eq)
+            raise _Done()
         # 1. the benchmark
         b.tap("b", gap=300)
         b.until(lambda: pkg.byte("bz_fs") == 1, "the benchmark's bracket", 60000, 100)
@@ -781,7 +877,10 @@ def run(img_b, keep, tmp):
                  % len(keys))
         check_after("4. the grey-arrow play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         mill_cases(b, pkg, base_rows, base_claims, hs, eq)
+        play_case(b, pkg, base_rows, base_claims, hs, eq)      # (before 9's second instance)
         w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq)
+    except _Done:
+        pass
     except Gone as e:
         # every later step is skipped: there is nothing left to read
         want(False, "%s (a fault charged to it - the fault log below names it)" % e)
@@ -794,6 +893,10 @@ def run(img_b, keep, tmp):
          "%d resets (the kernel's own exceptions and 286 mode-switch resets: %d)%s" % (
              len(mine), len(resets), kern, "".join("\n        " + x for x in (mine + resets)[:6])))
     return mine
+
+
+class _Done(Exception):
+    """a red arm's own case done: the rest of the run skipped (the fault log still read)"""
 
 
 REDS = {
@@ -834,8 +937,14 @@ REDS["expcs"] = [("bonanza.asm", "    lea ax, [bx + 32]\nbz_cxramp:             
                   "    lea ax, [bx + 32]\n.red:\n    mov [cs:di], ax             ; RED expcs: ROWTAB through CS\n"
                   "    inc di\n    inc di\n    add ax, dx\n    loop .red\n    ret\n"
                   "bz_cxramp:                      ; CX words from AX, DX apart\n")]
+# wave 6 (SPEC.md 128.16.14): the stretch entry's translation written through CS - rubber's part only
+REDS["stretchcs"] = [("bonanza.asm", "    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries or rubber's\n",
+                      "    cmp byte [es:BZB_NSTR], 0   ; RED stretchcs: the stretch's first byte through CS\n"
+                      "    je .rsc\n    mov al, [es:BZ_BAL_SHAOFF]\n    mov [cs:BZ_BAL_SHAOFF], al\n.rsc:\n"
+                      "    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries or rubber's\n")]
 RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "3. the fake-shift release", "mapcs": None,
-            "stageseg": None, "expcs": None}
+            "stageseg": None, "expcs": None, "stretchcs": None}
+RED_CASES = {"stretchcs": ("play",)}           # a red's run of its own case alone
 
 
 def main():
@@ -858,7 +967,7 @@ def main():
               flush=True)
         if a.red:
             _, img_b = R.build_tree(tmp, REDS[a.red], size=1440)
-            mine = run(img_b, a.keep, tmp)
+            mine = run(img_b, a.keep, tmp, cases=RED_CASES.get(a.red))
             gp = [x for x in mine if " 13 at " in x or "OS88ABRT 13" in x]
             print("bonanza_mega --red %s: %d failure(s), %d exception(s) charged to the package, %d of them #GP"
                   % (a.red, len(FAILS), len(mine), len(gp)))

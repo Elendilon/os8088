@@ -184,6 +184,10 @@ sfx g_shat   inst glass prio 6 sens 255 : t=2 n=c7 v=15 j=127 ;
 ; SHARED: what the ball does rather than what it hits.
 
 sfx hop      inst zap    prio 1 sens 255 : t=4 n=g3 s=40 v=10 d=16
+; the BOOST (wave 6, SPEC.md 128.16.4.4): rubber's boing taken up higher and
+; longer, a rising slide, above the Hop.  Rubber's alone: nothing else boosts
+sfx boost    inst rubber prio 3 sens 255 : t=2 n=g3 s=64 v=14 d=4 ;
+             t=14 n=d4 s=20 v=13 d=10 legato
 sfx fall     inst zap    prio 5 sens 255 : t=24 n=c5 s=-24 v=12 d=6
 sfx tube     inst noise  prio 3 sens 255 : t=24 n=c2 s=4 v=12 d=4 j=15
 sfx goal     inst glock  prio 7 sens 255 : t=4 n=c5 v=14 ; t=4 n=e5 v=14 ;
@@ -202,3 +206,4 @@ event HOP     all=hop
 event FALL    all=fall
 event TUBE    all=tube
 event GOAL    all=goal
+event BOOST   rubber=boost

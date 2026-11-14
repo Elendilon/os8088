@@ -125,7 +125,7 @@ WAVE 4 (SPEC.md 128.14.14, 128.14.16, 128.14.17 item 7).  --ab's default is now
 order: the balls, the courses, the sound, the songs): BENCH OFF with bz_hvoff 1
 on both, and THIS build's mean busy at most +0.5k over 3b's ASSERTED ON BOTH
 CARDS (PREDICTED +0.15 - 0.3k on the CGA, 128.14.12).  THE DEMO LEGS (`demo`): every
-shipped demo (V with bz_vk poked, BZD1 - BZD5) through D on both cards, sound
+shipped demo (V with bz_vk poked, BZD1 - BZD6) through D on both cards, sound
 OFF and ON: ASSERTED the replay's end the model's (bonanza_demo.model_end),
 bz_wover and bz_wlate 0; REPORTED busy mean and p95, the misses with their
 parts, pads, springs and lip-outs.  D's OVERHEAD (`dover`): MILL's route demo
@@ -162,6 +162,36 @@ and this leg were deleted.  The figures are 128.15.5.4's.)
 
 Every private tree here packs its parts in the shipped build's format (its
 part table's byte, R.part_fmt), not os88pkg's default (128.15.9).
+
+WAVE 6 (SPEC.md 128.16.10, 128.16.14).  The physics moves every demo's path
+and BENCH's course, so NOTHING end to end is asserted against an earlier
+build: the final pass REPORTS, both cards, speaker ON (the `demo` leg, all
+six shipped demos BZD1 - BZD6 through D):
+  - per demo: misses, MISSED REFRESHES A SECOND off each frame's flip (a
+    frame held k refreshes misses k - 1; a second is the frames' own clocks),
+    runs of two or more misses (the stutter half of the owner's smoothness
+    rule) and the longest run, MILL's columns panned against the host's
+    prediction (5b's 49- and 84 - 88-column modes, 128.15.5.4, no longer
+    classify it: wave 6's physics predicts 106 on the CGA - the review's C1),
+    GLIDE's columns and rows panned a second of play against the HOST'S
+    PREDICTION (the demo's log replayed through bbcourse.Glide at the card's
+    step rate: `bbcourse.py --pans`'s figure, bbcourse.pans, 128.16.13), and
+    the occluder pass's span a frame (bz_occ's gate to
+    bz_pover) - each beside 5b's when --ab ran 5b's own demos;
+  - TRIAL's bounce leg (the camera's replays): the rows panned a bounce in
+    GLIDE and TRICKLE under the GROUND LINE, against wave 2's 251 and 137
+    (CGA) - REPORTED;
+  - --ab's default is now 5b's commit, 503031d4 (its own art, sound and
+    demos): BENCH's busy REPORTED against it (wave 6 moves BENCH's course:
+    not like for like, so the +0.5k guard is not asserted until the freeze
+    re-anchors it, 128.16.10), and its demos through D beside this build's.
+--baseline (THE RE-BASELINE, at the FREEZE commit only, 128.16.10 - not this
+wave's final pass): every shipped demo through D and B, both cards, speaker
+OFF and ON, six runs a configuration for MILL and PEAK and three for the rest
+(2 x 2 x (2 x 6 + 5 x 3) = 108 runs with six demos), each figure with its
+spread (min - max, mean) and MILL's runs classified by mode, each row keyed to
+its demo's log (its identity, steps and the CRC of its runs); the table is
+written to docs/reports/BONANZA-BASELINE-<date>.md (a NEW report).
 """
 import argparse
 import os
@@ -172,6 +202,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -203,12 +234,18 @@ CLOSES3 = {"bz_ts": 0, "bz_tr": 1, "bz_tw": 2, "bz_tv": 6, "bz_tf": 3, "bz_tb": 
 CLOSES2 = {"bz_ts": 0, "bz_tr": 1, "bz_tv": 2, "bz_tf": 3, "bz_tb": 4, "bz_tc": 5}
 AGREE = 0.10
 AGREE_ABS = 200
-AB_COMMIT = "ef59209a4a012caa3e1b55f80c62e54b9a92dee4"   # wave 5b's ANCHOR (SPEC.md 128.15.13): the last BZC1
-                               # tree, whose package is wave 5a's byte for byte (5a moves no package byte,
-                               # 128.15.3) - the FULL id: git fetches an object only by it.  (Wave 4's was 3b's
-                               # head, 573eec83, 128.14.14.)
+AB_COMMIT = "503031d470aa776b8cea39548aa8bbe2e74f755b"   # wave 6 (SPEC.md 128.16.10): 5b's commit, REPORTED
+                               # against (the FULL id: git fetches an object only by it).  Wave 5b's anchor was
+                               # ef59209a, the last BZC1 tree (128.15.13); wave 4's 3b's head, 573eec83
 AB_OVER = 500                  # 128.14.17 item 7, kept by 128.15.13: BENCH's mean busy at most this much OVER
                                # the anchor's, BOTH cards - the standing guard on the frame's cost
+AB_ASSERT = False              # wave 6 (128.16.10): BENCH's course moved, so the guard is REPORTED until the
+                               # freeze commit re-anchors it on its own package (three runs for its spread)
+W2_TRIAL_ROWS = {"GLIDE": 251, "TRICKLE": 137}   # wave 2's rows over TRIAL's five bounces, CGA (128.16.7)
+STEP_HZ = BB.PIT_HZ / float(BB.STEP_PIT)          # steps a second of play (54.6)
+# (wave 6's review C1: 5b's MILL_MODE_COLS split - under 67 columns its "49-column mode" - is gone: under wave
+# 6's physics MILL's demo pans 106 columns on the CGA, which that split would have reported as one of 5b's two
+# known modes.  MILL's columns are reported against the host's prediction, bbcourse.pans, instead)
 DEMO_CAP = 4000                # frames a shipped demo's D presents at most (MOON's: ~2,300 on the CGA)
 LIFT_MISS = 3                  # 128.13.4.5: the Hercules' lift stretch, missed refreshes at most (sound ON)
 SND_OFF, SND_AUTO = 3, 0       # bzs_mode: OFF, and AUTO (the speaker on a 5150 without an AdLib)
@@ -456,13 +493,13 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
         ui.open("BONANZA.O88")
         g = R.Bz(ui, tag, sym)
         ui.settle()
-        if old:
-            sounds = ("off",)
+        if old:                                 # (the A/B's BENCH and MILL are OFF; its demos as asked)
+            sounds = tuple(sounds) if "demo" in legs else ("off",)
         for snd in sounds:
             on = snd == "on"
             set_snd(g, on)
             lab = " (sound %s)" % snd.upper()
-            if "bench" in legs:
+            if "bench" in legs and not (old and on):
                 # OFF: THE A/B LEG, LIKE FOR LIKE - wave 3 has no sound, and both builds run [bz_hvoff] 1 (no
                 # heavy rule), engine against engine.  ON: the shipped camera, as played (REPORTED)
                 hv = 1 if not on else 0
@@ -476,7 +513,7 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
                     bad += phase_misses(tag, summ, ab_steps)
                 out.append(("BENCH " + snd, bad, summ))
             if old:
-                if "mill" in legs:
+                if "mill" in legs and not on:
                     fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": 0})
                     bad, summ = report("%s MILL (%s)" % (tag, AB_COMMIT[:8]), fr, pkg, refresh, npres)
                     mill_line(tag, fr, pkg, summ, refresh, assert_lift=False, assert_wheel=False)
@@ -510,8 +547,8 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
             if "corner" in legs:
                 bad, summ = ride(g, tag, corner=True, on=on)
                 out.append(("corner ride " + snd, bad, summ))
-        if not old and set(legs) & {"demo", "dover"}:
-            out += demo_legs(g, tag, legs, sounds)
+        if set(legs) & {"demo", "dover"}:
+            out += demo_legs(g, tag, legs, sounds, old, art)
         set_snd(g, True)                        # (S back at AUTO for whatever runs next)
     return out
 
@@ -519,10 +556,11 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
 # ---- WAVE 4 (SPEC.md 128.14.7.3, 128.14.14): the DEMO legs ------------
 
 
-def load_demo(g, kd):
-    """V with bz_vk poked to KD - 1: the shipped demo BZD<KD>.BIN in the log"""
+def load_demo(g, kd, art=None):
+    """V with bz_vk poked to KD - 1: the shipped demo BZD<KD>.BIN in the log
+    (ART: another build's art directory, --ab's)"""
     m = g.m
-    demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
     m.pause()
     g.putb("bz_vk", kd - 1)
     m.run()
@@ -537,18 +575,21 @@ def busy_of(fr):
     return stats([r["busy"] for r in meas])
 
 
-def demo_leg(g, tag, kd, snd):
+def demo_leg(g, tag, kd, snd, old=False, art=None):
     """one shipped demo through D: -> (failures, summary).  ASSERTED its end the
-    model's, bz_wover and bz_wlate 0; REPORTED the rest"""
+    model's (not for OLD: an earlier physics' demo is not this model's),
+    bz_wover and bz_wlate 0; REPORTED the rest, and wave 6's figures (w6_line)"""
     import bonanza_demo as DM
-    demo = load_demo(g, kd)
+    demo = load_demo(g, kd, art)
     set_snd(g, snd == "on")
-    lab = "%s D of BZD%d (sound %s)" % (tag, kd, snd.upper())
+    lab = "%s D of BZD%d (sound %s)%s" % (tag, kd, snd.upper(), " [%s]" % AB_COMMIT[:8] if old else "")
     fr, pkg, refresh, npres = measure(g, key="KeyD", frames_cap=DEMO_CAP)
     bad, summ = report(lab, fr, pkg, refresh, npres)
-    got, want = DM.end_state(g), DM.model_end(demo)
-    if got != want:
+    got = DM.end_state(g)
+    want = None if old else DM.model_end(demo, len(got) > 8)
+    if want is not None and got != want:
         bad.append("%s: D ended at %s, the model's replay of the demo at %s" % (lab, got, want))
+    summ["w6"] = w6_line(lab, tag, fr, refresh, demo, kd, pred=not old)
     for n in ("wover", "wlate"):
         if pkg.get(n, 0):
             bad.append("%s: bz_r%s %d, 0 asserted (SPEC.md 128.14.14)" % (lab, n, pkg[n]))
@@ -561,16 +602,22 @@ def demo_leg(g, tag, kd, snd):
     return bad, summ
 
 
-def demo_legs(g, tag, legs, sounds):
+def demo_legs(g, tag, legs, sounds, old=False, art=None):
     """every shipped demo through D, sound OFF and ON, and D's overhead
-    against R.  -> [(label, failures, summary)]"""
+    against R.  OLD: --ab's build, its own demos (its art's BZD*.BIN), no
+    overhead leg.  -> [(label, failures, summary)]"""
     out = []
     mill = R.CRS_K["mill"]
+    nd = len(R.CRS_K) - 1
+    if old:
+        nd = len([f for f in os.listdir(art) if re.match(r"BZD\d+\.BIN$", f)])
     if "demo" in legs:
         for snd in sounds:
-            for kd in range(1, len(R.CRS_K)):
-                bad, summ = demo_leg(g, tag, kd, snd)
+            for kd in range(1, nd + 1):
+                bad, summ = demo_leg(g, tag, kd, snd, old, art)
                 out.append(("D BZD%d %s" % (kd, snd), bad, summ))
+    if old:
+        return out
     if "dover" in legs:
         load_demo(g, mill)
         set_snd(g, False)
@@ -952,9 +999,10 @@ def camera(g, tag):
     m.pause()
     g.putb("bz_cmode", 0)
     m.run()
-    print("  camera over TRIAL's flight (%d steps, replayed): %s" % (len(keys), "; ".join(
-        "%s %d rows panned over %d bounces (%.1f a bounce)" % (k, v[0], v[1], v[0] / float(v[1] or 1))
-        for k, v in res.items())), flush=True)
+    print("  camera over TRIAL's flight (%d steps, replayed), the GROUND LINE's (SPEC.md 128.16.7): %s; wave 2's "
+          "%s (CGA) - REPORTED" % (len(keys), "; ".join(
+              "%s %d rows panned over %d bounces (%.1f a bounce)" % (k, v[0], v[1], v[0] / float(v[1] or 1))
+              for k, v in res.items()), ", ".join("%s %d" % kv for kv in W2_TRIAL_ROWS.items())), flush=True)
     return res
 
 
@@ -1077,7 +1125,8 @@ def ab_tree(td, commit=AB_COMMIT):
     os.makedirs(w)
     names = git("ls-tree", "--name-only", commit, "apps/").stdout.split()
     incs = [n for n in names if n.startswith("apps/os88") and n.endswith(".inc")]
-    tools = [t for t in ("tools/bonanza_assets.py", "tools/bbcourse.py", "tools/bbmusic.py")
+    tools = [t for t in ("tools/bonanza_assets.py", "tools/bbcourse.py", "tools/bbmusic.py",
+                         "tools/os88lz.py")     # (5b's bbcourse imports os88lz for its course budget)
              if git("cat-file", "-e", "%s:%s" % (commit, t)).returncode == 0]
     tar = os.path.join(td, "w.tar")
     r = subprocess.run(["git", "archive", "-o", tar, commit, "apps/bonanza"] + tools + incs, cwd=R.ROOT)
@@ -1151,7 +1200,7 @@ def ab_print(tag, res, ores, commit):
         print("  BENCH's mean busy %+.0f clk against %s's (at most +%d ASSERTED on both cards, SPEC.md 128.14.17 "
               "item 7 and 128.15.13: the standing guard on the frame's cost; D ships, its 4-byte walk about "
               "+0.4k clk a pass frame over wave 4's, SPEC.md 128.15.5.4)" % (d, commit, AB_OVER))
-        if d > AB_OVER:
+        if d > AB_OVER and AB_ASSERT:
             bad.append("%s A/B: BENCH's mean busy %.0f clk against %s's %.0f, %+.0f - at most +%d asserted "
                        "(SPEC.md 128.14.17 item 7, 128.15.13)" % (tag, n["busy"], commit, o["busy"], d, AB_OVER))
     ways = [("this build", new.get("MILL off")), ("bz_hvoff 1", new.get("MILL off hvoff")),
@@ -1167,6 +1216,159 @@ def ab_print(tag, res, ores, commit):
                 mi.get("npwt", "-") if what != commit else "-", mi.get("promo", "-") if what != commit else "-",
                 s.get("lift", {}).get("miss", "-")))
     return bad
+
+
+# ---- WAVE 6 (SPEC.md 128.16.10, 128.16.14): the smoothness figures, the pans' prediction, the re-baseline ----
+_PRED = {}
+
+
+def pans_pred(demo, herc):
+    """the HOST'S PREDICTION of GLIDE's pans over DEMO on a card: `bbcourse.py
+    --pans`'s figure (bbcourse.pans, SPEC.md 128.16.13) -> (columns, rows,
+    two-row frames, seconds of play)"""
+    key = (bytes(demo), herc)
+    if key not in _PRED:
+        _PRED[key] = BB.pans(R.course_k(BB.decode_log_t(demo)[0]), demo, herc)
+    return _PRED[key]
+
+
+def smooth(fr, refresh):
+    """the owner's smoothness rule's figures off each frame's flip (SPEC.md
+    128.15.5.4): -> dict(missed refreshes, a second, misses, runs of two or more
+    missed frames, the longest run, the seconds)"""
+    meas = [r for r in fr if r["period"] is not None]
+    held = [max(1, int(r["period"] / refresh + 0.5)) for r in meas]
+    secs = sum(r["period"] for r in meas) / CLK
+    missed = sum(h - 1 for h in held)
+    runs, cur, longest = 0, 0, 0
+    for h in held + [1]:
+        if h > 1:
+            cur += 1
+            longest = max(longest, cur)
+        else:
+            runs += cur >= 2
+            cur = 0
+    return {"missed": missed, "per_s": missed / secs if secs else 0.0, "misses": sum(1 for h in held if h > 1),
+            "runs2": runs, "longest": longest, "secs": secs}
+
+
+def w6_line(lab, tag, fr, refresh, demo, kd, pred=True):
+    """wave 6's REPORT for one demo's D (SPEC.md 128.16.10): -> its figures"""
+    sm = smooth(fr, refresh)
+    steps = sum(r["steps"] for r in fr)
+    secs = steps / STEP_HZ if steps else 1.0
+    cols = sum(1 for r in fr if r["column"])
+    rows = sum(r["rows"] for r in fr if not r["full"])
+    occ = [r["occ"] for r in fr if r.get("occ")]
+    out = dict(sm, cols=cols, rows=rows, cols_s=cols / secs, rows_s=rows / secs,
+               occ=(sum(occ) / len(occ)) if occ else 0.0, occ_frames=len(occ),
+               ident=BB.log_ident(demo), steps=steps, crc=zlib.crc32(bytes(demo[16:])) & 0xFFFFFFFF)
+    mode = ""
+    if kd == R.CRS_K["mill"]:
+        out["mode"] = "%d columns" % cols
+        mode = ", MILL's camera panned %d columns (the host's prediction %d, bbcourse.py --pans)" % (
+            cols, pans_pred(demo, tag == "herc")[0])
+    pr = ""
+    if pred:
+        pc, prw, ptwo, psec = pans_pred(demo, tag == "herc")
+        out["pred"] = (pc / psec, prw / psec, ptwo)
+        pr = " (the host's prediction %.1f and %.1f, %d two-row frames)" % (pc / psec, prw / psec, ptwo)
+    print("  %s, wave 6 (SPEC.md 128.16.10, REPORTED): missed refreshes %d = %.2f a second over %.1f s, misses %d, "
+          "runs of two or more %d, the longest %d; GLIDE's columns %.1f and rows %.1f a second of play%s%s; the "
+          "occluder pass %.0f clk a frame over %d frames; the log %04Xh, %d steps, CRC %08Xh" % (
+              lab, sm["missed"], sm["per_s"], sm["secs"], sm["misses"], sm["runs2"], sm["longest"], out["cols_s"],
+              out["rows_s"], pr, mode, out["occ"], len(occ), out["ident"], steps, out["crc"]), flush=True)
+    return out
+
+
+def w6_ab_print(tag, res, ores):
+    """this build's demos beside --ab's (5b's own demos, its own physics):
+    REPORTED, never asserted - not like for like (SPEC.md 128.16.10)"""
+    new = dict((lab, s) for lab, _, s in res if "w6" in s)
+    old = dict((lab, s) for lab, _, s in ores if "w6" in s)
+    if not old:
+        return
+    print("\n%s wave 6 against %s, every demo through D, speaker ON (REPORTED, not like for like: SPEC.md "
+          "128.16.10):" % (tag.upper(), AB_COMMIT[:8]))
+    print("  %-14s %18s %18s %14s %14s %14s" % ("", "missed/s", "runs >= 2", "longest", "cols/s", "occ clk"))
+    for lab in sorted(set(new) | set(old)):
+        a, b = (new.get(lab) or {}).get("w6"), (old.get(lab) or {}).get("w6")
+
+        def f(x, k, fmt):
+            return fmt % x[k] if x else "-"
+        print("  %-14s %8s / %-8s %8s / %-8s %6s / %-6s %6s / %-6s %6s / %-6s" % (
+            lab, f(a, "per_s", "%.2f"), f(b, "per_s", "%.2f"), f(a, "runs2", "%d"), f(b, "runs2", "%d"),
+            f(a, "longest", "%d"), f(b, "longest", "%d"), f(a, "cols_s", "%.1f"), f(b, "cols_s", "%.1f"),
+            f(a, "occ", "%.0f"), f(b, "occ", "%.0f")))
+
+
+BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (128.16.10); 3 for the rest
+BASE_DEFAULT = 3
+
+
+def baseline(tags):
+    """THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every
+    shipped demo through D and B, both cards, speaker OFF and ON, each figure
+    with its spread, keyed to its log; written to a new dated report.  -> its path"""
+    import datetime
+    rows = []
+    R.CRS_K["bench"]
+    names = {v: n for n, v in dict.items(R.CRS_K)}
+    for tag in tags:
+        sym = R.symbols()
+        for snd in SOUNDS:
+            with os88ui.boot(R.at("build/os8088-360.img"), apps=R.at("build/bonanza360.img"),
+                             machine=R.MACHINE[tag]) as ui:
+                ui.open_drive("B")
+                ui.open("BONANZA.O88")
+                g = R.Bz(ui, tag, sym)
+                ui.settle()
+                set_snd(g, snd == "on")
+                for kd in [None] + list(range(1, len(R.CRS_K))):
+                    name = "bench" if kd is None else names[kd]
+                    n = BASE_RUNS.get(name, BASE_DEFAULT)
+                    runs, key = [], None
+                    for _ in range(n):
+                        if kd is None:
+                            fr, pkg, refresh, _np = measure(g, pokes={"bz_hvoff": 0})
+                            key = "B (BENCH's benchmark)"
+                        else:
+                            demo = load_demo(g, kd)
+                            fr, pkg, refresh, _np = measure(g, key="KeyD", frames_cap=DEMO_CAP)
+                            key = "BZD%d %04Xh %d steps CRC %08Xh" % (
+                                kd, BB.log_ident(demo), BB.decode_log_t(demo)[2].__len__(),
+                                zlib.crc32(bytes(demo[16:])) & 0xFFFFFFFF)
+                        meas = [r for r in fr if not r["full"] and "busy" in r and r["period"] is not None]
+                        sm = smooth(fr, refresh)
+                        cols = sum(1 for r in fr if r["column"])
+                        runs.append({"busy": stats([r["busy"] for r in meas])["mean"], "misses": sm["misses"],
+                                     "per_s": sm["per_s"], "runs2": sm["runs2"], "longest": sm["longest"],
+                                     "mode": "%d" % cols if name == "mill" else ""})
+                    rows.append((tag, snd, name, key, runs))
+                    print("  baseline %s %s %s: %d runs, missed/s %s" % (tag, snd, name, n, ", ".join(
+                        "%.2f" % r["per_s"] for r in runs)), flush=True)
+                set_snd(g, True)
+    day = datetime.date.today().isoformat()
+    path = os.path.join(R.ROOT, "docs", "reports", "BONANZA-BASELINE-%s.md" % day)
+    head = git("rev-parse", "--short", "HEAD").stdout.strip()
+    with open(path, "w") as f:
+        f.write("# BONANZA's re-baseline, %s (SPEC.md 128.16.10)\n\nA MEASUREMENT of one tree: commit %s, by "
+                "`python3 tests/bonanza_perf.py --baseline` on MartyPC's 5150s.  Every figure is each "
+                "configuration's runs' min - max (mean).  Each row is keyed to its demo's log; a later figure "
+                "is compared only with the row of the same log.\n\n" % (day, head))
+        f.write("| card | speaker | demo | the log | runs | mean busy clk | misses | missed refreshes a second "
+                "| runs of 2+ | longest run | MILL's columns |\n|---|---|---|---|---|---|---|---|---|---|---|\n")
+        for tag, snd, name, key, runs in rows:
+            def sp(k, fmt):
+                v = [r[k] for r in runs]
+                return (fmt + " - " + fmt + " (" + fmt + ")") % (min(v), max(v), sum(v) / len(v))
+            f.write("| %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |\n" % (
+                tag.upper(), snd.upper(), name.upper(), key, len(runs), sp("busy", "%.0f"), sp("misses", "%.1f"),
+                sp("per_s", "%.2f"), sp("runs2", "%.1f"), sp("longest", "%.1f"),
+                ", ".join(r["mode"] for r in runs) if name == "mill" else "-"))
+    print("bonanza_perf --baseline: %d configurations, %d runs, written to %s" % (
+        len(rows), sum(len(r[4]) for r in rows), os.path.relpath(path, R.ROOT)), flush=True)
+    return path
 
 
 REDS = {
@@ -1216,11 +1418,25 @@ def main():
     ap.add_argument("--no-adlib", action="store_true", help="no AdLib arm (the CGA's MILL and ride on %s)" % ADLIB)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
+    ap.add_argument("--baseline", action="store_true",
+                    help="THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every demo through D and "
+                         "B, both cards, speaker OFF and ON, its runs' spreads written to a new dated report")
     a = ap.parse_args()
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
+        R.CRS_K["bench"]                        # wave 6: the pans' prediction for every shipped demo, both cards
+        for kd in range(1, len(R.CRS_K)):
+            demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+            for herc in (0, 1):
+                c, rw, two, sec = pans_pred(demo, herc)
+                print("bonanza_perf the host's prediction, BZD%d on the %s: GLIDE %.1f columns and %.1f rows a second "
+                      "of play (%d and %d over %.1f s), %d two-row frames" % (
+                          kd, ("CGA", "Hercules")[herc], c / sec, rw / sec, c, rw, sec, two))
+        return
+    if a.baseline:
+        baseline(tags)
         return
     if a.red:
         tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
@@ -1257,7 +1473,8 @@ def main():
         for tag in tags if legs else ():
             ores = None
             if ab:                                  # wave 3 first: its frames' step counts judge the A/B's misses
-                ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "mill")), old=True)
+                ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "mill", "demo")),
+                           old=True)
                 for label, obad, _ in ores:
                     for b in obad:
                         print("FAIL %s (%s): %s" % (tag, a.ab, b))
@@ -1270,6 +1487,7 @@ def main():
                     print("FAIL %s %s: %s" % (tag, label, b))
                 allbad += bad
             if ores:
+                w6_ab_print(tag, res, ores)
                 bad = ab_print(tag, res, ores, a.ab)
                 for b in bad:
                     print("FAIL %s A/B: %s" % (tag, b))

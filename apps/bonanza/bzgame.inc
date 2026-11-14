@@ -35,8 +35,9 @@
 ;                      G & 7 on the CGA, (G & 6) | (py & 1) on the Hercules, + 2
 ;                      ((mct >> 2) & 1) mod 8 while STUNNED (SPEC.md 128.11.9.2)
 ;   bz_spr      byte   the SPRITE drawn: 0 - 63 roll frame bz_frm, 64 + k squash
-;                      k (0, 1), 68 + k shatter k (0 - 3) (bz_sprite); copy py & 1
-;                      of a squash or shatter entry, at shift px & 3
+;                      k (0, 1), 68 + k shatter k (0 - 3), 72 rubber's stretch
+;                      (bz_sprite); copy py & 1 of a squash, shatter or stretch
+;                      entry, at shift px & 3
 ;   bz_shc      byte   1: the shadow is a CANDIDATE this frame (airborne over a
 ;                      FLOOR or GOAL, 2 px or more up, the centre's OCCG clear,
 ;                      SPEC.md 128.11.9.4); bz_spy word its first line
@@ -141,6 +142,9 @@
 
 BZ_MAXR     equ 2               ; rows the camera may step a frame (SPEC.md 128.2)
 BZ_MAXC     equ 1               ; ...and columns
+BZ_CSAFE    equ 16              ; the ground line's edge fallback: the ball's
+                                ; centre within this many lines of the window's
+                                ; top or bottom latches cy on the ball (128.16.7)
 BZ_NPART    equ 7               ; the frame's measured parts (the marks' gaps)
 BZ_NFACE    equ 6               ; ...of which the face shows (the wheel's is the rows')
 BZ_BENCH    equ 1200            ; the benchmark's frames (SPEC.md 128.6)
@@ -176,6 +180,7 @@ BZ_K_D      equ 8
 BZ_LIVE     equ 84              ; bytes of bz_frames .. bz_npwt (the results copy)
 BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
+BZ_SPR_STR  equ 72              ; ...and rubber's stretch 72 (wave 6, 128.16.4.4)
 BZ_NBOXMAX  equ 4
 
 %macro BZ_GAME_VARS 0
@@ -215,6 +220,10 @@ VAR bz_tri,1                    ; ...the travel ring's index (mod 4), and
 VAR bz_blk,1                    ; 1: the card's video is gated (bz_blank)
 VAR bz_trx,8                    ; the ring: the low words of bz_bx and bz_by at
 VAR bz_try,8                    ; the end of each of the last four frames
+VAR bz_cgz,2                    ; wave 6 (128.16.7): the GROUND height zg, whole
+                                ; px, the last frame's (held over no floor)
+VAR bz_clat,2                   ; ...the edge fallback's LATCH: +1 1 while
+                                ; latched, +0 bz_nland's low byte when it tripped
 VAR bz_S,2
 VAR bz_R0,2
 VAR bz_c0,2
@@ -1717,6 +1726,9 @@ bz_camera:
     mov [bz_gpx], ax            ; and down (bz_gpx, bz_gpy; bz_gpar, bz_gdx)
     mov [bz_gpar], ax
     mov [bz_gdy], al
+    mov [bz_clat], ax           ; the ground line from the ball, unlatched
+    mov ax, [bz_gz + 1]         ; (wave 6, 128.16.7)
+    mov [bz_cgz], ax
     mov ax, [bz_bx]             ; the travel ring filled with the present
     mov dx, [bz_by]             ; position: at rest
     mov bx, 6
@@ -1759,6 +1771,55 @@ bz_camera:
     mov [bz_gfast], si
     inc byte [bz_tri]
     and byte [bz_tri], 3
+    ; --- THE GROUND LINE (wave 6, SPEC.md 128.16.7): BP = the camera's
+    ; centre line, cy + 8, where cy = py + z - zg, zg the ground's height
+    ; (the ball's own grounded or hidden; the floor's, bz_gh >> 2, airborne
+    ; over a FLOOR or GOAL; else held).  Near the window's top or bottom the
+    ; fallback LATCHES cy = py until the ball next touches a floor (grounded,
+    ; or a contact since it tripped).  The ring above stays on the ball.
+    ; (.gline and .cyd bracket the block: bonanzaring's span, 128.16.14)
+.gline:
+    mov ax, [bz_gz + 1]         ; AX = z, whole px
+    mov dx, ax                  ; DX = zg: the ball's own, grounded or hidden
+    cmp byte [bz_tube], 0
+    jne .zg
+    cmp byte [bz_air], 0
+    je .zg
+    mov dx, [bz_cgz]            ; ...held over no floor
+    cmp byte [bz_ghv], 0
+    je .zg
+    mov dx, [bz_gh]             ; ...the floor's, over a FLOOR or GOAL
+    sar dx, 1
+    sar dx, 1
+.zg:
+    mov [bz_cgz], dx
+    sub ax, dx                  ; AX = z - zg
+    mov bp, [bz_py]
+    add bp, 8                   ; BP = the ball's own centre line
+    cmp byte [bz_clat + 1], 0
+    je .unl
+    cmp byte [bz_air], 0        ; latched: released by a floor's touch,
+    je .rel                     ; grounded or a contact since the trip
+    mov dl, [bz_nland]
+    cmp dl, [bz_clat]
+    je .cyd                     ; ...or kept: cy = py
+.rel:
+    mov byte [bz_clat + 1], 0
+.unl:
+    mov bx, [bz_R0]
+    shl bx, cl                  ; T, the window's top line
+    mov dx, bp
+    sub dx, bx
+    sub dx, BZ_CSAFE            ; the centre BZ_CSAFE lines or more inside
+    cmp dx, BZ_LINES - 2 * BZ_CSAFE ; both edges (unsigned: above the window
+    jb .cgl                     ; trips too): the ground line
+    mov dl, [bz_nland]          ; ...else the fallback TRIPS: latched on the
+    mov dh, 1                   ; ball's own line
+    mov [bz_clat], dx
+    jmp short .cyd
+.cgl:
+    add bp, ax                  ; BP = cy + 8
+.cyd:
     cmp byte [bz_cuse], 0
     jne .trickle
     mov al, [bz_gpar]           ; (the heavy rule puts the x pan's parity
@@ -1773,8 +1834,7 @@ bz_camera:
     ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
     mov word [bz_gpx], 0        ; (GLIDE's pans are off outside GLIDE)
     ; vertical: the band [T + 1/3, T + 2/3] of the window's lines
-    mov ax, [bz_py]
-    add ax, 8                   ; the ball's centre line
+    mov ax, bp                  ; the camera's centre line (the ground line's)
     mov bx, [bz_R0]
     shl bx, cl                  ; T, the window's top line
     mov dx, ax
@@ -1879,7 +1939,8 @@ bz_camera:
 ;   bz_spr = SHATTER (24 - mct) / 6 (BZ_SHA_*) while SHATTERING; SQUASH 0 / 1 / 0 for
 ;         sqf 6-5 / 4-3 / 2-1 while the ball is AT ITS FLOOR (grounded, or the
 ;         contact step of a bounce or a contact Hop: airborne, whole z at most
-;         bz_gh's floor); else the roll frame
+;         bz_gh's floor); else the STRETCH while stf > 0 and the ball is rubber
+;         (wave 6, the boost's cue, SPEC.md 128.16.4.4); else the roll frame
 ; and bz_smsk / bz_sfd, the sprite's mask (row 0, its shift) in the ball part
 ; and its frame's distance from that mask (bzvideo.inc bz_blit): a squash or
 ; shatter entry is copy py & 1 of (frame, shift px & 3).  The shadow is a
@@ -1890,6 +1951,9 @@ bz_camera:
 ; -----------------------------------------------------------------------------
 %if BZ_BAL_ENT != 160 || BZ_BAL_MASKSH != 80 || BZ_BAL_FRMB != 80 || BZ_BAL_SHDB != 30 || BZ_BAL_SHIFTS != 4
  %error "bz_sprite's offsets assume SPEC.md 128.11.9.1's BZB2"
+%endif
+%if (BZ_SPR_STR & 3) != 0 || BZ_BAL_NSTR != 1
+ %error "bz_sprite's .ent takes the stretch as entry 0 of the table at BZ_BAL_STROFF"
 %endif
 bz_sprite:
     mov ax, [bz_gx]
@@ -1943,16 +2007,16 @@ bz_sprite:
 .sq:
     mov cl, [bz_sqf]
     or cl, cl
-    jz .roll
+    jz .st
     cmp byte [bz_air], 0        ; at its floor: grounded, or airborne over the
     je .sqf                     ; floor at its whole z or below
     cmp byte [bz_ghv], 0
-    je .roll
+    je .st
     mov dx, [bz_gh]
     sar dx, 1
     sar dx, 1
     cmp [bz_gz + 1], dx
-    jg .roll
+    jg .st
 .sqf:
     dec cx                      ; SQUASH ((sqf - 1) >> 1) & 1
     shr cl, 1
@@ -1980,6 +2044,14 @@ bz_sprite:
     mov [bz_smsk], ax
     mov word [bz_sfd], BZ_BAL_ENT / 2
     jmp short .shadow
+.st:                            ; wave 6: the boost's STRETCH while stf > 0
+    cmp byte [bz_stf], 0        ; (SPEC.md 128.16.4.4), after the shatter and
+    je .roll                    ; the squash; rubber's part alone has one, so
+    cmp byte [bz_mat], BZ_MAT_RUBBER ; a pad's swap inside its four steps shows
+    jne .roll                   ; the new ball rolling, never past a part's end
+    mov al, BZ_SPR_STR
+    mov dx, BZ_BAL_STROFF
+    jmp short .ent
 .roll:
     mov [bz_spr], al            ; ROLL f, at shift s: its mask MASKOFF + 80 s,
     sub al, bl                  ; its frame FRMOFF + 80 f: x 80 = (x << 4) x 5
@@ -2050,8 +2122,9 @@ bz_sprite:
 ; frames, SPEC.md 128.11.11.1, bz_camera's ring), or while the ball is still
 ; outside the dead zone (the first frame of a pan, so the edge holds).
 ;
-; DOWN: the same on rows: at rest inside the band [L/3, 2L/3] (the middle
-; third of BZ_LINES lines, 66 .. 133), and when the ball leaves it a pan to
+; DOWN: the same on rows, on the camera's centre line BP = cy + 8 (bz_camera's
+; GROUND LINE, wave 6, SPEC.md 128.16.7): at rest inside the band [L/3, 2L/3]
+; (the middle third of BZ_LINES lines, 66 .. 133), and when it leaves it a pan to
 ; the row that puts it on the band's trailing edge - a sixth of the window
 ; behind the centre, so the camera leads by a sixth - at one row a frame, two
 ; while the ball is faster than 2 lines a frame (bz_gfast + 1), and a second one
@@ -2156,9 +2229,8 @@ bz_camglide:
     jns .ydir
     mov byte [bz_gdy], 1
 .ydir:
-    mov ax, [bz_py]
-    add ax, 8                   ; AX = the ball's centre line
-    mov dx, si
+    mov ax, bp                  ; AX = the camera's centre line, cy + 8 (wave
+    mov dx, si                  ; 6: the ground line's, bz_camera's BP)
     shl dx, cl
     neg dx
     add dx, ax                  ; DX = ...in the window
@@ -2204,8 +2276,7 @@ bz_camglide:
     je .yrest
     cmp byte [bz_gfast + 1], 0  ; two while the ball is fast...
     jne .y2
-    mov dx, [bz_py]             ; ...or while one leaves it outside the band
-    add dx, 8
+    mov dx, bp                  ; ...or while one leaves it outside the band
     mov bx, si
     shl bx, cl
     sub dx, bx

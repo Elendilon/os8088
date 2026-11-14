@@ -63,7 +63,7 @@ more; the part rows are 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO; MOON and PEAK
 (SUMMIT) take every way out above (their GOAL is the CUP: the ball poked at
 rest in its mouth holes out, bz_hid); then, with the autopilot driving
 (bz_apilot), every way out of a TOUR course - Esc, F, Alt+Enter (each stops
-the tour: bz_tour 7) and the cup (a tour poked to stand at MOON) - and a tour
+the tour: bz_tour BZ_NTOUR + 2, 8) and the cup (a tour poked to stand at MOON) - and a tour
 stopped on the face, V's fetch and drop, D's end, W through the Save dialog, L
 through the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new
 instance): every row as before and the claims as before after each.
@@ -90,6 +90,34 @@ leg's first differing offset:
   rowtab1      ROWTAB writes NROWS - 1 words: the first launch (FIRST)
   cellsafe     the guest's SAFE rule without its OBS test (bz_cxsafe): a prop's
                cell made SAFE - MILL (the first course with props)
+
+WAVE 6 (SPEC.md 128.16.6, 128.16.8, 128.16.14): the PLAYGROUND (course 6,
+`PLAY`) takes every way out as MOON and PEAK do - its three pads, so its three
+ball rows fetched and dropped; the tour is SIX courses, so a stopped tour's
+bz_tour is BZ_NTOUR + 2 (derived from BZ_COURSES, not written here); the claim
+leg covers seven courses.  And THE PALETTE, once a card: a launch of the
+PLAYGROUND and one of FIRST, each stopped at the kernel's fsx_run and then at
+the first of bz_vinit.vpal (bz_vinit's labelled `out` to 3D9h, resolved through the
+package's own symbols) and bz_presented:
+  - on the CGA bz_vinit.vpal is reached first with AL the course's BZ_CRS_PALS byte
+    (read out of the guest's own table, bz_cpals); a few frames later, the
+    ball at rest, MartyPC's RENDERED frame (m.fbuf), aligned on the card's own
+    picture, shows the ball's body index - the most common non-black index in
+    its 16 x 16 footprint - in the colour that byte selects (the PLAYGROUND's
+    10h: palette 0's light red; FIRST's 30h: palette 1's light magenta), and
+    every index the frame holds in its byte's colour: nearest of the CGA's
+    sixteen, so MartyPC's exact RGB is not this row's business;
+  - on the Hercules bz_presented is reached first: bz_vinit.vpal is NEVER hit;
+  - after each bracket the desktop renders only the COLOURS its capture before
+    the launch held, both of them (the menu bar's band left out): 3D9h's low
+    nibble is the 1bpp desktop's foreground, so a colour select left behind
+    shows there.  Not the bitmap: BONANZA's own window is in the frame and
+    its face is rewritten after every play, Esc included (the review's F1).
+  Red arms:
+  nopal        the `out` left out: the PLAYGROUND's rendered colour (palette 1's,
+               the BIOS's 30h)
+  hercpal      the bz_herc branch round the write removed, so it runs on the
+               Hercules: the bz_vinit.vpal breakpoint is hit there
 """
 import argparse
 import os
@@ -497,6 +525,12 @@ def after(g, what, base_rows, base_claims):
     return fails
 
 
+def ntour():
+    """bonanza.asm BZ_NTOUR: every course but BENCH (BZ_COURSES's, six with the PLAYGROUND)"""
+    R.CRS_K["bench"]
+    return dict.__len__(R.CRS_K) - 1
+
+
 def guard(g):
     M.until(g.m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
 
@@ -517,8 +551,9 @@ def wave4_exits(g, ui, base_rows, base_claims):
         leave(g, way)
         M.until(m, lambda _: g.b("bz_fs") == 0, "tour course 1 to end on %s" % way, guest=60)
         fails += after(g, "tour %s" % way, base_rows, base_claims)
-        if g.b("bz_tour") != 7:
-            fails.append("tour %s: [bz_tour] %d after the way out, not 7 (stopped)" % (way, g.b("bz_tour")))
+        if g.b("bz_tour") != ntour() + 2:
+            fails.append("tour %s: [bz_tour] %d after the way out, not %d (stopped)" % (
+                way, g.b("bz_tour"), ntour() + 2))
     m.pause()
     g.putb("bz_tour", R.CRS_K["moon"])          # a tour standing at MOON: Enter plays it
     m.run()
@@ -530,7 +565,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     if not g.b("bz_hid"):
         fails.append("tour cup: MOON's play did not hole out")
     g.key("Escape")
-    M.until(m, lambda _: g.b("bz_tour") == 7, "Esc on the face to stop the tour", guest=10)
+    M.until(m, lambda _: g.b("bz_tour") == ntour() + 2, "Esc on the face to stop the tour", guest=10)
     fails += after(g, "tour stopped on the face", base_rows, base_claims)
     m.pause()
     g.putb("bz_vk", 0)
@@ -565,6 +600,176 @@ def wave4_exits(g, ui, base_rows, base_claims):
         fails.append("double-click: BONANZA opened without EXIT.BZR's log")
     fails += after(g2, "the double-click", base_rows, base_claims)
     return fails
+
+
+# the CGA's sixteen as an RGB monitor shows them (IRGB, brown's half green): a rendered colour is
+# judged by the NEAREST of these, so the check reads which colour, not MartyPC's exact RGB
+CGA16 = [(0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170), (170, 0, 0), (170, 0, 170), (170, 85, 0),
+         (170, 170, 170), (85, 85, 85), (85, 85, 255), (85, 255, 85), (85, 255, 255), (255, 85, 85),
+         (255, 85, 255), (255, 255, 85), (255, 255, 255)]
+CGA16_NAMES = ("black", "blue", "green", "cyan", "red", "magenta", "brown", "light grey", "dark grey",
+               "light blue", "light green", "light cyan", "light red", "light magenta", "yellow", "white")
+MENU_EIGHTH = 8                             # the rendered frame's top 1/8 (the menu bar and its clock, with the
+                                            # border above it) left out of the desktop compare
+
+
+def pal_colour(byte, idx):
+    """the CGA colour (0 - 15) that colour-select BYTE (3D9h, SPEC.md 128.16.6)
+    gives mode 4's index IDX: 0 the ground (bits 0 - 3); 1 - 3 palette 1's
+    cyan, magenta, white or palette 0's green, red, brown (bit 5), +8 bright
+    (bit 4)"""
+    if idx == 0:
+        return byte & 15
+    base = (3, 5, 7) if byte & 0x20 else (2, 4, 6)
+    return base[idx - 1] + (8 if byte & 0x10 else 0)
+
+
+def nearest16(rgb):
+    return min(range(16), key=lambda i: sum((a - b) * (a - b) for a, b in zip(rgb, CGA16[i])))
+
+
+def rendered_indices(fw, fh, fd, exp):
+    """the rendered frame aligned on the card's own 320 x 200 picture EXP (by
+    black / not black on a sample, as bonanza_ring.glass_cga): -> {index:
+    {nearest CGA colour: pixels}}, and the field's origin"""
+    sx, sy = max(1, fw // 320), max(1, fh // 200)
+    best = None
+    for y0 in range(0, fh - 200 * sy + 1):
+        for x0 in range(0, fw - 320 * sx + 1):
+            bad = 0
+            for y in range(0, 200, 9):
+                for x in range(0, 320, 5):
+                    o = ((y0 + sy * y) * fw + x0 + sx * x) * 3
+                    bad += (fd[o:o + 3] == b"\0\0\0") != (exp[y][x] == 0)
+            if best is None or bad < best[0]:
+                best = (bad, x0, y0)
+    _, x0, y0 = best
+    out = {}
+    for y in range(200):
+        for x in range(320):
+            o = ((y0 + sy * y) * fw + x0 + sx * x) * 3
+            c = nearest16(tuple(fd[o:o + 3]))
+            d = out.setdefault(exp[y][x], {})
+            d[c] = d.get(c, 0) + 1
+    return out, (x0, y0, sx, sy)
+
+
+def desktop_colours(a):
+    """a rendered desktop: -> the set of RGB triples below the menu band"""
+    w, h, x = a
+    out = set()
+    for r in range(h // MENU_EIGHTH, h):
+        row = x[r * w * 3:(r + 1) * w * 3]
+        for c in range(0, 3 * w, 3):
+            out.add(bytes(row[c:c + 3]))
+    return out
+
+
+def palette_leg(g, crss=("play", "first")):
+    """SPEC.md 128.16.6 (bonanzaexit's wave 6 leg): the colour select on the
+    CGA, none on the Hercules, the desktop restored after each bracket"""
+    m, tag = g.m, g.tag
+    fails, say = [], []
+    for crs in crss:
+        k = R.CRS_K[crs]
+        ui_settle(g)
+        m.pause()
+        before = m.fbuf(0)
+        byte = m.read(g.a("bz_cpals") + k, 1)[0]
+        m.bp_exec(g.a("bz_launch"))
+        m.run()
+        g.key("Enter")
+        assert m.wait_stop(60) == "breakpoint", "palette %s: Enter did not reach bz_launch" % crs
+        g.putb("bz_crs", k)
+        m.bp_exec(m.sym("fsx_run"))
+        m.run()
+        assert m.wait_stop(60) == "breakpoint", "palette %s: the launch never reached OSAPI_FSX_RUN" % crs
+        vpal, pres = g.a("bz_vinit.vpal"), g.a("bz_presented")    # (inside the bracket the region stays put)
+        m.bp_exec(vpal, pres)
+        m.run()
+        assert m.wait_stop(60) == "breakpoint", "palette %s: neither bz_vinit.vpal nor bz_presented reached" % crs
+        r = m.regs()
+        at = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        if tag == "herc":
+            if at == vpal:
+                fails.append("palette %s: the bz_vinit.vpal breakpoint was HIT on the Hercules (AL %02Xh): the "
+                             "colour select written to 3D9h where the picture has no palette (SPEC.md 128.16.6)"
+                             % (crs.upper(), r["ax"] & 0xFF))
+            say.append("%s: bz_presented first, bz_vinit.vpal never hit" % crs.upper())
+        else:
+            if at != vpal:
+                fails.append("palette %s: the first frame presented with no write at bz_vinit.vpal" % crs.upper())
+            elif (r["ax"] & 0xFF) != byte or (r["dx"] & 0xFFFF) != 0x3D9:
+                fails.append("palette %s: bz_vinit.vpal writes %02Xh to port %04Xh, the course's BZ_CRS_PALS byte is "
+                             "%02Xh to 3D9h" % (crs.upper(), r["ax"] & 0xFF, r["dx"], byte))
+        m.bp_exec()
+        m.run()
+        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "palette %s: the play runs" % crs,
+                guest=60)
+        if tag == "cga":
+            m.bp_exec(g.a("bz_presented"))
+            seen = None
+            for _ in range(4):                  # the ball at rest: every refresh scanned one picture
+                m.run()
+                assert m.wait_stop(60) == "breakpoint", "palette %s: play stopped presenting" % crs
+                seen = g.state()
+            m.bp_exec()
+            S, R0, c0, px, py = seen
+            exp = g.decode(S)
+            fw, fh, fd = m.fbuf(0)
+            got, org = rendered_indices(fw, fh, fd, exp)
+            bx, by = px - 8 * c0, py - R0 * R.RL[tag]
+            cnt = {}
+            for y in range(max(0, by), min(200, by + 16)):
+                for x in range(max(0, bx), min(320, bx + 16)):
+                    v = exp[y][x]
+                    if v:
+                        cnt[v] = cnt.get(v, 0) + 1
+            body = max(cnt, key=cnt.get) if cnt else None
+            want = {i: pal_colour(byte, i) for i in got}
+            seen_c = {i: max(d, key=d.get) for i, d in got.items()}
+            if body is None:
+                fails.append("palette %s: no ball pixel in the footprint at %d,%d" % (crs.upper(), bx, by))
+            elif seen_c.get(body) != want[body]:
+                fails.append("palette %s: the ball's body (index %d) is rendered %s; its BZ_CRS_PALS byte %02Xh "
+                             "selects %s" % (crs.upper(), body, CGA16_NAMES[seen_c.get(body, 0)], byte,
+                                             CGA16_NAMES[want[body]]))
+            mix = {i: sorted(d) for i, d in got.items() if len(d) > 1 or seen_c[i] != want[i]}
+            if mix and not [f for f in fails if f.startswith("palette %s: the ball" % crs.upper())]:
+                fails.append("palette %s: indices rendered off the byte's colours: %s (want %s)" % (
+                    crs.upper(), {i: [CGA16_NAMES[c] for c in v] for i, v in mix.items()},
+                    {i: CGA16_NAMES[want[i]] for i in mix}))
+            say.append("%s: byte %02Xh, the ball's body index %s rendered %s" % (
+                crs.upper(), byte, body, CGA16_NAMES[seen_c.get(body, 0)] if body is not None else "-"))
+        m.run()
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "palette %s: the play to end on Esc" % crs, guest=60)
+        M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "palette %s: its parts dropped" % crs,
+                guest=30)
+        ui_settle(g)
+        m.pause()
+        after = m.fbuf(0)
+        m.run()
+        # (the review's F1: BONANZA's own window is IN the frame and bz_post rewrites its face after every play,
+        # Esc included, so a bitmap compare fails a correct build.  What the leg is about is the desktop's
+        # PALETTE: the exit mode set must leave the 1bpp desktop's two colours, which a colour select left
+        # behind would change - 3D9h's low nibble is mode 6's foreground - so the COLOURS are compared)
+        cb, ca = desktop_colours(before), desktop_colours(after)
+        if not ca <= cb or len(ca) < min(2, len(cb)):
+            fails.append("palette %s: after the bracket the desktop renders the colours %s, before it %s: the "
+                         "palette not restored" % (crs.upper(), sorted(c.hex() for c in ca),
+                                                   sorted(c.hex() for c in cb)))
+    print("%s palette (SPEC.md 128.16.6): %s; the desktop restored after each: %s" % (
+        tag, "; ".join(say), "yes" if not fails else "NO"), flush=True)
+    return fails
+
+
+def ui_settle(g):
+    """the desktop quiet: the title's face drawn, nothing moving"""
+    M.until(g.m, lambda _: g.b("bz_fs") == 0, "the desktop", guest=30)
+    if "bzs_desk" in g.sym:
+        M.until(g.m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3, "the title back", guest=30)
+    g.ui.settle()
 
 
 def choose_ball(g, mat):
@@ -617,7 +822,7 @@ def held_keys(g):
 
 
 def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True, w4=True,
-        trial=True, cover=True):
+        trial=True, cover=True, pal=True):
     sym = R.symbols(src)
     fails = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -666,8 +871,8 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                 fails += f
                 if f:
                     break
-        if w4 and not fails:                    # wave 4: MOON and PEAK (SUMMIT), their three balls
-            for crs in ("moon", "peak"):
+        if w4 and not fails:                    # wave 4: MOON and PEAK (SUMMIT), their three balls; wave 6:
+            for crs in ("moon", "peak", "play"):    # the PLAYGROUND's three pads (SPEC.md 128.16.14)
                 choose_ball(g, R.course(crs).ball)
                 for way in [w for w in ways if w in WAYS]:
                     f, line = one(g, way, base_rows, base_claims, R.course(crs).ball, crs=crs)
@@ -682,6 +887,8 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             f, line = one(g, "esc", base_rows, base_claims, R.course("trial").ball, crs="trial")
             print("%s %s" % (tag, line), flush=True)
             fails += f
+        if pal and not fails:                   # wave 6 (SPEC.md 128.16.6): the colour select
+            fails += palette_leg(g)
         if keys and not fails:
             fails += held_keys(g)
         if w4 and not fails:                    # (last: it closes the window)
@@ -732,11 +939,26 @@ RED_RUN["crepeat"]["w4"] = RED_RUN["overswallow"]["w4"] = False
 for _r in ("expoff1", "rowtab1"):               # the first launch: FIRST, Esc
     RED_RUN[_r] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False}
 RED_RUN["cellsafe"] = {"ways": ("esc",), "mats": (), "bench": False, "mill": True, "w4": False, "keys": False}
-for _r in RED_RUN:                              # (only the full run covers all six courses, and only the
-    RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch)
-    RED_RUN[_r].setdefault("trial", False)
+# wave 6 (SPEC.md 128.16.14): the colour select's write left out (the PLAYGROUND renders palette 1), and its
+# Hercules branch removed (the labelled write runs there)
+REDS["nopal"] = [("bzvideo.inc", ".vpal:\n    out dx, al\n",
+                  ".vpal:\n    nop                         ; RED nopal: no write\n")]
+REDS["hercpal"] = [("bzvideo.inc", "    mov [bz_vseg], ax\n    cmp byte [bz_herc], 0\n    jne .herc\n"
+                    "    mov bl, [bz_crs]            ; the CGA: the course's colour select\n"
+                    "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n",
+                    "    mov [bz_vseg], ax\n    mov bl, [bz_crs]            ; RED hercpal: the write on the Hercules too\n"
+                    "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n"
+                    "    cmp byte [bz_herc], 0\n    jne .herc\n")]
+for _r in ("nopal", "hercpal"):
+    RED_RUN[_r] = {"ways": (), "mats": (), "bench": False, "mill": False, "w4": False, "keys": False}
+for _r in RED_RUN:                              # (only the full run covers all seven courses, and only the
+    RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch; only the palette
+    RED_RUN[_r].setdefault("trial", False)      # reds' the palette leg)
+    RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
 RED_WANT = {"padleak": "part row 2 is still FETCHED", "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
-            "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL"}
+            "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
+            "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT"}
+RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card
 
 
 def main():
@@ -751,6 +973,8 @@ def main():
             print(line)
         return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
+    if a.red and a.red in RED_TAGS:
+        tags = tuple(t for t in tags if t in RED_TAGS[a.red]) or RED_TAGS[a.red]
     if a.red:
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])

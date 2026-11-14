@@ -37,6 +37,16 @@ the row FAILS at its own check:
   groove   every row the groove's FIRST count: FIRST's 8 6 swing played
            straight - the bracket's model comparison fails
   mat      every event played as the rubber ball's: the events check fails
+  noboost  wave 6: bz_nboost left out of bzs_ctab (its slot names bz_ntube
+           again): the boost check's rubber poke keys no effect
+
+WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): step 4 gains THE BOOST: bz_nboost
+poked with each ball - rubber's next frame's slot holds rubber's BOOST effect,
+whose record differs from its HOP's (another effect, by content); steel's and
+glass's key NOTHING (bzs_fxseq unchanged: their columns name no effect); and
+a boost contact keys no LAND (bz_nland, bz_lvz past BZS_LMIN and bz_nboost
+poked in one frame: one effect keyed, the BOOST).  The effect numbers are read
+out of the built BZSND.BIN, never written here.
 
 WAVE 5B (SPEC.md 128.15.9, 128.15.13): unchanged in logic.  The parts table's
 format byte is the whole table's, so with BZPARTZ=lzb the sound part and the
@@ -208,6 +218,64 @@ def events(g, snd):
     return fails
 
 
+def boost_events(g, snd):
+    """SPEC.md 128.16.4.4: a boost poked into bz_nboost with each ball, and
+    with a landing in the same frame"""
+    fails = []
+    emap, fxt = BM.u16(snd, 12), BM.u16(snd, 10)
+    ne = len(BM.EVENTS)
+
+    def eff(mat, ev):
+        n = snd[emap + mat * ne + EV[ev]]
+        return n, (None if n == 0xFF else BM.u16(snd, fxt + 2 * n))
+
+    def idle():
+        for _ in range(400):
+            stop(g)
+            if g.w("bzs_fx") == 0:
+                return
+    nb, rb = eff(0, "BOOST")
+    nh, rh = eff(0, "HOP")
+    if rb is None:
+        return ["boost: rubber's BOOST names no effect in BZSND.BIN"]
+    nxt = sorted(BM.u16(snd, fxt + 2 * k) for k in range(256) if fxt + 2 * k + 2 <= emap)
+
+    def body(rec):
+        later = [a for a in nxt if a > rec]
+        return bytes(snd[rec:later[0] if later else rec + 32])
+    if rh is not None and (nb == nh or body(rb) == body(rh)):
+        fails.append("boost: rubber's BOOST effect %d is its HOP's (%d) by name or by content" % (nb, nh))
+    for mat in range(3):
+        for with_land in ((False, True) if mat == 0 else (False,)):
+            idle()
+            g.putb("bz_mat", mat)
+            seq0 = g.w("bzs_fxseq")
+            if with_land:
+                g.put("bz_lvz", 300)
+                g.put("bz_nland", g.w("bz_nland") + 1)
+            g.put("bz_nboost", g.w("bz_nboost") + 1)
+            stop(g)
+            dseq = (g.w("bzs_fxseq") - seq0) & 0xFFFF
+            what = "%s's boost%s" % (BM.MATS[mat], " with a landing in the same frame" if with_land else "")
+            n, rec = eff(mat, "BOOST")
+            if rec is None:
+                if dseq:
+                    fails.append("boost: %s keyed %d effect(s); its column names none (SPEC.md 128.16.4.4)" % (
+                        what, dseq))
+                continue
+            slot = g.m.read(g.a("bzs_fx"), F_SIZE)
+            ok = slot[13] == snd[rec] and slot[12] == snd[rec + 1] and \
+                struct.unpack("<H", slot[17:19])[0] == g.w("bzs_fxseq")
+            if dseq != 1 or not ok:
+                fails.append("boost: %s keyed %d effect(s), the slot %s effect %d (instrument %d, priority %d)%s" % (
+                    what, dseq, "holding" if ok else "NOT holding", n, snd[rec], snd[rec + 1],
+                    ": a boost contact keys no LAND" if with_land and dseq > 1 else ""))
+    g.putb("bz_mat", 0)
+    print("bonanza_sound boost: rubber's BOOST effect %d (HOP's %d), steel's and glass's none: %s" % (
+        nb, nh, "yes" if not fails else "NO"), flush=True)
+    return fails
+
+
 def cost(g, frames=120):
     """cycles from bzs_frame to its .fend, every frame -> (mean, max)"""
     m = g.m
@@ -256,7 +324,7 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 1:
                 fails.append("title: arm %d, song row %d - not arm %d, row %d"
                              % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 1))
-            if only != "mat":
+            if only not in ("mat", "noboost"):
                 for k in range(3):
                     m.run()
                     M.guest_sleep(m, 1.0)
@@ -286,15 +354,17 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 2:
                 fails.append("play: arm %d, song row %d - not arm %d, row %d (song 1)"
                              % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 2))
-            if only != "mat":
+            if only not in ("mat", "noboost"):
                 for k in range(3):
                     for _ in range(25 + 40 * k):
                         stop(g)
                     f, n = held(g, snd, songs[1], want_arm, "FIRST")
                     fails += f
             # 4. THE EVENTS (the speaker leg; the slots are the same code on both)
-            if arm_name == "spk" and only != "groove":
+            if arm_name == "spk" and only not in ("groove", "noboost"):
                 fails += events(g, snd)
+            if arm_name == "spk" and only not in ("groove", "mat") and "bz_nboost" in g.sym:
+                fails += boost_events(g, snd)
             # 5. THE COST
             if only is None:
                 mean, top = cost(g)
@@ -340,8 +410,11 @@ REDS = {
                 "    xor bl, bl                  ; RED groove: always the first count\n")],
     "mat": [("bzsound.inc", "    mov ah, [bz_mat]            ; AH = the material, for every trigger\n",
              "    xor ah, ah                  ; RED mat: every event the rubber ball's\n")],
+    # wave 6 (SPEC.md 128.16.14): bz_nboost out of the counters' table
+    "noboost": [("bzsound.inc", "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10\n",
+                 "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr9 ; RED noboost: bz_nboost not read\n")],
 }
-RED_WANT = {"groove": "FIRST", "mat": "events"}
+RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boost keyed 0"}
 
 
 def main():

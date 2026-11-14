@@ -58,7 +58,7 @@ NOTE_PC = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 
 # THE EVENTS (SPEC.md 128.20.5), in the event map's column order
 EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
-          "HOP", "FALL", "TUBE", "GOAL"]
+          "HOP", "FALL", "TUBE", "GOAL", "BOOST"]      # BOOST: wave 6, rubber's (128.16.4.4)
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 
@@ -1416,6 +1416,26 @@ def source_notes(s, bank):
     return sorted(out), ptick * len(seq)
 
 
+def boost_problems(bank):
+    """wave 6 (SPEC.md 128.16.4.4): rubber's BOOST effect present and not
+    its HOP's (by name or by content); steel's and glass's absent, since
+    they never boost"""
+    out = []
+    b, h = bank.emap.get(("rubber", "BOOST")), bank.emap.get(("rubber", "HOP"))
+
+    def body(n):
+        x = bank.sfx[n]
+        return (x.inst, x.prio, x.sens, tuple(x.segs))
+    if b is None:
+        out.append("rubber has no BOOST effect")
+    elif h is not None and (b == h or body(b) == body(h)):
+        out.append("rubber's BOOST effect is its HOP's")
+    for m in ("steel", "glass"):
+        if (m, "BOOST") in bank.emap:
+            out.append("%s has a BOOST effect, and never boosts" % m)
+    return out
+
+
 def selfcheck():
     problems = 0
     snd, parts, bank, songs = load_parts()
@@ -1485,6 +1505,12 @@ def selfcheck():
             others = [bank.emap.get((o, e)) for o in MATS if o != m]
             if bank.emap.get((m, e)) in others:
                 bad("%s's %s effect is another ball's (SPEC.md 128.20.5)" % (m, e))
+    for msg in boost_problems(bank):
+        bad(msg)
+    ctl = parse_bank()                        # the control: rubber's BOOST made its HOP's
+    ctl.emap[("rubber", "BOOST")] = ctl.emap.get(("rubber", "HOP"))
+    if not boost_problems(ctl):
+        bad("the control (rubber's BOOST effect made equal to its HOP's) was not caught")
     evs, nt = fx_demo_events(bank)
     for arm in ("spk", "fm"):
         acts = run(snd, parts[-1], arm, nt, evs, music=False)
