@@ -63,6 +63,20 @@ and PASSES only if its leg FAILS - at its own check:
              model run off the MILL play's log parts from it at the gate
   noident    the identity check taken out (the MILL leg): the log with
              another identity PLAYS - refuse: fails
+
+WAVE 4 (SPEC.md 128.14.8, 128.14.14): a MOUSE play on MOON, on the CGA - T to
+MOUSE, the pointer driven by the row (tools/os88mouse.py's absolute `to`, closed
+on the kernel's own mouse_x) through MOUSE_SCRIPT's offsets round the anchor on
+both axes, each at the MIDDLE of a cap's band so the hysteresis cannot decide
+it: at every checked bz_presented the frame's tilt byte (bz_tilt) equals
+128.14.8.1's mapping of the pointer read at that frame's bz_t0, against the
+anchor and the extent the guest read in the bracket (bz_tax, bz_tay); a frame
+after a respawn re-anchored on the pointer (clamped); the log a TILT log whose
+model run equals the play's end; replayed on the Hercules equal to the model at
+every frame (the replay reads no mouse).  The mouse play's frame cost against a
+keyboard play of the same route is bonanzaperf's to report, not this row's.
+  tiltmap    the dead zone left out of the mapping (bz_tinit's DZ 0): the caps
+             the row expects differ - `tilt map`
 """
 import argparse
 import os
@@ -227,7 +241,9 @@ def replay(g, log, model_of, end=None, what="replay"):
     play's end state to equal.  -> (failures, frames)"""
     m, tag = g.m, g.tag
     rd = P.Reader(g)
-    keys = BB.decode_log(log)[2]
+    _k, _m, kt, fl = BB.decode_log_t(log)
+    keys = [k_ for k_, _t in kt]
+    tilts = [t_ for _k2, t_ in kt] if fl & BB.RL_TILT else None   # a TILT log's (128.14.8.3)
     fails = []
     m.pause()
     g.write_log(log)
@@ -251,7 +267,7 @@ def replay(g, log, model_of, end=None, what="replay"):
             continue
         frames += 1
         st, s2, ext = rd.read()
-        P.advance(p, st[0], keys)
+        P.advance(p, st[0], keys, tilts)
         bad = P.compare("%s (%s)" % (what, tag), frames, st, s2, ext, p)
         if bad:
             fails.append(bad)
@@ -268,7 +284,7 @@ def replay(g, log, model_of, end=None, what="replay"):
     after = g.read_log()
     m.run()
     if not fails:
-        P.advance(p, st[0], keys)
+        P.advance(p, st[0], keys, tilts)
         stop = p.nstep if p.goal else len(keys)
         if st[0] != stop:
             fails.append("%s: the replay ended after step %d, its log holds %d" % (what, st[0], len(keys)))
@@ -490,6 +506,141 @@ def judge_mill(log, seen, end):
     return f, ev
 
 
+# ---- WAVE 4 (SPEC.md 128.14.8, 128.14.14): a MOUSE play on MOON ------------------
+BZT = {"anc": 0, "lo": 2, "hi": 4, "h": 6, "cap": 8, "neg": 9}     # bzgame.inc BZT_*
+# the stick's targets, (x cap, y cap, x sign, y sign): every cap at a MIDPOINT
+# between its boundaries, so no hysteresis band can decide it
+MOUSE_SCRIPT = ((0, 0, 1, 1), (2, 0, 1, 1), (5, 0, -1, 1), (8, 0, 1, 1), (0, 3, 1, 1), (0, 8, 1, -1),
+                (4, 6, 1, -1), (1, 1, -1, -1), (7, 2, -1, 1), (3, 7, 1, 1), (0, 0, 1, 1))
+MOUSE_FRAMES = 4                    # frames checked at each target, the pointer still
+
+
+def axis(g, name):
+    raw = g.m.read(g.a(name), 10)
+    anc, lo, hi, h = struct.unpack_from("<4H", raw)
+    return {"anc": anc, "lo": lo, "hi": hi, "h": h, "E": lo + hi + 1, "cap": raw[8]}
+
+
+def cap_of(d, E, nodz=False):
+    """128.14.8.1's mapping without the hysteresis, |d| at a midpoint: the cap"""
+    full = E // 4
+    dz = 0 if nodz else full // 4
+    r = full - dz
+    t_ = [dz + (c * r >> 3) for c in range(BB.LVL_MAX)]
+    m_, c = abs(d), 0
+    while c < BB.LVL_MAX and m_ > t_[c]:
+        c += 1
+    return c
+
+
+def offset_for(c, E):
+    """|d| in the MIDDLE of cap C's band (cap 8: FULL, the stick's full reach)"""
+    full = E // 4
+    dz = full // 4
+    r = full - dz
+    t_ = [dz + (k * r >> 3) for k in range(BB.LVL_MAX)]
+    if c == 0:
+        return 0
+    if c == BB.LVL_MAX:
+        return full
+    return (t_[c - 1] + t_[c]) // 2
+
+
+def record_mouse(g, ui):
+    """T MOUSE, N to MOON, the pointer at the window's centre, Enter; the row
+    moves the pointer through MOUSE_SCRIPT round the anchor; Esc.  -> (failures,
+    the log, the end state)"""
+    m = g.m
+    fails = []
+    if g.b("bz_ctl") != 1:
+        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+        g.key("KeyT")
+        M.until(m, lambda _: g.b("bz_ctl") == 1, "T to choose MOUSE", guest=5)
+    k = R.CRS_K["moon"]
+    for _ in range(8):
+        if g.b("bz_crsel") == k:
+            break
+        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+        k0 = g.b("bz_crsel")
+        g.key("KeyN")
+        M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=5)
+    ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
+    g.key("Enter")
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the mouse play's bracket", guest=60)
+    seen, resp_due = 0, None
+    for cx, cy, sx, sy in MOUSE_SCRIPT:
+        m.pause()
+        ax, ay = axis(g, "bz_tax"), axis(g, "bz_tay")
+        m.run()
+        x = ax["anc"] + sx * offset_for(cx, ax["E"])
+        y = ay["anc"] + sy * offset_for(cy, ay["E"])
+        x, y = max(0, min(ax["E"] - 1, x)), max(0, min(ay["E"] - 1, y))
+        ui.mo.to(x, y)
+        M.guest_sleep(m, 0.1)
+        wk = R.Walker(g, t0=True)
+        wk.arm()
+        n = 0
+        ptr = None
+        while n < MOUSE_FRAMES:
+            kind = wk.next()
+            if kind == "t0":
+                ptr = ui.mo.where()[:2]
+                if resp_due is not None:        # the last frame's steps respawned: re-anchored here
+                    pass
+                continue
+            if kind != "pr" or ptr is None:
+                continue
+            n += 1
+            seen += 1
+            ax, ay = axis(g, "bz_tax"), axis(g, "bz_tay")
+            if resp_due is not None:
+                want = (min(max(ptr[0], ax["lo"]), ax["hi"]), min(max(ptr[1], ay["lo"]), ay["hi"]))
+                if (ax["anc"], ay["anc"]) != want:
+                    fails.append("tilt map: a respawn's next frame anchored at %s, the pointer (clamped) %s" % (
+                        (ax["anc"], ay["anc"]), want))
+                resp_due = None
+            if g.b("bz_resp"):
+                resp_due = True
+            if not g.b("bz_tarm"):
+                continue                        # (a fresh anchor: dead until both caps are 0 once)
+            got = g.b("bz_tilt")
+            dx, dy = ptr[0] - ax["anc"], ptr[1] - ay["anc"]
+            want = cap_of(dx, ax["E"]) << 4 | cap_of(dy, ay["E"])
+            if got != want:
+                fails.append("tilt map frame %d: the pointer %s, the anchor %s: the tilt byte %02Xh, 128.14.8.1's "
+                             "mapping %02Xh" % (g.w("bz_frames"), ptr, (ax["anc"], ay["anc"]), got, want))
+        m.bp_exec()
+        m.run()
+        if fails:
+            break
+    g.key("Escape")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the mouse play to end", guest=60)
+    P.dropped(g, "the mouse play")
+    m.pause()
+    rd = P.Reader(g)
+    end = rd.read()
+    log = bytes(g.read_log())
+    m.run()
+    n_ = struct.unpack_from("<H", log, 12)[0]
+    log = log[:16 + 3 * n_] if log[6] & BB.RL_TILT else log[:16 + 2 * n_]
+    if not log[6] & BB.RL_TILT:
+        fails.append("the mouse play's log is not a TILT log (+6 %02Xh)" % log[6])
+    else:
+        _k, mat, kt, _f = BB.decode_log_t(log)
+        p = BB.Physics(R.course_k(log[4]), play=True, mat=mat)
+        for k_, t_ in kt:
+            p.step(k_, t_)
+        if p.state() != end[0]:
+            fails.append("the mouse play's end %s is not the model's run off its TILT log %s" % (
+                P.show(end[0]), P.show(p.state())))
+    caps = sorted(set(t_ for _k, t_ in BB.decode_log_t(log)[2])) if log[6] & BB.RL_TILT else []
+    print("%s mouse play on MOON: %d frames checked against 128.14.8.1's mapping, a TILT log of %d runs and %d steps "
+          "(%d distinct tilt bytes); the model run off it equals the play's end: %s; the anchor at %s" % (
+              g.tag, seen, struct.unpack_from("<H", log, 12)[0], struct.unpack_from("<I", log, 8)[0], len(caps),
+              "yes" if not fails else "NO", (axis(g, "bz_tax")["anc"], axis(g, "bz_tay")["anc"])), flush=True)
+    return fails, log, end
+
+
 def run_all(legs, apps=None, src=None):
     fails, logs, ends = [], {}, {}
     inj = injects() if "inject" in legs else []
@@ -504,7 +655,8 @@ def run_all(legs, apps=None, src=None):
             fails.append("record MILL: no delay makes the autopilot's first approach a knock-back (the model)")
             return fails
     for tag in ("cga", "herc"):
-        if tag == "herc" and "replay" not in legs and "inject" not in legs and "mill" not in legs:
+        if tag == "herc" and "replay" not in legs and "inject" not in legs and "mill" not in legs \
+                and "mouse" not in legs:
             break
         booted, sym = boot(tag, apps, src)
         with booted as ui:                      # (the UI is what the context YIELDS)
@@ -548,6 +700,20 @@ def run_all(legs, apps=None, src=None):
                 fails += f
                 if not f:
                     fails += refused(g, log)
+            if "mouse" in legs and tag == "cga":
+                f, log, end = record_mouse(g, ui)
+                fails += f
+                if not f:
+                    logs["mouse"], ends["mouse"] = log, end
+            if "mouse" in legs and tag == "herc" and "mouse" in logs:
+                log = logs["mouse"]
+                k, mat = log[4], log[5]
+                g.m.pause()
+                g.putb("bz_ctl", 0)             # (a replay reads no mouse: the control is the session's)
+                g.m.run()
+                f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["mouse"],
+                              "replay of the CGA's MOUSE play")
+                fails += f
             if "inject" in legs:
                 for name, k, mat, keys, what, _ in inj:
                     log = R.make_log(keys, k, mat)
@@ -572,9 +738,10 @@ REDS = {
                    "    mov bl, [bz_keys]\n    cmp bl, [bz_rk]\n    jne .redrec\n    cmp byte [bz_rn], 255\n"
                    "    jae .redrec\n    inc byte [bz_rn]\n    jmp short .redfk\n.redrec:\n    call bz_rrec\n"
                    ".redfk:\n"),
-                  ("bzphys.inc", "    mov bl, [bz_keys]           ; PLAY: the frame's (bz_input), RECORDED - the\n",
-                   "    mov bl, [bz_keys]           ; PLAY: the frame's (bz_input), RECORDED - the\n"
-                   "    jmp short .key              ; RED framekeys: not a step's\n")],
+                  ("bzphys.inc", "    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte\n",
+                   "    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte\n"
+                   "    mov byte [bz_tby], BZ_TILT_KEYS ; RED framekeys: not a step's\n"
+                   "    jmp .key\n")],
     # wave 3 (SPEC.md 128.12.13.2).  A windmill's gate judged on the FRAME count, not the step's
     # n: the play depends on the display - the model run off its log parts at the gate
     "propclock": [("bzphys.inc", "    call bz_lrecsi\n    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n"
@@ -582,17 +749,21 @@ REDS = {
                    "    call bz_lrecsi\n    mov ax, [bz_frames]         ; RED propclock: the frame count\n"
                    "    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n")],
     # the identity check taken out: another course's log plays
-    "noident": [("bonanza.asm", "    cmp ax, [bz_rlog + BZR_ID]\n    je .idok\n",
-                 "    cmp ax, [bz_rlog + BZR_ID]\n    jmp short .idok             ; RED noident\n")],
+    "noident": [("bonanza.asm", "    cmp ax, [bz_rlog + BZR_ID]\n    jne .drop\n",
+                 "    cmp ax, [bz_rlog + BZR_ID]\n    nop                         ; RED noident\n")],
+    # wave 4 (SPEC.md 128.14.14): the tilt stick's dead zone left out of the mapping
+    "tiltmap": [("bzgame.inc", "    mov cx, ax\n    shr cx, 1\n    shr cx, 1                   ; CX = DZ\n",
+                 "    xor cx, cx                  ; RED tiltmap: no dead zone\n")],
 }
 RED_WANT = {"hopbit": "parts from the play", "framekeys": "parts from the play", "propclock": "parts from the play",
-            "noident": "refuse:"}
-RED_LEGS = {"hopbit": ("record",), "framekeys": ("record",), "propclock": ("mill",), "noident": ("mill",)}
+            "noident": "refuse:", "tiltmap": "tilt map"}
+RED_LEGS = {"hopbit": ("record",), "framekeys": ("record",), "propclock": ("mill",), "noident": ("mill",),
+            "tiltmap": ("mouse",)}
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--leg", choices=("record", "replay", "inject", "mill", "all"), default="all")
+    ap.add_argument("--leg", choices=("record", "replay", "inject", "mill", "mouse", "all"), default="all")
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the inject logs proved on the model, every red arm assembled")
@@ -606,7 +777,7 @@ def main():
             print(line)
         assert not bad, "%d inject log(s) not proved on the model" % bad
         return
-    legs = ("record", "replay", "inject", "mill") if a.leg == "all" else (a.leg,)
+    legs = ("record", "replay", "inject", "mill", "mouse") if a.leg == "all" else (a.leg,)
     if a.red:
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])

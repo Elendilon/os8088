@@ -1,0 +1,182 @@
+# Summit Rush - BONANZA's course 5 (SPEC.md 128.14.6; its NAME is PEAK,
+# 128.14.17 item 1): the long DEMO course, a descent with every prop on it and
+# all three balls.  Built for the RUBBER ball; four flags, each naming its
+# ball (NO TRAP, `bbcourse.py --selfcheck` item 7).  In order:
+#  1. the summit: three steep ramps (r -4, two units a tile) with their
+#     throws caught on flat landings, then an ICE chute between bumper rails;
+#     flag 0 at its foot;
+#  2. A, the WINDMILL's tier: its doorway entered along -y, the tube through
+#     the house to B, B's ramp down to the DROP chute onto F.  OPTIONAL: a
+#     GLASS pad in an alcove off A opens a staircase of one- and two-unit
+#     steps past the windmill and the chute onto F (the GLASS branch: a step
+#     taken off a Hop is three units - a shatter, back to flag 0 as rubber);
+#  3. F, flag 1, SPRING 1 (768): U1 six units up, two tiles past the spring,
+#     where its flight is near its APEX (a soft landing);
+#  4. the STEEL pad on U1, the long flat COAST down the screen with the LIFT
+#     beside it (its own window, never the windmill's), the LAUNCH cannon over
+#     a chasm onto a LEVEL tier (steel lands at lvz 384: no stun); flag 2;
+#  5. the GLASS pad and the MOAT BRIDGE, a one-tile plank over the void;
+#     flag 3 at its far end;
+#  6. SPRING 2 at the end of a walled run-up (glass needs its speed), onto L4
+#     at the apex; the glass descent of one-unit steps;
+#  7. the RUBBER pad, the short climb to the sand green and the CUP
+#     (capture 160).
+course PEAK "Summit Rush"
+width 64
+ball rubber
+# 1 the summit: three steep ramps (r -4) and their landings, the ice chute
+floor rect  11  7 14 10  flat 36
+wall  rect  10  6 15  7  flat 37
+wall  rect  10  7 11 10  flat 37
+wall  rect  14  7 15 10  flat 37
+floor rect  11 10 14 12  ramp y 10 12 36 32
+wall  tile  10 10  flat 37
+wall  tile  10 11  flat 35
+wall  tile  14 10  flat 37
+wall  tile  14 11  flat 35
+floor rect  11 12 14 15  flat 32
+wall  rect  10 12 11 16  flat 33
+wall  rect  11 15 14 16  flat 33
+floor rect  14 12 16 15  ramp x 14 16 32 28
+wall  tile  14 15  flat 33
+wall  tile  15 15  flat 31
+floor rect  16 12 19 15  flat 28
+wall  tile  15 11  flat 31
+wall  rect  16 11 20 12  flat 29
+wall  rect  19 12 20 15  flat 29
+floor rect  16 15 19 21  ramp y 15 21 28 25
+surface ice rect 16 15 19 21
+wall  rect  15 16 16 21  flat 29
+wall  rect  19 15 20 21  flat 29
+surface bounce rect 15 16 16 21
+surface bounce rect 19 15 20 21
+floor rect  16 21 19 23  ramp y 21 23 25 21
+wall  tile  15 21  flat 26
+wall  tile  15 22  flat 24
+wall  tile  19 21  flat 26
+wall  tile  19 22  flat 24
+# 2 A, the windmill's tier; its house; B; the drop chute to F
+floor rect  16 23 25 27  flat 21
+checkpoint 18 24 ball rubber
+wall  rect  21 19 24 23  flat 27
+wall  rect  24 21 25 23  flat 27
+tube keep  23 23  24 19  via 23 19
+prop windmill 23 23  seed 16
+floor rect  24 18 28 20  flat 19
+wall  rect  24 17 28 18  flat 20
+wall  rect  28 18 29 20  flat 20
+floor rect  26 20 28 26  ramp y 20 26 19 16
+wall  rect  28 20 29 28  flat 20
+floor rect  26 26 28 28  flat 16
+wall  rect  25 28 29 30  flat 22
+tube drop  26 27  26 30  out +y  height 3
+# 2b the OPTIONAL glass branch: a glass pad on A's corner, a staircase of
+# one- and two-unit steps past the windmill and the chute onto F
+floor rect  22 27 25 28  flat 21
+pad glass 23 27
+floor rect  22 28 24 29  flat 20
+floor rect  22 29 24 30  flat 18
+wall  rect  24 28 25 30  flat 22
+floor rect  22 30 24 31  flat 17
+floor rect  22 31 24 32  flat 15
+floor rect  22 32 24 33  flat 14
+# 3 F, flag 1, spring 1 up six units to U1
+floor rect  24 30 29 35  flat 13
+checkpoint 25 32 ball rubber
+spring 27 33 768
+# 4 U1, the steel pad, the coast and the lift beside it, the LAUNCH over the chasm
+floor rect  29 31 34 36  flat 19
+pad steel 32 33
+floor band  -2 2 66 81  flat 19
+wall  band  -4 -3 66 81  flat 20
+floor tile 38 35 flat 19
+floor tile 39 34 flat 15
+floor rect 39 36 41 37 flat 15
+floor tile 40 35 flat 15
+prop platform 39 35 4
+wall rect 39 41 42 42 flat 20
+tube launch 40 40 40 42 speed 0 320 384
+floor rect 39 42 42 43 flat 19
+floor rect 38 45 43 49 flat 19
+checkpoint 40 46 ball steel
+wall rect 39 49 43 50 flat 20
+
+# 5 the glass pad and the moat bridge
+pad glass 40 47
+# (the flag at the bridge's head, in the open: inside the moat its pennant and
+# pole were behind the moat's front wall - SPEC.md 128.14.25 item 1)
+checkpoint 42 48 ball glass
+floor rect 43 48 47 49 flat 19
+floor rect 47 47 53 50 flat 19
+wall rect 47 46 53 47 flat 26
+wall rect 47 50 53 51 flat 26
+wall rect 49 47 53 48 flat 26
+wall rect 49 49 53 50 flat 26
+# 6 spring 2 up to L4; the glass descent
+spring 51 48 768
+floor rect 53 46 57 51 flat 25
+wall rect 57 47 58 51 flat 26
+floor rect 53 51 57 52 flat 24
+floor rect 53 52 57 53 flat 23
+floor rect 53 53 57 54 flat 22
+floor rect 53 54 57 55 flat 21
+# 7 the rubber pad, the short climb, the sand green and the cup
+floor rect 53 55 57 57 flat 21
+pad rubber 55 56
+floor rect 53 57 57 59 ramp y 57 59 21 22
+floor rect 53 59 57 62 flat 22
+surface sand rect 53 59 57 62
+surface normal tile 55 60
+cup 55 60
+wall rect 52 51 53 63 flat 26
+wall rect 57 51 58 63 flat 26
+wall rect 53 62 57 63 flat 23
+
+start 12 8
+
+# The autopilot's route (the route demo's and bonanzaperf's leg, 128.14.6):
+# the summit's ramps and the chute, flag 0, straight up into the windmill's
+# doorway, B, the chute, flag 1, spring 1, the steel pad, the coast, the
+# cannon, flag 2, the glass pad, the bridge, flag 3, spring 2, the descent,
+# the rubber pad and the cup - no fall (`bbcourse.py --selfcheck` item 8).
+way 12  8
+way 12 13
+way 17 13
+way 17 22
+way 18 24
+way 22 26
+way 23 26
+way 24 19
+way 26 19
+way 27 23
+way 26 27
+way 26 31
+way 25 32
+way 25 33
+way 33 33
+way 34 34
+way 37 36
+way 40 40
+way 40 42
+way 40 46
+way 40 47
+way 43 48
+way 47 48
+way 48 48
+way 56 49
+way 55 50
+way 55 56
+way 55 58
+way 55 60
+
+# The OPTIONAL glass staircase (the tool's alone: printed, never driven by
+# the route).
+way 22 26 branch GLASS
+way 23 27 branch GLASS
+way 23 28 branch GLASS
+way 23 30 branch GLASS
+way 23 32 branch GLASS
+way 25 32 branch GLASS
+
+# par: the autopilot's time on the route and a third (128.14.3.1, PROVISIONAL)
+par 47

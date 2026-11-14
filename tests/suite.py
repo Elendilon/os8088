@@ -5026,8 +5026,19 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 80.0,
-        "WAVE 3 (SPEC.md 128.12.13.1): the four courses (MILL too), BENCH, FIRST and "
+    Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 131.0,
+        "WAVE 4 (SPEC.md 128.14.14, 128.14.18 item 9, 128.14.20): BENCH and TRIAL byte for byte "
+        "573eec83's parts and MILL its but for its round openings (openings_only, its control), "
+        "FIRST but its way route; every refusal of the new statements (checkpoint, pad, cup, "
+        "spring, par, way's branch; NO TRAP; NOTHING UNDER THE HUD) with the controls a cup on a "
+        "ramp and a second cup accepted; the records of kinds 5 - 8, BZG1's flags and pad mask, "
+        "BZ_CRS_PARS, BZ_CRS_IDS and BZ_PHYSV (recomputed with binascii); every spring's flight in "
+        "the reach (its control: item 6); the cup, the lip-out, a pad's swap, a flag's respawn, "
+        "RETURN, the spring at the max and the tilt's 8, 6, 4, 2 by the model with their controls; "
+        "MOON's and PEAK's routes; ROUND OPENINGS (item 3) with five controls; every shipped demo "
+        "replayed by the model to its end, another physics re-stamped or demoted, another build "
+        "of its course failing (item 9, its identity control). secs MEASURED in wave 4's final pass "
+        "(131 s). WAVE 3 (SPEC.md 128.12.13.1): the four courses (MILL too), BENCH, FIRST and "
         "TRIAL byte for byte wave 2's parts (848ade16's tool run from git) but BZG1 +18, "
         "the IDENTITY (128.12.8's position-sensitive checksum, printed; MILL with its two "
         "windmills' seeds exchanged must have another) - EXIT 77 when that commit cannot be "
@@ -5063,7 +5074,7 @@ SOAK = [
         "TRIAL's, FIRST with each ball, and GLIDE's eight directions at step "
         "rates 0.96 - 1.04. secs MEASURED on the host for wave 3 (78.9 s; 64 s at the tool "
         "stage, the review's seed-exchange control compiling MILL twice more)"),
-    Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 150.0,
+    Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 281.0,
         "BONANZA's two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, "
         "128.11.10, 128.11.17.2). The ORACLE is bbcourse's picture with the "
         "SHADOW (an AND mask of the ball part), the MATERIAL's sprite (its "
@@ -5122,10 +5133,21 @@ SOAK = [
         "world-anchored), so the MILL play ends in a RING'S-END SCENE that does (8 frames a card, "
         "`fastwrap` judged there), and on the Hercules the LOW scenario takes the post whose "
         "columns cross it (post 4: every LOW commit a `wrapcommit`). secs MEASURED in wave 3b's "
-        "final pass (147 s, SPEC.md 128.13.16)",
+        "final pass (147 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): the oracle's hidden ball is "
+        "bz_hidn (a tube or HOLED OUT); the W4 part replays MOON's shipped demo and bonanzaphys's "
+        "cup-128 and cup-lip (PEAK) with the HUD OFF - the card = oracle on every full write, the "
+        "capture frame, every lip-out, every flag raised, every pad swap - and THE BLANK off an io "
+        "breakpoint on 3D8h / 3B8h (enable bit clear before every full write's first row and at its "
+        "flip, set again the next frame); the HUD part (only while the build carries it, 128.14.16 "
+        "item 4) replays MILL's route demo FOLLOW, REST (GLIDE, TRICKLE) and OFF with the panel "
+        "composed into the oracle at bz_tf and bz_presented, every box kind and scroll direction, "
+        "THE WRITE-ONCE CHECK on the rect's card bytes (mem breakpoints, bz_tr to bz_presented: no "
+        "byte two different values a frame) and the LANE SCENE (a MILL lane under the panel, made "
+        "due: never written over it). Red arms `--red hudinset|hudold|hudlane|hudfull|noblank` "
+        "(the HUD's inert: no HUD is built, SPEC.md 128.14.5). " + "secs MEASURED in wave 4's final pass (281 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 160.0,
+    Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 367.0,
         "BONANZA's frame cost on MartyPC's 4.77 MHz XT, CGA and Hercules "
         "(SPEC.md 128.11.15, 128.11.17.2): the BENCH benchmark's 1,200 frames "
         "under LOGGED breakpoints on the frame marks (wave 2's bz_tcmid and its "
@@ -5169,10 +5191,18 @@ SOAK = [
         "with the merge back at 24 lines; TRIAL's bz_nhvy with level 1's two clauses back). "
         "With no A/B run a BENCH miss on a frame of more than one step is the step phase's, "
         "REPORTED; a one-step miss fails. secs MEASURED in wave 3b's final pass (155 s, SPEC.md "
-        "128.13.16)",
+        "128.13.16). WAVE 4 (SPEC.md 128.14.14, 128.14.16, 128.14.17 item 7): THE DEMO LEGS - every "
+        "shipped demo through D on both cards, sound OFF and ON, the HUD OFF and (while built) REST, "
+        "MILL's also FOLLOW: its end the model's, bz_wover and bz_wlate 0, in REST no HUD box on a "
+        "scroll frame but a release, ASSERTED; busy, misses, HUD boxes, pads, springs, lip-outs "
+        "REPORTED against the HUD-OFF leg; THE HUD'S FIT - MILL's route demo, the speaker on, HUD OFF "
+        "against REST (CGA) / FOLLOW (Hercules): at most +2 misses ASSERTED (a failure is the "
+        "measurement that REMOVES the HUD); D's OVERHEAD against R reported; B draws no HUD box "
+        "(bz_nhud 0) ASSERTED; --ab now 573eec83 (3b), BENCH's mean busy at most +0.5k on BOTH cards "
+        "ASSERTED (the final pass's by-hand run). Red arm `--red hudon` (HUD only). secs MEASURED in wave 4's final pass (367 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 143.0,
+    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 263.0,
         "BONANZA's physics on the guest EQUALS bbcourse.Physics (SPEC.md "
         "128.11.8, 128.11.17.2) on MartyPC's CGA and Hercules, EXACTLY, at "
         "every frame's bz_presented - the eight values and 128.11.8.1's (the "
@@ -5196,10 +5226,18 @@ SOAK = [
         "with the slab low) and board, launch, drop with each ball. Red arms "
         "`--red gate|kick|carry|carrys|stick|exit` each required to fail at its own replay. Steps "
         "4 - 6 are one instance since wave 3b (SPEC.md 128.13.8), so every replay runs both "
-        "paths' code. secs MEASURED in wave 3b's final pass (143 s, SPEC.md 128.13.16)",
+        "paths' code. secs MEASURED in wave 3b's final pass (143 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md "
+        "128.14.14): replays found and proved on the model on MOON and PEAK - flag (a pit past flag 0 "
+        "respawns on it), flagmat (a glass shatter past PEAK's flag 3 respawns there as glass; MOON's "
+        "flag 2 as rubber), padswap (every pad: bz_mat, the record and ftg the model's every frame), "
+        "cup (128 holes out, 256 pops with bz_nlip 1, a stunned steel ball holes out after its stun, a "
+        "shattering glass one does not), spring (rubber onto PEAK's upper tier, the max not the sum, no "
+        "launch on a shatter), return (bz_nret 1, bz_nfall unchanged), tilt (a TILT log, caps 0 - 8, "
+        "8 -> 2 under a held arrow: 8, 6, 4, 2) - each on both cards, the new counters compared. Red "
+        "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in wave 4's final pass (263 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 55.0,
+    Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 86.0,
         "BONANZA's replays (SPEC.md 128.11.12, 128.11.17.2) on MartyPC: "
         "RECORD on the CGA - N to TRIAL, Enter, real keys held and released "
         "through the debug server for 600 frames (every arrow, Space, Left "
@@ -5221,10 +5259,15 @@ SOAK = [
         "a kick and a tube's capture, the model run off the log equal to the play; replayed "
         "on the Hercules; and the same log with its +14 identity changed REFUSED (bz_err 3, "
         "nothing played, the face's \"Another course's log\"). Red arms `--red propclock|"
-        "noident`. secs MEASURED in wave 3b's final pass (55 s, SPEC.md 128.13.16)",
+        "noident`. secs MEASURED in wave 3b's final pass (55 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md "
+        "128.14.14): a MOUSE play on MOON under T MOUSE, the pointer driven round the anchor on both "
+        "axes (os88mouse's absolute verbs): the log TILT, each frame's tilt byte 128.14.8.1's mapping "
+        "of the pointer placed (bbcourse.TiltStick), a respawn re-anchoring, the log replayed on the "
+        "Hercules equal at every frame; its busy against the keyboard play reported. Red arm `--red "
+        "tiltmap`. secs MEASURED in wave 4's final pass (86 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 103.0,
+    Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 210.0,
         "BONANZA leaves nothing behind and a held key is one press (SPEC.md "
         "128.10.6.2, 128.11.3.1, 128.11.11.2) on MartyPC's CGA and Hercules: "
         "with EACH BALL (M: rubber, steel, glass), every way out - Esc, F and "
@@ -5242,10 +5285,14 @@ SOAK = [
         "check. WAVE 3 (SPEC.md 128.12.13.2): the part rows 3 + BZ_NCRS with MILL (row 6), "
         "and on MILL every way out - Esc, F, Alt+Enter, its goal, a replay's end and Esc in "
         "one, its benchmark - and Esc while the ball is HIDDEN in a tube. secs MEASURED in "
-        "wave 3b's final pass (103 s, SPEC.md 128.13.16)",
+        "wave 3b's final pass (103 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): the part rows "
+        "3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO; MOON and PEAK (their three ball rows fetched and "
+        "dropped), every way out of a TOUR course (the cup, Esc, F, Alt+Enter) and a tour stopped on "
+        "the face, D's end, V's fetch and drop, L, W and the double-click, each with the claims as "
+        "before. Red arm `--red padleak` (the third ball row kept at the cup). secs MEASURED in wave 4's final pass (210 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 26.0,
+    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 61.0,
         "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 128.11.14) and "
         "this RUNS it: build/mega.img on 86Box's 286-mega-multimon with "
         "build/bonanza.img in B:, BONANZA's window DRAGGED onto the Hercules, "
@@ -5273,7 +5320,13 @@ SOAK = [
         "E0 AA), then every step logged with both held has Right and Grip, ASSERTED (SKIP when "
         "2Ah stays set); `shiftmap` is red there; `mapcs` re-pointed at the PASS's map store "
         "(through CS: an exception at MILL's launch, the calibration committing through it). "
-        "secs MEASURED in wave 3b's final pass (26 s, SPEC.md 128.13.16)",
+        "secs MEASURED in wave 3b's final pass (26 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): "
+        "BONANZA.O88's row in B:'s window computed from the floppy's root (SYSTEM\\APPDATA's folder "
+        "lists first, 19.4); PEAK's shipped demo by D on the Hercules with the HUD FOLLOW and REST "
+        "(four claims inside: the course and all three balls), its end the model's, a respawn's cut "
+        "blanked with no fault; W through the Save form and L through the Open form, D of what L read; "
+        "LAST the double-clicked PEAKA.BZR opening a second BONANZA holding it. Red arm `--red "
+        "stageseg` (L's copy adding a paragraph to the staging selector: an exception). secs MEASURED in wave 4's final pass (61 s, SPEC.md 128.14.26)",
         needs=("86box", "nasm"), timeout=900,
         wants=("build/mega.img", "build/bonanza.img")),
     Row("bonanzamusic", "soak", ["python3", "tools/bbmusic.py", "--selfcheck"], 1.0,
@@ -5303,7 +5356,45 @@ SOAK = [
         "check. secs measured (37 s, both legs, in the final pass)",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 66.0,
+    Row("bonanzagame", "soak", py("tests/bonanza_game.py"), 353.0,
+        "BONANZA's GAME (SPEC.md 128.14.3, 128.14.14) on MartyPC's CGA and Hercules, driven by "
+        "the AUTOPILOT (bz_apilot, a harness byte: a play takes its key bytes from bz_auto, "
+        "recorded as a play's): V, R and D of FIRST's demo, D of MOON's to its cup and a free play "
+        "with ANOTHER ball (M) each leaving BONANZA.DAT ABSENT (read off the floppy on the host); P "
+        "pausing a play (no step, the log unchanged, the model's goal step); a TOUR (G) - each "
+        "course's time bz_ttime the model's autopilot steps, its falls, bz_tour, the total their "
+        "sum, BONANZA.DAT the expected 64 bytes; a second tour, course 2 slower, Esc in course 3 "
+        "(stopped, the file UNCHANGED); a third stopped by Esc on the FACE, with G, N, M, B, R, D, L "
+        "and V doing nothing during it; a HOSTILE BONANZA.DAT set (short, bad magic, another "
+        "identity, a best of 0, a tour of another XOR, a count of 9) each refused whole or in part "
+        "as 128.14.3.3 / 128.14.17 item 6 say and the file rewritten whole at the next best; a disk "
+        "WITHOUT SYSTEM\\APPDATA toasting `Best times not saved` once; while the HUD is built, its "
+        "digits at sampled bz_presented (the card's rect = the panel for bz_hdisp, bz_htn the steps' "
+        "tenths) in REST under GLIDE and TRICKLE, FOLLOW and OFF, no REST box on a scroll frame but "
+        "a release, glyph and SHOW boxes only on light frames; REPORTED the shown share, the disk "
+        "calls and PEAK's launch time. `--check` (host): the model's tour, the tour XOR against "
+        "bzcourse.inc, the hostile set decided, every red arm assembled. Red arms `--red "
+        "besttime|datlen|replaybest|noappdata|hudhold|hudtime` (the last two HUD only). secs MEASURED in wave 4's final pass (353 s, SPEC.md 128.14.26)",
+        needs=("marty", "nasm"), timeout=1800,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
+    Row("bonanzademo", "soak", py("tests/bonanza_demo.py"), 291.0,
+        "BONANZA's recorded demos on the disk (SPEC.md 128.14.7, 128.14.14) on MartyPC's CGA and "
+        "Hercules: a free play of MILL by the autopilot, W through the Save dialog into SYSTEM, the "
+        "file read back on the host equal to bz_rlog and the model's log, then a play of MILL "
+        "fetching from HOME; L of it back (bz_rlog, the log line its name), R to the model's end, "
+        "D's RESULTS; V through the five shipped demos each D'd to the model's end; a DOUBLE-CLICKED "
+        ".BZR opening BONANZA with it held and R after it fetching from home; THE HOSTILE SET of 16 "
+        "files the host writes (an extension not BZR, 15 bytes, 4,097, a bad magic, K = BZ_NCRS, "
+        "material 3, +6 bit 3, another build's identity, other physics, N = 0, lengths one off "
+        "16 + 2N and 16 + 3N, steps one off, a count of 0, a key byte with bit 7, a tilt nibble of "
+        "9) each refused with its toast, bz_rlog unchanged, no part fetched, no claim left "
+        "(tools/heapmap.py), the first three never reaching bz_lfile's read; and the double-click's "
+        "own three (4,097 bytes, 15 bytes, a bad identity). `--check` (host): each file's refusal "
+        "decided by bbcourse.check_log, every red arm assembled. Red arms `--red nosum|readfirst|"
+        "stageleak|inplace|nohome|argsize`. secs MEASURED in wave 4's final pass (291 s, SPEC.md 128.14.26)",
+        needs=("marty", "nasm"), timeout=1200,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
+    Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 75.0,
         "BONANZA's WHEEL (SPEC.md 128.12.5, 128.12.13.2, 128.12.15) on MartyPC's CGA and "
         "Hercules: MILL's benchmark (bz_crs poked) under stops on bz_ldrw's two writers "
         "(found by their bytes), bz_wcommit (its return address: AHEAD, BEHIND or the LEAD) "
@@ -5339,7 +5430,12 @@ SOAK = [
         "FAILS on the CGA in wave 3b's final pass (SPEC.md 128.13.16: the corner lane can only be "
         "committed AHEAD, by 67.3k clk, and the step frame's test lands at about 65k). secs MEASURED "
         "in wave 3b's final pass (64 s, SPEC.md 128.13.16). The sound is OFF (S poked): with it on the rotors "
-        "show ~2 poses in 36 fewer, SPEC.md 128.20.7",
+        "show ~2 poses in 36 fewer, SPEC.md 128.20.7. WAVE 4 (SPEC.md 128.14.14): every existing leg "
+        "PINNED to the HUD OFF; (14), while the build carries the HUD: a MILL play with the HUD FOLLOW "
+        "and a rotor or post under its shown rect (a centred full write, the ball held, the lane made "
+        "due every 4th frame) - no wheel commit or LEAD changes a byte of the rect (read at the pass's "
+        "call and return); the Hercules' 45-word window cannot place one: REPORTED. Red arm `--red "
+        "hudrect` (the CGA). secs MEASURED in wave 4's final pass (75 s, SPEC.md 128.14.26)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",

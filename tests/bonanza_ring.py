@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, 128.8, 128.10.11, 128.11.17.2).
 
-    make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both] [--part glass|bench|trial|mill|play|probe]
+    make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both] [--part glass|bench|trial|mill|play|probe|w4|hud]
     python3 tests/bonanza_ring.py --red NAME        (a red arm, below)
 
 THE ORACLE is tools/bbcourse.py and tools/bonanza_assets.py (SPEC.md
@@ -93,7 +93,9 @@ model's (`spy`).
      is reported), a contact rotor and a contact post, a deferred contact lane,
      the platform's box and its clipped box, a lane entering by a row and by a
      column, a transit (the ball not drawn) - and EVERY frame whose wheel
-     commit meets the ball's old footprint - and at each tube's exit the
+     commit meets the ball's old footprint, which also FAILS by the rule
+     itself (wnear_check, on the MILL leg and the MILL play: never one in a
+     right build) - and at each tube's exit the
      ball's footprint inside the window.  THE MILL PLAY: the ball poked onto
      the slab and ridden (the slab's layer in the riding ball's box), then
      poked under it in its shaft (the slab OVER the ball).
@@ -130,6 +132,36 @@ model's (`spy`).
      entering row meets the slab's drawn footprint, bz_ctype 3, by the ball
      poked across the band's foot; ended at one point, so the slab's box is
      drawn and sized).
+  8  WAVE 4 (SPEC.md 128.14.14).  The oracle's hidden ball is bz_hidn (in a
+     tube, or HOLED OUT: its capture frame draws the course where it was).
+     THE W4 PART (`w4`), the HUD OFF: MOON's shipped demo replayed (R) - a
+     fall, a RETURN, its three pads, its flags, its cup - then
+     bonanzaphys's model-proved `cup-128` and `cup-lip` (PEAK's cup: a
+     capture, a lip-out's pop), each under the frame loop: the card equal
+     to the oracle at bz_presented on every full write (the first and every
+     respawn's cut), the capture frame, every lip-out's frame, every frame
+     a FLAG's drawn pose changed (raised, committed or promoted), every pad
+     swap's, and one frame in W4_EVERY; and THE BLANK (128.14.5.6) from an
+     `io` breakpoint on 3D8h / 3B8h: the video-enable bit CLEAR before
+     every full write's first row and at its bz_presented, SET again by the
+     next frame's.  THE HUD PART (`hud`, only while the build carries it,
+     128.14.16 item 4): MILL's route demo replayed with the HUD FOLLOW, REST
+     under GLIDE and under TRICKLE, and OFF - the oracle composes the PANEL
+     (bz_hpan, itself the host's render of bz_hdisp) over the rect while it
+     is on the card, at bz_tf (bz_hwas: the last panel seen) and at
+     bz_presented (bz_hon), on every full write, every HUD box kind's first
+     HUD_EACH, the first HUD_EACH of each scroll direction with the panel
+     shown, every REST release and one frame in HUD_EVERY; on those frames
+     THE WRITE-ONCE CHECK: the rect's card bytes at the old and the new
+     window under `mem` breakpoints from bz_tr to bz_presented (a full
+     write's set to SENTINEL first), no byte receiving two different values
+     in a frame; OFF never shows the panel; REPORTED the shown share, the
+     boxes by kind, the releases, the five-box frames.  Then THE LANE SCENE:
+     play mode on MILL, FOLLOW, TRICKLE, a centred full write putting a
+     rotor or post under the rect (bonanza_wheel.hud_plan), the ball held,
+     the lane made due every fourth frame: the card equal to the oracle with
+     the panel at every bz_presented - the lane never written over the panel
+     - its promotions REPORTED.
 
 --red NAME is the row's red arm (docs/WRITING-TESTS.md 1): it copies
 apps/bonanza/ to a temporary directory, breaks one thing there, builds that
@@ -156,7 +188,13 @@ their own check:
              two-box frame (the TRIAL leg)
   contact    the contact choice and the wheel's box test taken out: a due
              lane beside the ball is the wheel's, which writes it over the
-             ball still on the glass - at bz_tf (the MILL leg)
+             ball still on the glass - at bz_tf, by the rule itself (a wheel
+             commit meeting the ball's or the shadow's OLD footprint inside
+             the windows, wnear_check) or the card.  OPEN (SPEC.md 128.14.27
+             item 3): no scene yet gives the broken wheel ROOM to commit such
+             a lane - the DEFER scene's post is its candidate but is promoted
+             (BZ_WPRF) before it loads - so the arm goes red at the DEFER
+             scene's coverage instead
   defer      a WAITING contact lane's map words synced anyway: its new pose in
              the box, the old outside it - a `defer` frame (the MILL leg)
   padfront   the platform never over the ball: a `pover` frame (the MILL play)
@@ -174,6 +212,17 @@ their own check:
   wrapmask   (3b review) the pass's row-at-a-time path across the ring's end
              without its mask: a `wrapcommit` frame (MILL's post 4, Hercules)
   (and `defer` is judged on the DEFER scene now: the MILL play)
+  hudinset   (wave 4) the HUD's inset taken to 0: an entering row writes the
+             panel's cells and the HUD's box writes them again - `two values`
+             on a FOLLOW scroll frame (HUD only)
+  hudold     (wave 4) FOLLOW's step without the old rect: the panel left
+             where it was - the oracle at bz_presented (HUD only)
+  hudlane    (wave 4) the wheel's HUD-rect test removed: a commit writes the
+             lane over the panel - the LANE SCENE's oracle (HUD only)
+  hudfull    (wave 4) the full write's span skip removed while shown: the
+             rect gets the course, then the panel - `two values` (HUD only)
+  noblank    (wave 4) the blank left out: a full write with the video enabled
+             - the W4 replays' blank check
 
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
 bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
@@ -216,7 +265,10 @@ LOCAL_SYMS = (("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr
               ("bz_exitchk", "leave"),
               # wave 3b (SPEC.md 128.13.4.3, 128.13.12): the platform's box WAITED and a lane
               # PROMOTED (bz_props's two entries), and the sound's span a frame (128.20.7)
-              ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"))
+              ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"),
+              # wave 4 (SPEC.md 128.14.14): a demo file's read (bonanzademo: the disk is touched
+              # there, and FERR_BIG lands in .rerr), the tour's post and the respawn's blank
+              ("bz_lfile", "read"), ("bz_lfile", "rerr"))
 DIRS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 FIRST_EACH = 3                      # frames checked per direction, first ones
 LAY_EACH = 6                        # ...and the first frames that laid a record
@@ -665,11 +717,13 @@ class Bz:
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
                   mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0)
         lk.zb = lk.gz >> 8
-        lk.tube = f("bz_tube", "B") if "bz_tube" in self.sym else 0
+        # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
+        # restores its footprint; an earlier wave's build has bz_tube alone
+        lk.tube = self.b("bz_hidn") if "bz_hidn" in self.sym else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
-            return lk, ("the guest drew a shadow ([bz_snv] 1) for a ball hidden in a tube"
+            return lk, ("the guest drew a shadow ([bz_snv] 1) for a hidden ball (a tube, or holed)"
                         if self.b("bz_snv") else None)
         centred = not lk.pokd
         cell = grid.cell(lk.gx >> 12, lk.gy >> 12)
@@ -737,6 +791,15 @@ class Bz:
         n = self.w("bz_nbox")
         raw = self.m.read(self.a("bz_boxes"), 4 * BZ_BOXD)
         return [struct.unpack_from("<HhHH", raw, i * BZ_BOXD) + (raw[i * BZ_BOXD + 18],) for i in range(min(n, 4))]
+
+    def boxes5(self):
+        """boxes() with the FIFTH descriptor too, the HUD's group (SPEC.md
+        128.14.5.4) when the build carries it, else boxes()"""
+        if "bz_hmode" not in self.sym:
+            return self.boxes()
+        n = self.w("bz_nbox")
+        raw = self.m.read(self.a("bz_boxes"), 5 * BZ_BOXD)
+        return [struct.unpack_from("<HhHH", raw, i * BZ_BOXD) + (raw[i * BZ_BOXD + 18],) for i in range(min(n, 5))]
 
     def read_log(self):
         """bz_rlog's 4,096 bytes"""
@@ -1039,6 +1102,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
             if mill:                            # ORACLE CHECK 5: the wheel's commits' map words
                 fails += ["%s frame %d at bz_tf: %s" % (leg, g.w("bz_frames") + 1, x) for x in map_check(
                     g, ref.c, [c[1] for c in commits if c[0] in ("ahead", "behind")])]
+                fails += wnear_check(g, ref.c, commits, "%s frame %d" % (leg, g.w("bz_frames") + 1))
             if g.b("bz_mode") != 1:
                 raise AssertionError("B did not start the benchmark")
             if order and g.b("bz_crs") != CRS_K[leg.lower()]:
@@ -1448,6 +1512,47 @@ def entering(g):
     return rows, col, (R0n, c0n, H, Wc)
 
 
+def wnear_lanes(g, crs, commits):
+    """at bz_tf: the lanes a WHEEL commit of this frame (ahead of the beam or
+    behind it - not the LEAD's, after the flip) wrote over the ball's or the
+    shadow's OLD footprint where it is in the shown window and the new one -
+    the ball still on the glass there until its box restores it.  Never one
+    in a right build: such a lane is a contact candidate, and the wheel's box
+    filter drops every lane meeting a box (SPEC.md 128.12.4.2, 128.12.13.2).
+    A full write's frame has no old footprint on the glass to erase."""
+    if not commits or not g.b("bz_oldv") or g.b("bz_full"):
+        return []
+    olds = [struct.unpack("<4H", g.m.read(g.a("bz_ofx0"), 8))]
+    if g.b("bz_sov"):
+        olds.append(struct.unpack("<4H", g.m.read(g.a("bz_sox0"), 8)))
+    lsh = 1 if g.tag == "cga" else 2
+    H, Wc = g.w("bz_H"), g.w("bz_W")
+    wins = [(g.w(r), g.w(c)) for r, c in (("bz_R0", "bz_c0"), ("bz_R0n", "bz_c0n"))]
+    rects = lane_rects(crs)
+    out = []
+    for kind, lane in commits:
+        if kind not in ("ahead", "behind") or lane not in rects or lane in out:
+            continue
+        col, brow, w, h = rects[lane][:4]
+        for x0, x1, y0, y1 in olds:
+            a0, a1 = max(col, x0), min(col + w - 1, x1)           # words
+            l0, l1 = max(8 * brow, y0), min(8 * (brow + h) - 1, y1)   # lines
+            for R0, c0 in wins:                                     # ...inside both windows
+                a0, a1 = max(a0, c0), min(a1, c0 + Wc - 1)
+                l0, l1 = max(l0, R0 << lsh), min(l1, ((R0 + H) << lsh) - 1)
+            if a0 <= a1 and l0 <= l1:
+                out.append(lane)
+                break
+    return out
+
+
+def wnear_check(g, crs, commits, where):
+    """THE RULE ITSELF at bz_tf (wnear_lanes): -> failures"""
+    return ["%s at bz_tf: the wheel committed lane %d over the ball's or the shadow's OLD footprint, still on "
+            "the glass (a contact candidate is never the wheel's: SPEC.md 128.12.4.2)" % (where, lane)
+            for lane in wnear_lanes(g, crs, commits)]
+
+
 def mill_feats(g, ref, commits, ndef0, dk, npwt0=0):
     """at bz_tf: the features of SPEC.md 128.12.13.2's MILL leg this frame has
     (a DEFERRED contact lane: bz_ndef moved by more than the slab's waits, which
@@ -1466,19 +1571,9 @@ def mill_feats(g, ref, commits, ndef0, dk, npwt0=0):
     # a wheel commit meeting the ball's or the shadow's OLD footprint, still on the
     # glass at bz_tf: never one in a right build (such a lane is a contact candidate,
     # SPEC.md 128.12.4.2), and the frame the `contact` red erases the ball on - so
-    # every such frame is checked, not FEAT_EACH of them
-    if commits and g.b("bz_oldv"):
-        olds = [struct.unpack("<4H", g.m.read(g.a("bz_ofx0"), 8))]
-        if g.b("bz_sov"):
-            olds.append(struct.unpack("<4H", g.m.read(g.a("bz_sox0"), 8)))
-        rects = lane_rects(ref.c)
-        for kind, lane in commits:
-            if kind not in ("ahead", "behind") or lane not in rects:
-                continue
-            col, brow, w, h = rects[lane][:4]
-            for x0, x1, y0, y1 in olds:
-                if col <= x1 and x0 < col + w and 8 * brow <= y1 and y0 < 8 * (brow + h):
-                    out.add("wnear")
+    # every such frame is checked, not FEAT_EACH of them (and wnear_check FAILS it)
+    if wnear_lanes(g, ref.c, commits):
+        out.add("wnear")
     if dk != (0, 0) and not g.b("bz_full"):
         rows, col, (R0n, c0n, H, Wc) = entering(g)
         lsh = 1 if g.tag == "cga" else 2
@@ -1807,6 +1902,17 @@ def mill_play(g, ref):
                     g.putb("bz_first", 1)           # the next frame: a full write centred on it
                 sc["k"] += 1
                 if sc["k"] > RE_HOLD + 1:
+                    phase, sc["k"] = "entercol", 0
+                    sc["ec"] = entercol_plan(g, crs)
+                    if sc["ec"] is None:
+                        if tag == "cga":
+                            fails.append("MILL play: no window puts a rotor's or a post's columns just outside its "
+                                         "left or right edge with its rows inside (the entering-column scene)")
+                        phase = "done"
+            elif phase == "entercol":
+                entercol_poke(g, sc["ec"], sc["k"])
+                sc["k"] += 1
+                if sc["k"] > EC_END:
                     phase = "done"
             elif frames >= df_end:
                 if phase != "pwait":
@@ -1863,13 +1969,18 @@ def mill_play(g, ref):
                 fails.append("MILL play frame %d (pwait) at bz_tf: the slab's box waited two frames running "
                              "(bz_pyld on this frame and the last; SPEC.md 128.13.4.3)" % (frames + 1))
             sc["tfw_prev"] = sc["tfwait"]
+            if phase == "entercol" and not g.b("bz_full"):
+                _rows, col, (R0n, _c0n, H_, _Wc) = entering(g)
+                q0, q1, a0, a1 = lane_cells(lane_rects(crs)[sc["ec"][0]], 1 if tag == "cga" else 2)
+                sc["ecol"] = col is not None and a0 <= col < a1 and q0 < R0n + H_ and R0n < q1
             sc["tfct"] = g.b("bz_ctype")
             sc["tfcgr"] = g.w("bz_cgr")
             sc["tfnd"] = g.w("bz_ndef")
             sc["tfbx"] = g.boxes()
             fails += ["MILL play frame %d (%s) at bz_tf: %s" % (frames + 1, phase, x) for x in map_check(
                 g, crs, [c[1] for c in commits if c[0] in ("ahead", "behind")])]
-            if prev is not None and not g.b("bz_full") and (phase in ("over", "low", "defer", "pwait", "ringend") or
+            fails += wnear_check(g, crs, commits, "MILL play frame %d (%s)" % (frames + 1, phase))
+            if prev is not None and not g.b("bz_full") and (phase in ("over", "low", "defer", "pwait", "ringend", "entercol") or
                                                             frames % 10 == 0 or sc.get("ridebox_last")):
                 n_, box = diff(g.decode(prev[0][0]), ref.picture(prev[0][1], prev[0][2], prev[1],
                                                                  g.view(True, prev[2])))
@@ -1927,7 +2038,10 @@ def mill_play(g, ref):
                 if sc["tfct"] == 3:
                     sc["strip"] += 1
         commits = []
-        if feats or frames % 10 == 0 or phase in ("low", "defer", "pwait", "ringend"):
+        if phase == "entercol" and sc.pop("ecol", False):
+            feats.append("enter_col")
+            sc["ecn"] = sc.get("ecn", 0) + 1
+        if feats or frames % 10 == 0 or phase in ("low", "defer", "pwait", "ringend", "entercol"):
             n_, box = diff(g.decode(st[0]), ref.picture(st[1], st[2], lk, view))
             for f in feats:
                 cnt[f] = cnt.get(f, 0) + 1
@@ -1963,11 +2077,12 @@ def mill_play(g, ref):
           "a LEAD %d; THE DEFER SCENE (post %s): %d frames waiting drawn lit with cells outside every box; THE PWAIT "
           "SCENE (the lift from step %s): %d lift steps, %d waited frames, %d with an entering row meeting the slab "
           "(%d tries), %d checked; THE RING'S-END SCENE: %d frames with a 3- or 4-word box's whole row across "
-          "2000h checked; the tallest box %d lines, the tallest platform box %d; card = oracle: %s" % (
+          "2000h checked; THE ENTERING-COLUMN SCENE (lane %s): %d frames bringing it in by a column checked; the tallest box %d lines, the tallest platform box %d; card = oracle: %s" % (
               tag, RIDE_FRAMES, OVER_FRAMES, cnt["ride"], cnt.get("ridebox", 0), cnt["pover"],
               plan[0] if plan else None, LOW_F, LOW_FRAMES, cnt["ahead"], cnt["behind"], cnt["lead"],
               sc["df"][0] if sc["df"] else None, sc["dframes"], sc["pwn0"], nlift, sc["waits"], sc["strip"],
-              sc["tries"], cnt.get("pwait", 0), cnt.get("wrapbox", 0), sc["tall"], sc["ptall"],
+              sc["tries"], cnt.get("pwait", 0), cnt.get("wrapbox", 0),
+              sc["ec"][0] if sc.get("ec") else None, sc.get("ecn", 0), sc["tall"], sc["ptall"],
               "yes" if not fails else "NO"), flush=True)
     return fails, cnt
 
@@ -2142,6 +2257,66 @@ TPOKE_AT, TPOKE_EVERY, TPOKE_MAX = 300, 40, 12
 # clear) to such a spot with a full write centred on it, then held there a line up and down for RE_HOLD
 # frames - each frame's box the union of the two footprints, 3 or 4 words, every frame checked
 RE_HOLD = 8
+
+# THE ENTERING-COLUMN SCENE (the final pass of wave 4): MILL's benchmark brings a lane in by a
+# COLUMN on a frame or two a run on the CGA, or on none - wave 4's heavier frames moved which frames
+# step a column, and two runs saw 0 - so the `enter_col` feature gets a scene of its own, the MILL
+# play's last: a centred full write with the window's left (right) edge just right (left) of a rotor's
+# or a post's columns, the ball HELD there; then on the dead zone's edge (TRICKLE, bz_cmode 1: the
+# window holds until the ball crosses it), held; then 2 px across it, so the window steps one column
+# and the column it brings in is the lane's.  The Hercules' 45-word window holds every MILL lane's
+# columns whatever c0, so the scene has no window there (FEAT_OPTIONAL: reported)
+EC_STEP = 3                         # the centred full write and two held frames, then the dead zone's edge
+EC_END = EC_STEP + 6                # held one frame, then the step and the frames after it
+
+
+def entercol_plan(g, crs):
+    """-> (lane, R0, c0, the centre's contact point, the edge's, side) or None"""
+    tag = g.tag
+    lsh, rl = (1 if tag == "cga" else 2), RL[tag]
+    H, Wc, rmax, cmax = g.w("bz_H"), g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    rects = lane_rects(crs)
+    for side in (-1, 1):
+        for i in sorted(rects):
+            if crs.part["props"][i]["kind"] not in (BB.PK_WINDMILL, BB.PK_BUMPER):
+                continue
+            q0, q1, a0, a1 = lane_cells(rects[i], lsh)
+            c0 = a1 if side < 0 else a0 - Wc      # the lane wholly outside, its nearest column the next in
+            R0 = max(0, min(rmax, (q0 + q1) // 2 - H // 2))
+            if not (1 <= c0 <= cmax - 1 and q0 >= R0 and q1 <= R0 + H):
+                continue
+            top, left = R0 << lsh, 8 * c0
+            cen = None
+            for dy in range(rl):
+                for dx in range(8):
+                    cen = cen or probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
+                                              flags=BB.FL_OCC | BB.FL_OCCG)
+            hx = left + 2 * Wc - 8 if side < 0 else left + 6 * Wc - 8
+            hold = None
+            for dy in range(0, 24, rl):             # (the band's middle: no row step on the way)
+                hold = hold or probe_ground(crs, hx, top + 92 - dy, grid, side, clear=8,
+                                            flags=BB.FL_OCC | BB.FL_OCCG)
+            if cen and hold:
+                return i, R0, c0, cen, hold, side
+    return None
+
+
+def entercol_poke(g, plan, k):
+    """THE ENTERING-COLUMN SCENE's pokes at its K-th bz_t0"""
+    _lane, _R0, _c0, cen, hold, side = plan
+    if k == 0:
+        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds until the dead zone's edge
+        g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
+        poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+    elif k < EC_STEP:
+        poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1, same_cell=True)
+    elif k == EC_STEP:
+        poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1)
+    elif k == EC_STEP + 1:
+        poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1, same_cell=True)
+    else:                                       # 2 px across the edge, in the cell: one column step
+        poke_ball(g, hold[0] + 256 * side, hold[1] - 256 * side, hold[2], 0, 0, 0, air=1, same_cell=True)
 
 
 def ringend_plan(g, crs):
@@ -2404,7 +2579,7 @@ def probe(g, ref):
     return fails
 
 
-PARTS = ("glass", "bench", "trial", "mill", "play", "probe")
+PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "hud")
 
 
 def run(tag, apps=None, src=None, art=None, parts=PARTS):
@@ -2434,6 +2609,12 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             out["fails"] += f
         if "probe" in parts and not out["fails"]:
             out["fails"] += probe(g, Ref(tag, course("bench"), art))
+        if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 128.14.14): the props, the blank
+            f, out["w4"] = w4_part(g, art)
+            out["fails"] += f
+        if ("hud" in parts or "hudscene" in parts) and not out["fails"]:   # ...and the HUD, while it is built
+            f, out["hud"] = hud_part(g, art, legs="hud" in parts)
+            out["fails"] += f
     return out
 
 
@@ -2487,15 +2668,581 @@ def verdict(tag, r):
             not sum(x.get("wrapck", 0) for x in legs) + (r.get("play") or {}).get("wrapbox", 0):
         bad.append("the ring's end: no checked frame wrote a 3- or 4-word box's whole rows across it "
                    "(%d frames had one; SPEC.md 128.13.12)" % sum(x.get("wraps", 0) for x in legs))
+    if "w4" in r and not r["fails"]:
+        bad += w4_verdict(tag, r["w4"])
+    if "hud" in r and not r["fails"]:
+        bad += hud_verdict(tag, r["hud"])
+    return bad
+
+
+# ---- wave 4 (SPEC.md 128.14.14): the props on the glass, the respawn's blank, and the HUD -------------
+W4_EVERY = 41                       # the W4 replays: one presented frame in this many checked besides the rest
+HUD_EACH = 3                        # the HUD legs: the first frames checked of each direction / box kind
+HUD_EVERY = 29                      # ...and one presented frame in this many
+HUD_MAXR = 2                        # bzgame.inc BZ_MAXR: the rect's foot this many card rows above the window's
+HUD_SCENE = 40                      # the lane scene's frames after its full write
+HUD_FAILS = 6                       # a HUD leg runs on past a failure until this many (a red arm's own check
+                                    # may be a later frame's: the write-once check needs a scroll frame)
+SENTINEL = 0x5A                     # a full write's watched rect bytes are set to this first (bz_tr), so both
+                                    # writers' values show and a rect nobody writes keeps it
+MODE_PORT = {"cga": 0x3D8, "herc": 0x3B8}
+VBASE = {"cga": 0xB8000, "herc": 0xB0000}
+HK_NAMES = {1: "union", 2: "glyph", 3: "hide", 4: "show", 5: "full"}
+
+
+class Loop:
+    """The frame loop under breakpoints the caller sets and re-sets: EXEC names
+    of the package's (each returned by its name), the card's MODE port (an `io`
+    breakpoint: returned 'io', AL the value an OUT wrote) and card bytes (`mem`
+    breakpoints, any access: returned 'mem').  An io stop is reported at the
+    start of the next step (os88marty.breakpoints), so whatever is not an exec
+    address is the one other kind armed."""
+
+    def __init__(self, g, names, io=None):
+        self.g, self.m = g, g.m
+        self.ex = {g.a(n): n for n in names}
+        self.io, self.mem = io, ()
+
+    def arm(self, mem=()):
+        self.mem = tuple(mem)
+        bps = [{"type": "exec", "addr": a} for a in self.ex]
+        if self.io is not None and not self.mem:
+            bps.append({"type": "io", "addr": self.io})
+        bps += [{"type": "mem", "addr": a} for a in self.mem]
+        self.m.breakpoints(bps)
+
+    def next(self):
+        m = self.m
+        m.run()
+        st = m.wait_stop(60)
+        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+        self.r = r = m.regs()
+        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        if flat in self.ex:
+            return self.ex[flat]
+        return "mem" if self.mem else "io"
+
+
+def card_addrs(g, rect):
+    """the flat card addresses of a rect (x0 x1 y0 y1, world word columns and
+    lines, inclusive: bz_hnr's shape) - the ring's (row x RB + 2 word) mod 8,192
+    in its line's bank (SPEC.md 128.2)"""
+    tag = g.tag
+    rl, rb = RL[tag], RB[tag]
+    x0, x1, y0, y1 = rect
+    out = []
+    for y in range(y0, y1 + 1):
+        bank = (y % rl) * 0x2000
+        for x in range(x0, x1 + 1):
+            o = ((y // rl) * rb + 2 * x) % 8192
+            out += [VBASE[tag] + bank + o, VBASE[tag] + bank + (o + 1) % 8192]
+    return out
+
+
+def hud_rect_lines(tag):
+    """the HUD rect's window lines [y0, y1) and its pixels [8, 24): word columns
+    1 - 2 of the six lines ending BZ_MAXR card rows above the foot (128.14.5.3)"""
+    y1 = 200 - HUD_MAXR * RL[tag]
+    return y1 - 6, y1
+
+
+def with_panel(tag, rows, pan):
+    """ROWS (a window's 200 rows of pixel values) with the panel's 24 bytes PAN
+    composed over the HUD's rect - the oracle's picture with the HUD shown
+    (SPEC.md 128.14.14 bonanzaring); PAN None: the rect MASKED to 0 on both
+    sides (a panel this row has not yet seen on the card)"""
+    y0, y1 = hud_rect_lines(tag)
+    out = list(rows)
+    for j, y in enumerate(range(y0, y1)):
+        r = bytearray(out[y])
+        r[8:24] = bytes(16) if pan is None else b"".join(LUT[c] for c in pan[4 * j:4 * j + 4])
+        out[y] = bytes(r)
+    return out
+
+
+def load_demo(g, kd):
+    """V with [bz_vk] poked to KD - 1: the shipped demo BZD<KD>.BIN in the log (128.14.22 item 7)"""
+    m = g.m
+    demo = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    m.pause()
+    g.putb("bz_vk", kd - 1)
+    m.run()
+    M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+    g.key("KeyV")
+    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
+    return demo
+
+
+def start_replay(g, log=None, poke=None):
+    """R on the held log (LOG written into bz_rlog first when given), stopped at
+    the first bz_t0 with POKE (bonanza_phys's poke dict) applied there"""
+    m = g.m
+    m.pause()
+    if log is not None:
+        g.write_log(log)
+    m.bp_exec(g.a("bz_t0"))
+    m.run()
+    g.key("KeyR")
+    assert m.wait_stop(60) == "breakpoint", "R did not start the replay"
+    g.check_base()
+    if poke:
+        poke_ball(g, poke["gx"], poke["gy"], poke["gz"], poke["gvx"], poke["gvy"], poke["gvz"], air=poke["air"],
+                  ztop=poke["ztop"], lvl=poke["lvl"])
+        if "bz_onp" in g.sym:
+            g.putb("bz_onp", poke.get("onp", 0))
+            g.putb("bz_ps", (g.b("bz_ps") & ~4) | (4 if poke.get("onp") else 0))
+        for k_, v in (poke.get("extra") or {}).items():
+            g.putb("bz_" + k_, v)
+
+
+def end_replay(g, what):
+    m = g.m
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 0, "%s to end" % what, guest=60)
+    dropped(g, what)
+
+
+def replay_end(g):
+    """at bz_t0: the replay's end (this bz_t0 leaves the bracket)"""
+    return g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns"))
+
+
+def w4_replay(g, ref, label, log=None, poke=None):
+    """One REPLAY on a wave-4 course with the HUD OFF, every frame under the
+    loop: the card equal to the oracle at bz_presented on every frame that
+    FULL-writes (the first and each respawn's cut), the CAPTURE frame (the ball
+    holed: gone, its footprint restored, bz_hidn), every lip-out's frame
+    (bz_nlip moved: the pop), every frame on which a FLAG's drawn pose changed
+    (raised, committed or promoted: [bz_ldrw]), every PAD swap's (bz_mat
+    moved) and one frame in W4_EVERY; and THE BLANK (128.14.5.6): the card's
+    mode port written with its video-enable bit (08h) CLEAR before every full
+    write's first row (bz_row after bz_fullw's entry), still clear at its
+    bz_presented, and set again by the next frame's bz_presented.  -> (fails,
+    tallies)"""
+    tag = g.tag
+    start_replay(g, log, poke)
+    flags = [r["i"] for r in ref.c.part["props"] if r["kind"] == BB.PK_CHECKPOINT and r["lane"]]
+    lp = Loop(g, ("bz_t0", "bz_tf", "bz_presented", "bz_fullw", "bz_row"), io=MODE_PORT[tag])
+    lp.arm()
+    fails, tal = [], {"frames": 0, "checked": 0, "full": 0, "respawn": 0, "blank": 0, "capture": 0, "lip": 0,
+                      "flag": 0, "pad": 0}
+    dark, infull, rowseen, fullfr, lastfull = None, False, False, False, False
+    nlip0 = g.w("bz_nlip") if "bz_nlip" in g.sym else 0
+    mat0, flags0, hid0 = g.b("bz_mat"), None, 0
+    while not fails:
+        k = lp.next()
+        if k == "io":
+            dark = not (lp.r["ax"] & 0x08)
+            continue
+        if k == "bz_t0":
+            if replay_end(g):
+                break
+            continue
+        if k == "bz_fullw":
+            infull, rowseen, fullfr = True, False, True
+            continue
+        if k == "bz_row":
+            if infull and not rowseen:
+                rowseen = True
+                if dark is not True:
+                    fails.append("%s frame %d: the full write's first row with the card's video ENABLED (the "
+                                 "blank, SPEC.md 128.14.5.6: %s)" % (label, tal["frames"] + 1,
+                                                                      "never written" if dark is None else "lit"))
+            continue
+        if k == "bz_tf":
+            continue
+        tal["frames"] += 1                    # bz_presented
+        fr = tal["frames"]
+        why = []
+        if fullfr:
+            tal["full"] += 1
+            tal["respawn"] += fr > 1
+            if dark is not True:
+                fails.append("%s frame %d: the full write's frame presented with the video ENABLED (the blank, "
+                             "SPEC.md 128.14.5.6)" % (label, fr))
+            else:
+                tal["blank"] += 1
+            why.append("full")
+        elif lastfull and dark:
+            fails.append("%s frame %d: the frame after a full write presented still DARK (bz_unblank, SPEC.md "
+                         "128.14.5.6)" % (label, fr))
+        lastfull, fullfr, infull = fullfr, False, False
+        hid = g.b("bz_hid") if "bz_hid" in g.sym else 0
+        if hid and not hid0:
+            why.append("capture")
+        hid0 = hid
+        nlip = g.w("bz_nlip") if "bz_nlip" in g.sym else 0
+        if nlip != nlip0:
+            why.append("lip")
+        nlip0 = nlip
+        lanes = g.lanes()
+        fl = tuple(lanes.get(i) for i in flags)
+        if flags0 is not None and fl != flags0:
+            why.append("flag")
+        flags0 = fl
+        if g.b("bz_mat") != mat0:
+            why.append("pad")
+        mat0 = g.b("bz_mat")
+        if not why and fr % W4_EVERY:
+            continue
+        S, R0, c0 = g.state()[:3]
+        lk, bad = g.look(ref.c)
+        if bad:
+            fails.append("%s frame %d (%s) at bz_presented: %s" % (label, fr, "+".join(why) or "every", bad))
+            break
+        if "capture" in why and not lk.tube:
+            fails.append("%s frame %d: the capture frame draws the ball (bz_hidn 0, SPEC.md 128.14.19 item 4)" % (
+                label, fr))
+        n, box = diff(g.decode(S), ref.picture(R0, c0, lk, g.view()))
+        tal["checked"] += 1
+        for w in why:
+            if w in tal and w not in ("full",):
+                tal[w] += 1
+        if n:
+            fails.append("%s frame %d (%s) at bz_presented: card != oracle: %d px, lines %d-%d, x %d-%d" % (
+                label, fr, "+".join(why) or "every", n, *box))
+    end_replay(g, label)
+    return fails, tal
+
+
+def w4_part(g, art=None):
+    """MOON's shipped demo (a fall into the pit by flag 0, a RETURN, its three
+    pads, the flags raised, the cup), then bonanzaphys's model-proved `cup-128`
+    and `cup-lip` (PEAK: a capture from a neighbour, a lip-out's pop), each
+    through w4_replay with the HUD OFF.  -> (fails, tallies by replay)"""
+    import bonanza_phys as P
+    m = g.m
+    if "bz_hmode" in g.sym:
+        m.pause()
+        g.putb("bz_hmode", 0)
+        m.run()
+    fails, out = [], {}
+    load_demo(g, CRS_K["moon"])
+    f, out["moon"] = w4_replay(g, Ref(g.tag, course("moon"), art), "%s W4 MOON's demo" % g.tag)
+    fails += f
+    scen = {s["name"]: s for s in P.w4_replays() if s["name"] in ("cup-128", "cup-lip")}
+    for name in ("cup-128", "cup-lip"):
+        s = scen.get(name)
+        if not s or not s["ok"]:
+            fails.append("W4 %s: the model found no such approach on PEAK's cup (bonanza_phys --check)" % name)
+            continue
+        if fails:
+            break
+        log = make_log(s["keys"], CRS_K[s["crs"]], s["mat"])
+        f, out[name] = w4_replay(g, Ref(g.tag, course(s["crs"]), art), "%s W4 %s" % (g.tag, name), log=log,
+                                 poke=s["poke"])
+        fails += f
+    return fails, out
+
+
+def w4_verdict(tag, out):
+    """the W4 part's coverage: every kind it exists to see, seen and checked"""
+    bad = []
+    t = out.get("moon") or {}
+    for k, need in (("capture", 1), ("flag", 1), ("pad", 1), ("full", 1)):
+        if t and t.get(k, 0) < need:
+            bad.append("W4 MOON's demo: %d %s frame(s) checked, at least %d (SPEC.md 128.14.14 bonanzaring)" % (
+                t.get(k, 0), k, need))
+    if t and t.get("blank", 0) < t.get("full", 0):
+        bad.append("W4 MOON's demo: %d of %d full writes blanked" % (t.get("blank", 0), t.get("full", 0)))
+    for name, k in (("cup-128", "capture"), ("cup-lip", "lip")):
+        x = out.get(name)
+        if x is not None and not x.get(k):
+            bad.append("W4 %s: no %s frame checked" % (name, k))
+    return bad
+
+
+# ---- the HUD (only while the build carries it, SPEC.md 128.14.16 item 4) ------------------------------
+def hud_leg(g, ref, mode, label, cmode=0):
+    """MILL's route demo replayed (R) with [bz_hmode] MODE and [bz_cmode]
+    CMODE: at bz_tf (the shown window, the last frame's picture) and at
+    bz_presented (the new window, this frame's) the card equal to the oracle
+    with the PANEL composed over the HUD's rect while it is on the card
+    (bz_hwas at bz_tf, the panel last seen there; bz_hon at bz_presented,
+    bz_hpan - itself checked equal to the host's render of bz_hdisp's tenths),
+    on every frame with a HUD box of a kind not yet seen HUD_EACH times, every
+    full write, the first HUD_EACH of each scroll direction with the panel on
+    the card, every REST release and one frame in HUD_EVERY; and THE WRITE-ONCE
+    CHECK on those frames: the rect's card bytes (at the old window and the
+    new) under `mem` breakpoints from bz_tr to bz_presented, no byte receiving
+    two DIFFERENT values in the frame.  OFF: the panel never on the card.
+    -> (fails, tallies)"""
+    import bonanza_game as GM
+    m, tag = g.m, g.tag
+    m.pause()
+    g.putb("bz_hmode", mode)
+    g.putb("bz_cmode", cmode)
+    m.run()
+    start_replay(g)
+    lp = Loop(g, ("bz_t0", "bz_tr", "bz_tf", "bz_presented"))
+    lp.arm()
+    fails = []
+    tal = {"frames": 0, "checked": 0, "tf": 0, "shown": 0, "kinds": {}, "dirs": {}, "rel": 0, "watched": 0,
+           "five": 0}
+    prev, pan_seen, rel0, want, watch = None, None, None, False, None
+    while len(fails) < HUD_FAILS:
+        k = lp.next()
+        if k == "bz_t0":
+            if replay_end(g):
+                break
+            continue
+        if k == "mem":
+            raw = m.read(VBASE[tag], 0x4000 if tag == "cga" else 0x8000)
+            for a in watch["addrs"]:
+                v = raw[a - VBASE[tag]]
+                if v != watch["last"][a]:
+                    watch["vals"][a].append(v)
+                    watch["last"][a] = v
+            continue
+        if k == "bz_tr":
+            hwk, hon, hwas = g.b("bz_hwk"), g.b("bz_hon"), g.b("bz_hwas")
+            full = g.b("bz_full")
+            dr, dc = g.s("bz_dr"), g.s("bz_dc")
+            dk = ((dr > 0) - (dr < 0), (dc > 0) - (dc < 0))
+            nrel = g.w("bz_nhrel")
+            rel = rel0 is not None and nrel != rel0
+            rel0 = nrel
+            kn = tal["kinds"].get(hwk, 0)
+            dn = tal["dirs"].get(dk, 0)
+            want = bool(full) or (hwk and kn < HUD_EACH) or rel or \
+                (dk != (0, 0) and (hon or hwas) and dn < HUD_EACH) or (tal["frames"] + 1) % HUD_EVERY == 0
+            if hwk:
+                tal["kinds"][hwk] = kn + 1
+            if dk != (0, 0) and (hon or hwas):
+                tal["dirs"][dk] = dn + 1
+            tal["rel"] += rel
+            watch = None
+            if want and (hon or hwas or full):
+                rects = []
+                for nm in ("bz_hnr", "bz_hor"):
+                    rc = struct.unpack("<4h", m.read(g.a(nm), 8))
+                    if rc not in rects:
+                        rects.append(rc)
+                addrs = sorted(set(a for rc in rects for a in card_addrs(g, rc)))
+                if full:                    # the whole window is the full write's: a sentinel first
+                    for a in addrs:
+                        m.write(a, bytes([SENTINEL]))
+                raw = m.read(VBASE[tag], 0x4000 if tag == "cga" else 0x8000)
+                watch = {"addrs": addrs, "vals": {a: [] for a in addrs},
+                         "last": {a: raw[a - VBASE[tag]] for a in addrs}}
+                lp.arm(addrs)
+                tal["watched"] += 1
+            continue
+        if k == "bz_tf":
+            if want and prev is not None and not g.b("bz_full"):
+                pS, pR0, pc0, plk, pview, phon = prev
+                exp = ref.picture(pR0, pc0, plk, pview)
+                if phon:
+                    exp = with_panel(tag, exp, pan_seen)
+                got = g.decode(pS)
+                if phon and pan_seen is None:
+                    got = with_panel(tag, got, None)
+                n, box = diff(got, exp)
+                tal["tf"] += 1
+                if n:
+                    fails.append("hud %s frame %d at bz_tf: the shown window is not the last frame's picture "
+                                 "(the panel %s), card != oracle: %d px, lines %d-%d, x %d-%d" % (
+                                     label, tal["frames"] + 1, "on" if phon else "off", n, *box))
+            continue
+        # bz_presented
+        tal["frames"] += 1
+        fr = tal["frames"]
+        hon = g.b("bz_hon")
+        tal["shown"] += hon
+        if mode == 0 and (hon or g.b("bz_hwk")):
+            fails.append("hud OFF frame %d: the panel on the card (bz_hon %d, bz_hwk %d)" % (fr, hon, g.b("bz_hwk")))
+            break
+        if watch:
+            twice = {a: v for a, v in watch["vals"].items() if len(set(v)) > 1}
+            if twice:
+                a = sorted(twice)[0]
+                fails.append("hud %s frame %d: card byte %05X received two values in one frame (%s; SPEC.md "
+                             "128.14.14: no card byte receives two different values in a frame)" % (
+                                 label, fr, a, ", ".join("%02X" % v for v in twice[a])))
+            lp.arm()
+            watch = None
+        S, R0, c0 = g.state()[:3]
+        lk, bad = g.look(ref.c)
+        view = g.view()
+        if bad:
+            fails.append("hud %s frame %d at bz_presented: %s" % (label, fr, bad))
+        if len(g.boxes5()) >= 5:
+            tal["five"] += 1
+        if want:
+            exp = ref.picture(R0, c0, lk, view)
+            if hon:
+                pan = bytes(m.read(g.a("bz_hpan"), 24))
+                hd = g.w("bz_hdisp")
+                if pan != GM.panel(hd):
+                    fails.append("hud %s frame %d: bz_hpan %s is not the panel for %d tenths %s" % (
+                        label, fr, pan.hex(), hd, GM.panel(hd).hex()))
+                exp = with_panel(tag, exp, pan)
+                pan_seen = pan
+            n, box = diff(g.decode(S), exp)
+            tal["checked"] += 1
+            if n:
+                fails.append("hud %s frame %d at bz_presented: card != oracle (the panel %s): %d px, lines %d-%d, "
+                             "x %d-%d" % (label, fr, "on" if hon else "off", n, *box))
+        prev = (S, R0, c0, lk, view, hon)
+    end_replay(g, "the HUD's %s leg" % label)
+    m.pause()
+    g.putb("bz_hmode", 0)
+    g.putb("bz_cmode", 0)
+    m.run()
+    return fails, tal
+
+
+def hud_scene(g, ref):
+    """THE LANE UNDER THE PANEL (SPEC.md 128.14.5.5): play mode on MILL with
+    the HUD FOLLOW and TRICKLE, a centred full write that puts a rotor or post
+    under the shown rect (bonanza_wheel.hud_plan), the ball held and the lane
+    made DUE every fourth frame ([bz_ldrw] poked one pose on): at every
+    bz_presented the card equal to the oracle - the lane's cells OUTSIDE the
+    rect its drawn pose's, the rect the panel - so the lane is never written
+    over the panel by the wheel or the LEAD; its promotions REPORTED.
+    -> (fails, tallies)"""
+    import bonanza_wheel as WH
+    m, tag = g.m, g.tag
+    m.pause()
+    g.putb("bz_hmode", 2)
+    m.run()
+    m.bp_exec(g.a("bz_launch"))
+    g.key("Enter")
+    assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
+    g.putb("bz_crs", CRS_K["mill"])
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
+    m.pause()
+    g.putb("bz_cmode", 1)
+    plan, dims = WH.hud_plan(g, ref.c)
+    fails, tal = [], {"frames": 0, "under": 0, "due": 0, "promo": 0}
+    if plan is None:
+        tal["skip"] = ("no rotor or post of MILL can be put under the rect by a centred window (H, W, rmax, cmax "
+                       "%s)" % (dims,))
+    else:
+        lane, R0w, c0w, cen = plan
+        poses = [r for r in ref.c.part["props"] if r["i"] == lane][0]["lane"]["poses"]
+        names = ("bz_t0", "bz_presented") + (("bz_props.promo",) if "bz_props.promo" in g.sym else ())
+        lp = Loop(g, names)
+        lp.arm()
+        k0 = 0
+        while tal["frames"] < HUD_SCENE + 3 and not fails:
+            k = lp.next()
+            if k == "bz_t0":
+                k0 += 1
+                if k0 == 1:
+                    poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+                    g.putb("bz_first", 1)
+                else:
+                    poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1, same_cell=k0 > 3)
+                    if k0 > 3 and k0 % 4 == 0:
+                        pose = m.read(g.a("bz_ldrw") + lane, 1)[0]
+                        m.write(g.a("bz_ldrw") + lane, bytes([(pose + 1) % poses]))
+                        tal["due"] += 1
+                continue
+            if k == "bz_props.promo":
+                tal["promo"] += 1
+                continue
+            tal["frames"] += 1
+            if k0 < 3:
+                continue
+            S, R0, c0 = g.state()[:3]
+            hon = g.b("bz_hon")
+            tal["under"] += hon and (R0, c0) == (R0w, c0w)
+            lk, bad = g.look(ref.c)
+            if bad:
+                fails.append("hud lane scene frame %d: %s" % (tal["frames"], bad))
+                break
+            exp = ref.picture(R0, c0, lk, g.view())
+            if hon:
+                exp = with_panel(tag, exp, bytes(m.read(g.a("bz_hpan"), 24)))
+            n, box = diff(g.decode(S), exp)
+            if n:
+                fails.append("hud lane scene frame %d (lane %d under the rect at R0 %d c0 %d): card != oracle: "
+                             "%d px, lines %d-%d, x %d-%d" % (tal["frames"], lane, R0, c0, n, *box))
+        if not fails and not tal["under"]:
+            fails.append("hud lane scene: the panel was never on the card over lane %d (R0 %d c0 %d asked)" % (
+                lane, R0w, c0w))
+    m.bp_exec()
+    g.putb("bz_cmode", 0)
+    m.run()
+    g.key("Escape")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the lane scene's play ends on Esc", guest=60)
+    dropped(g, "the lane scene")
+    m.pause()
+    g.putb("bz_hmode", 0)
+    m.run()
+    return fails, tal
+
+
+def hud_part(g, art=None, legs=True):
+    """the HUD's legs (only while the build carries it): MILL's route demo with
+    the HUD FOLLOW, REST (GLIDE and TRICKLE) and OFF (LEGS False: none), then
+    the lane scene.  -> (fails, tallies)"""
+    if "bz_hmode" not in g.sym:
+        print("%s hud: the build carries no HUD (SPEC.md 128.14.16 item 3): its checks are not asserted" % g.tag,
+              flush=True)
+        return [], {}
+    ref = Ref(g.tag, course("mill"), art)
+    fails, out = [], {}
+    if legs:
+        load_demo(g, CRS_K["mill"])
+    for mode, cmode, label in ((2, 0, "FOLLOW"), (1, 0, "REST GLIDE"), (1, 1, "REST TRICKLE"),
+                               (0, 0, "OFF")) if legs else ():
+        f, out[label] = hud_leg(g, ref, mode, label, cmode)
+        fails += f
+        t = out[label]
+        print("%s hud %s: %d frames, the panel shown on %d, %d checked at bz_presented and %d at bz_tf, %d watched "
+              "write-once, boxes %s, scroll directions %d, releases %d, five-box frames %d: %s" % (
+                  g.tag, label, t["frames"], t["shown"], t["checked"], t["tf"], t["watched"],
+                  ", ".join("%s %d" % (HK_NAMES.get(k, k), v) for k, v in sorted(t["kinds"].items()) if k) or "none",
+                  len(t["dirs"]), t["rel"], t["five"], "yes" if not f else "NO"), flush=True)
+        if fails:
+            return fails, out
+    f, out["scene"] = hud_scene(g, ref)
+    fails += f
+    t = out["scene"]
+    print("%s hud lane scene: %s" % (g.tag, t.get("skip") or "%d frames, %d with the panel over the lane, the lane "
+                                     "made due %d times, %d promotion(s): %s" % (
+                                         t["frames"], t["under"], t["due"], t["promo"], "yes" if not f else "NO")),
+          flush=True)
+    return fails, out
+
+
+def hud_verdict(tag, out):
+    bad = []
+    if not out:
+        return bad
+    fo = out.get("FOLLOW") or {}
+    if fo:
+        if fo["kinds"].get(1, 0) == 0:
+            bad.append("hud FOLLOW: no union box checked (SPEC.md 128.14.14)")
+        if len(fo["dirs"]) < 8:
+            bad.append("hud FOLLOW: %d of the eight scroll directions checked with the panel on the card" %
+                       len(fo["dirs"]))
+        if not fo["watched"]:
+            bad.append("hud FOLLOW: no frame's rect watched for the write-once check")
+    for lab in ("REST GLIDE", "REST TRICKLE"):
+        r = out.get(lab) or {}
+        if r and not (r["kinds"].get(3) and r["kinds"].get(4)):
+            bad.append("hud %s: no HIDE and SHOW both checked (boxes %s)" % (lab, r["kinds"]))
+    sc = out.get("scene") or {}
+    if sc.get("skip") and tag == "cga":
+        bad.append("hud lane scene: %s" % sc["skip"])
     return bad
 
 
 # ---- the red arms and their private trees ----------------------------------------
-def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza"):
+def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appdata=True, extra=()):
     """apps/bonanza/ copied into TD, PATCHES [(file, old, new), ...] applied
     (each OLD must occur exactly once - a red arm whose anchor moved says so),
-    and the package and a floppy of SIZE KB built there from the current art.
-    -> (source dir, image)."""
+    and the package and a floppy of SIZE KB built there from the current art -
+    with SYSTEM\\APPDATA as the Makefile's bonanza*.img recipes build it
+    ($(APPDATAFOLDER), SPEC.md 128.14.3.3) unless APPDATA is False (the
+    `noappdata` red arm's image), and EXTRA more os88disk.py operands
+    ('[DIR/..:]PATH'). -> (source dir, image)."""
     src = os.path.join(td, name)
     shutil.copytree(src0 or os.path.join(ROOT, "apps", "bonanza"), src)
     patch_tree(src, patches)
@@ -2504,9 +3251,39 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza"):
     assemble(src, art, binp)
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art, src),
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88], cwd=ROOT, check=True,
+    subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88] + list(extra)
+                   + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
     return src, img
+
+
+def disk(td, files=(), size=360, appdata=True, name="bz", o88=None):
+    """a floppy of SIZE KB holding the SHIPPED build/bonanza.o88 (the same
+    package bonanzadisk ships; O88 another, a red tree's), FILES more os88disk.py operands
+    ('[DIR/..:]PATH': a row's hostile BONANZA.DAT or demo files), and
+    SYSTEM\\APPDATA unless APPDATA is False.  -> its path"""
+    img = os.path.join(td, "%s%d.img" % (name, size))
+    subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88 or at("build/bonanza.o88")]
+                   + list(files) + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
+                   stdout=subprocess.DEVNULL)
+    return img
+
+
+def disk_b(ui):
+    """B:'s Disk window, raised: the ACTING one when [fm_vinst] still names a
+    live instance, else the newest visible file window showing drive B.
+    After W and L the chooser leaves [fm_vinst] naming BONANZA's instance, and
+    once that window closes os88ui.disk_window() raises (the final pass of
+    wave 4: bonanzaexit and bonanzademo's double-click legs)"""
+    try:
+        return ui.raise_window(ui.disk_window())
+    except os88ui.UIError:
+        pass
+    for w in reversed(ui.windows()):
+        fs = ui.fs_of(w)
+        if fs is not None and fs[0] == 1 and w.visible:
+            return ui.raise_window(w)
+    raise os88ui.UIError("no Disk window shows B: (open: %r)" % (ui.titles(),))
 
 
 def patch_tree(src, patches):
@@ -2535,6 +3312,8 @@ def part_args(art, src=None):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
         files += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
+    if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a tour course, after the
+        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 128.14.7.4, 128.14.22 item 7)
     out = []
     for p in files:
         out += ["--part", os.path.join(art, p)]
@@ -2550,7 +3329,10 @@ def check_reds(reds, label):
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "bonanza")
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
-            patch_tree(src, patches)
+            try:
+                patch_tree(src, patches)
+            except AssertionError as e:
+                raise AssertionError("%s --red %s: %s" % (label, name, e))
             assemble(src, art, os.path.join(td, "bonanza.bin"))
             out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes)" % (
                 label, name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
@@ -2577,7 +3359,7 @@ MAPSKIP = [
 ]
 COLFIRST_TV = ("    mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2\n"
                "bz_tv:                          ; parts keep their numbers)\n    call bz_mark\n")
-COLFIRST_COL = ".col:\n    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n"
+COLFIRST_COL = ".lit:\n    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n"
 REDS = {
     # the entering column moving right: the window's column W (not W - 1)
     "colright": [("bzgame.inc", "    add ax, [bz_W]              ; moving right: the right edge's\n    dec ax\n",
@@ -2587,7 +3369,7 @@ REDS = {
                   "    cmp byte [bz_full], 0\n    jne .redskip\n    mov ax, [bz_dc]\n    or ax, ax\n"
                   "    jz .redskip\n    mov ax, [bz_c0n]\n    js .redl\n    add ax, [bz_W]\n    dec ax\n"
                   ".redl:\n    xor bx, bx\n    mov cx, [bz_H]\n    call bz_col\n.redskip:\n"),
-                 ("bzgame.inc", COLFIRST_COL, ".col:\n    jmp bz_tb\n")],
+                 ("bzgame.inc", COLFIRST_COL, ".lit:\n    jmp bz_tb\n")],
     # every frame counted late: the bz_rlate assertion's own red
     "late": [("bzgame.inc", "bz_presented:\n    call bz_mark\n",
               "bz_presented:\n    call bz_mark\n    inc word [bz_late]\n")],
@@ -2658,11 +3440,29 @@ REDS = {
     # the platform (the lift) always UNDER the ball
     "padfront": [("bzwheel.inc", "    cmp ax, cx\n    jge .out\n    mov byte [bz_pov], 1\n",
                   "    cmp ax, cx\n    jge .out\n    mov byte [bz_pov], 0        ; RED padfront: never over\n")],
+    # wave 4 (SPEC.md 128.14.14).  The HUD's inset taken to 0: an entering row writes the panel's cells and
+    # the HUD's box writes them again with a different value (the write-once check, a FOLLOW scroll frame)
+    "hudinset": [("bzhud.inc", "    mov dx, [bz_rl]\n    shl dx, 1\n    neg dx\n"
+                  "    add dx, BZ_LINES - 6        ; DX = the rect's first window line\n",
+                  "    mov dx, BZ_LINES - 6        ; RED hudinset: no inset\n")],
+    # FOLLOW's step without the old rect: the panel left behind where it was (the oracle at bz_presented)
+    "hudold": [("bzhud.inc", "    mov si, bz_hor              ; every layer, the panel over the new\n",
+                "    mov si, bz_hnr              ; RED hudold: the old rect not restored\n")],
+    # the wheel's HUD-rect test removed: a commit writes the lane over the panel (the lane scene's oracle)
+    "hudlane": [("bzwheel.inc", "    cmp byte [bz_hxon], 0       ; THE HUD's SHOWN RECT is a box to the wheel\n"
+                 "    je .nh                      ; and the LEAD on every frame it is on the\n",
+                 "    jmp short .nh               ; RED hudlane: the rect is no box to the wheel\n")],
+    # the full write's span skip removed while shown: the rect gets the course, then the panel (two values)
+    "hudfull": [("bzgame.inc", "    cmp byte [bz_hon], 0\n    je .whole\n",
+                 "    jmp short .whole            ; RED hudfull: the rect's words written too\n")],
+    # the blank left out: the mode port written with its enable bit SET at a full write (the W4 replays)
+    "noblank": [("bzgame.inc", "    mov al, 22h\n    mov byte [bz_blk], 1\n",
+                 "    mov al, 2ah                 ; RED noblank: the video left enabled\n    mov byte [bz_blk], 1\n")],
     # the ball DRAWN in a transit: its new footprint boxed and its sprite composed
-    "hidden": [("bzgame.inc", "    cmp byte [bz_tube], 0       ; a HIDDEN ball (in a tube) has no new\n"
-                "    jne .hid                    ; footprint: its old one alone, restored\n",
+    "hidden": [("bzgame.inc", "    cmp byte [bz_hidn], 0       ; a HIDDEN ball (in a tube, or holed) has no\n"
+                "    jne .hid                    ; new footprint: its old one alone, restored\n",
                 "    nop                         ; RED hidden: a hidden ball boxed as any\n"),
-               ("bzvideo.inc", "    cmp byte [bz_tube], 0\n    jne .nob\n    mov ax, [bz_py]\n",
+               ("bzvideo.inc", "    cmp byte [bz_hidn], 0\n    jne .nob\n    mov ax, [bz_py]\n",
                 "    mov ax, [bz_py]             ; RED hidden: its sprite composed in a tube\n")],
 }
 RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",), "row0": ("probe",),
@@ -2670,7 +3470,10 @@ RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",),
              "late2": ("probe",), "pass2": ("trial",), "contact": ("mill", "play"), "defer": ("play",),
              "ridebox": ("play",), "pwait2": ("play",), "fastwrap": ("play",), "mapskip": ("mill",),
              "wrapmask": ("mill", "play"),
-             "padfront": ("play",), "hidden": ("mill",)}
+             "padfront": ("play",), "hidden": ("mill",),
+             "hudinset": ("hud",), "hudold": ("hud",), "hudlane": ("hudscene",), "hudfull": ("hud",),
+             "noblank": ("w4",)}
+HUD_REDS = ("hudinset", "hudold", "hudlane", "hudfull")     # asserted only while the HUD is built
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
 # blank (~24.7k clocks) before its window's line 0, so the WHOLE column (at
 # most ~22k on the benchmark) fits ahead of a row-0 box there and item 6's
@@ -2685,7 +3488,9 @@ RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_r
             "htab": "card memory != the course", "late2": "cycle counter", "pass2": "walk entered",
             "contact": "at bz_tf", "defer": "(defer", "padfront": "pover", "hidden": "transit",
             "ridebox": "ridebox) at bz_presented", "pwait2": "waited two frames running", "fastwrap": "wrapbox) at bz_presented",
-            "mapskip": "oracle check 5", "wrapmask": "wrapcommit"}
+            "mapskip": "oracle check 5", "wrapmask": "wrapcommit",
+            "hudinset": "two values", "hudold": "at bz_presented", "hudlane": "lane scene", "hudfull": "two values",
+            "noblank": "blank"}
 
 
 def main():
@@ -2698,11 +3503,16 @@ def main():
                     help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
     if a.check_reds:
-        for line in check_reds(REDS, "bonanza_ring"):
+        for line in check_reds({k: v for k, v in REDS.items() if k not in HUD_REDS or "bz_hmode" in symbols()},
+                               "bonanza_ring"):
             print(line)
         return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.red:
+        if a.red in HUD_REDS and "bz_hmode" not in symbols():
+            print("bonanza_ring --red %s: the build carries no HUD, so its check is not asserted (SPEC.md "
+                  "128.14.16 item 4) - nothing to run" % a.red)
+            return
         tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
         with tempfile.TemporaryDirectory() as td:
             src, img = build_tree(td, REDS[a.red])

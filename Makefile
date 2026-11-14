@@ -21325,17 +21325,25 @@ apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront
 BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 128.10.3): course K is the K-th
 # of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
-# trial, 3 the obstacles' (SPEC.md 128.12.9) - and everything under
-# apps/bonanza/courses/ ships.  ONE bbcourse.py
+# trial, 3 the obstacles' (SPEC.md 128.12.9), 4 and 5 wave 4's (MOON, Moonlit
+# Green, and PEAK, Summit Rush, SPEC.md 128.14.6); 1 - 5 are the tour - and
+# everything under apps/bonanza/courses/ ships.  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
 BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
-              apps/bonanza/courses/mill.bbc
+              apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
+# The SHIPPED DEMOS (SPEC.md 128.14.7.4): one a tour course, BZD<K>.BIN for K
+# 1 - 5, written by the same run - a course's apps/bonanza/demos/<file>.bzd
+# when it has one (text, checked by the model), else the ROUTE DEMO the tool
+# makes from the course's route.  Their part rows follow the songs'
+# (BZ_P_DEMO = BZ_P_SONG + BZS_NSONG, bzcourse.inc's BZ_DEMO_PARTS).
+BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
+BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
-BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS)
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS)
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check
 # Each tool's run emits all of its generated files.  bonanza_assets.py writes
 # its stamp first and holds a hash of the tool; bbcourse.py compiles every
@@ -21348,7 +21356,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py $(BZ_COURSES) | $(BUILD)
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
@@ -21380,15 +21388,16 @@ bonanza-music-check:
 $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzwheel.inc apps/bonanza/bzphys.inc \
                       apps/bonanza/bzsound.inc drivers/sound/sndpkg.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc \
+                      apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: rows
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
-# BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3).
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS)
+# BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
+# one shipped demo a tour course, BZD1 - BZD5 (SPEC.md 128.14.7.4).
+BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p))
 
@@ -21396,7 +21405,9 @@ $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZST
 bonanza: $(BUILD)/bonanza.o88
 
 # The disk is the package and its README, LZ-wrapped like every other data
-# file (SPEC.md 20.14); `make PKGZ=` ships it raw.
+# file (SPEC.md 20.14); `make PKGZ=` ships it raw - and SYSTEM\APPDATA, built
+# empty (SPEC.md 19.9: os88data.inc creates no folder), where the game keeps
+# BONANZA.DAT, its best times (SPEC.md 128.14.3.3).
 BZ_Z := $(ZDATA)/bonanza
 BZ_DATA := apps/bonanza/README.md
 BZ_DISKFILES := $(BUILD)/bonanza.o88 $(if $(PKGZ),$(addprefix $(BZ_Z)/,$(notdir $(BZ_DATA))),$(BZ_DATA))
@@ -21404,18 +21415,18 @@ $(BZ_Z)/README.md: apps/bonanza/README.md tools/os88lz.py $(PKGZSTAMP) | $(BUILD
 	@mkdir -p $(BZ_Z)
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 $(BUILD)/bonanza.img: $(BZ_DISKFILES) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BZ_DISKFILES)
+	python3 tools/os88disk.py -o $@ --size 1440 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
 $(BUILD)/bonanza720.img: $(BZ_DISKFILES) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 720 $(BZ_DISKFILES)
+	python3 tools/os88disk.py -o $@ --size 720 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
 $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1200 $(BZ_DISKFILES)
+	python3 tools/os88disk.py -o $@ --size 1200 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES)
+	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
-#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package and README, in all four geometries (SPEC.md 128.1)
+#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 128.1, 128.14.3.3)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
 # SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
 # rows of the same names run the same scripts). Every red arm builds a broken

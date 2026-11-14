@@ -314,12 +314,39 @@ C apps/bonanza/bonanza.asm bz_cseg       # the course part (one a course, its gr
                                          # and dropped as it returns, all inside
                                          # bz_launch's one call (SPEC.md 128.7,
                                          # 128.10.6.3)
-C apps/bonanza/bonanza.asm bz_bseg       # the ball part (row 0 is the rubber
-                                         # ball's; one ball row of three,
-                                         # BZ_P_BALR + the material, is fetched
-                                         # at a time): the same call, the same
-                                         # bracket, dropped beside the course
-                                         # (SPEC.md 128.11.3.1)
+C apps/bonanza/bonanza.asm bz_bsegs+bx   # the ball parts (rows BZ_P_BALR + the
+                                         # material: the starting ball's and every
+                                         # one the course's PAD MASK names, up to
+                                         # three, one fetch site in a loop, each
+                                         # segment in its own word of bz_bsegs):
+                                         # the same call, the same bracket - a
+                                         # pad's swap points the sprite at another
+                                         # in mid-play - dropped beside the course
+                                         # (SPEC.md 128.11.3.1, 128.14.4.4)
+C apps/bonanza/bonanza.asm bz_lseg       # a demo file's STAGING claim (L's dialog
+                                         # or a double-clicked .BZR): claimed at
+                                         # exactly the file's size, read into as
+                                         # OSAPI_FILE_READ's ES:BX, checked and
+                                         # copied into bz_rlog, and freed - all
+                                         # inside bz_lfile's one call (SPEC.md
+                                         # 128.14.7.2, 128.14.7.5)
+C apps/bonanza/bzsound.inc bzs_pseg      # the sound part (tables, instruments,
+                                         # effects, the event map; 837 bytes):
+                                         # read by the sequencer every sub-tick
+                                         # while a song plays - the title on the
+                                         # desktop (the window's timer) and the
+                                         # course's song in the bracket - and
+                                         # dropped when the window closes
+                                         # (SPEC.md 128.20.3)
+C apps/bonanza/bzsound.inc bzs_mseg      # the song playing (one part a song, at
+                                         # most 1,234 bytes): read every sub-tick
+                                         # while it plays, swapped at a launch
+                                         # (bzs_gfetch / bzs_gdrop) and dropped at
+                                         # the close (SPEC.md 128.20.3)
+C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
+                                         # copied whole into bz_rlog and dropped
+                                         # inside V's one key call (SPEC.md
+                                         # 128.14.7.4)
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed
                                          # inside one wake (Paste's queue in the
                                          # same function declares)

@@ -1435,3 +1435,132 @@ course features outrank it." So wave 4 builds the HUD last, OFF by default,
 and ships it only if it costs MILL at most two missed frames a card with the
 speaker on (SPEC.md 128.14.16); otherwise it is removed and the clock lives on
 the results face.
+
+## 2026-11-14 (wave 4, the final pass: what the rows measured, SPEC.md 128.14.26)
+
+Wave 4 was built in seven stages on one tree: the tool and the two new
+courses, the props in the guest, the round openings the owner asked for,
+the game (the tour, the faces, `BONANZA.DAT`), the demos and the mouse,
+the HUD, and the rows. A review then read the tree through four lenses
+and seventeen findings were fixed. Nothing had been run as a row until
+this pass, which ran every BONANZA row once as one scoped soak.
+
+**The HUD did not fit, so it is gone.** The owner's rule was that the
+clock ships only if it costs `MILL` at most two missed frames a card with
+the speaker on. Measured on `MILL`'s route demo through `D`: the CGA
+missed 93 refreshes with the HUD OFF and 158 at REST, and the Hercules 24
+OFF and 69 at FOLLOW. The prediction for REST had been 0 - 3 more. The
+hidden clock's per-frame bookkeeping and its show, hide and digit boxes
+land on the frames that were already full. The whole HUD sat behind one
+`%define`, so removing it was that line, its include and its `%ifdef`
+blocks, and the package that is left is byte for byte the build without
+the define. The time, the falls and the flags are on the face after every
+play, as the owner asked for either way. The full write's blank, built
+with the HUD, stays: it serves every respawn.
+
+**The rows found one real defect.** On kern_mega, `V` (load the next
+shipped demo) raised an exception charged to BONANZA. `op_fetch` leaves
+the part's own selector in ES; `V` saved and restored that ES around its
+copy and then dropped the part, and `op_drop` restores its caller's ES
+after freeing the claim. Loading a freed selector into ES faults on a 286.
+Wave 1's final pass met exactly this fault in the launch's drop, which is
+why that path already sets ES to the package's own segment first. `V`
+does too now, two bytes. The kernel kept the package running after the
+fault, so the rows after it still passed, and only the fault log showed
+it: a reminder that "the cases pass" and "nothing faulted" are separate
+checks.
+
+**The rest were the harness's own mistakes**, each found by running it
+for the first time: a shadowing `heapmap` module; a stopped tour waiting
+for its bracket to come up after Esc had already ended it; a Disk window
+the chooser had left stale, so the double-click landed on the wrong row;
+a full-write count read as a difference of a counter the launch zeroes.
+None of them changed an assertion. One check had lost its case rather
+than its code: `MILL`'s benchmark no longer brings a windmill or a post
+in by a column on the CGA (wave 4's heavier frames moved which frames
+step a column, and two runs saw none), so the ring row now has a scene
+that puts a post just outside the window and steps the camera onto it.
+
+**Measured** (every demo through `D`, the HUD OFF, misses with the speaker
+off / on): `FIRST` 3 / 5 on the CGA and 0 / 0 on the Hercules, `TRIAL` 8 /
+12 and 2 / 9, `MILL` 47 / 151 and 12 / 19, `MOON` 16 / 48 and 10 / 23,
+`PEAK` 205 / 293 and 60 / 96. Every one ends at the model's state. `PEAK`
+misses more than predicted on both cards, so easing its steep chains is
+the owner's next call. The tour is 5,276 steps of autopilot, `PEAK`'s
+launch about 4 s of disk. `BONANZA.O88` is 125,162 bytes, 130 of the
+360KB floppy's 354 clusters.
+
+**Still open.** The BENCH A/B against wave 3b is +522 - 531 clocks a
+frame on the CGA (two runs) against the +500 asserted, +317 on the
+Hercules. The HUD build had measured +413 with more code on the path, so
+the bound sits inside the mean's spread between builds. The Hercules'
+`MILL` lift stretch missed 3 refreshes in one run and 4 in the next
+(at most 3; 3b measured 2). `bonanzawheel` (6) on the CGA fails as it
+did in 3b.
+
+**The red arms.** 83 broken copies were built and run, one each, and 82
+went red at their own check once three were mended. One had stopped being
+able to go red: the review had made the best-times save merge with the
+file on the disk, keeping the smaller time, so breaking the keeper of the
+smaller time in one place was hidden by the other. The arm now breaks
+both. One had gone red by crashing the harness rather than by failing a
+check, and one had moved to a sharper check of the same defect. The one
+still open is `contact` in the ring row: with no contact choice there is
+no waiting lane, and the scene built to show it never puts a wheel commit
+over the ball where the oracle can see it.
+
+**The verifier's round (2026-11-14).** An independent check found no
+defect in the code, but the HUD's removal had stopped at the two
+subsections that described the HUD. The game's own key table still listed
+`H`, the face's settings line still read `H <HUD>`, and the box rules still
+allowed five boxes. Those rows now say the HUD was not built, and they
+match what the build draws. The ring row's `contact` check was a frame
+marker that only selected frames for the card comparison, so a wheel commit
+over the corner of the ball's footprint, where the round sprite has no
+pixel, passed. It is now a failure in its own right. The right build stays
+green on both cards. Breaking the package still does not turn the row red at
+that check. A trace of the scene shows why: the broken wheel picks the post
+up, never has the time to draw it, and the fifth frame's promotion draws it
+correctly anyway, so the broken package never erases the ball there. That
+arm waits for a scene with room in the wait.
+
+**The owner after wave 4's measurement (2026-11-14).** The HUD did not fit
+(+65 / +45 misses on MILL with the speaker on) and was removed. The owner's
+answer is better than a HUD: a CLOCK on the course itself - a wheel prop in a
+small font of our own, updated once a second, scrolling with the course, so it
+has no scroll problem and costs nothing off screen. The owner asked whether
+wheel items cost only when on screen: by design a lane outside the walk's
+slice (the window's rows, two either side) costs nothing, but the slice spans
+the full width, so a lane in the window's rows off to the side still costs a
+walk - a column bound goes on the performance wave's list. Course tuning
+(PEAK's misses) waits for the owner's play; the performance wave comes later,
+with half-rate sound and sound in the wait's idle time to try.
+
+**The clock counts down a time limit (2026-11-14).** The owner: target
+times per course, "I agree with the original Marble Madness that this design
+makes more sense than lives, and it adds a pressure to complete the course",
+with an exploration mode in the first release that turns the timing off. The
+clock prop: a crystal ball held up at an angle on a stick (other frames per
+course are listed in the plan). And a CGA palette per course - one write to
+3D9h at the bracket's start, free at run time, with the catch that colour 0
+is both the background and every outline.
+
+**The owner's end goal for Bonanza (2026-11-14), for the release regroup.**
+No time carry-over ("that worked for an arcade box trying to steal quarters").
+LIVES are timeouts: timing out ends the course, takes a life and returns to
+the COURSE PATHWAY - a fullscreen map (Star Fox's galaxy map as a concept,
+not a style) where some courses have several finish lines and the one taken
+picks the next branch; branches may join back up; the pathway can afford a
+HUD. The first two or so courses do not branch: the tutorial, learning by
+playing. About 20 courses in all, about 10 to finish the tour, built one at
+a time, with more of the plan's props, refined current ones, new surfaces
+and challenges. Physics per ball: RUBBER sticky - medium acceleration, good
+grip on Shift, a DOUBLE BOUNCE (Space timed on a bounce or a fall goes
+higher); STEEL sluggish - slow acceleration, immune to traps that shatter
+glass or fling rubber, maybe sinks in WATER (a tile used only where its side
+shows, for alternate or required paths), moderate braking on Space; GLASS
+fragile but light and fast - fast acceleration, very little braking grip. A
+better window before the game: one artwork, the few setup options, the keys.
+Open from the engine's side: the double bounce is the pumping wave 2 forbade
+(the reach model needs a cap), Space's meaning differs per ball, and twenty
+courses will not fit one 360KB floppy (parting out becomes real).

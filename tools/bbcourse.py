@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""BONANZA's course compiler, waves 1 - 3 (SPEC.md 128.10.3 - 128.10.7, 128.11, 128.12).
+"""BONANZA's course compiler, waves 1 - 4 (SPEC.md 128.10.3 - 128.10.7, 128.11, 128.12, 128.14).
 
     python3 tools/bbcourse.py -o DIR COURSE.bbc ...        # what `make` runs: every
-                                                          # course, in BZ_COURSES's order
-    python3 tools/bbcourse.py --selfcheck [COURSE.bbc ...] # SPEC.md 128.11.17.1
+                                                          # course, in BZ_COURSES's order,
+                                                          # and every tour course's demo
+    python3 tools/bbcourse.py --selfcheck [COURSE.bbc ...] # SPEC.md 128.11.17.1, 128.14.18 item 9
     python3 tools/bbcourse.py COURSE.bbc --png DIR         # previews (Pillow, behind a try)
+    python3 tools/bbcourse.py demo IN.BZR [-o OUT.bzd]     # a saved log as a .bzd (128.14.7.4)
+    python3 tools/bbcourse.py author COURSE.bbc [-o OUT]   # an AUTHOR script's .bzd (128.14.18 item 7)
+
+Wave 4 (SPEC.md 128.14.4, 128.14.18): `par`, `checkpoint`, `pad`, `cup`,
+`spring` and `way ... branch`; prop kinds 5 - 8 (a flag a two-pose lane, the
+rest static marks), BZG1 +28 / +29, BZ_CRS_PARS, BZ_CRS_IDS and BZ_PHYSV;
+the model's RETURN, flags, pads, cup, springs and tilt caps; NO TRAP and
+NOTHING UNDER THE HUD; the shipped demos BZD<K>.BIN from text or the route.
 
 A course is TEXT (`apps/bonanza/courses/*.bbc`, SPEC.md 128.10.3, with
 wave 2's `surface` and `ball`, 128.11.6.1).  ONE run compiles the whole list:
@@ -77,6 +86,7 @@ Host reference for the rows (import this module):
                                        (the ring's oracle, SPEC.md 128.10.11.3)
 """
 import argparse
+import functools
 import hashlib
 import math
 import os
@@ -205,16 +215,21 @@ SHA_STEPS = BA.NSH * SHA_FSTEPS
 assert all(m["HSTEPS"] == SHA_STEPS for m in MATERIALS if m["HARD"] == HARD_SHATTER), \
     "a shattering material's HSTEPS must be NSH x SHA_FSTEPS (the sprite's frames)"
 
-RESERVED = ("edge", "checkpoint", "pad", "shape")   # prop and tube are wave 3's (SPEC.md 128.12.3.3)
+RESERVED = ("edge", "shape")  # checkpoint and pad are wave 4's statements (SPEC.md 128.14.4.1)
 
 # --- wave 3: props (SPEC.md 128.12.3, 128.12.6), PROVISIONAL constants -----------
 PK_TUBE, PK_WINDMILL, PK_BUMPER, PK_PLATFORM = 1, 2, 3, 4      # record +0
-PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform"}
+PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING = 5, 6, 7, 8          # wave 4 (SPEC.md 128.14.4.2)
+PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform",
+            PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring"}
 PF_UNDER, PF_LANE = 1, 2      # record +1: UNDERSIDE (reserved, refused), LANE
 FL_OBS = 8                    # grid +3 bit 3: the cell belongs to a prop
 FL_EDGES = 16 | 32            # bits 4 - 5: RESERVED for `edge`
 PROPREC = 32                  # bytes a record
-PROP_MAX = 16                 # wave 3's per-prop arrays (bz_ldrw, bz_lage, bz_pkick)
+PROP_MAX = 16                 # props WITH A LANE (first in the table): wave 3's per-prop arrays
+                              # (bz_ldrw, bz_lage, bz_pkick) hold 16 (SPEC.md 128.14.4.2)
+PROP_ALL = 32                 # props in all, the static kinds 6 - 8 and the plain tubes and lift
+                              # after the lanes (never indexed into those arrays)
 SEGREC = 16                   # bytes a tube segment
 SEG_MAX = 8
 TK_KEEP, TK_LAUNCH, TK_DROP = 0, 1, 2
@@ -247,6 +262,19 @@ WPRO = 3                      # BZ_WPRO: frames a WHEEL candidate is due before 
                               # to the contact slot on a frame that allows a contact lane, and
 WPRF = 5                      # BZ_WPRF on any frame - and a waiting contact candidate takes
                               # the slot anyway (SPEC.md 128.12.18, 128.13.9)
+
+# --- wave 4: flags, the cup, pads, springs (SPEC.md 128.14.4), PROVISIONAL ----------
+CKPT_MAX, PAD_MAX, CUP_MAX, SPRING_MAX = 8, 8, 1, 4
+CAPTURE = 160                 # a cup's default capture speed (max(|gvx|, |gvy|), 1/256 gu a step)
+CAPTURE_LO, CAPTURE_HI = 64, 384
+MOUTH_HW = 4                  # the mouth's half-width, gu: a 9 x 9 gu mouth round the cell's centre
+LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
+SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
+PAR_MAX = 999                 # par: 1 - 999 whole seconds
+GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
+K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
+TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
+FLAG_H = 8                    # a flag's pole and the cup's pin: one unit, px
 
 
 class CourseError(Exception):
@@ -314,6 +342,13 @@ class Source:
         self.ball = None            # (material, line); rubber when there is none
         self.tubes = []             # wave 3: [dict], in file order (SPEC.md 128.12.3.3)
         self.props = []             # [dict]: windmill, bumper, platform
+        # wave 4 (SPEC.md 128.14.4.1): flags, pads, the cup, springs, par, branches
+        self.ckpts = []             # [dict at ball line], in file order (their numbers)
+        self.pads = []              # [dict at mat line]
+        self.cups = []              # [dict at capture line]
+        self.springs = []           # [dict at gvz line]
+        self.par = None             # (seconds, line)
+        self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
 
 
 def _int(tok, where, what):
@@ -586,6 +621,11 @@ def parse(text, fname="<course>"):
             if i != len(toks):
                 raise CourseError("%s: hole takes a shape and nothing else" % where)
             src.holes.append((tiles, ln))
+        elif st == "way" and len(toks) == 5:
+            if toks[3][1] != "branch" or toks[4][0] != 'w' or not _NAME.match(toks[4][1]):
+                raise CourseError("%s: way takes <wx> <wy> [branch <name>] (a name of 1-5 of A-Z 0-9)" % where)
+            t = (_int(toks[1], where, "wx"), _int(toks[2], where, "wy"))
+            src.branches.setdefault(toks[4][1], []).append((t, ln))
         elif st in ("start", "way"):
             if len(toks) != 3:
                 raise CourseError("%s: %s takes <wx> <wy>" % (where, st))
@@ -596,6 +636,39 @@ def parse(text, fname="<course>"):
                 src.start = (t, ln)
             else:
                 src.ways.append((t, ln))
+        elif st == "par":
+            if src.par is not None:
+                raise CourseError("%s: par given twice" % where)
+            if len(toks) != 2 or toks[1][0] != 'w' or not _INT.match(toks[1][1]) \
+                    or not 1 <= int(toks[1][1]) <= PAR_MAX:
+                raise CourseError("%s: par takes whole seconds, 1 - %d" % (where, PAR_MAX))
+            src.par = (int(toks[1][1]), ln)
+        elif st == "checkpoint":
+            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "ball" or toks[4][1] not in MAT_NAMES)):
+                raise CourseError("%s: checkpoint takes <wx> <wy> [ball rubber|steel|glass]" % where)
+            src.ckpts.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
+                              "ball": MAT_NAMES.index(toks[4][1]) if len(toks) == 5 else None})
+        elif st == "pad":
+            if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
+                raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
+            src.pads.append({"line": ln, "mat": MAT_NAMES.index(toks[1][1]),
+                             "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))})
+        elif st == "cup":
+            if len(toks) not in (3, 5) or (len(toks) == 5 and toks[3][1] != "capture"):
+                raise CourseError("%s: cup takes <wx> <wy> [capture <v>]" % where)
+            cap = _int(toks[4], where, "capture") if len(toks) == 5 else CAPTURE
+            if not CAPTURE_LO <= cap <= CAPTURE_HI:
+                raise CourseError("%s: a cup's capture %d is outside %d - %d" % (where, cap, CAPTURE_LO, CAPTURE_HI))
+            src.cups.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
+                             "capture": cap})
+        elif st == "spring":
+            if len(toks) != 4:
+                raise CourseError("%s: spring takes <wx> <wy> <gvz>" % where)
+            gvz = _int(toks[3], where, "gvz")
+            if not SPRING_LO <= gvz <= VZMAX:
+                raise CourseError("%s: a spring's gvz %d is outside %d - %d" % (where, gvz, SPRING_LO, VZMAX))
+            src.springs.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
+                                "gvz": gvz})
         elif st == "tube":
             src.tubes.append(_parse_tube(toks, where, ln))
         elif st == "prop":
@@ -818,6 +891,9 @@ def plat_pos(pr, n):
     return min(pr["pmax"], max(0, q - pr["W"]) * pr["v"])
 
 
+_CHECKS_OFF = set()            # --selfcheck's negative controls switch a refusal off here, and nothing else
+
+
 def build_props(src, tiles, fname):
     """-> [prop dict], in the course file's order: the tubes (a windmill's is
     its tube's record) and the props.  Every check of 128.12.3.3 that the
@@ -959,9 +1035,55 @@ def build_props(src, tiles, fname):
             props.append({"kind": PK_PLATFORM, "line": ln, "at": A, "L": L, "W": W, "v": v,
                           "mask": P - 1, "shift": 0, "seed": seed, "h2": lo, "hP": 4 * lo, "hT": 4 * lo + 8 * L,
                           "pmax": 2048 * L, "track": [A]})
-    if len(props) > PROP_MAX:
-        raise CourseError("%s:%d: a %d%s prop, over the %d a course holds"
-                          % (f, props[PROP_MAX]["line"], PROP_MAX + 1, "th", PROP_MAX))
+    # wave 4 (SPEC.md 128.14.4.1): flags, pads, the cup and springs, each on a
+    # FLAT FLOOR with no VOID among its four edge neighbours (SAFE's own
+    # conditions) and no other prop; a flag or a cup on a NORMAL surface, a
+    # spring not on ice
+    start_ball = src.ball[0] if src.ball else MAT_RUBBER
+    for what, lst, cap in (("checkpoint", src.ckpts, CKPT_MAX), ("pad", src.pads, PAD_MAX),
+                           ("cup", src.cups, CUP_MAX), ("spring", src.springs, SPRING_MAX)):
+        if len(lst) > cap and not (what == "cup" and "cupmax" in _CHECKS_OFF):
+            raise CourseError("%s:%d: a %s %s, over the %d a course holds" % (
+                f, lst[cap]["line"], "second" if cap == 1 else "%dth" % (cap + 1), what, cap))
+    new = []
+    for kind, lst in ((PK_CHECKPOINT, src.ckpts), (PK_PAD, src.pads), (PK_CUP, src.cups), (PK_SPRING, src.springs)):
+        for num, sp in enumerate(lst):
+            new.append((sp["line"], kind, num, sp))
+    for ln, kind, num, sp in sorted(new, key=lambda e: e[0]):
+        at = sp["at"]
+        what = PK_NAMES[kind]
+        t = tiles.get(at)
+        if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
+            raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
+        if not all((at[0] + dx, at[1] + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad, the cup and a spring "
+                              "stand where a SAFE cell could)" % (f, ln, what, at[0], at[1]))
+        if kind in (PK_CHECKPOINT, PK_CUP) and t.surf != SURF_NORMAL:
+            raise CourseError("%s:%d: a %s on (%d, %d): it stands on NORMAL ground, not %s"
+                              % (f, ln, what, at[0], at[1], SURFACES[t.surf]))
+        if kind == PK_SPRING and t.surf == SURF_ICE:
+            raise CourseError("%s:%d: a spring on (%d, %d), ice" % (f, ln, at[0], at[1]))
+        claim(at, ln, what)
+        d = {"kind": kind, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num}
+        if kind == PK_CHECKPOINT:
+            d["ball"] = start_ball if sp["ball"] is None else sp["ball"]
+        elif kind == PK_PAD:
+            d["mat"] = sp["mat"]
+        elif kind == PK_CUP:
+            d["capture"], d["hw"] = sp["capture"], MOUTH_HW
+        else:
+            d["gvz"] = sp["gvz"]
+        d["z4"] = 4 * t.z0                          # its floor, whole px
+        props.append(d)
+    nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT))
+    if nlane > PROP_MAX:
+        lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT)]
+        raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
+                          % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
+                             PROP_MAX))
+    if len(props) > PROP_ALL:
+        raise CourseError("%s:%d: a %d%s prop, over the %d a course holds in all"
+                          % (f, sorted(p["line"] for p in props)[PROP_ALL], PROP_ALL + 1, "rd", PROP_ALL))
     # the tubes' paths (the windmills' known now): gu points and px heights
     for p in props:
         if p["kind"] not in (PK_TUBE, PK_WINDMILL):
@@ -1063,7 +1185,7 @@ class Reach:
         self.zlo, self.zhi, self.kind, self.src = zlo, zhi, kind, src
 
 
-def build_reach(tiles, cells, fname="<course>", props=()):
+def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False):
     """-> ([Reach], rounds, EMAX): every cell a contact point can be in, its
     lowest whole px (128.10.4.1's) and its highest (128.11.4.4's zhi: every
     launch with the largest Hop, and every bounce bounded by the energy that
@@ -1093,6 +1215,8 @@ def build_reach(tiles, cells, fname="<course>", props=()):
                                                         // (256 * TILE))), "drop tube"))
         elif p["kind"] == PK_BUMPER:
             srcs.append((p["at"], p["top"] + UP(HOPMAX), RADIUS(HOPMAX), "post"))
+        elif p["kind"] == PK_SPRING and not _no_spring:   # wave 4: a LAUNCH from its cell (128.14.4.6)
+            srcs.append((p["at"], hi[p["at"]] + UP(p["gvz"]), RADIUS(p["gvz"]), "spring"))
         elif p["kind"] == PK_PLATFORM:            # a LIFT: a floor from hP to hT over its shaft
             for c in p["track"]:
                 srcs.append((c, p["hT"] + UP(HOPMAX), RADIUS(HOPMAX), "lift"))
@@ -1486,28 +1610,78 @@ def _post_pix(wx, wy, t, x0, lit):
     return out
 
 
-def _arch(sp0, xc, rows, half, sill=0):
-    """an arch on a face: columns xc - half .. xc + half - 1, the `rows` lines
-    above each column's SILL - its last face line, raised `sill` px (a mouth
-    above the floor in front of the face: a DROP's exit height) - its top
-    corners rounded.  -> (pixels, each column's last face line, whole): whole
-    when every pixel of the arch is on the face"""
+def _face_last(sp0):
+    """each column's last line on a face (Y0 = 0)"""
     last = {}
     for y, runs in sp0.items():
         for a, b in runs:
             for x in range(a, b):
                 if x not in last or y > last[x]:
                     last[x] = y
+    return last
+
+
+def arch_heights(rows, half):
+    """an opening's height over its sill in each of its 2 half columns,
+    outermost first, at each column's centre u = k + 1/2 - half (the owner's
+    round openings, SPEC.md 128.14.20): a jamb rows - half lines tall under a
+    SEMICIRCLE of radius half - in the projection's own pixels, where a world
+    circle on a wall is one in (screen x, height), 8 px a unit both ways; one
+    part serves both cards, whose pixel aspects (the CGA's 0.83, the
+    Hercules's pair 1.29) straddle 1, so neither card's correction"""
+    return [rows - half + math.sqrt(half * half - (k + 0.5 - half) ** 2) for k in range(2 * half)]
+
+
+def _face_slope(last, x):
+    """the face's 2:1 slope at column x from its own last lines: +1/2 (down to
+    the right, a -y face), -1/2 (up, a +x face), 0 (none)"""
+    if x - 2 in last and x + 2 in last:
+        return (last[x + 2] - last[x - 2]) / 8.0
+    return 0.0
+
+
+def arch_sill_line(last, xc, half, sill):
+    """(bc, slope): the continuous sill line through an arch's columns - the
+    face's 2:1 slope through the mean of the columns' sills - as the bottom
+    of the line u = 0's pixel, in rows; u a column centre's offset from xc"""
+    cols = [x for x in range(xc - half, xc + half) if x in last]
+    slope = _face_slope(last, xc)
+    if not cols:
+        return 0.0, slope
+    return (sum(last[x] - sill for x in cols) / float(len(cols))
+            - slope * sum(x + 0.5 - xc for x in cols) / len(cols)), slope
+
+
+def _arch(sp0, xc, rows, half, sill=0, _old=False):
+    """an arch on a face: columns xc - half .. xc + half - 1, each standing on
+    its SILL - the face's last line in that column, raised `sill` px (a mouth
+    above the floor in front of the face: a DROP's exit height).  ONE
+    semicircle-topped door (arch_heights) SHEARED AS A WHOLE with the face's
+    2:1 slope and then rasterised once: its top edge is the continuous
+    sheared curve E(u) - H(u), E the sill line (arch_sill_line), and a pixel
+    is the opening's when its centre is under that curve and it is on or
+    above its column's sill - so no column carries a rounding of its own and
+    the shape is symmetric about its axis in the face's frame (SPEC.md
+    128.14.20).  _old: wave 3's shape (a sheared RECTANGLE, the top two lines
+    of its outer columns cut), for --selfcheck's negative control alone.
+    -> (the hole's pixels, each column's last face line, whole): whole when
+    every pixel of the arch is on the face"""
+    last = _face_last(sp0)
+    H = arch_heights(rows, half)
+    bc, slope = arch_sill_line(last, xc, half, sill)
     pix = {}
     whole = True
-    for x in range(xc - half, xc + half):
+    for k, x in enumerate(range(xc - half, xc + half)):
         if x not in last:
             whole = False
             continue
-        for k in range(rows):
-            y = last[x] - sill - k
-            if k >= rows - 2 and abs(x + 0.5 - xc) > half - 1.5:
-                continue
+        b = last[x] - sill
+        if _old:
+            top = b - (rows - 2 if k in (0, 2 * half - 1) else rows) + 1
+        else:
+            T = bc + 1 + slope * (x + 0.5 - xc) - H[k]    # the curve's top edge (edge co-ordinates)
+            top = int(math.floor(T - 0.5)) + 1            # the first row whose centre is under it
+        for y in range(top, b + 1):
             if _inside(sp0.get(y), x):
                 pix[(x, y)] = BLK
             else:
@@ -1515,7 +1689,51 @@ def _arch(sp0, xc, rows, half, sill=0):
     return pix, last, whole
 
 
+def _ground_inner(sp0, left):
+    """(x, y) -> whether a ground's pixel is its own and not its outline
+    (Canvas.outline's: the line above not the ground's, or a face's run start)"""
+    def inner(x, y):
+        runs = sp0.get(y)
+        if not _inside(runs, x) or not _inside(sp0.get(y - 1), x):
+            return False
+        return not (left and any(a == x for a, _b in runs))
+    return inner
+
+
+def _rim(sp0, marks, left, ink):
+    """a ONE-PIXEL SOLID RIM round black marks on a PATTERNED ground (a face's
+    checker, a sand or ice top; SPEC.md 128.14.20): every pixel of the ground
+    8-adjacent to a mark, not a mark and not the ground's outline -> ink, so no
+    black pixel of the pattern touches the mark's edge and its outline reads
+    as drawn.  -> {(x, y): ink}"""
+    inner = _ground_inner(sp0, left)
+    out = {}
+    for (x, y) in marks:
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                q = (x + dx, y + dy)
+                if q not in marks and q not in out and inner(*q):
+                    out[q] = ink
+    return out
+
+
+def _top_rim_ink(t):
+    """a tile top's solid ink under its pattern, None when it has none (a
+    plain top is solid; a ramp's or the goal's checker is no tube's cell)"""
+    if t.kind != KIND_FLOOR or t.sx or t.sy:
+        return None
+    return {SURF_ICE: CYN, SURF_SAND: MAG, SURF_BOUNCE: MAG}.get(t.surf)
+
+
 MOUTH_ROWS, MOUTH_HALF = 11, 4      # an exit mouth on a wall face: the doorway's arch
+TUBE_HOLE_R = 6.0                   # a plain tube's IN hole: a disc this radius in gu (128.14.20)
+TUBE_RIM_R = (4.5, 6.5)             # its OUT rim: a ring between these radii in gu
+
+
+def _merge(a, b):
+    out = dict(a)
+    out.update(b)
+    return out
 
 
 def mouth_of(p, x0):
@@ -1558,11 +1776,10 @@ def prop_ops(tiles, ops, props, x0):
                         for a, b in runs:
                             for x in range(a, b):
                                 gx, gy = wf(x, y)
-                                du, dv = gx - (16 * cell[0] + 8), gy - (16 * cell[1] + 8)
-                                m = max(abs(du), abs(dv))
-                                if hole and m <= 5:
+                                d = math.hypot(gx - (16 * cell[0] + 8), gy - (16 * cell[1] + 8))
+                                if hole and d <= TUBE_HOLE_R:   # round (128.14.20): a disc, a ring
                                     pix[(x, y)] = BLK
-                                elif not hole and 4.5 < m <= 6:
+                                elif not hole and TUBE_RIM_R[0] < d <= TUBE_RIM_R[1]:
                                     pix[(x, y)] = BLK
                     if not hole:                    # the chevron along `out`
                         ux, uy = DIR_VEC[p["dir"]]
@@ -1580,6 +1797,11 @@ def prop_ops(tiles, ops, props, x0):
                                 y = int(math.floor((gx + gy) / 2.0 - zc))
                                 if _inside(sp0.get(y), x):
                                     pix[(x, y)] = BLK
+                    ink = _top_rim_ink(t)               # on a patterned top: a solid rim (128.14.20)
+                    marks = dict(pix)
+                    if ink is not None:
+                        pix.update(_rim(sp0, marks, False, ink))
+                    p["hole_pix" if hole else "rim_pix"] = (marks, pix)
                     add(cell, "top", _paint_op(pix, cell[0] + cell[1], t, cell))
                 for cell in p["body"]:              # the pipe on the body's tops
                     t = tiles[cell]
@@ -1608,9 +1830,11 @@ def prop_ops(tiles, ops, props, x0):
                     raise CourseError("the tube on line %d: its exit mouth (%d x %d px, its sill %d px over OUT's "
                                       "floor) is not wholly on the face of its last wall (%d, %d): a taller wall, "
                                       "or a lower exit" % (p["line"], 2 * half, rows, sill, w[0], w[1]))
-                add(w, face, _paint_op(pix, w[0] + w[1], tiles[w], w))
+                ring = _rim(sp0, pix, True, MAG) if face == "se" else {}   # the checker's face: a solid rim
+                add(w, face, _paint_op(_merge(pix, ring), w[0] + w[1], tiles[w], w))
                 p["mouth"] = (w, face, xm, rows, half, sill)
                 p["mouth_pix"] = pix
+                p["mouth_rim"] = ring
             if p["kind"] == PK_WINDMILL:            # the windmill's doorway on the house face
                 ix, iy = p["inn"]
                 if p["door"] == 1:
@@ -1626,7 +1850,9 @@ def prop_ops(tiles, ops, props, x0):
                 if p["flast"] is None:
                     raise CourseError("the windmill on line %d: its house face has no line at its doorway"
                                       % p["wline"])
-                add(D, face, _paint_op(pix, D[0] + D[1], tiles[D], D))
+                ring = _rim(sp0, pix, True, MAG) if face == "se" else {}
+                p["door_pix"], p["door_rim"] = pix, ring
+                add(D, face, _paint_op(_merge(pix, ring), D[0] + D[1], tiles[D], D))
         elif p["kind"] == PK_BUMPER:
             wx, wy = p["at"]
             t = tiles[p["at"]]
@@ -1634,11 +1860,104 @@ def prop_ops(tiles, ops, props, x0):
             p["pix0"], p["pix1"] = dark, _post_pix(wx, wy, t, x0, True)
             mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(dark, p["top"])
             add(p["at"], "top", (_spans_of(dark), "post", wx + wy, mk, False, t, p["at"]))
+        elif p["kind"] in (PK_PAD, PK_SPRING, PK_CUP, PK_CHECKPOINT):
+            wx, wy = p["at"]
+            t = tiles[p["at"]]
+            if p["kind"] != PK_CHECKPOINT:          # the mark on its top
+                pix = _top_mark(tiles, ops, p, x0)
+                add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
+            geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
+            p["geo"] = geo
+            top = 4 * t.z0 + FLAG_H
+            mk = (lambda d, tp: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: tp))(geo, top)
+            add(p["at"], "top", (_spans_of(geo), "post", wx + wy, mk, False, t, p["at"]))
+            if p["kind"] == PK_CHECKPOINT:
+                p["furl"], p["fly"] = _pennants(p, x0)
     out = []
     for op in ops:
         out.append(op)
         out += after.get((op[6], op[1]), [])
     return out
+
+
+PAD_INK = {MAT_RUBBER: MAG, MAT_STEEL: CYN, MAT_GLASS: WHT}
+
+
+def _top_mark(tiles, ops, p, x0):
+    """a wave-4 prop's mark on its tile's top (SPEC.md 128.14.4.1), in ground
+    units round the cell's centre: a PAD a disc in its ball's colour with a
+    black rim; a SPRING a coil (black rings on magenta); the CUP a black hole
+    a little wider than its 9 x 9 gu mouth.  -> {(x, y at Y0 = 0): ink}"""
+    cell = p["at"]
+    t = tiles[cell]
+    sp0 = _op_spans(ops, cell, "top")
+    wf = _top_world(t, cell[0], cell[1], x0)
+    cxg, cyg = 16 * cell[0] + 8, 16 * cell[1] + 8
+    pix = {}
+    for y, runs in sp0.items():
+        for a, b in runs:
+            for x in range(a, b):
+                gx, gy = wf(x, y)
+                d = math.hypot(gx - cxg, gy - cyg)
+                ink = None
+                if p["kind"] == PK_PAD:
+                    if d <= 6.5:
+                        ink = BLK if (2.0 < d <= 3.0 or d > 5.5) else PAD_INK[p["mat"]]
+                elif p["kind"] == PK_SPRING:
+                    if d <= 6.5:
+                        ink = BLK if (d <= 1.5 or 3.0 < d <= 4.0 or d > 5.5) else MAG
+                elif d <= MOUTH_HW + 1.0:                # the cup
+                    ink = BLK
+                if ink is not None:
+                    pix[(x, y)] = ink
+    return pix
+
+
+def _staff_pix(p, x0):
+    """a flag's POLE (black, 2 px by one unit and a line) or the cup's PIN
+    (black, 1 px) with its white flag: GEOMETRY keyed to the cell, an
+    occluder like a post (SPEC.md 128.14.4.1).  -> {(x, y at Y0 = 0): ink}"""
+    wx, wy = p["at"]
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - p["z4"]
+    out = {}
+    if p["kind"] == PK_CHECKPOINT:
+        for y in range(cy - FLAG_H - 1, cy + 1):
+            out[(cx - 1, y)] = BLK
+            out[(cx, y)] = BLK
+    elif p["kind"] == PK_CUP:
+        for y in range(cy - FLAG_H - 1, cy + 1):
+            out[(cx, y)] = BLK
+        fl = {(cx + 1 + i, cy - FLAG_H - 1 + k) for k in range(5) for i in range(6 - abs(k - 2) * 2)}
+        for (x, y) in fl:
+            edge = any((x + dx, y + dy) not in fl for dx, dy in ((1, 0), (0, 1), (0, -1)))
+            out[(x, y)] = BLK if edge else WHT
+    return out
+
+
+def _pennants(p, x0):
+    """a flag's two poses (SPEC.md 128.14.4.1): FURLED (pose 0) a white roll
+    down the pole's east side, FLYING (pose 1) a pennant out to the east.  A
+    MARK on what is drawn (no key of its own), so the two poses give the same
+    occluder verdicts by construction; the pole is the geometry.
+    -> ({(x, y at Y0 = 0): ink}, {...})"""
+    wx, wy = p["at"]
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - p["z4"]
+    ytop = cy - FLAG_H - 1
+    furl = {}
+    for y in range(ytop + 1, ytop + 6):
+        furl[(cx + 1, y)] = WHT
+        furl[(cx + 2, y)] = BLK
+    fly = set()
+    for k in range(5):
+        for i in range(7 - 3 * abs(k - 2) if k != 2 else 7):
+            fly.add((cx + 1 + i, ytop + k))
+    fl = {}
+    for (x, y) in fly:
+        edge = any((x + dx, y + dy) not in fly for dx, dy in ((1, 0), (0, 1), (0, -1)))
+        fl[(x, y)] = BLK if edge else WHT
+    return furl, fl
 
 
 def rotor_poses(p):
@@ -2034,7 +2353,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    reach, rounds, emax = build_reach(tiles, cells, fname, props)
+    reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False))
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -2043,11 +2362,13 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
     if sc is None or not sc[3] & FL_SAFE:
         raise CourseError("%s:%d: start (%d, %d) is not SAFE (a flat floor with four solid edge neighbours)"
                           % (fname, sln, swx, swy))
-    for (wx, wy), ln in src.ways:
+    for (wx, wy), ln in src.ways + [w for b in sorted(src.branches) for w in src.branches[b]]:
         t = tiles.get((wx, wy))
         if t is None or t.kind == KIND_WALL:
             raise CourseError("%s:%d: way (%d, %d) is on a %s tile" % (
                 fname, ln, wx, wy, "WALL" if t else "VOID"))
+    has_goal = any(t.kind == KIND_GOAL for t in tiles.values())
+    cups = [p for p in props if p["kind"] == PK_CUP]
     # every footprint inside the width (before any pixel: footprints are wider)
     for rc in reach:
         xl, xh = foot_x(rc, x0)
@@ -2129,6 +2450,31 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: {}, 1: pix}, "st": {},
                           "kind": PK_BUMPER, "line": p["line"]})
+        elif p["kind"] == PK_CHECKPOINT:             # wave 4: a flag, FURLED and FLYING (128.14.4.2)
+            # the pennant is a MARK at its flag's depth: whatever the picture draws IN FRONT of the flag's
+            # cell (a key over wx + wy, painter's order) hides it, as a rotor's blades are clipped - and a
+            # flag whose flying pennant is more than half hidden is REFUSED: a flag the player cannot see
+            sF = p["at"][0] + p["at"][1]
+            clip = not hack.get("pennant_noclip")
+
+            def seen(q, clip=clip, sF=sF):
+                return {(x, y + y0): c for (x, y), c in q.items()
+                        if not clip or (0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF)}
+            q0, q1 = seen(p["furl"]), seen(p["fly"])
+            if 2 * len(q1) < len(p["fly"]) or not q0:
+                hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
+                raise CourseError("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
+                                  "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
+                                  "(row s = %s against the flag's %d)"
+                                  % (fname, p["line"], p["at"][0], p["at"][1], len(p["fly"]) - len(q1),
+                                     len(p["fly"]), len(p["furl"]) - len(q0), len(p["furl"]),
+                                     ", ".join(map(str, hid[:4])), sF))
+            xs = [x for x, _ in list(q0) + list(q1)]
+            ys = [y for _, y in list(q0) + list(q1)]
+            c0, r0 = min(xs) >> 3, min(ys) >> 3
+            rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
+            lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
+                          "kind": PK_CHECKPOINT, "line": p["line"]})
     for L in lanes:
         bx, by, w, h = L["rect"]
         if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= len(L["poses"]) <= LANE_PMAX):
@@ -2307,8 +2653,15 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
         idx += struct.pack("<H", occrec + 8 * ri)
     recb = b"".join(struct.pack("<BBHhH", r["col"], 0, r["s"], r["top"], maskoff + 16 * mindex[r["mask"]])
                     for r in records)
+    gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
+        | (GF_CUP if cups else 0)
+    padmask = 0
+    for p in props:
+        if p["kind"] == PK_PAD:
+            padmask |= 1 << p["mat"]
     grid = bytearray(b"BZG1" + struct.pack("<HhhHHHhH", nrows, smin, amin, kw, rowtab, x0, y0, 0)
-                     + struct.pack("<HHHH", swx, swy, len(route), routeoff) + bytes(4))
+                     + struct.pack("<HHHH", swx, swy, len(route), routeoff)
+                     + struct.pack("<BBH", gflags, padmask, 0))
     assert len(grid) == GHDR
     for r in range(nrows):
         s = smin + r
@@ -2363,6 +2716,14 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
             so += SEGREC * len(p["segs"])
         elif p["kind"] == PK_BUMPER:
             rec += struct.pack("<HBBHHH6x", p["K"], PLITF, POST_H, p["cx"], p["cy"], p["KA"])
+        elif p["kind"] == PK_CHECKPOINT:            # wave 4 (SPEC.md 128.14.4.2)
+            rec += struct.pack("<BB14x", p["num"], p["ball"])
+        elif p["kind"] == PK_PAD:
+            rec += struct.pack("<B15x", p["mat"])
+        elif p["kind"] == PK_CUP:
+            rec += struct.pack("<HB13x", p["capture"], p["hw"])
+        elif p["kind"] == PK_SPRING:
+            rec += struct.pack("<H14x", p["gvz"])
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             p["spoff"] = spo
@@ -2380,6 +2741,9 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
     assert len(cga) == end, (len(cga), end)
     # the course's IDENTITY at BZG1 +18 (SPEC.md 128.12.8)
     ident = part_identity(cga, gridoff)
+    if ident == 0:                            # BONANZA.DAT files nothing under 0 (128.14.25 item 6)
+        raise CourseError("%s: the course's identity is 0, which BONANZA.DAT reserves for no course: "
+                          "change anything in it (a seed, a tile)" % fname)
     struct.pack_into("<H", cga, gridoff + 18, ident)
     c = Course()
     c.fname, c.name, c.title = fname, src.name, src.title
@@ -2404,6 +2768,10 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
     c.start = (swx, swy)
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     c.ident = ident
+    c.gflags, c.padmask = gflags, padmask
+    c.par = src.par[0] if src.par else 0
+    c.nflags = len(src.ckpts)
+    c.branches = src.branches
     c.cga = bytes(cga)
     c.part_bytes = c.cga                # the ONE part (BZ<K>.BIN, SPEC.md 128.11.3)
     c.herc = herc_translate_course(c.cga)   # what the guest makes of it on the Hercules
@@ -2414,7 +2782,170 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
         check_exits(c)
     if props and occluders and not hack.get("no_bounds"):
         c.bounds = check_bounds(c)
+    # wave 4 (SPEC.md 128.14.4.1): GOAL cells or a cup, never both, never neither
+    # (a course's: the host models' fixtures, compiled without occluders, need no finish)
+    if has_goal and cups:
+        raise CourseError("%s:%d: a cup on a course with GOAL cells (one goal: the line or the cup)"
+                          % (fname, cups[0]["line"]))
+    if not has_goal and not cups and occluders and not hack.get("no_finish"):
+        raise CourseError("%s: no GOAL cell and no cup: the course has no finish" % fname)
+    # wave 4 (SPEC.md 128.14.4.1): NOTHING UNDER THE HUD, and NO TRAP
+    c.prop_pix = {}
+    for i, p in enumerate(props):
+        if p["kind"] in (PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING):
+            sp = _op_spans(ops, p["at"], "top")
+            pix = {(x, y + y0) for y, runs in sp.items() for a, b in runs for x in range(a, b)}
+            pix |= {(x, y + y0) for (x, y) in p.get("geo", {})}
+            pix |= {(x, y + y0) for (x, y) in list(p.get("furl", {})) + list(p.get("fly", {}))}
+            c.prop_pix[i] = pix
+    if not hack.get("no_hud"):
+        bad = hud_conflicts(c)
+        if bad:
+            raise CourseError("%s:%d: %s under the HUD's shown rect at a clamped camera (%s, pixel %s)"
+                              % (fname, bad[0], bad[1], bad[2], bad[3]))
+    if occluders and not hack.get("no_trap") and any(p["kind"] in (PK_CHECKPOINT, PK_PAD) for p in props):
+        bad = trap_check(c)
+        if bad:
+            raise CourseError("%s:%d: NO TRAP: from the %s at (%d, %d) a %s ball cannot reach the %s"
+                              % (fname, bad[0], bad[1], bad[2][0], bad[2][1], MAT_NAMES[bad[3]],
+                                 "cup" if cups else "goal"))
     return c
+
+
+# =============================================================================
+# wave 4's course checks (SPEC.md 128.14.4.1): the HUD's rect, NO TRAP
+# =============================================================================
+
+HUD_COLS = (8, 24)                        # the panel's word columns 1 - 2, px in the window
+HUD_LINE = (190, 186)                     # its first window line, CGA and Hercules (128.14.5.3)
+HUD_LINES = 6
+
+
+def hud_zones(c):
+    """the picture's px rects the HUD's shown rect covers at every camera the
+    course CLAMPS to - the window against the left edge (any row), at the foot
+    (any column), or both - on either card: [(x0, y0, x1, y1, what)]"""
+    out = []
+    for herc in (0, 1):
+        W, H, rl, lsh = CARDS[herc]
+        rmax = max(0, c.brows * 8 // rl - H)
+        cmax = max(0, c.cols - W)
+        yl = HUD_LINE[herc]
+        name = "Hercules" if herc else "CGA"
+        out.append((HUD_COLS[0], yl, HUD_COLS[1], rmax * rl + yl + HUD_LINES, "%s, the window at the left edge" % name))
+        out.append((HUD_COLS[0], rmax * rl + yl, 8 * cmax + HUD_COLS[1], rmax * rl + yl + HUD_LINES,
+                    "%s, the window at the foot" % name))
+    return out
+
+
+def hud_conflicts(c):
+    """NOTHING UNDER THE HUD (item 8): a cup, flag, pad or spring (its top, its
+    pole or pin and its pennant) or a `way` waypoint (the ball's contact
+    point on it) inside a clamped HUD rect.  -> None or (line, what, zone, px)"""
+    zones = hud_zones(c)
+    def inz(x, y):
+        for z in zones:
+            if z[0] <= x < z[2] and z[1] <= y < z[3]:
+                return z[4]
+        return None
+    for i in sorted(c.prop_pix):
+        p = c.props[i]
+        for (x, y) in sorted(c.prop_pix[i]):
+            z = inz(x, y)
+            if z:
+                return (p["line"], "the %s at (%d, %d)" % (PK_NAMES[p["kind"]], p["at"][0], p["at"][1]), z, (x, y))
+    ways = list(c.src.ways) + [w for b in sorted(c.src.branches) for w in c.src.branches[b]]
+    for (wx, wy), ln in ways:
+        x, y = _way_point(c, (wx, wy))
+        z = inz(x + 8, y + 13)
+        if z:
+            return (ln, "the way (%d, %d)" % (wx, wy), z, (x + 8, y + 13))
+    return None
+
+
+TRAP_RUN = 128                            # steps a run holds its direction
+TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
+
+
+def trap_succ(c, cell, mat, cache, phases):
+    """the (cell, material) states a ball put at rest on `cell`'s centre with
+    `mat` reaches GROUNDED, holding each of the eight directions for TRAP_RUN
+    steps (tubes, pads, springs, the lift and the windmills by the model; a
+    fall ends the run), and whether a run reached the goal or the cup"""
+    key = (cell, mat)
+    if key in cache:
+        return cache[key]
+    out = set()
+    hit = False
+    cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
+    for ph in phases:
+        for k in TRAP_DIRS:
+            p = Physics(c, play=True, mat=mat).poke(*cell)
+            p.nstep = ph
+            p.ckmat = mat
+            for st_ in range(TRAP_RUN + 64):
+                if st_ >= TRAP_RUN and not p.air and not p.tube:
+                    break                       # (a run ends grounded)
+                n0 = len(p.events)
+                p.step(k)
+                if p.nfall or p.nret:
+                    break
+                here = (p.gx >> 12, p.gy >> 12)
+                if p.goal or here in cup:
+                    hit = True
+                    break
+                if here != cell and not p.tube and (not p.air or any(
+                        e[0] in ("land", "bounce", "hopc", "stun") for e in p.events[n0:])):
+                    out.add((here, p.mat))      # grounded there, or a contact there (a rubber ball bounces on)
+            if hit:
+                break
+        if hit:
+            break
+    cache[key] = (out, hit)
+    return cache[key]
+
+
+def trap_reach(c, cell, mat, cache=None, limit=None):
+    """from (cell, mat), is the goal or the cup reachable?  -> (bool, states explored)"""
+    cache = {} if cache is None else cache
+    phases = (0,)                       # a windmill's gate or the lift's slab: two phases half a
+    if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
+        phases = (0, 32)                # gate period apart (64 steps), so one of them finds it open
+    seen = {(cell, mat)}
+    todo = [(cell, mat)]
+    while todo:
+        nxt = []
+        for cl, m in todo:
+            succ, hit = trap_succ(c, cl, m, cache, phases)
+            if hit:
+                return True, len(seen)
+            for st in sorted(succ):
+                if st not in seen:
+                    seen.add(st)
+                    nxt.append(st)
+        todo = nxt
+        if limit and len(seen) > limit:
+            break
+    return False, len(seen)
+
+
+def trap_check(c, cache=None):
+    """NO TRAP (item 7): from every flag's cell with the flag's ball and every
+    pad's cell with the pad's ball, the goal or the cup.  -> None or (line,
+    what, cell, ball) of the first that cannot"""
+    cache = {} if cache is None else cache
+    c.trap = []
+    for r in c.part["props"]:
+        if r["kind"] not in (PK_CHECKPOINT, PK_PAD):
+            continue
+        pr = c.props[c.order[r["i"]]]
+        m = r["ball"] if r["kind"] == PK_CHECKPOINT else r["mat"]
+        ok, n = trap_reach(c, r["at"], m, cache)
+        c.trap.append((PK_NAMES[r["kind"]], r["at"], m, ok, n))
+        if not ok:
+            return (pr["line"], "flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m],
+                    r["at"], m)
+    return None
 
 
 def exit_run(c, rec, mat, vin=TMIN, n=400, steps=None):
@@ -2693,7 +3224,7 @@ def read_part(p, fname="<part>"):
         bad("MASKOFF", str(maskoff))
     if gridoff != maskoff + 16 * nmask:
         bad("GRIDOFF", str(gridoff))
-    if bool(propoff) != bool(nprop) or nprop > PROP_MAX:
+    if bool(propoff) != bool(nprop) or nprop > PROP_ALL:
         bad("PROPOFF", "offset %d with %d props" % (propoff, nprop))
     if gridoff + GHDR > n:
         bad("GRIDOFF", "past the part")
@@ -2727,8 +3258,9 @@ def read_part(p, fname="<part>"):
         bad("BZG1", "magic")
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
-    if p[g + 28:g + 32] != bytes(4):
-        bad("BZG1", "reserved bytes")
+    gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
+    if gflags & ~(GF_CKPT | GF_CUP) or padmask & ~7 or gz or (gflags & GF_CUP and not gflags & GF_CKPT):
+        bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
     if ident != part_identity(p, g):
         bad("BZG1 +18", "identity %04Xh is not the part's sum %04Xh" % (ident, part_identity(p, g)))
     if amin & 1:
@@ -2752,12 +3284,31 @@ def read_part(p, fname="<part>"):
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
     props = read_props(p, propoff, nprop, blkoff, occidx, bad) if nprop else []
+    # wave 4: the header's flags and pad mask are the records' (SPEC.md 128.14.4.2)
+    kinds = [d["kind"] for d in props]
+    want_f = (GF_CKPT if PK_CHECKPOINT in kinds or PK_CUP in kinds else 0) | (GF_CUP if PK_CUP in kinds else 0)
+    want_m = 0
+    for d in props:
+        if d["kind"] == PK_PAD:
+            want_m |= 1 << d["mat"]
+    if gflags != want_f or padmask != want_m:
+        bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
+            % (gflags, padmask, want_f, want_m))
+    for d in props:
+        if d["kind"] in (PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING):
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
+                                                 + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
+                if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
+                else (0, 0, 0, 0)
+            if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
+                bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
     return {"cols": cols, "brows": brows, "nblk": nblk, "mapsh": mapsh, "blkoff": blkoff,
             "occidx": occidx, "occrec": occrec, "nocc": nocc, "maskoff": maskoff, "nmask": nmask,
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
+                     "gflags": gflags, "padmask": padmask,
                      "cells_raw": bytes(p[celloff:rowtab]), "celloff": celloff}}
 
 
@@ -2781,6 +3332,12 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad):
             bad("prop %d" % i, "flags %02Xh (UNDERSIDE is reserved)" % flags)
         if mask and (not _pow2(mask + 1) or seed > mask):
             bad("prop %d" % i, "clock mask %d, seed %d" % (mask, seed))
+        if kind >= PK_CHECKPOINT and (mask or shift or seed):
+            bad("prop %d" % i, "a %s with a clock" % PK_NAMES[kind])
+        if kind == PK_CHECKPOINT and not flags & PF_LANE:
+            bad("prop %d" % i, "a checkpoint without its LANE (a flag is a two-pose lane, 128.14.4.2)")
+        if kind in (PK_PAD, PK_CUP, PK_SPRING, PK_TUBE, PK_PLATFORM) and flags & PF_LANE:
+            bad("prop %d" % i, "a %s with a LANE" % PK_NAMES[kind])
         d = {"i": i, "kind": kind, "flags": flags, "at": (wx, wy), "mask": mask, "shift": shift, "seed": seed}
         if flags & PF_LANE:
             brow, col, w, h, poses, pmo = struct.unpack_from("<HBBBBH", p, r + 8)
@@ -2804,6 +3361,38 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad):
         out.append(d)
     if lanebr != sorted(lanebr):
         bad("props", "lanes not sorted by first block row")
+    if len(lanebr) > PROP_MAX:
+        bad("props", "%d lanes, over %d" % (len(lanebr), PROP_MAX))
+    nums = []
+    for d in out:                                  # wave 4's kinds (SPEC.md 128.14.4.2)
+        r = propoff + PROPREC * d["i"]
+        if d["kind"] == PK_CHECKPOINT:
+            num, ball = struct.unpack_from("<BB", p, r + 16)
+            if num >= CKPT_MAX or ball >= len(MATERIALS) or p[r + 18:r + 32] != bytes(14) or num in nums:
+                bad("prop %d" % d["i"], "a checkpoint's record (number %d, ball %d)" % (num, ball))
+            nums.append(num)
+            if d["lane"]["poses"] != 2:
+                bad("prop %d" % d["i"], "a checkpoint's lane of %d poses" % d["lane"]["poses"])
+            d.update(num=num, ball=ball)
+        elif d["kind"] == PK_PAD:
+            mat = p[r + 16]
+            if mat >= len(MATERIALS) or p[r + 17:r + 32] != bytes(15):
+                bad("prop %d" % d["i"], "a pad's record")
+            d.update(mat=mat)
+        elif d["kind"] == PK_CUP:
+            cap, hw = struct.unpack_from("<HB", p, r + 16)
+            if not CAPTURE_LO <= cap <= CAPTURE_HI or hw != MOUTH_HW or p[r + 19:r + 32] != bytes(13):
+                bad("prop %d" % d["i"], "a cup's record")
+            d.update(capture=cap, hw=hw)
+        elif d["kind"] == PK_SPRING:
+            gvz = struct.unpack_from("<H", p, r + 16)[0]
+            if not SPRING_LO <= gvz <= VZMAX or p[r + 18:r + 32] != bytes(14):
+                bad("prop %d" % d["i"], "a spring's record")
+            d.update(gvz=gvz)
+    if sorted(nums) != list(range(len(nums))):
+        bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
+    if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
+        bad("props", "a second cup")
     for d in out:
         r = propoff + PROPREC * d["i"]
         if d["kind"] in (PK_TUBE, PK_WINDMILL):
@@ -2852,6 +3441,7 @@ class Grid:
         self.x0, self.y0 = g["x0"], g["y0"]
         self.start, self.route = g["start"], g["route"]
         self.ident = g["ident"]
+        self.gflags, self.padmask = g["gflags"], g["padmask"]
         self.props = info["props"]
 
     def cell(self, wx, wy):
@@ -2978,11 +3568,17 @@ class Physics:
     def __init__(self, course, play=False, mat=None, _slope_sign=1, _takeoff_zero=False, _ef_zero=False,
                  _east_w1=False, _no_stun=False, _abs_impact=False, _no_airclimb=False, _hop_add=False,
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
-                 _carry_s=False):
+                 _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
+                 _spring_sum=False, _tilt_min=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
-        self.grid = Grid(part)
+        if isinstance(course, Course):              # one read of the part a course (its records
+            if getattr(course, "_grid", None) is None or course._grid.p is not course.cga:
+                course._grid = Grid(part)          # are only read by the model)
+            self.grid = course._grid
+        else:
+            self.grid = Grid(part)
         self.play = play
         self.mat = mat
         self.m = MATERIALS[mat]
@@ -3020,6 +3616,17 @@ class Physics:
         self.respawned = False
         self.nkick = self.nknock = self.ntube = 0
         self._tin = (0, 0)
+        # wave 4's state (SPEC.md 128.14.4.7): bz_pinit zeroes it, bz_ckmat the start material
+        self.gflags = self.grid.gflags
+        self.ckpt = self.cksn = self.inmo = self.hid = 0
+        self.ckmat = mat
+        self.nckpt = self.npad = self.nlip = self.nspr = self.nret = 0
+        self._ckpt_safe, self._ckmat_touch, self._pad_noftg = _ckpt_safe, _ckmat_touch, _pad_noftg
+        self._cup_nov, self._spring_sum, self._tilt_min = _cup_nov, _spring_sum, _tilt_min
+        self.flags_at = {}                       # a flag's number -> its cell
+        for pr in self.props:
+            if pr["kind"] == PK_CHECKPOINT:
+                self.flags_at[pr["num"]] = pr["at"]
         self._place(*self.grid.start)
         self.bx = self.by = 0
         self._derive(True)
@@ -3250,16 +3857,43 @@ class Physics:
         self._derive(True)
         return self
 
-    def _respawn(self):
-        self._place(*self.safe)
-        self.nfall += 1
+    def _setmat(self, mat):
+        """the material's record and its tables (bz_pinit's copy; ftg is the
+        model's per step, from surf_entry): a pad's swap and a respawn's"""
+        self.mat = mat
+        self.m = MATERIALS[mat]
+        if not self._pad_noftg:
+            self.fta = fta_table(self.m["ACC"])
+
+    def _respawn(self, ret=False):
+        """step 7 (SPEC.md 128.10.7.3, 128.14.4.5): on a course whose FLAGS bit 0
+        is set, on the last flag touched (the start before any) with that flag's
+        ball; otherwise on bz_safe.  ret: a RETURN (bz_nret, not bz_nfall)"""
+        if self.gflags & GF_CKPT and not self._ckpt_safe:
+            at = self.flags_at[self.ckpt - 1] if self.ckpt else self.grid.start
+            self._place(*at)
+            if self.ckmat != self.mat:
+                self._setmat(self.ckmat)
+        else:
+            at = self.safe
+            self._place(*at)
+        if ret:
+            self.nret += 1
+        else:
+            self.nfall += 1
         self.respawned = True
         self.mst = self.mct = self.sqf = 0
         self.lvl = [0, 0, 0, 0]
         self.hopw = 0
         self.ghv = 0
+        self.inmo = 0
         self._ps()
-        self.events.append(("respawn", self.nstep + 1, self.safe))
+        self.events.append(("return" if ret else "respawn", self.nstep + 1, at))
+
+    def state4(self):
+        """wave 4's state as bonanzaphys compares it (SPEC.md 128.14.4.7)"""
+        return (self.mat, self.ckpt, self.ckmat, self.cksn, self.inmo, self.hid, self.nckpt, self.npad,
+                self.nlip, self.nspr, self.nret)
 
     def _derive(self, zero):
         nbx = self.gx - self.gy + ((self.x0 - 8) << 8)
@@ -3332,8 +3966,8 @@ class Physics:
         """step from the course's start through a log's bytes (SPEC.md
         128.11.12.1); the caller made this Physics with the log's course and
         material.  -> self"""
-        for k in decode_log(log)[2]:
-            self.step(k)
+        for k, t in decode_log_t(log)[2]:
+            self.step(k, t)
         return self
 
     # -- the step (SPEC.md 128.11.8.2) ------------------------------------------
@@ -3343,18 +3977,36 @@ class Physics:
         fl, fr, fu, fd = f
         return fr - fl + fd - fu, -fr + fl + fd - fu
 
-    def step(self, K=0):
+    def step(self, K=0, T=TILT_KEYS):
+        """one step on key byte K and tilt byte T (SPEC.md 128.14.8.2: the x
+        cap for Left and Right in its high nibble, the y cap for Up and Down)"""
         self.respawned = False
-        m = self.m
         n = self.nstep & 0xFFFF
-        # 1. the keys, on every step whatever the state
+        # wave 4: RETURN first (SPEC.md 128.14.4.5), and the step runs nothing else
+        if K & K_RET and self.mst != ST_SHATTER and not self.tube and not self.hid:
+            self._respawn(ret=True)
+            return self._end()
+        m = self.m
+        # 1. the keys, on every step whatever the state; each arrow's level
+        # capped by its axis's tilt cap (8 on a keyboard step: wave 2's ramp)
+        cx_, cy_ = T >> 4, T & 15
         for i, b in enumerate((K_L, K_R, K_U, K_D)):
-            self.lvl[i] = min(LVL_MAX, self.lvl[i] + 1) if K & b else max(0, self.lvl[i] - 2)
+            c = cx_ if i < 2 else cy_
+            if not K & b:
+                self.lvl[i] = max(0, self.lvl[i] - 2)
+            elif self._tilt_min:                    # (a red arm: the min before the decay)
+                self.lvl[i] = min(c, self.lvl[i] + 1)
+            elif self.lvl[i] > c:
+                self.lvl[i] = max(c, self.lvl[i] - 2)
+            else:
+                self.lvl[i] = min(c, self.lvl[i] + 1)
         if K & K_HOP and not self.kprev & K_HOP:
             self.hopw = HOPWIN
         elif self.hopw:
             self.hopw -= 1
         self.kprev = K
+        if self.hid:                                # holed out: the ball is gone (128.14.4.3)
+            return self._end()
         # ...then the ball's state
         if self.sqf:
             self.sqf -= 1
@@ -3547,6 +4199,8 @@ class Physics:
         h = h4 << 6
         onslab = False
         lifted = False
+        was_air = self.air
+        contact = None
         if not self.air:
             if self.hopw and not stun and solid:
                 # 128.11.8.6: the Hop from the ground
@@ -3571,11 +4225,38 @@ class Physics:
                 onslab = slab is not None
         else:
             if solid and self.gz <= h:
-                self._land(C, h, K, stun)
+                contact = self._land(C, h, K, stun)
                 onslab = slab is not None
             elif Cv[3] == KIND_VOID and not solid and self.gz < (4 * Cv[0]) << 8:
                 self._respawn()
                 return self._end()
+        # wave 4 (SPEC.md 128.14.4.7): the four props' rules on the PROP path, for
+        # the centre's cell's OBS owner - a SPRING, the CUP, a PAD, a FLAG - one
+        # cell, one prop, so at most one fires
+        if self.wol and Cv[4] & FL_OBS:
+            pr = self.owner((cwx, cwy))
+            k_ = pr["kind"] if pr is not None else 0
+            if k_ == PK_CUP:
+                self._cup(pr, was_air)
+            else:
+                self.inmo = 0
+                if k_ == PK_SPRING:
+                    self._spring(pr, h, was_air, contact, solid)
+                elif k_ == PK_PAD:
+                    if not self.air and self.mst != ST_SHATTER and pr["mat"] != self.mat:
+                        self._setmat(pr["mat"])
+                        self.npad += 1
+                        self.events.append(("pad", self.nstep + 1, pr["mat"]))
+                elif k_ == PK_CHECKPOINT:
+                    if self.mst != ST_SHATTER:
+                        self.ckpt = pr["num"] + 1
+                        self.ckmat = self.mat if self._ckmat_touch else pr["ball"]
+                        if not self.cksn & (1 << pr["num"]):
+                            self.cksn |= 1 << pr["num"]
+                            self.nckpt += 1
+                            self.events.append(("flag", self.nstep + 1, pr["num"]))
+        elif self.wol:
+            self.inmo = 0
         # bz_onp (SPEC.md 128.12.6.4): SET grounded on, or landed on, the slab;
         # KEPT airborne over its square at n + 1; CLEARED otherwise
         if onslab:
@@ -3623,12 +4304,14 @@ class Physics:
             self.mst, self.mct = ST_STUN, m["HSTEPS"]
             self.nstun += 1
             self.events.append(("stun", self.nstep + 1, lvz))
+            out = "stun"
         elif hard == HARD_SHATTER and lvz >= m["HTHR"]:
             self.air = 0
             self.gvx = self.gvy = self.gvz = 0
             self.mst, self.mct = ST_SHATTER, m["HSTEPS"]
             self.nshat += 1
             self.events.append(("shatter", self.nstep + 1, lvz))
+            out = "shatter"
         elif self.hopw and not stun:
             rr = r if r >= bmin else 0
             self.gvz = (m["HOP"] + rr if self._hop_add else max(m["HOP"], rr)) + base
@@ -3636,17 +4319,73 @@ class Physics:
             self.hopw = 0
             self.nhop += 1
             self.events.append(("hopc", self.nstep + 1, lvz, self.gvz))
+            out = "hopc"
         elif r >= bmin and not K & K_GRIP:
             self.gvz = r + base
             self.ztop = self.gz >> 8
             self.nbnc += 1
             self.events.append(("bounce", self.nstep + 1, lvz, r))
+            out = "bounce"
         else:
             self.gvz = 0
             self.air = 0
             self.events.append(("land", self.nstep + 1, (self.lfall, lvz)))
+            out = "land"
         if lvz >= SQTHR and self.mst != ST_SHATTER:
             self.sqf = SQSTEPS
+        return out
+
+    # -- wave 4: the cup and the spring (SPEC.md 128.14.4.3, 128.14.4.6) -------
+    def _cup(self, pr, was_air):
+        """the centre in the cup's cell: in its MOUTH, a ball that began the
+        step on the ground and ends it there, neither shattering nor stunned,
+        HOLES OUT at max(|gvx|, |gvy|) <= capture (a play only, as a goal) and
+        LIPS OUT faster on the step it enters the mouth"""
+        hw = pr["hw"]
+        u, v = (self.gx >> 8) & 15, (self.gy >> 8) & 15
+        if abs(u - 8) > hw or abs(v - 8) > hw:
+            self.inmo = 0
+            return
+        if not was_air and not self.air and self.mst == ST_NONE:
+            if max(abs(self.gvx), abs(self.gvy)) <= pr["capture"] or self._cup_nov:
+                if self.play:
+                    self.gvx = self.gvy = self.gvz = 0
+                    self.hid = 1
+                    if not self.goal:
+                        self.events.append(("goal", self.nstep + 1, "cup"))
+                    self.goal = 1
+                    self.events.append(("cup", self.nstep + 1, pr["i"]))
+            elif not self.inmo:
+                self.air = 1
+                self.gvz = LIPZ
+                self.ztop = self.gz >> 8
+                self.gz += self.gvz
+                self.nlip += 1
+                self.events.append(("lip", self.nstep + 1, max(abs(self.gvx), abs(self.gvy))))
+        self.inmo = 1
+
+    def _spring(self, pr, h, was_air, contact, solid):
+        """a SPRING under a ball grounded on it (it began the step there) or
+        under this step's contact that did not shatter: gvz = max(SPRING, the
+        rebound) - never the sum - airborne (a flat cell: no floor rate)"""
+        if self.mst == ST_SHATTER:
+            return
+        if contact is not None:
+            rb = self.gvz if self.air else 0
+            self.gvz = (pr["gvz"] + rb) if self._spring_sum else max(pr["gvz"], rb)
+            self.gvz = min(self.gvz, VZMAX)
+            self.air = 1
+            self.ztop = self.gz >> 8
+        elif not was_air and solid:
+            self.gz = h                             # the floor (a Hop this step does not add)
+            self.gvz = pr["gvz"]
+            self.air = 1
+            self.ztop = self.gz >> 8
+            self.gz += self.gvz
+        else:
+            return
+        self.nspr += 1
+        self.events.append(("spring", self.nstep + 1, self.gvz))
 
     def _end(self):
         self.nstep += 1
@@ -3692,29 +4431,82 @@ def shadow(p):
 RLOG_SIZE = 4096
 RLOG_HDR = 16
 RLOG_RUNS = (RLOG_SIZE - RLOG_HDR) // 2       # 2,040
-RL_COMPLETE, RL_TRUNC = 1, 2
+RLOG_TRUNS = (RLOG_SIZE - RLOG_HDR) // 3      # 1,360: a TILT log's triples (SPEC.md 128.14.8.3)
+RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 
 
-def encode_log(keys, course=0, mat=MAT_RUBBER, complete=True, ident=0):
+# --- the PHYSICS identity (SPEC.md 128.14.7.2) -----------------------------------
+# The step's constants a log's replay depends on and the material table does not
+# hold, in this order, each packed as a little-endian word: the caps, gravity,
+# the climb and the stick, the radius, the slope's push, the ramp, the Hop's
+# window, the squash, the wall's dead band, the bumper rail's and the mat's
+# restitutions and the mat's floor, sand's drag, the shatter's steps (the stun's
+# are BZ_MATTAB's), the tubes' least speed, a blade's restitution, the posts'
+# radius, kick and its add, the lift's top speed and BZ_LIPZ.
+PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
+               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ)
+
+
+def crc16_ccitt(data, crc=0xFFFF):
+    """CRC-16/CCITT-FALSE: polynomial 1021h, initial FFFFh, no reflection"""
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def phys_tables():
+    """the generated tables the step reads besides BZ_MATTAB and PHYS_CONSTS:
+    BZ_SURFTAB (ice, sand and the mat derived from each material), the corner
+    table and the bumpers' OCTANT table, as bzcourse.inc emits them"""
+    return (surftab() + bytes((v & 255) for e in CORNER for v in e)
+            + bytes((v & 255) for e in OCTANT for v in e))
+
+
+def phys_ident(_mt=None, _consts=None, _tabs=None):
+    """BZ_PHYSV: the CRC-16 (CCITT) of BZ_MATTAB's 48 bytes, PHYS_CONSTS as
+    words, then phys_tables() (SPEC.md 128.14.25 item 4: every generated
+    table the step reads), folded to a byte by the XOR of its halves"""
+    data = (_mt if _mt is not None else mattab()) + b"".join(
+        struct.pack("<H", v & 0xFFFF) for v in (_consts if _consts is not None else PHYS_CONSTS)) + (
+        _tabs if _tabs is not None else phys_tables())
+    c = crc16_ccitt(data)
+    return (c >> 8) ^ (c & 0xFF)
+
+
+PHYSV = phys_ident()
+
+
+def encode_log(keys, course=0, mat=MAT_RUBBER, complete=True, ident=0, physv=None, tilts=None):
     """a step's key bytes -> the log's bytes, run-length coded as the guest's
     recorder does (a run is at most 255 steps; a flush into a full buffer
     truncates).  ident: the course's identity at +14 (SPEC.md 128.12.8; a
-    Course's .ident).  -> bytes (the 16-byte header and the runs, not padded)"""
+    Course's .ident); physv: +7, the physics identity (default this build's,
+    BZ_PHYSV, as a play writes it at its end, 128.14.7.2); tilts: a tilt byte
+    a step makes a TILT log, runs of (key byte, tilt byte, count) (128.14.8.3).
+    -> bytes (the 16-byte header and the runs, not padded)"""
     runs = []
     steps = 0
     trunc = False
-    for k in keys:
-        if runs and runs[-1][0] == k and runs[-1][1] < 255:
-            runs[-1][1] += 1
-        elif len(runs) >= RLOG_RUNS:
+    cap = RLOG_TRUNS if tilts is not None else RLOG_RUNS
+    for i, k in enumerate(keys):
+        t = tilts[i] if tilts is not None else None
+        if runs and runs[-1][0] == k and runs[-1][1] == t and runs[-1][2] < 255:
+            runs[-1][2] += 1
+        elif len(runs) >= cap:
             trunc = True
             break
         else:
-            runs.append([k, 1])
+            runs.append([k, t, 1])
         steps += 1
-    flags = (RL_COMPLETE if complete else 0) | (RL_TRUNC if trunc else 0)
-    head = b"BZR1" + struct.pack("<BBBBIHH", course, mat, flags, 0, steps, len(runs), ident)
-    return head + b"".join(struct.pack("<BB", k, n) for k, n in runs)
+    flags = (RL_COMPLETE if complete else 0) | (RL_TRUNC if trunc else 0) \
+        | (RL_TILT if tilts is not None else 0)
+    head = b"BZR1" + struct.pack("<BBBBIHH", course, mat, flags, PHYSV if physv is None else physv, steps,
+                                 len(runs), ident)
+    if tilts is not None:
+        return head + b"".join(struct.pack("<BBB", k, t, n) for k, t, n in runs)
+    return head + b"".join(struct.pack("<BB", k, n) for k, _t, n in runs)
 
 
 def log_ident(log):
@@ -3722,18 +4514,119 @@ def log_ident(log):
     return struct.unpack_from("<H", log, 14)[0]
 
 
-def decode_log(log):
-    """-> (course, material, [key byte a step], flags)"""
+def decode_log_t(log):
+    """-> (course, material, [(key byte, tilt byte) a step], flags); a
+    keyboard log's tilt bytes are 88h"""
     if log[:4] != b"BZR1":
         raise ValueError("not a BZR1 log")
     course, mat, flags, _, steps, nruns, _ = struct.unpack_from("<BBBBIHH", log, 4)
-    keys = []
+    out = []
     for i in range(nruns):
-        k, n = struct.unpack_from("<BB", log, RLOG_HDR + 2 * i)
-        keys += [k] * n
-    if len(keys) != steps:
-        raise ValueError("the log's runs hold %d steps, its header %d" % (len(keys), steps))
-    return course, mat, keys, flags
+        if flags & RL_TILT:
+            k, t, n = struct.unpack_from("<BBB", log, RLOG_HDR + 3 * i)
+        else:
+            (k, n), t = struct.unpack_from("<BB", log, RLOG_HDR + 2 * i), TILT_KEYS
+        out += [(k, t)] * n
+    if len(out) != steps:
+        raise ValueError("the log's runs hold %d steps, its header %d" % (len(out), steps))
+    return course, mat, out, flags
+
+
+def decode_log(log):
+    """-> (course, material, [key byte a step], flags)"""
+    course, mat, kt, flags = decode_log_t(log)
+    return course, mat, [k for k, _t in kt], flags
+
+
+def check_log(log, ncrs, idents, physv=None):
+    """SPEC.md 128.14.7.2's checks 1 - 8 on a log's bytes, in order (the
+    guest's hostile pass, the build's for a shipped demo).  idents: each
+    course's identity (BZ_CRS_IDS).  -> None, or (check number, why)"""
+    n = len(log)
+    if not 16 <= n <= RLOG_SIZE:
+        return (1, "size %d outside 16 - %d" % (n, RLOG_SIZE))
+    if log[:4] != b"BZR1":
+        return (2, "magic %r" % bytes(log[:4]))
+    K, mat, fl, pv, steps, N, ident = struct.unpack_from("<BBBBIHH", log, 4)
+    if K >= ncrs or mat >= len(MATERIALS) or fl & ~7:
+        return (3, "course %d, material %d, flags %02Xh" % (K, mat, fl))
+    if ident != idents[K]:
+        return (4, "identity %04Xh, the course's %04Xh" % (ident, idents[K]))
+    if pv != (PHYSV if physv is None else physv):
+        return (5, "physics %02Xh, this build's %02Xh" % (pv, PHYSV if physv is None else physv))
+    w = 3 if fl & RL_TILT else 2
+    if N < 1 or n != 16 + w * N:
+        return (6, "%d runs in %d bytes" % (N, n))
+    tot = sum(log[RLOG_HDR + w * i + w - 1] for i in range(N))
+    if tot & 0xFFFFFFFF != steps:
+        return (7, "steps %d, the runs' %d" % (steps, tot))
+    for i in range(N):
+        o = RLOG_HDR + w * i
+        k, cnt = log[o], log[o + w - 1]
+        if not 1 <= cnt <= 255 or k & 0x80:
+            return (8, "run %d: key %02Xh count %d" % (i, k, cnt))
+        if w == 3 and ((log[o + 1] >> 4) > LVL_MAX or (log[o + 1] & 15) > LVL_MAX):
+            return (8, "run %d: tilt %02Xh" % (i, log[o + 1]))
+    return None
+
+
+# --- the mouse as a tilt stick (SPEC.md 128.14.8.1): the guest's bz_tmouse ---------
+class TiltStick:
+    """The pointer -> a frame's key byte and TILT BYTE, as bz_tmouse maps it.
+    Per screen axis of extent E (OSAPI_VIDEO's, read in the bracket): FULL =
+    E // 4, DZ = FULL // 4, R = FULL - DZ, the eight boundaries T[c] = DZ +
+    c R // 8 (c 0 - 7) and the hysteresis H = R // 32.  A cap rises past T[cap]
+    when |d| - H > T[cap] and falls past T[cap - 1] when |d| + H <= T[cap - 1];
+    without hysteresis it is min(8, ceil(8 (|d| - DZ) / R)) beyond DZ.  The
+    anchor is the pointer at the first frame and at each respawn, clamped to
+    [FULL, E - 1 - FULL]; the stick is dead until both caps have been 0 once.
+    The left button is Hop, the right Grip; an arrow key held on an axis wins
+    that axis with cap 8."""
+
+    def __init__(self, w, h, _nodz=False):
+        self.ax = [self._axis(w, _nodz), self._axis(h, _nodz)]
+        self.armed = False
+        self.anchor_next = True
+
+    @staticmethod
+    def _axis(e, nodz):
+        full = e // 4
+        dz = 0 if nodz else full // 4                   # (`tiltmap`: the dead zone left out)
+        r = full - dz
+        return {"lo": full, "hi": e - 1 - full, "h": r // 32,
+                "t": [dz + (c * r >> 3) for c in range(LVL_MAX)], "anc": 0, "cap": 0, "neg": False}
+
+    def frame(self, x, y, buttons=0, keys=0, respawned=False):
+        """one frame: the pointer (x, y), its buttons, the keyboard's key byte
+        and whether the last frame's steps respawned -> (key byte, tilt byte)"""
+        k = keys
+        if buttons & 1:
+            k |= K_HOP
+        if buttons & 2:
+            k |= K_GRIP
+        if self.anchor_next or respawned:
+            self.anchor_next, self.armed = False, False
+            for a, p in zip(self.ax, (x, y)):
+                a["anc"], a["cap"] = min(max(p, a["lo"]), a["hi"]), 0
+        for a, p in zip(self.ax, (x, y)):
+            d = p - a["anc"]
+            a["neg"], m, c = d < 0, abs(d), a["cap"]
+            while c < LVL_MAX and m - a["h"] > a["t"][c]:
+                c += 1
+            while c > 0 and m + a["h"] <= a["t"][c - 1]:
+                c -= 1
+            a["cap"] = c
+        if not self.ax[0]["cap"] and not self.ax[1]["cap"]:
+            self.armed = True
+        caps = []
+        for a, both, pos in zip(self.ax, (K_L | K_R, K_U | K_D), (K_R, K_D)):
+            c = a["cap"] if self.armed else 0
+            if keys & both:
+                c = LVL_MAX
+            elif c:
+                k |= (both ^ pos) if a["neg"] else pos
+            caps.append(c)
+        return k, caps[0] << 4 | caps[1]
 
 
 # =============================================================================
@@ -3939,6 +4832,8 @@ class Heavy:
     def _true(self, r, n_last):
         if r["kind"] == PK_WINDMILL:
             return ((n_last + r["seed"]) & r["mask"]) >> r["shift"]
+        if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
+            return 1 if self.p.cksn & (1 << r["num"]) else 0
         i = r["i"]
         k = self.p.pkick[i]
         if self.seen.setdefault(i, k) != k:     # a new kick: lit for PLITF frames on the glass
@@ -4315,6 +5210,30 @@ def emit_inc(courses):
               "%macro BZ_CRS_BALLS 0",
               "    db " + ", ".join(str(c.ball) for c in courses),
               "%endmacro", "",
+              "; wave 4 (SPEC.md 128.14.4.2): each course's PAR in whole seconds (0 none; the",
+              "; scorecard's, never in a part) and its IDENTITY (BZG1 +18), a word a course,",
+              "; read without fetching a part (the scorecard, BONANZA.DAT, the demo reader)",
+              "%macro BZ_CRS_PARS 0",
+              "    dw " + ", ".join(str(c.par) for c in courses),
+              "%endmacro",
+              "%macro BZ_CRS_IDS 0",
+              "    dw " + ", ".join("%05Xh" % c.ident for c in courses),
+              "%endmacro",
+              "; each course's FLAGS (checkpoints), a byte a course: the face's `flags <n>/<m>`",
+              "%macro BZ_CRS_NCKS 0",
+              "    db " + ", ".join(str(c.nflags) for c in courses),
+              "%endmacro",
+              "; the face's field widths (SPEC.md 128.14.17 item 2: every face line fits",
+              "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
+              "; title and NAME, the widest par in digits, and the TOUR's identity - the",
+              "; XOR of courses 1 .. BZ_NCRS - 1's (BONANZA.DAT +56, 128.14.3.3)",
+              "BZ_CRS_TITLEW   equ %d" % max(len(c.title) for c in courses),
+              "BZ_CRS_NAMEW    equ %d" % max(len(c.name) for c in courses),
+              "BZ_CRS_PARW     equ %d" % max(len(str(c.par)) for c in courses),
+              "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, c: a ^ c.ident, courses[1:], 0),
+              "BZ_PHYSV        equ %03Xh      ; the PHYSICS identity: CRC-16 of BZ_MATTAB, PHYS_CONSTS and the "
+              "step's tables, folded (128.14.7.2, 128.14.25 item 4)" % PHYSV,
+              "",
               "; physics v1's constants (SPEC.md 128.10.7.2), the model's own: bzphys.inc",
               "; and bbcourse.Physics cannot disagree about them",
               "BZ_ACCG         equ %d        ; rubber's ACC (wave 1's force; wave 2 reads BZ_SURFTAB)" % ACCG,
@@ -4423,6 +5342,28 @@ def emit_inc(courses):
               "BZ_PLH          equ %d       ; ...lines (16 of top, 2 of lip)" % PL_H,
               "BZ_PLSPR        equ %d      ; ...two parity copies of mask and frame" % PL_SPR,
               "",
+              "; wave 4 (SPEC.md 128.14.4): flags, pads, the cup, springs; RETURN; the tilt",
+              "BZ_PROPALL      equ %d       ; props in all (the lanes first, at most BZ_PROPMAX)" % PROP_ALL,
+              "BZ_PK_CKPT      equ %d        ; a FLAG: a two-pose lane, FURLED and FLYING" % PK_CHECKPOINT,
+              "BZ_PK_PAD       equ %d        ; a BALL-SWAP PAD" % PK_PAD,
+              "BZ_PK_CUP       equ %d        ; the CUP" % PK_CUP,
+              "BZ_PK_SPRING    equ %d        ; a SPRING pad" % PK_SPRING,
+              "BZP_CNUM        equ 16       ; CHECKPOINT: its number 0 - 7",
+              "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
+              "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
+              "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
+              "BZP_UHW         equ 18       ; ...the mouth's half-width, gu",
+              "BZP_SGVZ        equ 16       ; SPRING: its launch gvz (word)",
+              "BZG_FLAGS       equ 28       ; BZG1 +28: FLAGS",
+              "BZG_PADS        equ 29       ; BZG1 +29: the PAD MASK, bit m material m",
+              "BZ_GF_CKPT      equ %d        ; ...respawns go to the last flag touched" % GF_CKPT,
+              "BZ_GF_CUP       equ %d        ; ...the goal is the cup" % GF_CUP,
+              "BZ_CKPTMAX      equ %d        ; flags a course (bz_cksn's bits)" % CKPT_MAX,
+              "BZ_LIPZ         equ %d      ; a lip-out's pop, 1/256 px a step" % LIPZ,
+              "BZ_K_RET        equ %02Xh      ; the key byte: RETURN (Backspace)" % K_RET,
+              "BZ_TILT_KEYS    equ %03Xh     ; a keyboard step's tilt byte: both caps 8" % TILT_KEYS,
+              "BZ_RL_TILT      equ %d        ; the log's +6 bit 2: runs of three bytes" % RL_TILT,
+              "",
               "; BZ_MATTAB (SPEC.md 128.11.5.1), %d bytes a material, bbcourse.MATERIALS" % MATREC,
               "%macro BZ_MATTAB 0"]
     mt = mattab()
@@ -4456,6 +5397,16 @@ def emit_inc(courses):
               " %rep BZ_NCRS",
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN",
               " %endrep",
+              "%endmacro", "",
+              "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a tour course, K 1 - BZ_NCRS - 1,",
+              "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
+              "; rows follow the songs': demo K at BZ_P_DEMO + K - 1 (bonanza.asm defines",
+              "; BZ_P_DEMO = BZ_P_SONG + BZS_NSONG)",
+              "BZ_NDEMO        equ %d" % (len(courses) - 1),
+              "%macro BZ_DEMO_PARTS 0",
+              " %rep BZ_NDEMO",
+              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZD<K>.BIN",
+              " %endrep",
               "%endmacro", ""]
     return "\n".join(lines)
 
@@ -4471,10 +5422,15 @@ def stamp(paths):
         h.update(os.path.basename(p).encode() + b"\0")
         with open(p, "rb") as f:
             h.update(f.read())
+        dp = demo_path(p)                       # wave 4: a course's demo source, when it has one
+        if os.path.exists(dp):
+            h.update(os.path.basename(dp).encode() + b"\0")
+            with open(dp, "rb") as f:
+                h.update(f.read())
     return h.hexdigest()
 
 
-def compile_all(paths):
+def compile_all(paths, demo_dir=None):
     courses = [compile_course(p) for p in paths]
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
@@ -4482,7 +5438,279 @@ def compile_all(paths):
     files = {}
     for k, c in enumerate(courses):
         files["BZ%d.BIN" % k] = c.cga
+    demos = build_demos(courses, paths, demo_dir)
+    for k, d in sorted(demos.items()):
+        files["BZD%d.BIN" % k] = d["log"]
+    compile_all.demos = demos
     return courses, files, {"bzcourse.inc": emit_inc(courses)}
+
+
+# =============================================================================
+# wave 4: shipped demos (SPEC.md 128.14.7.4) - parts, from text
+# =============================================================================
+
+DEMO_DIR = os.path.join(ROOT, "apps", "bonanza", "demos")
+DEMO_STEPS = 3600             # a route demo: the autopilot until the goal or this many steps
+KEY_LETTERS = ((K_L, "L"), (K_R, "R"), (K_U, "U"), (K_D, "D"), (K_HOP, "H"), (K_GRIP, "G"), (K_RET, "B"))
+
+
+def keys_text(k):
+    """a key byte as the .bzd's letters (L R U D H G B), '-' for none"""
+    return "".join(ch for b, ch in KEY_LETTERS if k & b) or "-"
+
+
+def demo_path(course_path, demo_dir=None):
+    """a course's demo source: <demos>/<the course file's name>.bzd"""
+    stem = os.path.splitext(os.path.basename(course_path))[0]
+    return os.path.join(demo_dir or DEMO_DIR, stem + ".bzd")
+
+
+def demo_text(log, name, note=None):
+    """a log's bytes -> a .bzd (SPEC.md 128.14.7.4's text)"""
+    K, mat, fl, pv, steps, N, ident = struct.unpack_from("<BBBBIHH", log, 4)
+    out = []
+    if note:
+        out += ["# " + ln for ln in note.split("\n")]
+    out += ["demo    %s" % name, "ident   %04X" % ident, "physics %02X" % pv, "ball    %s" % MAT_NAMES[mat],
+            "flags   %s%s%s" % ("complete" if fl & RL_COMPLETE else "", " truncated" if fl & RL_TRUNC else "",
+                                " tilt" if fl & RL_TILT else ""),
+            "steps   %d" % steps]
+    w = 3 if fl & RL_TILT else 2
+    for i in range(N):
+        o = RLOG_HDR + w * i
+        if w == 3:
+            t = log[o + 1]
+            out.append("run     %s %d %d%d" % (keys_text(log[o]), log[o + 2], t >> 4, t & 15))
+        else:
+            out.append("run     %s %d" % (keys_text(log[o]), log[o + 1]))
+    return "\n".join(out) + "\n"
+
+
+def parse_bzd(text, fname="<demo>"):
+    """a .bzd -> {name ident physics ball flags steps runs [(key, count, tilt)]}"""
+    d = {"runs": []}
+    letters = dict((ch, b) for b, ch in KEY_LETTERS)
+    for ln, raw in enumerate(text.split("\n"), 1):
+        where = "%s:%d" % (fname, ln)
+        line = raw.split("#", 1)[0].split()
+        if not line:
+            continue
+        st, args = line[0], line[1:]
+        try:
+            if st == "demo" and len(args) == 1 and _NAME.match(args[0]) and "name" not in d:
+                d["name"] = args[0]
+            elif st == "ident" and len(args) == 1 and "ident" not in d:
+                d["ident"] = int(args[0], 16)
+            elif st == "physics" and len(args) == 1 and "physics" not in d:
+                d["physics"] = int(args[0], 16)
+            elif st == "ball" and len(args) == 1 and args[0] in MAT_NAMES and "ball" not in d:
+                d["ball"] = MAT_NAMES.index(args[0])
+            elif st == "flags" and "flags" not in d and all(a in ("complete", "truncated", "tilt") for a in args):
+                d["flags"] = (RL_COMPLETE if "complete" in args else 0) | (RL_TRUNC if "truncated" in args else 0) \
+                    | (RL_TILT if "tilt" in args else 0)
+            elif st == "steps" and len(args) == 1 and "steps" not in d:
+                d["steps"] = int(args[0])
+            elif st == "run" and len(args) in (2, 3):
+                k = 0
+                if args[0] != "-":
+                    for ch in args[0]:
+                        if ch not in letters or k & letters[ch]:
+                            raise ValueError("key letters %r" % args[0])
+                        k |= letters[ch]
+                t = None
+                if len(args) == 3:
+                    if len(args[2]) != 2 or not args[2].isdigit():
+                        raise ValueError("a tilt is two digits, x then y")
+                    t = int(args[2][0]) << 4 | int(args[2][1])
+                d["runs"].append((k, int(args[1]), t))
+            else:
+                raise ValueError("unknown or repeated statement %r" % st)
+        except ValueError as e:
+            raise CourseError("%s: %s" % (where, e))
+    for f in ("name", "ident", "physics", "ball", "flags", "steps"):
+        if f not in d:
+            raise CourseError("%s: no '%s' statement" % (fname, {"name": "demo"}.get(f, f)))
+    tilt = bool(d["flags"] & RL_TILT)
+    if any((t is not None) != tilt for _k, _n, t in d["runs"]):
+        raise CourseError("%s: a run %s a tilt byte in a %s log" % (fname, "without" if tilt else "with",
+                                                                     "TILT" if tilt else "keyboard"))
+    return d
+
+
+def bzd_log(d, K):
+    """a parsed .bzd -> the log's bytes (K: its course's number)"""
+    tilt = d["flags"] & RL_TILT
+    head = b"BZR1" + struct.pack("<BBBBIHH", K, d["ball"], d["flags"], d["physics"] & 0xFF,
+                                 d["steps"] & 0xFFFFFFFF, len(d["runs"]), d["ident"] & 0xFFFF)
+    if tilt:
+        return head + b"".join(struct.pack("<BBB", k & 0xFF, t & 0xFF, n & 0xFF) for k, n, t in d["runs"])
+    return head + b"".join(struct.pack("<BB", k & 0xFF, n & 0xFF) for k, n, _t in d["runs"])
+
+
+def route_demo(c, K):
+    """a ROUTE DEMO (SPEC.md 128.14.7.4): the model's autopilot on the
+    course's route with the course's ball, from the start until the goal or
+    DEMO_STEPS steps, as a keyboard log"""
+    p = Physics(c, play=True)
+    keys = []
+    while len(keys) < DEMO_STEPS and not p.goal:
+        k = p.auto()
+        p.step(k)
+        keys.append(k)
+    return encode_log(keys, K, c.ball, bool(p.goal), c.ident)
+
+
+def replay_log(c, log):
+    """the model's replay of a log on its course: -> the Physics after its
+    last step, and the step its goal (the goal line or the cup) was first
+    reached on, or None"""
+    _K, mat, kt, _fl = decode_log_t(log)
+    p = Physics(c, play=True, mat=mat)
+    first = None
+    for k, t in kt:
+        p.step(k, t)
+        if p.goal and first is None:
+            first = p.nstep
+    return p, first
+
+
+def check_demo(c, K, log, idents, where):
+    """SPEC.md 128.14.7.4's build check of a demo for course K: -> (the bytes
+    to ship, [warnings]).  A demo of another build of the COURSE fails the
+    build; one recorded under other PHYSICS is re-stamped with this build's
+    and replayed, and ships as it is when it still ends where it says, or
+    DEMOTED (COMPLETE cleared) when it does not"""
+    warn = []
+    log = bytearray(log)
+    if log[4] != K:
+        raise CourseError("%s: the demo names course %d, its place is %d" % (where, log[4], K))
+    bad = check_log(bytes(log), len(idents), idents, physv=log[7])
+    if bad:
+        raise CourseError("%s: check %d: %s%s" % (where, bad[0], bad[1], " - a demo of an earlier build of %s: "
+                                                  "record it again" % c.name if bad[0] == 4 else ""))
+    restamped = log[7] != PHYSV
+    if restamped:
+        warn.append("%s: recorded under physics %02X, re-stamped %02X" % (where, log[7], PHYSV))
+        log[7] = PHYSV
+    steps = struct.unpack_from("<I", log, 8)[0]
+    p, first = replay_log(c, bytes(log))
+    ends = first == steps if log[6] & RL_COMPLETE else (first is None or first == steps)
+    if log[6] & RL_COMPLETE and not ends:
+        if not restamped:
+            raise CourseError("%s: the model's replay %s, not at its last step %d (it says COMPLETE)" % (
+                where, "reaches the goal at step %d" % first if first else "never reaches the goal", steps))
+        log[6] &= ~RL_COMPLETE
+        warn.append("%s: DEMOTED - under this build's physics its replay %s; it ships INPUTS-ONLY and wants "
+                    "re-recording" % (where, "reaches the goal at step %d" % first if first else
+                                      "does not reach the goal"))
+    return bytes(log), warn, p
+
+
+# The AUTHORED demos (SPEC.md 128.14.7.4: MOON's and PEAK's until the owner
+# records his): each a script the model plays, the autopilot doing the rolling.
+#   ("auto", w)        the autopilot on the course's route until waypoint w is reached
+#   ("route", cells)   the autopilot on these tiles' points instead, to the last
+#   ("steer", cell)    steer at a tile's point (the autopilot's own law) until a respawn
+#   ("ret",)           one step with RETURN held (Backspace), then wait for the respawn
+#   ("wp", w)          the course's route again, from waypoint w
+#   ("cup",)           the autopilot on to the goal or the cup
+# `python3 tools/bbcourse.py author COURSE.bbc -o DEMO.bzd` writes the .bzd; the
+# build only CHECKS it (a re-built course fails the build until it is authored
+# again, as an owner's recording would).
+AUTHOR = {
+    # MOON: a fall into the pit beside flag 0 and the respawn there, every pad
+    # (steel, rubber, glass), a RETURN in front of the castle back to flag 1
+    "MOON": [("auto", 2), ("steer", (16, 13)), ("wp", 2), ("auto", 15), ("ret",), ("wp", 14), ("cup",)],
+    # PEAK: a RETURN on the summit's first landing (to the start: no flag yet),
+    # the GLASS branch past the windmill and the chute onto F, flag 1, spring 1,
+    # the steel pad, a fall off the coast's edge (back to flag 1, the last
+    # touched, as rubber - its ball), spring 1 and the steel pad again, the
+    # cannon, the glass pad, the bridge, spring 2, the rubber pad, the cup
+    "PEAK": [("auto", 2), ("ret",), ("wp", 1), ("auto", 5),
+             ("route", ((22, 26), (23, 27), (23, 28), (23, 30), (23, 32), (25, 32), (24, 33))), ("wp", 14),
+             ("auto", 17),
+             ("steer", (36, 32)), ("route", ((25, 32), (24, 33))), ("wp", 14), ("cup",)],
+}
+
+
+def author_demo(c, K, script):
+    """play an AUTHOR script on course c (number K) with the model: -> (the
+    log's bytes, the Physics after it)"""
+    p = Physics(c, play=True)
+    keys = []
+    route = list(p.route)
+
+    def step(k):
+        p.step(k)
+        keys.append(k)
+        if len(keys) > 2 * DEMO_STEPS:
+            raise CourseError("%s: the authored demo runs past %d steps" % (c.name, 2 * DEMO_STEPS))
+
+    def steer(pt):
+        dx = pt[0] - (p.bx >> 8)
+        dy = pt[1] - (p.by >> 8)
+        k = 0
+        ax = _clamp(8 * dx, AUTO_VMAX) - p.vx
+        k |= K_R if ax > AUTO_ACC // 2 else K_L if ax < -(AUTO_ACC // 2) else 0
+        ay = _clamp(8 * dy, AUTO_VMAX) - p.vy
+        k |= K_D if ay > AUTO_ACC // 2 else K_U if ay < -(AUTO_ACC // 2) else 0
+        return k
+    for act in script:
+        if act[0] == "auto":
+            while p.wp < act[1] and not p.goal:
+                step(p.auto())
+        elif act[0] == "wp":
+            p.route, p.wp = route, act[1]
+        elif act[0] == "route":
+            p.route = [_way_point(c, t) for t in act[1]]
+            p.wp = 0
+            while p.wp < len(p.route) - 1 and not p.goal:
+                step(p.auto())
+            last = p.route[-1]
+            while abs(last[0] - (p.bx >> 8)) >= AUTO_REACH or abs(last[1] - (p.by >> 8)) >= AUTO_REACH:
+                step(p.auto())
+        elif act[0] == "steer":
+            n0 = p.nfall
+            pt = _way_point(c, act[1]) if act[1] in c.tiles else (
+                16 * (act[1][0] - act[1][1]) + c.x0 - 8, 8 * (act[1][0] + act[1][1]) - 5 + c.y0)
+            while p.nfall == n0:
+                step(steer(pt))
+        elif act[0] == "ret":
+            n0 = p.nret
+            step(K_RET)
+            if p.nret == n0:
+                raise CourseError("%s: the authored RETURN did not respawn" % c.name)
+        elif act[0] == "cup":
+            while not p.goal:
+                step(p.auto())
+    return encode_log(keys, K, c.ball, bool(p.goal), c.ident), p
+
+
+def build_demos(courses, paths, demo_dir=None):
+    """every tour course's demo (K 1 ..): its .bzd when there is one, else a
+    route demo; each checked by the model.  -> {K: {log kind where warn p}}"""
+    idents = [c.ident for c in courses]
+    out = {}
+    for K in range(1, len(courses)):
+        c = courses[K]
+        dp = demo_path(paths[K], demo_dir)
+        if os.path.exists(dp):
+            rel = os.path.relpath(dp, ROOT) if dp.startswith(ROOT + os.sep) else dp
+            with open(dp, "r", encoding="ascii") as f:
+                d = parse_bzd(f.read(), rel)
+            if d["name"] != c.name:
+                raise CourseError("%s: the demo names course %s; this file is %s's" % (rel, d["name"], c.name))
+            log, warn, p = check_demo(c, K, bzd_log(d, K), idents, rel)
+            kind = "file"
+        else:
+            rel = "%s's route demo" % c.name
+            if len(c.route) < 2:
+                raise CourseError("%s: no demo file (%s) and no route to make one from" % (
+                    c.name, os.path.relpath(dp, ROOT)))
+            log, warn, p = check_demo(c, K, route_demo(c, K), idents, rel)
+            kind = "route"
+        out[K] = {"log": log, "kind": kind, "where": rel, "warn": warn, "p": p}
+    return out
 
 
 def report(c, k=None):
@@ -4534,6 +5762,15 @@ def write_out(out, paths):
             f.write(texts[name])
     for k, c in enumerate(courses):
         report(c, k)
+    for K, d in sorted(compile_all.demos.items()):
+        _K, mat, fl, pv, steps, N, ident = struct.unpack_from("<BBBBIHH", d["log"], 4)
+        print("  demo %d %s (%s): %d bytes, %d runs, %d steps (%.2f s), %s, %s%s; the model's replay ends with %d "
+              "falls, %d returns" % (K, courses[K].name, d["where"], len(d["log"]), N, steps,
+                                     steps * STEP_PIT / float(PIT_HZ), MAT_NAMES[mat],
+                                     "COMPLETE" if fl & RL_COMPLETE else "inputs only",
+                                     " TILT" if fl & RL_TILT else "", d["p"].nfall, d["p"].nret))
+        for w in d["warn"]:
+            print("bbcourse: warning: %s" % w, file=sys.stderr)
     return courses
 
 
@@ -4614,7 +5851,7 @@ def _corner_case():
     """a start window with no free calibration corner on the CGA: posts
     placed (by the window's own arithmetic) in all four corners"""
     base = _W3F % (60, 20, 20)
-    c = compile_course(base, "<corners>")
+    c = compile_course(base, "<corners>", _hack={"no_finish": True})
     p = Physics(c)
     W, H, rl, lsh = CARDS[0]
     rmax, cmax = c.brows * 8 // rl - H, c.cols - W
@@ -4683,8 +5920,6 @@ def _wave3_cases():
         ("a lift hidden by a higher rim in front", _swap(P, "floor rect 6 6 10 10 flat 4\nfloor rect 11 7 13 10 "
          "flat 1", "floor rect 6 6 10 10 flat 1\nfloor rect 11 7 13 10 flat 4"), "overlaps pixel"),
         ("a reserved statement (edge)", W + "edge tile 4 4\n", "reserved for a later wave"),
-        ("a reserved statement (checkpoint)", W + "checkpoint 4 4\n", "reserved for a later wave"),
-        ("a reserved statement (pad)", W + "pad 4 4\n", "reserved for a later wave"),
         ("a reserved statement (shape)", W + "shape 4 4\n", "reserved for a later wave"),
         ("two lanes sharing blocks", big + _posts([(20, 18), (21, 19)]), "two lanes share blocks"),
         ("bound: a 7th lane in a window", seven, "lanes meet the"),
@@ -5214,7 +6449,8 @@ def _props_course_checks(c, res, tag):
                 x = 16 * (cell[0] - cell[1]) + c.x0
                 y = 8 * (cell[0] + cell[1]) + 8 - (_h4t(t, 8, 8) >> 2) + c.y0
                 ink = c.pic[y][x]
-                marks = marks and ((ink == BLK) == hole)
+                if c.sbuf[y][x] == cell[0] + cell[1]:     # (judged where its own top shows: a mark
+                    marks = marks and ((ink == BLK) == hole)  # hidden behind a wall in front is not)
     npose = sum(len(L["poses"]) for L in c.lanes)
     res.append(("3 %s: every pose of its %d lanes (%d poses) decodes from its pose map to the picture rendered in "
                 "that pose, on the CGA and through the Hercules translation; the platform's sprite, both parity "
@@ -5294,6 +6530,7 @@ def _props_course_checks(c, res, tag):
                 "states (%d composites, %d differ); the slab clear of every pixel in front of it that rises above "
                 "it at all %d heights of its rise" % (tag, tried, mism, nsl), mism == 0))
     _mouth_checks(c, res, tag)
+    _opening_checks(c, res, tag)
     # 6. the bounds, printed
     b = c.bounds
     for herc in (0, 1):
@@ -5315,9 +6552,17 @@ def _props_course_checks(c, res, tag):
                                                             rec["closed"][1])
         elif rec["kind"] == PK_BUMPER:
             what += ": K %d, KA %d" % (rec["K"], rec["KA"])
-        else:
+        elif rec["kind"] == PK_PLATFORM:
             what += ": a LIFT, L %d, P %d, dwell %d, v %d, its top %d - %d px, seed %d" % (
                 rec["L"], rec["mask"] + 1, rec["W"], rec["v"], rec["hP"], rec["hT"], rec["seed"])
+        elif rec["kind"] == PK_CHECKPOINT:
+            what += ": flag %d, its ball %s" % (rec["num"], MAT_NAMES[rec["ball"]])
+        elif rec["kind"] == PK_PAD:
+            what += ": %s" % MAT_NAMES[rec["mat"]]
+        elif rec["kind"] == PK_CUP:
+            what += ": capture %d, mouth %d x %d gu" % (rec["capture"], 2 * rec["hw"] + 1, 2 * rec["hw"] + 1)
+        else:
+            what += ": gvz %d (an apex of %d px)" % (rec["gvz"], UP(rec["gvz"]))
         if rec["lane"]:
             Ln = rec["lane"]
             what += "; lane %d x %d at (row %d, column %d), %d poses" % (Ln["w"], Ln["h"], Ln["brow"], Ln["col"],
@@ -5415,6 +6660,195 @@ def _mouth_checks(c, res, tag):
                     tag, nm, "s" if nm != 1 else "", worst, ncol, "s" if ncol != 1 else "",
                     (": " + "; ".join(bad + ["%s bitten" % (cb,) for cb in cbad])) if bad or cbad else "", nctl),
                 not bad and not cbad and (ncol == 0 or nctl > 0)))
+
+
+def arch_verdict(hole, last, xc, rows, half, sill):
+    """an arch's shape (SPEC.md 128.14.20) -> None, or why not: (a) SHEARED -
+    its columns xc - half .. xc + half - 1, each ONE run standing on its sill
+    (the face's last line, raised sill), the sills the face's own 2:1 line;
+    (b) SYMMETRIC about its axis - each column's height over the continuous
+    sill line within a line of its mirror's; (c) MONOTONE - its top row,
+    on the glass, rises to one peak and falls (no notch); (d) ROUND - every
+    column's top the sheared semicircle's, rasterised once"""
+    cols = range(xc - half, xc + half)
+    by = {}
+    for (x, y) in hole:
+        by.setdefault(x, []).append(y)
+    if sorted(by) != list(cols):
+        return "(a) its columns are %s, not %d - %d" % (sorted(by), xc - half, xc + half - 1)
+    tops = []
+    for x in cols:
+        ys = sorted(by[x])
+        if ys != list(range(ys[0], ys[-1] + 1)) or ys[-1] != last.get(x, -999) - sill:
+            return "(a) column %d is not one run on its sill" % x
+        tops.append(ys[0])
+    d2 = {last[x + 2] - last[x] for x in cols if x + 2 in last}
+    if len(d2) != 1 or abs(next(iter(d2))) > 1:
+        return "(a) its sills are no 2:1 line (steps %s)" % sorted(d2)
+    bc, slope = arch_sill_line(last, xc, half, sill)
+    H = arch_heights(rows, half)
+    hts = [bc + 1 + slope * (x + 0.5 - xc) - t for x, t in zip(cols, tops)]
+    for k in range(half):
+        if abs(hts[k] - hts[2 * half - 1 - k]) >= 1:
+            return "(b) columns %d and %d stand %.2f and %.2f lines over the sill line" % (
+                xc - half + k, xc + half - 1 - k, hts[k], hts[2 * half - 1 - k])
+    pk = tops.index(min(tops))
+    if any(tops[i + 1] > tops[i] for i in range(pk)) or any(tops[i + 1] < tops[i] for i in range(pk, len(tops) - 1)):
+        return "(c) its top row %s has a notch" % [t - min(tops) for t in tops]
+    for k, (x, t) in enumerate(zip(cols, tops)):
+        if t != int(math.floor(bc + 1 + slope * (x + 0.5 - xc) - H[k] - 0.5)) + 1:
+            return "(d) column %d's top is line %d, not the semicircle's" % (x, t)
+    return None
+
+
+def rim_verdict(drawn, pattern, hole, sp0, left, ink):
+    """a solid rim on a patterned ground (SPEC.md 128.14.20) -> None, or why
+    not: every pixel of the ground 8-adjacent to the hole, not the hole and
+    not the ground's outline, is drawn `ink` by the opening's op (drawn: its
+    {(x, y): ink}; pattern(x, y): the ground's own ink where it draws none) -
+    no black pixel of the pattern touches the hole's edge"""
+    inner = _ground_inner(sp0, left)
+    for (x, y) in hole:
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                q = (x + dx, y + dy)
+                if q not in hole and inner(*q):
+                    got = drawn[q] if q in drawn else pattern(*q)
+                    if got != ink:
+                        return "pixel %s beside the hole is ink %d, not %d" % (q, got, ink)
+    return None
+
+
+def top_hole_verdict(marks, cell, t, x0, R):
+    """a plain tube's IN hole on a flat top (SPEC.md 128.14.20) -> None, or
+    why not: symmetric about the cell's centre column, each row one run, the
+    rows' widths rising to one widest and falling (no notch), and ROUND: each
+    row's half width within a pixel of the projected circle's,
+    sqrt(2 R^2 - 4 Y^2) at the row centre's Y from the cell's centre"""
+    wx, wy = cell
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - 4 * t.z0
+    rows = {}
+    for (x, y) in marks:
+        rows.setdefault(y, []).append(x)
+    if not rows:
+        return "no hole"
+    ws = []
+    for y in sorted(rows):
+        xs = sorted(rows[y])
+        if xs != list(range(xs[0], xs[-1] + 1)):
+            return "row %d is not one run" % y
+        if xs[0] + xs[-1] != 2 * cx - 1:
+            return "row %d (px %d - %d) is not symmetric about column %d|%d" % (y, xs[0], xs[-1], cx - 1, cx)
+        Y = y + 0.5 - cy
+        if abs(len(xs) / 2.0 - math.sqrt(max(0.0, 2 * R * R - 4 * Y * Y))) > 1.0:
+            return "row %d's half width %.1f is not the circle's %.1f" % (
+                y, len(xs) / 2.0, math.sqrt(max(0.0, 2 * R * R - 4 * Y * Y)))
+        ws.append(len(xs))
+    pk = ws.index(max(ws))
+    if any(ws[i + 1] < ws[i] for i in range(pk)) or any(ws[i + 1] > ws[i] for i in range(pk, len(ws) - 1)):
+        return "its rows' widths %s have a notch" % ws
+    if sorted(rows) != list(range(min(rows), max(rows) + 1)):
+        return "its rows are not one band"
+    return None
+
+
+def _square_hole(c, cell):
+    """wave 3's IN hole (a square in ground units, max(|du|, |dv|) <= 5): the negative control"""
+    t = c.tiles[cell]
+    ops = draw_ops(c.tiles, c.x0)
+    sp0 = _op_spans(ops, cell, "top")
+    wf = _top_world(t, cell[0], cell[1], c.x0)
+    out = set()
+    for y, runs in sp0.items():
+        for a, b in runs:
+            for x in range(a, b):
+                gx, gy = wf(x, y)
+                if max(abs(gx - (16 * cell[0] + 8)), abs(gy - (16 * cell[1] + 8))) <= 5:
+                    out.add((x, y))
+    return out
+
+
+def _opening_checks(c, res, tag):
+    """the owner's round openings (SPEC.md 128.14.20) as picture facts: every
+    arch - a windmill's doorway and every exit mouth - passes arch_verdict on
+    its face, and on a checker face its solid rim passes rim_verdict on the
+    glass; every plain tube's IN hole on a flat top passes top_hole_verdict,
+    and on a patterned top (sand, ice) its hole and its OUT ring their rims.
+    Negative controls: wave 3's arch (a sheared rectangle, its outer columns'
+    top two lines cut) fails (d), a notched top fails (c), a lopsided one
+    (one side a larger circle's) fails (b); the rim's pixels put back to the
+    checker fail the rim; wave 3's square IN hole fails the circle"""
+    deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
+    ops = draw_ops(c.tiles, c.x0, deep)
+    narch = nrim = nhole = 0
+    bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
+    want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
+    for p in c.props:
+        arches = []
+        if p.get("door_pix") is not None:
+            arches.append(("the windmill on line %d's doorway" % p["wline"], p["D"], p["face"], p["xh"],
+                           MOUTH_ROWS, MOUTH_HALF, 0, p["door_pix"], p["door_rim"]))
+        if p.get("mouth_pix"):
+            w, face, xm, rows, half, sill = p["mouth"]
+            arches.append(("the tube on line %d's mouth" % p["line"], w, face, xm, rows, half, sill,
+                           p["mouth_pix"], p["mouth_rim"]))
+        for what, w, face, xc, rows, half, sill, hole, ring in arches:
+            sp0 = _op_spans(ops, w, face)
+            last = _face_last(sp0)
+            narch += 1
+            v = arch_verdict(hole, last, xc, rows, half, sill)
+            if v:
+                bad.append("%s: %s" % (what, v))
+            for k, mk in (("old", lambda: _arch(sp0, xc, rows, half, sill, _old=True)[0]),
+                          ("notch", lambda: {q: BLK for q in hole if q != (xc, min(y for (x, y) in hole if x == xc))}),
+                          ("lop", lambda: _arch(sp0, xc, rows + 1, half, sill)[0])):
+                want[k] += 1
+                alt = mk()
+                if k == "lop":                  # its right half a taller arch's, its left half this one's
+                    alt = {q: BLK for q in alt if q[0] >= xc}
+                    alt.update({q: BLK for q in hole if q[0] < xc})
+                if arch_verdict(alt, last, xc, rows, half, sill):
+                    ctl[k] += 1
+            if face == "se":                    # the checker's face: its solid rim
+                nrim += 1
+                chk = (lambda x, y, y0=c.y0: MAG if (x + y + y0) & 1 == 0 else BLK)   # render()'s, at the glass's Y0
+                v = rim_verdict(_merge(hole, ring), chk, hole, sp0, True, MAG)
+                if v or not ring:
+                    bad.append("%s's rim: %s" % (what, v or "none"))
+                if not v and any(c.pic[y + c.y0][x] != BLK for (x, y) in hole):
+                    bad.append("%s: not on the glass" % what)
+                want["norim"] += 1
+                if rim_verdict(hole, chk, hole, sp0, True, MAG):
+                    ctl["norim"] += 1
+        if p["kind"] == PK_TUBE:
+            for cell, key in ((p["inn"], "hole_pix"), (p["out"], "rim_pix")):
+                t = c.tiles[cell]
+                marks, drawn = p[key]
+                ink = _top_rim_ink(t)
+                sp0 = _op_spans(ops, cell, "top")
+                if key == "hole_pix" and not t.sx and not t.sy:
+                    nhole += 1
+                    v = top_hole_verdict(marks, cell, t, c.x0, TUBE_HOLE_R)
+                    if v:
+                        bad.append("the tube on line %d's IN hole: %s" % (p["line"], v))
+                    want["square"] += 1
+                    if top_hole_verdict(_square_hole(c, cell), cell, t, c.x0, TUBE_HOLE_R):
+                        ctl["square"] += 1
+                if ink is not None:
+                    nrim += 1
+                    v = rim_verdict(drawn, _surface_ink(t.surf, c.x0, 0), marks, sp0, False, ink)
+                    if v:
+                        bad.append("the tube on line %d's %s rim: %s" % (p["line"], "IN" if key == "hole_pix"
+                                                                          else "OUT", v))
+    ok = not bad and ctl == want
+    res.append(("3 %s: the ROUND OPENINGS (the owner's, 128.14.20) - %d arch%s sheared, symmetric, monotone and "
+                "round, %d solid rim%s on a patterned ground, %d IN hole%s a projected circle%s; negative controls "
+                "failing: wave 3's arch %d/%d, a notch %d/%d, a lopsided top %d/%d, no rim %d/%d, wave 3's square "
+                "hole %d/%d" % (tag, narch, "es" if narch != 1 else "", nrim, "s" if nrim != 1 else "", nhole,
+                                "s" if nhole != 1 else "", (": " + "; ".join(bad)) if bad else "",
+                                ctl["old"], want["old"], ctl["notch"], want["notch"], ctl["lop"], want["lop"],
+                                ctl["norim"], want["norim"], ctl["square"], want["square"]), ok))
 
 
 def _mill_rec(c, kind, at=None):
@@ -6093,13 +7527,524 @@ def _route_checks(bench, res, trial=None, first=None):
                   g.heavy.levels[2], g.nwr, g.nwc, g.nhedge))
 
 
+# =============================================================================
+# wave 4's selfcheck (SPEC.md 128.14.4, 128.14.6, 128.14.7.4, 128.14.17 item 5)
+# =============================================================================
+
+W3B_COMMIT = "573eec83"         # 3b's tree: BENCH, TRIAL and MILL byte for byte its parts (128.14.6)
+# a small course with a cup: A (4 .. 13 x 4 .. 8) at 4, its back rail, a ramp east of it
+_W4C = ('course W "w"\nwidth 64\norigin 224\nfloor rect 4 4 14 9 flat 4\nwall rect 4 3 14 4 flat 5\n'
+        'floor rect 14 4 16 9 ramp x 14 16 4 3\nstart 5 6\ncup 12 6\n')
+# the trap: TRIAL's required bounce (H, F, the gap, G) with the cup on G and a
+# flag on H that names GLASS, which shatters on F and never reaches G
+_W4T = ('course T "t"\nwidth 64\nfloor rect 4 10 9 13 flat 14\nfloor rect 9 10 13 13 flat 8\n'
+        'floor rect 15 10 19 13 flat 10\nwall rect 19 10 20 13 flat 10.5\nstart 5 11\ncup 17 11\n'
+        'checkpoint 6 11 ball %s\n')
+
+
+def _w4_cases():
+    """(what, text, the refusal's substring): 128.14.4.1's grammar and rules"""
+    C = _W4C
+    many = lambda st, n: "".join(st % (5 + k % 8, 5 + k // 8 * 2) for k in range(n))
+    return [
+        ("par given twice", C + "par 5\npar 6\n", "par given twice"),
+        ("par 0", C + "par 0\n", "par takes whole seconds"),
+        ("par 1000", C + "par 1000\n", "par takes whole seconds"),
+        ("a checkpoint naming no ball", C + "checkpoint 6 6 ball wood\n", "checkpoint takes"),
+        ("a pad of no material", C + "pad wood 6 6\n", "pad takes"),
+        ("a pad on a ramp", C + "pad steel 14 6\n", "not a FLAT FLOOR"),
+        ("a cup on a ramp", _swap(C, "cup 12 6", "cup 14 6"), "not a FLAT FLOOR"),
+        ("a second cup", C + "cup 9 6\n", "a second cup"),
+        ("a 9th checkpoint", C + many("checkpoint %d %d\n", 9), "9th checkpoint"),
+        ("a 9th pad", C + many("pad rubber %d %d\n", 9), "9th pad"),
+        ("a 5th spring", C + many("spring %d %d 300\n", 5), "5th spring"),
+        ("a spring under 256", C + "spring 6 6 200\n", "outside 256"),
+        ("a spring over BZ_VZMAX", C + "spring 6 6 800\n", "outside 256"),
+        ("a capture under 64", _swap(C, "cup 12 6", "cup 12 6 capture 50"), "capture 50 is outside"),
+        ("a capture over 384", _swap(C, "cup 12 6", "cup 12 6 capture 400"), "capture 400 is outside"),
+        ("a cup on a course with GOAL cells", C + "goal tile 9 7 flat 4\n", "on a course with GOAL cells"),
+        ("no GOAL and no cup", _swap(C, "cup 12 6\n", ""), "has no finish"),
+        ("a flag on sand", C + "surface sand rect 6 5 8 7\ncheckpoint 6 6\n", "NORMAL ground, not sand"),
+        ("the cup on ice", C + "surface ice tile 12 6\n", "NORMAL ground, not ice"),
+        ("a spring on ice", C + "surface ice tile 6 6\nspring 6 6 300\n", "ice"),
+        ("a pad with VOID beside it", C + "pad rubber 4 6\n", "with VOID beside it"),
+        ("two props on one cell", C + "pad rubber 6 6\nspring 6 6 300\n", "already belongs"),
+        ("a way with a bad branch", C + "way 6 6 branch toolongname\n", "branch <name>"),
+        ("a branch way on a WALL", C + "way 6 3 branch B\n", "is on a WALL"),
+        ("NO TRAP: a flag whose glass ball cannot reach the cup", _W4T % "glass", "NO TRAP"),
+    ]
+
+
+def _w4_records(c, res):
+    """item 3 (wave 4): the records of kinds 5 - 8 as the statements wrote them,
+    the BZG1 flags and pad mask, and the reader's refusals"""
+    if not any(p["kind"] >= PK_CHECKPOINT for p in c.props):
+        return
+    pt = c.part
+    ok = True
+    for r in pt["props"]:
+        pr = c.props[c.order[r["i"]]]
+        if r["kind"] != pr["kind"] or r["at"] != pr["at"]:
+            ok = False
+        if r["kind"] == PK_CHECKPOINT:
+            ok = ok and r["num"] == pr["num"] and r["ball"] == pr["ball"] and r["lane"]["poses"] == 2
+        elif r["kind"] == PK_PAD:
+            ok = ok and r["mat"] == pr["mat"] and r["lane"] is None
+        elif r["kind"] == PK_CUP:
+            ok = ok and r["capture"] == pr["capture"] and r["hw"] == MOUTH_HW and r["lane"] is None
+        elif r["kind"] == PK_SPRING:
+            ok = ok and r["gvz"] == pr["gvz"] and r["lane"] is None
+    kinds = [p["kind"] for p in c.props]
+    wf = (GF_CKPT if PK_CHECKPOINT in kinds or PK_CUP in kinds else 0) | (GF_CUP if PK_CUP in kinds else 0)
+    wm = 0
+    for p in c.props:
+        if p["kind"] == PK_PAD:
+            wm |= 1 << p["mat"]
+    ok = ok and pt["grid"]["gflags"] == wf and pt["grid"]["padmask"] == wm
+    lanes = [r for r in pt["props"] if r["lane"]]
+    ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
+    res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
+                "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
+                % (c.name, pt["grid"]["gflags"], pt["grid"]["padmask"]), ok))
+    # the reader's own refusals: a flag in a lane-less record; a pad mask the records do not give
+    fr = next(r for r in pt["props"] if r["kind"] == PK_CHECKPOINT) if PK_CHECKPOINT in kinds else None
+    if fr is not None:
+        bb = bytearray(c.cga)
+        o = pt["propoff"] + PROPREC * fr["i"]
+        bb[o + 1] &= ~PF_LANE
+        bb[o + 8:o + 16] = bytes(8)
+        struct.pack_into("<H", bb, pt["gridoff"] + 18, part_identity(bb, pt["gridoff"]))
+        try:
+            read_part(bytes(bb))
+            caught = False
+        except CourseError as e:
+            caught = "without its LANE" in str(e) or "a lane after a record without one" in str(e) \
+                or "pose maps" in str(e)
+        res.append(("3 %s negative control: a flag's record without its LANE is refused by the reader" % c.name,
+                    caught))
+    bb = bytearray(c.cga)
+    bb[pt["gridoff"] + 29] ^= 4 if not wm & 4 else 1
+    struct.pack_into("<H", bb, pt["gridoff"] + 18, part_identity(bb, pt["gridoff"]))
+    try:
+        read_part(bytes(bb))
+        caught = False
+    except CourseError as e:
+        caught = "PAD MASK" in str(e)
+    res.append(("3 %s negative control: a PAD MASK bit no pad gives is refused by the reader" % c.name, caught))
+
+
+def spring_bounds(c):
+    """item 6 (wave 4): every SPRING's flight - a launch at gvz from its cell's
+    floor - inside the reach's zhi over its RADIUS and its apex footprint inside
+    the picture.  -> [(spring, its apex px, the least zhi found, the footprint's
+    top line)], and whether all hold"""
+    out = []
+    ok = True
+    byc = {(rc.wx, rc.wy): rc for rc in c.reach}
+    for p in c.props:
+        if p["kind"] != PK_SPRING:
+            continue
+        top = 4 * c.tiles[p["at"]].z0 + UP(p["gvz"])
+        rc = byc[p["at"]]
+        line = foot_top(rc, top) + c.y0
+        good = rc.zhi >= top and line >= 0
+        out.append((p["at"], top, rc.zhi, line))
+        ok = ok and good
+    return out, ok
+
+
+def _ones(c, mat, surf=SURF_NORMAL):
+    """the one-arrow top on a surface: max |gvx|, |gvy| after holding one arrow
+    (screen right) from rest for 400 steps on a flat floor"""
+    f, dk, _b, _e = surf_entry(mat, surf)
+    tab = ftg_table(f)
+    vx = vy = 0
+    for _ in range(400):
+        vx = _clamp(_drag(vx + tab[LVL_MAX], dk), VMAXG)
+        vy = _clamp(_drag(vy - tab[LVL_MAX], dk), VMAXG)
+    return max(abs(vx), abs(vy))
+
+
+def _w4_course_report(c, res):
+    """items 7 and 8's printing for a course with wave 4's props: the cup's
+    capture table, each spring's landings per ball, each branch's savings and
+    landings (SPEC.md 128.14.4.1)"""
+    cup = next((p for p in c.props if p["kind"] == PK_CUP), None)
+    if cup is not None:
+        surf = c.tiles[cup["at"]].surf
+        green = sorted({surf} | {c.tiles[(cup["at"][0] + dx, cup["at"][1] + dy)].surf
+                                 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))})
+        print("    %s's cup at %s, capture %d: the one-arrow tops on its green (%s): %s" % (
+            c.name, cup["at"], cup["capture"], "/".join(SURFACES[g] for g in green), ", ".join(
+                "%s %d (%s)" % (MAT_NAMES[m], _ones(c, m, g), "holes out" if _ones(c, m, g) <= cup["capture"]
+                                 else "lips out") for m in range(3) for g in green)))
+    for sp in (p for p in c.props if p["kind"] == PK_SPRING):
+        rows = []
+        for m in range(3):
+            got = {}
+            for d in DIR_VEC:
+                for v in (128, 192, 256, 320, 384):
+                    p = Physics(c, play=True, mat=m).poke(sp["at"][0] - d[0], sp["at"][1] - d[1], v * d[0], v * d[1])
+                    n0 = 0
+                    out = None
+                    for _ in range(160):
+                        n0 = len(p.events)
+                        p.step(0)
+                        ev = [e for e in p.events[n0:] if e[0] in ("land", "bounce", "stun", "shatter", "respawn", "wall")]
+                        if p.nspr and ev:
+                            out = ev[0][0]
+                            break
+                    got[out] = got.get(out, 0) + 1
+            rows.append("%s %s" % (MAT_NAMES[m], " ".join("%s %d" % (k, n) for k, n in sorted(got.items(),
+                                                                                           key=str))))
+        print("    %s's spring at %s (%d): the first contact after its launch over 20 approaches a ball (four "
+              "sides, 128 - 384): %s" % (c.name, sp["at"], sp["gvz"], "; ".join(rows)))
+    for name, ways in sorted(c.branches.items()):
+        pts = [t for t, _ln in ways]
+        main = [t for t, _ln in c.src.ways]
+        near = lambda t: min(range(len(main)), key=lambda i: abs(main[i][0] - t[0]) + abs(main[i][1] - t[1]))
+        i0, i1 = near(pts[0]), near(pts[-1])
+        pm = Physics(c, play=True)
+        at = {}
+        while pm.nstep < DEMO_STEPS and not pm.goal and pm.wp <= max(i0, i1) + 1:
+            w0 = pm.wp
+            pm.step_auto()
+            for k in range(w0, pm.wp):
+                at.setdefault(k, pm.nstep)
+        msteps = at.get(i1, 0) - at.get(i0, 0)
+        land = []
+        for m in range(3):
+            p = Physics(c, play=True, mat=m).poke(*pts[0])
+            p.nstep = at.get(i0, 0)
+            p.route = [_way_point(c, t) for t in pts]
+            p.wp = 1
+            worst = 0
+            while p.nstep < at.get(i0, 0) + DEMO_STEPS and not p.goal and p.wp < len(pts) - 1 and not p.nfall:
+                n0 = len(p.events)
+                p.step_auto()
+                for e in p.events[n0:]:
+                    if e[0] in ("land", "bounce", "stun", "shatter", "hopc"):
+                        lv = e[2][1] if e[0] == "land" else e[2]
+                        worst = max(worst, lv)
+            land.append("%s %d steps, worst landing lvz %d%s" % (MAT_NAMES[p.mat if m == 0 else m],
+                                                                p.nstep - at.get(i0, 0), worst,
+                                                                ", fell" if p.nfall else ""))
+        print("    %s's branch %s (%s): the main route between its waypoints %d and %d takes %d steps; the branch "
+              "(each ball put at rest on its first point): %s" % (c.name, name, " ".join("(%d, %d)" % t for t in pts),
+                                                                 i0, i1, msteps, "; ".join(land)))
+
+
+def _w4_route(c, res):
+    """item 8 (wave 4): the autopilot on the course's route reaches the goal or
+    the cup without a fall within DEMO_STEPS; prints the airborne steps over OCC
+    and what the route met; NOTHING UNDER THE HUD"""
+    p = Physics(c, play=True)
+    air_occ = 0
+    while p.nstep < DEMO_STEPS and not p.goal:
+        p.step_auto()
+        if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
+            air_occ += 1
+    kinds = {}
+    for e in p.events:
+        if e[0] in ("flag", "pad", "spring", "capture", "lip", "cup"):
+            kinds[e[0]] = kinds.get(e[0], 0) + 1
+    want = {"flag": sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)}
+    res.append(("8 %s: the autopilot reaches the %s at step %s (%.1f s) with no fall in %d steps, touching every "
+                "flag (%s), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
+                "cells (priced in the demo legs, 128.14.6)" % (
+                    c.name, "cup" if c.gflags & GF_CUP else "goal", p.nstep if p.goal else "-",
+                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), p.npad, p.nspr,
+                    kinds.get("capture", 0), air_occ),
+                p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
+    bad = hud_conflicts(c)
+    res.append(("8 %s: NOTHING UNDER THE HUD - no flag, pad, cup or spring (top, pole, pin, pennant) and no "
+                "waypoint inside the panel's shown rect at a clamped camera, either card%s" % (
+                    c.name, "" if bad is None else " -- %s" % (bad,)), bad is None))
+    return p
+
+
+def _w4_physics(byname, res):
+    """item 7 (wave 4): each prop's rule and RETURN by the model, on the shipped
+    courses and on the fixture course (SPEC.md 128.14.4.3 - 128.14.4.7), and
+    the tilt's cap (128.14.8.2)"""
+    W = compile_course(_W4C + "spring 8 7 512\npad steel 6 7\ncheckpoint 9 5 ball glass\n", "<w4>")
+    cup = next(r for r in W.part["props"] if r["kind"] == PK_CUP)
+    # the cup: 128 holes out, 256 lips out and pops, rolls on
+    a = Physics(W, play=True).poke(11, 6, 128, 0)
+    while not a.goal and a.nstep < 60:
+        a.step(0)
+    b = Physics(W, play=True).poke(11, 6, 256, 0)
+    pops = []
+    for _ in range(40):
+        n0 = len(b.events)
+        b.step(0)
+        pops += [e for e in b.events[n0:] if e[0] == "lip"]
+        if b.nlip and b.gvz == LIPZ and b.air:
+            pass
+    res.append(("7 the CUP: a ball poked across its mouth at 128 holes out (step %d: bz_goal, bz_hid, every velocity 0) "
+                "and at 256 LIPS OUT once with its pop (gvz %d) and rolls on (%d lip-out, goal %d)" % (
+                    a.nstep, LIPZ, b.nlip, b.goal),
+                a.goal == 1 and a.hid == 1 and a.gvx == a.gvy == a.gvz == 0 and b.nlip == 1 and not b.goal
+                and len(pops) == 1))
+    # a stunned steel ball in the mouth holes out after its stun; a shattering glass ball does not
+    st = Physics(W, play=True, mat=MAT_STEEL).poke(12, 6)
+    st.mst, st.mct = ST_STUN, 10
+    while st.nstep < 30 and not st.goal:
+        st.step(0)
+    gl = Physics(W, play=True, mat=MAT_GLASS).poke(12, 6)
+    gl.mst, gl.mct = ST_SHATTER, SHA_STEPS
+    for _ in range(SHA_STEPS + 2):
+        gl.step(0)
+    res.append(("7 the CUP: a stunned steel ball in the mouth holes out on the first step after its stun (step %d); a "
+                "shattering glass ball does not, and respawns at the start" % st.nstep,
+                st.goal == 1 and st.nstep == 10 and not gl.goal and gl.nfall == 1))
+    # the pad: a grounded step swaps the material, its record and its tables; once
+    p = Physics(W, play=True).poke(5, 7, 160, 0)
+    while p.npad == 0 and p.nstep < 60:
+        p.step(K_R | K_D)
+    sw = (p.mat, p.m is MATERIALS[MAT_STEEL], p.fta == fta_table(MATERIALS[MAT_STEEL]["ACC"]), p.npad)
+    for _ in range(10):
+        p.step(0)
+    res.append(("7 a PAD: the steel pad swaps a rubber ball to steel, its record and its air table (step %d), and "
+                "swaps it once" % p.nstep, sw == (MAT_STEEL, True, True, 1) and p.npad == 1))
+    # the flag: touched, its ball; a fall respawns there as the flag's ball (glass), bz_nfall += 1
+    f = Physics(W, play=True).poke(9, 6, 0, -200)
+    while not f.nckpt and f.nstep < 40:
+        f.step(0)
+    touched = (f.ckpt, f.ckmat, f.cksn, f.nckpt)
+    f.poke(13, 8, 0, 300)
+    while not f.nfall and f.nstep < 200:
+        f.step(K_L | K_D)
+    res.append(("7 a FLAG: touched, the last flag (bz_ckpt %d) and its ball (bz_ckmat %s); a fall respawns ON it as "
+                "its ball (%s, the flag's, not the ball it was touched with), bz_nfall 1" % (
+                    touched[0], MAT_NAMES[touched[1]], MAT_NAMES[f.mat]),
+                touched == (1, MAT_GLASS, 1, 1) and f.nfall == 1 and (f.gx >> 12, f.gy >> 12) == (9, 5)
+                and f.mat == MAT_GLASS))
+    # RETURN mid-roll: back to the flag, bz_nret 1, bz_nfall unchanged, nothing else that step
+    r = Physics(W, play=True).poke(9, 6, 0, -200)
+    while not r.nckpt:
+        r.step(0)
+    r.poke(7, 6, 200, 0)
+    for _ in range(5):
+        r.step(K_R)
+    st0 = r.nstep
+    r.step(K_RET | K_R)
+    res.append(("7 RETURN (key byte bit 6): mid-roll, the ball back on the flag as its ball, bz_nret 1, bz_nfall 0, "
+                "the arrows' levels zero (nothing else ran that step)",
+                r.nret == 1 and r.nfall == 0 and (r.gx >> 12, r.gy >> 12) == (9, 5) and r.mat == MAT_GLASS
+                and r.lvl == [0, 0, 0, 0] and r.nstep == st0 + 1))
+    # the spring: a grounded ball leaves at its gvz; a rubber bounce leaves at the MAX, not the sum; glass
+    # shattering on it is not launched
+    s1 = Physics(W, play=True).poke(8, 7)
+    s1.step(0)
+    sp = next(r_ for r_ in W.part["props"] if r_["kind"] == PK_SPRING)
+    s2 = Physics(W, play=True).poke(8, 7)
+    s2.gz += 30 << 8
+    s2.air, s2.gvz, s2.ztop = 1, -400, s2.gz >> 8
+    while not s2.nspr and s2.nstep < 60:
+        s2.step(0)
+    s3 = Physics(W, play=True, mat=MAT_GLASS).poke(8, 7)
+    s3.gz += 60 << 8
+    s3.air, s3.gvz, s3.ztop = 1, -700, s3.gz >> 8
+    while not s3.nshat and s3.nstep < 60:
+        s3.step(0)
+    rb = [e for e in s2.events if e[0] == "bounce"]
+    res.append(("7 a SPRING: a ball grounded on it leaves at its %d; a rubber ball bouncing on it leaves at max(%d, "
+                "its rebound %s) = %d, never the sum; a glass ball that shatters on it is not launched" % (
+                    sp["gvz"], sp["gvz"], rb[0][3] if rb else "-", s2.gvz + 0),
+                s1.air == 1 and s1.gvz == sp["gvz"] and s1.nspr == 1 and rb and s2.nspr == 1
+                and s2.events[-1][2] == max(sp["gvz"], rb[0][3]) and s3.nshat == 1 and s3.nspr == 0))
+    # the reachable set with springs: zhi over the spring takes its flight
+    out, ok = spring_bounds(W)
+    res.append(("7 the reachable set takes each SPRING's flight: %s" % ", ".join(
+        "%s apex %d px, zhi %d" % (o[0], o[1], o[2]) for o in out), ok))
+    # the tilt's cap: a cap dropped from 8 to 2 under a held arrow gives 8, 6, 4, 2
+    t = Physics(W, play=True).poke(5, 6)
+    for _ in range(9):
+        t.step(K_R, 0x88)
+    lv = [t.lvl[1]]
+    for _ in range(4):
+        t.step(K_R, 0x28)
+        lv.append(t.lvl[1])
+    res.append(("7 the TILT cap (128.14.8.2): a held arrow at cap 8 then cap 2 gives levels %s; a keyboard step's tilt "
+                "byte 88h is wave 2's ramp" % lv, lv == [8, 6, 4, 2, 2]))
+    tm = Physics(W, play=True, _tilt_min=True).poke(5, 6)
+    for _ in range(9):
+        tm.step(K_R, 0x88)
+    tm.step(K_R, 0x28)
+    res.append(("7 negative control (tiltcap): the min taken before the decay drops 8 to 2 at once (level %d)"
+                % tm.lvl[1], tm.lvl[1] == 2))
+    # the red arms' controls the rows pin (ckpt, ckmat, padftg, cupv, springsum), here on the model
+    rc = Physics(W, play=True, _ckpt_safe=True).poke(9, 6, 0, -200)
+    while not rc.nckpt:
+        rc.step(0)
+    rc.poke(13, 8, 0, 300)
+    while not rc.nfall and rc.nstep < 200:
+        rc.step(K_L | K_D)
+    cv = Physics(W, play=True, _cup_nov=True).poke(11, 6, 256, 0)
+    for _ in range(40):
+        cv.step(0)
+    ss = Physics(W, play=True, _spring_sum=True).poke(8, 7)
+    ss.gz += 30 << 8
+    ss.air, ss.gvz, ss.ztop = 1, -400, ss.gz >> 8
+    while not ss.nspr and ss.nstep < 60:
+        ss.step(0)
+    res.append(("7 negative controls on the model: the respawn at bz_safe (ckpt) misses the flag, the capture "
+                "without the speed test (cupv) holes out at 256, the spring that ADDS (springsum) leaves above "
+                "the max", (rc.gx >> 12, rc.gy >> 12) != (9, 5) and cv.goal == 1 and ss.gvz > s2.gvz))
+    # NO TRAP's own control: the trap course with the refusal removed compiles, and the check finds the trap
+    T = compile_course(_W4T % "glass", "<trap>", _hack={"no_trap": True})
+    found = trap_check(T)
+    Tok = compile_course(_W4T % "rubber", "<no trap>")
+    res.append(("7 NO TRAP: with the refusal removed (the trap control) the check finds the glass flag that cannot "
+                "reach the cup (%s); the same flag naming rubber passes" % (found,),
+                found is not None and found[3] == MAT_GLASS and Tok.trap and all(t_[3] for t_ in Tok.trap)))
+
+
+def _w4_demos(courses, paths, res):
+    """item 9 (SPEC.md 128.14.7.4, 128.14.17 item 5): every shipped demo"""
+    demos = build_demos(courses, paths)
+    idents = [c.ident for c in courses]
+    for K, d in sorted(demos.items()):
+        c = courses[K]
+        log = d["log"]
+        bad = check_log(log, len(courses), idents)
+        steps = struct.unpack_from("<I", log, 8)[0]
+        p, first = replay_log(c, log)
+        ok = bad is None and log_ident(log) == c.ident and log[7] == PHYSV and log[4] == K and (
+            first == steps if log[6] & RL_COMPLETE else True)
+        res.append(("9 demo %d %s (%s): passes 128.14.7.2's checks 1 - 8 (identity %04Xh = the course's, physics "
+                    "%02Xh = BZ_PHYSV), and the model replays its %d steps to %s" % (
+                        K, c.name, d["where"], log_ident(log), log[7], steps,
+                        "the goal on its last step" if log[6] & RL_COMPLETE else "its end"), ok))
+    again = build_demos(courses, paths)
+    res.append(("9 the route demos are deterministic (two builds byte-identical: %s)" % ", ".join(
+        "%s %d bytes" % (courses[K].name, len(d["log"])) for K, d in sorted(again.items()) if d["kind"] == "route"),
+        all(again[K]["log"] == demos[K]["log"] for K in demos)))
+    # a demo under other PHYSICS: re-stamped and ships when it still ends; DEMOTED when it does not
+    K = next(K for K, d in sorted(demos.items()) if d["log"][6] & RL_COMPLETE)
+    c = courses[K]
+    other = bytearray(demos[K]["log"])
+    other[7] ^= 0x5A
+    out, warn, _p = check_demo(c, K, bytes(other), idents, "<re-stamp>")
+    short = bytearray(other)
+    struct.pack_into("<I", short, 8, struct.unpack_from("<I", short, 8)[0] - short[RLOG_HDR + 1] + 1)
+    short[RLOG_HDR + 1] = 1                       # the first run cut to one step: it no longer ends at the goal
+    out2, warn2, _p = check_demo(c, K, bytes(short), idents, "<demote>")
+    res.append(("9 a demo recorded under other physics never fails the build: re-stamped %02Xh and shipped when it "
+                "still ends at the goal (%d warning), DEMOTED to inputs-only when it does not (%s)" % (
+                    PHYSV, len(warn), "COMPLETE cleared" if not out2[6] & RL_COMPLETE else "still COMPLETE"),
+                out[7] == PHYSV and out[6] & RL_COMPLETE and len(warn) == 1 and not out2[6] & RL_COMPLETE
+                and out2[7] == PHYSV and len(warn2) == 2))
+    # the demo's COURSE identity: another build's demo FAILS the build ...
+    wrong = bytearray(demos[K]["log"])
+    struct.pack_into("<H", wrong, 14, c.ident ^ 0x0101)
+    try:
+        check_demo(c, K, bytes(wrong), idents, "<another build>")
+        failed = False
+    except CourseError as e:
+        failed = "earlier build" in str(e)
+    res.append(("9 a demo of another build of its course FAILS the build, naming it", failed))
+    # ... and the negative control: with that check removed the demo is accepted, and this item's own
+    # check (the log's +14 against the course's identity) catches it
+    acc = check_log(bytes(wrong), len(courses), [i if k != K else c.ident ^ 0x0101 for k, i in enumerate(idents)])
+    res.append(("9 negative control: the identity check removed (the demo-identity control), the demo is accepted by "
+                "the reader and this item's identity test fails it", acc is None and log_ident(wrong) != c.ident))
+    # the .bzd text round-trips
+    rt = all(bzd_log(parse_bzd(demo_text(d["log"], courses[K].name), "<rt>"), K) == d["log"]
+             for K, d in demos.items())
+    res.append(("9 every demo's .bzd text (bbcourse.py demo's) parses back to its bytes", rt))
+
+
 W2_COMMIT = "848ade16"          # wave 2's tree (SPEC.md 128.12.9)
 
 
-def wave2_parts(names):
-    """the wave-2 parts of the named courses, compiled by 848ade16's own
-    tool out of git in a temporary tree: -> ({NAME: bytes}, None) or (None,
-    why it cannot be had)"""
+def opening_regions(c):
+    """every opening's rectangle on the glass (x0, y0, x1, y1 inclusive, glass
+    lines) - an arch's columns and a pixel beyond, from two lines over its
+    top to a line under its sill; a tube cell's top hole or ring 13 px either
+    side of its centre and 7 lines over and under - the pixels the owner's
+    round openings (SPEC.md 128.14.20) may change, wave 3's shapes included"""
+    out = []
+    for p in c.props:
+        for hole in (p.get("door_pix"), p.get("mouth_pix")):
+            if hole:
+                xs = [x for x, _ in hole]
+                ys = [y + c.y0 for _, y in hole]
+                out.append((min(xs) - 1, min(ys) - 3, max(xs) + 1, max(ys) + 1))
+        if p["kind"] == PK_TUBE:
+            for cell in (p["inn"], p["out"]):
+                t = c.tiles[cell]
+                cx = 16 * (cell[0] - cell[1]) + c.x0
+                cy = 8 * (cell[0] + cell[1]) + 8 - 4 * t.z0 + c.y0
+                out.append((cx - 13, cy - 7, cx + 12, cy + 7))
+    return out
+
+
+def openings_only(c, old, regions=None):
+    """-> None when the part `old` (3b's, before the owner's round openings)
+    differs from c's only by the openings (SPEC.md 128.14.20): every pixel of
+    the picture and of every lane's every pose that differs inside
+    opening_regions(), and nothing else changed - the grid but for its
+    identity and offsets, the records with their masks, the props but for a
+    lane's map offset and the sprite's; else why not"""
+    po, pn = read_part(old), read_part(c.cga)
+    regs = opening_regions(c) if regions is None else regions
+
+    def inside(x, y):
+        return any(a <= x <= b and t <= y <= u for a, t, b, u in regs)
+    ao, an = _decode(old), _decode(c.cga)
+    if len(ao) != len(an) or len(ao[0]) != len(an[0]):
+        return "the picture's size"
+    nd = 0
+    for y in range(len(an)):
+        for x in range(len(an[0])):
+            if ao[y][x] != an[y][x]:
+                nd += 1
+                if not inside(x, y):
+                    return "picture pixel (%d, %d) outside every opening" % (x, y)
+    for ro, rn in zip(po["props"], pn["props"]):
+        Lo, Ln = ro["lane"], rn["lane"]
+        if {k: v for k, v in ro.items() if k not in ("lane", "spoff")} != \
+                {k: v for k, v in rn.items() if k not in ("lane", "spoff")}:
+            return "prop %d's record" % ro["i"]
+        if bool(Lo) != bool(Ln) or (Lo and any(Lo[k] != Ln[k] for k in ("brow", "col", "w", "h", "poses"))):
+            return "prop %d's lane" % ro["i"]
+        if not Lo:
+            continue
+        w, h = Ln["w"], Ln["h"]
+        for q in range(Ln["poses"]):
+            for part, L, P in ((old, Lo, "o"), (c.cga, Ln, "n")):
+                words = struct.unpack_from("<%dH" % (w * h), part, L["off"] + 2 * q * w * h)
+                pic = [[(part[off + 2 * yy + (xx >> 2)] >> (6 - 2 * (xx & 3))) & 3 for xx in range(8)]
+                       for off in words for yy in range(8)]
+                if P == "o":
+                    po_pic = pic
+                else:
+                    for i, (a, b) in enumerate(zip(po_pic, pic)):
+                        k, yy = divmod(i, 8)
+                        r, cc = divmod(k, w)
+                        for xx in range(8):
+                            if a[xx] != b[xx] and not inside(8 * (Ln["col"] + cc) + xx, 8 * (Ln["brow"] + r) + yy):
+                                return "prop %d pose %d's pixel outside every opening" % (rn["i"], q)
+    go = {k: v for k, v in po["grid"].items() if k not in ("ident", "celloff", "rowtab")}
+    gn = {k: v for k, v in pn["grid"].items() if k not in ("ident", "celloff", "rowtab")}
+    if go != gn:
+        return "the grid"
+
+    def recs(p, raw):
+        return [(r[0], r[1], r[2], bytes(raw[r[3]:r[3] + 16])) for r in p["recs"]]
+    if recs(po, old) != recs(pn, c.cga) or po["idx"][1:] and [i - po["idx"][0] for i in po["idx"]] != \
+            [i - pn["idx"][0] for i in pn["idx"]]:
+        return "the occluder records"
+    return None
+
+
+def wave2_parts(names, commit=W2_COMMIT):
+    """the parts of the named courses as a commit's own tool compiled them
+    (848ade16, wave 2's; 573eec83, 3b's), out of git in a temporary tree:
+    -> ({NAME: bytes}, None) or (None, why it cannot be had)"""
+    W2_COMMIT = commit
     import subprocess
     import tempfile
     import tarfile
@@ -6164,23 +8109,38 @@ def selfcheck(paths=None):
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
             res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
-    w2names = [n for n in ("BENCH", "FIRST", "TRIAL") if n in byname]
-    if w2names:
-        old, why = wave2_parts(w2names)
+    # wave 4 (SPEC.md 128.14.6): BENCH, TRIAL and MILL are 3b's parts byte for byte (their identities
+    # with them), and FIRST differs only by its route: its text without its `way` lines is 3b's part
+    w3names = [n for n in ("BENCH", "FIRST", "TRIAL", "MILL") if n in byname]
+    if w3names:
+        old, why = wave2_parts(w3names, W3B_COMMIT)
         if old is None:
-            skipped.append("1 SKIPPED: %s, %s and %s against wave 2's parts: %s" % (tuple(w2names) + (why,)))
+            skipped.append("1 SKIPPED: %s against 3b's parts: %s" % (", ".join(w3names), why))
         else:
-            diff = []
-            for n in w2names:
-                x, y = bytearray(byname[n].cga), bytearray(old[n])
-                g = byname[n].part["gridoff"]
-                for z in (x, y):
-                    z[g + 18:g + 20] = b"\0\0"
-                if x != y:
-                    diff.append(n)
-            res.append(("1 %s compile to wave 2's parts (%s's tool, run from git in a temporary tree) byte for byte "
-                        "but the identity word%s" % (", ".join(w2names), W2_COMMIT,
-                                                   "" if not diff else " -- DIFFER: %s" % diff), not diff))
+            same = [n for n in w3names if n not in ("FIRST", "MILL")]
+            diff = [n for n in same if byname[n].cga != old[n]]
+            res.append(("1 %s compile to 3b's parts (%s's tool, run from git in a temporary tree) byte for byte, their "
+                        "identities with them%s" % (", ".join(same), W3B_COMMIT,
+                                                    "" if not diff else " -- DIFFER: %s" % diff), not diff))
+            if "MILL" in w3names:               # the owner's round openings (128.14.20): MILL's openings alone
+                m = byname["MILL"]
+                why = openings_only(m, old["MILL"])
+                ctl = openings_only(m, old["MILL"], regions=opening_regions(m)[1:])
+                res.append(("1 MILL differs from 3b's part only by the owner's round openings (128.14.20): %d "
+                            "regions, every changed pixel of its picture and its lanes' poses inside one, its grid, "
+                            "records and prop records 3b's but for the offsets and its identity (%04Xh)%s; negative "
+                            "control: its first region taken out fails it (%s)" % (
+                                len(opening_regions(m)), m.ident, " -- " + why if why else "", ctl),
+                            why is None and ctl is not None))
+            if "FIRST" in w3names:
+                f = byname["FIRST"]
+                bare = compile_course("\n".join(ln for ln in open(os.path.join(ROOT, f.fname) if not
+                                                                 os.path.isabs(f.fname) else f.fname).read().split("\n")
+                                                if not ln.startswith("way ")), "<FIRST, no route>")
+                res.append(("1 FIRST differs from 3b's part only by its route and its identity: without its %d `way` "
+                            "lines it compiles to 3b's part byte for byte (identity %04Xh -> %04Xh)" % (
+                                len(f.route), bare.ident, f.ident),
+                            bare.cga == old["FIRST"] and len(f.route) >= 2 and f.ident != bare.ident))
     # 2. the grammar and the bounds
     for what, text, want in _grammar_cases():
         try:
@@ -6196,6 +8156,25 @@ def selfcheck(paths=None):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    for what, text, want in _w4_cases():
+        try:
+            compile_course(text, fname="<%s>" % what)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    for what, sw, text, want in (("a cup on a ramp", "flat", _swap(_W4C, "cup 12 6", "cup 14 6"), "not a FLAT FLOOR"),
+                                 ("a second cup", "cupmax", _W4C + "cup 9 6\n", "a second cup")):
+        _CHECKS_OFF.add(sw)                     # the refusal (and the reader's) switched off: the item fails
+        try:
+            compile_course(text, fname="<%s, control>" % what)
+            fired = False
+        except CourseError as e:
+            fired = want in str(e)
+        finally:
+            _CHECKS_OFF.discard(sw)
+        res.append(("2 negative control: %s with its refusal removed is accepted (the item fails at its line)"
+                    % what, not fired))
     for c in courses:
         if c.part["nprop"]:
             bb = bytearray(c.cga)
@@ -6456,6 +8435,11 @@ def selfcheck(paths=None):
                     inside and least == 0 and c.rounds <= REACH_ROUNDS))
         if c.props:
             _props_course_checks(c, res, tag)
+        _w4_records(c, res)
+        sb, sok = spring_bounds(c)
+        if sb:
+            res.append(("6 %s: every SPRING's flight in the reach - %s - and its apex footprint inside the picture"
+                        % (tag, ", ".join("%s apex %d px, zhi %d, footprint line %d" % o for o in sb)), sok))
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()
@@ -6475,6 +8459,87 @@ def selfcheck(paths=None):
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
+    # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the HUD, the demos
+    _w4_physics(byname, res)
+    for c in courses:
+        if getattr(c, "trap", None):
+            res.append(("7 %s: NO TRAP - from every flag with its ball and every pad with its ball the %s is "
+                        "reachable (%s)" % (c.name, "cup" if c.gflags & GF_CUP else "goal", "; ".join(
+                            "%s %s %s: %d states" % (k, at, MAT_NAMES[m], n) for k, at, m, ok_, n in c.trap)),
+                        all(t[3] for t in c.trap)))
+        if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
+            _w4_course_report(c, res)
+            _w4_route(c, res)
+        elif c.name != "BENCH":
+            bad = hud_conflicts(c)
+            res.append(("8 %s: NOTHING UNDER THE HUD (its route's waypoints)" % c.name, bad is None))
+    # item 5, the flags (128.14.25 item 1): a pennant is clipped by what is drawn in front of its flag, and
+    # a flag the player cannot see is refused - every shipped flag's two poses clear of nearer geometry
+    def _pfront(c):
+        n = 0
+        for L in c.lanes:
+            if L["kind"] == PK_CHECKPOINT:
+                sF = sum(c.props[L["prop"]]["at"])
+                n += sum(1 for q in L["poses"].values() for (x, y) in q if c.sbuf[y][x] > sF)
+        return n
+    res.append(("5 every shipped flag's pennant, both poses, is clear of geometry in front of it (%s)" % ", ".join(
+        "%s %d" % (c.name, _pfront(c)) for c in courses if any(p["kind"] == PK_CHECKPOINT for p in c.props)),
+        all(_pfront(c) == 0 for c in courses)))
+    fxp = _W4C + "checkpoint 8 6\nwall rect 9 7 11 8 flat %s\n"
+    try:
+        compile_course(fxp % "9", "<a flag behind a wall>")
+        hid = False
+    except CourseError as e:
+        hid = "HIDDEN" in str(e)
+    half = compile_course(fxp % "6", "<a flag half behind a wall>")
+    raw = compile_course(fxp % "6", "<the same, no clip>", _hack={"pennant_noclip": True})
+    res.append(("5 negative controls: a flag behind a wall 5 units tall is REFUSED (HIDDEN); one behind a wall 2 "
+                "units tall keeps %d pennant pixels under the wall with the clip taken out, 0 with it" % _pfront(raw),
+                hid and _pfront(half) == 0 and _pfront(raw) > 0))
+    # item 6's control (128.14.17 item 5): a spring's launch left out of zhi fails item 6's spring test
+    fx = _W4C + "spring 8 7 512\n"
+    cs = compile_course(fx, "<a spring, not in the reach>", _hack={"no_spring_reach": True})
+    cf = compile_course(fx, "<a spring>")
+    res.append(("6 negative control: a spring's launch left out of the reach (its apex %d px over zhi %d) fails item "
+                "6's spring test, which the same course passes with it" % (
+                    spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
+                not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
+    cupc = next((c for c in courses if c.gflags & GF_CUP), None)
+    if cupc is not None:                      # item 8's control: the HUD's rect put over the cup
+        cp = next(i for i, p in enumerate(cupc.props) if p["kind"] == PK_CUP)
+        x, y = min(cupc.prop_pix[cp])
+        global HUD_COLS, HUD_LINE
+        old_c, old_l = HUD_COLS, HUD_LINE
+        try:
+            HUD_COLS = (x - 2, x + 14)
+            HUD_LINE = (y - 1, y - 1)             # (the left-edge strip then runs from the cup's line down)
+            caught = hud_conflicts(cupc) is not None
+        finally:
+            HUD_COLS, HUD_LINE = old_c, old_l
+        res.append(("8 negative control (underhud): %s's cup under the clamped rect (the rect moved onto it) is "
+                    "caught by the check" % cupc.name, caught))
+    _w4_demos(courses, paths, res)
+    # the tables bzcourse.inc carries (128.14.4.2, 128.14.7.2): BZ_CRS_PARS, BZ_CRS_IDS, BZ_PHYSV - the
+    # physics identity recomputed with the standard library's own CRC-CCITT (binascii.crc_hqx)
+    import binascii
+    crc = binascii.crc_hqx(mattab() + b"".join(struct.pack("<H", v) for v in PHYS_CONSTS) + phys_tables(),
+                           0xFFFF)
+    inc = a[2]["bzcourse.inc"]
+    res.append(("4 bzcourse.inc's BZ_CRS_PARS (%s), BZ_CRS_IDS and BZ_PHYSV (%02Xh: CRC-16/CCITT of BZ_MATTAB, "
+                "PHYS_CONSTS, BZ_SURFTAB, the corner and OCTANT tables, folded; binascii.crc_hqx agrees) are the "
+                "courses' and the model's, and every identity is non-zero" % (
+                    ", ".join(str(c.par) for c in courses), PHYSV),
+                "    dw " + ", ".join(str(c.par) for c in courses) in inc
+                and "    dw " + ", ".join("%05Xh" % c.ident for c in courses) in inc
+                and PHYSV == (crc >> 8) ^ (crc & 0xFF) and "BZ_PHYSV        equ %03Xh" % PHYSV in inc
+                and all(c.ident for c in courses)))
+    # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
+    # physics is refused, not replayed down another path)
+    tb = phys_tables()
+    moved = [phys_ident(_tabs=tb[:i] + bytes([tb[i] ^ 1]) + tb[i + 1:]) != PHYSV
+             for i in (0, len(surftab()), len(surftab()) + 3 * len(CORNER))]
+    res.append(("4 negative controls: one bit of BZ_SURFTAB, of the corner table and of OCTANT each moves BZ_PHYSV",
+                all(moved)))
     try:                                      # item 5's negative control: a blade in front of the doorway
         compile_course(open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
                             else os.path.join(ROOT, byname["MILL"].fname)).read(), "<MILL, rotor in front>",
@@ -6549,7 +8614,86 @@ def default_paths():
     return [os.path.join(ROOT, p) for p in m.group(1).replace("\\", " ").split()]
 
 
+def _course_list(paths):
+    """(NAME, path) of every course in BZ_COURSES's order, from the `course` lines alone"""
+    out = []
+    for p in paths:
+        with open(p, encoding="ascii") as f:
+            m = re.search(r"^\s*course\s+([A-Z0-9]{1,5})\b", f.read(), re.M)
+        out.append((m.group(1) if m else None, p))
+    return out
+
+
+def main_demo(argv):
+    """bbcourse.py demo IN.BZR [-o OUT.bzd]: a log the owner saved (W, on a
+    5150 or in 86Box) as a .bzd (SPEC.md 128.14.7.4).  The course is the log's
+    K in BZ_COURSES; the file is checked as the guest's L checks it, except
+    for its physics byte, which the build re-stamps or demotes."""
+    ap = argparse.ArgumentParser(prog="bbcourse.py demo")
+    ap.add_argument("log")
+    ap.add_argument("-o", "--out")
+    a = ap.parse_args(argv)
+    with open(a.log, "rb") as f:
+        log = f.read()
+    paths = default_paths()
+    names = _course_list(paths)
+    if len(log) < RLOG_HDR or log[:4] != b"BZR1" or log[4] >= len(names) or log[4] == 0:
+        print("bbcourse: %s is not a Bonanza demo of a tour course" % a.log, file=sys.stderr)
+        return 1
+    c = compile_course(paths[log[4]])
+    idents = [0] * len(names)
+    idents[log[4]] = c.ident
+    bad = check_log(log, len(names), idents, physv=log[7])
+    if bad:
+        print("bbcourse: %s: check %d: %s" % (a.log, bad[0], bad[1]), file=sys.stderr)
+        return 1
+    text = demo_text(log, c.name, "%s's demo, converted from %s by `bbcourse.py demo` (SPEC.md 128.14.7.4)"
+                     % (c.name, os.path.basename(a.log)))
+    if a.out:
+        with open(a.out, "w", newline="\n") as f:
+            f.write(text)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def main_author(argv):
+    """bbcourse.py author COURSE.bbc [-o OUT.bzd]: play the course's AUTHOR
+    script with the model and write its .bzd (MOON's and PEAK's demos until
+    the owner records his, SPEC.md 128.14.7.4)"""
+    ap = argparse.ArgumentParser(prog="bbcourse.py author")
+    ap.add_argument("course")
+    ap.add_argument("-o", "--out")
+    a = ap.parse_args(argv)
+    paths = default_paths()
+    K = [os.path.abspath(p) for p in paths].index(os.path.abspath(a.course))
+    c = compile_course(a.course)
+    if c.name not in AUTHOR:
+        print("bbcourse: %s has no AUTHOR script" % c.name, file=sys.stderr)
+        return 1
+    log, p = author_demo(c, K, AUTHOR[c.name])
+    note = ("%s's AUTHORED demo (SPEC.md 128.14.7.4), written by `python3 tools/bbcourse.py author %s`\n"
+            "from bbcourse.AUTHOR[%r] and the model: %d steps (%.2f s), %d fall, %d RETURN,\n"
+            "%d pad swaps, %d spring launches, %s.  The build checks it against the course\n"
+            "as built; replaced by the owner's recording the day one is committed."
+            % (c.name, os.path.relpath(os.path.abspath(a.course), ROOT), c.name, p.nstep,
+               p.nstep * STEP_PIT / float(PIT_HZ), p.nfall, p.nret, p.npad, p.nspr,
+               "to the cup" if p.goal else "NOT to the goal"))
+    text = demo_text(log, c.name, note)
+    out = a.out or demo_path(a.course)
+    with open(out, "w", newline="\n") as f:
+        f.write(text)
+    print("bbcourse: %s: %d runs, %d steps" % (out, struct.unpack_from("<H", log, 12)[0], p.nstep))
+    return 0
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author"):
+        try:
+            return (main_demo if sys.argv[1] == "demo" else main_author)(sys.argv[2:])
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("courses", nargs="*", help="course files, in BZ_COURSES's order")

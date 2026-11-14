@@ -224,6 +224,7 @@ VAR bz_lcf,2 * BZ_PROPMAX       ; each lane's WHOLE commit's cost (bz_wcalib)
 VAR bz_lxw,BZ_PROPMAX           ; 1: a column of the lane crosses the ring's end
 VAR bz_lnext,2 * BZ_PROPMAX     ; each rotor's next pose change (bz_ltrue)
 VAR bz_lnsk,1                   ; 1: the walk's range moved, no lane skipped
+VAR bz_lcks,1                   ; bz_cksn as the last walk read it (a flag's skip)
 VAR bz_lrc,8                    ; the lane's rect, words x lines inclusive
 VAR bz_kr,8                     ; the calibration corner, px (x0 y0 x1 y1)
 VAR bz_kt,8                     ; ...what it must not meet
@@ -293,12 +294,12 @@ bz_pread:
 .done:
     jmp .done2
 .rec:
-    mov al, [es:si + BZP_KIND]  ; (each record's kind, and a lane's rows, where
-    mov di, bx                  ; the walk reads them: bz_lknd, bz_lrw, bz_lhh)
-    and di, 0ffh
+    mov al, [es:si + BZP_KIND]  ; (a LANE's kind and rows, where the walk reads
+    mov di, bx                  ; them: bz_lknd, bz_lrw, bz_lhh - a lane's
+    and di, 0ffh                ; alone, the lanes being the first records and
+    test byte [es:si + BZP_FLAGS], BZ_PF_LANE ; at most BZ_PROPMAX of up to
+    jz .nl                      ; BZ_PROPALL, SPEC.md 128.14.4.2)
     mov [bz_lknd + di], al
-    test byte [es:si + BZP_FLAGS], BZ_PF_LANE
-    jz .nl
     inc bh
     mov al, [es:si + BZP_LCOL]
     mov [bz_ltcl + di], al
@@ -376,6 +377,8 @@ bz_pread:
 ; (bz_pline 8000h) until bz_pfull draws its box.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_lfull:
+    mov al, [bz_cksn]           ; (every flag's true pose read: the walk's
+    mov [bz_lcks], al           ; skip holds, SPEC.md 128.14.4.2)
     xor bx, bx
 .l:
     cmp bl, [bz_nlane]
@@ -454,6 +457,8 @@ bz_ltrue:
     pop cx
     jmp short .out
 .post:                          ; (no record read but a new kick's)
+    cmp byte [bz_lknd + bx], BZ_PK_CKPT
+    je .flag
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -476,6 +481,22 @@ bz_ltrue:
 .out:
     mov [bz_ltru + bx], al
     ret
+; a FLAG (wave 4, SPEC.md 128.14.4.2): FLYING (1) from the step it is first
+; touched - its bit of bz_cksn, physics state - and FURLED (0) before
+.flag:
+    push cx
+    push si
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    mov cl, [es:si + BZP_CNUM]
+    pop es
+    pop si
+    mov al, [bz_cksn]
+    shr al, cl
+    and al, 1
+    pop cx
+    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; bz_ldesc - lane BX's descriptor from the per-lane tables bz_pread filled (no
@@ -1962,6 +1983,7 @@ bz_wcorner:
     mov dx, di
     call bz_wctry
     jnc .ok
+.br:
     mov ax, cx
     call bz_wctry
 .ok:
@@ -2274,6 +2296,8 @@ bz_props:
     jg .nx
     jmp short .w0
 .skp:
+    cmp byte [bz_lknd + bx], BZ_PK_CKPT
+    je .skf
     or al, al                   ; ...or a POST is drawn dark, its lit frames
     jnz .w0                     ; none, every kick seen
     cmp [bz_lhold + bx], al
@@ -2283,6 +2307,10 @@ bz_props:
     jne .w0
 .nx:
     jmp .next
+.skf:                           ; ...or a FLAG, no flag touched since the
+    mov al, [bz_cksn]           ; last walk read them (bz_lcks)
+    cmp al, [bz_lcks]
+    je .nx
 .w0:
     cmp byte [bz_lhold + bx], 0 ; 0. a lit post's frames ON THE GLASS: one
     je .t                       ; counted off each frame that begins with it
@@ -2367,6 +2395,8 @@ bz_props:
     inc bx
     jmp .lane
 .plat:
+    mov al, [bz_cksn]           ; (every flag in the slice has read the
+    mov [bz_lcks], al           ; touches: a flag's skip holds again)
     mov bl, [bz_pidx]           ; THE PLATFORM
     cmp bl, 0ffh
     je .choose
@@ -2629,6 +2659,8 @@ bz_lmust:
     inc ax
     jmp short .yes
 .post:                          ; a POST LIGHTING: true lit over drawn dark
+    cmp byte [bz_lknd + bx], BZ_PK_CKPT ; (a FLAG is never must-draw: an
+    je .no                      ; ordinary due lane, SPEC.md 128.14.4.2)
     mov al, [bz_ltru + bx]      ; (the owner's preview: a hit always shows)
     cmp al, [bz_ldrw + bx]
     mov al, 0ffh

@@ -2,7 +2,7 @@
 """BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.11.14, 128.11.17.2).
 
     make mega bonanzadisk && python3 tests/bonanza_mega.py [--keep]
-    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs     (a red arm, below)
+    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs|stageseg     (a red arm, below)
     python3 tests/bonanza_mega.py --check                        (the host half: the red arms assemble)
 
 Under kern_mega a claim is an LDT SELECTOR, so every segment wave 1 added -
@@ -62,6 +62,23 @@ BONANZA plays on a CGA or a Hercules only - and then:
      next step's input: bz_hold 255, then the frame count seen to move);
      the end state the model's;
 
+  7  WAVE 4 (SPEC.md 128.14.14): PEAK's shipped demo (V) through D on the
+     Hercules with the HUD FOLLOW and then REST (while the build carries
+     it): each launch fetches the course and ALL THREE ball parts (four
+     claims inside), its end state the model's replay of the demo, and at
+     least one respawn's cut after the first full write - each blanked by
+     an OUT to 3B8h, no fault;
+  8  W through the Save form into the instance's folder (B:'s root, as
+     PEAKA.BZR) and L of it back through the Open form (its row by SPEC.md
+     19.4's order, double-clicked): bz_rlog the demo's bytes, then D of it
+     to the model's end - L's staging claim used whole through its selector;
+  9  LAST, the DOUBLE-CLICK of PEAKA.BZR in B:'s Disk window: a second
+     BONANZA opens holding it (bz_rlog, [bz_lsv] 2);
+
+The B: window lists SYSTEM\\APPDATA's folder first since wave 4 (SPEC.md
+19.4: folders first, then by name), so every row's point is computed from
+the floppy's root (root_rows) rather than assumed.
+
 and asserts, after each, as bonanza_exit does on MartyPC: every part row
 with OP_FETCHED clear and OP_R_ZKB back to its packed length, and the
 instance's claims - the conventional heap's (mem_tab) and the pool's above
@@ -86,6 +103,8 @@ the row FAILS at its own check:
             3b, SPEC.md 128.13.11: bz_wprect.col's `mov [cs:bx], si`): an
             exception in the fault log at MILL's launch (the calibration
             commits through the pass)
+  stageseg  (wave 4) L's copy reaches the staging claim by adding a paragraph
+            to its segment: an exception in the fault log at case 8's L
   shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: 86Box sends
             the fake-shift RELEASE (E0 AA) before a grey arrow pressed with
             Left Shift held (MEASURED, SPEC.md 128.13.3.4), so the map loses
@@ -322,12 +341,13 @@ def title_rows(n):
     """the desktop's title holds two rows while the window is open (SPEC.md
     128.20.6): the sound part and song 0, after the courses' - the rows a
     package with sound has past 3 + BZ_NCRS (none for one without)"""
-    import re
     inc = os.path.join(R.at("build/bonanza-art"), "bzsnd.inc")
     if not os.path.exists(inc):
         return set()
-    nsong = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(inc).read(), re.M).group(1))
-    snd = n - 1 - nsong
+    # the sound's row is 3 + BZ_NCRS (SPEC.md 128.20.3), whatever follows the songs (wave 4's demos,
+    # 128.14.7.4) - not counted back from the last row
+    R.CRS_K["bench"]                            # (fills the table: bzcourse.inc's BZ_NCRS courses)
+    snd = 3 + dict.__len__(R.CRS_K)
     return {snd, snd + 1} if snd >= 3 else set()
 
 
@@ -341,6 +361,150 @@ def check_after(what, pkg, base_rows, base_claims, got_claims):
     moved = [i for i, (a, c) in enumerate(zip(base_rows, rows)) if a[1] != c[1] and i not in title]
     want(not moved, "%s: every row's zkb back to its packed length (%s)" % (what, moved or "all"))
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
+
+
+# ---- wave 4 (SPEC.md 128.14.14): PEAK, the HUD, W, L, D and the double-click -------------------------
+SAVENAME = "PEAKA.BZR"
+
+
+def root_rows(img, extra=()):
+    """the names a Disk window or the chooser lists for IMG's root, in its order
+    (SPEC.md 19.4: folders first, then by name; hidden files and the label
+    left out), with EXTRA files added - the row a file is in"""
+    f = os88fat.Fat12(img)
+    items = []
+    for _i, _o, e in f.entries():
+        if e[11] & 0x0A or e[11] & 0x0F == 0x0F:            # a label, a hidden file, an LFN slot
+            continue
+        nm = e[:8].decode("latin-1").rstrip()
+        ext = e[8:11].decode("latin-1").rstrip()
+        items.append((not e[11] & 0x10, nm + ("." + ext if ext else "")))
+    items += [(True, x.upper()) for x in extra]
+    return [nm for _, nm in sorted(items)]
+
+
+def row_pt(img, name, extra=()):
+    """the point of NAME's row in a fresh B: window: FIRST is row 0's
+    (megarmbext's), FM_ROW_H (16) a row"""
+    return FIRST[0], FIRST[1] + 16 * root_rows(img, extra).index(name.upper())
+
+
+def bonanzas(b):
+    """every running BONANZA's region selector, in inst_tab's order"""
+    raw = b.memr(b.sym("inst_tab"), G.INST_MAX * G.I_RECSZ)
+    out = []
+    for i in range(G.INST_MAX):
+        r = raw[i * G.I_RECSZ:(i + 1) * G.I_RECSZ]
+        if r[G.I_STATE] == 1 and r[G.I_KIND] & G.KIND_PKG and \
+                r[G.I_NAME:G.I_NAME + 16].split(b"\0")[0].decode("latin-1") == NAME:
+            out.append(u16(r, G.I_SPTR))
+    return out
+
+
+def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=None, eq=None):
+    """KEY (d or r) on the held log DEMO on the Hercules, to its end: the bracket
+    the Hercules', INSIDE more claims than BASE_CLAIMS while it runs (the course
+    and its balls), the end state the model's replay of DEMO on CRS"""
+    b.tap(key, gap=300)
+    b.until(lambda: pkg.byte("bz_fs") == 1, "%s's bracket" % what, 60000, 100)
+    want(pkg.byte("bz_herc") == 1 and pkg.byte("bz_mode") == (3 if key == "d" else 2),
+         "%s: on the Hercules in mode %d ([bz_herc] %d, [bz_err] %d)" % (
+             what, pkg.byte("bz_mode"), pkg.byte("bz_herc"), pkg.byte("bz_err")))
+    if inside is not None:
+        got = claims(b, pkg, hs, eq)
+        want(len(got) == len(base_claims) + inside, "%s: inside, %d parts claimed (%d claims against %d)" % (
+            what, inside, len(got), len(base_claims)))
+    b.until(lambda: pkg.byte("bz_fs") == 0, "%s to reach its end" % what, 480000, 250)
+    b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+    b.ui_done(limit_ms=30000)
+    end = phys(b, pkg)
+    p, _first = BB.replay_log(R.course(crs), demo)
+    want(end == p.state(), "%s: its end the model's replay: %s (the model %s)" % (what, end, p.state()))
+    # bz_nfull is the BRACKET's count (the launch zeroes it with the others), so
+    # its value at the end is this run's; a difference against the last run's
+    # was 0 for the second D (the final pass of wave 4)
+    return pkg.word("bz_nfull") if "bz_nfull" in pkg.sym else 0
+
+
+def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
+    """7 - 9 (SPEC.md 128.14.14 bonanzamega): PEAK's shipped demo by D on the
+    Hercules with its three balls, the HUD FOLLOW and then REST (while the build
+    carries it) - every launch fetching the course and all three ball parts
+    through their own selectors, a respawn's cut blanking the card (an OUT to
+    3B8h, no fault); W into the instance's folder through the Save form and L
+    of it back through the Open form (the staging claim used whole through its
+    own selector) and D of what L read; and, last, the DOUBLE-CLICK of the
+    saved .BZR in B:'s Disk window opening a second BONANZA with it held"""
+    peak = R.CRS_K["peak"]
+    demo = open(os.path.join(R.at("build/bonanza-art"), "BZD%d.BIN" % peak), "rb").read()
+    memw(b, pkg.a("bz_vk"), bytes([peak - 1]))
+    b.tap("v", gap=300)
+    b.until(lambda: bytes(b.memr(pkg.a("bz_rlog"), len(demo))) == demo, "V to load PEAK's demo", 20000, 50)
+    b.ui_done(limit_ms=20000)
+    modes = ((2, "FOLLOW"), (1, "REST")) if "bz_hmode" in pkg.sym else ((None, "no HUD built"),)
+    for hm, lab in modes:
+        if hm is not None:
+            memw(b, pkg.a("bz_hmode"), bytes([hm]))
+        cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo (the HUD %s)" % lab, demo, "peak", inside=4,
+                        base_claims=base_claims, hs=hs, eq=eq)
+        # the first full write ASSERTED, a respawn's cut REPORTED: not every
+        # respawn cuts (one inside the window scrolls instead), and which of
+        # PEAK's do on the Hercules moved between two runs of the final pass of
+        # wave 4 (1 and 2 full writes) - as bonanzaring's W4 replays already
+        # report it (SPEC.md 128.14.24 item 2)
+        want(cuts >= 1, "7. D of PEAK's demo (the HUD %s): %d full write(s) - the first, BLANKED (bz_blank's OUT "
+             "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (lab, cuts, max(cuts - 1, 0)))
+        check_after("7. D of PEAK's demo (the HUD %s)" % lab, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    if "bz_hmode" in pkg.sym:
+        memw(b, pkg.a("bz_hmode"), b"\0")
+    # 8. W through the Save form, L through the Open form, D of what it read
+    b.tap("w", gap=300)
+    b.ui_done(limit_ms=20000)
+    for _ in range(13):                         # FD_NAMEMAX + 1: the name box empty (os88ui.chooser_save)
+        b.tap("backspace", gap=60)
+    b.type(SAVENAME)
+    b.tap("return", gap=300)
+    b.ui_done(limit_ms=30000)
+    other = R.make_log([0] * 30, R.CRS_K["first"], 0)
+    memw(b, pkg.a("bz_rlog"), other + bytes(BB.RLOG_SIZE - len(other)))
+    b.tap("l", gap=300)
+    b.ui_done(limit_ms=20000)
+    x, y, _w = top_win(b)
+    row = root_rows(img_b, (SAVENAME,)).index(SAVENAME)
+    b.to(*G.row_xy((x, y), row))                # the chooser's row (os88geom.row_xy, SPEC.md 22)
+    b.click(2)
+    b.ui_done(limit_ms=30000)
+    got = bytes(b.memr(pkg.a("bz_rlog"), len(demo)))
+    want(got == demo and pkg.byte("bz_lsv") == 2, "8. W saved %s and L read it back through the Open form: bz_rlog "
+         "the demo's %d bytes (%s), the log line a file's ([bz_lsv] %d)" % (
+             SAVENAME, len(demo), "equal" if got == demo else "DIFFERENT", pkg.byte("bz_lsv")))
+    check_after("8. W and L", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    demo_run(b, pkg, "d", "8. D of the loaded log", demo, "peak", inside=4, base_claims=base_claims, hs=hs, eq=eq)
+    check_after("8. D of the loaded log", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    # 9. the double-click, LAST (a second instance: sel_of would read either after it)
+    before = bonanzas(b)
+    # B:'s Disk window still lists the root as it read it before W (the final
+    # pass of wave 4: SYSTEM, BONANZA.O88, README.MD - PEAKA.BZR's row was
+    # README's): its Refresh button, 227 px right of and 21 up from FIRST,
+    # clicked twice (the first may only front the window)
+    for _ in range(2):
+        b.to(FIRST[0] + 227, FIRST[1] - 21)
+        b.click(1)
+        b.ui_done(limit_ms=30000)
+        b.pause(500)
+    b.to(*row_pt(img_b, SAVENAME, (SAVENAME,)))
+    b.click(2)
+    b.until(lambda: len(bonanzas(b)) > len(before), "the double-clicked %s to open BONANZA" % SAVENAME, 60000, 100)
+    b.ui_done(limit_ms=60000)
+    new = [s for s in bonanzas(b) if s not in before]
+    if new:
+        base = b.lin(new[0])
+        got = bytes(b.memr(base + pkg.sym["bz_rlog"], len(demo)))
+        lsv = b.memr(base + pkg.sym["bz_lsv"], 1)[0]
+        want(got == demo and lsv == 2, "9. the double-clicked %s opened a BONANZA holding it: bz_rlog %s, [bz_lsv] "
+             "%d" % (SAVENAME, "the file's" if got == demo else "NOT the file's", lsv))
+    else:
+        want(False, "9. the double-click opened no second BONANZA")
 
 
 # ---- MILL on the Hercules (SPEC.md 128.12.12) ------------------------------------
@@ -485,7 +649,7 @@ def run(img_b, keep, tmp):
         b.to(*DRIVE_B)
         b.click(2)
         b.ui_done(limit_ms=20000)
-        b.to(*FIRST)
+        b.to(*row_pt(img_b, "BONANZA.O88"))     # (SYSTEM\APPDATA's folder lists first, SPEC.md 19.4)
         b.click(2)
         b.until(lambda: NAME in insts(b), "BONANZA to start", 60000, 100)
         b.ui_done(limit_ms=60000)
@@ -612,6 +776,7 @@ def run(img_b, keep, tmp):
                  % len(keys))
         check_after("4. the grey-arrow play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         mill_cases(b, pkg, base_rows, base_claims, hs, eq)
+        w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq)
     except Gone as e:
         # every later step is skipped: there is nothing left to read
         want(False, "%s (a fault charged to it - the fault log below names it)" % e)
@@ -640,9 +805,9 @@ REDS = {
               "    inc di\n")],
     # Grip read through the key-state map, which takes a grey arrow's fake shift as Left Shift
     "shiftmap": [("bzgame.inc", "    mov ah, 2                   ; the BIOS's shift flags: bit 1 Left Shift\n"
-                  "    int 16h\n    test al, 2\n    jz .out\n",
+                  "    int 16h\n    test al, 2\n    jz .ms\n",
                   "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
-                  "    call OSAPI_KEY_DOWN\n    jnc .out\n")],
+                  "    call OSAPI_KEY_DOWN\n    jnc .ms\n")],
     # wave 3b (SPEC.md 128.13.11): the commit's PASS stores a block's map word through CS - a
     # code selector on kern_mega takes no write: an exception at MILL's launch (the calibration's
     # idempotent commit is the pass itself) or its first commit
@@ -650,7 +815,16 @@ REDS = {
                "    mov [cs:bx], si             ; RED mapcs: the pass's map store through CS\n"
                "    add si, [bp + 8]            ; SI")],
 }
-RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "3. the fake-shift release", "mapcs": None}
+# wave 4 (SPEC.md 128.14.14): L's copy reaches the staging claim by ADDING A PARAGRAPH to its segment (the
+# head from seg:0, the rest from seg + 1:0 - the same bytes in real mode): on a selector, another descriptor
+REDS["stageseg"] = [("bonanza.asm", "    pop ds                      ; DS = the claim, ES = ours\n    pop es\n"
+                     "    xor si, si\n    mov di, bz_rlog\n    rep movsb\n",
+                     "    pop ds                      ; DS = the claim, ES = ours\n    pop es\n"
+                     "    xor si, si\n    mov di, bz_rlog\n    sub cx, 16                  ; RED stageseg\n"
+                     "    push cx\n    mov cx, 16\n    rep movsb\n    pop cx\n    mov si, ds\n    inc si\n"
+                     "    mov ds, si\n    xor si, si\n    rep movsb\n")]
+RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "3. the fake-shift release", "mapcs": None,
+            "stageseg": None}
 
 
 def main():

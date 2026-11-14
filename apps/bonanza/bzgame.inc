@@ -5,7 +5,10 @@
 ; GUEST STATE A HARNESS READS (tests/bonanza_*.py; offsets are the package
 ; segment's, resolved through the listing or a re-assembly like Excitebike's)
 ; =============================================================================
-;   bz_mode     byte   0 play, 1 benchmark (B), 2 replay (R, SPEC.md 128.11.12)
+;   bz_mode     byte   0 play, 1 benchmark (B), 2 replay (R, SPEC.md 128.11.12),
+;                      3 the DEMO benchmark (D, 128.14.7.3): a replay for every
+;                      log, step, identity and goal test (bz_mode >= 2) and a
+;                      benchmark for bz_meas and the results (bit 0)
 ;   bz_fs       byte   1 while the bracket is up (mode set .. the loop's end)
 ;   bz_err      byte   0; 1 the mode was refused; 2 the display changed under us;
 ;                      3 a replay's log is another course's (SPEC.md 128.12.8)
@@ -154,7 +157,11 @@ BZ_REACH    equ 12              ; the autopilot's waypoint radius, px
 BZ_KSC_F    equ 21h             ; the F key's make code
 BZ_KSC_B    equ 30h             ; ...and B's
 BZ_KSC_C    equ 2eh             ; ...and C's: the camera mode (SPEC.md 128.9)
+BZ_KSC_BKSP equ 0eh             ; ...and Backspace's: RETURN (SPEC.md 128.14.4.5)
 BZ_KSC_R    equ 13h             ; ...and R's: the replay (SPEC.md 128.11.12.2)
+BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 128.14.3.1)
+BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 128.14.4.7)
+BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (128.14.7.3)
 BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1)
 ; GLIDE's "faster than 4 px (x) / 2 lines (y) a FRAME" is the ball's TRAVEL
 ; over the last FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low words of
@@ -169,6 +176,7 @@ BZ_K_D      equ 8
 BZ_LIVE     equ 84              ; bytes of bz_frames .. bz_npwt (the results copy)
 BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
+BZ_NBOXMAX  equ 4
 
 %macro BZ_GAME_VARS 0
 VAR bz_mode,1
@@ -195,6 +203,7 @@ VAR bz_pad0,1                   ; (the words below stay even)
 VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
+VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
 VAR bz_gpx,1                    ; GLIDE: 1 while the x pan is on
 VAR bz_gpy,1                    ; ...the y pan
 VAR bz_gpar,1                   ; ...the x pan's frame parity (0: step now)
@@ -203,7 +212,7 @@ VAR bz_gdy,1                    ; ...and y: 0 down, 1 up
 VAR bz_gfast,2                  ; ...1 while the ball is FAST across (+0), down
                                 ; (+1): its travel over four frames (128.11.11.1)
 VAR bz_tri,1                    ; ...the travel ring's index (mod 4), and
-VAR bz_pad1,1
+VAR bz_blk,1                    ; 1: the card's video is gated (bz_blank)
 VAR bz_trx,8                    ; the ring: the low words of bz_bx and bz_by at
 VAR bz_try,8                    ; the end of each of the last four frames
 VAR bz_S,2
@@ -241,7 +250,8 @@ VAR bz_rtrs,4                   ; the steps recorded, when TRUNCATED
 VAR bz_rk,1                     ; the current run: its key byte, its count (a
 VAR bz_rn,1                     ; replay: the count left)
 VAR bz_rtr,1                    ; 1: the log is TRUNCATED, nothing more recorded
-VAR bz_pad2,1
+VAR bz_rt,1                     ; the current run's tilt byte (a TILT log's,
+                                ; SPEC.md 128.14.8.3; 88h a keyboard log's)
 ; the live instruments, then their copy: one layout (BZ_LIVE bytes)
 VAR bz_frames,2
 VAR bz_mfr,2
@@ -322,7 +332,11 @@ VAR bz_nway,2                   ; the route: NWAY waypoints at bz_wayoff in the
 VAR bz_wayoff,2                 ; course part (the autopilot's, 128.10.11.1)
 ; the parts' segments and the card
 VAR bz_cseg,2
-VAR bz_bseg,2
+VAR bz_bseg,2                   ; the sprite's ball part: bz_bsegs[bz_mat]
+VAR bz_bsegs,2 * BZ_NMAT        ; wave 4 (SPEC.md 128.14.4.7): each material's
+                                ; ball part, 0 when this launch did not fetch it
+VAR bz_hidn,1                   ; the frame's HIDDEN ball: bz_tube OR bz_hid
+                                ; (the display's test, set after the steps)
 VAR bz_vseg,2
 VAR bz_fsi,FSI_SIZE
 VAR bz_W,2
@@ -338,7 +352,7 @@ VAR bz_vrbits,2
 VAR bz_vrlim,2
 VAR bz_ccol,2
 VAR bz_cdone,2                  ; the column's rows written (bz_tb)
-VAR bz_csp,8                    ; ...before each box (bz_csplit)
+VAR bz_csp,2 * BZ_NBOXMAX       ; ...before each box (bz_csplit)
 ; the footprints, as RECTS of four words, x0 x1 (word columns) y0 y1 (lines),
 ; inclusive: the ball's and the shadow's, old (last frame's) and new
 VAR bz_ofx0,2                   ; the ball's old
@@ -381,7 +395,7 @@ VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
-VAR bz_boxes,4 * BZ_BOXD
+VAR bz_boxes,BZ_NBOXMAX * BZ_BOXD
 VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a
                                 ; Hercules launch, before the bracket (128.11.3)
@@ -580,18 +594,30 @@ bz_play:
     mov cx, BZ_LIVE / 2
     rep stosw
     call bz_pread               ; the props, their lanes in the map, the wheel
+    mov byte [bz_blk], 0        ; (the mode set left the card lit)
     mov word [bz_wp], 1         ; waypoint 0 is the start
     mov byte [bz_first], 1
     mov byte [bz_ckey], 0ffh    ; C must go down IN play to count (an edge)
+    mov byte [bz_bkey], 0ffh    ; (and Backspace, RETURN)
+    mov byte [bz_pkey], 0ffh    ; (and P, PAUSE)
+    mov word [bz_ptyp], 0       ; (no typed P or Backspace from before: bz_kedge)
+    xor ax, ax
+    mov [bz_dtr], al            ; (D: every frame measured so far)
+    mov [bz_rt], al
+    mov byte [bz_tilt], BZ_TILT_KEYS ; a keyboard step's tilt byte (128.14.8.2)
+    mov byte [bz_tby], BZ_TILT_KEYS ; (B's steps never store it: bzphys .auto)
+    mov byte [bz_tanc], 1       ; the mouse's anchor at the first frame
     mov al, [bz_mode]
+    test al, 1                  ; a benchmark (B, D) replaces the last one's
+    jz .nb                      ; results; B leaves the log alone
+    mov byte [bz_res], 0
+.nb:
     cmp al, 1
     jb .rec
-    ja .rep
-    mov byte [bz_res], 0        ; a benchmark replaces the last one's results
-    jmp short .play             ; (and leaves the log alone)
-.rep:
-    mov ax, [bz_rlog + BZR_NRUN] ; a replay: the log's runs, none read yet
-    mov [bz_rruns], ax
+    je .play
+    mov ax, [bz_rlog + BZR_NRUN] ; a replay (R, D): the log's runs, none read
+    mov [bz_rruns], ax          ; yet, two bytes a run or three with TILT
+    call bz_rwid
     jmp short .play
 .rec:                           ; a play: a new log, `BZR1`, its course and
     mov word [bz_rlog], 'BZ'    ; ball, no flags, steps or runs
@@ -605,6 +631,12 @@ bz_play:
     rep stosw
     mov [bz_rk], al
     mov [bz_rtr], al
+    cmp byte [bz_ctl], 0        ; T MOUSE: a TILT log, runs of three bytes
+    je .kb                      ; (SPEC.md 128.14.8.3), and the extent the
+    or byte [bz_rlog + BZR_FLAGS], BZR_TILT ; stick maps over (bz_tinit)
+    call bz_tinit
+.kb:
+    call bz_rwid
     push es                     ; the course's identity, which a replay
     mov es, [bz_cseg]           ; compares (SPEC.md 128.12.8)
     mov di, [bz_goff]
@@ -624,12 +656,16 @@ bz_t0:
     cmp byte [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
     mov byte [bz_fin], 1        ; over (SPEC.md 128.10.6.2), and the face says
-    jmp short .out              ; how long it took
+    jmp short .end              ; how long it took
 .live:
-    cmp byte [bz_mode], 2       ; a replay's end: the frame after its last
-    jne .on                     ; recorded step (SPEC.md 128.11.12.2)
+    cmp byte [bz_mode], 2       ; a replay's end (R, D): the frame after its
+    jb .on                      ; last recorded step (SPEC.md 128.11.12.2)
     call bz_rleft
     jnz .on
+.end:
+    cmp byte [bz_mode], 3       ; D ran to its end: its results stay for the
+    jne .out                    ; desktop, as B's do (128.14.7.3)
+    call bz_rcopy
 .out:
     cmp byte [bz_mode], 0       ; a play's log closed: its last run, its
     jne .ret                    ; steps, COMPLETE
@@ -637,6 +673,14 @@ bz_t0:
 .ret:
     ret
 .on:
+    test byte [bz_mode], 1      ; PAUSE (SPEC.md 128.14.4.7), in a play or a
+    jnz .steps                  ; replay - B and D ignore P: P's down EDGE stops
+    call bz_pkedge              ; the steps until the next one
+    jz .nop
+    call bz_unblank             ; (a pause right after a cut: lit, not dark)
+    call bz_pause
+    jc .out                     ; (Esc, F or Alt+Enter while paused)
+.nop:
     cmp byte [bz_mode], 0
     jne .steps
     call bz_input               ; play: the keys, once a frame
@@ -655,8 +699,8 @@ bz_t0:
 .n:
     jcxz .camera
 .step:
-    cmp byte [bz_mode], 2       ; a replay steps while its log lasts
-    jne .stp
+    cmp byte [bz_mode], 2       ; a replay (R, D) steps while its log lasts
+    jb .stp
     call bz_rleft
     jz .camera
 .stp:
@@ -666,6 +710,9 @@ bz_t0:
     loop .step
 .camera:
     call bzs_frame              ; the sound: events, sub-ticks, output (128.20)
+    mov al, [bz_tube]           ; the frame's HIDDEN ball, the display's: in
+    or al, [bz_hid]             ; a tube, or holed out (SPEC.md 128.14.4.3:
+    mov [bz_hidn], al           ; its capture frame restores its footprint)
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
     call bz_props               ; state and new footprints, the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera
@@ -741,6 +788,10 @@ bz_tf:
     call bz_wcalib              ; the launch's first: the wheel's calibration
     jmp short bz_tb
 .col:
+    cmp byte [bz_blk], 0        ; the frame after a full write: lit in this
+    je .lit                     ; retrace, so its first field is whole
+    call bz_unblank             ; (SPEC.md 128.14.5.6)
+.lit:
     mov ax, [bz_dc]
     or ax, ax
     jz bz_tb
@@ -802,7 +853,10 @@ bz_presented:
     mov ax, [bz_subs]           ; with 8 steps (SPEC.md 128.10.8 item 3)
     mov [bz_lsubs], ax
 .kept:
-    inc word [bz_frames]
+    inc word [bz_frames]        ; SATURATING (a D past 65,535 frames shows the
+    jnz .fsat                   ; cap, never a wrapped plausible count:
+    dec word [bz_frames]        ; 128.14.22 item 13)
+.fsat:
     cmp byte [bz_meas], 0
     je .fper
     inc word [bz_mfr]
@@ -835,24 +889,30 @@ bz_presented:
     rep movsw
     mov al, [bz_snv]
     mov [bz_sov], al
-    xor al, al                  ; (a HIDDEN ball, in a tube, left nothing of
-    cmp [bz_tube], al           ; itself on the card to restore: SPEC.md
-    jne .ov                     ; 128.12.6.1)
+    xor al, al                  ; (a HIDDEN ball, in a tube or holed, left
+    cmp [bz_hidn], al           ; nothing of itself on the card to restore:
+    jne .ov                     ; SPEC.md 128.12.6.1, 128.14.4.3)
     inc ax
 .ov:
     mov [bz_oldv], al
     cmp byte [bz_mode], 1
     jne .next
     cmp word [bz_frames], BZ_BENCH
-    jb .next
-    mov si, bz_frames           ; the benchmark is done: its results stay for
-    mov di, bz_rframes          ; the desktop
+    jae bz_rcopy                ; the benchmark is done
+.next:
+    jmp bz_t0
+
+; a benchmark's end (B's last frame, D's log spent): the instruments' results
+; stay for the desktop's RESULTS page.  ES = ours.  Clobbers CX, SI, DI.
+bz_rcopy:
+    push ds
+    pop es
+    mov si, bz_frames
+    mov di, bz_rframes
     mov cx, BZ_LIVE / 2
     rep movsw
     mov byte [bz_res], 1
     ret
-.next:
-    jmp bz_t0
 
 ; bz_tcmid - the entering column's rows [bz_cdone, AX) that end above the next
 ; box (SPEC.md 128.11.10.3), written between two boxes.  NO MARK: they are
@@ -926,12 +986,13 @@ bz_wbox:
 ; bz_step's step 1 records a play's key byte inline while it extends the
 ; current run, and calls bz_rrec when it does not.
 ; -----------------------------------------------------------------------------
-; bz_rrec - BL = this step's key byte, which does not extend the current run
-; (another byte, or the run at 255): the run is FLUSHED and BL starts the next
-; - unless the buffer is then full, when the log is TRUNCATED: flags bit 1,
-; the steps so far kept in bz_rtrs, and nothing more recorded (bz_rk = FFh, a
-; byte no step has, sends every later step here, where bz_rtr stops it).
-; Clobbers AX, DX, DI.
+; bz_rrec - BL = this step's key byte and BH its tilt byte, which do not
+; extend the current run (another byte, or the run at 255): the run is FLUSHED
+; and BL, BH start the next - unless the buffer is then full, when the log is
+; TRUNCATED: flags bit 1, the steps so far kept in bz_rtrs, and nothing more
+; recorded (bz_rk = FFh, a byte no step has, sends every later step here,
+; where bz_rtr stops it).  A keyboard log's runs are pairs and a TILT log's
+; triples (bz_rw), and both fill bz_rlog exactly.  Clobbers AX, DX, DI.
 bz_rrec:
     cmp byte [bz_rtr], 0
     jne .out
@@ -948,24 +1009,42 @@ bz_rrec:
     ret
 .new:
     mov [bz_rk], bl
+    mov [bz_rt], bh
     mov byte [bz_rn], 1
 .out:
     ret
 
-; bz_rstore - the current run (bz_rk, bz_rn), if it has a step, stored at
-; bz_rptr as a pair and counted.  Clobbers AX, DI.
+; bz_rstore - the current run (bz_rk, [bz_rt,] bz_rn), if it has a step,
+; stored at bz_rptr as a pair, or a triple in a TILT log, and counted.
+; Clobbers AX, DI.
 bz_rstore:
     mov ah, [bz_rn]
     or ah, ah
     jz .out
     mov al, [bz_rk]
     mov di, [bz_rptr]
+    cmp byte [bz_rw], 2
+    je .pair
+    mov [di], al                ; (key byte, tilt byte, count)
+    inc di
+    mov al, [bz_rt]
+.pair:
     mov [di], ax
     inc di
     inc di
     mov [bz_rptr], di
     inc word [bz_rlog + BZR_NRUN]
     mov byte [bz_rn], 0
+.out:
+    ret
+
+; bz_rwid - [bz_rw] = the held log's run width: 3 with TILT, else 2.
+; Preserves all but the flags.
+bz_rwid:
+    mov byte [bz_rw], 2
+    test byte [bz_rlog + BZR_FLAGS], BZR_TILT
+    jz .out
+    inc byte [bz_rw]
 .out:
     ret
 
@@ -984,7 +1063,8 @@ bz_rfin:
     mov [bz_rlog + BZR_STEPS], ax
     mov [bz_rlog + BZR_STEPS + 2], dx
     or byte [bz_rlog + BZR_FLAGS], BZR_DONE
-    ret
+    mov byte [bz_rlog + BZR_PHYS], BZ_PHYSV ; the physics it was made under
+    ret                         ; (SPEC.md 128.14.7.2; +7 was zero)
 
 ; bz_rleft - a replay: ZF = 1 when the log is spent (no step left in the
 ; current run and no run left to read).  Clobbers AX.
@@ -994,21 +1074,32 @@ bz_rleft:
     or al, [bz_rruns + 1]
     ret
 
-; bz_rnext - a replay's next key byte -> BL: from the current run, or the next
-; pair once it is spent.  The log is the package's own, written by bz_rrec:
-; trusted, and decoded without a check (SPEC.md 128.11.12.2).  bz_play's step
-; loop asks bz_rleft first.  Clobbers AX, SI.
+; bz_rnext - a replay's next key byte -> BL, and its tilt byte -> [bz_tby]:
+; from the current run, or the next pair (triple, in a TILT log) once it is
+; spent.  The log is the package's own - written by bz_rrec, or a file that
+; passed L's checks, or a part the tool checked: trusted, and decoded without
+; a check (SPEC.md 128.11.12.2, 128.14.7.2).  bz_play's step loop asks
+; bz_rleft first.  Clobbers AX, SI.
 bz_rnext:
     cmp byte [bz_rn], 0
     jne .cur
     mov si, [bz_rptr]
-    lodsw                       ; AL the key byte, AH its count (1 - 255)
+    lodsb                       ; the key byte
+    mov [bz_rk], al
+    mov al, BZ_TILT_KEYS        ; a keyboard log's caps are 8 (128.14.8.2)
+    cmp byte [bz_rw], 2
+    je .k
+    lodsb                       ; a TILT log's tilt byte
+.k:
+    mov [bz_rt], al
+    lodsb                       ; the count (1 - 255)
+    mov [bz_rn], al
     mov [bz_rptr], si
     dec word [bz_rruns]
-    mov [bz_rk], al
-    mov [bz_rn], ah
 .cur:
     dec byte [bz_rn]
+    mov al, [bz_rt]
+    mov [bz_tby], al
     mov bl, [bz_rk]
     ret
 
@@ -1030,6 +1121,14 @@ bz_exitchk:
     int 16h
     cmp al, 27
     je .leave
+    cmp ah, BZ_KSC_P            ; P and Backspace TYPED: their presses, for
+    jne .bk                     ; bz_kedge (a byte, not an OSAPI_KEY_DOWN a
+    mov byte [bz_ptyp], 1       ; frame: SPEC.md 128.14.12)
+.bk:
+    cmp ah, BZ_KSC_BKSP
+    jne .f
+    mov byte [bz_btyp], 1
+.f:
     or al, 20h
     cmp al, 'f'
     je .leave
@@ -1039,6 +1138,59 @@ bz_exitchk:
     ret
 .leave:
     stc
+    ret
+
+; P's down EDGE (SPEC.md 128.14.4.7): ZF = 0 for a press.  Clobbers AX, SI, DI.
+bz_pkedge:
+    mov al, BZ_KSC_P
+    mov si, bz_ptyp
+    mov di, bz_pkey
+; bz_kedge - a key's down EDGE off the TYPED keys: AL = its make code, SI = its
+; typed byte (bz_exitchk sets it when the BIOS buffer gives the key), DI = its
+; HELD byte.  A press is a typed key while the key is not held; it sets HELD,
+; and while HELD the key is asked (OSAPI_KEY_DOWN) once a call until it is up,
+; so a typematic repeat is never a second press - and a key that is up costs
+; two byte tests, not an API call (SPEC.md 128.14.12).  bz_play seeds HELD FFh
+; and clears typed, so the key must go down IN play to count.  ZF = 0: a
+; press.  Clobbers AX.
+bz_kedge:
+    cmp byte [di], 0
+    jne .held
+    xor ah, ah
+    xchg ah, [si]
+    or ah, ah                   ; (ZF = 1: none)
+    jz .out
+    mov byte [di], 0ffh         ; (ZF = 0 still: a press)
+.out:
+    ret
+.held:
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov [di], al                ; up: the next typed key is a press
+    xor al, al                  ; (ZF = 1; a typed key while held - a repeat -
+    mov [si], al                ; is dropped)
+    ret
+
+; bz_pause - PAUSED (SPEC.md 128.14.4.7): no step runs and nothing new is
+; presented - the last frame stays on the glass - while the keys are read,
+; until P's next down edge (CF = 0) or Esc, F or Alt+Enter (CF = 1, leave).
+; The sound keeps its own time (bzs_frame: the events are the counters', and
+; no step moves them), the clock is sampled so no reload is missed, and on
+; the way out the sub-ticks the pause took are DISCARDED, as at a cut
+; (128.10.6.2): a pause adds no steps, so a play's log - steps - is the one
+; it would have been, and the course's time stands still.  Clobbers AX, SI,
+; DI.
+bz_pause:
+    call bz_clk_sample
+    call bzs_frame
+    call bz_exitchk
+    jc .out
+    call bz_pkedge
+    jz bz_pause
+    mov ax, [bz_subs]
+    mov [bz_lsubs], ax
+    clc
+.out:
     ret
 
 ; every typed key, discarded.  Clobbers AX.
@@ -1068,10 +1220,21 @@ bz_input:
     xchg al, [bz_ckey]          ; AL = last frame's
     not al
     and al, bl                  ; down now and not then: the edge
-    jz .arrows
+    jz .bksp
     call bz_cnext
+.bksp:
+    xor bl, bl                  ; Backspace, RETURN (SPEC.md 128.14.4.5): its
+    push si                     ; down EDGE (bz_kedge, the typed key) puts bit
+    push di                     ; 6 in the frame's key byte, and the first step
+    mov al, BZ_KSC_BKSP         ; that reads it clears it (bzphys.inc .kret) -
+    mov si, bz_btyp             ; one press, one step's bit however long it is
+    mov di, bz_bkey             ; held
+    call bz_kedge
+    pop di
+    pop si
+    jz .arrows
+    mov bl, BZ_K_RET
 .arrows:
-    xor bl, bl
     mov al, KSC_LEFT
     call OSAPI_KEY_DOWN
     jnc .r
@@ -1100,12 +1263,234 @@ bz_input:
     mov ah, 2                   ; the BIOS's shift flags: bit 1 Left Shift
     int 16h
     test al, 2
-    jz .out
+    jz .ms
     or bl, BZ_K_GRIP
+.ms:
+    cmp byte [bz_ctl], 0        ; T MOUSE: the stick, merged (128.14.8)
+    je .out
+    call bz_tmouse
 .out:
+    mov al, [bz_keys]           ; RETURN's bit is LATCHED: it stays until a step
+    and al, BZ_K_RET            ; reads it (bzphys.inc .kret clears it), so a
+    or bl, al                   ; press on a frame that runs no step is not lost
     mov [bz_keys], bl
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; THE MOUSE AS A TILT STICK (SPEC.md 128.14.8.1), a play's under T MOUSE.  Per
+; screen axis of extent E (the BRACKET's display, OSAPI_VIDEO read inside it):
+; FULL = E / 4 and DZ = FULL / 4, and the pointer's offset d from the ANCHOR
+; sets the arrow's direction and its force level's CAP 0 - 8:
+;   cap(d) = 0 for |d| <= DZ, else min(8, ceil(8 (|d| - DZ) / (FULL - DZ)))
+; which is the count of the eight boundaries T[c] = DZ + floor(c R / 8), c 0 -
+; 7, R = FULL - DZ, that |d| is past - built ONCE a play (bz_tinit: shifts,
+; no divide), so a frame compares.  A cap moves only when |d| is more than H =
+; R / 32 past the boundary it crosses (hysteresis), so a steady hand makes
+; long runs.  The anchor is the pointer at the play's first frame and at every
+; respawn (a fall, a shatter, RETURN: the ball is still), clamped inward so a
+; full tilt fits each way; the stick is dead until both caps have once been 0
+; (the pointer inside the dead zone round the anchor - the cursor is not drawn
+; in the bracket, and the ball not rolling is the cue).  The left button is
+; Hop and the right Grip; an arrow KEY held on an axis wins that axis, cap 8.
+; bbcourse.TiltStick is the model.
+; -----------------------------------------------------------------------------
+BZT_ANC     equ 0               ; an axis: the anchor
+BZT_LO      equ 2               ; ...its clamp, FULL and E - 1 - FULL
+BZT_HI      equ 4
+BZT_H       equ 6               ; ...the hysteresis, R / 32
+BZT_CAP     equ 8               ; ...byte: the cap now, 0 - 8
+BZT_NEG     equ 9               ; ...byte: FFh while d < 0
+BZT_T       equ 10              ; ...T[0] - T[7]
+BZT_SIZE    equ 26
+
+; bz_tinit - the extent read and both axes' tables built: once a play, in the
+; bracket after the mode set.  Clobbers AX, BX, CX, DX, SI, DI.
+bz_tinit:
+    push es
+    call OSAPI_VIDEO            ; AX = the width, BX = the height (the bracket's
+    pop es                      ; display alone, SPEC.md 39.18.3)
+    mov di, bz_tax
+    call .axis
+    xchg ax, bx
+    mov di, bz_tay
+.axis:                          ; AX = E -> the axis at DI
+    push bp
+    mov cx, ax
+    shr ax, 1
+    shr ax, 1                   ; AX = FULL
+    mov [di + BZT_LO], ax
+    sub cx, ax
+    dec cx
+    mov [di + BZT_HI], cx
+    mov cx, ax
+    shr cx, 1
+    shr cx, 1                   ; CX = DZ
+    sub ax, cx                  ; AX = R
+    mov dx, ax
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    mov [di + BZT_H], dx
+    lea si, [di + BZT_T]
+    xor dx, dx                  ; c R
+    mov bp, BZ_LVLMAX
+.t:
+    push dx
+    shr dx, 1
+    shr dx, 1
+    shr dx, 1
+    add dx, cx
+    mov [si], dx
+    pop dx
+    inc si
+    inc si
+    add dx, ax
+    dec bp
+    jnz .t
+    pop bp
+    ret
+
+; bz_tmouse - BL = the keyboard's key byte -> BL with the stick's arrows and
+; buttons, [bz_tilt] = its caps (x << 4 | y).  Preserves all but BL and the
+; flags.
+bz_tmouse:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call OSAPI_MOUSE            ; CX = x, DX = y, AL = the buttons
+    pop es
+    test al, 1
+    jz .nl
+    or bl, BZ_K_HOP
+.nl:
+    test al, 2
+    jz .nr
+    or bl, BZ_K_GRIP
+.nr:
+    mov al, [bz_tanc]           ; the first frame, or a respawn's: anchored
+    or al, [bz_resp]            ; here, and dead until the dead zone
+    jz .run
+    mov byte [bz_tanc], 0
+    mov byte [bz_tarm], 0
+    mov ax, cx
+    mov di, bz_tax
+    call .anchor
+    mov ax, dx
+    mov di, bz_tay
+    call .anchor
+.run:
+    push dx
+    mov ax, cx
+    mov di, bz_tax
+    call .cap
+    pop ax
+    mov di, bz_tay
+    call .cap
+    mov ax, [bz_tax + BZT_CAP - 1] ; AH = the x cap ...
+    mov al, [bz_tay + BZT_CAP]  ; ...AL the y cap
+    or ax, ax
+    jnz .armed
+    mov byte [bz_tarm], 1       ; both 0: inside the dead zone
+.armed:
+    cmp byte [bz_tarm], 0
+    jne .x
+    xor ax, ax                  ; not yet: no tilt
+.x:
+    mov dx, (BZ_K_L | BZ_K_R) | (BZ_K_R << 8)
+    mov si, bz_tax
+    xchg al, ah                 ; AL = the x cap
+    call .merge
+    xchg al, ah                 ; AH = the x cap, AL = the y cap
+    mov dx, (BZ_K_U | BZ_K_D) | (BZ_K_D << 8)
+    mov si, bz_tay
+    call .merge
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    or al, ah
+    mov [bz_tilt], al
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+; AL = an axis's cap, SI the axis, DL its two arrows, DH its positive one:
+; a key held on the axis wins it (cap 8); else the stick's arrow when its cap
+; is not 0
+.merge:
+    test bl, dl
+    jz .m
+    mov al, BZ_LVLMAX
+    ret
+.m:
+    or al, al
+    jz .mo
+    xor dl, dh                  ; DL = the negative arrow
+    cmp byte [si + BZT_NEG], 0
+    jne .mn
+    mov dl, dh
+.mn:
+    or bl, dl
+.mo:
+    ret
+; AX = the pointer -> the axis at DI anchored there, clamped inward; cap 0
+.anchor:
+    cmp ax, [di + BZT_LO]
+    jae .al
+    mov ax, [di + BZT_LO]
+.al:
+    cmp ax, [di + BZT_HI]
+    jbe .ah
+    mov ax, [di + BZT_HI]
+.ah:
+    mov [di + BZT_ANC], ax
+    mov byte [di + BZT_CAP], 0
+    ret
+; AX = the pointer -> the axis at DI: its cap moved past the boundaries |d|
+; is more than H beyond (up from T[cap], down from T[cap - 1]), its sign kept.
+; Clobbers AX, CX, DX, SI.
+.cap:
+    sub ax, [di + BZT_ANC]
+    cwd
+    mov [di + BZT_NEG], dl
+    xor ax, dx
+    sub ax, dx                  ; AX = |d|
+    mov dx, ax
+    sub ax, [di + BZT_H]        ; AX = |d| - H, DX = |d| + H: once an axis,
+    add dx, [di + BZT_H]        ; not once a boundary (128.14.12)
+    mov cl, [di + BZT_CAP]
+    xor ch, ch
+    mov si, cx
+    shl si, 1
+    add si, di                  ; [si + BZT_T] = T[cap]
+.up:
+    cmp cl, BZ_LVLMAX
+    jae .dn
+    cmp ax, [si + BZT_T]        ; |d| - H > T[cap]: up one
+    jle .dn
+    inc cx
+    inc si
+    inc si
+    jmp .up
+.dn:
+    jcxz .cd
+    cmp dx, [si + BZT_T - 2]    ; |d| + H <= T[cap - 1]: down one
+    jg .cd
+    dec cx
+    dec si
+    dec si
+    jmp .dn
+.cd:
+    mov [di + BZT_CAP], cl
     ret
 
 ; the next camera mode, GLIDE -> TRICKLE -> GLIDE.  Preserves all
@@ -1469,8 +1854,13 @@ bz_camera:
     mov [bz_dc], ax
     mov al, [bz_full]           ; measured: a benchmark's frames but a full
     xor al, 1                   ; write; PLAY and a REPLAY measure nothing,
-    and al, [bz_mode]           ; since nothing reads it (bz_mode 1, 0 or 2:
-                                ; only the benchmark's keeps the bit)
+    and al, [bz_mode]           ; since nothing reads it (bz_mode 1 B and 3 D
+                                ; keep the bit, 0 and 2 do not)
+    cmp word [bz_mfr], 0ffffh   ; D measures its first 65,535 frames, whose
+    jb .m                       ; counts are words, and plays on unmeasured
+    or [bz_dtr], al             ; (128.14.7.3: TRUNCATED, when one more would
+    xor al, al                  ; have been)
+.m:
     mov [bz_meas], al
     ret
 
@@ -1964,7 +2354,7 @@ bz_mkboxes:
     xor ax, dx
     or bp, ax
     mov al, [bz_ctype]          ; ...and no contact group: a frame with one
-    or al, [bz_tube]            ; is never idle (SPEC.md 128.12.4.3), nor a
+    or al, [bz_hidn]            ; is never idle (SPEC.md 128.12.4.3), nor a
     cbw                         ; hidden ball's, whose capture frame restores
     or bp, ax                   ; the footprint it was drawn in (128.12.6.1)
     mov word [bz_nbox], 0       ; (the new footprints are bz_foot's, rule 0)
@@ -1982,8 +2372,8 @@ bz_mkboxes:
     mov [bz_snv], al
 .groups:
     mov di, bz_gr               ; DI = the next rect
-    cmp byte [bz_tube], 0       ; a HIDDEN ball (in a tube) has no new
-    jne .hid                    ; footprint: its old one alone, restored
+    cmp byte [bz_hidn], 0       ; a HIDDEN ball (in a tube, or holed) has no
+    jne .hid                    ; new footprint: its old one alone, restored
     ; THE BALL GROUP: the union of the old and the new, or each
     mov si, bz_nfx0
     cmp byte [bz_ohold], 0
@@ -2508,9 +2898,12 @@ bz_rows:
 
 ; bz_fullw - THE FULL WRITE (SPEC.md 128.2): every window cell from the course,
 ; a row at a time, the clock sampled per row.  The start address went first
-; (bz_tf); the picture assembles in view.  Preserves nothing.
+; (bz_tf); the picture assembles behind the BLANK (128.14.5.6): the card's
+; video gated before the first row, lit again in the next frame's retrace
+; (bz_tf's .col).  Preserves nothing.
 bz_fullw:
     inc word [bz_nfull]
+    call bz_blank
     mov ax, [bz_R0n]
     mov bx, [bz_c0n]
     mov cx, [bz_W]
@@ -2521,4 +2914,36 @@ bz_fullw:
     inc ax
     dec dx
     jnz .row
+    ret
+
+; bz_blank, bz_unblank - the card's VIDEO gated across a full write (SPEC.md
+; 128.14.5.6, O47): the mode control register gets the bracket mode's value
+; less its video-enable bit (bit 3), then the value back - the kernel's own
+; blank (vid_blank_kind) and on the Hercules its very bytes, 02h then 0Ah
+; (graphics, page 0, video); on the CGA 22h then 2Ah, the IBM ROM's mode-4
+; value.  bz_unblank does nothing unless bz_blank ran.  Preserve all but
+; the flags.
+bz_blank:
+    push ax
+    mov al, 22h
+    mov byte [bz_blk], 1
+    jmp short bz_unblank.out
+bz_unblank:
+    cmp byte [bz_blk], 0
+    je .x
+    push ax
+    mov al, 2ah
+    mov byte [bz_blk], 0
+.out:
+    push dx
+    mov dx, 3d8h
+    cmp byte [bz_herc], 0
+    je .o
+    mov dx, 3b8h
+    sub al, 20h                 ; 02h, 0Ah
+.o:
+    out dx, al
+    pop dx
+    pop ax
+.x:
     ret
