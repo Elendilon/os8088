@@ -1349,10 +1349,13 @@ SLOPE_Y = "    mov ax, [bz_tsy]            ; gvy the same with sy\n    shl ax, 1
 REDS = {
     "slope": [("bzphys.inc", SLOPE_X, SLOPE_X.replace("    neg ax\n", "")),
               ("bzphys.inc", SLOPE_Y, SLOPE_Y.replace("    neg ax\n", ""))],
+    # (DI kept: .resp holds bz_nfall's address in it for .rdone's count, and an
+    # arm that clobbered it also bumped a word of the package at the grid's
+    # offset - harmless at BZC1's, a hung frame loop at BZC2's: 5b's final pass)
     "respawn": [("bzphys.inc", "    mov [bz_ghv], al\n    call bz_place\n",
-                 "    mov [bz_ghv], al\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
+                 "    mov [bz_ghv], al\n    push di\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
-                 "    call bz_place\n")],
+                 "    pop di\n    call bz_place\n")],
     # (steps 4 - 6 are written once and run by wave 2's path and the prop path
     # alike, SPEC.md 128.13.8: the patch breaks both)
     "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"

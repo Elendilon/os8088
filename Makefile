@@ -21344,7 +21344,30 @@ BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS)
-.PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check
+.PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
+# The course part's RAM record is C's, 8 bytes (SPEC.md 128.15.5.3): wave
+# 5b's D/C acceptance (128.15.5.4) measured the 4-byte record (D) past the
+# owner's margin on the CGA, so its arm and the BZREC knob were deleted.
+# bbcourse.py still writes both strides (the stride is data); its default,
+# 8, is the shipped one, and bzcourse.inc's BZ_REC says which.
+#> [Knobs] BZPARTZ=lzb|lz4 :: Bounce Bonanza's parts' format, LZB the default; a single-format COMPRESS= kernel forces its own (SPEC.md 128.15.9)
+# BZPARTZ is the format of BONANZA.O88's compressed PARTS (os88pkg's
+# --part-compress; the format byte is the parts TABLE's, so the courses, the
+# balls, the sound, the songs and the demos go together). LZB is the owner's
+# decision (2026-11-14, SPEC.md 128.15.9). BZPARTZF is the EFFECTIVE one: a
+# `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only (SPEC.md
+# 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an image. The
+# courses' compile does not read it (the course budget is LZ4's whatever this
+# says, 128.15.8): changing it re-packs BONANZA.O88 and recompiles nothing.
+BZPARTZ ?= lzb
+ifeq ($(filter $(BZPARTZ),lz4 lzb),)
+$(error BZPARTZ=$(BZPARTZ) is not one of lz4, lzb)
+endif
+BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),$(BZPARTZ))
+BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
+$(BZPARTZSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzpartz-*
+	@touch $@
 # Each tool's run emits all of its generated files.  bonanza_assets.py writes
 # its stamp first and holds a hash of the tool; bbcourse.py compiles every
 # course in memory and writes its stamp (a hash of both tools and the courses)
@@ -21356,7 +21379,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/os88lz.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
@@ -21367,9 +21390,12 @@ bonanza-art: $(BZ_GEN) $(BZ_CGEN)
 #> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 128.11.17.2)
 bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
-#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route (SPEC.md 128.10.4.6)
+#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 128.10.4.6, 128.15.12.3)
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
+#> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 128.15.12.2); minutes
+bonanza-sizes: $(BUILD)/bonanza.o88
+	python3 tools/bbcourse.py --sizes $(BZ_COURSES)
 
 # THE SOUND (SPEC.md 128.20): tools/bbmusic.py packs the bank and the songs
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
@@ -21398,8 +21424,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD5 (SPEC.md 128.14.7.4).
 BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p))
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP) $(BZPARTZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) --part-compress $(BZPARTZF)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
 bonanza: $(BUILD)/bonanza.o88
@@ -21431,13 +21457,11 @@ bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.im
 # SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
 # rows of the same names run the same scripts). Every red arm builds a broken
 # copy of the package into a temporary directory, never $(BUILD):
-# `python3 tests/bonanza_ring.py --red colright|colfirst|late|row0|occ|shadow|boxfirst|htab|late2|pass2|contact|defer|padfront|hidden`,
-# `python3 tests/bonanza_phys.py --red slope|respawn|takeoff|bounce|edge|stun|shatter|absimpact|airwall|gate|kick|carry|carrys|stick|exit`,
-# `python3 tests/bonanza_replay.py --red hopbit|framekeys|propclock|noident`,
-# `python3 tests/bonanza_exit.py --red leak|crepeat|overswallow`,
-# `python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs`,
-# `python3 tests/bonanza_wheel.py --red repeat|ahead|nobeam|kmod|halfcal|alias|corner|lanestale|gatelate|litsteps`,
-# `python3 tests/bonanza_perf.py --red halfcal`.  Each script's `--check`
+# `python3 tests/bonanza_<row>.py --red <arm>`, the arms each script's
+# `--help` lists (ring, phys, replay, exit, mega, wheel, perf, game, demo and
+# sound have them; no list is kept here, so none goes stale - wave 5b's
+# are ring nodither, exit expoff1|rowtab1|cellsafe, mega expcs,
+# SPEC.md 128.15.13).  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
 .PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega bonanzawheel bonanzasound

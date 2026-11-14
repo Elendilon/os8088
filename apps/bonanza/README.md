@@ -15,14 +15,15 @@ Ground" - with flags, ball-swap pads, springs, tubes, windmills, bumper posts,
 a lift and the cup; three balls (rubber, steel, glass); the five-course tour
 on G with a scorecard and best times kept on disk; demos saved and loaded on
 disk (W, L), benchmarked (D) and shipped (V); the mouse as a tilt stick (T);
-and the other session's music and impacts (S). There is no in-play HUD (it did
-not fit; SPEC.md 128.14.16) - the time is on the results face. SPEC.md 128.10 -
-128.14 and 128.20 are the contract; the rest of this file predates some of
-it.
+and music and impacts (S). There is no in-play HUD (it did not fit; SPEC.md
+128.14.16) - the time is on the results face. SPEC.md 128.10 - 128.14 and
+128.20 are the contract.
 
 Keys, on the desktop: Enter, F or Alt+Enter plays the selected course with
-the selected ball. **N cycles the course** ("First Roll", then "Bounce
-Trial"; each sets the ball to the course's own) and **M cycles the ball**
+the selected ball. **N cycles the course** through the five ("First Roll",
+"Bounce Trial", "Windmill Lane", "Moonlit Green", "Summit Rush", then "First
+Roll" again; each sets the ball to the course's own - the sixth, "Proving
+Ground", is the benchmark's, played by B) and **M cycles the ball**
 (rubber, steel, glass); the face names both. **B runs the benchmark** on its
 own course, "Proving Ground", with that course's ball (the autopilot drives
 the course's route for 1,200 frames, then the window shows the frames, the

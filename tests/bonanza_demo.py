@@ -23,10 +23,17 @@ wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py):
            its replay presented (bz_rframes = bz_frames at its end)
   ship     V through the five shipped demos (bz_vk 0 - 4): each BZD<K>.BIN in
            bz_rlog byte for byte, D'd to its recorded end equal to the model's
-           replay of it (nstep, the position, the velocities, the falls)
+           replay of it (nstep, the position, the velocities, the falls); each
+           carries its course's identity, wave 5b's (SPEC.md 128.15.10.5),
+           not a wave 4 one
+  wave4    (wave 5b, SPEC.md 128.15.7) MOON's demo as a wave 4 build wrote it
+           (identity EB84h) put in the log and R pressed: REFUSED by the
+           launch's identity check ([bz_err] 3, no step) and the face says
+           "Another course's log"
   hostile  THE HOSTILE SET (128.14.7.2), each through L's Open dialog: an
            extension not BZR, 15 bytes, 4,097 bytes, a bad magic, K = BZ_NCRS,
-           material 3, +6 bit 3, an identity of another build, +7 another
+           material 3, +6 bit 3, an identity of another build (MOON's
+           shipped demo as a wave 4 build wrote it: EB84h, wave 5b), +7 another
            physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
            16 + 3N, steps one off the sum, a count of 0, a key byte with bit 7,
            a tilt nibble of 9 - each REFUSED with its toast (`Not a Bonanza
@@ -71,8 +78,23 @@ import bonanza_ring as R       # noqa: E402
 import bonanza_exit as X       # noqa: E402
 import bonanza_game as GM      # noqa: E402
 
-LEGS = ("save", "load", "ship", "hostile", "dclick")
+LEGS = ("save", "load", "ship", "wave4", "hostile", "dclick")
 SAVENAME = "MILLA.BZR"
+# WAVE 5B (SPEC.md 128.15.7, 128.15.10.5): the identities BZC2's RAM form and the dither moved - MOON's and
+# PEAK's as a wave 4 build stamped them (0e5e46ca's bzcourse.inc, the shipped demos' old `ident` lines)
+W4_IDENT = {"moon": 0xEB84, "peak": 0x7D69}
+
+
+def wave4_log():
+    """MOON's shipped demo AS A WAVE 4 BUILD WROTE IT: BZD<MOON>.BIN with its
+    +14 identity MOON's wave 4 one (EB84h).  Physics did not move (BZ_PHYSV
+    A0h), so the authored demo's runs are the same and only `ident` changed
+    (SPEC.md 128.15.7)."""
+    k = R.CRS_K["moon"]
+    with open(os.path.join(ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb") as f:
+        b = bytearray(f.read())
+    struct.pack_into("<H", b, 14, W4_IDENT["moon"])
+    return bytes(b)
 
 
 def toasts():
@@ -112,7 +134,8 @@ def hostile_set():
     mut("H05.BZR", lambda b: b.__setitem__(4, GM.ncrs()))
     mut("H06.BZR", lambda b: b.__setitem__(5, 3))
     mut("H07.BZR", lambda b: b.__setitem__(6, b[6] | 8))
-    mut("H08.BZR", lambda b: struct.pack_into("<H", b, 14, R.course_k(k).ident ^ 0x0101))
+    out.append(("H08.BZR", wave4_log(), "bz_t_dmg", None, False))     # another BUILD's identity: MOON's wave 4
+                                                                    # demo, EB84h (SPEC.md 128.15.13)
     mut("H09.BZR", lambda b: b.__setitem__(7, (BB.PHYSV ^ 0x5A) & 0xFF), "bz_t_phys")
 
     def n0(b):
@@ -277,11 +300,57 @@ def leg_ship(g):
         g.key("KeyD")
         GM.bracket(g, "D of BZD%d.BIN" % kd, guest=200)
         got, want = end_state(g), model_end(demo)
-        rep.append("BZD%d %d steps" % (kd, got[0]))
+        rep.append("BZD%d %d steps (identity %04Xh)" % (kd, got[0], BB.log_ident(demo)))
         if got != want:
             fails.append("ship: D of BZD%d.BIN ended at %s, the model's replay at %s" % (kd, got, want))
+        if BB.log_ident(demo) != R.course_k(kd).ident or BB.log_ident(demo) in W4_IDENT.values():
+            fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (wave 5b's new ones, "
+                         "SPEC.md 128.15.10.5)" % (kd, BB.log_ident(demo), R.course_k(kd).ident))
     print("%s ship: %s, each D'd to the model's end: %s" % (g.tag, ", ".join(rep), "yes" if not fails else "NO"),
           flush=True)
+    return fails
+
+
+def leg_wave4(g):
+    """WAVE 5B (SPEC.md 128.15.7, 128.15.13): MOON's demo as a wave 4 build
+    wrote it (identity EB84h) put in the log and R pressed - the launch's own
+    identity check REFUSES it ([bz_err] 3, no step played) and the face says
+    "Another course's log".  (Through L the same file is refused earlier, by
+    the hostile pass's identity check - H08, `Damaged demo file`.)  -> failures"""
+    m = g.m
+    log = wave4_log()
+    m.pause()
+    g.write_log(log)
+    n0 = g.d("bz_nstep")
+    m.bp_exec(g.a("bz_line"), g.a("bz_t0"))
+    m.run()
+    GM.guard(g)
+    g.key("KeyR")
+    found, played = None, False
+    for _ in range(60):
+        if m.wait_stop(20) != "breakpoint":
+            break
+        r = m.regs()
+        if ((r["cs"] << 4) + r["ip"]) & 0xFFFFF == g.a("bz_t0"):
+            played = True
+            break
+        n = (r["di"] - g.sym["bz_lbuf"]) & 0xFFFF
+        line = m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip()
+        if line.startswith("Another course"):
+            found = line
+            break
+        m.run()
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "R's refusal to settle", guest=30)
+    fails = []
+    if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
+        fails.append("wave4: MOON's demo with its wave 4 identity %04Xh PLAYED, or was not refused as another "
+                     "course's log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's line %r; "
+                     "SPEC.md 128.15.7)" % (W4_IDENT["moon"], played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
+    print("%s wave4: R of MOON's demo as a wave 4 build wrote it (identity %04Xh, MOON's now %04Xh): %s" % (
+        g.tag, W4_IDENT["moon"], R.course("moon").ident, "refused, the face says %r" % found if not fails
+        else "PLAYED or not refused"), flush=True)
     return fails
 
 
@@ -410,6 +479,8 @@ def run(tag, legs=LEGS, src=None, o88=None):
                 fails += leg_load(g, ui)
             if "ship" in legs and not fails:
                 fails += leg_ship(g)
+            if "wave4" in legs and not fails:
+                fails += leg_wave4(g)
             if "hostile" in legs and not fails:
                 fails += leg_hostile(g, ui)
             if "dclick" in legs and not fails:

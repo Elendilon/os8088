@@ -3,7 +3,7 @@
 # 3 pad swaps, 0 spring launches, to the cup.  The build checks it against the course
 # as built; replaced by the owner's recording the day one is committed.
 demo    MOON
-ident   EB84
+ident   EA76
 physics A0
 ball    rubber
 flags   complete

@@ -1849,3 +1849,133 @@ one routine that reads the picture and the masks together, which is tens
 of clocks each and a few hundred a frame at worst. It is not built in 5b.
 It is taken only when a course really outgrows one part (about 73 s at
 MOON's and PEAK's pace under D), and measured then.
+
+## 2026-11-14 (waves 5a and 5b, built: what the host proved and what is owed)
+
+Nothing here is committed yet, and no emulator row has run: everything
+below is a HOST observation (builds, `--selfcheck`, unicorn runs of the
+package's own routines, `cmp`), plus one look boot a card at two stages.
+The rows, the red arms and the D/C and format A/Bs are the final pass's.
+
+**5a cleared the decks.** The dead HUD came out of five rows (243 lines,
+eight red arms) and out of `bbcourse.py`. One thing the contract asked for
+could not be built as written: a cup "inside the old panel's rect" that now
+compiles. No compilable course can put one there - the footprint rule's
+two-tile void keeps every mark at least 41 px from the left edge, and the
+rect ended at 24 - so the control compiles a cup on the green's front-left
+cell instead. Proof that 5a moved no package byte: `cmp` of two private
+trees, `0e5e46ca` against the working tree at 5a's end. 5b's edits then
+landed in the same uncommitted tree, often in the same hunks, so the
+commit has to say whether it splits 5a out and re-takes that `cmp`.
+
+**5b's format, on the host.** The tool now compiles one offset-free model
+and writes every form from it: the RAM form under 4-byte (D) or 8-byte (C)
+records, wave 4's BZC1 (byte for byte against `ef59209a`'s parts, the proof
+that only the container moved), and the stored form, each section's bytes
+at the end of its own slot. The guest's `bz_cexp` expands in place; under
+unicorn it equals the tool's RAM form on all six courses under both
+strides, writing nothing outside the part and the box buffer.
+
+What the instructions said that the predictions did not:
+- `bz_cexp` is 342 bytes, not about 225 (WAYS alone is 101), and CELLS
+  another 395, not 150 - 230.
+- ROWPLANES costs about 158 clk a cell, not 75: `shl ax, cl` alone is 24.
+  So `PEAK`'s expansion is about 0.58 s under D (0.68 s under C) with
+  CELLS, and a launch with LZ4 parts gets about 0.37 s shorter under D -
+  not 0.5 - and about the same as today under C. PRICED; the final pass
+  measures it.
+- The occluder pass under D prices at +320 clk on a typical frame and
+  +1,300 at the worst position, against +280 / +1,200 predicted.
+- A name clash: the contract's `bz_osb` was already the idle test's cell,
+  so the SB bias is `bz_osbias`.
+- The budget reads the D stored form whatever `BZREC` says, because
+  MILL's C form packed over its cap and would have failed a C build.
+- A wave 4 `.BZR` is refused twice: through `L` as "Damaged demo file"
+  (the hostile pass) and only through `R` as "Another course's log".
+
+**The ghost dither, and what a review found in it.** Every occluder mask
+carries a checker, so a ball behind scenery shows as a 50% ghost, for 0
+guest bytes. The first build put the checker's kept pixels on the
+`x + y` EVEN lattice. A reviewer worked out that the shadow's dark pixels
+are exactly that lattice, and that records DO lay over the shadow when the
+ball flies low over a cell whose grounded key hides nothing - so the whole
+shadow printed through the nearer block (605 of 11,520 sampled positions
+on TRIAL). Moving the checker to the ODD lattice costs nothing and hides
+the shadow whole again. The same review counted records whose dithered
+mask lays nothing at all (PEAK 162 on the odd lattice): they are left out
+of the part now, and kept in the rule's models. That moved every identity
+again, and MOON's and PEAK's authored demos were re-stamped (their `ident`
+lines only). `PEAK` packs to 12,547 LZ4 - three bytes under its 60 s
+budget. The physics cross-check and the expander check were re-run on
+these parts: ALL OK and equal.
+
+On the Hercules the ghost reads as a 2 x 1 grey over white and cyan, but
+barely at all over magenta, which that card already draws as a pattern.
+That is an owner's question (SPEC.md 128.15.15), not a fix.
+
+**The rows** gained a claim leg (`bonanzaexit`: the course claim at the
+bracket equals the tool's RAM form, all six courses), a PEAK demo leg
+through the hidden stretches (`bonanzaring`), the D/C acceptance and the
+format A/B (`bonanzaperf`, by hand), and red arms `recstep`, `expoff1`,
+`rowtab1`, `cellsafe`, `expcs`, `nodither`. Unicorn shows each broken
+expander differing on the course its arm should go red at. The review
+also caught `bonanzaring` reading a C tree's lane maps at D's offsets; the
+row now compiles each course under the art's own stride.
+
+Owed to the final pass: the deduplicated union of the bonanza rows, every
+new red arm once, `bonanzaperf --rec-ab` (which decides D or C) and
+`--fmt-ab` (the launch the owner is told), and the look at MILL's slab.
+
+## 2026-11-14 (wave 5b, the final pass: C ships, and what the launch costs)
+
+Everything here was MEASURED on MartyPC's 5150 machines, CGA and
+Hercules, on one uncommitted tree.
+
+**D or C.** The owner's rule was that the 4-byte record (D) could ship only
+if it cost at most 2 more missed refreshes per card than the 8-byte record
+(C), counted over MILL's and PEAK's demos with the speaker on. Each card's
+first three runs were too noisy to decide, so each took six runs a build.
+On the Hercules D came out 4 misses better. On the CGA it came out **23.5
+worse**: D averaged 446 against C's 422.5. So C ships.
+
+Almost all of the 23.5 is MILL, and it is not the occluder pass alone.
+MILL's demo on the CGA plays in one of two modes. In the low mode the
+camera pans 49 columns and misses about 91 refreshes. In the high mode it
+pans 84 - 88 and misses about 145, because a slower frame lets the camera
+fall further behind, and that costs more frames. C landed in the low mode
+three times out of six. D never did. D's extra few hundred clocks a frame
+(a median of +380 - +448, against +320 priced) are enough to tip MILL into
+the high mode. PEAK differed by 2.5 misses a run.
+
+D's code came out, along with the `BZREC` knob and its row legs. The C
+build after the deletion is byte for byte the C build before it. The 43.8KB
+of RAM D would have saved waits for wave 10, and PEAK's claim is 59,432
+bytes (5,592 of headroom).
+
+**What LZB costs at launch.** The contract's upper bound was 5.2 s for
+PEAK's launch with LZB parts. Measured three times a card, it is **4.2 s
+on the CGA and 4.5 s on the Hercules**, about 0.3 - 0.4 s more than with
+LZ4 and about 0.2 - 0.5 s more than wave 4. The owner had been quoted
++0.9 s, so this is under that. The disk drops from 130 clusters to **83**
+(94 with LZ4 parts).
+
+**The rows.** One scoped soak ran all thirteen bonanza rows. Twelve
+passed, including the claim leg on all six courses. `bonanzawheel` (6)
+failed on the CGA, the corner-step failure open since 3b. BENCH against
+wave 4's anchor measured -19 and -22 clk a frame. All 88 red arms went red
+at their own checks once two things were mended:
+- `respawn` overwrote a register its target code still needed. At wave 4's
+  offsets that happened to be harmless; at 5b's it hung the frame loop. The
+  arm now saves and restores the register.
+- the format A/B compiled a course while the guest sat stopped at a
+  breakpoint, which outlasted the wait that followed. It now compiles first.
+
+`contact`, which wave 4 never made go red, went red. A look at MILL's lift
+on both cards, with the ball riding the slab and then under it, matched
+what the ring row checks.
+
+**Owed to the owner.** The launch figures above. One new question: the
+course budget is still read on D's form (PEAK 3 bytes under). On C's
+shipped form PEAK is 897 bytes over in LZ4, though under its cap and under
+budget in LZB.
+

@@ -37,6 +37,13 @@ the row FAILS at its own check:
   groove   every row the groove's FIRST count: FIRST's 8 6 swing played
            straight - the bracket's model comparison fails
   mat      every event played as the rubber ball's: the events check fails
+
+WAVE 5B (SPEC.md 128.15.9, 128.15.13): unchanged in logic.  The parts table's
+format byte is the whole table's, so with BZPARTZ=lzb the sound part and the
+songs are LZB parts like the courses: the title's fetch on the desktop and
+course 1's song in the bracket are decoded by OSAPI_DECOMP's LZB arm, and the
+model comparison holds the decoded bytes to bbmusic's.  The format is printed
+at the start; a red tree packs its parts in it (bonanza_ring.build_tree).
 """
 import argparse
 import os
@@ -364,6 +371,8 @@ def main():
             print("bonanza_sound --red %s: red, as it must be" % a.red)
         return
     bad, notes = [], []
+    print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 128.15.9): the sound part and "
+          "the songs decoded in it" % R.part_fmt().upper(), flush=True)
     for lg in (("spk", "fm") if a.leg == "both" else (a.leg,)):
         f, n = leg(lg)
         bad += ["%s: %s" % (lg, x) for x in f]
