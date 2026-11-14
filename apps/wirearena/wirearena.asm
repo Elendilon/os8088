@@ -16,6 +16,7 @@
 %define OP_ONMOVE wa_partsmv    ; CODE selector, and its claim MOVES (SPEC.md
 %include "os88parts.inc"        ; 20.12.12): wa_partsmv re-reads both words
 
+%include "netpkg.inc"           ; ETHER.DRV's verbs (the raw ones, LINK-PLAN 12)
 %include "waconst.inc"
 %include "watab.inc"               ; its constants (the data comes later)
 %include "wafb.inc"                ; the renderer part's ABI
@@ -1746,7 +1747,8 @@ wa_bhear:
     je .us
     call wa_lkhost
     jnz .us
-    mov byte [wa_lkfired], 1    ; (the guest: its SNAP says so)
+    mov byte [wa_lkfired], 2    ; (the guest: its next two SNAPs say so -
+                                ; one lost would lose the shot)
     ret
 .us:
     push ax
@@ -5130,7 +5132,7 @@ wa_tpl:
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
         OS88_MENU wa_m_game, wa_i_game, 9
-        OS88_MENU wa_m_link, wa_i_link, 8
+        OS88_MENU wa_m_link, wa_i_link, 9
     OS88_MENUSET_END wa_menus
 
 wa_name:
@@ -5138,7 +5140,8 @@ wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
 wa_m_link:  db 'Link', 0
 wa_i_link:  dw wa_il_auto, wa_il_c1, wa_il_c2, wa_il_off, wa_il_rdy
-            dw wa_il_b0, wa_il_b1, wa_il_b2
+            dw wa_il_b0, wa_il_b1, wa_il_b2, wa_il_net
+wa_il_net:  db 'Ethernet', 0
 wa_il_b0:   db 'No bots', 0
 wa_il_b1:   db 'One bot', 0
 wa_il_b2:   db 'Two bots', 0
@@ -5270,6 +5273,10 @@ WA_VAR wa_bfig,2                 ; wa_blaunch's bot
 WA_VAR lk_blk,LK_SIZE             ; THE LINK (walink.inc, os88cable.inc)
 WA_VAR lk_sbuf,SER_BUFFER_SIZE     ; the lease's rings: in our own region
 WA_VAR lk_crct,512                 ; the CRC's table
+WA_VAR rw_blk,RW_SIZE              ; the card (os88raw.inc)
+WA_VAR wa_lknet,1                  ; 1: linking on the card, not the cable
+WA_VAR wa_lkpmac,6                 ; the peer's station address
+WA_VAR wa_lkfrom,6                 ; the last frame's source
 WA_VAR wa_lkpf,1                   ; the frame the cable was last read in
 WA_VAR wa_lkfired,1                ; the guest fired since its last SNAP
 WA_VAR wa_lklift,2                 ; the guest: the host's lift's height

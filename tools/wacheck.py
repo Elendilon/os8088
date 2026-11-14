@@ -72,7 +72,8 @@ def offsets():
     d = tempfile.mkdtemp(prefix="wacheck")
     mp, bn = os.path.join(d, "wa.map"), os.path.join(d, "wa.bin")
     subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
-                           "-I", "apps/wirearena/", "-I", "build/", "--before",
+                           "-I", "apps/wirearena/", "-I", "drivers/net/",
+                           "-I", "build/", "--before",
                            "[map all %s]" % mp, "-o", bn,
                            "apps/wirearena/wirearena.asm"], cwd=ROOT)
     if open(bn, "rb").read() != open(os.path.join(ROOT, "build/wirearena.bin"), "rb").read():

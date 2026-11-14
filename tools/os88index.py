@@ -338,6 +338,16 @@ INCLUDES = [
      "CRC-16/CCITT-FALSE, a length per type from your `lk_lens`. WireArena "
      "is the user (docs/plans/WIREARENA-LINK-PLAN.md); WireFleet's own copy "
      "moves onto it later."),
+    ("os88raw.inc", "72.22",
+     "A GAME'S FRAMES OVER THE ETHERNET CARD, on ETHER.DRV's raw verbs: "
+     "`rw_open` attaches the driver if need be and claims the card (our "
+     "station address back), `rw_send` puts a body in a frame of your "
+     "EtherType to a station address or everyone, `rw_poll` drains up to N "
+     "frames and hands yours to your `rw_take` with their source. A length "
+     "byte before the body, as a padded frame does not say where it ends. "
+     "The claim stops the driver's own pump: hold it only while linking. "
+     "WireArena carries os88cable.inc's bodies on it "
+     "(docs/plans/WIREARENA-LINK-PLAN.md 12)."),
     ("os88inflate.inc", "106.18",
      "INFLATE for a raw DEFLATE stream held WHOLE: `inflate` takes DS:SI, "
      "writes exactly CX bytes at ES:DI and sets carry on a bad stream. zlib's "

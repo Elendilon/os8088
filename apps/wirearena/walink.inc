@@ -41,6 +41,84 @@ WL_ROWS     equ 17              ; the window's rows of text
 WL_COLS     equ 38
 
 %include "os88cable.inc"
+RW_ETYPE    equ 0x88B5          ; IEEE 802's local experimental EtherType
+%include "os88raw.inc"          ; ...and over the card (LINK-PLAN 12)
+
+; wa_lkup - ZF = 0 when a carrier is up: the cable's lease, or the card's
+; claim. Keeps every register
+wa_lkup:
+    push ax
+    mov al, [lk_blk+LK_OPEN]
+    cmp byte [wa_lknet], 0
+    je .c
+    mov al, [rw_blk+RW_ON]
+.c:
+    or al, al
+    pop ax
+    ret
+
+; wa_lksend - SI = a body, CL = its length without its CRC: on whichever
+; carrier is up - framed into the cable, or sealed and sent on the card
+; (HELLO to everyone, the rest to the peer's station address)
+wa_lksend:
+    cmp byte [wa_lknet], 0
+    jne .card
+    jmp lk_send
+.card:
+    call lk_seal
+    mov di, wa_lkpmac
+    cmp byte [si], WL_HELLO
+    jne .to
+    mov di, rw_blk+RW_BCAST
+.to:
+    jmp rw_send
+
+; wa_lkpoll - CX = at most this many bytes (the cable): what came, framed
+; and handed to lk_take - on the card, up to 8 frames
+wa_lkpoll:
+    cmp byte [wa_lknet], 0
+    jne .card
+    jmp lk_poll
+.card:
+    mov cx, 8
+    jmp rw_poll
+
+; rw_take - a body off the card (os88raw.inc): SI, CL its length, BX its
+; source - which a HELLO's binding keeps - then checked as the cable's are
+rw_take:
+    push si
+    push di
+    mov si, bx
+    mov di, wa_lkfrom
+    push es
+    push ds
+    pop es
+    movsw
+    movsw
+    movsw
+    pop es
+    pop di
+    pop si
+    jmp lk_frame
+
+; wa_lknetgo - Link > Ethernet (or E): the cable let go, the card claimed
+wa_lknetgo:
+    mov byte [wa_lkfull], 1
+    call lk_disconnect
+    call rw_open
+    jc .no
+    mov byte [wa_lknet], 1
+    mov word [lk_blk+LK_MSG], wa_lm_neth
+    ret
+.no:
+    mov word [lk_blk+LK_MSG], wa_lm_nonet
+    ret
+
+; wa_lkcable - back to the cable (or nothing): the card's claim given back
+wa_lkcable:
+    call rw_close
+    mov byte [wa_lknet], 0
+    ret
 
 ; --- the window -------------------------------------------------------------
 
@@ -71,6 +149,7 @@ wa_lknewid:
 ; wa_lkclose - the window closes: the port let go. CF = 0 (it may close)
 wa_lkclose:
     push si
+    call rw_close
     call lk_disconnect
     pop si
     clc
@@ -101,9 +180,12 @@ wa_lktimer:
     mov bx, [wa_win]            ; again in a tick, first: a match started
     mov ax, 1                   ; from here returns to a live timer
     call OSAPI_WM_TIMER
+    cmp byte [wa_lknet], 0      ; (the cable's search: not on the card)
+    jne .card
     call lk_tick
+.card:
     mov cx, 64
-    call lk_poll
+    call wa_lkpoll
     call wa_lkhello
     pop es
     push es
@@ -117,8 +199,8 @@ wa_lktimer:
 
 ; wa_lkhello - HELLO, every WL_BEAT ticks while the port is held
 wa_lkhello:
-    cmp byte [lk_blk+LK_OPEN], 0
-    je .out
+    call wa_lkup
+    jz .out
     call OSAPI_GET_TICKS
     mov bx, ax
     sub ax, [wa_lkbeat]
@@ -154,7 +236,7 @@ wa_lkhello:
     stosb
     mov si, wa_lkfr
     mov cl, 18
-    call lk_send
+    call wa_lksend
 .out:
     ret
 
@@ -245,6 +327,8 @@ wa_lkplay:
 ; then No bots, One bot, Two bots (the host's)
 wa_lkcmd:
     mov byte [wa_lkfull], 1
+    cmp al, 8
+    je wa_lknetgo
     cmp al, 5
     jb .link
     sub al, 5
@@ -260,6 +344,11 @@ wa_lkcmd:
     call OSAPI_TOAST
     ret
 .link:
+    cmp al, 4
+    je .rdy
+    push ax
+    call wa_lkcable             ; (Automatic, COM1, COM2, Disconnect: the
+    pop ax                      ; card's claim given back)
     cmp al, 0
     jne .c1
     call lk_disconnect
@@ -269,10 +358,11 @@ wa_lkcmd:
 .c1:
     cmp al, 3
     je .off
-    ja wa_lkready
     jmp lk_connect              ; (AL = 1 or 2: COM1, COM2)
 .off:
     jmp lk_disconnect
+.rdy:
+    jmp wa_lkready
 
 ; wa_lkready - Ready, toggled (the Link menu, Space or Enter)
 wa_lkready:
@@ -289,6 +379,15 @@ wa_lkready:
 
 ; wa_lkkey - ONKEY: Space and Enter toggle Ready
 wa_lkkey:
+    mov ah, al                  ; E: Ethernet
+    or ah, 0x20
+    cmp ah, 'e'
+    jne .sp
+    push si
+    call wa_lknetgo
+    pop si
+    ret
+.sp:
     cmp al, ' '
     je .r
     cmp al, 13
@@ -357,6 +456,19 @@ wa_lkhtake:
     mov byte [wa_lkptag], 0
     mov byte [wa_lkfull], 1
 .peer:
+    push si                     ; (on the card: where it is, to answer it)
+    push di
+    push es
+    push ds
+    pop es
+    mov si, wa_lkfrom
+    mov di, wa_lkpmac
+    movsw
+    movsw
+    movsw
+    pop es
+    pop di
+    pop si
     mov byte [lk_blk+LK_HEARD], 1
     call OSAPI_GET_TICKS
     mov [wa_lkpheard], ax
@@ -481,6 +593,11 @@ wa_lkline:
     mov si, [lk_blk+LK_MSG]     ; row 0: what the link is doing
     call wa_lklinked
     jz .copy
+    cmp byte [wa_lknet], 0
+    je .com
+    mov si, wa_lt_onet
+    jmp wa_lkcpy
+.com:
     mov si, wa_lt_on1
     call wa_lkcpy
     mov al, [lk_blk+LK_PORT]
@@ -652,6 +769,9 @@ wa_lkpname:
     ret
 
 wa_lt_on1:      db 'Linked on COM', 0
+wa_lt_onet:     db 'Linked on Ethernet', 0
+wa_lm_neth:     db 'Looking on Ethernet...', 0
+wa_lm_nonet:    db 'No Ethernet card (ETHER.DRV)', 0
 wa_lt_you:      db 'YOU', 0
 wa_lt_host:     db '(host)', 0
 wa_lt_st:       dw wa_lt_s0, wa_lt_s1, wa_lt_s2
@@ -846,7 +966,7 @@ wa_lktick:
     je .polled                  ; when nothing came: LINK-PLAN 11.2)
     mov [wa_lkpf], al
     mov cx, 64
-    call lk_poll
+    call wa_lkpoll
 .polled:
     mov ax, [wa_tkn]
     sub ax, [wa_lkheard]
@@ -935,7 +1055,9 @@ wa_lksnap:
     je .f2
 .f1s:
     or al, 2
-    mov byte [wa_lkfired], 0
+    cmp byte [wa_lkfired], 0
+    je .f2
+    dec byte [wa_lkfired]
 .f2:
     cmp word [wa_sh], 0
     je .f3
@@ -1024,7 +1146,7 @@ wa_lksnap:
     mov cl, 15
 .send:
     mov si, wa_lkfr
-    jmp lk_send
+    jmp wa_lksend
 
 ; wa_lkscore - SCORE: our row of deaths by cause (LINK-PLAN 11.2); the
 ; host with bots their two rows too (BSCORE)
@@ -1042,7 +1164,7 @@ wa_lkscore:
     mov [wa_lkfr+4], ax
     mov si, wa_lkfr
     mov cl, 6
-    call lk_send
+    call wa_lksend
     cmp byte [wa_lknb], 0
     je .out
     call wa_lkhost
@@ -1058,7 +1180,7 @@ wa_lkscore:
     rep movsw
     mov si, wa_lkfr
     mov cl, 10
-    jmp lk_send
+    jmp wa_lksend
 .out:
     ret
 
@@ -1095,7 +1217,7 @@ wa_lkevent:
     rep movsb
     mov si, wa_lkfr
     mov cl, 3 + WL_EVSZ
-    call lk_send
+    call wa_lksend
     jc .out
     inc byte [wa_lkqs]
     mov ax, [wa_tkn]
