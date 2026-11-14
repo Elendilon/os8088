@@ -498,6 +498,23 @@ Without it, the platform's face behind showed through the ramp. RAMP2 now
 drops the foot's line alone (`wl_lo`'s bit, `wrlow.inc`), which is the part
 the owner liked. Its key is Y; it is still in no detail level.
 
+**What it buys** (MartyPC `os8088_5150_cga`, Medium, the heights poses, the
+same build `cb0b62b8` with Y off and on; fps, ms a frame):
+
+| pose | 40 off | 40 on | 80 off | 80 on |
+|---|---|---|---|---|
+| A, the busiest floor view | 13.2 (75.5) | **13.5 (73.8)** | 10.3 (96.9) | **10.5 (95.1)** |
+| B, the open floor | 14.9 (66.9) | 15.0 (66.4) | 10.5 (95.0) | 10.6 (94.3) |
+| C, on the platform | 33.1 (30.2) | 33.1 (30.2) | 25.8 (38.7) | 25.8 (38.7) |
+| D, on the tower | 12.6 (79.1) | **12.9 (77.3)** | 9.6 (103.6) | **9.8 (101.9)** |
+| E, the annex hallway | 26.1 (38.3) | 26.1 (38.3) | 21.4 (46.7) | 21.4 (46.7) |
+
+About 1.7 ms (~2.3%) where both ramps' feet are in view (A, and D looking
+down on them), 0.5 ms at B, and nothing where no foot is drawn: C stands
+on the platform the ramps lead to, and E cannot see them. A foot is one
+outline pass of a low box: its setup and its columns (HEIGHTS-PLAN 9.8.6's
+~2.4k clk and ~770 a column).
+
 ### 6.6 Checked
 
 `waweapons` grew to cover the round (~23 s). It is green twice running.
