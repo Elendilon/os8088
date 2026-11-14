@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
 """WireArena's weapons and pickups (docs/plans/WIREARENA-WEAPONS-PLAN.md).
 
-One boot into the Heights arena at 40 columns, then each piece of the
-round checked off the game's own variables (its symbols from wirearena.asm
-assembled with a map, refused unless byte-identical to the build):
+One boot into the Heights arena at 40 columns, then each piece checked off
+the game's own variables (its symbols from wirearena.asm assembled with a
+map, refused unless byte-identical to the build). The two WEAPON SPAWNS pick
+their weapon at random, so the row writes the pick it wants into the game's
+kind byte before it walks onto one - and checks the dice separately: every
+choice of each spawn comes up, nothing else does, and the renderer's copy
+of the kind follows the game's.
 
-  - the start: the pistol, 6 in its magazine, 100 health, all four pickups
-    there (`wa_pkon`);
-  - the pistol: three shots kill a dummy (34 each), and it dies by the
-    pistol's death (DEATH, `F_KILL` 0);
-  - the shotgun pickup on the ramp platform: taken, held, 3 and 3, gone
-    from the arena; key 2 selects it again after key 1;
-  - the shotgun: one direct close shot kills, red the whole time (F_FLASH
-    held with F_DEAD) and by its own collapse (COLLAPSE, `F_KILL` 1); and
-    at medium range, where the joints take the narrow path, nothing of the
-    collapse is drawn above the figure (it once drew two lines into the
-    sky: a joint below the floor, multiplied unsigned);
-  - the rocket launcher on the tower: taken and held; key 3 selects it;
-  - dummy 0 lives with a shield (`F_SH` 100); a rocket flies (state 1, not
-    instant), hits it directly and kills it outright through the shield,
-    into bits (GIB, `F_KILL` 2), and once the bits have flown it is GONE
-    (`F_NFR` 0 - the renderer skips it);
-  - a rocket into a wall close by: its splash hurts the player;
-  - the health pack in the back tunnel: health back to 100; the shield
-    pack on the back room's jump platform: shield 100;
-  - a taken pickup comes back after its time (the shotgun's, 10 s);
-  - detail levels moved to F1..F5: F1 makes the level 0 (Very Low).
+  - the start: the pistol, 6 loaded, 100 health, four pickups;
+  - the pistol: three shots kill, by the fall; R reloads at any time;
+  - the shotgun: taken, held, 3 and 3; one close shot kills, red as long as
+    it lies, by COLLAPSE; and at MEDIUM range nothing of the collapse is
+    drawn above the figure (the narrow path's unsigned multiply once drew
+    two lines into the sky: WEAPONS-PLAN 3.5); R tops a part-used magazine
+    up from the reserve;
+  - the rocket launcher (key 5): a rocket flies, kills the shielded dummy 0
+    outright into bits, and it is gone after; a rocket into a wall close by
+    hurts the player;
+  - the chaingun (key 3): fires while the trigger is held, kills by the
+    fall;
+  - the grenade launcher (key 4): a grenade off a wall comes back, bounces
+    off the floor and goes off on its fuse; one that meets a dummy kills it
+    outright, into bits;
+  - the railgun (key 6): one shot kills two dummies standing in line - it
+    pierces - and its beam shows for a few ticks;
+  - the health and shield packs; a taken pickup comes back after its time;
+  - F1 and F3 set the detail level; Y toggles RAMP2.
 
-Each is a guest-memory assertion: a broken reach, a lost reload, a damage
-table off by a shift or a death mapped to the wrong animation each turn a
-line red. `--shots DIR` writes a picture at each step.
+Each is a guest-memory assertion. `--shots DIR` writes a picture at each
+step.
 """
 import argparse
 import math
@@ -71,11 +72,39 @@ class Arena(Game):
 
     def arms(self):
         return dict(wpn=self.byte("wa_wpn"), own=self.byte("wa_own"),
-                    mag=list(self.p.read(self.sym["wa_mag"], 3)),
-                    res=list(self.p.read(self.sym["wa_res"], 3)),
+                    mag=list(self.p.read(self.sym["wa_mag"], 6)),
+                    res=list(self.p.read(self.sym["wa_res"], 6)),
                     rld=self.byte("wa_rld"), hp=self.word("wa_hp"),
                     sh=self.word("wa_sh"), pkon=self.byte("wa_pkon"),
-                    level=self.byte("wa_level"))
+                    level=self.byte("wa_level"), beam=self.byte("wa_beam"),
+                    look=self.byte("wa_look"))
+
+    def kind(self, i):
+        """Pickup i's kind: the game's, and the renderer's copy"""
+        g = self.byte("wa_pks", i * PKSZ + 6)
+        rds = self.word("wa_rds", signed=False)
+        off = self.sym["wa_pks"] - self.sym["wa_fb_cfg"] + WR_FB
+        return g, self.m.readseg(rds, off + i * PKSZ + 6, 1)[0]
+
+    def respawn(self, i, kind=None):
+        """Pickup i back now (its timer at 1: the next tick rolls it), and
+        then the kind wanted written over the roll"""
+        self.put("wa_pkt", 1, 2 * i)
+        self.tick(4)                # (a tick runs at the next frame's start)
+        if kind is not None:
+            self.p.write(self.sym["wa_pks"] + i * PKSZ + 6, bytes([kind]))
+
+    def projs(self):
+        """Each projectile slot: x, y, z, state, type, and its x, z speed"""
+        out = []
+        for k in range(4):
+            x, y, z, st = struct.unpack('<3hH', self.p.read(
+                self.sym["wa_rks"] + 8 * k, 8))
+            vx, _, vz = struct.unpack('<3h', self.p.read(
+                self.sym["wa_rkg"] + RKGSZ * k + 6, 6))
+            out.append(dict(x=x, y=y, z=z, st=st & 255, typ=st >> 8,
+                            vx=vx, vz=vz))
+        return out
 
     def at(self, x, y, feet, ang=None):
         """The player standing at (x, y) on `feet`, every key up."""
@@ -96,6 +125,27 @@ class Arena(Game):
         self.at(int(f["x"] + d * math.cos(a)), int(f["y"] + d * math.sin(a)),
                 f["z"], ang=(f["head"] + 512) & 1023)
 
+    def face(self, i, d):
+        """Dummy i stood still at (1100, 300) in the open south floor, the
+        player d units west of it facing it: a shot that misses is the
+        weapon's fault, not a corner the dummy turned"""
+        self.freeze(i, 1100, 300)
+        self.at(1100 - d, 300, 0, ang=0)
+
+    def alive(self, *figs):
+        for _ in range(150):
+            if not any(self.fig(i)["dead"] for i in figs):
+                return
+            self.tick(2)
+
+    def freeze(self, i, x, y):
+        """Dummy i put at (x, y), flinching - it stands for ~12 ticks"""
+        base = self.sym["wa_figs"] + i * FS
+        self.p.write(base, struct.pack('<hh', x, y))
+        self.p.write(base + 18, struct.pack('<h', 0))
+        self.p.write(base + 11, bytes([A_["FLINCH"], 3, 0]))
+        self.p.write(base + 14, struct.pack('<h', 0))
+
     def press(self, key, ticks=4):
         """A key held long enough for a frame to poll it at any frame rate
         here (the trigger and the keys are read once a frame)."""
@@ -105,6 +155,12 @@ class Arena(Game):
         self.tick(1)
 
 
+PKSZ = 8                        # WA_PKSZ (wafb.inc)
+RKGSZ = 14                      # WA_RKGSZ (wirearena.asm)
+WR_FB = 32                      # the frame block's offset in the part
+A_ = {}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shots", help="write a picture at each step here")
@@ -112,6 +168,7 @@ def main():
     need(APPS)
     sym = amap()
     A = anims()
+    A_.update(A)
     fails = []
 
     def check(ok, what):
@@ -149,9 +206,24 @@ def main():
               "(%r)" % s)
         shot("00-start")
 
+        # the dice: every choice of each spawn, nothing else, both copies
+        seen2, seen3, agree = set(), set(), True
+        for _ in range(30):
+            g.respawn(2)
+            g.respawn(3)
+            k2, k3 = g.kind(2), g.kind(3)
+            seen2.add(k2[0])
+            seen3.add(k3[0])
+            agree = agree and k2[0] == k2[1] and k3[0] == k3[1]
+        check(seen2 == {0, 1, 2} and seen3 == {3, 4} and agree,
+              "the weapon spawns' dice: the platform %r (shotgun, chaingun, "
+              "grenades), the tower %r (rockets, railgun), the renderer's "
+              "copy %s" % (sorted(seen2), sorted(seen3),
+                           "the same" if agree else "DIFFERENT"))
+
         n = 0
         while n < 4 and not g.fig(1)["dead"]:
-            g.ahead(1, 300)
+            g.face(1, 300)
             g.press("ControlLeft")
             n += 1
         f = g.fig(1)
@@ -160,10 +232,16 @@ def main():
               "the pistol: three shots kill, by the fall (%d shots, %r)"
               % (n, f))
         check(g.arms()["mag"][0] == 3, "the pistol: three spent of six")
+        g.press("KeyR")
+        r = g.arms()["rld"]
+        g.tick(16)
+        check(r > 0 and g.arms()["mag"][0] == 6,
+              "R: the pistol reloads with three still in it (to 6)")
         shot("01-pistol-kill")
 
+        g.respawn(2, 0)
         g.at(1248, 1000, 80, ang=256)
-        g.tick(2)
+        g.tick(6)                   # (taken at a frame's first tick)
         s = g.arms()
         check(s["own"] & 2 and s["wpn"] == 1 and s["mag"][1] == 3
               and s["res"][1] == 3 and not s["pkon"] & 4,
@@ -175,7 +253,8 @@ def main():
         shot("02-shotgun")
 
         g.tick(10)
-        g.ahead(2, 110)
+        g.alive(2)
+        g.face(2, 110)
         g.press("ControlLeft")
         f = g.fig(2)
         check(f["dead"] and f["kill"] == 1 and f["anim"] == A["COLLAPSE"]
@@ -189,21 +268,17 @@ def main():
         # narrow path (WA_FJN): its height multiply is unsigned, and a
         # COLLAPSE that sank two joints below the floor drew them far above
         # it - two red lines into the sky while it fell (WEAPONS-PLAN 3.5).
-        # Dummy 1, back from the dead, softened by the pistol, then one
-        # shotgun shot at 260: no red cell above the view's top third while
-        # it collapses (the figure's head is near the middle row).
-        for _ in range(120):
-            if not g.fig(1)["dead"]:
-                break
-            g.tick(2)
+        # Dummy 1, softened by the pistol, then one shotgun shot at 260: no
+        # red cell in the view's top third while it collapses.
+        g.alive(1)
         g.press("Digit1")
         for _ in range(2):
-            g.ahead(1, 300)
+            g.face(1, 300)
             g.press("ControlLeft")
             g.tick(4)
         g.press("Digit2")
         g.tick(12)
-        g.ahead(1, 260)
+        g.face(1, 260)
         g.press("ControlLeft", ticks=2)
         f = g.fig(1)
         sky = 0
@@ -216,32 +291,40 @@ def main():
               "above the view's top third (%d red cells there; %r)"
               % (sky, f))
         shot("03b-shotgun-medium")
-
-        g.at(1952, 1000, 160, ang=512)
-        g.tick(2)
+        s0 = g.arms()
+        g.press("KeyR")
+        g.tick(40)
         s = g.arms()
-        check(s["own"] & 4 and s["wpn"] == 2 and s["mag"][2] == 3
+        check(s0["mag"][1] == 1 and s0["res"][1] == 3 and s["mag"][1] == 3
+              and s["res"][1] == 1,
+              "R tops the shotgun up: 1 and 3 -> 3 and 1 (%r -> %r)"
+              % ((s0["mag"][1], s0["res"][1]), (s["mag"][1], s["res"][1])))
+
+        g.respawn(3, 3)
+        g.at(1952, 1000, 160, ang=512)
+        g.tick(6)                   # (taken at a frame's first tick)
+        s = g.arms()
+        check(s["own"] & 16 and s["wpn"] == 4 and s["mag"][4] == 3
               and not s["pkon"] & 8,
               "the rocket launcher on the tower: taken and held (%r)" % s)
         g.press("Digit1")
-        g.press("Digit3")
-        check(g.arms()["wpn"] == 2, "keys 1 then 3: the launcher again")
+        g.press("Digit5")
+        check(g.arms()["wpn"] == 4, "keys 1 then 5: the launcher again")
 
+        g.alive(0)
         f = g.fig(0)
-        check(f["sh"] == 100 or f["dead"], "dummy 0 lives with a shield "
-              "(%r)" % f)
+        check(f["sh"] == 100, "dummy 0 lives with a shield (%r)" % f)
         g.tick(30)
-        g.ahead(0, 420)
+        g.face(0, 420)
         shot("04-shielded")
         g.press("ControlLeft")
         flew = 0
         for _ in range(40):
-            rk = [struct.unpack('<4h', g.p.read(sym["wa_rks"] + 8 * k, 8))
-                  for k in range(3)]
-            if any(r[3] == 1 for r in rk):
+            if any(r["st"] == 1 and r["typ"] == 0 for r in g.projs()):
                 flew += 1
             if g.fig(0)["dead"]:
                 break
+            g.freeze(0, 1100, 300)      # (held there for the flight)
             g.tick(1)
         shot("05-explosion")
         f = g.fig(0)
@@ -264,32 +347,140 @@ def main():
         check(hp1 < hp0, "a rocket into a wall close by: its splash hurts "
               "the player (%d -> %d)" % (hp0, hp1))
 
-        g.at(64, 1050, 0, ang=768)
+        # THE CHAINGUN: held, it keeps firing; nine rounds kill
+        g.respawn(2, 1)
+        g.at(1248, 1000, 80, ang=256)
+        g.tick(6)                   # (taken at a frame's first tick)
+        s = g.arms()
+        check(s["own"] & 4 and s["wpn"] == 2 and s["mag"][2] == 30
+              and s["res"][2] == 30,
+              "the chaingun: taken, held, 30 and 30 (%r)" % s)
+        g.alive(1)
+        g.face(1, 250)
+        m.key("ControlLeft", up=False)
+        for _ in range(8):
+            g.tick(6)
+            if g.fig(1)["dead"]:
+                break
+            g.face(1, 250)
+        m.key("ControlLeft", down=False)
+        g.tick(1)
+        f = g.fig(1)
+        spent = 30 - g.arms()["mag"][2]
+        check(f["dead"] and f["kill"] == 0 and spent >= 9,
+              "the chaingun: held, %d rounds, a kill by the fall (%r)"
+              % (spent, f))
+        shot("07-chaingun")
+
+        # THE GRENADE LAUNCHER: off the tower's face, back off the floor,
+        # off on its fuse; and into a dummy, a kill
+        g.respawn(2, 2)
+        g.at(1248, 1000, 80, ang=256)
+        g.tick(6)                   # (taken at a frame's first tick)
+        s = g.arms()
+        check(s["own"] & 8 and s["wpn"] == 3 and s["mag"][3] == 4
+              and s["res"][3] == 4,
+              "the grenade launcher: taken, held, 4 and 4 (%r)" % s)
+        g.tick(16)
+        g.at(1700, 1024, 0, ang=0)
+        g.press("ControlLeft", ticks=2)
+        vxs, vzs, boom = [], [], False
+        for _ in range(70):
+            gr = [r for r in g.projs() if r["typ"] == 1 and r["st"]]
+            if gr and gr[0]["st"] == 1:
+                vxs.append(gr[0]["vx"])
+                vzs.append(gr[0]["vz"])
+            elif gr:
+                boom = True
+                break
+            g.tick(1)
+        back = any(v > 0 for v in vxs) and any(v < 0 for v in vxs)
+        bounce = any(a_ < 0 < b_ for a_, b_ in zip(vzs, vzs[1:]))
+        check(back and bounce and boom and len(vxs) >= 40,
+              "a grenade: back off the wall (%s), up off the floor (%s), "
+              "off on its fuse after %d ticks (%s)"
+              % (back, bounce, len(vxs), boom))
+        shot("08-grenade")
+        g.tick(16)
+        g.alive(2)
+        g.face(2, 110)
+        g.press("ControlLeft", ticks=2)
+        for _ in range(30):
+            if g.fig(2)["dead"]:
+                break
+            g.tick(1)
+        f = g.fig(2)
+        check(f["dead"] and f["kill"] == 2,
+              "a grenade into a dummy: a kill, into bits (%r)" % f)
+
+        # THE RAILGUN: two dummies in line, one shot, both dead; its beam
+        g.respawn(3, 4)
+        g.at(1952, 1000, 160, ang=512)
+        g.tick(6)                   # (taken at a frame's first tick)
+        s = g.arms()
+        check(s["own"] & 32 and s["wpn"] == 5 and s["mag"][5] == 1
+              and s["res"][5] == 4,
+              "the railgun on the tower: taken, held, 1 and 4 (%r)" % s)
+        g.tick(10)
+        g.alive(1, 2)
+        g.at(900, 300, 0, ang=0)
+        g.freeze(1, 1100, 300)
+        g.freeze(2, 1300, 300)
         g.tick(2)
+        m.key("ControlLeft", up=False)
+        beam = cells = 0
+        for _ in range(8):
+            g.tick(1)
+            b_ = g.arms()["beam"]
+            beam = max(beam, b_)
+            if b_:
+                d = m.read(0xB8000, 40 * 25 * 2)
+                cells = max(cells, sum(1 for r in range(13, 19)
+                                       for c in range(40)
+                                       if d[(r * 40 + c) * 2] == 0x5C))
+        m.key("ControlLeft", down=False)
+        f1, f2 = g.fig(1), g.fig(2)
+        check(f1["dead"] and f2["dead"],
+              "the railgun pierces: one shot, both dummies in line dead "
+              "(%r, %r)" % (f1, f2))
+        check(beam > 0 and cells >= 4, "the railgun's beam: %d cells "
+              "showing, %d ticks at most" % (cells, beam))
+        shot("09-railgun")
+        g.tick(8)
+        check(g.arms()["beam"] == 0, "the beam gone after its ticks")
+
+        g.at(64, 1050, 0, ang=768)
+        g.tick(6)                   # (taken at a frame's first tick)
         s = g.arms()
         check(s["hp"] == 100 and not s["pkon"] & 1,
               "the health pack in the back tunnel: health 100 (%r)" % s)
         g.at(480, 1050, 48, ang=768)
-        g.tick(2)
+        g.tick(6)                   # (taken at a frame's first tick)
         s = g.arms()
         check(s["sh"] == 100 and not s["pkon"] & 2,
               "the shield pack on the jump platform: shield 100 (%r)" % s)
-        shot("07-shield")
+        shot("10-shield")
 
-        g.tick(300)
-        check(g.arms()["pkon"] & 4, "the shotgun's pickup back after 10 s")
+        g.tick(600)
+        check(g.arms()["pkon"] & 1, "the health pack back after its 20 s")
 
         g.press("F1")
         check(g.arms()["level"] == 0, "F1: the detail level Very Low")
         g.press("F3")
         check(g.arms()["level"] == 2, "F3: Medium")
+        l0 = g.arms()["look"] & 32
+        g.press("KeyY")
+        l1 = g.arms()["look"] & 32
+        g.press("KeyY")
+        check(l0 == 0 and l1 == 32 and g.arms()["look"] & 32 == 0,
+              "Y: RAMP2 on and off")
 
     if fails:
         print("waweapons: FAIL - %d of the round's checks:" % len(fails))
         for f in fails:
             print("  " + f)
         sys.exit(1)
-    print("waweapons: ok - three weapons, four pickups, three deaths")
+    print("waweapons: ok - six weapons, two weapon spawns, four pickups")
 
 
 if __name__ == "__main__":

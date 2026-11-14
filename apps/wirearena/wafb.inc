@@ -15,7 +15,9 @@
 ;            it spawned" (1 after each frame, 0 from wa_spawn); before TRACE
 ;            a 0 there zeroes the part's, so a figure respawned since the
 ;            frame is not hit where its body lay
-;   arena    R writes (ARENA); R -> G by wa_loadarena
+;   arena    R writes (ARENA); R -> G by wa_loadarena - but for a pickup's
+;            KIND byte, which a weapon spawn picks at random when it spawns:
+;            G writes it into both copies (wa_pkroll)
 ;   overlay  G writes (wa_ovbuild: the weapon, the health, the ammo); G -> R
 ;            by wa_render when the game has rebuilt it, and not otherwise
 ;   rockets  G writes (the sim); G -> R by wa_rframe while any is live
@@ -60,16 +62,17 @@ WA_FIGHEAD  equ 20                  ; figs: the bytes G -> R every frame
 
 %define WA_RAT(x) ((x) - wa_fb_cfg + WR_FB)
 
-WA_NRK      equ 3                   ; rockets in flight at once
+WA_NRK      equ 4                   ; rockets and grenades live at once
 WA_RKSZ     equ 8                   ; FRAME's rocket: x, y, z, state
 WA_RKX      equ 0
 WA_RKY      equ 2
 WA_RKZ      equ 4
-WA_RKST     equ 6
+WA_RKST     equ 6                   ; (its low byte; the high byte its type)
+WA_RKTYP    equ 7                   ; 0 a rocket, 1 a grenade
 WA_RKFLY    equ 1                   ; state: flying; 2..: exploding
 WA_RKBOOM   equ 8                   ; an explosion's first state (7 ticks)
 WA_PKSZ     equ 8                   ; ARENA's pickup: x, y, z, kind, 0
-WA_MOV      equ 32                  ; OVERLAY's most cells
+WA_MOV      equ 40                  ; OVERLAY's most cells
 
 ; --- the block: WA_FBLOCK, expanded where the includer keeps it -------------
 %macro WA_FBLOCK 0
@@ -131,6 +134,7 @@ WA_FBV wa_fb_oend, 0
 WA_FBV wa_rks, WA_NRK*WA_RKSZ       ; ROCKETS: G -> R by wa_rframe while any
                                     ; flies or explodes, and once more after:
                                     ; each's x, y, z, state (0 none, 1
-                                    ; flying, 2.. an explosion's ticks left:
-                                    ; WEAPONS-PLAN 2.2, 2.5)
+                                    ; flying, 2.. an explosion's ticks left)
+                                    ; and type (0 rocket, 1 grenade:
+                                    ; WEAPONS-PLAN 2.2, 2.5, 6)
 %endmacro

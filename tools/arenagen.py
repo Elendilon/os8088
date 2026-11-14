@@ -370,8 +370,9 @@ def pvs_points(x0, y0, x1, y1, occ):
 # --- pickups (docs/plans/WIREARENA-WEAPONS-PLAN.md 2.4) ----------------------
 # kind: the renderer's shape and colour (wa_pkdraw's table) and the game's
 # effect (wa_pktake's); a weapon's kind is its weapon number less one
-PK_SHOTGUN, PK_ROCKET, PK_HEALTH, PK_SHIELD = 0, 1, 2, 3
-PK_HALF = (24, 32, 16, 12)      # half its width, units (wa_pkshape's)
+PK_SHOTGUN, PK_CHAINGUN, PK_GRENADE, PK_ROCKET, PK_RAIL = 0, 1, 2, 3, 4
+PK_HEALTH, PK_SHIELD = 5, 6
+PK_HALF = (24, 28, 20, 32, 40, 16, 12)  # half its width (wa_pkshape's)
 PK_PVSR = 16                    # the square its PVS bit is for: at least
                                 # every half width but the lines' - a line
                                 # is drawn only where its middle's column is
@@ -380,20 +381,24 @@ WA_MPK = 8                      # the most an arena carries: a bit each
 # Arena 2's (the owner's placement, 2026-11-13): the health pack in the back
 # tunnel (the corridor along the west wall, behind the annex, opposite the
 # back room's mouth); the shield pack on the jump platform in the back room;
-# the shotgun on the ramp platform; the rocket launcher on the tower's top,
-# the platform the lift goes up to
+# on the ramp platform a WEAPON SPAWN - the shotgun, the chaingun or the
+# grenade launcher, picked at random each time it spawns - and on the
+# tower's top (the platform the lift goes up to) the rocket launcher or the
+# railgun (the owner, 2026-11-14). A kind, or a tuple of kinds to pick from
 HEIGHTS_PICKUPS = [
     (PK_HEALTH, 64, 1024),
     (PK_SHIELD, 480, 1024),
-    (PK_SHOTGUN, 1248, 1024),
-    (PK_ROCKET, 1952, 1024),
+    ((PK_SHOTGUN, PK_CHAINGUN, PK_GRENADE), 1248, 1024),
+    ((PK_ROCKET, PK_RAIL), 1952, 1024),
 ]
 ARENA_PICKUPS = {"a2": HEIGHTS_PICKUPS}
 
 
 def pickups(tag, boxes):
-    """An arena's pickups: [(kind, x, y, z)], z the floor under it. Refused
-    in a tall box, outside the room, or past WA_MPK"""
+    """An arena's pickups: [(kind, x, y, z, choices)], z the floor under it,
+    choices a bit a kind it may spawn as (0: always kind). Refused in a tall
+    box, outside the room, past WA_MPK, or choosing among anything but
+    weapons"""
     boxes = [bx(b) for b in boxes]
     out = []
     for k, x, y in ARENA_PICKUPS.get(tag, []):
@@ -402,7 +407,12 @@ def pickups(tag, boxes):
                     for b in boxes):
             raise SystemExit("arenagen: arena %s: a pickup at (%d, %d) is in a "
                              "wall" % (tag, x, y))
-        out.append((k, x, y, floor_at(x, y, boxes, 0)))
+        ks = k if isinstance(k, tuple) else (k,)
+        if len(ks) > 1 and max(ks) >= PK_HEALTH:
+            raise SystemExit("arenagen: arena %s: a spawn at (%d, %d) picks "
+                             "among more than weapons" % (tag, x, y))
+        out.append((ks[0], x, y, floor_at(x, y, boxes, 0),
+                    sum(1 << c for c in ks) if len(ks) > 1 else 0))
     if len(out) > WA_MPK:
         raise SystemExit("arenagen: arena %s has %d pickups - at most %d"
                          % (tag, len(out), WA_MPK))
@@ -421,7 +431,7 @@ def pvs_pickups(tag, boxes, pks):
     occ = [boxes[i] for i in tall]
     nb = len(boxes)
     targets = boxes + [Box(x - PK_PVSR, y - PK_PVSR, x + PK_PVSR, y + PK_PVSR)
-                       for (_, x, y, _) in pks]
+                       for (_, x, y, _, _) in pks]
     have0 = (1 << nb) - 1
     full = (1 << len(pks)) - 1
     g = 1 << PVS_SHIFT
@@ -1107,11 +1117,11 @@ def arena_part(n, out):
           "bytes (0: none - every pickup tested)" % (
               P + "pks" if pk else "0", P + "pkv" if pkv else "0")] + T
     if pk:
-        L.append(P + "pks:                     ; count; x, y, z, kind, 0")
+        L.append(P + "pks:                     ; count; x, y, z, kind, choices")
         L.append("    dw %d" % len(pk))
-        for (k, x, y, z) in pk:
+        for (k, x, y, z, ch) in pk:
             L.append("    dw %d, %d, %d" % (x, y, z))
-            L.append("    db %d, 0" % k)
+            L.append("    db %d, %d" % (k, ch))
     if pkv:
         L.append(P + "pkv:                     ; a byte a PVS cell, column-major")
         for col in pkv:

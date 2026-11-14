@@ -4196,8 +4196,14 @@ wa_pkall:   db 0xFF             ; (no PVS carried: every pickup tested)
 wa_pkshape:
     dw 24, 4, 10                ; shotgun: a thin line, brown
     db 0x06, 0x0F
+    dw 28, 4, 14                ; chaingun: a little longer and thicker, grey
+    db 0x07, 0x0F
+    dw 20, 4, 16                ; grenade launcher: short and thick, magenta
+    db 0x0D, 0x0F
     dw 32, 4, 20                ; rocket launcher: longer and thicker, green
     db 0x0A, 0x0F
+    dw 40, 4, 8                 ; railgun: the longest and thinnest, cyan
+    db 0x0B, 0x0F
     dw 16, 0, 28                ; health: a square block, light red
     db 0x0C, 0x0F
     dw 12, 0, 44                ; shield: a tall block, yellow
@@ -4292,6 +4298,10 @@ wa_rockets:
     mov [wa_tha], al
     jmp .draw
 .shape:
+    cmp byte [si+WA_RKTYP], 0
+    je .rk
+    mov bx, wa_gnshape
+.rk:
     call wa_thshape
 .draw:
     mov ax, [si+WA_RKX]
@@ -4307,6 +4317,9 @@ wa_rockets:
 wa_rkshape:
     dw 6, -5, 5                 ; a rocket in flight: a bright dot
     db 0x0F, 0x0F
+wa_gnshape:
+    dw 5, 0, 8                  ; a grenade: a magenta dot on what it rolls on
+    db 0x0D, 0x0F
 
 ; wa_thing - AX = x, BX = y, CX = z (its floor, or its middle), its shape in
 ; wa_thw..wa_tha: drawn, behind what is nearer per column (wa_occl).

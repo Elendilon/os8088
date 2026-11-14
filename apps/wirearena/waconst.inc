@@ -30,7 +30,7 @@ LK_COARSE   equ 2               ; an edge moving under a half-row: level
 LK_NOPOST   equ 4               ; no posts on walls under WA_POSTMIN
 LK_ROOMF    equ 8               ; the room's walls as floor lines alone
 LK_FARTOP   equ 16              ; a low box's far top only well above it
-LK_RAMP2    equ 32              ; a ramp as its two sides (its own key, R)
+LK_RAMP2    equ 32              ; a ramp without its foot's line (its key, Y)
 LK_FEW      equ 64              ; J: a small figure's 7 joints, 5 limbs
 WA_FLODV    equ 16              ; LK_FEW: fv8 below this: under ~7 half-rows tall
 

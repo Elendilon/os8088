@@ -1,6 +1,7 @@
 # WireArena: weapons and pickups
 
-**STATUS: BUILT** (2026-11-14). Section 2 is the contract as built; section 3
+**STATUS: BUILT** (2026-11-14), round two too (section 6: six weapons, the
+weapon spawns, R). Section 2 is round one's contract as built; section 3
 records what was measured, what it cost and what was done about it; section 4
 what is open.
 
@@ -64,6 +65,9 @@ This work was done on branch `multiplayer-fps`, from `04ae112`.
 Every other key is as it was. R stays RAMP2's, so a reload is automatic: a
 weapon reloads when its magazine empties, and on being chosen with an empty
 magazine.
+
+*Superseded by round two (section 6): keys 1–6 are six weapons, R reloads
+at any time, and RAMP2 moved to Y.*
 
 ### 2.2 The weapons
 
@@ -366,7 +370,10 @@ and counts red cells in the view's top third over the whole collapse:
 
 ## 5. Proposed: the next weapons (for the owner, 2026-11-14)
 
-Each is priced against what the first round measured (3.3). None is built.
+*The owner took all three; section 6 is what was built. The table below is
+the proposal as it was put.*
+
+Each is priced against what the first round measured (3.3).
 
 | weapon | what it is | what it reuses | its cost a frame |
 |---|---|---|---|
@@ -385,3 +392,141 @@ How each fits the levels:
 A fourth, if a level wants a trap: **proximity mines**. A mine is dropped,
 drawn as a pickup's billboard (a small block), and goes off when a figure
 comes within reach. It costs what a pickup costs while in view.
+
+## 6. Round two: six weapons, weapon spawns, R (2026-11-14)
+
+The owner: *"All three sound good. Lets put the chaingun on 3, grenade
+launcher on 4, rockets on 5, and railgun on 6. Can we select a random weapon
+to spawn on the two weapon spawn locations? The ramp platform could spawn
+shotgun, chaingun or grenade launcher, and the tower one rocket launcher or
+railgun. Also lets have 'R' reload at any point, giving the player the
+ability to reload during downtimes instead of being forced to empty the
+clip."* And on RAMP2: *"Not drawing the bottom line of the ramp worked fine,
+but having the ramp become see-though and show the bottom of the platform
+did not."*
+
+### 6.1 Keys
+
+| key | does |
+|---|---|
+| **1–6** | pistol, shotgun, chaingun, grenade launcher, rocket launcher, railgun (each once picked up, while it has anything to fire) |
+| **R** | reload now: a magazine not full tops up from the reserve (the pistol's is endless); nothing while one is under way |
+| **Y** | RAMP2 (was R): a ramp without its foot's line - see 6.5 |
+| **F1–F5** | the detail level, as before |
+
+### 6.2 The weapons
+
+| | pistol | shotgun | chaingun | grenade launcher | rocket launcher | railgun |
+|---|---|---|---|---|---|---|
+| key | 1 | 2 | 3 | 4 | 5 | 6 |
+| magazine | 6 | 3 | 30 | 4 | 3 | 1 |
+| a pickup gives / reserve cap | - | 6 / 24 | 60 / 120 | 8 / 24 | 6 / 24 | 5 / 15 |
+| reload (ticks) | 15 | 36 | 40 | 60 | 75 | 60 |
+| between shots | 4 | 15 | 4 (held: ~7.5 a second) | 15 | 18 | 24 |
+| hit | the ray | a cone | the ray, a little wider (W/32, a half-row) | a lob: 16 a tick, +6 up, gravity, bounces | 32 a tick, straight | the ray, through EVERY figure on it |
+| damage | 34 | inverse depth / 32 (/ 64 the cone alone) | 12 | splash; a figure met: a kill | splash; a direct hit: a kill | 150 (through 50 of a shield) |
+| its kill | the fall | the red collapse | the fall | the bits | the bits | the fall |
+
+The first pickup of a weapon gives what a pickup gives, the magazine first
+(the shotgun's 3 and 3 as before; the chaingun's 30 and 30; the grenade
+launcher's 4 and 4; the railgun's 1 and 4).
+
+**The chaingun** fires while the trigger is held: the tick fires a round
+whenever its gap has passed (`wa_wtick`), each a TRACE as the pistol's. A
+press still fires at once.
+
+**The grenade** is the rocket's projectile (`wa_rks`, its type byte 1) with:
+
+- gravity on its climb, the player's (`WA_GRAV`);
+- each horizontal axis moved alone; a wall there sends it back at half its
+  speed. A wall is the room's edge, or a floor (`wa_floor` over every box)
+  more than `WA_GSTEP` (8) over it, so it rolls up a ramp and bounces off a
+  platform's side;
+- the floor stopping it, and bouncing it at half its fall, under a unit a
+  tick at rest; each bounce rubs a quarter off its roll;
+- a 2 s fuse (60 ticks), or a live figure met: a kill outright (the
+  rocket's direct hit), then the splash.
+
+It costs a rocket's drawing, and up to three `wa_floor` reads a tick while
+it lives. Four projectiles may be live at once (was 3).
+
+**The railgun's beam** is six overlay cells (`\`, bright cyan) from the
+barrel to the crosshair, the ray seen from the gun, for 6 ticks (0.2 s):
+the overlay is rebuilt when it starts and when it ends. Nothing is drawn
+when the railgun is not firing.
+
+**The new sprites**: the chaingun 13 cells, grey; the grenade launcher 9,
+magenta; the railgun 12, cyan. The magazine and reserve take 2 and 3 digits
+(the chaingun carries 120).
+
+**The new pickups' lines** (2.4's rule: lines for weapons; on mono the
+proportions tell them apart):
+
+| | half width | from–to | colour |
+|---|---|---|---|
+| chaingun | 28 | 4–14 | grey |
+| grenade launcher | 20 | 4–16 | magenta |
+| railgun | 40 | 4–8 | cyan |
+
+### 6.3 Weapon spawns
+
+A pickup's record carries a CHOICES byte (it was a pad): a bit a kind it
+may spawn as, 0 for a fixed pickup. arenagen writes the Heights arena's:
+
+- the ramp platform: the shotgun, the chaingun or the grenade launcher;
+- the tower: the rocket launcher or the railgun.
+
+Each time a spawn spawns - the match's start, and every respawn - the game
+picks one at random (`wa_pkroll`: an LCG seeded from the clock at the
+match's start) and writes it into its kind byte, and into the renderer's
+copy. That is the one ARENA byte G writes (wafb.inc says so). The benches
+take each spawn's first choice, so a run draws the same scene every time.
+arenagen refuses a spawn that chooses among anything but weapons.
+
+### 6.4 R: reload at any time
+
+A reload now TOPS UP: at its end the magazine takes what it has room for,
+out of the reserve, where before it was empty and took all. R starts one
+whenever the magazine is not full and there is a reserve (the pistol always
+has one). An empty magazine still reloads by itself.
+
+### 6.5 RAMP2, as the owner judged it
+
+RAMP2 dropped a ramp's low-end floor line AND its high end's top. The high
+end's top is the edge that closes the slope's columns (HEIGHTS-PLAN 7.4.2).
+Without it, the platform's face behind showed through the ramp. RAMP2 now
+drops the foot's line alone (`wl_lo`'s bit, `wrlow.inc`), which is the part
+the owner liked. Its key is Y; it is still in no detail level.
+
+### 6.6 Checked
+
+`waweapons` grew to cover the round (~23 s). It is green twice running.
+
+- **The dice**: 30 forced respawns of each spawn. The platform gave all
+  of {shotgun, chaingun, grenade launcher} and nothing else, the tower both
+  of {rockets, railgun}, and the renderer's kind always matched the game's.
+- **R**: the pistol at 3 back to 6; the shotgun at 1 and 3 to 3 and 1.
+- **The chaingun**: held, 10 rounds, a kill by the fall.
+- **A grenade** at the tower's face: back off the wall, up off the floor,
+  off on its fuse after 58 ticks. One into a dummy: a kill, the bits.
+- **The railgun**: two dummies in line, one shot, both dead; its beam 6
+  cells for its ticks, then gone.
+- **Y** toggles RAMP2.
+
+It is red with the dice fixed to the first choice (the dice check) and with
+R doing nothing (both R checks).
+
+The row's shots now stand each target dummy still, at a fixed open spot.
+Shooting "ahead of a walking dummy" missed whenever it turned a corner.
+
+**Bytes**: the renderer part 61,142 (+170 on round one: the shapes, the
+grenade's, the overlay's room; 3,882 left of 65,024); the game 11,321
+(+895); `WARENA.O88` 29,954.
+
+**Speed**: the benches as 3.3's "now", within 0.1 fps everywhere (P 20.1 /
+16.8; heights 40 13.2 / 14.9 / 33.1 / 12.6 / 26.1). Nothing new is drawn
+unless it is in hand or in flight, and the benches' spawns are 3.3's.
+
+**RAMP2 on the glass** (CGA, 40 columns): from in front of the south ramp
+and from its side, Y off against Y on. The pictures differ only in the
+foot's cells; the platform's face stays hidden behind the slope.

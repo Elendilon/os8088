@@ -32,8 +32,9 @@
 ; LOOK OPTIONS (the detail levels, wa_look - HEIGHTS-PLAN 9.11): FARTOP
 ; draws the far side of a box's top only with the eye WL_FARTOPV units or
 ; more above it (a word wa_lookset sets each frame: 0 when off, the same
-; arithmetic); RAMP2 (its own key) draws a ramp as its two sides alone (no
-; low-end edge, no high-end top), one byte test a flight. (r5's WL_NOPOSTS
+; arithmetic); RAMP2 (its own key, Y) draws a ramp without its low end's
+; floor line (its high end's top stays: it shuts the slope's columns), one
+; byte test a flight. (r5's WL_NOPOSTS
 ; and WL_NEARPOST, rejected by the owner, are gone.)
 WL_FARTOPV  equ 64
 
@@ -303,15 +304,13 @@ wa_lowbox:
     test byte [wl_kind], 3
     jz .cor
     call wl_flight0
-    test byte [wa_look], LK_RAMP2 ; (RAMP2: a ramp, not stepped, its two
-    jz .cor                     ; sides alone)
-    cmp word [wl_nt], 2
-    jae .cor
-    mov bl, [wl_lo]
+    test byte [wa_look], LK_RAMP2 ; (RAMP2: a ramp, not stepped, without
+    jz .cor                     ; its low end's floor line - its high end's
+    cmp word [wl_nt], 2         ; top stays: it closes the slope's columns,
+    jae .cor                    ; and without it the platform's face behind
+    mov bl, [wl_lo]             ; showed through - the owner, 2026-11-14)
     xor bh, bh
     mov al, [wl_bit+bx]
-    mov bl, [wl_hi]
-    or al, [wl_bit+bx]
     not al
     and [wl_front], al
     and [wl_topb], al

@@ -8645,19 +8645,21 @@ SOAK = [
         "off onto the tower, the lift home. Red on e9ca8cff: 14 failures.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
-    Row("waweapons", "soak", py("tests/waweapons.py"), 16.0,
+    Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "
-        "the game's own variables: the pistol kills in three (34 each) by "
-        "the fall; the shotgun on the ramp platform and the rocket launcher "
-        "on the tower are taken, held, loaded 3 and 3 and gone from the "
-        "arena; keys 1-3 select; one close shotgun shot kills, red as long "
-        "as it lies and by its COLLAPSE; a rocket flies (not instant), kills "
-        "the shielded dummy 0 outright into bits (GIB) and it is gone after; "
-        "a rocket into a wall close by hurts the player; the health and "
-        "shield packs fill to 100; a taken pickup returns after its time; "
-        "F1/F3 set the detail level. Red with the pickup reach broken (10 "
-        "checks) or the shotgun's death mapped to the rocket's (1).",
+        "the game's own variables: the weapon spawns' dice (every choice of "
+        "each, nothing else, the renderer's copy the same); the pistol kills "
+        "in three by the fall; R reloads at any time and tops a magazine up; "
+        "the shotgun kills close, red, by its COLLAPSE, and at medium range "
+        "draws nothing above the figure (the narrow path's unsigned multiply "
+        "once drew two lines into the sky); a rocket kills the shielded "
+        "dummy into bits, then it is gone, and its splash hurts the player; "
+        "the chaingun fires while held; a grenade comes back off a wall, "
+        "bounces and goes off on its fuse, and kills a dummy it meets; the "
+        "railgun pierces two dummies in line and shows its beam; the health "
+        "and shield packs; a pickup's return; F1/F3; Y. Red with the dice "
+        "fixed, R dead, the reach broken or a death mapped wrong.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 40.0,
