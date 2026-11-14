@@ -445,11 +445,6 @@ wa_frame_input:
     call wa_pbstart
     jmp .drain
 .bk:
-    cmp ah, 0x15                ; Y: a ramp without its foot's line (RAMP2,
-    jne .br                     ; its own key while the owner judges it)
-    xor byte [wa_look], LK_RAMP2
-    jmp .drain
-.br:
     cmp ah, 0x13                ; R: reload, at any time (WEAPONS-PLAN 6)
     jne .bn
     call wa_reload
@@ -3146,28 +3141,27 @@ wa_rretv:   dw wa_rret
 ; wa_rsync - the CONFIG section into the renderer part (after a mode set, a
 ; field-of-view change). Keeps every register but the flags.
 ; THE DETAIL LEVELS (docs/plans/WIREARENA-HEIGHTS-PLAN.md 9.11): per level,
-; Very Low to Very High, the options it turns on - wa_look's LK_ bits (RAMP2
-; apart: its own key), then the floor grid (G) and the stepped treads (T),
+; Very Low to Very High, the options it turns on - wa_look's LK_ bits, then
+; the floor grid (G) and the stepped treads (T),
 ; which their keys still override until the next level is chosen. Moving
 ; an option between levels is a change to this table and nothing else.
 WA_NLEV equ 5
 wa_levtab:
-    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST|LK_ROOMF|LK_FARTOP, 0, 0 ; 1 Very Low
-    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST, 0, 0                    ; 2 Low
+    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST|LK_ROOMF|LK_FARTOP|LK_RAMP2, 0, 0
+                                                                    ; 1 Very Low
+    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST|LK_RAMP2, 0, 0           ; 2 Low
     db LK_FEW|LK_ROUND|LK_COARSE, 0, 0                              ; 3 Medium
     db LK_FEW|LK_ROUND|LK_COARSE, 1, 0                              ; 4 High
     db 0, 1, 1                                                      ; 5 Very High
 
 ; wa_setlevel - AL = a level, 0..WA_NLEV-1: its options into the frame
-; block (wa_look keeps RAMP2, its own key's). Clobbers AX, BX
+; block. Clobbers AX, BX
 wa_setlevel:
     mov [wa_level], al
     mov bl, 3
     mul bl
     xchg ax, bx
-    mov al, [wa_look]
-    and al, LK_RAMP2
-    or al, [wa_levtab+bx]
+    mov al, [wa_levtab+bx]
     mov [wa_look], al
     mov al, [wa_levtab+bx+1]
     mov [wa_grid], al
@@ -3384,11 +3378,10 @@ wa_help:
     db 'Tab: 80/40; V: vsync; B: bench. P:', 0
     db 'play bench (8 s). F: view 90/75/60.', 0
     db 'F1-F5: detail, very low to very high', 0
-    db '(HUD). G: floor grid. T:', 0
-    db 'ramps as treads. Y: no ramp foot line.', 0
-    db 'L: no wall tops (debug). Esc leaves.', 0
-    db 'HUD: fps, frame, render, present ms,', 0
-    db 'video writes a frame.', 0
+    db '(HUD). G: floor grid. T: ramps as', 0
+    db 'treads. L: no wall tops (debug).', 0
+    db 'Esc leaves. HUD: fps, frame, render,', 0
+    db 'present ms, video writes a frame.', 0
     db 0
 
 ;               0         1         2         3

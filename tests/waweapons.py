@@ -27,7 +27,8 @@ of the kind follows the game's.
   - the railgun (key 6): one shot kills two dummies standing in line - it
     pierces - and its beam shows for a few ticks;
   - the health and shield packs; a taken pickup comes back after its time;
-  - F1 and F3 set the detail level; Y toggles RAMP2.
+  - F1-F5 set the detail level, RAMP2 on Very Low and Low alone; Y is no
+    longer its key.
 
 Each is a guest-memory assertion. `--shots DIR` writes a picture at each
 step.
@@ -464,16 +465,17 @@ def main():
         g.tick(600)
         check(g.arms()["pkon"] & 1, "the health pack back after its 20 s")
 
-        g.press("F1")
-        check(g.arms()["level"] == 0, "F1: the detail level Very Low")
-        g.press("F3")
-        check(g.arms()["level"] == 2, "F3: Medium")
-        l0 = g.arms()["look"] & 32
+        ramp2 = {}
+        for k, lv in (("F1", 0), ("F2", 1), ("F3", 2), ("F4", 3), ("F5", 4)):
+            g.press(k)
+            s = g.arms()
+            ramp2[lv] = (s["level"], bool(s["look"] & 32))
+        check(ramp2 == {0: (0, True), 1: (1, True), 2: (2, False),
+                        3: (3, False), 4: (4, False)},
+              "F1-F5: the detail levels, RAMP2 on Very Low and Low alone "
+              "(%r)" % ramp2)
         g.press("KeyY")
-        l1 = g.arms()["look"] & 32
-        g.press("KeyY")
-        check(l0 == 0 and l1 == 32 and g.arms()["look"] & 32 == 0,
-              "Y: RAMP2 on and off")
+        check(not g.arms()["look"] & 32, "Y: no key of its own any more")
 
     if fails:
         print("waweapons: FAIL - %d of the round's checks:" % len(fails))

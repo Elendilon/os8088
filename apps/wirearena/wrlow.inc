@@ -32,7 +32,7 @@
 ; LOOK OPTIONS (the detail levels, wa_look - HEIGHTS-PLAN 9.11): FARTOP
 ; draws the far side of a box's top only with the eye WL_FARTOPV units or
 ; more above it (a word wa_lookset sets each frame: 0 when off, the same
-; arithmetic); RAMP2 (its own key, Y) draws a ramp without its low end's
+; arithmetic); RAMP2 (Low and Very Low) draws a ramp without its low end's
 ; floor line (its high end's top stays: it shuts the slope's columns), one
 ; byte test a flight. (r5's WL_NOPOSTS
 ; and WL_NEARPOST, rejected by the owner, are gone.)

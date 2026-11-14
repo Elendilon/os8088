@@ -2427,7 +2427,9 @@ The options, a bit each in `wa_look` (LK_ in `waconst.inc`):
   64 or more above it. The owner was unsure, so it is at Very Low alone for
   now.
 - **RAMP2** (`r5-low`): a ramp drawn as its two sides. "Likely ok": it has
-  its **own key, R**, is in no level, and is off by default.
+  its **own key, R**, is in no level, and is off by default. *Since
+  (WIREARENA-WEAPONS-PLAN 6.5, 6.7): it drops the ramp's foot line alone,
+  and it is on at Very Low and Low, with no key of its own.*
 
 **Dropped:**
 
@@ -2550,7 +2552,8 @@ view A; the session's scratch, `r5/walls/lv/vids/`):
    plan's.
 6. **The detail levels** (9.11): the owner re-reviews the labelled videos;
    moving an option between levels is a line of `wa_levtab`. FARTOP sits
-   at Very Low for now, and RAMP2 has its own key (R).
+   at Very Low for now. RAMP2 is on at Very Low and Low
+   (WIREARENA-WEAPONS-PLAN 6.7).
 7. **Wave 4's remainder** (6): dummies on lifts, more than one lift, the
    host reference's raised lift. The walking runs of 9.7.3 are scratch
    scripts; as suite rows they belong in `soak`

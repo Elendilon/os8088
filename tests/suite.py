@@ -8658,7 +8658,8 @@ SOAK = [
         "the chaingun fires while held; a grenade comes back off a wall, "
         "bounces and goes off on its fuse, and kills a dummy it meets; the "
         "railgun pierces two dummies in line and shows its beam; the health "
-        "and shield packs; a pickup's return; F1/F3; Y. Red with the dice "
+        "and shield packs; a pickup's return; F1-F5, RAMP2 on Very Low and "
+        "Low alone. Red with the dice "
         "fixed, R dead, the reach broken or a death mapped wrong.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),

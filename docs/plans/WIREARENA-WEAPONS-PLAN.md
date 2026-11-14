@@ -411,7 +411,7 @@ did not."*
 |---|---|
 | **1–6** | pistol, shotgun, chaingun, grenade launcher, rocket launcher, railgun (each once picked up, while it has anything to fire) |
 | **R** | reload now: a magazine not full tops up from the reserve (the pistol's is endless); nothing while one is under way |
-| **Y** | RAMP2 (was R): a ramp without its foot's line - see 6.5 |
+| ~~Y~~ | RAMP2 (was R): a ramp without its foot's line - see 6.5; since 6.7 on at Low and Very Low, and no key |
 | **F1–F5** | the detail level, as before |
 
 ### 6.2 The weapons
@@ -547,3 +547,16 @@ unless it is in hand or in flight, and the benches' spawns are 3.3's.
 **RAMP2 on the glass** (CGA, 40 columns): from in front of the south ramp
 and from its side, Y off against Y on. The pictures differ only in the
 foot's cells; the platform's face stays hidden behind the slope.
+
+### 6.7 RAMP2 joins the detail levels (2026-11-14)
+
+The owner: *"It can go on Low and Very Low, then. And we can take out its
+own custom key after that."*
+
+- `wa_levtab` carries `LK_RAMP2` on levels 1 and 2. A level now sets
+  `wa_look` whole (`wa_setlevel` no longer keeps a key's bit).
+- The Y key is gone. RAMP2 has no key of its own.
+- At Low and Very Low the heights views gain what 6.5 measured: ~1.7 ms at
+  A and D, 0.5 at B. Medium and above draw as before.
+- `waweapons` checks F1–F5 set RAMP2 on Very Low and Low alone, and that Y
+  does nothing.
