@@ -1,5 +1,6 @@
 #!/bin/bash
-# Rename this cloud session's generated branch after its request (fork rule 9).
+# Rename this cloud session's generated branch after its request (fork rule 9;
+# tools/session-sync.sh says when).
 #   tools/session-branch.sh <slug>
 # claude/charming-goodall-plll24 + "wireball-serve-fix"
 #   -> claude/wireball-serve-fix-plll24   (the suffix keeps the session link)

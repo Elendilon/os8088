@@ -1,5 +1,8 @@
 #!/bin/bash
-# SessionStart hook for Claude Code cloud sessions (fork rule 9, CLAUDE.md).
+# First command of every Claude Code cloud session in this fork (fork rule 9,
+# CLAUDE.md / AGENTS.md):  tools/session-sync.sh
+# Deliberately NOT a SessionStart hook: upstream refuses start hooks, and the
+# fork section of CLAUDE.md is lifted out for upstream PRs - take this file too.
 #
 # 1. SYNC. A cloud container's checkout can be a cached snapshot, older than
 #    the branch on GitHub. Fetch the session's branch (or, for a brand-new
@@ -11,25 +14,21 @@
 #    empty, tell the agent to rename it after the request with
 #    tools/session-branch.sh.
 #
-# Whatever it prints on stdout is added to the session's context. It runs on
-# every start, resume, clear and compact, so it does no more than a fetch.
+# Run it at the start of a session and again after a resume. It only fetches
+# and fast-forwards, so it is cheap to run whenever in doubt.
 set -uo pipefail
 
-[ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
-cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 
-input=$(cat 2>/dev/null || true)
-source=$(printf '%s' "$input" | sed -n 's/.*"source" *: *"\([a-z]*\)".*/\1/p')
-
 branch=$(git branch --show-current)
-[ -n "$branch" ] || { echo "session-start: HEAD is detached; no sync done."; exit 0; }
+[ -n "$branch" ] || { echo "session-sync: HEAD is detached; no sync done."; exit 0; }
 
 default=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
 default=${default#origin/}
 [ -n "$default" ] || default=elendilon
 
-say() { echo "session-start: $*"; }
+say() { echo "session-sync: $*"; }
 
 # Fetch. A shallow clone fetches just what connects to what it already has.
 if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
@@ -74,8 +73,8 @@ fi
 [ "$remote_has_branch" = 1 ] && git branch --quiet --set-upstream-to="origin/$branch" "$branch" 2>/dev/null
 
 # The generated-name check: a fresh session branch, never pushed, nothing on it.
-if [ "$source" != "resume" ] && [ "$remote_has_branch" = 0 ] && [ "$local_only" = 0 ] \
+if [ "$remote_has_branch" = 0 ] && [ "$local_only" = 0 ] \
    && [[ "$branch" =~ ^claude/[a-z]+-[a-z]+-[a-z0-9]{4,8}$ ]]; then
-    say "this session's branch '$branch' has a GENERATED name. Fork rule 9: before the first commit, rename it after the user's request with  tools/session-branch.sh <short-slug>  (e.g. tools/session-branch.sh wireball-serve-fix), then commit and push to the new name. Its random suffix is kept so the branch still matches this session."
+    say "this session's branch '$branch' has a GENERATED name. Fork rule 9: before the first commit, rename it after the request with  tools/session-branch.sh <short-slug>  (e.g. tools/session-branch.sh wireball-serve-fix), then push to the new name."
 fi
 exit 0
