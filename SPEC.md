@@ -231097,6 +231097,31 @@ Compaq lists them in its SETUP's order rather than IBM's.
 | 1 | Close | restores UART/PIC state, releases the lease and drops the module; succeeds if already closed; a foreign lease returns busy |
 | 2 | Read | CF=0 AL=byte, AH=line/overflow status accumulated since the preceding Read; CF=1 AX=6 if empty |
 | 3 | Write | CL=byte; CF=0 AX=0 queued; CF=1 AX=7 if the TX queue is full |
+| 4 | Write block | SI=offset of CX bytes in the leased region (the buffer's segment); as many as the TX ring has room for are queued, in order, then the transmitter is started once; CF=0 AX=how many were taken (0..CX) |
+| 5 | Read block | DI=offset of room for CX bytes in the leased region; up to CX received bytes are moved there, in order; CF=0 AL=how many (0..255), AH=line/overflow status accumulated since the preceding Read of either kind |
+
+#### 115.1.2 The block verbs
+
+Verbs 4 and 5 move a run of bytes in one call. A Write or Read is one
+call per byte, and on a 4.77 MHz 8088 that call is ~2,700 cycles through
+the X cell, the module's banking and `srl_pump`. A game sending a 24-byte
+snapshot six times a second and receiving as many spent ~110,000 cycles a
+frame there (docs/plans/WIREARENA-LINK-PLAN.md 11.2), about a quarter of
+the frame. A block verb pays that once a run and ~40 cycles a byte.
+
+- A run is stored, then its index is published once: the producer index
+  advanced after its bytes are there, as Write does for one. Interrupts
+  are off for the whole verb, so no reader sees a part of a run. The move
+  is a `rep movsb` up to the ring's wrap and another from 0.
+- Read block pumps first, as Read does: a missed IRQ edge strands nothing.
+- Both run with interrupts disabled, as every verb does. A run is at most
+  255 bytes, so the interrupt-off time is bounded: ~250 us for 30 bytes.
+- An application that must also run on an older `SERIAL.DRV` tests the
+  first block call: an older module answers CF=1 AX=5, as for any verb it
+  does not know, and the per-byte verbs are the fallback.
+  `apps/os88cable.inc` does exactly this.
+- **No resident byte**: both verbs are module code. The X cell and its
+  thunks are unchanged.
 
 Open by the instance that already holds the lease MOVES it (§114.9): the
 held port is restored and released exactly as Close would, the module stays

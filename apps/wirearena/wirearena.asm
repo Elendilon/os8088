@@ -680,6 +680,7 @@ wa_keys:
 
 wa_tick:
     call wa_lktick              ; (a linked match: the cable, LINK-PLAN 4.2)
+.c_lk:                          ; (tools' stop: the link's cost)
     mov al, [wa_frame]          ; this frame's first tick polls the keys
     cmp al, [wa_kfr]
     je .polled
@@ -1317,8 +1318,8 @@ wa_bacc:    db 45,  60,    75   ; % at 4 m, the player standing
 wa_bthink:
     cmp byte [wa_bdet], 0
     jne .out
-    cmp byte [wa_lkon], 0       ; (a linked match: no bots, L1)
-    jne .out
+    call wa_lkremote            ; (linked: only the host thinks, for its
+    je .out                     ; own bots)
     cmp byte [di+F_DEAD], 0
     jne .out
     mov ax, [wa_tkn]            ; its turn to look: (tick + index x 3) & 7,
@@ -2128,6 +2129,7 @@ wa_blaunch:
     mov ax, 16000
 .vz:
     mov [di+RG_VZ], ax
+    call wa_lkqfire             ; (linked: the host's bot's FIRE)
     pop di
     ret
 
@@ -2274,6 +2276,7 @@ wa_btake:
     mov ax, [wa_pkresp+bx]
     pop bx
     mov [wa_pkt+bx], ax
+    call wa_lkpktaken           ; (linked: the host's bot's TAKE)
     pop bx
 .n:
     inc dx
@@ -2474,11 +2477,21 @@ wa_figz:
 %include "wasin.inc"
 ; wa_figtick - DI = a figure: one 30 Hz step of its patrol and its animation
 wa_figtick:
-    cmp byte [wa_lkon], 0       ; A LINKED MATCH (L1): figure 0 the other
-    je .solo                    ; player, the bots off the board
-    cmp di, wa_figs
-    jne .off
-    jmp wa_lkfig
+    cmp byte [wa_lkon], 0       ; A LINKED MATCH (LINK-PLAN 6, 8): a bot
+    je .solo                    ; the match has none of off the board; a
+    call wa_lkabsent            ; figure the other machine owns drawn from
+    je .off                     ; its record; the host's own bots its own
+    call wa_lkremote
+    jne .solo
+    push si
+    call wa_bidx
+    mov ah, WR_SZ
+    mul ah
+    add ax, wa_lkr
+    mov si, ax
+    call wa_lkfig
+    pop si
+    ret
 .off:
     mov byte [di+F_DEAD], 250
     mov byte [di+F_NFR], 0
@@ -3095,8 +3108,7 @@ wa_launch:
     mov [di+RG_YF], ax
     mov [di+RG_ZF], ax
     mov word [di+RG_LIFE], WA_RKLIFE
-    mov al, [wa_lown]           ; (the player's, or the other player's:
-    mov [di+RG_OWN], al         ; walink.inc's FIRE)
+    mov byte [di+RG_OWN], 0     ; (the player's)
     mov ax, [wa_ang]
     mov cl, 6
     shr ax, cl
@@ -3125,11 +3137,7 @@ wa_launch:
     add ax, WA_GLOB
 .vzd:
     mov [di+RG_VZ], ax
-    cmp byte [wa_lown], 0       ; ours, in a linked match: FIRE
-    jne .out
-    jmp wa_lkqfire
-.out:
-    ret
+    jmp wa_lkqfire              ; (linked: FIRE)
 
 ; wa_hurt - DI = a figure, AL = damage, AH = the weapon's kill (0..2): its
 ; shield takes it first, then its health; at 0 it dies, by that weapon's
@@ -3137,14 +3145,27 @@ wa_launch:
 wa_hurt:
     cmp byte [di+F_DEAD], 0
     jne .out
-    cmp byte [wa_lkon], 0       ; THE OTHER PLAYER (LINK-PLAN 3): the
-    je .here                    ; shooter judges - its damage on the wire,
-    cmp di, wa_figs             ; the flinch here, no health changed
-    jne .here
-    push ax
+    call wa_lkremote            ; THE OTHER MACHINE'S (LINK-PLAN 3): the
+    jne .here                   ; shooter judges - the damage on the wire,
+    cmp di, wa_figs             ; the flinch here, no health changed: the
+    jne .rbot                   ; other player's in the damage word, with
+    push ax                     ; who dealt it
     xor ah, ah
     add [wa_lkdout], ax
+    mov al, [wa_killer]
+    mov [wa_lkattr], al
     pop ax
+    jmp .rfl
+.rbot:
+    push bx                     ; (the guest's hit on a host's bot: that
+    mov bx, di                  ; bot's damage byte)
+    sub bx, wa_figs + F_SIZE
+    jz .b0
+    mov bx, 1
+.b0:
+    add [wa_lkbd+bx], al
+    pop bx
+.rfl:
     mov byte [di+F_FLASH], 5
     jmp .flinch
 .here:
@@ -3193,6 +3214,12 @@ wa_kill:
 ; wa_dieanim - DI = a figure, AH = its kill: dead by it (no score: the
 ; other player's death, walink.inc, comes this way too). Keeps all but AX
 wa_dieanim:
+    cmp byte [wa_lkon], 0       ; (linked, a bot of OURS - the host's: who
+    je .an                      ; killed it. A figure the other machine
+    call wa_lkremote            ; owns is counted there; our player's
+    je .an                      ; death is counted in wa_phurt)
+    call wa_lkbdeath
+.an:
     mov [di+F_KILL], ah
     mov byte [di+F_SH], 0
     mov byte [di+F_HP], 0
@@ -3238,7 +3265,6 @@ wa_phurt:
     xor bh, bh
     or bl, bl
     jnz .credit
-    inc byte [wa_lksui]         ; (linked: SCORE takes these off)
     cmp byte [wa_kills], 0
     je .tone
     dec byte [wa_kills]
@@ -3246,6 +3272,7 @@ wa_phurt:
 .credit:
     inc byte [wa_kills+bx]
 .tone:
+    call wa_lkdeath             ; (linked: the deaths by cause, the board)
     mov ax, 90
     mov cx, 6
     mov dl, 0x40
@@ -3556,11 +3583,8 @@ wa_rkhit:
     js .fn
     cmp ax, 120
     jg .fn
-    cmp byte [wa_lkon], 0       ; (the other player: it goes off, and the
-    je .kill                    ; other machine judges it - LINK-PLAN 3)
-    cmp di, wa_figs
-    je .met
-.kill:
+    call wa_lkremote            ; (the other machine's: it goes off, and
+    je .met                     ; that machine judges it - LINK-PLAN 3)
     mov ah, 2
     call wa_kill
 .met:
@@ -3639,11 +3663,8 @@ wa_boom:
     mov dx, [di+F_Z]
     call wa_reach
     jae .fn
-    cmp byte [wa_lkon], 0       ; (the other player's splash is its own
-    je .near                    ; machine's to judge)
-    cmp di, wa_figs
-    je .fn
-.near:
+    call wa_lkremote            ; (the other machine's figures: its own
+    je .fn                      ; to judge)
     push cx
     mov ah, 2
     call wa_hurt
@@ -5069,7 +5090,7 @@ wa_tpl:
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
         OS88_MENU wa_m_game, wa_i_game, 9
-        OS88_MENU wa_m_link, wa_i_link, 5
+        OS88_MENU wa_m_link, wa_i_link, 8
     OS88_MENUSET_END wa_menus
 
 wa_name:
@@ -5077,6 +5098,10 @@ wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
 wa_m_link:  db 'Link', 0
 wa_i_link:  dw wa_il_auto, wa_il_c1, wa_il_c2, wa_il_off, wa_il_rdy
+            dw wa_il_b0, wa_il_b1, wa_il_b2
+wa_il_b0:   db 'No bots', 0
+wa_il_b1:   db 'One bot', 0
+wa_il_b2:   db 'Two bots', 0
 wa_il_auto: db 'Automatic', 0
 wa_il_c1:   db 'Connect COM1', 0
 wa_il_c2:   db 'Connect COM2', 0
@@ -5204,6 +5229,8 @@ WA_VAR wa_bdist,2
 WA_VAR wa_bfig,2                 ; wa_blaunch's bot
 WA_VAR lk_blk,LK_SIZE             ; THE LINK (walink.inc, os88cable.inc)
 WA_VAR lk_sbuf,SER_BUFFER_SIZE     ; the lease's rings: in our own region
+WA_VAR lk_crct,512                 ; the CRC's table
+WA_VAR wa_lkpf,1                   ; the frame the cable was last read in
 WA_VAR wa_lkid,4                   ; our identity, and the peer bound
 WA_VAR wa_lkpeer,4
 WA_VAR wa_lkst,1                   ; our lobby state (0, 1 ready, 2 in), its
@@ -5231,17 +5258,20 @@ WA_VAR wa_lkqt,2
 WA_VAR wa_lkq,WL_EVQ*WL_EVSZ
 WA_VAR wa_lkev,WL_EVSZ
 WA_VAR wa_lkfr,LK_MAXF             ; a body being built
-WA_VAR wa_lkrx,2                   ; the other player as its SNAP said
-WA_VAR wa_lkry,2
-WA_VAR wa_lkrz,2
-WA_VAR wa_lkra,2
-WA_VAR wa_lkrf,1
-WA_VAR wa_lksui,1                  ; our suicides; how we died (0..2)
-WA_VAR wa_lkpkk,1
+WA_VAR wa_lkr,WR_SZ*WA_NFIG       ; each remote figure as its SNAP said
+WA_VAR wa_lkpkk,1                  ; how we died (0..2)
+WA_VAR wa_lkbots,1                 ; the lobby's bots; the match's
+WA_VAR wa_lknb,1
+WA_VAR wa_lkme,1                   ; who we are on the wire: 0 host, 1 guest
+WA_VAR wa_lkattr,1                 ; who dealt the damage word's last
+WA_VAR wa_lkhby,1                  ; ...and who the other's last says hurt us
+WA_VAR wa_lkbd,2                   ; the guest's hits on the two bots, and
+WA_VAR wa_lkbdin,2                 ;   the host's last seen of them
+WA_VAR wa_lkd,16                   ; deaths by cause: [dead][cause], codes
+                                   ;   on the wire
 WA_VAR wa_lkpnam,8                 ; its name
 WA_VAR wa_lkln,WL_COLS+1           ; a window row, and the rows as drawn
 WA_VAR wa_lkcache,WL_ROWS*WL_COLS
-WA_VAR wa_lown,1                   ; wa_launch's owner: 0 us, 1 the other
 WA_VAR wa_grudge,WA_NFIG          ; each bot's grudge against the player, ticks
 WA_VAR wa_tx,2                   ; a bot's target: where, its chest's
 WA_VAR wa_ty,2                   ;   height (wa_btpos)

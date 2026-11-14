@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "7a16cbe6c853f024bd048d4c4e8e55f62c3f6189ec20a9afb2cc2a8773419b4c",
+  "fingerprint": "e04da3ba707c6d6107a7d857c90bb58f23a83530730b16682fafad5fb1fb0620",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "a4a157e5a466e74bdee722c122551a280041236b9d4b39d6f3d1a17fc34c0187",
+  "fingerprint": "44eea6c7d9c5309ddc44adfb56c204e46a723b6ea091968871edb17fb1e50ef7",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2294,6 +2294,20 @@
    "from": 14,
    "guard": "DRV_VER",
    "reason": "OSAPI_KEY_MAP (SPEC.md 9.7.3): a jump cell APPENDED at 0x0239 that copies the whole key-state map to DS:DI, with KEYMAP_BYTES/KEYMAP_TEST in the SDK and os88_key_map/OS88_KEYMAP_* in the C SDK. Nothing built before it moves or changes meaning, and no kernel at PKG_FMT 13 has been released, so no bump.",
+   "to": 14
+  },
+  {
+   "fingerprint": "44eea6c7d9c5309ddc44adfb56c204e46a723b6ea091968871edb17fb1e50ef7",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SERIAL gains verbs 4 Write block and 5 Read block (SPEC.md 115.1.2): additive, an older SERIAL.DRV answers them CF=1 AX=5 and callers fall back to the per-byte verbs",
+   "to": 13
+  },
+  {
+   "fingerprint": "e04da3ba707c6d6107a7d857c90bb58f23a83530730b16682fafad5fb1fb0620",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SERIAL gains verbs 4 Write block and 5 Read block (SPEC.md 115.1.2): additive, an older SERIAL.DRV answers them CF=1 AX=5 and callers fall back to the per-byte verbs",
    "to": 14
   }
  ]

@@ -28,6 +28,7 @@
 ; The includer provides:
 ;   lk_blk     LK_SIZE bytes of state (its bss)
 ;   lk_sbuf    SER_BUFFER_SIZE bytes in its own region: the lease's rings
+;   lk_crct    512 bytes: the CRC's table, built when a port is opened
 ;   lk_lens    a byte per type, the body's length with its CRC (0: no such
 ;              type); LK_NTYPES the table's length
 ;   lk_take    called with AL = the type and SI = a valid body (length and
@@ -59,9 +60,12 @@ LK_STRX     equ 22              ; (w) bytes received
 LK_STERR    equ 24              ; (w) ...with a line error or an overflow
 LK_STFR     equ 26              ; (w) valid frames
 LK_STBAD    equ 28              ; (w) frames dropped
+LK_OLD      equ 9               ; 1: the module has no block verbs (115.1.2)
 LK_RXB      equ 30              ; LK_MAXF bytes: the body being received
 LK_TXB      equ LK_RXB + LK_MAXF ; LK_TXMAX bytes: framed bytes waiting
-LK_SIZE     equ LK_TXB + LK_TXMAX
+LK_RXT      equ LK_TXB + LK_TXMAX ; LK_RXTMAX bytes: a Read block's run
+LK_RXTMAX   equ 64
+LK_SIZE     equ LK_RXT + LK_RXTMAX
 
 ; lk_auto - Link > Automatic: search both ports, starting now. Keeps all
 ; but AX
@@ -142,7 +146,9 @@ lk_lease:
     call OSAPI_SERIAL
     jc .refused
     mov byte [lk_blk+LK_OPEN], 1
+    call lk_crcinit
     xor ax, ax
+    mov [lk_blk+LK_OLD], al
     mov [lk_blk+LK_HEARD], al
     mov [lk_blk+LK_RLEN], al
     mov [lk_blk+LK_RESC], al
@@ -272,6 +278,40 @@ lk_refusal:
 lk_poll:
     cmp byte [lk_blk+LK_OPEN], 0
     je .out
+    cmp byte [lk_blk+LK_OLD], 0
+    jne .rx
+    cmp cx, LK_RXTMAX           ; READ BLOCK (115.1.2): the run in one call
+    jbe .n
+    mov cx, LK_RXTMAX
+.n:
+    mov di, lk_blk+LK_RXT
+    mov al, 5
+    call OSAPI_SERIAL
+    jc .old
+    or ah, ah
+    jz .clean
+    inc word [lk_blk+LK_STERR]  ; (a line error or an overflow in the run:
+    mov byte [lk_blk+LK_RLEN], 255 ; the frame under way is not trusted)
+    mov byte [lk_blk+LK_RESC], 0
+.clean:
+    xor ah, ah
+    mov cx, ax
+    jcxz .flush
+    add [lk_blk+LK_STRX], ax
+    mov si, lk_blk+LK_RXT
+.blk:
+    lodsb
+    push cx
+    push si
+    call lk_byte
+    pop si
+    pop cx
+    loop .blk
+.flush:
+    jmp lk_flush
+.old:
+    mov byte [lk_blk+LK_OLD], 1 ; (an older SERIAL.DRV: a byte a call)
+    mov cx, 16
 .rx:
     push cx
     mov al, 2
@@ -386,7 +426,9 @@ lk_send:
     push si
     push cx
     mov ax, 0xFFFF
+.c0:                            ; (tools' stops: the CRC's cost)
     call lk_crc
+.c1:
     mov dx, ax                  ; DX = the CRC
     pop cx
     pop si
@@ -429,10 +471,27 @@ lk_send:
     stosb
     ret
 
-; lk_flush - framed bytes into the lease's TX ring until it is full.
-; Changes AX, BX, CX
+; lk_flush - framed bytes into the lease's TX ring until it is full: one
+; Write block, or a Write a byte on an older module. Changes AX, BX, CX
 lk_flush:
     mov bx, [lk_blk+LK_TXPOS]
+    cmp byte [lk_blk+LK_OLD], 0
+    jne .b
+    mov cx, [lk_blk+LK_TXLEN]   ; WRITE BLOCK (115.1.2): what waits, in one
+    sub cx, bx                  ; call
+    jbe .out
+    push si
+    lea si, [lk_blk+LK_TXB+bx]
+    mov al, 4
+.c0:                            ; (tools' stops: a Write's cost)
+    call OSAPI_SERIAL
+.c1:
+    pop si
+    jc .wold
+    add bx, ax
+    jmp .out
+.wold:
+    mov byte [lk_blk+LK_OLD], 1
 .b:
     cmp bx, [lk_blk+LK_TXLEN]
     jae .out
@@ -447,22 +506,52 @@ lk_flush:
     ret
 
 ; lk_crc - CRC-16/CCITT-FALSE: AX the seed, SI the bytes, CX the count. AX
-; the CRC, SI past them. Changes CX, DX
+; the CRC, SI past them. A byte a table lookup (lk_crct): ~40 cycles where
+; the bit loop was ~400 (LINK-PLAN 11.2). Changes CX
 lk_crc:
     jcxz .out
+    push bx
 .byte:
-    xor ah, [si]
+    mov bl, ah
+    xor bl, [si]
     inc si
-    mov dl, 8
+    xor bh, bh
+    shl bx, 1
+    mov ah, al
+    xor al, al
+    xor ax, [lk_crct+bx]
+    loop .byte
+    pop bx
+.out:
+    ret
+
+; lk_crcinit - lk_crct: each byte's CRC step, from the polynomial 1021h
+lk_crcinit:
+    push ax
+    push bx
+    push cx
+    push dx
+    xor bx, bx
+.t:
+    mov ah, bl
+    xor al, al
+    mov cx, 8
 .bit:
     shl ax, 1
-    jnc .next
+    jnc .nx
     xor ax, 0x1021
-.next:
-    dec dl
-    jnz .bit
-    loop .byte
-.out:
+.nx:
+    loop .bit
+    mov dx, bx
+    shl bx, 1
+    mov [lk_crct+bx], ax
+    mov bx, dx
+    inc bl
+    jnz .t
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 lk_errs:    dw lk_m_search, lk_m_busy, lk_m_mouse, lk_m_mport, lk_m_none

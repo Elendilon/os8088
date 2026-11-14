@@ -246,6 +246,9 @@ no link it shows the help text as now.
 
 ## 8. L2: the host's bots
 
+*(As drafted. What was built differs, and section 11.2 says how: the bots'
+places ride the host's snapshot instead of being walked on the guest.)*
+
 - **Two bots**, figures 1 and 2. They are the host's: the host runs
   `wa_bthink` as now, with **both players as targets**. Figure 0 is the
   guest's player, so the host's bots see and shoot it.
@@ -294,19 +297,19 @@ no link it shows the help text as now.
 - [x] **L1.6 Faults**: garbage bytes, a truncated frame, a pulled cable for
   3 s. **Verify**: no state changes on garbage; LINK LOST, then the match
   resumes.
-- [ ] **L1.7 Cost**: the link's cycles a frame on MartyPC; the frame rate
+- [x] **L1.7 Cost**: the link's cycles a frame on MartyPC; the frame rate
   in a linked match against alone.
 
 ### L2: the host's bots
 
-- [ ] **L2.1 BOT events**: edge, state and target, shot, death and
+- [x] **L2.1 BOT events**: edge, state and target, shot, death and
   respawn, from the host.
-- [ ] **L2.2 The guest walks them**: the same edges, the same speed, turns
+- [x] **L2.2 The guest walks them**: the same edges, the same speed, turns
   toward their target; corrected by the next event.
-- [ ] **L2.3 HITBOT**: the guest's hits on bots, applied by the host.
-- [ ] **L2.4 Two bots, both players their targets**; the lobby's Bots item
+- [x] **L2.3 HITBOT**: the guest's hits on bots, applied by the host.
+- [x] **L2.4 Two bots, both players their targets**; the lobby's Bots item
   (0..2).
-- [ ] **L2.5 The budget measured**; SNAP at 7.5 Hz if it must.
+- [x] **L2.5 The budget measured**; SNAP at 7.5 Hz if it must.
 
 ### L3: after
 
@@ -399,3 +402,114 @@ judged from FIRE, not from the word.
 **Not yet**: names entered by the players (a robot name and four hex
 digits for now), the 86Box pair (L3.2), kern_mega (L3.3), WireFleet on the
 shared include (L3.1).
+
+### 11.2 L2: the host's bots, and what the link costs (2026-11-14)
+
+**Built differently from section 8, and simpler.** Section 8 had the guest
+walk each bot along the route graph, told only the decisions. That needs
+the route walk kept in step on two machines, the lift too (each machine's
+lift moves for its own riders). The budget showed it was not needed:
+
+- **The host's SNAP carries its bots** (HSNAP, type 5, 22 bytes + CRC):
+  per bot x / 8, y / 8, facing / 4 and a flags byte (alive, firing,
+  shield, death's kind). The guest draws them exactly as it draws the
+  other player (`wa_lkfig`, a record per figure), their height the floor's
+  where they stand.
+- **With bots, SNAP drops to 6 Hz** (every 5th tick), the step section 2
+  allowed for.
+- **The damage word says who dealt it** (HSNAP byte 13): the host's
+  player or one of its bots. So a bot's kill of the guest is that bot's.
+- **The guest's hits on the bots** ride two cumulative damage bytes in its
+  own snapshot (GSNAP, type 6). The host applies them as damage by figure
+  0, so a bot shot by the guest turns on it (`wa_bstruck`), and its kill
+  is the guest's.
+- **FIRE carries the projectile's velocity** (EVENT grew to 13 bytes of
+  payload). A bot's rocket is aimed at its target's chest, not along a
+  yaw and pitch, so its flight is sent as it left. The guest flies the
+  host's bots' rockets, owned there by the same bot. The victim's machine
+  still judges every projectile.
+- **The score is a table of deaths by cause** (D[dead][cause], the four
+  codes on the wire: host 0, guest 1, the bots 2 and 3). Each machine
+  counts the deaths it owns: its player's, and on the host its bots'.
+  SCORE sends the sender's row, and BSCORE (type 7) the host's two bot
+  rows. Each machine builds the board from the table: a death to each, a
+  kill to its cause, a kill less for a suicide. L1's "deaths by you" was
+  this table's first row.
+- **Bots: 0, 1 or 2**, the host's choice on the Link menu (No bots, One
+  bot, Two bots; 2 by default), shown in the lobby. The difficulty is the
+  host's Game menu choice, as in L1.
+
+**What the link cost, and what was done about it** (MartyPC, the 5150 on
+CGA, a host match with two bots faked on one machine: the lease open on
+COM2, nothing on the cable, so TX is real and RX is empty):
+
+| | `wa_lktick` a frame | of the frame |
+|---|---|---|
+| first build: a Write a byte, a bit-at-a-time CRC | 81,681 cycles | 17.4% |
+| + SERIAL.DRV's block verbs (SPEC.md 115.1.2), a table CRC | 22,695 | 5.5% |
+| + the blocks moved with `rep movsb`, the cable read once a frame | 17,545 | 4.2% |
+
+- **One Write was 2,729 cycles**: the X cell, the module's banking and
+  `srl_pump`, for one byte. A 24-byte snapshot was 24 of them, and
+  receiving would have been as many again: about a quarter of the frame.
+  `OSAPI_SERIAL` gains **Write block (4)** and **Read block (5)**. They
+  are module code, so no resident byte is added. An older SERIAL.DRV
+  answers them "bad verb", and `os88cable.inc` then falls back to a byte
+  a call (the row checks that fallback). A block Write is now 3,500
+  cycles for a whole snapshot.
+- **The CRC was 400 cycles a byte** bit by bit; with a 512-byte table,
+  built into bss when a port opens, it is ~95.
+- **An empty Read block is ~2,800 cycles**, so the cable is read on a
+  frame's first tick only. The receive ring holds a second of traffic.
+- **Receiving is estimated, not measured**: one Read block a frame, ~25
+  bytes moved, the framer, and a CRC per frame. That adds ~5,000 to 7,000
+  cycles, for a linked frame of about 5.5% on the link. MartyPC cannot
+  feed one machine's bytes to another. A pair of 86Box XTs (L3.2) or the
+  iron is where both halves can be timed together.
+
+**The budget, counted** (QEMU's bytes on the wire against the game's own
+sim ticks, which keep real time on the iron): no bots 191 / 179 bytes a
+sim second (host / guest), two bots 162 / 123, of 2400 baud's 240.
+
+**Checked**: `tests/walink.py`, now ~32 s: L1's checks, plus
+- the budget in both matches;
+- an older SERIAL.DRV (block verbs refused): a byte a call, the other
+  machine still sees it move;
+- L2: Esc on both and a second match with two bots; the host's bots on
+  the guest where the host has them (within a few units); the guest's
+  pistol kills the host's bot 1, and both boards agree after BSCORE (the
+  guest's kill, bot 1's death); the host's bot 2, engaged on figure 0,
+  shoots the guest, hurt on the guest's machine by bot 2.
+
+**Found in the final pass**:
+
+- **Every event was being sent twice.** With bots, an ack's round trip is
+  a SNAP period (5 ticks), the bytes on the wire, and the other machine's
+  frame, since it reads the cable once a frame. That is more than the 9
+  ticks `WL_RESEND` allowed. The two-bot budget read 244 bytes a sim
+  second under load. `WL_RESEND` is 20 ticks now (0.67 s); an event's
+  resend latency hardly matters. After the fix: 137 to 216.
+- **The row's frozen bot walked off.** A flinch held it ~12 ticks, and a
+  QEMU sim running fast under load, with every poke stopping the machine,
+  let it run its home loop between the guest's shots. The row now stands
+  it still: its cached velocity zero for its heading and a leg too long
+  to end.
+
+**The final pass** (`os88test.py soak` on the eleven rows this work can
+reach: `walift`, `waroutes`, `wabots`, `wascore`, `wabotarms`,
+`waweapons`, `walink`, `serlease`, `wirefleetlink`, `wirefleetsystem`,
+`wirefleetnomouse`): all eleven pass, `walink` on the re-run after the two
+fixes above (three runs in a row).
+
+**Red** with the guest's bot-hit bytes ignored (the bot kill and both
+boards) and with the damage word's attribution dropped (hurt by 1, not
+by bot 2). Red with the damage word ignored or TAKE unsent, as in L1.
+
+**Not yet**:
+- The lift is each machine's own: it rises for its own riders. The other
+  player standing on it is not one of them, so the two machines can
+  disagree about where it is.
+- The bots do not hear the guest's shots: hearing is the host's player's
+  alone.
+- kern_mega has built SERIAL.DRV's new verbs (`make mega`) but has not
+  run them (L3.3).

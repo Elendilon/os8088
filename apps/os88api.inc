@@ -6934,7 +6934,11 @@ FSIF_BANKED equ 4
                                  ; of 115200: 0 or 12 = 9600, 48 = 2400 -
                                  ; SPEC.md 115.1), 1 Close, 2 Read
                                  ; (AL byte, AH sticky LSR/overflow), 3 Write
-                                 ; (CL byte). AX/CF outputs, every other
+                                 ; (CL byte), 4 Write block (SI, CX: AX =
+                                 ; taken), 5 Read block (DI, CX room: AL =
+                                 ; read, AH status) - 115.1.2; an older
+                                 ; module answers 4 and 5 CF=1 AX=5. AX/CF
+                                 ; outputs, every other
                                  ; register kept. Open may read SERIAL.DRV
                                  ; from the system disk. CF=1 AX=1 busy,
                                  ; 2 move mouse to settle, 3 mouse port,

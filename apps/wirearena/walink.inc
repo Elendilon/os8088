@@ -9,19 +9,34 @@
 ; the other player drawn as figure 0.
 
 WL_HELLO    equ 1
-WL_SNAP     equ 2
-WL_SCORE    equ 3
+WL_SNAP     equ 2               ; a player, no bots in the match
+WL_SCORE    equ 3               ; the sender's row of deaths by cause
 WL_EVENT    equ 4
-LK_NTYPES   equ 5
-lk_lens:    db 0, 20, 15, 6, 14 ; each type's body, its CRC included
+WL_HSNAP    equ 5               ; the host's, with bots: and theirs (L2)
+WL_GSNAP    equ 6               ; the guest's, with bots: and its hits on them
+WL_BSCORE   equ 7               ; the host's bots' rows of deaths by cause
+LK_NTYPES   equ 8
+lk_lens:    db 0, 20, 15, 8, 19, 24, 17, 12 ; each type's body, its CRC too
 WL_BEAT     equ 9               ; OS ticks between HELLOs (WireFleet's)
 WL_QUIET    equ 55              ; ticks of silence: gone (lobby), lost (match)
 WL_EVQ      equ 8               ; events waiting for their ack
-WL_EVSZ     equ 9               ; an event: its kind and eight bytes
-WL_RESEND   equ 9               ; sim ticks before the unacked go again
-EV_FIRE     equ 1               ; a projectile: kind, x, y, z/2, yaw, pitch/4
+WL_EVSZ     equ 14              ; an event: its kind and thirteen bytes
+WL_RESEND   equ 20              ; sim ticks before the unacked go again: an
+                                ; ack's round trip with bots is a SNAP
+                                ; period (5), the bytes, the other's frame
+                                ; (it reads once one) - 9 resent every event
+EV_FIRE     equ 1               ; a projectile: its kind | its owner << 4, x,
+                                ; y, z, and its velocity, as it left
 EV_TAKE     equ 2               ; a pickup taken: its index
 EV_ROLL     equ 3               ; (the host's) a pickup back: index, kind
+WL_PSNAP    equ 3               ; sim ticks a SNAP, no bots: 10 Hz
+WL_PSNAPB   equ 5               ; ...with bots: 6 Hz (LINK-PLAN 2, 11.2)
+WR_X        equ 0               ; a remote figure's record (wa_lkr, ten bytes
+WR_Y        equ 2               ;   a figure): where its machine says it is,
+WR_Z        equ 4               ;   its height (-1: the floor's), facing,
+WR_A        equ 6               ;   its flags (SNAP byte 9's)
+WR_F        equ 8
+WR_SZ       equ 10
 WL_ROWS     equ 17              ; the window's rows of text
 WL_COLS     equ 38
 
@@ -35,8 +50,9 @@ wa_lkinit:
     mov byte [wa_lkfull], 1
     call lk_auto
     mov word [lk_blk+LK_MSG], lk_m_search
-    mov byte [wa_lkarena], 2    ; (the heights, normal bots: the host may
-    mov byte [wa_lkdiff], 1     ; change both)
+    mov byte [wa_lkarena], 2    ; (the heights, two normal bots: the host
+    mov byte [wa_lkdiff], 1     ; may change all three)
+    mov byte [wa_lkbots], 2
     mov bx, [wa_win]
     mov ax, 1
     call OSAPI_WM_TIMER
@@ -130,7 +146,7 @@ wa_lkhello:
     stosb
     mov al, [wa_lkdiff]
     stosb
-    xor al, al                  ; (the bots: L2)
+    mov al, [wa_lkbots]         ; (the host's: L2)
     stosb
     mov al, [wa_lktag]
     stosb
@@ -205,6 +221,8 @@ wa_lkplay:
     mov [wa_arena], al
     mov al, [wa_lkdiff]
     mov [wa_diff], al
+    mov al, [wa_lkbots]
+    mov [wa_lknb], al
     call wa_loadarena
     jc .back
     mov byte [wa_lkon], 1
@@ -223,9 +241,25 @@ wa_lkplay:
     mov byte [wa_lkfull], 1
     ret
 
-; wa_lkcmd - the Link menu: AL = Automatic, COM1, COM2, Disconnect, Ready
+; wa_lkcmd - the Link menu: AL = Automatic, COM1, COM2, Disconnect, Ready,
+; then No bots, One bot, Two bots (the host's)
 wa_lkcmd:
     mov byte [wa_lkfull], 1
+    cmp al, 5
+    jb .link
+    sub al, 5
+    call wa_lkhost
+    jz .hosts
+    mov [wa_lkbots], al
+    ret
+.hosts:
+    push ds
+    pop es
+    mov si, wa_t_host
+    xor cx, cx
+    call OSAPI_TOAST
+    ret
+.link:
     cmp al, 0
     jne .c1
     call lk_disconnect
@@ -342,6 +376,12 @@ wa_lkhtake:
     mov [wa_lkarena], al        ; difficulty and its tag
     mov al, [si+14]
     mov [wa_lkdiff], al
+    mov al, [si+15]
+    cmp al, 2
+    jbe .nb
+    mov al, 2
+.nb:
+    mov [wa_lkbots], al
     mov al, [si+16]
     mov [wa_lkptag], al
     ret
@@ -511,9 +551,16 @@ wa_lkrow:   dw .you, .them, .out, .arena, .width, .out, .hint
     shl bx, 1
     mov si, [wa_lt_anames+bx]
     call wa_lkcpy
-    mov di, wa_lkln+20
+    mov di, wa_lkln+17
     mov si, wa_lt_bots
     call wa_lkcpy
+    mov al, [wa_lkbots]
+    add al, '0'
+    stosb
+    mov al, ','
+    stosb
+    mov al, ' '
+    stosb
     mov bl, [wa_lkdiff]
     xor bh, bh
     shl bx, 1
@@ -642,17 +689,38 @@ wa_lkmstart:
     mov [wa_lkrseen], al
     mov [wa_lklost], al
     mov [wa_lkgone], al
-    mov [wa_lksui], al
     mov [wa_lkpkk], al
-    mov [wa_lkrf], al
+    mov [wa_lkattr], al
+    mov [wa_lkbd], ax
+    mov [wa_lkbdin], ax
+    push ds
+    pop es
+    mov di, wa_lkd              ; nobody dead yet
+    mov cx, 8
+    rep stosw
+    mov di, wa_lkr              ; nothing heard of anyone
+    mov cx, WR_SZ * WA_NFIG / 2
+    rep stosw
+    mov al, 1                   ; who we are on the wire: the host 0, the
+    call wa_lkhost              ; guest 1
+    jz .me
+    xor al, al
+.me:
+    mov [wa_lkme], al
     mov ax, [wa_tkn]
     mov [wa_lkheard], ax
     mov [wa_lkqt], ax
-    mov di, wa_figs             ; every figure off the board until the
-    mov cx, WA_NFIG             ; other player's first SNAP
-.f:
+    mov di, wa_figs             ; off the board until the other machine
+    mov cx, WA_NFIG             ; says where they are: the other player, and
+.f:                             ; on the guest the host's bots (the host's
+    call wa_lkremote            ; own run from their spawns)
+    je .park
+    call wa_lkabsent
+    jne .nf
+.park:
     mov byte [di+F_DEAD], 250
     mov byte [di+F_NFR], 0
+.nf:
     add di, F_SIZE
     loop .f
     call wa_lkpname
@@ -699,25 +767,34 @@ wa_lkqtake:
     mov [wa_lkev+1], al
     jmp wa_lkqueue
 
-; wa_lkqfire - our projectile: FIRE queued, from where it left
+; wa_lkqfire - SI, DI = a projectile's records, just launched here: FIRE
+; queued, as it left (its owner, place and velocity). Keeps all but AX
 wa_lkqfire:
-    mov al, 2
-    sub al, [wa_lt]             ; (rocket 2, grenade 1)
-    mov [wa_lkev+1], al
+    cmp byte [wa_lkon], 0
+    je wa_lkqueue.out
     mov byte [wa_lkev], EV_FIRE
-    mov ax, [wa_px]
+    mov al, [di+RG_OWN]
+    call wa_lkcanon
+    mov ah, al
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    mov al, [si+WA_RKTYP]
+    or al, ah
+    mov [wa_lkev+1], al
+    mov ax, [si+WA_RKX]
     mov [wa_lkev+2], ax
-    mov ax, [wa_py]
+    mov ax, [si+WA_RKY]
     mov [wa_lkev+4], ax
-    mov ax, [wa_eye]
-    shr ax, 1
-    mov [wa_lkev+6], al
-    mov al, [wa_ang+1]
-    mov [wa_lkev+7], al
-    mov ax, [wa_pitch]
-    sar ax, 1
-    sar ax, 1
-    mov [wa_lkev+8], al
+    mov ax, [si+WA_RKZ]
+    mov [wa_lkev+6], ax
+    mov ax, [di+RG_VX]
+    mov [wa_lkev+8], ax
+    mov ax, [di+RG_VY]
+    mov [wa_lkev+10], ax
+    mov ax, [di+RG_VZ]
+    mov [wa_lkev+12], ax
     ; (falls through)
 
 ; wa_lkqueue - wa_lkev's nine bytes onto the events waiting for their ack
@@ -758,8 +835,13 @@ wa_lktick:
     push di
     push si
     push bp
-    mov cx, 24
+    mov al, [wa_frame]          ; the cable once a frame, on its first tick
+    cmp al, [wa_lkpf]           ; (a Read block costs ~2,800 cycles even
+    je .polled                  ; when nothing came: LINK-PLAN 11.2)
+    mov [wa_lkpf], al
+    mov cx, 64
     call lk_poll
+.polled:
     mov ax, [wa_tkn]
     sub ax, [wa_lkheard]
     cmp ax, WL_QUIET
@@ -779,8 +861,12 @@ wa_lktick:
     call wa_lkscore
 .nsc:
     pop ax
-    mov cl, 3
-    div cl                      ; (AH = the tick's place in three)
+    mov cl, WL_PSNAP
+    cmp byte [wa_lknb], 0
+    je .p
+    mov cl, WL_PSNAPB
+.p:
+    div cl                      ; (AH = the tick's place in the period)
     or ah, ah
     jnz .ev
     call wa_lksnap
@@ -850,21 +936,110 @@ wa_lksnap:
     stosw
     mov al, [wa_lkin]
     stosb
-    mov si, wa_lkfr
     mov cl, 13
+    cmp byte [wa_lknb], 0
+    je .send
+    call wa_lkhost
+    jz .guest
+    mov byte [wa_lkfr], WL_HSNAP ; THE HOST'S, with bots: who dealt the
+    mov al, [wa_lkattr]         ; damage, and where each bot is (x / 8,
+    stosb                       ; y / 8, its facing / 4, its flags)
+    mov bx, wa_figs + F_SIZE
+.bot:
+    xor ax, ax
+    xor dx, dx
+    cmp bx, wa_figs + F_SIZE * 2
+    ja .none
+    push di
+    mov di, bx
+    call wa_lkabsent
+    pop di
+    je .none
+    mov ax, [bx+F_X]
+    mov dx, [bx+F_Y]
+    push cx
+    mov cl, 3
+    shr ax, cl
+    shr dx, cl
+    pop cx
+    mov ah, dl
+    stosw
+    mov ax, [bx+F_ANG]
+    shr ax, 1
+    shr ax, 1
+    xor ah, ah                  ; (the flags: alive, its cue, its shield,
+    cmp byte [bx+F_DEAD], 0     ; its death's kind)
+    jne .d
+    or ah, 1
+.d:
+    test byte [bx+F_FLASH], 0x80
+    jz .c
+    or ah, 2
+.c:
+    cmp byte [bx+F_SH], 0
+    je .s
+    or ah, 4
+.s:
+    mov dl, [bx+F_KILL]
+    ror dl, 1
+    ror dl, 1
+    and dl, 0xC0
+    or ah, dl
+    stosw
+    jmp .nb
+.none:
+    stosw
+    stosw
+.nb:
+    add bx, F_SIZE
+    cmp bx, wa_figs + F_SIZE * 2
+    jbe .bot
+    mov cl, 22
+    jmp .send
+.guest:
+    mov byte [wa_lkfr], WL_GSNAP ; THE GUEST'S, with bots: its hits on them
+    mov ax, [wa_lkbd]
+    stosw
+    mov cl, 15
+.send:
+    mov si, wa_lkfr
     jmp lk_send
 
-; wa_lkscore - SCORE: our deaths, and how many of them were by the peer
+; wa_lkscore - SCORE: our row of deaths by cause (LINK-PLAN 11.2); the
+; host with bots their two rows too (BSCORE)
 wa_lkscore:
     mov al, WL_SCORE
     mov ah, [wa_lktag]
     mov [wa_lkfr], ax
-    mov al, [wa_deaths]
-    mov ah, [wa_kills+1]
+    mov bl, [wa_lkme]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov ax, [wa_lkd+bx]
     mov [wa_lkfr+2], ax
+    mov ax, [wa_lkd+bx+2]
+    mov [wa_lkfr+4], ax
     mov si, wa_lkfr
-    mov cl, 4
+    mov cl, 6
+    call lk_send
+    cmp byte [wa_lknb], 0
+    je .out
+    call wa_lkhost
+    jz .out
+    mov al, WL_BSCORE
+    mov ah, [wa_lktag]
+    mov [wa_lkfr], ax
+    mov si, wa_lkd + 8
+    mov di, wa_lkfr + 2
+    push ds
+    pop es
+    mov cx, 4
+    rep movsw
+    mov si, wa_lkfr
+    mov cl, 10
     jmp lk_send
+.out:
+    ret
 
 ; wa_lkevent - the next event not yet sent, or the oldest again once its
 ; ack is WL_RESEND ticks late
@@ -898,7 +1073,7 @@ wa_lkevent:
     mov cx, WL_EVSZ
     rep movsb
     mov si, wa_lkfr
-    mov cl, 12
+    mov cl, 3 + WL_EVSZ
     call lk_send
     jc .out
     inc byte [wa_lkqs]
@@ -919,21 +1094,34 @@ wa_lkmtake:
     mov byte [wa_lklost], 0     ; the link is back
     mov byte [wa_ovd], 1
 .live:
-    cmp al, WL_SNAP
-    je wa_lksnapin
+    cmp al, WL_EVENT
+    je wa_lkevin
     cmp al, WL_SCORE
     je .score
-    jmp wa_lkevin
+    cmp al, WL_BSCORE
+    je .bscore
+    jmp wa_lksnapin             ; (2, 5, 6: a SNAP)
 .score:
-    mov al, [si+2]              ; its deaths; ours by it are its kills
-    mov [wa_deaths+1], al
-    mov al, [si+3]              ; our kills: its deaths by us, less our
-    sub al, [wa_lksui]          ; suicides
-    jnc .k
-    xor al, al
-.k:
-    mov [wa_kills], al
-    mov byte [wa_ovd], 1
+    mov bl, [wa_lkme]           ; the other's row: its deaths by cause
+    xor bl, 1
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov ax, [si+2]
+    mov [wa_lkd+bx], ax
+    mov ax, [si+4]
+    mov [wa_lkd+bx+2], ax
+    jmp wa_lkboard
+.bscore:
+    cmp byte [wa_lkme], 0       ; (the host's bots' rows: to the guest)
+    je .out
+    add si, 2
+    mov di, wa_lkd + 8
+    push ds
+    pop es
+    mov cx, 4
+    rep movsw
+    jmp wa_lkboard
 .out:
     ret
 
@@ -951,20 +1139,32 @@ wa_lksnapin:
 .seen:
     mov byte [wa_lkrseen], 1
     mov ax, [si+2]
-    mov [wa_lkrx], ax
+    mov [wa_lkr+WR_X], ax
     mov ax, [si+4]
-    mov [wa_lkry], ax
+    mov [wa_lkr+WR_Y], ax
     mov al, [si+6]
     xor ah, ah
     shl ax, 1
-    mov [wa_lkrz], ax
+    mov [wa_lkr+WR_Z], ax
     mov al, [si+7]
     xor ah, ah
     shl ax, 1
     shl ax, 1
-    mov [wa_lkra], ax
+    mov [wa_lkr+WR_A], ax
     mov al, [si+9]
-    mov [wa_lkrf], al
+    mov [wa_lkr+WR_F], al
+    mov byte [wa_lkhby], 1      ; who hurt us: the other player, or (the
+    cmp byte [si], WL_HSNAP     ; host's, with bots) whom it names
+    jne .who
+    mov al, [si+13]
+    call wa_lkcanon             ; (the same swap, both ways)
+    mov [wa_lkhby], al
+    call wa_lkbots_in
+.who:
+    cmp byte [si], WL_GSNAP
+    jne .ack0
+    call wa_lkbhits
+.ack0:
     mov al, [si+12]             ; THE ACK: every event up to its sequence
 .ack:                           ; leaves the queue
     cmp byte [wa_lkqn], 0
@@ -1000,8 +1200,9 @@ wa_lksnapin:
     ja .out                     ; (a word from before a restart: not ours)
     cmp byte [wa_pdead], 0
     jne .out
-    mov byte [wa_hurtby], 1     ; (figure 0's)
-    mov bl, [wa_lkrf]           ; its kill: the shotgun's collapse, else the
+    mov bl, [wa_lkhby]          ; (whose: figure 0's, or a host's bot's)
+    mov [wa_hurtby], bl
+    mov bl, [wa_lkr+WR_F]       ; its kill: the shotgun's collapse, else the
     shr bl, 1                   ; fall
     shr bl, 1
     shr bl, 1
@@ -1091,45 +1292,67 @@ wa_lkevin:
     mov [wa_pkt+bx], ax
     ret
 .fire:
-    push word [wa_px]           ; FIRE: launched from where it says, the
-    push word [wa_py]           ; other player's
-    push word [wa_eye]
-    push word [wa_ang]
-    push word [wa_pitch]
-    mov ax, [si+5]
-    mov [wa_px], ax
-    mov ax, [si+7]
-    mov [wa_py], ax
-    mov al, [si+9]
-    xor ah, ah
-    shl ax, 1
-    mov [wa_eye], ax
-    mov ah, [si+10]
-    xor al, al
-    mov [wa_ang], ax
-    mov al, [si+11]
-    cbw
-    shl ax, 1
-    shl ax, 1
-    mov [wa_pitch], ax
-    mov al, 2
-    sub al, [si+4]
-    mov [wa_lt], al
-    mov byte [wa_lown], 1
+    jmp wa_lkspawn
+
+; wa_lkspawn - SI = a FIRE: its projectile flies here too, its owner the
+; figure that is its owner here (LINK-PLAN 3)
+wa_lkspawn:
+    mov bx, si
+    mov si, wa_rks
+    mov di, wa_rkg
+.slot:
+    cmp byte [si+WA_RKST], 0
+    je .have
+    add si, WA_RKSZ
+    add di, WA_RKGSZ
+    cmp si, wa_rks + WA_NRK*WA_RKSZ
+    jb .slot
+    ret                         ; (all four in flight: this one unseen)
+.have:
+    inc byte [wa_rkn]
+    mov al, [bx+4]
+    and al, 15
+    mov [si+WA_RKTYP], al
+    mov byte [si+WA_RKST], WA_RKFLY
+    mov ax, [bx+5]
+    mov [si+WA_RKX], ax
+    mov ax, [bx+7]
+    mov [si+WA_RKY], ax
+    mov ax, [bx+9]
+    mov [si+WA_RKZ], ax
+    xor ax, ax
+    mov [di+RG_XF], ax
+    mov [di+RG_YF], ax
+    mov [di+RG_ZF], ax
+    mov ax, [bx+11]
+    mov [di+RG_VX], ax
+    mov ax, [bx+13]
+    mov [di+RG_VY], ax
+    mov ax, [bx+15]
+    mov [di+RG_VZ], ax
+    mov al, [bx+4]
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    call wa_lkcanon
+    mov [di+RG_OWN], al
+    mov word [di+RG_LIFE], WA_RKLIFE
     mov ax, 150
-    call wa_launch
-    mov byte [wa_lown], 0
-    pop word [wa_pitch]
-    pop word [wa_ang]
-    pop word [wa_eye]
-    pop word [wa_py]
-    pop word [wa_px]
+    cmp byte [si+WA_RKTYP], 0
+    je .tone
+    mov word [di+RG_LIFE], WA_GFUSE
+    mov ax, 300
+.tone:
+    mov cx, 3
+    mov dl, 0x40
+    call OSAPI_SND_TONE
     ret
 
-; wa_lkfig - DI = figure 0 in a match: the other player, drawn where its
-; SNAPs say - halfway there each tick - running while it moves, its cue
-; while it fires, its death by its kind, gone 3 s after it, back where it
-; respawned
+; wa_lkfig - DI = a figure the other machine owns (the other player, or
+; on the guest the host's bots), SI its record: drawn where the SNAPs say -
+; halfway there each tick - running while it moves, its cue while it
+; fires, its death by its kind, gone 3 s after it, back where it respawned
 wa_lkfig:
     mov al, [di+F_FLASH]        ; (its cue and its hurt flash run down)
     or al, al
@@ -1145,13 +1368,13 @@ wa_lkfig:
     je .hide
     cmp byte [wa_lkgone], 0
     jne .hide
-    test byte [wa_lkrf], 1
+    test byte [si+WR_F], 1
     jz .dead
     cmp byte [di+F_DEAD], 0
     je .alive
-    mov ax, [wa_lkrx]           ; back: where it respawned, whole
+    mov ax, [si+WR_X]           ; back: where it respawned, whole
     mov [di+F_X], ax
-    mov ax, [wa_lkry]
+    mov ax, [si+WR_Y]
     mov [di+F_Y], ax
     mov byte [di+F_DEAD], 0
     mov byte [di+F_HP], WA_FHP
@@ -1159,27 +1382,33 @@ wa_lkfig:
     mov word [di+F_PZ], 0
     call wa_runanim
 .alive:
-    mov ax, [wa_lkrx]
+    mov ax, [si+WR_X]
     sub ax, [di+F_X]
     mov bx, ax                  ; BX nonzero: it is moving
     call wa_lkhalf
     add [di+F_X], ax
-    mov ax, [wa_lkry]
+    mov ax, [si+WR_Y]
     sub ax, [di+F_Y]
     or bx, ax
     call wa_lkhalf
     add [di+F_Y], ax
-    mov ax, [wa_lkrz]
+    mov ax, [si+WR_Z]
+    cmp ax, -1
+    je .floor
     mov [di+F_Z], ax
-    mov ax, [wa_lkra]
+    jmp .zd
+.floor:
+    call wa_figz                ; (a bot: on the floor where it stands)
+.zd:
+    mov ax, [si+WR_A]
     mov [di+F_ANG], ax
     xor al, al                  ; its shield: the yellow chest
-    test byte [wa_lkrf], 4
+    test byte [si+WR_F], 4
     jz .sh
     mov al, WA_FHP
 .sh:
     mov [di+F_SH], al
-    test byte [wa_lkrf], 2      ; firing: its cue
+    test byte [si+WR_F], 2      ; firing: its cue
     jz .nc
     cmp byte [di+F_FLASH], 0
     jne .nc
@@ -1199,7 +1428,7 @@ wa_lkfig:
 .dead:
     cmp byte [di+F_DEAD], 0
     jne .lying
-    mov ah, [wa_lkrf]           ; down: its death by the kind it says
+    mov ah, [si+WR_F]           ; down: its death by the kind it says
     rol ah, 1
     rol ah, 1
     and ah, 3
@@ -1220,6 +1449,228 @@ wa_lkfig:
 .hide:
     mov byte [di+F_DEAD], 250
     mov byte [di+F_NFR], 0
+    ret
+
+; wa_lkremote - DI = a figure: ZF = 1 when, in a linked match, the other
+; machine owns it - the other player always; on the guest, every figure.
+; Keeps every register
+wa_lkremote:
+    cmp byte [wa_lkon], 0
+    je .no
+    cmp di, wa_figs
+    je .out
+    jmp wa_lkhost               ; (the host: ZF = 0, its bots are its own)
+.no:
+    or sp, sp
+.out:
+    ret
+
+; wa_lkabsent - DI = a figure: ZF = 1 when it is a bot the match has none
+; of (beyond the host's count). Keeps every register
+wa_lkabsent:
+    cmp di, wa_figs
+    je .here
+    push ax
+    push dx
+    mov ax, di
+    sub ax, wa_figs             ; (AH = 0: under 256)
+    mov dl, F_SIZE
+    div dl                      ; AL = its index, 1 or 2
+    cmp al, [wa_lknb]
+    pop dx
+    pop ax
+    jbe .here
+    cmp al, al                  ; (ZF = 1)
+    ret
+.here:
+    or sp, sp
+    ret
+
+; wa_lkcanon - AL = a figure's code here (0 us, 1 figure 0, 2 and 3 the
+; bots): its code on the wire (0 the host's player, 1 the guest's, 2 and 3
+; the bots) - and back, the same swap. Keeps all but AL
+wa_lkcanon:
+    cmp byte [wa_lkme], 0
+    je .out
+    cmp al, 2
+    jae .out
+    xor al, 1
+.out:
+    ret
+
+; wa_lkdeath - our player died, by [wa_hurtby]: its count in our row
+wa_lkdeath:
+    cmp byte [wa_lkon], 0
+    je wa_lkboard.out
+    push ax
+    push bx
+    mov al, [wa_hurtby]
+    call wa_lkcanon
+    mov bl, [wa_lkme]
+    jmp wa_lkcount
+; wa_lkbdeath - DI = one of the host's bots, killed by [wa_killer]: its row
+wa_lkbdeath:
+    cmp byte [wa_lkon], 0
+    je wa_lkboard.out
+    push ax
+    push bx
+    call wa_bidx
+    inc ax                      ; (its code: 2 or 3)
+    mov bl, al
+    mov al, [wa_killer]
+wa_lkcount:                     ; BL = the dead one, AL the cause (codes on
+    xor bh, bh                  ; the wire): D[BL][AL] + 1, the board again
+    shl bx, 1
+    shl bx, 1
+    add bl, al
+    inc byte [wa_lkd+bx]
+    pop bx
+    pop ax
+    ; (falls through)
+; wa_lkboard - the scoreboard from the deaths by cause: a death to each,
+; a kill to its cause, a kill less for a suicide (AI-PLAN 5's rule). Keeps
+; every register
+wa_lkboard:
+    push ax
+    push bx
+    push cx
+    push si
+    xor ax, ax
+    mov [wa_kills], ax
+    mov [wa_kills+2], ax
+    mov [wa_deaths], ax
+    mov [wa_deaths+2], ax
+    mov si, wa_lkd
+    xor bx, bx                  ; BL = the dead one, BH = the cause
+.v:
+    xor bh, bh
+.k:
+    lodsb
+    or al, al
+    jz .n
+    mov cl, al                  ; CL = how many
+    push bx
+    mov al, bl                  ; a death to the dead one, here
+    call wa_lkcanon
+    xor ah, ah
+    mov bx, ax
+    add [wa_deaths+bx], cl
+    pop bx
+    push bx
+    mov al, bh
+    call wa_lkcanon
+    xor ah, ah
+    cmp bl, bh
+    mov bx, ax
+    je .self
+    add [wa_kills+bx], cl
+    jmp .kd
+.self:
+    sub [wa_kills+bx], cl       ; (a suicide: a kill less, not below 0)
+    jnc .kd
+    mov byte [wa_kills+bx], 0
+.kd:
+    pop bx
+.n:
+    inc bh
+    cmp bh, 4
+    jb .k
+    inc bl
+    cmp bl, 4
+    jb .v
+    mov byte [wa_ovd], 1
+    pop si
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; wa_lkbots_in - SI = the host's SNAP: its bots' records (the guest)
+wa_lkbots_in:
+    push si
+    push di
+    push cx
+    add si, 14
+    mov di, wa_lkr + WR_SZ
+    mov cx, 2
+.b:
+    lodsb                       ; x / 8, y / 8: their middle
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, 4
+    mov [di+WR_X], ax
+    lodsb
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, 4
+    mov [di+WR_Y], ax
+    mov word [di+WR_Z], -1      ; (on the floor)
+    lodsb
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    mov [di+WR_A], ax
+    lodsb
+    mov [di+WR_F], al
+    add di, WR_SZ
+    loop .b
+    pop cx
+    pop di
+    pop si
+    ret
+
+; wa_lkbhits - SI = the guest's SNAP: its hits on the host's bots, what
+; each byte grew by, as wa_hurt by figure 0 (the host)
+wa_lkbhits:
+    push si
+    push di
+    xor bx, bx
+.b:
+    mov al, [si+13+bx]
+    mov ah, al
+    sub al, [wa_lkbdin+bx]
+    mov [wa_lkbdin+bx], ah
+    jz .n
+    cmp al, 128
+    jae .n
+    mov di, bx                  ; DI = the bot: figure 1 + BX
+    inc di
+    push ax
+    mov ax, di
+    mov ah, F_SIZE
+    mul ah
+    add ax, wa_figs
+    mov di, ax
+    pop ax
+    call wa_lkabsent
+    je .n
+    mov byte [wa_killer], 1     ; (the guest: figure 0 here)
+    mov ah, [wa_lkr+WR_F]       ; its kill by the guest's weapon
+    shr ah, 1
+    shr ah, 1
+    shr ah, 1
+    and ah, 7
+    cmp ah, 1
+    mov ah, 0
+    jne .k
+    inc ah
+.k:
+    push bx
+    push si
+    call wa_hurt
+    pop si
+    pop bx
+.n:
+    inc bx
+    cmp bx, 2
+    jb .b
+    pop di
+    pop si
     ret
 
 ; wa_lkhalf - AX = a distance: half of it, the whole within 2 (so it ends)

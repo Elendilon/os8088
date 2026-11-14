@@ -40,6 +40,7 @@ import wireball as W                                            # noqa: E402
 import os88qemu as Q                                            # noqa: E402
 import dispapps                                                 # noqa: E402
 from walift import amap                                         # noqa: E402
+from waweapons import anims                                     # noqa: E402
 
 # The package's symbols: walift's map, assembled and held to the build
 # (dispapps cannot unwrap a parted image whose part 0 is OP_ZFILL)
@@ -47,7 +48,8 @@ _map = dispapps._map
 dispapps._map = lambda app, defines=(): (amap() if app == 'wirearena'
                                          else _map(app, defines))
 
-LENS = {1: 20, 2: 15, 3: 6, 4: 14}
+LENS = {1: 20, 2: 15, 3: 8, 4: 19, 5: 24, 6: 17, 7: 12}
+ANIM = {}
 FS = 56
 fails = []
 
@@ -107,6 +109,24 @@ class Arena(W.Machine):
         check(ok, what)
         return ok
 
+    def setf(self, i, off, value, n=1):
+        """figure i's byte (or word) at off"""
+        name = 'wa_f%d_%d' % (i, off)
+        self.sy[name] = self.sy['wa_figs'] + i * FS + off
+        self.put([(name[3:], value, n)])
+
+    def freeze(self, i, x, y):
+        """bot i stood at (x, y): a step of nothing (its cached velocity 0
+        for the heading it has) and a leg too long to end - so it walks
+        nowhere however long the poke takes (QEMU's sim runs fast, and a
+        flinch held it ~12 ticks)"""
+        head = struct.unpack('<H', self.readseg(
+            self.seg, self.sy['wa_figs'] + i * FS + 20, 2))[0]
+        self.setf(i, 0, x | (y << 16), 4)
+        self.setf(i, 8, 30000, 2)
+        self.setf(i, 36, (head | 0x8000) | 0, 2)
+        self.setf(i, 38, 0, 4)
+
     def fire(self):
         self.key_state('ctrl', True)
         Q.pace(self, .15)
@@ -115,6 +135,7 @@ class Arena(W.Machine):
 
 
 def main():
+    ANIM.update(anims())
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         a, b = Arena(d, 0), Arena(d, 1)
@@ -143,7 +164,8 @@ def run(a, b, cable):
     check(a.v('wa_lkpeer', 4) == idb and b.v('wa_lkpeer', 4) == ida,
           'THE LOBBY: each bound to the other (%08x, %08x)' % (ida, idb))
     host, guest = (a, b) if ida < idb else (b, a)
-    host.put([('lkarena', 2, 1)])           # (the heights: the default)
+    host.put([('lkarena', 2, 1), ('lkbots', 0, 1)])  # (the heights; L1:
+                                                       # no bots)
     for m in (a, b):
         m.key('spc')
     for m in (a, b):
@@ -155,6 +177,18 @@ def run(a, b, cable):
           'THE LOBBY: the same arena (%d, %d) and tag (%d, %d)'
           % (a.v('wa_arena'), b.v('wa_arena'), a.v('wa_lktag'),
              b.v('wa_lktag')))
+
+    def rate(m, secs):
+        """bytes each way a SIM second (30 of the game's ticks): counted on
+        the wire against the game's own clock, which is what the line has
+        to carry on the iron, where the sim keeps real time. QEMU's guest
+        clock under a loaded host does not (the sim made 37 to 42 ticks a
+        'second' of it here)"""
+        c0, k0 = list(cable.counts), m.v('wa_tkn', 2)
+        Q.pace(m, secs)
+        dk = (m.v('wa_tkn', 2) - k0) & 0xFFFF
+        return [(c - c0[j]) * 30.0 / dk for j, c in enumerate(cable.counts)]
+
 
     # SNAP: B somewhere; A's figure 0 there
     b.at(1100, 300, 512)
@@ -235,6 +269,11 @@ def run(a, b, cable):
     else:
         check(False, 'A PICKUP: no health pack in the arena')
 
+    r = rate(a, 4)
+    k = 0 if host is a else 1
+    check(max(r) <= 230, 'THE BUDGET, no bots: the host %d, the guest %d '
+          'bytes a sim second (2400 baud: 240)' % (r[k], r[1 - k]))
+
     # FAULTS: garbage, then the cable pulled for three seconds
     stbad = b.sy['lk_blk'] + 28
     before = int.from_bytes(b.readseg(b.seg, stbad, 2), 'little')
@@ -252,12 +291,112 @@ def run(a, b, cable):
     a.wait_for(lambda: a.v('wa_lklost') == 0, 'FAULTS: back - the match '
                'resumes', secs=4)
 
+    # AN OLDER SERIAL.DRV: B told its module has no block verbs - a byte a
+    # call, the link the same (SPEC.md 115.1.2's fallback)
+    b.sy['wa_lkold'] = b.sy['lk_blk'] + 9
+    b.put([('lkold', 1, 1)])
+    b.at(1200, 300, 256)
+    a.wait_for(lambda: near(a, 1200, 300), 'AN OLDER SERIAL.DRV: B a byte '
+               'a call, and A still sees it move', secs=4)
+    check(b.v('lk_blk', 10) >> 72 & 0xFF == 1, 'AN OLDER SERIAL.DRV: B '
+          'stayed on the fallback')
+    b.put([('lkold', 0, 1)])
+
     # ESC: B leaves; A says so
     b.key('esc')
     b.wait_for(lambda: b.v('wa_lkon') == 0, 'ESC: B back in its window',
                secs=5)
     a.wait_for(lambda: a.v('wa_lkgone') == 1, 'ESC: A says OPPONENT LEFT',
                secs=5)
+
+    # L2: THE HOST'S BOTS - A back in its window too, two bots, again
+    a.key('esc')
+    a.wait_for(lambda: a.v('wa_lkon') == 0, 'L2: A back in its window too',
+               secs=5)
+    host.put([('lkbots', 2, 1)])
+    for m in (a, b):
+        m.wait_for(lambda m=m: m.v('wa_lkps') == 0 and m.v('wa_lkst') == 0,
+                   'L2: %s sees the other back in the lobby'
+                   % ('A' if m is a else 'B'), secs=6)
+    for m in (a, b):
+        m.key('spc')
+    for m in (a, b):
+        m.wait_for(lambda m=m: m.v('wa_lkon') == 1 and m.v('wa_lknb') == 2,
+                   'L2: %s in a match with two bots'
+                   % ('the host' if m is host else 'the guest'), secs=15)
+
+    def botsmatch():
+        hb = [host.fig(i) for i in (1, 2)]
+        gb = [guest.fig(i) for i in (1, 2)]
+        return all(not g['dead'] and not h['dead'] and
+                   abs(g['x'] - h['x']) <= 48 and abs(g['y'] - h['y']) <= 48
+                   for g, h in zip(gb, hb)), hb, gb
+    guest.wait_for(lambda: botsmatch()[0], 'L2: the host\'s two bots on the '
+                   'guest, where the host has them', secs=6)
+    _, hb, gb = botsmatch()
+
+    print('   (host %r, guest %r)' % ([(f['x'], f['y']) for f in hb],
+                                       [(f['x'], f['y']) for f in gb]))
+    # THE GUEST KILLS A BOT: the host's bot 1 stood still before the guest
+    host.put([('bdet', 1, 1)])              # (the host's bots on their loops,
+    guest.at(1000, 300, 0)                  # not thinking)
+    host.at(64, 1024, 0)
+    host.setf(1, 16, 0, 2)                  # (alive: the bots fight each
+    host.setf(1, 12, 6)                     # other, and it may be down)
+    host.setf(1, 10, 0)                     # (no shield)
+    host.setf(1, 42, 100)
+    for _ in range(12):
+        host.freeze(1, 1100, 300)
+        host.freeze(2, 64, 1024)            # (bot 2 out of the line of fire)
+        Q.pace(host, .25)
+        f = guest.fig(1)
+        if not f['dead'] and f['x'] in range(1090, 1111):
+            break
+    kills0 = host.v('wa_kills', 4)
+    for _ in range(6):
+        host.freeze(1, 1100, 300)
+        host.freeze(2, 64, 1024)
+        guest.fire()
+        if host.fig(1)['dead']:
+            break
+    if not host.wait_for(lambda: host.fig(1)['dead'] != 0, 'L2: the guest\'s '
+                         'pistol kills the host\'s bot 1 (its hits on the '
+                         'wire)', secs=3):
+        print('   (guest bd %04x hits %d fig1 %r; host bdin %04x fig1 %r '
+              'hp %d; guest at %d,%d ang %d)' % (
+                  guest.v('wa_lkbd', 2), guest.v('wa_hits', 2), guest.fig(1),
+                  host.v('wa_lkbdin', 2), host.fig(1),
+                  host.readseg(host.seg, host.sy['wa_figs'] + FS + 42, 1)[0],
+                  guest.v('wa_px', 2), guest.v('wa_py', 2),
+                  guest.v('wa_ang', 2) >> 6))
+    host.wait_for(lambda: host.v('wa_kills', 4) & 0xFF00 == 0x100 and
+                  (host.v('wa_deaths', 4) >> 16) & 0xFF == 1,
+                  'L2: the host\'s board - the guest\'s kill, bot 1\'s death '
+                  '(kills %08x)' % host.v('wa_kills', 4), secs=2)
+    guest.wait_for(lambda: guest.v('wa_kills') == 1 and
+                   (guest.v('wa_deaths', 4) >> 16) & 0xFF == 1,
+                   'L2: the guest\'s board after BSCORE - its kill, bot 1\'s '
+                   'death', secs=4)
+    # A BOT SHOOTS THE GUEST: the host's bot 2, engaged on figure 0
+    host.put([('bdet', 0, 1)])
+    guest.at(1000, 300, 0)
+    hp0 = guest.v('wa_hp', 2)
+    hurt = None
+    for _ in range(30):
+        host.freeze(2, 1300, 300)
+        host.setf(2, 46, 1 | (0 << 8), 3)   # (engaged, no reaction, no gap)
+        host.setf(2, 55, 1)                 # (its target: figure 0)
+        host.setf(2, 50, 0)                 # (the pistol)
+        Q.pace(host, .2)
+        if guest.v('wa_hp', 2) < hp0:
+            hurt = guest.v('wa_hurtby')
+            break
+    check(hurt == 3, 'L2: the host\'s bot 2 shoots the guest - hurt on the '
+          'guest\'s machine, by bot 2 (hurt by %r)' % hurt)
+    r = rate(a, 4)
+    check(max(r) <= 230, 'THE BUDGET, two bots: the host %d, the guest %d '
+          'bytes a sim second (2400 baud: 240)' % (r[k], r[1 - k]))
+
 
     # THE WIRE
     every = set()
@@ -266,12 +405,12 @@ def run(a, b, cable):
         badf = [r for t, r in got if t is None]
         kinds = sorted(set(t for t, _ in got if t))
         every |= set(kinds)
-        check(not badf and {1, 2, 3} <= set(kinds),
+        check(not badf and {1, 3} <= set(kinds),
               'THE WIRE (%s): %d frames, every one valid, of types %r '
               '(bad: %r)' % ('A' if k == 0 else 'B', len(got), kinds,
                              badf[:2]))
-    check(every == {1, 2, 3, 4}, 'THE WIRE: HELLO, SNAP, SCORE and EVENT '
-          'all crossed (%r)' % sorted(every))
+    check(every == {1, 2, 3, 4, 5, 6, 7}, 'THE WIRE: HELLO, SNAP, SCORE, '
+          'EVENT, HSNAP, GSNAP and BSCORE all crossed (%r)' % sorted(every))
 
 
 if __name__ == '__main__':

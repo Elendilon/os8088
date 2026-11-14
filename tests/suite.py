@@ -8696,7 +8696,7 @@ SOAK = [
         "and the fetch) or a bot's rocket passing through the player.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
-    Row("walink", "soak", py("tests/walink.py"), 28.0,
+    Row("walink", "soak", py("tests/walink.py"), 32.0,
         "WIREARENA OVER A NULL MODEM (docs/plans/WIREARENA-LINK-PLAN.md, "
         "L1): two QEMUs on a socket cable, the shipped package. Each window "
         "finds and binds the other, the lower identity hosts, Space on both "
@@ -8708,8 +8708,14 @@ SOAK = [
         "comes back on the host's ROLL; garbage is dropped and counted; a "
         "pulled cable says LINK LOST and the match resumes; Esc on one says "
         "OPPONENT LEFT on the other; every byte either way parses as a "
-        "valid frame (binascii's CRC). Red with the damage word ignored or "
-        "TAKE unsent.",
+        "valid frame (binascii's CRC); the bytes a sim second each way, "
+        "no bots and two, under 2400 baud's 240; an older SERIAL.DRV (no "
+        "block verbs, SPEC.md 115.1.2) falls back to a byte a call. L2: a "
+        "second match with two bots - the host's bots on the guest where "
+        "the host has them, the guest's pistol kills one (both boards "
+        "agree), a host's bot shoots the guest and the hurt is that bot's. "
+        "Red with the damage word ignored, TAKE unsent, the guest's bot "
+        "hits ignored or the damage word's attribution dropped.",
         needs=("qemu", "nasm"),
         wants=("build/warena.img", "build/os8088.img"), timeout=200),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
