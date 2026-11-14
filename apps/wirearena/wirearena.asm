@@ -344,6 +344,29 @@ wa_reset:
     mov byte [wa_pkdet], 0
     call wa_pkreset             ; every pickup there, no rocket flying
     mov byte [wa_bdet], 0       ; (the bots branch at random: AI-PLAN 3.2)
+    xor ax, ax                  ; THE SCORE, and three robots' names
+    mov [wa_kills], ax          ; (AI-PLAN 5)
+    mov [wa_kills+2], ax
+    mov [wa_deaths], ax
+    mov [wa_deaths+2], ax
+    mov [wa_pdead], al
+    mov bx, wa_bname
+.nm:
+    call wa_rand8
+    and al, WA_NNAME-1
+    cmp bx, wa_bname
+    je .nmok
+    cmp al, [wa_bname]
+    je .nm
+    cmp bx, wa_bname+1
+    je .nmok
+    cmp al, [wa_bname+1]
+    je .nm
+.nmok:
+    mov [bx], al
+    inc bx
+    cmp bx, wa_bname+WA_NFIG
+    jb .nm
     mov di, wa_figs
     xor bx, bx
 .fig:
@@ -362,8 +385,10 @@ wa_reset:
 
 ; wa_spawn - DI = a figure: at its home loop's first edge, running, whole
 wa_spawn:
-    push si
     mov al, [di+F_HOME]
+    ; (falls through)
+wa_spawne:                      ; AL = the edge it starts on
+    push si
     call wa_bset
     mov ax, [di+F_HEAD]
     mov [di+F_ANG], ax
@@ -384,6 +409,44 @@ wa_spawn:
     call wa_runanim
     pop si
     ret
+
+; wa_brespawn - DI = a bot whose time dead is up: back at the respawn point
+; farthest (the sum of the axis distances) from the player, walking on from
+; its route node (AI-PLAN 5) - in a bench, at its home loop's start
+wa_brespawn:
+    cmp byte [wa_bdet], 0
+    jne wa_spawn
+    push si
+    mov si, [wa_grp]
+    lodsw
+    mov cx, ax
+    xor bp, bp
+    mov bx, si
+.p:
+    mov ax, [si]
+    sub ax, [wa_px]
+    call wa_abs
+    mov dx, ax
+    mov ax, [si+2]
+    sub ax, [wa_py]
+    call wa_abs
+    add ax, dx
+    cmp ax, bp
+    jbe .np
+    mov bp, ax
+    mov bx, si
+.np:
+    add si, 8
+    loop .p
+    mov al, [bx+6]              ; its node's first edge out
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, [wa_gnp]
+    mov si, ax
+    mov al, [si+4]
+    pop si
+    jmp wa_spawne
 
 wa_runanim:
     mov byte [di+F_ANIM], WA_A_RUN
@@ -407,14 +470,25 @@ wa_frame_input:
     mov byte [wa_quit], 1
     jmp .drain
 .tab:
-    cmp ah, 0x0F                ; Tab: the other width
+    mov al, 1                   ; - (and the keypad's): 40 columns; = or +
+    cmp ah, 0x0C                ; (and the keypad's): 80 - Clear Skies'
+    je .wid                     ; view-size keys (AI-PLAN 5). Tab is the
+    cmp ah, 0x4A                ; scoreboard's, held
+    je .wid
+    xor al, al
+    cmp ah, 0x0D
+    je .wid
+    cmp ah, 0x4E
     jne .v
-    mov al, [wa_mode]
-    xor al, 1
+.wid:
+    cmp al, [wa_mode]
+    je .drain
+    mov ah, [wa_mode]
+    push ax
     call wa_setmode
+    pop ax
     jnc .drain
-    mov al, [wa_mode]           ; refused (no 40 on Hercules): put it back
-    xor al, 1
+    mov al, ah                  ; refused (no 40 on Hercules): put it back
     call wa_setmode
     jmp .drain
 .v:
@@ -502,11 +576,25 @@ wa_frame_input:
     jge .fire
     mov word [wa_pitch], -WA_PITCHD
 .fire:
+    xor al, al                  ; TAB HELD: the scoreboard over the view
+    KEYMAP_TEST wa_kmap, 0x0F   ; (AI-PLAN 5), rebuilt as it comes and goes
+    jz .sb
+    inc ax
+.sb:
+    cmp al, [wa_sbon]
+    je .sbk
+    mov [wa_sbon], al
+    mov byte [wa_ovd], 1
+.sbk:
     KEYMAP_TEST wa_kmap, 0x1D   ; Ctrl is a trigger too: the map the
     jz .btn                     ; frame's first tick took (wa_keys)
     or bl, 1
 .btn:
     and bl, 1
+    cmp byte [wa_pdead], 0      ; (dead: no trigger)
+    je .alive
+    xor bl, bl
+.alive:
     mov al, bl
     xchg al, [wa_trig]
     cmp al, 0
@@ -582,6 +670,10 @@ wa_tick:
     inc word [wa_pbtk]           ; the play bench: its clock, and no keys
     mov word [wa_kbits], 0
 .live:
+    cmp byte [wa_pdead], 0      ; (dead: no keys)
+    je .keys
+    mov word [wa_kbits], 0
+.keys:
     mov dx, [wa_kbits]
     or dx, dx
     jz .jump                    ; nothing held: no turn, no step
@@ -709,6 +801,10 @@ wa_tick:
     je .figs
     dec byte [wa_mflash]
 .figs:
+    cmp byte [wa_pdead], 0      ; (dead: the view sinks, the timer runs)
+    je .figs0
+    call wa_ptick
+.figs0:
     mov byte [wa_lbn], 0        ; (the bots on the lift this tick: the
     mov di, wa_figs             ; lift's riders the next, wa_ltick)
     mov cx, WA_NFIG
@@ -1194,6 +1290,8 @@ wa_bacc:    db 45,  60,    75   ; % at 4 m, the player standing
 wa_bthink:
     cmp byte [wa_bdet], 0
     jne .out
+    cmp byte [wa_pdead], 0      ; (the player dead: nothing to shoot)
+    jne .out
     cmp byte [di+F_DEAD], 0
     jne .out
     mov ax, [wa_tkn]            ; its turn to look: (tick + index x 3) & 7,
@@ -1525,6 +1623,12 @@ wa_bshoot:
     call OSAPI_SND_TONE
     mov byte [wa_phit], 6
     inc word [wa_bhits]
+    mov ax, di                  ; (who: the score's kill if it is one)
+    sub ax, wa_figs
+    mov cl, F_SIZE
+    div cl
+    inc al
+    mov [wa_hurtby], al
     mov al, WA_BDMG
     push di
     call wa_phurt
@@ -1825,7 +1929,7 @@ wa_figtick:
     jne .anim
     ret
 .resp:
-    jmp wa_spawn
+    jmp wa_brespawn
 .q14:                           ; DX:AX Q14 -> AX, rounding toward -inf
     shl ax, 1
     rcl dx, 1
@@ -2071,6 +2175,8 @@ wa_wtick:
     cmp byte [wa_cool], 0
     jne .out
     cmp byte [wa_pbon], 0
+    jne .out
+    cmp byte [wa_pdead], 0
     jne .out
     jmp wa_fire
 
@@ -2377,7 +2483,19 @@ wa_hurt:
 ; which the renderer draws in A_FLASH), the rocket's bits (GIB, then gone:
 ; wa_figtick). Keeps all but AX
 wa_kill:
-    inc word [wa_kills]
+    push ax                     ; the score (AI-PLAN 5): the player's kill,
+    push cx                     ; the bot's death
+    inc byte [wa_kills]
+    mov ax, di
+    sub ax, wa_figs
+    mov cl, F_SIZE
+    div cl
+    xor ah, ah
+    xchg ax, si
+    inc byte [wa_deaths+1+si]
+    xchg ax, si
+    pop cx
+    pop ax
     mov [di+F_KILL], ah
     mov byte [di+F_SH], 0
     mov byte [di+F_HP], 0
@@ -2411,16 +2529,107 @@ wa_phurt:
     mov word [wa_sh], 0
     add [wa_hp], ax
     jg .out
-    call wa_arm0                ; dead: again from the start
-    mov ax, [wa_sx]
+    mov word [wa_hp], 0
+    cmp byte [wa_pdead], 0      ; DEAD (AI-PLAN 5): once
+    jne .out
+    mov byte [wa_pdead], WA_PDEADT
+    mov word [wa_peye], WA_EYE  ; (the view tips to the floor)
+    inc byte [wa_deaths]        ; the score: a death; a kill to whoever
+    mov bl, [wa_hurtby]         ; did it, or a suicide less
+    xor bh, bh
+    or bl, bl
+    jnz .credit
+    cmp byte [wa_kills], 0
+    je .tone
+    dec byte [wa_kills]
+    jmp .tone
+.credit:
+    inc byte [wa_kills+bx]
+.tone:
+    mov ax, 90
+    mov cx, 6
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+.out:
+    ret
+
+; wa_ptick - the dead player's tick: the view sinks to the floor, the
+; respawn timer counts (the HUD's second rebuilt), and at its end the player
+; is back at the respawn point farthest from the nearest live bot, with the
+; pistol alone and full health. Keeps all but AX, BX, CX, DX, SI
+WA_PDEADT   equ 90              ; 3 s
+WA_PFLOOR   equ 20              ; the eye on the floor
+wa_ptick:
+    mov word [wa_kbits], 0      ; (no move, no jump)
+    sub word [wa_peye], 6
+    cmp word [wa_peye], WA_PFLOOR
+    jge .eye
+    mov word [wa_peye], WA_PFLOOR
+.eye:
+    mov ax, [wa_peye]
+    add ax, [wa_feet]
+    mov [wa_eye], ax
+    dec byte [wa_pdead]
+    jz wa_prespawn
+    mov al, [wa_pdead]          ; (the HUD's count, a second at a time)
+    xor ah, ah
+    mov cl, 30
+    div cl
+    or ah, ah
+    jnz .out
+    mov byte [wa_ovd], 1
+.out:
+    ret
+
+; wa_prespawn - the player back: at the respawn point farthest (the sum of
+; the axis distances) from the nearest live bot
+wa_prespawn:
+    push di
+    mov si, [wa_grp]
+    lodsw
+    mov cx, ax                  ; CX = the points
+    xor bp, bp                  ; BP = the best's distance, DI the best
+    mov di, si
+.p:
+    mov dx, 0x7FFF              ; DX = its nearest live bot
+    mov bx, wa_figs
+.f:
+    cmp byte [bx+F_DEAD], 0
+    jne .fn
+    mov ax, [si]
+    sub ax, [bx+F_X]
+    call wa_abs
+    mov [wa_tmp], ax
+    mov ax, [si+2]
+    sub ax, [bx+F_Y]
+    call wa_abs
+    add ax, [wa_tmp]
+    cmp ax, dx
+    jae .fn
+    mov dx, ax
+.fn:
+    add bx, F_SIZE
+    cmp bx, wa_figs + WA_NFIG*F_SIZE
+    jb .f
+    cmp dx, bp
+    jbe .np
+    mov bp, dx
+    mov di, si
+.np:
+    add si, 8
+    loop .p
+    mov ax, [di]
     mov [wa_px], ax
-    mov ax, [wa_sy]
+    mov ax, [di+2]
     mov [wa_py], ax
-    mov ax, [wa_sa]
+    mov ax, [di+4]
     mov cl, 6
     shl ax, cl
     mov [wa_ang], ax
+    pop di
+    call wa_arm0
     xor ax, ax
+    mov [wa_pdead], al
     mov [wa_pxf], ax
     mov [wa_pyf], ax
     mov [wa_jz], ax
@@ -2428,11 +2637,7 @@ wa_phurt:
     mov [wa_feet], ax
     mov [wa_pitch], ax
     mov word [wa_fpx], -1
-    mov ax, 90
-    mov cx, 6
-    mov dl, 0x40
-    call OSAPI_SND_TONE
-.out:
+    mov word [wa_eye], WA_EYE
     ret
 
 ; --- rockets (WEAPONS-PLAN 2.2) -----------------------------------------------
@@ -2697,6 +2902,7 @@ wa_boom:
     jae .out
     shr al, 1
     jz .out
+    mov byte [wa_hurtby], 0     ; (the player's own: a suicide)
     call wa_phurt
 .out:
     pop di
@@ -2739,6 +2945,8 @@ wa_reach:
 WA_PKR      equ 40
 wa_pktick:
     cmp byte [wa_pbon], 0
+    jne .q
+    cmp byte [wa_pdead], 0
     jne .q
     mov cx, [wa_npk]
     or cx, cx
@@ -2919,6 +3127,14 @@ wa_ovbuild:
     mov byte [wa_ovd], 0
     mov word [wa_ovfresh], 1    ; (the renderer shows it, then clears this)
     mov word [wa_ovn], 0
+    cmp byte [wa_sbon], 0       ; Tab held: the scoreboard (AI-PLAN 5)
+    je .nosb
+    call wa_ovboard
+.nosb:
+    cmp byte [wa_pdead], 0      ; dead: the respawn's count
+    je .alive
+    call wa_ovrsp
+.alive:
     mov bl, [wa_wpn]            ; the weapon
     xor bh, bh
     shl bx, 1
@@ -3013,6 +3229,154 @@ wa_ovbuild:
     xor ah, ah
     mov cx, 3
     jmp wa_ovnum
+
+; THE SCOREBOARD (AI-PLAN 5), while Tab is held: a box 20 cells wide over
+; the view's middle, a header and a row each (YOU and the three robots), by
+; kills, most first: the name, kills, deaths. White on blue (inverse on
+; mono), the header yellow, YOU's row bright green
+WA_SBW      equ 20
+WA_NNAME    equ 8
+wa_names:   db 'COG     ', 'RIVET   ', 'SERVO   ', 'SPROCKET'
+            db 'DIODE   ', 'PISTON  ', 'BOLT    ', 'GEAR    '
+wa_you:     db 'YOU     '
+wa_sbhead:  db ' NAME       K    D  '
+wa_ovboard:
+    xor bx, bx                  ; the order: by kills, most first
+.o:
+    mov [wa_sord+bx], bl
+    inc bx
+    cmp bx, 4
+    jb .o
+    mov cx, 3
+.pass:
+    xor bx, bx
+.cmp:
+    mov al, [wa_sord+bx]        ; two neighbours: the one with fewer kills
+    mov ah, [wa_sord+bx+1]      ; goes after
+    push bx
+    mov bl, al
+    xor bh, bh
+    mov dl, [wa_kills+bx]
+    mov bl, ah
+    mov dh, [wa_kills+bx]
+    pop bx
+    cmp dl, dh
+    jae .ok
+    mov [wa_sord+bx], ah
+    mov [wa_sord+bx+1], al
+.ok:
+    inc bx
+    cmp bx, 3
+    jb .cmp
+    loop .pass
+    mov dx, 7                   ; the header, then a row each
+    mov si, wa_sbhead
+    mov ax, 0x1E70
+    call wa_ovrow
+    xor bp, bp
+.row:
+    inc dx
+    mov bl, [ds:bp+wa_sord]     ; (DS: BP would address the stack)
+    xor bh, bh
+    mov di, wa_sbbuf
+    push ds
+    pop es
+    mov al, ' '
+    mov cx, WA_SBW
+    cld
+    rep stosb
+    mov si, wa_you
+    mov ax, 0x1A0F              ; (YOU: bright green, or plain on mono)
+    or bx, bx
+    jz .nm
+    mov al, [wa_bname-1+bx]
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, wa_names
+    mov si, ax
+    mov ax, 0x1F70
+.nm:
+    push ax
+    mov di, wa_sbbuf+1
+    mov cx, 8
+    rep movsb
+    mov al, [wa_kills+bx]
+    mov di, wa_sbbuf+9
+    call wa_sbnum
+    mov al, [wa_deaths+bx]
+    mov di, wa_sbbuf+14
+    call wa_sbnum
+    pop ax
+    mov si, wa_sbbuf
+    call wa_ovrow
+    inc bp
+    cmp bp, 4
+    jb .row
+    ret
+
+; wa_sbnum - AL = a count: three cells at DI, right-aligned
+wa_sbnum:
+    xor ah, ah
+    mov cl, 10
+    add di, 2
+.d:
+    div cl
+    add ah, '0'
+    mov [di], ah
+    dec di
+    xor ah, ah
+    or al, al
+    jnz .d
+    ret
+
+; wa_ovrow - SI = WA_SBW characters, AH = their colour, AL = their mono
+; attribute: a row of the board at DX, centred
+wa_ovrow:
+    cmp byte [wa_mono], 0
+    je .c
+    mov ah, al
+.c:
+    mov bx, [wa_w]
+    sub bx, WA_SBW
+    shr bx, 1
+    mov cx, WA_SBW
+.r:
+    mov al, [si]
+    inc si
+    call wa_ovput
+    loop .r
+    ret
+
+; wa_ovrsp - dead: "RESPAWN n" over the view's middle, n its seconds
+wa_ovrsp:
+    mov si, wa_rsptx
+    mov di, wa_sbbuf
+    push ds
+    pop es
+    mov cx, 10
+    cld
+    rep movsb
+    mov al, [wa_pdead]
+    xor ah, ah
+    add ax, 29
+    mov cl, 30
+    div cl
+    add al, '0'
+    mov [wa_sbbuf+9], al
+    mov dx, 13
+    mov bx, [wa_w]
+    sub bx, 10
+    shr bx, 1
+    mov si, wa_sbbuf
+    mov cx, 10
+    mov ah, 0x0F
+.c:
+    lodsb
+    call wa_ovput
+    loop .c
+    ret
+wa_rsptx:   db 'RESPAWN  0'
 
 ; wa_ovatt - AH = a colour attribute: bright, on Hercules or MDA
 wa_ovatt:
@@ -3885,6 +4249,13 @@ wa_loadarena:
     mov [wa_gcp], ax
     add ax, WA_PVSN
     mov [wa_ghp], ax
+    mov bx, ax                  ; ...and the respawn points after the next
+    mov al, [wa_gph]            ; hops (word-aligned)
+    mul al
+    add ax, bx
+    inc ax
+    and al, 0xFE
+    mov [wa_grp], ax
     call wa_sgrow
     pop ax
     call op_drop
@@ -3934,8 +4305,8 @@ wa_help:
     db 'or Ctrl fires; R reloads. 1-6: pistol,', 0
     db 'shotgun, chaingun, grenades, rockets,', 0
     db 'railgun (picked up: heights arena).', 0
-    db 'Tab: 80/40; V: vsync; B: bench. P:', 0
-    db 'play bench (8 s). F: view 90/75/60.', 0
+    db '-/+: 40/80 col.; Tab: scores; V: vsync', 0
+    db 'B, P: benches. F: view 90/75/60.', 0
     db 'F1-F5: detail, very low to very high', 0
     db '(HUD). G: floor grid. T: ramps as', 0
     db 'treads. L: no wall tops (debug).', 0
@@ -4014,6 +4385,16 @@ WA_VAR wa_ghp,2
 WA_VAR wa_tkn,2                  ; ticks, for the bots' turns to look
 WA_VAR wa_diff,1                 ; the bots' difficulty: 0 easy..2 hard
 WA_VAR wa_phit,1                 ; ticks of the heart's hit flash
+WA_VAR wa_pdead,1                ; THE PLAYER DEAD: ticks to the respawn
+WA_VAR wa_peye,2                 ;   (AI-PLAN 5), the eye sinking
+WA_VAR wa_hurtby,1               ; who hurt the player: 0 itself, 1.. a bot
+WA_VAR wa_kills,4                ; THE SCORE: kills, deaths - YOU, the
+WA_VAR wa_deaths,4               ;   three bots
+WA_VAR wa_bname,4                ; the bots' names (wa_names' index)
+WA_VAR wa_sbon,1                 ; Tab held: the scoreboard shown
+WA_VAR wa_sord,4                 ; ...its order
+WA_VAR wa_sbbuf,WA_SBW           ; ...a row of it
+WA_VAR wa_grp,2                  ; the arena's respawn points
 WA_VAR wa_sgrid,1024              ; the sight grid, a byte a 64-unit cell
 WA_VAR wa_bshots,2               ; the bots' shots fired, and hits
 WA_VAR wa_bhits,2
@@ -4032,7 +4413,6 @@ WA_VAR wa_jv,2
 WA_VAR wa_s13,2
 WA_VAR wa_c13,2
 WA_VAR wa_hits,2
-WA_VAR wa_kills,2
 WA_VAR wa_tmp,2
 WA_VAR wa_last,4
 WA_VAR wa_acc,4

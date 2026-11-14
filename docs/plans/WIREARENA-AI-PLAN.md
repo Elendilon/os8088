@@ -426,3 +426,54 @@ benches are as before within 0.4 ms (P 20.0 / 16.6; heights 40 13.1 /
 
 The routes', weapons' and lift's rows still pass. `walift` now holds the
 bots on their home loops: a bot's shot killed the rider.
+
+### 8.3 B3: death, respawn, the score, Tab's board (2026-11-14)
+
+- **The player's death**:
+  - `wa_phurt` at 0 sets a 3 s timer (`wa_pdead`). While it runs, the keys
+    and the trigger do nothing, pickups are not taken, the chaingun stops,
+    and the bots stop thinking;
+  - the eye sinks 6 a tick to 20 over the floor (`wa_ptick`);
+  - "RESPAWN n" counts in the view's middle, rebuilt a second at a time;
+  - then `wa_prespawn`: the player is back at the respawn point farthest
+    (the sum of the axis distances) from the nearest live bot, whole, with
+    the pistol alone.
+- **Respawn points** (arenagen, after the next hops): 5 in the Heights
+  arena, 4 in the flat ones, each on free floor, with the route node it
+  sees nearest. A bot whose time dead is up comes back at the point
+  farthest from the player, walking on from that node (`wa_brespawn`; a
+  bench, at its home loop's start).
+- **The score**: kills and deaths for YOU and the three bots (bytes).
+  - The player's weapons credit the player's kills.
+  - A bot's shot that kills the player credits that bot (`wa_hurtby`).
+  - The player's own rocket is a death and a kill less (not below 0).
+- **The names**: three of eight robotic names, all different, picked at
+  random at the match's start: COG, RIVET, SERVO, SPROCKET, DIODE,
+  PISTON, BOLT, GEAR.
+- **The board, while Tab is held**, over the live view, as the owner asked:
+  - a 20-cell box over the middle: a header, then YOU and the robots by
+    kills, most first;
+  - white on blue (inverse on mono), the header yellow, YOU bright green;
+  - the overlay's (`WA_MOV` 160), rebuilt as it comes and goes.
+- **The width moves to - and +** (and the keypad's), Clear Skies' keys. The
+  help says so.
+
+**Readable**: on CGA at 40 columns, yes (looked at). **What it costs**: the
+P bench with Tab held all through it is **53.3 ms a frame against 49.9 at
+40 columns (+3.4 ms, 18.7 fps against 20.0), and 63.5 against 60.0 at 80**.
+That is about 100 opaque cells re-stamped every frame (WEAPONS-PLAN 3.3's
+overlay cost). With Tab up it costs nothing.
+
+If that is too dear, a cheaper board drops its background: only the
+letters and numbers, ~45 cells, the view showing between them (about
+half the cost, and harder to read).
+
+**Checked**: `tests/wascore.py`, a soak row (~11 s), covering everything
+above. It is red with the chooser taking the first point, and with a bot's
+kill not credited.
+
+**Speed**: the benches as before within 0.4 ms (P 20.0 / 16.6; heights 40
+13.1 / 14.8 / 32.7 / 12.5 / 25.9).
+
+The renderer part is now 61,780 bytes (the bigger overlay), with 3,244
+left of 65,024.

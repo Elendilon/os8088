@@ -112,7 +112,7 @@ def main():
             g.put("wa_hp", 30000)
             g.at(px, py, 0, ang=0)
             place(0, bx_, by_, st=1)
-            g.tick(6)
+            g.tick(10)                  # (it looks every 8th tick)
             seen = fb(0, F_BSEE)[0] & 1
             want = arenagen.sight_clear(grid, (bx_, by_), (px, py))
             agree += (bool(seen) == want)

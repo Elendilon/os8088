@@ -8670,6 +8670,20 @@ SOAK = [
         "reversed (no turn, no shot) or a wrong accuracy table.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("wascore", "soak", py("tests/wascore.py"), 16.0,
+        "WIREARENA'S DEATHS, RESPAWNS AND SCORE (docs/plans/WIREARENA-AI-"
+        "PLAN.md 5). Three robots' names, all different; a pistol kill is "
+        "the player's kill and the bot's death; a killed bot comes back at "
+        "the respawn point farthest from the player; a bot's kill of the "
+        "player is the bot's - dead, W and the trigger do nothing, the eye "
+        "sinks, RESPAWN counts on the screen, then the player is back at "
+        "the point farthest from the nearest live bot, whole, the pistol "
+        "alone; the player's own rocket is a death and a kill less; Tab "
+        "held shows the board with the names, let go it is gone; - and + "
+        "set 40 and 80 columns. Red with the chooser taking the first point "
+        "or a bot's kill not credited.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

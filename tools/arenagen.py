@@ -176,6 +176,37 @@ HEIGHTS_GRAPH = dict(
     homes=[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13]])
 
 
+# RESPAWN POINTS (AI-PLAN 5): x, y, facing (1024 to the turn), on the floor.
+# A player respawns at the one farthest from the nearest live bot, a bot at
+# the one farthest from the player, walking on from the route node nearest
+HEIGHTS_RESPAWNS = [(1024, 480, 256), (250, 1024, 0), (1650, 1850, 768),
+                    (1700, 200, 256), (800, 1024, 0)]
+FLAT_RESPAWNS = [(1024, 480, 256), (1024, 1600, 768), (320, 1024, 0),
+                 (1750, 1024, 512)]
+ARENA_RESPAWNS = {"a2": HEIGHTS_RESPAWNS}
+WA_MRSP = 8
+
+
+def respawns(tag, boxes, nodes, grid):
+    """An arena's respawn points: [(x, y, facing, node)] - refused in a wall
+    or off the floor; the node is the nearest the point sees"""
+    boxes = [bx(b) for b in boxes]
+    out = []
+    for (x, y, a) in ARENA_RESPAWNS.get(tag, FLAT_RESPAWNS):
+        if inside(x, y, boxes, 24) and floor_at(x, y, boxes, 24) != 0 or \
+                inside(x, y, [b for b in boxes if b.h > 0], 24):
+            raise SystemExit("arenagen: arena %s: a respawn point at (%d, %d) "
+                             "is not on free floor" % (tag, x, y))
+        d = sorted(range(len(nodes)), key=lambda k: math.hypot(
+            nodes[k][0] - x, nodes[k][1] - y))
+        seen = [k for k in d if sight_clear(grid, (x, y), nodes[k])]
+        out.append((x, y, a, (seen or d)[0]))
+    if not 1 <= len(out) <= WA_MRSP:
+        raise SystemExit("arenagen: arena %s: %d respawn points - 1 to %d"
+                         % (tag, len(out), WA_MRSP))
+    return out
+
+
 def graph_of(tag):
     """An arena's route graph: its own, or its patrols' loops as one"""
     if tag in ARENA_GRAPHS:
@@ -375,6 +406,12 @@ def graph_block(tag, boxes):
                         todo.append(u)
     for a in range(nn):
         out += bytes(hop[a])
+    if len(out) & 1:
+        out.append(0)
+    rs = respawns(tag, boxes, nodes, grid)
+    out += struct.pack('<H', len(rs))
+    for (x, y, a, n) in rs:
+        out += struct.pack('<hhHBB', x, y, a, n, 0)
     return bytes(out)
 
 

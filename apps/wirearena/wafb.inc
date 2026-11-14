@@ -74,7 +74,8 @@ WA_RKTYP    equ 7                   ; 0 a rocket, 1 a grenade
 WA_RKFLY    equ 1                   ; state: flying; 2..: exploding
 WA_RKBOOM   equ 8                   ; an explosion's first state (7 ticks)
 WA_PKSZ     equ 8                   ; ARENA's pickup: x, y, z, kind, 0
-WA_MOV      equ 40                  ; OVERLAY's most cells
+WA_MOV      equ 160                 ; OVERLAY's most cells (the scoreboard's
+                                    ; 100 among them: AI-PLAN 5)
 
 ; --- the block: WA_FBLOCK, expanded where the includer keeps it -------------
 %macro WA_FBLOCK 0
