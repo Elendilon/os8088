@@ -92,6 +92,7 @@ def main():
 
         # A KILL: the pistol, bot 1 stood still (its fire held: a bench's)
         g.p.write(sym["wa_bdet"], b"\x01")
+        setb(1, 10, bytes([0]))         # (no shield: a fifth of lives have one)
         park(0)                         # (the others out of the line of fire)
         park(2)
         n = 0

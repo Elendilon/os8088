@@ -597,3 +597,69 @@ the player dead, the bot dead, or itself. `wa_sight`, `wa_bear`,
 1.23% of the frame (B4: 698, 1.3%). The renderer is untouched.
 
 **Bytes**: the game 14,352 (+256), `WARENA.O88` 34,306 (+192).
+
+### 8.6 Play notes: shields by chance, switching, keeping on the player (2026-11-14)
+
+The owner's second play: the bots targeted each other but did not seem to
+kill each other. They did. Measured in two-minute matches, bot-on-bot kills
+were 3 with the player in view and 15 with the player hidden. But nearly
+nine hits in ten went to the player: a bot engaged on the player stayed on
+them. Bot 0 also always lived with a full shield, a weapons-round fixture,
+so it took twice the killing. The owner's rulings and what was built:
+
+**Shields by chance.** "On medium/hard, randomize spawning with a shield
+for each bot at a 20% chance." `wa_spawne` rolls `wa_rand8` < `WA_BSHP`
+(51 of 256) on normal and hard, for any bot; easy never. A bench
+(`wa_bdet` set) keeps the fixture: dummy 0 shielded, so the bench scenes
+and `waweapons` are unchanged.
+
+**A shot bot turns on the shooter** ("seems fine"). `wa_hurt` now calls
+`wa_bstruck` for every damage path: hitscan, rocket, grenade, the player's
+too. A bot not fighting turns on whoever shot it. A bot fighting someone
+else turns only when the shooter is nearer than its own target.
+
+**A nearer enemy** ("also seems fine"). Every fourth look, an engaged bot
+first checks for a live enemy within three quarters of its target's
+distance (`wa_bclose`: four `wa_btpos` and a sum of differences each, no
+sight walk). If there is one, it walks one sight line to it: seen, it is
+the target; not, the look goes on to its own target as before.
+
+**So that the bots still follow the player** (the owner's worry):
+
+- **A grudge**: a bot the player hits holds to the player for
+  `WA_GRUDGE` (90 ticks, 3 s). No nearer enemy and no bot's shot moves it.
+  It counts down 8 a look, so its cost is a look's, not a tick's.
+- **The player's hits** turn a bot on them, the same as a bot's do. Before,
+  a bot the player shot did nothing.
+- **Hearing**: every shot the player fires (`wa_bhear`, from `wa_fire`)
+  sends each live ROAMING bot within `WA_HEAR` (1024 units, |dx|+|dy|)
+  hunting the player's node. Engaged and hunting bots are left alone. A bot
+  that wanders off still comes back when the player starts shooting.
+- The three-quarters margin itself: a bot does not drop the player for an
+  enemy one step nearer.
+
+**Checked**: the six WireArena rows pass. `wabots` gains four checks:
+
+- SHIELDS: 16 of 80 lives on normal, 0 of 20 on easy.
+- SHOOTS BACK: the player shoots bot 0 from behind; it turns on them
+  (engaged, target 0) with a grudge of 86 ticks.
+- THE GRUDGE: bot 1 comes up 150 off. Bot 0 stays on the player while the
+  grudge runs, then takes bot 1.
+- HEARING: a shot at nothing; bot 0, 500 off and facing away, comes
+  hunting; bot 1 in the back tunnel, out of earshot, roams on.
+
+**Red** with the shield roll never true, the grudge never held and the
+hearing call removed: SHIELDS, THE GRUDGE and HEARING all fail. `wascore`'s
+pistol kill now clears bot 1's shield (it may have spawned with one). Each
+of `wabots`' duels pins `wa_seed`. With the clock's seed, 20 rolls landed
+outside the 15-point band about once in 200 runs, and it did once here.
+
+**In play**, by the breakpoint trace: the first build was 2.44% of the
+frame. The grudge countdown ran a divide (`wa_bidx`) on every bot every
+tick, and the nearer-enemy walk came every other look. With the countdown
+on the looks and the walk every fourth look, it is 1,287 -> 876 clk a
+call, 5,415 clk a frame, 1.66% (8.5: 1.23%). The rest is real work: more
+engaged and hunting bots in the same 149 frames, and their looks are sight
+walks.
+
+**Bytes**: the game 14,700 (+348), `WARENA.O88` 34,562 (+256).

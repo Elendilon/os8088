@@ -135,6 +135,9 @@ def main():
             setb(0, 47, bytes([0, 0]))          # must turn (no reaction left)
             g.put("wa_bshots", 0)
             g.put("wa_bhits", 0)
+            g.put("wa_seed", 0x5A17)    # (20-40 rolls: the clock's seed let
+                                        # one run in ~200 land outside 15
+                                        # points - pinned, the same each run)
             cue = flash = False
             angs = []
             for t in range(300):
@@ -240,6 +243,89 @@ def main():
         check(g.word("wa_hp") == 30000 and d1[0] == d0[0],
               "BOT AGAINST BOT: the player unhurt (%d), no death of theirs"
               % g.word("wa_hp"))
+
+        # SHIELDS: a fifth of a bot's lives on normal, none on easy
+        def lives(diff, n):
+            g.put("wa_diff", diff)
+            k = 0
+            for _ in range(n):
+                setb(2, 17, bytes([1]))
+                g.tick(1)
+                while fb(2, 17)[0]:
+                    g.tick(1)
+                k += fb(2, 10)[0] == 100
+            return k
+        on, off = lives(1, 80), lives(0, 20)
+        check(6 <= on <= 28 and off == 0,
+              "SHIELDS: %d of 80 lives shielded on normal (~16), %d of 20 on "
+              "easy" % (on, off))
+
+        def hold(st0=None):
+            """bots 0 and 1 where they stand, whole, the player too"""
+            g.put("wa_hp", 30000)
+            for i, (x, y) in enumerate(spots):
+                if not fb(i, 17)[0]:
+                    g.freeze(i, x, y)
+                    setb(i, 42, bytes([250]))
+            out_of_play(2)
+
+        # SHOOTS BACK: the player hits bot 0 from behind; it turns on them,
+        # with a grudge of 90 ticks
+        g.put("wa_diff", 1)
+        out_of_play(1)
+        out_of_play(2)
+        spots = [(1100, 300)]
+        g.at(700, 300, 0, ang=0)
+        place(0, 1100, 300, ang=0, st=0)
+        setb(0, 17, bytes([0, 0]))
+        setb(0, 10, bytes([0]))
+        setb(0, 42, bytes([250]))
+        g.tick(4)                       # (drawn there: the shot traces the
+        place(0, 1100, 300, ang=0, st=0)  # figures as the last frame drew them)
+        g.tick(1)
+        g.press("ControlLeft")
+        grudge = g.p.read(sym["wa_grudge"], 1)[0]
+        check((fb(0, F_BST)[0], fb(0, F_BTGT)[0]) == (1, 0) and grudge > 70,
+              "SHOOTS BACK: shot from behind, bot 0 turns on the player "
+              "(state %d, target %d), a grudge of %d ticks"
+              % (fb(0, F_BST)[0], fb(0, F_BTGT)[0], grudge))
+        # THE GRUDGE: bot 1 comes up close - bot 0 stays on the player while
+        # its grudge runs, then takes the nearer enemy
+        spots = [(1100, 300), (1250, 300)]
+        setb(1, 17, bytes([0, 0]))
+        setb(1, 10, bytes([0]))
+        place(1, 1250, 300, ang=512, st=0)
+        held, switched = g.p.read(sym["wa_grudge"], 1)[0] > 60, None
+        for t in range(120):
+            g.tick(2)
+            if t % 5 == 0:
+                hold()
+            gr = g.p.read(sym["wa_grudge"], 1)[0]
+            tg = fb(0, F_BTGT)[0]
+            if gr > 4 and tg != 0:
+                held = False
+            if gr == 0 and tg == 2 and switched is None:
+                switched = t
+                break
+        check(held and switched is not None,
+              "THE GRUDGE: bot 0 on the player while it runs (%s), then on "
+              "the nearer bot 1 (%r ticks in)" % (held, switched))
+
+        # HEARING: the player fires at nothing; bot 0, roaming 500 off and
+        # facing away, comes hunting them; bot 1, far down the back tunnel,
+        # does not
+        out_of_play(2)
+        spots = [(1500, 300), (64, 1024)]
+        g.at(1000, 300, 0, ang=256)
+        for i, (x, y) in enumerate(spots):
+            setb(i, 17, bytes([0, 0]))
+            place(i, x, y, ang=0, st=0)
+        g.tick(2)
+        g.press("ControlLeft")
+        st = (fb(0, F_BST)[0], fb(0, F_BTGT)[0], fb(1, F_BST)[0])
+        check(st[0] in (1, 2) and st[1] == 0 and st[2] == 0,
+              "HEARING: bot 0 within earshot hunts the player (state %d, "
+              "target %d), bot 1 out of it roams on (%d)" % st)
 
     if fails:
         print("wabots: FAIL - %d of the bots' checks:" % len(fails))

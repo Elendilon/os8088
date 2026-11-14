@@ -398,9 +398,20 @@ wa_spawne:                      ; AL = the edge it starts on
     mov byte [di+F_BWPN], 0
     mov word [di+F_BAMMO], 0    ; (and its target: the player)
     mov byte [di+F_HP], WA_FHP
-    xor ax, ax                  ; dummy 0 lives with a full shield: its chest
-    cmp di, wa_figs             ; yellow and a second pool to shoot through
-    jne .nsh                    ; (WEAPONS-PLAN 2.3)
+    xor ax, ax
+    cmp byte [wa_bdet], 0       ; a bench's: dummy 0 lives with a full shield,
+    jne .bench                  ; its chest yellow (WEAPONS-PLAN 2.3)
+    cmp byte [wa_diff], 0       ; a match's: on normal and hard, a fifth of
+    je .nsh                     ; the bots' lives, any bot (the owner: "so it
+    call wa_rand8               ; is not always this one")
+    cmp al, WA_BSHP
+    mov al, 0
+    jae .nsh
+    jmp .full
+.bench:
+    cmp di, wa_figs
+    jne .nsh
+.full:
     mov al, WA_FHP
 .nsh:
     mov [di+F_SH], al
@@ -1280,6 +1291,9 @@ WA_BHUNT    equ 2
 WA_BFETCH   equ 3               ; (B4: to a pickup's node)
 WA_BDEADT   equ 240             ; a dead figure's ticks to its respawn: 8 s
 WA_BBODYT   equ 90              ; ...its body's, lying: 3 s
+WA_BSHP     equ 51              ; a bot's life with a shield: 51 in 256, 20%
+WA_GRUDGE   equ 90              ; hit by the player: on them 3 s, whatever
+WA_HEAR     equ 1024            ; the player's shot heard within (|dx|+|dy|)
 WA_SGRID    equ 128             ; the sight grid's bytes (32 x 32 bits)
 WA_BDMG     equ 20              ; a bot's round (its pistol: wave B4 arms it)
 WA_BLOST    equ 19              ; looks (8 ticks each) a hunt lasts: 5 s
@@ -1303,8 +1317,30 @@ wa_bthink:
     add ax, cx
     test al, 7
     jnz .acted
+    push ax
+    call wa_bidx                ; (its grudge runs down, 8 ticks a look)
+    xchg ax, bx
+    pop ax
+    sub byte [wa_grudge+bx], 8
+    jnc .ng
+    mov byte [wa_grudge+bx], 0
+.ng:
     cmp byte [di+F_BST], WA_BENG ; WHAT IT LOOKS AT (the owner, play-testing:
-    je .tgt                     ; "pick a seen target"): engaged, its target;
+    jne .pick                   ; "pick a seen target"): engaged, its target,
+    and al, 24                  ; but every fourth look first a nearer enemy
+    cmp al, 24                  ; if there is one (and no grudge holds it)
+    jne .tgt
+    call wa_bclose
+    jnc .tgt
+    mov ah, [di+F_BTGT]         ; (its old one, should this be out of sight)
+    mov [di+F_BTGT], bl
+    push ax
+    call wa_sight
+    pop ax
+    jc .c_s                     ; seen: it is the target now
+    mov [di+F_BTGT], ah
+    jmp .tgt
+.pick:
     test al, 8                  ; else the player one look and the next live
     jnz .bots                   ; bot the next - one sight walk a look, as
     mov byte [di+F_BTGT], 0     ; ever
@@ -1472,6 +1508,8 @@ wa_atan:                        ; atan(r / 64), 1024 to the turn, r 0..64
 ; dead, the bot dead, or itself). Keeps all but AX, BX
 wa_btpos:
     mov bl, [di+F_BTGT]
+    ; (falls through)
+wa_btpbl:                       ; BL = the target (0 the player, 1.. a bot)
     or bl, bl
     jnz .bot
     cmp byte [wa_pdead], 0
@@ -1529,6 +1567,185 @@ wa_bnextt:
     mov byte [di+F_BTGT], 0
 .out:
     pop cx
+    ret
+
+; wa_tdist - DI = a figure: AX = |dx| + |dy| to wa_tx, wa_ty. Keeps all
+; but AX
+wa_tdist:
+    push bx
+    mov ax, [wa_tx]
+    sub ax, [di+F_X]
+    call wa_abs
+    mov bx, ax
+    mov ax, [wa_ty]
+    sub ax, [di+F_Y]
+    call wa_abs
+    add ax, bx
+    pop bx
+    ret
+
+; wa_bgrudge - DI = a bot: ZF = 0 when it is on the player with a grudge
+; still running. Keeps all but AX
+wa_bgrudge:
+    cmp byte [di+F_BTGT], 0
+    jne .no
+    push bx
+    call wa_bidx
+    xchg ax, bx
+    cmp byte [wa_grudge+bx], 0
+    pop bx
+    ret
+.no:
+    cmp al, al                  ; (ZF = 1)
+    ret
+
+; wa_bclose - DI = an engaged bot: CF = 1 and BL = an enemy nearer than
+; three quarters of its target's distance, the nearest (its place in wa_tx,
+; wa_ty, wa_tz); CF = 0 when there is none, or a grudge holds it to the
+; player. Keeps all but AX, BX
+wa_bclose:
+    call wa_bgrudge
+    jnz .no
+    push cx
+    push dx
+    call wa_btpos
+    jnc .none                   ; (its own gone: the look sees to that)
+    call wa_tdist
+    mov dx, ax                  ; DX = 3/4 of it, then the nearest so far
+    shr ax, 1
+    shr ax, 1
+    sub dx, ax
+    mov cx, 0xFF00              ; CH = none yet, CL = the one tried
+.c:
+    cmp cl, [di+F_BTGT]
+    je .n
+    mov bl, cl
+    call wa_btpbl
+    jnc .n
+    call wa_tdist
+    cmp ax, dx
+    jae .n
+    mov dx, ax
+    mov ch, cl
+.n:
+    inc cl
+    cmp cl, WA_NFIG
+    jbe .c
+    cmp ch, 0xFF
+    je .none
+    mov bl, ch
+    call wa_btpbl               ; (its place again, CF = 1)
+    mov bl, ch
+    pop dx
+    pop cx
+    ret
+.none:
+    pop dx
+    pop cx
+.no:
+    clc
+    ret
+
+; wa_bstruck - DI = a bot just hurt by [wa_killer] (0 the player): the
+; player's hit is a grudge of WA_GRUDGE ticks, and it turns on whoever shot
+; it - unless it is fighting them already, or a grudge holds it to the
+; player, or its own target is nearer. Keeps every register
+wa_bstruck:
+    push ax
+    push bx
+    push dx
+    mov al, [wa_killer]
+    or al, al
+    jnz .k
+    push ax
+    call wa_bidx
+    xchg ax, bx
+    mov byte [wa_grudge+bx], WA_GRUDGE
+    pop ax
+.k:
+    cmp byte [di+F_BST], WA_BENG
+    jne .turn
+    cmp al, [di+F_BTGT]
+    je .out
+    push ax
+    call wa_bgrudge
+    pop ax
+    jnz .out
+    push ax
+    call wa_btpos
+    pop ax
+    jnc .turn                   ; (its own gone)
+    push ax
+    call wa_tdist
+    xchg ax, dx                 ; DX = its own's distance
+    pop ax
+    mov bl, al
+    push ax
+    call wa_btpbl
+    pop ax
+    jnc .out
+    push ax
+    call wa_tdist
+    cmp ax, dx
+    pop ax
+    jae .out                    ; (its own nearer: it stays on them)
+.turn:
+    mov [di+F_BTGT], al         ; its reaction first, and it fires once its
+    mov byte [di+F_BST], WA_BENG ; next look sees them
+    mov byte [di+F_BSEE], 0
+    mov byte [di+F_BGAP], 0
+    mov bl, [wa_diff]
+    xor bh, bh
+    mov al, [wa_brx+bx]
+    mov [di+F_BRX], al
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; wa_bhear - the player's shot: every live roaming bot within WA_HEAR of it
+; hunts the node nearest the player (the owner's worry: bots that fight
+; each other forget the player). Keeps every register
+wa_bhear:
+    cmp byte [wa_bdet], 0
+    jne .r
+    push ax
+    push bx
+    push cx
+    push di
+    mov ax, [wa_px]
+    mov bx, [wa_py]
+    call wa_bcell
+    mov ah, al                  ; AH = the player's node
+    mov di, wa_figs
+    mov cx, WA_NFIG
+.f:
+    cmp byte [di+F_DEAD], 0
+    jne .n
+    cmp byte [di+F_BST], WA_BROAM
+    jne .n
+    push ax
+    mov ax, [wa_px]
+    mov [wa_tx], ax
+    mov ax, [wa_py]
+    mov [wa_ty], ax
+    call wa_tdist
+    cmp ax, WA_HEAR
+    pop ax
+    jae .n
+    mov byte [di+F_BTGT], 0
+    mov byte [di+F_BST], WA_BHUNT
+    mov byte [di+F_BGAP], WA_BLOST
+    mov [di+F_BGOAL], ah
+.n:
+    add di, F_SIZE
+    loop .f
+    pop di
+    pop cx
+    pop bx
+    pop ax
+.r:
     ret
 
 ; wa_bcell - AX, BX = x, y: AL = the route node nearest the PVS cell there
@@ -1759,20 +1976,8 @@ wa_bshoot:
     mul cl
     add ax, wa_figs
     mov di, ax
-    cmp byte [di+F_BST], WA_BENG
-    je .hit                     ; (not fighting already: it turns on whoever
-    mov al, [wa_killer]         ; shot it, its reaction first, and fires
-    mov [di+F_BTGT], al         ; once its next look sees them)
-    mov byte [di+F_BST], WA_BENG
-    mov byte [di+F_BSEE], 0
-    mov byte [di+F_BGAP], 0
-    mov bl, [wa_diff]
-    xor bh, bh
-    mov al, [wa_brx+bx]
-    mov [di+F_BRX], al
-.hit:
     pop ax
-    call wa_hurt
+    call wa_hurt                ; (and it turns on the shooter: wa_bstruck)
     pop di
     ret
 .player:
@@ -2663,6 +2868,7 @@ wa_fire:
     mov [wa_cool], al
     mov byte [wa_ovd], 1
     mov byte [wa_mflash], 2
+    call wa_bhear               ; (heard: the bots near enough come)
     push bx
     shl bx, 1
     call [wa_wfire+bx]
@@ -2904,6 +3110,7 @@ wa_launch:
 wa_hurt:
     cmp byte [di+F_DEAD], 0
     jne .out
+    call wa_bstruck             ; (AI-PLAN 8.6: it turns on whoever shot it)
     inc word [wa_hits]
     mov byte [di+F_FLASH], 5
     mov cl, [di+F_SH]
@@ -4910,6 +5117,7 @@ WA_VAR wa_bw,1                   ; a bot's shot: its weapon, accuracy,
 WA_VAR wa_bacc2,1                ;   distance
 WA_VAR wa_bdist,2
 WA_VAR wa_bfig,2                 ; wa_blaunch's bot
+WA_VAR wa_grudge,WA_NFIG          ; each bot's grudge against the player, ticks
 WA_VAR wa_tx,2                   ; a bot's target: where, its chest's
 WA_VAR wa_ty,2                   ;   height (wa_btpos)
 WA_VAR wa_tz,2
