@@ -11037,6 +11037,68 @@ $(BUILD)/msegwz360.img: $(BUILD)/msegwzd/MSEG.O88 tools/os88disk.py | $(BUILD)
 msegw: $(BUILD)/msegw.img $(BUILD)/msegw360.img $(BUILD)/msegwz.img \
        $(BUILD)/msegwz360.img
 
+# --- MSEGB: ONE PART past 64KB, three times over (SPEC.md 20.12.15) ---------
+# mseg.asm built -DMSEG_BIG puts OP_BIG on parts 1, 2 and 6, and each is
+# padded past 65,024 bytes by tests/multiseg/mkwide.py: part 1 with noise,
+# plain in both builds; part 2 and part 6 (the lazy one) with text, which the
+# `z` build compresses (-DMSEG_COMP -DMSEG_LZC) and packs past 64KB too. So
+# the plain build reads two big rows straight into the carve and moves a big
+# lazy row down onto its claim; the `z` build expands a big row, moves a big
+# PLAIN row down through a compressed carve in pieces, and expands a big lazy
+# row. tests/multiseg.py --big compares every byte of all three. Before
+# 20.12.15 the packer refused each row.
+$(BUILD)/msegb.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc \
+                    apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DMSEG_BIG -I apps/ -I tests/multiseg/ -o $@ $<
+
+$(BUILD)/msegbz.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc \
+                     apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DMSEG_BIG -DMSEG_COMP -DMSEG_LZC -I apps/ \
+		-I tests/multiseg/ -o $@ $<
+
+$(BUILD)/msegbp1.bin: $(BUILD)/msegp1.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py noise 70000 $< $@
+
+$(BUILD)/msegbp2.bin: $(BUILD)/msegp2.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py text 120000 $< $@
+
+$(BUILD)/msegbp4.bin: $(BUILD)/msegp4.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py text 115000 $< $@
+
+MSEGB_PARTS = $(BUILD)/msegp0.bin $(BUILD)/msegbp1.bin $(BUILD)/msegbp2.bin \
+              $(BUILD)/msegp3.bin $(BUILD)/msegbp4.bin
+
+$(BUILD)/msegbd/MSEG.O88: $(BUILD)/msegb.bin $(MSEGB_PARTS) tools/os88pkg.py
+	@mkdir -p $(BUILD)/msegbd
+	python3 tools/os88pkg.py $(BUILD)/msegb.bin -o $@ \
+		$(foreach p,$(MSEGB_PARTS),--part $(p))
+
+$(BUILD)/msegbzd/MSEG.O88: $(BUILD)/msegbz.bin $(MSEGB_PARTS) tools/os88pkg.py \
+                           tools/os88lz.py
+	@mkdir -p $(BUILD)/msegbzd
+	python3 tools/os88pkg.py $(BUILD)/msegbz.bin -o $@ \
+		--part-compress lz4 $(foreach p,$(MSEGB_PARTS),--part $(p))
+
+$(BUILD)/msegb.img: $(BUILD)/msegbd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegb360.img: $(BUILD)/msegbd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegbz.img: $(BUILD)/msegbzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegbz360.img: $(BUILD)/msegbzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+.PHONY: msegb
+msegb: $(BUILD)/msegb.img $(BUILD)/msegb360.img $(BUILD)/msegbz.img \
+       $(BUILD)/msegbz360.img
+
 # --- CWORD and its document floppy (SPEC.md 73.12) ---------------------------
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw
 # and RTF engine are all C, going through the same five steps ccsmoke and

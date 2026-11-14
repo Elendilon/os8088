@@ -4146,6 +4146,33 @@ SOAK = [
         "...and that off a 360KB disk, with the head slack. Needs `make "
         "msegw`.",
         needs=("marty",), serial=True, wants=("build/msegwz360.img",)),
+    Row("msegb", "soak", py("tests/multiseg.py", "1440", "--big"), 30.0,
+        "SPEC.md 20.12.15: ONE PART PASSES 64KB. MSEG built -DMSEG_BIG, "
+        "OP_BIG on parts 1, 2 and the lazy 6, each padded past 65,024 bytes "
+        "by tests/multiseg/mkwide.py: two big rows read straight into the "
+        "carve, and a big lazy row fetched on a key and moved down onto its "
+        "claim. Every byte of all three is read back out of the guest and "
+        "compared with the padded module, and each row is asserted past "
+        "65,024 with the flag, so a padding that shrank cannot pass it. "
+        "Needs `make msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegb.img",)),
+    Row("msegb360", "soak", py("tests/multiseg.py", "360", "--big"), 30.0,
+        "...and off a 360KB disk, where the head slack is non-zero and the "
+        "lazy part's move-down copies past 64KB in pieces. Needs `make "
+        "msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegb360.img",)),
+    Row("msegbz", "soak", py("tests/multiseg.py", "1440", "--comp", "--big"),
+        30.0,
+        "...and COMPRESSED: part 2 packs to 75KB and expands to 122KB through "
+        "OSAPI_LZ_BIG, the plain 71KB part 1 is moved down through the "
+        "compressed carve OP_CHUNK at a time, and the lazy part 6 packs past "
+        "64KB and expands on its fetch. Needs `make msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegbz.img",)),
+    Row("msegbz360", "soak", py("tests/multiseg.py", "360", "--comp",
+                                "--big"), 30.0,
+        "...and that off a 360KB disk, with the head slack. Needs `make "
+        "msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegbz360.img",)),
     Row("msegnomem", "soak", py("tests/msegnomem.py"), 30.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
