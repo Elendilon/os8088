@@ -1014,6 +1014,17 @@ bz_blit:
     pop si
     ret
 
+; AX (signed) clamped to 0 .. 255 -> AL (SPEC.md 128.15.5.1: the clamps keep
+; the byte compares exact for ANY ball position).  Inline: the walk's every
+; block row runs it.
+%macro BZ_OCLAMP 0
+    or ah, ah
+    jz %%ok
+    cmp ah, 80h                 ; AH 01h .. 7Fh: over 255 -> CF = 1, AL = FFh;
+    sbb al, al                  ; 80h .. FFh: under 0 -> CF = 0, AL = 0
+%%ok:
+%endmacro
+
 ; bz_occ - THE OCCLUDER PASS (SPEC.md 128.10.8 item 1, 128.10.4.4, 128.11.10.2),
 ; ONCE A FRAME, after every box is composed: every record the rule lays at the
 ; ball's position lays its block's pixels back over the shadow and the ball in
@@ -1024,7 +1035,11 @@ bz_blit:
 ;     lay it  iff  s_b < s_C  and  z_b + m < top_C
 ;
 ; s_b = [bz_sb] (bz_camera's, this frame), z_b = the integer px of bz_gz, m =
-; BZ_CLIMB grounded and 0 airborne.  The verdicts depend on the ball alone, so
+; BZ_CLIMB grounded and 0 airborne.  In RAM a record is 4 bytes (SPEC.md
+; 128.15.5.1, D: 128.15.5.4 shipped it): its column, s' and t' (s_C and top_C
+; biased by SB, TB and the block row) and m, its mask's MTAB index; the walk's
+; keys ks and kt are the ball's side biased and clamped the same way, so the
+; byte compares give the rule's verdicts.  The verdicts depend on the ball alone, so
 ; the NEW footprint's blocks are walked ONCE - its lines [py, py + 16) and word
 ; columns [nfx0, nfx1], each clipped to the window, so at most 3 x 3 blocks -
 ; and each laid group goes into every box that meets it (bz_olay), clipped to
@@ -1102,6 +1117,11 @@ bz_occ:
     jne .air
     add ax, BZ_CLIMB
 .air:
+    sub ax, [bz_otb]            ; THE 4-BYTE RECORD (SPEC.md 128.15.5.1): kt =
+    BZ_OCLAMP                   ; clamp(z_b + m - TB, 0, 255), a byte, and the
+    mov [bz_okt], al            ; word s_b + SB, unclamped (each row's ks is
+    mov ax, [bz_sb]             ; clamp(s_b + SB - br), from its own br)
+    add ax, [bz_osbias]
     mov [bz_ozk], ax
     mov ax, [bz_olo]
     and al, 0f8h
@@ -1122,12 +1142,12 @@ bz_occ:
     sub ax, si
     jz .bsd
     shr ax, 1
-    and ax, byte -8             ; 8 floor(n / 2)
+    and ax, byte -BZ_REC        ; RECB floor(n / 2)
     mov di, si
     add di, ax                  ; DI = the middle record
     cmp [di], dl
     jae .bsh
-    lea si, [di + 8]
+    lea si, [di + BZ_REC]
     jmp short .bs
 .bsh:
     mov bx, di
@@ -1164,26 +1184,36 @@ bz_occ:
     shl ax, cl
     add ax, BZC_MAP
     mov [es:bz_omrow], ax
-    mov cx, [es:bz_sb]          ; the walk's keys in registers: CX = s_b,
-    mov di, [es:bz_ozk]         ; DI = z_b + m
+    mov ax, [es:bz_obr]         ; the walk's keys in registers: CL = ks =
+    mov cl, 3                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
+    shr ax, cl                  ; br, never carried (SPEC.md 128.15.5.1), CH =
+    neg ax                      ; kt, DI = MTAB
+    add ax, [es:bz_ozk]
+    BZ_OCLAMP
+    mov cl, al
+    mov ch, [es:bz_okt]
+    mov di, [es:bz_mtab]
     push dx                     ; (DL, the first column, is the next row's)
 .grp:
     mov dl, [si]                ; A GROUP: the records of one block word, its
     xor bx, bx                  ; laid masks ANDed - BX: 0 none laid yet, a
 .rec:                           ; mask's offset, or -1 for bz_omsk
-    cmp cx, [si + 2]
-    jge .skip                   ; s_b >= s_C: beside or in front
-    cmp di, [si + 4]
-    jge .skip                   ; z_b + m >= top_C: above it
+    cmp cl, [si + 1]
+    jae .skip                   ; ks >= s': beside or in front
+    cmp ch, [si + 2]
+    jae .skip                   ; kt >= t': above it
     inc word [es:bz_nlay]       ; LAID
     or bx, bx
     jnz .and
-    mov bx, [si + 6]            ; the group's first: its own mask
+    mov bl, [si + 3]            ; the group's first: its own mask, MTAB[m]
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bx + di]
     jmp short .skip
 .and:
     call bz_oand                ; a second or later: ANDed into bz_omsk
 .skip:
-    add si, 8
+    add si, BZ_REC
     cmp si, bp
     jae .gend
     mov al, [si]
@@ -1225,14 +1255,20 @@ bz_occ:
 ; BX = -1.  Only the lines the pass lays ([bz_ofl2 / 2, + bz_on), at the
 ; same place in bz_omsk as in a mask); the AND of two keep-masks keeps only
 ; what both keep, so laying it once is laying each in turn (128.10.8 item 1).
-; DS = the course part, ES = ours.  Preserves all but AX and BX.
+; The record's mask is MTAB[m] (DI = MTAB on entry), and the
+; lookup comes FIRST: it uses AX, which then carries bz_ofl2 (SPEC.md
+; 128.15.5.2).  DS = the course part, ES = ours.  Preserves all but AX and BX.
 bz_oand:
     push cx
     push si
     push di
     mov cx, [es:bz_on]
+    mov al, [si + 3]
+    xor ah, ah
+    shl ax, 1
+    add di, ax
+    mov si, [di]                ; MTAB[m]
     mov ax, [es:bz_ofl2]
-    mov si, [si + 6]
     add si, ax                  ; SI = this record's mask line
     mov di, bz_omsk
     add di, ax                  ; DI = bz_omsk's

@@ -139,12 +139,15 @@ the registered row's (which runs this build's legs alone):
 
     python3 tests/bonanza_perf.py --ab --fmt-ab
 
-(The third, --rec-ab, THE D/C ACCEPTANCE of SPEC.md 128.15.5.4, ran once in
-5b's final pass and left with the losing arm, as that subsection says: on
-the CGA the 4-byte record (D) missed 23.5 more refreshes than C on MILL's
-and PEAK's demos summed, past the owner's +2, so C ships.  Its figures are
-128.15.5.4's, and the leg was deleted before 5b's commit, as that
-subsection asks.)
+(The third, --rec-ab, THE D/C ACCEPTANCE of SPEC.md 128.15.5.4, ran twice
+and left with the losing arm, as that subsection says.  5b's final pass
+shipped C under the first rule (D +23.5 summed misses on the CGA, past +2,
+almost all MILL's camera tipping between two modes).  The owner re-opened it
+under the SMOOTHNESS rule (2026-11-14: missed refreshes a second off the
+flip, MILL compared within one camera mode, no new stutter), and the second
+run measured D within +0.16 a second of C on both cards with no new stutter
+(its red arm, occslow, went red at +2.10 and +11.50), so D ships and C's arm
+and this leg were deleted.  The figures are 128.15.5.4's.)
 
   --ab      BENCH against the ANCHOR, ef59209a - the last BZC1 tree, whose
             package wave 5a's is byte for byte - built out of git with its own
@@ -581,7 +584,7 @@ def demo_legs(g, tag, legs, sounds):
     return out
 
 
-# ---- WAVE 5B (SPEC.md 128.15.5.4, 128.15.9): the D/C A/B and the parts' format A/B ------------------
+# ---- WAVE 5B (SPEC.md 128.15.9): the parts' format A/B (the D/C A/B left once D shipped, 128.15.5.4) ---
 def course_paths():
     """the shipped courses' files in BZ_COURSES's order (bzcourse.inc's own list, R.COURSES)"""
     R.CRS_K["bench"]
@@ -1146,8 +1149,8 @@ def ab_print(tag, res, ores, commit):
         print("  %-14s %9d %9d" % ("misses", n["miss"], o["miss"]))
         d = n["busy"] - o["busy"]
         print("  BENCH's mean busy %+.0f clk against %s's (at most +%d ASSERTED on both cards, SPEC.md 128.14.17 "
-              "item 7 and 128.15.13: the standing guard on the frame's cost; C ships, wave 4's occluder walk "
-              "byte for byte, SPEC.md 128.15.5.4)" % (d, commit, AB_OVER))
+              "item 7 and 128.15.13: the standing guard on the frame's cost; D ships, its 4-byte walk about "
+              "+0.4k clk a pass frame over wave 4's, SPEC.md 128.15.5.4)" % (d, commit, AB_OVER))
         if d > AB_OVER:
             bad.append("%s A/B: BENCH's mean busy %.0f clk against %s's %.0f, %+.0f - at most +%d asserted "
                        "(SPEC.md 128.14.17 item 7, 128.15.13)" % (tag, n["busy"], commit, o["busy"], d, AB_OVER))

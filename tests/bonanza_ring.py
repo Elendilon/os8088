@@ -147,8 +147,8 @@ model's (`spy`).
      next frame's.  (Wave 4's HUD part and its lane scene went in wave 5a
      with the HUD, which was not built: SPEC.md 128.14.26, 128.15.3.)
   9  WAVE 5B (SPEC.md 128.15.10.3, 128.15.13).  The parts are BZC2's, held in
-     RAM as the tool's RAM form (C's 8-byte records; D's 4-byte arm was
-     deleted, SPEC.md 128.15.5.3), and every record mask carries the ghost checker: the oracle (Ref.foot) lays each
+     RAM as the tool's RAM form (D's 4-byte records, SPEC.md 128.15.5; C's
+     8-byte arm was deleted at 128.15.5.4's verdict), and every record mask carries the ghost checker: the oracle (Ref.foot) lays each
      record's pixels LESS the checker's (bbcourse.ghost), the card's model.
      MILL's lift frames (the MILL play's `ride` and `pover`: the slab whole,
      under and over the ball) are checked card = oracle on the dithered masks
@@ -221,8 +221,13 @@ their own check:
              The card lays the records' checker pixels the oracle keeps for
              the ghost: card != oracle on the first frame laying a record over
              a ball pixel where bbcourse.ghost holds (SPEC.md 128.15.13)
-  (recstep, 5b's arm on the 4-byte record's walk, went with that arm:
-  C ships, SPEC.md 128.15.5.4)
+  recstep    (5b, 128.15.5.3) the occluder walk steps 8 over the 4-byte
+             records, so it skips every second record of a block word:
+             card != oracle on the first frame whose pass should lay a record
+             it skips - on the W4 part (MOON's demo, every frame checked,
+             then PEAK's hidden stretches): BENCH's six such frames on the
+             CGA never met a skipped record, so its first emulator run there
+             stayed green; on W4 it went red at MOON's demo on both cards
 
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
 bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
@@ -325,8 +330,8 @@ def at(p):
 
 def build_rec(art=None):
     """the build's RECB: bzcourse.inc's BZ_REC (8 when the art predates it:
-    wave 4's BZC1 parts have 8-byte records too).  C shipped and D was
-    deleted (SPEC.md 128.15.5.3), so every shipped build reads 8; the line
+    wave 4's BZC1 parts have 8-byte records too).  D shipped and C's arm was
+    deleted (SPEC.md 128.15.5.4), so every shipped build reads 4; the line
     stays the one place a row learns the stride a compile is laid out in."""
     inc = open(os.path.join(ROOT, art or at("build/bonanza-art"), "bzcourse.inc")).read()
     m_ = re.search(r"^BZ_REC\s+equ\s+(\d+)", inc, re.M)
@@ -2613,22 +2618,22 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         g = Bz(ui, tag, sym)
         ui.settle()
         if "glass" in parts:
-            glass(g, Ref(tag, course("first"), art))
+            glass(g, Ref(tag, course("first", art=art), art))
         if "bench" in parts:                    # [bz_hvoff] 1: wave 2's camera, its eight directions
-            out["bench"] = bench(g, Ref(tag, course("bench"), art), hvoff=1 if "bz_hvoff" in sym else None)
+            out["bench"] = bench(g, Ref(tag, course("bench", art=art), art), hvoff=1 if "bz_hvoff" in sym else None)
             out["fails"] += out["bench"]["fails"]
         if "trial" in parts and not out["fails"]:
-            out["trial"] = bench(g, Ref(tag, course("trial"), art), trial=True,
+            out["trial"] = bench(g, Ref(tag, course("trial", art=art), art), trial=True,
                                  hvoff=0 if "bz_hvoff" in sym else None)
             out["fails"] += out["trial"]["fails"]
         if "mill" in parts and not out["fails"]:
-            out["mill"] = bench(g, Ref(tag, course("mill"), art), mill=True, hvoff=0)
+            out["mill"] = bench(g, Ref(tag, course("mill", art=art), art), mill=True, hvoff=0)
             out["fails"] += out["mill"]["fails"]
         if "play" in parts and not out["fails"]:
-            f, out["play"] = mill_play(g, Ref(tag, course("mill"), art))
+            f, out["play"] = mill_play(g, Ref(tag, course("mill", art=art), art))
             out["fails"] += f
         if "probe" in parts and not out["fails"]:
-            out["fails"] += probe(g, Ref(tag, course("bench"), art))
+            out["fails"] += probe(g, Ref(tag, course("bench", art=art), art))
         if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 128.14.14): the props, the blank
             f, out["w4"] = w4_part(g, art)
             out["fails"] += f
@@ -2895,7 +2900,7 @@ def w4_part(g, art=None):
     import bonanza_phys as P
     fails, out = [], {}
     load_demo(g, CRS_K["moon"])
-    f, out["moon"] = w4_replay(g, Ref(g.tag, course("moon"), art), "%s W4 MOON's demo" % g.tag)
+    f, out["moon"] = w4_replay(g, Ref(g.tag, course("moon", art=art), art), "%s W4 MOON's demo" % g.tag)
     fails += f
     scen = {s["name"]: s for s in P.w4_replays() if s["name"] in ("cup-128", "cup-lip")}
     for name in ("cup-128", "cup-lip"):
@@ -2910,7 +2915,7 @@ def w4_part(g, art=None):
                                  poke=s["poke"])
         fails += f
     if not fails:
-        peak = course("peak")
+        peak = course("peak", art=art)
         demo = load_demo(g, CRS_K["peak"])
         _k, mat, kt, _fl = BB.decode_log_t(demo)
         windows = [(h["a"], h["b"]) for h in BB.vis_stretches(BB.vis_run(peak, kt, mat))]
@@ -3177,6 +3182,10 @@ REDS = {
     # the blank left out: the mode port written with its enable bit SET at a full write (the W4 replays)
     "noblank": [("bzgame.inc", "    mov al, 22h\n    mov byte [bz_blk], 1\n",
                  "    mov al, 2ah                 ; RED noblank: the video left enabled\n    mov byte [bz_blk], 1\n")],
+    # wave 5b (SPEC.md 128.15.13): the walk steps 8 over the 4-byte records - every second record of
+    # a block word skipped, so the pass leaves a record the rule lays unlaid
+    "recstep": [("bzvideo.inc", ".skip:\n    add si, BZ_REC\n",
+                 ".skip:\n    add si, 8                   ; RED recstep: the 8-byte record's stride\n")],
     # the ball DRAWN in a transit: its new footprint boxed and its sprite composed
     "hidden": [("bzgame.inc", "    cmp byte [bz_hidn], 0       ; a HIDDEN ball (in a tube, or holed) has no\n"
                 "    jne .hid                    ; new footprint: its old one alone, restored\n",
@@ -3226,7 +3235,7 @@ RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",),
              "ridebox": ("play",), "pwait2": ("play",), "fastwrap": ("play",), "mapskip": ("mill",),
              "wrapmask": ("mill", "play"),
              "padfront": ("play",), "hidden": ("mill",),
-             "noblank": ("w4",), "nodither": ("bench",)}
+             "noblank": ("w4",), "nodither": ("bench",), "recstep": ("w4",)}
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
 # blank (~24.7k clocks) before its window's line 0, so the WHOLE column (at
 # most ~22k on the benchmark) fits ahead of a row-0 box there and item 6's
@@ -3242,7 +3251,7 @@ RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_r
             "contact": "at bz_tf", "defer": "(defer", "padfront": "pover", "hidden": "transit",
             "ridebox": "ridebox) at bz_presented", "pwait2": "waited two frames running", "fastwrap": "wrapbox) at bz_presented",
             "mapskip": "oracle check 5", "wrapmask": "wrapcommit",
-            "noblank": "blank", "nodither": "card != oracle"}
+            "noblank": "blank", "nodither": "card != oracle", "recstep": "card != oracle"}
 
 
 def main():

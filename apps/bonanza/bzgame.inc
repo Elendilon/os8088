@@ -395,6 +395,11 @@ VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
+VAR bz_okt,1                    ; the 4-byte record (SPEC.md 128.15.5): bz_ozk
+                                ; holds s_b + SB; kt = clamp(z_b + m - TB) (bz_occ)
+VAR bz_osbias,2                 ; SB sign-extended, TB, MTAB (bz_crshdr)
+VAR bz_otb,2
+VAR bz_mtab,2
 VAR bz_boxes,BZ_NBOXMAX * BZ_BOXD
 VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a

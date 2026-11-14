@@ -21947,11 +21947,12 @@ BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS)
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
-# The course part's RAM record is C's, 8 bytes (SPEC.md 128.15.5.3): wave
-# 5b's D/C acceptance (128.15.5.4) measured the 4-byte record (D) past the
-# owner's margin on the CGA, so its arm and the BZREC knob were deleted.
-# bbcourse.py still writes both strides (the stride is data); its default,
-# 8, is the shipped one, and bzcourse.inc's BZ_REC says which.
+# The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
+# 5b's D/C acceptance, re-taken under the owner's smoothness rule
+# (128.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
+# and the BZREC knob were deleted. bbcourse.py still writes both strides
+# (the stride is data, and the identity is over the 8-byte layout); its
+# default, 4, is the shipped one, and bzcourse.inc's BZ_REC says which.
 #> [Knobs] BZPARTZ=lzb|lz4 :: Bounce Bonanza's parts' format, LZB the default; a single-format COMPRESS= kernel forces its own (SPEC.md 128.15.9)
 # BZPARTZ is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
@@ -22062,7 +22063,7 @@ bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.im
 # `python3 tests/bonanza_<row>.py --red <arm>`, the arms each script's
 # `--help` lists (ring, phys, replay, exit, mega, wheel, perf, game, demo and
 # sound have them; no list is kept here, so none goes stale - wave 5b's
-# are ring nodither, exit expoff1|rowtab1|cellsafe, mega expcs,
+# are ring nodither|recstep, exit expoff1|rowtab1|cellsafe, mega expcs,
 # SPEC.md 128.15.13).  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
