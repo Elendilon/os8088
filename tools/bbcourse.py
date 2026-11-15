@@ -11,6 +11,17 @@
     python3 tools/bbcourse.py --tune HOP=r,s,g BOOST=b ... # a retune checked first, nothing written
                                                           # (SPEC.md 128.16.13)
 
+Wave 6b (SPEC.md 128.17): GRIP 6, 3, 1 and ice's rounded brake; the boost
+ARMED by a second Space edge in flight (bz_btok 2) and the LATE GRACE
+(BGRACE, bgr/bgd in state6()); PHYS_REV 7; the ladders swept at
+arm_positions(); item 7's offset map, the grace's exactness, the ledge and
+accidental cases, who-hits-it against wave 6's trigger, CD5's table.
+
+Gate 1's round 3 (SPEC.md 128.17.16): BGRACE 4; Space HELD at a first
+contact arms the boost onto a floor no higher than the take-off (zoff); a
+FALL takes the token; PHYS_REV 8; item 7's held, fall and stop-bouncing
+checks (fall_boosts(), fall_spent()) and their controls.
+
 Wave 6 (SPEC.md 128.16): the material table with BOOST (BZ_MATTAB +12) and
 its import-time bound; the fractional drag and the boost's token in
 Physics (state6()); the reach's BOOST launch from every firm level floor;
@@ -87,7 +98,13 @@ Host reference for the rows (import this module):
                                        .gh .ghv (state2()), the screen state
                                        .bx .by .vx .vy, and .events
     Glide(physics, herc, brows, cols), glide_run(course, herc, rate, phase)
-                                    -> GLIDE, bz_camglide's model (128.11.11.1)
+                                    -> GLIDE, bz_lattice's model (128.11.11.1;
+                                       LATTICE since wave 6b, 128.17.6; _w6
+                                       wave 6's policy, scripted=True
+                                       bz_camscr's camera)
+    camcheck(courses, demos, res)   -> --camcheck, item 8's camera checks
+                                       (128.17.9); CamRun, cam_demo, cam_auto
+                                       its harness
     encode_log(keys, course, mat), decode_log(log)   BZR1 (128.11.12.1)
     ledge_gaps(), gap_table_text()  -> 128.11.5.3's table, from Physics
     htab(), herc_translate_course(part)              128.11.3
@@ -114,6 +131,7 @@ import os
 import re
 import struct
 import sys
+import time
 from array import array
 from fractions import Fraction
 
@@ -201,22 +219,26 @@ K_HOP, K_GRIP = 0x10, 0x20         # Space, Left Shift (SPEC.md 128.11.7.2)
 # first with `bbcourse.py --tune`, 128.16.13).  Wave 6: Space = Hop and Left
 # Shift = Grip for every ball, only the amounts differ (decision 2): HOP rubber
 # 252 (the nearest to Q-61's 256 that every course compiles under, 128.16.3.2),
-# glass 224, steel 160; GRIP rubber 8, steel 5, glass 3 (Q-63); BOOST, rubber's
+# glass 224, steel 160; GRIP rubber 6, steel 3, glass 1 (wave 6b, SPEC.md
+# 128.17.3: the owner's gate-1 retune of Q-63's 8, 5, 3); BOOST, rubber's
 # "and again" (decision 1, 128.16.4), 350: a CONTACT flight's apex of 9.3 px.
 MAT_RUBBER, MAT_STEEL, MAT_GLASS = 0, 1, 2
 MAT_NAMES = ("rubber", "steel", "glass")
 HARD_NONE, HARD_STUN, HARD_SHATTER = 0, 1, 2
 MATERIALS = (
     # ACC  K  EF   EW  BMIN HOP GRIP  hard          threshold steps   the boost
-    dict(ACC=4, K=6, EF=205, EW=96, BMIN=128, HOP=252, GRIP=8, HARD=HARD_NONE, HTHR=0, HSTEPS=0, BOOST=350),
-    dict(ACC=2, K=8, EF=38, EW=32, BMIN=128, HOP=160, GRIP=5, HARD=HARD_STUN, HTHR=432, HSTEPS=55, BOOST=0),
-    dict(ACC=6, K=5, EF=102, EW=64, BMIN=96, HOP=224, GRIP=3, HARD=HARD_SHATTER, HTHR=552, HSTEPS=24, BOOST=0),
+    dict(ACC=4, K=6, EF=205, EW=96, BMIN=128, HOP=252, GRIP=6, HARD=HARD_NONE, HTHR=0, HSTEPS=0, BOOST=350),
+    dict(ACC=2, K=8, EF=38, EW=32, BMIN=128, HOP=160, GRIP=3, HARD=HARD_STUN, HTHR=432, HSTEPS=55, BOOST=0),
+    dict(ACC=6, K=5, EF=102, EW=64, BMIN=96, HOP=224, GRIP=1, HARD=HARD_SHATTER, HTHR=552, HSTEPS=24, BOOST=0),
 )
 MATREC = 16                   # BZ_MATTAB: bytes a material
 BZ_STRS = 4                   # the boost's STRETCH, steps (128.16.4.4): bz_stf's start
 SQTHR = 384                   # a landing at lvz >= this squashes (but a shatter)
 SQSTEPS = 6                   # ...for this many steps
 HOPWIN = 6                    # the Hop's window, steps (Space's key-down edge)
+BGRACE = 4                    # wave 6b: the boost's LATE GRACE, steps after an unarmed
+                              # bouncing first contact (SPEC.md 128.17.4.5; 4 since
+                              # gate 1's round 3, 128.17.16)
 WMIN = 16                     # a wall rebound under this is 0 (no chatter)
 E_BUMPER = 230                # a WALL with a bounce surface, every ball
 E_MAT = 224                   # a bounce FLOOR (a mat), every ball
@@ -225,12 +247,15 @@ SAND_K = 5                    # sand's drag shift, every ball
 LVL_MAX = 8                   # the arrows' ramp: levels 0 .. 8
 
 
-def surf_entry(mat, surf):
+def surf_entry(mat, surf, _iceplain=False):
     """(force, drag shift (0 none), brake, floor restitution) of a material on a
-    surface - BZ_SURFTAB's 4 bytes (SPEC.md 128.11.6.2)"""
+    surface - BZ_SURFTAB's 4 bytes (SPEC.md 128.11.6.2).  Ice's brake is a
+    quarter of GRIP ROUNDED, max(1, (GRIP + 2) >> 2) (wave 6b, 128.17.3: 2, 1,
+    1 at Grip 6, 3, 1, as wave 6 shipped; never 0).  _iceplain: the `iceplain`
+    control's plain quarter, max(1, GRIP >> 2), 1, 1, 1"""
     m = MATERIALS[mat]
     if surf == SURF_ICE:
-        return (max(1, m["ACC"] >> 2), 0, max(1, m["GRIP"] >> 2), m["EF"])
+        return (max(1, m["ACC"] >> 2), 0, max(1, (m["GRIP"] >> 2) if _iceplain else (m["GRIP"] + 2) >> 2), m["EF"])
     if surf == SURF_SAND:
         return (max(2, m["ACC"] >> 1), SAND_K, m["GRIP"], m["EF"] >> 1)
     if surf == SURF_BOUNCE:
@@ -4381,7 +4406,9 @@ class Physics:
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
                  _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
                  _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False,
-                 _no_clear=False, _boost_rise=False, _pump=False, _spring_tok=False):
+                 _no_clear=False, _boost_rise=False, _pump=False, _spring_tok=False, _iceplain=False,
+                 _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
+                 _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -4446,6 +4473,24 @@ class Physics:
         self.surf, self.dmask = 0xFF, 0
         self._ceil_drag, self._rem_wide, self._slab_boost = _ceil_drag, _rem_wide, _slab_boost
         self._no_clear, self._boost_rise, self._pump = _no_clear, _boost_rise, _pump
+        # wave 6b's state (SPEC.md 128.17.4.3): bz_btok's third value (2, the
+        # flight ARMED) needs none; the LATE GRACE's steps left (bz_bgr, 0 when
+        # none) and BOOST less the rebound's gvz (bz_bgd, written only where the
+        # grace opens).  The flags are the controls' broken parts (128.17.9):
+        # ice's plain quarter, Space HELD arming, the Hop's own edge arming its
+        # flight, wave 6's window test at the contact, no grace, a grace of 4 in
+        # the rule (not in PHYS_CONSTS), the conversion without its lift, and
+        # wave 6's whole trigger (the who-hits-it floors)
+        self.bgr = self.bgd = 0
+        self._iceplain, self._heldarm, self._hopedge, self._armwin = _iceplain, _heldarm, _hopedge, _armwin
+        self._nograce, self._graceoff, self._w6trig = _nograce, _graceoff, _w6trig
+        self.bgrace = BGRACE + 1 if _grace5 else BGRACE if _bgrace is None else _bgrace
+        # gate 1's round 3 (SPEC.md 128.17.16): the take-off's z (bz_zoff, px,
+        # written wherever bz_toff takes the ball off a floor) for the HELD
+        # arming's gate; the controls: no held arming, held arming without the
+        # take-off gate, no token on a fall
+        self.zoff = 0
+        self._noheld, self._nogate, self._nofall = _noheld, _nogate, _nofall
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -4533,7 +4578,7 @@ class Physics:
         drag mask 2^k - 1 (0 on ice), and both remainders CUT to it - the one
         place the mask changes, so rem <= mask holds at every drag"""
         self.surf = surf
-        k = surf_entry(self.mat, surf)[1]
+        k = surf_entry(self.mat, surf, self._iceplain)[1]
         self.dmask = (1 << k) - 1 if k else 0
         self.drx &= self.dmask
         self.dry &= self.dmask
@@ -4572,6 +4617,7 @@ class Physics:
         self.onp = 0
         self.tube, self.tseg, self.tcnt = pr["i"] + 1, 0, pr["segs"][0]["m"]
         self.btok = 0                               # wave 6: a tube's capture spends the token
+        self.bgr = 0                                # wave 6b: ...and closes the grace
         self.ntube += 1
         self._ps()
         self.events.append(("capture", self.nstep + 1, pr["i"], self.tsin))
@@ -4645,6 +4691,7 @@ class Physics:
         self.pkick[pr["i"]] = n
         self.nkick += 1
         self.events.append(("kick", self.nstep + 1, pr["i"], d, t, nx, ny))
+        self.bgr = 0                                # wave 6b: closes the grace
 
     def _floor(self, C, at, n):
         """step 6's floor at the centre's point (SPEC.md 128.12.6.3, 128.12.6.4):
@@ -4725,6 +4772,7 @@ class Physics:
         self.respawned = True
         self.mst = self.mct = self.sqf = 0
         self.btok = self.stf = self.drx = self.dry = 0   # wave 6 (128.16.4.3): all but nboost
+        self.bgr = 0                                # wave 6b: a respawn (and RETURN) closes the grace
         self.lvl = [0, 0, 0, 0]
         self.hopw = 0
         self.ghv = 0
@@ -4734,8 +4782,9 @@ class Physics:
 
     def state6(self):
         """wave 6's state as bonanzaphys compares it (SPEC.md 128.16.4.3):
-        bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry"""
-        return (self.btok, self.stf, self.nboost, self.drx, self.dry)
+        bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry; and wave 6b's (128.17.4.3)
+        bz_bgr, bz_bgd"""
+        return (self.btok, self.stf, self.nboost, self.drx, self.dry, self.bgr, self.bgd)
 
     def state4(self):
         """wave 4's state as bonanzaphys compares it (SPEC.md 128.14.4.7)"""
@@ -4847,10 +4896,22 @@ class Physics:
                 self.lvl[i] = max(c, self.lvl[i] - 2)
             else:
                 self.lvl[i] = min(c, self.lvl[i] + 1)
-        if K & K_HOP and not self.kprev & K_HOP:
+        edge = K & K_HOP and not self.kprev & K_HOP
+        if edge:
             self.hopw = HOPWIN
         elif self.hopw:
             self.hopw -= 1
+        # wave 6b (SPEC.md 128.17.4.2, 128.17.4.5): the same edge CONVERTS an open
+        # grace's rebound into the boost; otherwise the grace counts down, and an
+        # edge ARMS a ground Hop's flight (the token 1 -> 2).  The Hop's own edge
+        # comes here with the token still 0, so a Hop never arms its own flight
+        if self.bgr:
+            if edge:
+                self._convert()
+            else:
+                self.bgr -= 1
+        elif (K & K_HOP if self._heldarm else edge) and self.btok == 1 and not self._w6trig:
+            self.btok = 2
         self.kprev = K
         if self.hid:                                # holed out: the ball is gone (128.14.4.3)
             return self._end()
@@ -4878,7 +4939,7 @@ class Physics:
         C = self.cell(cwx, cwy)
         # 2. forces
         if not self.air:
-            force, dk, brake, _ = surf_entry(self.mat, C[5])
+            force, dk, brake, _ = surf_entry(self.mat, C[5], self._iceplain)
             if not stun:
                 fx, fy = self._forces(K, ftg_table(force))
                 self.gvx += fx
@@ -4953,12 +5014,14 @@ class Physics:
                         self._capture(door[1], n)
                         return self._end()
                     self.gx = (16 * cwx + RAD) << 8
+                    self.bgr = 0                        # wave 6b: a wall closes the grace
                     if self.gvx < 0:
                         self.gvx = _refl(self.gvx, door[1]["eG"])
                         self.nknock += 1
                         self.events.append(("knock", self.nstep + 1, door[1]["i"], self.gvx))
                 else:
                     self.gx = (16 * cwx + RAD) << 8
+                    self.bgr = 0                        # wave 6b: a wall closes the grace
                     if self.gvx < 0:
                         self.gvx = _refl(self.gvx, self.e_wall(c))
                         self.events.append(("wall", self.nstep + 1, (-1, 0)))
@@ -4966,6 +5029,7 @@ class Physics:
             c = self.cell(cwx + 1, cwy)
             if self.blocks(c, 0, v, (cwx + 1, cwy)):
                 self.gx = (16 * cwx + 16 - RAD) << 8
+                self.bgr = 0                        # wave 6b: a wall closes the grace
                 if self.gvx > 0:
                     self.gvx = _refl(self.gvx, self.e_wall(c))
                     self.events.append(("wall", self.nstep + 1, (1, 0)))
@@ -4977,12 +5041,14 @@ class Physics:
                         self._capture(door[1], n)
                         return self._end()
                     self.gy = (16 * cwy + RAD) << 8
+                    self.bgr = 0                        # wave 6b: a wall closes the grace
                     if self.gvy < 0:
                         self.gvy = _refl(self.gvy, door[1]["eG"])
                         self.nknock += 1
                         self.events.append(("knock", self.nstep + 1, door[1]["i"], self.gvy))
                 else:
                     self.gy = (16 * cwy + RAD) << 8
+                    self.bgr = 0                        # wave 6b: a wall closes the grace
                     if self.gvy < 0:
                         self.gvy = _refl(self.gvy, self.e_wall(c))
                         self.events.append(("wall", self.nstep + 1, (0, -1)))
@@ -4990,6 +5056,7 @@ class Physics:
             c = self.cell(cwx, cwy + 1)
             if self.blocks(c, u, 0, (cwx, cwy + 1)):
                 self.gy = (16 * cwy + 16 - RAD) << 8
+                self.bgr = 0                        # wave 6b: a wall closes the grace
                 if self.gvy > 0:
                     self.gvy = _refl(self.gvy, self.e_wall(c))
                     self.events.append(("wall", self.nstep + 1, (0, 1)))
@@ -5021,6 +5088,7 @@ class Physics:
                     self.gvx -= ((d - t) * nx) >> 6
                     self.gvy -= ((d - t) * ny) >> 6
                 self.events.append(("corner", self.nstep + 1, (-dx * adu, -dy * adv)))
+                self.bgr = 0                                # wave 6b: closes the grace
         # wave 3: each post on bz_wol, the circle (SPEC.md 128.12.6.3)
         for _ci, pi in list(self.wol):
             pr = self.props[pi]
@@ -5044,6 +5112,7 @@ class Physics:
                 if self.wcell != scell:
                     self._fill(*scell)
                 self.events.append(("undo", self.nstep + 1, None))
+                self.bgr = 0                                # wave 6b: closes the grace
         # 6. the floor (a track cell's and a post cell's are 128.12.6.4's and 128.12.6.3's)
         C = self.cell(cwx, cwy)
         Cv = C
@@ -5059,19 +5128,21 @@ class Physics:
                 # 128.11.8.6: the Hop from the ground
                 self.air = 1
                 self.gvz = min(VZMAX, self.gvz + m["HOP"])
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.hopw = 0
                 self.nhop += 1
-                self.btok = 1                       # wave 6: the boost's token (128.16.4.1)
+                self.btok = 2 if self._hopedge else 1   # wave 6: the boost's token (128.16.4.1)
                 lifted = True
                 self.events.append(("hop", self.nstep + 1, self.gvz))
             elif not solid or h < self.gz + self.gvz - G - (STICK << 8):
                 self.air = 1
                 if self._takeoff_zero:
                     self.gvz = 0
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
+                if not (self._nofall or self._w6trig):
+                    self.btok = 1                       # round 3 (128.17.16): a FALL arms one boost too
                 lifted = True
                 self.events.append(("takeoff", self.nstep + 1, self.gvz))
             else:
@@ -5152,11 +5223,16 @@ class Physics:
         if Cv is None:
             Cv = C
         tok = self.btok                             # the token as the contact BEGAN (rule 1) ...
+        if (tok == 1 and K & K_HOP and not stun and not self._noheld and not self._w6trig
+                and (self._nogate or (h >> 8) <= self.zoff)):
+            tok = 2                                 # round 3 (128.17.16): Space HELD at the contact ARMS it,
+                                                    # onto a floor no higher than the take-off
         if not self._no_clear:
             self.btok = 0                           # ... and cleared at EVERY contact
+        self.bgr = 0                                # wave 6b: every contact closes the grace
         fr = (C[1] * self.gvx + C[2] * self.gvy) >> 2
         lvz = max(0, fr - self.gvz) if not self._abs_impact else -self.gvz
-        e = surf_entry(self.mat, surf)[3] if not self._ef_zero else 0
+        e = surf_entry(self.mat, surf, self._iceplain)[3] if not self._ef_zero else 0
         bmin = BMIN_MAT if surf == SURF_BOUNCE else m["BMIN"]
         r = (e * max(0, min(lvz, -self.gvz))) >> 8
         self.lvz = lvz
@@ -5180,11 +5256,8 @@ class Physics:
             self.nshat += 1
             self.events.append(("shatter", self.nstep + 1, lvz))
             out = "shatter"
-        elif (tok and self.hopw and not stun and m["BOOST"]
-              and (self.firm_level(C, None) if self._slab_boost else
-                   (C[3] in (KIND_FLOOR, KIND_GOAL) and C[5] in (SURF_NORMAL, SURF_ICE) and not Cv[4] & FL_OBS
-                    and slab is None) if self._boost_rise else self.firm_level(Cv, slab))
-              and (r if r >= bmin else 0) < m["BOOST"]):
+        elif ((tok and self.hopw if self._armwin or self._w6trig else tok == 2)
+              and not stun and self._boost_ok(C, Cv, slab, r, bmin)):
             # 2a. the BOOST (SPEC.md 128.16.4.1): still airborne at BOOST (a level
             # floor has no rate to add; the `boostrise` arm adds the ramp's), the
             # stretch's cue, and NO squash on this contact (sqf keeps what it held)
@@ -5213,6 +5286,13 @@ class Physics:
             self.nbnc += 1
             self.events.append(("bounce", self.nstep + 1, lvz, r))
             out = "bounce"
+            if tok == 1 and not stun and not (self._nograce or self._w6trig) and self._boost_ok(C, Cv, slab, r, bmin):
+                # wave 6b (SPEC.md 128.17.4.5): an UNARMED first contact that the
+                # boost's rules 1, 3, 4 and 5 pass, and that bounces, opens the
+                # LATE GRACE: a Space edge in the next BGRACE steps converts the
+                # rebound into the boost (_convert)
+                self.bgr = self.bgrace
+                self.bgd = m["BOOST"] - self.gvz
         else:
             self.gvz = 0
             self.air = 0
@@ -5221,6 +5301,42 @@ class Physics:
         if lvz >= SQTHR and self.mst != ST_SHATTER:
             self.sqf = SQSTEPS
         return out
+
+    def _boost_ok(self, C, Cv, slab, r, bmin):
+        """the boost's rules 3, 4 and 5 (SPEC.md 128.16.4.1) at a contact: the
+        material has a BOOST, the centre's GRID cell is a firm level floor, the
+        rebound is below BOOST (the `slabboost` and `boostrise` controls' rule
+        4 as each breaks it)"""
+        m = self.m
+        if not m["BOOST"]:
+            return False
+        if self._slab_boost:
+            firm = self.firm_level(C, None)
+        elif self._boost_rise:
+            firm = (C[3] in (KIND_FLOOR, KIND_GOAL) and C[5] in (SURF_NORMAL, SURF_ICE) and not Cv[4] & FL_OBS
+                    and slab is None)
+        else:
+            firm = self.firm_level(Cv, slab)
+        return firm and (r if r >= bmin else 0) < m["BOOST"]
+
+    def _convert(self):
+        """wave 6b's LATE GRACE converting (SPEC.md 128.17.4.5): in step 1 of the
+        k-th step after an unarmed bouncing first contact, a Space edge puts the
+        ball where the contact's boost would have it at this point of the step:
+        gvz += bgd, and gz += bgd for each of the k - 1 integrations since the
+        contact (gravity a constant a step, far under VZMAX); then the boost's
+        own bookkeeping (no squash, the stretch, nboost) and the grace closed"""
+        k = self.bgrace + 1 - self.bgr
+        self.gvz += self.bgd
+        if not self._graceoff:
+            self.gz += self.bgd * (k - 1)
+        self.ztop = self.gz >> 8
+        self.hopw = 0
+        self.nboost += 1
+        self.stf = BZ_STRS
+        self.sqf = 0
+        self.bgr = 0
+        self.events.append(("boostg", self.nstep + 1, k, self.gvz))
 
     # -- wave 4: the cup and the spring (SPEC.md 128.14.4.3, 128.14.4.6) -------
     def _cup(self, pr, was_air):
@@ -5245,7 +5361,7 @@ class Physics:
             elif not self.inmo:
                 self.air = 1
                 self.gvz = LIPZ
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.nlip += 1
                 self.events.append(("lip", self.nstep + 1, max(abs(self.gvx), abs(self.gvy))))
@@ -5269,10 +5385,11 @@ class Physics:
             if not self._spring_tok:
                 self.btok = 0                       # wave 6: the launch spends a ground Hop's token
             self.air = 1
-            self.ztop = self.gz >> 8
+            self.ztop = self.zoff = self.gz >> 8
             self.gz += self.gvz
         else:
             return
+        self.bgr = 0                                # wave 6b: a spring closes the grace
         self.nspr += 1
         self.events.append(("spring", self.nstep + 1, self.gvz))
 
@@ -5340,18 +5457,22 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # SPEC.md 128.16.9) PHYS_REV, the step's RULE revision: a change to a rule that
 # changes no table (the fractional drag alone would have been one) bumps it, so
 # the CRC moves.
-PHYS_REV = 6
+# Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
+# rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
+# the constants before it.
+PHYS_REV = 8
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
-               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, PHYS_REV)
+               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, PHYS_REV)
 # The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
 # so a new CRC can land on an old value: the build refuses a BZ_PHYSV in this
 # list.  00h is the unset value (every pre-wave-6 BONANZA.DAT has +5 = 0), 9Ah
 # the value 128.14.7.4's .bzd format shows, E6h the value before 128.14.25 item
-# 4's tables joined the hash, A0h wave 5b's.  A commit that moves BZ_PHYSV
+# 4's tables joined the hash, A0h wave 5b's, 25h wave 6's (the owner's gate-1
+# playtest disk, SPEC.md 128.17.7).  A commit that moves BZ_PHYSV
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -5549,7 +5670,8 @@ class TiltStick:
 
 
 # =============================================================================
-# GLIDE (SPEC.md 128.9, 128.11.11.1): the host model, KEPT this time
+# GLIDE (SPEC.md 128.9, 128.11.11.1): the host model, KEPT this time.  Wave
+# 6b (SPEC.md 128.17.6): GLIDE's policy is LATTICE; wave 6's stays as _w6
 # =============================================================================
 
 CARD_HZ = (59.93, 50.83)      # CGA, Hercules: the refresh the bracket presents at
@@ -5559,52 +5681,193 @@ MAXR, MAXC = 2, 1             # BZ_MAXR, BZ_MAXC
 GLIDE_FX, GLIDE_FY = 4 * 4 * 256, 4 * 2 * 256   # 4 px / 2 lines a frame, over four frames
 CAM_SAFE = 16                 # BZ_CSAFE: the ground line's latched edge fallback (SPEC.md 128.16.7)
 DIRS = tuple((a, b) for a in (-1, 0, 1) for b in (-1, 0, 1) if (a, b) != (0, 0))
+CAM_DIRN = ("UL", "U", "UR", "L", "R", "DL", "D", "DR")   # DIRS' order: (rows, columns)
+
+# LATTICE (SPEC.md 128.17.6.2): one rule, per-axis constants.  ACROSS in px,
+# as multiples of the window's columns W (CGA 40, Hercules 45); DOWN in lines.
+LAT_AX = 2                    # the band margin A, x W px: the dead zone, as before
+LAT_HRX = 1                   # the return hysteresis Hr, x W px
+LAT_TX = 3                    # the lead placement T, x W px
+LAT_SX = 8                    # the lattice step S, columns
+LAT_EFX2 = 1                  # the urgent edge Ef, x W / 2 px (W >> 1: CGA 20, Hercules 22)
+LAT_AY = 66                   # ...down, lines
+LAT_HRY = 16
+LAT_TY = 76
+LAT_SYL = 32                  # lines: CGA 16 rows, Hercules 8
+LAT_EFY = 40
+LAT_H1, LAT_H2 = 1, 3         # the heavy rule's caps, withheld steps running (128.17.6.3)
+NEAR_L, NEAR_R, NEAR_T, NEAR_B = 0x10, 0x20, 0x40, 0x80   # bz_pflag bits 4 - 7 (128.17.6.3)
+# bz_camscr's script (SPEC.md 128.17.6.7): (row, column) steps, each held SCR_HOLD frames
+SCR_CYCLE = ((0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1))
+SCR_HOLD = 8
+SCR_MX, SCR_MY = 24, 16       # the footprint kept this far inside, px / lines
+
+
+def lat_consts(herc):
+    """LATTICE's constants on a card (SPEC.md 128.17.6.2's table): -> ({across}, {down})"""
+    W, _H, rl, _lsh = CARDS[herc]
+    return (dict(u=8, Wp=8 * W, A=LAT_AX * W, Hr=LAT_HRX * W, T=LAT_TX * W, S=LAT_SX, Ef=(W >> 1) * LAT_EFX2),
+            dict(u=rl, Wp=WIN_LINES, A=LAT_AY, Hr=LAT_HRY, T=LAT_TY, S=LAT_SYL // rl, Ef=LAT_EFY))
+
+
+class LatAxis:
+    """one axis of LATTICE (SPEC.md 128.17.6.2): its constants and its state -
+    s the running pan's sign (0 at rest), tgt its target, last the sign of the
+    last pan that MOVED the window, fast its rate latch, since (columns) the
+    frames since its last column, held the steps the heavy rule withheld since
+    the axis last stepped.  pid counts the pans begun, why the cause that set
+    fast (None, 'ring', 'tube', 'urgent'), info the frame's record."""
+
+    def __init__(self, k, mx, cols):
+        self.u, self.Wp, self.A, self.Hr, self.T, self.S, self.Ef = (k[n] for n in ("u", "Wp", "A", "Hr", "T", "S",
+                                                                                   "Ef"))
+        self.mx, self.cols = mx, cols
+        self.pid = 0
+        self.reset()
+
+    def reset(self):
+        self.s, self.tgt, self.last, self.fast, self.since, self.held, self.why = 0, 0, 0, False, 9, 0, None
+        self.info = None
+
+    def cand(self, d, b):
+        """the lattice target for direction d (step 2): a multiple of S, the
+        point at least T inside the trailing side, clamped to the range"""
+        us = self.u * self.S
+        if d > 0:
+            t = b - self.T
+            P = t // us * self.S if t > 0 else 0
+        else:
+            t = b - (self.Wp - self.T)
+            P = -(-t // us) * self.S if t > 0 else 0
+        return max(0, min(P, self.mx))
+
+    def decide(self, b, P, ring, tube):
+        """steps 1 - 7 for tracked point b at window position P -> the step
+        (unsigned) before the heavy rule"""
+        off = b - P * self.u
+        lo = self.A - (self.Hr if self.last > 0 else 0)
+        hi = self.Wp - self.A + (self.Hr if self.last < 0 else 0)
+        w = 1 if off > hi else -1 if off < lo else 0
+        inf = self.info = {"w": w, "off": off, "lo": lo, "hi": hi, "born": False, "rise": None, "stop": False,
+                           "s0": self.s}
+        if w:
+            c = self.cand(w, b)
+            if self.s == w:
+                self.tgt = max(self.tgt, c) if w > 0 else min(self.tgt, c)
+            elif (c - P) * w > 0:
+                self.s, self.tgt, self.fast, self.since, self.why = w, c, False, 9, None
+                self.pid += 1
+                inf["born"] = True
+        elif self.s:
+            c = self.cand(self.s, b)
+            self.tgt = max(self.tgt, c) if self.s > 0 else min(self.tgt, c)
+        if not self.s:
+            return 0
+        if not w and (off < self.T if self.s > 0 else off > self.Wp - self.T):
+            self.s = 0
+            inf["stop"] = True
+            return 0
+        why = "tube" if tube else "ring" if ring else "urgent" if off < self.Ef or off > self.Wp - self.Ef else None
+        if why and not self.fast:
+            self.fast, self.why = True, why
+            inf["rise"] = why
+        if self.cols:
+            self.since = min(9, self.since + 1)
+            st = 1 if self.since >= (1 if self.fast else 2) else 0
+        else:
+            st = 2 if self.fast else 1
+        return min(st, abs(self.tgt - P))
 
 
 class Glide:
-    """bz_camglide over a Physics, integer-exact (SPEC.md 128.9, 128.11.11.1).
-    camera() runs once a frame AFTER the frame's steps and returns (dr, dc,
-    full).  "Fast" is the ball's TRAVEL over four frames: the ring (bz_trx,
-    bz_try) holds the low words of bz_bx and bz_by at the end of the last four
-    frames; the camera reads the slot written four frames ago, compares, and
-    then writes the present position into that slot (a full write fills all
-    four with it).  _w1: wave 1's |v| against the per-card constants (the
-    negative control's).
+    """bz_lattice (wave 6: bz_camglide) over a Physics, integer-exact (SPEC.md 128.9, 128.11.11.1,
+    and wave 6b's 128.17.6).  camera() runs once a frame AFTER the frame's
+    steps and returns (dr, dc, full).
+
+    The first frame centres the window on the ball, a full write; so does THE
+    CUT (128.10.8 item 3, modelled since wave 6b): a frame whose steps
+    respawned the ball (nfall + nret moved) where its footprint is not wholly
+    inside the window as it stands (bz_outwin).  On a cut the props' walk ran
+    first (heavy.frame) and the full write brings every lane and the slab to
+    their true poses (Heavy.full_sync).
+
+    "Fast" across is the ball's TRAVEL over four frames: the ring (bz_trx)
+    holds the low word of bz_bx at the end of the last four frames; the camera
+    reads the slot written four frames ago, compares, and then writes the
+    present position into that slot (a full write fills all four with it).
+    Wave 6b deletes the ring's y half (bz_try): the model keeps it only for
+    _w6 and the `ringy` control.  _w1: wave 1's |v| against the per-card
+    constants (the negative control's).
 
     Wave 6 (SPEC.md 128.16.7): the vertical decision reads the GROUND LINE,
     cy = py + z - zg, zg the ground's height (the ball's own grounded or in a
     tube; the floor's, gh >> 2, airborne over a FLOOR or GOAL; else held in
     cgz), with the ball's own line as a LATCHED fallback near the window's
     top or bottom (clat: None, or nland's low byte when it tripped; released
-    when the ball is grounded at a frame or nland has moved since).  The ring
-    stays on the ball's own line.  _camz: wave 2's vertical (py), the red
-    arm's model."""
+    when the ball is grounded at a frame or nland has moved since).  _camz:
+    wave 2's vertical (py), the red arm's model.
+
+    Wave 6b (SPEC.md 128.17.6.2, 128.17.6.3): GLIDE is LATTICE, two LatAxis
+    (ax, ay) - return hysteresis, lattice targets with a lead, a pan that only
+    extends forward, one rate a pan that only rises, the urgent edge, tubes
+    PRE-AIMED at their exit (_exit_point), and the heavy rule a bounded delay
+    read off Heavy's near-edge bits (Heavy.near, bz_pflag bits 4 - 7).
+    scripted: bz_camscr's camera (128.17.6.7) - LATTICE does not run.
+
+    The broken parts, one flag each (128.17.9): _w6 wave 6's whole policy
+    (GLIDE as 128.9 wrote it, the heavy rule as bz_hvcam, --pans' comparison);
+    _nohyst Hr 0; _nocap no cap on the heavy rule; _ringy rows read the ring's
+    y verdict; _nopreaim no tube pre-aim; _side0 level 1 side-blind; _noscr
+    bz_camscr's model ignored (LATTICE runs); and wave 6's _nosafe, _nolatch
+    and _camz carried (the ground line's)."""
 
     GFX1 = (1124, 954)
     GFY1 = (562, 477)
 
     def __init__(self, phys, herc, brows, cols, _w1=False, heavy=None, _camz=False, _nosafe=False,
-                 _nolatch=False):
+                 _nolatch=False, scripted=False, _w6=False, _nohyst=False, _nocap=False, _ringy=False,
+                 _nopreaim=False, _side0=False, _noscr=False):
         self.p, self.herc, self._w1, self._camz = phys, herc, _w1, _camz
         self._nosafe, self._nolatch = _nosafe, _nolatch   # the `nosafe` and `nolatch` arms' models
+        self._w6, self._ringy, self._nopreaim, self._side0 = _w6, _ringy, _nopreaim, _side0
+        self.scripted = scripted and not _noscr
         self.cgz = 0                           # bz_cgz: zg, the last frame's (wave 6)
         self.clat = None                       # bz_clat: the latch (nland's low byte), or None
-        self.heavy = heavy                     # a Heavy (wave 3's rule, 128.12.7), or None: wave 2's camera
+        self.heavy = heavy                     # a Heavy (wave 3's rule, 128.12.7), or None: no heavy rule
         self.nhvy = self.nwr = self.nwc = self.nhedge = 0
+        self.ncut = 0                          # respawn cuts (128.10.8 item 3)
         self.want = (False, False)             # this frame: a row, a column outstanding (GLIDE's pans)
+        self.want_r = self.want_c = False
         self.W, self.H, self.rl, self.lsh = CARDS[herc]
         self.rmax = brows * 8 // self.rl - self.H
         self.cmax = cols - self.W
         self.R0 = self.c0 = 0
         self.first = True
-        self.gpx = self.gpy = self.gpar = 0
+        self.lresp = phys.nfall + phys.nret
+        self.gpx = self.gpy = self.gpar = 0    # (wave 6's, _w6)
         self.gdx = self.gdy = 0                # 0: right / down, 1: left / up
         self.trx = [0] * 4
         self.try_ = [0] * 4
         self.ti = 0
+        kx, ky = lat_consts(herc)
+        if _nohyst:
+            kx["Hr"] = ky["Hr"] = 0
+        self.ax = LatAxis(kx, self.cmax, True)
+        self.ay = LatAxis(ky, self.rmax, False)
+        self.h1, self.h2 = (1 << 30, 1 << 30) if _nocap else (LAT_H1, LAT_H2)
+        self.scnt = 0                          # bz_camscr's frame counter
+        self.level = 0                         # this frame's heavy level (the checks')
+        self.cut = False                       # this frame was a cut
 
     def _clamp(self, R, C):
         return max(0, min(R, self.rmax)), max(0, min(C, self.cmax))
+
+    def outwin(self):
+        """bz_outwin: the ball's footprint (128.4's, from px & ~3) not wholly inside the window"""
+        p = self.p
+        top = self.R0 << self.lsh
+        return (p.px >> 3) < self.c0 or (((p.px >> 2) + 4) >> 1) >= self.c0 + self.W or \
+            p.py < top or p.py > top + WIN_LINES - BALL_D
 
     def ground_line(self, R0):
         """bz_camera's GROUND LINE block (SPEC.md 128.16.7), once a frame after
@@ -5634,38 +5897,171 @@ class Glide:
             return c
         return c + _s16(z - zg)
 
-    def camera(self):
+    def _exit_point(self):
+        """a tube's tracked point (SPEC.md 128.17.6.2's pre-aim): its record's
+        last segment's exit (ex, ey, ez) projected as the ball is (Physics.
+        _derive, _ghost_bxy): -> (its px + 8, its line + 8)"""
         p = self.p
-        px, py = p.px, p.py
+        sg = p.props[p.tube - 1]["segs"][-1]
+        bx, by = _ghost_bxy(sg["ex"], sg["ey"], sg["ez"])
+        return bx + p.x0 - 8 + 8, by + p.y0 - 13 + 8
+
+    def _first(self):
+        """the first frame (and a cut): the window centred on the ball, a full
+        write; every axis at rest"""
+        p = self.p
+        R = max(0, p.py + 8 - WIN_LINES // 2) >> self.lsh
+        C = max(0, p.px + 8 - 4 * self.W) >> 3
+        self.R0, self.c0 = self._clamp(R, C)
+        self.gpx = self.gpar = self.gpy = 0
+        self.gdy = 0
+        self.cgz, self.clat = _s16(p.gz >> 8), None      # (the ground line from the ball)
+        self.trx = [p.bx & 0xFFFF] * 4
+        self.try_ = [p.by & 0xFFFF] * 4
+        self.ax.reset()
+        self.ay.reset()
+        self.scnt = 0
+        self.want = (False, False)
+        self.want_r = self.want_c = False
+        self.level = 0
+        return 0, 0, True
+
+    def _ring(self):
+        """the travel over four frames (128.11.11.1), then the ring: -> (fast across, fast down)"""
+        p = self.p
         bxl, byl = p.bx & 0xFFFF, p.by & 0xFFFF
-        W, rl, lsh, L = self.W, self.rl, self.lsh, WIN_LINES
-        if self.first:
-            self.first = False
-            R = max(0, py + 8 - L // 2) >> lsh
-            C = max(0, px + 8 - 4 * W) >> 3
-            self.R0, self.c0 = self._clamp(R, C)
-            self.gpx = self.gpar = self.gpy = 0
-            self.gdy = 0
-            self.cgz, self.clat = _s16(p.gz >> 8), None      # (the ground line from the ball)
-            self.trx = [bxl] * 4
-            self.try_ = [byl] * 4
-            return 0, 0, True
-        # the travel over four frames (128.11.11.1), then the ring
         dx4 = _s16(bxl - self.trx[self.ti])
         dy4 = _s16(byl - self.try_[self.ti])
         self.trx[self.ti], self.try_[self.ti] = bxl, byl
         self.ti = (self.ti + 1) & 3
         if self._w1:
-            fastx = abs(p.vx) > self.GFX1[self.herc]
-            fasty = abs(p.vy) > self.GFY1[self.herc]
-        else:
-            fastx = abs(dx4) > GLIDE_FX
-            fasty = abs(dy4) > GLIDE_FY
+            return abs(p.vx) > self.GFX1[self.herc], abs(p.vy) > self.GFY1[self.herc]
+        return abs(dx4) > GLIDE_FX, abs(dy4) > GLIDE_FY
+
+    def camera(self):
+        p = self.p
+        self.cut = False
+        n = p.nfall + p.nret
+        if n != self.lresp:                    # THE CUT (128.10.8 item 3): the steps respawned the ball
+            self.lresp = n
+            if not self.first and self.outwin():
+                self.cut = True
+                self.ncut += 1
+                if self.heavy is not None:
+                    self.heavy.frame(self)      # (bz_props ran before the camera)
+                r = self._first()
+                if self.heavy is not None:
+                    self.heavy.full_sync(self)  # (bz_lfull, bz_pfull: the full write)
+                return r
+        if self.first:
+            self.first = False
+            return self._first()
+        if self.scripted:
+            return self._script()
+        fastx, fasty = self._ring()
+        if self._w6:
+            return self._camera_w6(fastx, fasty)
+        return self._lattice(fastx, fasty)
+
+    def _script(self):
+        """bz_camscr (SPEC.md 128.17.6.7): the cycle's (row, column) step, an
+        axis that would leave the footprint less than SCR_MX px / SCR_MY lines
+        inside stepping one unit toward the ball instead; clamped (a cut step is
+        lost); no heavy rule; LATTICE's state untouched"""
+        p = self.p
+        if self.heavy is not None:
+            self.heavy.frame(self)              # (bz_props runs; its level is not read)
+        dr, dc = SCR_CYCLE[(self.scnt >> 3) & 7]
+        self.scnt = (self.scnt + 1) & 0xFF
+        fx, fy = p.px & ~3, p.py
+        xa = 8 * (self.c0 + dc)
+        if fx < xa + SCR_MX:
+            dc = -1
+        elif fx + FOOT_W > xa + 8 * self.W - SCR_MX:
+            dc = 1
+        ya = (self.R0 + dr) << self.lsh
+        if fy < ya + SCR_MY:
+            dr = -1
+        elif fy + FOOT_H > ya + WIN_LINES - SCR_MY:
+            dr = 1
+        R0, c0 = self.R0, self.c0
+        self.R0, self.c0 = self._clamp(R0 + dr, c0 + dc)
+        return self.R0 - R0, self.c0 - c0, False
+
+    def _lattice(self, fastx, fasty):
+        """LATTICE (SPEC.md 128.17.6.2), each axis in the rule's order"""
+        p = self.p
+        tube = bool(getattr(p, "tube", 0))
+        R0, c0 = self.R0, self.c0
+        cyc = self.ground_line(R0)
+        bxc = p.px + 8
+        if tube and not self._nopreaim:
+            bxc, cyc = self._exit_point()
+        level, relr, relc = self.heavy.frame(self) if self.heavy is not None else (0, True, True)
+        near = self.heavy.near if self.heavy is not None else 0
+        self.level = level
+        ax, ay = self.ax, self.ay
+        sc = ax.decide(bxc, c0, fastx, tube)
+        sr = ay.decide(cyc, R0, fasty and self._ringy, tube)
+        self.want_c, self.want_r = ax.s != 0, ay.s != 0
+        self.want = (bool(sr), bool(sc))
+        if level:
+            self.nhvy += 1
+            if relr or relc:
+                self.nhedge += 1
+        out = []
+        for a, st, rel, bits, isrow in ((ax, sc, relc, (NEAR_L, NEAR_R), False),
+                                        (ay, sr, relr, (NEAR_T, NEAR_B), True)):
+            wh, capped, side = 0, False, False
+            if st and level and not rel:
+                if level == 2:
+                    cap, lim, gate = self.h2, 1 if isrow and self.herc else 0, True
+                else:
+                    cap, lim = self.h1, 1 if isrow else 0
+                    gate = bool(near & bits[a.s > 0])
+                    side = not gate and st > lim and a.held < cap    # the side decides (the side check's)
+                    gate = gate or self._side0
+                if gate:
+                    if a.held >= cap:
+                        capped = True
+                    elif st > lim:
+                        wh, st = st - lim, lim
+                        a.held += 1
+            if st:
+                a.held = 0
+            a.info.update(want=st + wh, wh=wh, capped=capped, side=side)
+            out.append(st)
+            if isrow:
+                self.nwr += wh
+            else:
+                self.nwc += wh
+        sc, sr = out
+        R, C = self._clamp(R0 + ay.s * sr, c0 + ax.s * sc)
+        for a, P0, P in ((ax, c0, C), (ay, R0, R)):
+            a.info.update(step=P - P0, s=a.s, fast=a.fast, pid=a.pid, held=a.held, tgt=a.tgt)
+            if P != P0:
+                a.last = a.s
+                if a.cols:
+                    a.since = 0
+            if a.s and P == a.tgt:
+                a.s = 0
+            a.info["s1"] = a.s
+        full = abs(R - R0) > MAXR or abs(C - c0) > MAXC
+        self.R0, self.c0 = R, C
+        return R - R0, C - c0, full
+
+    def _camera_w6(self, fastx, fasty):
+        """wave 6's GLIDE (SPEC.md 128.9 as 128.16.7 left it) and bz_hvcam:
+        --pans' comparison, never the guest's since 6b"""
+        p = self.p
+        px = p.px
+        W, rl, lsh, L = self.W, self.rl, self.lsh, WIN_LINES
         if getattr(p, "tube", 0):              # wave 3: a ghost is fast on both axes (128.12.6.1)
             fastx = fasty = True
         R0, c0 = self.R0, self.c0
         cyc = self.ground_line(R0)
         hv = self.heavy.frame(self) if self.heavy is not None else (0, True, True)
+        self.level = hv[0]
         keep = (self.gpx, self.gpar, self.gpy)
         # ---- across ----
         if p.vx:
@@ -5791,6 +6187,19 @@ class Heavy:
         self.hold = {}                          # a post's lit frames left ON THE GLASS (bz_lhold)
         self.seen = {}                          # the kick it last saw (bz_lkick)
         self.age = {}                           # frames due and shown (bz_lage)
+        self.near = 0                           # wave 6b: bz_pflag bits 4 - 7, the slab near each edge
+
+    def full_sync(self, g):
+        """a FULL WRITE's lanes and slab (bz_lfull, bz_pfull): every lane drawn
+        at its true pose, its age 0; the slab's drawn line its true one"""
+        p = self.p
+        n_last = (p.nstep - 1) & 0xFFFF
+        for r in p.props:
+            if r["kind"] == PK_PLATFORM:
+                self.pline[r["i"]] = slab_xy(r, plat_pos(r, p.nstep & 0xFFFF) >> 8, p.x0, p.y0)[1]
+            elif r["lane"]:
+                self.drawn[r["i"]] = self._true(r, n_last)
+                self.age[r["i"]] = 0
 
     def _true(self, r, n_last):
         if r["kind"] == PK_WINDMILL:
@@ -5839,6 +6248,7 @@ class Heavy:
         slabnear = False
         slableave = False
         plat = None
+        near = 0
         # the ball's side of the window (bz_pnear: GLIDE pans toward it)
         up = bool(new) and 2 * new[1] + FOOT_H < 2 * ya + WIN_LINES
         left = bool(new) and 2 * new[0] + FOOT_W < xa + xb
@@ -5855,6 +6265,9 @@ class Heavy:
                     if ((up and y_t < ya + 2 * rl) or (not up and y_t + PL_H > yb - 2 * rl)
                             or (left and x_l < xa + 8) or (not left and x_l + PL_W > xb - 8)):
                         slabnear = True
+                    # wave 6b (128.17.6.3): the near-edge bits, no ball-side gate (bz_pflag bits 4 - 7)
+                    near |= ((NEAR_L if x_l < xa + 8 else 0) | (NEAR_R if x_l + PL_W > xb - 8 else 0) |
+                             (NEAR_T if y_t < ya + 2 * rl else 0) | (NEAR_B if y_t + PL_H > yb - 2 * rl else 0))
                 plat = (r["i"], y_t)            # (its drawn line: after the choice, which may wait)
                 continue
             if not L:
@@ -5951,20 +6364,23 @@ class Heavy:
         elif slabnear:
             level = 1
         self.old, self.oshadow = new, news
+        self.near = near
         self.levels[level] += 1
         if p.tube:
             return 0, True, True
         return level, edge_r, edge_c
 
 
-def glide_run(course, herc, rate=1.0, phase=0.0, frames=1200, mat=None, _w1=False, heavy=False, frame_cb=None):
+def glide_run(course, herc, rate=1.0, phase=0.0, frames=1200, mat=None, _w1=False, heavy=False, frame_cb=None,
+              **gkw):
     """the benchmark under GLIDE: frames at the card's refresh, `rate` times
     the real step rate, the first frame a full write with its sub-ticks
     discarded.  heavy: wave 3's rule on (Heavy).  frame_cb(p, g, dr, dc)
-    after each frame's camera.  -> ({direction: frames that scrolled that
-    way}, Physics); the Glide is p.glide"""
+    after each frame's camera.  gkw: Glide's (scripted=True: bz_camscr's
+    camera, 128.17.6.7; a control's flag).  -> ({direction: frames that
+    scrolled that way}, Physics); the Glide is p.glide"""
     p = Physics(course, mat=mat)
-    g = Glide(p, herc, course.brows, course.cols, _w1=_w1, heavy=Heavy(p) if heavy else None)
+    g = Glide(p, herc, course.brows, course.cols, _w1=_w1, heavy=Heavy(p) if heavy else None, **gkw)
     p.glide = g
     spf = rate * (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
     acc = phase
@@ -6130,22 +6546,86 @@ def _lad_contact(c, mat, at, **kw):
     return None
 
 
-def _lad_cell(c, far, mat, **kw):
+def arm_positions(at, land, w6=False):
+    """the steps a sweep presses Space's SECOND edge on, for a Hop pressed on
+    step `at` whose first contact is on step `land` (SPEC.md 128.17.4.2): an
+    ARMING edge on every step of the flight - from at + 2, the first after
+    the Hop's one-step press is released, through the contact's own - and a
+    GRACE edge on each of the BGRACE steps after it.  w6: wave 6's window,
+    the HOPWIN steps closing on the contact (128.16.4.1)"""
+    if w6:
+        return range(max(at + 2, land - HOPWIN + 1), land + 1)
+    return range(at + 2, land + BGRACE + 1)
+
+
+def sweep_second(mk, keyf, at, positions, judge, n):
+    """-> {e: True / False} for a run with Space pressed on step `at` (the Hop)
+    and again, one step, on step e, for each e of `positions`: ONE base run
+    with no second press, CLONED before each position, so the steps before e
+    are stepped once (the runs are the ones a fresh Physics a position would
+    give, step for step).  mk() -> a fresh Physics; keyf(i) -> step i's other
+    keys; judge(p, n0) -> True, False or None (go on), after each step (n0:
+    the events' count before it); no verdict in n steps is False"""
+    pos = set(positions)
+    p = mk()
+    clones = {}
+    base = False
+    for i in range(n):
+        if i in pos:
+            clones[i] = _clone(p)
+        n0 = len(p.events)
+        p.step(keyf(i) | (K_HOP if i == at else 0))
+        v = judge(p, n0)
+        if v is not None:
+            base = v
+            break
+    out = {}
+    for e in sorted(pos):
+        if e not in clones:                     # the base run ended first: no second press happens
+            out[e] = bool(base)
+            continue
+        q, v = clones[e], None
+        for i in range(e, n):
+            n0 = len(q.events)
+            q.step(keyf(i) | (K_HOP if i == e else 0))
+            v = judge(q, n0)
+            if v is not None:
+                break
+        out[e] = bool(v)
+    return out
+
+
+def _lad_judge(far):
+    """_lad_run's verdict as a sweep_second judge"""
+    def judge(p, n0):
+        if p.nfall:
+            return False
+        if (p.gx >> 12) >= far and (not p.air or any(e[0] in ("land", "bounce", "hopc", "boost")
+                                                      for e in p.events[n0:])):
+            return True
+        return None
+    return judge
+
+
+def _lad_cell(c, far, mat, w6=False, **kw):
     """one rung or gap: -> {'hop': [take-off points], 'boost2': [points whose
     Hop and boost, Space's second edge 2 steps before the first contact, get
-    there], 'boost': [points from which ANY window position does],
-    'noboost': [points where every window position fails]}"""
+    there], 'boost': [points from which ANY second-press position does]}: the
+    positions are arm_positions()' (w6: wave 6's window, for the controls and
+    the comparison under `_w6trig`)"""
     out = {"hop": [], "boost2": [], "boost": []}
     for at in range(LAD_PTS):
         if _lad_run(c, far, mat, at, **kw)[0]:
             out["hop"].append(at)
     if MATERIALS[mat]["BOOST"]:
+        judge = _lad_judge(far)
         for at in range(LAD_PTS):
             land = _lad_contact(c, mat, at, **kw)
             if land is None:
                 continue
-            good = [e for e in range(max(at + 2, land - HOPWIN + 1), land + 1)
-                    if _lad_run(c, far, mat, at, e, **kw)[0]]
+            res = sweep_second(lambda: _lad_ball(c, mat, **kw), lambda i: K_R | K_D, at,
+                               arm_positions(at, land, w6), judge, 260)
+            good = [e for e, ok in res.items() if ok]
             if good:
                 out["boost"].append(at)
             if land - 2 in good:
@@ -6158,26 +6638,26 @@ def _lad_gu(at):
     return (LAD_LIP * 16) - (LAD_X0 * 16 + 8) - 1.5 * (at + 1)
 
 
-def step_ladder(**kw):
+def step_ladder(w6=False, **kw):
     """-> {(height, mat): _lad_cell}: each rung a face `height` units up at the
     lip, plus 'roll' (no Hop at all) per ball"""
     out = {}
     for _name, H in LAD_STEPS:
         c = _lad_course(0, H)
         for m in range(len(MATERIALS)):
-            cell = _lad_cell(c, LAD_LIP, m, **kw)
+            cell = _lad_cell(c, LAD_LIP, m, w6, **kw)
             cell["roll"] = _lad_run(c, LAD_LIP, m, None, **kw)[0]
             out[(H, m)] = cell
     return out
 
 
-def gap_ladder(**kw):
+def gap_ladder(w6=False, **kw):
     """-> {(tiles, dz, mat): _lad_cell} over LAD_GAPS"""
     out = {}
     for g, dz in LAD_GAPS:
         c = _lad_course(g, dz)
         for m in range(len(MATERIALS)):
-            out[(g, dz, m)] = _lad_cell(c, LAD_LIP + g, m, **kw)
+            out[(g, dz, m)] = _lad_cell(c, LAD_LIP + g, m, w6, **kw)
     return out
 
 
@@ -6193,7 +6673,7 @@ def ladder_text(st, gp):
     """the two ladders as 128.16.5.3's tables"""
     L = ["the STEP LADDER (take-off points of %d, 1.5 gu apart at the cap with a chord; the gu are before the "
          "face):" % LAD_PTS,
-         "| step | rubber's Hop | rubber's Hop and boost (2 before; any window) | glass's Hop | steel's Hop |",
+         "| step | rubber's Hop | rubber's Hop and boost (2 before; any second press) | glass's Hop | steel's Hop |",
          "|---|---|---|---|---|"]
     for name, H in LAD_STEPS:
         r, s_, g = st[(H, MAT_RUBBER)], st[(H, MAT_STEEL)], st[(H, MAT_GLASS)]
@@ -6203,7 +6683,7 @@ def ladder_text(st, gp):
             "rolls up" if g["roll"] else _lad_word(g, "hop"), "rolls up" if s_["roll"] else _lad_word(s_, "hop"))
             + ("" if not rolls else ""))
     L += ["the GAP LADDER (the same approach; the gu are before the near lip):",
-          "| gap | rubber's Hop | rubber's Hop and boost (2 before; any window) | glass's Hop | steel's Hop |",
+          "| gap | rubber's Hop | rubber's Hop and boost (2 before; any second press) | glass's Hop | steel's Hop |",
           "|---|---|---|---|---|"]
     for g, dz in LAD_GAPS:
         r, s_, gl = gp[(g, dz, MAT_RUBBER)], gp[(g, dz, MAT_STEEL)], gp[(g, dz, MAT_GLASS)]
@@ -6226,7 +6706,7 @@ def ladder_verdicts(st, gp):
     out.append(("1.5 units: rubber's Hop and boost at least 1 (%d, Space 2 before the contact); no ball's Hop alone"
                 % len(st[(1.5, R)]["boost2"]),
                 st[(1.5, R)]["boost2"] and not any(st[(1.5, m)]["hop"] for m in range(3))))
-    out.append(("2 units: no ball, no take-off point, no window position, the boost included",
+    out.append(("2 units: no ball, no take-off point, no second-press position, the boost included",
                 not any(st[(2, m)]["hop"] or st[(2, m)]["boost"] or st[(2, m)]["roll"] for m in range(3))))
     out.append(("gap 1 tile: every ball's Hop at least 1 (%s)" % ", ".join(
         "%s %d" % (MAT_NAMES[m], len(gp[(1, 0, m)]["hop"])) for m in range(3)),
@@ -6234,14 +6714,14 @@ def ladder_verdicts(st, gp):
     out.append(("gap 2 tiles, level: rubber's Hop at least 1 (%d), steel's none (%d); glass %d printed" % (
         len(gp[(2, 0, R)]["hop"]), len(gp[(2, 0, S)]["hop"]), len(gp[(2, 0, Gl)]["hop"])),
         gp[(2, 0, R)]["hop"] and not gp[(2, 0, S)]["hop"]))
-    out.append(("gap 3 tiles, level: no ball, no take-off point, no window position, the boost included",
+    out.append(("gap 3 tiles, level: no ball, no take-off point, no second-press position, the boost included",
                 not any(gp[(3, 0, m)]["hop"] or gp[(3, 0, m)]["boost"] for m in range(3))))
     # (SPEC.md 128.16.4.2 as wave 6 found it: onto a floor half a unit LOWER, rubber's Hop and boost cross
     # three tiles from a point or two at EVERY BOOST that climbs 1.5 units - 332 to 358 - so the two bounds
-    # cannot both hold there; the level gap and the Hop alone stay asserted, and the conflict is printed for
-    # the owner (128.16.16), never relaxed quietly)
+    # cannot both hold there; the level gap and the Hop alone stay asserted.  Wave 6b (128.17.5): the owner
+    # accepted the crossings as course knowledge, CD5, printed with each row's verdict under CD5_FLOOR)
     out.append(("gap 3 tiles, half a unit down: no ball's Hop alone (rubber's Hop and boost: %d take-off point(s), "
-                "the KNOWN CONFLICT printed above for the owner)" % len(gp[(3, -0.5, R)]["boost"]),
+                "%s under CD5's floor)" % (len(gp[(3, -0.5, R)]["boost"]), cd5_verdict(len(gp[(3, -0.5, R)]["boost"]))),
                 not any(gp[(3, -0.5, m)]["hop"] for m in range(3))))
     # (wave 6's review: onto a floor further down the boost crosses three tiles from more points the deeper
     # the drop, and rubber's Hop ALONE at 252 crosses onto a floor 2 units down - wave 5b's 224 crossed
@@ -6250,7 +6730,7 @@ def ladder_verdicts(st, gp):
     drops = [dz for g, dz in LAD_GAPS if g == 3 and dz < 0]
     out.append(("gap 3 tiles onto a lower floor (%s units down): steel never, Hop or boost; no ball's Hop alone at "
                 "1.5 units down or less; rubber's Hop and boost from %s take-off point(s), glass's Hop %s, rubber's "
-                "Hop alone %s (the KNOWN CONFLICT table)" % (
+                "Hop alone %s (CD5, the 3-tile rung onto a lower floor)" % (
                     ", ".join("%g" % -d for d in drops),
                     "/".join(str(len(gp[(3, d, R)]["boost"])) for d in drops),
                     "/".join(str(len(gp[(3, d, Gl)]["hop"])) for d in drops),
@@ -6260,9 +6740,39 @@ def ladder_verdicts(st, gp):
     return out
 
 
+CD5_FLOOR = 6                 # wave 6b (SPEC.md 128.17.5): a 3-tile rung onto a lower floor
+                              # with fewer take-off points (at the cap, 18.3 ms each) is LUCK
+
+
+def cd5_verdict(n):
+    """CD5's verdict on a crossing's take-off points (SPEC.md 128.17.5)"""
+    return "nobody's" if not n else "a rung" if n >= CD5_FLOOR else "luck"
+
+
+def cd5_text(gp):
+    """CD5's table (SPEC.md 128.17.5): the gap ladder's 3-tile rows, each ball's
+    take-off points with the verdict under CD5_FLOOR"""
+    def w(n):
+        return "none" if not n else "%d (%d ms): %s" % (n, round(n * STEP_PIT * 1000.0 / PIT_HZ), cd5_verdict(n))
+    L = ["CD5, the 3-tile rung onto a lower floor (SPEC.md 128.17.5; take-off points of %d at the cap with a chord; "
+         "under %d points is luck, from %d a rung):" % (LAD_PTS, CD5_FLOOR, CD5_FLOOR),
+         "| 3 tiles onto a floor ... | rubber's Hop and boost | rubber's Hop alone | glass's Hop | steel |",
+         "|---|---|---|---|---|"]
+    for g, dz in LAD_GAPS:
+        if g != 3:
+            continue
+        L.append("| %s | %s | %s | %s | %s |" % (
+            "level" if not dz else "half a unit down" if dz == -0.5 else "%g unit%s down" % (-dz, "s" if dz != -1
+                                                                                           else ""),
+            w(len(gp[(g, dz, MAT_RUBBER)]["boost"])), w(len(gp[(g, dz, MAT_RUBBER)]["hop"])),
+            w(len(gp[(g, dz, MAT_GLASS)]["hop"])),
+            w(max(len(gp[(g, dz, MAT_STEEL)]["hop"]), len(gp[(g, dz, MAT_STEEL)]["boost"])))))
+    return "\n".join(L)
+
+
 def _gap3_report(byname):
-    print("    3-tile gaps onto a lower floor on the shipped courses (SPEC.md 128.16.4.2, for the owner at gate 1; "
-          "the take-off points are the gap ladder's at that drop, the ladder's own approach):")
+    print("    3-tile gaps onto a lower floor on the shipped courses (CD5, SPEC.md 128.17.5: course information for "
+          "the design sheets; the take-off points are the gap ladder's at that drop, the ladder's own approach):")
     memo = {}
     any_ = False
     for name in sorted(byname):
@@ -6282,7 +6792,8 @@ def _gap3_report(byname):
                 name, len(cells), min(xs), max(xs), min(ys), max(ys), {(1, 0): "+wx", (-1, 0): "-wx",
                                                                         (0, 1): "+wy", (0, -1): "-wy"}[d], dz,
                 "deeper than the ladder reaches" if w is None else
-                "rubber's Hop and boost %d point(s), its Hop alone %d, glass's Hop %d" % w))
+                "rubber's Hop and boost %d point(s) (%s), its Hop alone %d (%s), glass's Hop %d (%s)" % (
+                    w[0], cd5_verdict(w[0]), w[1], cd5_verdict(w[1]), w[2], cd5_verdict(w[2]))))
     if not any_:
         print("      none")
 
@@ -6495,6 +7006,7 @@ def emit_inc(courses):
               "BZ_FL_OCCG      equ %d        ; a grounded ball here can be hidden: no shadow" % FL_OCCG,
               "BZ_LVLMAX       equ %d        ; the arrows' ramp levels 0 .. 8" % LVL_MAX,
               "BZ_HOPWIN       equ %d        ; the Hop's window, steps" % HOPWIN,
+              "BZ_BGRACE       equ %d        ; wave 6b: the boost's late grace, steps (128.17.4.5)" % BGRACE,
               "BZ_SQTHR        equ %d      ; a landing at lvz >= this squashes (but a shatter)" % SQTHR,
               "BZ_SQSTEPS      equ %d        ; ...for this many steps" % SQSTEPS,
               "BZ_SHA_STEPS    equ %d       ; a shatter's steps (every shattering material's)" % SHA_STEPS,
@@ -6503,6 +7015,38 @@ def emit_inc(courses):
               "BZ_EBUMPER      equ %d      ; a WALL with a bounce surface, every ball" % E_BUMPER,
               "BZ_EMAT         equ %d      ; a bounce FLOOR, every ball" % E_MAT,
               "BZ_BMINMAT      equ %d      ; ...its rebound floor" % BMIN_MAT,
+              "",
+              "; wave 6b's camera, LATTICE (SPEC.md 128.17.6.2, 128.17.6.3, 128.17.6.7):",
+              "; bbcourse.Glide's constants.  ACROSS in px, per card (_C the CGA, W 40;",
+              "; _H the Hercules, W 45); DOWN in lines, both cards",
+              "BZ_LAX_A_C      equ %d       ; the band margin A, 2 W px (the dead zone)" % lat_consts(0)[0]["A"],
+              "BZ_LAX_A_H      equ %d" % lat_consts(1)[0]["A"],
+              "BZ_LAX_HR_C     equ %d       ; the return hysteresis Hr, W px" % lat_consts(0)[0]["Hr"],
+              "BZ_LAX_HR_H     equ %d" % lat_consts(1)[0]["Hr"],
+              "BZ_LAX_T_C      equ %d      ; the lead placement T, 3 W px" % lat_consts(0)[0]["T"],
+              "BZ_LAX_T_H      equ %d" % lat_consts(1)[0]["T"],
+              "BZ_LAX_EF_C     equ %d       ; the urgent edge Ef, W / 2 px" % lat_consts(0)[0]["Ef"],
+              "BZ_LAX_EF_H     equ %d" % lat_consts(1)[0]["Ef"],
+              "BZ_LAX_S        equ %d        ; the lattice step S, columns" % LAT_SX,
+              "BZ_LAY_A        equ %d       ; the band margin down, lines" % LAT_AY,
+              "BZ_LAY_HR       equ %d       ; ...the return hysteresis" % LAT_HRY,
+              "BZ_LAY_T        equ %d       ; ...the lead placement" % LAT_TY,
+              "BZ_LAY_EF       equ %d       ; ...the urgent edge" % LAT_EFY,
+              "BZ_LAY_SL       equ %d       ; ...the lattice step, lines (CGA %d rows, Hercules %d)" % (
+                  LAT_SYL, LAT_SYL // CARDS[0][2], LAT_SYL // CARDS[1][2]),
+              "BZ_LAH1         equ %d        ; the heavy rule's caps: level 1, withheld steps running" % LAT_H1,
+              "BZ_LAH2         equ %d        ; ...level 2" % LAT_H2,
+              "BZ_PF_NEARL     equ %02Xh      ; bz_pflag bits 4 - 7: the slab near the left edge," % NEAR_L,
+              "BZ_PF_NEARR     equ %02Xh      ; ...the right" % NEAR_R,
+              "BZ_PF_NEART     equ %02Xh      ; ...the top" % NEAR_T,
+              "BZ_PF_NEARB     equ %02Xh      ; ...the bottom" % NEAR_B,
+              "BZ_SCR_HOLD     equ %d        ; bz_camscr: each scripted step held this many frames" % SCR_HOLD,
+              "BZ_SCR_MX       equ %d       ; ...the footprint kept this far inside, px" % SCR_MX,
+              "BZ_SCR_MY       equ %d       ; ...and lines" % SCR_MY,
+              "; the script's cycle: (row, column) steps, signed bytes, R DR D DL L UL U UR",
+              "%macro BZ_SCR_CYCLE 0",
+              "    db " + ", ".join("%d, %d" % rc for rc in SCR_CYCLE),
+              "%endmacro",
               "",
               "; wave 3 (SPEC.md 128.12.3, 128.12.6): the props, the prop table, the tubes",
               "BZ_FL_OBS       equ %d        ; grid +3 bit 3: the cell belongs to a prop" % FL_OBS,
@@ -7102,19 +7646,31 @@ def _play_contact(c, mat, start, d, at):
 
 def play_sweep(c, start, d, target):
     """one of the PLAYGROUND's rungs or notches swept as item 7's ladders are
-    (LAD_PTS take-off points at the cap; the boost at EVERY window position):
-    -> {mat: {'roll', 'hop', 'boost2', 'boost'}}"""
+    (LAD_PTS take-off points at the cap; the boost's second press at every
+    arm_positions() step): -> {mat: {'roll', 'hop', 'boost2', 'boost'}}"""
     out = {}
+
+    def judge(p, n0):
+        if p.nfall:
+            return False
+        if (p.gx >> 12, p.gy >> 12) in target and (not p.air or any(
+                e[0] in ("land", "bounce", "hopc", "boost") for e in p.events[n0:])):
+            return True
+        return None
     for m in range(len(MATERIALS)):
         cell = {"roll": _play_run(c, m, start, d, target)[0], "boost2": [], "boost": [],
                 "hop": [a for a in range(LAD_PTS) if _play_run(c, m, start, d, target, a)[0]]}
         if MATERIALS[m]["BOOST"]:
+            def mk(m=m):
+                p = Physics(c, mat=m).poke(start[0], start[1], VMAXG * d[0], VMAXG * d[1])
+                p.lvl = [LVL_MAX] * 4
+                return p
             for a in range(LAD_PTS):
                 land = _play_contact(c, m, start, d, a)
                 if land is None:
                     continue
-                good = [e for e in range(max(a + 2, land - HOPWIN + 1), land + 1)
-                        if _play_run(c, m, start, d, target, a, e)[0]]
+                res = sweep_second(mk, lambda i: _PLAY_DIRK[d], a, arm_positions(a, land), judge, 300)
+                good = [e for e, ok in res.items() if ok]
                 if good:
                     cell["boost"].append(a)
                 if land - 2 in good:
@@ -7129,11 +7685,16 @@ def play_fall(c, herc, keys=None, **kw):
     the pit - GLIDE (kw: Glide's `_nosafe`, `_nolatch`) a frame at a time:
     -> dict(kill: the frame the fall respawned it, or None; land: it touched a
     floor on the way; lost: the first airborne frame the footprint is not in
-    the window, or None; rev: the row direction reversed while airborne)"""
+    the window, or None; rev: the row direction reversed while airborne;
+    halt: wave 6b, the first airborne frame on which LATTICE's row pan
+    STOPPED because the tracked point came back inside its lead placement
+    (128.17.6.2 step 5) - the tracked point moving against the fall, the
+    `nolatch` control's signature under LATTICE, whose pans cannot reverse
+    inside the band - or None)"""
     p = Physics(c, play=True).poke(PLAY_LANE, PLAY_GAPROW + 1, 0, 0)
     g = Glide(p, herc, c.brows, c.cols, **kw)
     spf = (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
-    acc, nl, out, dirs = 0.0, p.nland, {"kill": None, "land": False, "lost": None, "rev": False}, set()
+    acc, nl, out, dirs = 0.0, p.nland, {"kill": None, "land": False, "lost": None, "rev": False, "halt": None}, set()
     g.camera()
     for fr in range(1, 1200):
         acc += spf
@@ -7151,6 +7712,9 @@ def play_fall(c, herc, keys=None, **kw):
                 out["land"] = True
             if dr:
                 dirs.add(dr > 0)
+            inf = g.ay.info if not (g._w6 or _f) else None
+            if inf is not None and inf["stop"] and out["halt"] is None:
+                out["halt"] = fr
             top = g.R0 << g.lsh
             if out["lost"] is None and not (top <= p.py and p.py + BALL_D <= top + WIN_LINES):
                 out["lost"] = fr
@@ -7223,7 +7787,7 @@ def _play_checks(c, res):
                            {(x, y) for x in range(x0, x1) for y in range(PLAY_FRONT + 1 + g, PLAY_FRONT + 5 + g)})
     R_, S, Gl = MAT_RUBBER, MAT_STEEL, MAT_GLASS
     print("    PLAY's own rungs and notches (take-off points of %d at the cap; rubber's boost Space 2 before / any "
-          "window): %s; %s" % (LAD_PTS, "; ".join(
+          "second press): %s; %s" % (LAD_PTS, "; ".join(
               "%g unit%s: rubber %s %d/%d/%d, glass %s %d, steel %s %d" % (
                   H, "" if H == 1 else "s", "rolls" if st[H][R_]["roll"] else "-", len(st[H][R_]["hop"]),
                   len(st[H][R_]["boost2"]), len(st[H][R_]["boost"]), "rolls" if st[H][Gl]["roll"] else "-",
@@ -7233,12 +7797,12 @@ def _play_checks(c, res):
                   g, len(gp[g][R_]["hop"]), len(gp[g][R_]["boost2"]), len(gp[g][R_]["boost"]),
                   len(gp[g][Gl]["hop"]), len(gp[g][S]["hop"])) for g, _x in PLAY_GAPS)))
     res.append(("7 PLAY's own rungs: half a unit rolls up for every ball; 1 unit rubber's and glass's Hop, never "
-                "steel's; 1.5 units rubber's Hop and boost, no Hop alone; 2 units nobody's, no window position",
+                "steel's; 1.5 units rubber's Hop and boost, no Hop alone; 2 units nobody's, no second-press position",
                 all(st[0.5][m]["roll"] for m in range(3)) and st[1][R_]["hop"] and st[1][Gl]["hop"]
                 and not st[1][S]["hop"] and st[1.5][R_]["boost2"] and not any(st[1.5][m]["hop"] for m in range(3))
                 and not any(st[2][m]["roll"] or st[2][m]["hop"] or st[2][m]["boost"] for m in range(3))))
     res.append(("7 PLAY's own notches: every ball Hops 1 tile; rubber 2, steel never; nobody crosses 3, the boost "
-                "included, at any window position",
+                "included, at any second-press position",
                 all(gp[1][m]["hop"] for m in range(3)) and gp[2][R_]["hop"] and not gp[2][S]["hop"]
                 and not any(gp[3][m]["hop"] or gp[3][m]["boost"] for m in range(3))))
     grips = [play_grip(c, m) for m in range(3)]
@@ -7251,15 +7815,16 @@ def _play_checks(c, res):
         on, off, nol = play_fall(c, herc), play_fall(c, herc, _nosafe=True), play_fall(c, herc, _nolatch=True)
         card = ("CGA", "Hercules")[herc]
         res.append(("7 PLAY's brake strip, %s: overrun at speed it falls into the VOID and respawns (frame %s, no "
-                    "floor touched); with the camera's fallback the footprint stays in the window and the row "
-                    "direction never reverses while it falls" % (card, on["kill"]),
-                    on["kill"] and not on["land"] and on["lost"] is None and not on["rev"]))
+                    "floor touched); with the camera's fallback the footprint stays in the window, and the rows "
+                    "never reverse nor halt while it falls" % (card, on["kill"]),
+                    on["kill"] and not on["land"] and on["lost"] is None and not on["rev"] and on["halt"] is None))
         res.append(("7 PLAY's brake strip, %s, control `nosafe` (the fallback left out): the footprint leaves the "
                     "window at frame %s, before the kill at %s - the depth the basin was chosen for" % (
                         card, off["lost"], off["kill"]), off["kill"] and off["lost"] and off["lost"] < off["kill"]))
-        nolatch.append(nol["rev"])
-    res.append(("7 PLAY's brake strip, control `nolatch` (the fallback not latched): the row direction reverses "
-                "while it falls (CGA %s, Hercules %s: the CGA's leg is the arm's)" % tuple(nolatch), nolatch[0]))
+        nolatch.append(nol["rev"] or nol["halt"])
+    res.append(("7 PLAY's brake strip, control `nolatch` (the fallback not latched): the rows reverse or, under "
+                "LATTICE (wave 6b), HALT while it falls (CGA %s, Hercules %s: the frame the rows stopped; the CGA's "
+                "leg is the arm's)" % tuple(nolatch), bool(nolatch[0])))
     # the mat: a Hop from the apron whose first contact is ON it, Space 2 before that contact: a contact Hop
     # there, never a boost (the Hops whose first contact is on the apron boost there, as they should)
     mstart, md, mat_c = (PLAY_MAT[2] + 2, (PLAY_MAT[1] + PLAY_MAT[3]) // 2), (-1, 0), _rect(PLAY_MAT)
@@ -7288,12 +7853,14 @@ def _clone(p):
 
 
 def _boost_rule(p, tok, hopw, C):
-    """why the contact just stepped did not boost (SPEC.md 128.16.4.1's rules):
-    tok, hopw: the token and the window as it began; C: the centre's grid cell"""
+    """why the contact just stepped did not boost (SPEC.md 128.16.4.1's rules,
+    rule 2 as wave 6b has it, 128.17.4.2): tok, hopw: the token and the window
+    as the contact's step began; C: the centre's grid cell"""
     if not tok:
         return "rule 1: no Hop from the ground set the token (this is not its first contact)"
-    if not hopw or p.mst == ST_STUN:
-        return "rule 2: the window was closed (or the ball stunned)"
+    if tok != 2 or p.mst == ST_STUN:
+        return ("rule 2: the flight was not ARMED (the token 1: no second Space edge after the take-off, up to the "
+                "contact's step; the late grace converts only a bounce) or the ball was stunned")
     if not p.m["BOOST"]:
         return "rule 3: %s has no BOOST" % MAT_NAMES[p.mat]
     if not p.firm_level(C, None) or p.onp:
@@ -7381,7 +7948,15 @@ def author_demo(c, K, script):
                                   "close for Space 2 steps before it" % (c.name, p.nstep, ahead))
             for _ in range(ahead - 3):
                 step(p.auto())
+            # wave 6b (SPEC.md 128.17.4.2): the press 2 steps before the contact ARMS the flight (its key-down
+            # edge: the Hop's press was released, `hop` presses one step); the window it opens is not read
+            if p.kprev & K_HOP:
+                raise CourseError("%s: the authored `boost` at step %d: Space still held from the Hop, no edge to "
+                                  "arm the flight" % (c.name, p.nstep))
             step(p.auto() | K_HOP)
+            if p.btok != 2:
+                raise CourseError("%s: the authored `boost`'s press at step %d did not arm the flight (token %d)"
+                                  % (c.name, p.nstep, p.btok))
             step(p.auto())
             tok, hopw = p.btok, p.hopw
             nb = p.nboost
@@ -7480,50 +8055,879 @@ def report(c, k=None):
               len(c.reach)))
 
 
-def pans(c, log, herc):
+def pans(c, log, herc, **gkw):
     """the HOST'S PREDICTION of GLIDE's pans over a demo LOG on course C on a
     card (SPEC.md 128.16.13's --pans): the log through Physics at the card's
-    nominal step rate, Glide (the heavy rule on) once a frame -> (columns,
-    rows, two-row frames, seconds of play)"""
+    nominal step rate, Glide (the heavy rule on; LATTICE, or gkw's: _w6 for
+    wave 6's policy) once a frame -> (columns, rows, two-row frames, seconds
+    of play)"""
+    r = cam_demo(c, log, herc, **gkw)
+    rows = [f for f in r.rows if not f["full"]]
+    return (sum(abs(f["dc"]) for f in rows), sum(abs(f["dr"]) for f in rows),
+            sum(1 for f in rows if abs(f["dr"]) >= 2), r.p.nstep * STEP_PIT / float(PIT_HZ))
+
+
+# =============================================================================
+# the camera's harness and its checks (SPEC.md 128.17.6.5, 128.17.6.6,
+# 128.17.9): --camcheck, --pans, item 8
+# =============================================================================
+
+CAM_AUTO = (1800, 1500)       # an autopilot's frames, CGA / Hercules (about 30 s)
+CAM_DEDUP = ("FIRST", "TRIAL", "MILL")   # autopilots the totals count once with their demos (128.17.6.6)
+CAM_PRICE = ((7.5, 19.7), (13.7, 18.8))  # 128.9's strip prices, k clk: a row, a column (CGA, Hercules)
+CAM_BUSY = 27.0               # a frame of this many k clk of strips or more is "costly" (128.17.6.6)
+CAM_EXIT = 90                 # the frames after a tube exit guarantee 5 watches
+CAM_HALF = ("TRIAL", "MILL", "MOON", "PEAK", "PLAY")    # the half-rate pass, the CGA (128.17.6.6)
+CAM_TAPS = (8, 15, 25)        # the dither map's tap lengths, ASSERTED; CAM_TAPS_P PRINTED (128.17.6.5 item 4)
+CAM_TAPS_P = (40, 60)
+CAM_STALL = 6                 # a stall: this many frames with a pan outstanding and no step, then a step
+
+
+class CamRun:
+    """a Physics stepped at a card's nominal step rate (SLOW times it: the
+    half-rate pass's 2), the camera once a frame, every frame recorded: the
+    harness of --camcheck and --pans (SPEC.md 128.17.9).  gkw: Glide's."""
+
+    def __init__(self, c, herc, p, slow=1.0, heavy=True, **gkw):
+        self.c, self.herc, self.p = c, herc, p
+        self.g = Glide(p, herc, c.brows, c.cols, heavy=Heavy(p) if heavy else None, **gkw)
+        self.spf = slow * (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
+        self.acc, self.fr, self.rows = 0.0, 0, []
+        self.g.camera()
+
+    def frame(self, stepper):
+        """one frame: stepper() steps once (False: the run is over) -> False when over"""
+        self.acc += self.spf
+        n = int(self.acc)
+        self.acc -= n
+        for _ in range(n):
+            if stepper() is False:
+                return False
+        g, p = self.g, self.p
+        self.fr += 1
+        R0, c0, wr, wc = g.R0, g.c0, g.nwr, g.nwc
+        dr, dc, full = g.camera()
+        lat = not (full or g._w6 or g.scripted)
+        self.rows.append({
+            "fr": self.fr, "dr": dr, "dc": dc, "full": full, "cut": g.cut, "tube": bool(p.tube), "lvl": g.level,
+            "px": p.px, "py": p.py, "air": p.air, "vx": p.vx, "vy": p.vy, "R0b": R0, "c0b": c0, "R0": g.R0,
+            "c0": g.c0, "resp": p.nfall + p.nret, "wr": g.nwr - wr, "wc": g.nwc - wc, "oc": g.want_c,
+            "or": g.want_r, "cy": p.py + 8 + _s16(p.gz >> 8) - g.cgz,
+            "near": g.heavy.near if g.heavy is not None else 0,
+            "x": dict(g.ax.info) if lat else None, "y": dict(g.ay.info) if lat else None})
+        return True
+
+
+def cam_demo(c, log, herc, slow=1.0, heavy=True, **gkw):
+    """a demo LOG through the model (play) -> its CamRun, to the goal or the log's end"""
     _k, mat, kt, _fl = decode_log_t(log)
     p = Physics(c, play=True, mat=mat)
-    gl = Glide(p, herc, c.brows, c.cols, heavy=Heavy(p))
-    spf = (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
-    acc, i, cols, rows, two = 0.0, 0, 0, 0, 0
-    gl.camera()
-    while i < len(kt) and not p.goal:
-        acc += spf
-        n = int(acc)
-        acc -= n
-        for _ in range(n):
-            if i < len(kt) and not p.goal:
-                p.step(kt[i][0], kt[i][1])
-                i += 1
-        dr, dc, full = gl.camera()
-        if not full:
-            cols += abs(dc)
-            rows += abs(dr)
-            two += abs(dr) >= 2
-    return cols, rows, two, p.nstep * STEP_PIT / float(PIT_HZ)
+    r = CamRun(c, herc, p, slow, heavy, **gkw)
+    it = iter(kt)
 
+    def st():
+        if p.goal:
+            return False
+        k = next(it, None)
+        if k is None:
+            return False
+        p.step(k[0], k[1])
+    while r.frame(st):
+        pass
+    return r
+
+
+def cam_auto(c, herc, frames=None, slow=1.0, heavy=True, **gkw):
+    """the course's autopilot (not a play: Physics(play=False) with the course's
+    ball) for CAM_AUTO frames, or to the goal -> its CamRun"""
+    p = Physics(c, play=False, mat=c.ball)
+    r = CamRun(c, herc, p, slow, heavy, **gkw)
+    frames = CAM_AUTO[herc] if frames is None else frames
+
+    def st():
+        if p.goal:
+            return False
+        p.step_auto()
+    while r.fr < frames and r.frame(st):
+        pass
+    return r
+
+
+def cam_runs(courses, demos, slow=1.0, which=None, cards=(0, 1), **gkw):
+    """every demo and every autopilot (128.17.6.1's set) -> {(name, herc,
+    'demo' | 'auto'): rows}; which: the course names to run, or every one"""
+    out = {}
+    for K, c in enumerate(courses):
+        if which is not None and c.name not in which:
+            continue
+        for herc in cards:
+            if K in demos:
+                out[(c.name, herc, "demo")] = cam_demo(c, demos[K]["log"], herc, slow, **gkw).rows
+            out[(c.name, herc, "auto")] = cam_auto(c, herc, slow=slow, **gkw).rows
+    return out
+
+
+def cam_episodes(rows, k, gap=4):
+    """runs of steps of one sign on an axis (k: 'dr' or 'dc'), merged across
+    gaps of up to GAP still frames; a full write ends one"""
+    eps, cur = [], None
+    for i, f in enumerate(rows):
+        if f["full"]:
+            if cur:
+                eps.append(cur)
+            cur = None
+            continue
+        m = f[k]
+        if not m:
+            continue
+        sg = 1 if m > 0 else -1
+        if cur and cur["s"] == sg and i - cur["end"] <= gap + 1:
+            cur["end"], cur["amt"] = i, cur["amt"] + abs(m)
+        else:
+            if cur:
+                eps.append(cur)
+            cur = {"s": sg, "start": i, "end": i, "amt": abs(m)}
+    if cur:
+        eps.append(cur)
+    return eps
+
+
+def cam_reversals(rows, herc, ax):
+    """REVERSALS (128.17.6.1's measure): a pan the other way on axis AX ('c'
+    or 'r') starting within 2 s of one ending, no full write and no respawn
+    between -> [(the first episode, the second)]"""
+    within = int(2 * CARD_HZ[herc])
+    eps = cam_episodes(rows, "dr" if ax == "r" else "dc")
+    out = []
+    for a, b in zip(eps, eps[1:]):
+        if b["s"] != a["s"] and b["start"] - a["end"] <= within and \
+                not any(rows[i]["full"] for i in range(a["end"], b["start"] + 1)) and \
+                rows[a["start"]]["resp"] == rows[b["start"]]["resp"]:
+            out.append((a, b))
+    return out
+
+
+def _cam_outstanding(rows, ax):
+    """runs of frames with a pan outstanding on AX (a target not reached, a step or a withheld step)"""
+    ko, km, kw = ("or", "dr", "wr") if ax == "r" else ("oc", "dc", "wc")
+    runs, cur = [], None
+    for i, f in enumerate(rows):
+        if not f["full"] and (f[ko] or f[km] or f[kw]):
+            cur = (cur or []) + [i]
+        else:
+            if cur:
+                runs.append(cur)
+            cur = None
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def cam_stalls(rows, ax):
+    """STALLS: CAM_STALL or more frames with a pan outstanding and no step, then a step -> [(frame, length)]"""
+    km = "dr" if ax == "r" else "dc"
+    out = []
+    for run in _cam_outstanding(rows, ax):
+        z = 0
+        for j, i in enumerate(run):
+            if rows[i][km] == 0:
+                z += 1
+            else:
+                if z >= CAM_STALL:
+                    out.append((rows[run[j - z]]["fr"], z))
+                z = 0
+    return out
+
+
+def cam_slowfast(rows, ax):
+    """SLOW-THEN-FAST windows (the owner's "slows down, then quickly moves
+    over"): inside one outstanding run, a window of 4 frames (rows) or 8
+    (columns) that pans at most half of the best such window in the 40 frames
+    after it -> [(frame, its steps, the best after)]"""
+    km = "dr" if ax == "r" else "dc"
+    W = 4 if ax == "r" else 8
+    out = []
+    for run in _cam_outstanding(rows, ax):
+        if len(run) < W + 2:
+            continue
+        mv = [abs(rows[i][km]) for i in run]
+        win = [sum(mv[j:j + W]) for j in range(len(mv) - W + 1)]
+        j = 0
+        while j < len(win):
+            after = max(win[j + W:j + W + 40] or [0])
+            if after >= W // 2 and win[j] * 2 <= after and after - win[j] >= 2:
+                out.append((rows[run[j]]["fr"], win[j], after))
+                j += W
+            else:
+                j += 1
+    return out
+
+
+def _cam_runs_of(flags):
+    out, n = [], 0
+    for v in list(flags) + [False]:
+        if v:
+            n += 1
+        elif n:
+            out.append(n)
+            n = 0
+    return out
+
+
+def cam_summary(rows, herc):
+    """one run's figures (128.17.6.6): pans, two-row frames, reversals,
+    stalls, slow-then-fast windows, and outside tubes the priced work, the
+    column runs and the costly runs"""
+    rc, cc = CAM_PRICE[herc]
+    lt = [f for f in rows if not f["full"]]
+    out = [f for f in lt if not f["tube"]]
+    d = {"frames": len(rows), "rows": sum(abs(f["dr"]) for f in lt), "cols": sum(abs(f["dc"]) for f in lt),
+         "two": sum(1 for f in lt if abs(f["dr"]) >= 2), "two_out": sum(1 for f in out if abs(f["dr"]) >= 2),
+         "c2r": sum(1 for f in lt if f["dc"] and abs(f["dr"]) >= 2),
+         "kclk": sum(abs(f["dr"]) * rc + abs(f["dc"]) * cc for f in out),
+         "colf": sum(1 for f in out if f["dc"])}
+    d["rev"] = [(ax, rows[b["start"]]["fr"]) for ax in "cr" for a, b in cam_reversals(rows, herc, ax)]
+    d["stall"] = [(ax,) + s for ax in "cr" for s in cam_stalls(rows, ax)]
+    d["sf"] = [(ax,) + s for ax in "cr" for s in cam_slowfast(rows, ax)]
+    nf = lambda f: not f["full"] and not f["tube"]
+    cr = _cam_runs_of(nf(f) and bool(f["dc"]) for f in rows)
+    br = _cam_runs_of(nf(f) and abs(f["dr"]) * rc + abs(f["dc"]) * cc >= CAM_BUSY for f in rows)
+    d["colruns"] = [x for x in cr if x >= 2]
+    d["busyruns"] = [x for x in br if x >= 2]
+    d["l2cga"] = (sum(abs(f["dc"]) for f in out if f["lvl"] == 2), sum(abs(f["dr"]) for f in out if f["lvl"] == 2),
+                  sum(1 for f in out if f["lvl"] == 2)) if not herc else (0, 0, 0)
+    d["starts"] = sum(1 for f in lt if f["y"] and f["y"]["born"]), sum(1 for f in lt if f["x"] and f["x"]["born"])
+    d["eps"] = len(cam_episodes(rows, "dr")), len(cam_episodes(rows, "dc"))    # either policy's (LATTICE's born: starts)
+    return d
+
+
+def cam_margins(rows, herc):
+    """the ball's footprint (128.4's, from px & ~3, 20 x 16) against the window
+    on every frame outside tubes -> (frames it is not wholly inside, the worst
+    margin across px, the worst down lines)"""
+    W, _H, rl, lsh = CARDS[herc]
+    bad, mx, my = [], 9999, 9999
+    for f in rows:
+        if f["tube"]:
+            continue
+        top, xa = f["R0"] << lsh, 8 * f["c0"]
+        fx = f["px"] & ~3
+        a, b = fx - xa, xa + 8 * W - (fx + FOOT_W)
+        u, v = f["py"] - top, top + WIN_LINES - (f["py"] + FOOT_H)
+        if (f["px"] >> 3) < f["c0"] or (((f["px"] >> 2) + 4) >> 1) >= f["c0"] + W or \
+                f["py"] < top or f["py"] > top + WIN_LINES - BALL_D:
+            bad.append(f["fr"])
+        mx, my = min(mx, a, b), min(my, u, v)
+    return bad, mx, my
+
+
+def cam_lookahead(rows, herc):
+    """the room ahead of a moving ball, as a share of the window: across (|vx|
+    >= 1 px a step) and down (grounded, |vy| >= half a line), outside tubes"""
+    W, _H, rl, lsh = CARDS[herc]
+    ax, ay = [], []
+    for f in rows:
+        if f["full"] or f["tube"]:
+            continue
+        ox = f["px"] + 8 - 8 * f["c0"]
+        oy = f["cy"] - (f["R0"] << lsh)
+        if abs(f["vx"]) >= 256:
+            ax.append((8 * W - ox if f["vx"] > 0 else ox) / (8.0 * W))
+        if abs(f["vy"]) >= 128 and not f["air"]:
+            ay.append((WIN_LINES - oy if f["vy"] > 0 else oy) / float(WIN_LINES))
+    return ax, ay
+
+
+def _pct(a, q):
+    return sorted(a)[int(q * (len(a) - 1))] if a else -1
+
+
+def cam_guarantees(rows, herc, name):
+    """128.17.6.5's guarantees 1 - 3 on one run of LATTICE -> [failures]"""
+    bad = []
+    lim = {1: LAT_H1, 2: LAT_H2}
+    for f in rows:
+        for ax in ("x", "y"):
+            inf = f[ax]
+            if inf is None:
+                continue
+            tag = "%s frame %d %s" % (name, f["fr"], "columns" if ax == "x" else "rows")
+            # 1: a pan born only when the point left the band on its side
+            if inf["born"] and inf["w"] != inf["s"] and inf["s"]:
+                bad.append("%s: guarantee 1, a pan %+d born with the point inside the band" % (tag, inf["s"]))
+            if inf["s0"] and inf["s"] and inf["s"] != inf["s0"] and not (inf["born"] and inf["w"] == inf["s"]):
+                bad.append("%s: guarantee 1, the pan turned with the point inside the band" % tag)
+            # 2 (a): the latch never clears inside a pan (checked against the frame before, below)
+            # 2 (b): held within its cap
+            if inf["held"] > LAT_H2 or (inf["wh"] and inf["held"] > lim[f["lvl"]]):
+                bad.append("%s: guarantee 2 (b), %d steps withheld running at level %d" % (tag, inf["held"],
+                                                                                      f["lvl"]))
+            # 2 (c): never more than the pan's rate
+            st = abs(inf["step"])
+            if st > (1 if ax == "x" else 2 if inf["fast"] else 1):
+                bad.append("%s: guarantee 2 (c), %d steps on a %s pan" % (tag, st, "fast" if inf["fast"] else
+                                                                           "slow"))
+    for ax in ("x", "y"):
+        prev = None
+        for f in rows:
+            inf = f[ax]
+            if inf is None:
+                prev = None
+                continue
+            if prev is not None and inf["s0"] and not inf["born"] and inf["pid"] == prev["pid"] and \
+                    prev["fast"] and not inf["fast"]:
+                bad.append("%s frame %d %s: guarantee 2 (a), the pan's fast latch cleared" % (
+                    name, f["fr"], "columns" if ax == "x" else "rows"))
+            prev = inf
+    out, _mx, _my = cam_margins(rows, herc)
+    if out:
+        bad.append("%s: guarantee 3, the ball's footprint outside the window on %d frames (first %d)" % (
+            name, len(out), out[0]))
+    return bad
+
+
+def cam_two_rows(rows, name):
+    """the TWO-ROW check (128.17.9): a frame takes two rows only on a pan whose
+    fast the urgent edge or a tube set -> [failures]"""
+    bad = []
+    why = {}
+    for f in rows:
+        inf = f["y"]
+        if inf is None:
+            continue
+        if inf["rise"]:
+            why[inf["pid"]] = inf["rise"]
+        if abs(f["dr"]) >= 2 and why.get(inf["pid"]) not in ("urgent", "tube"):
+            bad.append("%s frame %d: two rows on a pan made fast by %s" % (name, f["fr"], why.get(inf["pid"])))
+    return bad
+
+
+def cam_exits(rows, name):
+    """GUARANTEE 5 (the tube-exit check): at every tube exit, in the CAM_EXIT
+    frames after it no pan is born fast and no pan's rate rises, and a pan
+    still running at the exit takes its every step, none withheld, until it
+    ends -> (exits, [failures])"""
+    bad, n = [], 0
+    for i, f in enumerate(rows):
+        if not (i and rows[i - 1]["tube"] and not f["tube"]):
+            continue
+        n += 1
+        live = {}
+        for ax in ("x", "y"):
+            inf = rows[i - 1][ax]
+            if inf is not None and inf["s1"]:
+                live[ax] = inf["pid"]
+        for g in rows[i:i + CAM_EXIT]:
+            if g["full"]:
+                break
+            for ax in ("x", "y"):
+                inf = g[ax]
+                if inf is None:
+                    continue
+                what = "%s exit at frame %d, %s frame %d" % (name, f["fr"], "columns" if ax == "x" else "rows",
+                                                             g["fr"])
+                if inf["born"] and inf["rise"]:
+                    bad.append("%s: a pan born fast (%s)" % (what, inf["rise"]))
+                elif inf["rise"]:
+                    bad.append("%s: a pan's rate rose (%s)" % (what, inf["rise"]))
+                if ax in live:
+                    if inf["pid"] != live[ax] or not inf["s0"]:
+                        live.pop(ax)
+                        continue
+                    if inf["wh"]:
+                        bad.append("%s: the pre-aimed pan's step withheld" % what)
+                    if not inf["s1"]:
+                        live.pop(ax)
+    return n, bad
+
+
+def _cam_fork(base):
+    """a CamRun's copy a branch can step without touching BASE (the course,
+    its grid and props shared, never written)"""
+    import copy
+    p0 = base.p
+    memo = {id(p0.grid): p0.grid, id(p0.props): p0.props, id(base.c): base.c}
+    p, g = copy.deepcopy((p0, base.g), memo)
+    r = CamRun.__new__(CamRun)
+    r.c, r.herc, r.p, r.g, r.spf, r.acc, r.fr, r.rows = base.c, base.herc, p, g, base.spf, base.acc, base.fr, []
+    return r
+
+
+def _cam_play(r, pat):
+    """step R through PAT, [(key byte, steps)] -> True when the branch stayed
+    clean (no fall or RETURN, no goal, no frame in a tube)"""
+    p = r.p
+    seq = iter([k for k, n in pat for _ in range(n)])
+    n0 = p.nfall + p.nret
+
+    def st():
+        k = next(seq, None)
+        if k is None:
+            return False
+        p.step(k)
+    while r.frame(st):
+        pass
+    return p.nfall + p.nret == n0 and not p.goal and not any(f["tube"] for f in r.rows)
+
+
+def _cam_revs(rows, herc):
+    return sum(len(cam_reversals(rows, herc, ax)) for ax in "cr")
+
+
+def _dither_keys(gvx, gvy, sign):
+    """the key chord that pushes along (sign = 1) or against (-1) the ball's ground velocity"""
+    sx, sy = (gvx > 0) - (gvx < 0), (gvy > 0) - (gvy < 0)
+    if abs(gvx) > 2 * abs(gvy):
+        sy = 0
+    elif abs(gvy) > 2 * abs(gvx):
+        sx = 0
+    return {(1, 1): K_D, (1, -1): K_R, (-1, 1): K_L, (-1, -1): K_U, (1, 0): K_R | K_D, (-1, 0): K_L | K_U,
+            (0, 1): K_L | K_D, (0, -1): K_U | K_R}.get((sx * sign, sy * sign), 0)
+
+
+def cam_dither(c, herc, log=None, taps=CAM_TAPS, every=0.5, secs=60, **gkw):
+    """THE DITHER MAP (SPEC.md 128.17.6.1, 128.17.6.5 item 4): along the demo
+    (or the autopilot), every EVERY seconds of the first SECS with the ball
+    grounded and moving, a branch brakes 30 steps (Grip) and taps against its
+    travel, releases, taps along it, releases, taps against it again (TAP
+    steps each, 50 and 70 released), and a control branch brakes and
+    releases.  A sample REVERSES when its taps make more reversals than the
+    control.  -> {tap: [(frame, the tile, taps' reversals, the control's)]}"""
+    if log is not None:
+        _k, mat, kt, _fl = decode_log_t(log)
+        p = Physics(c, play=True, mat=mat)
+        it = iter(kt)
+
+        def step():
+            if p.goal:
+                return False
+            k = next(it, None)
+            if k is None:
+                return False
+            p.step(k[0], k[1])
+    else:
+        p = Physics(c, play=False, mat=c.ball)
+
+        def step():
+            if p.goal:
+                return False
+            p.step_auto()
+    r = CamRun(c, herc, p, **gkw)
+    out = {t: [] for t in taps}
+    nxt, hz = 0, CARD_HZ[herc]
+    while r.fr < int(secs * hz) and r.frame(step):
+        r.rows = r.rows[-1:]                    # (the base run's rows are not read)
+        if r.fr < nxt or p.air or p.tube or abs(p.gvx) + abs(p.gvy) <= 24:
+            continue
+        nxt = r.fr + int(every * hz)
+        back, fwd = _dither_keys(p.gvx, p.gvy, -1), _dither_keys(p.gvx, p.gvy, 1)
+        ctl = _cam_fork(r)
+        if not _cam_play(ctl, [(K_GRIP, 30), (0, 270)]):
+            continue
+        nc = _cam_revs(ctl.rows, herc)
+        for t in taps:
+            b = _cam_fork(r)
+            if _cam_play(b, [(K_GRIP, 30), (back, t), (0, 50), (fwd, t), (0, 50), (back, t), (0, 70)]):
+                out[t].append((r.fr, (p.gx >> 12, p.gy >> 12), _cam_revs(b.rows, herc), nc))
+    return out
+
+
+# MILL's ramp bottom (SPEC.md 128.17.6.1, 128.17.6.5 item 4): rubber poked at (15, 7), rolled down B's ramp
+# (Down + Left) to the green (tile y 18), then each PATTERN, (key byte, steps)
+RAMP_POKE, RAMP_GREEN = (15, 7), 18
+_RDN, _RUP = K_D | K_L, K_U | K_R
+RAMP_PATTERNS = (
+    ("coast", [(0, 300)]),
+    ("brake and ease 8", [(K_GRIP, 60), (0, 20)] + [(_RUP, 8), (0, 50), (_RDN, 8), (0, 50)] * 4),
+    ("brake and ease 20", [(K_GRIP, 60), (0, 20)] + [(_RUP, 20), (0, 50), (_RDN, 20), (0, 50)] * 4),
+    ("climb tries", [(K_GRIP, 60)] + [(_RUP, 80), (0, 60)] * 3),
+    ("wiggles", [(K_GRIP, 60)] + [(K_L, 15), (0, 30), (K_R, 15), (0, 30)] * 4),
+    ("back once", [(K_GRIP, 60), (0, 20), (_RUP, 10), (0, 120)]),
+)
+
+
+def ramp_bottom(c, herc, pat, **gkw):
+    """one ramp-bottom pattern on MILL -> (the CamRun, the frame the pattern began)"""
+    p = Physics(c, play=True).poke(*RAMP_POKE)
+    r = CamRun(c, herc, p, **gkw)
+    seq = iter([k for k, n in pat for _ in range(n)])
+    st = {"start": None}
+
+    def step():
+        if st["start"] is None:
+            if (p.gy >> 12) < RAMP_GREEN:
+                p.step(_RDN)
+                return
+            st["start"] = r.fr
+        k = next(seq, None)
+        if k is None:
+            return False
+        p.step(k)
+    while r.frame(step) and not p.nfall:
+        pass
+    return r, st["start"]
+
+
+def ramp_reversals(c, herc, **gkw):
+    """-> [(pattern, reversals from its start, rows, columns)] on the card"""
+    out = []
+    for name, pat in RAMP_PATTERNS:
+        r, s = ramp_bottom(c, herc, pat, **gkw)
+        s = s if s is not None else len(r.rows)
+        n = sum(1 for ax in "cr" for a, b in cam_reversals(r.rows, herc, ax) if b["start"] >= s - 1)
+        d = [f for f in r.rows[s:] if not f["full"]]
+        out.append((name, n, sum(abs(f["dr"]) for f in d), sum(abs(f["dc"]) for f in d)))
+    return out
+
+
+# the SIDE check's CONSTRUCTED scenario (SPEC.md 128.17.6.3, 128.17.9): the shipped runs have no frame on
+# which level 1's side decides, so this one is built for it - MILL's rubber ball poked at rest on (21, 17),
+# Right held: the lift's slab near the window's BOTTOM while a column pan runs to the right, so a side-blind
+# level 1 withholds columns the side-aware rule takes (found on 6b's model by a search of the tiles round
+# the lift, every chord; bonanzaring's CAMERA leg replays it)
+SIDE_SCEN = {"crs": "MILL", "at": (21, 17), "keys": K_R, "steps": 240}
+
+
+def side_run(c, herc, **gkw):
+    """SIDE_SCEN on course C (MILL) -> its CamRun"""
+    p = Physics(c, play=True).poke(*SIDE_SCEN["at"])
+    r = CamRun(c, herc, p, **gkw)
+    left = [SIDE_SCEN["steps"]]
+
+    def st():
+        if not left[0]:
+            return False
+        left[0] -= 1
+        p.step(SIDE_SCEN["keys"])
+    while r.frame(st):
+        pass
+    return r
+
+
+def side_check(rows, name):
+    """the SIDE check: level 1 withholds a column only with the near-edge bit
+    of the column pan's heading set, and cuts rows only with the row pan's ->
+    (frames on which the side decided, [failures])"""
+    bad, n = [], 0
+    for f in rows:
+        if f["lvl"] != 1:
+            continue
+        for ax, bits in (("x", (NEAR_L, NEAR_R)), ("y", (NEAR_T, NEAR_B))):
+            inf = f[ax]
+            if inf is None:
+                continue
+            n += inf["side"]
+            if inf["wh"] and not f["near"] & bits[inf["s"] > 0]:
+                bad.append("%s frame %d: level 1 withheld %s heading %s with that edge's bit clear (bz_pflag "
+                           "%02Xh)" % (name, f["fr"], "a column" if ax == "x" else "a row",
+                                       ("left", "right", "up", "down")[(ax == "y") * 2 + (inf["s"] > 0)], f["near"]))
+    return n, bad
+
+
+def _cam_rises(rows):
+    """every rate rise: -> ['<axis><cause>@<frame>' ...] (a capital: born fast)"""
+    out = []
+    for f in rows:
+        for ax in ("x", "y"):
+            inf = f[ax]
+            if inf is not None and inf["rise"]:
+                w = {"urgent": "u", "ring": "r", "tube": "t"}[inf["rise"]]
+                out.append("%s%s@%d" % ("c" if ax == "x" else "r", w.upper() if inf["born"] else w, f["fr"]))
+    return out
+
+
+def _cam_sf_cause(rows, sf):
+    """a slow-then-fast window's cause: what made it slow, 'heavy' (steps
+    withheld in it), and what made the pan fast after it, the rate rise in
+    the 50 frames from the window's start (urgent edge, ring or tube) - both
+    when both hold, so a heavy-slowed pan that a tube then turns fast says
+    so; '?' when neither"""
+    ax, fr = sf[0], sf[1]
+    i = next((j for j, f in enumerate(rows) if f["fr"] == fr), 0)
+    k, kw = ("x", "wc") if ax == "c" else ("y", "wr")
+    W = 8 if ax == "c" else 4
+    why = []
+    if any(rows[j][kw] for j in range(i, min(len(rows), i + W))):
+        why.append("heavy")
+    for f in rows[i:i + 50]:
+        inf = f[k]
+        if inf is not None and inf["rise"]:
+            why.append("%s rise at %d" % (inf["rise"], f["fr"]))
+            break
+    return ", then ".join(why) or "?"
+
+
+def bench_dirs(bench, scripted, rates=range(96, 105), phases=range(10), **gkw):
+    """item 8 (SPEC.md 128.17.6.7): BENCH's 1,200 frames at 0.96 - 1.04 x
+    PHASES -> ({(herc, dir): the fewest frames that scrolled that way},
+    scripted frames whose footprint left the window)"""
+    mins, lost = {}, 0
+    for herc in (0, 1):
+        for r in rates:
+            for ph in phases:
+                bad = [0]
+
+                def cb(p, g, dr, dc, bad=bad):
+                    bad[0] += g.outwin()
+                d, _gp = glide_run(bench, herc, r / 100.0, ph / 10.0, scripted=scripted, frame_cb=cb, **gkw)
+                lost += bad[0]
+                for k in DIRS:
+                    mins[(herc, k)] = min(mins.get((herc, k), 1 << 30), d.get(k, 0))
+    return mins, lost
+
+
+def camcheck(courses, demos, res, controls=True):
+    """--camcheck (SPEC.md 128.17.9), item 8 runs it whole: LATTICE over every
+    demo and autopilot on both cards, 128.17.6.5's guarantees 1 - 3 and 5,
+    the side check, the two-row check, MILL's ramp bottom and the dither map
+    ASSERTED into RES; the rest REPORTED; and with CONTROLS each broken model
+    going red at its own check"""
+    t0 = time.time()
+    by = {c.name: c for c in courses}
+    R = cam_runs(courses, demos)
+    S = {k: cam_summary(rows, k[1]) for k, rows in R.items()}
+    g13, two, ex, nex = [], [], [], 0
+    for k, rows in R.items():
+        nm = "%s %s %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2])
+        g13 += cam_guarantees(rows, k[1], nm)
+        two += cam_two_rows(rows, nm)
+        n, b = cam_exits(rows, nm)
+        nex += n
+        ex += b
+    nfr = sum(len(r) for r in R.values())
+    res.append(("8 LATTICE (bbcourse.Glide, 128.17.6.2) over every demo and autopilot on both cards (%d runs, %d "
+                "frames): guarantee 1 (a pan born, or turned, only with the point outside the band on its side), 2 "
+                "(a pan's fast latch never clears; no axis withheld past H2 = %d, nor past H1 = %d on a level-1 "
+                "frame; no frame steps more than its pan's rate) and 3 (the ball's footprint inside the window "
+                "outside tubes)%s" % (len(R), nfr, LAT_H2, LAT_H1, "" if not g13 else ": %d failures, the first: %s"
+                                      % (len(g13), g13[0])), not g13))
+    res.append(("8 the TWO-ROW check: a frame takes two rows only on a pan the urgent edge or a tube made fast "
+                "(%d two-row frames)%s" % (sum(s["two"] for s in S.values()), "" if not two else
+                                           ": %d failures, the first: %s" % (len(two), two[0])), not two))
+    res.append(("8 guarantee 5, every tube exit smooth: at each of the %d exits no pan is born fast and no pan's "
+                "rate rises in the %d frames after it, and a pan running at the exit takes every step, none "
+                "withheld, until it ends%s" % (nex, CAM_EXIT, "" if not ex else ": %d failures, the first: %s"
+                                                % (len(ex), ex[0])), nex > 0 and not ex))
+    # the side check, on its constructed scenario
+    sd = []
+    for herc in (0, 1):
+        n, b = side_check(side_run(by[SIDE_SCEN["crs"]], herc).rows, "SIDE %s" % ("CGA", "Hercules")[herc])
+        sd.append((n, b))
+    res.append(("8 the SIDE check on its constructed scenario (%s's rubber ball poked at %s, %s held %d steps): "
+                "level 1 withholds a column, or cuts rows, only with the edge bit of the pan's heading set "
+                "(bz_pflag bits 4 - 7), and the side DECIDES on %d CGA frames and %d Hercules frames%s" % (
+                    SIDE_SCEN["crs"], SIDE_SCEN["at"], keys_text(SIDE_SCEN["keys"]), SIDE_SCEN["steps"], sd[0][0],
+                    sd[1][0], "" if not (sd[0][1] or sd[1][1]) else ": %s" % (sd[0][1] + sd[1][1])[0]),
+                sd[0][0] > 0 and sd[1][0] > 0 and not sd[0][1] and not sd[1][1]))
+    # MILL's ramp bottom
+    rb = {herc: ramp_reversals(by["MILL"], herc) for herc in (0, 1)}
+    res.append(("8 MILL's ramp bottom, rolled down B's ramp to the green: %s - no reversal on either card" % "; ".join(
+        "%s %s" % (n, "/".join(str(x[1]) for x in (rb[0][i], rb[1][i]))) for i, (n, _p) in enumerate(RAMP_PATTERNS)),
+        all(x[1] == 0 for herc in (0, 1) for x in rb[herc])))
+    # the dither map
+    dm = {}
+    for K, c in enumerate(courses):
+        for herc in (0, 1):
+            d = cam_dither(c, herc, demos[K]["log"] if K in demos else None, taps=CAM_TAPS + CAM_TAPS_P)
+            for tap, v in d.items():
+                dm.setdefault(tap, []).extend((c.name, herc) + x for x in v)
+    rev = {t: [x for x in v if x[4] > x[5]] for t, v in dm.items()}
+    res.append(("8 the DITHER MAP (brake, then taps against, along and against the ball's travel): no sample "
+                "reverses a pan at taps of %s steps (%s samples)" % (
+                    ", ".join(str(t) for t in CAM_TAPS), ", ".join("%d of %d" % (len(rev[t]), len(dm[t]))
+                                                                   for t in CAM_TAPS)),
+                all(not rev[t] for t in CAM_TAPS) and all(dm[t] for t in CAM_TAPS)))
+    # ---- REPORTED ----
+    print("    LATTICE (128.17.6.6), each run at its card's nominal step rate, the heavy rule on: seconds, columns "
+          "and rows a second, two-row frames, reversals | wave 6's policy (Glide _w6)")
+    W6 = cam_runs(courses, demos, _w6=True)
+    S6 = {k: cam_summary(rows, k[1]) for k, rows in W6.items()}
+    for k in sorted(R, key=lambda k: ([c.name for c in courses].index(k[0]), k[2], k[1])):
+        s, s6 = S[k], S6[k]
+        sec = len(R[k]) / CARD_HZ[k[1]]
+        print("      %-5s %-4s %-8s %6.2f s | %5.2f %6.2f %3d %2d | wave 6 %5.2f %6.2f %3d %2d" % (
+            k[0], k[2], ("CGA", "Hercules")[k[1]], sec, s["cols"] / sec, s["rows"] / sec, s["two"], len(s["rev"]),
+            s6["cols"] / sec, s6["rows"] / sec, s6["two"], len(s6["rev"])))
+    for lab, SS in (("LATTICE", S), ("wave 6", S6)):
+        t = _cam_total(SS)
+        print("    %-7s over every demo and autopilot, both cards (the autopilots of %s counted once with their "
+              "demos): rows %d, columns %d, two-row frames %d, reversals %d, stalls of %d frames or more %d "
+              "(the longest %d), slow-then-fast windows %d; outside tubes the priced pan work CGA %.0fk, Hercules "
+              "%.0fk; runs of 2+ column frames CGA %s, Hercules %s; runs of 2+ frames of %.0fk or more CGA %s, "
+              "Hercules %s; row and column pans (runs of one sign, still gaps of up to 4 frames merged) %d, %d%s" % (
+                  lab, ", ".join(CAM_DEDUP), t["rows"], t["cols"], t["two"], t["rev"], CAM_STALL, t["stall"],
+                  t["stallmax"], t["sf"], t["kclk"][0], t["kclk"][1], _runs_text(t["colruns"][0]),
+                  _runs_text(t["colruns"][1]), CAM_BUSY, _runs_text(t["busyruns"][0]), _runs_text(t["busyruns"][1]),
+                  t["eps"][0], t["eps"][1], "" if SS is S6 else "; LATTICE's row and column pans born %d, %d" % (
+                      t["starts"][0], t["starts"][1])))
+    print("    LATTICE's reversals left: %s" % "; ".join("%s %s %s %s at %d" % (k[0], ("CGA", "Hercules")[k[1]], k[2],
+                                                                           "columns" if ax == "c" else "rows", fr)
+                                                    for k in R for ax, fr in S[k]["rev"]))
+    print("    every rate rise (c/r: columns/rows; u urgent, r ring, t tube; a CAPITAL is a pan born fast):")
+    for k, rows in R.items():
+        ri = _cam_rises(rows)
+        if ri:
+            print("      %s %s %s (%d): %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2], len(ri), " ".join(ri)))
+    sfl = [(k, x, _cam_sf_cause(R[k], x)) for k in R for x in S[k]["sf"]]
+    print("    the slow-then-fast windows (%d): %s" % (len(sfl), "; ".join("%s %s %s %s at %d (%s)" % (
+        k[0], ("CGA", "Hercules")[k[1]], k[2], "columns" if x[0] == "c" else "rows", x[1], why) for k, x, why in sfl)))
+    l2 = [sum(S[k]["l2cga"][i] for k in S if k[1] == 0 and not (k[0] in CAM_DEDUP and k[2] == "auto"))
+          for i in range(3)]
+    print("    steps the cap forced onto the CGA's level-2 frames outside tubes: %d columns and %d rows on %d "
+          "level-2 frames (128.17.6.3)" % tuple(l2))
+    for herc in (0, 1):
+        la = {}
+        for lab, RR in (("LATTICE", R), ("wave 6", W6)):
+            ax_, ay_, mx, my = [], [], 9999, 9999
+            for k, rows in RR.items():
+                if k[1] != herc:
+                    continue
+                a, b = cam_lookahead(rows, herc)
+                ax_ += a
+                ay_ += b
+                _o, x, y = cam_margins(rows, herc)
+                mx, my = min(mx, x), min(my, y)
+            la[lab] = (_pct(ax_, .1), _pct(ax_, .5), _pct(ay_, .1), _pct(ay_, .5), mx, my)
+        print("    %s: the room ahead of a moving ball, 10th / 50th percentile, across %.2f / %.2f, down %.2f / %.2f "
+              "of the window; the footprint's worst margin outside tubes %d px across, %d lines down (wave 6: "
+              "%.2f / %.2f, %.2f / %.2f; %d px, %d lines)" % ((("CGA", "Hercules")[herc],) + la["LATTICE"] +
+                                                              la["wave 6"]))
+    print("    the dither map at the printed taps: %s" % "; ".join(
+        "%d steps %d of %d (%s)" % (t, len(rev[t]), len(dm[t]), ", ".join("%s %s at %d" % (
+            x[0], ("CGA", "Hercules")[x[1]], x[2]) for x in rev[t]) or "none") for t in CAM_TAPS_P))
+    r6 = [ramp_reversals(by["MILL"], herc, _w6=True) for herc in (0, 1)]
+    print("    MILL's ramp bottom under wave 6's policy (reversals CGA/Hercules): %s" % "; ".join(
+        "%s %d/%d" % (n, r6[0][i][1], r6[1][i][1]) for i, (n, _p) in enumerate(RAMP_PATTERNS)))
+    H = cam_runs(courses, demos, slow=2.0, which=CAM_HALF, cards=(0,))
+    H6 = cam_runs(courses, demos, slow=2.0, which=CAM_HALF, cards=(0,), _w6=True)
+    for lab, HH in (("LATTICE", H), ("wave 6", H6)):
+        hs = {k: cam_summary(rows, 0) for k, rows in HH.items() if not (k[0] in CAM_DEDUP and k[2] == "auto")}
+        mg = [cam_margins(rows, 0) for rows in HH.values()]
+        print("    the HALF-RATE pass (each frame twice the steps; %s's demos and autopilots, the CGA, outside "
+              "tubes), %s: two-row frames %d (%s), priced work %.0fk (%s), runs of 2+ column frames %s, "
+              "slow-then-fast windows %d; the footprint out of the window on %d frames, its worst margin %d px "
+              "across, %d lines down" % (
+                  ", ".join(CAM_HALF), lab, sum(s["two_out"] for s in hs.values()),
+                  ", ".join("%s %s %d" % (k[0], k[2], s["two_out"]) for k, s in hs.items()),
+                  sum(s["kclk"] for s in hs.values()), ", ".join("%s %s %.0fk" % (k[0], k[2], s["kclk"])
+                                                                for k, s in hs.items()),
+                  _runs_text(sum((s["colruns"] for s in hs.values()), [])), sum(len(s["sf"]) for s in hs.values()),
+                  sum(len(m[0]) for m in mg), min(m[1] for m in mg), min(m[2] for m in mg)))
+    hrise = [(k, r) for k, rows in H.items() for r in _cam_rises(rows) if r[:2] == "ru"]
+    print("    the half-rate pass's row pans whose rate ROSE at the urgent edge (LATTICE): %s" % (
+        "; ".join("%s %s %s" % (k[0], k[2], r) for k, r in hrise) or "none"))
+    if controls:
+        _cam_controls(courses, demos, by, res)
+    print("    --camcheck: %.0f s" % (time.time() - t0))
+
+
+def _runs_text(rs):
+    return "%d (%d frames, the longest %d)" % (len(rs), sum(rs), max(rs or [0]))
+
+
+def _cam_total(S):
+    t = {"rows": 0, "cols": 0, "two": 0, "rev": 0, "stall": 0, "stallmax": 0, "sf": 0, "kclk": [0.0, 0.0],
+         "colruns": [[], []], "busyruns": [[], []], "starts": [0, 0], "eps": [0, 0]}
+    for k, s in S.items():
+        if k[0] in CAM_DEDUP and k[2] == "auto":
+            continue
+        for n in ("rows", "cols", "two"):
+            t[n] += s[n]
+        t["rev"] += len(s["rev"])
+        t["stall"] += len(s["stall"])
+        t["stallmax"] = max([t["stallmax"]] + [x[2] for x in s["stall"]])
+        t["sf"] += len(s["sf"])
+        t["kclk"][k[1]] += s["kclk"]
+        t["colruns"][k[1]] += s["colruns"]
+        t["busyruns"][k[1]] += s["busyruns"]
+        t["starts"][0] += s["starts"][0]
+        t["starts"][1] += s["starts"][1]
+        t["eps"][0] += s["eps"][0]
+        t["eps"][1] += s["eps"][1]
+    return t
+
+
+def _cam_controls(courses, demos, by, res):
+    """128.17.10's host controls, each its broken model (a Glide flag) red at its own check"""
+    mill = by["MILL"]
+    # nohyst: the ramp bottom and the dither map (the CGA's)
+    rb = [x for herc in (0, 1) for x in ramp_reversals(mill, herc, _nohyst=True) if x[1]]
+    dn = {}
+    for K, c in enumerate(courses):
+        d = cam_dither(c, 0, demos[K]["log"] if K in demos else None, _nohyst=True)
+        for t, v in d.items():
+            n = sum(1 for x in v if x[2] > x[3])
+            if n:
+                dn.setdefault(t, []).append("%s %d" % (c.name, n))
+    res.append(("8 control `nohyst` (Hr 0): red at the ramp bottom (%s) and at the dither map (the CGA's reversing "
+                "samples: %s)" % (", ".join("%s reverses %d" % (x[0], x[1]) for x in rb) or "no reversal",
+                                  "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"),
+                bool(rb) and bool(dn)))
+
+    def every(**kw):
+        return [("%s %s %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2]), k[1], rows)
+                for k, rows in cam_runs(courses, demos, **kw).items()]
+    # nocap: guarantee 2 (b)
+    b = [x for nm, herc, rows in every(_nocap=True) for x in cam_guarantees(rows, herc, nm) if "2 (b)" in x]
+    res.append(("8 control `nocap` (no cap on the heavy rule): red at guarantee 2 (b) (%d frames; the first: %s)" % (
+        len(b), b[0] if b else "-"), bool(b)))
+    # ringy: the two-row check
+    b = [x for nm, _h, rows in every(_ringy=True) for x in cam_two_rows(rows, nm)]
+    res.append(("8 control `ringy` (rows read the ring): red at the two-row check (%d two-row frames on a pan the "
+                "ring made fast; the first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
+    # nopreaim: guarantee 5
+    b = [x for nm, _h, rows in every(_nopreaim=True) for x in cam_exits(rows, nm)[1]]
+    res.append(("8 control `nopreaim` (no tube pre-aim): red at the tube-exit check (%d failures; the first: %s)" % (
+        len(b), b[0] if b else "-"), bool(b)))
+    # side0: the side check
+    b = []
+    for herc in (0, 1):
+        b += side_check(side_run(mill, herc, _side0=True).rows, "SIDE %s" % ("CGA", "Hercules")[herc])[1]
+    res.append(("8 control `side0` (level 1 side-blind): red at the side check on its scenario (%d frames; the "
+                "first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
+    # noscr: item 8's eight directions
+    mins, _l = bench_dirs(by["BENCH"], True, rates=(100,), phases=(0,), _noscr=True)
+    res.append(("8 control `noscr` (bz_camscr's model ignored: LATTICE runs): red at the eight directions (the "
+                "fewest %d, under 5)" % min(mins.values()), min(mins.values()) < 5))
 
 def main_pans(paths):
-    """--pans (SPEC.md 128.16.13): each tour course's demo, both cards: the
-    columns and rows GLIDE pans and their rates, the host's prediction the
+    """--pans (SPEC.md 128.16.13, 128.17.9): each tour course's demo, both
+    cards: the columns and rows the camera pans and their rates, two-row
+    frames, reversals, stalls and runs of column frames, wave 6's policy
+    (Glide _w6) and LATTICE side by side - the host's prediction the
     re-baseline compares bonanzaperf's MEASURED pans against"""
     courses, _files, _texts = compile_all(paths)
-    print("GLIDE's pans over each demo, the host's prediction (SPEC.md 128.16.13, 128.16.15): the log through "
-          "Physics at the card's step rate, Glide with the heavy rule once a frame")
-    print("| demo | card | seconds | columns | a second | rows | a second | two-row frames |")
-    print("|---|---|---|---|---|---|---|---|")
+    print("The camera's pans over each demo, the host's prediction (SPEC.md 128.16.13, 128.17.6.6): the log through "
+          "Physics at the card's step rate, Glide with the heavy rule once a frame (the respawn cut modelled); "
+          "wave 6's policy | LATTICE")
+    print("| demo | card | seconds | columns | a second | rows | a second | two-row frames | reversals | stalls | "
+          "column runs | columns | a second | rows | a second | two-row frames | reversals | stalls | column runs |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for K, d in sorted(compile_all.demos.items()):
         for herc in (0, 1):
-            cols, rows, two, secs = pans(courses[K], d["log"], herc)
-            print("| %d %s | %s | %.2f | %d | %.2f | %d | %.2f | %d |" % (
-                K, courses[K].name, ("CGA", "Hercules")[herc], secs, cols, cols / secs if secs else 0, rows,
-                rows / secs if secs else 0, two))
+            cells = []
+            for kw in ({"_w6": True}, {}):
+                r = cam_demo(courses[K], d["log"], herc, **kw)
+                s = cam_summary(r.rows, herc)
+                secs = r.p.nstep * STEP_PIT / float(PIT_HZ)
+                cells.append("%d | %.2f | %d | %.2f | %d | %d | %d | %d" % (
+                    s["cols"], s["cols"] / secs if secs else 0, s["rows"], s["rows"] / secs if secs else 0, s["two"],
+                    len(s["rev"]), len(s["stall"]), len(s["colruns"])))
+            print("| %d %s | %s | %.2f | %s | %s |" % (K, courses[K].name, ("CGA", "Hercules")[herc], secs, cells[0],
+                                                     cells[1]))
     return 0
 
+
+def main_camcheck(paths):
+    """--camcheck (SPEC.md 128.17.9): item 8's camera checks alone"""
+    courses, _files, _texts = compile_all(paths)
+    res = []
+    camcheck(courses, compile_all.demos, res)
+    for what, good in res:
+        print("  %-4s %s" % ("ok" if good else "FAIL", what))
+    ok = all(g for _w, g in res)
+    print("bbcourse --camcheck: %s" % ("ok" if ok else "FAILED"))
+    return 0 if ok else 1
 
 def write_out(out, paths):
     """compile every course IN MEMORY first: a refused course removes the
@@ -8404,6 +9808,427 @@ def _boost_checks(res, mill=None):
                     fls["MILL's lift slab"][1] > 0))
 
 
+# --- wave 6b: the boost's trigger (SPEC.md 128.17.4, 128.17.9's item 7 list) ---------
+TRIG_OFFS = range(-20, 11)    # the offset map's second presses, from the Hop's first contact
+TRIG_RUNS = ((0, 0),) + tuple((dk, n) for dk in (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
+                              for n in (8, 20))
+# who-hits-it's players (SPEC.md 128.17.4.4): the press's offset from the contact's step, a normal error of
+# (bias, sd) in steps; the bias is the display's latency net of the keys' sampling, about one frame
+TRIG_PLAYERS = (("aims at the landing, full rate", 0.9, 3.0), ("half rate", 1.8, 3.5), ("moving", 1.8, 4.5),
+                ("has learned it", -1.1, 3.0), ("reacts to the landing", 11.8, 3.0),
+                ("taps mid-flight", -8.0, 4.0))
+
+
+def _trig_keys(dk, run, h1, c0=None, o=None, h2=6):
+    """the key byte of step i of a trigger run: `run` steps of arrows dk, then
+    the Hop (Space held h1 steps from step `run`) and a second press of h2
+    steps from `o` steps after the Hop's first contact (c0 steps after it)"""
+    def keys(i):
+        k = dk
+        j = i - run
+        if 0 <= j < h1:
+            k |= K_HOP
+        if c0 is not None and c0 + o <= j < c0 + o + h2:
+            k |= K_HOP
+        return k
+    return keys
+
+
+def trigger_contact(c, dk=0, run=0, h1=6, start=None):
+    """the shipped model's Hop after `run` steps of arrows dk from c's start
+    (or `start`), Space held h1 steps: -> (its first contact's step after the
+    Hop's press, the Physics after it) or (None, why) when the ball is not
+    grounded and still at the Hop, the Hop has no first contact, or that
+    contact does not OPEN THE GRACE (a landing rule 4 or 5 refuses, a land)"""
+    p = Physics(c) if start is None else Physics(c).poke(*start)
+    keys = _trig_keys(dk, run, h1)
+    for i in range(run):
+        p.step(keys(i))
+    if p.nfall or p.air:
+        return None, "airborne or fallen at the Hop"
+    nh = p.nhop
+    for j in range(80):
+        n0 = len(p.events)
+        p.step(keys(run + j))
+        if j == 0 and p.nhop == nh:
+            return None, "no Hop"
+        if p.nfall:
+            return None, "fell"
+        if any(e[0] in _CONTACTS for e in p.events[n0:]):
+            return (j, p) if p.bgr else (None, "the first contact opens no grace (%s)" % [
+                e[0] for e in p.events[n0:] if e[0] in _CONTACTS][0])
+    return None, "no contact"
+
+
+def trigger_map(c, dk=0, run=0, c0=21, h1=6, h2=6, offs=TRIG_OFFS, start=None, **kw):
+    """the OFFSET MAP (SPEC.md 128.17.4.1): for each second press starting o
+    steps from the Hop's first contact (step c0 after its press), whether the
+    Physics (kw: a control's broken part) boosts: -> {o: nboost}"""
+    out = {}
+    for o in offs:
+        p = Physics(c, **kw) if start is None else Physics(c, **kw).poke(*start)
+        keys = _trig_keys(dk, run, h1, c0, o, h2)
+        for i in range(run + max(c0, c0 + o) + h2 + 2):
+            p.step(keys(i))
+        out[o] = p.nboost
+    return out
+
+
+def trigger_holds(c, run=0, dk=0, n=(6, 41), **kw):
+    """Space HELD from the Hop for h steps, h over the range n, and nothing
+    after: -> {h: nboost} (128.17.4.4's 'holds' player and the accidental
+    case: a Hop key held any length never boosts)"""
+    out = {}
+    for h in range(*n):
+        p = Physics(c, **kw)
+        keys = _trig_keys(dk, run, h)
+        for i in range(run + h + 40):
+            p.step(keys(i))
+        out[h] = p.nboost
+    return out
+
+
+def _phi(x):
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def hit_rate(tmap, mu, sd):
+    """the share of presses a normal error N(mu, sd) in steps puts on an offset
+    the map boosts at (SPEC.md 128.17.4.4: a model of a player)"""
+    return sum(_phi((o + 0.5 - mu) / sd) - _phi((o - 0.5 - mu) / sd) for o, b in tmap.items() if b)
+
+
+def grace_exact(mk, keyf, after=40, n=200):
+    """the late grace's EXACTNESS (SPEC.md 128.17.4.5): the run keyf(i) (the
+    Hop pressed in it) stepped from mk(); at its first contact, if that
+    contact opened the grace, a run with Space's edge ON the contact's step
+    (the contact boost) against one with it k steps after (the grace's
+    conversion), k = 1 .. the grace: -> None when no grace opened, else
+    [(k, equal)], equal when (gx, gy, gz, gvx, gvy, gvz, ztop, air, nboost)
+    agree at every step from the conversion's on, `after` steps; None for a
+    k the grace did not reach (a contact or a wall closed it first: the
+    press is then whatever else it is, a ground Hop on a ledge it rolled
+    onto, and nothing the grace promises)"""
+    p = mk()
+    before, land, clones, hopped = None, None, {}, False
+    for i in range(n):
+        if land is not None and i <= land + p.bgrace:
+            clones[i] = _clone(p)
+        elif land is not None:
+            break
+        prev = _clone(p)
+        n0 = len(p.events)
+        p.step(keyf(i))
+        if p.nfall:
+            return None
+        for e in p.events[n0:]:
+            if e[0] == "hop":
+                hopped = True
+            elif hopped and land is None and e[0] in _CONTACTS:
+                land, before = i, prev
+        if land == i and not p.bgr:
+            return None
+    if land is None or before is None:
+        return None
+
+    def track(q, e0, e):
+        out = {}
+        for i in range(e0, e + after + 1):
+            q.step(keyf(i) | (K_HOP if i == e else 0))
+            out[i] = (q.gx, q.gy, q.gz, q.gvx, q.gvy, q.gvz, q.ztop, q.air, q.nboost)
+        return out
+    a = track(_clone(before), land, land)
+    res = []
+    for k in range(1, p.bgrace + 1):
+        if land + k not in clones:
+            return None
+        q = _clone(clones[land + k])
+        if not q.bgr:                           # closed before this step: nothing to convert
+            res.append((k, None))
+            continue
+        b = track(q, land + k, land + k)
+        res.append((k, all(a[i] == b[i] for i in b if i in a)))
+    return res
+
+
+def ladder_grace_exact(**kw):
+    """grace_exact() on every ladder case (SPEC.md 128.17.9): each rung and gap
+    course, rubber, every take-off point whose Hop's first contact opens the
+    grace: -> (cases, [(course key, take-off point, k)] that differ)"""
+    n, bad, closed = 0, [], 0
+    keys = [(0, H) for _n, H in LAD_STEPS] + list(LAD_GAPS)
+    for g, dz in keys:
+        c = _lad_course(g, dz)
+        for at in range(LAD_PTS):
+            r = grace_exact(lambda: _lad_ball(c, MAT_RUBBER, **kw),
+                            lambda i, at=at: K_R | K_D | (K_HOP if i == at else 0))
+            if r is None:
+                continue
+            n += sum(1 for _k, ok in r if ok is not None)
+            closed += sum(1 for _k, ok in r if ok is None)
+            bad += [((g, dz), at, k) for k, ok in r if ok is False]
+    return n, bad, closed
+
+
+FALL_DROPS = (0.5, 1, 1.5, 2, 3)          # round 3's falls (SPEC.md 128.17.16): units down off the ledge
+FALL_V0 = (96, 160, 224, VMAXG)          # ...rolled toward its lip from these speeds, the chord held
+
+
+def _fall_run(D, v0, space, n=160, **kw):
+    """rubber rolled off a ledge D units over a level floor (_drop_course) with
+    the chord, from LAD_X0 at gvx v0, never a Hop: space 'held' (Space down
+    from before the run, so no edge), 'tap' (a press on the step after the
+    take-off) or None.  -> (the first contact's event, the Physics after the
+    run) or (None, p) when it never takes off or contacts"""
+    p = Physics(_drop_course(D), mat=MAT_RUBBER, **kw).poke(LAD_X0, 12, v0, 0)
+    p.lvl = [0, LVL_MAX, 0, LVL_MAX]
+    if space == "held":
+        p.kprev = K_HOP
+    off, first = None, None
+    for i in range(n):
+        k = K_R | K_D
+        if space == "held" or (space == "tap" and off is not None and i == off + 1):
+            k |= K_HOP
+        n0 = len(p.events)
+        p.step(k)
+        for e in p.events[n0:]:
+            if e[0] == "takeoff" and off is None:
+                off = i
+            elif off is not None and first is None and e[0] in _CONTACTS:
+                first = e
+        if p.nhop or p.nfall:
+            return None, p
+        if first is not None and i > off + 40:
+            break
+    return first, p
+
+
+def fall_boosts(hold=True, **kw):
+    """round 3's FALL token (SPEC.md 128.17.16): over FALL_DROPS x FALL_V0, the
+    drops whose first contact the boost's rules 3 - 5 pass (a probe with no
+    Space: its rebound under BOOST; the floor is firm and level), and how many
+    of them boost with Space held (hold) or with no Space at all (not hold).
+    -> (eligible drops, boosts among them, (D, v0) that boost though
+    ineligible)"""
+    elig = boosted = 0
+    stray = []
+    B = MATERIALS[MAT_RUBBER]["BOOST"]
+    for D in FALL_DROPS:
+        for v0 in FALL_V0:
+            e, _p = _fall_run(D, v0, None)
+            if e is None:
+                continue
+            rr = e[3] if e[0] == "bounce" else 0
+            ok = e[0] in ("bounce", "land") and rr < B
+            _e2, q = _fall_run(D, v0, "held" if hold else None, **kw)
+            if ok:
+                elig += 1
+                boosted += bool(q.nboost)
+            elif q.nboost:
+                stray.append((D, v0))
+    return elig, boosted, stray
+
+
+def fall_spent(play, **kw):
+    """round 3's 'one boost, then stop bouncing' (SPEC.md 128.17.16): the
+    PLAYGROUND's autopilot keys with Space held throughout (from before the
+    run) and with Space tapped every 2 steps, and the drop courses' falls with
+    Space held: every boost after the first must follow a step that ended with
+    the ball GROUNDED since the boost before it.  -> (steps run, boosts,
+    [(scenario, step)] that boosted with no grounded step since the last)"""
+    runs = []
+    p0 = Physics(play, play=True)
+    auto = []
+    while len(auto) < 1500 and not p0.goal:
+        k = p0.auto()
+        p0.step(k)
+        auto.append(k)
+    runs.append(("auto+held", lambda: Physics(play, play=True, **kw), [k | K_HOP for k in auto], True))
+    runs.append(("auto+mash", lambda: Physics(play, play=True, **kw),
+                 [k | (K_HOP if i % 2 == 0 else 0) for i, k in enumerate(auto)], False))
+    for D in FALL_DROPS:
+        mk = lambda D=D: Physics(_drop_course(D), mat=MAT_RUBBER, **kw).poke(LAD_X0, 12, VMAXG, 0)
+        runs.append(("drop %g held" % D, mk, [K_R | K_D | K_HOP] * 200, True))
+        runs.append(("drop %g mash" % D, mk, [K_R | K_D | (K_HOP if i % 2 == 0 else 0) for i in range(200)], False))
+    steps = boosts = 0
+    bad = []
+    for name, mk, keys, held in runs:
+        p = mk()
+        if held:
+            p.kprev = K_HOP
+        grounded, nb = True, 0
+        for i, k in enumerate(keys):
+            p.step(k)
+            steps += 1
+            if p.nboost != nb:
+                if not grounded:
+                    bad.append((name, i))
+                grounded, nb = False, p.nboost
+                boosts += 1
+            if not p.air:
+                grounded = True
+            if p.nfall or p.goal:
+                break
+    return steps, boosts, bad
+
+
+def _trigger_checks(play, res):
+    """item 7's wave-6b trigger on the PLAYGROUND's apron (SPEC.md 128.17.4,
+    128.17.9): the offset map at rest and rolling, the grace's exactness,
+    the accidental cases, the ledge case, who-hits-it against wave 6's
+    trigger (_w6trig), each with its control"""
+    R = MAT_RUBBER
+    # the offset map, at rest and rolling: every run whose Hop's first contact opens the grace
+    cases, bad, skipped, cs = 0, [], [], set()
+    for dk, run in TRIG_RUNS:
+        c0, why = trigger_contact(play, dk, run)
+        if c0 is None:
+            skipped.append("%s %d: %s" % (keys_text(dk) if dk else "rest", run, why))
+            continue
+        cases += 1
+        cs.add(c0)
+        m = trigger_map(play, dk, run, c0)
+        first = 7 - c0                          # the Hop's 6-step press ends on step 5: the first edge is step 7
+        want = {o: int(first <= o <= BGRACE) for o in TRIG_OFFS}
+        if m != want:
+            bad.append("%s %d: %s" % (keys_text(dk) if dk else "rest", run,
+                                      "".join("B" if m[o] else "." for o in TRIG_OFFS)))
+    print("    the boost's offset map on PLAY's apron (SPEC.md 128.17.4.2; Space held 6 for the Hop, a second 6-step "
+          "press from -20 to +10 steps of the first contact, %d runs at rest and rolling, first contacts %s steps "
+          "after the press; not mapped, the landing refused or no Hop: %s)" % (
+              cases, "/".join(str(x) for x in sorted(cs)), "; ".join(skipped) or "none"))
+    rest = trigger_map(play)
+    print("      at rest: %s  (offset -20 at the left, the contact 0, +10 at the right; B a boost)" % "".join(
+        "B" if rest[o] else "." for o in TRIG_OFFS))
+    res.append(("7 the trigger's offset map on PLAY's apron, at rest and rolling (%d runs): every second press from "
+                "the first edge possible after the Hop (step 7) to %d steps after the first contact boosts, none from "
+                "%d after, none overlapping the Hop's press%s" % (cases, BGRACE, BGRACE + 1,
+                                                                   (": " + "; ".join(bad[:3])) if bad else ""),
+                cases >= 9 and not bad))
+    ng = trigger_map(play, _nograce=True)
+    res.append(("7 negative control `nograce` (no late grace): the map at +1 does not boost (%d)" % ng[1], not ng[1]))
+    g5 = trigger_map(play, _grace5=True)
+    res.append(("7 negative control `grace5` (a grace of BGRACE + 1 in the rule, BGRACE still %d): the map at +%d "
+                "boosts (%d)" % (BGRACE, BGRACE + 1, g5[BGRACE + 1]), bool(g5[BGRACE + 1])))
+    # the grace's exactness: on the apron at rest and rolling, and on every ladder case
+    ap = []
+    for dk, run in TRIG_RUNS:
+        r = grace_exact(lambda: Physics(play), lambda i, dk=dk, run=run: dk | (K_HOP if i == run else 0))
+        if r is not None:
+            ap.append(r)
+    t0 = time.time()
+    nl, lbad, lclosed = ladder_grace_exact()
+    print("    the late grace's exactness (SPEC.md 128.17.4.5): %d apron runs at k = 1 .. %d and %d ladder (take-off "
+          "point, k) cases against the contact boost (%.1f s); %d ladder cases the grace did not reach (a contact "
+          "or a wall closed it first: no conversion to compare)" % (
+              len(ap), BGRACE, nl, time.time() - t0, lclosed))
+    res.append(("7 the late grace is EXACT: a Space edge k = 1 .. BGRACE steps after an unarmed bouncing first contact "
+                "puts the ball where the contact boost has it at that point of the step, and the flights agree after "
+                "it (%d apron runs, %d ladder cases%s)" % (len(ap), nl, (": " + str(lbad[:3])) if lbad else ""),
+                ap and nl and all(ok for r in ap for _k, ok in r) and not lbad))
+    off = grace_exact(lambda: Physics(play, _graceoff=True), lambda i: K_HOP if i == 0 else 0)
+    res.append(("7 negative control `graceoff` (the conversion without the k - 1 lift): the apron's runs differ at "
+                "k = 2 .. BGRACE (%s)" % off, off is not None and [ok for _k, ok in off] == [True] + [False] * (BGRACE - 1)))
+    # round 3 (SPEC.md 128.17.16): the Hop's press HELD through its first contact boosts, one released
+    # before it does not (and opens the grace, unused); `noheld` (no held arming) never boosts held
+    c0, _why = trigger_contact(play)
+    held = trigger_holds(play)
+    want = {h: int(c0 is not None and h > c0) for h in held}
+    res.append(("7 the Hop's press HELD through its first contact (step %s) boosts, released before it does not: "
+                "Space held 6 to 40 steps from the Hop, at rest on the apron (%s)" % (
+                    c0, "".join("B" if held[h] else "." for h in sorted(held))), c0 is not None and held == want))
+    nh = trigger_holds(play, _noheld=True)
+    res.append(("7 negative control `noheld` (no held arming): a press held through the contact never boosts (%d)"
+                % sum(nh.values()), not any(nh.values())))
+    # round 3: a FALL arms one boost - rubber rolled off the step ladder's ledges down onto a lower level
+    # floor, no Hop, Space held through the contact: a boost; `nofall` none.  And a boost needs the ball to
+    # have stopped bouncing since the last one (fall_spent)
+    fb, fn, fc = fall_boosts(), fall_boosts(_nofall=True), fall_boosts(hold=False)
+    res.append(("7 a FALL arms one boost: rolled off a ledge onto a lower firm level floor with no Hop, Space held "
+                "at the contact, rubber boosts (%d of %d drops whose rebound is under BOOST); with no Space it does "
+                "not (%d)" % (fb[1], fb[0], fc[1]), fb[0] and fb[1] == fb[0] and not fc[1]))
+    res.append(("7 negative control `nofall` (no token on a fall): the falls never boost (%d of %d)" % (fn[1], fn[0]),
+                fn[0] and not fn[1]))
+    sp = fall_spent(play)
+    res.append(("7 one boost, then the ball must STOP BOUNCING: Space held for %d steps over the PLAYGROUND's routes "
+                "and the step ladder's drops, every boost after the first follows a step that ended grounded "
+                "(%d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])), sp[1] >= 2 and not sp[2]))
+    spp = fall_spent(play, _pump=True)
+    res.append(("7 negative control `pump` (a contact Hop re-arms): a boost while still bouncing (%d violations)"
+                % len(spp[2]), bool(spp[2])))
+    tap = trigger_holds(play, n=(1, 2))[1]
+    res.append(("7 a single tap never boosts: the Hop's one-step press and nothing else (nboost %d)" % tap, not tap))
+    tapc = trigger_holds(play, n=(1, 2), _hopedge=True)[1]
+    res.append(("7 negative control `hopedge` (the Hop's own edge arms its flight): the single tap boosts (%d)" % tapc,
+                bool(tapc)))
+    # the ledge case: a Hop at the lip of a half-unit step, Space held through its first contact on the ledge
+    lc = _lad_course(0, 0.5)
+
+    def ledge(**kw):
+        n, boosts = 0, 0
+        for at in range(LAD_PTS):
+            land = _lad_contact(lc, R, at)
+            if land is None or land - at > 4:
+                continue
+            p = _lad_ball(lc, R, **kw)
+            for i in range(land + 1):
+                p.step(K_R | K_D | (K_HOP if at <= i <= max(at + 3, land) else 0))
+            if (p.gx >> 12) < LAD_LIP:
+                continue
+            n += 1
+            boosts += p.nboost
+        return n, boosts
+    ln, lb = ledge()
+    res.append(("7 the ledge case: a Hop pressed at the lip of a half-unit step meets the ledge 1 - 4 steps later, "
+                "Space held through that contact, and does not boost there: the ledge is above the take-off (round 3's gate, "
+                "128.17.16; %d take-off points, %d boosts)" % (ln, lb), ln and not lb))
+    hn, hb = ledge(_heldarm=True)
+    res.append(("7 negative control `heldarm` (Space held arms the token in flight): the ledge case boosts (%d of %d)"
+                % (hb, hn), bool(hb)))
+    gn, gb = ledge(_nogate=True)
+    res.append(("7 negative control `nogate` (held at the contact without the take-off gate): the ledge case boosts "
+                "(%d of %d)" % (gb, gn), bool(gb)))
+    # the mouse (SPEC.md 128.17.4.3): the left button is the key byte's Space bit, so a second click in flight
+    # arms and one within the grace converts, exactly as Space (one frame a step here; the pointer at rest)
+    def mouse(clicks):
+        ts, p = TiltStick(640, 200), Physics(play)
+        for i in range(40):
+            k, t = ts.frame(320, 100, 1 if i < 6 or i in clicks else 0)
+            p.step(k, t)
+        return p.nboost
+    mc = (mouse((14,)), mouse((21 + 2,)), mouse(()))
+    res.append(("7 the mouse's left button arms and converts as Space: a second click mid-flight boosts (%d), one 2 "
+                "steps after the first contact converts (%d), none does nothing (%d)" % mc, mc == (1, 1, 0)))
+    # who hits it (SPEC.md 128.17.4.4): the players over the maps the model makes; wave 6's under _w6trig
+    rows = (("wave 6 (window 6, closing on the contact)", {"_w6trig": True}),
+            ("the whole flight alone", {"_nograce": True}),
+            ("round 3: the whole flight, a late grace of %d, or held at the contact" % BGRACE, {}),
+            ("... with a grace of %d" % (BGRACE + 1), {"_grace5": True}),
+            ("wave 6b as built (round 2): a press in the flight or a grace of 3, holding nothing",
+             {"_bgrace": 3, "_noheld": True}))
+    tab = {}
+    for name, kw in rows:
+        mp = trigger_map(play, **kw)
+        hd = trigger_holds(play, n=(22, 41), **kw)
+        tab[name] = [hit_rate(mp, mu, sd) for _n, mu, sd in TRIG_PLAYERS] + [
+            sum(1 for v in hd.values() if v) / float(len(hd))]
+    print("    who hits it (SPEC.md 128.17.4.4, PREDICTED: a normal timing error in steps over the maps the model "
+          "makes; 'holds' is the Hop's press held 22 - 40 steps, through the landing):")
+    print("      | trigger | %s | holds to the landing |" % " | ".join(
+        "%s (%+.1f, sd %.1f)" % t for t in TRIG_PLAYERS))
+    for name, _kw in rows:
+        print("      | %s | %s |" % (name, " | ".join("%d%%" % round(100 * v) for v in tab[name])))
+    w6, b6, r2 = tab[rows[0][0]], tab[rows[2][0]], tab[rows[4][0]]
+    res.append(("7 who hits it: round 3's trigger serves every player at least as well as wave 6's and as round 2's, "
+                "each column computed from the maps the model makes (%s against %s and %s), and a player holding "
+                "the Hop's press to the landing always boosts (%d%%; round 2 %d%%)" % (
+                    "/".join("%d" % round(100 * v) for v in b6[:-1]),
+                    "/".join("%d" % round(100 * v) for v in w6[:-1]),
+                    "/".join("%d" % round(100 * v) for v in r2[:-1]), round(100 * b6[-1]), round(100 * r2[-1])),
+                all(b >= max(w, q) - 1e-9 for b, w, q in zip(b6[:-1], w6[:-1], r2[:-1])) and b6[-1] == 1
+                and r2[-1] == 0))
+
+
 def _hop487(c, **kw):
     """a rubber ball dropped 6 units; its second contact would rebound at 487:
     Space pressed 3 steps before that contact.  -> the 'hopc' event"""
@@ -8594,6 +10419,24 @@ def _physics_checks(first, res, trial=None, mill=None):
                 "%d in %d steps (rubber), %d in %d (steel) and glass to %d in %d, the axis model's figures" % (
                     left, sd[0][1], sd[0][0], sd[1][1], sd[1][0], sd[2][1], sd[2][0]),
                 moving and left is not None and sd == sdw))
+    # wave 6b (SPEC.md 128.17.3): Grip's brake on ice is a quarter of GRIP ROUNDED, measured off Physics (a
+    # ball on ice at 200 with Grip held one step: no drag on ice), and no brake on any surface is under 1
+    def ice_brakes(**kw):
+        out = []
+        for m in range(3):
+            p = Physics(_flat("wide", SURF_ICE), mat=m, **kw).poke(23, 23, 200, 0)
+            p.step(K_GRIP)
+            out.append(200 - p.gvx)
+        return out
+    ib, ibp = ice_brakes(), ice_brakes(_iceplain=True)
+    want_ice = [max(1, (MATERIALS[m]["GRIP"] + 2) >> 2) for m in range(3)]
+    res.append(("7 Grip on ice brakes rubber %d, steel %d, glass %d a step (max(1, (GRIP + 2) >> 2): 2, 1, 1 at Grip "
+                "%s), and every brake on every surface is at least 1 (BZ_SURFTAB's: %s)" % (
+                    tuple(ib) + ("/".join(str(MATERIALS[m]["GRIP"]) for m in range(3)),
+                                 "".join(str(surftab()[4 * i + 2]) for i in range(12)))),
+                ib == want_ice == [2, 1, 1] and min(surftab()[4 * i + 2] for i in range(12)) >= 1))
+    res.append(("7 negative control `iceplain` (ice's brake GRIP >> 2): Grip on ice brakes %s, not 2, 1, 1"
+                % "/".join(str(b) for b in ibp), ibp != want_ice))
     # --- Hop ---------------------------------------------------------------------
     hops = []
     for m in range(3):
@@ -8657,9 +10500,31 @@ def _physics_checks(first, res, trial=None, mill=None):
         print("      " + line)
     for what, good in ladder_verdicts(st, gp):
         res.append(("7 the ladders: " + what, good))
-    print("    KNOWN CONFLICT (SPEC.md 128.16.4.2, for the owner at gate 1): a 3-tile gap onto a floor half a unit "
-          "LOWER is crossed by rubber's Hop and boost from %d take-off point(s) (Space 2 before: %d)"
-          % (len(gp[(3, -0.5, MAT_RUBBER)]["boost"]), len(gp[(3, -0.5, MAT_RUBBER)]["boost2"])))
+    for line in cd5_text(gp).split("\n"):
+        print("    " + line)
+    # wave 6b (SPEC.md 128.17.4.2): the flight armed in the air is the contact's flight, and the grace's
+    # conversion is exact, so the ladders are wave 6's - computed again under wave 6's whole trigger
+    # (`_w6trig`, its window's positions) and compared, count for count.  The one place they may differ is a
+    # take-off point whose Hop meets the floor the step after its press: wave 6's window had no position
+    # there (it opens the step after the Hop's release), and the grace's positions are new
+    t0 = time.time()
+    st6, gp6 = step_ladder(w6=True, _w6trig=True), gap_ladder(w6=True, _w6trig=True)
+    diff, extra = [], []
+    for new, old in ((st, st6), (gp, gp6)):
+        for k in new:
+            for f in ("hop", "boost2", "boost"):
+                a, b = set(new[k][f]), set(old[k][f])
+                if a == b:
+                    continue
+                if f == "boost" and b <= a and all(_lad_contact(_lad_course(*(k[:2] if len(k) == 3 else (0, k[0]))),
+                                                                k[-1], at) <= at + 1 for at in a - b):
+                    extra.append("%s %s +%d" % (k, f, len(a - b)))
+                else:
+                    diff.append("%s %s %d -> %d" % (k, f, len(b), len(a)))
+    res.append(("7 the ladders under wave 6b's trigger are wave 6's (its trigger and window recomputed, %.1f s): every "
+                "count equal%s%s" % (time.time() - t0, "; only where wave 6's window had no position (a first contact "
+                                     "the step after the Hop): " + ", ".join(extra) if extra else "",
+                                     "; DIFFER: " + ", ".join(diff) if diff else ""), not diff))
     old_b = MATERIALS[MAT_RUBBER]["BOOST"]
     try:                                        # `gap3`: BOOST 366, the level 3-tile gap crossed
         MATERIALS[MAT_RUBBER]["BOOST"] = 366
@@ -9951,28 +11816,30 @@ def _route_checks(bench, res, trial=None, first=None):
         res.append(("8 FIRST with each ball: poked at (8, 6), Right + Down held from 0, 100, 200, 300 and 384, the "
                     "goal reached without a fall in every run (%d - %d steps)" % (
                         min(x[3] for x in res_f), max(x[3] for x in res_f)), all(x[2] for x in res_f)))
-    # GLIDE on BENCH: every direction at least 5 times on both cards at 0.96 - 1.04, ten phases each
-    mins = {}
+    # item 8 (SPEC.md 128.17.6.7): the scroll ENGINE's eight directions, under bz_camscr's scripted camera, at
+    # least 5 times each on both cards at 0.96 - 1.04, ten phases each, the footprint inside the window on every
+    # scripted frame; the play camera's (LATTICE's) PRINTED
+    mins, lost = bench_dirs(bench, True)
     for herc in (0, 1):
-        for r in (96, 97, 98, 99, 100, 101, 102, 103, 104):
-            for ph in range(10):
-                d, gp = glide_run(bench, herc, r / 100.0, ph / 10.0)
-                for k in DIRS:
-                    mins[(herc, k)] = min(mins.get((herc, k), 99), d.get(k, 0))
+        print("    bz_camscr's scripted camera on BENCH, %s, the fewest of each direction over 0.96 - 1.04 x ten "
+              "phases: %s" % ("Hercules" if herc else "CGA", " ".join("%s %d" % (n, mins[(herc, k)]) for n, k in zip(
+                  CAM_DIRN, DIRS))))
+    res.append(("8 bz_camscr's scripted camera (128.17.6.7) on BENCH: every one of the eight directions at least 5 "
+                "times on both cards at step rates 0.96 - 1.04 (ten phases each; fewest %d), the ball's footprint "
+                "inside the window on every scripted frame (%d frames out)" % (min(mins.values()), lost),
+                min(mins.values()) >= 5 and lost == 0))
+    lmins, _l = bench_dirs(bench, False)
     for herc in (0, 1):
-        print("    GLIDE on BENCH, %s, the fewest of each direction over 0.96 - 1.04 x ten phases: %s" % (
-            "Hercules" if herc else "CGA", " ".join("%s %d" % (n, mins[(herc, k)]) for n, k in zip(
-                ("UL", "U", "UR", "L", "R", "DL", "D", "DR"), DIRS))))
-    res.append(("8 GLIDE (bbcourse.Glide, the four-frame travel test) on BENCH: every one of the eight directions at "
-                "least 5 times on both cards at step rates 0.96 - 1.04 (ten phases each; fewest %d), the heavy rule "
-                "OFF (128.12.7: BENCH's route is frozen)" % min(mins.values()), min(mins.values()) >= 5))
+        print("    LATTICE (the play camera) on BENCH, %s, the fewest of each direction over 0.96 - 1.04 x ten "
+              "phases (PRINTED, not asserted): %s" % ("Hercules" if herc else "CGA", " ".join(
+                  "%s %d" % (n, lmins[(herc, k)]) for n, k in zip(CAM_DIRN, DIRS))))
     for herc in (0, 1):                     # ...and reported with it on
         d, gp = glide_run(bench, herc, 1.0, 0.0, heavy=True)
         g = gp.glide
-        print("    GLIDE on BENCH with the heavy rule, %s, rate 1.00: %s; heavy frames %d (level 1 %d, level 2 %d), "
+        print("    LATTICE on BENCH with the heavy rule, %s, rate 1.00: %s; heavy frames %d (level 1 %d, level 2 %d), "
               "rows withheld %d, columns withheld %d, frames releasing an axis %d" % (
                   "Hercules" if herc else "CGA", " ".join("%s %d" % (n, d.get(k, 0)) for n, k in zip(
-                      ("UL", "U", "UR", "L", "R", "DL", "D", "DR"), DIRS)), g.nhvy, g.heavy.levels[1],
+                      CAM_DIRN, DIRS)), g.nhvy, g.heavy.levels[1],
                   g.heavy.levels[2], g.nwr, g.nwc, g.nhedge))
 
 
@@ -11017,12 +12884,13 @@ def selfcheck(paths=None):
     # 4. the tables the guest reads, against 128.11.6.2's table written out here
     # (wave 6, SPEC.md 128.16.3: the Grips 8, 5, 3 - so ice's brakes 2, 1, 1 - the Hops 252, 160, 224, and
     # BZ_MATTAB +12 rubber's BOOST 350 as a word)
-    want_st = bytes([4, 6, 8, 205, 1, 0, 2, 205, 2, 5, 8, 102, 4, 6, 8, 224,
-                     2, 8, 5, 38, 1, 0, 1, 38, 2, 5, 5, 19, 2, 8, 5, 224,
-                     6, 5, 3, 102, 1, 0, 1, 102, 3, 5, 3, 51, 6, 5, 3, 224])
-    want_mt = bytes([4, 6, 205, 96, 128, 8, 252, 0, 0, 0, 0, 0, 0x5E, 1, 0, 0,
-                     2, 8, 38, 32, 128, 5, 160, 0, 1, 55, 176, 1, 0, 0, 0, 0,
-                     6, 5, 102, 64, 96, 3, 224, 0, 2, 24, 40, 2, 0, 0, 0, 0])
+    # (wave 6b, SPEC.md 128.17.3: the Grips 6, 3, 1, ice's brakes by the rounded quarter still 2, 1, 1)
+    want_st = bytes([4, 6, 6, 205, 1, 0, 2, 205, 2, 5, 6, 102, 4, 6, 6, 224,
+                     2, 8, 3, 38, 1, 0, 1, 38, 2, 5, 3, 19, 2, 8, 3, 224,
+                     6, 5, 1, 102, 1, 0, 1, 102, 3, 5, 1, 51, 6, 5, 1, 224])
+    want_mt = bytes([4, 6, 205, 96, 128, 6, 252, 0, 0, 0, 0, 0, 0x5E, 1, 0, 0,
+                     2, 8, 38, 32, 128, 3, 160, 0, 1, 55, 176, 1, 0, 0, 0, 0,
+                     6, 5, 102, 64, 96, 1, 224, 0, 2, 24, 40, 2, 0, 0, 0, 0])
     res.append(("4 BZ_SURFTAB (48 bytes: force, drag shift, brake, floor restitution of each material on normal, ice, "
                 "sand and a mat) and BZ_MATTAB (3 x 16, +12 BOOST) are 128.11.6.2's and 128.16.3's tables",
                 surftab() == want_st and mattab() == want_mt))
@@ -11034,15 +12902,16 @@ def selfcheck(paths=None):
         pv_ok = False
     res.append(("4 BZ_PHYSV %02Xh is not 00h and not in PHYSV_SHIPPED (%s); PHYS_REV %d is PHYS_CONSTS' last" % (
         PHYSV, ", ".join("%02Xh" % v for v in PHYSV_SHIPPED), PHYS_REV), pv_ok and PHYS_CONSTS[-1] == PHYS_REV))
-    for name, pv, shipped in (("physv", PHYSV, PHYSV_SHIPPED + (PHYSV,)), ("physv0", 0, PHYSV_SHIPPED)):
+    for name, pv, shipped, what in (
+            ("physv", PHYSV, PHYSV_SHIPPED + (PHYSV,), "PHYSV_SHIPPED holding this build's value"),
+            ("physv0", 0, PHYSV_SHIPPED, "BZ_PHYSV forced to 00h"),
+            ("physv25", 0x25, PHYSV_SHIPPED, "BZ_PHYSV forced to 25h, wave 6's (SPEC.md 128.17.7)")):
         try:
             check_physv(pv, shipped)
             fired = False
         except CourseError:
             fired = True
-        res.append(("4 negative control `%s` (%s): refused" % (
-            name, "PHYSV_SHIPPED holding this build's value" if name == "physv" else "BZ_PHYSV forced to 00h"),
-            fired))
+        res.append(("4 negative control `%s` (%s): refused" % (name, what), fired))
     res.append(("4 a rule-only change moves BZ_PHYSV: PHYS_REV %d -> %d gives %02Xh against %02Xh" % (
         PHYS_REV, PHYS_REV + 1, phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)), PHYSV),
         phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)) != PHYSV))
@@ -11321,8 +13190,11 @@ def selfcheck(paths=None):
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
+    if {"BENCH", "MILL"} <= set(byname):        # wave 6b (SPEC.md 128.17.9): item 8 runs --camcheck whole
+        camcheck(courses, compile_all.demos, res)
     if "PLAY" in byname:                        # wave 6 (SPEC.md 128.16.8)
         _play_checks(byname["PLAY"], res)
+        _trigger_checks(byname["PLAY"], res)    # wave 6b (SPEC.md 128.17.4)
     # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
     # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
     _gap3_report(byname)
@@ -11934,16 +13806,28 @@ def main():
                          "nothing, and print each course's verdict, the step and gap ladders, every route proof and "
                          "every AUTHOR script (SPEC.md 128.16.13)")
     ap.add_argument("--pans", action="store_true",
-                    help="GLIDE's columns and rows panned over each demo on both cards, the host's prediction "
-                         "(SPEC.md 128.16.13); writes nothing")
+                    help="the camera's columns and rows panned over each demo on both cards, wave 6's policy and "
+                         "LATTICE side by side, the host's prediction (SPEC.md 128.16.13, 128.17.9); writes nothing")
+    ap.add_argument("--camcheck", action="store_true",
+                    help="LATTICE over every demo and autopilot on both cards: the guarantees, the side, two-row, "
+                         "ramp-bottom and dither checks, the reports and the controls (SPEC.md 128.17.9, item 8's); "
+                         "writes nothing")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 128.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans):
-        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans or --png DIR")
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck):
+        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
     REC = a.rec
     paths = a.courses or default_paths()
+    if a.camcheck:
+        if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans:
+            ap.error("--camcheck writes nothing and runs alone")
+        try:
+            return main_camcheck(paths)
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     if a.pans:
         if a.out or a.selfcheck or a.png or a.sizes or a.tune:
             ap.error("--pans writes nothing and runs alone")

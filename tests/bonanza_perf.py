@@ -4,7 +4,7 @@
     make bonanzadisk && python3 tests/bonanza_perf.py [--adapter cga|herc|both] [--ab [COMMIT]] [--no-trial]
                                                       [--fmt-ab]
                                                       [--leg bench|trial|mill|ride|corner ...] [--sound off|on]
-    python3 tests/bonanza_perf.py --red halfcal|rideoff|level1 | --check
+    python3 tests/bonanza_perf.py --red rideoff|level1 | --check
     python3 tests/bonanza_perf.py --apps IMG --src DIR --art DIR   (another build, by hand)
 
 THE BENCHMARK (B: BENCH, the autopilot's fixed route, 1,200 frames,
@@ -60,9 +60,9 @@ of every miss), MILL (bz_wover 0 and bz_wlate 0 ASSERTED; the wheel's
 commits, LEADs, skips, waits, the contact and platform boxes and the busy
 of every must-draw frame and every miss reported) and the RIDE (the ball
 poked onto the lift at its low dock, up and down, no key: the busy of its
-line-change frames and of the others, reported - O30).  --red halfcal
-(bz_wlw halved after the calibration) must fail the MILL leg at bz_wover;
---red rideoff (the ride merge's limit back to BZ_BOXH: two boxes a riding
+line-change frames and of the others, reported - O30).  (--red halfcal,
+bz_wlw halved after the calibration, failed the MILL leg at bz_wover until
+wave 6b; retired here, kept in bonanza_wheel.)  --red rideoff (the ride merge's limit back to BZ_BOXH: two boxes a riding
 line change) the CGA's ride leg at its line-change misses; --red level1 (the
 occluder-pass and two-box clauses restored in bz_hv1) TRIAL's bz_nhvy.
 
@@ -192,6 +192,40 @@ OFF and ON, six runs a configuration for MILL and PEAK and three for the rest
 spread (min - max, mean) and MILL's runs classified by mode, each row keyed to
 its demo's log (its identity, steps and the CRC of its runs); the table is
 written to docs/reports/BONANZA-BASELINE-<date>.md (a NEW report).
+
+WAVE 6B (SPEC.md 128.17.10, story 6b.7).  The camera is LATTICE; every figure
+is REPORTED, both cards, against wave 6's final pass (128.16.10) and the
+host's 128.17.6.6:
+  - per demo through D (sound OFF and ON) and B: misses, missed refreshes a
+    second, runs of two or more misses and the longest run (the half-rate
+    stretches), GLIDE's columns and rows a second against `--pans` (LATTICE's
+    prediction, wave 6's policy's beside it), two-row frames against the
+    host's, and THE FRAMES IN A TUBE (bz_lexit hit: LATTICE's pre-aim runs
+    once a frame while a tube carries the ball) - their misses against the
+    run's other frames; a run with at least two missed tube frames whose
+    tube frames miss more often than its others by more than one tube
+    frame's worth is printed as 128.17.6.8's IN-TUBE RULE'S TRIGGER;
+  - THE FALL LEG (`fall`): FIRST's autopilot - a loop of falls and
+    respawns - run as the benchmark (B with bz_crs poked, speaker ON; a
+    replay through R would end at the goal FIRST's autopilot crosses before
+    its first fall): each fall's misses, missed refreshes and runs
+    (128.17.6.6 risk 8).
+--lattice-ab [COMMIT] (the final pass's by-hand run, like every A/B here: a
+row that could only fail once the commit has left the clone is no row; exits
+77 when it is not in this clone) is THE LIKE-FOR-LIKE A/B the decision rides
+on: MILL's route demo, whose keys hold neither Space nor Grip, runs the same
+path in wave 6's build (4d69985c, GLIDE) and this one (LATTICE) - the leg
+ASSERTS the two demos' key bytes carry no Space or Grip bit and are the same
+- through D, three runs a side, speaker ON, both cards; B beside it REPORTED
+only (its route pans a third of wave 6's work, 128.17.6.7: B's series breaks
+at 6b).  THE DECISION is computed and printed: LATTICE ships on round 2's
+disk if, on both cards, this build's missed refreshes a second and longest
+run of misses (each its three runs' mean) are no worse than 4d69985c's
+beyond the spread of its three runs (at most their maximum); otherwise the
+figures go to the owner with the disk held.  No red arm is new: `rideoff`
+and `level1` re-run (level1's anchor is bz_hv1's text, which 6b left as it
+was: the near-edge bits went into bz_pnear); `halfcal` is retired here (its
+bz_wover never fires under LATTICE's MILL frames) and kept in bonanza_wheel.
 """
 import argparse
 import os
@@ -215,7 +249,10 @@ import bonanza_ring as R       # noqa: E402
 CLK = M.GUEST_HZ
 BENCH = 1200                   # bzgame.inc BZ_BENCH
 MARKS = ["bz_t0", "bz_ts", "bz_tr", "bz_tw", "bz_tv", "bz_tf", "bz_tb", "bz_tc", "bz_presented"]
-WRITERS = ["bz_row", "bz_col", "bz_fullw", "bz_boxw", "bz_step"]     # (bz_step: the frame's physics steps)
+WRITERS = ["bz_row", "bz_col", "bz_fullw", "bz_boxw", "bz_step",     # (bz_step: the frame's physics steps)
+           "bz_lexit"]                  # (wave 6b: LATTICE's pre-aim, called once a frame while a tube carries
+                                        # the ball - the frame IN A TUBE, SPEC.md 128.17.10; a build without it
+                                        # counts none)
 # wave 3's props (SPEC.md 128.12.13.2), counted a frame like the writers: the
 # wheel's commits (and the LEAD among them: one after bz_tb), the contact
 # group's lane (bz_csync: a must-draw rotor or a contact lane), a MUST-DRAW
@@ -326,7 +363,7 @@ def frames_of(hits, a):
                "marks": dict(marks), "commits": cnt["bz_wcommit"], "lead": cnt.get("lead", 0),
                "contact": cnt["bz_csync"], "must": cnt["bz_props.mlane+4"], "pbox": cnt["bz_cslabr"],
                "pwt": cnt["bz_props.pwt"], "promo": cnt["bz_props.promo"], "snd": snd, "hit": h.get("hit"),
-               "occ": occ, "n": nsum + cnt["bz_step"], "olay": nolay, "oirq": oirq}
+               "occ": occ, "n": nsum + cnt["bz_step"], "olay": nolay, "oirq": oirq, "tube": cnt["bz_lexit"] > 0}
         nsum += cnt["bz_step"]                  # (n: the steps run by this frame's end, the same in two
         occ = nolay = oirq = 0                  # builds that replay one log: the occluder A/B's key)
         if last is not None and prev is not None and all(k in marks for k in ("bz_ts", "bz_tr", "bz_tv", "bz_tf",
@@ -462,7 +499,7 @@ def feats(r):
     return "; " + ", ".join(out) if out else ""
 
 
-LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "dover")
+LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "dover", "fall")
 SOUNDS = ("off", "on")
 
 
@@ -549,6 +586,9 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
                 out.append(("corner ride " + snd, bad, summ))
         if set(legs) & {"demo", "dover"}:
             out += demo_legs(g, tag, legs, sounds, old, art)
+        if "fall" in legs and not old:          # wave 6b (SPEC.md 128.17.10): FIRST's fall-and-respawn replay
+            bad, summ = fall_leg(g, tag)
+            out.append(("fall", bad, summ))
         set_snd(g, True)                        # (S back at AUTO for whatever runs next)
     return out
 
@@ -739,14 +779,32 @@ def phase_misses(tag, summ, ab_steps):
     no same frame to compare, so a miss on a frame running MORE THAN ONE step
     is that phase's by the same rule, REPORTED, and a one-step miss still
     fails (the final pass of wave 3b: CGA frame 400 and the Hercules' frame
-    953, two steps each, missed in one run and not in the next).
+    953, two steps each, missed in one run and not in the next).  WAVE 6B
+    (SPEC.md 128.17.6.7, 128.17.10): B's camera is LATTICE, so B's pans are
+    no longer any earlier build's - "engine against engine" holds only on
+    the frames that pan NOTHING.  A one-step miss on a frame that pans (a row
+    or a column: the camera's choice of frame, B's series broken at 6b) is
+    REPORTED as the camera's; a one-step miss on a frame with no strip still
+    fails (the final pass of 6b: the CGA's B OFF, frames 1133 - 1149, a slow
+    row pan over the end's occluded box, 9 misses at one row each).
     -> failures"""
-    own, phase = [], []
+    own, phase, cam = [], [], []
+    pans = summ.get("pans") or []
     for m_ in summ["misses"]:
         i = m_[0] - 1
         s3 = summ["steps"][i]
         s2 = ab_steps[i] if ab_steps and i < len(ab_steps) else None
-        (phase if (s3 > s2 if s2 is not None else not ab_steps and s3 > 1) else own).append((m_, s3, s2))
+        if s3 > s2 if s2 is not None else not ab_steps and s3 > 1:
+            phase.append((m_, s3, s2))
+        elif i < len(pans) and pans[i]:
+            cam.append((m_, s3, s2))
+        else:
+            own.append((m_, s3, s2))
+    if cam:
+        print("  the A/B leg's misses on frames that PAN (a row or a column), one step each - LATTICE's frames, "
+              "REPORTED (SPEC.md 128.17.6.7: B's series breaks at 6b): %d (%s)" % (
+                  len(cam), ", ".join("frame %d busy %d" % (m_[0], m_[1]) for m_, _s3, _s2 in cam[:12])),
+              flush=True)
     for m_, s3, s2 in phase:
         print("  the A/B leg's miss at frame %d (busy %d): %d physics steps against %s on %s's same "
               "frame - the step clock's phase, REPORTED" % (
@@ -1048,6 +1106,7 @@ def report(tag, fr, pkg, refresh, npres):
     summ["misses"] = [(i + 1, r["busy"], feats(r)) for i, r in enumerate(fr)
                       if r in meas and r["period"] > 1.5 * refresh]
     summ["steps"] = [r["steps"] for r in fr]
+    summ["pans"] = [bool(r["rows"] or r["column"]) for r in fr]
     print("  busy (all but the retrace wait and the wheel, both idle: SPEC.md 128.12.5.6) %.0f clk = %.1f%% of a "
           "refresh; the wheel's part %.0f clk beside it" % (work, 100.0 * work / refresh,
                                                          stats([r["parts"]["wheel"] for r in meas])["mean"]))
@@ -1222,13 +1281,14 @@ def ab_print(tag, res, ores, commit):
 _PRED = {}
 
 
-def pans_pred(demo, herc):
+def pans_pred(demo, herc, w6=False):
     """the HOST'S PREDICTION of GLIDE's pans over DEMO on a card: `bbcourse.py
-    --pans`'s figure (bbcourse.pans, SPEC.md 128.16.13) -> (columns, rows,
-    two-row frames, seconds of play)"""
-    key = (bytes(demo), herc)
+    --pans`'s figure (bbcourse.pans, SPEC.md 128.16.13; LATTICE since wave 6b,
+    W6 wave 6's policy, `_w6`, beside it) -> (columns, rows, two-row frames,
+    seconds of play)"""
+    key = (bytes(demo), herc, w6)
     if key not in _PRED:
-        _PRED[key] = BB.pans(R.course_k(BB.decode_log_t(demo)[0]), demo, herc)
+        _PRED[key] = BB.pans(R.course_k(BB.decode_log_t(demo)[0]), demo, herc, **({"_w6": True} if w6 else {}))
     return _PRED[key]
 
 
@@ -1252,8 +1312,32 @@ def smooth(fr, refresh):
             "runs2": runs, "longest": longest, "secs": secs}
 
 
+def tube_split(fr, refresh):
+    """wave 6b (SPEC.md 128.17.10): the frames IN A TUBE (bz_lexit's) against the
+    run's other frames - (tube frames, of them missed, other frames, of them
+    missed); a miss a frame held past 1.5 refreshes"""
+    meas = [r for r in fr if r["period"] is not None and not r["full"]]
+    tb = [r for r in meas if r.get("tube")]
+    ot = [r for r in meas if not r.get("tube")]
+    miss = lambda rs: sum(1 for r in rs if r["period"] > 1.5 * refresh)
+    return len(tb), miss(tb), len(ot), miss(ot)
+
+
+def intube_triggered(ts):
+    """128.17.10's trigger for 128.17.6.8's in-tube rule on one run: at least
+    two tube frames missed, and the share of tube frames that miss above the
+    share of the run's other frames by MORE than one tube frame's worth - so
+    that a single missed tube frame, phase noise on a run with a dozen tube
+    frames, never ships a behaviour change on its own (the review's R5)"""
+    nt, mt, no, mo = ts
+    return mt >= 2 and ((mt - 1) / float(nt)) > (mo / float(no or 1))
+
+
 def w6_line(lab, tag, fr, refresh, demo, kd, pred=True):
-    """wave 6's REPORT for one demo's D (SPEC.md 128.16.10): -> its figures"""
+    """wave 6's REPORT for one demo's D (SPEC.md 128.16.10), with wave 6b's
+    (128.17.10): two-row frames against --pans' (LATTICE's, and wave 6's
+    policy's beside it), and the misses of frames in a tube against the
+    run's other frames: -> its figures"""
     sm = smooth(fr, refresh)
     steps = sum(r["steps"] for r in fr)
     secs = steps / STEP_HZ if steps else 1.0
@@ -1278,6 +1362,20 @@ def w6_line(lab, tag, fr, refresh, demo, kd, pred=True):
           "occluder pass %.0f clk a frame over %d frames; the log %04Xh, %d steps, CRC %08Xh" % (
               lab, sm["missed"], sm["per_s"], sm["secs"], sm["misses"], sm["runs2"], sm["longest"], out["cols_s"],
               out["rows_s"], pr, mode, out["occ"], len(occ), out["ident"], steps, out["crc"]), flush=True)
+    # wave 6b (SPEC.md 128.17.10): two-row frames against --pans (LATTICE's, wave 6's policy's beside it), and
+    # the misses of frames in a tube against the run's other frames (128.17.6.8's in-tube rule's trigger)
+    out["two"] = sum(1 for r in fr if not r["full"] and r["rows"] >= 2)
+    out["tube"] = tube_split(fr, refresh)
+    nt, mt, no, mo = out["tube"]
+    w6p = ""
+    if pred:
+        c6, r6, t6, s6 = pans_pred(demo, tag == "herc", w6=True)
+        w6p = "; wave 6's policy on the host %.1f and %.1f a second, %d two-row frames" % (c6 / s6, r6 / s6, t6)
+    print("  %s, wave 6b (SPEC.md 128.17.10, REPORTED): two-row frames %d%s%s; frames in a tube %d, %d missed "
+          "(%.1f%%), the other frames %d, %d missed (%.1f%%)%s" % (
+              lab, out["two"], " (the host's %d)" % out["pred"][2] if pred else "", w6p, nt, mt,
+              100.0 * mt / (nt or 1), no, mo, 100.0 * mo / (no or 1),
+              " - THE IN-TUBE RULE'S TRIGGER (128.17.6.8)" if intube_triggered(out["tube"]) else ""), flush=True)
     return out
 
 
@@ -1300,6 +1398,154 @@ def w6_ab_print(tag, res, ores):
             lab, f(a, "per_s", "%.2f"), f(b, "per_s", "%.2f"), f(a, "runs2", "%d"), f(b, "runs2", "%d"),
             f(a, "longest", "%d"), f(b, "longest", "%d"), f(a, "cols_s", "%.1f"), f(b, "cols_s", "%.1f"),
             f(a, "occ", "%.0f"), f(b, "occ", "%.0f")))
+
+
+# ---- WAVE 6B (SPEC.md 128.17.10, story 6b.7): FIRST's falls, and the like-for-like A/B the decision rides on ----
+FALL_STEPS = 1100              # FIRST's autopilot steps the host lists falls over (B's 1,200 frames run ~1,090)
+LAT_AB = "4d69985c49ead0f387858d7e8411aec102a964c9"   # wave 6's commit (the shipped GLIDE), the A/B's other side
+LAT_AB_RUNS = 3                # runs a side (6b.7: "no worse than 4d69985c's beyond the spread of its three")
+
+
+def fall_log(steps=None):
+    """FIRST's autopilot (a loop of falls and respawns, 128.17.6.6) as the
+    BENCHMARK runs it (B with bz_crs poked: the guest's autopilot, the
+    model's play=False, where the GOAL ends nothing - a replay through R
+    ends at the goal, and FIRST's autopilot crosses its goal on the way to
+    its first fall at step 154): the model's (take-off step, respawn step)
+    for every fall over STEPS steps.  -> ([(take-off, respawn)], steps)"""
+    c = R.course("first")
+    p = BB.Physics(c, play=False, mat=c.ball)
+    n = steps or FALL_STEPS
+    for _ in range(n):
+        p.step_auto()
+    tk = [e[1] for e in p.events if e[0] == "takeoff"]
+    falls = [(max([s for s in tk if s < r] or [0]), r) for r in [e[1] for e in p.events if e[0] == "respawn"]]
+    return falls, n
+
+
+def fall_leg(g, tag):
+    """THE FALL REPLAY (SPEC.md 128.17.6.6 risk 8, 128.17.10): FIRST's
+    autopilot - a loop of falls and respawns - run as the benchmark (B with
+    bz_crs poked to FIRST, BENCH frames, speaker ON; the guest's B is the
+    model's play=False, so the goal it crosses ends nothing): each fall that
+    the run reaches - from its take-off to the next fall's take-off (the
+    last: the run's end) - its misses, missed refreshes and runs of two or
+    more, REPORTED.  The frames' step counts are the guest's own, so the
+    windows are the model's steps.  -> (failures, summary)"""
+    falls, _n = fall_log()
+    set_snd(g, True)
+    fr, _pkg, refresh, _np = measure(g, crs=R.CRS_K["first"], pokes={"bz_hvoff": 0})
+    lab = "%s FIRST's falls through B (FIRST's autopilot, sound ON)" % tag
+    n = fr[-1]["n"] if fr else 0
+    falls = [(a, r_) for a, r_ in falls if r_ < n]
+    out = {"falls": []}
+    ends = [a for a, _r in falls[1:]] + [n + 1]
+    for (a, r_), b in zip(falls, ends):
+        win = [f for f in fr if a <= f["n"] < b]
+        sm = smooth(win, refresh) if win else None
+        out["falls"].append((a, r_, len(win), sm, sum(1 for f in win if not f["full"] and f["rows"] >= 2)))
+    print("\n%s (SPEC.md 128.17.10, REPORTED): %d falls over %d steps; per fall (take-off step, respawn step): %s" % (
+        lab, len(falls), n, "; ".join(
+            "%d - %d: %d frames, misses %d, missed refreshes %d, runs of two or more %d, the longest %d, two-row "
+            "frames %d" % (a, r_, nw, sm["misses"], sm["missed"], sm["runs2"], sm["longest"], two)
+            if sm else "%d - %d: no frame" % (a, r_) for a, r_, nw, sm, two in out["falls"])), flush=True)
+    allw = [f for f in fr if falls and f["n"] >= falls[0][0]]
+    if allw:
+        sm = smooth(allw, refresh)
+        print("  %s over every fall: %d frames, misses %d, missed refreshes %d (%.2f a second), runs of two or more "
+              "%d, the longest %d" % (tag.upper(), len(allw), sm["misses"], sm["missed"], sm["per_s"], sm["runs2"],
+                                      sm["longest"]), flush=True)
+    return [], out
+
+
+def mill_runs(tag, apps, src, art, label, runs=LAT_AB_RUNS):
+    """MILL's route demo through D and B, LAT_AB_RUNS times each, speaker ON, on
+    one build: -> {"D": [smooth figures], "B": [...], "keys": the demo's key bytes}"""
+    sym = R.symbols(src, art)
+    out = {"D": [], "B": [], "two": []}
+    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps, machine=R.MACHINE[tag]) as ui:
+        ui.open_drive("B")
+        ui.open("BONANZA.O88")
+        g = R.Bz(ui, tag, sym)
+        ui.settle()
+        kd = R.CRS_K["mill"]
+        for i in range(runs):
+            demo = load_demo(g, kd, art)
+            set_snd(g, True)
+            fr, _pkg, refresh, _n = measure(g, key="KeyD", frames_cap=DEMO_CAP)
+            out["D"].append(smooth(fr, refresh))
+            out["two"].append(sum(1 for r in fr if not r["full"] and r["rows"] >= 2))
+            out["keys"] = [k for k, _t in BB.decode_log_t(demo)[2]]
+        for i in range(runs):
+            set_snd(g, True)
+            fr, _pkg, refresh, _n = measure(g, pokes={"bz_hvoff": 0})
+            out["B"].append(smooth(fr, refresh))
+    for what in ("D", "B"):
+        print("  %s %s, %s (sound ON): %s" % (tag.upper(), label, "MILL's route demo through D" if what == "D" else
+                                                "B, BENCH's benchmark", "; ".join(
+            "missed/s %.2f, misses %d, runs >= 2 %d, the longest %d" % (s["per_s"], s["misses"], s["runs2"],
+                                                                        s["longest"]) for s in out[what])),
+              flush=True)
+    return out
+
+
+def lattice_ab(tags, commit=LAT_AB):
+    """THE LIKE-FOR-LIKE A/B and the decision it carries (SPEC.md 128.17.10,
+    story 6b.7): MILL's route demo - its keys hold neither Space nor Grip, so
+    its path is the same in COMMIT (wave 6's GLIDE) and here (LATTICE); the
+    leg ASSERTS the two logs' key bytes carry no Space or Grip bit and are the
+    same - through D, LAT_AB_RUNS runs a side, speaker ON, both cards; B
+    beside it REPORTED only (its route pans a third of wave 6's work, 128.17.6.7:
+    B's series breaks at 6b).  THE DECISION, computed and printed: LATTICE
+    ships on round 2's disk if on BOTH cards this build's missed refreshes a
+    second and longest run of misses (each its runs' mean) are no worse than
+    COMMIT's beyond the spread of its runs (at most their maximum); otherwise
+    the figures go to the owner with the disk held.  -> failures"""
+    bad = []
+    skip = fetch(commit)
+    if skip:
+        print("bonanza_perf: SKIP the LATTICE A/B: %s" % skip, flush=True)
+        return None
+    td = tempfile.mkdtemp(prefix="bz6b")
+    verdict = {}
+    try:
+        old = ab_tree(td, commit)
+        for tag in tags:
+            print("\n%s THE LATTICE A/B (SPEC.md 128.17.10, story 6b.7): MILL's route demo, %s against this build, "
+                  "%d runs a side, speaker ON" % (tag.upper(), commit[:8], LAT_AB_RUNS), flush=True)
+            o = mill_runs(tag, *old, label=commit[:8])
+            n = mill_runs(tag, R.at("build/bonanza360.img"), None, None, label="this build (LATTICE)")
+            for side, s in ((commit[:8], o), ("this build", n)):
+                held = [k for k in s["keys"] if k & (BB.K_HOP | BB.K_GRIP)]
+                if held:
+                    bad.append("%s LATTICE A/B: %s's MILL demo holds Space or Grip on %d steps - not like for like "
+                               "(SPEC.md 128.17.10)" % (tag, side, len(held)))
+            if o["keys"] != n["keys"]:
+                bad.append("%s LATTICE A/B: the two builds' MILL demos are not the same key bytes (%d and %d steps)"
+                           % (tag, len(o["keys"]), len(n["keys"])))
+            ok = True
+            for k, what in (("per_s", "missed refreshes a second"), ("longest", "the longest run of misses")):
+                om, nm = [s[k] for s in o["D"]], [s[k] for s in n["D"]]
+                mean = sum(nm) / float(len(nm))
+                good = mean <= max(om)
+                ok = ok and good
+                print("  %s %s: this build %s (mean %.2f) against %s %s (spread %.2f - %.2f): %s" % (
+                    tag.upper(), what, ["%.2f" % x for x in nm], mean, commit[:8], ["%.2f" % x for x in om],
+                    min(om), max(om), "no worse" if good else "WORSE beyond the spread"), flush=True)
+            print("  %s two-row frames a run: this build %s, %s %s; B (REPORTED, its series breaks at 6b): missed/s "
+                  "this build %s, %s %s" % (tag.upper(), n["two"], commit[:8], o["two"],
+                                            ["%.2f" % s["per_s"] for s in n["B"]], commit[:8],
+                                            ["%.2f" % s["per_s"] for s in o["B"]]), flush=True)
+            verdict[tag] = ok
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+    ships = all(verdict.get(t, False) for t in tags) and not bad
+    print("\nTHE DECISION (story 6b.7, SPEC.md 128.17.10): %s" % (
+        "LATTICE SHIPS on round 2's disk - MILL's misses a second and longest run no worse than %s's beyond its "
+        "spread on %s" % (commit[:8], " and ".join(t.upper() for t in tags)) if ships else
+        "HOLD THE DISK - the figures above go to the owner (%s)" % ", ".join(
+            "%s %s" % (t.upper(), "no worse" if verdict.get(t) else "WORSE") for t in tags)), flush=True)
+    return bad
 
 
 BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (128.16.10); 3 for the rest
@@ -1372,11 +1618,10 @@ def baseline(tags):
 
 
 REDS = {
-    # the calibration's word-line HALVED after it runs: the wheel underprices its
-    # commits and the late ones end past their deadline (SPEC.md 128.12.13.2)
-    "halfcal": [("bzwheel.inc", "    call .min1\n    mov [bz_warr], ax\n.lcf:\n",
-                 "    call .min1\n    mov [bz_warr], ax\n    shr word [bz_wlw], 1        ; RED halfcal (before bz_lcf)\n"
-                 ".lcf:\n")],
+    # (`halfcal`, the calibration's word-line halved, RETIRED here in wave 6b's final pass: under LATTICE
+    # MILL's benchmark frames leave every halved commit inside its deadline on the CGA - bz_wover 0, 40
+    # commits - so this row's bz_wover check no longer sees it; the same broken copy goes red at
+    # bonanza_wheel's (5), its cost check, SPEC.md 128.17.14)
     # wave 3b (SPEC.md 128.13.12): the ride merge's limit back to BZ_BOXH - the riding line change is two
     # boxes again, each laying the slab and the ball: the CGA's ride misses (about 85k against 79.6k,
     # PREDICTED; the Hercules' 87k fits its 93.8k, so the arm is the CGA's)
@@ -1395,9 +1640,9 @@ REDS = {
                 "    ret\n")],
 }
 # each arm's legs and sound: the ones its check is asserted in
-RED_LEGS = {"halfcal": (("mill",), ("off",)), "rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",))}
+RED_LEGS = {"rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",))}
 RED_TAGS = {"rideoff": ("cga",)}
-RED_WANT = {"halfcal": "bz_wover", "rideoff": "line-change frames", "level1": "bz_nhvy"}
+RED_WANT = {"rideoff": "line-change frames", "level1": "bz_nhvy"}
 
 
 def main():
@@ -1418,6 +1663,10 @@ def main():
     ap.add_argument("--no-adlib", action="store_true", help="no AdLib arm (the CGA's MILL and ride on %s)" % ADLIB)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
+    ap.add_argument("--lattice-ab", nargs="?", const=LAT_AB, metavar="COMMIT",
+                    help="wave 6b's like-for-like A/B (SPEC.md 128.17.10, story 6b.7): MILL's route demo through D, "
+                         "%d runs a side against COMMIT (default wave 6's, %s), B beside it, and THE DECISION "
+                         "printed; exits %d when COMMIT is not in this clone" % (LAT_AB_RUNS, LAT_AB[:8], SKIP_RC))
     ap.add_argument("--baseline", action="store_true",
                     help="THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every demo through D and "
                          "B, both cards, speaker OFF and ON, its runs' spreads written to a new dated report")
@@ -1429,14 +1678,34 @@ def main():
         R.CRS_K["bench"]                        # wave 6: the pans' prediction for every shipped demo, both cards
         for kd in range(1, len(R.CRS_K)):
             demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+            held = [k for k, _t in BB.decode_log_t(demo)[2] if k & (BB.K_HOP | BB.K_GRIP)]
             for herc in (0, 1):
                 c, rw, two, sec = pans_pred(demo, herc)
-                print("bonanza_perf the host's prediction, BZD%d on the %s: GLIDE %.1f columns and %.1f rows a second "
-                      "of play (%d and %d over %.1f s), %d two-row frames" % (
-                          kd, ("CGA", "Hercules")[herc], c / sec, rw / sec, c, rw, sec, two))
+                c6, r6, t6, s6 = pans_pred(demo, herc, w6=True)
+                print("bonanza_perf the host's prediction, BZD%d on the %s: LATTICE %.1f columns and %.1f rows a "
+                      "second of play (%d and %d over %.1f s), %d two-row frames; wave 6's policy %.1f and %.1f, %d "
+                      "two-row frames%s" % (
+                          kd, ("CGA", "Hercules")[herc], c / sec, rw / sec, c, rw, sec, two, c6 / s6, r6 / s6, t6,
+                          "; its keys hold Space or Grip on %d steps" % len(held) if held else
+                          "; its keys hold neither Space nor Grip (like for like across a physics change)"))
+        falls, n = fall_log()                  # wave 6b: the fall leg's falls, and the A/B's commit
+        print("bonanza_perf the fall leg: FIRST's autopilot as B runs it, %d falls (take-off, respawn) in %d steps: %s"
+              % (len(falls), n, falls))
+        assert len(falls) >= 4, "FIRST's autopilot falls %d times in %d steps: the fall leg needs a loop" % (
+            len(falls), n)
+        print("bonanza_perf --lattice-ab's commit %s: %s" % (LAT_AB[:8], fetch(LAT_AB) or "in this clone"))
         return
     if a.baseline:
         baseline(tags)
+        return
+    if a.lattice_ab:
+        bad = lattice_ab(tags, a.lattice_ab)
+        if bad is None:
+            sys.exit(SKIP_RC)
+        for b in bad:
+            print("FAIL %s" % b)
+        assert not bad, "%d failure(s)" % len(bad)
+        print("\nbonanza_perf --lattice-ab (%s): the A/B measured, the decision printed" % ", ".join(tags))
         return
     if a.red:
         tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)

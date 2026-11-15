@@ -827,8 +827,9 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
     # (7) each shown rotor's pose rate
     rated = 0
     for i in rotors:
-        seg = drawn_ch = true_ch = 0
-        last = None
+        lost = []
+        seg = drawn_ch = true_ch = can_ch = 0      # (can_ch: frames whose steps changed the true pose -
+        last = None                                 # the most changes one drawn pose a frame can show)
         for fr in frames:
             pr = fr.get("pr")
             if not pr or i >= len(pr["drawn"]):
@@ -843,11 +844,20 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
                 seg += 1
             else:
                 drawn_ch += pr["drawn"][i] != last[0]
-                true_ch += sum(1 for k in range(last[1], pr["nstep"])
-                               if rotor_pose(recs[i], k) != rotor_pose(recs[i], k - 1))
-            last = (pr["drawn"][i], pr["nstep"])
-        rep.append("(7) rotor %d: shown in %d spells, its drawn pose changed %d times, its true pose %d" % (
-            i, seg, drawn_ch, true_ch))
+                nch = sum(1 for k in range(last[1], pr["nstep"])
+                          if rotor_pose(recs[i], k) != rotor_pose(recs[i], k - 1))
+                true_ch += nch
+                can_ch += nch > 0
+                if nch and pr["drawn"][i] == last[0]:   # (a true change this frame did not show)
+                    lost.append("f%d%s%s%s%s" % (pr.get("frames", 0), " R0%+d" % (pr["R0"] - last[2])
+                                                 if pr["R0"] != last[2] else "", " c0%+d" % (pr["c0"] - last[3])
+                                                 if pr["c0"] != last[3] else "", " hv%d" % pr["heavy"]
+                                                 if pr["heavy"] else "", " held" if held(fr) else ""))
+            last = (pr["drawn"][i], pr["nstep"], pr["R0"], pr["c0"])
+        rep.append("(7) rotor %d: shown in %d spells, its drawn pose changed %d times, its true pose %d (on %d "
+                   "frames: a frame of two or more steps can show one of its changes)" % (
+                       i, seg, drawn_ch, true_ch, can_ch) + ("; the changes a frame did not show: %s" % (
+                           ", ".join(lost[:16])) if lost else ""))
         rated += true_ch > 0
         if true_ch and (drawn_ch < RATE_MIN * true_ch - seg or drawn_ch > true_ch + seg):
             fails.append("(7) rotor %d: its drawn pose changed %d times while shown, its true pose %d (at least %.0f%% "
@@ -1243,6 +1253,7 @@ def corner_leg(g, ref):
 STALE_STEPS = 16                # steps after the full write before the row (its true pose changed off screen)
 STALE_AFTER = 3                 # frames held at the new point after the step
 STALE_MAX = 120                 # frames at most waiting for a pose whose lowest row differs from the full write's
+STALE_RETRY = 6                 # cuts taken again at most while the centred window lands off the plan's
 
 
 def stale_plan(g, ref):
@@ -1323,7 +1334,7 @@ def stale_leg(g, ref):
 
         def low_rows(pose):
             return [bytes(pics[pose][y]) for y in lines] if pose in pics else None
-        st = {"k": -1, "fw": None, "n0": None, "step": None, "pr": None, "enter": [], "win": []}
+        st = {"k": -1, "fw": None, "n0": None, "step": None, "pr": None, "enter": [], "win": [], "retry": 0}
 
         def on_hit(mm, rec_):
             a = rec_["addr"]
@@ -1337,6 +1348,13 @@ def stale_leg(g, ref):
                         R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=k > 1)
                     if k == 0:
                         g.putb("bz_first", 1)     # the NEXT frame is the centred full write
+                    elif k == 2 and (g.w("bz_R0"), g.w("bz_c0")) != (R0w, c0w) and st["retry"] < STALE_RETRY:
+                        # wave 6b's final pass: the airborne centre point falls one or two steps before the
+                        # cut's full write, as the frame's steps fall, so the centred window can land a row
+                        # off the plan's (R0 67 for 68 on the CGA): the rotor is then not wholly above it and
+                        # the row the poke makes is not the row the plan needs.  The cut is taken again
+                        st["retry"] += 1
+                        st["k"] = -1
                     elif k == 2:                  # (after it: the pose it drew, and the steps from there)
                         st["fw"] = mm.read(g.a("bz_ldrw") + lane, 1)[0]
                         st["n0"] = g.d("bz_nstep")
@@ -1361,12 +1379,13 @@ def stale_leg(g, ref):
         with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=4000):
             m.run()
             M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + STALE_AFTER) or
-                    st["k"] >= STALE_MAX, "the STALE scene's frames", guest=60)
+                    st["k"] >= STALE_MAX, "the STALE scene's frames", guest=60 + 10 * STALE_RETRY)
             m.pause()
         ent = [e for e in st["enter"] if e[1] == lane]
         rep.append("(9) the STALE scene: rotor %d (card rows %d - %d) above a centred window R0 %d c0 %d; the full "
-                   "write drew pose %s; the row %s; the window then %s; the rotor brought in by the row: %s" % (
-                       lane, q[0], q[1] - 1, R0w, c0w, st["fw"], "on frame %s, %s steps after it" % (
+                   "write drew pose %s (the cut taken %d time(s) more, its window off the plan's); the row %s; "
+                   "the window then %s; the rotor brought in by the row: %s" % (
+                       lane, q[0], q[1] - 1, R0w, c0w, st["fw"], st["retry"], "on frame %s, %s steps after it" % (
                            st["step"], None if st["n0"] is None else g.d("bz_nstep") - st["n0"])
                        if st["step"] is not None else "NEVER (no pose with a different lowest row)",
                        "R0 %s -> %s, c0 %s -> %s" % st["win"][0] if st["win"] else "-",
