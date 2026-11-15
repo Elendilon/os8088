@@ -506,13 +506,36 @@ bz_row:
 ; row and at the rows asked for; it enters its unrolled block at the run's
 ; length.
 ; -----------------------------------------------------------------------------
-%macro BZ_CROW 0                ; a CGA row: bank 0, bank 1, the next row -
-    movsw                       ; a MOVSW a bank (bz_row's BZ_RWORD), DI
-    add di, bp                  ; stepped to the next bank by BP (2000h - 2)
-    movsw                       ; and on to the next row's bank 0 by AX
-    sub di, ax                  ; (BZ_CBACK)
+%macro BZ_CROW 0                ; a CGA row: bank 0, bank 1, the next row
+    lodsw
+    stosw
+    lodsw
+    mov [es:di + 1ffeh], ax
+    add di, byte 80 - 2
 %endmacro
 %macro BZ_HROW 0                ; a Hercules row: banks 0-3, the next row
+    lodsw
+    stosw
+    lodsw
+    mov [es:di + 1ffeh], ax
+    lodsw
+    mov [es:di + 3ffeh], ax
+    lodsw
+    mov [es:di + 5ffeh], ax
+    add di, byte 90 - 2
+%endmacro
+; BZ_CROW and BZ_HROW are the WHEEL's too (bzwheel.inc's lane commits expand
+; them with their own registers), so they stay as they were.  bz_col's own
+; rows (the speed pass) are a MOVSW a bank - bz_row's BZ_RWORD - and need two
+; registers set by bz_col: BP = 2000h - 2, from a bank's word to the next
+; bank's, and AX = BZ_CBACK / BZ_HBACK, on to the next row's bank 0.
+%macro BZ_CROWM 0
+    movsw
+    add di, bp
+    movsw
+    sub di, ax
+%endmacro
+%macro BZ_HROWM 0
     movsw
     add di, bp
     movsw
@@ -520,7 +543,7 @@ bz_row:
     movsw
     add di, bp
     movsw
-    sub di, ax                  ; (BZ_HBACK)
+    sub di, ax
 %endmacro
 BZ_CBACK    equ 2000h + 2 - 80  ; from past bank 1's word to the next row's
 BZ_HBACK    equ 6000h + 2 - 90  ; from past bank 3's
@@ -606,10 +629,10 @@ bz_col:
 .cblk:
     add bx, [BZC_ROWB]          ; the next block row
     mov si, [bx]
-    BZ_CROW
-    BZ_CROW
-    BZ_CROW
-    BZ_CROW
+    BZ_CROWM
+    BZ_CROWM
+    BZ_CROWM
+    BZ_CROWM
     loop .cblk
 .ctail:
     mov al, dl
@@ -643,8 +666,8 @@ bz_col:
 .hblk:
     add bx, [BZC_ROWB]
     mov si, [bx]
-    BZ_HROW
-    BZ_HROW
+    BZ_HROWM
+    BZ_HROWM
     loop .hblk
 .htail:
     or dl, dl                   ; DL = 1: the run ends inside a block
@@ -682,15 +705,15 @@ bz_col:
     mov ax, BZ_CBACK            ; (MOV keeps the flags)
     jb .c1
     je .c2
-    BZ_CROW
+    BZ_CROWM
 .c2:
-    BZ_CROW
+    BZ_CROWM
 .c1:
-    BZ_CROW
+    BZ_CROWM
     ret
 .hrow:                          ; one Hercules row
     mov ax, BZ_HBACK
-    BZ_HROW
+    BZ_HROWM
     ret
 
 ; -----------------------------------------------------------------------------
