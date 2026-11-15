@@ -623,7 +623,7 @@ bz_step:
     BZ_START                    ; a new cell: the START's ground position kept
                                 ; for the fallback's undo (gx - gvx: only the
                                 ; move has touched it yet)
-    call bz_win9f               ; the centre's new cell
+    call bz_win9i               ; the centre's new cell
 .w3:
     mov si, bz_nbr + BZN_C
     test byte [si + 2], 0fh
@@ -786,7 +786,7 @@ bz_step:
     cmp ax, [bz_wgy]
     je .pfb
 .pmv:
-    call bz_win9f
+    call bz_win9i
 .pfb:
     xor cl, cl                  ; the fallback's cell change is against the
     mov ax, [bz_gx + 1]         ; START's cell
@@ -843,7 +843,7 @@ bz_step:
     sub [bz_gz], ax
     sbb [bz_gz + 2], dx
 .unz:
-    call bz_win9f               ; the window round the start's cell again
+    call bz_win9i               ; the window round the start's cell again
     cmp byte [bz_onp], 0        ; the undo takes the lift's CARRY back too: z
     je .floor                   ; to the step's start (the model's sgz; never
     mov ax, [bz_cdd]            ; on wave 2's path, bz_onp 0 there)
@@ -2672,6 +2672,174 @@ bz_smul:
     ret
 
 ; -----------------------------------------------------------------------------
+; bz_win9i - bz_win9f for the step's own refills (its cell change, a post's
+; push, the fallback's undo): the centre moved AT MOST ONE CELL each way from
+; the window's (bz_nwin), so the six (or four) cells both windows hold are
+; MOVED inside bz_nbr and only the three (or five) new ones are read from the
+; grid - a move in wx first (a column), then one in wy (a row).  A window
+; entry is its own grid cell's four bytes and nothing else (or OPEN outside
+; the grid: the same two unsigned tests as bz_fill's, on the cell's own row
+; wx + wy - SMIN and its k (wx - wy - AMIN) >> 1), the grid is never written,
+; and bz_nbr always holds bz_nwin's window (bz_fill and this are its only
+; writers), so the result is bz_fill's, byte for byte; then bz_fill's own
+; tail (the slopes, the surface, bz_wol).  Any other move - a centre further
+; off, or a byte wx or wy that wrapped - is bz_fill itself.  bz_fnr, bz_fkw
+; and bz_frt are the course's, as its last bz_fill left them (bz_pinit's at
+; the least); bz_fr, bz_fka and bz_fdp, bz_fill's scratch, are not written.
+; ES = the course.  -> AX = bz_nwin.  Preserves ES and nothing else (bz_step's
+; three refills keep no register over it).
+; -----------------------------------------------------------------------------
+bz_win9i:
+    mov cl, 4
+    mov si, [bz_gx + 1]
+    and si, 0ff0h               ; SI = 16 wx, DI = 16 wy (bz_wgx, bz_wgy: wx
+    mov di, [bz_gy + 1]         ; and wy are the low BYTES of gu >> 4)
+    and di, 0ff0h
+    mov ax, di
+    shr ax, cl
+    mov ah, al
+    mov dx, si
+    shr dx, cl
+    mov al, dl                  ; AL = wx, AH = wy
+    mov bx, [bz_nwin]
+    mov dx, ax
+    sub dl, bl                  ; the move in wx: 0; 1 with no borrow; -1 with
+    jz .ty                      ; one - anything else is not a neighbour (a
+    sbb cl, cl                  ; byte that wrapped included)
+    or cl, 1
+    cmp dl, cl
+    jne .full
+.ty:
+    sub dh, bh                  ; ...and in wy
+    jz .go
+    sbb cl, cl
+    or cl, 1
+    cmp dh, cl
+    jne .full
+.go:
+    mov [bz_nwin], ax
+    mov [bz_wgx], si
+    mov [bz_wgy], di
+    mov bp, dx                  ; BP = the moves: wx's low, wy's high
+    mov cl, bh
+    xor ch, ch                  ; CX = the OLD wy: the column is read round
+    xor ah, ah                  ; (the new wx, the old wy)
+    mov dx, ax
+    mov si, [bz_goff]
+    add ax, cx
+    sub ax, [es:si + BZG_SMIN]  ; AX = R, that centre's grid row ...
+    sub dx, cx
+    sub dx, [es:si + BZG_AMIN]  ; ...DX = A: its k is A >> 1
+    mov bx, bp
+    or bl, bl
+    jz .ymv
+    js .west
+    mov si, bz_nbr + 4          ; EAST: cells 1 - 8 down one, then SE, E, NE
+    mov cx, 16                  ; read - (R + 2, A), (R + 1, A + 1), (R, A + 2)
+    call .shf
+    inc ax
+    inc ax
+    mov di, bz_nbr + BZN_SE
+    call .col
+    dec dx
+    dec dx
+    jmp short .ymv
+.west:
+    mov si, bz_nbr + 30         ; WEST: cells 0 - 7 up one, then SW, W, NW -
+    mov cx, 16                  ; (R, A - 2), (R - 1, A - 1), (R - 2, A)
+    call .shb
+    dec dx
+    dec dx
+    mov di, bz_nbr + BZN_SW
+    call .col
+    inc ax
+    inc ax
+.ymv:
+    mov bx, bp
+    or bh, bh
+    jz .done
+    js .north
+    mov si, bz_nbr + 12         ; SOUTH (R + 1, A - 1 the centre's): the rows
+    mov cx, 12                  ; up one, then SW, S, SE - from (R + 1, A - 3),
+    call .shf                   ; the row and A up one a cell
+    inc ax
+    sub dx, 3
+    mov di, bz_nbr + BZN_SW
+    jmp short .rowc
+.north:
+    mov si, bz_nbr + 22         ; NORTH (R - 1, A + 1): the rows down one,
+    mov cx, 12                  ; then NW, N, NE - from (R - 3, A + 1)
+    call .shb
+    sub ax, 3
+    inc dx
+    mov di, bz_nbr + BZN_NW
+.rowc:
+    call .cell
+    inc ax
+    inc dx
+    add di, 4
+    call .cell
+    inc ax
+    inc dx
+    add di, 4
+    call .cell
+.done:
+    jmp bz_wtail
+.full:
+    jmp bz_fill
+.col:                           ; three cells UP a column: the row down one,
+    call .cell                  ; A up one
+    dec ax
+    inc dx
+    sub di, 12
+    call .cell
+    dec ax
+    inc dx
+    sub di, 12
+.cell:                          ; [DI] = the grid's cell on row AX with A = DX,
+    cmp ax, [bz_fnr]            ; OPEN outside it (a negative row or k is
+    jae .open                   ; huge).  Preserves AX, DX, DI, BP.
+    mov si, dx
+    sar si, 1
+    cmp si, [bz_fkw]
+    jae .open
+    mov bx, ax
+    shl bx, 1
+    add bx, [bz_frt]
+    mov bx, [es:bx]             ; ROWTAB[r]: the row's first cell
+    shl si, 1
+    shl si, 1
+    mov cx, [es:bx + si]
+    mov [di], cx
+    mov cx, [es:bx + si + 2]
+    mov [di + 2], cx
+    ret
+.open:
+    mov word [di], BZ_ZOPEN     ; z0 -128, flat, VOID, no flags
+    mov word [di + 2], 0
+    ret
+.shf:                           ; CX words from SI DOWN to bz_nbr.  Preserve
+    mov di, bz_nbr              ; AX, DX, BP.
+    push es
+    push ds
+    pop es
+    rep movsw
+    pop es
+    ret
+.shb:                           ; CX words UP, the last from SI to bz_nbr + 34:
+    mov di, bz_nbr + 34         ; backwards, the direction flag set with the
+    push es                     ; interrupts off (no ISR meets it), and POPF
+    push ds                     ; puts both back
+    pop es
+    pushf
+    cli
+    std
+    rep movsw
+    popf
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
 ; bz_win9f - the window round the ball's cell (wx, wy = the integer gu >> 4),
 ; refilled.  bz_fill: the window round AL = wx, AH = wy.  Either sets bz_nwin,
 ; bz_wgx, bz_wgy (16 wx, 16 wy: what step 4's cell test compares) and bz_tsx, bz_tsy (the
@@ -2782,6 +2950,18 @@ bz_fill:
     inc word [bz_fr]
     pop cx
     loop .row
+    call bz_wtail
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+; bz_wtail - what a window owes after its nine cells (bz_fill's, bz_win9i's):
+; bz_tsx and bz_tsy, the centre's surface, bz_wol and bz_ps.  -> AX = bz_nwin.
+; Clobbers BX, CX, DX, SI, DI.
+bz_wtail:
     xor ax, ax                  ; the centre's slopes, for step 2
     mov dx, ax
     mov si, bz_nbr + BZN_C
@@ -2817,12 +2997,6 @@ bz_fill:
     call bz_wolf
 .nowol:
     mov ax, [bz_nwin]
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     ret
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =
