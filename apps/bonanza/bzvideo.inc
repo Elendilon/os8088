@@ -384,6 +384,21 @@ bz_rbR:
 ; A row is written into the slack (rule 1) or by the full write, so its order
 ; inside the row is free.
 ; -----------------------------------------------------------------------------
+; one word column of a row: its %1 lines from the block, a MOVSW a bank (the
+; speed pass: 18 clocks where LODSW and a store are 31 to 38), DI stepped to
+; the next bank by BP and back to bank 0's next word by AX
+%macro BZ_RWORD 1
+    mov si, [bx]
+    add si, dx
+ %rep %1 - 1
+    movsw
+    add di, bp
+ %endrep
+    movsw
+    sub di, ax
+    inc bx
+    inc bx
+%endmacro
 bz_row:
     push ax
     push bx
@@ -426,77 +441,41 @@ bz_row:
     sub cx, ax
     push cx                     ; (the words after the wrap)
     mov cx, ax                  ; CX = the words before it (at least 1)
-    mov bp, 1ffeh               ; BP + DI: bank 1's word, DI one word on (the
-    cmp byte [bz_herc], 0       ; speed pass: three bytes where DI + 1FFEh is five)
+    mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
+    cmp byte [bz_herc], 0
     mov ds, [bz_cseg]           ; DS = the course from here (MOV keeps the flags)
     jne .herc
 .cga:
+    mov ax, 2000h               ; AX: back from bank 1 to bank 0's next word
     shr cx, 1                   ; two words a turn; an odd count enters at
     jnc .c0                     ; the pair's second half
     inc cx
     jmp short .c1
 .c0:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    inc bx
-    inc bx
+    BZ_RWORD 2
 .c1:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    inc bx
-    inc bx
+    BZ_RWORD 2
     loop .c0
     pop cx                      ; ...and on from the ring's start
     jcxz .out
-    xor ax, ax
-    push ax                     ; (none after that)
     xor di, di
+    push di                     ; (none after that)
     jmp short .cga
 .herc:
+    mov ax, 6000h               ; AX: back from bank 3
     shr cx, 1
     jnc .h0
     inc cx
     jmp short .h1
 .h0:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    lodsw
-    mov [es:di + 3ffeh], ax
-    lodsw
-    mov [es:di + 5ffeh], ax
-    inc bx
-    inc bx
+    BZ_RWORD 4
 .h1:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    lodsw
-    mov [es:di + 3ffeh], ax
-    lodsw
-    mov [es:di + 5ffeh], ax
-    inc bx
-    inc bx
+    BZ_RWORD 4
     loop .h0
     pop cx
     jcxz .out
-    xor ax, ax
-    push ax
     xor di, di
+    push di
     jmp short .herc
 .out:
     pop ds
@@ -527,24 +506,24 @@ bz_row:
 ; row and at the rows asked for; it enters its unrolled block at the run's
 ; length.
 ; -----------------------------------------------------------------------------
-%macro BZ_CROW 0                ; a CGA row: bank 0, bank 1 (BP = 1FFEh, DI one
-    lodsw                       ; word on), the next row
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    add di, byte 80 - 2
+%macro BZ_CROW 0                ; a CGA row: bank 0, bank 1, the next row -
+    movsw                       ; a MOVSW a bank (bz_row's BZ_RWORD), DI
+    add di, bp                  ; stepped to the next bank by BP (2000h - 2)
+    movsw                       ; and on to the next row's bank 0 by AX
+    sub di, ax                  ; (BZ_CBACK)
 %endmacro
 %macro BZ_HROW 0                ; a Hercules row: banks 0-3, the next row
-    lodsw
-    stosw
-    lodsw
-    mov [es:bp + di], ax
-    lodsw
-    mov [es:di + 3ffeh], ax
-    lodsw
-    mov [es:di + 5ffeh], ax
-    add di, byte 90 - 2
+    movsw
+    add di, bp
+    movsw
+    add di, bp
+    movsw
+    add di, bp
+    movsw
+    sub di, ax                  ; (BZ_HBACK)
 %endmacro
+BZ_CBACK    equ 2000h + 2 - 80  ; from past bank 1's word to the next row's
+BZ_HBACK    equ 6000h + 2 - 90  ; from past bank 3's
 bz_col:
     push ax
     push bx
@@ -591,7 +570,7 @@ bz_col:
     sub cx, ax
     push cx                     ; (the rows after it: 0, no wrap)
     mov cx, ax                  ; CX = the run (at least 1, at most 103)
-    mov bp, 1ffeh               ; BP + DI: bank 1's word (bz_row's)
+    mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
     cmp byte [bz_herc], 0
     mov ds, [bz_cseg]           ; (MOV keeps the flags)
     jne .herc
@@ -623,6 +602,7 @@ bz_col:
     shr cx, 1
     shr cx, 1                   ; CX = the whole blocks
     jcxz .ctail
+    mov ax, BZ_CBACK
 .cblk:
     add bx, [BZC_ROWB]          ; the next block row
     mov si, [bx]
@@ -659,6 +639,7 @@ bz_col:
     and dl, 1
     shr cx, 1
     jcxz .htail
+    mov ax, BZ_HBACK
 .hblk:
     add bx, [BZC_ROWB]
     mov si, [bx]
@@ -698,6 +679,7 @@ bz_col:
     ret
 .cch:                           ; AL rows (1..3) of the CGA block at SI
     cmp al, 2
+    mov ax, BZ_CBACK            ; (MOV keeps the flags)
     jb .c1
     je .c2
     BZ_CROW
@@ -707,6 +689,7 @@ bz_col:
     BZ_CROW
     ret
 .hrow:                          ; one Hercules row
+    mov ax, BZ_HBACK
     BZ_HROW
     ret
 
@@ -1152,8 +1135,9 @@ bz_blit:
 ; and each laid group goes into every box that meets it (bz_olay), clipped to
 ; the box: two boxes that overlap hold the same bytes there.  A block row's
 ; records come from OCCIDX in their sorted order (column, then s_C): a binary
-; search finds the first at or right of the first column and the walk stops
-; at the first right of the last.  The records of one block word are a GROUP:
+; search finds the first at or right of the first column - or a HINT does, the
+; place the block row's last search found, proved before it is trusted - and
+; the walk stops at the first right of the last.  The records of one block word are a GROUP:
 ; their laid masks are ANDed (bz_oand) and the word is laid ONCE a box
 ; (bz_olay), so a frame lays at most 3 x 3 words a box whatever the record
 ; counts (128.10.9).  Outside the footprint a box holds the course and the
@@ -1314,45 +1298,32 @@ bz_occ:
     mov cl, al                  ; br, never carried (SPEC.md 128.15.5.1), CH =
     xor di, di                  ; kt; DI = 0 until the row lays a record, then
     push dx                     ; MTAB (bz_oprep).  (DL, the first column, is
-.grp:                           ; the next row's)
-    mov dl, [si]                ; A GROUP: the records of one block word, its
-    xor bx, bx                  ; laid masks ANDed - BX: 0 none laid yet, a
-.rec:                           ; mask's offset, or -1 for bz_omsk
-    cmp cl, [si + 1]
-    jae .skip                   ; ks >= s': beside or in front
-    cmp ch, [si + 2]
-    jae .skip                   ; kt >= t': above it
-    inc word [es:bz_nlay]       ; LAID
-    or di, di
-    jnz .prd
-    call bz_oprep               ; the row's first: its lines, its map row, MTAB
-.prd:
-    or bx, bx
-    jnz .and
-    mov bl, [si + 3]            ; the group's first: its own mask, MTAB[m]
-    xor bh, bh
-    shl bx, 1
-    mov bx, [bx + di]
-    jmp short .skip
-.and:
-    call bz_oand                ; a second or later: ANDed into bz_omsk
+    mov al, [si]                ; the next row's)
+.grp:
+    mov dl, al                  ; A GROUP: the records of one block word (AL,
+    xor bx, bx                  ; read once a record: the walk's and the group's
+.rec:                           ; test), its laid masks ANDed - BX: 0 none laid
+    cmp cl, [si + 1]            ; yet, a mask's offset, or -1 for bz_omsk
+    jb .top                     ; (ks >= s', beside or in front, falls through)
 .skip:
     add si, BZ_REC
     cmp si, bp
-    jae .gend
+    jae .gend                   ; (the row's last group)
     mov al, [si]
     cmp al, dl
     je .rec                     ; the same block word
-.gend:
     or bx, bx
     jz .gnext
     call bz_olay                ; the word's lines laid ONCE a box (128.10.9)
-.gnext:
-    cmp si, bp
-    jae .rdone
     mov al, [si]
+.gnext:
     cmp al, dh
     jbe .grp                    ; the stop: the first right of the last column
+    jmp short .rdone
+.gend:
+    or bx, bx
+    jz .rdone
+    call bz_olay
 .rdone:
     pop dx
 .nrow:
@@ -1374,6 +1345,24 @@ bz_occ:
     pop bx
     pop ax
     ret
+.top:                           ; ks < s': behind it - and under its top?
+    cmp ch, [si + 2]
+    jae .skip                   ; kt >= t': above it
+    inc word [es:bz_nlay]       ; LAID
+    or di, di
+    jnz .prd
+    call bz_oprep               ; the row's first: its lines, its map row, MTAB
+.prd:
+    or bx, bx
+    jnz .and
+    mov bl, [si + 3]            ; the group's first: its own mask, MTAB[m]
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bx + di]
+    jmp short .skip
+.and:
+    call bz_oand                ; a second or later: ANDed into bz_omsk
+    jmp short .skip
 
 ; the hints' words, by the block row mod 4: four words of bss the fill used to
 ; hold its run in (bzgame.inc's bz_fmp .. bz_fln, free since the speed pass)
