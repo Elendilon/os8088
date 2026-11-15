@@ -28,6 +28,8 @@
 ;                      GOAL cell; bz_ghv byte 1 when it is valid (128.11.8.1)
 ;   bz_lvl      4 bytes the arrows' ramp levels 0 .. 8, BZ_K_* order (L R U D)
 ;   bz_hopw     byte   the Hop's window, steps left
+;   bz_bgr      byte   wave 6b (128.17.4.5): the boost's LATE GRACE, steps
+;                      left (0 none); it and bz_hopw count down as one word
 ;   bz_mst      byte   0 none, 1 STUNNED, 2 SHATTERING;  bz_mct its steps left
 ;   bz_sqf      byte   the squash's steps left (128.11.9.3)
 ;   bz_kprev    byte   the last step's key byte
@@ -60,6 +62,13 @@
 ;   bz_onp      byte   carried by the platform: its index + 1, 0 none
 ;   bz_pkick    16 words each prop's last kick step (0FFFAh: never)
 ;   bz_nkick, bz_nknock, bz_ntube words: kicks, knock-backs, captures
+; Wave 6's and 6b's (128.16.4.3, 128.17.4.3; state6, compared at every frame):
+;   bz_btok     byte   the boost's TOKEN: 0, 1 a ground Hop in flight, 2 that
+;                      flight ARMED by a second Space edge (6b)
+;   bz_stf      byte   the STRETCH's steps left;  bz_nboost word boosts
+;   bz_drx, bz_dry bytes the fractional drag's remainders
+;   bz_bgd      word   6b: BOOST less the rebound's gvz where the late grace
+;                      opened (bz_bgr above holds its steps left)
 ; and, the step's own (not the model's): bz_wcen, bz_wckd, bz_wbmp, bz_wkd
 ; (bz_wolf's centre prop, kinds and bumper count), bz_pcn/pcs/pcv (bz_ppos's
 ; cache), bz_cdd, bz_pdoor, bz_pdi, bz_fslab, bz_fair, bz_fnl.
@@ -133,9 +142,11 @@ VAR bz_goal,1
 VAR bz_resp,1
 VAR bz_pokd,1                   ; a harness sets it after POKING the ball (the
                                 ; next step refills the window, then clears it)
-VAR bz_lvl,4                    ; a RESPAWN zeroes bz_lvl .. bz_ghv, 9 bytes
-VAR bz_hopw,1                   ; (bz_step's .respawn writes them as words:
-VAR bz_mst,1                    ; keep the order)
+VAR bz_lvl,4                    ; a RESPAWN zeroes bz_lvl .. bz_ghv, 10 bytes
+VAR bz_bgr,1                    ; (bz_step's .respawn writes them as five words,
+VAR bz_hopw,1                   ; step 1 counts bz_bgr and bz_hopw down as one,
+VAR bz_mst,1                    ; bz_capture zeroes bz_sqf and bz_ghv as one:
+                                ; keep the order)
 VAR bz_mct,1
 VAR bz_sqf,1
 VAR bz_ghv,1
@@ -164,6 +175,8 @@ VAR bz_nlip,2                   ; and RETURNs this play - physics' own, compared
 VAR bz_nspr,2                   ; with the model and read by the sound (128.14.10)
 VAR bz_nret,2
 VAR bz_nboost,2                 ; wave 6 (SPEC.md 128.16.4.3): boosts this play
+VAR bz_bgd,2                    ; wave 6b (128.17.4.5): BOOST less the rebound's
+                                ; gvz, written where the grace opens (never cleared)
 VAR bz_ckpt,1                   ; ...the last flag touched + 1 (0: none, the start)
 VAR bz_ckmat,1                  ; ...the ball a respawn gets (the start's, then
                                 ; the last flag's record +17)
@@ -172,12 +185,12 @@ VAR bz_cksn,1                   ; ...the flags touched, a bit each (their lanes'
 VAR bz_inmo,1                   ; ...1 while the centre is in the cup's mouth
 VAR bz_hid,1                    ; ...1 once the ball has HOLED OUT (not drawn)
 VAR bz_gfl,1                    ; ...the course's BZG1 FLAGS (bz_pinit's copy)
-VAR bz_btok,1                   ; wave 6 (128.16.4.3): the boost's TOKEN, set by
-VAR bz_stf,1                    ; a Hop from the ground; the STRETCH's steps
-VAR bz_drx,1                    ; left; the fractional drag's REMAINDERS, gvx's
-VAR bz_dry,1                    ; and gvy's (128.16.3.1).  A RESPAWN zeroes the
-                                ; four as two words: keep the order
-VAR bz_ppad,1
+VAR bz_btok,1                   ; wave 6 (128.16.4.3): the boost's TOKEN, 1 set
+VAR bz_stf,1                    ; by a Hop from the ground, 2 that flight ARMED
+VAR bz_drx,1                    ; (6b, 128.17.4.2); the STRETCH's steps left;
+VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
+                                ; gvy's (128.16.3.1).  A RESPAWN zeroes the four
+                                ; as two words: keep the order
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_mrec,BZ_MATREC           ; the material's BZ_MATTAB record (bz_pinit)
@@ -238,8 +251,8 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %if BZ_SURF_NORMAL != 0 || BZ_SURF_ICE != 1 || BZ_KFLOOR != 1 || BZ_KGOAL != 3 || BZ_KVOID != 0 || BZ_KWALL != 2
  %error "bz_land's FIRM LEVEL test reads a cell's +2 under one mask (0EDh = 01h): re-derive it"
 %endif
-%if bz_nshat != bz_nstun + 2 || bz_mst != bz_hopw + 1 || bz_mct != bz_hopw + 2 || bz_sqf != bz_hopw + 3 || bz_ghv != bz_hopw + 4
- %error "bz_land and bz_step's .respawn rely on the order of their variables"
+%if bz_nshat != bz_nstun + 2 || bz_mst != bz_hopw + 1 || bz_mct != bz_hopw + 2 || bz_sqf != bz_hopw + 3 || bz_ghv != bz_hopw + 4 || bz_bgr != bz_lvl + 4 || bz_hopw != bz_bgr + 1
+ %error "bz_land, bz_capture and bz_step's .respawn and countdown rely on the order of their variables"
 %endif
 %endmacro
 BZ_PHSN     equ bz_phe - bz_phs
@@ -445,12 +458,23 @@ bz_step:
     and al, bl
     test al, BZ_K_HOP
     jz .hw
+    mov al, [bz_bgr]            ; wave 6b (128.17.4.5): the same edge CONVERTS
+    or al, al                   ; an open grace's rebound into the boost ...
+    jnz .conv
     mov byte [bz_hopw], BZ_HOPWIN
+    cmp byte [bz_btok], 1       ; ...else (128.17.4.2) it ARMS a ground Hop's
+    jne .st                     ; flight, the token 1 -> 2 (a Hop's own edge
+    inc byte [bz_btok]          ; comes here with the token still 0)
     jmp short .st
 .hw:
-    cmp byte [bz_hopw], 0
-    je .st
-    dec byte [bz_hopw]
+    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count
+    or ax, ax                   ; down, AL = bz_bgr and AH = bz_hopw, each to
+    jz .st                      ; 0 (the ordinary step's whole cost is this
+    cmp al, 1                   ; test, as wave 6's of bz_hopw alone)
+    adc al, -1
+    cmp ah, 1
+    adc ah, -1
+    mov [bz_bgr], ax
 .st:                            ; ...then the ball's state - none once it has
     cmp byte [bz_hid], 0        ; HOLED OUT: the keys ran, nothing else does
     jne .ptr2                   ; (128.14.18 item 3)
@@ -479,6 +503,22 @@ bz_step:
     jmp .pst
 .ptr2:
     jmp .end
+.conv:                          ; wave 6b: the LATE GRACE CONVERTS (128.17.4.5)
+    mov cx, BZ_BGRACE           ; on the k-th step after its contact (AL =
+    sub cl, al                  ; bz_bgr, CX = k - 1 = BZ_BGRACE - AL): gvz +=
+    mov ax, [bz_bgd]            ; bgd, and z += bgd for each of the k - 1
+    add [bz_gvz], ax            ; steps the rebound has flown, so the ball is
+    imul cx                     ; where the contact's boost would have it now
+    add [bz_gz], ax
+    adc [bz_gz + 2], dx
+    mov ax, [bz_gz + 1]         ; ztop = z; the grace and the window closed in
+    mov [bz_ztop], ax           ; one word; the boost's own bookkeeping (the
+    xor ax, ax                  ; stretch, no squash; the state's countdown
+    mov [bz_bgr], ax            ; below leaves bz_stf at BZ_STRS - 1, as a
+    mov [bz_sqf], al            ; contact's boost the step after it)
+    inc word [bz_nboost]
+    mov byte [bz_stf], BZ_STRS
+    jmp short .st
     ; ---- 2. forces ----
 .forces:
     test byte [bz_ps], 6        ; wave 3 (SPEC.md 128.12.6.5 step 1): in a tube,
@@ -693,6 +733,7 @@ bz_step:
     add al, BZ_RAD              ; the centre BZ_RAD from the edge, no fraction
     mov [bz_gx + 1], ax
     mov byte [bz_gx], 0
+    mov byte [bz_bgr], 0        ; wave 6b: an edge's clamp closes the grace
     mov ax, [bz_gvx]            ; into the wall: reflected
     or ax, ax
     jns .y
@@ -713,6 +754,7 @@ bz_step:
     add al, 16 - BZ_RAD
     mov [bz_gx + 1], ax
     mov byte [bz_gx], 0
+    mov byte [bz_bgr], 0        ; (6b, every clamp)
     mov ax, [bz_gvx]
     or ax, ax
     jle .y
@@ -736,6 +778,7 @@ bz_step:
     add al, BZ_RAD
     mov [bz_gy + 1], ax
     mov byte [bz_gy], 0
+    mov byte [bz_bgr], 0
     mov ax, [bz_gvy]
     or ax, ax
     jns .corner
@@ -756,6 +799,7 @@ bz_step:
     add al, 16 - BZ_RAD
     mov [bz_gy + 1], ax
     mov byte [bz_gy], 0
+    mov byte [bz_bgr], 0
     mov ax, [bz_gvy]
     or ax, ax
     jle .corner
@@ -828,6 +872,7 @@ bz_step:
     call bz_wrefl
     mov [bz_gvy], ax
 .uy:
+    mov byte [bz_bgr], 0        ; wave 6b: the undo closes the grace
     mov ax, [bz_sgx]            ; undo the move: x and y back, and z (gvz is
     mov [bz_gx], ax             ; as the move found it)
     mov ax, [bz_sgx + 2]
@@ -1042,16 +1087,16 @@ bz_step:
     mov di, bz_nfall            ; a fall's (a RETURN counts bz_nret instead)
 .resp:
     xor ax, ax                  ; wave 2's state zeroed (128.11.8.1): the
-    mov [bz_lvl], ax            ; levels, the window, the ball's state, the
-    mov [bz_lvl + 2], ax        ; squash and bz_ghv; wave 4's bz_inmo
-    mov [bz_hopw], ax
-    mov [bz_mct], ax
+    mov [bz_lvl], ax            ; levels, (6b) the grace, the window, the
+    mov [bz_lvl + 2], ax        ; ball's state, the squash and bz_ghv; wave
+    mov [bz_bgr], ax            ; 4's bz_inmo
+    mov [bz_mst], ax
+    mov [bz_sqf], ax
     mov [bz_inmo], al
     mov [bz_btok], ax           ; wave 6 (128.16.4.3): the token, the stretch
     mov [bz_drx], ax            ; and both remainders; not bz_nboost
     test byte [bz_gfl], BZ_GF_CKPT
     jnz .rflag
-    mov [bz_ghv], al
     call bz_place
 .rdone:
     inc word [di]
@@ -1128,8 +1173,7 @@ bz_step:
 .kr2:
     jmp .key2
 .rflag:                         ; a CKPT course's respawn: the flag's cell or
-    mov [bz_ghv], al            ; the start's, and its ball
-    push di
+    push di                     ; the start's, and its ball
     call bz_rflag
     pop di
     jmp .rdone
@@ -1151,6 +1195,7 @@ bz_step:
     add al, BZ_RAD
     mov [bz_gx + 1], ax
     mov byte [bz_gx], 0
+    mov byte [bz_bgr], 0        ; (6b: a door's clamp too)
     mov ax, [bz_gvx]
     or ax, ax
     jns .wy
@@ -1173,6 +1218,7 @@ bz_step:
     add al, BZ_RAD
     mov [bz_gy + 1], ax
     mov byte [bz_gy], 0
+    mov byte [bz_bgr], 0
     mov ax, [bz_gvy]
     or ax, ax
     jns .ny
@@ -1188,17 +1234,19 @@ bz_step:
 ; TO THE FLOOR: fr = (sx gvx + sy gvy) >> 2, lvz = max(0, fr - gvz), and the
 ; rebound r = (e min(lvz, -gvz)) >> 8, e the surface's floor restitution for
 ; the material (bz_se).  Then, in order: a STUN or a SHATTER (not on a mat);
-; wave 6's BOOST (128.16.4.1: the token, the window open, not stunned, the
-; material's BOOST above the rebound, the centre's grid cell a firm level
-; floor) leaving at BOOST with the stretch and no squash; a Hop at the
-; contact (the window open, not stunned) leaving at
-; max(HOP, r if r >= BMIN else 0) + min(fr, 0); a BOUNCE (r >= BMIN, Grip not
-; held) at r + min(fr, 0); else it lands.  A landing at lvz >= BZ_SQTHR
-; squashes, but a shatter's and a boost's.  Every contact clears bz_btok.
+; the BOOST (128.16.4.1 as wave 6b's 128.17.4.2 has it: the flight ARMED,
+; bz_btok 2, not stunned, and bz_bok's rules 3 - 5) leaving at BOOST with the
+; stretch and no squash; a Hop at the contact (the window open, not stunned)
+; leaving at max(HOP, r if r >= BMIN else 0) + min(fr, 0); a BOUNCE (r >=
+; BMIN, Grip not held) at r + min(fr, 0), which OPENS the late grace when the
+; token was 1 (unarmed), the ball not stunned and rules 3 - 5 hold
+; (128.17.4.5); else it lands.  A landing at lvz >= BZ_SQTHR squashes, but a
+; shatter's and a boost's.  Every contact clears bz_btok and closes the grace.
 ; DS = ours.  Preserves BX and SI.
 ; Clobbers AX, CX, DX, DI, BP.
 ; -----------------------------------------------------------------------------
 bz_land:
+    mov byte [bz_bgr], 0        ; wave 6b: every contact closes the grace
     push bx
     call bz_frate               ; AX = fr, the floor's own rate (C's slopes)
     pop bx
@@ -1269,12 +1317,15 @@ bz_land:
     jle .base
     xor di, di
 .base:
+    cmp byte [bz_mst], 0        ; stunned: a bounce or a landing, nothing else
+    jne .bnc
+    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the
+    jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =
+    call bz_bok                 ; BOOST); a failing test is the contact Hop
+    jc .boost                   ; when the window is open, with no cue
+.hopc:
     cmp byte [bz_hopw], 0       ; 3. a HOP AT THE CONTACT: max(HOP, that),
     je .bnc                     ; never a sum (O13)
-    cmp byte [bz_mst], 0
-    jne .bnc
-    cmp byte [bz_btok], 0       ; 2a. (wave 6) the token: the first contact
-    jne .boost                  ; of a Hop from the ground (128.16.4.1)
 .chop:
     mov ax, [bz_mrec + BZM_HOP]
     cmp ax, bp
@@ -1290,6 +1341,11 @@ bz_land:
     test byte [bz_kstep], BZ_K_GRIP
     jnz .ground
     inc word [bz_nbnc]
+    mov al, [bz_btok]           ; wave 6b (128.17.4.5): an UNARMED first
+    dec ax                      ; contact (the token 1), not stunned, may
+    or al, [bz_mst]             ; open the late grace (.grace, out of line)
+    jz .grace
+.bn:
     mov ax, bp
 .leave:                         ; still airborne, from this height
     add ax, di
@@ -1310,23 +1366,44 @@ bz_land:
     mov byte [bz_sqf], BZ_SQSTEPS
 .out:
     ret
-.boost:                         ; 2a. the BOOST (wave 6, 128.16.4.1), the
-    mov ax, [bz_mrec + BZM_BOOST] ; window open and not stunned (.base's): rules
-    cmp bp, ax                  ; 3 and 5 in one UNSIGNED compare - the
-    jae .chop                   ; rebound rr (BP) under BOOST, never so when
-    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID
-    and dx, (BZ_FL_OBS << 8) | 0edh ; cell, never the lift's slab (whose shaft
-    cmp dx, 1                   ; carries OBS): OBS clear (+3), FLOOR or GOAL
-    jne .chop                   ; with a `normal` or `ice` surface (+2 AND
-    cmp byte [bz_nbr + BZN_C + 1], 0 ; 0EDh is 01h: kind 1 or 3, surface 0
-    jne .chop                   ; or 1), level (+1, both slopes 0); a failing
-                                ; test is a contact Hop, with no cue
+.boost:                         ; 2a. the BOOST (128.16.4.1, 128.17.4.2;
+                                ; AX = BOOST, bz_bok's)
     mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds
     mov ax, [bz_gz + 1]         ; no rate), ztop = z, the window closed; the
     mov [bz_ztop], ax           ; token spent and the STRETCH's steps set in
     mov byte [bz_hopw], 0       ; one word; and NO squash on this contact
     inc word [bz_nboost]        ; (128.16.4.4: sqf keeps what it held)
     mov word [bz_btok], BZ_STRS << 8
+    ret
+.grace:                         ; ...when rules 3 - 5 pass: bz_bgr =
+    call bz_bok                 ; BZ_BGRACE and bz_bgd = BOOST less the
+    jnc .bn                     ; rebound's gvz, r + min(fr, 0)
+    sub ax, bp
+    sub ax, di
+    mov [bz_bgd], ax
+    mov byte [bz_bgr], BZ_BGRACE
+    jmp short .bn
+
+; bz_bok - the boost's rules 3 - 5 at a contact (128.16.4.1; bbcourse.Physics's
+; _boost_ok), read by the boost and by the late grace's opening (128.17.4.5):
+; rules 3 and 5 in one UNSIGNED compare - the rebound rr (BP, r if r >= BMIN
+; else 0) under BOOST, never so when BOOST is 0 - and rule 4 on the centre's
+; GRID cell, never the lift's slab (whose shaft carries OBS): OBS clear (+3),
+; FLOOR or GOAL with a `normal` or `ice` surface (+2 AND 0EDh is 01h: kind 1
+; or 3, surface 0 or 1), level (+1, both slopes 0).  -> CF = 1 when all three
+; hold, AX = BOOST.  Clobbers DX.
+bz_bok:
+    mov ax, [bz_mrec + BZM_BOOST]
+    cmp bp, ax
+    jae .no                     ; (CF 0)
+    mov dx, [bz_nbr + BZN_C + 2]
+    and dx, (BZ_FL_OBS << 8) | 0edh
+    cmp dx, 1
+    jne .no
+    cmp byte [bz_nbr + BZN_C + 1], 1 ; CF = 1 when both slopes are 0
+    ret
+.no:
+    clc
     ret
 
 ; bz_toff - TAKE OFF (128.10.7.3, and the Hop's, 128.11.8.6): airborne,
@@ -1506,6 +1583,7 @@ bz_prule:
     mov [bz_btok], dl           ; wave 6: the launch spends a ground Hop's
 .sl:                            ; token (128.16.4.1 rule 1; a contact's
                                 ; launch found it spent already)
+    mov byte [bz_bgr], 0        ; wave 6b: a spring closes the grace
     inc word [bz_nspr]
 .launched:                      ; the shadow's floor for the now airborne ball
     mov byte [bz_ghv], 1        ; (its cell solid: BX the h4)
@@ -1807,9 +1885,9 @@ bz_capture:
     mov [bz_gvy], ax
     mov [bz_gvz], ax
     mov [bz_air], al
-    mov [bz_sqf], al
-    mov [bz_btok], al           ; wave 6: a capture spends the boost's token
-    mov [bz_ghv], al
+    mov [bz_sqf], ax            ; (and bz_ghv)
+    mov [bz_btok], al           ; wave 6: a capture spends the boost's token,
+    mov [bz_bgr], al            ; and (6b) closes the grace
     mov [bz_onp], al
     mov [bz_tseg], al
     mov di, [es:si + BZP_TSEGS]
@@ -2247,6 +2325,7 @@ bz_circle:
     mov ax, [bz_nstep]
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
+    mov byte [bz_bgr], 0        ; wave 6b: a kick closes the grace
     ret
 .out2:
     pop ax
@@ -2439,6 +2518,7 @@ bz_corner:
     lea si, [bz_nbr + bx]
     call bz_blocks
     jnc .out
+    mov byte [bz_bgr], 0        ; wave 6b: the corner's push closes the grace
     mov bl, BZ_EBUMPER          ; its restitution, kept on the stack
     cmp byte [si + 2], (BZ_SURF_BOUNCE << 4) | BZ_KWALL
     je .e

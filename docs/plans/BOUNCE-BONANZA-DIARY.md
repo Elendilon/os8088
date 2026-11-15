@@ -2168,3 +2168,131 @@ it, each ball's `K` and `ACC`.
 [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md): what to try on the
 PLAYGROUND, both ladders, every tunable with its limits, and how a retune
 is asked for and checked before it is committed.
+
+## 2026-11-15 (wave 6b, the gate 1 retune: built, measured, and held)
+
+The owner played wave 6's playtest disk and wrote back four things
+(SPEC.md 128.17, verbatim there): braking "a bit high all around, lets try
+6/3/1"; a boost they could "only get to bounce maybe 1 out of 20 tries and
+never when I'm moving"; 3-tile gaps "probably fine, if we design with it in
+mind"; and a camera that "bops back and forth" at the bottom of MILL's
+ramp, with a transition out of MILL's chute that "slows down before it then
+quickly moves over". Wave 6b is the answer to each, and this entry is how
+it was built and what the final pass measured.
+
+**The diagnosis came first, on the host.** Scratch copies of the model at
+`4d69985c` reproduced the owner's experience before anything changed. The
+boost's window closed ON the contact step and had no late side: a press
+one step late did nothing, and a press aimed at the landing the player SEES
+falls one or two steps late, because the display shows a contact a frame
+or two after its step. Rolling did not move the contact, but the camera's
+pans dropped the CGA to half rate, which made presses later still. The
+camera's back-and-forth was GLIDE's trailing-edge target (a few pixels back
+swung the whole lead) re-aimed from the ball's own speed at every apex; the
+chute's "slow, then quick" was the heavy rule stopping a pan with no limit
+(30 frames at MILL's chute, 246 on PEAK).
+
+**The boost became a press in the flight, with a late grace.** A second
+Space press any time in the Hop's flight arms it; the first contact boosts
+if armed and the floor is a plain level one. A press up to three steps
+AFTER an unarmed bouncing contact converts the rebound into the boost
+exactly, as if it had been armed (`gvz` gains the difference, and `gz` the
+height it would have gained since). On the model's timing-error maps a
+player aiming at the landing now boosts 81% of the time against wave 6's
+43% (65% while moving, against 33%), and a mid-flight tapper 95% against
+25%. Holding
+Space through the landing does nothing, so a Hop held onto a ledge never
+boosts by accident; whether "holding" was what the owner meant is a
+question back to them.
+
+**Two camera designs were judged, and one was built.** The first sketch
+kept GLIDE and patched it. The second, LATTICE, replaced it: a band with
+return hysteresis (a few pixels back move nothing), targets on a lattice
+of whole columns and 32-line rows, a pan that only extends forward and
+whose rate only rises, the urgent edge at half the window, tubes pre-aimed
+at their exit, and the heavy rule a DELAY of at most three steps instead
+of a stop. Authored "transition points" (the owner's first suggestion)
+were prototyped as `view` statements and measured; the rule alone met
+every case, so they were not built. On the model LATTICE took reversals
+from 84 to 7, stalls from 9 to 0, the dither test's reversals from 186 to
+0, and the CGA's priced pan work by 22% outside BENCH. The review moved the
+urgent edge from the window's width to half of it: at the full width it
+coincided with the return band and made every return pan a run of column
+frames.
+
+**The guest matches the model exactly.** The physics (`bz_step`, every
+state byte with the grace's two) was cross-checked under unicorn on every
+course, and on the glass `bonanzaphys`'s twenty boost and Grip replays
+equal the model frame for frame on both cards. The camera (`bz_camera`,
+LATTICE) equals `bbcourse.Glide` on every frame of the CAMERA leg's seven
+scenarios on both cards, 11,666 frames, with MILL's ramp bottom reversing
+zero times. Its worst frame costs 6,405 cycles, 11% over its price from
+the instructions and inside the row's bound.
+
+**What the final pass measured, and why the disk is held.** The decision
+the owner's smoothness rule needed was written down before the
+measurement: LATTICE ships on round 2's disk if, on MILL's route demo, the
+misses a second AND the longest run of misses are no worse than wave 6's
+beyond the spread of three runs, on both cards. They were measured like
+for like (the same key bytes, no Space or Grip in them). LATTICE takes the
+CGA's misses from about 9.2 to 5.1 a second and its half-rate stretches
+from 16 - 20 a run to 5 - 10, and wins everything on the Hercules. But in
+two CGA runs of three one stretch is LONGER: 39 and 46 frames against wave
+6's worst 29. It is B's ramp descent, where the ball rolls two steps a
+frame, the row pan turns fast at the urgent edge and stays fast, and a
+column joins every other frame: more work than a CGA refresh holds, every
+frame, for over a second. The contract had named this case as a risk (the
+half-rate pass's MILL exception). So by the rule written in advance the
+disk is held, and the figures go to the owner with three choices: ship
+LATTICE as it is, hold it for a change at that descent, or ship wave 6's
+camera with 6b's boost and Grip. The same descent is why `bonanzawheel`'s
+rotor-rate check now fails on the CGA (86 - 89% of a rotor's pose changes
+shown, 90% asserted): the wheel gets no time on a frame that moves two
+rows.
+
+**The rows' own fixes.** Four rows failed the first soak, and three of the
+four were their harness meeting LATTICE's different frames: the ring's
+MILL benchmark no longer saw the slab's box (its checked frames now come
+from the poked play's PWAIT scene, which has them); the replay's pilot left
+the ball ricocheting among MILL's bumpers (a second rescue now gives up a
+waypoint after 200 frames on it); and `bonanzaperf`'s new fall leg ended at
+FIRST's goal (a replay ends there; the leg now runs FIRST's autopilot as
+the benchmark, where the goal ends nothing, and reports all nine falls).
+`bonanzaperf`'s 3b check that no one-step frame of BENCH misses now
+applies to frames that pan nothing, since BENCH's pans are LATTICE's now.
+One failure is real and left open: a wheel lane shown late on PEAK's
+Hercules demo (`bz_rwlate` 1), an old race (128.13.17 item 6) that LATTICE
+made reproducible.
+
+**The arms.** Seventy emulator arms ran once, every one the wave added or
+carried; 67 went red at their own check at once. The camera's cap arm,
+whose scenario had been chosen on the model at the nominal frame rate,
+stayed green on MILL, where the guest's own pacing never holds the camera
+long; it was re-found on PEAK's lift, where the shipped camera holds at
+its cap, and went red there. One wheel arm needed a second run for the
+Hercules' phase, and one performance arm was retired from `bonanzaperf`
+(its overrun never happens under LATTICE's MILL frames) and kept where it
+still bites, in `bonanzawheel`.
+
+Round 2's notes, the held-disk figures and the play list are at the top of
+[BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md).
+
+## 2026-11-15 (wave 6b, round 2: the owner plays it and keeps it)
+
+Six hours into the wave the owner asked for the build to test the physics
+before the independent verify had finished, and got the final pass's disks
+as a preview. The verdict came back in three sentences: *"Camera end
+position is much better, feels natural. Keep that. Double bounce with
+"preprime" works. Grip is better; less overpowered."*
+
+That settled the one decision the measurements could not. The final pass
+had HELD the disk by 6b.7's rule: LATTICE cut `MILL`'s CGA misses a second
+by 45% but its longest run of misses went past wave 6's spread, so the
+rule handed the choice to the owner. Played on the target, the view's
+resting position is what reads, and the owner kept it. The longest runs,
+and the two rows that moved with them (`bonanzawheel` (7) and the
+Hercules' `bz_rwlate` on `PEAK`), are wave 10's, with their measurements;
+no assertion was loosened to make them pass.
+
+Observed: the verify's clean rebuild produced disks byte-identical to the
+preview (md5 compared), so what the owner played is what was committed.

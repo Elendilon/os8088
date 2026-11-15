@@ -23,6 +23,9 @@
 ;                      frame on demand, bonanzawheel)
 ;   bz_hvoff    byte   a harness's: 1 forces bz_heavy to 0 (wave 2's camera,
 ;                      the BENCH A/B, SPEC.md 128.12.9)
+;   bz_camscr   byte   a harness's: nonzero makes GLIDE a SCRIPT, the eight
+;                      directions in turn (wave 6b, SPEC.md 128.17.6.7; bzgame.inc
+;                      bz_camera); 0 in play.  Clearing it is a cut
 ;   bz_heavy    byte   this frame's level (128.12.7, 128.13.6): 2 a contact
 ;                      group, 1 the slab near an edge, 0
 ;   bz_hedr,bz_hedc byte the edge clause: the ball's new footprint near the top
@@ -120,7 +123,7 @@ BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
 VAR bz_hold,1
 VAR bz_hvoff,1
 VAR bz_heavy,1
-VAR bz_kpar,1                   ; GLIDE's x parity before the pan (bz_hvcam)
+VAR bz_camscr,1                 ; a harness's: the SCRIPTED camera (128.17.6.7)
 VAR bz_hedr,1
 VAR bz_hedc,1
 VAR bz_ctype,1
@@ -145,7 +148,10 @@ VAR bz_pflag,1                  ; bit 0 the slab's box, bit 1 the slab near an e
                                 ; bit 2 the slab's box is bz_crect2 (beside a post),
                                 ; bit 3 its TRUE footprint is out of the shown
                                 ; window and its drawn one in it (leaving: it
-                                ; cannot wait, SPEC.md 128.13.4.3)
+                                ; cannot wait, SPEC.md 128.13.4.3); bits 4 - 7
+                                ; the shown slab near the left, right, top,
+                                ; bottom edge, no ball-side gate (wave 6b's
+                                ; heavy rule, 128.17.6.3: BZ_PF_NEAR*)
 VAR bz_pov,1                    ; the slab this frame: 1 OVER the ball, 0 under,
                                 ; FFh not on the card (bz_povr)
 VAR bz_cold,1                   ; the contact lane's drawn pose before its sync,
@@ -2960,30 +2966,70 @@ bz_pxwin:
     clc
     ret
 
-; AX = the shown slab's line: CF = 1 when it is NEAR the window's edge ON THE
-; BALL'S SIDE (128.12.7: within two card rows of its top or bottom, a word
+; AX = the shown slab's TRUE line: CF = 1 when it is NEAR the window's edge ON
+; THE BALL'S SIDE (128.12.7: within two card rows of its top or bottom, a word
 ; column of its left or right - the top only while the ball's footprint is in
 ; the window's upper half, the bottom only in its lower half, the left only
-; in its left half, the right only in its right half: GLIDE pans toward the
-; ball, so a strip can enter only on that side), so an entering strip may
-; meet it.  Preserves all but the flags.
+; in its left half, the right only in its right half), so an entering strip
+; may meet it.  Wave 6b (SPEC.md 128.17.6.3): the four edges' facts are
+; bz_pflag bits 4 - 7 with NO ball-side gate - the heavy rule's level 1
+; reads the bit of the edge a pan heads for - and the clause is those bits
+; masked by the ball's side.  Preserves all but the flags.
 bz_pnear:
     push ax
     push cx
     push dx
-    push ax
-    xor cx, cx                  ; CL bit 0: the ball's upper half, bit 1 its
-    mov dx, [bz_py]             ; left (2 x its centre against 2 x the
-    shl dx, 1                   ; window's)
+    xor cx, cx                  ; CL = the near-edge bits
+    mov dx, [bz_rl]
+    shl dx, 1                   ; two card rows
+    add dx, [bz_pwy]
+    cmp ax, dx
+    jge .b
+    or cl, BZ_PF_NEART
+.b:
+    neg dx                      ; DX = pwy + BZ_LINES - 2 rl: the window's
+    add dx, BZ_LINES            ; foot less two card rows
+    add dx, [bz_pwy]
+    add dx, [bz_pwy]
+    add ax, BZ_PLH
+    cmp ax, dx
+    jle .l
+    or cl, BZ_PF_NEARB
+.l:
+    mov ax, [bz_pwc]
+    inc ax
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    cmp [bz_pox], ax
+    jge .r
+    or cl, BZ_PF_NEARL
+.r:
+    mov ax, [bz_pwc]
+    add ax, [bz_W]
+    dec ax
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov dx, [bz_pox]
+    add dx, BZ_PLW
+    cmp dx, ax
+    jle .side
+    or cl, BZ_PF_NEARR
+.side:
+    or [bz_pflag], cl
+    mov ch, BZ_PF_NEARB | BZ_PF_NEARR ; CH = the ball's side's edges (2 x its
+    mov dx, [bz_py]             ; centre against 2 x the window's): the
+    shl dx, 1                   ; bottom or the top ...
     add dx, BZ_BAL_ROWS
     mov ax, [bz_pwy]
     shl ax, 1
     add ax, BZ_LINES
     cmp dx, ax
     jge .lr
-    or cl, 1
+    xor ch, BZ_PF_NEARB | BZ_PF_NEART
 .lr:
-    mov dx, [bz_px]
+    mov dx, [bz_px]             ; ...the right or the left
     and dl, 0fch
     shl dx, 1
     add dx, BZ_FOOTW
@@ -2994,51 +3040,11 @@ bz_pnear:
     shl ax, 1
     shl ax, 1
     cmp dx, ax
-    jge .side
-    or cl, 2
-.side:
-    pop ax
-    mov dx, [bz_rl]
-    shl dx, 1                   ; two card rows
-    test cl, 1
-    jz .bot
-    add dx, [bz_pwy]
-    cmp ax, dx
-    jl .yes
-    jmp short .x
-.bot:
-    neg dx
-    add dx, [bz_pwy]
-    add dx, BZ_LINES
-    add ax, BZ_PLH
-    cmp ax, dx
-    jg .yes
-.x:
-    test cl, 2
-    jz .rt
-    mov ax, [bz_pwc]
-    inc ax
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    cmp [bz_pox], ax
-    jl .yes
-    jmp short .no
-.rt:
-    mov ax, [bz_pwc]
-    add ax, [bz_W]
-    dec ax
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    mov dx, [bz_pox]
-    add dx, BZ_PLW
-    cmp dx, ax
-    jg .yes
-.no:
-    clc
-    jmp short .out
-.yes:
+    jge .t
+    xor ch, BZ_PF_NEARR | BZ_PF_NEARL
+.t:
+    test cl, ch                 ; (CF = 0)
+    jz .out
     stc
 .out:
     pop dx
@@ -3173,66 +3179,6 @@ bz_hv1:
     jz .x
     stc
 .x:
-    ret
-
-; -----------------------------------------------------------------------------
-; bz_hvcam - THE HEAVY FRAME in GLIDE (SPEC.md 128.12.7, bbcourse.Glide's
-; heavy branch), after its step is clamped: level 2 withholds every row and
-; the column, level 1 all rows but one and the column; each axis is released
-; when bz_props found the ball's new footprint near that edge.  A withheld
-; column keeps the pan on at its old parity, a withheld row keeps the y pan
-; on: the next light frame takes them.  Counts bz_nhvy, bz_nhedge, bz_nwc,
-; bz_nwr.  Clobbers AX, BX, CX, DX.
-; -----------------------------------------------------------------------------
-bz_hvcam:
-    mov al, [bz_heavy]
-    or al, al
-    jz .out
-    inc word [bz_nhvy]
-    mov ah, [bz_hedr]
-    or ah, [bz_hedc]
-    jz .col
-    inc word [bz_nhedge]
-.col:
-    cmp byte [bz_hedc], 0
-    jne .rows
-    mov dx, [bz_c0]
-    cmp dx, [bz_c0n]
-    je .rows
-    mov [bz_c0n], dx
-    inc word [bz_nwc]
-    mov byte [bz_gpx], 1
-    mov ah, [bz_kpar]
-    mov [bz_gpar], ah
-.rows:
-    cmp byte [bz_hedr], 0
-    jne .out
-    mov dx, [bz_R0n]
-    sub dx, [bz_R0]             ; DX = the step, d
-    mov cx, 1                   ; CX = the rows allowed: 1, or 0 at level 2
-    cmp al, 2
-    jne .lim
-    dec cx
-.lim:
-    mov bx, dx
-    sub bx, cx
-    jle .lo
-    add [bz_nwr], bx            ; d - lim withheld
-    mov dx, cx
-    jmp short .set
-.lo:
-    mov bx, dx
-    add bx, cx
-    jge .out
-    neg bx
-    add [bz_nwr], bx            ; -lim - d withheld
-    mov dx, cx
-    neg dx
-.set:
-    add dx, [bz_R0]
-    mov [bz_R0n], dx
-    mov byte [bz_gpy], 1
-.out:
     ret
 
 ; bz_hspin - a harness's LATE FRAME (bz_hold, SPEC.md 128.12.5.6): a spin on
