@@ -142,14 +142,18 @@ bz_vinit:
     mov [bz_ffail], al
     mov [bz_fwant], al
     mov [bz_hbad], al
+    mov [bz_clkh], al
     mov [bz_nsplit], ax
     mov ax, BZ_RDIV             ; the rate's periods, all the sub-tick's
     mov [bz_hlen], ax
     mov [bz_hnext], ax
     call bz_clk_rebase
-    call OSAPI_CPU_INFO         ; FINE: a CGA, and not kern_mega's protected
-    and ah, CPU_F_PM            ; mode, whose reflected int 16h would hold the
-    or ah, [bz_herc]            ; schedule's interrupts (SPEC.md 53.5.2)
+    call OSAPI_CPU_INFO         ; FINE: a CGA, not kern_mega's protected mode
+    and ah, CPU_F_PM            ; (whose reflected int 16h would hold the
+    or ah, [bz_herc]            ; schedule's interrupts, SPEC.md 53.5.2), and
+    mov al, [bz_brate]          ; a RATE bracket (a play started in a FINE
+    xor al, 1                   ; mode, 128.21.3)
+    or ah, al
     mov [bz_nofine], ah
     mov ax, [bz_fsi + FSI_SEG]
     mov [bz_vseg], ax
@@ -303,6 +307,9 @@ bz_vr:
     jb .spin
     inc word [bz_tos]           ; no retrace at all: go on regardless
     mov byte [bz_wvok], 0
+    cmp byte [bz_hon], 1        ; ...and under FINE that is a lost structure
+    jne .done                   ; (no sync): mode 4's back, FINE again
+    mov byte [bz_hbad], 1       ; (bz_fswitch, SPEC.md 128.21.3)
     jmp short .done
 .rose:
     cmp byte [bz_r0p], 0        ; a box at window row 0 (bz_r0pend): no
@@ -350,15 +357,16 @@ bz_vr:
     ret
 
 ; bz_fswitch - FINE on or off as this frame's mode asks (SPEC.md 128.21.2),
-; before the retrace wait.  ON (a CGA, the hook idle): at a standard frame's
-; sync rise frame A's registers (R4 8, R7 1, R6 0, R5 22, the gate off) - the
-; row counter is past R4, so it runs to 127, wraps, syncs on row 1 and ends
-; at row 8 and its adjust, exactly an A - then FSXW_ANCHOR (BX = BZ_FANF, CX = BZ_FANL2)
-; takes that row-1 sync, and at its end (A's last row begun) frame B's
-; registers, slot 0's; the hook takes it from slot 1.  A start that does not
-; anchor puts the standard frame back at once (the A in progress becomes one
-; blank frame) and counts in bz_ffail; four, and FINE is given up this play.
-; OFF: bz_hoff for the hook (bz_hook closes at its next slot 0 with phase 0),
+; before the retrace wait.  ON (a CGA, a RATE bracket, the hook idle):
+; FSXW_ANCHOR at mode 4's own sync (BX = BZ_FAN0, CX = BZ_FAN0B) - its picture
+; is 38 lines after the sync, two below B's at phase 0, so nothing is written
+; here and nothing leans on the 6845's row counter running past R4; the hook's
+; first call (W0, ~t 120, inside the next frame's rows) makes that frame B -
+; R4, R7 and its adjust - and its W1 / W2 schedule follows.  A sync that does not anchor (AL = 0) tries the next
+; frame; a refusal counts in bz_ffail - four, and FINE is given up this play.
+; A lost period (bz_hbad, from the hook or a retrace wait that timed out under
+; FINE): mode 4's frame back (bz_foff) and FINE again from the next wait.
+; OFF: bz_hoff for the hook (bz_hook closes at its next W2 with phase 0),
 ; LATTICE back in rows.  Preserves all but the flags.
 bz_fswitch:
     push ax
@@ -383,71 +391,27 @@ bz_fswitch:
     jne .out
     cmp byte [bz_ffail], 4
     jae .out
-    mov dx, 3dah
-    call bz_vlow                ; a standard frame's sync: its RISE
-    jc .bad
-    call bz_vhigh
-    jc .bad
-    mov dl, 0d4h
-    mov ax, 0804h               ; frame A: R4 8...
-    out dx, ax
-    mov ax, 0107h               ; R7 1 (112 -> 1 at row 112: no phantom)
-    out dx, ax
-    mov ax, 0006h               ; R6 0
-    out dx, ax
-    mov ax, 1605h               ; R5 22
-    out dx, ax
-    mov dl, 0d8h
-    mov al, 22h                 ; the gate off
-    out dx, al
     xor ax, ax
     mov [bz_phn], al
     mov [bz_hph], al
-    mov al, FSXW_ANCHOR
-    mov bx, BZ_FANF             ; the schedule: W2, then W1 (128.21.2)
-    mov cx, BZ_FANL2
-    call OSAPI_FSX_WAIT         ; this sync ends, the wrapped row 1's begins
-    jc .back
+    mov al, FSXW_ANCHOR         ; anchored at mode 4's OWN sync: its picture
+    mov bx, BZ_FAN0             ; starts 38 lines after it, two below FINE's
+    mov cx, BZ_FAN0B            ; B at phase 0 - so nothing is written here;
+    call OSAPI_FSX_WAIT         ; the hook's first call (W0, ~t 120, inside
+    jc .bad                     ; the next frame's rows) makes that frame B
     or al, al
-    jz .back
-    mov word [bz_hlen], BZ_FANF ; the clock's periods, the anchor's: ~17 lines
-    mov word [bz_hnext], BZ_FANL2 ; before the schedule's first IRQ0, W2
-    mov byte [bz_hj], 0
-    mov dx, 3dah
-    call bz_vlow                ; A's sync over: its last row has begun
-    mov dl, 0d4h
-    mov ax, 6304h               ; frame B: R4 99, R7 126, R6 100
-    out dx, ax
-    mov ax, 7e07h
-    out dx, ax
-    mov ax, 6406h
-    out dx, ax
-    mov dl, 0d8h
-    mov al, 2ah
-    cmp byte [bz_blk], 0
-    jne .lit
-    out dx, al
-.lit:
-    call bz_clk_rebase          ; the anchor restarted channel 0
+    jz .out                     ; (not this sync: the next frame's wait)
+    pushf
+    cli
+    mov word [bz_hlen], BZ_FAN0 ; the clock's periods, the anchor's
+    mov word [bz_hnext], BZ_FAN0B
+    mov byte [bz_hj], 2         ; the hook's first call is W0
     mov byte [bz_hon], 1
+    mov byte [bz_clkh], 1       ; (the clock's heavy sampler from here)
+    popf
+    call bz_clk_rebase          ; the anchor restarted channel 0
     mov al, 1
     jmp short .lat
-.back:
-    mov ax, BZ_RDIV             ; not anchored: the sub-tick's periods still
-    mov [bz_hlen], ax           ; (nothing re-timed them), and mode 4's frame
-    mov [bz_hnext], ax          ; back (R4 127,
-    mov ax, 7f04h               ; R7 112, R6 100, R5 6), the A in progress
-    out dx, ax                  ; one blank frame
-    mov ax, 7007h
-    out dx, ax
-    mov ax, 6406h
-    out dx, ax
-    mov ax, 0605h
-    out dx, ax
-    mov dl, 0d8h
-    mov al, 2ah
-    out dx, al
-    call bz_clk_rebase
 .bad:
     inc byte [bz_ffail]
     jmp short .out
@@ -504,27 +468,6 @@ bz_foff:
     pop dx
     pop ax
 .x:
-    ret
-
-; bz_vlow, bz_vhigh - spin until 3DAh bit 3 is LOW / HIGH (DX = 3DAh), bounded
-; (65,536 reads, ~0.4 s): CF = 1 timed out.  Clobber AX, CX.
-bz_vlow:
-    mov ah, 0
-    jmp short bz_vspin
-bz_vhigh:
-    mov ah, 8
-bz_vspin:
-    xor cx, cx
-.l:
-    in al, dx
-    and al, 8
-    cmp al, ah
-    je .ok
-    loop .l
-    stc
-    ret
-.ok:
-    clc
     ret
 
 ; -----------------------------------------------------------------------------

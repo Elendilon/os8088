@@ -24,6 +24,13 @@
 # "It was easier" is not one: bytes on every 8088's disk are the cost.
 
 # --- the fail-safes ---------------------------------------------------------
+apps/bonanza/bzgame.inc 1       # THE SHIPPED BUILD REFUSING A MODE:
+    # bz_cnext's `and ah, CPU_F_PM` - on the desktop, C skips the FINE camera
+    # modes on kern_mega, whose reflected int 16h would hold FINE's two
+    # interrupts a refresh (SPEC.md 128.21, 53.5.2). There is no arm: the
+    # experiment is real mode's, and kern_mega plays every other mode
+apps/bonanza/bzvideo.inc 1      # the same refusal at the bracket: bz_vinit's
+    # bz_nofine (SPEC.md 128.21), for a play entered with FINE chosen
 
 apps/os88spk.inc 1              # THE SHIPPED BUILD REFUSING THE TIER:
     # os88spk_go's `test ah, CPU_F_PM / jnz .pm`, where .pm is a bare

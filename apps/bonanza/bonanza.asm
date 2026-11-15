@@ -608,10 +608,24 @@ bz_launch:
 .run:
     mov byte [bz_err], 0
     mov bx, [bz_win]
-    mov ax, bz_fullscreen
-    mov cx, FSXF_RATE           ; SPEC.md 128.21.3: 8 periods a CGA frame and
-    mov dx, BZ_RDIV             ; a hook on them, the clock virtual sub-ticks
-    mov di, bz_hook             ; (FASTTICK's 54.6 Hz steps exactly)
+    mov ax, bz_fullscreen       ; THE BRACKET (SPEC.md 128.21.3): a play that
+    mov cx, FSXF_FASTTICK       ; starts in a FINE mode on a CGA takes
+    mov byte [bz_brate], 0      ; FSXF_RATE and the hook; every other launch
+    cmp byte [bz_herc], 0       ; - GLIDE, TRICKLE, SPLIT, the B benchmark,
+    jne .bk                     ; a Hercules - FASTTICK as it always did, so
+    cmp byte [bz_mode], 1       ; what does not use FINE pays nothing for it
+    je .bk
+    mov dl, [bz_cmode]
+    cmp dl, BZ_CM_FINE
+    je .br
+    cmp dl, BZ_CM_FSPLIT
+    jne .bk
+.br:
+    mov cx, FSXF_RATE
+    mov dx, BZ_RDIV
+    mov di, bz_hook
+    mov byte [bz_brate], 1
+.bk:
     call OSAPI_FSX_RUN
     jc .nofs
     mov byte [bz_pgo], 0        ; the kernel's restore painted the face whole

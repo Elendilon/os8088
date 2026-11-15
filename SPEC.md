@@ -268344,14 +268344,28 @@ sits on the glass:
 
 | frame | R4 | R5 | R6 | R7 | what is on the glass |
 |---|---|---|---|---|---|
-| **A** | `8 + P` | `22 - P` | 0 | 1 | nothing: its first scan line, which R6 = 0 does not blank, behind the video gate (3D8h 22h); vertical sync on its row 1 |
-| **B** | 99 | `22 - P` | 100 | 126 | the window: 100 rows, its bottom border the adjust |
+| **A** | `7 + P` | `22 - P` | 0 | 1 | nothing: its first scan line, which R6 = 0 does not blank, behind the video gate (3D8h 22h); vertical sync on its row 1 |
+| **B** | 100 | `22 - P` | 100 | 126 | the window: rows 0 - 99; row 100 is R6's, which blanks it AND the adjust after it |
 
-`A + B = 2 (9 + P) + (22 - P) + 200 + (22 - P) = 262` for P = 0 and 1, and
-the window's first line is `38 + P` lines after the sync's start: P = 0 is
-mode 4's own position, so `BZ_LBLC`, the wheel's beam and 128.9's rules keep
-their meaning, and P = 1 one line lower. MEASURED (`bonanzafine`): the window
-at line 38 / 39 of MartyPC's raster, every refresh 262 lines. The camera's
+`A + B = 2 (8 + P) + (22 - P) + 202 + (22 - P) = 262` for P = 0 and 1, and
+the window's first line is `36 + P` lines after the sync's start - two above
+mode 4's own 38, so turning FINE on moves the picture up two lines once
+(`BZ_LBLC`, the wheel's beam and 128.9's rules are reckoned in lines from the
+window's top and keep their meaning). MEASURED (`bonanzafine`): the window at
+line 36 / 37 of MartyPC's raster, every refresh 262 lines.
+
+**B is 101 rows, not 100**: a 6845 turns the display off when its row
+counter EQUALS R6, so a frame of rows 0 - 99 with R6 = 100 never turns it off
+- its adjust lines are DISPLAYED (the spike had found exactly that for A, which
+is why A has R6 = 0). The first build had B at R4 = 99: its 22 adjust lines
+showed whatever followed the window in memory until W1 shut the gate, and the
+start's first B took mode 4's 6-line adjust or W1's 22 lines depending on
+whether W1 reached it in time, so the whole structure settled ~13 lines
+earlier than designed against the interrupts and W1 ran at the last two lines
+of its window. MEASURED on MartyPC: W1 found the display ON in every refresh
+(a probe of 3DAh bit 0), then never with B at 101 rows; the trace of
+interrupts against the sync went from W1 at t ~ 255 - 258 with lost syncs and
+restarts to W1 at ~242 and W2 at ~18.5, every refresh. The camera's
 position is the window's top LINE `C = 2 R0 - P`: `R0 = ceil(C / 2)`, `P = 2
 R0 - C`; the ring (128.2) sees `R0` alone - which rows are on the card does
 not depend on P. **The window's top and bottom edges move by the line too**:
@@ -268359,26 +268373,37 @@ no line is masked (an experiment's honest cost, for the owner to see).
 
 **The writes** (t in lines from the sync's start), by the hook:
 
-- **W1, t ~ 247 (B's adjust)**: R4 = `8 + P'`, R7 = 1, R6 = 0, R5 = `22 - P'`
-  for the NEXT refresh's phase P' (the camera's `bz_phn`, committed to
-  `bz_hph`), and the video gate off (unless `bz_blk`, a full write's own
-  blank). Legal from B's row 100 (t = 238 + P) to A's start (t = 260). A phase
+- **W1, t ~ 242 (B's adjust)**: R7 = 1, R6 = 0, R5 = `22 - P'`, then R4 =
+  `7 + P'` LAST, for the NEXT refresh's phase P' (the camera's `bz_phn`,
+  committed to `bz_hph`), and the video gate off (unless `bz_blk`, a full
+  write's own blank). Legal from the END of B's row 100 (t = 238 + P: an R4
+  written during that row is not met by its compare, and the frame counts on
+  to 127) to t = 259 (R5 must exceed the adjust lines already run). A phase
   change makes that one refresh 261 or 263 lines (B's adjust takes the new
   R5); every other is 262.
-- **W2, t ~ 18 (A's adjust)**: R4 = 99, R7 = 126, R6 = 100, the gate on.
-  Legal from A's last row (t = 14 + 2P) to B's start (t = 38 + P).
-- **On** (`bz_fswitch`, before a frame's retrace wait): at a standard
-  frame's sync rise, frame A's registers - the row counter is past R4, so it
-  runs to 127, wraps, syncs on row 1 and ends at row 8 and its adjust,
-  exactly an A - then `FSXW_ANCHOR` takes that sync, then frame B's at its
-  end. **Off** (the mode changed): the hook's next W2 with the committed
+- **W2, t ~ 18.5 (A's adjust)**: R4 = 100, R7 = 126, R6 = 100, the gate on.
+  Legal from A's last row and its sync's end (t = 16) to B's start (t = 36 + P).
+- **On** (`bz_fswitch`, before a frame's retrace wait, the camera's phase
+  set to 0): `FSXW_ANCHOR` at mode 4's OWN sync, no register written first,
+  BX = 8,786 and CX = 9,386. Mode 4's frame ends 38 lines after that sync
+  and the next one is made B by **W0** (t ~ 120, inside its rows: R4 = 100,
+  R7 = 126 and R5 = 22, so B's adjust is FINE's whatever W1's lateness), then
+  W1 (t ~ 243) and the alternation. Mode 4's picture already sits where B's
+  does at phase 0 but two lines, so nothing on the glass jumps but those two.
+  The first build wrote A's registers at the sync and relied on the row
+  counter running past R4 to 127 and wrapping; that needs no wrap now.
+  **Off** (the mode changed): the hook's next W2 with the committed
   phase 0 writes mode 4's R4 127, R7 112, R6 100 (the A in progress ends where
   it would; the frame after it is mode 4's, its sync 262 lines on) and the
   W1 after it R5 6. Leaving the frame loop under FINE puts mode 4's
   registers back at once (`bz_foff`).
+- **A lost structure** - a retrace wait that finds no sync within its bound
+  (`bz_tos`) while FINE runs - is treated like a lost period: `bz_hbad`, mode
+  4 back, FINE again at the next wait (128.21.3).
 
 **R7's values avoid the phantom vsync** (VileR, int10h.org 2023): 112 -> 1 at
-row 112, 1 -> 126 (or 112) at row 8 - 9, 126 -> 1 at B's adjust (row 100):
+row 112 (no longer written: the start writes 126 inside B's rows), 1 -> 126
+(or 112) in A's adjust, 126 -> 1 in B's adjust:
 none meets the published conditions. And the camera's phase is decided ~53
 lines before B's start but its start address ~38: a frame whose camera ran
 after W1 presents its new rows at the last committed phase - a one-line
@@ -268389,12 +268414,17 @@ next.
 
 FINE's writes come from an INTERRUPT, every refresh: a frame loop that
 misses a refresh must not miss a vertical sync - B's registers left for a
-second frame have no sync at all. The bracket is **`FSXF_RATE` at divisor
-21,845** - FASTTICK's own sub-tick, 54.6 Hz, so a mode without FINE runs on
-the same interrupts it always did - with `bz_hook` on it, and FINE re-times
-it (53.5.2): `FSXW_ANCHOR` with BX = 1,292 and CX = 17,404 (W2 at ~t 18,
-then W1 at ~t 247), and from then the hook queues 2,508 and 17,404 in turn -
-**two interrupts a refresh**, summing to the CGA's 19,912.
+second frame have no sync at all. **The bracket is chosen at Enter**: on a
+CGA, with `C` on FINE or FINE SPLIT, it is **`FSXF_RATE` at divisor 21,845**
+- FASTTICK's own sub-tick, 54.6 Hz - with `bz_hook` on it; otherwise it is
+`FSXF_FASTTICK` exactly as before the experiment (`bz_brate` 0, which also
+sets `bz_nofine`, so `C` in that play skips the FINE modes: pick FINE before
+Enter). FINE re-times the rate (53.5.2): `FSXW_ANCHOR` with BX = 8,786 and
+CX = 9,386 (W0, then W1), and from then the hook queues 2,888 and 17,024 in
+turn - **two interrupts a refresh**, summing to the CGA's 19,912. Each lands
+~4.4 lines after its reload (MEASURED, MartyPC: the kernel's way to the hook)
+and the windows leave ~17 lines for later than that - 86Box has delivered an
+IRQ0 up to 15 lines late.
 
 - **Why not a uniform rate** (MEASURED, 53.5.2): eight periods a frame, the
   slowest that put one in each window, cost ~16.5k clocks a refresh and took
@@ -268429,12 +268459,15 @@ then W1 at ~t 247), and from then the hook queues 2,508 and 17,404 in turn -
 | build, mode | frames presented | frames over 1.5 refreshes |
 |---|---|---|
 | wave 6b (FASTTICK), GLIDE | 739 - 763 | 53 - 67 |
-| this build, GLIDE | 777 - 783 | 73 - 78 |
-| this build, SPLIT | 776 | 78 |
-| this build, FINE | 745 | 86 |
-| this build, FINE SPLIT | 709 - 757 | 90 - 95 |
+| first build (RATE bracket for every mode), GLIDE | 777 - 783 | 73 - 78 |
+| first build, SPLIT | 776 | 78 |
+| first build, FINE | 745 | 86 |
+| first build, FINE SPLIT | 709 - 757 | 90 - 95 |
+| B at 101 rows, GLIDE (FASTTICK again) | 716 | 64 |
+| B at 101 rows, FINE SPLIT | 760 | 96 |
 
-The legs vary ~5% with where the harness's keys land. FINE's price is its
+The legs vary ~5% with where the harness's keys land (the last two rows are
+`bonanzafine`'s legs, sound off). FINE's price is its
 second interrupt (~2.1k clocks each, `sch_isr` to `sch_resume`) and the heavy
 sampler; GLIDE's is the hook's call on its one interrupt a sub-tick. What
 the eye sees is the owner's to judge.
@@ -268443,10 +268476,27 @@ the eye sees is the owner's to judge.
 
 `bonanzafine` (soak, MartyPC, `tests/bonanza_fine.py`): on the CGA, FINE
 starting, the virtual sub-tick within 1% of 54.62 Hz, the window at line
-`38 + P` for both phases (the camera's top line poked where the camera reads
+`36 + P` for both phases (the camera's top line poked where the camera reads
 it) and every refresh 262 lines, and MILL's demo in GLIDE (some frames with a
 row and a column: the control) and in FINE SPLIT (none; the refresh 262 lines
-over the demo, no lost period or failed start, W1 within its window, the
-phase changing); on the Hercules, `C` skipping FINE and SPLIT's demo writing
+over the demo, no lost period or failed start, W1 no later than 12 lines
+after its reload, the phase changing); on the Hercules, `C` skipping FINE and SPLIT's demo writing
 no frame of both. `--red now1` (W1 patched to a bare RET) fails the glass,
 the refresh and the phase.
+
+**What the branch does to the shipped rows** (MEASURED, the final pass, A/B
+against `e4da75a` on the same box): `bonanzawheel` fails its (6) and (7)
+at the base as well, and `bonanzaperf`'s Hercules `bz_rwlate` too - neither
+is this branch's. `bonanzamega` failed here only through its harness (a
+poke landing before the first frame's `bz_t0`; the row now waits for that
+frame). **`bonanzaring` fails guarantee 5 at `PEAK`'s cannon on the CGA here
+and passes at the base**: the guest matches `bbcourse.Glide` on every frame
+(parity holds), but this build's GLIDE paces a little differently (7 frames
+more by step 1180: a few hundred clocks a frame of the experiment's
+bookkeeping move where frames meet the retrace), so the pre-aimed row pan
+is still running at the exit and the heavy frames after it withhold it 7
+times - where at the base it had ended inside the tube. Guarantee 5 is a
+MEASURED property of the routes (128.17.6.3), not one the camera enforces;
+this branch shows it resting on the frame pacing. Enforcing it (no
+withhold of a pan that was running at a tube exit, for CAM_EXIT frames) is
+a change to GLIDE and to the model, not the experiment's to make.

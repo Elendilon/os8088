@@ -92,9 +92,12 @@ a speaker play would have kept the old divisor in the tick accumulator.
 
 ## 5. BONANZA's side
 
-- **The bracket is `FSXF_RATE` at 21,845** (FASTTICK's own sub-tick), so a
-  mode without FINE runs on the interrupts it always did; FINE's anchor
-  re-times it to 1,292 / 17,404, then 2,508 and 17,404 in turn.
+- **The bracket is chosen at Enter**: `FSXF_RATE` at 21,845 (FASTTICK's own
+  sub-tick) on a CGA with `C` on FINE or FINE SPLIT, `FSXF_FASTTICK` as
+  before otherwise - so GLIDE, TRICKLE, SPLIT and the `B` benchmark run
+  exactly the bracket wave 6b did, and FINE is reached by choosing it before
+  Enter. FINE's anchor re-times the rate: 8,786 then 9,386 (the start's W0
+  and W1), then 2,888 and 17,024 in turn.
 - **The clock is virtual**: every part of BONANZA reads sub-ticks of 21,845
   counts; with FINE off channel 0 is exactly that and the old sampler runs;
   under FINE the hook's running total is folded into a virtual phase.
@@ -125,21 +128,59 @@ a speaker play would have kept the old divisor in the tick accumulator.
    MILL's demo).
 6. **A weak red arm**: poking the hook off just restarted FINE on the next
    frame; the red arm patches W1 to a bare RET instead.
+7. **The owner's first look, on 86Box: a brown screen with a green bar**
+   (FINE, Windmill Lane). Three things followed, and the third was the
+   defect. (a) The scoped soak had GLIDE's rows failing under the RATE
+   bracket, so the bracket became a choice at Enter (section 5). (b) The
+   start leaned on the 6845's row counter running past R4 to 127 and
+   wrapping, and W1 sat at the very first line of its window: 86Box was
+   installed and its IRQ0 measured up to 15 lines late, so the start moved
+   to mode 4's own sync with nothing written there and a W0 inside the next
+   frame. (c) With that, MartyPC's retrace waits began timing out under
+   FINE and the new safety net (a timeout = a lost structure) tore FINE down
+   every few seconds. A probe of 3DAh bit 0 inside the hook said W1 found
+   the display ON in every refresh: **frame B, rows 0 - 99 with R6 = 100,
+   never turns the display off** - a 6845 does that when the row counter
+   EQUALS R6, and it never reached 100 - so B's 22 adjust lines showed
+   memory past the window until W1 shut the gate (in MartyPC's raster: the
+   picture down to line 255). The spike had found exactly this for A, which
+   is why A has R6 = 0; B was not given the same thought. Worse, the
+   start's first B took mode 4's 6-line adjust or W1's 22 depending on
+   whether W1 got there first, so the structure settled ~13 lines early
+   against the interrupts and W1 ran in the last lines of its window. **B
+   is now 101 rows** (R4 = 100: row 100 is R6's and blanks itself and the
+   adjust), A `7 + P` rows, W0 writes B's adjust so the start is the steady
+   state from its first frame, and W1 writes R4 last (its window opens at
+   the END of B's row 100). The trace of interrupts against the sync went
+   from W1 at t ~ 255 - 258 with lost syncs and restarts to W1 at ~242 and
+   W2 at ~18.5, every refresh; the window moved to line 36 + P.
+8. **The final pass, A/B against the base** (SPEC.md 128.21.5): the wheel's
+   two failures and the Hercules `bz_rwlate` are the base's own;
+   `bonanzamega`'s was its harness's (a poke before the first frame's
+   `bz_t0`, fixed in the row); `bonanzaring`'s guarantee 5 at `PEAK`'s
+   cannon fails here and not at the base - not a camera defect (the guest
+   matches the model frame for frame) but the guarantee resting on frame
+   pacing, which this branch moves by a few hundred clocks a frame. The
+   clock's light path was cut to one test (`bz_clkh`) on the way; it did not
+   change that.
 
 ## 7. What was measured, and what was not
 
 MEASURED on MartyPC (sound off, MILL's demo through `D`): SPEC.md 128.21.4's
-table - GLIDE on this build at wave 6b's numbers (777 - 783 frames against
-739 - 763), FINE and FINE SPLIT a little worse (745, 709 - 757 frames; 86 -
-95 over 1.5 refreshes against 73 - 78), and no frame of a row and a column
-under SPLIT or FINE SPLIT (35 - 38 under GLIDE). NOT measured: anything on
-real hardware - the two-frame structure, R6 = 0 and the first-line leak are
-MartyPC's 6845, which runs Area 5150 but is not a 5150. **The owner's 5150 is
-the instrument for FINE**; 86Box was not tried. Nothing here was judged by
-eye: that is the point of handing it over.
+table - FINE SPLIT 760 frames with 96 over 1.5 refreshes (GLIDE's leg 716 and
+64), and no frame of a row and a column under SPLIT or FINE SPLIT (28 - 38
+under GLIDE). On 86Box (`OS88_EMU=86box`, the same disks): MILL's demo in
+FINE and `C` cycling all five modes in play, screenshots clean, no lost period
+and no failed start; W1's lateness ~480 counts (6 lines) in play. NOT
+measured: anything on real hardware - the two-frame structure, R6 = 0 and the
+first-line leak are MartyPC's and 86Box's 6845s, which are not a 5150's.
+**The owner's 5150 is the instrument for FINE.**
 
 ## 8. Trying it
 
-`C` in play or on the desktop cycles GLIDE, TRICKLE, FINE, SPLIT, FINE SPLIT
-(the Hercules and kern_mega skip the two FINE modes). `D` replays a demo in
-the chosen mode, so the same route can be watched in each.
+`C` on the desktop cycles GLIDE, TRICKLE, FINE, SPLIT, FINE SPLIT (the
+Hercules and kern_mega skip the two FINE modes). **Choose FINE or FINE SPLIT
+before Enter (or `D`)**: that is what brings the re-timable clock, and in a
+play entered on any other mode `C` skips the FINE modes. In a FINE play `C`
+cycles all five. `D` replays a demo in the chosen mode, so the same route can
+be watched in each.

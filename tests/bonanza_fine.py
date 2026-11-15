@@ -14,7 +14,8 @@ key), so the camera rests.  ASSERTED:
      with phase 1) and back (LATTICE at rest keeps it), the committed phase [bz_hph] follows,
      and the window - found by matching the ring's decode at [bz_S] against
      MartyPC's whole raster (the 912 x 262 debug aperture, line 0 the sync's
-     start) - sits at line 38 + P.  P = 0 is mode 4's own place.
+     start) - sits at line 36 + P, two above mode 4's own 38 (frame B is 101
+     rows so that its row 100 is R6's and blanks its adjust: 128.21.2).
   4. The refresh: 262 lines (79,648 clocks) a frame, by the card's frame
      counter over 120 frames of each phase, within 0.1%.
   5. SPLIT: MILL's shipped demo through D in GLIDE and in FINE SPLIT, stopped
@@ -23,7 +24,8 @@ key), so the camera rests.  ASSERTED:
      some (the control), FINE SPLIT both rows and columns.  Under FINE
      SPLIT also: the card's refresh 262 lines over the whole demo (within
      0.2%), no lost period and no failed start, W1 never later than 12 lines
-     (its window closes 13 lines after it is due), and the phase changing.
+     after its reload (its window closes ~21 lines after it), and the phase
+     changing.
      Each leg's frames over 1.5 refreshes REPORTED (the presents' cycle gaps).
 
 --red now1 patches bz_hook's W1 to a bare RET once FINE runs (frame A's
@@ -234,14 +236,14 @@ def main():
             m.advance(frames=8)
             ph, y0 = g.b("bz_hph"), window_y(g)
             per = period(g)
-            print("bonanza_fine: phase asked %d, committed %d: window at line %s (38 + P = %d), "
-                  "refresh %.1f clk (%.2f lines)" % (want, ph, y0, 38 + ph, per, per / 304))
+            print("bonanza_fine: phase asked %d, committed %d: window at line %s (36 + P = %d), "
+                  "refresh %.1f clk (%.2f lines)" % (want, ph, y0, 36 + ph, per, per / 304))
             seen[want] = (ph, y0)
             if ph != want:
                 fails.append("phase %d asked, %d committed" % (want, ph))
             if y0 is None:
                 fails.append("phase %d: the window is on the glass at no line 20 - 59" % ph)
-            elif y0 != 38 + ph:
+            elif y0 != 36 + ph:
                 fails.append("phase %d: the window at line %d" % (ph, y0))
             if abs(per - FRAME) > FRAME * 0.001:
                 fails.append("phase %d: the refresh is %.1f clk" % (ph, per))
@@ -273,7 +275,7 @@ def main():
         if x["hbad"] or x["ffail"]:
             fails.append("FINE SPLIT's demo: %d lost periods, %d failed starts" % (x["hbad"], x["ffail"]))
         if x["hlate"] > 12 * 76:
-            fails.append("FINE SPLIT's demo: W1 ran %d counts late, past its window (line 260)" % x["hlate"])
+            fails.append("FINE SPLIT's demo: W1 ran %d counts late, past its bound (12 lines)" % x["hlate"])
         if not x["flips"]:
             fails.append("FINE SPLIT's demo never changed phase: the one-line step untested")
         if not res[0][3]:

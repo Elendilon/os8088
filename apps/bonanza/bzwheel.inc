@@ -1403,8 +1403,8 @@ bz_wcommit:
 ; and the card's, SPEC.md 128.13.5.1), the closing clock sample.  Preserves
 ; all but the flags.
 bz_wcore:
-    pushf
-    BZ_WCLI
+    pushf                       ; (shut under FINE too: one lane's pass, and
+    cli                         ; bonanzawheel logs these very bytes)
     call bz_wpass
     call bz_clk_sample
     popf

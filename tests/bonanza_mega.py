@@ -569,6 +569,10 @@ def mill_replay(b, pkg, keys, what, poke=None):
          "%s: R replays MILL on the Hercules ([bz_err] %d)" % (what, pkg.byte("bz_err")))
     s0 = None
     if poke:
+        # after the FIRST frame: its prelude (the whole first draw) is long, and a poke landing
+        # inside it - before that frame's bz_t0 - spins frame 0 itself, so the count moves only
+        # after the spin and the check below reads it over (seen on 86Box once the start moved)
+        b.until(lambda: pkg.word("bz_frames") != 0, "the replay's first frame", 10000, 1)
         memw(b, pkg.a("bz_hold"), b"\xff")
         f0 = pkg.word("bz_frames")
         b.until(lambda: pkg.word("bz_frames") != f0, "a frame presented, the next one's spin begun", 10000, 1)

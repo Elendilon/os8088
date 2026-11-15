@@ -194,9 +194,15 @@ BZ_CM_FSPLIT equ 4              ; both
 BZ_RDIV     equ 21845           ; FSXF_RATE's divisor (128.21.3): FASTTICK's own
                                 ; sub-tick, 54.6 Hz, so a mode without FINE costs
                                 ; what it did; FINE re-times it (FSXW_ANCHOR)
-BZ_FANF     equ 1292            ; FINE's schedule from the sync's rise (128.21.2):
-BZ_FANL2    equ 17404           ; 17 lines to W2 (~t 18, frame A's adjust), 229
-BZ_FANL1    equ 2508            ; to W1 (~t 247, frame B's adjust), 33 back to W2
+BZ_FAN0     equ 8786            ; FINE's START from mode 4's own sync's rise
+BZ_FAN0B    equ 9386            ; (128.21.2): W0 at ~t 120 (B's rows), W1 at ~t 243
+BZ_FANL2    equ 17024           ; FINE's schedule: W2 (~t 17.5 after FINE's sync,
+BZ_FANL1    equ 2888            ; frame A's adjust) to W1 (~t 241.5, B's adjust),
+                                ; then 38 lines back to W2.  Each lands ~4.4 lines
+                                ; after its reload (the kernel's way to the hook,
+                                ; MartyPC) and may run ~17 lines later than that
+                                ; before its window closes (86Box has delivered
+                                ; IRQ0 up to 15 late)
 %if BZ_FANL1 + BZ_FANL2 != 19912
  %error "FINE's two periods must sum to a CGA frame, 19,912 PIT counts"
 %endif
@@ -285,9 +291,13 @@ VAR bz_hnext,2                  ; one queued behind it
 VAR bz_clast,2                  ; bz_clk_sample's: the total at its last sample,
 VAR bz_vph,2                    ; the phase inside the VIRTUAL sub-tick
 VAR bz_hbad,1                   ; 1: FINE's schedule lost a period (re-anchor)
-VAR bz_nofine,1                 ; 1: no FINE here - a Hercules, or kern_mega in
-                                ; protected mode (SPEC.md 128.21, 53.5.2)
+VAR bz_nofine,1                 ; 1: no FINE here - a Hercules, kern_mega in
+                                ; protected mode, or a FASTTICK bracket (128.21)
+VAR bz_brate,1                  ; 1: this bracket is FSXF_RATE's (128.21.3)
 VAR bz_hon,1                    ; FINE's hook: 0 off, 1 writing W1/W2, 2 closing
+VAR bz_clkh,1                   ; 1: the clock's heavy sampler (a period is not
+                                ; the sub-tick's): set with bz_hon, cleared by the
+                                ; hook once every period is BZ_RDIV again
 VAR bz_hoff,1                   ; 1: FINE asked off (the hook closes at slot 0)
 VAR bz_hj,1                     ; FINE's next interrupt: 0 W2, 1 W1
 VAR bz_hph,1                    ; the phase W1 committed: the B on the glass
@@ -528,12 +538,11 @@ BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
 ; mark, each row, the retrace spin).  Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_clk_sample:
-    cmp byte [bz_hon], 0        ; THE LIGHT PATH: FINE off and every period the
-    jne .heavy                  ; sub-tick's own, so channel 0 IS FASTTICK's
-    cmp word [bz_hlen], BZ_RDIV ; clock - a count that went UP saw a reload
-    jne .heavy
-    cmp word [bz_hnext], BZ_RDIV
-    jne .heavy
+    cmp byte [bz_clkh], 0       ; THE LIGHT PATH: FINE off and every period the
+    jne .heavy                  ; sub-tick's own (ONE test: GLIDE's frames pay
+                                ; it dozens of times, the wheel's beam race in
+                                ; them), so channel 0 IS FASTTICK's clock - a
+                                ; count that went UP saw a reload
     push ax
     pushf
     cli
@@ -627,10 +636,10 @@ bz_clk_read:
 ; change, AX on return the period after next (an anchored bracket) or 0.
 ; The CLOCK first: the period that ended was [bz_hlen], any more the queued
 ; length.  Then FINE (bz_hon), alternating (bz_hj): W2 (~t 18, frame A's
-; adjust) writes frame B's registers (R4 99, R7 126, R6 100, the video gate
-; on unless a full write's blank holds it) and queues BZ_FANL1; W1 (~t 247,
-; frame B's adjust) writes the next refresh's frame A (R4 8 + P, R7 1, R6 0,
-; R5 22 - P, the gate off for A's first line, P the camera's bz_phn,
+; adjust) writes frame B's registers (R4 100, R7 126, R6 100, the video gate
+; on unless a full write's blank holds it) and queues BZ_FANL1; W1 (~t 241,
+; frame B's adjust) writes the next refresh's frame A (R7 1, R6 0, R5 22 - P,
+; R4 7 + P, the gate off for A's first line, P the camera's bz_phn,
 ; committed to bz_hph) and queues BZ_FANL2.  CLOSING (bz_hoff, the committed
 ; phase 0): W2 writes mode 4's R4 127, R7 112, R6 100 instead - the A in
 ; progress ends where it would and the frame after it is mode 4's own, its
@@ -657,14 +666,17 @@ bz_hook:
     cmp byte [bz_hon], 0
     jne .fine
     cmp word [bz_hnext], BZ_RDIV ; FINE stopped short (bz_foff): the sub-
-    je .out                     ; tick's period queued again, once
+    je .lt                      ; tick's period queued again, once
     mov ax, BZ_RDIV
     mov [bz_hnext], ax
     ret
 .fine:
     mov dx, 3d4h
-    xor byte [bz_hj], 1
-    jnz .w2                     ; (bz_hj was 0: this is W2)
+    mov al, [bz_hj]             ; the slot: 0 W2, 1 W1, 2 W0 (the start)
+    cmp al, 1
+    jb .w2s
+    ja .w0
+    mov byte [bz_hj], 0
     cmp byte [bz_hon], 2        ; W1 - closing: the standard adjust, and off
     jne .w1
     mov ax, 0605h
@@ -673,6 +685,11 @@ bz_hook:
     mov byte [bz_hoff], 0
     xor ax, ax
 .out:
+    ret
+.lt:
+    cmp word [bz_hlen], BZ_RDIV ; ...and once both periods are the sub-tick's,
+    jne .out                    ; the clock's light path again
+    mov byte [bz_clkh], 0
     ret
 .w1:
     xor al, al                  ; (how late W1 runs: the period counting now
@@ -687,26 +704,39 @@ bz_hook:
     jbe .w1n
     mov [bz_hlate], ax
 .w1n:
-    mov al, [bz_phn]
-    mov [bz_hph], al
-    mov ah, 8
-    add ah, al
-    mov al, 4
-    out dx, ax                  ; R4 = 8 + P
     mov ax, 0107h
     out dx, ax                  ; R7 = 1: the sync on A's row 1
     mov ax, 0006h
     out dx, ax                  ; R6 = 0: A displays nothing...
+    mov al, [bz_phn]
+    mov [bz_hph], al
     mov ah, 22
-    sub ah, [bz_hph]
+    sub ah, al
     mov al, 5
     out dx, ax                  ; R5 = 22 - P, A's adjust (and B's from now)
+    mov ah, 7
+    add ah, [bz_hph]
+    mov al, 4
+    out dx, ax                  ; R4 = 7 + P, last: B's row 100 must be over
     mov dl, 0d8h
-    mov al, 22h                 ; ...and its first line, which R6 does not
+    mov al, 22h                 ; ...and A's first line, which R6 does not
     out dx, al                  ; blank, behind the gate
     mov ax, BZ_FANL2
     mov [bz_hnext], ax
     ret
+.w0:                            ; W0: in the first B's rows (mode 4's frame
+    mov byte [bz_hj], 1         ; ended, so it IS B): R4 100, R7 126 and B's
+    mov ax, 6404h               ; adjust, 22 - P with P 0, so that adjust is
+    out dx, ax                  ; FINE's whatever W1's lateness (R6 is 100
+    mov ax, 7e07h               ; already)
+    out dx, ax
+    mov ax, 1605h
+    out dx, ax
+    mov ax, BZ_FANL1
+    mov [bz_hnext], ax
+    ret
+.w2s:
+    mov byte [bz_hj], 1
 .w2:
     cmp byte [bz_hoff], 0
     je .b
@@ -724,8 +754,8 @@ bz_hook:
     mov [bz_hnext], ax          ; counting now
     ret
 .b:
-    mov ax, 6304h
-    out dx, ax                  ; R4 = 99: B's 100 rows
+    mov ax, 6404h
+    out dx, ax                  ; R4 = 100: B's 101 rows, the last one R6's
     mov ax, 7e07h
     out dx, ax                  ; R7 = 126: no sync in B
     mov ax, 6406h
