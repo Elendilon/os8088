@@ -273405,6 +273405,29 @@ course. Otherwise form (i) is built (glyphs composed in busy time into a
 clock's private blocks, committed as one lane), measured the same way, and
 the figures go to the owner. Taken once, in the wave's final pass.
 
+**MEASURED (2026-11-15, `bonanza_perf.py --clock-ab`, against `19edec3c`,
+the last commit before the clocks and their sounds; speaker ON, three runs a
+side, the demos' keys the same on both sides):**
+
+| card, demo | missed/s before | missed/s with the clocks (mean) | longest run before | with |
+|---|---|---|---|---|
+| CGA, MILL | 2.18, 3.09, 1.89 | 4.56, 4.14, 3.37 (4.02) | 4, 6, 3 | 6, 6, 7 |
+| CGA, PEAK | 2.93, 2.53, 2.38 | 3.33, 2.85, 3.13 (3.10) | 7, 9, 7 | 11, 9, 6 |
+| Hercules, MILL | 0.21, 0.21, 0.14 | 0.35, 0.21, 0.14 (0.23) | 2, 2, 1 | 2, 1, 1 |
+| Hercules, PEAK | 0.63, 0.75, 0.75 | 0.93, 1.08, 0.90 (0.97) | 2, 5, 4 | 5, 5, 5 |
+
+**THE DECISION: form (ii) SHIPS** - every mean within the rule's +2 of the
+old side's largest. Form (i) is not built. The cost is real and is wave 10's
+to buy back: on the CGA `MILL` pays about +1.6 missed refreshes a second
+(a clock in view on a third of its route) and its longest run of misses
+grows by about two frames; `PEAK`'s single clock, in view on 5% of its
+route, costs about +0.5 there.
+
+**Story 7.8 (the pennant's own key) is DEFERRED to wave 10**: the rule's
+headroom on the CGA's `MILL` is about 0.4 a second after the clocks, and a
+key of the pennant's own adds occluder records to every flag's window
+(`MOON`'s and `PEAK`'s). The pennant stays a mark, as wave 4 built it.
+
 #### 128.18.8 kern_mega, kern_small, the Hercules
 
 Nothing here touches a kernel, a selector or a segment: the clock is a lane
