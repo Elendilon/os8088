@@ -993,6 +993,15 @@ def mill_replays():
     add("kick", 0, pk, keys, "diagonally at the cap into the post at %s: kicked (%s)" % (
         B2["at"], [(e[1], e[2], e[4]) for e in evs(p, "kick")]), evs(p, "kick") and not p.nfall,
         red={"_kick_k": True})
+    CK = mill_rec(BB.PK_CLOCK)                  # wave 7 (SPEC.md 128.18.5.3): a clock is a post with no kick
+    pk = mill_poke(CK["at"][0] - 2, CK["at"][1], BB.VMAXG, 0)
+    keys = [0] * 60
+    p, _ = ev_of("mill", 0, pk, keys)
+    hit = evs(p, "kick")
+    add("clock", 0, pk, keys, "rolled at the cap into MILL's clock at %s: stopped by its ball's post, back at "
+        "%s of %d (no kick: K 0), never past its centre" % (CK["at"], [e[4] for e in hit[:1]], BB.VMAXG),
+        hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx < 0 and not p.nfall
+        and p.gx >> 8 < CK["cx"])
     pk = mill_poke(16, 19, 0, 64)
     keys = [0] * 60
     p, _ = ev_of("mill", 0, pk, keys)
@@ -2329,7 +2338,11 @@ REDS["nospent"] = [("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: s
 # toutoff (wave 7, SPEC.md 128.18.4): the limit's last step never times out
 REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n.tdone:\n",
                     "                                ; RED toutoff: no timeout\n.tdone:\n")]
-RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",)})
+# clkpass (wave 7, SPEC.md 128.18.5.3): a clock's cell is not taken for a post's, so the ball rolls through it
+REDS["clkpass"] = [("bzphys.inc", "    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads\n",
+                    "                                ; RED clkpass: the clock's kind left as it is\n")]
+RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",),
+                 "clkpass": ("clock",)})
 RED_WANT.update({"toutoff": "timeout frame"})
 RED_WANT.update({"noadd": "boostfall", "nospent": "spentspring"})
 # wave 6b (SPEC.md 128.17.10): the trigger and the late grace broken six ways, each red at its own replay.

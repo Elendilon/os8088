@@ -2390,3 +2390,29 @@ pass had just landed on this branch: 398 commits, MILL's CGA misses 122 to
 24 and its longest run 31 to 4 (docs/reports/BONANZA-SPEED-2026-11-15.md).
 That pass merged every round of this gate as it went, so the branch came
 back together by fast-forward. Next: wave 7, time.
+
+## 2026-11-15 (wave 7: the clocks, and then the clocks are solid)
+
+Wave 7 put time on the course. A limit replaced the par, counted in steps so
+a replay and a demo agree on it; running out ends the course; the music and
+the sound events found their places (a tick under ten seconds, a low note at
+thirty and ten). The clock itself was the owner's choice of form: digits in
+a crystal ball, because *"an analog clock will be hard to read and can't
+really display more than a minute cleanly"*. The digits are lanes, two poses
+a second at most, and the A/B against the speed pass's tree put form (ii)
+inside the rule on both cards (CGA MILL 4.02 missed refreshes a second
+against 1.89 - 3.09). The owner liked the digits and asked for the static
+art to be more integrated - *"that part is cheap; so we can afford to have
+it look very good"* - and of the candidates picked *"the middle with the
+longer pole"*.
+
+Then: *"Let's give clocks collision; if it looks solid and has height we
+shouldn't just roll through it."* The cheapest honest form was to make a
+clock a bumper post that does not kick: the same circle, the same push and
+restitution, seven guest bytes to record its cell under the bumper's kind.
+The first build let the reach climb onto the clock's top as a launch, and
+MILL's part grew 462 packed bytes past its cap for a place nobody would see
+as somewhere to stand - so a clock's post is taller than anything reaches,
+and nothing lands on a crystal ball. FIRST, the smallest course, is all
+scripted runs; of its two clocks the one that survived is the one in the
+only cell no script crosses.

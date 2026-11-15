@@ -1888,6 +1888,10 @@ bz_wolf:
     add dh, [si + 2]
     call bz_owner               ; AL = the index, AH = its kind
     jc .n
+    cmp ah, BZ_PK_CLOCK         ; wave 7 (SPEC.md 128.18.5.3): a CLOCK's cell is
+    jne .nk                     ; a POST's - its record carries a post's fields
+    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads
+.nk:                            ; the kind recorded here
     mov bx, di                  ; the pair's kind beside it
     sub bx, bz_wol + 1
     shr bx, 1

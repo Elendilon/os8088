@@ -26,6 +26,7 @@ way 13 4
 target 30
 
 # wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
-# seconds left of the limit; placed beside the route for the clock's measurement
-clock 3 4
-clock 11 4
+# seconds left of the limit.  One since the clocks became POSTS (128.18.5.3): this course's every row is
+# a scripted run of --selfcheck item 7 or 8 or of bonanza_phys, so the clock stands at the plateau's
+# front-left corner, the one cell none of them crosses
+clock 3 6

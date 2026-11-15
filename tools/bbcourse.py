@@ -331,6 +331,8 @@ PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PL
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
 CLOCK_MAX = 4                 # wave 7: clocks a course
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
+CLOCK_PH = 255                # a clock's POST's height (128.18.5.3): its circle stops the ball at every height,
+                              # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 128.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
@@ -1252,9 +1254,10 @@ def build_props(src, tiles, fname):
         if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
             raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR" % (f, ln, at[0], at[1]))
         claim(at, ln, "clock")
-        for place in range(ndig):
+        for place in range(ndig):                   # (128.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
-                          "place": place, "ndig": ndig, "z4": 4 * t.z0})
+                          "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
+                          "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -1307,8 +1310,8 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        elif p["kind"] != PK_CLOCK:                 # (wave 7: a clock is no obstacle, SPEC.md 128.18.5)
-            out[p["at"]] = i
+        else:                                       # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
+            out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first)
     return out
 
 
@@ -3172,8 +3175,9 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             rec += struct.pack("<HB13x", p["capture"], p["hw"])
         elif p["kind"] == PK_SPRING:
             rec += struct.pack("<H14x", p["gvz"])
-        elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): +16 the digit's PLACE
-            rec += struct.pack("<BBB13x", p["place"], p["ndig"], p["num"])
+        elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5.3): a POST's fields at the
+            rec += struct.pack("<HBBHHHBBB3x", 0, 0, p["ph"], p["cx"], p["cy"], 0,     # bumper's offsets (no
+                               p["place"], p["ndig"], p["num"])                      # kick), +26 the PLACE
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -4503,9 +4507,13 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             if not SPRING_LO <= gvz <= VZMAX or p[r + 18:r + 32] != bytes(14):
                 bad("prop %d" % d["i"], "a spring's record")
             d.update(gvz=gvz)
-        elif d["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5)
-            place, ndig, num = struct.unpack_from("<BBB", p, r + 16)
-            if not 2 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 19:r + 32] != bytes(13) \
+        elif d["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5, 128.18.5.3)
+            K, lit, ph, cx, cy, KA, place, ndig, num = struct.unpack_from("<HBBHHHBBB", p, r + 16)
+            d.update(K=K, lit=lit, ph=ph, cx=cx, cy=cy, KA=KA)
+            if K or lit or KA or ph != CLOCK_PH or cx != 16 * d["at"][0] + 8 \
+                    or cy != 16 * d["at"][1] + 8:
+                bad("prop %d" % d["i"], "a clock's post fields")
+            if not 2 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 29:r + 32] != bytes(3) \
                     or d["lane"]["poses"] != CLOCK_POSES or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
@@ -4831,7 +4839,7 @@ class Physics:
         cell never (128.12.6.5 step 5: its post is the circle's)"""
         if at is not None and c[4] & FL_OBS:
             pr = self.owner(at)
-            if pr is not None and pr["kind"] == PK_BUMPER:
+            if pr is not None and pr["kind"] in (PK_BUMPER, PK_CLOCK):
                 return False
         if c[3] == KIND_WALL:
             return True
@@ -5026,7 +5034,7 @@ class Physics:
                 if self.zs >= (top4 << 6) - (CLIMB << 8):
                     return (top4 >> 4, 0, 0, KIND_FLOOR, 0, C[5]), top4, pr
                 return C, 0, None
-            if pr is not None and pr["kind"] == PK_BUMPER:
+            if pr is not None and pr["kind"] in (PK_BUMPER, PK_CLOCK):
                 a, b = abs((self.gx >> 8) - pr["cx"]), abs((self.gy >> 8) - pr["cy"])
                 h4 = self.h4(C, u, v)
                 if max(a, b) <= OCT_N:
@@ -5412,7 +5420,7 @@ class Physics:
         # wave 3: each post on bz_wol, the circle (SPEC.md 128.12.6.3)
         for _ci, pi in list(self.wol):
             pr = self.props[pi]
-            if pr["kind"] == PK_BUMPER:
+            if pr["kind"] in (PK_BUMPER, PK_CLOCK):     # (wave 7: a clock's post too, 128.18.5.3)
                 self._circle(pr, n)
         if self.wol and (self.gx >> 12, self.gy >> 12) != self.wcell:
             self._fill(self.gx >> 12, self.gy >> 12)
@@ -5812,7 +5820,7 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
 # rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
 # the constants before it.
-PHYS_REV = 10
+PHYS_REV = 11                 # wave 7 (128.18.5.3): a clock's post stops the ball
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
                PHYS_REV)
@@ -5825,7 +5833,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -7478,6 +7486,7 @@ def emit_inc(courses):
               "BZ_PK_CUP       equ %d        ; the CUP" % PK_CUP,
               "BZ_PK_SPRING    equ %d        ; a SPRING pad" % PK_SPRING,
               "BZP_CNUM        equ 16       ; CHECKPOINT: its number 0 - 7",
+              "BZP_CPLACE      equ 26       ; CLOCK: its digit's place (0 the units; +16 - +25 a post's)",
               "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
@@ -13016,7 +13025,11 @@ def _w5_compact(courses, res):
                         "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
                         len(shaft), "" if len(shaft) == 1 else "s"),
                     all((wx, wy) in shaft for wx, wy, _ in exc)))
-        if any(fl & FL_OBS for fl in c.part["grid"]["cells_raw"][3::4]):
+        def _would_be_safe(cell):                   # a prop's cell SAFE but for its OBS (a clock's may not be)
+            tl = c.tiles.get(cell)
+            return (tl is not None and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0
+                    and all((cell[0] + dx, cell[1] + dy) in c.tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
+        if any(_would_be_safe(cell) for cell in c.pcell):
             ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
         # the controls
         try:
@@ -13053,7 +13066,7 @@ def _w5_compact(courses, res):
                       ("irmove", "the I and R entries' boundary moved by a word (still tiling the part) is refused "
                                  "by the place-and-size rule, naming I"),
                       ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
-                                 "exceptions outside the shafts (the courses with a prop's cell)")):
+                                 "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)")):
         v = ctl[key]
         res.append(("10 negative control: %s, on every course (%d)" % (what, len(v)), bool(v) and all(v)))
 
