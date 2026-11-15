@@ -193,6 +193,21 @@ sfx tube     inst noise  prio 3 sens 255 : t=24 n=c2 s=4 v=12 d=4 j=15
 sfx goal     inst glock  prio 7 sens 255 : t=4 n=c5 v=14 ; t=4 n=e5 v=14 ;
              t=4 n=g5 v=14 ; t=14 n=c6 v=15 d=8
 
+; WAVE 7 (SPEC.md 128.18.6): what wave 4's props do, and the clock.  A FLAG
+; touched rings up a fourth; a PAD's swap a rising-and-falling zap; the cup's
+; LIP-OUT a dull short knock; a SPRING a big boing; RETURN a falling zap.  The
+; clock TICKS under 10 s (a dry high click), warns LOW at 30 s and 10 s (two
+; notes, a fifth down) and the TIMEOUT is a long fall.
+sfx flag     inst glock  prio 4 sens 255 : t=4 n=g5 v=13 ; t=10 n=c6 v=14 d=10
+sfx pad      inst zap    prio 4 sens 255 : t=6 n=c4 s=40 v=12 ; t=8 n=g4 s=-40 v=12 d=12 legato
+sfx lip      inst rubber prio 3 sens 255 : t=2 n=d3 s=-24 v=12 d=40
+sfx spring   inst rubber prio 5 sens 255 : t=3 n=c3 s=80 v=15 d=4 ;
+             t=12 n=c4 s=12 v=13 d=10 legato
+sfx ret      inst zap    prio 5 sens 255 : t=12 n=g4 s=-40 v=11 d=8
+sfx tick     inst glock  prio 1 sens 255 : t=1 n=c7 v=9 d=60
+sfx low      inst glock  prio 4 sens 255 : t=4 n=e6 v=13 d=8 ; t=8 n=a5 v=13 d=12
+sfx timeout  inst zap    prio 7 sens 255 : t=36 n=g4 s=-16 v=14 d=4
+
 ; --- THE EVENT MAP: which effect an event plays, a ball at a time -------------
 
 event LAND    rubber=r_land   steel=s_land   glass=g_land
@@ -207,3 +222,11 @@ event FALL    all=fall
 event TUBE    all=tube
 event GOAL    all=goal
 event BOOST   rubber=boost
+event FLAG    all=flag
+event PAD     all=pad
+event LIP     all=lip
+event SPRING  all=spring
+event RETURN  all=ret
+event TICK    all=tick
+event LOW     all=low
+event TIMEOUT all=timeout

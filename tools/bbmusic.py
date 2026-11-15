@@ -58,7 +58,9 @@ NOTE_PC = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 
 # THE EVENTS (SPEC.md 128.20.5), in the event map's column order
 EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
-          "HOP", "FALL", "TUBE", "GOAL", "BOOST"]      # BOOST: wave 6, rubber's (128.16.4.4)
+          "HOP", "FALL", "TUBE", "GOAL", "BOOST",      # BOOST: wave 6, rubber's (128.16.4.4)
+          "FLAG", "PAD", "LIP", "SPRING", "RETURN",     # wave 7 (SPEC.md 128.18.6): wave 4's counters
+          "TICK", "LOW", "TIMEOUT"]                     # ...and the clock's seconds
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 
