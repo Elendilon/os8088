@@ -3017,6 +3017,8 @@ bz_wtail:
     jne .nosl
 .sl:
     mov al, [si + 1]            ; sy : sx, signed nibbles
+    or al, al
+    jz .nosl                    ; (a flat floor, most: both 0 as they are)
     mov ah, al
     mov cl, 4
     shl al, cl
