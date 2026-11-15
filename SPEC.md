@@ -273827,6 +273827,43 @@ before.
   effect the course already played (128.18.6); the title, the pathway's
   own song, the life-lost and game-over jingles are the sound session's.
 
+#### 128.19.8 Wave 8c: the face of the game (the decisions)
+
+| decision | chosen | why |
+|---|---|---|
+| the order | **8c.4's PAUSE card first** (it is in every play), then **8c.1** the front window with the tour's removal (8b.8), then **8c.2** exploration and **8c.3** medals, then the intro and result cards | what the owner meets most first; the window and the modes follow |
+| a card's text in the bracket | **the desktop font's 8 x 8 glyphs**, copied out with `OSAPI_FONT_GLYPHS` before the mode set (legal then, 53.7; WireBall's way), drawn by a small writer of BONANZA's own straight into the displayed page: on the CGA a glyph's set bits as colour 3 on 0, on the Hercules each bit a PAIR of pixels (360 x 200's pair pixels) | no drawing slot is legal after the mode set; the glyphs are the desktop's, so the cards read as the system's text |
+| a card's frame | a black box, a white border, white text; drawn over the FROZEN frame and taken away by a **full write** of the next frame (`bz_full`) | nothing new to restore: the play frame already knows how to draw itself whole |
+| the pause card (8c.4) | **P** pauses as before and shows `PAUSED`, the time left, and the keys: `P resume  R retry  ESC map` (in a free play: `ESC quit`); **R** in the game restarts the course and costs a life, as an Esc does (8b.5) | the plan's Resume / Retry / Map |
+| the front window (8c.1) | the face's lines REWRITTEN in the shell part, for the CGA's 42 cells: the title, the SLOT line (slot, lives, nodes done, exits found), Enter's line (`ENTER PLAY` or `ENTER CONTINUE`), `1 2 3` the slot and `X` erase it (asked twice), `E` the mode, the settings (C, T, S), the key hints, and the free play and demo keys (F, N, M; B, R, D, L, V, W) - the TOUR, its G and its lines REMOVED (8b.8) | the plan's front window, without the artwork band |
+| the artwork band | **DEFERRED** with the owner's art: no image generation runs in this environment, and the plan keeps the prompt and the converter beside the art | the owner chooses the art (5's rule: art is source) |
+| exploration (8c.2) | `E` toggles TIMED and EXPLORE for the slot; in EXPLORE every node is OPEN, there is no clock (no limit), no life is lost, no best is posted; exits found still count. Its own per-slot unlocks are a later wave's | the plan's purpose: hunting hidden finishes |
+| medals (8c.3) | `medals G S` on a COURSE (seconds; the tool refuses G over S, S over the limit); the slot keeps its best a COURSE (+24 - +39, a word a course, steps); a node's sign is SILVER at or under S, GOLD at or under G, DONE otherwise | the plan's decision 4 - per course until finishes carry their own times |
+
+##### 128.19.8.1 The pause card, as built (story 8c.4's first card)
+
+- **`bzcard.inc`** (resident: the cards are the bracket's): `bz_fload` copies
+  the kernel's glyphs 32 - 95 into `bz_font` (512 bytes of bss) at the top
+  of `bz_fullscreen`, before the mode set; `bz_card` draws a list of
+  strings in a box centred on the 200 lines and the window's `bz_W` cells,
+  a white rule round it, straight into the shown page by the formula
+  above, a cell a word through `bz_x4` (a nibble's bits doubled).
+- **P** shows `PAUSED` / `P RESUME  R RETRY  ESC MAP` on a GAME's course
+  (`bz_gcourse`), `PAUSED` / `P RESUME  ESC QUIT` in a free play and on the
+  pathway. Resuming sets `bz_freq`, which the frame loop ORs into
+  `bz_full` after the camera: the next frame is a full write and the card
+  is gone. **R** on a game course's card is a RETRY (`bz_exitchk` sets
+  `bz_retry` and leaves; `bz_grounds` takes the life, writes the next one
+  to the disk and plays the same course again with nothing re-fetched).
+  The time left is on the course's clocks, not on the card.
+- **The bytes** (MEASURED): the image **34,448 -> 35,054 (+606)**, the bss
+  **8,732 -> 9,266 (+534)**, 512 of it the glyphs.
+- **Proved by** `bonanzapath`'s 3r (MEASURED PASS, both cards): P on
+  TRIAL shows the card (`bz_inpause`), R retries it - the steps from 0
+  again, a life gone; and `bonanzagame` passes with the card in its pause
+  leg. LOOKED AT on both cards: the card over the frozen pathway, and gone
+  the frame after P.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

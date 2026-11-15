@@ -880,6 +880,18 @@ bz_grounds:
 .life:                          ; ...or a timeout or an Esc: a life
     dec byte [bz_lives]
     jz .over
+    cmp byte [bz_retry], 0      ; wave 8c (128.19.8): a RETRY from the pause
+    je .back                    ; card - the same course again, nothing
+    mov byte [bz_retry], 0      ; re-fetched, the next life taken on the disk
+    mov bl, [bz_crs]            ; first; its own ball again
+    xor bh, bh
+    mov al, [bz_cballs + bx]
+    mov [bz_mat], al
+    mov al, [bz_lives]
+    dec ax
+    call bz_gstorl
+    call bz_dwrite
+    jmp bz_grounds
 .back:
     call .swap
     call bz_gpath
@@ -2958,6 +2970,7 @@ bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h
                                 ; wave 6, SPEC.md 128.16.6: bz_vinit)
 bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzvideo.inc"
+%include "bzcard.inc"           ; wave 8c (128.19.8): the cards
 %include "bzgame.inc"
 %include "bzwheel.inc"
 %include "bzphys.inc"
@@ -3033,7 +3046,21 @@ VAR bz_gnode,1                  ; the node being played
 VAR bz_nst,16                   ; each node sign's pose (bzwheel.inc's CLOCK case): 0 locked, 1 open, 2 done
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
 VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
-VAR bz_gsave,2                  ; byte 1: the game's slot to be written (bz_dsave); a word: even
+VAR bz_gsave,1                  ; 1: the game's slot to be written (bz_dsave)
+VAR bz_retry,1                  ; wave 8c (128.19.8): 1 R on the game's pause card
+VAR bz_inpause,1                ; ...1 while the pause card is up
+VAR bz_freq,1                   ; ...1: the next frame a full write (a card drawn)
+VAR bz_ff,2                     ; the kernel glyph table's first and last codes
+VAR bz_font,8 * BZC_NGLYPH      ; the cards' glyphs, 32 - 95 (bzcard.inc)
+VAR bz_crdls,2                   ; bz_card's list, lines, widest + 2, first cell,
+VAR bz_crdn,2                     ; height, first line, the row's bank and base,
+VAR bz_crdw,2                    ; the glyph row
+VAR bz_crdc0,2
+VAR bz_crdh,2
+VAR bz_crdy0,2
+VAR bz_crdbk,2
+VAR bz_crdbs,2
+VAR bz_crdgr,2
 ; the game (SPEC.md 128.14.3): the tour, the held log's line, the bests
 VAR bz_ttime,2 * BZ_NTOUR       ; the tour's steps a course, 0 none (bz_game
 VAR bz_tfall,2 * BZ_NTOUR       ; clears both: keep them together) and falls

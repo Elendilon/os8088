@@ -869,6 +869,9 @@ bz_t0:
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
     call bz_props               ; state and new footprints, the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera
+    mov al, [bz_freq]           ; (wave 8c: a card was drawn over the last
+    or [bz_full], al            ; frame - this one is WHOLE, 128.19.8)
+    mov byte [bz_freq], 0
     cmp byte [bz_full], 0       ; a full write draws every lane from the map:
     je bz_ts                    ; all of them brought to their true poses, and
     call bz_lfull               ; the slab by its box after it (bzwheel.inc)
@@ -1372,7 +1375,14 @@ bz_exitchk:
     or al, 20h
     cmp al, 'f'
     je .leave
-    jmp .drain
+    cmp al, 'r'                 ; wave 8c (128.19.8): R on a game course's
+    jne .drain                  ; pause card - a RETRY (bz_grounds)
+    cmp byte [bz_inpause], 0
+    je .drain
+    call bz_gcourse
+    jne .drain
+    mov byte [bz_retry], 1
+    jmp short .leave
 .stay:
     clc
     ret
@@ -1381,6 +1391,21 @@ bz_exitchk:
     ret
 
 ; P's down EDGE (SPEC.md 128.14.4.7): ZF = 0 for a press.  Clobbers AX, SI, DI.
+; ZF = 1 while a GAME's course is played (not the pathway, not a free play:
+; wave 8c, 128.19.8).  Preserves all but the flags.
+bz_gcourse:
+    cmp byte [bz_ingame], 0
+    je .no
+%if BZ_PATH_N
+    cmp byte [bz_crs], BZ_CRS_PATH
+    je .no
+%endif
+    cmp al, al                  ; ZF = 1
+    ret
+.no:
+    or sp, sp                   ; ZF = 0 (SP is never 0)
+    ret
+
 bz_pkedge:
     mov al, BZ_KSC_P
     mov si, bz_ptyp
@@ -1434,16 +1459,26 @@ bz_kedge:
 ; it would have been, and the course's time stands still.  Clobbers AX, SI,
 ; DI.
 bz_pause:
+    mov byte [bz_inpause], 1    ; wave 8c (128.19.8): THE PAUSE CARD over the
+    mov si, bz_pcardf           ; frozen frame - a game's COURSE offers a
+    call bz_gcourse             ; retry and the map
+    jne .card
+    mov si, bz_pcardg
+.card:
+    call bz_card
+.wait:
     call bz_clk_sample
     call bzs_frame
     call bz_exitchk
     jc .out
     call bz_pkedge
-    jz bz_pause
+    jz .wait
     mov ax, [bz_subs]
     mov [bz_lsubs], ax
+    mov byte [bz_freq], 1       ; the card taken away: the next frame whole
     clc
 .out:
+    mov byte [bz_inpause], 0    ; (MOV keeps CF)
     ret
 
 ; every typed key, discarded.  Clobbers AX.
