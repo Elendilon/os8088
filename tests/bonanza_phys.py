@@ -1934,7 +1934,7 @@ def drag_span(g, s):
             dirty = t0 is not None
             continue
         if at == wk.t0:
-            if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
+            if g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns")):
                 break
             continue
         if at == gax:
@@ -2083,8 +2083,8 @@ def replay(g, s):
         k = wk.next()
         if k == "t0":
             win = (g.w("bz_R0"), g.w("bz_c0"))
-            if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
-                break                           # the replay's end: this bz_t0 leaves the bracket
+            if g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns")):
+                break                           # the replay's end: this bz_t0 leaves the bracket (wave 7: a timeout too)
             continue
         if k != "pr":
             continue

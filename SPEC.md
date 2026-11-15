@@ -273478,6 +273478,30 @@ stopped); `bonanzamusic` (`music`); `bonanzasound` (the events);
 limits). Under the owner's soak rule (the plan's R5) the rows run in the
 wave's final pass, not per story.
 
+#### 128.18.9.1 The final pass (MEASURED, 2026-11-15)
+
+One scoped soak of every BONANZA row, then the failures re-run once:
+- **ok**: `bonanzacourse`, `bonanzamusic`, `bonanzaassets`, `bonanzamega`,
+  `bonanzasound`, `bonanzademo`, `bonanzagame`, `bonanzareplay`,
+  `bonanzaexit`, `bonanzaperf`; `bonanzaphys` after its fix (the replays
+  end at a timeout as at a goal: `bz_tout` read beside `bz_goal` by every
+  replay loop, here and in `bonanzareplay`, `bonanzawheel` and
+  `bonanzaring`), its `timeout` replay ending at step 825 on both cards.
+- **Fixed by the pass**: the model's `t55` is 0 in the benchmark, as
+  `bz_pinit` leaves it; `bonanzaring`'s glass check takes FIRST's expected
+  picture from the lanes the guest drew (the clocks' digits).
+- **Still failing, known before this wave**: `bonanzaring`'s probe
+  (`BENCH`'s start window at R0 3, reproduced with `e4da75a`'s
+  `bzphys.inc`, 128.17.17.6) and `bonanzawheel`'s (6) on the CGA (the
+  corner leg's light step, since wave 3b, 128.17.14).
+- **The first run's other failures were the session's own**: the clock's
+  art was edited while the soak ran, and the rows compile the courses from
+  the live tree, so they disagreed with the frozen build about every
+  clocked course's identity. Re-run untouched, they passed.
+- **Red arms, each run once**: `toutoff` (`bonanzaphys`), `clkfreeze`
+  (`bonanzawheel`), `noflag` and `notick` (`bonanzasound`) red at their own
+  checks; `nocol` UNJUDGED (the SIDE scene SKIPs on every shipped course).
+
 #### 128.18.10 Open questions for the owner
 
 - **The 55-step second** (0.7% slow): *default it*. The alternative is an

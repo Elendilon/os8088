@@ -3658,7 +3658,7 @@ def end_replay(g, what):
 
 def replay_end(g):
     """at bz_t0: the replay's end (this bz_t0 leaves the bracket)"""
-    return g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns"))
+    return g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))
 
 
 def w4_replay(g, ref, label, log=None, poke=None, windows=()):
