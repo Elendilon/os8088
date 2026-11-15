@@ -752,15 +752,15 @@ bz_step:
     mov byte [bz_gy], 0
     mov ax, [bz_gvy]
     or ax, ax
-    jns .corner
-    call bz_wrefl
+    jns .nocorner               ; (pushed: exactly BZ_RAD from the edge, so
+    call bz_wrefl               ; no corner)
     mov [bz_gvy], ax
-    jmp short .corner
+    jmp short .nocorner
 .trnd:
     jmp .ndoor
 .ye:
     cmp ax, (16 - BZ_RAD) * 256
-    jbe .corner
+    jbe .nocorner               ; (inside on y: no corner)
     mov si, bz_nbr + BZN_S      ; south, at (u, 0)
     mov dh, 0
     call bz_blocks
@@ -772,21 +772,18 @@ bz_step:
     mov byte [bz_gy], 0
     mov ax, [bz_gvy]
     or ax, ax
-    jle .corner
+    jle .nocorner
     call bz_wrefl
     mov [bz_gvy], ax
+    jmp short .nocorner
 .corner:
     mov ax, [bz_gx]             ; the corner: only within BZ_RAD of both a
     and ah, 15                  ; west or east edge and a north or south one
-    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560)
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe .nocorner
-    mov ax, [bz_gy]
-    and ah, 15
-    sub ax, BZ_RAD * 256
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe .nocorner
-    call bz_corner
+    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560).  pv IS
+    cmp ax, (16 - 2 * BZ_RAD) * 256 ; outside here: step 5's y half comes only
+    jbe .nocorner               ; from an edge test whose neighbour did not
+    call bz_corner              ; block (inside, or pushed to exactly BZ_RAD
+                                ; from the edge, it went to .nocorner)
 .nocorner:
     cmp byte [bz_pdoor], 0      ; the prop path: the posts, the window and
     je .fb                      ; the cell change again, then the fallback
@@ -1206,7 +1203,7 @@ bz_step:
     mov [bz_gvy], ax
     inc word [bz_nknock]
 .ny:
-    jmp .corner
+    jmp .nocorner               ; (pushed to BZ_RAD from the edge: no corner)
 
 ; -----------------------------------------------------------------------------
 ; bz_land - step 6's LAND (SPEC.md 128.11.8.5): an airborne ball meets C's
