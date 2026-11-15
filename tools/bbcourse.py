@@ -486,6 +486,7 @@ class Source:
         self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
         self.palette = None         # wave 6 (SPEC.md 128.16.6): (the 3D9h byte, line); never in the part
         self.music = None           # wave 7 (SPEC.md 128.18.6): (the song's number, line); never in the part
+        self.medals = None          # wave 8c (SPEC.md 128.19.8.3): (G, S, line), whole seconds
         self.pathway = None         # wave 8b (SPEC.md 128.19.5): the line of `pathway` - THE pathway
         self.nodes = []             # ...[dict num crs at sign line]
         self.edges = []             # ...[(node, exit, next, line)]
@@ -818,6 +819,13 @@ def parse(text, fname="<course>"):
                     or not LIMIT_MIN <= int(toks[1][1]) <= LIMIT_MAX:
                 raise CourseError("%s: limit takes whole seconds, %d - %d" % (where, LIMIT_MIN, LIMIT_MAX))
             src.limit = (int(toks[1][1]), ln)
+        elif st == "medals":                        # wave 8c (SPEC.md 128.19.8.3): medals G S
+            if src.medals is not None or len(toks) != 3:
+                raise CourseError("%s: medals takes <G> <S> (whole seconds), once" % where)
+            gm, sm = _int(toks[1], where, "G"), _int(toks[2], where, "S")
+            if not 1 <= gm < sm:
+                raise CourseError("%s: medals: G (%d) is under S (%d) and at least 1" % (where, gm, sm))
+            src.medals = (gm, sm, ln)
         elif st == "target":                        # wave 5b (SPEC.md 128.15.8): the design time, CD3
             if src.target is not None:
                 raise CourseError("%s: target given twice" % where)
@@ -2844,6 +2852,26 @@ def limit_rule(route_steps, tutorial=False):
     return int(-(-v // 5) * 5)
 
 
+MEDAL_G, MEDAL_S = 1.15, 1.5    # wave 8c (SPEC.md 128.19.8.3): the tool's medals, times the route
+
+
+def _course_medals(c, src, fname):
+    """wave 8c (SPEC.md 128.19.8.3): -> (G, S) in whole seconds, (0, 0) none:
+    the `medals` statement's, else from the autopilot's route (G = ceil(1.15
+    route), S = ceil(1.5 route), S at most the limit); none without a limit"""
+    if src.medals is not None:
+        gm, sm, ln = src.medals
+        if c.limit and sm > c.limit:
+            raise CourseError("%s:%d: medals: S %d s is over the limit %d s" % (fname, ln, sm, c.limit))
+        return gm, sm
+    if not c.limit or not c.lroute:
+        return 0, 0
+    r = c.lroute / float(SEC_STEPS)
+    sm = min(int(math.ceil(MEDAL_S * r)), c.limit)
+    gm = min(int(math.ceil(MEDAL_G * r)), sm - 1)
+    return (gm, sm) if gm >= 1 else (0, 0)
+
+
 def _course_limit(c, src, fname):
     """wave 7 (SPEC.md 128.18.3): -> (the course's limit in whole seconds, 0
     none, its autopilot route in steps or None).  BENCH has none (the
@@ -3450,6 +3478,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
                               % (fname, bad[0], bad[1], bad[2][0], bad[2][1], MAT_NAMES[bad[3]],
                                  "cup" if cups else "goal"))
     c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 128.18.3): needs the part
+    c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 128.19.8.3)
     return c
 
 
@@ -7447,6 +7476,11 @@ def emit_inc(courses, path=None):
               "; course song wrapping to 1 - the rule bzs_gfetch carried until wave 7)",
               "%macro BZ_CRS_SONGS 0",
               "    db " + ", ".join(str(course_song(c, k)) for k, c in enumerate(allc)),
+              "%endmacro",
+              "; wave 8c (SPEC.md 128.19.8.3): each course's MEDALS, G then S, in STEPS (two",
+              "; words a course; 0 0 none)",
+              "%macro BZ_CRS_MEDALS 0",
+              "    dw " + ", ".join("%d, %d" % (c.medals[0] * SEC_STEPS, c.medals[1] * SEC_STEPS) for c in allc),
               "%endmacro",
               "%macro BZ_CRS_PALS 0",
               "    db " + ", ".join("%03Xh" % c.pal for c in allc),

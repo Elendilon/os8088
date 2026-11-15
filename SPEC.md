@@ -269520,6 +269520,46 @@ before.
   ends); LOOKED AT on the CGA (the intro card over the pathway, the result
   card after FIRST).
 
+##### 128.19.8.3 Slots, exploration and medals (stories 8c.1's keys, 8c.2, 8c.3; BUILT)
+
+- **The keys on the face**: **1 2 3** choose the slot played (`bz_slot`);
+  **X** twice erases it (the first press arms, the second within the same
+  face erases: the slot zeroed and written); **E** toggles the slot's
+  MODE, TIMED or EXPLORE. Enter's line shows them: `ENTER PLAY  SLOT n
+  LIVES l  TIMED|EXPLORE`.
+- **The slot's +1** becomes the MODE (bit 0: 1 EXPLORE; bits 1 - 7 zero, the
+  rest of the hostility unchanged), and **+24 - +39** the slot's BEST a
+  course (a word a course K, steps, 0 none); +40 - +47 stay zero.
+- **EXPLORE** (8c.2): every node OPEN on the pathway (`bz_gmask` FFFFh for
+  the goal's gate, the signs open or better); no limit and no clock
+  countdown (`bz_tsec` 0 at `bz_pinit`); no life is taken or lost, nothing
+  written at a course's entry; no best posted, the slot's or the course's;
+  the exits FOUND still counted. The slot's lives, open and done are
+  TIMED's and untouched.
+- **MEDALS** (8c.3): `medals G S` on a course (whole seconds, G under S, S
+  at most the limit); without one the tool derives them from the route,
+  **G = ceil(1.15 route)** and **S = ceil(1.5 route)** (S capped at the
+  limit), the owner's to replace with playtest runs. `BZ_CRS_MEDALS`, two
+  words a course (G and S in STEPS, 55 a second). A timed finish keeps the
+  slot's best for the course; a node's sign is **GOLD** (4) at or under G,
+  **SILVER** (3) at or under S, **DONE** (2) otherwise; the result card
+  says `GOLD` or `SILVER` after the time.
+- **As built**: the face's line 0 (no tour) is `1 2 3 SLOT  E MODE  X
+  ERASE`, or `X AGAIN: ERASE SLOT n` after X's first press (any other key
+  disarms it); line 1 `ENTER SLOT n  LIVES l  TIMED|EXPLORE  F <NAME>` (N
+  still cycles F's course, M its ball). E and X write the slot at once
+  (`bz_gsave`, `bz_dsave`, at home). `bz_gmask` is the goal gate's set:
+  the open nodes in TIMED, kept in step as edges open more, FFFFh in
+  EXPLORE. The tool's medals today: FIRST 4/5 s, TRIAL 11/14, MILL 17/22,
+  MOON 43/55, PEAK 40/52, PLAY 5/7.
+- **The bytes** (MEASURED): the image **35,740**, the bss **9,334** (the
+  medals' table, the gate mask, the mode and the keys).
+- **Proved by** `bonanzapath` (MEASURED PASS): 2 - FIRST's autopilot
+  finish makes node 0 GOLD (the slot's best 154 steps, G 220); 6 - E puts
+  EXPLORE on the floppy and opens every node (the gate FFFFh, every sign
+  open); 6b - MOON, locked when timed, plays with no clock and its Esc
+  costs no life. `bonanzagame` and `bonanzaexit` pass with the new lines.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
