@@ -201,7 +201,7 @@ def fresh(g):
 
 
 def rows_fetched(base, now):
-    title = X.title_rows()
+    title = X.title_rows() | {X.shell_row()}     # (the shell part is held on the desktop, SPEC.md 128.19.2)
     return [i for i, ((f0, _), (f1, _)) in enumerate(zip(base, now)) if i not in title and f1 & X.OP_FETCHED]
 
 
@@ -468,7 +468,7 @@ def leg_dclick(ui, tag, sym, g):
                 why.append("a log is held")
             if claims != base_claims:
                 why.append("the claims %s, a plain open's %s" % (claims, base_claims))
-        if [i for i, (fl, _) in enumerate(rows) if i not in X.title_rows() and fl & X.OP_FETCHED]:
+        if [i for i, (fl, _) in enumerate(rows) if i not in X.title_rows() | {X.shell_row()} and fl & X.OP_FETCHED]:
             why.append("a part row is held")
         if why:
             fails.append("dclick %s: %s" % (name, "; ".join(why)))
