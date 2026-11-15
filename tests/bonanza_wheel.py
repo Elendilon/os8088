@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BONANZA: the wheel - lanes paced by the retrace wait (SPEC.md 128.12.4, 128.12.5, 128.12.13.2, 128.12.15).
 
-    make bonanzadisk && python3 tests/bonanza_wheel.py [--adapter cga|herc|both] [--leg bench|low|corner|stale|gate|all]
+    make bonanzadisk && python3 tests/bonanza_wheel.py [--adapter cga|herc|both] [--leg bench|low|corner|stale|side|gate|all]
     python3 tests/bonanza_wheel.py --red NAME      (a red arm, below)
     python3 tests/bonanza_wheel.py --check         (the host half: the gate logs proved, every red arm assembled)
 
@@ -1407,6 +1407,155 @@ def stale_leg(g, ref):
     return fails, rep
 
 
+# ---- the SIDE leg: wave 7's column band (SPEC.md 128.18.2) -----------------------
+SIDE_STEPS = 16                 # steps held with the rotor OUT before the camera trickles toward it
+SIDE_AFTER = 12                 # frames held at the trickle's point (the window settles)
+SIDE_MAX = 160                  # frames at most waiting for a pose the full write did not draw
+SIDE_RETRY = 6                  # cuts taken again while the centred window lands off the plan's
+BZ_LCM = 2                      # bzwheel.inc's band margin, block columns
+
+
+def side_plan(g, ref):
+    """-> (rotor, R0, c0, the centre's point, the hold point, the trickle's point, the window's c0 there)
+    or None: a CENTRED full write whose window has a MILL rotor in its rows but wholly OUTSIDE the column
+    band (its columns end at least BZ_LCM before c0, or start at least BZ_LCM past c0 + W), and a resting
+    point whose dead zone is a window that shows the rotor whole (TRICKLE pans to it a column a frame)"""
+    tag, crs = g.tag, ref.c
+    lsh = LSH[tag]
+    recs = {r["i"]: r for r in crs.part["props"]}
+    rects = R.lane_rects(crs)
+    grid = BB.Grid(crs.cga)
+    Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
+    H = BB.CARDS[tag == "herc"][1]
+    rl = R.RL[tag]
+    for i in sorted(rects):
+        if recs[i]["kind"] != BB.PK_WINDMILL:
+            continue
+        q = lane_cells(rects, i, lsh)
+        for R0 in range(max(0, q[1] - H), min(rmax, q[0]) + 1):
+            top = R0 << lsh
+            for c0, c0g in ((q[3] + BZ_LCM + 1, max(0, q[2] - 1)), (q[2] - Wc - BZ_LCM - 1, min(cmax, q[3] - Wc + 1))):
+                if not 0 <= c0 <= cmax or not (c0g <= q[2] and q[3] <= c0g + Wc):
+                    continue
+                left = 8 * c0
+                cen = None
+                for dy in range(rl):
+                    for dx in range(8):
+                        cen = cen or R.probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
+                                                    flags=BB.FL_OCC | BB.FL_OCCG)
+                hold = cen and R.rest_in_window(crs, grid, top, left, Wc, range(70, 112),
+                                                flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
+                go = hold and R.rest_in_window(crs, grid, top, 8 * c0g, Wc, range(70, 112),
+                                               flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
+                if cen and hold and go:
+                    return i, R0, c0, cen, hold, go, c0g
+    return None
+
+
+def side_leg(g, ref):
+    """THE SIDE SCENE (SPEC.md 128.18.2, story 7.1): [bz_cmode] 1 (TRICKLE); a
+    centred full write puts a ROTOR in the window's rows but wholly OUTSIDE
+    the column band, the ball HELD; on every frame while the window holds,
+    the lane is marked OUT ([bz_lout] 1: the walk never computed its true
+    pose); after SIDE_STEPS steps, on a frame whose true pose differs from
+    the full write's, the ball is held at a point whose dead zone is a window
+    that shows the rotor, so TRICKLE pans to it a column a frame and the
+    entering columns bring the rotor in from the map: (9) judges them (the
+    TRUE pose on the card).  `nocol` (the band's margin 0) leaves the map
+    stale.  Where no window puts a rotor so (the Hercules' 45 words hold
+    MILL's every lane), the leg SKIPS naming the card.  -> (failures, reports)"""
+    m, tag, crs = g.m, g.tag, ref.c
+    lsh = LSH[tag]
+    recs = {r["i"]: r for r in crs.part["props"]}
+    rects = R.lane_rects(crs)
+    fails, rep = [], []
+    launch_mill(g, "Enter", 0)
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
+    m.pause()
+    g.putb("bz_cmode", 1)
+    plan = side_plan(g, ref)
+    if plan is None:
+        rep.append("(9) the SIDE scene: SKIP - no window on this card puts a MILL rotor in its rows and wholly "
+                   "outside the column band with the ball centred on a floor (the `nocol` arm is UNJUDGED here)")
+    else:
+        lane, R0w, c0w, cen, hold, go, c0g = plan
+        rec = recs[lane]
+        lout = g.a("bz_lout") + lane
+        st = {"k": -1, "fw": None, "n0": None, "step": None, "pr": None, "enter": [], "out": [], "retry": 0,
+              "seen": 0}
+
+        def on_hit(mm, rec_):
+            if rec_["addr"] == A["bz_t0"]:
+                st["k"] += 1
+                k = st["k"]
+                if st["step"] is None:
+                    if k == 0:
+                        R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+                        g.putb("bz_first", 1)
+                    else:
+                        R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=k > 1)
+                    if k == 2 and (g.w("bz_R0"), g.w("bz_c0")) != (R0w, c0w) and st["retry"] < SIDE_RETRY:
+                        st["retry"] += 1
+                        st["k"] = -1
+                    elif k == 2:
+                        st["fw"] = mm.read(g.a("bz_ldrw") + lane, 1)[0]
+                        st["n0"] = g.d("bz_nstep")
+                    elif k > 2:
+                        n = g.d("bz_nstep")
+                        if n - st["n0"] >= SIDE_STEPS and rotor_pose(rec, n) != st["fw"] \
+                                and rotor_pose(rec, n + 1) != st["fw"]:
+                            st["step"] = k
+                            R.poke_ball(g, go[0], go[1], go[2], 0, 0, 0, air=0)
+                else:
+                    R.poke_ball(g, go[0], go[1], go[2], 0, 0, 0, air=0, same_cell=True)
+                return None
+            out = pres_snap(g)
+            out["k"] = st["k"]
+            if st["k"] > 2 and st["step"] is None and (out["R0"], out["c0"]) == (R0w, c0w):
+                st["seen"] += 1
+                if mm.read(lout, 1)[0] != 1:
+                    st["out"].append(out["frames"])
+            if st["step"] is not None:
+                st["enter"] += enter_check(g, ref, st["pr"], out, rects, recs)
+            st["pr"] = out
+            return None
+        A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
+        with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=6000):
+            m.run()
+            M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + abs(c0w - c0g) + SIDE_AFTER)
+                    or st["k"] >= SIDE_MAX, "the SIDE scene's frames", guest=90 + 10 * SIDE_RETRY)
+            m.pause()
+        ent = [e for e in st["enter"] if e[1] == lane]
+        rep.append("(9) the SIDE scene: rotor %d (cols %d - %d) outside the band of a centred window R0 %d c0 %d "
+                   "(the cut taken %d time(s) more); %d held frames, the lane OUT on all but %d; the trickle to c0 "
+                   "%d %s; the rotor brought in by the columns: %s" % (
+                       lane, lane_cells(rects, lane, lsh)[2], lane_cells(rects, lane, lsh)[3] - 1, R0w, c0w,
+                       st["retry"], st["seen"], len(st["out"]), c0g,
+                       "on frame %s" % st["step"] if st["step"] is not None else "NEVER (no pose the cut did not "
+                       "draw)", ", ".join("true pose %d, its bz_ldrw %s, %d px wrong" % (e[2], e[3], e[4])
+                                          for e in ent) or "NONE"))
+        if not st["seen"]:
+            fails.append("(9) the SIDE scene: the window never held at the plan's R0 %d c0 %d" % (R0w, c0w))
+        if st["out"]:
+            fails.append("(9) the SIDE scene: rotor %d outside the column band was WALKED (bz_lout 0) on frames %s"
+                         % (lane, st["out"][:5]))
+        if not ent:
+            fails.append("(9) the SIDE scene: rotor %d was not brought onto the glass by an entering column (the "
+                         "stale map was never judged)" % lane)
+        for e in ent:
+            if e[4]:
+                fails.append("(9) the SIDE scene, frame %d: rotor %d brought in by the columns shows %d px that "
+                             "are not its TRUE pose %d (its bz_ldrw %s): the map was left stale while it was "
+                             "outside the band" % (e[0], e[1], e[4], e[2], e[3]))
+    g.putb("bz_cmode", 0)
+    m.run()
+    g.key("Escape")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the SIDE leg's play ends on Esc", guest=60)
+    R.dropped(g, "the SIDE leg")
+    return fails, rep
+
+
 # ---- the GATE leg: (10) on the knock and pass replays --------------------------
 def gate_leg(g, scen):
     """-> (failures, reports)"""
@@ -1476,7 +1625,7 @@ def gate_scen():
     return [s for s in P.mill_replays() if s["name"] in ("knock", "pass")]
 
 
-LEGS = ("bench", "low", "corner", "stale", "gate")
+LEGS = ("bench", "low", "corner", "stale", "side", "gate")
 
 
 def run(tag, legs=LEGS, apps=None, src=None):
@@ -1524,6 +1673,10 @@ def run(tag, legs=LEGS, apps=None, src=None):
             f, r = stale_leg(g, ref)
             fails += f
             rep += r
+        if "side" in legs:                      # wave 7 (SPEC.md 128.18.2)
+            f, r = side_leg(g, ref)
+            fails += f
+            rep += r
         if "corner" in legs:
             f, r = corner_leg(g, ref)
             fails += f
@@ -1565,6 +1718,9 @@ REDS = {
     "corner": [("bzwheel.inc", "    mov ax, [bz_dc]\n    or ax, ax\n    jz .cols\n    js .left\n    dec cx\n",
                 "    jmp short .cols             ; RED corner: the entering column's cells too\n    js .left\n"
                 "    dec cx\n")],
+    # wave 7 (SPEC.md 128.18.2): the column band with no margin - a lane is walked only from the frame its
+    # column is already inside the old window, so the column the camera brings in is drawn from a stale map
+    "nocol": [("bzwheel.inc", "BZ_LCM      equ 2               ;", "BZ_LCM      equ 0               ; RED nocol:")],
     "lanestale": [("bzwheel.inc", "    call bz_lsync               ; 2. wholly outside: the map now, in RAM\n",
                    "    nop                         ; RED lanestale: the map and bz_ldrw left stale\n")],
     "gatelate": [("bzwheel.inc", "    call bz_lmust               ; 4. a must-draw rotor or post ...\n    jnc .cont\n",
@@ -1590,19 +1746,19 @@ REDS = {
 RED_LEGS = {"repeat": ("bench",), "ahead": ("bench",), "nobeam": ("low",), "kmod": ("bench",),
             "halfcal": ("bench",), "alias": ("corner",), "corner": ("corner",), "lanestale": ("stale",),
             "gatelate": ("gate",), "litsteps": ("bench",), "costtab": ("low",), "lnext": ("bench",),
-            "pskip": ("low",)}
+            "pskip": ("low",), "nocol": ("side",)}
 # the Hercules' beam checks are reported (128.12.15 item 5); the corner's (6) and (5) are asserted on the CGA
 # ...and `halfcal` the CGA's: on the Hercules every MILL commit leaves more than the halved price's ~600
 # counts before its deadline, so nothing overruns there (the final pass of wave 3b: bz_wover 0, (5)'s
 # ratio 1.31 reported)
-RED_TAGS = {"nobeam": ("cga",), "kmod": ("cga",), "corner": ("cga",), "alias": ("cga",), "costtab": ("cga",),
+RED_TAGS = {"nocol": ("cga",), "nobeam": ("cga",), "kmod": ("cga",), "corner": ("cga",), "alias": ("cga",), "costtab": ("cga",),
             "halfcal": ("cga",)}
 # `halfcal` at (5) since wave 4's final pass: the halved word-line prices every whole rotor 30% under
 # its span, which (5) asserts within 15%; wave 4's MILL frames leave no commit near its deadline, so
 # (4)'s overrun no longer follows on the CGA (bonanzaperf's `halfcal` still meets bz_wover)
 RED_WANT = {"repeat": "(1)", "ahead": "(2)", "nobeam": "(3)", "kmod": "(3)", "halfcal": "(5)", "alias": "(6)",
             "corner": "(6)", "lanestale": "(9)", "gatelate": "(10)", "litsteps": "(12)", "costtab": "(5)",
-            "lnext": "(13)", "pskip": "(12)"}
+            "lnext": "(13)", "pskip": "(12)", "nocol": "(9) the SIDE scene"}
 
 
 def main():
