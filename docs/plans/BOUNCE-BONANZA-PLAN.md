@@ -182,6 +182,21 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
 - **CD4. Q-61 to Q-63's defaults are the starting point.** "I'll need to
   test these to see how they feel, but this seems like a fine starting
   point." Wave 6 ships them as the defaults, and gate 1's play tunes them.
+- **CD5. A 3-tile gap onto a lower floor is a RUBBER rung** (gate 1, round
+  1: "3 tile gaps: Probably fine, if we design with it in mind"). Three
+  tiles LEVEL are nobody's; onto a lower floor rubber's Hop and boost cross
+  from a window that widens with the drop (2 take-off points half a unit
+  down, 22 at 3 units down), rubber's Hop alone from 2 units down, glass's
+  from 3, steel never. **A window under 6 take-off points (about 110 ms) is
+  luck, not a rung**: half a unit and 1 unit down are nobody's for an
+  intended route, and a rubber rung starts at 1.5 units down (7 points). A
+  design sheet places one only where rubber crossing is intended or another
+  ball is required, and says which; until wave 11's pipeline the tool only
+  LISTS them (`gap3_scan()`), it does not check a sheet (SPEC.md 128.17.5).
+- **CD6. A boost spot** is a firm level floor (normal or ice, no prop)
+  about 2 tiles past the take-off point at the cap, and less than about 1.2
+  units below it; ramps, sand, mats and props refuse the boost (SPEC.md
+  128.17.5).
 
 ### R2 The disk question: a shared tile and prop map?
 
@@ -353,7 +368,8 @@ owner play; R5 says when the scoped soak runs.
 |---|---|---|---|---|
 | **5a** | Clear the decks: the dead HUD code and the stale records | S | gate 0 runs beside it | 1 |
 | **5b** | The compact course format BZC2, the course budget, the disk plan | M | | 1 |
-| **6** | Feel: per-ball Hop and grip, one boost, the palette, a playground course | M-L | **gate 1: the physics freeze** | 1 |
+| **6** | Feel: per-ball Hop and grip, one boost, the palette, a playground course | M-L | **gate 1: the physics freeze** (round 1 played) | 1 |
+| **6b** | Gate 1's retune: Grip 6/3/1, the boost armed in flight, three tiles as course rule CD5, the LATTICE camera | M | **gate 1 round 2**, then the freeze | 1 |
 | **7** | Time: the walk narrowed by column, course clocks, time limits, music per course, the new sound events | L | | 1 |
 | **8a** | The shell's code part (O46), proven on kern_mega | S-M | | 1 |
 | **8b** | The loop: one bracket, the pathway, several finishes, lives, save v2, the tour removed | L | | 1 |
@@ -386,6 +402,8 @@ without rebuilding a shipped course. The owner's "about 20 courses, about
   and applied after the freeze, at each course's retrofit.
 - **Gate 1:** after wave 6, the physics on the playground course. Freezing
   O11 here is what lets demos be recorded.
+  Round 1 was played on 2026-11-14; wave 6b is its retune, and round 2
+  plays wave 6b's disk before the freeze (SPEC.md 128.17.12).
 - **Gate 2:** after wave 8c, the shell.
 - **Per course** in waves 11-13, 16 and 17: a playtest disk.
 - **Gate 3:** before release 1, a field run on the 5150s.
@@ -721,8 +739,8 @@ tool's reach and step):
 | 6.7 | **DONE.** O9: **the camera's vertical follows the GROUND line**, in GLIDE and TRICKLE (A21, Q-L5; SPEC.md 128.16.7): `cy = bz_py + z - zg`, `zg` the floor under the ball (held over a gap), with the ball's own line as a LATCHED fallback within 16 lines of the window's edge (held until the next contact, so the camera cannot judder over the void). GLIDE's travel ring stays on the ball's own line, so a step in the ground line is never a false "fast". A bounce or a boost no longer bobs the view. About 0.35 - 0.4k a frame | a look boot; `bonanzaring`'s GROUND leg (red arms `camz`, `nosafe`, `nolatch`, `ringcy`, `campad`); item 8's `BENCH` directions; `bonanzaperf` reports the rows panned per bounce against wave 2's 251 / 137 *Final pass: `bonanzaring`'s GROUND leg ok on both cards in GLIDE and TRICKLE (the window = `bbcourse.Glide`'s every GLIDE frame, the footprint inside, no reversal on the void fall); the block MEASURED worst 470 clk, means 360 - 436, under 527 (bound 658); `camz`, `nosafe`, `ringcy` and `campad` red at their own checks, `nolatch` at the window check (SPEC.md 128.16.14's final pass); TRIAL's bounces: GLIDE 219 rows against wave 2's 251, TRICKLE 139 against 137* |
 | 6.8 | **DONE.** **The PLAYGROUND course** (a review finding; SPEC.md 128.16.8): course 6, `PLAY`, "Playground", target 30 s, palette 0. The step ladder's four rungs (half, 1, 1.5, 2 units), each a dead end reached from the apron only (no staircase between them; the 2-unit top unreachable, asserted), a gap ladder (1, 2, 3 tiles), a Hop-and-boost chain onto the 1.5-unit ledge, a brake strip ending at the void (the camera's fallback case, its depth set on the model) with ice and sand beside it, a bounce mat, a pad for each ball, and a goal on a ROLLING route so the autopilot and the tour finish it; no up-ramp within 6 tiles of the rungs. PREDICTED about 15 - 20KB of RAM and 3 - 4.5KB LZ4, under its 6,275 budget. `BZ_NCRS` 7 moves the sound, song and demo rows up one (23 part rows); the tour gains it. It gets an **AUTHORED demo** (`BZ_NDEMO = BZ_NCRS - 1` is asserted, and the autopilot cannot Hop), whose script gains `hop`, `boost` (raising when its contact does not boost) and `grip` verbs: the only demo that boosts, which the tool asserts. The owner judges the freeze on it, and later it can be exploration's sandbox | `bonanzacourse`; `bonanzademo` (its demo `D`'d to the model's end); `bonanzaexit` (its launches and ways out); `bonanzamega` (a play with a boost on kern_mega, red arm `stretchcs`); the owner's play *Final pass: the PLAYGROUND in every row that names it - `bonanzademo` ok (BZD6 boosts and ends at the goal on both cards), `bonanzaexit` ok (its launches and every way out), `bonanzamega` ok (its Hop and boost on kern_mega's Hercules, the replay to the same end; `stretchcs` red), `bonanzareplay` ok; RAM 34,024, LZB 4,352; its demo misses 0.48 a second on the CGA and 0.07 on the Hercules, speaker ON* |
 | 6.9 | **DONE.** `BZ_PHYSV` moves (SPEC.md 128.16.9): `PHYS_REV` (6) joins `PHYS_CONSTS` so a rule-only change moves it too, and the tool refuses 00h and any EARLIER physics' value (`PHYSV_SHIPPED`: 00h, 9Ah, E6h, A0h; a commit that moves `BZ_PHYSV` appends the value it replaces). The ROUTE demos regenerate from the autopilot (a route the new drag breaks gets its `way` lines moved); `MOON`'s, `PEAK`'s and `PLAY`'s authored demos are written again by `bbcourse.py author` (I11): the build now REFUSES a shipped demo under other physics or one that would be demoted. A 5b `.BZR` is refused, mostly as "Damaged demo file" (its course's identity moved, which is checked first), "Demo from other physics" only where the identity did not. **`BONANZA.DAT` +5 carries `BZ_PHYSV`**: the hostile read accepts any +5, and a file under other physics keeps its identities and loses its bests | `bonanzademo`; `bonanzagame` (red arm `physdat`); `bonanzacourse` items 4 and 9 (controls `physv`, `physv0`, `stalebzd`, `noboostdemo`) *Final pass: `bonanzademo` ok (the hostile set's 18 files, H17 and H18 among them, each refused with its toast on both cards); `bonanzagame` ok with its `physdat` leg, `physdat` red; item 4 and item 9 ok with `physv`, `physv0`, `stalebzd` and `noboostdemo`; BZ_PHYSV 25h* |
-| 6.10 | **The re-baseline** (a review finding; SPEC.md 128.16.10): `bonanzaperf --baseline`, taken ONCE at the FREEZE commit: every demo (six) through `D` and `B`, both cards, speaker OFF and ON, six runs a configuration for `MILL` (classified by its camera mode) and `PEAK`, three for the rest, 108 runs, each figure with its spread, runs of two or more misses among them, each row keyed to its demo's log (a demo the owner later replaces is re-measured), into a new dated report. Wave 6's own final pass asserts no end-to-end A/B (no like for like exists across a physics change) but ASSERTS the new routines' spans, and reports each demo against 5b's figures under the smoothness rule: PREDICTED about +0.65 - 0.75k a frame of instructions, plus the larger terms that move with the path, the faster balls' pans (`bbcourse.py --pans` predicts them before the code; more than about +1 missed refresh a second on `MILL` or `PEAK` is an owner conversation) and the occluder pass's records. Wave 10's targets, BENCH's A/B (Q-L8: +0.5k over three runs' spread) and story 7.7 are re-anchored on the re-baseline | `bonanzaperf` *Wave 6's half, the final pass (2026-11-14, SPEC.md 128.16.10): every demo through `D`, both cards, speaker OFF and ON, one run each, REPORTED against 5b: the rates inside +1 a second (CGA `MILL` 8.90, `PEAK` 8.76; Hercules 1.68, 3.24, speaker ON), but the misses now CLUSTER into half-rate runs (CGA `PEAK` 45 runs, the longest 43 frames, against 5b's 2 and 13), on gate 1's list; `BENCH` against `503031d4` +1,056 clk busy on the CGA, +47 on the Hercules (not like for like). The re-baseline itself is the freeze's* |
-| 6.11 | **Gate 1: the owner plays, then the physics FREEZE** (SPEC.md 128.16.11). The playtest disk (`bonanza360.img`, `bonanza.img`) with the PLAYGROUND and a diary note of what to try. The retune is a constants commit (`MATERIALS`' `HOP`, `GRIP`, `BOOST`, `K` or `ACC`, and `palette` lines), checked first with `bbcourse.py --tune` (which values every course compiles under, the step and gap ladders, and every route proof and `AUTHOR` script passed or failed; a retune that breaks a route becomes a route edit, which moves that course's identity), with the route demos regenerated, the authored ones re-authored and the rows the build moved re-run (a palette edit runs `bonanzaexit`). The disk's note puts the known questions first: glass's inverted grip, every ball faster on one arrow, the Grip chain's repeating boost, the easy two-tile gap. Then the freeze commit marks the material table, `BOOST_V`, `PHYS_CONSTS` and the step's rules BINDING (a later change is a contract change: the owner's decision, a new `BZ_PHYSV`, demos and bests redone, the re-baseline re-taken), runs 6.10, and records O3, O6, O14, O15, O17 and O45 (the mouse's buttons follow decision 2) as reviewed. Course geometry, palettes and the camera are not frozen. The owner's own demo recordings start after it | diary entry; the freeze commit's re-baseline |
+| 6.10 | **The re-baseline** (a review finding; SPEC.md 128.16.10; *waits for gate 1's round 2, SPEC.md 128.17.12*): `bonanzaperf --baseline`, taken ONCE at the FREEZE commit: every demo (six) through `D` and `B`, both cards, speaker OFF and ON, six runs a configuration for `MILL` (classified by its camera mode) and `PEAK`, three for the rest, 108 runs, each figure with its spread, runs of two or more misses among them, each row keyed to its demo's log (a demo the owner later replaces is re-measured), into a new dated report. Wave 6's own final pass asserts no end-to-end A/B (no like for like exists across a physics change) but ASSERTS the new routines' spans, and reports each demo against 5b's figures under the smoothness rule: PREDICTED about +0.65 - 0.75k a frame of instructions, plus the larger terms that move with the path, the faster balls' pans (`bbcourse.py --pans` predicts them before the code; more than about +1 missed refresh a second on `MILL` or `PEAK` is an owner conversation) and the occluder pass's records. Wave 10's targets, BENCH's A/B (Q-L8: +0.5k over three runs' spread) and story 7.7 are re-anchored on the re-baseline | `bonanzaperf` *Wave 6's half, the final pass (2026-11-14, SPEC.md 128.16.10): every demo through `D`, both cards, speaker OFF and ON, one run each, REPORTED against 5b: the rates inside +1 a second (CGA `MILL` 8.90, `PEAK` 8.76; Hercules 1.68, 3.24, speaker ON), but the misses now CLUSTER into half-rate runs (CGA `PEAK` 45 runs, the longest 43 frames, against 5b's 2 and 13), on gate 1's list; `BENCH` against `503031d4` +1,056 clk busy on the CGA, +47 on the Hercules (not like for like). The re-baseline itself is the freeze's* |
+| 6.11 | **Gate 1: the owner plays, then the physics FREEZE** (SPEC.md 128.16.11). *Round 1 played 2026-11-14; its retune is wave 6b (SPEC.md 128.17), and round 2 plays wave 6b's disk before the freeze.* The playtest disk (`bonanza360.img`, `bonanza.img`) with the PLAYGROUND and a diary note of what to try. The retune is a constants commit (`MATERIALS`' `HOP`, `GRIP`, `BOOST`, `K` or `ACC`, and `palette` lines), checked first with `bbcourse.py --tune` (which values every course compiles under, the step and gap ladders, and every route proof and `AUTHOR` script passed or failed; a retune that breaks a route becomes a route edit, which moves that course's identity), with the route demos regenerated, the authored ones re-authored and the rows the build moved re-run (a palette edit runs `bonanzaexit`). The disk's note puts the known questions first: glass's inverted grip, every ball faster on one arrow, the Grip chain's repeating boost, the easy two-tile gap. Then the freeze commit marks the material table, `BOOST_V`, `PHYS_CONSTS` and the step's rules BINDING (a later change is a contract change: the owner's decision, a new `BZ_PHYSV`, demos and bests redone, the re-baseline re-taken), runs 6.10, and records O3, O6, O14, O15, O17 and O45 (the mouse's buttons follow decision 2) as reviewed. Course geometry, palettes and the camera are not frozen. The owner's own demo recordings start after it | diary entry; the freeze commit's re-baseline |
 
 **As built** (wave 6 BUILT on the host and look-booted, and its final pass
 run on 2026-11-14: stories 6.1 - 6.9 are DONE, 6.10's wave half is
@@ -790,6 +808,99 @@ physics rows, `bonanzaring`, `bonanzamega` and `bonanzawheel`; a palette
 edit `bonanzaexit`); the freeze commit runs `bonanzaperf --baseline` once.
 **Inventory:** B1, B2, B3 (settled by decision 2), B6, B7, B8's review,
 A21, D8, I11.
+
+#### Wave 6b: Gate 1's retune (M)
+
+**Goal:** the four changes the owner asked for after playing wave 6, then a
+second playtest disk. **The contract is SPEC.md 128.17**, written before
+the code. Stories 6.10 (the re-baseline) and 6.11 (the freeze) wait for the
+owner's OK on this round.
+
+**Gate 1, round 1: the owner's words (2026-11-14), verbatim:**
+
+> Braking is still probably a bit high all around; lets try 6/3/1.
+>
+> Boost: I'm not sure what the trigger here is, I can only get it to bounce
+> maybe 1 out of 20 tries and never when I'm moving. Lets try "if they have
+> pressed space within some time of hitting the ground, trigger the boost".
+> We could make them hold it down, otherwise, if that is easier; "boost when
+> they are holding space when they hit the ground".
+>
+> 3 tile gaps: Probably fine, if we design with it in mind. So far we have
+> nothing but test levels, so we haven't started designing levels yet, only
+> demoing engine capabilities.
+>
+> Camera: Lets try to, either by course design, or by new rules, have
+> "transition points". That way the camera is not bopping back and forth
+> when the player is in certain areas (for example, the bottom of mill's
+> rampway, going back a little bit should not move the camera, they can't
+> get up that hill). There are now transitions that are less smooth, and
+> ones that are still smooth; like the one coming out of Mill's shoot
+> ["chute"] "slows down" before it then quickly moves over smoothly. We
+> should aim for all of them to be smooth; not slowing down.
+
+**The facts the stories build on** (SPEC.md 128.17, MEASURED on the host
+model at `4d69985c` with scratch copies of the tool; no emulator ran):
+- **The boost's window closes ON the contact and has no late side**: the
+  second Space edge must fall on the 6 steps ending at the contact step. A
+  press one step late does nothing and plays no cue. Rolling does not move
+  the contact (21 steps after the press on the level, at every speed), but
+  the camera's pans make the CGA drop to half rate, which makes a press
+  later, and on the test courses rules 4 and 5 refuse about two thirds of
+  rolling Hops (ramps, sand, props, lower landings).
+- **"Held at the contact" would boost on every ledge a Hop climbs**: a Hop
+  at a half-unit lip meets the ledge 1 - 4 steps after the press.
+- **A second press any time in the flight** boosts for 93% of players who
+  tap mid-flight (wave 6: 25%) but only 45% of those who aim at the landing
+  (43%), PREDICTED; it moves no ladder, record or reach (MEASURED
+  byte-identical). **A late grace of 3 steps** (a press up to 3 steps after
+  an unarmed bouncing contact converts the rebound into the boost,
+  exactly) takes the aiming player to about 81%: the display shows a
+  contact 1 - 2 steps after its step, so a press at the visible landing is
+  late.
+- **Grip 6/3/1** compiles every course with the same parts; only `AUTHOR
+  PLAY` moves (1,489 -> 1,504 steps). Steel now overruns the PLAYGROUND's
+  brake strip (4.3 tiles). Ice's brakes keep 2, 1, 1 by rounding.
+- **The camera's back-and-forth is GLIDE's trailing-edge target** (no
+  hysteresis: a few px back swings the whole lead), its re-aim from the
+  ball's own `vx`/`vy` (every apex), and **the chute's stall is the heavy
+  rule** (it stops a pan with no limit: 30 frames at `MILL`'s chute, 198 and
+  246 on `PEAK`, 102 on `MILL`'s Hercules).
+- **LATTICE** (return hysteresis, framings on a lattice, monotone pans, one
+  rate a pan, tubes pre-aimed, the heavy rule a bounded delay) takes the
+  model's reversals 84 -> 7, stalls 9 -> 0, dither reversals 186 -> 0 and the
+  CGA's priced pan work outside tubes -29% (-22% without `BENCH`). Its
+  urgent edge across moves to `W / 2` at the review: at `W` it coincided
+  with the return band's edge and made every return pan a run of
+  consecutive column frames (17 runs on the CGA, the longest 16, against 1
+  of 6 frames at `W / 2`). Every tube exit, DROP and LAUNCH included, has no
+  rate rise after it. Authored views were prototyped and measured; they are
+  not built.
+
+| # | story | verified by |
+|---|---|---|
+| 6b.1 | **Grip 6/3/1** (SPEC.md 128.17.3): `MATERIALS`' `GRIP` rubber 6, steel 3, glass 1. Ice's brake becomes `max(1, (GRIP + 2) >> 2)`, so it stays 2, 1, 1 (the plain quarter would make every ball the same on ice and double rubber's ice stop). From the cap Grip stops rubber in 1.8 tiles, steel 4.3, glass 2.3 (2.2 from its chord top, 372; PREDICTED by the axis model). The steel overrun of the PLAYGROUND's strip and glass's inversion go in round 2's notes | `bonanzacourse` item 7 against `axis_feel()` (control `iceplain`); `bonanzaphys` (`gripglass`, `gripsteel`); `--tune` (every course, ladder, route and script) |
+| 6b.2 | **The boost armed by a press in the flight, with a late grace** (SPEC.md 128.17.4): a second Space key-down edge any time after the ground Hop's take-off, up to and including the contact step, sets `bz_btok` to 2; the first contact boosts when the token is 2 and rules 1, 3, 4 and 5 hold. **The late grace** (`BGRACE` 3, in `PHYS_CONSTS`): an unarmed first contact that passes those rules and BOUNCES opens 3 steps in which a Space edge converts the rebound into the boost exactly (`gvz += BOOST - rebound`, `gz` lifted by the same for each integration since the contact). Space HELD never arms; the Hop's own edge never arms its flight; one boost a chain as before. No log change; 3 bytes of bss (`bz_bgr`, `bz_bgd`); about +55 - 70 bytes, about 32 clk a step (the grace's countdown). The mouse's left button arms and converts as Space does | `bonanzaphys` (`armearly`, `armroll`, `armlate` (the grace), `armlate4`, `hoponly`, `armheld`, `ledgehold`, `mashchain`, `gripchain` re-keyed; red arms `heldarm`, `hopedge`, `armwin`, `nograce`, `grace4`, `graceoff`); `bonanzacourse` item 7's offset map, the grace's exactness, ledge case and who-hits-it floors (controls `heldarm`, `hopedge`, `nograce`, `grace4`); the ladders' counts unchanged; `bonanzareplay`'s mouse play |
+| 6b.3 | **Three tiles are course knowledge** (SPEC.md 128.17.5): **CD5**, a 3-tile gap onto a lower floor is a rubber rung (the measured ladder: half a unit down from 2 take-off points with the boost, to 22 at 3 units down; rubber's Hop alone from 2 units down; glass from 3; steel never; three tiles level nobody's), with a PLAYABILITY FLOOR (under 6 take-off points is luck: a rung starts at 1.5 units down), and **CD6**, where a boost spot goes (a firm level floor about 2 tiles past the take-off, under about 1.2 units below it). Both join R1's course-design notes. Item 7 prints the ladder as CD5 with each row's verdict, not as a KNOWN CONFLICT; every assertion stays. No grammar and no refusal: `gap3_scan()` lists, and story 11.8 cross-checks the sheets | `bonanzacourse` item 7 (its printed names and verdicts); R1 |
+| 6b.4 | **The camera: LATTICE** (SPEC.md 128.17.6). GLIDE's policy and `bz_hvcam` replaced by one per-axis rule, its per-frame ORDER pinned (128.17.6.2): a band with RETURN HYSTERESIS (`Hr`: 40/45 px across, 16 lines down), targets on a LATTICE (8 columns, 32 lines) with a lead, a pan that only extends forward and never reverses inside the band, one rate a pan that only rises, the urgent edge across at `W / 2` (so no return pan is born fast), tubes PRE-AIMED at their exit, and the heavy rule a bounded DELAY (level 1 side- and axis-aware through `bz_pflag` bits 4 - 7, level 2 one row through on the Hercules, an axis withheld at most 3 steps running). The ground line and its latch, TRICKLE and the edge clause stay; the ring's y half goes. `bbcourse.Glide` becomes the same rule, integer-exact, with the respawn cut modelled and a flag for each control's broken part. `BENCH`'s eight directions are proved under a scripted-camera harness byte, `bz_camscr` (LATTICE off, a fixed cycle, a step toward the ball when the cycle would lose it). ESTIMATED from a sketch about +225 - 285 bytes and +44 bss, +0.2 - 0.6k a frame (re-priced from the written code), against -22% of the authored courses' priced pan work on the CGA | `bonanzacourse` item 8 running `--camcheck` whole: guarantees 1 - 3 and 5 (the tube exits), the side check on a constructed scenario, the two-row check, the ramp bottom and the dither map (controls `nohyst`, `nocap`, `ringy`, `nopreaim`, `side0`, `noscr`); `bonanzaring`'s CAMERA leg, its own part (red arms `camhyst`, `camcap`, `campreaim`, `camring`, `camside`, `latpad`; `campad` kept on the ground-line block); `bonanzaperf`'s report and its A/B on `MILL`'s route demo (story 6b.7) |
+| 6b.5 | **`BZ_PHYSV`, demos and saves** (SPEC.md 128.17.7): `PHYS_REV` 7 and `BGRACE` 3 in `PHYS_CONSTS`, `BZ_PHYSV` 53h PREDICTED, 25h appended to `PHYSV_SHIPPED`; the route demos regenerated (their paths unchanged: no Space or Grip in them), `MOON`'s, `PEAK`'s and `PLAY`'s re-authored; the course parts and identities unchanged; the owner's bests cleared once | `bonanzacourse` items 4 and 9 (control `physv25`); `bonanzademo` (+7 = 25h refused); `bonanzagame` (`physdat` with +5 = 25h) |
+| 6b.6 | **The rows** (SPEC.md 128.17.10), run ONCE in the final pass: `bonanzacourse`, `bonanzaphys`, `bonanzaring`, `bonanzaperf`, `bonanzareplay`, `bonanzademo`, `bonanzagame`, `bonanzamega`, `bonanzawheel`, `bonanzaexit`; then every new red arm once AND every CARRIED arm 128.17.10 lists (`pump`, `tokbst`, `rampboost`, `slabcell`, `springtok`; `camz`, `nosafe`, `nolatch`, `nostretch` and the ring's box, probe and lift arms; the wheel's; `rideoff`, `level1`), each re-proved on 6b's model by `--check` / `--check-reds` before the pass, re-found or retired with a reason if it no longer goes red. `ringcy` retired; `campad` kept on the ground-line block, `latpad` new; `level1` re-pointed. `bonanzacourse`'s and `bonanzaring`'s `secs` re-measured; the CAMERA leg is its own part. **6b's first commit regenerates `docs/INDEX.md`** (`tools/os88index.py`: stale at `4d69985c`, the open-plan count, so `make` fails at `os88index --check` until it is) | the final pass |
+| 6b.7 | **The measurement the owner's smoothness rule needs, and the decision it carries** (SPEC.md 128.17.6.6, 128.17.10): `bonanzaperf` REPORTS each demo's runs of two or more misses and the longest run on both cards (wave 6: CGA `PEAK` 45 runs, the longest 43; `MILL` 15 and 33), the pans against `--pans`, the misses of tube frames against the rest, and a `FIRST` fall-and-respawn replay; the like-for-like A/B against `4d69985c` on `MILL`'s route demo, three runs a side (`B` reported only: its series breaks at 6b). **The decision**: LATTICE ships on round 2's disk if `MILL`'s misses a second and longest run are no worse than `4d69985c`'s beyond the spread of its three runs, on both cards; otherwise the figures go to the owner with the disk held. The in-tube one-row rule ships if any run's tube frames miss more often than its other frames | `bonanzaperf` |
+| 6b.8 | **Gate 1, round 2** (SPEC.md 128.17.12): the playtest disk (`bonanza360.img`, `bonanza.img`), built from the commit AFTER 6b's final pass and 6b.7's decision, never from an unverified build, and round 2's notes in [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md): the boost by a second tap in the air or at the landing, while rolling across the apron; that it fires only on a plain level floor (why most of `MILL`'s and `TRIAL`'s landings refuse it, silently); that holding Space does nothing; that steel and glass still need the press at the landing; the Grip chain's repeating boost; steel's Grip a tile before the strip, and ice left as before; the camera at `MILL`'s ramp bottom, out of its chute and cannon, and beside `PEAK`'s lift (a slower row pan there is expected); and a request for the `.BZR` of any boost that still fails. **A "How It Was Built" diary entry for 6b** (the owner's round-1 words, the diagnosis, the two camera designs and the review's changes) in [BOUNCE-BONANZA-DIARY.md](BOUNCE-BONANZA-DIARY.md). 6.10 and 6.11 then wait for the owner's OK | the owner's play; the diary entry |
+
+**Open questions** (SPEC.md 128.17.13, each with its default): which
+"held" the owner meant (a second press, built, or the Hop's press held to
+the landing, priced); the grace's length (3); the Grip chain's repeating
+boost (allowed; a cooldown is the lever); a cue for a refused boost (none);
+the hint line (unchanged); steel's and glass's "hop again" window
+(unchanged); steel's overrun of the brake strip; glass's inversion (`K`);
+ice's rounding; `MILL`'s two CD5 instances; the camera's look-ahead across;
+`BENCH`'s proof by `bz_camscr` or by reshaping it; the Hercules's level-2
+row; authored views.
+
+**Rows the wave cannot reach**: every row outside BONANZA's, and
+`bonanzaassets`, `bonanzamusic` and `bonanzasound` (their inputs do not
+change).
 
 #### Wave 7: Time. Clocks, limits, music (L)
 
@@ -981,6 +1092,7 @@ measurements.
 | 11.5 | **The visibility rule** (CD1; BONANZA-SIZE-2026-11-14 section 3.5 (c)). It runs in `bbcourse.py` at compile and in `--selfcheck`, and switches 5b.6's report into a REFUSAL. Every spring, pad and cup (mark, pin and flag) must be at least 75% visible in the static picture, and every tube mouth at least 50%. The route demo and every authored demo are run through the model. Any stretch outside a tube where the ball is more than 50% hidden for over 0.5 s (27 steps) is refused, unless the course declares it `hidden` (a deliberate secret); a declared stretch must turn less than 30 degrees. Every course prints its hidden stretches and what hides them. BENCH is exempt. **Cost: 0 on the 5150; about 0.6 s a course on the host.** The design rules go into the design sheet: springs, climbs, tube runs and drop landings go AWAY from the camera (-x or -y); a near rail stands one or two units above the floor it guards, and flat where it can (one unit still stops a roll and a rubber Hop) | a red arm: today's PEAK refused (springs, cup and pad at 0%, a 3.00 s hidden stretch); MOON refused until retrofitted |
 | 11.6 | **The RAM levers for long courses** (CD3; the report's section 6), landed before the first course over about 70 s. Both cost 0 clk a frame and a step. Grid rows overlapped through ROWTAB: PEAK -788 bytes of RAM, and ROWTAB then ships one byte a row. Map rows at a constant stride of 108 bytes with a row-base table: PEAK -2.4KB, and the tool refuses art or a lane in a row's outer 10 words. With 5b.2, one part then holds about 212 block rows, about 79 s at MOON's and PEAK's pace. **A 90 s course is designed at 0.425 s a block row or slower**, or the owner chooses the grid in a claim of its own (the eighth of eight). **Past that, the TWO-PART COURSE is the documented escape** (SPEC.md 128.15.8, CD3; the owner, 2026-11-14): the picture in one part and the rest in another, which also spends one more claim; taken only when a course actually exceeds one part, and its clocks (a segment switch per laid group in the occluder lay, a few hundred clk a frame at worst, ESTIMATED) measured then. **And the replay log is checked**: `bz_rlog`'s 4,096 bytes could truncate a jittery mouse play after about 25 s (PREDICTED), so a 90 s course's log is sized or its encoding tightened before its demos are recorded | `--selfcheck`; `bonanzacourse`; `bonanzaring`; a long mouse play through `W` |
 | 11.7 | **The demos as a bit stream** (the report's section 3.4): a Huffman code for the key (with an escape for any other key) and Elias gamma for the run count, expanded into BZR1 pairs when a demo is copied into `bz_rlog`, with the header trimmed. The demos are joined into one indexed part. This saves about 8.5KB at twenty courses, at 0 clk a frame and about 28 ms at the copy | `bonanzademo`; the tool's round trip |
+| 11.8 | **CD5 and CD6 checked against the design sheets** (SPEC.md 128.17.5): each course's design sheet names its intended rubber rungs and boost spots; the pipeline cross-checks them against `gap3_scan()`'s listing and the floor's verdict (a rung under 6 take-off points is refused as an intended route), and, if the owner wants one, a `boost` spot declaration the tool tests against rules 4 and 5 | `bonanzacourse`; the sheets |
 
 **Inventory:** D1, D2, D5 (as each course is retrofitted), D9, D10
 (watch items the tool enforces).
