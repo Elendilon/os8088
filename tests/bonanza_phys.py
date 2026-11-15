@@ -163,8 +163,7 @@ and PASSES only if the row FAILS - at its own check:
        pumpchk       Space at every contact of the chain: one boost, then contact Hops
        bouncefirst   a Hop, no Space at its first contact (a bounce), Space at its
                      second: a contact Hop, nboost 0
-       gripchain     a Hop and its boost, Grip held through the boost's landing,
-                     then Space: a land, a ground Hop and a second boost, nboost 2
+       gripchain     (re-keyed by wave 6b with mid-flight taps: part 7)
        rampnot       a Hop whose first contact is on a ramp (TRIAL's, searched),
                      Space before it: no boost
        sandnot, matnot  the same on the PLAYGROUND's sand lane and its mat
@@ -192,6 +191,55 @@ and PASSES only if the row FAILS - at its own check:
   slowdrag   the remainder's split done twice more, by DIV: the drag's span
   (`hopagain` is glass's since wave 6: rubber's Space at the Hop's own landing
   is the `boost` replay's)
+
+  7  WAVE 6B (SPEC.md 128.17.4, 128.17.10): the boost ARMED by a second Space
+     edge anywhere in the Hop's flight (bz_btok 2), and the LATE GRACE: an
+     unarmed bouncing first contact that passes rules 3 - 5 opens BGRACE steps
+     in which a Space edge converts the rebound into the boost exactly.  Every
+     frame also compares bz_bgr and bz_bgd (Physics.state6's two new values),
+     and each replay below ends with the model's nboost on the guest, checked
+     by name.  Wave 6's boost replays are kept (re-proved on 6b's model: the
+     second press 2 steps before the contact arms the flight), `gripchain`
+     re-keyed; each on both cards, FOUND and PROVED on the model:
+       armearly   the second press 14 steps before the first contact: a boost
+                  (wave 6's window, closing on the contact, refused it)
+       armroll    rubber at the cap with a chord, a Hop, the second press
+                  mid-flight: a boost
+       armlate    the press 2 steps AFTER the first contact (a bounce): the
+                  grace converts at k = 2 (the `boostg` event), a boost
+       armlate5   the press BGRACE + 1 steps after: nothing, nboost 0
+                  (armlate4 until round 3's BGRACE 4)
+       hoponly    one tap and nothing else: no boost
+       armheld    Space held from the Hop through the contact: round 3
+                  (SPEC.md 128.17.16) BOOSTS (round 2: no boost)
+       ledgehold  a Hop at the half-unit lip, its first contact on the ledge
+                  1 - 4 steps later, Space held through it: no boost there
+                  (round 3's take-off gate)
+       fallarm    round 3: rubber rolled off a rung's top, no Hop, a tap 2
+                  steps after the take-off: the FALL's token, a boost
+       fallnone   the same roll with no Space: no boost
+       mashchain  rubber at the cap, Space tapped every 2 steps through three
+                  contacts of the chain: one boost
+       gripchain  a Hop and a mid-flight tap, the boost; Grip through its
+                  landing; a Hop and a mid-flight tap, the second boost (the
+                  cycle about 52 steps)
+       gripsteel  steel at the cap, Grip held (Grip 3): stopped in the axis
+                  model's steps (gripglass, wave 6's, at Grip 1)
+     and their red arms:
+  heldarm    Space HELD arms the token: ledgehold boosts on the ledge
+  hopedge    the Hop's own edge arms its flight: hoponly boosts
+  armwin     wave 6's test kept (the token AND the window at the contact):
+             armearly does not boost
+  nograce    no late grace: armlate does not boost
+  grace5     a grace one step longer in the rule: armlate5 boosts
+  noheld     round 3: Space held at the contact arms nothing: armheld
+  nogate     round 3: held arms without the take-off gate: ledgehold
+             boosts on the ledge
+  nofall     round 3: a fall takes no token: fallarm does not boost
+  graceoff   the conversion without its k - 1 lift: armlate's state (gz)
+  The CARRIED arms (pump, tokbst, rampboost, slabcell, springtok: anchored in
+  bz_land's boost block, which 6b rewrote) are re-anchored and re-proved on
+  6b's model by --check.
 """
 import argparse
 import os
@@ -279,10 +327,14 @@ class Reader:
 
     def state6(self, raw):
         """wave 6's state (SPEC.md 128.16.4.3) in Physics.state6()'s shape: the
-        boost's token, the stretch's steps, the boosts, the drag's remainders"""
+        boost's token, the stretch's steps, the boosts, the drag's remainders;
+        and wave 6b's (128.17.4.3): the late grace's steps left and its lift"""
         s, lo = self.g.sym, self.lo
-        return (raw[s["bz_btok"] - lo], raw[s["bz_stf"] - lo], struct.unpack_from("<H", raw, s["bz_nboost"] - lo)[0],
-                raw[s["bz_drx"] - lo], raw[s["bz_dry"] - lo])
+        out = (raw[s["bz_btok"] - lo], raw[s["bz_stf"] - lo], struct.unpack_from("<H", raw, s["bz_nboost"] - lo)[0],
+               raw[s["bz_drx"] - lo], raw[s["bz_dry"] - lo])
+        if "bz_bgr" in s:
+            out += (raw[s["bz_bgr"] - lo], struct.unpack_from("<h", raw, s["bz_bgd"] - lo)[0])
+        return out
 
     def state4(self, raw):
         """wave 4's state (SPEC.md 128.14.4.7) in Physics.state4()'s shape: the
@@ -366,7 +418,7 @@ def compare(name, frames, st, s2, ext, p):
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
                                            for n, a, b in zip(names, ext["s4"], p.state4()) if a != b))
     if ext.get("s6") is not None and ext["s6"] != p.state6():
-        names = ("btok", "stf", "nboost", "drx", "dry")
+        names = ("btok", "stf", "nboost", "drx", "dry", "bgr", "bgd")
         return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
                                            for n, a, b in zip(names, ext["s6"], p.state6()) if a != b))
@@ -1383,22 +1435,7 @@ def w6_replays():
     add("bouncefirst", "play", R_, rest, keys, "a Hop, a bounce at %s, Space before the second contact %s: %s" % (
         c1, c2, [k_ for _i, k_ in cs][:2]), c2 and [k_ for _i, k_ in cs][:2] == ["bounce", "hopc"]
         and p.nboost == 0, red={"_no_clear": True})
-    # gripchain: a Hop and its boost, Grip through the boost's landing, then Space: a second boost
-    base = [0] * 3 + [K.K_HOP] + [0] * 200
-    _p, cs = run_ix("play", R_, rest, base)
-    L1 = first_after(cs, 3)
-    keys = with_space(base, L1 - 2)
-    _p, cs = run_ix("play", R_, rest, [k_ | (K.K_GRIP if i > L1 else 0) for i, k_ in enumerate(keys)])
-    L2 = first_after(cs, L1)
-    keys = [k_ | (K.K_GRIP if L1 < i <= L2 else 0) for i, k_ in enumerate(keys)]
-    keys = with_space(keys, L2 + 1)
-    _p, cs = run_ix("play", R_, rest, keys)
-    L3 = first_after(cs, L2 + 1)
-    keys = with_space(keys, L3 - 2 if L3 else None)[:(L3 or 0) + 30]
-    p, cs = run_ix("play", R_, rest, keys)
-    ev = [e[0] for e in p.events if e[0] in ("hop", "boost", "land", "bounce", "hopc")]
-    add("gripchain", "play", R_, rest, keys, "Hop, boost (%s), Grip through its landing (%s), Hop (%s), boost (%s): "
-        "%s" % (L1, L2, L2 + 1, L3, ev[:6]), p.nboost == 2 and ev[:5] == ["hop", "boost", "land", "hop", "boost"])
+    # (gripchain: wave 6b's, re-keyed with mid-flight taps - w6b_replays)
     # rampnot: a Hop whose first contact is on a RAMP (TRIAL's or FIRST's), Space before it: no boost
     found = None
     for crs in ("trial", "first"):
@@ -1566,6 +1603,237 @@ def w6_replays():
     pk, at, n = found if found else (rest, None, None)
     add("gripglass", "play", GL, pk, [K.K_GRIP] * (gfeel[6] + 20), "glass at the cap at %s, Grip held: stopped "
         "in %s steps, the axis model's %d" % (at, n, gfeel[6]), found)
+    return S + w6b_replays()
+
+
+def grip_stop(mat, ys=range(8, 40), xs=range(4, 40)):
+    """a PLAYGROUND tile from which `mat` at the cap along +wx, Grip held, stops
+    in exactly the axis model's Grip steps with no event on the way (a level
+    normal run long enough): -> (poke, tile, steps) or None"""
+    feel = BB.axis_feel(mat)
+    for y in ys:
+        for x in xs:
+            pk = pl_poke("play", (x, y), mat, gv=(BB.VMAXG, 0))
+            p = model("play", mat, pk)
+            i = 0
+            for i in range(feel[6] + 5):
+                p.step(K.K_GRIP)
+                if not p.gvx:
+                    break
+            if not p.gvx and not p.nfall and not [e for e in p.events if e[0] != "corner"] \
+                    and i + 1 == feel[6]:
+                return pk, (x, y), i + 1
+    return None
+
+
+def w6b_replays():
+    """wave 6b's replays (SPEC.md 128.17.4, 128.17.10 bonanzaphys): the boost ARMED
+    by a second Space edge anywhere in the Hop's flight, and the LATE GRACE that
+    converts an unarmed bouncing first contact; the accidental cases; Grip 6/3/1.
+    Each FOUND and PROVED on the model (every contact searched, so a retuned
+    constant re-finds it; every expected value the model's, never a literal,
+    SPEC.md 128.16.11), each red arm's broken model shown to part.  Each carries
+    `nboost`, the boosts the guest must end the replay with"""
+    S = []
+    R_, ST = BB.MAT_RUBBER, BB.MAT_STEEL
+
+    def add(name, crs, mat, poke, keys, what, ok, red=None, nboost=None):
+        S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
+                  "ok": bool(ok), "red": red, "nboost": nboost})
+    pc = R.course("play")
+    start = BB.Grid(pc.cga).start
+    rest = pl_poke("play", start, R_)
+    HOP = 3                                     # the Hop's one-step press, from rest on the apron
+    base = [0] * HOP + [K.K_HOP] + [0] * 90
+    _p, cs = run_ix("play", R_, rest, base)
+    c = first_after(cs, HOP)                    # its first contact's key index (a bounce: no second press)
+
+    def boosts(p):
+        return [e for e in p.events if e[0] in ("boost", "boostg")]
+
+    # armearly: the second press 14 steps before the first contact, which wave 6's window (6 steps,
+    # closing on the contact) refused: a boost
+    keys = with_space(base, c - 14 if c else None)[:(c or 0) + 30]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    add("armearly", "play", R_, rest, keys, "a Hop on the apron, the second press 14 steps before its first "
+        "contact (step %s): %s, nboost %d" % (c, [k_ for _i, k_ in cs2][:1], p.nboost),
+        c and c - 14 > HOP + 1 and [k_ for _i, k_ in cs2][:1] == ["boost"] and p.nboost == 1,
+        red={"_armwin": True}, nboost=1)
+    # armroll: rubber at the cap with a chord, a Hop, a second press MID-FLIGHT: a boost (128.17.4.1: rolling
+    # does not change the physics on the apron; the searched take-off's first contact passes rules 3 - 5)
+    found = None
+    for d in ((1, 0), (-1, 0), (0, -1), (0, 1)):
+        dk = BB._PLAY_DIRK[d]
+        for at in ((start[0] + i * d[1], start[1] + i * d[0]) for i in (0, -2, 2, -4, 4)):
+            pk = pl_poke("play", at, R_, d)
+            for a in range(0, 12):
+                kb = with_space([dk] * 90, a)
+                _q, csr = run_ix("play", R_, pk, kb)
+                cr = first_after(csr, a)
+                if cr is None or cr - a < 12:
+                    continue
+                mid = (a + cr) // 2
+                keys = with_space(kb, mid)[:cr + 30]
+                p, cs2 = run_ix("play", R_, pk, keys)
+                if [k_ for _i, k_ in cs2][:1] == ["boost"] and p.nboost == 1 and not p.nfall \
+                        and parts("play", R_, pk, keys, _armwin=True):
+                    found = (pk, keys, at, d, a, cr, mid)
+                    break
+            if found:
+                break
+        if found:
+            break
+    pk, keys, at, d, a, cr, mid = found if found else (rest, [0], None, None, None, None, None)
+    add("armroll", "play", R_, pk, keys, "rubber at the cap from %s along %s with the chord, a Hop at step %s, "
+        "the second press mid-flight at %s, the first contact at %s: a boost" % (at, d, a, mid, cr), found,
+        red={"_armwin": True}, nboost=1)
+    # armlate: the press 2 steps AFTER the unarmed first contact (a bounce that opened the grace): the grace
+    # CONVERTS the rebound - the boost at k = 2, the lift bgd x 1 that `graceoff` leaves out
+    keys = with_space(base, c + 2 if c else None)[:(c or 0) + 40]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    bg = [e for e in p.events if e[0] == "boostg"]
+    add("armlate", "play", R_, rest, keys, "a Hop, a bounce at its first contact (step %s), Space 2 steps later: "
+        "%s" % (c, bg[:1]), c and [k_ for _i, k_ in cs2][:1] == ["bounce"] and len(bg) == 1 and bg[0][2] == 2
+        and p.nboost == 1, red=[{"_nograce": True}, {"_graceoff": True}], nboost=1)
+    # armlate5: the press BGRACE + 1 steps after it: past the grace, nothing (a grace one longer, `grace5`,
+    # converts).  (armlate4 until round 3's BGRACE 4, SPEC.md 128.17.16)
+    late = BB.BGRACE + 1
+    keys = with_space(base, c + late if c else None)[:(c or 0) + 40]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    add("armlate5", "play", R_, rest, keys, "the press %d steps after the first contact (step %s): nboost %d" % (
+        late, c, p.nboost), c and not boosts(p) and p.nboost == 0, red={"_grace5": True}, nboost=0)
+    # hoponly: one tap and nothing else: no boost (the grace opens, unused)
+    keys = base[:(c or 0) + 40]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    add("hoponly", "play", R_, rest, keys, "a single tap, no second press: %s, nboost %d" % (
+        [k_ for _i, k_ in cs2][:1], p.nboost), c and p.nboost == 0 and [k_ for _i, k_ in cs2][:1] == ["bounce"],
+        red={"_hopedge": True}, nboost=0)
+    # armheld: Space HELD from the Hop through the contact and 3 steps past it: round 3 (SPEC.md 128.17.16)
+    # BOOSTS at the contact, the floor level with the take-off (`noheld`: none).  Round 2's was nboost 0
+    keys = [k_ | (K.K_HOP if HOP <= i <= (c or 0) + 3 else 0) for i, k_ in enumerate(base)][:(c or 0) + 40]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    add("armheld", "play", R_, rest, keys, "Space held from the Hop (step %d) through the contact (%s) and 3 "
+        "steps past: %s, nboost %d" % (HOP, c, [k_ for _i, k_ in cs2][:1], p.nboost),
+        c and p.nboost == 1 and [k_ for _i, k_ in cs2][:1] == ["boost"], red={"_noheld": True}, nboost=1)
+    # ledgehold: a Hop at the LIP of the PLAYGROUND's half-unit rung at the cap, Space held 4 steps, its first
+    # contact on the ledge 1 - 4 steps later: no boost there (`heldarm` boosts on the ledge, 128.17.4.4)
+    top, rr = play_rect(0.5)
+    st_ = ((rr[0] + rr[2] - 1) // 2, BB.PLAY_FRONT)
+    dk = BB._PLAY_DIRK[(0, -1)]
+    pk = pl_poke("play", st_, R_, (0, -1))
+    found = None
+    for a in range(BB.LAD_PTS):
+        land = BB._play_contact(pc, R_, st_, (0, -1), a)
+        if land is None or not 1 <= land - a <= 4:
+            continue
+        keys = [dk | (K.K_HOP if a <= i <= max(a + 3, land) else 0) for i in range(land + 40)]
+        p, cs2 = run_ix("play", R_, pk, keys)
+        q = model("play", R_, pk)
+        for i in range(land + 1):
+            q.step(keys[i])
+        if (q.gx >> 12, q.gy >> 12) not in top or p.nboost or p.nfall:
+            continue
+        ph, _c = run_ix("play", R_, pk, keys, _heldarm=True)
+        if ph.nboost:
+            found = (keys, a, land)
+            break
+    keys, a, land = found if found else ([0], None, None)
+    if found and not parts("play", R_, pk, keys, _nogate=True):
+        found = None                            # (round 3: `nogate`, held without the take-off gate, must boost)
+    add("ledgehold", "play", R_, pk if found else rest, keys, "a Hop at the half-unit lip %s (take-off point %s), "
+        "Space held through its first contact on the ledge at %s: no boost (the ledge is above the "
+        "take-off, round 3's gate)" % (rr, a, land), found,
+        red=[{"_heldarm": True}, {"_nogate": True}], nboost=0)
+    # fallarm / fallnone (round 3, SPEC.md 128.17.16): rubber ROLLED off a rung's top onto the apron, no Hop;
+    # a tap 2 steps after the take-off arms the FALL's token, and the first contact boosts (`nofall`: none).
+    # With no Space the contact opens the grace and nothing else
+    found3 = None
+    for H in (1, 0.5, 1.5):
+        top3, r3 = play_rect(H)
+        for x in range(r3[0], r3[2]):
+            for y in range(r3[1], r3[3]):
+                for v in (BB.VMAXG, 224, 160):
+                    pk3 = pl_poke("play", (x, y), R_, (0, 1), v)
+                    kb = [BB._PLAY_DIRK[(0, 1)]] * 80
+                    q, _cs = run_ix("play", R_, pk3, kb)
+                    off = next((e[1] - 1 for e in q.events if e[0] == "takeoff"), None)
+                    if off is None or q.nhop or q.nfall or q.nboost:
+                        continue
+                    keys = with_space(kb, off + 2)
+                    p, cs3 = run_ix("play", R_, pk3, keys)
+                    if p.nhop or p.nfall or [k_ for _i, k_ in cs3][:1] != ["boost"] or p.nboost != 1:
+                        continue
+                    if not parts("play", R_, pk3, keys, _nofall=True):
+                        continue
+                    cf = first_after(cs3, off)
+                    found3 = (pk3, keys, kb, (x, y), H, v, off, cf)
+                    break
+                if found3:
+                    break
+            if found3:
+                break
+        if found3:
+            break
+    pk3, keys, kb, at3, H3, v3, off3, cf3 = found3 if found3 else (rest, [0], [0], None, None, None, None, None)
+    add("fallarm", "play", R_, pk3, keys[:(cf3 or 0) + 30], "rubber rolled off the %s-unit top at %s at %s, no "
+        "Hop; the take-off at step %s, a tap 2 steps later, the first contact at %s: a boost" % (
+            H3, at3, v3, off3, cf3), found3, red={"_nofall": True}, nboost=1)
+    q, cs3 = run_ix("play", R_, pk3, kb[:(cf3 or 0) + 30])
+    add("fallnone", "play", R_, pk3, kb[:(cf3 or 0) + 30], "the same roll with no Space: %s, nboost %d" % (
+        [k_ for _i, k_ in cs3][:1], q.nboost), found3 and q.nboost == 0 and not q.nhop, nboost=0)
+    # mashchain: rubber at the cap with a chord (armroll's), Space tapped every 2 steps from its Hop through the
+    # chain's first three contacts: ONE boost (the token one a chain; `pump` re-arms it at every contact Hop)
+    found2 = None
+    for d in ((1, 0), (-1, 0), (0, -1), (0, 1)):
+        dk = BB._PLAY_DIRK[d]
+        for at in ((start[0] + i * d[1], start[1] + i * d[0]) for i in (0, -2, 2, -4, 4)):
+            pk = pl_poke("play", at, R_, d)
+            for a in range(0, 12):
+                kb = [dk | (K.K_HOP if i >= a and (i - a) % 2 == 0 else 0) for i in range(160)]
+                p, cs2 = run_ix("play", R_, pk, kb)
+                if len(cs2) < 3 or p.nfall:
+                    continue
+                n3 = cs2[2][0]
+                keys = [k_ & ~K.K_HOP if i > n3 else k_ for i, k_ in enumerate(kb)][:n3 + 40]
+                p, cs2 = run_ix("play", R_, pk, keys)
+                if p.nboost == 1 and not p.nfall and [k_ for _i, k_ in cs2][:1] == ["boost"] \
+                        and parts("play", R_, pk, keys, _pump=True):
+                    found2 = (pk, keys, at, d, a, [k_ for _i, k_ in cs2][:4])
+                    break
+            if found2:
+                break
+        if found2:
+            break
+    pk, keys, at, d, a, kinds = found2 if found2 else (rest, [0], None, None, None, None)
+    add("mashchain", "play", R_, pk, keys, "rubber at the cap from %s along %s, Space tapped every 2 steps from "
+        "the Hop (step %s) through three contacts %s: one boost" % (at, d, a, kinds), found2,
+        red={"_pump": True}, nboost=1)
+    # gripchain (re-keyed for 6b, SPEC.md 128.17.4.4): a Hop and a MID-FLIGHT tap - the boost; Grip held through
+    # the boost's landing; a Hop off it and a mid-flight tap - the second boost, about 52 steps on
+    base2 = [0] * HOP + [K.K_HOP] + [0] * 220
+    keys = with_space(base2, (HOP + c) // 2 if c else None)
+    _p, cs2 = run_ix("play", R_, rest, keys)
+    L1 = first_after(cs2, HOP)
+    _p, cs2 = run_ix("play", R_, rest, [k_ | (K.K_GRIP if i > L1 else 0) for i, k_ in enumerate(keys)])
+    L2 = first_after(cs2, L1)
+    keys = [k_ | (K.K_GRIP if L1 < i <= L2 else 0) for i, k_ in enumerate(keys)]
+    keys = with_space(keys, L2 + 1)
+    _p, cs2 = run_ix("play", R_, rest, keys)
+    L3 = first_after(cs2, L2 + 1)
+    keys = with_space(keys, (L2 + 1 + L3) // 2 if L3 else None)[:(L3 or 0) + 30]
+    p, cs2 = run_ix("play", R_, rest, keys)
+    ev = [e[0] for e in p.events if e[0] in ("hop", "boost", "land", "bounce", "hopc")]
+    bst = [e[1] for e in p.events if e[0] == "boost"]
+    add("gripchain", "play", R_, rest, keys, "Hop, a mid-flight tap, boost (%s), Grip through its landing (%s), Hop "
+        "(%s), a mid-flight tap, boost (%s): %s; the cycle %s steps" % (
+            L1, L2, L2 + 1, L3, ev[:6], bst[1] - bst[0] if len(bst) == 2 else None),
+        p.nboost == 2 and ev[:5] == ["hop", "boost", "land", "hop", "boost"], nboost=2)
+    # gripsteel: steel at the cap, Grip held (Grip 3): stopped in the axis model's steps
+    gs = grip_stop(ST)
+    pk, at, n = gs if gs else (rest, None, None)
+    sf = BB.axis_feel(ST)
+    add("gripsteel", "play", ST, pk, [K.K_GRIP] * (sf[6] + 20), "steel at the cap at %s, Grip held: stopped in %s "
+        "steps (%.1f tiles), the axis model's %d" % (at, n, sf[7], sf[6]), gs)
     return S
 
 
@@ -1647,13 +1915,13 @@ def prove(S):
     for s in S:
         if not s["ok"]:
             bad.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
-        if s["red"]:
-            at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **s["red"])
+        for red in (s["red"] if isinstance(s["red"], list) else [s["red"]] if s["red"] else []):
+            at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **red)
             if at is None:
                 bad.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
-                           "scenario cannot catch its red arm" % (s["name"], s["red"], len(s["keys"])))
+                           "scenario cannot catch its red arm" % (s["name"], red, len(s["keys"])))
             else:
-                s["parts_at"] = at
+                s["parts_at"] = min(at, s.get("parts_at") or at)
     return bad
 
 
@@ -1784,6 +2052,9 @@ def replay(g, s):
         bad = compare(name + " (its end)", frames, st, s2, ext, p)
         if bad:
             fails.append(bad)
+        if s.get("nboost") is not None and ext.get("s6") is not None and ext["s6"][2] != s["nboost"]:
+            fails.append("%s: the replay ended with nboost %d, the scenario's %d (SPEC.md 128.17.4)" % (
+                name, ext["s6"][2], s["nboost"]))
         m.run()
     kinds = [e[0] for e in p.events if e[0] != "corner"]
     print("%s replay %s (%s, %s): %d frames to step %d, equal to the model at every bz_presented and at its end: "
@@ -1841,16 +2112,16 @@ REDS = {
     # (DI kept: .resp holds bz_nfall's address in it for .rdone's count, and an
     # arm that clobbered it also bumped a word of the package at the grid's
     # offset - harmless at BZC1's, a hung frame loop at BZC2's: 5b's final pass)
-    "respawn": [("bzphys.inc", "    mov [bz_ghv], al\n    call bz_place\n",
-                 "    mov [bz_ghv], al\n    push di\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
+    "respawn": [("bzphys.inc", "    jnz .rflag\n    call bz_place\n",
+                 "    jnz .rflag\n    push di\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
                  "    pop di\n    call bz_place\n")],
     # (steps 4 - 6 are written once and run by wave 2's path and the prop path
     # alike, SPEC.md 128.13.8: the patch breaks both)
     "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    call bz_toff\n",
+                 "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n    call bz_toff\n",
                  ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
+                 "    mov byte [bz_btok], 1\n    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
                 ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
                  "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
                  "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
@@ -1940,23 +2211,16 @@ REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [b
                  "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n.sqr:\n"
                  "    cmp word [bz_lvz], BZ_SQTHR ; own, .boost); the squash, but a shatter's\n")]
 # rule 4's slope test left out: a ramp's contact boosts
-REDS["rampboost"] = [("bzphys.inc", "    cmp byte [bz_nbr + BZN_C + 1], 0 ; 0EDh is 01h: kind 1 or 3, surface 0\n"
-                      "    jne .chop                   ; or 1), level (+1, both slopes 0); a failing\n",
-                      "    nop                         ; RED rampboost: no slope test\n")]
+REDS["rampboost"] = [("bzphys.inc", "    cmp byte [bz_nbr + BZN_C + 1], 1 ; CF = 1 when both slopes are 0\n",
+                      "    stc                         ; RED rampboost: no slope test\n")]
 # the token cleared only by a boost, not at every contact
 REDS["tokbst"] = [("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n",
                    "    nop                         ; RED tokbst: kept past a contact\n")]
 # rule 4 on the cell after the slab's substitution: the slab (level, FLOOR, flags 0) boosts
-REDS["slabcell"] = [("bzphys.inc", "    jae .chop                   ; rebound rr (BP) under BOOST, never so when\n"
-                     "    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID\n",
-                     "    jae .chop                   ; rebound rr (BP) under BOOST, never so when\n"
+REDS["slabcell"] = [("bzphys.inc", "    jae .no                     ; (CF 0)\n",
+                     "    jae .no                     ; (CF 0)\n"
                      "    cmp byte [bz_fslab], 0      ; RED slabcell: the slab's substituted cell\n"
-                     "    jne .redslab\n"
-                     "    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID\n"),
-                    ("bzphys.inc", "                                ; test is a contact Hop, with no cue\n"
-                     "    mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds\n",
-                     "                                ; test is a contact Hop, with no cue\n.redslab:\n"
-                     "    mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds\n")]
+                     "    je .redslab\n    stc\n    ret\n.redslab:\n")]
 # wave 2's round-up drag kept in the guest (no remainder)
 GAX_NEW = ("    mov bx, ax\n    cwd                         ; DX = v's sign (DH keeps it below)\n"
            "    xor bx, dx\n    sub bx, dx                  ; BX = |v|: 0, no drag\n    jz .brake\n"
@@ -1983,6 +2247,57 @@ REDS["springtok"] = [("bzphys.inc", "    mov [bz_btok], dl           ; wave 6: t
                       "    nop                         ; RED springtok: the spring keeps the Hop's token\n")]
 RED_ONLY.update({"springtok": ("springnot",)})
 RED_WANT.update({"springtok": "springnot frame"})
+# wave 6b (SPEC.md 128.17.10): the trigger and the late grace broken six ways, each red at its own replay.
+# heldarm: Space HELD arms the token too (the edge path arms as shipped; the no-edge path as well)
+REDS["heldarm"] = [("bzphys.inc", ".hw:\n    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n",
+                    ".hw:\n    test bl, BZ_K_HOP           ; RED heldarm: Space HELD arms the token too\n"
+                    "    jz .hwr\n    cmp byte [bz_btok], 1\n    jne .hwr\n    inc byte [bz_btok]\n.hwr:\n"
+                    "    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n")]
+# hopedge: the Hop's own edge arms its flight (the ground Hop sets the token to 2)
+REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: .launch sets it, 128.16.4.1)\n",
+                    "    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n"
+                    "    call bz_toff\n    jmp .gh\n")]
+# armwin: wave 6's test kept, the token AND the window open at the contact
+REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the\n"
+                   "    jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =\n",
+                   "    cmp byte [bz_btok], 0       ; RED armwin: wave 6's token-and-window test\n"
+                   "    je .hopc\n    cmp byte [bz_hopw], 0\n    je .hopc\n")]
+# nograce: no late grace (an unarmed bounce opens nothing)
+REDS["nograce"] = [("bzphys.inc", "    or al, [bz_mst]             ; open the late grace (.grace, out of line)\n"
+                    "    jz .grace\n",
+                    "    or al, [bz_mst]             ; RED nograce: the grace never opens\n")]
+# grace5: a grace of BGRACE + 1 steps in the rule (its opening and the conversion's k - 1), BZ_BGRACE kept
+REDS["grace5"] = [("bzphys.inc", "    mov byte [bz_bgr], BZ_BGRACE\n",
+                   "    mov byte [bz_bgr], BZ_BGRACE + 1 ; RED grace5: a grace one step longer\n"),
+                  ("bzphys.inc", "    mov cx, BZ_BGRACE           ; on the k-th step after its contact (AL =\n",
+                   "    mov cx, BZ_BGRACE + 1       ; RED grace5: k - 1 = BGRACE + 1 - bz_bgr\n")]
+# round 3 (SPEC.md 128.17.16): the held arming and the fall's token, each broken
+# noheld: Space held at the contact arms nothing (round 2's rule)
+REDS["noheld"] = [("bzphys.inc", "    cmp byte [bz_btok], 1       ; round 3 (128.17.16): Space HELD at the\n"
+                   "    jne .armd                   ; contact ARMS the token 1, onto a floor no\n",
+                   "    jmp short .armd             ; RED noheld: no held arming\n")]
+# nogate: held arms without the take-off gate (onto a ledge above the take-off too)
+REDS["nogate"] = [("bzphys.inc", "    cmp ax, [bz_zoff]\n    jg .armd\n",
+                   "                                ; RED nogate: no take-off gate\n")]
+# nofall: a fall takes off with no token (the Hop's own path through .launch keeps it)
+REDS["nofall"] = [("bzphys.inc", "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n",
+                   "                                ; RED nofall: no fall token (over no floor)\n"),
+                  ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
+                   "    jle .rfall                  ; RED nofall: a fall off a floor takes no token\n"
+                   "    mov ax, bx                  ; z = h: the ball follows the floor\n"),
+                  ("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n",
+                   ".rfall:\n    call bz_toff\n    jmp short .gh\n"
+                   ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n")]
+# graceoff: the conversion without the k - 1 lift (gz kept: the ball one bgd short a step since the contact)
+REDS["graceoff"] = [("bzphys.inc", "    imul cx                     ; where the contact's boost would have it now\n"
+                     "    add [bz_gz], ax\n    adc [bz_gz + 2], dx\n",
+                     "                                ; RED graceoff: no k - 1 lift\n")]
+RED_ONLY.update({"heldarm": ("ledgehold",), "hopedge": ("hoponly",), "armwin": ("armearly",),
+                 "nograce": ("armlate",), "grace5": ("armlate5",), "graceoff": ("armlate",),
+                 "noheld": ("armheld",), "nogate": ("ledgehold",), "nofall": ("fallarm",)})
+RED_WANT.update({"heldarm": "ledgehold", "hopedge": "hoponly", "armwin": "armearly", "nograce": "armlate",
+                 "grace5": "armlate5", "graceoff": "armlate frame", "noheld": "armheld", "nogate": "ledgehold",
+                 "nofall": "fallarm"})
 RED_ONLY.update({"pump": ("pumpchk",), "rampboost": ("rampnot",), "tokbst": ("bouncefirst",),
                  "slabcell": ("liftnot",), "ceildrag": ("drag",), "slowdrag": ("drag-rest",)})
 RED_WANT.update({"pump": "pumpchk frame", "rampboost": "rampnot frame", "tokbst": "bouncefirst frame",

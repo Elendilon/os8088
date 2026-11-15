@@ -1,13 +1,13 @@
 # PLAY's AUTHORED demo (SPEC.md 128.14.7.4), written by `python3 tools/bbcourse.py author apps/bonanza/courses/playground.bbc`
-# from bbcourse.AUTHOR['PLAY'] and the model: 1489 steps (27.26 s), 0 fall, 0 RETURN,
+# from bbcourse.AUTHOR['PLAY'] and the model: 1504 steps (27.54 s), 0 fall, 0 RETURN,
 # 1 pad swaps, 0 spring launches, to the cup.  The build checks it against the course
 # as built; replaced by the owner's recording the day one is committed.
 demo    PLAY
 ident   18E6
-physics 25
+physics FD
 ball    rubber
 flags   complete
-steps   1489
+steps   1504
 run     LU 16
 run     L 2
 run     LU 1
@@ -208,43 +208,40 @@ run     U 1
 run     RU 1
 run     U 1
 run     RU 1
-run     G 32
-run     RU 37
-run     LU 3
-run     L 1
-run     LU 1
-run     L 1
-run     - 1
-run     L 1
+run     G 40
+run     RU 39
+run     U 3
+run     LU 2
+run     L 3
 run     LD 1
+run     - 1
+run     LD 2
 run     - 1
 run     LD 1
 run     D 1
-run     - 1
-run     LD 3
+run     L 1
 run     D 1
 run     LD 1
 run     L 1
-run     - 1
-run     LD 1
-run     - 1
-run     L 1
-run     LD 1
-run     D 1
-run     LU 67
-run     L 2
-run     LD 16
-run     D 1
-run     RD 16
-run     D 1
-run     RD 1
-run     LD 1
-run     D 1
-run     RD 1
-run     D 3
-run     RD 1
 run     D 2
+run     LD 3
+run     L 2
+run     D 2
+run     LU 68
+run     L 1
+run     LD 1
+run     L 1
+run     LD 13
+run     D 1
+run     RD 17
+run     D 4
 run     RD 1
+run     D 1
+run     RD 1
+run     D 1
+run     RD 1
+run     D 1
+run     RD 2
 run     D 1
 run     RD 1
 run     D 1
@@ -252,39 +249,34 @@ run     RD 1
 run     D 2
 run     LD 37
 run     L 3
-run     - 1
+run     R 1
 run     U 1
 run     RD 17
+run     LD 1
 run     D 2
 run     RD 1
 run     D 1
-run     RD 1
-run     D 2
-run     RD 1
-run     RU 1
-run     LD 11
-run     L 1
-run     LD 1
+run     RD 2
+run     - 1
+run     R 2
+run     LD 13
 run     L 1
 run     R 1
-run     - 1
-run     RU 1
+run     D 1
 run     R 2
 run     RU 2
 run     R 1
-run     U 1
 run     RU 1
+run     U 1
+run     R 1
 run     - 1
 run     RU 1
 run     U 1
-run     RU 1
+run     R 1
 run     - 1
 run     U 1
-run     RU 1
-run     R 1
-run     LU 30
-run     L 5
-run     LD 1
+run     RU 2
+run     LU 27
 run     L 1
 run     LD 1
 run     L 1
@@ -296,20 +288,22 @@ run     LD 1
 run     L 1
 run     LD 1
 run     L 1
-run     LD 3
-run     D 1
-run     RD 3
-run     R 1
-run     RD 1
+run     LD 1
+run     L 1
+run     LD 7
+run     L 1
+run     LD 1
+run     - 2
 run     R 10
-run     RD 4
-run     D 1
+run     RD 6
+run     R 1
 run     RD 1
+run     R 2
+run     - 2
+run     R 1
 run     - 1
-run     RD 1
+run     LD 70
+run     L 1
 run     - 1
-run     LD 68
-run     L 2
-run     LU 1
 run     U 1
 run     RU 5

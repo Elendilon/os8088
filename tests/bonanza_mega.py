@@ -79,9 +79,10 @@ BONANZA plays on a CGA or a Hercules only - and then:
      pads: 1 + 3 claims inside), so rubber's part with its STRETCH entry is
      translated through its own selector (bz_hxball's +12 + +14 entries);
      a play with a Hop and its BOOST - Space held for STEPS, the second
-     press when a model poked from the guest's state says the Hop's first
-     contact is 1 - 3 steps off (three tries) - so the stretch is DRAWN
-     there; left by Esc: [bz_nboost] at least 1, the model's run of the log
+     press MID-FLIGHT, when a model poked from the guest's state says the
+     Hop's first contact is bonanza_replay.BOOST_AHEAD (12) steps off or
+     nearer (wave 6b, SPEC.md 128.17.4.2, 128.17.10: an edge anywhere in the
+     flight arms it; three tries) - so the stretch is DRAWN there; left by Esc: [bz_nboost] at least 1, the model's run of the log
      the play's end and boosting too; then its REPLAY by R to the same end;
      no fault, no leak;
 
@@ -684,8 +685,8 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
                 break                                   # landed: the window missed
             q = RP.ghost(rd, "play", c.ball, st, ((0, 0, 0, 0), 0, 0, 0, 0, 0, 0))
             n = RP.to_contact(q)
-            if n is not None and n <= 3:
-                hold(b, pkg, "space", 2)                # Space inside the window: the BOOST
+            if n is not None and n <= RP.BOOST_AHEAD:
+                hold(b, pkg, "space", 2)                # Space again MID-FLIGHT: it ARMS the boost (wave 6b)
                 break
             steps(b, pkg, 1, "the Hop's flight")        # the machine is HELD: run it on a step
         steps(b, pkg, 90, "the flight and its landing")
