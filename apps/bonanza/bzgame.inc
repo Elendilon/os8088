@@ -2662,17 +2662,20 @@ bz_mkboxes:
     mov ax, [si + 2]
     cmp ax, [si + BZ_BOXD + 2]
     jle .inord
-    push cx
-    mov cx, BZ_BOXD / 2
-    mov di, si
-.swap:
-    mov ax, [di]
-    xchg ax, [di + BZ_BOXD]
-    mov [di], ax
-    inc di
-    inc di
-    loop .swap
-    pop cx
+    xchg ax, [si + BZ_BOXD + 2] ; a swap: the rect and the group.  The buffers
+    mov [si + 2], ax            ; stay where they are (four alike, none
+    mov ax, [si]                ; composed yet) and no box has a band yet
+    xchg ax, [si + BZ_BOXD]     ; (+10 is 0 in both; +12 .. +17 are read only
+    mov [si], ax                ; under a band, which bz_band lays whole)
+    mov ax, [si + 4]
+    xchg ax, [si + BZ_BOXD + 4]
+    mov [si + 4], ax
+    mov ax, [si + 6]
+    xchg ax, [si + BZ_BOXD + 6]
+    mov [si + 6], ax
+    mov al, [si + 18]
+    xchg al, [si + BZ_BOXD + 18]
+    mov [si + 18], al
 .inord:
     add si, BZ_BOXD
     loop .cmp
