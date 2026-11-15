@@ -618,33 +618,42 @@ bz_step:
     cmp ax, [bz_ztop]
     jle .win
     mov [bz_ztop], ax
+    jmp short .win
+    ; step 4's two seldom-taken parts, out of its line: a cell change ...
+.wcx:
+    inc cx                      ; (wx changed: wy's test, here)
+    mov ax, [bz_gy + 1]
+    and al, 0f0h
+    cmp ax, [bz_wgy]
+    je .w2
+.wcy:
+    or cl, 2
+.w2:
+    mov [bz_wch], cl
+    BZ_START                    ; a new cell: the START's ground position kept
+                                ; for the fallback's undo (gx - gvx: only the
+                                ; move has touched it yet)
+    call bz_win9i               ; the centre's new cell
+    jmp short .w3
+.wopen:                         ; ...and a centre of kind VOID
+    cmp byte [bz_nbr + BZN_C], BZ_ZOPEN
+    jne .w4
+    jmp .respawn                ; an OPEN cell (or outside the grid)
     ; ---- 4. the window ----
 .win:
     xor cx, cx                  ; CL: bit 0 the cell's wx changed, bit 1 its
     mov ax, [bz_gx + 1]         ; wy (the window is on the START's cell)
     and al, 0f0h
     cmp ax, [bz_wgx]
-    je .w1
-    inc cx
-.w1:
+    jne .wcx
     mov ax, [bz_gy + 1]
     and al, 0f0h
     cmp ax, [bz_wgy]
-    je .w2
-    or cl, 2
-.w2:
-    mov [bz_wch], cl
-    jcxz .w3
-    BZ_START                    ; a new cell: the START's ground position kept
-                                ; for the fallback's undo (gx - gvx: only the
-                                ; move has touched it yet)
-    call bz_win9i               ; the centre's new cell
+    jne .wcy
+    mov [bz_wch], cl            ; (the same cell: 0, and no jump taken)
 .w3:
     test byte [bz_nbr + BZN_C + 2], 0fh
-    jnz .w4
-    cmp byte [bz_nbr + BZN_C], BZ_ZOPEN
-    jne .w4
-    jmp .respawn                ; an OPEN cell (or outside the grid)
+    jz .wopen
 .w4:
     mov al, [bz_ps]             ; wave 3 (128.12.6.5 step 4): an OBS cell in the
     and al, 5                   ; window, or carried - the PROP path, which sets
