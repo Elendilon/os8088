@@ -309,7 +309,7 @@ FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc"
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
 # NASM local labels a row breakpoints (proc, local): resolved by the same
 # assembly when the source has them (a red tree, or an older wave, may not)
-LOCAL_SYMS = (("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr", "rose"),
+LOCAL_SYMS = (("bz_shcall", "fc"), ("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr", "rose"),
               ("bz_vr", "high"), ("bz_occ", "gate"),
               # wave 3 (SPEC.md 128.12.5.3): where a bz_wcommit RETURNS to says which way
               # the pose reached the glass - pass 1 (AHEAD) returns before .an, pass 2
@@ -472,6 +472,78 @@ def symbols(src=None, art=None):
             raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
         raw = open(b, "rb").read()
         return dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
+
+
+_SHELL = {}
+
+
+def shell_symbols(src=None, art=None):
+    """{label: offset in the SHELL PART} (SPEC.md 128.19.2): every bz_ label
+    of bzface.inc and bzshell.asm, by assembling the part with a table of `dw
+    label` on its end, as symbols() does for the package.  {} for a tree with
+    no shell part (an earlier wave's)."""
+    d = src or os.path.join(ROOT, "apps", "bonanza")
+    art = art or at("build/bonanza-art")
+    key = (d, art)
+    if key in _SHELL:
+        return _SHELL[key]
+    asm = os.path.join(d, "bzshell.asm")
+    if not os.path.exists(asm) or not os.path.exists(os.path.join(art, "bzlink.inc")):
+        _SHELL[key] = {}
+        return {}
+    names = []
+    for f in ("bzshell.asm", "bzface.inc"):
+        names += re.findall(r"^(bzh?_\w+):", open(os.path.join(d, f)).read(), re.M)
+    names = sorted(set(names))
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "probe.asm")
+        b = os.path.join(td, "probe.bin")
+        open(p, "w").write(open(asm).read() + "\n" + "\n".join("dw " + n for n in names))
+        subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                        "-I", art + "/", "-o", b, p], cwd=ROOT, check=True, capture_output=True)
+        raw = open(b, "rb").read()
+    _SHELL[key] = dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
+    return _SHELL[key]
+
+
+class FaceLines:
+    """The face's lines as bz_line draws them, across the SHELL PART's moves
+    (SPEC.md 128.19.2): bz_line is in the part, which a launch drops and the
+    next paint fetches again, perhaps elsewhere - so the breakpoint is the
+    resident door's far call (bz_shcall.fc), where the part is held, and from
+    there bz_line's address in it, re-armed at every door.  arm() before the
+    run; next() -> ("line", text, regs) at each drawn line (DI = its end, the
+    margin cell first), ("extra", address, regs) at one of EXTRA, None when
+    the machine runs on past WAIT seconds.  The caller m.run()s after each."""
+
+    def __init__(self, g, extra=(), wait=20):
+        self.g, self.extra, self.wait = g, tuple(extra), wait
+        self.door = g.a("bz_shcall.fc")
+
+    def arm(self):
+        g = self.g
+        al = [self.door] + list(self.extra)
+        try:
+            al.append(g.shell_base() + shell_symbols()["bz_line"])
+        except AssertionError:
+            pass                                # (not held: the door re-arms when it is)
+        g.m.bp_exec(*al)
+
+    def next(self):
+        g, m = self.g, self.g.m
+        while True:
+            if m.wait_stop(self.wait) != "breakpoint":
+                return None
+            r = m.regs()
+            a = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if a == self.door:
+                self.arm()
+                m.run()
+                continue
+            if a in self.extra:
+                return ("extra", a, r)
+            n = (r["di"] - g.sym["bz_lbuf"]) & 0xFFFF
+            return ("line", m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip(), r)
 
 
 def make_log(keys, k, mat, ident=None):
@@ -753,7 +825,21 @@ class Bz:
     def a(self, n):
         if self.live:
             self.base = self.wseg() << 4
+        if n not in self.sym and n in shell_symbols():
+            return self.shell_base() + shell_symbols()[n]
         return self.base + self.sym[n]
+
+    def shell_base(self):
+        """the SHELL PART's linear base (SPEC.md 128.19.2): its row's segment,
+        the last row of the package's table, which must be FETCHED - a label
+        of the face is in the part, never in the package"""
+        if self.live:
+            self.base = self.wseg() << 4
+        t = self.base + self.sym["op_table"]
+        n = self.m.read(t + 8, 1)[0]
+        row = self.m.read(t + 10 + 8 * (n - 1), 8)
+        assert row[1] & 32, "the shell part (row %d) is not fetched: its labels have no address" % (n - 1)
+        return struct.unpack_from("<H", row, 6)[0] << 4
 
     def b(self, n):
         return self.m.read(self.a(n), 1)[0]

@@ -670,19 +670,19 @@ def refused(g, log):
     m.pause()
     g.write_log(bytes(bad))
     n0 = g.d("bz_nstep")
-    m.bp_exec(g.a("bz_line"), g.a("bz_t0"))
+    fl = R.FaceLines(g, extra=(g.a("bz_t0"),))  # (bz_line is in the shell part, SPEC.md 128.19.2)
+    fl.arm()
     m.run()
     g.key("KeyR")
     found, played = None, False
     for _ in range(60):
-        if m.wait_stop(20) != "breakpoint":
+        st = fl.next()
+        if st is None:
             break
-        r = m.regs()
-        if ((r["cs"] << 4) + r["ip"]) & 0xFFFFF == g.a("bz_t0"):
+        if st[0] == "extra":
             played = True
             break
-        n = (r["di"] - g.sym["bz_lbuf"]) & 0xFFFF
-        line = m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip()
+        line = st[1]
         if line.startswith("Another course"):
             found = line
             break

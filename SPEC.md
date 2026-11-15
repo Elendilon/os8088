@@ -273552,6 +273552,91 @@ One scoped soak of every BONANZA row, then the failures re-run once:
   such a course; the alternative is minutes and seconds.
 - **The timeout's sound**: *default one effect*, the same for every ball.
 
+### 128.19 Wave 8: the shell
+
+The plan's wave 8 ([docs/plans/BOUNCE-BONANZA-PLAN.md](docs/plans/BOUNCE-BONANZA-PLAN.md),
+waves 8a - 8c): **the shell's code part** (8a), **the loop** - one bracket
+holding a pathway and every course, several finishes, lives and a second
+save format (8b) - and **the face of the game** (8c). The owner's brief for
+it (2026-11-15): *"work through wave 8. The pathway itself will be a
+prototype, probably; we'll flesh out exact course icons, exact pathway, etc
+as we make courses."* So the PATHWAY's art, its layout and its course icons
+are PROTOTYPES here, and its RULES (which node opens which, lives, the
+save) are the contract; nothing in this wave is a shipped course or a
+shipped map.
+
+Binding where it adds. Figures are MEASURED, PREDICTED or ESTIMATED as in
+128.18.
+
+#### 128.19.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| the order | 8a, then 8b, then 8c, each story a commit and a disk set | the plan's order: room first, proven on the hardest kernel first |
+| what 8a moves (O46) | **the desktop FACE** (its builders, its strings and the course titles and names only it reads) into the shell part; the face is the code 8b and 8c REWRITE, so the rewrite is born in the part; **the save's file half, the demo files and `bz_post` stay resident in 8a** - each calls a slot a part may not (a claim) or runs inside the bracket with a course held - and move as 8b rewrites them | moving code that 8b deletes is wasted work; the MECHANISM is what 8a must prove |
+| the part | **one lazy, compressed `OP_SEG` row, `BZSHELL.BIN`**, LINKED against `BONANZA.O88`'s bss PiXEL's way (106.20): far-called through a vector table at its head, entered with DS = the package | the parts standard's own shape; nothing new in the kernel |
+| when it is held | fetched on the desktop at the first paint and after every bracket; **dropped before any course fetch** (`bz_launch`); 8b fetches it at the pathway between courses | it must never share memory with a course: that is what it saves |
+| kern_mega | **no PKG_MEGA arm**: the far call goes through the part's CODE alias (`op_cseg`, `OP_WANT_CSEG`), the part writes only the package's bss through DS and reads its own tables through CS | the rules of PiXEL's part ABI (`apps/pixel/pxpart.inc` rules 1, 5, 6) |
+
+#### 128.19.2 The shell part (wave 8a, stories 8a.1, 8a.2)
+
+- **The row**: `BZ_P_SHELL`, the LAST row of the table (after the demos),
+  `OS88_PART OP_SEG, OP_LAZY | OP_COMP`; the file `build/bzshell.bin`,
+  assembled from `apps/bonanza/bzshell.asm` at org 0.
+- **The link**: `tools/pxlink.py` (generalized: `--src`, `-I`, `--prefix`,
+  `--export`) assembles `bonanza.asm` again with a symbol map, refuses
+  unless the result is byte-identical to `build/bonanza.bin`, and writes
+  `build/bonanza-art/bzlink.inc`: the package's BSS by name, and the DATA
+  labels named by `--export` (the course tables the face reads, through
+  DS). **No code label is exported**, so a part's `call bz_x` into the
+  package is an assembly error, never a near call into the wrong segment.
+  `BZL_IMAGE` and `BZL_BSS` stamp the build.
+- **The head**: `+0 dw 'BZ'`, `+2 dw 'SH'`, `+4 dw BZL_IMAGE`, `+6 dw
+  BZL_BSS`, then the vectors, three bytes each (`jmp near`), from `+8`.
+  The resident checks the signature and the stamp against its own header
+  (`DS:8`, `DS:10`) ONCE per fetch and refuses the part (no face, a toast)
+  on a mismatch.
+- **The vectors** (`bzshell.inc`, shared): `BZH_FACE` (paint the face:
+  `bz_face`), `BZH_REDRAW` (SI = a line list in the PACKAGE's segment,
+  `bz_redraw`), `BZH_LINE` (AL = one line, `bz_redraw1`). Each is entered
+  by `call far` with DS = ES = the package (the part sets nothing it does
+  not restore) and returns by `retf`.
+- **The calls back**: none. The face's few helpers (`bz_adapter`,
+  `bz_rhave`, `bz_intour`) are copied into the part (40 bytes); the key
+  handlers that change the face's state (`bz_camkey`, `bz_ballkey`,
+  `bz_crskey`) stay resident and redraw through the vectors.
+- **The resident door**: `bz_shcall` (AL = a vector): fetches the part if it
+  is not held (at home, `bz_home`/`bz_back`), checks it once, builds the far
+  pointer from `op_cseg`, calls it. A refused fetch (`op_fetch` toasted why)
+  or a refused stamp draws NOTHING and returns CF = 1, so a paint with no
+  part leaves the window's last picture; `bz_launch` drops the part first
+  (`bz_shdrop`).
+- **The bytes** (MEASURED at 8a's commit): the image **36,274 -> 33,670
+  (-2,604)**, the bss **+6** (the door's far pointer and the put-off
+  paint), so **-2,598 resident during a play**; the part **3,081 bytes**
+  in its claim on the desktop (the face 1,874, its strings and tables, the
+  three copied helpers); `BONANZA.O88` **+282 bytes** (the part packed,
+  less the image). One more `int 13h` at each return to the desktop (about
+  0.4 s on the 5150, PREDICTED), none during a play. A paint the bracket's
+  restore asks for is put off while the course is held and made once it is
+  dropped (`bz_shpend`), so the window shows the restore's ground for that
+  read.
+- **The rows' view of it**: a face label resolves in the PART
+  (`bonanza_ring.shell_symbols`, `Bz.a` falls through to the shell row's
+  segment), and a row that breakpoints `bz_line` arms it from the resident
+  door `bz_shcall.fc`, where the part is held (`bonanza_ring.FaceLines`),
+  because each return to the desktop may fetch it somewhere else.
+- **Proved by**: `bonanzaexit` (the claims: the part held on the desktop,
+  never with a course, none after close) and `bonanzagame` (the face's
+  lines as before), and **`bonanzamega` on 86Box** (8a.2: the face painted
+  from the part through its code alias on kern_mega's Hercules, no fault,
+  no leak).
+  **MEASURED once at 8a's commit**: `bonanzaexit` PASS on both cards (the
+  shell row held on the desktop, absent inside every bracket, fetched back
+  after it; the claims as before), `bonanzamega` PASS (no exception charged
+  to a loaded image; the claims inside are the desktop's less the shell),
+  `bonanzagame` PASS.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
