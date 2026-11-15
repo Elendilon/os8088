@@ -1699,7 +1699,7 @@ def gate_leg(g, scen):
         while True:
             k = wk.next()
             if k == "t0":
-                if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
+                if g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns")):
                     break
                 continue
             if k != "pr":
