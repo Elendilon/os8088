@@ -173,7 +173,33 @@ BZ_KSC_R    equ 13h             ; ...and R's: the replay (SPEC.md 128.11.12.2)
 BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 128.14.3.1)
 BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 128.14.4.7)
 BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (128.14.7.3)
-BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1)
+; BZ_WCLI - the wheel's interrupts-off span (bzwheel.inc), shut only while FINE
+; is off: FINE's two interrupts a refresh must land in windows of ~20 scan
+; lines (SPEC.md 128.21.3), and a commit's span is thousands of clocks, so
+; under FINE the wheel's commits run with interrupts ON - one of those two
+; can land inside one, and the wheel's own late count says how often that
+; cost it the beam.  The span's pushf / popf stand either way.
+%macro BZ_WCLI 0
+    cmp byte [bz_hon], 0
+    jne %%on
+    cli
+%%on:
+%endmacro
+BZ_CMODES   equ 5               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1), and the
+                                ; experiment's FINE, SPLIT, FINE SPLIT (128.21)
+BZ_CM_TRICKLE equ 1
+BZ_CM_FINE  equ 2               ; LATTICE in lines: the CGA's one-line scroll
+BZ_CM_SPLIT equ 3               ; no frame steps a row and a column (128.21.1)
+BZ_CM_FSPLIT equ 4              ; both
+BZ_RDIV     equ 21845           ; FSXF_RATE's divisor (128.21.3): FASTTICK's own
+                                ; sub-tick, 54.6 Hz, so a mode without FINE costs
+                                ; what it did; FINE re-times it (FSXW_ANCHOR)
+BZ_FANF     equ 1292            ; FINE's schedule from the sync's rise (128.21.2):
+BZ_FANL2    equ 17404           ; 17 lines to W2 (~t 18, frame A's adjust), 229
+BZ_FANL1    equ 2508            ; to W1 (~t 247, frame B's adjust), 33 back to W2
+%if BZ_FANL1 + BZ_FANL2 != 19912
+ %error "FINE's two periods must sum to a CGA frame, 19,912 PIT counts"
+%endif
 ; GLIDE's "faster than 4 px a FRAME" across is the ball's TRAVEL over the last
 ; FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low word of bz_bx: rate-proof,
 ; where wave 1's |v| against a per-card constant assumed the full refresh.
@@ -251,7 +277,33 @@ VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
 VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BENCH
                                 ; for the benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
-VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
+VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE, 2 FINE,
+                                ; 3 SPLIT, 4 FINE SPLIT (SPEC.md 128.21)
+VAR bz_hT,2                     ; 128.21.3: PIT counts of the periods bz_hook has
+VAR bz_hlen,2                   ; seen end (mod 64K), the one counting now, the
+VAR bz_hnext,2                  ; one queued behind it
+VAR bz_clast,2                  ; bz_clk_sample's: the total at its last sample,
+VAR bz_vph,2                    ; the phase inside the VIRTUAL sub-tick
+VAR bz_hbad,1                   ; 1: FINE's schedule lost a period (re-anchor)
+VAR bz_nofine,1                 ; 1: no FINE here - a Hercules, or kern_mega in
+                                ; protected mode (SPEC.md 128.21, 53.5.2)
+VAR bz_hon,1                    ; FINE's hook: 0 off, 1 writing W1/W2, 2 closing
+VAR bz_hoff,1                   ; 1: FINE asked off (the hook closes at slot 0)
+VAR bz_hj,1                     ; FINE's next interrupt: 0 W2, 1 W1
+VAR bz_hph,1                    ; the phase W1 committed: the B on the glass
+VAR bz_phn,1                    ; the camera's phase for its next presentation
+VAR bz_hlat,1                   ; 1: LATTICE's down axis is in LINES (FINE)
+VAR bz_fwant,1                  ; 1: this frame's mode wants FINE (and a CGA)
+VAR bz_ffail,1                  ; FINE's failed starts this play (4: given up)
+VAR bz_split,1                  ; 1: this frame's mode SPLITs (128.21.1)
+VAR bz_C,2                      ; the camera's top LINE, 2 R0 - P (FINE)
+VAR bz_Cn,2                     ; ...the next frame's
+VAR bz_nsplit,2                 ; vertical steps SPLIT cut (a column's frame)
+VAR bz_nhbad,2                  ; FINE's lost periods (bz_hbad's, counted)
+VAR bz_vcar,2                   ; FINE SPLIT: the lines a column frame held back
+VAR bz_vcs,1                    ; ...and the pan's sign they belong to
+VAR bz_hlate,2                  ; FINE: the latest W1 (PIT counts after its period
+                                ; ended, the hook's own latch), the worst kept
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
@@ -466,9 +518,22 @@ BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; bz_clk_sample - the sub-tick clock (DS = ours).  Preserves all but the flags.
+; bz_clk_sample - the sub-tick clock (DS = ours), VIRTUAL since 128.21.3: the
+; bracket runs FSXF_RATE, whose periods are BZ_RDIV (FASTTICK's sub-tick) or,
+; under FINE, the anchored schedule's, and [bz_subs] / [bz_pitl] are rebuilt
+; to read exactly as FASTTICK's did - whole sub-ticks of BZ_SUB counts, and a
+; count running DOWN from BZ_SUB inside one - from the total PIT counts
+; (bz_clk_read) folded into the virtual phase.  Exact while no two samples
+; are 64K counts apart: everything samples at least every ~30k clocks (each
+; mark, each row, the retrace spin).  Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_clk_sample:
+    cmp byte [bz_hon], 0        ; THE LIGHT PATH: FINE off and every period the
+    jne .heavy                  ; sub-tick's own, so channel 0 IS FASTTICK's
+    cmp word [bz_hlen], BZ_RDIV ; clock - a count that went UP saw a reload
+    jne .heavy
+    cmp word [bz_hnext], BZ_RDIV
+    jne .heavy
     push ax
     pushf
     cli
@@ -485,6 +550,198 @@ bz_clk_sample:
 .same:
     mov [bz_pitl], ax
     pop ax
+    ret
+.heavy:                         ; FINE's schedule: the total, folded
+    push ax
+    push dx
+    push bx
+    call bz_clk_read            ; AX = the total counts now (mod 64K), BX the
+    mov dx, ax                  ; queued period as that read saw it
+    xchg dx, [bz_clast]
+    sub ax, dx                  ; AX = the counts since the last sample...
+    jns .fwd
+    add ax, bx                  ; ...backward: a reload the hook has not run
+    add [bz_clast], bx          ; for yet (its IRQ0 held at IF = 0) - its
+.fwd:                           ; period counted here, and the base moved on
+    pop bx                      ; by it.  BX, NOT [bz_hnext] now: that IRQ0
+                                ; runs the hook the moment the read's POPF
+                                ; opens IF, and [bz_hnext] is then the period
+                                ; after (a 17,404 counted for a 2,508)
+    add ax, [bz_vph]            ; + the phase inside the virtual sub-tick
+.sub:
+    cmp ax, BZ_SUB
+    jb .ph
+    sub ax, BZ_SUB
+    inc word [bz_subs]
+    jmp short .sub
+.ph:
+    mov [bz_vph], ax
+    neg ax
+    add ax, BZ_SUB
+    mov [bz_pitl], ax           ; the count as a FASTTICK sub-tick would read
+    pop dx
+    pop ax
+    ret
+
+; bz_clk_rebase - the virtual clock's base at NOW, nothing counted, its phase
+; carried on from [bz_pitl] (so the light path and the heavy one meet): the
+; bracket's start (bz_vinit) and FINE's anchor, which restarts channel 0.
+; Preserves all but the flags.
+bz_clk_rebase:
+    push ax
+    push bx
+    call bz_clk_read
+    mov [bz_clast], ax
+    mov ax, BZ_SUB
+    sub ax, [bz_pitl]
+    jae .p
+    xor ax, ax
+.p:
+    mov [bz_vph], ax
+    pop bx
+    pop ax
+    ret
+
+; bz_clk_read - AX = the total PIT counts now (mod 64K): the ended periods'
+; [bz_hT] and the part of the one counting, [bz_hlen] less the latched count;
+; BX = [bz_hnext], read in the same interrupts-off window.  Clobbers the flags.
+bz_clk_read:
+    pushf
+    cli
+    mov bx, [bz_hnext]
+    xor al, al
+    out 43h, al                 ; latch channel 0
+    in al, 40h
+    mov ah, al
+    in al, 40h
+    xchg al, ah
+    neg ax
+    add ax, [bz_hlen]
+    add ax, [bz_hT]
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_hook - FSXF_RATE's hook (SPEC.md 128.21.3, 53.2.2, 53.5.2): DS = ours, AX =
+; the periods since it last ran, IF = 0, no kernel call, any register may
+; change, AX on return the period after next (an anchored bracket) or 0.
+; The CLOCK first: the period that ended was [bz_hlen], any more the queued
+; length.  Then FINE (bz_hon), alternating (bz_hj): W2 (~t 18, frame A's
+; adjust) writes frame B's registers (R4 99, R7 126, R6 100, the video gate
+; on unless a full write's blank holds it) and queues BZ_FANL1; W1 (~t 247,
+; frame B's adjust) writes the next refresh's frame A (R4 8 + P, R7 1, R6 0,
+; R5 22 - P, the gate off for A's first line, P the camera's bz_phn,
+; committed to bz_hph) and queues BZ_FANL2.  CLOSING (bz_hoff, the committed
+; phase 0): W2 writes mode 4's R4 127, R7 112, R6 100 instead - the A in
+; progress ends where it would and the frame after it is mode 4's own, its
+; sync 262 lines after the last - and queues BZ_RDIV; the W1 after it writes
+; R5 6, and FINE is off.  A call that counts two periods lost one: the
+; schedule is no longer the anchor's, and bz_hbad asks bz_fswitch to start
+; again.  ~14 bytes of stack.
+; -----------------------------------------------------------------------------
+bz_hook:
+    mov cx, ax
+    mov ax, [bz_hlen]
+    add [bz_hT], ax
+    mov ax, [bz_hnext]
+    mov [bz_hlen], ax
+.more:
+    dec cx
+    jz .clk
+    add [bz_hT], ax             ; (a missed period: the queued length again)
+    mov byte [bz_hbad], 1
+    inc word [bz_nhbad]
+    jmp short .more
+.clk:
+    xor ax, ax                  ; (AX 0: nothing re-timed)
+    cmp byte [bz_hon], 0
+    jne .fine
+    cmp word [bz_hnext], BZ_RDIV ; FINE stopped short (bz_foff): the sub-
+    je .out                     ; tick's period queued again, once
+    mov ax, BZ_RDIV
+    mov [bz_hnext], ax
+    ret
+.fine:
+    mov dx, 3d4h
+    xor byte [bz_hj], 1
+    jnz .w2                     ; (bz_hj was 0: this is W2)
+    cmp byte [bz_hon], 2        ; W1 - closing: the standard adjust, and off
+    jne .w1
+    mov ax, 0605h
+    out dx, ax
+    mov byte [bz_hon], 0
+    mov byte [bz_hoff], 0
+    xor ax, ax
+.out:
+    ret
+.w1:
+    xor al, al                  ; (how late W1 runs: the period counting now
+    out 43h, al                 ; began when W1's ended, so its elapsed part
+    in al, 40h                  ; is the hook's lateness - the worst kept)
+    mov ah, al
+    in al, 40h
+    xchg al, ah
+    neg ax
+    add ax, [bz_hlen]
+    cmp ax, [bz_hlate]
+    jbe .w1n
+    mov [bz_hlate], ax
+.w1n:
+    mov al, [bz_phn]
+    mov [bz_hph], al
+    mov ah, 8
+    add ah, al
+    mov al, 4
+    out dx, ax                  ; R4 = 8 + P
+    mov ax, 0107h
+    out dx, ax                  ; R7 = 1: the sync on A's row 1
+    mov ax, 0006h
+    out dx, ax                  ; R6 = 0: A displays nothing...
+    mov ah, 22
+    sub ah, [bz_hph]
+    mov al, 5
+    out dx, ax                  ; R5 = 22 - P, A's adjust (and B's from now)
+    mov dl, 0d8h
+    mov al, 22h                 ; ...and its first line, which R6 does not
+    out dx, al                  ; blank, behind the gate
+    mov ax, BZ_FANL2
+    mov [bz_hnext], ax
+    ret
+.w2:
+    cmp byte [bz_hoff], 0
+    je .b
+    cmp byte [bz_hph], 0        ; closing once the committed phase is 0
+    jne .b
+    mov byte [bz_hon], 2
+    mov ax, 7f04h
+    out dx, ax                  ; R4 = 127
+    mov ax, 7007h
+    out dx, ax                  ; R7 = 112
+    mov ax, 6406h
+    out dx, ax                  ; R6 = 100
+    call .gate
+    mov ax, BZ_RDIV             ; ...and the sub-tick back after the period
+    mov [bz_hnext], ax          ; counting now
+    ret
+.b:
+    mov ax, 6304h
+    out dx, ax                  ; R4 = 99: B's 100 rows
+    mov ax, 7e07h
+    out dx, ax                  ; R7 = 126: no sync in B
+    mov ax, 6406h
+    out dx, ax                  ; R6 = 100
+    call .gate
+    mov ax, BZ_FANL1
+    mov [bz_hnext], ax
+    ret
+.gate:
+    cmp byte [bz_blk], 0
+    jne .gx
+    mov dl, 0d8h
+    mov al, 2ah
+    out dx, al                  ; the gate on
+    mov dl, 0d4h
+.gx:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -554,6 +811,8 @@ bz_mark:
 bz_r0pend:
     push ax
     mov byte [bz_r0p], 0
+    cmp byte [bz_hon], 0        ; never under FINE: a stretch shut that long
+    jne .out                    ; holds two rate periods (SPEC.md 128.21.3)
     cmp word [bz_nbox], 0
     je .out
     mov ax, [bz_wtop]
@@ -810,6 +1069,7 @@ bz_tw:
 bz_tv:                          ; parts keep their numbers)
     call bz_mark
     mov byte [bz_wvok], 0       ; (no rise to reckon from: bz_vr sets it)
+    call bz_fswitch             ; FINE on or off, as the mode asks (128.21.2)
     pushf                       ; IF, for the row-0 box's critical section:
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
     jne bz_tf                   ; bz_tb's POPF opens them after the FIRST box
@@ -837,6 +1097,10 @@ bz_tf:
     mov [bz_S], ax
     mov ax, [bz_R0n]
     mov [bz_R0], ax
+    shl ax, 1                   ; FINE: the top line the glass will show -
+    sub al, [bz_hph]            ; the phase W1 committed, which is the camera's
+    sbb ah, 0                   ; unless it decided after W1 (128.21.3)
+    mov [bz_C], ax
     mov ax, [bz_c0n]
     mov [bz_c0], ax
     mov ax, [bz_H]              ; no entering column: nothing left for after
@@ -1556,7 +1820,30 @@ bz_tmouse:
 ; the next camera mode, GLIDE -> TRICKLE -> GLIDE.  Preserves all
 ; but the flags.  The camera picks its new state up itself (bz_camera's tail).
 bz_cnext:
+    cmp byte [bz_fs], 0         ; on the desktop [bz_nofine] is the last
+    jne .in                     ; bracket's, or none: ask (a key press, rare)
+    push dx
+    push ax
+    call bz_adapter             ; AL = 2 a Hercules
+    shr al, 1
+    mov ah, al
+    push ax
+    call OSAPI_CPU_INFO
+    and ah, CPU_F_PM
+    pop dx
+    or ah, dh
+    mov [bz_nofine], ah
+    pop ax
+    pop dx
+.in:
     inc byte [bz_cmode]
+    cmp byte [bz_nofine], 0     ; no FINE on the Hercules or kern_mega
+    je .c                       ; (SPEC.md 128.21)
+    cmp byte [bz_cmode], BZ_CM_FINE
+    je bz_cnext
+    cmp byte [bz_cmode], BZ_CM_FSPLIT
+    je bz_cnext
+.c:
     cmp byte [bz_cmode], BZ_CMODES
     jb .out
     mov byte [bz_cmode], 0
@@ -1731,11 +2018,28 @@ bz_camera:
     xor al, al                  ; left as it was)
 .muse:
     xchg al, [bz_cuse]          ; GLIDE again after TRICKLE (C): LATTICE
-    or al, al                   ; starts at rest, its bands at the window
-    jz .ncs0                    ; as it stands
-    cmp byte [bz_cuse], 0
-    jne .ncs0
+    cmp al, BZ_CM_TRICKLE       ; starts at rest, its bands at the window
+    jne .ncs1                   ; as it stands
+    cmp byte [bz_cuse], BZ_CM_TRICKLE
+    je .ncs1
     call bz_latrst
+.ncs1:
+    mov al, [bz_cuse]           ; the experiment's flags (SPEC.md 128.21):
+    cmp al, BZ_CM_SPLIT         ; SPLIT, and FINE where the card is a CGA -
+    sbb ah, ah                  ; bz_fswitch starts and stops it at the wait
+    inc ah                      ; (AH = 1 for modes 3 and 4)
+    mov [bz_split], ah
+    xor ah, ah
+    cmp al, BZ_CM_FINE
+    je .fine
+    cmp al, BZ_CM_FSPLIT
+    jne .nf
+.fine:
+    cmp byte [bz_nofine], 0
+    jne .nf
+    inc ah
+.nf:
+    mov [bz_fwant], ah
 .ncs0:
     cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
     jne .ncs                    ; (bz_scnt bit 7): a cut (128.17.6.7)
@@ -1778,6 +2082,9 @@ bz_camera:
     call bz_clampwin
     mov ax, [bz_R0n]
     mov [bz_R0], ax
+    shl ax, 1                   ; (FINE: the top line, phase 0)
+    mov [bz_C], ax
+    mov [bz_Cn], ax
     mov ax, [bz_c0n]
     mov [bz_c0], ax
     mov byte [bz_full], 1
@@ -1864,10 +2171,10 @@ bz_camera:
 .cgl:
     add bp, ax                  ; BP = cy + 8
 .cyd:
-    cmp byte [bz_cuse], 0
-    jne .trickle
-    call bz_lattice             ; GLIDE: LATTICE (wave 6b, 128.17.6.2)
-    jmp .moved
+    cmp byte [bz_cuse], BZ_CM_TRICKLE
+    je .trickle
+    call bz_lattice             ; GLIDE: LATTICE (wave 6b, 128.17.6.2), and
+    jmp .moved                  ; the experiment's three (128.21)
 .trickle:
     ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
     ; vertical: the band [T + 1/3, T + 2/3] of the window's lines
@@ -1948,6 +2255,24 @@ bz_camera:
 .full:
     mov byte [bz_full], 1
 .decided:
+    mov ax, [bz_R0n]            ; FINE's phase for the next presentation
+    shl ax, 1                   ; (SPEC.md 128.21.2): P = 2 R0 - C, where
+    xor dl, dl                  ; LATTICE ran in lines; else C = 2 R0, P 0
+    cmp byte [bz_hlat], 0
+    je .p0
+    cmp byte [bz_cuse], BZ_CM_TRICKLE
+    je .p0
+    cmp byte [bz_camscr], 0     ; (a harness's script steps rows)
+    jne .p0
+    mov dx, ax
+    sub dx, [bz_Cn]
+    cmp dx, 1                   ; a clamp moved R0 off ceil(C / 2): phase 0
+    jbe .ph
+.p0:
+    mov [bz_Cn], ax
+    xor dl, dl
+.ph:
+    mov [bz_phn], dl
     mov ax, [bz_R0n]
     sub ax, [bz_R0]
     mov [bz_dr], ax
@@ -2252,7 +2577,11 @@ bz_lattice:
 .xr:
     mov [bz_c0n], dx
     mov bx, bp
-    mov dx, [bz_R0]             ; DOWN
+    mov dx, [bz_R0]             ; DOWN: rows, or under FINE the top LINE C
+    cmp byte [bz_hlat], 0       ; (SPEC.md 128.21.2)
+    je .yd
+    mov dx, [bz_C]
+.yd:
     mov si, bz_lay
     cmp byte [si + BZL_S], 0
     jne .y
@@ -2262,16 +2591,121 @@ bz_lattice:
     jle .yr
 .y:
     call bz_lat
+    call bz_lsplit              ; SPLIT: not on a column's frame (128.21.1)
     mov di, bz_nwr
     mov bl, [bz_hedr]           ; (level 1 lets one row through, level 2
-    mov bh, 1                   ; none on the CGA and one on the Hercules)
+    mov bh, 1                   ; none on the CGA and one on the Hercules;
+    add bh, [bz_hlat]           ; a row is two lines under FINE)
     mov cl, [bz_herc]
     mov ch, BZ_PF_NEART
     call bz_lhv
 .yr:
+    cmp byte [bz_hlat], 0
+    je .yrow
+    mov [bz_Cn], dx             ; FINE: R0 = ceil(C / 2)
+    inc dx
+    shr dx, 1
+.yrow:
     mov [bz_R0n], dx
     ret
 
+; bz_lsplit - SPLIT (SPEC.md 128.21.1): the down axis's step AX (unsigned, SI =
+; bz_lay, DX its position) on a frame whose COLUMN steps is cut - in rows to
+; none (not made up: the pan arrives later).  Under FINE (lines) the column
+; frame keeps the one line that leaves ceil(C / 2) alone (down from an odd C,
+; up from an even one), else none, and the rest is CARRIED (bz_vcar, at most
+; 4); the next frame without a column takes its step and the carry, at most
+; 4 lines and never past the pan's target, one line less (carried again)
+; when that would leave the next column frame's line not free - so a steady
+; diagonal goes 3, 1, 3, 1 lines at LATTICE's own 2 a frame, every row on a
+; frame with no column.  A pan at rest or turned drops the carry.  Counts
+; bz_nsplit.  Preserves all but AX and the flags.
+bz_lsplit:
+    cmp byte [bz_split], 0
+    je .out
+    push bx
+    push cx
+    mov cl, [si + BZL_S]
+    cmp cl, [bz_vcs]            ; a new pan, or none: no carry
+    je .cs
+    mov [bz_vcs], cl
+    mov word [bz_vcar], 0
+.cs:
+    or cl, cl
+    jz .done
+    mov bx, [bz_c0n]
+    cmp bx, [bz_c0]
+    je .free                    ; no column this frame
+    or ax, ax
+    jz .done
+    inc word [bz_nsplit]
+    cmp byte [bz_hlat], 0
+    jne .lines
+    xor ax, ax                  ; rows: the row waits
+    jmp short .done
+.lines:
+    mov bx, ax                  ; BX = the step asked
+    xor ax, ax
+    call .isfree                ; ZF = 1: one line is free from DX
+    jnz .keep
+    inc ax
+.keep:
+    sub bx, ax
+    add [bz_vcar], bx           ; the rest, carried...
+    cmp word [bz_vcar], 4
+    jbe .done
+    mov word [bz_vcar], 4       ; ...at most two rows
+    jmp short .done
+.free:                          ; no column: the step and the carry
+    cmp byte [bz_hlat], 0
+    je .done
+    add ax, [bz_vcar]
+    mov word [bz_vcar], 0
+    cmp ax, 4
+    jbe .t4
+    mov ax, 4
+.t4:
+    mov bx, [si + BZL_TGT]      ; never past the target
+    sub bx, dx
+    jns .ab
+    neg bx
+.ab:
+    cmp ax, bx
+    jbe .tg
+    mov ax, bx
+.tg:
+    cmp ax, 2                   ; the parity for the next column frame: the
+    jb .done                    ; position after this step must leave its line
+    push dx                     ; free there - else one line fewer now
+    or cl, cl
+    js .up
+    add dx, ax
+    jmp short .pq
+.up:
+    sub dx, ax
+.pq:
+    call .isfree
+    pop dx
+    jz .done
+    dec ax
+    inc word [bz_vcar]
+.done:
+    pop cx
+    pop bx
+.out:
+    ret
+; ZF = 1 when one line in direction CL from top line DX keeps ceil(C / 2):
+; down (CL > 0) from an odd C, up from an even one.  Clobbers nothing else.
+.isfree:
+    push dx
+    and dl, 1                   ; 1 odd, 0 even
+    or cl, cl
+    js .iu
+    xor dl, 1                   ; down: free when odd -> 0
+.iu:
+    or dl, dl                   ; up: free when even -> 0
+    pop dx
+    ret
 ; -----------------------------------------------------------------------------
 ; bz_lat - LATTICE on one axis, steps 1 - 7 (SPEC.md 128.17.6.2: bbcourse.
 ; LatAxis.decide).  SI = its state (BZL_*; its constants at [SI + BZL_K],
@@ -2372,7 +2806,17 @@ bz_lat:
     cbw
     inc ax
     cmp byte [di + BZK_COLS], 0
+    jne .acr
+    cmp byte [si + BZL_SH], 0   ; ...in LINES under FINE (128.21.1): fast 4
+    jne .min                    ; lines (two rows); slow ONE line a frame
+    cmp al, 1                   ; under FINE, two under FINE SPLIT (whose
+    jne .dbl                    ; column frames take one and carry the
+    cmp byte [bz_split], 0      ; other, bz_lsplit)
     je .min
+.dbl:
+    shl ax, 1
+    jmp short .min
+.acr:
     mov al, [si + BZL_SINCE]    ; across: since + 1, at most 9 ...
     cmp al, 9
     adc al, 0
@@ -2577,6 +3021,11 @@ bz_latrst:
     mov bx, [bz_rmax]
     mov dx, [bz_R0]
     mov ah, [bz_lsh]            ; down: u = rl lines
+    cmp byte [bz_hlat], 0       ; ...or under FINE one line (128.21.2): the
+    je .one                     ; top line C over 0 .. 2 rmax
+    shl bx, 1
+    mov dx, [bz_C]
+    xor ah, ah
 .one:
     mov word [si + BZL_S], 0    ; s, last
     mov word [si + BZL_FAST], 0900h ; fast, since 9

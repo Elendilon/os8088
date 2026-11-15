@@ -9,6 +9,8 @@ NEXT (2026-11-14).** Wave 0 (the spike) was a GO (the owner, 2026-11-12:
 - wave 3, obstacles and the wheel (128.12);
 - wave 3b, the performance round (128.13);
 - the SOUND, built beside them by another session (128.20);
+- an EXPERIMENT beside the waves, on its own branch: the one-line vertical
+  scroll and the split camera (128.21, [BOUNCE-BONANZA-FINESCROLL.md](BOUNCE-BONANZA-FINESCROLL.md));
 - wave 4, a game: the tour, flags, pads, springs, the cup, demos on the
   disk, the mouse as a tilt stick, MOON and PEAK (128.14). Its HUD did not
   fit the frame and was removed. Its measured results and open items are

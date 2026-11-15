@@ -6826,6 +6826,18 @@ FSXW_FRAME  equ 2               ; the next IRQ0 - YOUR period under
                                 ; YIELDING, so the frame time you do not spend
                                 ; goes to your worker instead of to a poll
                                 ; loop. USE THIS ONE WITH A KEPT WORKER
+FSXW_ANCHOR equ 3               ; FSXW_VSYNC's wait, and inside an FSXF_RATE
+                                ; bracket channel 0 RESTARTED at the retrace's
+                                ; start: BX = the first period's count, CX the
+                                ; second's (0 = the divisor), and from the
+                                ; third on the hook's AX on return (not 0)
+                                ; queues the period after the one counting -
+                                ; interrupts on chosen scan lines (a CGA shares
+                                ; the PIT's crystal: a frame is 19,912 counts).
+                                ; Out CF=0 AL=1 anchored, CF=0 AL=0 waited but
+                                ; left alone (re-try at the next retrace),
+                                ; CF=1 refused - no rate bracket, or kern_small
+                                ; (SPEC.md 53.5.2)
 
 FSXM_TEXT80 equ 0               ; 80x25 text        VGA CGA HERC
 FSXM_TEXT40 equ 1               ; 40x25 text        VGA CGA

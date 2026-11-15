@@ -1404,7 +1404,7 @@ bz_wcommit:
 ; all but the flags.
 bz_wcore:
     pushf
-    cli
+    BZ_WCLI
     call bz_wpass
     call bz_clk_sample
     popf
@@ -1500,7 +1500,7 @@ bz_wheel:
     jnz .an
     call bz_wslot
     pushf
-    cli
+    BZ_WCLI
     call bz_wtest               ; DX = now; CF = 1: nothing fits, STOP
     jc .stop
     add dx, [si + BZ_WCSTO]
@@ -1531,7 +1531,7 @@ bz_wheel:
     call bz_wslot
 .bs:
     pushf
-    cli
+    BZ_WCLI
     call bz_wtest
     jc .stop
     mov ax, [si + 2 * BZ_WBLK + 2] ; AX = t, the beam past its last line
@@ -1748,7 +1748,7 @@ bz_lead:
 .dl:
     mov [bz_wdl], ax
     pushf
-    cli
+    BZ_WCLI
     call bz_clk_sample
     call bz_wnow
     jc .no
@@ -1926,7 +1926,7 @@ bz_wspan:
     mov si, BZ_CALN
 .s:
     pushf                       ; ONE SPAN: from a clock sample, through the
-    cli                         ; reckoning the wheel makes from it (bz_wnow,
+    BZ_WCLI                         ; reckoning the wheel makes from it (bz_wnow,
     call bz_clk_sample          ; its result unused here), to the commit's own
     mov bx, [bz_subs]           ; closing sample - what a commit costs after
     mov cx, [bz_pitl]           ; the sample its test is made on

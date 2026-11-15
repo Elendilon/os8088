@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "84f3034b8d7a05ec9b438400a8ff83895e7523919554d79bdaa6a3c89046b226",
+  "fingerprint": "ab405112ff90d417e064945008e2fe675e6d50be35abc8ea388c34f8d4f17e70",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "9cf163fa5251d2493ec9eb4d9854898576ff734685e668bbce89a8313856d825",
+  "fingerprint": "1dc7d20b746ac90a4528aad8b79bd8d500c87e58f1cfe1d9050a0689e7810d70",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2238,6 +2238,20 @@
    "from": 14,
    "guard": "DRV_VER",
    "reason": "MEM_K_SEAM (kern_mega's huge-read seam claim tag) mirrored into the SDK for the Task Manager's heap page; a constant added, nothing built before changes",
+   "to": 14
+  },
+  {
+   "fingerprint": "1dc7d20b746ac90a4528aad8b79bd8d500c87e58f1cfe1d9050a0689e7810d70",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "FSXW_ANCHOR (3), a new OSAPI_FSX_WAIT clock: FSXW_VSYNC's wait plus an FSXF_RATE bracket's channel 0 restarted at the retrace (SPEC.md 53.5.2). An addition; nothing built before changes meaning",
+   "to": 13
+  },
+  {
+   "fingerprint": "ab405112ff90d417e064945008e2fe675e6d50be35abc8ea388c34f8d4f17e70",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "FSXW_ANCHOR (3), a new OSAPI_FSX_WAIT clock: FSXW_VSYNC's wait plus an FSXF_RATE bracket's channel 0 restarted at the retrace (SPEC.md 53.5.2). An addition; nothing built before changes meaning",
    "to": 14
   }
  ]

@@ -1066,7 +1066,7 @@ spk_off:
 %endif
     pop ds
     mov ax, [spk_rdsv]          ; ...and channel 0 to the bracket's rate
-    mov [sch_rdiv], ax
+    call sch_rset               ; (its every period, 53.5.2)
     call sch_pit0
     popf
     call spk_pcm_idle           ; ch2's ports and its ownership, one window
@@ -1130,6 +1130,10 @@ osapi_fsx_spk:
     xor dx, dx
     div bx                      ; ...and AX = K, DX = the remainder: K x N is
     sub [sch_rdiv], dx          ; the divisor less DX, the period exactly -
+    push ax                     ; (and every period of the rate that, 53.5.2)
+    mov ax, [sch_rdiv]
+    call sch_rset
+    pop ax
     ret                         ; and CF = 0, the remainder never exceeding
                                 ; the divisor it came from
 %else                           ; kern_small has no FSXF_RATE (53.2.2), so

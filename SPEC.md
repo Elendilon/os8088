@@ -111815,7 +111815,9 @@ cost 2,567 glyph cells a second in pixels.
 `FSXW_VSYNC` (1) = return in vertical retrace: 3DAh bit 3 for the VGA/CGA
 family, 3BAh bit 7 for Hercules, the port chosen by the **current fsx
 mode**; `FSXW_FRAME` (2) = return at the next IRQ0, yielding while it
-waits (§53.5.1). Bracket-only, CF=1 outside one — and CF=1 on an unknown
+waits (§53.5.1); `FSXW_ANCHOR` (3) = `FSXW_VSYNC`'s wait, and
+an `FSXF_RATE` bracket's channel 0 restarted at the retrace's start and
+re-timed by its hook from then on (§53.5.2). Bracket-only, CF=1 outside one — and CF=1 on an unknown
 AL, tested **before** the present clause so a refused wait never flushes
 first. Every wait is bounded by a `[ticks]` delta (§37.90's rule — the one
 way to hang is to wait forever for a bit that never changes on a machine
@@ -111901,6 +111903,74 @@ will. The rule is therefore about the pairing rather than about the
 clocks — **a bracket with a kept worker must not pace itself on
 `FSXW_VSYNC`** — and an app that needs the raster *and* a worker has to
 buy the poll knowingly.
+
+#### 53.5.2 `FSXW_ANCHOR` — the rate's period, started at the retrace and re-timed by the hook (`kern_big`, `kern_mega`)
+
+`FSXW_ANCHOR` (3) is `FSXW_VSYNC`'s wait with one act at its end: inside an
+`FSXF_RATE` bracket (§53.2.2), at the moment the retrace is seen to BEGIN,
+**PIT channel 0 is restarted** - and from then on **the hook RE-TIMES the
+rate**: the AX it returns, when not 0, is the count of the period after the
+one counting now. So a program places exactly the interrupts it needs at
+exactly the scan lines it needs them, instead of buying a fast uniform rate
+to land one inside each window. It exists because a CGA and the PIT share
+one crystal (14.31818 MHz: a CGA frame of 262 lines x 912 hdots is exactly
+19,912 PIT counts), so a schedule whose periods sum to 19,912 keeps an
+anchored hook on the same scan lines for as long as the bracket lasts. That
+is what a program that rewrites the 6845 between two frames of one refresh
+needs (BONANZA's one-line vertical scroll, §128.21): writes that must land in
+windows of ~20 scan lines EVERY refresh, from an interrupt, because a game
+loop that drops a frame must not drop a vertical sync with it.
+
+**Why not a fast uniform rate** (MEASURED, MartyPC's 5150): a rate period
+costs ~2,070 cycles from `sch_isr` to `sch_resume` (~940 to the hook, ~700
+the switch path), so eight periods a CGA frame - the slowest uniform rate
+that put one inside each of BONANZA's two windows - were ~16.5k cycles, a
+fifth of a refresh, and took MILL's demo from 763 presented frames to 555.
+Re-timed, the same two writes cost two periods a frame.
+
+- **In**: AL = 3, **BX = the FIRST period's count** and **CX = the
+  SECOND's** (0 = the bracket's divisor, either). Channel 0 restarts at BX
+  and CX is QUEUED behind it (mode 2 loads a count written mid-period at the
+  next reload). From the third period on, the hook's AX on return is queued
+  the same way, by the ISR, after the hook (`SCH_RRETIME`); 0 keeps the count
+  that is queued. **Out**: CF = 0 and **AL = 1** anchored; CF = 0 and
+  **AL = 0** the retrace was waited for but the channel was left as it was;
+  CF = 1 refused (outside an `FSXF_RATE` bracket - `kern_small` has none -
+  or a dead status port, after `FSXW_VSYNC`'s bounded wait). Every other
+  register is preserved.
+- **The edge is seen at IF = 0**: each poll of the second phase (out of the
+  retrace, then into it) is `pushf`/`cli` ... `popf`, and the poll that sees
+  the retrace begin does the restart in the same window. The restart is
+  ~200 cycles (~0.7 CGA line) after the edge, the same every time.
+- **`[ticks]` stays exact**: the ISR adds the length of the period that
+  ENDED (`[sch_rcur]`, rotated from `[sch_rnext]` at each entry) to
+  `[sch_racc]`, not the divisor; the abandoned part of the period at the
+  restart is added here. If that would carry (a tick falls due inside it), or
+  an IRQ0 is already PENDING (the 8259's IRR bit 0: the period ended and its
+  interrupt is held by the IF = 0 window), nothing is restarted and AL = 0:
+  the current schedule stands, and the next retrace the caller waits for is
+  the next chance. On a CGA whose periods sum to 19,912 that costs nothing.
+- The abandoned part-period is **not** a period: it is not counted into
+  `[sch_rpend]` or `[sch_subs]`.
+- **The schedule is the hook's from then on**: a call that is skipped
+  (§53.2.2's three skip rules) re-times nothing, and the count queued last
+  repeats - so a program whose schedule must alternate watches AX (the
+  periods counted) and re-anchors. `sch_fast_on` puts every period back to
+  the divisor and ends the re-timing (the clip door's re-arm included), and
+  so does the bracket's end.
+- **kern_mega, protected mode**: a reflected BIOS service's IRQ0s are the
+  ROM's and are counted at the divisor (`mega_rfclk`), so a re-timed
+  schedule across one is approximate in `[ticks]` and its hook calls arrive
+  late - a program whose writes have windows should not call the BIOS while
+  anchored there (BONANZA does not offer FINE on kern_mega, §128.21).
+
+MEASURED (`kernsize`): **+229 bytes of `.text` and 5 of `.bss` on
+`kern_big`** (no rung crossed); +255 of `.text`, 16 of `.mega` and 5 of
+`.bss` on `kern_mega`, whose speaker door stores `sch_rset`'s three words
+inline (`.mega` cannot near-call `.text`). `sch_rset` is the speaker door's
+re-rate (§34.11): it sets `[sch_rdiv]` and both period lengths, or the ISR's
+accumulator would go on adding the bracket's old divisor through a sample
+play. `kern_small` refuses AL = 3 as an unknown clock, as it always did.
 
 ### 53.6 Restore — one path, ordered (binding)
 
@@ -268221,3 +268291,162 @@ for a ~1 us ISA read where an XT's is ~2.5 us, is a driver-side saving.
 |---|---|---|
 | `bonanzamusic` | soak | `tools/bbmusic.py --selfcheck`, host only: the tables against the equal-tempered pitches; every song's notes, gates, instruments and volumes as the model keys them against the source's; the speaker's tones and the chip's registers well formed; every ball's impacts present and different; packing deterministic |
 | `bonanzasound` | soak | the guest held to the model on MartyPC: the title on the desktop, S's four choices, FIRST's song in the bracket, every ball's bounce, wall and bumper poked into the counters, the cost, Esc; on the AdLib machine the chip's shadows equal the model's registers whenever nothing is dirty, the OPL's capture loud, and the window's close giving the chip back. Red arms `--red groove` (every row the groove's first count) and `--red mat` (every event the rubber ball's), each red at its own check |
+
+### 128.21 EXPERIMENT: one-line vertical scroll and the split camera (branch `bounce-bonanza-finescroll`)
+
+*An experiment the owner judges by eye: nothing here replaces GLIDE, and the
+`B` benchmark still forces it, so wave 6b's numbers stay comparable. The
+research and the MartyPC spike behind it, and this build's diary:
+docs/plans/BOUNCE-BONANZA-FINESCROLL.md.*
+
+The owner's report (2026-11-15): vertical scrolling, moving quickly, is smooth
+enough, and horizontal alone is too; **moving vertically AND horizontally at
+once microstutters**. Two independent mechanisms, offered as camera MODES on
+the `C` key so each can be seen alone and together:
+
+| `bz_cmode` | name | vertical | pairing |
+|---|---|---|---|
+| 0 | GLIDE | LATTICE in rows (128.17.6.2) | a row and a column may share a frame |
+| 1 | TRICKLE | wave 0's (128.5) | as it was |
+| 2 | FINE | LATTICE in LINES, the slow rate ONE line a frame (fast 4) | shared |
+| 3 | SPLIT | LATTICE in rows | **no frame steps a row and a column**: on a column frame the row step waits |
+| 4 | FINE SPLIT | LATTICE in lines at its own speed (slow 2, fast 4) | on a column frame only the line that needs NO row write; the rest carried to the next frame |
+
+FINE needs a CGA and a real-mode kernel: on the Hercules (4 lines a char row,
+its own crystal) and on kern_mega's protected mode (53.5.2's reflection
+clause - BONANZA calls `int 16h` each frame) `C` cycles GLIDE, TRICKLE,
+SPLIT (`bz_nofine`).
+
+#### 128.21.1 Why the pairing
+
+LATTICE pans a column every second frame (every frame when fast) and a row
+every frame (two when fast), so a diagonal pan puts a column (~20k clocks on
+the CGA) and a row (~8.5k) into every other frame - the frames 128.17.6.2
+already names as what half-rate stretches are made of. MEASURED on MILL's
+demo through `D` (MartyPC CGA, sound off): 35 - 38 of ~780 frames wrote both
+under GLIDE, 0 under SPLIT and FINE SPLIT. SPLIT keeps every LATTICE decision
+and moves the row OFF the column's frame (not made up: the pan arrives
+later). Under FINE a one-line move whose new top line is the other line of
+the same char row (`ceil(C / 2)` unchanged: down from an odd C, up from an
+even one) writes nothing, so FINE SPLIT keeps the vertical moving on a
+column frame: it takes that free line, carries the rest (`bz_vcar`, at most
+4), and the next frame takes its step and the carry - one line less (carried
+again) when that would leave the next column frame's line not free. A
+steady diagonal goes 3, 1, 3, 1 lines at LATTICE's own 2 a frame, every row
+on a frame with no column.
+
+#### 128.21.2 FINE: two 6845 frames a refresh (CGA)
+
+The 6845 latches the start address at a FRAME's start and a frame is whole
+char rows, so the window steps 2 lines. FINE stacks TWO frames in each
+262-line refresh and lets the first one's length decide where the second
+sits on the glass:
+
+| frame | R4 | R5 | R6 | R7 | what is on the glass |
+|---|---|---|---|---|---|
+| **A** | `8 + P` | `22 - P` | 0 | 1 | nothing: its first scan line, which R6 = 0 does not blank, behind the video gate (3D8h 22h); vertical sync on its row 1 |
+| **B** | 99 | `22 - P` | 100 | 126 | the window: 100 rows, its bottom border the adjust |
+
+`A + B = 2 (9 + P) + (22 - P) + 200 + (22 - P) = 262` for P = 0 and 1, and
+the window's first line is `38 + P` lines after the sync's start: P = 0 is
+mode 4's own position, so `BZ_LBLC`, the wheel's beam and 128.9's rules keep
+their meaning, and P = 1 one line lower. MEASURED (`bonanzafine`): the window
+at line 38 / 39 of MartyPC's raster, every refresh 262 lines. The camera's
+position is the window's top LINE `C = 2 R0 - P`: `R0 = ceil(C / 2)`, `P = 2
+R0 - C`; the ring (128.2) sees `R0` alone - which rows are on the card does
+not depend on P. **The window's top and bottom edges move by the line too**:
+no line is masked (an experiment's honest cost, for the owner to see).
+
+**The writes** (t in lines from the sync's start), by the hook:
+
+- **W1, t ~ 247 (B's adjust)**: R4 = `8 + P'`, R7 = 1, R6 = 0, R5 = `22 - P'`
+  for the NEXT refresh's phase P' (the camera's `bz_phn`, committed to
+  `bz_hph`), and the video gate off (unless `bz_blk`, a full write's own
+  blank). Legal from B's row 100 (t = 238 + P) to A's start (t = 260). A phase
+  change makes that one refresh 261 or 263 lines (B's adjust takes the new
+  R5); every other is 262.
+- **W2, t ~ 18 (A's adjust)**: R4 = 99, R7 = 126, R6 = 100, the gate on.
+  Legal from A's last row (t = 14 + 2P) to B's start (t = 38 + P).
+- **On** (`bz_fswitch`, before a frame's retrace wait): at a standard
+  frame's sync rise, frame A's registers - the row counter is past R4, so it
+  runs to 127, wraps, syncs on row 1 and ends at row 8 and its adjust,
+  exactly an A - then `FSXW_ANCHOR` takes that sync, then frame B's at its
+  end. **Off** (the mode changed): the hook's next W2 with the committed
+  phase 0 writes mode 4's R4 127, R7 112, R6 100 (the A in progress ends where
+  it would; the frame after it is mode 4's, its sync 262 lines on) and the
+  W1 after it R5 6. Leaving the frame loop under FINE puts mode 4's
+  registers back at once (`bz_foff`).
+
+**R7's values avoid the phantom vsync** (VileR, int10h.org 2023): 112 -> 1 at
+row 112, 1 -> 126 (or 112) at row 8 - 9, 126 -> 1 at B's adjust (row 100):
+none meets the published conditions. And the camera's phase is decided ~53
+lines before B's start but its start address ~38: a frame whose camera ran
+after W1 presents its new rows at the last committed phase - a one-line
+error for that refresh, corrected by `bz_C` (the line actually shown) on the
+next.
+
+#### 128.21.3 The clock: `FSXF_RATE`, anchored and re-timed
+
+FINE's writes come from an INTERRUPT, every refresh: a frame loop that
+misses a refresh must not miss a vertical sync - B's registers left for a
+second frame have no sync at all. The bracket is **`FSXF_RATE` at divisor
+21,845** - FASTTICK's own sub-tick, 54.6 Hz, so a mode without FINE runs on
+the same interrupts it always did - with `bz_hook` on it, and FINE re-times
+it (53.5.2): `FSXW_ANCHOR` with BX = 1,292 and CX = 17,404 (W2 at ~t 18,
+then W1 at ~t 247), and from then the hook queues 2,508 and 17,404 in turn -
+**two interrupts a refresh**, summing to the CGA's 19,912.
+
+- **Why not a uniform rate** (MEASURED, 53.5.2): eight periods a frame, the
+  slowest that put one in each window, cost ~16.5k clocks a refresh and took
+  MILL's demo from 763 presented frames to 555.
+- **The virtual sub-tick.** Every BONANZA clock (the steps at 54.6 Hz, the
+  marks, `bz_latechk`, the wheel, the sound's pacing) reads `bz_subs` and
+  `bz_pitl` as `FSXF_FASTTICK` gave them. With FINE off every period IS a
+  sub-tick, and `bz_clk_sample` is FASTTICK's own (a count that went up saw
+  a reload). Under FINE it folds the hook's running total of PIT counts (the
+  ended periods `bz_hT`, plus the running one less the latched count) into a
+  virtual phase that carries into `bz_subs` every 21,845. A total that moved
+  BACKWARDS saw a reload whose IRQ0 is still held at IF = 0: one queued
+  period is counted for it - the queued length read in the SAME
+  interrupts-off window as the count, because the held IRQ0 runs the hook the
+  moment that window opens, and the length read after it is the period after
+  (MEASURED: that misread ran the clock at 106 Hz). MEASURED 54.53 Hz under
+  FINE against FASTTICK's 54.62.
+- **Interrupts are left ON under FINE** where BONANZA used to shut them for
+  thousands of clocks: 128.11.10.3's row-0 box section, and the wheel's
+  commit spans (`BZ_WCLI`). MEASURED: with the wheel's spans shut, W1 ran up
+  to 2,364 counts (31 lines) late - past its window; with them open, at
+  worst ~570 (7.5 lines, a tick's ROM chain ahead of the hook). The wheel's
+  commits can now be interrupted by one of FINE's two interrupts; its own
+  late count says what that cost.
+- **A lost period** (a hook call counting two) means the alternation is no
+  longer the anchor's: `bz_hbad` puts mode 4's frame back and FINE starts
+  again at the next wait (counted in `bz_ffail`; four, and FINE is given up
+  for the play). MEASURED: none in any leg.
+
+#### 128.21.4 What it costs (MEASURED, MartyPC CGA, MILL's demo through `D`, sound off)
+
+| build, mode | frames presented | frames over 1.5 refreshes |
+|---|---|---|
+| wave 6b (FASTTICK), GLIDE | 739 - 763 | 53 - 67 |
+| this build, GLIDE | 777 - 783 | 73 - 78 |
+| this build, SPLIT | 776 | 78 |
+| this build, FINE | 745 | 86 |
+| this build, FINE SPLIT | 709 - 757 | 90 - 95 |
+
+The legs vary ~5% with where the harness's keys land. FINE's price is its
+second interrupt (~2.1k clocks each, `sch_isr` to `sch_resume`) and the heavy
+sampler; GLIDE's is the hook's call on its one interrupt a sub-tick. What
+the eye sees is the owner's to judge.
+
+#### 128.21.5 The rows
+
+`bonanzafine` (soak, MartyPC, `tests/bonanza_fine.py`): on the CGA, FINE
+starting, the virtual sub-tick within 1% of 54.62 Hz, the window at line
+`38 + P` for both phases (the camera's top line poked where the camera reads
+it) and every refresh 262 lines, and MILL's demo in GLIDE (some frames with a
+row and a column: the control) and in FINE SPLIT (none; the refresh 262 lines
+over the demo, no lost period or failed start, W1 within its window, the
+phase changing); on the Hercules, `C` skipping FINE and SPLIT's demo writing
+no frame of both. `--red now1` (W1 patched to a bare RET) fails the glass,
+the refresh and the phase.

@@ -554,6 +554,14 @@ sch_fast_on:
                                 ; from the first sub-tick, and the flag set
                                 ; INSIDE the same window as the reprogram
     mov ax, [sch_fdivs + bx - 4] ; the mode is unchanged, only the divisor
+%ifdef KERN_BIG
+    cmp byte [sch_fast], SCH_RATE ; the rate's periods all the divisor again
+    jne .pit                    ; (a re-arm by the clip door included: the
+    mov [sch_rcur], ax          ; anchor's schedule is gone with the count,
+    mov [sch_rnext], ax         ; SPEC.md 53.5.2)
+    mov byte [sch_rtim], 0
+.pit:
+%endif
     call sch_pit0               ; (SPEC.md 8.1)
     popf
 .out:
@@ -599,6 +607,23 @@ sch_pit0:
     out 0x40, al
     ret
 
+%ifdef KERN_BIG
+; sch_rset - AX = FSXF_RATE's divisor: [sch_rdiv], and every period of the
+; rate that length (SPEC.md 53.5.2) - the speaker door's re-rate (34.11) and
+; its close, which set channel 0 themselves, end an anchor's re-timing too,
+; or the ISR's accumulator would go on adding the old period.  Preserves all.
+sch_rset:
+    mov [sch_rdiv], ax
+    mov [sch_rcur], ax
+    mov [sch_rnext], ax
+    mov byte [sch_rtim], 0
+    ret
+    nop                         ; PARITY, never executed: 53.5.2's bytes in
+                                ; front of sch_isr came to an odd count, and
+                                ; sch_isr, sch_switch and ui_task keep the
+                                ; parity tests/unit/t_hotpar.py measured
+%endif
+
 sch_fdivs:  dw 32768, 21845, 16384      ; N = 2, 3, 4
 %ifdef KERN_BIG
 sch_rdiv:   dw 0                        ; N = SCH_RATE: FSXF_RATE's PIT divisor
@@ -608,6 +633,22 @@ sch_rdiv:   dw 0                        ; N = SCH_RATE: FSXF_RATE's PIT divisor
                                         ; the %if under SCH_RATE in fsx.inc
 
 %ifdef KERN_BIG
+; SCH_RRETIME - after a rate hook returns (sch_rhook, fsx_rtick), IF = 0, DS =
+; KERNEL_SEG, AX the hook's: once FSXW_ANCHOR has re-timed the bracket, a
+; non-zero AX is the count of the period after the one counting now, queued in
+; channel 0 (mode 2 loads a count written mid-period at the next reload) and
+; in [sch_rnext] for the ISR's accumulator (SPEC.md 53.5.2).  Clobbers AL.
+%macro SCH_RRETIME 0
+    cmp byte [sch_rtim], 0
+    je %%n
+    or ax, ax
+    jz %%n
+    mov [sch_rnext], ax
+    out 0x40, al
+    mov al, ah
+    out 0x40, al
+%%n:
+%endmacro
 ; -----------------------------------------------------------------------------
 ; sch_rhook - call FSXF_RATE's hook (SPEC.md 53.2.2), from sch_isr only
 ; in:  IF=0, DS = KERNEL_SEG, the EOI already sent, a full ISR frame saved
@@ -654,6 +695,7 @@ sch_rhook:
 %endif
     KDS
     cli                         ; the hook may have sti'd
+    SCH_RRETIME                 ; an anchored rate: AX the period after next
     sub word [sch_rbusy], 0x0101
 .skip:
     ret
@@ -2171,8 +2213,10 @@ sch_isr:
 %ifdef KERN_BIG
 .rate:
     inc word [sch_rpend]        ; a period, owed to the hook until it runs
-    mov ax, [sch_rdiv]          ; the accumulator: a carry out of it is a
+    mov ax, [sch_rcur]          ; the accumulator: a carry out of it is a
     add [sch_racc], ax          ; whole 65536 PIT counts, i.e. a TICK - so
+    mov ax, [sch_rnext]         ; (the period that ENDED, its own length: the
+    mov [sch_rcur], ax          ; queued one is counting now, 53.5.2)
     jc .full                    ; [ticks] and the BIOS clock stay exact at
                                 ; any divisor. The hook runs after the chain
     mov al, 0x20                ; ...and otherwise, the sub-tick's own EOI,
@@ -3057,7 +3101,11 @@ sch_rpend:  resw 1                      ; accumulator, the periods owed to the
                                         ; sch_rdiv, sch_fdivs' last row)
 sch_rbp:    resw 1                      ; its window. Read only while
 sch_rwin:   resw 1                      ; [sch_fast] is SCH_RATE; the re-entry
-%endif                                  ; byte, [sch_rbusy], is by the lock
+                                        ; byte, [sch_rbusy], is by the lock
+sch_rcur:   resw 1                      ; SPEC.md 53.5.2: the period counting
+sch_rnext:  resw 1                      ; now and the one queued behind it (both
+sch_rtim:   resb 1                      ; the divisor until FSXW_ANCHOR), and 1
+%endif                                  ; once the hook's AX re-times them
 sch_subs:   resw 1                      ; free-running IRQ0 entries, SUB-TICKS
                                         ; included (SPEC.md 53.5.1). The
                                         ; finest clock a task can WAIT on:

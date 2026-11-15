@@ -89,6 +89,8 @@ FSXW_VSYNC  equ 1               ; vertical retrace, polled - SPINS (53.5.1)
 FSXW_FRAME  equ 2               ; the next IRQ0: the sub-tick while FASTTICK is
                                 ; armed, the tick otherwise - and it YIELDS,
                                 ; so a kept worker gets the time (53.5.1)
+FSXW_ANCHOR equ 3               ; FSXW_VSYNC, and an FSXF_RATE bracket's channel
+                                ; 0 restarted at the retrace's start (53.5.2)
 
 ; --- the info block fsx_mode fills (SPEC.md 53.4) ----------------------------
 FSI_SEG    equ 0                ; word: framebuffer segment
@@ -942,10 +944,14 @@ fsx_wait:
     call fsx_mine               ; a bracket, and ours (SPEC.md 53.1)
     jne .fail
     cmp al, FSXW_FRAME          ; the argument is checked BEFORE the present,
-    ja .fail                    ; so an unknown clock never flushes and then
-    je .frame                   ; refuses (SPEC.md 53.1's all-or-nothing).
-                                ; ONE compare: `ja` reads flags and writes
-                                ; none, so ZF is still the compare's here
+    je .frame                   ; so an unknown clock never flushes and then
+%ifdef KERN_BIG                 ; refuses (SPEC.md 53.1's all-or-nothing).
+    jbe .clk                    ; ONE compare: `je` reads flags and writes
+    jmp fsx_anchor              ; none. FSXW_ANCHOR and above go to their own
+.clk:                           ; routine, which refuses anything but 3
+%else                           ; (53.5.2)
+    ja .fail
+%endif
     or al, al
     jnz .vsync
     mov bx, [ticks]             ; AL = 0: the next tick
@@ -1175,6 +1181,132 @@ fsx_insync:
                                 ; SPEC.md 53.5.1 measured fsx_insync plus
                                 ; fsx_wait at 28.8% of a 4.77 MHz 8088 with
                                 ; Tracker pacing on it
+
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; fsx_anchor - fsx_wait's FSXW_ANCHOR (SPEC.md 53.5.2), jumped to from its
+; argument check with AX, BX, DX pushed (fsx_wait's frame) and AL >= 3.
+;
+; in:       BX = the count of the FIRST period after the restart, CX the
+;           SECOND's (0 = the divisor, either), so the caller places its
+;           hook's calls anywhere in the frame; from the third on, the hook's
+;           AX on return re-times them (SCH_RRETIME).
+; out:      CF = 0, AL = 1: channel 0 restarted at the retrace's start, BX's
+;           period counting and CX's queued, the bracket RE-TIMED; CF = 0,
+;           AL = 0: the retrace waited for and the channel left as it was (a
+;           tick would have fallen due inside the abandoned part-period, or
+;           its IRQ0 was already pending); CF = 1: refused - not FSXW_ANCHOR,
+;           not an FSXF_RATE bracket, or a dead status port.  Every other
+;           register preserved.
+;
+; WHY THE EDGE IS TAKEN AT IF = 0.  The point of the call is WHERE the period
+; starts, so the poll that sees the retrace begin and the restart share one
+; interrupts-off window: an ISR landing between them would put the period
+; somewhere in the retrace instead of at its start.  Between polls IF is the
+; caller's, so the timeout's [ticks] still moves.
+;
+; WHY [ticks] STAYS EXACT.  sch_isr adds the length of the period that ended
+; ([sch_rcur]) to [sch_racc] and a carry is a tick.  A restart abandons the
+; part-period that has run, so that part ([sch_rcur] less the latched count)
+; is added here instead.  A carry would be a tick owed that only the ISR can
+; deliver (it chains the ROM), and a pending IRQ0 would deliver a period the
+; restart has just discarded - so in either case the channel is left alone
+; and AL = 0: on a CGA whose periods sum to 19,912 the phase of the previous
+; anchor still holds exactly.
+; -----------------------------------------------------------------------------
+fsx_anchor:
+    push cx
+    push si
+    cmp al, FSXW_ANCHOR
+    jne .refuse
+    cmp byte [sch_fast], SCH_RATE
+    jne .refuse
+    mov si, [sch_rdiv]          ; 0 is the divisor, for either count
+    or bx, bx
+    jnz .b
+    mov bx, si
+.b:
+    or cx, cx
+    jnz .c
+    mov cx, si
+.c:
+    mov dx, 0x3DA               ; the port by the current mode, as .vsync
+    cmp byte [vid_kind], VID_HERC
+    jne .pa
+    mov dl, 0xBA
+.pa:
+    mov si, bx                  ; SI = the first count, BX the timeout's base
+    mov bx, [ticks]             ; phase A: out of the retrace first
+.paw:
+    call fsx_insync
+    jz .dead0                   ; a dead port: no edge to anchor to
+    jnc .paw
+.pb:
+    pushf                       ; phase B, one poll at IF = 0 at a time
+    cli
+    call fsx_insync
+    jz .dead
+    jnc .edge                   ; in the retrace: it has just begun
+    popf
+    jmp short .pb
+.dead:
+    popf
+.dead0:
+.refuse:
+    pop si
+    pop cx                      ; fsx_wait's frame, as its .fail leaves it:
+    pop dx                      ; CF = 1, every register as it came
+    pop bx
+    pop ax
+    stc
+    ret
+.edge:
+    mov al, 0x0A                ; the 8259's IRR: an IRQ0 already pending is
+    out 0x20, al                ; a period the restart would discard
+    in al, 0x20
+    test al, 1
+    jnz .keep
+    xor al, al                  ; latch channel 0
+    out 0x43, al
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah                 ; AX = the count, [sch_rcur] .. 1
+    neg ax
+    add ax, [sch_rcur]          ; AX = the part-period that has run
+    add [sch_racc], ax          ; ...credited, as the ISR would have
+    jc .back
+    mov ax, si
+    call sch_pit0               ; the restart: BX's period begins NOW...
+    mov ax, cx                  ; ...and CX's QUEUED behind it: mode 2 loads
+    out 0x40, al                ; a count written mid-period at the next
+    mov al, ah                  ; reload (an 8253's rate generator)
+    out 0x40, al
+    mov [sch_rcur], si
+    mov [sch_rnext], cx
+    mov byte [sch_rtim], 1      ; and the hook's AX re-times from here on
+    popf
+    pop si
+    pop cx
+    pop dx
+    pop bx
+    pop ax
+    mov al, 1
+    clc
+    ret
+.back:
+    sub [sch_racc], ax          ; a tick would fall due: leave it to the ISR
+.keep:
+    popf
+    pop si
+    pop cx
+    pop dx
+    pop bx
+    pop ax
+    mov al, 0
+    clc
+    ret
+%endif
 
 ; --- the mode rows: bytes 0..13 of the FSI block, verbatim (SPEC.md 53.4) ----
 FSXR_SIZE equ 14
@@ -1428,8 +1560,10 @@ fsx_rtick:
     jmp short .out
 .rate:
     inc word [sch_rpend]        ; a period, owed to the hook
-    mov ax, [sch_rdiv]
+    mov ax, [sch_rcur]          ; (the period that ended: 53.5.2)
     add [sch_racc], ax          ; the accumulator's carry is a TICK, so
+    mov ax, [sch_rnext]
+    mov [sch_rcur], ax
     jc .tick                    ; [ticks] and 40:6C stay exact (53.2.2)
     mov al, 0x20
     out 0x20, al
@@ -1459,6 +1593,7 @@ fsx_rtick:
     call far [cs:fsx_rdisp]
     pop ds
     cli                         ; the hook may have sti'd
+    SCH_RRETIME
     dec byte [sch_rbusy]
     jmp short .out
 %ifndef NO_CHAINPRIV
@@ -4183,6 +4318,12 @@ rms_spk:
     xor dx, dx
     div bx                      ; AX = K, DX = the remainder: the period is
     sub [sch_rdiv], dx          ; K x N exactly
+    push ax                     ; (and every period of the rate that, 53.5.2:
+    mov ax, [sch_rdiv]          ; sch_rset's stores, inline - .mega cannot
+    mov [sch_rcur], ax          ; near-call .text)
+    mov [sch_rnext], ax
+    mov byte [sch_rtim], 0
+    pop ax
     pop bx
     push es
     xor dx, dx
@@ -4212,7 +4353,10 @@ rms_spk:
     mov word [es:MEGA_PIC_BASE*4+2], KERNEL_SEG
     pop es
     mov ax, [spk_rdsv]          ; channel 0 at the bracket's rate (sch_pit0)
-    mov [sch_rdiv], ax
+    mov [sch_rdiv], ax          ; (and its every period, 53.5.2: sch_rset's
+    mov [sch_rcur], ax          ; stores, inline - .mega cannot near-call
+    mov [sch_rnext], ax         ; .text)
+    mov byte [sch_rtim], 0
     push ax
     mov al, 0x34
     out 0x43, al

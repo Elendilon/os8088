@@ -609,7 +609,9 @@ bz_launch:
     mov byte [bz_err], 0
     mov bx, [bz_win]
     mov ax, bz_fullscreen
-    mov cx, FSXF_FASTTICK
+    mov cx, FSXF_RATE           ; SPEC.md 128.21.3: 8 periods a CGA frame and
+    mov dx, BZ_RDIV             ; a hook on them, the clock virtual sub-ticks
+    mov di, bz_hook             ; (FASTTICK's 54.6 Hz steps exactly)
     call OSAPI_FSX_RUN
     jc .nofs
     mov byte [bz_pgo], 0        ; the kernel's restore painted the face whole
@@ -3391,9 +3393,13 @@ bz_s_mats:  dw bz_s_rubber, bz_s_steel, bz_s_glass
 BZS bz_s_rubber, 'RUBBER'
 BZS bz_s_steel, 'STEEL'
 BZS bz_s_glass, 'GLASS'
-bz_s_cmodes: dw bz_s_glide, bz_s_trickle   ; bz_cmode's (SPEC.md 128.11.11.1)
+bz_s_cmodes: dw bz_s_glide, bz_s_trickle, bz_s_fine, bz_s_split, bz_s_fsplit
+                                ; bz_cmode's (SPEC.md 128.11.11.1, 128.21)
 BZS bz_s_glide, 'GLIDE'
 BZS bz_s_trickle, 'TRICKLE'
+BZS bz_s_fine, 'FINE'
+BZS bz_s_split, 'SPLIT'
+BZS bz_s_fsplit, 'FINE SPLIT'
 BZS bz_s_hint,  'Arrows roll  Space hop  L.Shift grip'
 BZS bz_s_mhint, 'Mouse tilts  left hop  right grip'
 BZS bz_s_demo,  'demo'
@@ -3469,7 +3475,7 @@ BZ_FIT 2h, 1 + bz_s_herc_n
 BZ_FIT 2s, 1 + bz_s_small_n
 BZ_FIT 2e, 1 + bz_s_err_n
 BZ_FIT 2d, 1 + bz_s_err2_n
-BZ_FIT 3, 1 + bz_s_camk_n + bz_s_trickle_n + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
+BZ_FIT 3, 1 + bz_s_camk_n + bz_s_fsplit_n + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
 BZ_FIT 4, 1 + bz_s_sndk_n + BZ_SNDW
 BZ_FIT 5, 1 + bz_s_repk_n + bz_s_savk_n + bz_s_ldk_n
 BZ_FIT 5b, 1 + bz_s_benk_n + bz_s_ldk_n
@@ -3493,7 +3499,7 @@ BZ_FIT r4, 1 + bz_s_worst_n + 10 + bz_s_mean_n
 BZ_FIT r5, 1 + bz_s_p0_n + 10 + bz_s_clk_n
 BZ_FIT r11, 1 + bz_s_cols_n + 5 + bz_s_rows_n + 5 + bz_s_full_n + 5 + bz_s_late_n + 5
 BZ_FIT r12, 1 + bz_s_back_n
-%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_trickle_n < bz_s_glide_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
+%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_fsplit_n < bz_s_glide_n || bz_s_fsplit_n < bz_s_trickle_n || bz_s_fsplit_n < bz_s_fine_n || bz_s_fsplit_n < bz_s_split_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
  %error "BZ_FIT measures each line by its widest choice: the choices above moved"
 %endif
 

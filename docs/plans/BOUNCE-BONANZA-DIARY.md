@@ -2296,3 +2296,26 @@ no assertion was loosened to make them pass.
 
 Observed: the verify's clean rebuild produced disks byte-identical to the
 preview (md5 compared), so what the owner played is what was committed.
+
+## 2026-11-15 (an experiment beside the waves: one-line vertical scroll)
+
+The owner asked whether Area 5150's single-scanline scroll could come to
+Bounce Bonanza without killing performance. It cannot - the demo's
+"one scan line per 6845 frame" holds three quarters of the machine in
+cycle-exact lockstep, and in CGA mode 4 it can only show the even bank - but
+its simpler relative can: two 6845 frames a refresh, the first one's length
+setting where the second sits, one scan line at a time. A boot-sector spike
+on MartyPC proved it (every refresh 262 lines, the picture one line lower in
+the other phase), and the owner asked for the kernel change and the method,
+plus a camera that never moves both axes in one frame, because the stutter
+they see is the diagonal one.
+
+Both are on the branch `bounce-bonanza-finescroll` as camera modes on `C`
+(FINE, SPLIT, FINE SPLIT), with GLIDE untouched and the benchmark still
+GLIDE's. The kernel gained `FSXW_ANCHOR`, an `FSXF_RATE` clock started at the
+retrace and re-timed by the program's hook, after the first design - a fast
+uniform rate - was MEASURED at a fifth of the machine. The build's own
+account, what the measurements caught (a clock running twice as fast, the
+wheel holding interrupts off past FINE's window, FINE at LATTICE's speed
+never showing a line) and what is still unmeasured (everything on real
+hardware) is [BOUNCE-BONANZA-FINESCROLL.md](BOUNCE-BONANZA-FINESCROLL.md).
