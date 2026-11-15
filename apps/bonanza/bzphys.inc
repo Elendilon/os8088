@@ -2157,15 +2157,15 @@ bz_posts:
 ; max(K, d) else, and gv += ((t - d) n) >> 6, each axis clamped; the post's
 ; kick step = n, bz_nkick + 1.  Clobbers AX, BX, CX, DX, DI, BP.
 bz_circle:
-    push bx
-    mov ah, 0
-    push ax                     ; (the post's window cell)
+    mov cl, al                  ; (the post's window cell)
     call bz_pdist               ; AX = |du|, DX = |dv|, BP their signs: the
-    cmp ax, BZ_OCTN             ; table's reach first, the cheap refusal
-    ja .out2
+    cmp ax, BZ_OCTN             ; table's reach first, the cheap refusal -
+    ja .far                     ; before anything is pushed
     cmp dx, BZ_OCTN
-    ja .out2
-    pop bx
+    ja .far
+    push bx
+    mov bl, cl
+    xor bh, bh
     push ax
     push dx
     shl bx, 1
@@ -2281,10 +2281,9 @@ bz_circle:
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
     ret
-.out2:
-    pop ax
 .out:
     pop bx
+.far:
     ret
 
 ; -----------------------------------------------------------------------------
