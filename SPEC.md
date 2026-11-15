@@ -270123,6 +270123,8 @@ demos AFTER O11's constants are settled"), which is gate 1's.
 
 #### 128.16.10 The re-baseline (story 6.10)
 
+*Deferred to wave 10 (128.17.18).*
+
 **Wave 6's final pass (before gate 1)** cannot compare frames like for
 like: the physics moves every demo's path and `BENCH`'s course. So it
 asserts no end-to-end A/B. It REPORTS each demo's misses, missed refreshes
@@ -270261,6 +270263,9 @@ them. Missed refreshes a second, off each frame's flip:
   past it.
 
 #### 128.16.11 Gate 1 and the freeze (story 6.11)
+
+*Gate 1 closed as a BASELINE, not a freeze (128.17.18); the re-baseline
+(128.16.10) is wave 10's.*
 
 **What the owner gets.** The playtest disk: `bonanza360.img` and
 `bonanza.img` of wave 6's commit, sent as fork rule 3 sends the work's own
@@ -273109,6 +273114,33 @@ with `bonanzacourse` ok, `bonanzamega` failing only a harness timing miss
 (its lift ride's poke landed in `bz_t0`'s spin), and `bonanzaring`'s
 probe finding `BENCH`'s start window at R0 3, reproduced with `e4da75a`'s
 `bzphys.inc`, so not this round's and open.
+
+#### 128.17.18 Gate 1 closed: a BASELINE, not a freeze (2026-11-15)
+
+The owner played round 3b: *"Tested, feels much better. ... I am not quite
+ready to say 'physics are locked forever'. As we design more props, more
+mechanics, we'll need to adjust for them; but this is a good starting
+point."* And: *"Baseline is fine, instead of 'frozen' - I don't like
+'frozen' when we haven't done any courses yet and still have to make half
+the game props and mechanics."*
+
+**This amends 128.16.11.** Where it says the freeze marks the material
+table, `BOOST_V`, `PHYS_CONSTS` and the step's rules BINDING, read: they are
+the **GATE 1 BASELINE** at `BZ_PHYSV` 11h (128.17.17.5) - the reference
+every course is designed against. A later change to them is an ordinary
+commit made when a prop or mechanic needs it, with what any physics change
+already costs (a new `BZ_PHYSV`, the old value appended to `PHYSV_SHIPPED`,
+the demos regenerated or re-authored, bests cleared once, the rows the build
+moved), not an owner-level contract change. 128.16.11's review of O3, O6,
+O14, O15, O17 and O45 and the owner's own demo recordings follow the baseline
+as they would have followed the freeze.
+
+**128.16.10's re-baseline is DEFERRED to wave 10** (the owner: *"Yes to
+defer performance baseline, moreso as the performance session made a bunch
+of performance changes"*): the 108 runs are taken on the tree wave 10
+measures, after the props and mechanics that will move the physics again.
+Until then wave 10's targets, `BENCH`'s A/B and story 7.7 are anchored on
+the speed pass's figures (docs/reports/BONANZA-SPEED-2026-11-15.md).
 
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
