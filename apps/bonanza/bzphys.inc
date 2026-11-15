@@ -70,6 +70,9 @@
 ;   bz_drx, bz_dry bytes the fractional drag's remainders
 ;   bz_bgd      word   6b: BOOST less the rebound's gvz where the late grace
 ;                      opened (bz_bgr above holds its steps left)
+;   bz_bsp      byte   round 3b (128.17.17): the boost SPENT, 1 from a boost
+;                      until the ball is next on the ground; a launch out of
+;                      the air takes the token only while it is 0
 ;   bz_zoff     word   round 3 (128.17.16): the take-off's z (px), the held
 ;                      arming's gate; not compared (read under the token 1
 ;                      only, which is set only where bz_toff writes it)
@@ -195,6 +198,9 @@ VAR bz_drx,1                    ; (6b, 128.17.4.2); the STRETCH's steps left;
 VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
                                 ; gvy's (128.16.3.1).  A RESPAWN zeroes the four
                                 ; as two words: keep the order
+VAR bz_bsp,2                    ; round 3b (128.17.17): 1 from a boost until the
+                                ; ball is next on the ground, 0 else (a byte;
+                                ; the word keeps BZ_PHSN even)
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_zoff,2                   ; round 3 (128.17.16): the take-off's z, px
@@ -525,6 +531,7 @@ bz_step:
     mov [bz_sqf], al            ; contact's boost the step after it)
     inc word [bz_nboost]
     mov byte [bz_stf], BZ_STRS
+    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded
     jmp short .st
     ; ---- 2. forces ----
 .forces:
@@ -963,6 +970,8 @@ bz_step:
 .psolid:
     cmp byte [bz_air], 0
     jne .airsolid
+    mov byte [bz_bsp], 0        ; round 3b (128.17.17): on the ground, the
+                                ; boost is spent no more
     cmp byte [bz_hopw], 0       ; the Hop from the ground (128.11.8.6): the
     je .follow                  ; window open, not stunned, on a FLOOR or GOAL
     cmp byte [bz_mst], 0
@@ -976,7 +985,7 @@ bz_step:
     mov [bz_gvz], ax
     mov byte [bz_hopw], 0
     inc word [bz_nhop]
-    jmp short .launch           ; (wave 6's TOKEN: .launch sets it, 128.16.4.1)
+    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 128.16.4.1)
 .follow:
     ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
     ; h4 <= floor((z + gvz - BZ_G - 256 BZ_STICK - 1) / 64)
@@ -993,12 +1002,10 @@ bz_step:
     call bz_setz
     jmp short .gh
 .takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)
-    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too
-    call bz_toff
+    call bz_toff                ; (round 3: a FALL's token too, bz_toff's)
     jmp short .fnext
 .launch:                        ; a Hop from the ground or (round 3) a fall:
-    mov byte [bz_btok], 1       ; the boost's TOKEN (wave 6, 128.16.4.1)
-    call bz_toff
+    call bz_toff                ; the boost's TOKEN (bz_toff's)
     jmp short .gh
 .airsolid:
     ; airborne: LAND when z <= h, i.e. when h4 > floor((z - 1) / 64)
@@ -1392,6 +1399,7 @@ bz_land:
     mov byte [bz_hopw], 0       ; one word; and NO squash on this contact
     inc word [bz_nboost]        ; (128.16.4.4: sqf keeps what it held)
     mov word [bz_btok], BZ_STRS << 8
+    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded
     ret
 .grace:                         ; ...when rules 3 - 5 pass: bz_bgr =
     call bz_bok                 ; BZ_BGRACE and bz_bgd = BOOST less the
@@ -1402,32 +1410,47 @@ bz_land:
     mov byte [bz_bgr], BZ_BGRACE
     jmp short .bn
 
-; bz_bok - the boost's rules 3 - 5 at a contact (128.16.4.1; bbcourse.Physics's
-; _boost_ok), read by the boost and by the late grace's opening (128.17.4.5):
-; rules 3 and 5 in one UNSIGNED compare - the rebound rr (BP, r if r >= BMIN
-; else 0) under BOOST, never so when BOOST is 0 - and rule 4 on the centre's
-; GRID cell, never the lift's slab (whose shaft carries OBS): OBS clear (+3),
-; FLOOR or GOAL with a `normal` or `ice` surface (+2 AND 0EDh is 01h: kind 1
-; or 3, surface 0 or 1), level (+1, both slopes 0).  -> CF = 1 when all three
-; hold, AX = BOOST.  Clobbers DX.
+; bz_bok - the boost's rules 3 and 4 at a contact (128.16.4.1; bbcourse.Physics's
+; _boost_ok and _boost_v), read by the boost and by the late grace's opening
+; (128.17.4.5): rule 3, BOOST not 0; rule 4 on the centre's GRID cell, never
+; the lift's slab (whose shaft carries OBS): OBS clear (+3), FLOOR or GOAL
+; with a `normal` or `ice` surface (+2 AND 0EDh is 01h: kind 1 or 3, surface
+; 0 or 1), level (+1, both slopes 0).  Round 3b (128.17.17) took rule 5 out:
+; the boost ADDS to the bounce, AX = min(VZMAX, max(BOOST, rr + BADD)), rr
+; the rebound (BP, r if r >= BMIN else 0).  -> CF = 1 when both hold, AX the
+; boost's gvz.  Clobbers DX.
 bz_bok:
     mov ax, [bz_mrec + BZM_BOOST]
-    cmp bp, ax
-    jae .no                     ; (CF 0)
+    or ax, ax
+    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)
     mov dx, [bz_nbr + BZN_C + 2]
     and dx, (BZ_FL_OBS << 8) | 0edh
     cmp dx, 1
     jne .no
+    mov dx, [bz_mrec + BZM_BADD] ; round 3b: AX = min(VZMAX, max(BOOST, rr
+    add dx, bp                  ; + BADD)), the boost ADDED to the bounce
+    cmp dx, ax
+    jbe .lv
+    xchg ax, dx
+    cmp ax, BZ_VZMAX
+    jbe .lv
+    mov ax, BZ_VZMAX
+.lv:
     cmp byte [bz_nbr + BZN_C + 1], 1 ; CF = 1 when both slopes are 0
     ret
 .no:
     clc
     ret
 
-; bz_toff - TAKE OFF (128.10.7.3, and the Hop's, 128.11.8.6): airborne,
-; ztop = z, z += gvz, keeping gvz.  Clobbers AX, DX.
+; bz_toff - TAKE OFF from the ground (128.10.7.3, and the Hop's, 128.11.8.6):
+; airborne, ztop = z, z += gvz, keeping gvz; the boost's TOKEN 1 and the
+; take-off's z (rounds 3 and 3b, 128.17.16 - 17: a Hop, a fall, the cup's
+; lip-out and a spring under a grounded ball all come here), the boost spent
+; no more.  Clobbers AX, DX.
 bz_toff:
     mov byte [bz_air], 1
+    mov byte [bz_btok], 1
+    mov byte [bz_bsp], 0
     mov ax, [bz_gz + 1]
     mov [bz_ztop], ax
     mov [bz_zoff], ax           ; round 3 (128.17.16): the take-off's z
@@ -1581,6 +1604,7 @@ bz_prule:
     mov byte [bz_air], 1
     mov ax, [bz_gz + 1]
     mov [bz_ztop], ax
+    call bz_atok                ; round 3b: a launch out of the air
     jmp short .sl
 .sgr:                           ; a ball that BEGAN the step grounded on it:
     cmp byte [bz_fair], 0       ; z its floor (a Hop this step does not add),
@@ -1598,10 +1622,8 @@ bz_prule:
     pop bx
     mov ax, [es:si + BZP_SGVZ]
     mov [bz_gvz], ax
-    call bz_toff                ; (DX = 0 out of it: gvz = SPRING > 0)
-    mov [bz_btok], dl           ; wave 6: the launch spends a ground Hop's
-.sl:                            ; token (128.16.4.1 rule 1; a contact's
-                                ; launch found it spent already)
+    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the
+.sl:                            ; token, bz_toff's; a contact's, bz_atok's)
     mov byte [bz_bgr], 0        ; wave 6b: a spring closes the grace
     inc word [bz_nspr]
 .launched:                      ; the shadow's floor for the now airborne ball
@@ -2020,7 +2042,22 @@ bz_transit:
     xor ax, ax
     mov [bz_gvz], ax
 .win:
+    cmp byte [bz_air], 0        ; round 3b (128.17.17): a DROP or LAUNCH exit
+    je .w9                      ; takes the token unless a boost is spent
+    call bz_atok
+.w9:
     call bz_win9f               ; the window round OUT (bz_ps with it)
+    ret
+
+; bz_atok - round 3b (128.17.17): a launch OUT OF THE AIR (a spring under a
+; contact, a tube's DROP or LAUNCH exit) takes the boost's token unless a
+; boost is spent: bz_btok = 1 - bz_bsp, bz_zoff = bz_ztop.  Clobbers AX.
+bz_atok:
+    mov ax, [bz_ztop]
+    mov [bz_zoff], ax
+    mov al, [bz_bsp]
+    xor al, 1
+    mov [bz_btok], al
     ret
 
 ; bz_ppos - the LIFT's (ES:SI, its record) rise above its low top at step AX

@@ -268167,6 +268167,142 @@ nothing here draws, pans or sounds).
   refused boost's cue, the hint line, steel's and glass's contact Hop, the
   brake strip, glass's `K`, ice, `MILL`'s CD5 instances, the camera's).
 
+#### 128.17.17 Gate 1, round 3b: every launch arms, and the boost adds to a bounce (2026-11-15)
+
+The owner's answer to 128.17.16.7's questions, and a new rule, verbatim:
+
+> Yes to all of the other "puts it in the air" arming a boost. Also, lets
+> have a boost be additive to the height from a 3+ drop. Aka, the difference
+> between a bounce and a boost. This lets the user feel more involved, and
+> makes the bounce feel better. If that causes problems with it going
+> offscreen let me know, but currently fall bounces did feel a bit low.
+>
+> Worth noting we haven't build a single course that is not a test, yet - no
+> course built today will survive to ship even remotely as it currently is.
+
+**Binding where it amends 128.16.4.1's rule 5, 128.16.5.1 (the reach's
+boost), 128.17.4.2 and 128.17.16.2.** Physics, so `BZ_PHYSV` moves again
+(128.17.17.5). MEASURED on the host model and the assembled image unless
+marked; no emulator ran for the design figures.
+
+##### 128.17.17.1 The decisions
+
+| decision | chosen | why |
+|---|---|---|
+| every launch arms | **the cup's lip-out and a spring under a grounded ball** take the token as a Hop does; **a spring under a contact and a tube's DROP or LAUNCH exit** (launches out of the air) take it **unless a boost is SPENT** | the owner's "yes to all". A tube's KEEP exit leaves the ball on the ground and takes nothing |
+| a boost SPENT | **`bz_bsp`**: 1 from a boost (at the contact or by the grace) until the ball is next on the ground | the owner's round-3 rule (128.17.16.3) held through springs and tubes: without it, a boost whose bounce lands on a spring or drops into a tube would re-arm a ball that never stopped bouncing (`nospent`) |
+| the boost after a fall | **ADDS to the bounce**: `gvz = min(VZMAX, max(BOOST, rr + BADD))`, `rr` the contact's rebound (`r` when `r >= BMIN`, else 0) | the owner's "the difference between a bounce and a boost". `BADD` is BOOST less the material's own level ground Hop's rebound, so on the level the boost is BOOST exactly, as before, and after any fall it is that fall's bounce plus the same 149 |
+| rule 5 | **gone** (the rebound below BOOST): a boost can no longer be pointless | it only ever refused falls, which now gain |
+| the boost's fixed apex (decision 1, 128.16.4.2) | **holds on a level landing only**; after a fall the boost rises with the fall | the owner, knowingly: the test courses' properties that depended on it are REPORTED, not refused (128.17.17.4) |
+
+##### 128.17.17.2 The rule (binding: the guest and `bbcourse.Physics` do exactly this)
+
+1. **`bz_toff` takes the ball off the ground** for a Hop, a fall, the cup's
+   lip-out and a spring under a ball that began the step grounded, and now
+   sets **the token 1** and **`bz_bsp` 0** itself, beside `bz_zoff`
+   (round 3's two token writes at `.takeoff` and `.launch` moved into it,
+   and the spring's `mov [bz_btok], dl` went).
+2. **A launch out of the air** - a spring under this step's contact, a
+   tube's DROP or LAUNCH exit - calls **`bz_atok`**: `bz_btok = 1 -
+   bz_bsp`, `bz_zoff = bz_ztop`.
+3. **`bz_bsp`** is set to 1 by the contact boost and the grace's conversion
+   and cleared by every step that finds the ball on the ground in step 6
+   (`.psolid`'s grounded entry, and `bz_toff` for the take-off over no
+   floor; the model clears it at the top of step 6's grounded branch).
+4. **The boost's gvz** is `bz_bok`'s: `min(VZMAX, max(BOOST, rr + BADD))`;
+   `BADD` is a word at `BZ_MATTAB +14` (`BZM_BADD`: rubber 149, steel and
+   glass 0), `bbcourse.badd()` = BOOST less `hop_rebound()` (201 for
+   rubber), item 7 asserting it against the grace's `bgd` on the level. The
+   late grace converts to that same gvz (`bgd` = it less the rebound), so it
+   stays exact. Rules 3 and 4 stand; rule 5 is gone.
+
+##### 128.17.17.3 What it does (MEASURED, the model)
+
+**The boost after a fall** (rubber rolled off a ledge, no Hop; `fall_boosts`'s
+drops):
+
+| drop | bounce | its apex | round 3's boost | round 3b's boost | its apex | radius |
+|---|---|---|---|---|---|---|
+| 0.5 unit | 172 | 2.1 px | 350 | 350 | 9.3 px | 3 tiles |
+| 1 | 249 | 4.6 | 350 | 398 | 12.1 | 4 |
+| 1.5 | 307 | 7.1 | 350 | 456 | 16.0 | 4 |
+| 2 | 345 | 9.0 | 350 | 494 | 18.9 | 4 |
+| 3 | 442 | 15.0 | refused | 591 | 27.3 | 5 |
+| 6 | 615 | 29.6 | refused | 764 | 46.0 | 6 |
+
+From 1.5 units down the boost now rises ABOVE the ledge the ball fell from
+(16 px after a 12 px drop; 27 after 24). A Hop off a ledge adds its own
+height: off 1 unit, the boost peaks 10 px over the take-off floor (item 7's
+`_fall_case`: out at 485, 523, 562, 639 off 1, 1.5, 2 and 3 units).
+
+**Offscreen: no.** Through the camera model (`CamRun`, both cards):
+every course's autopilot route with Space held throughout and with Space
+tapped every 2 steps, and a boost after a 3- and a 6-unit drop, keep the
+ball's footprint inside the window on every frame; the worst margin is 11
+lines down (`MILL`, mashed, the same as `--camcheck`'s existing worst), and
+the 6-unit drop's boost stays 52 lines inside.
+
+**Every launch arms**: on `MILL`'s and `PEAK`'s autopilot routes, 6
+launches (two DROP exits, two LAUNCH exits, two springs) each leave the
+token 1 (`nolaunch`: none); the spent rule holds over 5,437 steps of held
+and mashed Space on both routes (14 boosts, 0 violations); rubber rolled at
+`PEAK`'s spring with Space mashed boosts once, its bounce rides the spring
+with no token, and `nospent` boosts twice.
+
+##### 128.17.17.4 What moves, and what is reported instead of refused
+
+- **The reach** (128.16.5.1) grows: on a firm level floor reached with
+  energy, the bounce's source is joined by the added boost's,
+  `min(VZMAX, max(BOOSTMAX, rh + BADDMAX))` (`build_reach` and
+  `reach_closure`). The occluder merge reads the reach, so **every course
+  whose reach grew has new parts and a new identity** - `MILL` DAE0h ->
+  F790h, `MOON` 4472h -> 5E25h, `PLAY` 18E6h -> 9D5Eh; `BENCH`, `FIRST`,
+  `TRIAL` and `PEAK` unchanged (MEASURED) - its demos re-authored (MOON,
+  PEAK, PLAY: step counts unchanged) and the route demos regenerated; bests
+  clear with `BZ_PHYSV`.
+- **`PLAY`'s 2-unit top** is now inside `reach_closure` (a Hop off the
+  1.5-unit top, the boost on the apron): PRINTED, no longer asserted, per the
+  owner's note (the PLAYGROUND is a test course). Its rungs stay dead ends
+  from their own tops (`reach_from`), and `deadend` stays red.
+- **Item 6's spring control** compiles both courses without the boost's
+  launch: the added boost alone covers that small course's spring flight.
+- **`nohyst`'s ramp-bottom half**: the reach's larger occluder set moved the
+  heavy rule's frames on `MILL`, and with `Hr` 0 no ramp-bottom pattern
+  reverses any more (about 50 searched, both cards), so that half is printed
+  and the control is held red at the dither map. The shipped camera's ramp
+  bottom is 0 reversals, as asserted.
+- **Wave 6's "a spring's launch spends the token"** (128.16.5.3) is reversed:
+  item 7's spring case boosts, `springoff` (round 3's spring) is the control;
+  `bonanzaphys`'s `springnot` becomes **`springarm`**. Wave 6's "no gain
+  after a 1.5- or 2-unit drop" becomes the added boost's check; `boostfall`
+  boosts (red `noadd`).
+
+##### 128.17.17.5 Bytes, state and `BZ_PHYSV`
+
+- **Bytes: +58** (`bonanza.bin` 34,370 -> 34,428, MEASURED): `bz_atok` 14 and
+  its two calls (the tube's with its air test, 13); `bz_bok`'s added boost
+  19; `bz_bsp`'s three writes 15; the token moved into `bz_toff` (+10 there,
+  -10 at `.takeoff` and `.launch`) and the spring's spend gone (-4).
+- **bss +2**: `bz_bsp`, a byte kept as a word in the zeroed block (BZ_PHSN
+  even), compared by `bonanzaphys` at every frame (`state6()`'s eighth).
+- **Clocks** (ESTIMATED): **+22 on every grounded step** (`bz_bsp`'s clear),
+  0 airborne; a boost's contact about +60 for the add.
+- **`BZ_PHYSV` 11h** (MATTAB's +14 and `PHYS_REV` 9); **FDh** (round 3's,
+  the owner's playtest) joins `PHYSV_SHIPPED`.
+
+##### 128.17.17.6 The rows
+
+**Host** (`bonanzacourse`): item 4's MATTAB with BADD; item 7's added
+boost after 1 - 3 units (`noadd`), BADD against the grace's level `bgd`, the
+spring case (`springoff`), the launches on `MILL` and `PEAK` (`nolaunch`),
+the spent rule through springs and tubes and on `PEAK`'s spring
+(`nospent`), and 128.17.16's checks unchanged. **`bonanzaphys`**: every
+frame also `bz_bsp`; `boostfall` now boosts (red `noadd`), `springarm`
+(red `springoff`), new `spentspring` (red `nospent`); `hopedge`, `nofall`,
+`takeoff` and `slabcell` re-anchored. Because the course parts moved, the
+camera, wheel, ring and frame-cost rows can see this round, and run in its
+final pass.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
