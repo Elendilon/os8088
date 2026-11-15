@@ -40,8 +40,9 @@ wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py):
            physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
            16 + 3N, steps one off the sum, a count of 0, a key byte with bit 7,
            a tilt nibble of 9, and (wave 6, SPEC.md 128.16.14) +7 = A0h (5b's
-           BZ_PHYSV) and +7 = 00h, each THIS build's log with only +7 changed as
-           H09 is - each REFUSED with its toast (`Not a Bonanza
+           BZ_PHYSV) and +7 = 00h, and (wave 6b, 128.17.10) +7 = 25h (wave
+           6's, the owner's round-1 logs), each THIS build's log with only +7
+           changed as H09 is - each REFUSED with its toast (`Not a Bonanza
            demo` for the first three, `Demo from other physics` for +7, `Damaged
            demo file` for the rest), bz_rlog unchanged byte for byte, no part
            row fetched, the instance's claims as before (tools/heapmap.py), and
@@ -89,6 +90,8 @@ SAVENAME = "MILLA.BZR"
 # PEAK's as a wave 4 build stamped them (0e5e46ca's bzcourse.inc, the shipped demos' old `ident` lines)
 W4_IDENT = {"moon": 0xEB84, "peak": 0x7D69}
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
+PHYSV_6 = 0x25                  # wave 6's BZ_PHYSV, the owner's gate-1 playtest (SPEC.md 128.17.7: PHYSV_SHIPPED's
+                                # last before wave 6b)
 
 
 def wave4_log():
@@ -145,7 +148,8 @@ def hostile_set():
     mut("H09.BZR", lambda b: b.__setitem__(7, (BB.PHYSV ^ 0x5A) & 0xFF), "bz_t_phys")
     # wave 6 (SPEC.md 128.16.14): THIS build's log with +7 5b's BZ_PHYSV (A0h) and the unset 00h - a real 5b log
     # of a course whose identity moved fails check 4 first (128.16.9), so it cannot be this case
-    for nm, v in (("H17.BZR", PHYSV_5B), ("H18.BZR", 0x00)):
+    # wave 6b (SPEC.md 128.17.10): and +7 = 25h, wave 6's - a log the owner saved from round 1's disk
+    for nm, v in (("H17.BZR", PHYSV_5B), ("H18.BZR", 0x00), ("H19.BZR", PHYSV_6)):
         assert v != BB.PHYSV, "BZ_PHYSV %02Xh is an earlier physics' value" % v
         mut(nm, lambda b, v=v: b.__setitem__(7, v), "bz_t_phys")
 

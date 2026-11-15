@@ -8,6 +8,100 @@ ask for a change. Every figure here comes from wave 6's final pass
 marked MODEL was computed on the host by `bbcourse.py`, using the same
 physics as the guest, integer for integer.
 
+## Round 2 (wave 6b, SPEC.md 128.17.12): read this first
+
+Wave 6b is the retune your round-1 notes asked for: a boost you can hit,
+also while rolling; no camera back-and-forth at MILL's ramp bottom; pans
+that finish smoothly out of tubes; Grip 6, 3, 1; and 3-tile gaps kept as
+course knowledge. Round 1's notes below are kept as they were.
+
+**The disk is HELD, not sent** (story 6b.7, MEASURED 2026-11-15). The rule
+was: LATTICE (the new camera) ships on round 2's disk only if, on MILL's
+route demo, both cards' missed refreshes a second AND the longest run of
+missed frames are no worse than wave 6's beyond the spread of its three
+runs. Three runs a side, speaker ON, through `D`:
+
+| MILL's route demo | wave 6 (4d69985c) | wave 6b (LATTICE) | verdict |
+|---|---|---|---|
+| CGA, missed refreshes a second | 9.54, 9.32, 8.83 | 5.19, 5.19, 4.91 | no worse (about 45% fewer) |
+| CGA, runs of two or more | 17, 16, 20 | 5, 5, 10 | (fewer) |
+| CGA, the longest run | 22, 29, 16 | **39, 46, 16** | **WORSE beyond the spread** |
+| Hercules, missed refreshes a second | 1.26, 1.19, 1.40 | 1.12, 1.05, 0.98 | no worse |
+| Hercules, the longest run | 8, 9, 10 | 3, 7, 7 | no worse |
+
+So LATTICE nearly halves MILL's misses on the CGA and cuts its half-rate
+stretches from 16 - 20 to 5 - 10, but in two runs of three ONE stretch is
+longer: B's ramp descent at frames 232 - 309, where the ball rolls down two
+steps a frame, the row pan turns fast (two rows a frame) at the urgent edge,
+and a column joins it every other frame. That is the risk 128.17.6.6 named
+(the half-rate pass's `MILL` exception). The decision is yours:
+
+- **ship LATTICE as built** (MILL's rate and its number of stretches much
+  better, one stretch longer), or
+- **hold it** for a change at that descent (for example, not latching the
+  fast rate while the CGA is already at half rate), or ship wave 6's
+  camera with 6b's boost and Grip.
+
+The rest of this section is the round-2 play list, ready for whichever
+disk you choose.
+
+### What changed, and what to try first
+
+- **The boost**: tap Space again while the ball is in the air, or at the
+  moment it lands (up to 3 steps, about 55 ms, after it). Try a Hop and a
+  second tap while rolling across the PLAYGROUND's apron. The mouse's left
+  button does the same.
+- **Where it boosts**: only on a plain LEVEL floor, normal or ice. Not on a
+  ramp, sand, the bounce mat or a prop's cell, and not after a drop of more
+  than about 1 unit below the take-off. Most of MILL's and TRIAL's rolling
+  landings are one of those, which is why the apron is the place to try it.
+  A refused landing makes no sound of its own.
+- **Holding Space through the landing does nothing** in this build. Your
+  second suggestion ("holding space when they hit the ground") is a
+  question for you in SPEC.md 128.17.13.
+- **Steel and glass** still "hop again" only with Space pressed in the 6
+  steps ending at the landing. The tap in flight is rubber's boost.
+- **The Grip chain**: hold Left Shift, then Hop, tap, boost, every second
+  or so (about 51 steps Hop to Hop, MODEL; the glass equals the model on
+  `bonanzaphys`'s `gripchain` replay). Does it read as a flying ball?
+- **Grip on the brake strip**: Grip is now rubber 6, steel 3, glass 1.
+  Steel needs Grip about a tile BEFORE the strip: from the cap it needs 4.3
+  tiles and the strip is 3. Rubber and glass stop on it. Ice brakes as
+  before (2, 1, 1); it can be made 1, 1, 1 if you prefer.
+- **The camera** (LATTICE): at MILL's ramp bottom, ease back up the ramp
+  (the view should hold still); out of MILL's chute and cannon (the pan
+  should finish inside the tube or carry on without a pause); beside
+  PEAK's lift, where a slower row pan for up to about a second is EXPECTED
+  (the CGA cannot move a row on the lift's heavy frames).
+- **TRICKLE** (`C`) is unchanged, for comparison.
+- **The PLAYGROUND's best time** is cleared once (new physics).
+- **If a boost still fails**: save the play with `W` and send the `.BZR`.
+  It records every step's keys, so the model can show where each press fell
+  against the contact.
+
+### Round 2's verdict (the owner, 2026-11-15)
+
+> "Camera end position is much better, feels natural. Keep that. Double
+> bounce with "preprime" works. Grip is better; less overpowered."
+
+LATTICE ships (6b.7's hold released), the in-flight boost and its grace
+stay, Grip 6/3/1 stays (SPEC.md 128.17.15). The freeze waits for the
+owner's OK.
+
+### Round 2's figures (MEASURED on MartyPC, speaker ON, one run each through `D`)
+
+| demo | CGA missed a second (runs of 2+, the longest) | Hercules missed a second (runs, the longest) |
+|---|---|---|
+| FIRST | 1.76 (0, 1) | 0.35 (0, 1) |
+| TRIAL | 1.53 (0, 1) | 0.00 (0, 0) |
+| MILL | 5.12 (6, 26) - wave 6 8.90 (15, 33) | 0.77 (3, 3) - wave 6 1.68 (4, 11) |
+| MOON | 1.10 (4, 5) | 0.38 (2, 3) |
+| PEAK | 7.41 (44, 30) - wave 6 8.76 (45, 43) | 3.40 (20, 17) - wave 6 3.24 (16, 24) |
+| PLAY | 0.11 (0, 1) | 0.04 (0, 1) |
+
+FIRST's falls (its autopilot, nine falls): CGA 1.46 missed refreshes a
+second over the falls, the longest run 4; Hercules 1.05, the longest 4.
+
 ## The disk
 
 Use `bonanza360.img` (or `bonanza.img`) in B: with the system disk in A:.

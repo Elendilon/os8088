@@ -56,7 +56,8 @@ bonanzadisk builds it, and nothing else):
   physdat wave 6 (SPEC.md 128.16.9, 128.16.14): BONANZA.DAT +5 is BZ_PHYSV.
           One boot a file, each carrying THIS build's course identities and
           tour XOR and a best on every course and a tour total: +5 = 00h (5b's
-          unset value) and +5 = A0h (5b's physics) load with the identities
+          unset value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 128.17.7,
+          128.17.10) +5 = 25h (wave 6's: the owner's round-1 disk) load with the identities
           kept and EVERY best and the tour's cleared (bz_dat the first run's
           image), and the next best (FIRST by the autopilot) rewrites the
           file whole with +5 = BZ_PHYSV and FIRST's best alone; the same file
@@ -93,6 +94,7 @@ DAT = "SYSTEM/APPDATA/BONANZA.DAT"
 NENT = 8                        # BZD_NENT
 LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "physdat")
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
+PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 128.17.7: its bests cleared once)
 
 
 # ---- the model's side -----------------------------------------------------------
@@ -580,11 +582,12 @@ def physdat_set():
     best = {k: (t1 + 50 + k, 1) for k in range(1, ntour() + 1)}      # every best SLOWER than FIRST's play
     pv = physv()
     out = []
-    for name, v in (("unset", 0x00), ("5b", PHYSV_5B)):
+    for name, v in (("unset", 0x00), ("5b", PHYSV_5B), ("w6", PHYSV_6)):
         out.append((name, dat_image(best, 99999, pv=v), dat_image(), {1: (t1, 0)}))
     out.append(("same", dat_image(best, 99999, pv=pv), dat_image(best, 99999),
                 {k: ((t1, 0) if k == 1 else v) for k, v in best.items()}))
-    assert pv not in (0x00, PHYSV_5B), "BZ_PHYSV %02Xh is an earlier physics' value (bbcourse refuses it)" % pv
+    assert pv not in (0x00, PHYSV_5B, PHYSV_6), "BZ_PHYSV %02Xh is an earlier physics' value (bbcourse refuses " \
+        "it)" % pv
     return out, best
 
 

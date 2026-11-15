@@ -68,6 +68,11 @@
 ;                      (FOLLOW is gone).  C toggles it, in play and on the desktop;
 ;                      it persists across plays (bss, never reset).  The benchmark
 ;                      runs GLIDE whatever it says and leaves it alone
+;   bz_lax,bz_lay 16 bytes each: LATTICE's axes (wave 6b, SPEC.md 128.17.6.2),
+;                      across and down, BZL_* offsets: +0 s (the pan's sign),
+;                      +1 last, +2 fast, +3 since (across), +4 held (the heavy
+;                      rule's withheld steps running), +6 tgt word, +12/+14 the
+;                      band's bounds (words, the tracked point's px or lines)
 ;   bz_late     word   BOXES the beam overtook (SPEC.md 128.11.10.3, bz_latechk on
 ;                      every box of a TIMED frame - a benchmark's measured one, or
 ;                      a harness's bz_tpoke - never a full write): a box not
@@ -142,6 +147,8 @@
 
 BZ_MAXR     equ 2               ; rows the camera may step a frame (SPEC.md 128.2)
 BZ_MAXC     equ 1               ; ...and columns
+BZ_WC       equ 40              ; the window's word columns, W: the CGA's ...
+BZ_WH       equ 45              ; ...and the Hercules' (bz_vinit's bz_W)
 BZ_CSAFE    equ 16              ; the ground line's edge fallback: the ball's
                                 ; centre within this many lines of the window's
                                 ; top or bottom latches cy on the ball (128.16.7)
@@ -167,12 +174,52 @@ BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 128.14.3.1)
 BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 128.14.4.7)
 BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (128.14.7.3)
 BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1)
-; GLIDE's "faster than 4 px (x) / 2 lines (y) a FRAME" is the ball's TRAVEL
-; over the last FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low words of
-; bz_bx, bz_by: rate-proof, where wave 1's |v| against a per-card constant
-; assumed the full refresh.  bbcourse.Glide (GLIDE_FX, GLIDE_FY) is the model.
+; GLIDE's "faster than 4 px a FRAME" across is the ball's TRAVEL over the last
+; FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low word of bz_bx: rate-proof,
+; where wave 1's |v| against a per-card constant assumed the full refresh.
+; bbcourse.Glide (GLIDE_FX) is the model.  Wave 6b deletes the ring's y half:
+; LATTICE's rows never read it (SPEC.md 128.17.6.2).
 BZ_GTRX     equ 4 * 4 * 256     ; 4 px a frame, four frames
-BZ_GTRY     equ 4 * 2 * 256     ; 2 lines a frame
+; LATTICE (wave 6b, SPEC.md 128.17.6.2): an axis's STATE (bz_lax across, bz_lay
+; down; bbcourse.LatAxis's) ...
+BZL_S       equ 0               ; byte: the running pan's sign, 1 / -1, 0 at rest
+BZL_LAST    equ 1               ; byte: the sign of the last pan that MOVED the window
+BZL_FAST    equ 2               ; byte: 1 the pan's rate latch is set
+BZL_SINCE   equ 3               ; byte: frames since the pan's last column (across)
+BZL_HELD    equ 4               ; byte: steps the heavy rule withheld since it stepped
+BZL_SH      equ 5               ; byte: log2 of the unit u (across 3, down bz_lsh)
+BZL_TGT     equ 6               ; word: the pan's target position
+BZL_MX      equ 8               ; word: the position's range's top (cmax, rmax)
+BZL_K       equ 10              ; word: its constants' row in bz_klat (the card's)
+BZL_BLO     equ 12              ; word: the BAND at the window's position, in the
+BZL_BHI     equ 14              ; tracked point's px or lines: P u + lo, P u + hi
+                                ; (bz_lband, after every move and at rest's reset)
+BZL_SIZE    equ 16
+; ... and its CONSTANTS (bz_klat: across on the CGA, on the Hercules, down;
+; bbcourse.lat_consts), in the axis's px or lines
+BZK_A       equ 0               ; the band margin A: lo = A - Hr after a pan +
+BZK_WPA     equ 2               ; Wp - A: hi = Wp - A + Hr after a pan -
+BZK_HR      equ 4               ; the return hysteresis Hr
+BZK_T       equ 6               ; the lead placement T (the stop going +)
+BZK_WPT     equ 8               ; Wp - T (the stop going -)
+BZK_EF      equ 10              ; the urgent edge Ef ...
+BZK_WPE     equ 12              ; ...and Wp - Ef
+BZK_M       equ 14              ; u S - 1: the lattice's spacing less one, a
+                                ; power of two less one (64 across, 32 down)
+BZK_COLS    equ 16              ; byte: 1 across (the column cadence, since)
+BZK_SIZE    equ 17
+%if BZ_LAX_S * 8 != 64 || BZ_LAY_SL != 32
+ %error "bz_lat's lattice is a mask: u S is 64 px across and 32 lines down"
+%endif
+%if BZ_SCR_HOLD != 8
+ %error "bz_camera's script indexes its cycle by (count >> 3) & 7: holds of 8"
+%endif
+%if BZ_LAH1 > 127 || BZ_LAH2 > 127
+ %error "bz_lhv's caps are bytes"
+%endif
+%if BZ_PF_NEARR != BZ_PF_NEARL << 1 || BZ_PF_NEARB != BZ_PF_NEART << 1 || BZ_PF_NEARB > 80h
+ %error "bz_lhv shifts the heading bit: bz_pflag's R = L << 1 and B = T << 1, in a byte"
+%endif
 BZ_K_L      equ 1               ; bz_keys: the arrows held
 BZ_K_R      equ 2
 BZ_K_U      equ 4
@@ -204,22 +251,21 @@ VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
 VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BENCH
                                 ; for the benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
-VAR bz_pad0,1                   ; (the words below stay even)
 VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
-VAR bz_gpx,1                    ; GLIDE: 1 while the x pan is on
-VAR bz_gpy,1                    ; ...the y pan
-VAR bz_gpar,1                   ; ...the x pan's frame parity (0: step now)
-VAR bz_gdx,1                    ; ...the ball's last x direction: 0 right, 1 left
-VAR bz_gdy,1                    ; ...and y: 0 down, 1 up
-VAR bz_gfast,2                  ; ...1 while the ball is FAST across (+0), down
-                                ; (+1): its travel over four frames (128.11.11.1)
+VAR bz_gfast,1                  ; GLIDE: 1 while the ball is FAST across: its
+                                ; travel over four frames (128.11.11.1)
 VAR bz_tri,1                    ; ...the travel ring's index (mod 4), and
+VAR bz_scnt,1                   ; bz_camscr's frame count: bits 0 - 5 the cycle's
+                                ; frame, bit 7 set while the script runs (its
+                                ; clearing is a cut, SPEC.md 128.17.6.7)
 VAR bz_blk,1                    ; 1: the card's video is gated (bz_blank)
-VAR bz_trx,8                    ; the ring: the low words of bz_bx and bz_by at
-VAR bz_try,8                    ; the end of each of the last four frames
+VAR bz_trx,8                    ; the ring: the low word of bz_bx at the end of
+                                ; each of the last four frames
+VAR bz_lax,BZL_SIZE             ; LATTICE's axes (wave 6b, SPEC.md 128.17.6.2):
+VAR bz_lay,BZL_SIZE             ; across and down (BZL_*)
 VAR bz_cgz,2                    ; wave 6 (128.16.7): the GROUND height zg, whole
                                 ; px, the last frame's (held over no floor)
 VAR bz_clat,2                   ; ...the edge fallback's LATCH: +1 1 while
@@ -1661,19 +1707,20 @@ bz_foot:
 ; as is any step past BZ_MAXR/BZ_MAXC.  After it, the MODE (bz_cmode; GLIDE in
 ; a benchmark, SPEC.md 128.11.11.1):
 ;
-;   GLIDE   (bz_camglide) rests while the ball is inside the dead zone and the
-;           band, and PANS when it leaves them, ahead of the ball, until the
-;           target is reached: the camera either rests or moves fast
+;   GLIDE   LATTICE since wave 6b (bz_lattice, SPEC.md 128.17.6.2): the
+;           camera RESTS, or it PANS to a lattice framing ahead of the ball,
+;           at one rate a pan that only rises; a pan never reverses inside
+;           the band, and coming back needs a hysteresis more
 ;   TRICKLE wave 0's camera, unchanged (SPEC.md 128.5): the "classic" one
 ;
-; Both keep the ball's centre inside the dead zone (the window's middle half
-; across) and the band (its middle third down) wherever the course lets the
-; window go, at most BZ_MAXR rows and BZ_MAXC columns a frame, clamped to the
-; course - so 128.2 rule 4's column split is the same in both.  GLIDE's "fast"
-; is the ball's travel over the last four frames, kept in every mode (the
-; ring bz_trx, bz_try: SPEC.md 128.11.11.1, bbcourse.Glide's).
-; GLIDE's rows and column are withheld on a HEAVY frame (bz_hvcam, from
-; bz_props's bz_heavy, SPEC.md 128.12.7); TRICKLE is wave 0's exactly.
+; Both read the camera's centre line off 128.16.7's GROUND LINE, at most
+; BZ_MAXR rows and BZ_MAXC columns a frame, clamped to the course - so 128.2
+; rule 4's column split is the same in both.  GLIDE's "fast" across is the
+; ball's travel over the last four frames, kept in every mode (the ring
+; bz_trx: SPEC.md 128.11.11.1, bbcourse.Glide's).  GLIDE's steps are DELAYED
+; on a HEAVY frame (bz_lhv, from bz_props's bz_heavy and bz_pflag's near-edge
+; bits, SPEC.md 128.17.6.3); TRICKLE is wave 0's exactly.  A harness's
+; bz_camscr replaces GLIDE by a SCRIPT (128.17.6.7); its clearing is a cut.
 ; Sets bz_R0n, bz_c0n, bz_dr, bz_dc, bz_full, bz_meas, bz_cuse.  Preserves
 ; nothing.
 ; -----------------------------------------------------------------------------
@@ -1683,11 +1730,23 @@ bz_camera:
     jne .muse                   ; its numbers stay comparable (bz_cmode is
     xor al, al                  ; left as it was)
 .muse:
-    mov [bz_cuse], al
+    xchg al, [bz_cuse]          ; GLIDE again after TRICKLE (C): LATTICE
+    or al, al                   ; starts at rest, its bands at the window
+    jz .ncs0                    ; as it stands
+    cmp byte [bz_cuse], 0
+    jne .ncs0
+    call bz_latrst
+.ncs0:
+    cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
+    jne .ncs                    ; (bz_scnt bit 7): a cut (128.17.6.7)
+    test byte [bz_scnt], 80h
+    jnz .cut
+.ncs:
     cmp byte [bz_resp], 0       ; THE CUT (SPEC.md 128.10.8 item 3): a frame
     je .nocut                   ; whose steps respawned the ball where its
     call bz_outwin              ; footprint is not wholly inside the window
     jnc .nocut                  ; is the first frame's centred full write
+.cut:
     mov byte [bz_first], 1
 .nocut:
     mov cl, [bz_lsh]
@@ -1722,53 +1781,38 @@ bz_camera:
     mov ax, [bz_c0n]
     mov [bz_c0], ax
     mov byte [bz_full], 1
-    xor ax, ax                  ; every mode starts at rest, heading right
-    mov [bz_gpx], ax            ; and down (bz_gpx, bz_gpy; bz_gpar, bz_gdx)
-    mov [bz_gpar], ax
-    mov [bz_gdy], al
+    call bz_latrst              ; every axis at rest, the script's count 0
+    xor ax, ax
     mov [bz_clat], ax           ; the ground line from the ball, unlatched
     mov ax, [bz_gz + 1]         ; (wave 6, 128.16.7)
     mov [bz_cgz], ax
     mov ax, [bz_bx]             ; the travel ring filled with the present
-    mov dx, [bz_by]             ; position: at rest
-    mov bx, 6
+    mov bx, 6                   ; position: at rest
 .tf:
     mov [bz_trx + bx], ax
-    mov [bz_try + bx], dx
     dec bx
     dec bx
     jns .tf
     jmp .decided
 .modes:
+    cmp byte [bz_camscr], 0     ; a harness's SCRIPTED camera (128.17.6.7):
+    je .ring                    ; neither the ring, the ground line nor
+    jmp .script                 ; LATTICE runs
+.ring:
     ; --- the travel over four frames (SPEC.md 128.11.11.1): read the slot
     ; written four frames ago, then write the present into it, step the index
     mov bl, [bz_tri]
     xor bh, bh
     shl bx, 1
-    xor si, si                  ; SI: low byte fast across, high byte down
     mov ax, [bz_bx]
     mov dx, ax
     xchg ax, [bz_trx + bx]
     sub dx, ax
     call bz_abs
-    cmp dx, BZ_GTRX
-    jbe .ty
-    inc si
-.ty:
-    mov ax, [bz_by]
-    mov dx, ax
-    xchg ax, [bz_try + bx]
-    sub dx, ax
-    call bz_abs
-    cmp dx, BZ_GTRY
-    jbe .tr
-    add si, 100h
-.tr:
-    cmp byte [bz_tube], 0       ; wave 3: a hidden ball's GHOST is fast on both
-    je .trg                     ; axes, so GLIDE re-centres on it every frame
-    mov si, 0101h               ; (SPEC.md 128.12.6.1)
-.trg:
-    mov [bz_gfast], si
+    cmp dx, BZ_GTRX + 1         ; fast across: more than BZ_GTRX
+    sbb al, al
+    inc ax
+    mov [bz_gfast], al
     inc byte [bz_tri]
     and byte [bz_tri], 3
     ; --- THE GROUND LINE (wave 6, SPEC.md 128.16.7): BP = the camera's
@@ -1822,17 +1866,10 @@ bz_camera:
 .cyd:
     cmp byte [bz_cuse], 0
     jne .trickle
-    mov al, [bz_gpar]           ; (the heavy rule puts the x pan's parity
-    mov [bz_kpar], al           ; back when it withholds a column)
-    call bz_camglide
-    cmp byte [bz_heavy], 0      ; THE HEAVY FRAME (SPEC.md 128.12.7): GLIDE's
-    je .moved                   ; rows and column withheld, from the clamped
-    call bz_clampwin            ; step (a light frame is clamped once, at
-    call bz_hvcam               ; .moved: the final pass)
+    call bz_lattice             ; GLIDE: LATTICE (wave 6b, 128.17.6.2)
     jmp .moved
 .trickle:
     ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
-    mov word [bz_gpx], 0        ; (GLIDE's pans are off outside GLIDE)
     ; vertical: the band [T + 1/3, T + 2/3] of the window's lines
     mov ax, bp                  ; the camera's centre line (the ground line's)
     mov bx, [bz_R0]
@@ -1928,6 +1965,69 @@ bz_camera:
 .m:
     mov [bz_meas], al
     ret
+.script:
+    ; --- bz_camscr's SCRIPTED camera (SPEC.md 128.17.6.7, bbcourse.Glide.
+    ; _script): the cycle's (row, column) step, each held BZ_SCR_HOLD frames;
+    ; an axis whose step would leave the ball's footprint (128.4's, from
+    ; px & ~3) less than BZ_SCR_MX px / BZ_SCR_MY lines inside steps one unit
+    ; toward the ball instead.  No heavy rule; LATTICE's state is not touched.
+    ; .moved clamps it to the course (a cut step is lost) ---
+    mov al, [bz_scnt]
+    mov bl, al
+    inc ax
+    or al, 80h                  ; (bit 7: the script ran, 128.17.6.7's cut)
+    mov [bz_scnt], al
+    and bx, 38h                 ; (count >> 3) & 7, two bytes an entry
+    shr bx, 1
+    shr bx, 1
+    mov ax, [bz_scyc + bx]      ; AL = its row step, AH = its column's
+    push ax
+    mov si, bz_R0               ; rows: the footprint's top line, kept
+    mov dx, [bz_py]             ; BZ_SCR_MY inside
+    sub dx, BZ_SCR_MY
+    mov bx, BZ_LINES - BZ_BAL_ROWS - 2 * BZ_SCR_MY
+    call .sax                   ; (CL = bz_lsh)
+    mov [bz_R0n], ax
+    pop ax
+    mov al, ah
+    mov si, bz_c0               ; columns: its left px (px & ~3), kept
+    mov dx, [bz_px]             ; BZ_SCR_MX inside
+    and dl, 0fch
+    sub dx, BZ_SCR_MX
+    mov bx, [bz_W]
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    sub bx, BZ_FOOTW + 2 * BZ_SCR_MX
+    mov cl, 3
+    call .sax
+    mov [bz_c0n], ax
+    jmp .moved
+; one axis: AL = its scripted step, SI -> its position P, CL = log2 of its
+; unit, DX = the footprint's first px or line less the margin, BX = the most
+; DX may lie past the window's first after the step -> AX: P + the step, or
+; one unit toward the ball when that would leave the footprint less than the
+; margin inside
+.sax:
+    cbw
+    add ax, [si]
+    push ax
+    shl ax, cl
+    sub dx, ax
+    pop ax
+    jl .sdec
+    cmp dx, bx
+    jle .sret
+    mov ax, [si]
+    inc ax
+    ret
+.sdec:
+    mov ax, [si]
+    dec ax
+.sret:
+    ret
+bz_scyc:                        ; the script's cycle: (row, column), R DR D DL
+    BZ_SCR_CYCLE                ; L UL U UR (bzcourse.inc)
 
 ; -----------------------------------------------------------------------------
 ; bz_sprite - the frame's SPRITE and SHADOW, from the state the frame's last
@@ -2106,193 +2206,398 @@ bz_sprite:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_camglide - GLIDE (SPEC.md 128.9), the default: the camera RESTS, or it
-; PANS fast; it never trickles.  CL = [bz_lsh].  Sets [bz_c0n], [bz_R0n].
-;
-; ACROSS: at rest until the ball's centre leaves the dead zone [2W, 6W] px of
-; the window (its middle half, 128.5's).  Then a pan toward the column that
-; puts the ball on the dead zone's TRAILING edge - a quarter-window behind the
-; centre, so the camera sees a quarter-window AHEAD of it in its direction of
-; travel (the direction is the sign of bz_vx; at rest, the last one) - which
-; is re-aimed every frame and ends where the target is reached.  The target
-; is rounded so the ball lands INSIDE the edge (floor right, ceiling left), and
-; clamped to the course: a pan the course stops ends.  A pan steps one column
-; every SECOND frame (8 px in two: 4 px a frame), and every frame while the
-; ball is faster than 4 px a frame (bz_gfast: its travel over the last four
-; frames, SPEC.md 128.11.11.1, bz_camera's ring), or while the ball is still
-; outside the dead zone (the first frame of a pan, so the edge holds).
-;
-; DOWN: the same on rows, on the camera's centre line BP = cy + 8 (bz_camera's
-; GROUND LINE, wave 6, SPEC.md 128.16.7): at rest inside the band [L/3, 2L/3]
-; (the middle third of BZ_LINES lines, 66 .. 133), and when it leaves it a pan to
-; the row that puts it on the band's trailing edge - a sixth of the window
-; behind the centre, so the camera leads by a sixth - at one row a frame, two
-; while the ball is faster than 2 lines a frame (bz_gfast + 1), and a second one
-; while the first still leaves the ball outside the band.
-;
-; (The SPEC's "the ball a quarter-window / a sixth AHEAD of the centre" is the
-; camera's lead: putting the BALL ahead of the centre would aim at the edge it
-; just crossed, and the pan would be wave 0's trickle again.)
+; bz_lattice - GLIDE, LATTICE since wave 6b (SPEC.md 128.17.6.2, 128.17.6.3:
+; bbcourse.Glide._lattice exactly), once a frame after the ring and the
+; ground line.  The TRACKED POINT is the ball's centre across (bz_px + 8) and
+; the camera's centre line down (BP = cy + 8, the ground line's); while a
+; tube carries the ball it is the tube's EXIT (bz_lexit: the pre-aim).  Each
+; axis: bz_lat (steps 1 - 7), the heavy rule (bz_lhv, step 8), the move
+; (bz_lmove, step 9) - or, at rest with the point inside its stored band
+; (BZL_BLO .. BZL_BHI), none of them: no step, nothing changes, so the
+; frame's test is two comparisons inline (most frames are such).  Counts
+; bz_nhvy, bz_nhedge, bz_nwr, bz_nwc.  Sets bz_c0n, bz_R0n.  Preserves
+; nothing.
 ; -----------------------------------------------------------------------------
-bz_camglide:
-    ; ---- across ----
-    mov si, [bz_c0]
-    mov ax, [bz_vx]             ; the direction of travel
-    or ax, ax
-    jz .xdir
-    mov byte [bz_gdx], 0
-    jns .xdir
-    mov byte [bz_gdx], 1
-.xdir:
-    mov bx, [bz_W]
-    shl bx, 1                   ; BX = 2W, the dead zone's left edge
-    mov di, bx
-    shl di, 1
-    add di, bx                  ; DI = 6W, its right edge
-    mov ax, [bz_px]
-    add ax, 8                   ; AX = the ball's centre px
-    mov dx, si
-    shl dx, 1
-    shl dx, 1
-    shl dx, 1
-    neg dx
-    add dx, ax                  ; DX = ...in the window
-    xor ch, ch                  ; CH = 1: the ball is outside the dead zone
-    cmp dx, bx
-    jl .xout
-    cmp dx, di
-    jle .xin
-.xout:
-    inc ch
-    cmp byte [bz_gpx], 0
-    jne .xin
-    mov byte [bz_gpx], 1        ; a pan begins: its first column now
-    mov byte [bz_gpar], 0
-.xin:
-    cmp byte [bz_gpx], 0
-    je .xdone
-    cmp byte [bz_gdx], 0        ; the target column: the ball on the
-    jne .xtl                    ; trailing edge
-    sub ax, bx                  ; right: floor((centre - 2W) / 8)
-    jge .xtr
-    xor ax, ax
-.xtr:
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    jmp .xtc
-.xtl:
-    sub ax, di                  ; left: ceiling((centre - 6W) / 8)
-    jg .xtl2
-    xor ax, ax
-    jmp .xtc
-.xtl2:
-    add ax, 7
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-.xtc:
-    cmp ax, [bz_cmax]
-    jle .xtm
-    mov ax, [bz_cmax]
-.xtm:
-    cmp ax, si                  ; AX = the target
-    je .xrest
-    mov dl, [bz_gpar]
-    xor byte [bz_gpar], 1
-    or ch, ch                   ; outside the dead zone: now
-    jnz .xstep
-    or dl, dl                   ; ...every second frame
-    jz .xstep
-    cmp byte [bz_gfast], 0      ; ...every frame while the ball is fast
-    je .xdone
-.xstep:
-    cmp ax, si
-    jl .xleft
-    inc si
-    jmp .xreach
-.xleft:
-    dec si
-.xreach:
-    cmp ax, si
-    jne .xdone
-.xrest:
-    mov byte [bz_gpx], 0
-.xdone:
-    mov [bz_c0n], si
-    ; ---- down ----
-    mov si, [bz_R0]
-    mov ax, [bz_vy]
-    or ax, ax
-    jz .ydir
-    mov byte [bz_gdy], 0
-    jns .ydir
-    mov byte [bz_gdy], 1
-.ydir:
-    mov ax, bp                  ; AX = the camera's centre line, cy + 8 (wave
-    mov dx, si                  ; 6: the ground line's, bz_camera's BP)
-    shl dx, cl
-    neg dx
-    add dx, ax                  ; DX = ...in the window
-    cmp dx, BZ_LINES / 3
-    jl .yout
-    cmp dx, 2 * BZ_LINES / 3
-    jle .yin
-.yout:
-    mov byte [bz_gpy], 1
-.yin:
-    cmp byte [bz_gpy], 0
-    je .ydone
-    cmp byte [bz_gdy], 0        ; the target row: the ball on the trailing edge
-    jne .ytu
-    sub ax, BZ_LINES / 3        ; down: floor((centre - L/3) / rl)
-    jge .ytd
-    xor ax, ax
-.ytd:
-    shr ax, cl
-    jmp .ytc
-.ytu:
-    sub ax, 2 * BZ_LINES / 3    ; up: ceiling((centre - 2L/3) / rl)
-    jg .ytu2
-    xor ax, ax
-    jmp .ytc
-.ytu2:
-    add ax, [bz_rl]
-    dec ax
-    shr ax, cl
-.ytc:
-    cmp ax, [bz_rmax]
-    jle .ytm
-    mov ax, [bz_rmax]
-.ytm:
-    cmp ax, si                  ; AX = the target
-    je .yrest
-    mov di, 1                   ; DI = the step, toward the target
-    jg .ys
-    neg di
-.ys:
-    add si, di                  ; one row
-    cmp ax, si
-    je .yrest
-    cmp byte [bz_gfast + 1], 0  ; two while the ball is fast...
-    jne .y2
-    mov dx, bp                  ; ...or while one leaves it outside the band
-    mov bx, si
-    shl bx, cl
-    sub dx, bx
-    cmp dx, BZ_LINES / 3
-    jl .y2
-    cmp dx, 2 * BZ_LINES / 3
-    jle .ydone
-.y2:
-    add si, di
-    cmp ax, si
-    jne .ydone
-.yrest:
-    mov byte [bz_gpy], 0
-.ydone:
-    mov [bz_R0n], si
+bz_lattice:
+    mov bx, [bz_px]
+    add bx, 8                   ; BX = the ball's centre px
+    cmp byte [bz_tube], 0
+    je .pt
+    call bz_lexit               ; a tube in transit: its exit (BX, BP)
+.pt:
+    cmp byte [bz_heavy], 0      ; THE HEAVY FRAME (128.17.6.3), counted
+    je .lt
+    inc word [bz_nhvy]
+    cmp word [bz_hedr], 0       ; (bz_hedr, bz_hedc: the edge clause)
+    je .lt
+    inc word [bz_nhedge]
+.lt:
+    mov dx, [bz_c0]             ; ACROSS
+    mov si, bz_lax
+    cmp byte [si + BZL_S], 0    ; at rest inside its band: no step, and
+    jne .x                      ; nothing changes (steps 1 and 4, inline)
+    cmp bx, [si + BZL_BLO]
+    jl .x
+    cmp bx, [si + BZL_BHI]
+    jle .xr
+.x:
+    push bp
+    call bz_lat
+    mov di, bz_nwc
+    mov bl, [bz_hedc]           ; (released by the edge clause; level 1
+    xor bh, bh                  ; withholds a column, level 2 too)
+    mov cx, BZ_PF_NEARL << 8
+    call bz_lhv                 ; (and bz_lmove)
+    pop bp
+.xr:
+    mov [bz_c0n], dx
+    mov bx, bp
+    mov dx, [bz_R0]             ; DOWN
+    mov si, bz_lay
+    cmp byte [si + BZL_S], 0
+    jne .y
+    cmp bx, [si + BZL_BLO]
+    jl .y
+    cmp bx, [si + BZL_BHI]
+    jle .yr
+.y:
+    call bz_lat
+    mov di, bz_nwr
+    mov bl, [bz_hedr]           ; (level 1 lets one row through, level 2
+    mov bh, 1                   ; none on the CGA and one on the Hercules)
+    mov cl, [bz_herc]
+    mov ch, BZ_PF_NEART
+    call bz_lhv
+.yr:
+    mov [bz_R0n], dx
     ret
+
+; -----------------------------------------------------------------------------
+; bz_lat - LATTICE on one axis, steps 1 - 7 (SPEC.md 128.17.6.2: bbcourse.
+; LatAxis.decide).  SI = its state (BZL_*; its constants at [SI + BZL_K],
+; BZK_*), BX = the tracked point b, DX = the window's position P.  In the
+; axis's px or lines: off = b - P u.
+;   1. the BAND (bz_lband's, kept for this P): lo = A, less Hr after a pan +;
+;      hi = Wp - A, plus Hr after a pan -.  The point wants a pan w = +1 past
+;      hi, -1 below lo, else 0.
+;   2. the LATTICE target for a direction (bz_lcand).
+;   3. w not 0: the pan running that way extends FORWARD to it; else a pan
+;      STARTS when it lies beyond P that way (fast clear, since 9).  w 0 and
+;      a pan running: it extends forward.
+;   4. at rest: no step.  5. w 0 and the point back inside its lead (off < T
+;      going +, > Wp - T going -): the pan STOPS, no step.
+;   6. FAST rises (never falls inside a pan): a tube, the ring's x verdict
+;      (across), the point past the URGENT edge (off < Ef or > Wp - Ef).
+;   7. the step: across since = min(9, since + 1), then a column when since
+;      is 2 or more (1 when fast); down a row, two when fast; never more than
+;      |tgt - P|.
+; -> AX = the step, unsigned, before the heavy rule.  Preserves SI, DX.
+; Clobbers BX, CX, DI, BP.
+; -----------------------------------------------------------------------------
+bz_lat:
+    mov di, [si + BZL_K]
+    mov cl, [si + BZL_SH]
+    mov bp, dx
+    shl bp, cl
+    neg bp
+    add bp, bx                  ; BP = off
+    mov ch, -1                  ; 1. CH = w, from the band (bz_lband's)
+    cmp bx, [si + BZL_BLO]
+    jl .want
+    mov ch, 1
+    cmp bx, [si + BZL_BHI]
+    jg .want
+    mov ch, 0
+    mov al, [si + BZL_S]
+    or al, al
+    jnz .ext                    ; inside the band: a running pan extends
+.zero:
+    xor ax, ax                  ; 4. at rest
+    ret
+.want:
+    mov al, ch
+    cmp al, [si + BZL_S]
+    je .ext                     ; 3. that way already: it may extend
+    call bz_lcand               ; 2. BX = the target that way: a pan
+    cmp bx, dx                  ; STARTS when it is beyond P that way
+    je .cont                    ; (positions are 0 or more, so unsigned:
+    sbb ah, ah                  ; AH's sign is the target's side's XOR
+    xor ah, al                  ; the direction's)
+    js .cont
+    mov [si + BZL_S], al
+    mov word [si + BZL_FAST], 0900h ; fast clear, since 9
+    jmp short .tgt
+.ext:
+    call bz_lcand
+    cmp bx, [si + BZL_TGT]      ; the target moves FORWARD only (the same
+    je .cont                    ; test as the start's)
+    sbb ah, ah
+    xor ah, al
+    js .cont
+.tgt:
+    mov [si + BZL_TGT], bx
+.cont:
+    mov al, [si + BZL_S]
+    or al, al
+    jz .zero                    ; 4.
+    or ch, ch
+    jnz .rate
+    or al, al                   ; 5. the point back inside its lead: STOP
+    js .sneg
+    cmp bp, [di + BZK_T]
+    jl .stop
+    jmp short .rate
+.sneg:
+    cmp bp, [di + BZK_WPT]
+    jle .rate
+.stop:
+    mov byte [si + BZL_S], 0
+    jmp short .zero
+.rate:
+    mov al, [bz_tube]           ; 6. a tube, the ring (across), the urgent
+    cmp byte [di + BZK_COLS], 0 ; edge: fast
+    je .cz
+    or al, [bz_gfast]
+.cz:
+    or al, al
+    jnz .fast
+    cmp bp, [di + BZK_EF]
+    jl .fast
+    cmp bp, [di + BZK_WPE]
+    jle .step
+.fast:
+    mov byte [si + BZL_FAST], 1
+.step:
+    mov al, [si + BZL_FAST]     ; 7. down: one row, two when fast
+    cbw
+    inc ax
+    cmp byte [di + BZK_COLS], 0
+    je .min
+    mov al, [si + BZL_SINCE]    ; across: since + 1, at most 9 ...
+    cmp al, 9
+    adc al, 0
+    mov [si + BZL_SINCE], al
+    mov ah, 2                   ; ...a column when since reaches 2, or 1
+    sub ah, [si + BZL_FAST]     ; when fast
+    cmp al, ah
+    sbb ax, ax
+    inc ax
+.min:
+    mov bx, [si + BZL_TGT]      ; never past the target
+    sub bx, dx
+    jns .ab
+    neg bx
+.ab:
+    cmp ax, bx
+    jbe .out
+    xchg ax, bx
+.out:
+    ret
+
+; bz_lcand - LATTICE's TARGET for direction AL (SPEC.md 128.17.6.2 step 2,
+; LatAxis.cand): with t = b - T going +, floor(t / uS) S; with t = b - (Wp -
+; T) going -, ceil(t / uS) S; 0 when t <= 0; at most the range's top - so the
+; same place always gives the same framing, the point at least T inside the
+; trailing side.  uS is a power of two (BZK_M + 1), so the rounding is a
+; mask and the units a shift.  SI, DI, BX = b as bz_lat's -> BX.  Clobbers CL.
+bz_lcand:
+    or al, al
+    js .neg
+    sub bx, [di + BZK_T]
+    jmp short .t
+.neg:
+    sub bx, [di + BZK_WPT]
+    jle .z
+    add bx, [di + BZK_M]
+.t:
+    jle .z
+    or bx, [di + BZK_M]
+    xor bx, [di + BZK_M]
+    mov cl, [si + BZL_SH]
+    shr bx, cl
+    cmp bx, [si + BZL_MX]
+    jle .r
+    mov bx, [si + BZL_MX]
+.r:
+    ret
+.z:
+    xor bx, bx
+    ret
+
+; bz_lhv - THE HEAVY RULE as a bounded delay, step 8 (SPEC.md 128.17.6.3,
+; bbcourse.Glide._lattice): on a heavy frame whose edge clause does not
+; release the axis, level 2 withholds all but its limit (CL), level 1 all but
+; its limit (BH) only when the slab is near the edge the pan heads for
+; (bz_pflag's bit CH heading -, the next bit heading +).  An axis whose
+; `held` has reached its cap (BZ_LAH2, BZ_LAH1) takes its step whatever the
+; level, and a withheld step is never made up.  `held` counts the withheld
+; steps since the axis last stepped: a withholding adds one, a step left
+; after the rule clears it.  SI = the axis's state, AX = its step, BL = 1
+; when the edge clause releases it, DI = its withheld counter (bz_nwc,
+; bz_nwr).  The step it leaves goes on into bz_lmove (DX = P -> DX).
+; Clobbers AX, BX, CH.
+bz_lhv:
+    or ax, ax
+    jz bz_lmove                 ; no step to take: held stays
+    cmp byte [bz_heavy], 0
+    je .go
+    or bl, bl
+    jnz .go
+    cmp byte [bz_heavy], 2
+    jne .l1
+    cmp byte [si + BZL_HELD], BZ_LAH2
+    jae .go                     ; level 2 capped: the step goes
+    mov bh, cl                  ; ...else every axis, to its limit
+    jmp short .wh
+.l1:
+    cmp byte [si + BZL_S], 0    ; level 1: only toward the near edge
+    jl .side
+    shl ch, 1
+.side:
+    test [bz_pflag], ch
+    jz .go
+    cmp byte [si + BZL_HELD], BZ_LAH1
+    jae .go                     ; ...capped: the step goes
+.wh:
+    cmp al, bh
+    jbe .go
+    sub al, bh                  ; (AH = 0: the step is at most 2)
+    add [di], ax                ; withheld
+    mov al, bh
+    inc byte [si + BZL_HELD]
+.go:
+    or ax, ax
+    jz bz_lmove
+    mov byte [si + BZL_HELD], 0
+                                ; (on into bz_lmove)
+; bz_lmove - step 9: P += s x step (AX, unsigned; DX = P -> DX); a window that
+; moved sets last = s and, across, since 0 (unread down); P at the target
+; ends the pan; a window that moved takes the band at the new P (shifted by
+; the step, or bz_lband's whole when `last` changed).  SI = the axis's state.
+; Clobbers AX, BX, CL, DI.
+bz_lmove:
+    or ax, ax
+    jz .out                     ; (a pan never sits on its target unmoved)
+    mov bl, [si + BZL_S]
+    mov byte [si + BZL_SINCE], 0
+    or bl, bl
+    jns .add
+    neg ax
+.add:
+    add dx, ax
+    cmp bl, [si + BZL_LAST]
+    mov [si + BZL_LAST], bl
+    jne .whole                  ; `last` changed: the band whole ...
+    mov cl, [si + BZL_SH]
+    shl ax, cl                  ; ...else it moves with the window
+    add [si + BZL_BLO], ax
+    add [si + BZL_BHI], ax
+    jmp short .tgt
+.whole:
+    call bz_lband
+.tgt:
+    cmp dx, [si + BZL_TGT]
+    jne .out
+    mov byte [si + BZL_S], 0
+.out:
+    ret
+; bz_lband - the axis's BAND at position DX (step 1's, SPEC.md 128.17.6.2),
+; in the tracked point's px or lines: BZL_BLO = P u + A, less Hr after a pan
+; +; BZL_BHI = P u + Wp - A, plus Hr after a pan -.  Kept while P and `last`
+; hold, so a frame at rest inside it does nothing else (bz_lattice).  SI =
+; the axis's state.  Clobbers AX, BX, CL, DI.
+bz_lband:
+    mov di, [si + BZL_K]
+    mov cl, [si + BZL_SH]
+    mov ax, dx
+    shl ax, cl
+    mov bx, ax
+    add ax, [di + BZK_A]
+    cmp byte [si + BZL_LAST], 0
+    jle .lo
+    sub ax, [di + BZK_HR]
+.lo:
+    mov [si + BZL_BLO], ax
+    add bx, [di + BZK_WPA]
+    cmp byte [si + BZL_LAST], 0
+    jge .hi
+    add bx, [di + BZK_HR]
+.hi:
+    mov [si + BZL_BHI], bx
+    ret
+
+; bz_lexit - a TUBE's tracked point (SPEC.md 128.17.6.2's pre-aim, Glide.
+; _exit_point): the END (ex, ey, ez) of its record's last segment, projected as
+; bz_derive projects the ball - BX = ex - ey + X0 - 8 + 8 across, BP = ((ex +
+; ey) >> 1) - ez + Y0 - 13 + 8 down: the centre.  Clobbers AX, DX, SI.
+bz_lexit:
+    push es
+    mov es, [bz_cseg]
+    mov bl, [bz_tube]
+    xor bh, bh
+    dec bx
+    call bz_lrecsi              ; ES:SI = its record
+    mov al, [es:si + BZP_TNSEG]
+    mov ah, BZ_SEGREC
+    mul ah
+    add ax, [es:si + BZP_TSEGS]
+    xchg ax, si                 ; SI = the end of its last segment
+    mov ax, [es:si + 8 - BZ_SEGREC] ; ex
+    mov dx, [es:si + 10 - BZ_SEGREC] ; ey
+    mov bx, ax
+    sub bx, dx
+    add bx, [bz_x0]             ; (X0 - 8, the ball's left, + 8)
+    add ax, dx
+    sar ax, 1
+    sub ax, [es:si + 12 - BZ_SEGREC] ; ez
+    add ax, [bz_y0]
+    sub ax, 13 - 8              ; (Y0 - 13, the ball's top, + 8)
+    xchg ax, bp
+    pop es
+    ret
+
+; bz_latrst - LATTICE's axes at REST (the first frame and a cut, SPEC.md
+; 128.17.6.2; and GLIDE resumed after TRICKLE): s, last, fast and held 0,
+; since 9; each axis's unit, range, constants (the card's) and band at the
+; window as it stands; the script's count 0.  Clobbers AX, BX, CL, DX, SI, DI.
+bz_latrst:
+    mov byte [bz_scnt], 0
+    mov si, bz_lax
+    mov al, [bz_herc]
+    mov ah, BZK_SIZE
+    mul ah
+    add ax, bz_klat
+    mov [si + BZL_K], ax
+    mov bx, [bz_cmax]
+    mov dx, [bz_c0]
+    mov ah, 3                   ; across: u = 8 px
+    call .one
+    mov si, bz_lay
+    mov word [si + BZL_K], bz_klat + 2 * BZK_SIZE
+    mov bx, [bz_rmax]
+    mov dx, [bz_R0]
+    mov ah, [bz_lsh]            ; down: u = rl lines
+.one:
+    mov word [si + BZL_S], 0    ; s, last
+    mov word [si + BZL_FAST], 0900h ; fast, since 9
+    xor al, al
+    mov [si + BZL_HELD], ax     ; held, the unit's shift
+    mov [si + BZL_MX], bx
+    jmp bz_lband                ; (tgt: set at a pan's start)
+
+; LATTICE's CONSTANTS (BZK_*; bbcourse.lat_consts, bzcourse.inc's BZ_LAX_*,
+; BZ_LAY_*): across on the CGA, across on the Hercules, down
+%macro BZ_KLAT 7                ; A, Hr, T, Ef, Wp, uS - 1, across
+    dw %1, %5 - %1, %2, %3, %5 - %3, %4, %5 - %4, %6
+    db %7
+%endmacro
+bz_klat:
+    BZ_KLAT BZ_LAX_A_C, BZ_LAX_HR_C, BZ_LAX_T_C, BZ_LAX_EF_C, 8 * BZ_WC, BZ_LAX_S * 8 - 1, 1
+    BZ_KLAT BZ_LAX_A_H, BZ_LAX_HR_H, BZ_LAX_T_H, BZ_LAX_EF_H, 8 * BZ_WH, BZ_LAX_S * 8 - 1, 1
+    BZ_KLAT BZ_LAY_A, BZ_LAY_HR, BZ_LAY_T, BZ_LAY_EF, BZ_LINES, BZ_LAY_SL - 1, 0
+%if $ - bz_klat != 3 * BZK_SIZE
+ %error "bz_klat's rows are BZK_SIZE bytes"
+%endif
 
 ; CF = 1 when the ball's footprint (bz_px, bz_py: 128.4's 20 x 16 from px & ~3,
 ; as bz_mkboxes's) is NOT wholly inside the current window (bz_c0, bz_R0).

@@ -141,7 +141,7 @@ bz_vinit:
     mov dx, 3d9h
 .vpal:
     out dx, al
-    mov word [bz_W], 40
+    mov word [bz_W], BZ_WC
     mov word [bz_H], 100
     mov word [bz_rb], 80
     mov word [bz_rl], 2
@@ -156,7 +156,7 @@ bz_vinit:
     mov si, bz_wkc              ; the wheel's beam and refresh, and the
     jmp short .wk               ; calibration's PREDICTED values until it runs
 .herc:
-    mov word [bz_W], 45
+    mov word [bz_W], BZ_WH
     mov word [bz_H], 50
     mov word [bz_rb], 90
     mov word [bz_rl], 4
