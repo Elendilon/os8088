@@ -568,14 +568,14 @@ bz_step:
     mov [bz_gvz], ax
     jmp short .move
 .air:
-    xor cx, cx                  ; airborne: the arrows at half force, clamped
-    mov ax, [bz_gvx]            ; (128.11.7.3); no slope, no drag
-    add ax, di
-    call bz_gax
+                                ; airborne: the arrows at half force, clamped
+    mov ax, [bz_gvx]            ; (128.11.7.3); no slope, no drag - bz_gax's
+    add ax, di                  ; clamp alone
+    call bz_gax.clamp
     mov [bz_gvx], ax
     mov ax, [bz_gvy]
     add ax, bp
-    call bz_gax
+    call bz_gax.clamp
     mov [bz_gvy], ax
     mov ax, [bz_gvz]            ; gravity, clamped
     sub ax, BZ_G
