@@ -2373,15 +2373,16 @@ bz_gax:
     jl .clamp
     xor ax, ax
 .clamp:
-    cmp ax, BZ_VMAXG
-    jle .c1
+    cmp ax, BZ_VMAXG            ; (inside the clamp, nearly always: no jump
+    jg .hi                      ; taken)
+    cmp ax, -BZ_VMAXG
+    jl .lo
+    ret
+.hi:
     mov ax, BZ_VMAXG
     ret
-.c1:
-    cmp ax, -BZ_VMAXG
-    jge .out
+.lo:
     mov ax, -BZ_VMAXG
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
