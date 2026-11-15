@@ -269399,6 +269399,52 @@ The graph walk (128.19.3) stays the alternative.
   red at check 1. `bonanzaexit`, `bonanzamega` and `bonanzagame` pass with
   F for their free plays and the pathway's row counted.
 
+#### 128.19.6 Save v2 (story 8b.6)
+
+`BONANZA.DAT` grows the GAME, and keeps everything 128.14.3.3 says about
+the bests (where it lives, who posts a best, the merge, the hostility):
+
+| at | |
+|---|---|
+| +0 | **`BZS2`** (a `BZT1` file of 64 bytes is still read: its bests kept, its slots empty) |
+| +4 - +63 | 128.14.3.3's, unchanged: the count, `BZ_PHYSV`, the eight course entries, the tour |
+| +64 | **three SLOTS of 48 bytes** (+64, +112, +160), 208 bytes in all - one sector |
+
+A slot: +0 **lives** (0 none or the game over, 1 - 5), +1 zero, +2 the
+**open** nodes and +4 the **done** nodes (a word each, a bit a node), +6
+the **pathway's identity** it was played on (`BZ_CRS_IDS[BZ_CRS_PATH]`),
++8 the **exits found**, a word a course K (8 courses, +8 - +23), +24 - +47
+zero. **HOSTILE**: a slot whose identity is not this build's pathway's,
+whose lives are over 5, whose open set lacks node 0 while it has lives, or
+whose zero bytes are not, is EMPTIED alone; the bests are judged as
+before.
+
+- **The slot played** is `bz_slot` (0 until 8c's front window chooses).
+  `bz_game8` takes the slot's game when it has lives, else starts a new
+  one in it.
+- **The life is taken at the course's ENTRY** (8b.5): before a node's
+  course is fetched, the slot is written with one life fewer, so switching
+  off mid-course cannot refund it; a finish gives it back in memory and
+  the bracket's end writes it. The entry's write is the image WHOLE, one
+  `od_write`, no merge and no toast inside the bracket (a refused write is
+  remembered, `bz_datw`, and said on the desktop afterwards).
+- **The bracket's end** saves through `bz_dsave` (the merge: the smaller
+  best a course; the slot played is OURS, the other two the disk's).
+- **Not yet**: New and Erase (8c's front window), a best and a medal per
+  FINISH (8c.3; the course's best stays per course), the result card's
+  "not saved" (8c.4).
+- **The bytes** (MEASURED): the image **34,185 -> 34,448 (+263)**, the bss
+  **+290** (the two images grew by the slots, 144 bytes each, and two
+  bytes of state).
+- **Proved by** (MEASURED PASS at this point): `bonanzagame`'s hostile set
+  extended - every case now a `BZS2` file, plus `v1` (a `BZT1` file READ,
+  its bests kept, its slots empty) and `slot` (a slot of another pathway
+  emptied, one of this pathway's kept through the next save); red arm
+  `datlen` re-anchored on the two lengths. `bonanzapath`'s 3b - 4a: left
+  for the desktop mid-game, the floppy's slot 0 is (4 lives, open 3, done
+  1, this pathway) with FIRST's exit 0 found; Enter continues it; entering
+  FIRST with the last life puts lives 0 on the floppy at once.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

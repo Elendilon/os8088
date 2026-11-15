@@ -177,6 +177,14 @@ BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
 BZD_NENT    equ 8               ; none), +4 that best's falls
 BZD_TOUR    equ 56              ; the tour: +0 the XOR of its courses' identities,
                                 ; +2 its best total in steps, DWORD, +6 zero
+BZD_SLOT    equ 64              ; save v2 (wave 8b, SPEC.md 128.19.6): `BZS2`, then
+BZD_SLOTB   equ 48              ; three game SLOTS after the bests: +0 lives, +2 the
+BZD_NSLOT   equ 3               ; open nodes, +4 the done ones, +6 the pathway's
+BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; identity, +8 the exits found
+BZD_SEXIT   equ 8               ; (a word a course), +24 - +47 zero
+%if BZD_FILE > 512 || BZ_NCRS > 8
+ %error "save v2 is one sector, its exits a word a course for 8 courses (SPEC.md 128.19.6)"
+%endif
 %if BZD_ENT + BZD_NENT * BZD_ENTB != BZD_TOUR || BZD_TOUR + 8 != BZD_SIZE || BZ_NCRS > BZD_NENT
  %error "BONANZA.DAT's layout (SPEC.md 128.14.3.3) holds 8 courses"
 %endif
@@ -706,12 +714,19 @@ bz_game8:
 .ok:
     dec al
     mov [bz_herc], al
-    cmp byte [bz_lives], 0      ; a NEW game
-    jne .on
-    mov byte [bz_lives], BZ_LIVES
-    mov word [bz_nopen], 1
-    mov word [bz_ndone], 0
+    call bz_dslot               ; THE SLOT (save v2, 128.19.6): its game when
+    mov al, [si]                ; it has lives ...
+    or al, al
+    jnz .on
+    mov al, BZ_LIVES            ; ...else a NEW one in it
+    mov word [si + 2], 1
+    mov word [si + 4], 0
 .on:
+    mov [bz_lives], al
+    mov ax, [si + 2]
+    mov [bz_nopen], ax
+    mov ax, [si + 4]
+    mov [bz_ndone], ax
     call bz_shdrop              ; (never beside a course, 128.19.2)
     call bz_home
     jc .ret
@@ -738,8 +753,28 @@ bz_game8:
     mov byte [bz_shpend], 0
     call bz_repaint
 .sv:
-    jmp bz_dsave                ; a best a course set (BONANZA.DAT)
+    call bz_gstore              ; the game into its slot, and the slot and a
+    mov byte [bz_gsave], 1      ; best a course set to BONANZA.DAT
+    jmp bz_dsave
+
 .ret:
+    ret
+
+; bz_gstore - the game's state into the slot played (128.19.6): AL lives
+; (bz_gstorl: AL given), the open and done nodes, the pathway's identity.
+; Preserves all but AX and SI.
+bz_gstore:
+    mov al, [bz_lives]
+bz_gstorl:
+    call bz_dslot
+    mov [si], al
+    mov byte [si + 1], 0
+    mov ax, [bz_nopen]
+    mov [si + 2], ax
+    mov ax, [bz_ndone]
+    mov [si + 4], ax
+    mov ax, [bz_cids + 2 * BZ_CRS_PATH]
+    mov [si + 6], ax
     ret
 
 ; the pathway made the course: its node signs' poses from the game's state,
@@ -794,7 +829,11 @@ bz_grounds:
     je .out                     ; the game waits on the face
     mov al, [bz_exit]
     mov [bz_gnode], al
-    call .swap                  ; ...or node bz_exit's course
+    call .swap                  ; ...or node bz_exit's course - its LIFE
+    mov al, [bz_lives]          ; TAKEN on the disk first (128.19.6: off
+    dec ax                      ; mid-course refunds nothing; a finish gives
+    call bz_gstorl              ; it back at the bracket's end), quietly
+    call bz_dwrite
     mov bl, [bz_gnode]
     xor bh, bh
     mov al, [bz_path_crs + bx]
@@ -806,6 +845,14 @@ bz_grounds:
     cmp byte [bz_goal], 0
     je .life
     call bz_post                ; (its best, in memory: bz_dsave on the desktop)
+    call bz_dslot               ; the exit FOUND (128.19.6), a word a course
+    mov bl, [bz_crs]
+    xor bh, bh
+    shl bx, 1
+    mov cl, [bz_exit]
+    mov ax, 1
+    shl ax, cl
+    or [si + bx + BZD_SEXIT], ax
     mov cl, [bz_gnode]
     mov ax, 1
     shl ax, cl
@@ -1999,16 +2046,26 @@ bz_dload:
     pop es
     mov si, bz_s_dat
     mov bx, bz_dat
-    mov cx, BZD_SIZE
+    mov cx, BZD_FILE
     xor dx, dx
-    call od_read                ; (a file over 64 bytes is FERR_BIG before any
-    pop es                      ; data is read: the image is untouched)
+    call od_read                ; (a file over BZD_FILE bytes is FERR_BIG before
+    pop es                      ; any data is read: the image is untouched)
     mov cl, 0
     jc bz_dnorm
     or dx, dx
     jnz bz_dnorm
-    cmp ax, BZD_SIZE
+    cmp ax, BZD_FILE            ; save v2 (128.19.6): `BZS2` and its slots ...
+    je .v2
+    cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone
     jne bz_dnorm
+    call bz_dslz                ; (no slots in it: emptied)
+    cmp word [bz_dat + 2], 'T1'
+    jne bz_dnorm
+    jmp short .chk
+.v2:
+    cmp word [bz_dat + 2], 'S2'
+    jne bz_dnorm
+.chk:
     call bz_dchk
 ; CL = 1: keep what this build can file; 0: nothing (the first run's image).
 ; A file written under OTHER PHYSICS (+5 not this build's BZ_PHYSV: a 5b
@@ -2019,12 +2076,17 @@ bz_dload:
  %error "BZ_PHYSV 0 is the unset value a 5b BONANZA.DAT holds (SPEC.md 128.16.9)"
 %endif
 bz_dnorm:
-    cmp byte [bz_dat + 5], BZ_PHYSV
+    or cl, cl                   ; a file refused whole keeps no slot either
+    jnz .sl
+    call bz_dslz
+.sl:
+    call bz_dslots              ; save v2 (128.19.6): each slot judged alone,
+    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)
     je .phys
     xor cl, cl
 .phys:
-    mov word [bz_dat], 'BZ'     ; `BZT1`, the count and BZ_PHYSV, two zero bytes
-    mov word [bz_dat + 2], 'T1'
+    mov word [bz_dat], 'BZ'     ; `BZS2`, the count and BZ_PHYSV, two zero bytes
+    mov word [bz_dat + 2], 'S2'
     mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
     mov word [bz_dat + 6], 0
     mov si, bz_dat + BZD_ENT
@@ -2090,10 +2152,8 @@ bz_dnorm:
 ; 0 it is refused whole.  Clobbers AX, BX, SI.
 bz_dchk:
     xor cl, cl
-    cmp word [bz_dat], 'BZ'
-    jne .out
-    cmp word [bz_dat + 2], 'T1'
-    jne .out
+    cmp word [bz_dat], 'BZ'     ; (+2 `T1` or `S2`: bz_dload matched it to the
+    jne .out                    ; length)
     mov al, [bz_dat + 4]
     dec al
     cmp al, BZD_NENT
@@ -2138,16 +2198,23 @@ bz_dchk:
 ; double-clicked .BZR opens one - never overwrites the first's bests with its
 ; older copy.  Preserves nothing.
 bz_dsave:
-    cmp byte [bz_newb], 0
-    je .out
+    mov al, [bz_newb]           ; a best, or the game's slot (save v2,
+    or al, [bz_gsave]           ; 128.19.6)
+    jz .out
+    mov byte [bz_gsave], 0
     push es
     push ds
     pop es
     mov si, bz_dat              ; ours aside, the disk's read and made this
     mov di, bz_dmine            ; build's image (any failure: the first run's)
-    mov cx, BZD_SIZE / 2
+    mov cx, BZD_FILE / 2
     rep movsw
     call bz_dload               ; (preserves ES)
+    call bz_dslot               ; THE SLOT PLAYED IS OURS (SI), the other two
+    mov di, si                  ; the disk's
+    add si, bz_dmine - bz_dat
+    mov cx, BZD_SLOTB / 2
+    rep movsw
     mov si, bz_dmine + BZD_ENT
     mov di, bz_dat + BZD_ENT
     mov cx, BZD_NENT            ; per entry (both carry this build's identities
@@ -2185,11 +2252,7 @@ bz_dsave:
     mov [bz_dat + BZD_TOUR + 2], ax
     mov [bz_dat + BZD_TOUR + 4], dx
 .tk:
-    mov si, bz_s_dat
-    mov bx, bz_dat
-    mov cx, BZD_SIZE
-    mov di, bz_datst
-    call od_write
+    call bz_dwrite
     pop es
     jnc .out
     cmp byte [bz_datw], 0
@@ -2198,6 +2261,108 @@ bz_dsave:
     mov si, bz_t_nosave
     jmp bz_toast
 .out:
+    ret
+
+; bz_dwrite - the image WHOLE to BONANZA.DAT, one od_write, no merge and no
+; toast (the game's life at a course's entry, inside the bracket: SPEC.md
+; 128.19.6).  CF = 1 refused.  Preserves ES.
+bz_dwrite:
+    push es
+    push ds
+    pop es
+    mov si, bz_s_dat
+    mov bx, bz_dat
+    mov cx, BZD_FILE
+    mov di, bz_datst
+    call od_write
+    pop es
+    ret
+
+; bz_dslot - SI = the slot played's offset in [bz_dat].  Preserves all else.
+bz_dslot:
+    push ax
+    mov al, [bz_slot]
+    mov ah, BZD_SLOTB
+    mul ah
+    add ax, bz_dat + BZD_SLOT
+    xchg ax, si
+    pop ax
+    ret
+
+; bz_dslz - every slot emptied.  Preserves all but the flags.
+bz_dslz:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, bz_dat + BZD_SLOT
+    mov cx, BZD_NSLOT * BZD_SLOTB / 2
+    xor ax, ax
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; bz_dslots - each SLOT judged alone (save v2, SPEC.md 128.19.6): EMPTIED when
+; it is not this build's pathway's, its lives are over BZ_LIVES, it has lives
+; and node 0 is not open, its +1 is not zero, or +24 - +47 are not.  An
+; empty slot (lives 0) keeps its exits found.  Preserves all but the flags.
+bz_dslots:
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, bz_dat + BZD_SLOT
+    mov bl, BZD_NSLOT
+.s:
+    mov al, [si]                ; lives
+    cmp al, BZ_LIVES
+    ja .bad
+    cmp byte [si + 1], 0
+    jne .bad
+    or al, al
+    jz .z
+    test byte [si + 2], 1       ; a game with lives has node 0 open
+    jz .bad
+    mov ax, [bz_cids + 2 * BZ_CRS_PATH] ; ...on this build's pathway
+    cmp ax, [si + 6]
+    jne .bad
+.z:
+    push si
+    add si, 24
+    mov cx, (BZD_SLOTB - 24) / 2
+.zz:
+    lodsw
+    or ax, ax
+    jnz .zbad
+    loop .zz
+    pop si
+    jmp short .n
+.zbad:
+    pop si
+.bad:
+    push di
+    push es
+    push ds
+    pop es
+    mov di, si
+    mov cx, BZD_SLOTB / 2
+    xor ax, ax
+    rep stosw
+    pop es
+    pop di
+.n:
+    add si, BZD_SLOTB
+    dec bl
+    jnz .s
+    pop si
+    pop cx
+    pop bx
+    pop ax
     ret
 
 TOASTSTR bz_t_nosave, 'Best times not saved'
@@ -2866,7 +3031,9 @@ VAR bz_ndone,2                  ; ...and DONE (a finish in time)
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
 VAR bz_gnode,1                  ; the node being played
 VAR bz_nst,16                   ; each node sign's pose (bzwheel.inc's CLOCK case): 0 locked, 1 open, 2 done
-VAR bz_ingame,2                 ; byte 1: inside the game's bracket (bz_gfull); a word: the run stays even
+VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
+VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
+VAR bz_gsave,2                  ; byte 1: the game's slot to be written (bz_dsave); a word: even
 ; the game (SPEC.md 128.14.3): the tour, the held log's line, the bests
 VAR bz_ttime,2 * BZ_NTOUR       ; the tour's steps a course, 0 none (bz_game
 VAR bz_tfall,2 * BZ_NTOUR       ; clears both: keep them together) and falls
@@ -2874,8 +3041,8 @@ VAR bz_homedir,2                ; where BONANZA.O88 was launched from: its
                                 ; folder (128.14.7.6) ...
 VAR bz_lsn,2                    ; line 6: the last play's or replay's steps
 VAR bz_lsf,2                    ; ...its falls (to 9,999)
-VAR bz_dmine,BZD_SIZE           ; bz_dsave's: ours, while the disk's is merged in
-VAR bz_dat,BZD_SIZE             ; BONANZA.DAT's image, always this build's whole
+VAR bz_dmine,BZD_FILE           ; bz_dsave's: ours, while the disk's is merged in
+VAR bz_dat,BZD_FILE             ; BONANZA.DAT's image, always this build's whole
                                 ; file (bz_dnorm): what the face shows and the
                                 ; save writes
 VAR bz_homevol,1                ; ...and its volume (os88data.inc's OD_TVOL)
