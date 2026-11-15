@@ -987,11 +987,14 @@ def glass(g, ref):
     S, R0, c0, px, py = seen
     lk, why = g.look(ref.c)
     assert why is None, "play mode's resting frame: %s" % why
-    exp = ref.picture(R0, c0, lk)
+    # (wave 7, SPEC.md 128.18.5: FIRST has clocks - the lanes as the guest DREW them, its digits the seconds left)
+    nl = g.b("bz_nlane")
+    view = ref.rule((dict(enumerate(g.m.read(g.a("bz_ldrw"), nl))), g.slab()), lk) if nl else None
+    exp = ref.picture(R0, c0, lk, view)
     n, box = diff(g.decode(S), exp)
     assert n == 0, "play mode's resting frame: card memory != the course (%d px, box %s)" % (n, box)
     fw, fh, fd = m.fbuf(0)
-    wrong = ref.picture(R0, c0 + 1, lk)
+    wrong = ref.picture(R0, c0 + 1, lk, view)
     res = glass_cga(fw, fh, fd, exp, wrong) if tag == "cga" else glass_herc(fw, fh, fd, exp, wrong)
     print("%s glass (FIRST, the %s ball at rest at %d,%d): framebuffer %dx%d; %s" % (
         tag, A.MAT_NAMES[lk.mat], px, py, fw, fh, res), flush=True)

@@ -273320,9 +273320,38 @@ Where the build differs from the contract above, and why:
   construction** and needs no refusal: a ball passing behind a clock is
   drawn over it.
 - **The font is 5 x 7** (`CLOCK_FONT`), a pixel in from its block's left
-  and top, black on the ball's cyan; the ball an ellipse `4n + 5` by 9 px
-  of radius round `n` digit blocks, a black rim and a white glint, its
-  digit row `CLOCK_UP` 24 px over the tile's floor.
+  and top, black on the ball's cyan (the owner, on the first clock build:
+  *"I love the digit style"*).
+
+##### 128.18.5.2 The clock's static art (the owner, 2026-11-15)
+
+*"Lets go for a more integrated look for the static art part of it. That
+part is cheap; so we can afford to have it look very good, and we'll be
+doing one style per course or so later."* Then, of the redesign's previews:
+*"The middle with the longer pole looks great."*
+
+`clock_face_pix(p, x0, y0, style)` draws one STYLE - `crystal`, the first
+and the default; a course's own come later - lit from the upper left, as
+the course's blocks are:
+- a soft dithered **shadow** cast to the lower right on the tile's top;
+- an isometric **plinth** on the tile (a white top 19 px wide, black-edged,
+  a magenta left face and a magenta-and-black dithered right face, 4 px
+  high), matching the course's own blocks;
+- a lit **post** (black edges, a white and a magenta column) and a magenta
+  **dish** under the ball, lit at its left;
+- the crystal **ball**, an ellipse of `4n + 7` by 10 px radius: cyan, shaded
+  to the lower right by a cyan-and-magenta dither, a white rim of light to
+  the upper left, a glint, a black edge, and a magenta knob on top; **the
+  digits' window stays plain cyan**, so the digits read as they did;
+- **the pole's length**: the digits' row is at least `CLOCK_UP` **31 px**
+  over the tile's floor and rounded UP to a block, so every pole is at
+  least as long as the one the owner chose (`TRIAL`'s first, at 24 + its
+  rounding)
+  and up to 7 px longer.
+
+It is all picture: no byte of code and no lane moves (the digits are
+128.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
+re-authored).
 - **The record**: kind `PK_CLOCK` 9, one a digit, LANE set, +16 the place
   (0 the units), +17 the digits (2, or 3 for an explicit `limit` of 100 or
   more), +18 the clock's number; never an OBS cell (`prop_cells`), so no
