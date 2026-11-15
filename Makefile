@@ -21506,6 +21506,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/bonanza/bzsound.inc drivers/sound/sndpkg.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
+                      apps/bonanza/bzshell.inc \
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
@@ -21514,7 +21515,19 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS)
+BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin
+
+# THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
+# resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
+# tools/pxlink.py re-assembles bonanza.asm with a symbol map, refuses unless it
+# is byte-identical to build/bonanza.bin, and writes its bss and constants
+# (never a code label) into bzlink.inc, which the part assembles against.
+$(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
+	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
+		-I $(BZ_ART)/ --prefix BZL --consts BZ -o $@
+$(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzshell.inc \
+                      apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) --part-compress $(BZPARTZF)
 

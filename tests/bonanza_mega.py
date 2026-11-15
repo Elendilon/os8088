@@ -377,7 +377,12 @@ def title_rows(n):
     # 128.14.7.4) - not counted back from the last row
     R.CRS_K["bench"]                            # (fills the table: bzcourse.inc's BZ_NCRS courses)
     snd = 3 + dict.__len__(R.CRS_K)
-    return {snd, snd + 1} if snd >= 3 else set()
+    # wave 8a (SPEC.md 128.19.2): the SHELL part, the last row, is held on the desktop as the title is,
+    # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
+    return {snd, snd + 1, n - 1} if snd >= 3 else set()
+
+
+SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (128.19.2)
 
 
 def check_after(what, pkg, base_rows, base_claims, got_claims):
@@ -441,7 +446,8 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
              what, pkg.byte("bz_mode"), pkg.byte("bz_herc"), pkg.byte("bz_err")))
     if inside is not None:
         got = claims(b, pkg, hs, eq)
-        want(len(got) == len(base_claims) + inside, "%s: inside, %d parts claimed (%d claims against %d)" % (
+        want(len(got) == len(base_claims) + SHELL_IN + inside, "%s: inside, %d parts claimed, the shell gone (%d "
+             "claims against %d)" % (
             what, inside, len(got), len(base_claims)))
     b.until(lambda: pkg.byte("bz_fs") == 0, "%s to reach its end" % what, 480000, 250)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
@@ -670,7 +676,7 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
          "10. Enter plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
-    want(len(inside) == len(base_claims) + 1 + nballs, "10. inside: the course and its %d ball rows claimed (%d "
+    want(len(inside) == len(base_claims) + SHELL_IN + 1 + nballs, "10. inside: the course and its %d ball rows claimed, the shell gone (%d "
          "claims against %d)" % (nballs, len(inside), len(base_claims)))
     steps(b, pkg, 5, "the PLAYGROUND's first steps")
     rd = _PkgS(b, pkg)
@@ -776,7 +782,8 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: pkg.byte("bz_fs") == 1, "the benchmark's bracket", 60000, 100)
         want(pkg.byte("bz_herc") == 1, "1. the bracket is the Hercules' ([bz_herc] %d)" % pkg.byte("bz_herc"))
         inside = claims(b, pkg, hs, eq)
-        want(len(inside) == len(base_claims) + 2, "1. inside: the two parts claimed (%d claims against %d)"
+        want(len(inside) == len(base_claims) + SHELL_IN + 2, "1. inside: the two parts claimed, the shell gone (%d "
+             "claims against %d)"
              % (len(inside), len(base_claims)))
         b.until(lambda: pkg.byte("bz_fs") == 0, "the benchmark's 1,200 frames", 240000, 500)
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)

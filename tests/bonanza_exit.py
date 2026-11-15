@@ -197,6 +197,13 @@ def title_rows():
     return {snd, snd + 1}
 
 
+def shell_row():
+    """the SHELL PART's row (SPEC.md 128.19.2): the last, after the demos -
+    held on the desktop, never inside a bracket"""
+    R.CRS_K["bench"]
+    return CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong() + ndemo()
+
+
 def rows(g):
     """[(flags, zkb)] for every part row, read out of the image's own table"""
     n = g.m.read(g.a("op_table") + 8, 1)[0]
@@ -424,9 +431,12 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         fails.append("%s: the launch rolls material %d from row %d with course row %d; want material %d, rows %d "
                      "and %d (SPEC.md 128.11.3.1)" % (way, g.b("bz_mat"), pb, pc, want_mat, BALL_ROW0 + want_mat,
                                                      CRS_ROW0 + g.b("bz_crs")))
-    if len(c_in) != len(base_claims) + 1 + len(nb):
-        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d + 1 + %d balls: %s" % (
-            way, len(c_in), len(base_claims), len(nb), c_in))
+    if r_in[shell_row()][0] & OP_FETCHED:
+        fails.append("%s: inside the bracket the SHELL part (row %d) is still fetched: it may never share memory "
+                     "with a course (SPEC.md 128.19.2)" % (way, shell_row()))
+    if len(c_in) != len(base_claims) - 1 + 1 + len(nb):
+        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + 1 + %d "
+                     "balls: %s" % (way, len(c_in), len(base_claims), len(nb), c_in))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
@@ -474,9 +484,11 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     if "bzs_desk" in g.sym:                     # ...and the title's parts READ BACK: bz_launch's last
         M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3,   # act (SPEC.md 128.20.6)
                 "the title to be back (%s)" % way, guest=30)
+    M.until(m, lambda _: rows(g)[shell_row()][0] & OP_FETCHED and g.b("bz_shpend") == 0,
+            "the shell part to be fetched back and the face repainted (%s, SPEC.md 128.19.2)" % way, guest=30)
     m.pause()
     r_out, c_out = rows(g), claims(g)
-    title = title_rows()
+    title = title_rows() | {shell_row()}
     for i, (before, after) in enumerate(zip(base_rows, r_out)):
         if i in title:                      # the title's music, held on the desktop
             if (after[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
@@ -507,10 +519,12 @@ def after(g, what, base_rows, base_claims):
     M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "%s: the parts dropped" % what, guest=30)
     if "bzs_desk" in g.sym:
         M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3, "%s: the title back" % what, guest=30)
+    M.until(m, lambda _: rows(g)[shell_row()][0] & OP_FETCHED and g.b("bz_shpend") == 0,
+            "%s: the shell part fetched back (SPEC.md 128.19.2)" % what, guest=30)
     m.pause()
     r_out, c_out = rows(g), claims(g)
     m.run()
-    title = title_rows()
+    title = title_rows() | {shell_row()}
     for i, (before, aft) in enumerate(zip(base_rows, r_out)):
         if i in title:
             continue
@@ -838,16 +852,16 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         nlazy = sum(1 for f, _ in base_rows if f & OP_LAZY)
         print("%s: %d part rows (%d lazy), none fetched on the desktop: %s; the instance's claims %s" % (
             tag, len(base_rows), nlazy, all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
-        title = title_rows()
+        title = title_rows() | {shell_row()}
         if any(f & OP_FETCHED for i, (f, _) in enumerate(base_rows) if i not in title):
             fails.append("a part row is fetched on the desktop before any launch")
         if any(not base_rows[i][0] & OP_FETCHED for i in title):
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
                          % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
-        if len(base_rows) != CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong() + ndemo():
-            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs and %d "
-                         "shipped demos (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4)" % (
+        if len(base_rows) != shell_row() + 1:
+            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs, %d "
+                         "shipped demos and the shell (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4, 128.19.2)" % (
                              len(base_rows), dict.__len__(R.CRS_K), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)

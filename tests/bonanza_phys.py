@@ -655,17 +655,18 @@ def goal_face(g, n):
     """The face's lines as bz_line draws them after the play: -> the held
     log's (line 6: `<NAME> <time> s goal falls <n>`), or None."""
     m = g.m
-    m.bp_exec(g.a("bz_line"))
+    fl = R.FaceLines(g)                         # (bz_line is in the shell part, SPEC.md 128.19.2)
+    fl.arm()
     found = None
     for _ in range(40):
         m.run()
-        if m.wait_stop(20) != "breakpoint":
+        st = fl.next()
+        if st is None:
             break
         # at bz_line's entry DI is the line's end (the bytes past it are the
         # last longer line's, not yet padded over), and bz_lstr opened the
         # line with a cell of margin (the padding is the erase)
-        n = (m.regs()["di"] - g.sym["bz_lbuf"]) & 0xFFFF
-        line = m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip()
+        line = st[1]
         if " s goal " in line or " s cup " in line:
             found = line
             break

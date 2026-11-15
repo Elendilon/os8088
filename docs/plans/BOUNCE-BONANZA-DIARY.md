@@ -2416,3 +2416,35 @@ as somewhere to stand - so a clock's post is taller than anything reaches,
 and nothing lands on a crystal ball. FIRST, the smallest course, is all
 scripted runs; of its two clocks the one that survived is the one in the
 only cell no script crosses.
+
+## 2026-11-15 (wave 8a: the face moves out)
+
+Wave 8 starts with room. The plan's 8a takes the desktop's code out of the
+resident image into a code PART, fetched on the desktop and dropped before
+any course, so a play never pays for it. The first decision was what to
+move: the plan named the face, the save, the demo checks - but 8b rewrites
+the save and 8b and 8c replace the face. Moving code only to delete it is
+wasted work, so 8a moved the FACE (the code 8c will rewrite, now to be born
+in the part) and left the save and the demo files resident until their
+rewrite: each of those either claims memory, which a part may not, or runs
+inside the bracket with a course held.
+
+The mechanism is PiXEL's linked part, taken whole: a flat binary with a
+vector table at its head, far-called through the claim's code alias so it
+runs unchanged on kern_mega, reading its own strings through CS and the
+package's variables through DS. The link tool that tells the part where the
+package's variables are grew two options for it - another source, and the
+package's constants as well as its bss - and still refuses to name a code
+label, so a call into the package from the part cannot assemble.
+
+The one surprise was the paint after a play. The kernel restores the
+desktop before the bracket returns, and so asks the window to paint while
+the course is still in memory; the shell part may not be fetched beside a
+course. So that paint is put off, and made once the course is dropped and
+the part fetched again. Three rows had set a breakpoint on the face's
+`bz_line` before a play; the part can come back somewhere else, so they now
+arm it from the resident door, where the part is known to be held.
+
+Measured: the resident image 2,604 bytes smaller, the file 282 bytes
+larger, and on kern_mega's Hercules the face drawn from the part with no
+exception charged to the package.

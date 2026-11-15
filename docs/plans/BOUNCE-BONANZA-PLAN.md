@@ -956,8 +956,8 @@ limit is steps; `par` is refused from this wave.
 
 | # | story | verified by |
 |---|---|---|
-| 8a.1 | **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB (re-measured 2026-11-14: **about 5.6-5.9KB net**, because the once-per-launch code inside the bracket and the calibration stay resident; the per-course titles, names and pars move with it, -45 resident bytes a course; disk +0.45KB; about +0.4 s for each return to the desktop), moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
-| 8a.2 | Running code from a part on kern_mega, checked first, as CWORD's overlay part does it | `bonanzamega` on 86Box |
+| 8a.1 | **DONE** (2026-11-15, SPEC.md 128.19.2: the FACE moved, the save and the demo files left for 8b's rewrite; image 36,274 -> 33,670, the part 3,081, the file +282 bytes; MEASURED). **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB (re-measured 2026-11-14: **about 5.6-5.9KB net**, because the once-per-launch code inside the bracket and the calibration stay resident; the per-course titles, names and pars move with it, -45 resident bytes a course; disk +0.45KB; about +0.4 s for each return to the desktop), moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
+| 8a.2 | **DONE** (2026-11-15: `bonanzamega` PASS on 86Box, the face far-called through the part's code alias, no exception charged). Running code from a part on kern_mega, checked first, as CWORD's overlay part does it | `bonanzamega` on 86Box |
 
 **Inventory:** A19 (O46).
 
