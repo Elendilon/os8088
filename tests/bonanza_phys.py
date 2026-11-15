@@ -207,11 +207,17 @@ and PASSES only if the row FAILS - at its own check:
                   mid-flight: a boost
        armlate    the press 2 steps AFTER the first contact (a bounce): the
                   grace converts at k = 2 (the `boostg` event), a boost
-       armlate4   the press BGRACE + 1 steps after: nothing, nboost 0
+       armlate5   the press BGRACE + 1 steps after: nothing, nboost 0
+                  (armlate4 until round 3's BGRACE 4)
        hoponly    one tap and nothing else: no boost
-       armheld    Space held from the Hop through the contact: no boost
-       ledgehold  a Hop at the half-unit lip, Space held 4 steps, its first
-                  contact on the ledge 1 - 4 steps later: no boost there
+       armheld    Space held from the Hop through the contact: round 3
+                  (SPEC.md 128.17.16) BOOSTS (round 2: no boost)
+       ledgehold  a Hop at the half-unit lip, its first contact on the ledge
+                  1 - 4 steps later, Space held through it: no boost there
+                  (round 3's take-off gate)
+       fallarm    round 3: rubber rolled off a rung's top, no Hop, a tap 2
+                  steps after the take-off: the FALL's token, a boost
+       fallnone   the same roll with no Space: no boost
        mashchain  rubber at the cap, Space tapped every 2 steps through three
                   contacts of the chain: one boost
        gripchain  a Hop and a mid-flight tap, the boost; Grip through its
@@ -225,7 +231,11 @@ and PASSES only if the row FAILS - at its own check:
   armwin     wave 6's test kept (the token AND the window at the contact):
              armearly does not boost
   nograce    no late grace: armlate does not boost
-  grace4     a 4-step grace in the rule: armlate4 boosts
+  grace5     a grace one step longer in the rule: armlate5 boosts
+  noheld     round 3: Space held at the contact arms nothing: armheld
+  nogate     round 3: held arms without the take-off gate: ledgehold
+             boosts on the ledge
+  nofall     round 3: a fall takes no token: fallarm does not boost
   graceoff   the conversion without its k - 1 lift: armlate's state (gz)
   The CARRIED arms (pump, tokbst, rampboost, slabcell, springtok: anchored in
   bz_land's boost block, which 6b rewrote) are re-anchored and re-proved on
@@ -1685,23 +1695,26 @@ def w6b_replays():
     add("armlate", "play", R_, rest, keys, "a Hop, a bounce at its first contact (step %s), Space 2 steps later: "
         "%s" % (c, bg[:1]), c and [k_ for _i, k_ in cs2][:1] == ["bounce"] and len(bg) == 1 and bg[0][2] == 2
         and p.nboost == 1, red=[{"_nograce": True}, {"_graceoff": True}], nboost=1)
-    # armlate4: the press 4 steps after it: past BGRACE, nothing (a 4-step grace, `grace4`, converts)
+    # armlate5: the press BGRACE + 1 steps after it: past the grace, nothing (a grace one longer, `grace5`,
+    # converts).  (armlate4 until round 3's BGRACE 4, SPEC.md 128.17.16)
     late = BB.BGRACE + 1
     keys = with_space(base, c + late if c else None)[:(c or 0) + 40]
     p, cs2 = run_ix("play", R_, rest, keys)
-    add("armlate4", "play", R_, rest, keys, "the press %d steps after the first contact (step %s): nboost %d" % (
-        late, c, p.nboost), c and not boosts(p) and p.nboost == 0, red={"_grace4": True}, nboost=0)
+    add("armlate5", "play", R_, rest, keys, "the press %d steps after the first contact (step %s): nboost %d" % (
+        late, c, p.nboost), c and not boosts(p) and p.nboost == 0, red={"_grace5": True}, nboost=0)
     # hoponly: one tap and nothing else: no boost (the grace opens, unused)
     keys = base[:(c or 0) + 40]
     p, cs2 = run_ix("play", R_, rest, keys)
     add("hoponly", "play", R_, rest, keys, "a single tap, no second press: %s, nboost %d" % (
         [k_ for _i, k_ in cs2][:1], p.nboost), c and p.nboost == 0 and [k_ for _i, k_ in cs2][:1] == ["bounce"],
         red={"_hopedge": True}, nboost=0)
-    # armheld: Space HELD from the Hop through the contact and 3 steps past it: no boost (no second edge)
+    # armheld: Space HELD from the Hop through the contact and 3 steps past it: round 3 (SPEC.md 128.17.16)
+    # BOOSTS at the contact, the floor level with the take-off (`noheld`: none).  Round 2's was nboost 0
     keys = [k_ | (K.K_HOP if HOP <= i <= (c or 0) + 3 else 0) for i, k_ in enumerate(base)][:(c or 0) + 40]
     p, cs2 = run_ix("play", R_, rest, keys)
     add("armheld", "play", R_, rest, keys, "Space held from the Hop (step %d) through the contact (%s) and 3 "
-        "steps past: nboost %d" % (HOP, c, p.nboost), c and p.nboost == 0, red={"_heldarm": True}, nboost=0)
+        "steps past: %s, nboost %d" % (HOP, c, [k_ for _i, k_ in cs2][:1], p.nboost),
+        c and p.nboost == 1 and [k_ for _i, k_ in cs2][:1] == ["boost"], red={"_noheld": True}, nboost=1)
     # ledgehold: a Hop at the LIP of the PLAYGROUND's half-unit rung at the cap, Space held 4 steps, its first
     # contact on the ledge 1 - 4 steps later: no boost there (`heldarm` boosts on the ledge, 128.17.4.4)
     top, rr = play_rect(0.5)
@@ -1713,7 +1726,7 @@ def w6b_replays():
         land = BB._play_contact(pc, R_, st_, (0, -1), a)
         if land is None or not 1 <= land - a <= 4:
             continue
-        keys = [dk | (K.K_HOP if a <= i < a + 4 else 0) for i in range(land + 40)]
+        keys = [dk | (K.K_HOP if a <= i <= max(a + 3, land) else 0) for i in range(land + 40)]
         p, cs2 = run_ix("play", R_, pk, keys)
         q = model("play", R_, pk)
         for i in range(land + 1):
@@ -1725,9 +1738,49 @@ def w6b_replays():
             found = (keys, a, land)
             break
     keys, a, land = found if found else ([0], None, None)
+    if found and not parts("play", R_, pk, keys, _nogate=True):
+        found = None                            # (round 3: `nogate`, held without the take-off gate, must boost)
     add("ledgehold", "play", R_, pk if found else rest, keys, "a Hop at the half-unit lip %s (take-off point %s), "
-        "Space held 4 steps, its first contact on the ledge at %s: no boost" % (rr, a, land), found,
-        red={"_heldarm": True}, nboost=0)
+        "Space held through its first contact on the ledge at %s: no boost (the ledge is above the "
+        "take-off, round 3's gate)" % (rr, a, land), found,
+        red=[{"_heldarm": True}, {"_nogate": True}], nboost=0)
+    # fallarm / fallnone (round 3, SPEC.md 128.17.16): rubber ROLLED off a rung's top onto the apron, no Hop;
+    # a tap 2 steps after the take-off arms the FALL's token, and the first contact boosts (`nofall`: none).
+    # With no Space the contact opens the grace and nothing else
+    found3 = None
+    for H in (1, 0.5, 1.5):
+        top3, r3 = play_rect(H)
+        for x in range(r3[0], r3[2]):
+            for y in range(r3[1], r3[3]):
+                for v in (BB.VMAXG, 224, 160):
+                    pk3 = pl_poke("play", (x, y), R_, (0, 1), v)
+                    kb = [BB._PLAY_DIRK[(0, 1)]] * 80
+                    q, _cs = run_ix("play", R_, pk3, kb)
+                    off = next((e[1] - 1 for e in q.events if e[0] == "takeoff"), None)
+                    if off is None or q.nhop or q.nfall or q.nboost:
+                        continue
+                    keys = with_space(kb, off + 2)
+                    p, cs3 = run_ix("play", R_, pk3, keys)
+                    if p.nhop or p.nfall or [k_ for _i, k_ in cs3][:1] != ["boost"] or p.nboost != 1:
+                        continue
+                    if not parts("play", R_, pk3, keys, _nofall=True):
+                        continue
+                    cf = first_after(cs3, off)
+                    found3 = (pk3, keys, kb, (x, y), H, v, off, cf)
+                    break
+                if found3:
+                    break
+            if found3:
+                break
+        if found3:
+            break
+    pk3, keys, kb, at3, H3, v3, off3, cf3 = found3 if found3 else (rest, [0], [0], None, None, None, None, None)
+    add("fallarm", "play", R_, pk3, keys[:(cf3 or 0) + 30], "rubber rolled off the %s-unit top at %s at %s, no "
+        "Hop; the take-off at step %s, a tap 2 steps later, the first contact at %s: a boost" % (
+            H3, at3, v3, off3, cf3), found3, red={"_nofall": True}, nboost=1)
+    q, cs3 = run_ix("play", R_, pk3, kb[:(cf3 or 0) + 30])
+    add("fallnone", "play", R_, pk3, kb[:(cf3 or 0) + 30], "the same roll with no Space: %s, nboost %d" % (
+        [k_ for _i, k_ in cs3][:1], q.nboost), found3 and q.nboost == 0 and not q.nhop, nboost=0)
     # mashchain: rubber at the cap with a chord (armroll's), Space tapped every 2 steps from its Hop through the
     # chain's first three contacts: ONE boost (the token one a chain; `pump` re-arms it at every contact Hop)
     found2 = None
@@ -2066,9 +2119,9 @@ REDS = {
     # (steps 4 - 6 are written once and run by wave 2's path and the prop path
     # alike, SPEC.md 128.13.8: the patch breaks both)
     "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    call bz_toff\n",
+                 "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n    call bz_toff\n",
                  ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
+                 "    mov byte [bz_btok], 1\n    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
                 ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
                  "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
                  "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
@@ -2201,8 +2254,9 @@ REDS["heldarm"] = [("bzphys.inc", ".hw:\n    mov ax, [bz_bgr]            ; no ed
                     "    jz .hwr\n    cmp byte [bz_btok], 1\n    jne .hwr\n    inc byte [bz_btok]\n.hwr:\n"
                     "    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n")]
 # hopedge: the Hop's own edge arms its flight (the ground Hop sets the token to 2)
-REDS["hopedge"] = [("bzphys.inc", "    mov byte [bz_btok], 1       ; wave 6: the boost's TOKEN (128.16.4.1)\n",
-                    "    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n")]
+REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: .launch sets it, 128.16.4.1)\n",
+                    "    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n"
+                    "    call bz_toff\n    jmp .gh\n")]
 # armwin: wave 6's test kept, the token AND the window open at the contact
 REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the\n"
                    "    jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =\n",
@@ -2212,19 +2266,38 @@ REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOS
 REDS["nograce"] = [("bzphys.inc", "    or al, [bz_mst]             ; open the late grace (.grace, out of line)\n"
                     "    jz .grace\n",
                     "    or al, [bz_mst]             ; RED nograce: the grace never opens\n")]
-# grace4: a grace of 4 steps in the rule (its opening and the conversion's k - 1), BZ_BGRACE still 3
-REDS["grace4"] = [("bzphys.inc", "    mov byte [bz_bgr], BZ_BGRACE\n",
-                   "    mov byte [bz_bgr], BZ_BGRACE + 1 ; RED grace4: a 4-step grace\n"),
+# grace5: a grace of BGRACE + 1 steps in the rule (its opening and the conversion's k - 1), BZ_BGRACE kept
+REDS["grace5"] = [("bzphys.inc", "    mov byte [bz_bgr], BZ_BGRACE\n",
+                   "    mov byte [bz_bgr], BZ_BGRACE + 1 ; RED grace5: a grace one step longer\n"),
                   ("bzphys.inc", "    mov cx, BZ_BGRACE           ; on the k-th step after its contact (AL =\n",
-                   "    mov cx, BZ_BGRACE + 1       ; RED grace4: k - 1 = 4 - bz_bgr\n")]
+                   "    mov cx, BZ_BGRACE + 1       ; RED grace5: k - 1 = BGRACE + 1 - bz_bgr\n")]
+# round 3 (SPEC.md 128.17.16): the held arming and the fall's token, each broken
+# noheld: Space held at the contact arms nothing (round 2's rule)
+REDS["noheld"] = [("bzphys.inc", "    cmp byte [bz_btok], 1       ; round 3 (128.17.16): Space HELD at the\n"
+                   "    jne .armd                   ; contact ARMS the token 1, onto a floor no\n",
+                   "    jmp short .armd             ; RED noheld: no held arming\n")]
+# nogate: held arms without the take-off gate (onto a ledge above the take-off too)
+REDS["nogate"] = [("bzphys.inc", "    cmp ax, [bz_zoff]\n    jg .armd\n",
+                   "                                ; RED nogate: no take-off gate\n")]
+# nofall: a fall takes off with no token (the Hop's own path through .launch keeps it)
+REDS["nofall"] = [("bzphys.inc", "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n",
+                   "                                ; RED nofall: no fall token (over no floor)\n"),
+                  ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
+                   "    jle .rfall                  ; RED nofall: a fall off a floor takes no token\n"
+                   "    mov ax, bx                  ; z = h: the ball follows the floor\n"),
+                  ("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n",
+                   ".rfall:\n    call bz_toff\n    jmp short .gh\n"
+                   ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n")]
 # graceoff: the conversion without the k - 1 lift (gz kept: the ball one bgd short a step since the contact)
 REDS["graceoff"] = [("bzphys.inc", "    imul cx                     ; where the contact's boost would have it now\n"
                      "    add [bz_gz], ax\n    adc [bz_gz + 2], dx\n",
                      "                                ; RED graceoff: no k - 1 lift\n")]
 RED_ONLY.update({"heldarm": ("ledgehold",), "hopedge": ("hoponly",), "armwin": ("armearly",),
-                 "nograce": ("armlate",), "grace4": ("armlate4",), "graceoff": ("armlate",)})
+                 "nograce": ("armlate",), "grace5": ("armlate5",), "graceoff": ("armlate",),
+                 "noheld": ("armheld",), "nogate": ("ledgehold",), "nofall": ("fallarm",)})
 RED_WANT.update({"heldarm": "ledgehold", "hopedge": "hoponly", "armwin": "armearly", "nograce": "armlate",
-                 "grace4": "armlate4", "graceoff": "armlate frame"})
+                 "grace5": "armlate5", "graceoff": "armlate frame", "noheld": "armheld", "nogate": "ledgehold",
+                 "nofall": "fallarm"})
 RED_ONLY.update({"pump": ("pumpchk",), "rampboost": ("rampnot",), "tokbst": ("bouncefirst",),
                  "slabcell": ("liftnot",), "ceildrag": ("drag",), "slowdrag": ("drag-rest",)})
 RED_WANT.update({"pump": "pumpchk frame", "rampboost": "rampnot frame", "tokbst": "bouncefirst frame",

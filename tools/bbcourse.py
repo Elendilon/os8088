@@ -17,6 +17,11 @@ ARMED by a second Space edge in flight (bz_btok 2) and the LATE GRACE
 arm_positions(); item 7's offset map, the grace's exactness, the ledge and
 accidental cases, who-hits-it against wave 6's trigger, CD5's table.
 
+Gate 1's round 3 (SPEC.md 128.17.16): BGRACE 4; Space HELD at a first
+contact arms the boost onto a floor no higher than the take-off (zoff); a
+FALL takes the token; PHYS_REV 8; item 7's held, fall and stop-bouncing
+checks (fall_boosts(), fall_spent()) and their controls.
+
 Wave 6 (SPEC.md 128.16): the material table with BOOST (BZ_MATTAB +12) and
 its import-time bound; the fractional drag and the boost's token in
 Physics (state6()); the reach's BOOST launch from every firm level floor;
@@ -231,8 +236,9 @@ BZ_STRS = 4                   # the boost's STRETCH, steps (128.16.4.4): bz_stf'
 SQTHR = 384                   # a landing at lvz >= this squashes (but a shatter)
 SQSTEPS = 6                   # ...for this many steps
 HOPWIN = 6                    # the Hop's window, steps (Space's key-down edge)
-BGRACE = 3                    # wave 6b: the boost's LATE GRACE, steps after an unarmed
-                              # bouncing first contact (SPEC.md 128.17.4.5)
+BGRACE = 4                    # wave 6b: the boost's LATE GRACE, steps after an unarmed
+                              # bouncing first contact (SPEC.md 128.17.4.5; 4 since
+                              # gate 1's round 3, 128.17.16)
 WMIN = 16                     # a wall rebound under this is 0 (no chatter)
 E_BUMPER = 230                # a WALL with a bounce surface, every ball
 E_MAT = 224                   # a bounce FLOOR (a mat), every ball
@@ -4401,8 +4407,8 @@ class Physics:
                  _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
                  _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False,
                  _no_clear=False, _boost_rise=False, _pump=False, _spring_tok=False, _iceplain=False,
-                 _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace4=False, _graceoff=False,
-                 _w6trig=False):
+                 _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
+                 _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -4478,7 +4484,13 @@ class Physics:
         self.bgr = self.bgd = 0
         self._iceplain, self._heldarm, self._hopedge, self._armwin = _iceplain, _heldarm, _hopedge, _armwin
         self._nograce, self._graceoff, self._w6trig = _nograce, _graceoff, _w6trig
-        self.bgrace = 4 if _grace4 else BGRACE
+        self.bgrace = BGRACE + 1 if _grace5 else BGRACE if _bgrace is None else _bgrace
+        # gate 1's round 3 (SPEC.md 128.17.16): the take-off's z (bz_zoff, px,
+        # written wherever bz_toff takes the ball off a floor) for the HELD
+        # arming's gate; the controls: no held arming, held arming without the
+        # take-off gate, no token on a fall
+        self.zoff = 0
+        self._noheld, self._nogate, self._nofall = _noheld, _nogate, _nofall
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -5116,7 +5128,7 @@ class Physics:
                 # 128.11.8.6: the Hop from the ground
                 self.air = 1
                 self.gvz = min(VZMAX, self.gvz + m["HOP"])
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.hopw = 0
                 self.nhop += 1
@@ -5127,8 +5139,10 @@ class Physics:
                 self.air = 1
                 if self._takeoff_zero:
                     self.gvz = 0
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
+                if not (self._nofall or self._w6trig):
+                    self.btok = 1                       # round 3 (128.17.16): a FALL arms one boost too
                 lifted = True
                 self.events.append(("takeoff", self.nstep + 1, self.gvz))
             else:
@@ -5209,6 +5223,10 @@ class Physics:
         if Cv is None:
             Cv = C
         tok = self.btok                             # the token as the contact BEGAN (rule 1) ...
+        if (tok == 1 and K & K_HOP and not stun and not self._noheld and not self._w6trig
+                and (self._nogate or (h >> 8) <= self.zoff)):
+            tok = 2                                 # round 3 (128.17.16): Space HELD at the contact ARMS it,
+                                                    # onto a floor no higher than the take-off
         if not self._no_clear:
             self.btok = 0                           # ... and cleared at EVERY contact
         self.bgr = 0                                # wave 6b: every contact closes the grace
@@ -5343,7 +5361,7 @@ class Physics:
             elif not self.inmo:
                 self.air = 1
                 self.gvz = LIPZ
-                self.ztop = self.gz >> 8
+                self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.nlip += 1
                 self.events.append(("lip", self.nstep + 1, max(abs(self.gvx), abs(self.gvy))))
@@ -5367,7 +5385,7 @@ class Physics:
             if not self._spring_tok:
                 self.btok = 0                       # wave 6: the launch spends a ground Hop's token
             self.air = 1
-            self.ztop = self.gz >> 8
+            self.ztop = self.zoff = self.gz >> 8
             self.gz += self.gvz
         else:
             return
@@ -5442,7 +5460,7 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
 # rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
 # the constants before it.
-PHYS_REV = 7
+PHYS_REV = 8
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, PHYS_REV)
 # The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
@@ -5454,7 +5472,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -9952,6 +9970,108 @@ def ladder_grace_exact(**kw):
     return n, bad, closed
 
 
+FALL_DROPS = (0.5, 1, 1.5, 2, 3)          # round 3's falls (SPEC.md 128.17.16): units down off the ledge
+FALL_V0 = (96, 160, 224, VMAXG)          # ...rolled toward its lip from these speeds, the chord held
+
+
+def _fall_run(D, v0, space, n=160, **kw):
+    """rubber rolled off a ledge D units over a level floor (_drop_course) with
+    the chord, from LAD_X0 at gvx v0, never a Hop: space 'held' (Space down
+    from before the run, so no edge), 'tap' (a press on the step after the
+    take-off) or None.  -> (the first contact's event, the Physics after the
+    run) or (None, p) when it never takes off or contacts"""
+    p = Physics(_drop_course(D), mat=MAT_RUBBER, **kw).poke(LAD_X0, 12, v0, 0)
+    p.lvl = [0, LVL_MAX, 0, LVL_MAX]
+    if space == "held":
+        p.kprev = K_HOP
+    off, first = None, None
+    for i in range(n):
+        k = K_R | K_D
+        if space == "held" or (space == "tap" and off is not None and i == off + 1):
+            k |= K_HOP
+        n0 = len(p.events)
+        p.step(k)
+        for e in p.events[n0:]:
+            if e[0] == "takeoff" and off is None:
+                off = i
+            elif off is not None and first is None and e[0] in _CONTACTS:
+                first = e
+        if p.nhop or p.nfall:
+            return None, p
+        if first is not None and i > off + 40:
+            break
+    return first, p
+
+
+def fall_boosts(hold=True, **kw):
+    """round 3's FALL token (SPEC.md 128.17.16): over FALL_DROPS x FALL_V0, the
+    drops whose first contact the boost's rules 3 - 5 pass (a probe with no
+    Space: its rebound under BOOST; the floor is firm and level), and how many
+    of them boost with Space held (hold) or with no Space at all (not hold).
+    -> (eligible drops, boosts among them, (D, v0) that boost though
+    ineligible)"""
+    elig = boosted = 0
+    stray = []
+    B = MATERIALS[MAT_RUBBER]["BOOST"]
+    for D in FALL_DROPS:
+        for v0 in FALL_V0:
+            e, _p = _fall_run(D, v0, None)
+            if e is None:
+                continue
+            rr = e[3] if e[0] == "bounce" else 0
+            ok = e[0] in ("bounce", "land") and rr < B
+            _e2, q = _fall_run(D, v0, "held" if hold else None, **kw)
+            if ok:
+                elig += 1
+                boosted += bool(q.nboost)
+            elif q.nboost:
+                stray.append((D, v0))
+    return elig, boosted, stray
+
+
+def fall_spent(play, **kw):
+    """round 3's 'one boost, then stop bouncing' (SPEC.md 128.17.16): the
+    PLAYGROUND's autopilot keys with Space held throughout (from before the
+    run) and with Space tapped every 2 steps, and the drop courses' falls with
+    Space held: every boost after the first must follow a step that ended with
+    the ball GROUNDED since the boost before it.  -> (steps run, boosts,
+    [(scenario, step)] that boosted with no grounded step since the last)"""
+    runs = []
+    p0 = Physics(play, play=True)
+    auto = []
+    while len(auto) < 1500 and not p0.goal:
+        k = p0.auto()
+        p0.step(k)
+        auto.append(k)
+    runs.append(("auto+held", lambda: Physics(play, play=True, **kw), [k | K_HOP for k in auto], True))
+    runs.append(("auto+mash", lambda: Physics(play, play=True, **kw),
+                 [k | (K_HOP if i % 2 == 0 else 0) for i, k in enumerate(auto)], False))
+    for D in FALL_DROPS:
+        mk = lambda D=D: Physics(_drop_course(D), mat=MAT_RUBBER, **kw).poke(LAD_X0, 12, VMAXG, 0)
+        runs.append(("drop %g held" % D, mk, [K_R | K_D | K_HOP] * 200, True))
+        runs.append(("drop %g mash" % D, mk, [K_R | K_D | (K_HOP if i % 2 == 0 else 0) for i in range(200)], False))
+    steps = boosts = 0
+    bad = []
+    for name, mk, keys, held in runs:
+        p = mk()
+        if held:
+            p.kprev = K_HOP
+        grounded, nb = True, 0
+        for i, k in enumerate(keys):
+            p.step(k)
+            steps += 1
+            if p.nboost != nb:
+                if not grounded:
+                    bad.append((name, i))
+                grounded, nb = False, p.nboost
+                boosts += 1
+            if not p.air:
+                grounded = True
+            if p.nfall or p.goal:
+                break
+    return steps, boosts, bad
+
+
 def _trigger_checks(play, res):
     """item 7's wave-6b trigger on the PLAYGROUND's apron (SPEC.md 128.17.4,
     128.17.9): the offset map at rest and rolling, the grace's exactness,
@@ -9987,9 +10107,9 @@ def _trigger_checks(play, res):
                 cases >= 9 and not bad))
     ng = trigger_map(play, _nograce=True)
     res.append(("7 negative control `nograce` (no late grace): the map at +1 does not boost (%d)" % ng[1], not ng[1]))
-    g4 = trigger_map(play, _grace4=True)
-    res.append(("7 negative control `grace4` (a grace of 4 in the rule, BGRACE still %d): the map at +4 boosts (%d)"
-                % (BGRACE, g4[4]), bool(g4[4])))
+    g5 = trigger_map(play, _grace5=True)
+    res.append(("7 negative control `grace5` (a grace of BGRACE + 1 in the rule, BGRACE still %d): the map at +%d "
+                "boosts (%d)" % (BGRACE, BGRACE + 1, g5[BGRACE + 1]), bool(g5[BGRACE + 1])))
     # the grace's exactness: on the apron at rest and rolling, and on every ladder case
     ap = []
     for dk, run in TRIG_RUNS:
@@ -10002,23 +10122,46 @@ def _trigger_checks(play, res):
           "point, k) cases against the contact boost (%.1f s); %d ladder cases the grace did not reach (a contact "
           "or a wall closed it first: no conversion to compare)" % (
               len(ap), BGRACE, nl, time.time() - t0, lclosed))
-    res.append(("7 the late grace is EXACT: a Space edge k = 1, 2, 3 steps after an unarmed bouncing first contact "
+    res.append(("7 the late grace is EXACT: a Space edge k = 1 .. BGRACE steps after an unarmed bouncing first contact "
                 "puts the ball where the contact boost has it at that point of the step, and the flights agree after "
                 "it (%d apron runs, %d ladder cases%s)" % (len(ap), nl, (": " + str(lbad[:3])) if lbad else ""),
                 ap and nl and all(ok for r in ap for _k, ok in r) and not lbad))
     off = grace_exact(lambda: Physics(play, _graceoff=True), lambda i: K_HOP if i == 0 else 0)
     res.append(("7 negative control `graceoff` (the conversion without the k - 1 lift): the apron's runs differ at "
-                "k = 2 and 3 (%s)" % off, off is not None and [ok for _k, ok in off] == [True, False, False]))
-    # the accidental cases
+                "k = 2 .. BGRACE (%s)" % off, off is not None and [ok for _k, ok in off] == [True] + [False] * (BGRACE - 1)))
+    # round 3 (SPEC.md 128.17.16): the Hop's press HELD through its first contact boosts, one released
+    # before it does not (and opens the grace, unused); `noheld` (no held arming) never boosts held
+    c0, _why = trigger_contact(play)
     held = trigger_holds(play)
-    res.append(("7 a Hop key HELD any length never boosts: Space held 6 to 40 steps from the Hop, at rest on the "
-                "apron (%d boosts)" % sum(held.values()), not any(held.values())))
+    want = {h: int(c0 is not None and h > c0) for h in held}
+    res.append(("7 the Hop's press HELD through its first contact (step %s) boosts, released before it does not: "
+                "Space held 6 to 40 steps from the Hop, at rest on the apron (%s)" % (
+                    c0, "".join("B" if held[h] else "." for h in sorted(held))), c0 is not None and held == want))
+    nh = trigger_holds(play, _noheld=True)
+    res.append(("7 negative control `noheld` (no held arming): a press held through the contact never boosts (%d)"
+                % sum(nh.values()), not any(nh.values())))
+    # round 3: a FALL arms one boost - rubber rolled off the step ladder's ledges down onto a lower level
+    # floor, no Hop, Space held through the contact: a boost; `nofall` none.  And a boost needs the ball to
+    # have stopped bouncing since the last one (fall_spent)
+    fb, fn, fc = fall_boosts(), fall_boosts(_nofall=True), fall_boosts(hold=False)
+    res.append(("7 a FALL arms one boost: rolled off a ledge onto a lower firm level floor with no Hop, Space held "
+                "at the contact, rubber boosts (%d of %d drops whose rebound is under BOOST); with no Space it does "
+                "not (%d)" % (fb[1], fb[0], fc[1]), fb[0] and fb[1] == fb[0] and not fc[1]))
+    res.append(("7 negative control `nofall` (no token on a fall): the falls never boost (%d of %d)" % (fn[1], fn[0]),
+                fn[0] and not fn[1]))
+    sp = fall_spent(play)
+    res.append(("7 one boost, then the ball must STOP BOUNCING: Space held for %d steps over the PLAYGROUND's routes "
+                "and the step ladder's drops, every boost after the first follows a step that ended grounded "
+                "(%d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])), sp[1] >= 2 and not sp[2]))
+    spp = fall_spent(play, _pump=True)
+    res.append(("7 negative control `pump` (a contact Hop re-arms): a boost while still bouncing (%d violations)"
+                % len(spp[2]), bool(spp[2])))
     tap = trigger_holds(play, n=(1, 2))[1]
     res.append(("7 a single tap never boosts: the Hop's one-step press and nothing else (nboost %d)" % tap, not tap))
     tapc = trigger_holds(play, n=(1, 2), _hopedge=True)[1]
     res.append(("7 negative control `hopedge` (the Hop's own edge arms its flight): the single tap boosts (%d)" % tapc,
                 bool(tapc)))
-    # the ledge case: a Hop at the lip of a half-unit step, Space held 4 steps, its first contact on the ledge
+    # the ledge case: a Hop at the lip of a half-unit step, Space held through its first contact on the ledge
     lc = _lad_course(0, 0.5)
 
     def ledge(**kw):
@@ -10029,18 +10172,22 @@ def _trigger_checks(play, res):
                 continue
             p = _lad_ball(lc, R, **kw)
             for i in range(land + 1):
-                p.step(K_R | K_D | (K_HOP if at <= i < at + 4 else 0))
+                p.step(K_R | K_D | (K_HOP if at <= i <= max(at + 3, land) else 0))
             if (p.gx >> 12) < LAD_LIP:
                 continue
             n += 1
             boosts += p.nboost
         return n, boosts
     ln, lb = ledge()
-    res.append(("7 the ledge case: a Hop pressed at the lip of a half-unit step, Space held 4 steps, meets the ledge 1 "
-                "- 4 steps later and does not boost there (%d take-off points, %d boosts)" % (ln, lb), ln and not lb))
+    res.append(("7 the ledge case: a Hop pressed at the lip of a half-unit step meets the ledge 1 - 4 steps later, "
+                "Space held through that contact, and does not boost there: the ledge is above the take-off (round 3's gate, "
+                "128.17.16; %d take-off points, %d boosts)" % (ln, lb), ln and not lb))
     hn, hb = ledge(_heldarm=True)
-    res.append(("7 negative control `heldarm` (Space held arms the token): the ledge case boosts (%d of %d)" % (hb, hn),
-                bool(hb)))
+    res.append(("7 negative control `heldarm` (Space held arms the token in flight): the ledge case boosts (%d of %d)"
+                % (hb, hn), bool(hb)))
+    gn, gb = ledge(_nogate=True)
+    res.append(("7 negative control `nogate` (held at the contact without the take-off gate): the ledge case boosts "
+                "(%d of %d)" % (gb, gn), bool(gb)))
     # the mouse (SPEC.md 128.17.4.3): the left button is the key byte's Space bit, so a second click in flight
     # arms and one within the grace converts, exactly as Space (one frame a step here; the pointer at rest)
     def mouse(clicks):
@@ -10055,8 +10202,10 @@ def _trigger_checks(play, res):
     # who hits it (SPEC.md 128.17.4.4): the players over the maps the model makes; wave 6's under _w6trig
     rows = (("wave 6 (window 6, closing on the contact)", {"_w6trig": True}),
             ("the whole flight alone", {"_nograce": True}),
-            ("wave 6b: the whole flight and a late grace of %d" % BGRACE, {}),
-            ("... with a grace of 4", {"_grace4": True}))
+            ("round 3: the whole flight, a late grace of %d, or held at the contact" % BGRACE, {}),
+            ("... with a grace of %d" % (BGRACE + 1), {"_grace5": True}),
+            ("wave 6b as built (round 2): a press in the flight or a grace of 3, holding nothing",
+             {"_bgrace": 3, "_noheld": True}))
     tab = {}
     for name, kw in rows:
         mp = trigger_map(play, **kw)
@@ -10069,13 +10218,15 @@ def _trigger_checks(play, res):
         "%s (%+.1f, sd %.1f)" % t for t in TRIG_PLAYERS))
     for name, _kw in rows:
         print("      | %s | %s |" % (name, " | ".join("%d%%" % round(100 * v) for v in tab[name])))
-    w6, b6 = tab[rows[0][0]], tab[rows[2][0]]
-    res.append(("7 who hits it: wave 6b's trigger serves every player at least as well as wave 6's, each column "
-                "computed from the maps the model makes (%s against %s), and a player holding the Hop's press to "
-                "the landing never boosts (%d%%)" % ("/".join("%d" % round(100 * v) for v in b6[:-1]),
-                                                      "/".join("%d" % round(100 * v) for v in w6[:-1]),
-                                                      round(100 * b6[-1])),
-                all(b >= w - 1e-9 for b, w in zip(b6[:-1], w6[:-1])) and b6[-1] == 0))
+    w6, b6, r2 = tab[rows[0][0]], tab[rows[2][0]], tab[rows[4][0]]
+    res.append(("7 who hits it: round 3's trigger serves every player at least as well as wave 6's and as round 2's, "
+                "each column computed from the maps the model makes (%s against %s and %s), and a player holding "
+                "the Hop's press to the landing always boosts (%d%%; round 2 %d%%)" % (
+                    "/".join("%d" % round(100 * v) for v in b6[:-1]),
+                    "/".join("%d" % round(100 * v) for v in w6[:-1]),
+                    "/".join("%d" % round(100 * v) for v in r2[:-1]), round(100 * b6[-1]), round(100 * r2[-1])),
+                all(b >= max(w, q) - 1e-9 for b, w, q in zip(b6[:-1], w6[:-1], r2[:-1])) and b6[-1] == 1
+                and r2[-1] == 0))
 
 
 def _hop487(c, **kw):

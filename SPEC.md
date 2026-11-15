@@ -266274,6 +266274,9 @@ Space on a host keyboard) is not excluded if the owner plays in an emulator.
 
 ##### 128.17.4.2 The rule (binding: the guest and `bbcourse.Physics` do exactly this)
 
+*Amended by gate 1's round 3 (128.17.16.2): a FALL takes the token too, and
+Space HELD at the contact arms it onto a floor no higher than the take-off.*
+
 This replaces 128.16.4.1's rule 2 and the paragraph after its five rules.
 
 **The TOKEN** `bz_btok` is **0** (no Hop from the ground in flight), **1**
@@ -266484,6 +266487,9 @@ sets the token only after N grounded steps (N about 10: ESTIMATED +8 bytes,
 taps and shows two cycles on the glass (128.17.10).
 
 ##### 128.17.4.5 The late grace (built)
+
+*`BGRACE` is 4 since gate 1's round 3 (128.17.16.1); the figures below are
+round 2's, at 3.*
 
 **The rule** (binding, part of 128.17.4.2's):
 
@@ -267654,6 +267660,9 @@ for whichever disk the owner chooses.
 
 #### 128.17.13 Open questions for the owner
 
+*Round 3 (128.17.16) answered the first two: Space held arms (with the
+take-off gate), and the grace is 4.*
+
 Each with the default wave 6b ships; round 2's play decides.
 
 - **Which "held" did you mean?** "Boost when they are holding space when
@@ -267957,6 +267966,197 @@ What that decides:
 - 128.17.13's other questions keep their defaults until the owner says
   otherwise. 6.10's re-baseline and 6.11's freeze wait for the owner's OK
   to freeze these physics.
+
+#### 128.17.16 Gate 1, round 3: the boost held, a fall's boost, a grace of 4 (2026-11-15)
+
+The owner's notes after round 2 (128.17.15), verbatim:
+
+> For starters, as the last past left it:
+>
+> * holding Space does not arm the boost;
+> * the late window stays at 3 steps;
+>
+> Lets move to 4 steps for the late window, and have space held arm the
+> boost. Also, if they are falling for a reason other than "they jumped", it
+> should still arm one boost. Aka, if they fall off a ledge. After a boost is
+> expended, they have to stop bouncing before they can boost again. We'll use
+> that eventually to make them "not boost" after multiple fall and forward
+> jumps to make it over the final gap.
+
+The round answers 128.17.13's first two questions (which "held", and the
+grace's length) and adds a third way to get the token. It is physics, so
+`BZ_PHYSV` moves (128.17.16.5). **Binding where it amends 128.17.4.2 and
+128.17.4.5**; everything else in 128.17.4 stands. Figures are MEASURED on the
+host model (`bbcourse.py --selfcheck`, `tests/bonanza_phys.py --check`) and
+on the assembled image unless marked; no emulator ran for them.
+
+##### 128.17.16.1 The decisions
+
+| decision | chosen | why |
+|---|---|---|
+| the late grace | **`BGRACE` 4** (round 2: 3) | the owner. The conversion's lift is `bgd x (k - 1)`, at most 3 `bgd` (1.75 px for a level Hop) at `k` 4 (128.17.4.5's *What it looks like*) |
+| Space HELD | **arms**: at a first contact whose token is 1, Space DOWN in that step's key byte arms it as a second press would, **when the contact's floor is no higher than the take-off** (the TAKE-OFF GATE) | the owner's "have space held arm the boost". The gate is 128.17.4.4's priced form of the held reading: without it a Hop pressed at a half-unit lip, which meets the ledge 1 - 4 steps after the press, boosts on every such climb (`nogate`: 5 of 5 take-off points) and the boost's radius throws the ball off the back of a narrow rung |
+| a FALL | **takes the token**: a grounded ball that leaves the floor WITHOUT a Hop (it rolls off a ledge, or over a floor's edge into a gap) carries the token 1, exactly as a ground Hop's flight does, so its first contact may boost (armed in flight, held at the contact, or by the grace) | the owner's "if they are falling for a reason other than 'they jumped', it should still arm one boost" |
+| one boost, then stop bouncing | **holds by construction**, and item 7 asserts it | 128.17.16.3 |
+| springs, a tube's exit, the cup's lip-out | **unchanged: no token** | they LAUNCH the ball, they are not a fall; a spring's launch spends the token on purpose (128.16.5.3). The owner's call (128.17.16.7) |
+
+##### 128.17.16.2 The rule (binding: the guest and `bbcourse.Physics` do exactly this)
+
+128.17.4.2's token, with two amendments:
+
+1. **The token is set to 1** by a Hop from the ground (as before) **and by a
+   FALL**: step 6, on a ball that began the step grounded, takes it off the
+   floor without a Hop - its cell is not a FLOOR or GOAL, or the floor fell
+   away below `z + gvz - G - STICK` (128.11.8.6's two take-off branches,
+   the guest's `.takeoff` and `.follow`'s `.launch`). Every one of those
+   take-offs goes through `bz_toff`, which now also records the take-off's
+   z in px, **`bz_zoff`** (`gz >> 8`, the value `bz_ztop` starts at; the
+   model's `zoff`).
+2. **At a contact** (`bz_land`, after the stun and the shatter and only when
+   the ball is not stunned), **a token of 1 becomes 2** when Space is down in
+   the step's key byte (`bz_kstep` bit 4) and the contact's floor is no
+   higher than the take-off: the floor's px (`z` once `bz_setz` has put the
+   ball on it, `h >> 8` in the model) `<= bz_zoff`. Then 128.17.4.2's
+   boost test (`token == 2`, rules 3 - 5) runs as before. A held contact
+   refused by rules 3 - 5 opens no grace, which the same rules would have
+   refused anyway.
+
+A press in flight still arms (128.17.4.2's step 1 edge, unchanged); the
+grace (128.17.4.5) is unchanged but for its length; one boost a chain,
+every contact clearing the token, and the spring's, the tube's, the respawn's
+and RETURN's clears all stand.
+
+**The offset map** (the same presses as 128.17.4.1; MEASURED by item 7 on
+17 runs at rest and rolling):
+
+    offset   -20 .. -15   -14 .. 0   +1 .. +4   +5 .. +10
+    round 3  no edge      BOOST      BOOST      nothing
+
+**The Hop's own press held** (one press from the Hop, at rest on `PLAY`'s
+apron; the first contact is 21 steps after the press): held 6 to 21 steps,
+no boost (the grace opens and goes unused); **held 22 steps or more - through
+the contact - a boost**, every length to 40 (MEASURED, item 7). So a plain
+Hop whose key is held past about 385 ms boosts on a level landing: that is
+the rule, not an accident, and it is the one way a single press now boosts.
+
+##### 128.17.16.3 One boost, then the ball must stop bouncing
+
+The owner's rule holds by construction, and the construction is what a
+future course leans on:
+- the token is set ONLY on leaving the ground (a ground Hop, a fall), and
+  only from a ball that began the step grounded;
+- every contact with a floor clears it, whatever the contact does;
+- a ball that bounces stays airborne from contact to contact (128.11.8.5
+  item 4), so a bouncing ball never leaves the ground, and after a boost it
+  can take a new token only once a contact has LANDED it (a rebound under
+  `BMIN`, or Grip held) and it then hops or falls.
+
+So a chain of falls and forward Hops over a run of gaps boosts at most once
+until the ball has rolled on a floor between them, and a contact Hop
+(`hopc`, Space in the window at a bounce) never takes a token. **The Grip
+chain** (128.17.4.4) still repeats: Grip held through the boost's landing
+LANDS the ball, which is "stopped bouncing". Item 7 asserts the rule over
+2,303 steps (the PLAYGROUND's autopilot with Space held throughout and with
+Space tapped every 2 steps, and the five drop courses' falls held and
+mashed): 10 boosts, every one after the first preceded by a step that ended
+grounded; the carried control `pump` (a contact Hop re-arms) breaks it 11
+times.
+
+##### 128.17.16.4 Who hits it, and the accidental boosts
+
+128.17.4.4's table, recomputed by item 7 from the maps the model makes
+(PREDICTED as there; the last column the Hop's press held 22 - 40 steps):
+
+| trigger | aims, full rate | half rate | moving | has learned it | reacts | taps mid-flight | holds to the landing |
+|---|---|---|---|---|---|---|---|
+| wave 6 | 43% | 34% | 33% | 63% | 0% | 25% | 0% |
+| round 2 (a press in flight, a grace of 3, holding nothing) | 81% | 69% | 65% | 94% | 0% | 95% | 0% |
+| **round 3 (a press in flight, a grace of 4, or held at the contact)** | **88%** | **78%** | **73%** | **97%** | 1% | **95%** | **100%** |
+| ... with a grace of 5 | 94% | 85% | 79% | 99% | 2% | 95% | 100% |
+
+**Falls** (MEASURED, item 7): rubber rolled off a ledge 0.5, 1, 1.5, 2 or 3
+units over a level floor, from 96, 160, 224 and the cap, with no Hop: 16 of
+the 20 drops land with a rebound under `BOOST`, and all 16 boost with Space
+held at the contact; none boosts with no Space, and none under `nofall`.
+The other 4 are the 3-unit drop at every speed, whose rebound (442) alone
+beats the boost (rule 5, 128.16.4.1's *Falls*); the 2-unit drop's rebound is
+345, just under `BOOST` 350.
+
+**Accidental boosts, by the rule.** A single tap still never boosts; a Hop
+press held through its landing now does, on purpose. Holding Space while
+rolling does nothing on the ground (a Hop needs an edge), but a ball that
+then rolls off a ledge with Space still held boosts at the lower floor if
+rules 3 - 5 pass, once. A Hop up a ledge with Space held does not boost
+there (the gate); a second TAP in that flight still does, as in round 2.
+
+##### 128.17.16.5 What it reads, the state, the log and `BZ_PHYSV`
+
+- **The input**: the step's key byte, as before; the mouse's left button is
+  bit 4 (128.14.8), so the button held at a contact arms exactly as Space.
+- **The state**: `bz_zoff`, **one word of bss** (MEASURED: +2), placed among
+  "written before read": it is read only under the token 1, which only a
+  take-off through `bz_toff` sets, so it is NOT in `Physics.state6()` and
+  `bonanzaphys` does not compare it; a divergence would show as a boost the
+  model does not make, which it does compare.
+- **The log**: unchanged (BZR1 records the key byte every step). Logs made
+  under round 2 are refused because `BZ_PHYSV` moves.
+- **`BZ_PHYSV`**: `PHYS_REV` **8** and `BGRACE` **4** in `PHYS_CONSTS`,
+  **FDh** (MEASURED); **53h** (round 2's, the owner's preview) is appended to
+  `PHYSV_SHIPPED`. The three re-authored demos keep their step counts (MOON
+  2,130, PEAK 2,172, PLAY 1,504; none's AUTHOR script presses Space through
+  a contact or rolls off a ledge into a boost); the route demos regenerate
+  with the build; the course parts and identities are unchanged (nothing here
+  is in the reach: the reach already launches a boost from every firm level
+  floor, 128.16.5.1, however the ball got there). Saved bests clear once.
+
+##### 128.17.16.6 Bytes, clocks and what does not move
+
+- **Bytes: +36** (`bonanza.bin` 34,334 -> 34,370, MEASURED against `e4da75a`'s
+  `bzphys.inc` on this tree's art): `bz_zoff`'s write in `bz_toff` 3; the
+  fall's token 5 (the Hop's write moved into the shared `.launch`, one more
+  at `.takeoff`); the held test 27; the stun's `jmp short .ground` made near,
+  1 (the red arms `pump` and `armwin` push it past 127 bytes).
+- **Clocks** (ESTIMATED, priced as 128.17.4.3): an ordinary step **+0**; a
+  take-off **+14** (`bz_zoff`'s write); a contact **about +40** with the
+  token not 1, **about +80** with the token 1 and Space up, **about +140**
+  when it arms.
+- **The ladders** (the step ladder, the gap ladder) are byte-identical to
+  round 2's: their sweeps press one edge per step and never hold through a
+  contact, and the boost's flight does not depend on what armed it. Item 7's
+  comparison against wave 6's trigger finds the same single difference as
+  round 2 (`(0.5, 0)` +2, the lip's grace positions). The late grace stays
+  EXACT at `k` = 1 .. 4: 17 apron runs and 2,425 ladder cases (round 2:
+  1,827 at `k` 1 .. 3), 27 cases the grace did not reach.
+
+##### 128.17.16.7 The rows, the controls and what is still the owner's
+
+**Host** (`bonanzacourse`, item 7): the offset map to `+BGRACE`; `grace5`
+(was `grace4`); the held press through the contact and `noheld`; the falls
+and `nofall`; the stop-bouncing rule and `pump`; the ledge case with Space
+held THROUGH the contact (5 take-off points, 0 boosts) and `heldarm` and
+`nogate` (5 of 5 each); who-hits-it at least wave 6's and round 2's in every
+column, holding 100%.
+
+**`bonanzaphys`** (both cards, each found and proved on the model):
+`armlate5` (was `armlate4`, red `grace5`); `armheld` now **boosts** (red
+`noheld`); `ledgehold` holds Space through the ledge contact (reds `heldarm`,
+`nogate`); new **`fallarm`** (rubber rolled off `PLAY`'s 1-unit top, no Hop,
+a tap 2 steps after the take-off: a boost; red `nofall`) and **`fallnone`**
+(the same roll, no Space: no boost, the grace opened and compared). The
+carried `hopedge` and `takeoff` arms are re-anchored on the moved token write.
+
+**Still the owner's** (each with this round's default):
+- **The take-off gate**: *on.* Off, a Hop up a ledge with its press held
+  boosts on the ledge (5 of 5 lip take-offs).
+- **Springs, a tube's DROP or LAUNCH exit and the cup's lip-out** arm
+  nothing: *default no token.* Giving any of them the fall's token is a
+  one-site change each.
+- **A plain Hop held past its landing boosts** (22 steps, about 385 ms, on
+  the level): *the rule as asked.* The lever if it boosts too often is a
+  held window (Space must go down within N steps of the contact).
+- 128.17.13's remaining questions keep their defaults (the Grip chain, a
+  refused boost's cue, the hint line, steel's and glass's contact Hop, the
+  brake strip, glass's `K`, ice, `MILL`'s CD5 instances, the camera's).
 
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 

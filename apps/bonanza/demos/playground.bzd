@@ -4,7 +4,7 @@
 # as built; replaced by the owner's recording the day one is committed.
 demo    PLAY
 ident   18E6
-physics 53
+physics FD
 ball    rubber
 flags   complete
 steps   1504
