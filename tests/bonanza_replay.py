@@ -186,7 +186,7 @@ def record(g):
         return fails, None, {}, None
     m.run()
     m.bp_exec(g.a("bz_presented"))
-    g.key("Enter")
+    g.key("KeyF")
     held, seen, frames = set(), {}, 0
     while frames < PLAY_FRAMES:
         assert m.wait_stop(60) == "breakpoint", "the play stopped presenting (frame %d)" % frames
@@ -439,7 +439,7 @@ def record_play(g):
         return fails, None, {}, None
     m.run()
     m.bp_exec(g.a("bz_presented"))
-    g.key("Enter")
+    g.key("KeyF")
     held, seen, frames = set(), {}, 0
     lane_x = (BB.PLAY_LANE * 16 + 8) << 8
     phase, t_ph, rest = "settle", 0, 0
@@ -590,7 +590,7 @@ def record_mill(g, delay):
     fails = []
     pilot = BB.Physics(R.course("mill"), play=True)
     m.bp_exec(g.a("bz_launch"))
-    g.key("Enter")
+    g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
     g.putb("bz_crs", R.CRS_K["mill"])
     m.bp_exec(g.a("bz_presented"))
@@ -777,7 +777,7 @@ def record_mouse(g, ui):
         g.key("KeyN")
         M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=5)
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
-    g.key("Enter")
+    g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the mouse play's bracket", guest=60)
     seen, resp_due = 0, None
     for cx, cy, sx, sy in MOUSE_SCRIPT:
@@ -884,7 +884,7 @@ def record_mouse_boost(g, ui):
     mat = g.b("bz_matsel")
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
     m.bp_exec(g.a("bz_presented"))
-    g.key("Enter")
+    g.key("KeyF")
     want, phase, frames, t_ph, rest = False, "settle", 0, 0, 0
     while frames < PLAY_MAX and phase != "done":
         assert m.wait_stop(60) == "breakpoint", "the mouse PLAYGROUND play stopped presenting (frame %d)" % frames

@@ -340,7 +340,7 @@ def launch(g, way, crs=None, fails=None):
     m = g.m
     fails = [] if fails is None else fails
     m.disk(reset=True)
-    key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "Enter"
+    key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "KeyF"
     if crs and not way.startswith("replay"):
         m.bp_exec(g.a("bz_launch"))
         g.key(key)
@@ -692,8 +692,8 @@ def palette_leg(g, crss=("play", "first")):
         byte = m.read(g.a("bz_cpals") + k, 1)[0]
         m.bp_exec(g.a("bz_launch"))
         m.run()
-        g.key("Enter")
-        assert m.wait_stop(60) == "breakpoint", "palette %s: Enter did not reach bz_launch" % crs
+        g.key("KeyF")
+        assert m.wait_stop(60) == "breakpoint", "palette %s: F did not reach bz_launch" % crs
         g.putb("bz_crs", k)
         m.bp_exec(m.sym("fsx_run"))
         m.run()
@@ -859,9 +859,10 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
                          % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
-        if len(base_rows) != shell_row() + 1:
+        if len(base_rows) != shell_row() + 2:
             fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs, %d "
-                         "shipped demos and the shell (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4, 128.19.2)" % (
+                         "shipped demos, the shell and the pathway (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4, "
+                         "128.19.2, 128.19.5)" % (
                              len(base_rows), dict.__len__(R.CRS_K), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)
@@ -929,8 +930,8 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-REDS["padleak"] = [("bonanza.asm", ".dball:                         ; of a part that is not here is a no-op, so\n"
-                    "    call op_drop                ; all go whichever failed; it preserves AX)\n",
+REDS["padleak"] = [("bonanza.asm", ".dball:\n"
+                    "    call op_drop                ; (it preserves AX)\n",
                     ".dball:                         ; RED padleak: the glass ball kept at the cup\n"
                     "    cmp al, BZ_P_BALG\n    jne .rpl\n    cmp byte [bz_hid], 0\n    jne .rpl2\n.rpl:\n"
                     "    call op_drop\n.rpl2:\n")]

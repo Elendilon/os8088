@@ -548,7 +548,7 @@ def scenario(g, crs, name):
     (wx, wy), gvx, gvy, nmax = SCEN[name]
     rd = Reader(g)
     fails = []
-    g.key("Enter")
+    g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on FIRST runs", guest=60)
     m.pause()
     g.check_base()
@@ -2358,8 +2358,8 @@ REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n.tdone:\n",
 REDS["clkpass"] = [("bzphys.inc", "    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads\n",
                     "                                ; RED clkpass: the clock's kind left as it is\n")]
 # noexit (wave 8b, SPEC.md 128.19.4): the goal's test writes no exit - red at exit1 (bz_exit 0, the model's 1)
-REDS["noexit"] = [("bzphys.inc", "    shr al, cl\n    mov [bz_exit], al\n    mov byte [bz_goal], 1\n",
-                   "    shr al, cl                  ; RED noexit\n    mov byte [bz_goal], 1\n")]
+REDS["noexit"] = [("bzphys.inc", "    mov [bz_exit], al\n    mov byte [bz_goal], 1\n",
+                   "                                ; RED noexit\n    mov byte [bz_goal], 1\n")]
 RED_ONLY.update({"noexit": ("exit1",)})
 RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",),
                  "clkpass": ("clock",)})

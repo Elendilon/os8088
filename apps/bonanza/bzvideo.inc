@@ -104,11 +104,19 @@ bz_fullscreen:
     call OSAPI_FSX_MODE
     jc .refused
     mov byte [bz_fs], 1
+%if BZ_PATH_N
+    cmp byte [bz_ingame], 0     ; wave 8b (128.19.5): THE GAME - the pathway
+    je .one                     ; and its courses, round after round, in
+    call bz_grounds             ; this one bracket (bonanza.asm)
+    jmp short .leave
+.one:
+%endif
     call bz_vinit
     call bzs_open               ; the sound's arm and the course's song (128.20)
     call bz_play                ; the frame loop, until a key or the benchmark ends
     call bz_post                ; the tour, the bests, the face's page: memory
     call bzs_close              ; only, before the kernel's restore paints it
+.leave:
     xor ax, ax                  ; the start address home on the way out (the
     call bz_flip                ; kernel's restore re-sets the mode anyway)
     mov byte [bz_fs], 0

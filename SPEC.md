@@ -269317,6 +269317,88 @@ Binding where it adds. Figures are MEASURED, PREDICTED or ESTIMATED as in
 - **The bytes** (MEASURED): **+19** (the image 33,670 -> 33,689), the bss
   +0 (`bz_bsp` gave up its pad byte to `bz_exit`).
 
+#### 128.19.5 The pathway and the loop (stories 8b.1 - 8b.3, 8b.5, 8b.9; PROTOTYPE)
+
+**The walk is ROLLED, not stepped** (a change from the plan's graph walk,
+made for the prototype and the owner's to reverse): the pathway is a course
+the ball rolls across with every rule of physics, and a NODE is a FINISH
+whose exit number is the node's number. Rolling onto an OPEN node's finish
+ends the pathway's play with that exit, and the loop plays the node's
+course. It needs no step mode of its own, no direction table and no input
+path: the frame loop, the camera, the lanes and the ball box are a course's.
+The graph walk (128.19.3) stays the alternative.
+
+- **The source**: `apps/bonanza/courses/path.bbc`, the Makefile's
+  `BZ_PATH`, compiled by `tools/bbcourse.py --path` beside the courses (not
+  in `BZ_COURSES`: it is not a course of the tour, the face or the demos).
+  A **`pathway`** statement marks it: no limit and no clock countdown
+  (`limit` refused), no `goal` or `cup` of its own (its finishes are its
+  nodes'). Its index is **`BZ_CRS_PATH` = `BZ_NCRS`**: every per-course
+  table (`BZ_CRS_NAMES`, `_TITLES`, `_BALLS`, `_LIMS`, `_IDS`, `_SONGS`,
+  `_PALS`) gains its entry LAST, and `BZ_NCRS` is unchanged. Its part is
+  `BZPATH.BIN`, row **`BZ_P_PATH`**, the last row (after the shell's);
+  `bz_launch` maps `BZ_CRS_PATH` to it, every other K to `BZ_P_CRS + K`.
+- **`node N COURSE wx wy sign sx sy`**: node N (0 - 15; node 0 is where a
+  new game starts, open from the first) plays course NAME COURSE; its cell
+  (wx, wy), a FLAT FLOOR tile of the pathway, becomes a 1-tile GOAL with
+  **exit N**; its SIGN stands at (sx, sy), a crystal ball on a pole (the
+  clock's art and post, 128.18.5.2, 128.18.5.3) holding ONE glyph: a clock
+  record with **ndig 0** (+27), its +28 the node's number, its lane's
+  poses **`NODE_POSES` = 5**: 0 LOCKED (the ball empty), 1 OPEN (a ring),
+  2 DONE (a check), 3 SILVER and 4 GOLD (`S`, `G`: 8c's medals).
+- **`edge N E M`**: a finish of node N's course through exit E opens node
+  M. Branches and joins are as many `edge`s as wanted.
+- **`bzcourse.inc`** (resident): `BZ_PATH_N` (nodes), `BZ_PATH_CRS` (a
+  byte a node, its course's K), `BZ_PATH_NEDGE` and `BZ_PATH_EDGES` (three
+  bytes an edge: N, E, M).
+- **The guest's node state**: `bz_nopen` and `bz_ndone` (a WORD each, a
+  bit a node) and `bz_nst` (a byte a node, the sign's pose, derived from
+  them at each pathway entry). `bz_ltrue`'s CLOCK case reads `bz_nst + num`
+  for a record whose ndig is 0. **The goal's test on the pathway** (step
+  8, `[bz_crs]` = `BZ_CRS_PATH`) sets `bz_goal` only on an OPEN node's
+  cell: a locked one rolls like floor.
+- **The loop** (`bz_game8`, resident, inside ONE bracket): a new game sets
+  `bz_lives` 5, `bz_nopen` = node 0, `bz_ndone` 0. Then, round: fetch the
+  pathway (row `BZ_P_PATH`; the Hercules: `bz_hgen` and `bz_hxlat`), play
+  it (the ball at its `start`), drop it; Esc leaves the bracket. On node N
+  (`bz_exit`): fetch N's course and its balls, play it with its OWN ball
+  (8b.9), drop them. **A finish** (`bz_goal`): `bz_ndone` gains N, and
+  every edge (N, `bz_exit`, M) opens M. **A timeout or an Esc**: a life
+  (8b.5); at 0 the game is OVER and the bracket ends (the next Enter starts
+  a new game). Then round again. The palette is the course's at each entry
+  (`bz_vinit`'s OUT), the song the course's.
+- **The lives on the glass**: the pathway's own clock (a `clock` statement
+  on `path.bbc`) shows them: on the pathway `bz_tdig` is set from
+  `bz_lives` (the countdown never runs there). The HUD band is 8c's.
+- **Not yet** (this point): the save (8b.6: the game lives in memory until
+  then), the ball's return to its node (it starts at the pathway's `start`
+  every round), 16 nodes at most (the 4-bit exit), the HUD band, the cards
+  (8c), the tour's removal (8b.8).
+- **The keys**: **Enter** (and Alt+Enter) on the face is THE GAME; **F**
+  a free play of the selected course (N, M), as Enter was; G the tour until
+  8b.8 removes it (inside a tour Enter is still its next course). The face's
+  line 1 says `ENTER PLAY  F <title>  N NEXT`.
+- **A refusal inside the bracket says nothing**: `OP_SAYGATE bz_fs` (a
+  define-gated byte `op_say` reads, `apps/os88parts.inc`): a fetch refused
+  after the mode set ends the game quietly rather than drawing a toast into
+  the framebuffer (SPEC.md 53.7).
+- **The prototype map** (`path.bbc`): FIRST (node 0) -> TRIAL (1); TRIAL's
+  exit 0 -> MILL (2), its exit 1 (128.19.4's split goal) -> PLAY (3); MILL
+  and PLAY both -> MOON (4). **Five nodes**: a window holds six lanes at
+  most (128.12.4.6) - the five signs and the lives' one digit - so PEAK
+  waits for a pathway that scrolls, or 8c's HUD band.
+- **The bytes** (MEASURED): the image **33,689 -> 34,185 (+496)** (the
+  loop, the pathway's tables, the sign case, the goal gate, the lives on
+  the clock), the bss **+24**; `BZPATH.BIN` 10,020 bytes stored.
+- **Proved by** `bonanzapath` (new, soak): MEASURED PASS on both cards at
+  this point - a new game (5 lives, node 0's sign open, the rest locked); the
+  ball poked onto locked node 1 rolls on; node 0 plays FIRST, which the
+  autopilot finishes: node 0 done, node 1 open, the signs 2 and 1; node 1
+  (TRIAL) left by Esc costs a life; the last life ends the bracket with the
+  claims as before the game; Enter again is a new game. Red arm `nogate`
+  red at check 1. `bonanzaexit`, `bonanzamega` and `bonanzagame` pass with
+  F for their free plays and the pathway's row counted.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

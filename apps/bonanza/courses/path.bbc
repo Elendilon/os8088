@@ -1,0 +1,33 @@
+# The PATHWAY - BONANZA's map between courses (wave 8b, SPEC.md 128.19.5).
+# A PROTOTYPE (the owner, 2026-11-15: "the pathway itself will be a prototype,
+# probably; we'll flesh out exact course icons, exact pathway, etc as we make
+# courses"). The ball ROLLS across it; each node is a 1-tile finish whose exit
+# is the node's number, and rolling onto an OPEN node plays its course. Each
+# node's SIGN is a crystal ball beside it: empty locked, a ring open, a tick
+# done (S and G are 8c's medals). The clock by the start shows the lives.
+course PATH "The Pathway"
+width  64
+ball   rubber
+pathway
+music  fairway                              # (the title is the face's; 8b.10 gives the pathway its own)
+
+floor rect   4  4 15 15  flat 0             # the green the nodes stand on (down the screen: x is wx - wy)
+start  5  5
+
+clock  5  8                                 # the lives left, one digit (no countdown here)
+# (five nodes: a window holds 6 lanes at most, 128.12.4.6 - the five signs and
+# the lives' digit; PEAK waits for a pathway that scrolls, or the HUD band)
+
+# node N COURSE wx wy sign sx sy
+node 0 FIRST   6  6  sign  6  5
+node 1 TRIAL   8  8  sign  8  7
+node 2 MILL   12  8  sign 12  7
+node 3 PLAY    8 12  sign  8 11
+node 4 MOON   11 11  sign 11 10
+
+# edge N EXIT M: a finish of node N's course through EXIT opens node M
+edge 0 0 1
+edge 1 0 2                                  # TRIAL's back goal cell ...
+edge 1 1 3                                  # ...and its front one (exit 1, 128.19.4): a branch
+edge 2 0 4
+edge 3 0 4                                  # the branch joins again

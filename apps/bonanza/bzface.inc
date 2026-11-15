@@ -137,7 +137,8 @@ bz_lline:
     call bz_lstr
     jmp bz_line
 
-; line 1: what Enter does.  `G GAME  ENTER <title>  N NEXT`; in a tour `ENTER
+; line 1: what Enter does.  `ENTER PLAY  F <title>  N NEXT` (wave 8b, 128.19.5:
+; Enter the game, F a free play of the selected course); in a tour `ENTER
 ; next  ESC stop tour`
 bz_l1:
     mov si, bz_s_tkeys
@@ -1014,7 +1015,7 @@ bz_clims:   BZ_CRS_LIMS
 %assign %{1}_n %%e - %1
 %endmacro
 BZS bz_s_title, 'BOUNCE BONANZA'
-BZS bz_s_keys,  'G GAME  ENTER '
+BZS bz_s_keys,  'ENTER PLAY  F '
 BZS bz_s_nk,    '  N NEXT'
 BZS bz_s_tkeys, 'ENTER next  ESC stop tour'
 BZS bz_s_sndk,  'S SOUND '

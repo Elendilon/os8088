@@ -51,6 +51,8 @@ OS88_DOCGLYPH8_END
 ; both are dropped when the bracket returns (SPEC.md 128.7, 128.11.3).
 %define OP_NO_LAZYOK            ; (the fetch itself asks; no pre-check is used)
 %define OP_WANT_CSEG            ; op_cseg: the shell part is FAR-CALLED (SPEC.md 128.19.2)
+%define OP_SAYGATE bz_fs        ; a fetch refused inside the bracket, after its
+                                ; mode set, says nothing (SPEC.md 53.7, 128.19.5)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
@@ -160,7 +162,9 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
 BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1
-BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN, the last row (SPEC.md 128.19.2)
+BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.19.2)
+BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN, the last row (128.19.5)
+BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
 BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
@@ -253,10 +257,17 @@ bz_onkey:
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
     mov byte [bz_page], 0       ; MAIN and returns the face to it (SPEC.md
     mov [bz_pgo], cl            ; 128.14.3.2): repainted whole at .done
+%if BZ_PATH_N
+    cmp ax, KEY_ALTENTER
+    je .game
+    cmp al, 13
+    je .game
+%else
     cmp ax, KEY_ALTENTER
     je .play
     cmp al, 13
     je .play
+%endif
     cmp al, 27
     je .esc
     or al, 20h
@@ -325,6 +336,13 @@ bz_onkey:
     jnc .free                   ; course
     call bz_tgo
     jmp short .done
+%if BZ_PATH_N
+.game:                          ; Enter, Alt+Enter: THE GAME (wave 8b,
+    call bz_intour              ; 128.19.5) - in a tour, its next course
+    jc .play
+    call bz_game8
+    jmp short .done
+%endif
 .free:
     mov al, 0                   ; ...otherwise play the selected course
     mov ah, [bz_crsel]          ; freely (SPEC.md 128.11.11.3)
@@ -522,8 +540,67 @@ bz_launch:
 .ret:
     ret
 .home:
+    call bz_cload               ; the course, its balls and its song (CF: a
+    jc .drop                    ; refusal, its toast said why)
+    cmp byte [bz_mode], 2       ; a REPLAY (R or D) of a log made on another
+    jb .idok                    ; course (a re-seeded one: its identity
+    push es                     ; differs) is refused, and the face says so
+    mov es, [bz_cseg]           ; (SPEC.md 128.12.8) - and one made under
+    mov di, [bz_goff]           ; other PHYSICS (+7, 128.14.7.2)
+    mov ax, [es:di + BZG_ID]
+    pop es
+    mov byte [bz_err], 3
+    cmp ax, [bz_rlog + BZR_ID]
+    jne .drop
+    inc byte [bz_err]
+    cmp byte [bz_rlog + BZR_PHYS], BZ_PHYSV
+    jne .drop
+.idok:
+    mov byte [bz_err], 0
+    mov bx, [bz_win]
+    mov ax, bz_fullscreen
+    mov cx, FSXF_FASTTICK
+    call OSAPI_FSX_RUN
+    jc .nofs
+    mov byte [bz_pgo], 0        ; the kernel's restore painted the face whole
+    jmp short .drop
+.nofs:
+    mov si, bz_t_nofs
+    call bz_toast
+.drop:
+    call bz_cdrop               ; every part this launch fetched given back
+    call bzs_gdrop              ; the song back, and the title (a finish's
+    cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 128.20.6).  The
+    je .nopend                  ; restore's paint was put off while the course
+    mov byte [bz_shpend], 0     ; was held (bz_shcall): made now, the course
+    mov byte [bz_pgo], 0        ; gone and the shell part fetched again
+    call bz_repaint             ; (SPEC.md 128.19.2)
+.nopend:
+    cmp byte [bz_err], 3        ; no bracket
+    jb .out                     ; ran: the face repainted with the refusal (3
+    mov byte [bz_pgo], 1        ; or 4), by bz_onkey (once, whatever page it
+.out:                           ; was on)
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_cload - course [bz_crs]'s part fetched for the ball [bz_mat] (SPEC.md
+; 128.14.4.4): its row - BZ_P_CRS + K, or BZ_P_PATH for the pathway (wave 8b,
+; 128.19.5) - expanded in place once (bz_cexp, 128.15.4.5), every ball it can
+; need, its song (bzs_gfetch), its header copied (bz_crshdr) and, on the
+; Hercules, translated (bz_hgen, bz_hxlat, 128.11.3).  CF = 1 a fetch was
+; refused (op_fetch said why - or, inside the game's bracket, OP_SAYGATE
+; held it quiet): what was fetched is bz_cdrop's to give back.  At home.
+; Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_cload:
     mov al, [bz_crs]            ; course K's row: BZ_P_CRS + K (bzcourse.inc)
     add al, BZ_P_CRS
+%if BZ_PATH_N
+    cmp byte [bz_crs], BZ_CRS_PATH ; ...the pathway's its own (128.19.5)
+    jne .row
+    mov al, BZ_P_PATH
+.row:
+%endif
     mov [bz_pc], al
     call op_fetch               ; claim, read, expand - or a toast said why
     jc .out
@@ -591,48 +668,200 @@ bz_launch:
     call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
     pop es
     call bz_crshdr              ; the course's header, copied into our data
-    cmp byte [bz_mode], 2       ; a REPLAY (R or D) of a log made on another
-    jb .idok                    ; course (a re-seeded one: its identity
-    push es                     ; differs) is refused, and the face says so
-    mov es, [bz_cseg]           ; (SPEC.md 128.12.8) - and one made under
-    mov di, [bz_goff]           ; other PHYSICS (+7, 128.14.7.2)
-    mov ax, [es:di + BZG_ID]
-    pop es
-    mov byte [bz_err], 3
-    cmp ax, [bz_rlog + BZR_ID]
-    jne .drop
-    inc byte [bz_err]
-    cmp byte [bz_rlog + BZR_PHYS], BZ_PHYSV
-    jne .drop
-.idok:
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
-    je .run                     ; BZ_HTAB, made here (SPEC.md 128.11.3)
+    je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
     call bz_hgen                ; bz_hxlat leaves the ball's there)
     call bz_hxlat
     pop es
-.run:
+.ok:
+    clc
+.out:
+    ret
+.drop:
+    stc
+    ret
+
+%if BZ_PATH_N
+; -----------------------------------------------------------------------------
+; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face.  Its
+; refusals are bz_launch's (kern_small, the adapter); a game with no lives left
+; is a NEW one (5 lives, node 0 open, nothing done), else it goes on where it
+; was.  The pathway is fetched here at home, on the desktop, and the bracket
+; (bz_fullscreen, [bz_ingame] 1) plays the rounds; whatever is held when it
+; ends is given back, and a best a course set is written (bz_dsave).
+; -----------------------------------------------------------------------------
+bz_game8:
+    mov byte [bz_newb], 0
+    cmp byte [bz_small], 0
+    je .big
+    mov si, bz_t_small
+    jmp bz_toast
+.big:
+    call bz_adapter
+    or al, al
+    jnz .ok
+    mov si, bz_t_adapt
+    jmp bz_toast
+.ok:
+    dec al
+    mov [bz_herc], al
+    cmp byte [bz_lives], 0      ; a NEW game
+    jne .on
+    mov byte [bz_lives], BZ_LIVES
+    mov word [bz_nopen], 1
+    mov word [bz_ndone], 0
+.on:
+    call bz_shdrop              ; (never beside a course, 128.19.2)
+    call bz_home
+    jc .ret
+    call bz_gpath               ; the pathway's part, its ball and song
+    jc .drop
+    mov byte [bz_ingame], 1
     mov byte [bz_err], 0
     mov bx, [bz_win]
     mov ax, bz_fullscreen
     mov cx, FSXF_FASTTICK
     call OSAPI_FSX_RUN
-    jc .nofs
-    mov byte [bz_pgo], 0        ; the kernel's restore painted the face whole
-    jmp short .drop
-.nofs:
+    mov byte [bz_ingame], 0
+    jnc .ran
     mov si, bz_t_nofs
     call bz_toast
+.ran:
+    mov byte [bz_pgo], 0
 .drop:
+    call bz_cdrop
+    call bzs_gdrop              ; (the title back)
+    call bz_back
+    cmp byte [bz_shpend], 0
+    je .sv
+    mov byte [bz_shpend], 0
+    call bz_repaint
+.sv:
+    jmp bz_dsave                ; a best a course set (BONANZA.DAT)
+.ret:
+    ret
+
+; the pathway made the course: its node signs' poses from the game's state,
+; its ball, a play - and fetched.  CF = 1 refused.
+bz_gpath:
+    xor bx, bx                  ; bz_nst: 2 done, 1 open, 0 locked
+.n:
+    mov cx, bx
+    mov ax, 1
+    shl ax, cl
+    mov dl, 2
+    test ax, [bz_ndone]
+    jnz .w
+    dec dx
+    test ax, [bz_nopen]
+    jnz .w
+    dec dx
+.w:
+    mov [bz_nst + bx], dl
+    inc bx
+    cmp bx, BZ_PATH_N
+    jb .n
+    mov byte [bz_crs], BZ_CRS_PATH
+; course [bz_crs] made the play: its own ball (8b.9), mode 0, fetched
+bz_gcrs:
+    mov bl, [bz_crs]
+    xor bh, bh
+    mov al, [bz_cballs + bx]
+    mov [bz_mat], al
+    mov byte [bz_mode], 0
+    jmp bz_cload
+
+; -----------------------------------------------------------------------------
+; bz_grounds - inside the bracket, the mode set: the game's ROUNDS.  The
+; pathway played; a roll onto an open node (bz_goal, its number bz_exit)
+; plays that node's course; a finish marks the node DONE and opens every node
+; an edge (node, exit) names; a timeout or an Esc costs a life, and the last
+; ends the game.  Esc on the pathway, a refused fetch, or no lives: the
+; bracket ends.  Each round's parts are given back before the next's are
+; fetched (one course in memory at a time), the palette and the song the
+; course's own (bz_vinit, bzs_open).
+; -----------------------------------------------------------------------------
+bz_grounds:
+    call bz_vinit
+    call bzs_open
+    call bz_play
+    call bzs_close
+    mov al, [bz_crs]
+    cmp al, BZ_CRS_PATH
+    jne .crs
+    cmp byte [bz_goal], 0       ; THE PATHWAY: left (Esc, F, Alt+Enter) -
+    je .out                     ; the game waits on the face
+    mov al, [bz_exit]
+    mov [bz_gnode], al
+    call .swap                  ; ...or node bz_exit's course
+    mov bl, [bz_gnode]
+    xor bh, bh
+    mov al, [bz_path_crs + bx]
+    mov [bz_crs], al
+    call bz_gcrs
+    jc .out
+    jmp bz_grounds
+.crs:                           ; A COURSE: a finish ...
+    cmp byte [bz_goal], 0
+    je .life
+    call bz_post                ; (its best, in memory: bz_dsave on the desktop)
+    mov cl, [bz_gnode]
+    mov ax, 1
+    shl ax, cl
+    or [bz_ndone], ax
+    mov si, bz_path_edges       ; every edge (node, exit, next) opens next
+    mov cx, BZ_PATH_NEDGE
+    jcxz .back
+.e:
+    lodsw
+    mov dl, al
+    lodsb
+    cmp dl, [bz_gnode]
+    jne .en
+    cmp ah, [bz_exit]
+    jne .en
+    push cx
+    mov cl, al
+    mov ax, 1
+    shl ax, cl
+    or [bz_nopen], ax
+    pop cx
+.en:
+    loop .e
+    jmp short .back
+.life:                          ; ...or a timeout or an Esc: a life
+    dec byte [bz_lives]
+    jz .over
+.back:
+    call .swap
+    call bz_gpath
+    jc .out
+    jmp bz_grounds
+.over:                          ; THE GAME IS OVER: the next Enter is a new one
+.out:
+    ret
+.swap:                          ; this round's parts and song given back
+    call bz_cdrop
+    jmp bzs_gdrop0
+
+bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
+bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
+%endif
+
+; bz_cdrop - every ball row and the course's given back (op_drop of a part that
+; is not here is a no-op, so all go whichever failed), their words 0.  The
+; song is bzs_gdrop's.  Preserves nothing.
+bz_cdrop:
     push ds                     ; ES = ours, not whatever the bracket left:
     pop es                      ; op_drop restores its caller's ES after the
                                 ; free, and on kern_mega a part's own selector
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
-    mov al, BZ_P_BALR           ; every ball row and the course's (op_drop
-.dball:                         ; of a part that is not here is a no-op, so
-    call op_drop                ; all go whichever failed; it preserves AX)
+    mov al, BZ_P_BALR
+.dball:
+    call op_drop                ; (it preserves AX)
     inc ax
     cmp al, BZ_P_BALR + BZ_NMAT
     jb .dball
@@ -644,17 +873,6 @@ bz_launch:
     mov [bz_bsegs + 4], ax
     mov [bz_cseg], ax
     mov [bz_bseg], ax
-    call bzs_gdrop              ; the song back, and the title (a finish's
-    cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 128.20.6).  The
-    je .nopend                  ; restore's paint was put off while the course
-    mov byte [bz_shpend], 0     ; was held (bz_shcall): made now, the course
-    mov byte [bz_pgo], 0        ; gone and the shell part fetched again
-    call bz_repaint             ; (SPEC.md 128.19.2)
-.nopend:
-    cmp byte [bz_err], 3        ; no bracket
-    jb .out                     ; ran: the face repainted with the refusal (3
-    mov byte [bz_pgo], 1        ; or 4), by bz_onkey (once, whatever page it
-.out:                           ; was on)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2589,7 +2807,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 1
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
@@ -2600,6 +2818,7 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 1
  %endrep
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (128.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (128.19.2)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (128.19.5)
 OS88_PARTS_END
 %if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
@@ -2641,6 +2860,13 @@ VAR bz_fy,2
 VAR bz_lbuf,BZ_LMAX + 2
 VAR bz_shfp,4                   ; the shell part's far pointer (bz_shcall)
 VAR bz_shpend,2                 ; byte 1: a paint put off while a course was held (a word: the run stays even)
+; the game (wave 8b, SPEC.md 128.19.5): the pathway's state, held in memory
+VAR bz_nopen,2                  ; a bit a node: OPEN (node 0 from a new game's start)
+VAR bz_ndone,2                  ; ...and DONE (a finish in time)
+VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
+VAR bz_gnode,1                  ; the node being played
+VAR bz_nst,16                   ; each node sign's pose (bzwheel.inc's CLOCK case): 0 locked, 1 open, 2 done
+VAR bz_ingame,2                 ; byte 1: inside the game's bracket (bz_gfull); a word: the run stays even
 ; the game (SPEC.md 128.14.3): the tour, the held log's line, the bests
 VAR bz_ttime,2 * BZ_NTOUR       ; the tour's steps a course, 0 none (bz_game
 VAR bz_tfall,2 * BZ_NTOUR       ; clears both: keep them together) and falls

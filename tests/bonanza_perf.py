@@ -723,7 +723,7 @@ def launch_times(tag, apps, src, art, label):
             M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
             m.disk(reset=True)
             with M.bp_trace(m, launch, fsx, log=[fsx], on_hit=on_hit) as tr:
-                g.key("Enter")
+                g.key("KeyF")
                 M.until(m, lambda _: g.b("bz_fs") == 1, "%s's bracket (%s)" % (name, label), guest=60)
                 hits = list(tr.hits)
             reads = m.disk()["reads"]
@@ -939,8 +939,8 @@ def ride(g, tag, corner=False, on=True):
     pres = a.pop("bz_presented")
     wk = R.Walker(g, t0=True)
     m.bp_exec(g.a("bz_launch"))
-    g.key("Enter")
-    assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
+    g.key("KeyF")
+    assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
     g.putb("bz_crs", R.CRS_K["mill"])
     g.putb("bz_hvoff", 0)
     g.putb("bz_tpoke", 1)                       # its boxes timed: bz_latechk counts bz_late (128.13.4.1)

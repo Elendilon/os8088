@@ -1144,6 +1144,17 @@ bz_step:
     mov al, [bz_nbr + BZN_C + 3] ; wave 8b (128.19.4): the cell's EXIT, its
     mov cl, 4                   ; flags' bits 4 - 7
     shr al, cl
+%if BZ_PATH_N
+    cmp byte [bz_crs], BZ_CRS_PATH ; the PATHWAY (128.19.5): only an OPEN
+    jne .gx                     ; node's cell finishes; a locked one rolls
+    mov cl, al                  ; like floor
+    mov ax, 1
+    shl ax, cl
+    test ax, [bz_nopen]
+    jz .end
+    mov al, cl
+.gx:
+%endif
     mov [bz_exit], al
     mov byte [bz_goal], 1
     ; ---- 9. the step counted, the screen state derived ----
@@ -1540,6 +1551,13 @@ bz_tdset:
     push cx
     push dx
     mov ax, [bz_tsec]
+%if BZ_PATH_N
+    cmp byte [bz_crs], BZ_CRS_PATH ; wave 8b (128.19.5): the pathway's clock
+    jne .t                      ; shows the LIVES (no countdown runs there)
+    mov al, [bz_lives]
+    xor ah, ah
+.t:
+%endif
     mov cl, 10
     div cl                      ; AL = tsec / 10 (at most 99), AH the units
     inc ah

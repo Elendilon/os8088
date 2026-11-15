@@ -21423,6 +21423,9 @@ BZ_ART := $(BUILD)/bonanza-art
 BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc
+# wave 8b (SPEC.md 128.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
+# course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
+BZ_PATH := apps/bonanza/courses/path.bbc
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
 # The SHIPPED DEMOS (SPEC.md 128.14.7.4): one a tour course, BZD<K>.BIN for K
 # 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
@@ -21433,7 +21436,7 @@ BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
-BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS)
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -21470,8 +21473,8 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(BZ_COURSES)
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py $(BZ_COURSES) $(BZ_PATH) $(BZ_DEMOSRC) | $(BUILD)
+	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
@@ -21515,7 +21518,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin
+BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -21568,7 +21571,7 @@ bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.im
 # SPEC.md 128.15.13).  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
-.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega bonanzawheel bonanzasound
+.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzapath bonanzamega bonanzawheel bonanzasound
 #> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
@@ -21584,6 +21587,9 @@ bonanzareplay: bonanzadisk $(BUILD)/os8088-360.img
 #> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_exit.py
+#> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 128.19.5)
+bonanzapath: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_path.py
 #> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (MILL's route and ride), the fake shifts; no fault, no leak (SPEC.md 128.11.17.2, 128.12.12)
 bonanzamega: bonanzadisk $(BUILD)/mega.img
 	python3 tests/bonanza_mega.py

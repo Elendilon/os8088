@@ -5343,6 +5343,16 @@ SOAK = [
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 128.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
+    Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 240.0,
+        "WAVE 8B (SPEC.md 128.19.5): THE GAME's loop on MartyPC's CGA and Hercules, in one bracket: Enter "
+        "on the face starts a new game (5 lives, node 0 open, its sign OPEN, the rest LOCKED); the ball "
+        "poked onto LOCKED node 1 rolls on (no course); onto node 0 plays FIRST, which the autopilot "
+        "finishes - node 0 DONE, node 1 OPEN (the edge 0 -> 1), their signs' poses 2 and 1; node 1 "
+        "(TRIAL) left by Esc costs a life; the last life lost ends the bracket with the instance's "
+        "claims as before the game; Enter again is a NEW game. Red arm nogate (the pathway's goal gate "
+        "taken out): red at check 1, a locked node playing its course.",
+        needs=("marty", "nasm"), timeout=900,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 118.0,
         "WAVE 6B (SPEC.md 128.17.8, 128.17.10): case 10's boost is pressed MID-FLIGHT (Space again when the model poked from the guest says the first contact is bonanza_replay.BOOST_AHEAD, 12, steps off or nearer: it arms the flight), the stretch still drawn from rubber's translated part on kern_mega's Hercules; no PKG_MEGA arm (the trigger, the grace and LATTICE are package code and bss, no segment arithmetic). stretchcs re-runs. WAVE 6 (SPEC.md 128.16.12, 128.16.14): case 10, the PLAYGROUND on kern_mega's Hercules - the course and its three ball rows through their selectors (rubber's stretch translated), a play with a Hop and its BOOST (Space held for steps, the second press when a model poked from the guest's state puts the contact 1 - 3 steps off), bz_nboost >= 1, the model's run of its log its end, its replay by R the same end; no fault, no leak. Red arm stretchcs (the stretch entry's translation through CS): case 10 alone, an exception charged to BONANZA at the PLAYGROUND's launch. THE FINAL PASS: the Hop's flight loop steps the HELD 86Box machine one step a pass (at most 120; it read the held machine and hung 37 minutes in the soak); secs: 74 s re-run, x 1.25. "
         "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 128.11.14) and "

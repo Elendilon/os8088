@@ -2448,3 +2448,41 @@ arm it from the resident door, where the part is known to be held.
 Measured: the resident image 2,604 bytes smaller, the file 282 bytes
 larger, and on kern_mega's Hercules the face drawn from the part with no
 exception charged to the package.
+
+## 2026-11-15 (wave 8b: several finishes, and a pathway you roll across)
+
+The plan's pathway was a graph walk: the ball sitting on a node, the arrows
+jumping it to the next. Building it would have meant a step mode of its own
+in a frame loop that has been tuned for a year. The owner had said the
+pathway was a prototype, so it was built the other way round: the pathway
+is a COURSE, and the ball rolls across it with every rule of physics. A
+node is a finish whose exit number is the node's number, so rolling onto
+an open node ends the pathway's play the way a goal ends a course's, and
+the loop plays that node's course next. The frame loop, the camera, the
+lanes and the ball box are all a course's; the new code is the loop and a
+gate that lets only an open node finish.
+
+That needed courses with more than one way out first. A goal or a cup now
+takes an exit number; a goal cell keeps it in four bits of its flags byte
+that had always been zero, and physics writes it beside the goal flag.
+TRIAL's goal column was split in two to test it, and the pathway uses that
+split as its first branch: TRIAL's back cell leads to MILL, its front cell
+to the PLAYGROUND, and both lead on to MOON.
+
+Each node's state is shown on a sign beside it: the crystal ball the owner
+liked for the clocks, holding one glyph instead of digits - empty for
+locked, a ring for open, a tick for done. The pathway's own clock shows the
+lives. The map holds five nodes because a window may show six lanes at
+most, and the lives take the sixth; PEAK waits for a bigger map.
+
+Everything happens in one full-screen bracket: no trip back to the desktop
+between the map and a course. A fetch inside the bracket may not toast, so
+the parts library grew a define-gated byte that keeps it quiet there.
+Enter on the face now starts the game; F is the free play Enter used to
+be, and every row that meant a free play presses F now.
+
+Measured: the loop and its tables cost 496 bytes of image and 24 of bss.
+A new row, `bonanzapath`, plays the loop on both cards - a locked node
+rolled over, FIRST finished by the autopilot opening TRIAL, an Esc costing
+a life, the last life ending the game with the memory as it was - and its
+red arm (the gate removed) goes red where it should.

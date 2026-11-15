@@ -271,11 +271,11 @@ def choose(g, var, want, key):
 
 
 def free_play(g, k, mat, what):
-    """a free play of course K with ball MAT (N, M, Enter), the autopilot's -> bracket()"""
+    """a free play of course K with ball MAT (N, M, F: Enter is the game since wave 8b), the autopilot's -> bracket()"""
     choose(g, "bz_crsel", k, "KeyN")
     choose(g, "bz_matsel", mat, "KeyM")
     g.m.disk(reset=True)
-    g.key("Enter")
+    g.key("KeyF")
     return bracket(g, what)
 
 
@@ -354,7 +354,7 @@ def leg_pause(g):
     t1, _ = auto_steps(k)
     choose(g, "bz_crsel", k, "KeyN")
     choose(g, "bz_matsel", mat, "KeyM")
-    g.key("Enter")
+    g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.d("bz_nstep") >= 40, "FIRST's play 40 steps in", guest=30)
     g.key("KeyP")
     M.guest_sleep(m, 0.3)
