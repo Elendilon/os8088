@@ -68,6 +68,14 @@
 ;    rule 7 forbids a worker both. The entry proc and every window callback
 ;    qualify; your worker does not.
 ;
+; --- and a refusal inside an fsx bracket says nothing, if you say so ----------
+;
+; `%define OP_SAYGATE my_byte` before this include: op_say (the carve's and
+; op_fetch's refusals) asks [my_byte] first and, nonzero, refuses with CF = 1
+; and NO toast - for a package that fetches inside an fsx bracket after its
+; mode set, where a toast would draw into its framebuffer (SPEC.md 53.7;
+; BONANZA's game loop, SPEC.md 128.19.5). Without the define nothing changes.
+
 ; --- and the claims may MOVE, if you say so (SPEC.md 20.12.12) --------------
 ;
 ; The carve and every fetched lazy part are born pinned, like every claim. A

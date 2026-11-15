@@ -1669,18 +1669,17 @@ op_cseg:
 ; in:  SI = a NUL-terminated string in our segment; out: CF=1
 ; -----------------------------------------------------------------------------
 op_say:
-%ifdef OP_HUSH
-    cmp word [OP_HUSH], 0       ; HUSHED (SPEC.md 20.12.9.7): the package's
-    je .say                     ; word, nonzero, takes the sentence instead -
-    mov [OP_HUSH], si           ; an op_fetch inside an fsx bracket, where a
-    stc                         ; toast is a drawing slot (SPEC.md 53.7), and
-    ret                         ; the package says it after the bracket
-.say:
-%endif
+%ifdef OP_SAYGATE
+    cmp byte [OP_SAYGATE], 0    ; a package's byte, nonzero: say NOTHING - an
+    jne .quiet                  ; fsx bracket after its mode set, where a toast
+%endif                          ; would draw into its framebuffer (SPEC.md 53.7)
     push ds
     pop es                      ; OSAPI_TOAST wants ES:SI (SPEC.md 59)
     xor cx, cx
     call OSAPI_TOAST
+%ifdef OP_SAYGATE
+.quiet:
+%endif
     stc
     ret
 

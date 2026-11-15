@@ -341,6 +341,12 @@ bzs_gfetch:
 ; bzs_gdrop - after the bracket: the course's song given back, and the title
 ; again - with the goal's fanfare when the play or the replay finished
 bzs_gdrop:
+    call bzs_gdrop0
+    jmp bzs_dstart
+; bzs_gdrop0 - the course's song and the sound part given back, the title NOT
+; started (the game's rounds, wave 8b, SPEC.md 128.19.5: the next course's
+; song follows inside the bracket).  Preserves AX.
+bzs_gdrop0:
     push ax
     mov al, [bzs_song]
     call bzs_dsong
@@ -353,7 +359,7 @@ bzs_gdrop:
     mov [bzs_goalp], al
 .t:
     pop ax
-    jmp bzs_dstart
+    ret
 
 ; bzs_fsnd - the sound part fetched and its tables read.  CF = 1 it could not
 ; be had.  Clobbers AX, BX, CX, DX, SI, DI, ES.

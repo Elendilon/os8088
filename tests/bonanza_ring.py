@@ -3954,7 +3954,8 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     art = art or at("build/bonanza-art")
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "%s%d.img" % (name, size)))
     assemble(src, art, binp)
-    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art, src)
+    shell = shell_part(td, src, art, binp)      # wave 8a (128.19.2): LINKED against this tree's package
+    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art, src, shell)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88] + list(extra)
                    + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
@@ -4005,7 +4006,26 @@ def assemble(src, art, binp):
                     "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
 
 
-def part_args(art, src=None):
+def shell_part(td, src, art, binp):
+    """wave 8a (SPEC.md 128.19.2): a tree's SHELL PART, linked against ITS
+    package (tools/pxlink.py against BINP: the part's stamp is that package's
+    image and bss, so a red arm that moves a byte gets a part that fits it)
+    and assembled from the tree's bzshell.asm.  -> its path, or None for a
+    tree with no shell part (an earlier wave's)"""
+    if not os.path.exists(os.path.join(src, "bzshell.asm")):
+        return None
+    inc = os.path.join(td, "bzlink-inc")
+    os.makedirs(inc, exist_ok=True)
+    subprocess.run(["python3", "tools/pxlink.py", binp, "--src", os.path.join(src, "bonanza.asm"), "-I",
+                    os.path.join(ROOT, "apps") + "/", "-I", src + "/", "-I", art + "/", "--prefix", "BZL", "--consts",
+                    "BZ", "-o", os.path.join(inc, "bzlink.inc")], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    out = os.path.join(td, "bzshell.bin")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                    "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzshell.asm")], cwd=ROOT, check=True)
+    return out
+
+
+def part_args(art, src=None, shell=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
     rows 0 - 2 the rubber, steel and glass balls, then course K's one part
     (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
@@ -4022,6 +4042,10 @@ def part_args(art, src=None):
     out = []
     for p in files:
         out += ["--part", os.path.join(art, p)]
+    if "BZ_P_SHELL" in asm:                     # wave 8a (128.19.2): the shell part, the tree's own link
+        out += ["--part", shell or at("build/bzshell.bin")]
+    if "BZ_P_PATH" in asm:                      # wave 8b (128.19.5): the pathway, the last row
+        out += ["--part", os.path.join(art, "BZPATH.BIN")]
     return out
 
 

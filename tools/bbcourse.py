@@ -321,7 +321,7 @@ SHA_STEPS = BA.NSH * SHA_FSTEPS
 assert all(m["HSTEPS"] == SHA_STEPS for m in MATERIALS if m["HARD"] == HARD_SHATTER), \
     "a shattering material's HSTEPS must be NSH x SHA_FSTEPS (the sprite's frames)"
 
-RESERVED = ("edge", "shape")  # checkpoint and pad are wave 4's statements (SPEC.md 128.14.4.1)
+RESERVED = ("shape",)        # checkpoint and pad are wave 4's statements (SPEC.md 128.14.4.1); `edge` the pathway's (8b)
 
 # --- wave 3: props (SPEC.md 128.12.3, 128.12.6), PROVISIONAL constants -----------
 PK_TUBE, PK_WINDMILL, PK_BUMPER, PK_PLATFORM = 1, 2, 3, 4      # record +0
@@ -330,6 +330,11 @@ PK_CLOCK = 9                  # wave 7 (SPEC.md 128.18.5): a clock's DIGIT, a re
 PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform",
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
 CLOCK_MAX = 4                 # wave 7: clocks a course
+NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
+NODE_POSES = 5                # a node SIGN's poses: 0 locked, 1 open, 2 done, 3 silver, 4 gold
+# the signs' glyphs, the clock font's 5 x 7 (128.19.5): pose 0 is the empty ball (no glyph)
+NODE_FONT = (None, (0, 14, 17, 17, 17, 14, 0), (0, 1, 2, 20, 8, 0, 0), (14, 17, 16, 14, 1, 17, 14),
+             (14, 17, 16, 23, 17, 17, 15))
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
 CLOCK_PH = 255                # a clock's POST's height (128.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
@@ -481,6 +486,9 @@ class Source:
         self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
         self.palette = None         # wave 6 (SPEC.md 128.16.6): (the 3D9h byte, line); never in the part
         self.music = None           # wave 7 (SPEC.md 128.18.6): (the song's number, line); never in the part
+        self.pathway = None         # wave 8b (SPEC.md 128.19.5): the line of `pathway` - THE pathway
+        self.nodes = []             # ...[dict num crs at sign line]
+        self.edges = []             # ...[(node, exit, next, line)]
 
 
 def _int(tok, where, what):
@@ -838,6 +846,27 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: checkpoint takes <wx> <wy> [ball rubber|steel|glass]" % where)
             src.ckpts.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
                               "ball": MAT_NAMES.index(toks[4][1]) if len(toks) == 5 else None})
+        elif st == "pathway":                       # wave 8b (SPEC.md 128.19.5)
+            if len(toks) != 1 or src.pathway is not None:
+                raise CourseError("%s: pathway takes nothing, once" % where)
+            src.pathway = ln
+        elif st == "node":                          # node N COURSE wx wy sign sx sy
+            if len(toks) != 8 or toks[5][1] != "sign" or toks[2][0] != 'w' or not _NAME.match(toks[2][1]):
+                raise CourseError("%s: node takes <N> <COURSE> <wx> <wy> sign <sx> <sy>" % where)
+            n = _int(toks[1], where, "N")
+            if not 0 <= n < NODE_MAX:
+                raise CourseError("%s: a node is 0 - %d, not %d" % (where, NODE_MAX - 1, n))
+            src.nodes.append({"line": ln, "num": n, "crs": toks[2][1],
+                              "at": (_int(toks[3], where, "wx"), _int(toks[4], where, "wy")),
+                              "sign": (_int(toks[6], where, "sx"), _int(toks[7], where, "sy"))})
+        elif st == "edge":                          # edge N E M
+            if len(toks) != 4:
+                raise CourseError("%s: edge takes <N> <EXIT> <M>" % where)
+            e = (_int(toks[1], where, "N"), _int(toks[2], where, "exit"), _int(toks[3], where, "M"), ln)
+            if not (0 <= e[0] < NODE_MAX and 0 <= e[1] <= EXIT_MAX and 0 <= e[2] < NODE_MAX):
+                raise CourseError("%s: an edge's nodes are 0 - %d and its exit 0 - %d" % (where, NODE_MAX - 1,
+                                                                                          EXIT_MAX))
+            src.edges.append(e)
         elif st == "clock":                         # wave 7 (SPEC.md 128.18.5)
             if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] != "crystal")):
                 raise CourseError("%s: clock takes <wx> <wy> [frame crystal]" % where)
@@ -1093,6 +1122,30 @@ def plat_pos(pr, n):
 _CHECKS_OFF = set()            # --selfcheck's negative controls switch a refusal off here, and nothing else
 
 
+def _pathway_nodes(src, tiles, fname):
+    """wave 8b (SPEC.md 128.19.5): the pathway's rules, and each node's cell made
+    a 1-tile GOAL whose exit is the node's number"""
+    if src.limit is not None:
+        raise CourseError("%s:%d: the pathway has no limit" % (fname, src.limit[1]))
+    if src.cups or any(r.style == "goal" for r in src.rooms):
+        raise CourseError("%s:%d: the pathway's finishes are its nodes': no goal or cup" % (fname, src.pathway))
+    if not src.nodes:
+        raise CourseError("%s:%d: the pathway has no node" % (fname, src.pathway))
+    nums = [n["num"] for n in src.nodes]
+    if sorted(nums) != list(range(len(nums))):
+        raise CourseError("%s:%d: the nodes are numbered %s, not 0 - %d" % (fname, src.pathway, sorted(nums),
+                                                                         len(nums) - 1))
+    for n in src.nodes:
+        t = tiles.get(n["at"])
+        if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
+            raise CourseError("%s:%d: node %d's cell (%d, %d) is not a FLAT FLOOR" % (fname, n["line"], n["num"],
+                                                                                    n["at"][0], n["at"][1]))
+        t.kind, t.exit = KIND_GOAL, n["num"]
+    for (a, e, b, ln) in src.edges:
+        if a >= len(nums) or b >= len(nums):
+            raise CourseError("%s:%d: an edge names a node the pathway has not" % (fname, ln))
+
+
 def build_props(src, tiles, fname):
     """-> [prop dict], in the course file's order: the tubes (a windmill's is
     its tube's record) and the props.  Every check of 128.12.3.3 that the
@@ -1280,6 +1333,8 @@ def build_props(src, tiles, fname):
     if len(src.clocks) > CLOCK_MAX:
         raise CourseError("%s:%d: a clock past the %d a course holds" % (f, src.clocks[CLOCK_MAX]["line"], CLOCK_MAX))
     ndig = 3 if src.limit is not None and src.limit[0] >= 100 else 2
+    if src.pathway is not None:                     # wave 8b (128.19.5): the pathway's clock shows the
+        ndig = 1                                    # LIVES, one digit
     for num, sp in enumerate(src.clocks):
         at, ln = sp["at"], sp["line"]
         t = tiles.get(at)
@@ -1290,6 +1345,16 @@ def build_props(src, tiles, fname):
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
+    for nd in src.nodes:                            # wave 8b (128.19.5): a node's SIGN, a clock of ndig 0
+        at, ln = nd["sign"], nd["line"]
+        t = tiles.get(at)
+        if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
+            raise CourseError("%s:%d: node %d's sign on (%d, %d), not a FLAT FLOOR" % (f, ln, nd["num"], at[0],
+                                                                                    at[1]))
+        claim(at, ln, "sign")
+        props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": nd["num"],
+                      "place": 0, "ndig": 0, "z4": 4 * t.z0, "K": 0, "KA": 0,
+                      "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -2212,7 +2277,7 @@ def clock_face_geom(p, x0, y0):
     wx, wy = p["at"]
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"] + y0
-    n = p["ndig"]
+    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
     bx0 = (cx - 4 * n + 4) >> 3
     by = (cy - CLOCK_UP) >> 3
     return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 7, 10
@@ -2221,7 +2286,7 @@ def clock_face_geom(p, x0, y0):
 def clock_digit_block(p, x0, y0):
     """the canvas block (column, row) of digit PLACE (0 the units, the rightmost)"""
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
-    n = p["ndig"]
+    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
     return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
 
 
@@ -2236,7 +2301,7 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     finial - with the digits' window left plain cyan.  -> {(x, y): ink},
     later layers over earlier"""
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
-    n = p["ndig"]
+    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
     out = {}
 
     def put(x, y, ink):
@@ -2319,6 +2384,17 @@ def clock_glyph(d, bx, by):
     from the block's left and top"""
     out = {}
     for r, bits in enumerate(CLOCK_FONT[d]):
+        for k in range(5):
+            if bits & (16 >> k):
+                out[(8 * bx + 1 + k, 8 * by + r)] = BLK
+    return out
+
+
+def node_glyph(st, bx, by):
+    """a node sign's status ST's ink in block (bx, by) (SPEC.md 128.19.5): the
+    NODE_FONT glyph a pixel in from the block's left and top; 0 none"""
+    out = {}
+    for r, bits in enumerate(NODE_FONT[st] or ()):
         for k in range(5):
             if bits & (16 >> k):
                 out[(8 * bx + 1 + k, 8 * by + r)] = BLK
@@ -2816,6 +2892,11 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     tiles = build_tiles(src)
     if not tiles:
         raise CourseError("%s: no solid tile" % fname)
+    if src.pathway is not None:                     # wave 8b (SPEC.md 128.19.5): THE PATHWAY
+        _pathway_nodes(src, tiles, fname)
+    elif src.nodes or src.edges:
+        ln = (src.nodes[0]["line"] if src.nodes else src.edges[0][3])
+        raise CourseError("%s:%d: a node or an edge is the pathway's, and this is no `pathway`" % (fname, ln))
     props = build_props(src, tiles, fname)
     cells = build_cells(tiles)
     pcell = prop_cells(props)
@@ -2974,8 +3055,12 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
                                   and q["place"] == 0)
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
-            for d in range(10):
-                poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+            if p["ndig"] == 0:                      # wave 8b (128.19.5): a node's sign - its status glyphs
+                for st_ in range(1, NODE_POSES):
+                    poses[st_] = {k: v for k, v in node_glyph(st_, bx, by).items() if k in clock_seen}
+            else:
+                for d in range(10):
+                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
     for L in lanes:
@@ -4548,8 +4633,11 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             if K or lit or KA or ph != CLOCK_PH or cx != 16 * d["at"][0] + 8 \
                     or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a clock's post fields")
-            if not 2 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 29:r + 32] != bytes(3) \
-                    or d["lane"]["poses"] != CLOCK_POSES or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
+            sign = ndig == 0                        # wave 8b (128.19.5): a node's sign
+            if (not sign and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX)) \
+                    or (sign and (place or num >= NODE_MAX)) or p[r + 29:r + 32] != bytes(3) \
+                    or d["lane"]["poses"] != (NODE_POSES if sign else CLOCK_POSES) or d["lane"]["w"] != 1 \
+                    or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
     if sorted(nums) != list(range(len(nums))):
@@ -6606,6 +6694,8 @@ class Heavy:
         if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
             return 1 if self.p.cksn & (1 << r["num"]) else 0
         if r["kind"] == PK_CLOCK:               # wave 7: its digit of the seconds left (bz_tdig)
+            if not r.get("ndig"):               # wave 8b (128.19.5): a node's sign - its state (bz_nst)
+                return getattr(self.p, "nst", {}).get(r["num"], 0)
             return clock_pose(self.p.tsec, r["place"])
         i = r["i"]
         k = self.p.pkick[i]
@@ -7301,7 +7391,8 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
-def emit_inc(courses):
+def emit_inc(courses, path=None):
+    allc = courses + ([path] if path is not None else [])   # wave 8b (128.19.5): the pathway's entry LAST
     lines = [
         "; bzcourse.inc - GENERATED by tools/bbcourse.py (SPEC.md 128.10.4, 128.11.3.1).",
         "; Do not edit: change a course under apps/bonanza/courses/ (the Makefile's",
@@ -7323,30 +7414,30 @@ def emit_inc(courses):
         lines.append("BZ_CRS_%-8s equ %d        ; %s, \"%s\", ball %s" % (
             c.name, k, os.path.basename(c.fname), c.title, MAT_NAMES[c.ball]))
     lines += ["", "%macro BZ_CRS_NAMES 0"]
-    for c in courses:
+    for c in allc:
         lines.append("    db '%s'%s" % (c.name, ", 0" * (6 - len(c.name))))
     lines += ["%endmacro", "", "%macro BZ_CRS_TITLES 0"]
-    for c in courses:
+    for c in allc:
         lines.append("    db '%s'%s" % (c.title, ", 0" * (25 - len(c.title))))
     lines += ["%endmacro", "",
               "; each course's ball (its `ball` statement; rubber without one): a byte a course",
               "%macro BZ_CRS_BALLS 0",
-              "    db " + ", ".join(str(c.ball) for c in courses),
+              "    db " + ", ".join(str(c.ball) for c in allc),
               "%endmacro", "",
               "; wave 7 (SPEC.md 128.18.3): each course's time LIMIT in whole seconds of",
               "; BZ_SECSTEPS steps (0 none; the step's countdown and the scorecard's, never in a",
               "; part); wave 4's IDENTITY (BZG1 +18), a word a course, read without fetching a",
               "; part (the scorecard, BONANZA.DAT, the demo reader)",
               "%macro BZ_CRS_LIMS 0",
-              "    dw " + ", ".join(str(c.limit) for c in courses),
+              "    dw " + ", ".join(str(c.limit) for c in allc),
               "%endmacro",
               "BZ_SECSTEPS     equ %d       ; wave 7: the clock's second, steps (128.18.1)" % SEC_STEPS,
               "%macro BZ_CRS_IDS 0",
-              "    dw " + ", ".join("%05Xh" % c.ident for c in courses),
+              "    dw " + ", ".join("%05Xh" % c.ident for c in allc),
               "%endmacro",
               "; each course's FLAGS (checkpoints), a byte a course: the face's `flags <n>/<m>`",
               "%macro BZ_CRS_NCKS 0",
-              "    db " + ", ".join(str(c.nflags) for c in courses),
+              "    db " + ", ".join(str(c.nflags) for c in allc),
               "%endmacro",
               "; wave 6 (SPEC.md 128.16.6): each course's CGA colour select, a byte a course, for",
               "; port 3D9h after the mode set (bits 0 - 3 the ground, 4 bright, 5 the palette);",
@@ -7355,10 +7446,10 @@ def emit_inc(courses):
               "; statement's; without one course K plays song K, BENCH song 1, past the last",
               "; course song wrapping to 1 - the rule bzs_gfetch carried until wave 7)",
               "%macro BZ_CRS_SONGS 0",
-              "    db " + ", ".join(str(course_song(c, k)) for k, c in enumerate(courses)),
+              "    db " + ", ".join(str(course_song(c, k)) for k, c in enumerate(allc)),
               "%endmacro",
               "%macro BZ_CRS_PALS 0",
-              "    db " + ", ".join("%03Xh" % c.pal for c in courses),
+              "    db " + ", ".join("%03Xh" % c.pal for c in allc),
               "%endmacro",
               "; the face's field widths (SPEC.md 128.14.17 item 2: every face line fits",
               "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
@@ -7526,6 +7617,8 @@ def emit_inc(courses):
               "BZ_PK_SPRING    equ %d        ; a SPRING pad" % PK_SPRING,
               "BZP_CNUM        equ 16       ; CHECKPOINT: its number 0 - 7",
               "BZP_CPLACE      equ 26       ; CLOCK: its digit's place (0 the units; +16 - +25 a post's)",
+              "BZP_CNDIG       equ 27       ; ...its digits: 0 a pathway node's SIGN (wave 8b, 128.19.5)",
+              "BZP_CNODE       equ 28       ; ...its clock's number - a sign's node",
               "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
@@ -7585,7 +7678,35 @@ def emit_inc(courses):
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZD<K>.BIN",
               " %endrep",
               "%endmacro", ""]
+    lines += emit_path(path, courses)
     return "\n".join(lines)
+
+
+def emit_path(path, courses):
+    """wave 8b (SPEC.md 128.19.5): the pathway's constants and its graph -
+    resident in the package (bzcourse.inc); none without a pathway"""
+    if path is None:
+        return ["BZ_PATH_N       equ 0        ; no pathway (SPEC.md 128.19.5)", ""]
+    names = [c.name for c in courses]
+    crs = []
+    for nd in sorted(path.src.nodes, key=lambda n: n["num"]):
+        if nd["crs"] not in names or nd["crs"] in ("BENCH",):
+            raise CourseError("%s:%d: node %d plays %r, which is not a course of BZ_COURSES (BENCH is none)"
+                              % (path.fname, nd["line"], nd["num"], nd["crs"]))
+        crs.append(names.index(nd["crs"]))
+    edges = [(a, e, b) for (a, e, b, _ln) in path.src.edges]
+    return ["; wave 8b (SPEC.md 128.19.5): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its",
+            "; entry last in every BZ_CRS_ table), part BZPATH.BIN; its nodes' courses and its",
+            "; edges (node, exit, node), three bytes each",
+            "BZ_CRS_PATH     equ %d" % len(courses),
+            "BZ_PATH_N       equ %d        ; nodes, 1 - %d" % (len(crs), NODE_MAX),
+            "BZ_PATH_NEDGE   equ %d" % len(edges),
+            "%macro BZ_PATH_CRS 0",
+            "    db " + ", ".join(str(k) for k in crs),
+            "%endmacro",
+            "%macro BZ_PATH_EDGES 0",
+            ("    db " + ", ".join("%d, %d, %d" % e for e in edges)) if edges else "",
+            "%endmacro", ""]
 
 
 def stamp(paths, rec=None):
@@ -7656,10 +7777,15 @@ def check_budget(c, k):
     return n
 
 
-def compile_all(paths, demo_dir=None):
+def compile_all(paths, demo_dir=None, path=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     courses = [compile_course(p) for p in paths]
+    pc = compile_course(path) if path else None    # wave 8b (128.19.5): THE PATHWAY, beside them
+    if pc is not None and pc.src.pathway is None:
+        raise CourseError("%s: --path names a course with no `pathway` statement" % path)
+    if any(c.src.pathway is not None for c in courses):
+        raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
@@ -7672,7 +7798,10 @@ def compile_all(paths, demo_dir=None):
     for k, d in sorted(demos.items()):
         files["BZD%d.BIN" % k] = d["log"]
     compile_all.demos = demos
-    return courses, files, {"bzcourse.inc": emit_inc(courses)}
+    if pc is not None:
+        files["BZPATH.BIN"] = pc.stored
+    compile_all.path = pc
+    return courses, files, {"bzcourse.inc": emit_inc(courses, pc)}
 
 
 # =============================================================================
@@ -9357,13 +9486,13 @@ def main_camcheck(paths):
     print("bbcourse --camcheck: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
 
-def write_out(out, paths):
+def write_out(out, paths, path=None):
     """compile every course IN MEMORY first: a refused course removes the
     stamp and writes nothing, so make cannot take a stale part for current"""
     os.makedirs(out, exist_ok=True)
     st = os.path.join(out, ".bz-crs")
     try:
-        courses, files, texts = compile_all(paths)
+        courses, files, texts = compile_all(paths, path=path)
     except CourseError:
         if os.path.exists(st):
             os.remove(st)
@@ -9371,7 +9500,7 @@ def write_out(out, paths):
     # the stamp before the files: a run that dies writing leaves a stamp and a
     # missing file, which make's fallback turns back into a re-run
     with open(st, "w") as f:
-        f.write(stamp(paths, courses[0].rec if courses else None) + "\n")
+        f.write(stamp(paths + ([path] if path else []), courses[0].rec if courses else None) + "\n")
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -9435,7 +9564,7 @@ def _grammar_cases():
         ("a way on a VOID tile", F + "way 12 5\n", "is on a VOID tile"),
         ("a footprint past the width", _swap(F, "width  64\n", "width  64\norigin 64\n"), "past the 512 px width"),
         ("a prop of no kind (prop is wave 3's statement)", F + "prop tile 4 4\n", "prop takes windmill, bumper or platform"),
-        ("a reserved statement (edge)", F + "edge tile 4 4\n", "reserved for a later wave"),
+        ("a reserved statement (shape)", F + "shape tile 4 4\n", "reserved for a later wave"),
         ("an unknown statement", F + "bogus 1 2\n", "unknown statement 'bogus'"),
         ("ice on a wall", F + "surface ice rect 3 3 7 4\n", "a wall takes normal or bounce"),
         ("sand on a wall", F + "surface sand tile 4 3\n", "a wall takes normal or bounce"),
@@ -9543,7 +9672,7 @@ def _wave3_cases():
          "over %d" % PL_VMAX),
         ("a lift hidden by a higher rim in front", _swap(P, "floor rect 6 6 10 10 flat 4\nfloor rect 11 7 13 10 "
          "flat 1", "floor rect 6 6 10 10 flat 1\nfloor rect 11 7 13 10 flat 4"), "overlaps pixel"),
-        ("a reserved statement (edge)", W + "edge tile 4 4\n", "reserved for a later wave"),
+        ("a reserved statement (shape)", W + "shape tile 4 4\n", "reserved for a later wave"),
         ("a reserved statement (shape)", W + "shape 4 4\n", "reserved for a later wave"),
         ("two lanes sharing blocks", big + _posts([(20, 18), (21, 19)]), "two lanes share blocks"),
         ("bound: a 7th lane in a window", seven, "lanes meet the"),
@@ -14200,6 +14329,8 @@ def ghost_previews(c, base, Image, at=None):
     route's step whose ball the rule hides most (its first such step).
     Writes BASE-ghost-cga.png and BASE-ghost-herc.png; -> the step, or None
     when no step of the route lays a record over the ball"""
+    if at is None and not c.route:                  # (the pathway, 128.19.5: no route to ride)
+        return None
     if at is None:
         best = (0, None)
         p = Physics(c, play=True)
@@ -14446,6 +14577,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("courses", nargs="*", help="course files, in BZ_COURSES's order")
     ap.add_argument("-o", "--out", help="output directory")
+    ap.add_argument("--path", metavar="BBC", help="THE PATHWAY's source (wave 8b, SPEC.md 128.19.5): compiled "
+                    "beside the courses as BZPATH.BIN, its entry last in every BZ_CRS_ table")
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
@@ -14499,7 +14632,7 @@ def main():
         if a.selfcheck:
             rc |= selfcheck(paths)
         if a.out:
-            write_out(a.out, paths)
+            write_out(a.out, paths, a.path)
         if a.sizes:
             rc |= sizes(paths)
         if a.png:

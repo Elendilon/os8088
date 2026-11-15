@@ -379,7 +379,9 @@ def title_rows(n):
     snd = 3 + dict.__len__(R.CRS_K)
     # wave 8a (SPEC.md 128.19.2): the SHELL part, the last row, is held on the desktop as the title is,
     # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
-    return {snd, snd + 1, n - 1} if snd >= 3 else set()
+    # (wave 8b, 128.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
+    shell = n - 2 if "BZ_P_PATH" in open(os.path.join(R.ROOT, "apps", "bonanza", "bonanza.asm")).read() else n - 1
+    return {snd, snd + 1, shell} if snd >= 3 else set()
 
 
 SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (128.19.2)
@@ -670,10 +672,10 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
     nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
     memw(b, pkg.a("bz_crsel"), bytes([k]))
     memw(b, pkg.a("bz_matsel"), bytes([c.ball]))
-    b.tap("return", gap=300)
+    b.tap("f", gap=300)                         # (F: a free play - Enter is the game since wave 8b, 128.19.5)
     b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "the PLAYGROUND's play", 60000, 100)
     want(pkg.byte("bz_crs") == k and pkg.byte("bz_mode") == 0 and pkg.byte("bz_herc") == 1,
-         "10. Enter plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
+         "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
     want(len(inside) == len(base_claims) + SHELL_IN + 1 + nballs, "10. inside: the course and its %d ball rows claimed, the shell gone (%d "
@@ -792,17 +794,17 @@ def run(img_b, keep, tmp, cases=None):
              "1. the benchmark finished: [bz_res] %d, %d frames" % (pkg.byte("bz_res"), pkg.word("bz_rframes")))
         check_after("1. the benchmark", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         # 2. a play, left by Esc
-        b.tap("return", gap=300)
+        b.tap("f", gap=300)                     # (F: a free play, wave 8b)
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 100, "a play of 100 frames",
                 60000, 100)
-        want(pkg.byte("bz_crs") == R.CRS_K["first"] and pkg.byte("bz_mode") == 0, "2. Enter plays FIRST")
+        want(pkg.byte("bz_crs") == R.CRS_K["first"] and pkg.byte("bz_mode") == 0, "2. F plays FIRST")
         b.tap("escape", gap=300)
         b.until(lambda: pkg.byte("bz_fs") == 0, "the play to end on Esc", 30000, 100)
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
         b.ui_done(limit_ms=30000)
         check_after("2. the play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         # 3. a play with a Hop and Grip, then its replay by R
-        b.tap("return", gap=300)
+        b.tap("f", gap=300)                     # (F: a free play, wave 8b)
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 20, "a play of 20 frames", 60000, 100)
         steps(b, pkg, 10, "the play's first steps")
         hold(b, pkg, "space", 4)                        # a Hop from the ground
@@ -859,7 +861,7 @@ def run(img_b, keep, tmp, cases=None):
         check_after("3. the replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         # 4. the fake shifts: NumLock on, the grey Right arrow held
         b.tap("numlock", gap=200)
-        b.tap("return", gap=300)
+        b.tap("f", gap=300)                     # (F: a free play, wave 8b)
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "a play of 10 frames", 60000, 100)
         steps(b, pkg, 5, "the play's first steps")
         b.cmd("key down 0x%X" % os88box.keycode("right"))

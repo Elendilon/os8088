@@ -663,9 +663,14 @@ bz_ltrue:
     mov es, [bz_cseg]
     call bz_lrecsi
     mov bl, [es:si + BZP_CPLACE] ; (+26: the digit's place; +16 - +25 are its
-    pop es                      ; post's fields, 128.18.5.3)
+    xor bh, bh                  ; post's fields, 128.18.5.3) - or, ndig 0, a
+    cmp byte [es:si + BZP_CNDIG], 0 ; pathway node's SIGN (wave 8b, 128.19.5):
+    jne .cdig                   ; its node's state, bz_nst's byte
+    mov bl, [es:si + BZP_CNODE]
+    add bx, bz_nst - bz_tdig
+.cdig:
+    pop es
     pop si
-    xor bh, bh
     mov al, [bz_tdig + bx]
     pop bx
     jmp short .out
