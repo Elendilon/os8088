@@ -87,14 +87,43 @@ lower the miss count.
 - MartyPC charges about 12 clk per video-memory byte written, so `bz_boxw`,
   `bz_row` and `bz_col` are near their floor.
 
+## The sound skip: auditioned, kept OFF (the owner, 2026-11-15)
+
+*"Lets keep the sound skips on the table, for if later heavy courses need
+it. Current courses are all very light. But not put it in for now."*
+
+The knob is in the tree and off: `nasm -DBZS_SKIPTEST` (bzgame.inc). With it
+off the image is byte-identical. With it on, the frame loop leaves out the
+whole `bzs_frame` call as the poked byte `[bz_sskip]` says, never two frames
+running, and the next call catches the sub-ticks up: 0 none; N one frame in
+N; 255 THE RULE, a frame that ran two or more steps or that follows a heavy
+one (`[bz_heavy]`). The rule needs no clock. It takes the whole call off
+that frame: up to 12 - 18k clk on the speaker, 24 - 30k on the AdLib.
+
+MEASURED on the recordings' takes, SUMMIT's demo (40 s), a sub-tick 18.3 ms:
+
+| take | frames skipped | speaker: onsets on time, median / p90 late, notes lost | AdLib: the same |
+|---|---|---|---|
+| reference | 0 | 62%, 29 / 67 ms, none | 38%, 44 / 98 ms, none |
+| few (1 in 16) | 6.2% | 56%, 30 / 67, 1 drum | 33%, 46 / 106, 1 drum |
+| the rule | 14.9% | 54%, 31 / 67, 6 drums | 32%, 48 / 113, 1 bass, 1 drum |
+| medium (1 in 4) | 25% | 48%, 32 / 72, 1 lead, 2 drums | 30%, 71 / 145, 2 drums |
+| a lot (1 in 2) | 50% | 30%, 40 / 79, 5 drums | 17%, 94 / 178 (max 799), 15 notes |
+
+The AdLib is the fragile arm: its register cap already spreads a downbeat
+over frames and a skip stacks on that. The recordings (twenty WAVs, SUMMIT
+and MILL, both arms, five takes) were sent to the owner and are not in the
+tree; [`docs/plans/bounce-bonanza/sndskip/`](../plans/bounce-bonanza/sndskip/)
+holds the three scripts that make them again (the knob build goes to
+`build/sk/`, never `build/`).
+
 ## Open, for the owner
 
-1. `bz_lwhole` reads `bz_lq0` / `bz_lq1`, which `bz_wsave` / `bz_wload` do
-   not carry: with two or more candidates prepared, any but the last is
-   judged whole or clipped against the wrong rows (a base bug, kept).
-2. An OCCIDX row summary so a row that lays nothing is skipped: about -3k on
-   a pass that lays nothing (PREDICTED); a course-format change.
-3. Skip the sound on a heavy frame, at most one in a row: 12-18k (speaker)
-   off that frame; tones can be a frame late.
+1. (`bz_lwhole`'s wrong rows: FIXED after this report, the two words ride
+   in the wheel's slot.)
+2. (The occluder row summary: BUILT after this report, derived at launch,
+   no format change: a pass MILL 7.8k -> 6.8k, TRIAL 5.1k -> 3.7k, PEAK
+   10.2k -> 9.8k, CGA mean.)
+3. (The sound skip: decided, above.)
 4. `BZ_WPRP` and `BZ_WMF` over-state the wheel's preparation now and could be
    re-tuned (about -55 and -60 counts, PREDICTED).
