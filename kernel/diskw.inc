@@ -3330,7 +3330,11 @@ dskw_sync_x:
                                 ; the single remount at its end has left
     cmp byte [dskw_batch], 0    ; a tree copy remounts ONCE, when it ends -
     jne .defer                  ; not after every one of its files (22.3)
-    mov word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
+%ifdef KERN_SMALL
+    and word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
+%else                           ; (`and`: the flags it leaves are the `cmp`'s
+    mov word [disk_nfiles], 0   ; above, ZF = 1 and CF = 0 - SPEC.md
+%endif                          ; 50.6.13.2's byte)
     mov byte [dsk_lstale], 1    ; the debt, exactly the state a quiet mount
                                 ; leaves (18.9): a wrong listing is worse than
                                 ; no listing, and the next listing mount pays
@@ -5950,8 +5954,9 @@ modf_hdr:
 %ifdef OS88_ASSOC
     dw modf_end - asw_v         ; MOD_H_SCR: ascw's cells, the image's last
 %else                           ; bytes and zeros in the file (2.8.3) - KEPT
-    dw 0                        ; ...or freed, on a kernel with no ASSOC.DAT
-%endif                          ; writer (none of them keeps an image)
+    dw modf_end - modf_scr      ; ...and kern_small's: ONE zero byte, the
+%endif                          ; image writing nothing else of its own
+                                ; (DESK.DRV's shape, SPEC.md 2.8.3.4.1) - KEPT
     dw dskw_fmt_probe_x         ; the FAR entries ARE the bodies: each is
     dw dskw_fmt_do_x            ; reached by `call far` - the two inside
     dw dskw_fmt_line_x          ; dskw_fmt_do_x by `push cs / call` - so each
