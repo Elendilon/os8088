@@ -122,10 +122,24 @@ def run(tag, apps=None, src=None):
         poke_node(g, pc, 1)
         M.until(m, lambda _: g.b("bz_crs") == R.CRS_K["trial"] and g.w("bz_cseg") != 0, "TRIAL from node 1",
                 guest=30)
-        M.guest_sleep(m, 0.5)
+        M.until(m, lambda _: g.d("bz_nstep") < 20, "TRIAL's play started (its steps from 0)", guest=30)
+        M.until(m, lambda _: g.d("bz_nstep") > 30, "TRIAL's play under way", guest=30)
+        # wave 8c (128.19.8): P - the pause card; R on it RETRIES the course for a life
+        g.key("KeyP")
+        M.until(m, lambda _: g.b("bz_inpause") == 1, "the pause card", guest=10)
+        n0 = g.d("bz_nstep")
+        g.key("KeyR")
+        M.until(m, lambda _: g.b("bz_inpause") == 0 and g.b("bz_fs") == 1 and g.d("bz_nstep") < n0
+                and g.b("bz_crs") == R.CRS_K["trial"], "TRIAL retried", guest=30)
+        ok = g.b("bz_lives") == 4 and g.b("bz_crs") == R.CRS_K["trial"]
+        print("%s 3r. P then R on TRIAL: a RETRY, the course again (steps %d -> %d), lives %d: %s" % (
+            tag, n0, g.d("bz_nstep"), g.b("bz_lives"), "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("3r. R on the pause card did not retry the course for a life (lives %d)" % g.b("bz_lives"))
+        M.until(m, lambda _: g.d("bz_nstep") > 30, "TRIAL's retry under way", guest=30)
         g.key("Escape")
         M.until(m, lambda _: on_path(g), "back on the pathway after Esc", guest=30)
-        ok = g.b("bz_lives") == 4
+        ok = g.b("bz_lives") == 3
         print("%s 3. node 1 (TRIAL) left by Esc: lives %d: %s" % (tag, g.b("bz_lives"), "yes" if ok else "NO"),
               flush=True)
         if not ok:
@@ -137,17 +151,17 @@ def run(tag, apps=None, src=None):
         GM.motor_off(g)
         dat = GM.read_dat(g)
         sl = struct.unpack_from("<BBHHH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
-        ok = dat is not None and dat[:4] == b"BZS2" and sl == (4, 0, 3, 1, R.path_ident()) \
+        ok = dat is not None and dat[:4] == b"BZS2" and sl == (3, 0, 3, 1, R.path_ident()) \
             and struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0] == 1
         print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, 0, open, done, the pathway), "
               "FIRST's exits found %s: %s" % (tag, dat[:4] if dat else None, sl,
                                               struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0]
                                               if sl else None, "yes" if ok else "NO"), flush=True)
         if not ok:
-            fails.append("3b. the game's slot on the floppy is %s, not (4, 0, 3, 1, the pathway's identity)" % (sl,))
+            fails.append("3b. the game's slot on the floppy is %s, not (3, 0, 3, 1, the pathway's identity)" % (sl,))
         g.key("Enter")
         M.until(m, lambda _: on_path(g), "the pathway again (the game continued)", guest=60)
-        ok = g.b("bz_lives") == 4 and g.w("bz_nopen") == 3 and g.w("bz_ndone") == 1
+        ok = g.b("bz_lives") == 3 and g.w("bz_nopen") == 3 and g.w("bz_ndone") == 1
         print("%s 3c. Enter continues the slot's game: lives %d, open %04X, done %04X: %s" % (
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
         if not ok:

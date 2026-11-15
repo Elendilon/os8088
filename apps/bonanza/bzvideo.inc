@@ -58,6 +58,8 @@ BZ_LBLH     equ 82 * 63         ; first window line: the CGA's 6845 syncs 16 lin
 bz_fullscreen:
     cld
     OS88_ALTENTER_SEED
+    call bz_fload               ; wave 8c (128.19.8): the cards' glyphs, while
+                                ; the desktop's font is still legal to ask
     ; Let the key that got us here (Enter, F, B, R, G or D) release before the mode set
     ; can mask its break.  The wait is the bracket's, never the scheduler's,
     ; and BOUNDED: OSAPI_KEY_DOWN is advice (a break lost in a long
