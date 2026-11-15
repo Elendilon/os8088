@@ -1228,11 +1228,6 @@ wa_lkdraw:
 ; body (wa_lkpaint) and the tick's (wa_lkdraw). A paint skips a blank row:
 ; the kernel filled the content white before it (SPEC.md 11)
 wa_lkrows:
-    call wa_slayout             ; (the layout as the link stands: a change
-    jnc .lay                    ; repaints all of it, this routine and all)
-    ret
-.lay:
-    call wa_splace              ; (the layout's places, the rows' too)
     push bp
     xor bp, bp                  ; BP = the row
 .row:
@@ -1280,11 +1275,8 @@ wa_lkrows:
     call wa_lkput
 .next:
     inc bp
-    cmp byte [wa_slay], 0       ; (alone, row 0 the only one: the players'
-    je .rowsd                   ; rows' place is the group's)
     cmp bp, WL_ROWS
     jb .row
-.rowsd:
     call wa_sdraw               ; (the setup's controls and buttons, where
     jc .gone                    ; they changed)
     call wa_sbtns
@@ -1343,15 +1335,7 @@ wa_lkput:
     dec ax
     mov bl, 10
     mul bl
-    add ax, [wa_sgy]            ; (the players' rows under the group: the
-    add ax, WS_LOBYR - 4        ; layout's, wa_splace's)
-    push ax
-    add ax, 4 + 8               ; (a row that does not fit over the bottom
-    cmp ax, [wa_sby]            ; row - a short content, a CGA's - not
-    pop ax                      ; drawn)
-    jbe .fits
-    ret
-.fits:
+    add ax, WS_LOBY - 4
 .r0:
     add ax, 4
     add dx, ax
@@ -1597,7 +1581,7 @@ wa_lkpname:
     ret
 
 wa_lt_on1:      db 'Linked on COM', 0
-wa_ms_setup:    db 'Wire Arena - match setup', 0
+wa_ms_setup:    db 'WireArena - match setup', 0
 wa_lt_onet:     db 'Linked on Ethernet', 0
 wa_lt_oudp:     db 'Linked with ', 0
 wa_lm_addr:     db 'Asking the network for an address...', 0
@@ -1617,18 +1601,18 @@ wa_lt_anames:                   ; (the setup's order: an item is an arena
                 dw wa_lt_a%[wa_o]
  %assign wa_i wa_i+1
 %endrep
-wa_lt_a0:       db 'Pillars', 0
-wa_lt_a1:       db 'Open', 0
-wa_lt_a2:       db 'Heights', 0
-wa_lt_a3:       db 'Hedge', 0
-wa_lt_a4:       db 'Twin', 0
-wa_lt_a5:       db 'Crossing', 0
-wa_lt_a6:       db 'Ziggurat', 0
-wa_lt_a7:       db 'The Pit', 0
+wa_lt_a0:       db 'pillars', 0
+wa_lt_a1:       db 'open', 0
+wa_lt_a2:       db 'heights', 0
+wa_lt_a3:       db 'hedge', 0
+wa_lt_a4:       db 'twin', 0
+wa_lt_a5:       db 'crossing', 0
+wa_lt_a6:       db 'ziggurat', 0
+wa_lt_a7:       db 'the pit', 0
 wa_lt_dnames:   dw wa_lt_d0, wa_lt_d1, wa_lt_d2
-wa_lt_d0:       db 'Easy', 0
-wa_lt_d1:       db 'Normal', 0
-wa_lt_d2:       db 'Hard', 0
+wa_lt_d0:       db 'easy', 0
+wa_lt_d1:       db 'normal', 0
+wa_lt_d2:       db 'hard', 0
 wa_lt_hhost:    db 'Ready on both, and the match starts.', 0
 wa_lt_hguest:   db 'Ready, and the host starts the match.', 0
 
@@ -3223,7 +3207,7 @@ wa_bhear_far:
     jmp wa_bheara
 
 ; wa_lkonlift - DI = figure 0 on the host: one of the lift's riders when it
-; stands on top of it (wa_lbot, which wa_ltick counts) - so the lift rises
+; stands on top of it (wa_lbn, which wa_ltick counts) - so the lift rises
 ; for the guest as it does for anyone here. Keeps every register
 wa_lkonlift:
     push ax
@@ -3250,7 +3234,7 @@ wa_lkonlift:
     jl .next
     cmp ax, [wa_boxes+bx+6]
     jg .next
-    inc byte [wa_lbot+si]
+    inc byte [wa_lbn+si]
 .next:
     inc si
     inc si

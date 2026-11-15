@@ -766,6 +766,17 @@ udp_in:
     jne .out                    ; (the DOS end of the cable has no package port)
 %else
     je  .dns
+    or  ax, ax                  ; a PACKAGE's port (SPEC.md 72.24): queued
+    jz  .out                    ; for NETV_UDPRX
+    cmp ax, [eth_uport]
+    jne .out
+    ; --- INTO THE QUEUE'S NEXT SLOT, or dropped and counted -----------------
+    ; It was udp_queue, called from here alone and banking five registers
+    ; this routine and eth_frame_i already bank (driver size pass 2)
+    mov di, [eth_uqe]           ; where the queue ends: UQ_SZ a datagram
+    cmp di, UQ_N * UQ_SZ
+    jb  .queue
+    inc word [eth_uqdrop]       ; full: the newest is the one dropped
     jmp short .out
 .dhcp:
     call dhcp_in

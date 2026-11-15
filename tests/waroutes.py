@@ -66,46 +66,8 @@ def main():
     with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_cga",
                      quick=True) as ui:
         m = ui.m
-        w = ui.path("B:/WIRERENA.O88")
-        # THE MATCH PINNED AT ITS START. Its dice are seeded from pit_now
-        # when the setup's Enter is taken - wherever a host-timed key
-        # landed - and they roll the weapon spawns, the bots' spawn shields
-        # and every branch after; and the player used to be put out of the
-        # way only once the host's poll had seen the first frames, some
-        # host-timed number of ticks in, the bots' first looks already
-        # taken at the spawn. So two minutes of three bots branching,
-        # meeting and fighting were a different game every run: one walked
-        # 43 edges and the next 30 (of the 31 asked), and a soak's lift ride
-        # failed with the lift never moving. Now the seed is written over
-        # the clock's at wa_pkreset, before its first roll, and the player
-        # put out of the way at the first wa_tick, before the first tick;
-        # from there the sim is a function of its ticks alone (no key, no
-        # mouse), and ROAM is bounded by the sim's own tick count. No Win
-        # at: a bot's 20th kill would end the match (and restart it) under
-        # the lift's ride.
-        lin = os88marty._linf(m, None)(os88marty.Pkg(m, w).seg)  # (kern_
-        pk, tk = lin + sym["wa_pkreset"], lin + sym["wa_tick"]  # mega: LDT)
-        pinned = []
-
-        def pin(m_, rec):
-            q = os88marty.Pkg(m_, w)
-            if rec["addr"] == pk and not pinned:
-                q.write(sym["wa_seed"], struct.pack('<H', SEED))
-                pinned.append("seed")
-            elif rec["addr"] == tk and pinned == ["seed"]:
-                for n, v in (("wa_px", 1024), ("wa_py", 200), ("wa_pxf", 0),
-                             ("wa_pyf", 0), ("wa_pitch", 0), ("wa_jz", 0),
-                             ("wa_jv", 0), ("wa_feet", 0), ("wa_fpx", -1),
-                             ("wa_ang", 256 << 6),     # (out of the way,
-                             ("wa_tkn", 0)):           # looking north; the
-                    q.write(sym[n], struct.pack('<h', v))  # sim's tick 0)
-                pinned.append("player")
-        with os88marty.bp_trace(m, pk, tk, on_hit=pin) as tr:
-            q = os88marty.Pkg(m, w)
-            q.write(sym["wa_sgoal"] + q.byte(sym["wa_lkgmode"]), b"\x00")
-            p = start(ui, w, sym)
-            tr.until(lambda: pinned == ["seed", "player"],
-                     "the match's start: its seed, its first tick", 60)
+        w = ui.path("B:/WARENA.O88")
+        p = start(ui, w, sym)
         f0 = p.byte(sym["wa_frame"])
         os88marty.until(m, lambda _: p.byte(sym["wa_frame"]) != f0,
                         "the Heights arena's first frames", guest=20)

@@ -73,11 +73,12 @@ def settle(m, **kw):
 
 
 class Machine(Qemu):
-    def __init__(self, directory, index, *, app='wireball', filename='WIREBALL.O88', disk=None, prefix='wb_', ps2=False):
+    def __init__(self, directory, index, *, app='wireball', filename='WIREBALL.O88', disk=None, prefix='wb_', ps2=False, extra=()):
         self.directory = directory
         self.app = app
         self.varprefix = prefix
-        self.linkport = 1-index
+        self.index = index
+        self.linkport = (1-index) & 1   # (a third and fourth machine: walink4)
         self.linkpath = str(directory / f'link{index}.sock')
         self.gdbpath = str(directory / f'gdb{index}.sock')
         self.pidfile = str(directory / f'qemu{index}.pid')
@@ -95,6 +96,7 @@ class Machine(Qemu):
                 '-device', f'isa-serial,chardev=link,index={self.linkport}',
                 '-qmp', f'unix:{path},server=on,wait=off',
                 '-gdb', f'unix:{self.gdbpath},server=on,wait=off']
+        args += list(extra)     # (tests/walink.py --net: an NE2000 on a relay)
         self.log = open(directory / f'qemu{index}.log', 'w')
         self.proc = subprocess.Popen(args, cwd=ROOT, stdout=self.log, stderr=self.log)
         Path(self.pidfile).write_text(str(self.proc.pid))
@@ -129,10 +131,9 @@ class Machine(Qemu):
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
-        # The filename uses launch index, which is the complementary link-port index.
-        capture = self.directory / ('speaker' + str(1-self.linkport) + '.wav')
+        capture = self.directory / ('speaker' + str(self.index) + '.wav')
         if capture.exists() and capture.stat().st_size > 44:
-            shutil.copyfile(capture, artifact(self.app + '-speaker-' + str(1-self.linkport) + '.wav'))
+            shutil.copyfile(capture, artifact(self.app + '-speaker-' + str(self.index) + '.wav'))
         if hasattr(self, 'tmp'):
             shutil.rmtree(self.tmp, ignore_errors=True)
         if hasattr(self, 'log') and not self.log.closed:

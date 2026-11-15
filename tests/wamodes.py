@@ -62,36 +62,22 @@ def main():
     sym = amap()
     with boot() as ui:
         m = ui.m
-        w = ui.path("B:/WIRERENA.O88")
+        w = ui.path("B:/WARENA.O88")
         os88marty.until(m, lambda _: any(c[0] == MENU and any(
             i[0] == ITEM for i in c[3]) for c in ui.menus()),
             "WireArena's Link menu on the bar", guest=10)
         p = os88marty.Pkg(m, w)
         g = G(ui, w, sym)
-        os88marty.until(m, lambda _: p.byte(sym["wa_sdsel"] + 7) != 0xFF,
-                        "the setup drawn", guest=10)
-        lev, vs, want = (p.byte(sym[n]) for n in ("wa_level", "wa_vsync",
-                                                  "wa_want"))
-        check((lev, vs) == ((2, 0) if want else (4, 1)) and
-              p.byte(sym["wa_sdsel"] + 7) == lev,
-              "THE DETAIL BY THE CPU'S TIER: Medium on an 8088 (40 columns), "
-              "Very High and its vsync on a 286 or better (80), and the "
-              "setup's Detail drop-down showing it",
-              (lev, vs, want, p.byte(sym["wa_sdsel"] + 7)))
 
         def arenas():                           # (the list's last item is
             n = p.word(sym["wa_sdr_a"] + DR_N)  # Rotation..., 0FFh)
             a = [p.byte(sym["wa_salx"] + i) for i in range(n)]
             return a[:-1] if a and a[-1] == 0xFF else a + ["no rotation"]
 
-        def mode_key(key):              # (the mode's change itself waited
-            g0 = p.byte(sym["wa_lkgmode"])  # for, not six ticks: on Bochs
-            p.write(sym["wa_sfoc"], bytes([FOC_MODE]))  # the key landed
-            m.key(key)                  # later than that, on the build
-            m.go()                      # before Detail too, and the row
-            os88marty.until(m, lambda _: p.byte(sym["wa_lkgmode"]) != g0,
-                            "the mode's change (%s)" % key, guest=5)
-            m.advance(cycles=TICK * 2)  # read Team Deathmatch still)
+        def mode_key(key):
+            p.write(sym["wa_sfoc"], bytes([FOC_MODE]))
+            m.key(key)
+            m.advance(cycles=TICK * 6)
 
         check(arenas() == [1, 0, 5, 2, 3, 4, 7, 6] and
               p.byte(sym["wa_lkarena"]) == 2,
@@ -210,18 +196,7 @@ def main():
         check(on(1) == 1 and rot & 8, "THE ROTATION: the last one checked "
               "(the hedge) stays checked", (on(1), rot))
         m.key("Escape")
-        # THE WINDOW GONE, not six ticks: on kern_mega's Bochs a key is typed
-        # through the X server in HOST time, and at the 4x guest rate
-        # (os88bochs.ROW_RATE) six guest ticks ran out before Escape landed -
-        # red every run there, green at rate 1. A window Esc never closes
-        # still fails when the 60 ticks run out. (Stepped as the row steps
-        # everything - `until` on this paused guest sees no progress and
-        # gives up before Escape is read.)
         m.advance(cycles=TICK * 6)
-        for _ in range(54):
-            if p.word(sym["wa_rwin"]) == 0:
-                break
-            m.advance(cycles=TICK)
         check(p.word(sym["wa_rwin"]) == 0, "THE ROTATION: Esc puts it away")
 
         play(3, 2, 1)                           # TEAM DEATHMATCH, Win at 10

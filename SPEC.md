@@ -2440,10 +2440,8 @@ owner then turned the cache on here (2026-11-12, option C "on top of A").
   byte either writes in its own image, `tests/modkeep.py`'s HOST leg run
   with `OS88_DEFINES=KERN_SMALL OS88_BUILD=build/smallk`), and
   `DISKOPS.DRV` and `SERIAL.DRV` name their tails as on `kern_big`.
-  `CTRL.DRV` and `FORMAT.DRV` name none here and are freed at their drop as
-  before: `CTRL.DRV`'s scratch tail is `.modcb`, which is `OS88_DRIVERS`'s
-  (`MODC_KEEP` is the symbol, defined beside `kern_big`'s `MOD_CACHE`), and
-  `FORMAT.DRV`'s cells are `kern_big`'s.
+  `CTRL.DRV` and `FORMAT.DRV` named none here and were freed at their drop
+  until §2.8.3.4.1.
 - **The owner's case, measured** (`tests/smallfrag.py`'s `fdlgkept`, the
   128KB CGA 5150): Note Pad, File > Open `README.TXT`, File > Open a second
   file. The second open re-adopts `FDLG.DRV` (`mod_need.held`, no
@@ -2456,6 +2454,38 @@ What it cost (`tools/os88rdiff.py`, `kern_small`): `.cold` +106
 (`mod_need` +40, `mod_drop` +49, `mod_live` +17) and `.text` +6 (the
 `mem_pg_own` row) - resident, no rung crossed. `kern_big`, `kern_emu` and
 `kern_mega`: every routine the same.
+
+###### 2.8.3.4.1 …and the Control Panel and the formatter are kept too
+
+The owner's second complaint of 2026-11-12: the Control Panel opened a
+second time on `kern_small` read `CTRL.DRV` again. Both remaining images now
+name a scratch tail on this kernel, and neither costs a resident byte:
+
+- **`CTRL.DRV`**: `MODC_KEEP` is defined beside `kern_small`'s `MOD_CACHE`,
+  so `SCR_B`/`SCR_W` declare the scratch in the image's `nobits` tail and
+  `.modcb` exists here too - holding the shutdown question's eight bytes
+  (`SD_SCRATCH`) and nothing else, the Floppy page's two (`CPC_SCRATCH`)
+  and `cpc_buf` being `OS88_DRIVERS`'s and the shortcuts' cells
+  `OS88_SHORTCUTS`'s (each `%ifmacro` in `kernel.asm`, so `kern_big`'s tail
+  is the same bytes it was). `MOD_H_SCR` = 8: those bytes moved from the
+  middle of `.modu` to zeros at the image's end, and `tests/modkeep.py`'s
+  HOST leg (`OS88_DEFINES=KERN_SMALL OS88_BUILD=build/smallk`) finds no
+  direct store outside them. There is no `MOD_SETS` row on this kernel, so
+  the one kept row is the panel's.
+- **`FORMAT.DRV`**: it writes nothing in its own image here (`kern_big`'s
+  tail is `ascw`'s cells, `OS88_ASSOC`'s), so it carries DESK.DRV's shape -
+  ONE zero byte, `modf_scr`, last, and `MOD_H_SCR` = 1.
+
+**Measured** (`tests/smallfrag.py`'s `ctrlkept`, the 128KB Hercules): the
+second Control Panel re-adopts `CTRL.DRV` (`mod_need.held`, no
+`mod_need.sized`) and makes **0** `int 13h` calls. Like every kept image it
+is a `MEM_P_MOD` cache at `MEM_PG_LOW`, so a program launch that needs its
+room still evicts it (§50.6.13) - it is not in `mem_evw`'s table, and the
+next open is then an ordinary load.
+
+What it cost: `kern_small`'s resident sections nothing; `CTRL.DRV` the same
+size (8 bytes moved to its end), `FORMAT.DRV` one byte. `kern_big`,
+`kern_emu` and `kern_mega`: every routine the same.
 
 #### 2.8.4 A refusal is a normal path, and the caller owes the reason
 
@@ -17414,6 +17444,8 @@ So `kbd_track`, called from `kbm_isr`, keeps one bit per key in a 16-byte map,
 and **`kbd_down` (slot 0x016A)** reads it: `AL` = a make scancode, `CF = 1`
 down. It takes no lock, touches no port and reads no VRAM, so it is legal from
 a **worker task** — which is where a game loop that needs it actually runs.
+A loop asking about several keys a frame takes the whole map in one call
+instead, `OSAPI_KEY_MAP` (§9.7.3), under the same rules.
 
 Five things are load-bearing:
 
@@ -17761,6 +17793,90 @@ the ROM's `retf 2` rejection, the int 09h fallback, a live desktop, advancing
 timer ticks and a responsive serial mouse. The kernel before the FLAGS
 save/restore freezes on a black screen with `ticks = 2`. The repair adds
 two boot-overlay bytes and no resident bytes.
+
+#### 9.7.3 The whole map in one call — `OSAPI_KEY_MAP` (0x0239)
+
+`kbd_down` answers ONE key a far call, and a game asks about many keys every
+frame: **113 µs (~540 clk) a call** on the 8088 (§97's table, measured), so
+WireArena's nine keys were ~1 ms of every frame and its watch-list workaround
+(ask only the keys that could have changed) still ~2,000 clk. PIXELSTEIN 3D asks
+eleven, SKIES and TANK eight, and the C64's keyboard scan up to twenty. The
+fact they all want is one 16-byte map the ISR already keeps, so the kernel
+hands over the whole of it in one call (the owner, 2026-11-13: *"That seems
+like something that would be useful for all games."*).
+
+| cell | in | out |
+|---|---|---|
+| `OSAPI_KEY_MAP` (0x0239) | `DS:DI` = 16 bytes of the caller's | the 16 bytes = the map: **bit `s & 7` of byte `s >> 3` is set while make scancode `s` is held**; `CF = 0`; every register kept. The other flags are not |
+
+So "is Left held" is one instruction against the caller's own copy,
+`test byte [map + (KSC_LEFT >> 3)], 1 << (KSC_LEFT & 7)`, and every key a
+frame reads costs one call between them.
+
+**Everything §9.7 says of the map holds of the copy**, because it IS the map
+at one instant: 128 bits, one per set-1 make code; E0/E1 skipped, so grey Up
+and keypad Up are one bit; advice and not an oracle (a lost break code reads
+held until the key is pressed again). **The call ARMS the map as `kbd_down`
+does** — through `kbd_down` itself, so there is one arm — and the first answer
+after arming is all zeros. Ask once in the entry proc and discard it, exactly
+as for `OSAPI_KEY_DOWN`; either call arms for both.
+
+The decisions, and what each cost:
+
+- **A copy, not a pointer.** A far pointer to `kbd_dnmap` would be cheaper on
+  the 8088 — the far call (~220 clk) and a handful of instructions, against
+  ~650 for the copy — but the word it hands back is a DIFFERENT word in each
+  of the places a game runs: `KERNEL_SEG` on the real-mode kernels, the data
+  selector on kern_mega, and `KERNEL_SEG` again inside a `FSXF_REAL` bracket
+  (§53.2.3), so a pointer fetched before a bracket is wrong inside it. And it
+  is writable kernel state: a package's stray store through it is a key the
+  ISR believes is held. The copy goes to the caller's own `DS`, which is right
+  in all three — the cell runs its own `KDS` — and the ~430 clk the pointer
+  would save is under 0.2% of a 19 fps frame.
+- **`DS:DI`, not `ES:DI`.** A package's `ES` is the kernel's in every callback
+  (§20) and a frame loop usually has it on a framebuffer, while `DS` is
+  already the package's: no segment load at the call site. The body makes
+  its own `ES` from it. A C caller passes a pointer to a `static` buffer,
+  which is `DS`-relative by §73's rules.
+- **No `cli`.** One IRQ1 changes one bit of one byte, and `rep movsw` reads
+  each byte whole, so a key landing mid-copy is either in the snapshot or
+  not: every copy is a state the map really held. (`rep movsw` with no
+  segment override is also safe to interrupt on the 8088.)
+- **Every kernel has it, kern_small included** — unlike `OSAPI_MOUSE_REL`
+  (§9.14), and decided by the bytes rather than by that precedent. The full
+  body is 32 bytes; a refusal is 6, so gating would save kern_small **26
+  bytes** — and would cost every adopter a second path (the per-key loop it
+  was replacing) in its own image, on the machine where a frame's cycles are
+  dearest. Measured from the maps against the parent commit at one build
+  number:
+
+  | kernel | `.text` | `.bss` | other |
+  |---|---|---|---|
+  | kern_big | **+34** (the 32-byte body, the 3-byte cell, and §20.3's parity pad OUT again: the table is even with both `MOUSE_REL`'s cell and this one) | +0 | — |
+  | kern_emu | +34 | +0 | — |
+  | kern_small | +34 | +0 | — |
+  | kern_mega | +38 (`KDS` is `mov ds, [cs:k_dsel]`, 5 bytes) | +0 | `.mega` +6: `fsx_rkeep`'s row, above 1MB |
+
+  The body reads `[kbd_armed]` as `[si - 1]` — the flag is the byte below the
+  map, asserted at the definition — which is a byte shorter than naming it
+  and keeps the body EVEN (32), so every hot routine after it keeps its
+  parity (`tests/unit/t_hotpar.py`) with no pad.
+- **Inside a `FSXF_REAL` bracket on kern_mega it answers live**: the cell is
+  in `fsx_rkeep` (§53.2.3) and its body is `.text`, whose `KDS` reads the
+  real segment `fsx` puts in `[k_dsel]` for the bracket.
+
+**The price on the 8088**, predicted from the instruction table and the
+measured far call rather than measured: the far call, five register saves and
+restores, the segment shuffle and `rep movsw` over eight words come to
+~650 clk (~140 µs) — about one `kbd_down` and a quarter, for every key at once.
+A caller that asks three keys a frame or more is ahead; WireArena's nine
+(apps/wirearena, the adopting commit) are the worked example.
+
+`tests/keymap.py` (`soak -k keymap`) is the gate: it runs each built kernel's
+OWN bytes under Unicorn — the cell, `kbd_track` (the ISR's writer) and
+`kbd_down` — and asserts the arm, the bit layout through E0-prefixed keys,
+every register and `CF = 0`, and that the copy agrees with `kbd_down` on all
+128 scancodes; on kern_mega it also reads `fsx_rkeep` for the cell's row.
 
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
@@ -19799,6 +19915,327 @@ boot overlay and gone — and the line unmasked at the 8259.
 **What this does NOT defend** is the PS/2 mouse's `IRQ12` and the driver row:
 `[mou_port] >= MOU_PEND` returns, because neither is a UART and neither
 indexes the serial tables. No reported program takes `int 74h`.
+
+### 9.14 Relative motion — `OSAPI_MOUSE_REL` (0x0236), the mickeys before the clamp
+
+`mou_apply` folds each report's dx/dy into a CLAMPED position, so a pointer
+held against a screen edge loses whatever motion carries on past it — right
+for a desktop and wrong for anything steered by motion rather than position:
+a mouse-look (docs/plans/MULTIPLAYER-FPS-PLAN.md section 7) or `INT 33h`
+function `0Bh`'s mickey counters (§96.10.2, docs/plans/DOS-EXEC-PLAN.md).
+§97.11 named the slot as "not taken"; the owner took it on 2026-11-12.
+
+**The accumulator.** `mou_apply` adds the report's signed dx and dy into two
+`.bss` words, `[mou_rx]` and `[mou_ry]`, BEFORE the clamp — two `add`s, eight
+bytes, one per report on the ISR path (not on kern_small, below). They are
+raw device units (mickeys),
+unscaled, positive right and DOWN, and wrap at 16 bits; nothing else reads or
+resets them. Every backend that reaches `mou_apply` feeds them: the serial
+mouse, the PS/2 mouse (§9.9) and the CH375 (§9.12). The keyboard mouse
+(§9.6) does not: `kbm_move` clamps its own step and is a desktop affordance
+whose arrows a game reads as keys anyway. The VMware absolute pointer
+(§9.11) joins at `mou_apply_abs`'s tail, past the add, so on `kern_emu` with
+the backdoor live the words do not move: an absolute device has no motion to
+report, and a package wanting one there differences `OSAPI_MOUSE`.
+
+**kern_small refuses it** (the owner, 2026-11-12: that kernel's 64KB
+budget is held below a rung the 38 bytes would cross). Its cell is still at
+0x0236 — a table cell's position is ABI on every kernel — and jumps to a
+six-byte body answering CF = 1, AX = 1 (§20.3.4's refusal); the accumulator
+and its words are compiled out. Ten bytes of `.text` there, against 38 on the
+others. If a size pass ever makes room, the gate comes off.
+
+**The cell** is a jump cell at the table's end (the `OSAPI_FILE_FIND_SEQ`
+shape, §19.7.1.1), in every kernel:
+
+| cell | in | out |
+|---|---|---|
+| `OSAPI_MOUSE_REL` (0x0236) | — | CX = dx, DX = dy, the mickeys since the LAST call (signed), and both words zeroed; AL = `[mouse_btn]`. Every other register and the flags kept |
+
+Each word is read and zeroed by one `xchg`, which no interrupt can split.
+There is deliberately no `cli` round the pair: a report landing between the
+two answers its dx now and its dy at the next call, a frame late and never
+lost. On the real-mode kernels the body reads the three cells through `cs:`
+(CS is KERNEL_SEG in `.text`) instead of banking DS: 21 bytes, the odd one
+taking the place of the PARITY byte after `mou_p2_off`, so every hot routine
+assembled after it keeps its parity (`tests/unit/t_hotpar.py`; kernel size
+pass 21). kern_mega's CS is a read-only selector in protected mode, so it
+keeps the DS bank and the 22 bytes, pad and all. The first call after
+boot answers whatever motion the desktop saw, so a mouse-look calls it once
+on entry and discards the answer.
+
+**Cost**, on kern_big and kern_mega: the eight bytes in `mou_apply`, four
+of `.bss`, the three-byte cell, its body and the table's parity pad, 38 bytes
+measured on kern_big. The design question was *do we spend ~40
+resident bytes for relative motion* (§1's banner) — yes on the two big kernels,
+because the alternative is each mouse-steered package taking the UART for
+itself (WireBall's shape, §109.1), which kern_small cannot do (no rate hook,
+§53.2.2) and which leaves a PS/2 mouse out.
+
+**Inside an fsx bracket** the cell answers live: the mouse ISR keeps running
+there (§53.1). It is NOT in `fsx_rkeep` (§53.2.3), so a `FSXF_REAL` bracket
+on kern_mega does not have it; a protected-mode bracket does.
+
+### 9.15 The Olivetti Prodest PC1 mouse (`PC1MOUSE.DRV`)
+
+The PC1's built-in mouse is **not** a Microsoft serial mouse and is not on an
+8042 auxiliary port. It is the Yamaha V6335D's mouse interface. The DOS source
+supplied with this work (`pc1mouse.asm`, Simone Riminucci, 2016) reads signed
+movement counters by selecting registers 10h/11h at port D4h and reading port
+D5h. Its left and right buttons are presented by the PC1 keyboard controller
+as set-1 make/break codes 77h and 79h (78h is the unused middle button).
+To enable those codes, the PC1 keyboard controller receives the five-byte data
+sequence `12h, 77h, 78h, 79h, 01h` at port 60h after command 12h at port 64h
+reports that the mapping is not already active. The sequence bytes, including
+the leading 12h, are all data-port writes.
+
+`PC1MOUSE.DRV` is a `DRVC_POINT` worker driver, wanted only when the user
+selects it in the Drivers page. Its attach check asks `OSAPI_CPU_INFO` for an
+8086-class CPU (kern_mega's protected mode has no F000h segment to read) and
+then uses the PC1 BIOS signature before touching the controller; a refusal is
+`DRVE_HW`, and every verb other than attach, detach and ready is refused
+(§51.2.2). It does not install the DOS
+driver's INT 08h/09h/33h handlers and does not program the V6335 hardware
+cursor: movement and buttons enter the existing OS cursor/event path through
+`OSAPI_MOUSE_FEED`, so os8088 retains its normal cursor, clipping and click
+semantics. The worker polls both movement counters and asks `OSAPI_KEY_DOWN`
+for the PC1 button make codes; it feeds a report only for movement or a button
+change. Attach arms the kernel's key-state map before enabling the PC1 key
+codes. While the PC1 row is attached, the kernel records 77h/78h/79h in that
+map and prevents those bytes from being enqueued as typed keys. Since the PC1
+is an XT, the kernel consumes them in INT 09h, pulses bit 7 of port 61h to
+acknowledge the 8255 byte, then sends IRQ1's EOI. Ordinary scancodes keep their
+normal path, and keypad 5 is one of them: §9.6.4's press marks `[kbm_p5]` and
+then chains to the BIOS like any other key. That is why the eat tail sits after
+`kbm_isr`'s chain on every kernel, reached only by jumps. From #371 until kernel
+size pass 21 it sat between `KBM_SCAN` and `.chain` on kern_big, kern_emu and
+kern_mega, and keypad 5 fell into it and never reached the BIOS
+(`tests/unit/t_pc1mouse.py` guards the layout). The middle code 78h is consumed
+but does not map to an OS button.
+Detach stops the worker, which feeds a release for any held button on its way
+out.
+
+**The controller setup is session-long.** Nothing sends the PC1 a sequence
+that turns the button codes off again - the DOS reference has none - so once
+the row is unloaded (unticked, or suspended for a DOS session or a hibernate
+sweep, where `mouse_unhook` also returns int 09h to the ROM) the kernel no
+longer consumes 77h/78h/79h and a click reaches the BIOS as a key until the
+machine is restarted. Recording what the PC1 BIOS makes of those codes is
+part of the field checklist in `docs/plans/PC1-MOUSE-PLAN.md`.
+
+The one `DRVC_POINT` publication slot means `PC1MOUSE.DRV` and
+`USBMOUSE.DRV` are alternatives: attach of the second one is refused with the
+class-in-use error. They remain separate optional rows; neither is wanted by
+default. The PC1 row is available on `kern_big`, `kern_emu` and `kern_mega`,
+the kernels with the driver framework (kern_mega's probe refuses at the CPU
+check); `kern_small` has no driver layer.
+
+The source DOS driver's comments call register 10h horizontal (negated) and
+11h vertical, and `PC1MOUSE.DRV` maps them so: the negated register 10h is
+screen X and register 11h screen Y. The first PC1 field report's sideways
+pointer was the right-button query overwriting the X delta (now banked), and
+the field PC1 confirmed the DOS mapping once that was fixed. It starts at
+one count per pixel. The normal arm doubles a signed delta whose magnitude is
+greater than two mickeys in a sample, matching the DOS driver's default
+`Max_speed_D2 = 2` acceleration. This mapping and sensitivity remain subject
+to field measurement; no emulator in this tree models the V6335D mouse. Record
+the result for horizontal and vertical sweeps, both buttons, simultaneous
+keyboard input, and detach/restart in `docs/plans/PC1-MOUSE-PLAN.md`.
+
+### 9.16 Optional international keyboard module (`KEYBOARD.DRV`)
+
+**Delivery contract, issue #385.** The story list is
+`docs/plans/INTERNATIONAL-KEYBOARD-PLAN.md`; checked stories and recorded
+verification, rather than this contract alone, establish shipped behavior.
+
+#### 9.16.1 Ownership and module control
+
+International input is a §2.8 internal module, `KEYBOARD.DRV`, built with
+the kernel and extracted by `tools/os88mod.py`. Its translation code,
+layout tables, composition data, mutable state and extended glyph storage
+are absent from the stripped core kernel. The default is BIOS input with
+no keyboard-module claim or module read. An explicit US, Spanish (Spain),
+Latin American Spanish or French legacy AZERTY selection loads the module
+in task context; a saved explicit selection may load it during boot.
+
+The narrow public control surface is `OSAPI_KEYBOARD`: AL = verb, AH =
+layout ID for SET; all registers except AX and flags are preserved. A
+successful call clears carry and returns AL = current layout, AH = 1 while
+an explicit layout or glyph client holds the module, otherwise zero.
+Failure sets carry and returns AX = an error; an absent module or failed
+load never disables usable BIOS input. QUERY with no module succeeds with
+AX = 0. No existing package's entry or slot moves. The cell is appended at
+0x023C, past the table v1.0.20261116 released at `PKG_FMT` 13, so a
+package that calls it needs Wire level 8 (§92.2's cell fence).
+
+QUERY and RAW are legal from every task. SET, HOLD, RELEASE and CANCEL
+require the UI task (task 0); a worker receives CF = 1, AX = 3 before any
+load or mutation. A worker's QUERY/RAW runs interrupt-masked from the
+controller's entry to its return, so the UI task's final RELEASE/SET cannot
+drop the module while the worker is inside its image. AX = 1 means an invalid verb, layout or owner, and AX = 2
+means unavailable module resources. QUERY and CANCEL never drop an
+activation still being established by another control call.
+
+| verb | value | effect |
+| --- | --- | --- |
+| QUERY | 0 | Return selection/hold state without loading anything. |
+| SET | 1 | AH = 0 BIOS default, 1 US QWERTY, 2 Spanish (Spain), 3 Latin American Spanish, 4 French legacy AZERTY. Validate and publish atomically; failure retains the prior selection. |
+| HOLD | 2 | Ensure the glyph provider exists and retain it for the calling instance. Repeated holds for that instance are idempotent. |
+| RELEASE | 3 | Release that instance's glyph hold; its teardown also releases it. |
+| CANCEL | 4 | Cancel pending composition without changing the layout. |
+| RAW | 5 | AH = 0 native / nonzero BIOS/guest input for the calling instance. Stores `IF_RAWKBD` in its existing flags byte and never loads the module. |
+
+HOLD/RELEASE are instance-scoped: the kernel supplies the caller's identity,
+as with the serial lease. An instance may keep its hold while its document
+or controls contain extended text; clearing/replacing that content releases
+it only after all of that instance's consumers have finished. Closing the
+last client with BIOS input selected disarms callbacks and drops the
+module. A stamped package entry may HOLD before its record is published;
+the loader abort sweep calls the same instance grant release before the
+reserved slot is reused. Final SET/RELEASE leaves every module frame before
+tail-transferring to the resident drop helper; its original FAR return is
+still the core controller's. A live IRQ entry is pinned and is never relocated or freed under
+its handler. Module data uses a writable alias on kern_mega; no protected
+code writes through CS or carries a selector into a real-mode bracket.
+
+The module has a raw-scan entry and a control entry. A raw scan is observed
+after existing physical-key tracking, with the original set-1 byte intact.
+The scan entry preserves registers: CF = 1 passes the scan, including the
+unloaded `mod_gone` refusal, and CF = 0 means consumed. Entry offset and
+segment are published together under the existing interrupt mask, so an IRQ
+cannot observe a torn FAR pointer while a new image is armed. The default slot
+therefore passes without an additional resident activation flag. The
+hardware adapter owns acknowledgement, BIOS chaining and the exact
+INT 15h return flags. The handler performs no file I/O, allocation, module
+load, rendering or arbitrary kernel/API calls. IRQ stack use is bounded
+and measured before delivery.
+
+Only the private KL_CMD module entry accepts SUSPEND (6) and REARM (7),
+used by HIBER.DRV around wake's existing font selection and repair. They
+never load or drop the module and never change layout/client holds.
+SUSPEND restores the original face, retaining a suspended state in the
+provider's existing active byte. REARM only rebinds a suspended provider:
+it refreshes its ASCII face from the repaired original pointer, cancels
+composition/prefix state and seeds modifiers from the current BIOS data
+area in the same interrupt-masked window. Neither verb is in the public
+SDK; OSAPI_KEYBOARD continues to refuse values above RAW.
+
+#### 9.16.2 Translation and physical keys
+
+There is one translator with separately reviewed definitions for US,
+Spanish (Spain), Latin American Spanish and French legacy AZERTY. Modifier
+state belongs to the arriving scan, not to the time a later INT 16h read
+drains the ring. E0/E1 handling distinguishes right Alt from left Alt and
+the ISO extra key at scan 56h. While the BIOS holds a Pause (BDA 40:18
+bit 3), a printable make passes untranslated and cancels a pending accent,
+so the ROM's own resume path ends the pause and discards the key. Each layout defines Shift/Caps behavior,
+AltGr/Ctrl+Alt, control-letter output and dead-key composition explicitly.
+
+`OSAPI_KEY_DOWN`, `OSAPI_KEY_MAP` and their make/break semantics remain
+physical. Printable output reaches the existing BIOS ring once, retaining
+its physical scan in AH; navigation and other BIOS special-key spellings
+remain compatible. Alt+Enter's existing edge latch, the keyboard mouse,
+function keys, Num Lock/keypad behavior and Ctrl+Alt+Del remain usable.
+
+A dead accent waits for the next key. A supported pair emits its single
+encoded character; accent plus Space emits the literal accent. An
+unsupported printable pair emits the literal accent then the character,
+reserving both ring slots before publishing either. The composition table
+is one run per accent, so a miss scans that accent's pairs only. Repeating
+an accent and cancellation are pinned by the layout vectors.
+Focus/ownership and layout changes cancel pending composition. A full ring
+obeys §9.8's overrun policy without publishing half a two-character result:
+a pair with no room for its second word is dropped whole and announced with
+§9.8's beep, under the same per-burst cap.
+
+The XT IRQ1, AT INT 15h AH=4Fh and mega native paths adapt the same module
+contract. They add no second port-60h read on the 8042 path. DOS, WIN16 and
+foreign guests have explicit conversion/bypass boundaries; a native
+CP850 byte must not be displayed silently with a CP437 meaning. Restoring
+the desktop restores its selection and callable module state.
+
+RAW uses bit 3 of the existing instance `I_FLAGS` byte (`IF_RAWKBD = 8`),
+with caller identity supplied by the kernel. The optional handler reads the
+front visible window's owning instance and bypasses translation while its
+bit is set, still tracking modifiers. This flag persists if the layout is
+activated after the foreign window opens; no module or extra instance byte
+is needed to register it. Instance teardown clears the flag with the record.
+
+#### 9.16.3 Optional glyphs and native text
+
+Native extended text uses CP850 byte positions for the supported Spanish
+and French characters. ASCII and control meanings are unchanged. The
+encoding is independent of the selected input layout. Euro/Unicode input
+and international filenames are outside this contract.
+
+The optional provider supplies extended glyphs to the existing opaque
+text renderers, preserving the original ASCII face. The glyph-copy slot
+retains its original stable ASCII pointer and range 32..126; it never
+exposes the optional table to legacy callers. The provider is acquired in
+task context before rendering extended content; paint routines never load it. A glyph client can hold it with BIOS input
+selected, so accented text survives a layout switch or a file reopen.
+The provider restores the original font state before its last drop, including ROM, baked and
+slow-ROM-copy paths. Private seam glyphs remain private.
+
+Shared text controls and Notepad accept and edit the supported bytes,
+including find/replace and raw-byte save/reopen. Fields with an ASCII-only
+domain retain that validation. Console codepages and proportional/PDF font
+formats keep their existing interpretation; no global reinterpretation of
+their high bytes is implied.
+
+#### 9.16.4 Selection and persistence
+
+Control Panel's Keyboard page offers BIOS default and the four explicit
+layouts with the existing controls and scrolling item list. Its UI and
+loading requests are in CTRL.DRV. The page includes a typing sample and
+does not grow the window beyond the supported adapter geometry.
+
+The page's five radio rows use full layout names. A changed pick is staged
+in the panel's own BSS; the outer mouse callback applies it only after the
+page procedure has returned. File loading follows the existing UI
+callback's graphics-lock discipline. The typing sample accepts printable
+characters, Backspace and Escape (clear). Its optional glyph hold uses the
+private built-in owner FFh and is released when no extended sample bytes
+remain or the panel closes; public callers cannot claim that owner.
+
+Big, emu and mega persist the ID in a versioned SYSTEM.CFG record through
+the existing shared parser/save discipline. Old, absent, invalid or unknown
+records use BIOS default without resetting other settings. Kern_small
+offers live selection for the session and says it lasts until restart;
+this feature does not add settings persistence to that kernel. Save failure
+retains the working in-memory selection and uses the panel's feedback.
+
+The record is `KL`, version 1, length 1, containing the layout ID above.
+The live selection is queried when settings are packed, so changing it
+outside the panel cannot leave a stale duplicate. CFG_KL is staging only.
+Boot validates it before activation; mega defers activation until its font
+and module pointers have reached their protected-mode form.
+
+#### 9.16.5 No core kernel growth
+
+For each of big, small, emu and mega, the stripped core image and default
+resident footprint must not increase against the implementation baseline,
+built with identical options/toolchain/metadata. Exact unrounded core
+code/data/BSS totals also must not increase: rung slack is not a saving.
+Hooks, entry cells, module rows, preference staging and glyph routing count
+in full and must be paid for by equal or larger savings in this change.
+Record the compressed shipped image size as well. All existing budget,
+near-window, boot-floor and small-heap guards remain unchanged.
+
+Report optional module file, image/BSS and enabled claims separately at
+§50.2.1's 512-byte granule. Adding another layout adds no core bytes.
+Selecting BIOS default and closing the last glyph client releases the
+active optional footprint; an unexplained pinned claim is a failure.
+
+#### 9.16.6 Delivery evidence
+
+The plan's final pass covers independent assembled-code vectors, all three
+international layouts, persistence/refusal, glyph-client teardown and the
+existing keyboard regressions. Check VGA/CGA/Hercules visually, XT cycle
+cost and stack use, the 8042 queued-byte case, and protected/real-mode
+transitions on mega. Publish four baseline/final size rows and screenshots
+of the tested head. Planned stories remain unchecked until their evidence
+exists.
 
 ## 10. events.inc
 
@@ -60767,8 +61204,8 @@ release carries the 128 KB machine at 360 KB and 720 KB. `osrom-small`
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
 `build/office360.img`, `build/network360.img`, `build/games360.img`,
-`build/emu360.img` and `build/util360.img` are five data floppies built by
-`all` beside the system, apps and media disks.
+`build/games2-360.img`, `build/emu360.img` and `build/util360.img` are six
+data floppies built by `all` beside the system, apps and media disks.
 Each carries **one category of application at the root of the volume**, the
 documents those applications open in `MEDIA/`, and a pre-made
 `SYSTEM/APPDATA/`.
@@ -60795,6 +61232,7 @@ everything on it and gain nothing from three.
 | `office360` | ArtfulType, Calculator, Chart, Font Viewer, Paint, PiXEL, Sheet, TeXPad, Word | `PAPER.TEX`, `GUIDE.TEX`, `SALES.SLK`, `WRITING.MD`, `WELCOME.DOC`, `SAMPLE.BMP` (no `LAKE.JPG` since 2026-10-22, §24.6.1) |
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
+| `games2-360` | WireArena (`WARENA.O88`: 67,537 bytes, 66 clusters - `games360` had 67 free, and a game disk at its last cluster cannot save a high score); the next game too big for `games360` (2026-11-15, the owner's) | — |
 | `emu360` | RealDMG | `GBDEMO.GB` |
 | `util360` | System Check, Redline, Task Manager (+ `SYSTEM/DOS/OS88NET.COM`, `OS88CZ.COM`) (§24.3.1.7) | — |
 
@@ -61078,7 +61516,7 @@ contents are DERIVED from those omissions rather than listed again:
 | Folder | Carries |
 |---|---|
 | `APPS/` | `PIXEL.O88`; `MIDIRACK.O88`, a second copy |
-| `GAMES/` | `REALDMG.O88`, `DRMARCO.O88` |
+| `GAMES/` | `REALDMG.O88`, `DRMARCO.O88`, `WARENA.O88` (2026-11-15: `apps720.img` had 25 KB free) |
 | `MEDIA/` | `GBDEMO.GB` (packed), `OS8088.V88`, and in `MIDI/` the eight songs `apps720.img` does not carry |
 | `PICTURES/` | PiXEL's 360 KB gallery selection, five pictures (§106.7) |
 | `SYSTEM/APPDATA/` | empty, §19.9 |
@@ -105904,6 +106342,9 @@ contents more often. Opening Paint from a Disk window now evicts that
 window's listing, the read-ahead and the icon store (their room is where
 Paint's canvas belongs), so going back to the Disk window re-lists from
 the disk. Before this they survived - in the room that then walled Paint #2.
+**§50.6.13.1 takes most of that back**: the icon store and the listing are
+MOVED into a free hole when one fits, and only the read-ahead (and the
+caches nobody waits on) goes - and §50.6.13.2 moves the read-ahead too.
 
 **`kern_small` only** (`MEM_EVICT`, kernel.asm). `kern_big`, `kern_emu`
 and `kern_mega` compact, and §66.10 already takes a walling cache down
@@ -105920,6 +106361,197 @@ row (soak): with Paint open every free-or-cache paragraph is ONE run on
 both adapters (34KB Hercules, 43KB CGA), and Paint #2 opens on Hercules
 (its canvas 10.5KB, its region 20KB, 2KB left); with `MEM_EVICT` off it
 reads two runs on each and `ld_status` 5.
+
+##### 50.6.13.1 …and the icon store and the listings MOVE into a free hole instead
+
+**The owner's complaint** (2026-11-12, on top of the above): evicting the
+Disk window's icons on every program launch is painful - `kern_small` has
+no `ASSOC.DAT`, so re-fetching the store is a sector per package, seconds on
+the target - and the window's listing goes with it, which is a re-list.
+
+**So before `mem_evict` sheds a cache, `mem_evmv` tries to MOVE it**: if a
+FREE hole elsewhere fits it, the bytes are copied there (`mem_bcopy`, the
+regrow's copier), the record is re-based, and the words its owner reads it
+by are re-pointed. Only when no hole fits, or no word names it, is it
+evicted as before.
+
+- **The hole is `mem_hifit`'s** - the highest base among the heap's floor and
+  each live claim's end at which the cache fits - with two things held for
+  the search: `[mem_pg_rank]` is below every cache level, so `mem_runfree`
+  counts every cache as in the way (a move never overlaps, evicts or
+  destroys another cache to make room: only genuinely free paragraphs), and
+  the cache's own record stands over the block being placed, so the hole is
+  outside it. That covers all three callers the same: `mem_claim_1`'s block
+  (not yet published), `mem_regrowp`'s path 2 extent and its path 3
+  destination (the grower's old bytes are its own record). HIGHEST and not
+  first-fit because it is the routine there is: the hole it picks is the
+  BOTTOM of the highest free run that fits, under top-down regions and
+  above bottom-up claims. A cache placed anywhere cannot wall a pinned claim
+  (50.6.13 evicts or moves it again), and a worker's claim, which evicts
+  nothing, still sheds it by rank on a refusal (50.6.2).
+- **The words are found by VALUE** (`mem_evw`, `.text`): `[ico_seg]`, the
+  five `fm_pool` blocks' `FS_VSEG` and the `[fm_vseg]` mirror -
+  `fm_reloc`'s pair on `kern_big`. Each is 0 or its owner's live claim, so
+  the one equal to the old base is the one naming it; the mirror alone can
+  be stale (a closed window's, until `fm_vp_set`), so a hit there alone
+  does not count as a word naming it. That table IS which caches move: the
+  icon store (`MEM_P_ICO`) and the listings (`MEM_P_VIEW`) - and, since
+  50.6.13.2, the read-ahead (`MEM_P_DIRW`), whose 13.5KB copy runs with the
+  interrupts on. The save-unders, the menu's and a kept module are still
+  evicted; the dirty FAT window and the aimed listing never reach
+  it (`mem_pg_cheap`).
+- **The rank of the icon store is not wrong for this**: `MEM_PG_TRIV` is
+  what a SHED takes first (50.6.4), and eviction ignores rank among the
+  caches a block lands on, so re-ranking it would buy nothing here. On
+  `kern_small` it is no longer trivial to lose - seconds, with no
+  `ASSOC.DAT` - and a shed taking it before a save-under is a real
+  mis-ranking there; that is a separate decision (it would be `MEM_PG_LOW`
+  beside the listings, one byte of the tag on that kernel).
+- **Only the UI task moves**, because only it evicts (`mem_evrank`):
+  §66.3.1's reason - a cache a pre-empted task holds in a register is not
+  another task's to move any more than to free - and a UI-task routine
+  holding one across a claim of its own was already wrong under eviction.
+- **What a move costs**: under the claim's own `cli`, `mem_hifit`'s walk and
+  a copy of the cache's paragraphs - the icon store and a listing are 2KB
+  each, about 1,024 `movsw` at ~25 clocks on the 8088 (`tests/smallfrag.py`'s
+  `iconmove` leg measures the whole move in cycles), against a re-fetch
+  of seconds. Since 50.6.13.2 the copy itself runs at IF = 1 under
+  `[sch_lock]`; what stays IF = 0 is the walk.
+
+**Item 3 of the same report, closed where it is not**: `fcp_arm` (Cut and
+Copy, `FILECP.DRV` on this kernel) LOADS its image top-down and then reads
+the selected name out of the acting window's listing. A top-down claim
+counts a cache as room, so it lands on a low listing only when no run above
+it - free or cache - fits 2KB, which is a heap nearly full of pinned
+claims; the listing is then moved if a hole fits it, and evicted if none
+does - and an evicted listing used to stage an ALL-ZERO entry
+(`fmv_copy_in`'s no-store arm), putting an empty name on the clipboard. The
+resident stub now refuses the arm when `[fm_vseg]` is 0 after the load
+(CF = 1, "nothing selected"; the window owes a re-list). Caches never evict
+caches (`mem_evrank` gives a cache claimant rank 0), so it is only ever a
+non-cache claim that takes one.
+
+**What it cost** (`tools/os88rdiff.py`, `kern_small`): `mem_evmv` 70 and
+`mem_evict`'s call +5, and the parity pad in front of `mem_claim_hi_x` out
+again (-1: `tests/unit/t_hotpar.py`), `.cold` +74; `mem_evw` `.text` +14;
+`fcp_arm`'s refusal `.cold` +8 - **96 bytes, resident**, inside the rung:
+`kernsize`'s `rungs kernel 57,344` with 21 left, from 117. Every other
+kernel: every routine the same.
+
+##### 50.6.13.2 …and the read-ahead MOVES too, copied with the interrupts on; the icons outrank it
+
+**The owner's decisions** (2026-11-12, on top of 50.6.13.1): (1) move the
+read-ahead (`MEM_P_DIRW`, 13.5KB) as well, rather than evict it, when a free
+hole fits it - evicted, the next reads run without it until the next mount
+re-makes it, although there was room - and do it **without a long IF = 0
+window**; (2) on `kern_small` the icon store must OUTRANK the read-ahead:
+losing the icons costs seconds there (no `ASSOC.DAT`), losing the read-ahead
+one slower read before the next mount.
+
+**The move.** `dsk_rah_seg` joins `mem_evw`, so `mem_evmv` moves the
+read-ahead exactly as it moves the icon store: the bytes copied, the record
+re-based, the one word re-pointed. One word is all of it - `dsk_rah_tab`
+holds LBAs and lengths and no address, which is `dsk_rah_reloc`'s argument on
+`kern_big` - and a fill cannot be in flight into it, because only the UI task
+moves (`mem_evrank`) and a fill is that task's own synchronous `int 13h`
+under `[sch_lock]`. The claim stays 512-byte aligned (every `mem_hifit`
+candidate is a granule edge, `MEM_GRAN` = 32 paragraphs), and the one slot a
+64KB page crosses is found from the base at every fill (18.95.7.1), so a
+moved store needs nothing re-solved.
+
+**The interrupts: the copy runs at IF = 1 under the scheduler lock.** A
+13.5KB copy is ~200,000 cycles (~42 ms) on the 8088, the claim that makes it
+was one IF = 0 window, and an original 8250 holds ONE received byte - 8.3 ms
+at 1200 baud 8N1 - so five of the serial mouse's bytes would be lost: a
+garbled packet. So **`mem_bcopy` raises `[sch_lock]` and `sti`s for the whole
+copy, and `cli`s before it lowers the lock** (kern_small only). An interrupt
+is serviced the moment it arrives and no TASK runs, which is the whole of
+what has to be true: the claim is mid-operation - the record re-based, the
+words re-pointed, the new block not yet published, `[mem_pg_rank]` and
+`[mem_dma]` the claim's own - and only a task could see any of that. No ISR
+claims, frees or reads a heap record, the read-ahead, the icon store or a
+listing; an ISR loads its own DS and `cld`s, and `iret` gives `.uchunk` its
+DF back. It is the compactor's own terms on `kern_big`, which copies at
+IF = 1 under the same lock. Chunked windows between the 1KB chunks were the
+other form and cost the same two bytes; the copy at IF = 1 services an
+interrupt at once rather than up to a chunk (~2.7 ms) late. Both of
+`mem_bcopy`'s callers on this kernel get it - `mem_evmv` and
+`mem_regrowp`'s path 3, whose copy of the grower was one IF = 0 window too -
+and so do the icon store's and the listings' 2KB moves, which were ~40,000
+cycles IF = 0 each (8.4 ms, already over a byte).
+
+**Measured** (`tests/smallfrag.py`'s `ifwindow`, the 128KB Hercules, Paint
+opened from `A:/APPS`): three claims copy, five moves (the read-ahead twice,
+~200,000 cycles each), and the longest IF = 0 stretch of any of them is
+**25,005 cycles, 5.2 ms** - the claim's own scan, `mem_evict` and the first
+`mem_hifit` walk in front of the first copy - against 39,772 for a
+1200-baud byte. Those claims end to end are ~249,000, ~55,000 and ~263,000
+cycles, which is what each would hold at IF = 0 without the lock and the
+`sti` (seen: taking the `sti` out reads 260,602). The read-ahead moves TWICE
+in that launch because `mem_hifit` places a moved cache at the bottom of the
+HIGHEST run that fits, and Paint's region then comes down from the top onto
+it - a second copy rather than a loss, and a placement 50.6.13.1 chose.
+
+**The rank** (50.6.4) is chosen per kernel inside the kernel, and the SDK's
+values are not changed: on `kern_small` the icon store is `MEM_P_ICO_SM`
+(`MEM_PG_LOW<<8 | 0x01`) and the read-ahead `MEM_P_DIRW_SM`
+(`MEM_PG_TRIV<<8 | 0x03`; `MEM_P_MSAVE` holds TRIV's `0x02`), and
+`kernel/memory.inc` spells `MEM_P_ICO` / `MEM_P_DIRW` as those there. Every
+other kernel keeps `MEM_P_ICO` TRIV and `MEM_P_DIRW` HIGH - the icons re-fetch
+from `ASSOC.DAT` in one read there, so the SDK's values are not wrong. The
+shed order on `kern_small`, first taken to last:
+
+| tier | caches |
+|---|---|
+| TRIV | the read-ahead, the window save-unders, the menu's |
+| LOW | the icon store, the Disk windows' listings, a kept module |
+| MED | a clean FAT window |
+
+The read-ahead sits with the save-unders (a refusal takes whichever is lower
+in `mem_tab` of those) because what it costs is batching, not a re-read of
+anything the user is looking at. The icon store sits with the listings and
+not above them: at MED an icon claim or grow would OUTRANK the listings, and
+the icon passes that claim and grow it run while a listing is being filled,
+so a refusal there could shed the listing being filled. It is above the
+save-unders because those cost one window's redraw and the store a sector
+per package. Two consequences follow from the ranks and are wanted: the
+read-ahead's claim (`dsk_rah_want`, which asks `mem_avail_lvl_x` at its own
+rank - `MEM_P_DIRW >> 8` now, not a literal HIGH) no longer sheds the icons,
+a listing or a FAT window to make room at a mount, and an icon-store claim or
+grow that is refused sheds the read-ahead first. The Task Manager names both
+spellings (`tm_ktab`); `tests/unit/t_mirror.py` carries `MEM_P_ICO` and
+`MEM_P_DIRW` as DIVERGENT with this reason, and `tests/unit/t_pgrank.py`
+holds kern_small's order.
+
+**The move prefers the icons too.** `mem_evict` meets the overlapped caches
+in `mem_tab` order, and the read-ahead - claimed at the boot mount - is
+usually the lowest record, so it was moved first and took the one hole that
+fit both it and the icon store. **`mem_evict` now walks TWICE**: the first
+pass skips the owner `MEM_P_DIRW` (a word in DI; `neg` turns it into a
+positive one no cache's owner is, so the second pass skips nothing and the
+next `neg` ends the walk), so the icon store and the listings take the free
+holes first and the read-ahead the room that is left. A hole that fits all of
+them keeps all of them.
+
+**What it cost** (`tools/os88rdiff.py`, `kern_small`): `.text` +2 (`mem_evw`'s
+word); `.cold` +4 - `mem_bcopy`'s lock and `sti`/`cli` +10, `mem_evict`'s
+second pass +11, paid for inside kern_small's own code: `mem_pg_cheap` moved
+in front of `mem_fatw_dirty` and falling into it, its refusals that
+routine's `.yes` (-6), `mem_evmv`'s word table walked down by index with an
+OR for the hit (-3), `mem_regrowp`'s path 2 eviction moved to `.set` for
+every path (-2: path 1's extent is inside its own record and path 3's was
+cleared before its copy, so both find nothing), `mem_evrank`'s task test
+second with AL's zero shared (-2), `mem_evict` through `kentc_di` and out
+through `mem_evmv`'s own `jmp kretc_di` (-2), `fcp_arm`'s refusal a compare
+with 1 (-1), and `dskw_sync_x`'s listing reset an `and` (-1). The ranks are
+constants. `kernsize`: `rungs kernel 57,344`, the same rung - and with
+NOTHING left, because the 21 the line printed before this was a SUM: the
+ladder packs `.text`+`.bss`, `LOW` and `.cold` to the paragraph separately,
+so `.cold` had exactly 4 bytes before `VGABUF` and the 512-byte heap floor
+moved up, the image 5, and LOW's 12 are bss. `.cold` is 21,136 now, the last
+byte of its paragraph. Every other kernel: every routine the same.
+`tests/unit/t_hotpar.py`: the shift in front of `dsk_xfer` is even, and the
+parity pad 50.6.13.1 had taken out stays out.
 
 ## 51. driver.inc — loadable drivers
 
@@ -112636,8 +113268,18 @@ for the exit (a tone is not the bracket's: the speaker is the door's).
     (`OSAPI_GET_TICKS`, `OSAPI_SET_COLOR`; `OSAPI_CPU_INFO`, which answers
     without `CPU_F_PM` inside), `OSAPI_FSX_MODE`, `OSAPI_FSX_SURF`,
     `OSAPI_FSX_PAGE`, `OSAPI_VIDEO`, `OSAPI_FONT_GLYPHS`, `OSAPI_KEY_DOWN`,
-    `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and `OSAPI_WM_WAKE`
-    (MEGA-VIDEO-REALMODE-PLAN 7.2);
+    `OSAPI_KEY_MAP` (§9.7.3), `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and
+    `OSAPI_WM_WAKE` (MEGA-VIDEO-REALMODE-PLAN 7.2);
+  When the optional native provider is held (§9.16.3), its table is already
+  conventional and needs no service-area copy. The existing `fsx_rfont`
+  word carries FFFFh for this case (every normal copy offset is even).
+  Entry keeps its converted real segment and nonzero base, and clamps live
+  bounds to 32..126 so FONT_GLYPHS does not inspect protected KLFP selectors.
+  The returned ASCII pointer is borrowed only until the bracket returns;
+  the provider stays pinned by the unchanged layout/glyph clients. Return
+  restores the provider's 255/223 bound/span after the selector walk, before
+  another protected-mode caller can run. Ordinary pool-font copies and
+  default-face brackets retain their existing behavior.
   * **as it is, with a real-mode arm** of a few bytes: `OSAPI_FSX_WAIT`,
     whose `FSXW_FRAME` waits on `hlt` (there is no scheduler to yield to),
     and `OSAPI_MOUSE`, which answers the pointer's words and does not run
@@ -113318,7 +113960,11 @@ first thing to rely on it.
 
 Legal throughout: the file slots (UI-task context — this is it),
 `osapi_mouse`, `osapi_get_ticks`, `osapi_serial` Read/Write on a lease
-opened before entry (§115), the snd slots, mem/cm/xm slots,
+opened before entry (§115), `osapi_drv_call` to a driver attached before
+entry for a verb that reads no disk (ETHER.DRV's raw verbs, §72.22: a
+claim taken before entry, frames sent and drained inside; the NE2000 is
+polled, so the verb is all the service the card gets), the snd slots,
+mem/cm/xm slots,
 `cpu_info`, `osapi_video`, `wm_top`, `osapi_font_glyphs` (the glyph
 *data* — how an app letters mode 13h without a renderer of its own), and
 the four `fsx_*` slots. Legal **until the first `fsx_mode` call**, and
@@ -138799,6 +139445,47 @@ What that costs is stated plainly: on a machine with only the cable, a **DOS
 program** under DOS gets no network, because mTCP speaks packet driver and
 nothing else. §96.23 is a card feature until somebody wants item 1 enough to
 pay item 2's price.
+
+### 72.24 UDP for a package — one port, a small queue
+
+Packages had TCP only (§72.22 says so of the raw verbs' first reader). A
+game that finds matches by broadcast and by address, and sends a snapshot
+ten times a second to each other player, wants datagrams: a lost one is
+replaced by the next, where TCP would stall every later one behind it.
+The stack already speaks UDP inside (`udp_send`, `udp_in`, for DHCP and
+DNS). What these verbs add is a **package's port** and a queue for it.
+
+| verb | in | out |
+|---|---|---|
+| `NETV_UDP` 18 | `AL` = 1 bind `CX` = a port, 0 release | CF=0. CF=1 `AX=NETE_BUSY` (another port is bound: one at a time) or `NETE_ARG` (port 0) |
+| `NETV_UDPTX` 19 | `SI` = the payload, `CX` = its length (<= 512), `DI` = six bytes: the IP address, then the port (a little-endian word) | CF=0 sent. CF=1 `AX=NETE_NOLINK`: no port bound, or no ARP answer yet (a request has gone out: send again on the next tick) |
+| `NETV_UDPRX` 20 | `DI` = a buffer, `CX` = its capacity | CF=0: the source's six bytes (as `UDPTX`'s `DI`) at `DI`, the payload after them, and `CX` = the payload's **true** length (72.22.2's rule); CF=1 = none queued; CF=1 `AX`=`NETE_ARG`: capacity < 6, the datagram left queued |
+
+- **The source comes first in the buffer** because `OSAPI_DRV_CALL` takes
+  the class and the verb in `BX`, so no verb can take a pointer there.
+  (The first draft of this table did, and its first caller found it.)
+- **The destination 255.255.255.255 is a broadcast**: `ip_start` already
+  sends it to the broadcast station address with no ARP (DHCP needs that
+  before there is an address at all).
+- **The queue is 8 datagrams of up to 64 bytes**, filled by `udp_in` as
+  `NETV_UDPRX` pumps the card. A full queue drops the newest and counts
+  it (`eth_uqdrop`). A longer datagram queues its first 64 bytes and its
+  true length. It is the driver's bss, so it is paid for whenever
+  ETHER.DRV is loaded: about 600 bytes of a driver that grew ~1KB, and
+  its `DRVM_*` rows and the `DRVM_CEIL_NET*` ceilings moved with it.
+- **`NETV_UDPRX` is the card's service**: it pumps the ring, as every verb
+  does. So a game polling it once a frame keeps the stack alive inside a
+  §53 bracket, by §53.7's rule for a driver attached before entry.
+- **The instance's teardown releases its port** (`NETV_GONE`), as its
+  sockets are dropped.
+- **They need no socket pool** and do not claim one (`eth_user`: every
+  verb from `NETV_RAW` up). They cannot run with a raw claim held, which
+  stops the pump and so the stack (72.22.1): UDP and raw frames are two
+  ways to the card, never at once.
+- **The parallel cable refuses all three** (`NET.DRV`): `nwire.inc` has no
+  datagram, as it has no raw frame (72.22.3).
+
+WireArena is the first user (docs/plans/completed/WIREARENA-NET-PLAN.md 3).
 
 ## 73. The C toolchain — compiling C into an `.o88` package
 
@@ -180510,10 +181197,11 @@ image carrying data spells `CD 81 FF` by chance.
 of the last release** (the rule the PKG_FMT 10 rows were cut by: two
 releases shared that format and both Wires were level 2, so one byte had to
 hold both back, and the older table decided).
-`WIRE_TABLE_END` (0x0236, the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1) appended
-before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
-end and cuts no row) is the end of the table the TOP level's kernel
-has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
+`WIRE_TABLE_END` (0x0244: the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1),
+`OSAPI_MOUSE_REL` (§9.14) and `OSAPI_KEY_MAP` (§9.7.3) appended before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
+end and cuts no row - which made 0x023C, and then `OSAPI_KEYBOARD` (§9.16)
+appended after that table was released, which cut the level-8 row) is the
+end of the table the TOP level's kernel has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
 --pkgdir`, because no Wire in the field can be told about it: the release
 that first publishes such a package adds a row (the next level, its first
 cell), moves `WIRE_TABLE_END` to that kernel's `osapi_table_end`, and raises
@@ -234671,6 +235359,31 @@ Compaq lists them in its SETUP's order rather than IBM's.
 | 1 | Close | restores UART/PIC state, releases the lease and drops the module; succeeds if already closed; a foreign lease returns busy |
 | 2 | Read | CF=0 AL=byte, AH=line/overflow status accumulated since the preceding Read; CF=1 AX=6 if empty |
 | 3 | Write | CL=byte; CF=0 AX=0 queued; CF=1 AX=7 if the TX queue is full |
+| 4 | Write block | SI=offset of CX bytes in the leased region (the buffer's segment); as many as the TX ring has room for are queued, in order, then the transmitter is started once; CF=0 AX=how many were taken (0..CX) |
+| 5 | Read block | DI=offset of room for CX bytes in the leased region; up to CX received bytes are moved there, in order; CF=0 AL=how many (0..255), AH=line/overflow status accumulated since the preceding Read of either kind |
+
+#### 115.1.2 The block verbs
+
+Verbs 4 and 5 move a run of bytes in one call. A Write or Read is one
+call per byte, and on a 4.77 MHz 8088 that call is ~2,700 cycles through
+the X cell, the module's banking and `srl_pump`. A game sending a 24-byte
+snapshot six times a second and receiving as many spent ~110,000 cycles a
+frame there (docs/plans/completed/WIREARENA-LINK-PLAN.md 11.2), about a quarter of
+the frame. A block verb pays that once a run and ~40 cycles a byte.
+
+- A run is stored, then its index is published once: the producer index
+  advanced after its bytes are there, as Write does for one. Interrupts
+  are off for the whole verb, so no reader sees a part of a run. The move
+  is a `rep movsb` up to the ring's wrap and another from 0.
+- Read block pumps first, as Read does: a missed IRQ edge strands nothing.
+- Both run with interrupts disabled, as every verb does. A run is at most
+  255 bytes, so the interrupt-off time is bounded: ~250 us for 30 bytes.
+- An application that must also run on an older `SERIAL.DRV` tests the
+  first block call: an older module answers CF=1 AX=5, as for any verb it
+  does not know, and the per-byte verbs are the fallback.
+  `apps/os88cable.inc` does exactly this.
+- **No resident byte**: both verbs are module code. The X cell and its
+  thunks are unchanged.
 
 Open by the instance that already holds the lease MOVES it (§114.9): the
 held port is restored and released exactly as Close would, the module stays

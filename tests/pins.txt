@@ -360,6 +360,10 @@ C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
                                          # copied whole into bz_rlog and dropped
                                          # inside V's one key call (SPEC.md
                                          # 128.14.7.4)
+C apps/wirearena/wirearena.asm @wa_loadarena # an arena part, fetched, read
+                                         # into both halves and dropped inside
+                                         # wa_loadarena's one call (the Game
+                                         # menu's command, before the bracket)
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed
                                          # inside one wake (Paste's queue in the
                                          # same function declares)

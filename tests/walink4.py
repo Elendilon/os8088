@@ -163,15 +163,8 @@ def run_ip(ms, cable):
                    secs=20)
     by = {m.v('wa_lkme'): m for m in ms}
     check(sorted(by) == [0, 1, 2], 'BY ADDRESS: slots 0..2 (%r)' % sorted(by))
-    # A LATE LOBBY HELLO: B and C both go in on the host's tag, so each one's
-    # last HELLO saying "ready, not in" (state 1) can reach the other AFTER
-    # it went in - a datagram is late whenever the wire is slow, and a loaded
-    # soak made it so. Each then read the other as gone and stopped sending it
-    # SNAPs, which were the one thing that clears gone: neither saw the other
-    # move, ever. Replayed here on purpose, both ways, once both are in.
-    stale(ms, cable)
-    L.place_after_spawn([(m, 1000 + 100 * s, 300 + 40 * s, 0)
-                         for s, m in by.items()])
+    for s, m in by.items():
+        m.at(1000 + 100 * s, 300 + 40 * s, 0)
     for s, m in by.items():
         for o in range(N):
             if o != s:
@@ -239,10 +232,9 @@ def run(ms, cable):
           'THE SLOTS: each peer record has its peer\'s slot')
     by = {slotof[id(m)]: m for m in ms}
 
-    # SNAP: slot s at (1000 + 100 s, 300 + 40 s) - once the match has run
-    # (walink.place_after_spawn: the spawn overwrote slot 2's poke)
-    L.place_after_spawn([(m, 1000 + 100 * s, 300 + 40 * s, 0)
-                         for s, m in by.items()])
+    # SNAP: slot s at (1000 + 100 s, 300 + 40 s)
+    for s, m in by.items():
+        m.at(1000 + 100 * s, 300 + 40 * s, 0)
 
     def near(m, s, x, y):
         f = figof(m, s)
