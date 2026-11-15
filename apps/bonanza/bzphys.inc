@@ -1634,15 +1634,21 @@ bz_wolf:
     xor ax, ax
     mov [bz_wcen], ax           ; (and bz_wckd)
     mov [bz_wbmp], al
+    mov al, [bz_nbr + 3]        ; no OBS cell in the window (most refills):
+%assign bz_i 7                  ; an empty bz_wol, without the nine cells' walk
+%rep 8
+    or al, [bz_nbr + bz_i]
+ %assign bz_i bz_i + 4
+%endrep
+    test al, BZ_FL_OBS
+    jz .none
     mov di, bz_wol + 1
     mov si, bz_wotab
     mov cx, 9
+    xor bh, bh                  ; (BX stays under 256 throughout)
 .c:
-    mov bl, [si]
-    xor bh, bh
-    shl bx, 1
-    shl bx, 1
-    test byte [bz_nbr + bx + 3], BZ_FL_OBS
+    mov bl, [si + 3]            ; the cell's flags, bz_nbr + 4 cell + 3
+    test byte [bz_nbr + bx], BZ_FL_OBS
     jz .n
     mov dx, [bz_nwin]           ; the cell's wx, wy
     add dl, [si + 1]
@@ -1670,17 +1676,21 @@ bz_wolf:
     inc di
     inc di
 .n:
-    add si, 3
+    add si, 4
     loop .c
     mov ax, di
     sub ax, bz_wol + 1
     shr ax, 1
     mov [bz_wol], al
     jmp bz_psync
-; the window's cells in bz_wrt's order: the cell 0 - 8, dx, dy
+.none:
+    mov [bz_wol], ah            ; (AH is 0)
+    jmp bz_psync
+; the window's cells in bz_wrt's order: the cell 0 - 8, dx, dy, and its flags'
+; offset in bz_nbr
 bz_wotab:
-    db 0, -1, -1,  3, -1, 0,  1, 0, -1,  6, -1, 1,  4, 0, 0
-    db 2, 1, -1,  7, 0, 1,  5, 1, 0,  8, 1, 1
+    db 0, -1, -1, 3,  3, -1, 0, 15,  1, 0, -1, 7,  6, -1, 1, 27,  4, 0, 0, 19
+    db 2, 1, -1, 11,  7, 0, 1, 31,  5, 1, 0, 23,  8, 1, 1, 35
 
 ; bz_owner - the record owning cell DL = wx, DH = wy (128.12.3.2): the first,
 ; in the records' order, whose anchor is the cell - a tube's or windmill's IN,
