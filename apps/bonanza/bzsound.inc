@@ -191,6 +191,9 @@ VAR bzs_dtk,2                   ; the desktop: [ticks] at the last call
 VAR bz_nwall,2                  ; SOUND STATE the physics writes and never
 VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 128.20.5): wall
 VAR bz_lwb,1                    ; reflections, the last one's speed, 1 a bumper's
+%if bzs_dirty != bzs_dynm + 1
+ %error "bzs_kv moves bzs_dynm and bzs_dirty as one word"
+%endif
 %if bzs_groove != bzs_glen + 1 || bzs_rows != bzs_glen + 5 || bzs_flags != bzs_glen + 8 || bzs_ooff != bzs_glen + 9 || bzs_soff != bzs_glen + 13
  %error "bzs_rstart copies the song's header +3 .. +17 onto bzs_glen whole"
 %endif
@@ -903,14 +906,20 @@ bzs_steps:
     inc word [bzs_nsub]
     call bzs_mtick
 .fx:
+    mov ax, [bzs_fx + F_PTR]    ; both slots idle (the usual case): nothing
+    or ax, [bzs_fx + F_SIZE + F_PTR]
+    jz .n
     call bzs_fxtick
+.n:
     pop cx
     loop .s
 .r:
     ret
 
 ; bzs_pattern - the order row [bzs_ord]'s phrases into the channels (ES = the
-; song).  Clobbers AX, BX, CX, SI, DI.
+; song).  The channels are filled by STOSW with the segments swapped for the
+; loop (DS the song, ES ours): a pattern begins on the row every channel
+; reads, the sequencer's dearest sub-tick.  Clobbers AX, BX, CX, DX, SI, DI.
 bzs_pattern:
     mov al, [bzs_ord]
     xor ah, ah
@@ -918,45 +927,61 @@ bzs_pattern:
     shl ax, 1
     mov si, ax
     add si, [bzs_ooff]
+    mov dx, [bzs_poff]
     mov di, bzs_ch
+    mov bx, BZMH_INST
     mov cx, 4
+    cld
+    push ds
+    push es
+    push ds
+    pop es                      ; ES = ours
+    pop ds                      ; DS = the song, to .e
 .c:
-    xor bx, bx
-    mov bl, [es:si]
-    cmp bl, 0FFh
-    je .z
-    shl bx, 1
-    add bx, [bzs_poff]
-    mov bx, [es:bx]
+    lodsb                       ; the channel's phrase, 0FFh none
+    cmp al, 0FFh
+    jne .ph
+    xor ax, ax
     jmp short .p
-.z:
-    xor bx, bx
+.ph:
+    xor ah, ah
+    shl ax, 1
+    add ax, dx
+    xchg ax, bx
+    mov bx, [bx]                ; its events
+    xchg ax, bx
 .p:
-    mov [di + CH_PTR], bx
-    mov byte [di + CH_WAIT], 0
-    mov bx, 4 + BZMH_INST       ; EVERY PATTERN STARTS FROM THE VOICE'S OWN
-    sub bx, cx                  ; instrument, v12 and a single note: the
-    mov al, [es:bx]             ; state the tool packs every phrase from
-    mov [di + CH_INST], al
-    mov byte [di + CH_VOL], 12
-    mov byte [di + CH_SHAPE], 0
-    mov byte [di + CH_SLUR], 0
-    inc si
-    add di, CH_SIZE
+    stosw                       ; CH_PTR
+    mov ah, [bx]                ; EVERY PATTERN STARTS FROM THE VOICE'S OWN
+    inc bx                      ; instrument, v12 and a single note: the
+    xor al, al                  ; state the tool packs every phrase from
+    stosw                       ; CH_WAIT 0, CH_INST
+    mov ax, 12
+    stosw                       ; CH_VOL 12, CH_SHAPE 0
+    mov [es:di], ah             ; CH_SLUR 0
+    inc di
+    inc di
     loop .c
+.e:
+    push ds
+    pop es                      ; ES = the song again
+    pop ds
     ret
+%if CH_PTR != 0 || CH_WAIT != 2 || CH_INST != 3 || CH_VOL != 4 || CH_SHAPE != 5 || CH_SLUR != 6 || CH_SIZE != 8
+ %error "bzs_pattern stores a channel's record in its order"
+%endif
 
 ; bzs_mtick - one sub-tick of the song (Seq.music_tick).  Clobbers AX, BX, CX,
 ; DX, SI, DI, ES.
 bzs_mtick:
+    cmp byte [bzs_rtick], 0     ; (the song's first sub-tick begins a row too:
+    jne .age                    ; bzs_rstart leaves bzs_rtick 0 with bzs_start)
     mov es, [bzs_mseg]
     cmp byte [bzs_start], 0
     jne .row
     mov byte [bzs_start], 1
     call bzs_pattern
 .row:
-    cmp byte [bzs_rtick], 0
-    jne .age
     mov al, [bzs_row]           ; A ROW BEGINS: past the pattern's last, the
     cmp al, [bzs_rows]          ; next order row (the loop row after the last)
     jne .rd
@@ -1060,90 +1085,77 @@ bzs_read:
     mov si, [bx + CH_PTR]
     or si, si
     jz .sil
+    cld
 .ev:
-    mov al, [es:si]
+    es lodsb
+    cmp al, 80h
+    jb .note
+    cmp al, 0A0h
+    jb .ins
+    cmp al, 0C0h
+    jb .shp
     cmp al, 0FFh
     je .sil
-    inc si
-    test al, 80h
-    jnz .cmd
-    or al, al
-    jz .rest
-    mov ah, [es:si]             ; a NOTE: rows, then the gate
-    mov [bx + CH_WAIT], ah
-    mov ah, [es:si + 1]
-    inc si
-    inc si
-    mov [bx + CH_PTR], si
-    jmp bzs_key
-.rest:
-    mov al, [es:si]
-    inc si
-    mov [bx + CH_WAIT], al
-    mov [bx + CH_PTR], si
-    ret
-.cmd:
-    mov ah, al
-    and ah, 0E0h
-    and al, 1Fh
-    cmp ah, 80h
-    jne .shp
-    mov [bx + CH_INST], al      ; 80 | i
-    jmp .ev
-.shp:
-    cmp ah, 0A0h
-    jne .vol
-    mov [bx + CH_SHAPE], al     ; A0 | s
-    jmp .ev
-.vol:
-    cmp al, 10h                 ; (D0: the low five bits are 10h)
+    and al, 1Fh                 ; C0 | v, or D0: the low five bits are 10h
+    cmp al, 10h
     je .slur
     and al, 0Fh
-    mov [bx + CH_VOL], al       ; C0 | v
+    mov [bx + CH_VOL], al
     jmp .ev
 .slur:
     mov byte [bx + CH_SLUR], 1
     jmp .ev
+.ins:
+    and al, 1Fh
+    mov [bx + CH_INST], al      ; 80 | i
+    jmp .ev
+.shp:
+    and al, 1Fh
+    mov [bx + CH_SHAPE], al     ; A0 | s
+    jmp .ev
 .sil:
     mov byte [bx + CH_WAIT], 255
     ret
+.note:
+    or al, al
+    jz .rest
+    mov ch, al                  ; a NOTE: rows, then the gate
+    es lodsw
+    mov [bx + CH_WAIT], al
+    mov al, ch                  ; AL = the note, AH = the gate
+    mov [bx + CH_PTR], si
+    jmp short bzs_key
+.rest:
+    es lodsb
+    mov [bx + CH_WAIT], al
+    mov [bx + CH_PTR], si
+    ret
 
 ; bzs_key - channel BX (index CL) keys note AL with gate AH (Seq.key): the
-; chord's shape fans it to three voices.  Clobbers AX, CX, DX, SI, DI.
+; chord's shape fans it to three voices.  ES = the song, in and out.
+; Clobbers AX, CX, DX, SI, DI.
 bzs_key:
-    mov dl, [bx + CH_SLUR]
-    mov byte [bx + CH_SLUR], 0
-    cmp cl, 2                   ; the chord on the speaker: never played by
-    jne .k                      ; the fold, so never keyed (Seq.key)
-    cmp byte [bzs_arm], BZS_A_FM
-    je .k
-    ret
-.k:
-    mov ch, cl                  ; the channel's first voice: 0, 1, 2, 5
-    cmp cl, 3
-    jne .v
-    mov ch, 5
-.v:
-    push ax
-    mov al, ch
-    mov ah, V_SIZE
-    mul ah
-    add ax, bzs_v
-    mov di, ax
-    pop ax
-    call bzs_kv
-    cmp cl, 2                   ; the chord: two more, at the shape's
-    jne .r                      ; intervals (0: no note)
-    push ax
-    mov al, [bx + CH_SHAPE]
-    xor ah, ah
-    shl ax, 1
-    mov si, ax
+    xor dl, dl                  ; DL = the slur, taken
+    xchg dl, [bx + CH_SLUR]
+    mov di, bzs_v               ; the channel's first voice: 0, 1, 2, 5
+    or cl, cl
+    jz .one
+    mov di, bzs_v + V_SIZE
+    cmp cl, 2
+    jb .one
+    mov di, bzs_v + 5 * V_SIZE
+    jne .one
+    cmp byte [bzs_arm], BZS_A_FM ; the chord on the speaker: never played by
+    jne .r                      ; the fold, so never keyed (Seq.key)
+    mov dh, al                  ; DH = the root
+    mov cl, [bx + CH_SHAPE]     ; the two intervals of its shape (0: no note)
+    xor ch, ch
+    shl cx, 1
+    mov si, cx
     add si, [bzs_soff]
-    mov si, [es:si]             ; the two intervals
-    pop ax
-    mov dh, al                  ; DH = the root, AH the gate still
-    mov cx, si
+    mov cx, [es:si]
+    mov di, bzs_v + 2 * V_SIZE
+    call bzs_kv
     add di, V_SIZE
     mov al, cl
     or al, al
@@ -1154,38 +1166,39 @@ bzs_key:
     add di, V_SIZE
     mov al, ch
     or al, al
-    jz .b
+    jz .one
     add al, dh
-.b:
-    jmp bzs_kv
+.one:
+    call bzs_kv
+    mov es, [bzs_mseg]          ; (bzs_kv leaves ES the sound part)
 .r:
     ret
 
 ; bzs_kv - voice DI keys note AL (0: the voice off) with gate AH, slurred when
 ; DL; channel BX's instrument and volume (Seq.key).  Its stamps, its record,
 ; whether its pitch moves (the sound part's instrument), the deadline, and the
-; chip told.  Preserves all but the flags.
+; chip told.  Preserves AH, BX, CX, DX, DI; clobbers AL, SI, ES.
 bzs_kv:
-    push ax
-    push cx
-    push si
-    push es
     or al, al
     jnz .on
     cmp byte [di + V_ON], 0     ; (a chord's missing note: its voice up)
-    je .out
+    je .r
     mov byte [di + V_ON], 0
     mov al, [di + V_BIT]
     or [bzs_dirty], al
     not al
     and [bzs_dynm], al
-    jmp .out
+.r:
+    ret
 .on:
+    push ax
+    push cx
     mov [di + V_NOTE], al
-    mov cl, [bx + CH_VOL]
-    mov [di + V_VOL], cl
-    mov cl, [bx + CH_INST]
-    mov [di + V_INST], cl
+    mov [di + V_PITCH + 1], al  ; the note's own pitch; a macro moves it from
+    mov byte [di + V_PITCH], 0  ; bzs_mtick's loop, this sub-tick included
+    inc byte [di + V_KEYS]
+    mov cx, [bx + CH_INST]      ; CL = the instrument, CH = the volume
+    mov [di + V_INST], cx
     xor ch, ch                  ; its record, once (bzs_vpitch, bzs_spk)
     shl cx, 1
     shl cx, 1
@@ -1194,78 +1207,74 @@ bzs_kv:
     add cx, [bzs_ins]
     mov [di + V_IREC], cx
     mov si, cx
-    inc byte [di + V_KEYS]
-    mov cx, [bzs_nsub]          ; the end: now + the gate
+    mov es, [bzs_pseg]
+    mov al, [di + V_BIT]        ; the chip has to catch up; its pitch moves
+    mov cx, [bzs_dynm]          ; only under a macro (no vibrato is written:
+    or ch, al                   ; 128.20.4).  CL = bzs_dynm, CH = bzs_dirty
+    cmp byte [es:si + BZI_MAC], 0FFh
+    je .still
+    or cl, al
+    mov al, 1
+    jmp short .dm
+.still:
+    not al
+    and cl, al
+    xor al, al
+.dm:
+    mov [di + V_DYN], al
+    mov [bzs_dynm], cx
+    mov cx, [bzs_nsub]          ; CX = now
+    mov si, [bzs_next]
+    sub si, cx                  ; SI = sub-ticks to the deadline
     mov al, ah
-    xor ah, ah
-    add ax, cx
-    mov [di + V_END], ax
-    sub ax, cx                  ; ...the deadline if it is the nearest
-    mov cx, [bzs_next]
-    sub cx, [bzs_nsub]
-    cmp ax, cx
+    xor ah, ah                  ; AX = the gate
+    cmp ax, si
     jae .dl
-    add ax, [bzs_nsub]
-    mov [bzs_next], ax
+    add ax, cx                  ; the end: now + the gate, and the deadline
+    mov [bzs_next], ax          ; when it is the nearest
+    jmp short .end
 .dl:
+    add ax, cx
+.end:
+    mov [di + V_END], ax
     or dl, dl                   ; slurred onto a sounding voice: re-pitched,
     jz .new                     ; not re-keyed
     cmp byte [di + V_ON], 0
-    jne .pit
+    jne .out
 .new:
-    mov byte [di + V_ON], 1
-    mov byte [di + V_RETRIG], 1
+    mov word [di + V_ON], 0101h ; V_ON and V_RETRIG
     mov byte [di + V_MPOS], 0
-    mov ax, [bzs_nsub]
-    mov [di + V_T0], ax
-.pit:
-    mov ah, [di + V_NOTE]       ; the note's own pitch; a macro or a vibrato
-    xor al, al                  ; moves it from bzs_mtick's loop, this
-    mov [di + V_PITCH], ax      ; sub-tick included
-    mov al, [di + V_BIT]
-    or [bzs_dirty], al
-    mov ah, al
-    not ah
-    and [bzs_dynm], ah
-    mov byte [di + V_DYN], 0
-    mov es, [bzs_pseg]          ; its pitch moves only under a macro (no
-    cmp byte [es:si + BZI_MAC], 0FFh ; vibrato is written: 128.20.4)
-    je .out
-    mov byte [di + V_DYN], 1
-    or [bzs_dynm], al
+    mov [di + V_T0], cx
 .out:
-    pop es
-    pop si
     pop cx
     pop ax
     ret
+%if V_RETRIG != V_ON + 1 || V_VOL != V_INST + 1 || CH_VOL != CH_INST + 1
+ %error "bzs_kv moves these pairs as words"
+%endif
 
 ; bzs_vpitch - a voice whose pitch moves, DI, this sub-tick: the note and its
 ; instrument's macro at the macro's place.  A macro run out and held takes the
-; voice out of bzs_dynm.  ES = the sound part.  Clobbers AX, BX, DX, SI.
+; voice out of bzs_dynm.  ES = the sound part.  Clobbers AX, BX, CX, DX, SI.
 bzs_vpitch:
     mov si, [di + V_IREC]       ; SI = the instrument
-    mov dh, [di + V_NOTE]
-    xor dl, dl                  ; DX = the pitch
     mov bl, [es:si + BZI_MAC]
     xor bh, bh
-    add bx, [bzs_mac]
-    mov al, [di + V_MPOS]       ; the macro's semitones at its place
-    xor ah, ah
-    push bx
-    add bx, ax
-    mov ah, [es:bx + 2]
-    pop bx
-    xor al, al
-    add dx, ax                  ; (AH signed: AX = semitones x 256)
+    add bx, [bzs_mac]           ; BX = its macro: length, loop, the semitones
     mov al, [di + V_MPOS]
+    xor ah, ah
+    mov si, ax
+    mov dh, [es:bx + si + 2]    ; the macro's semitones at its place, onto
+    add dh, [di + V_NOTE]       ; the note
+    xor dl, dl                  ; DX = the pitch
     inc ax
-    cmp al, [es:bx]             ; past its length: the loop, else the last
+    mov cx, [es:bx]             ; CL = its length, CH = its loop
+    cmp al, cl                  ; past its length: the loop, else the last
     jne .mp
-    mov al, [es:bx + 1]
-    cmp al, [es:bx]
+    mov al, ch
+    cmp al, cl
     jb .mp
-    mov al, [es:bx]
+    mov al, cl
     dec ax
     cmp al, [di + V_MPOS]       ; a macro run out and held: the pitch moves
     jne .mp                     ; no more
@@ -1299,10 +1308,7 @@ bzs_clamp:
 
 ; bzs_fxtick - one sub-tick of every effect slot (Seq.fx_tick).  Clobbers AX,
 ; BX, CX, DX, SI, DI, ES.
-bzs_fxtick:
-    mov ax, [bzs_fx + F_PTR]    ; both slots idle (the usual case): nothing
-    or ax, [bzs_fx + F_SIZE + F_PTR]
-    jz .r
+bzs_fxtick:                     ; (bzs_steps calls it only with a slot running)
     cmp word [bzs_pseg], 0
     je .r
     mov es, [bzs_pseg]
