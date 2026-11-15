@@ -902,12 +902,15 @@ bz_step:
     jge .fnext
     jmp .respawn
 .solid:
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov dh, [bz_gy + 1]
-    and dh, 15
-    call bz_h4
-    mov bx, ax                  ; BX = h4, the floor under the centre
+    cmp byte [si + 1], 0        ; a FLAT floor (most steps): 16 z0 wherever
+    jne .sslope                 ; the centre is, without bz_h4
+    mov al, [si]
+    cbw
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    xchg ax, bx                 ; BX = h4, the floor under the centre
 .psolid:
     cmp byte [bz_air], 0
     jne .airsolid
@@ -1133,6 +1136,14 @@ bz_step:
     call bz_rflag
     pop di
     jmp .rdone
+.sslope:                        ; step 6's floor on a SLOPE: at the centre's
+    mov dl, [bz_gx + 1]         ; point
+    and dl, 15
+    mov dh, [bz_gy + 1]
+    and dh, 15
+    call bz_h4
+    mov bx, ax
+    jmp .psolid
 .pdcap:                         ; the doorway open: swallowed
     mov bl, [bz_pdi]
     call bz_capture
