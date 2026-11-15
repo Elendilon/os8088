@@ -144,12 +144,36 @@ bz_l1:
     mov si, bz_s_tkeys
     call bz_intour
     jc bz_lline
-    mov si, bz_s_keys
-    call bz_lstr
-    mov al, [bz_crsel]
-    call bz_ltitle
-    mov si, bz_s_nk
+    mov si, bz_s_keys           ; wave 8c (128.19.8.3): `ENTER SLOT n  LIVES l
+    call bz_lstr                ; TIMED|EXPLORE  F <NAME>` - the game's slot,
+    mov al, [bz_slot]           ; its lives (`-` none) and mode, then F's free
+    add al, '1'                 ; play of the selected course
+    call bz_lch
+    mov si, bz_s_lv
     call bz_lcat
+    mov al, [bz_slot]
+    mov ah, BZD_SLOTB
+    mul ah
+    mov bx, ax
+    mov al, [bz_dat + BZD_SLOT + bx]
+    or al, al
+    mov ah, '-'
+    jz .lv
+    add al, '0'
+    mov ah, al
+.lv:
+    mov al, ah
+    call bz_lch
+    mov si, bz_s_timed
+    test byte [bz_dat + BZD_SLOT + 1 + bx], 1
+    jz .md
+    mov si, bz_s_expl
+.md:
+    call bz_lcat
+    mov si, bz_s_fk
+    call bz_lcat
+    mov al, [bz_crsel]
+    call bz_lname
     jmp bz_line
 
 ; line 2: the adapter, or why there is none, or why the last launch was
@@ -418,6 +442,18 @@ bz_ltour:
     mov si, bz_s_err4
     cmp byte [bz_err], 4
     je bz_lline
+    cmp byte [bz_tour], 0       ; wave 8c (128.19.8.3): no tour - the SLOT's
+    jne .tr                     ; keys, or X's second press asked for
+    mov si, bz_s_skeys
+    cmp byte [bz_xarm], 0
+    je bz_lline
+    mov si, bz_s_xarm
+    call bz_lstr
+    mov al, [bz_slot]
+    add al, '1'
+    call bz_lch
+    jmp bz_line
+.tr:
     mov al, [bz_tour]
     dec al
     cmp al, BZ_NTOUR
@@ -1015,8 +1051,13 @@ bz_clims:   BZ_CRS_LIMS
 %assign %{1}_n %%e - %1
 %endmacro
 BZS bz_s_title, 'BOUNCE BONANZA'
-BZS bz_s_keys,  'ENTER PLAY  F '
-BZS bz_s_nk,    '  N NEXT'
+BZS bz_s_keys,  'ENTER SLOT '
+BZS bz_s_lv,    '  LIVES '
+BZS bz_s_timed, '  TIMED'
+BZS bz_s_expl,  '  EXPLORE'
+BZS bz_s_fk,    '  F '
+BZS bz_s_skeys, '1 2 3 SLOT  E MODE  X ERASE'
+BZS bz_s_xarm,  'X AGAIN: ERASE SLOT '
 BZS bz_s_tkeys, 'ENTER next  ESC stop tour'
 BZS bz_s_sndk,  'S SOUND '
 bz_s_smodes: dw bz_s_sauto, bz_s_sspkf, bz_s_sfx, bz_s_soff
@@ -1114,7 +1155,9 @@ BZS bz_s_p5,    '  box write      '
  %assign BZ_SNDW BZ_SNDW + bz_s_sspk_n
 %endif
 BZ_FIT 0, 1 + bz_s_title_n
-BZ_FIT 1, 1 + bz_s_keys_n + BZ_CRS_TITLEW + bz_s_nk_n
+BZ_FIT 1, 1 + bz_s_keys_n + 1 + bz_s_lv_n + 1 + bz_s_expl_n + bz_s_fk_n + BZ_CRS_NAMEW
+BZ_FIT 0s, 1 + bz_s_skeys_n
+BZ_FIT 0x, 1 + bz_s_xarm_n + 1
 BZ_FIT 1t, 1 + bz_s_tkeys_n
 BZ_FIT 2, 1 + bz_s_cga_n
 BZ_FIT 2h, 1 + bz_s_herc_n

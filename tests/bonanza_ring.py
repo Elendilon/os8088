@@ -546,6 +546,16 @@ class FaceLines:
             return ("line", m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip(), r)
 
 
+def medals(crs):
+    """a course's (G, S) in STEPS (wave 8c, SPEC.md 128.19.8.3): BZ_CRS_MEDALS's pair,
+    out of the generated bzcourse.inc"""
+    t = open(os.path.join(at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^%macro BZ_CRS_MEDALS 0\n\s+dw ([^\n]+)", t, re.M)
+    v = [int(x) for x in m.group(1).split(",")]
+    k = CRS_K[crs]
+    return v[2 * k], v[2 * k + 1]
+
+
 def path_ident():
     """the PATHWAY's identity (wave 8b, SPEC.md 128.19.5): BZ_CRS_IDS's last entry,
     out of the generated bzcourse.inc - a save slot's +6 (128.19.6)"""

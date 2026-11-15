@@ -181,7 +181,9 @@ BZD_SLOT    equ 64              ; save v2 (wave 8b, SPEC.md 128.19.6): `BZS2`, t
 BZD_SLOTB   equ 48              ; three game SLOTS after the bests: +0 lives, +2 the
 BZD_NSLOT   equ 3               ; open nodes, +4 the done ones, +6 the pathway's
 BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; identity, +8 the exits found
-BZD_SEXIT   equ 8               ; (a word a course), +24 - +47 zero
+BZD_SEXIT   equ 8               ; (a word a course), +24 - +39 the best a course
+BZD_SBEST   equ 24              ; (wave 8c, 128.19.8.3, steps), +40 - +47 zero;
+BZD_SZERO   equ 40              ; +1 bit 0 the MODE
 %if BZD_FILE > 512 || BZ_NCRS > 8
  %error "save v2 is one sector, its exits a word a course for 8 courses (SPEC.md 128.19.6)"
 %endif
@@ -262,6 +264,8 @@ bz_onkey:
     call bz_repaint
     jmp .done
 .key:
+    mov ch, [bz_xarm]           ; (wave 8c: X's first press holds only until
+    mov byte [bz_xarm], 0       ; the next key, 128.19.8.3)
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
     mov byte [bz_page], 0       ; MAIN and returns the face to it (SPEC.md
     mov [bz_pgo], cl            ; 128.14.3.2): repainted whole at .done
@@ -283,6 +287,49 @@ bz_onkey:
     je .play
     call bz_intour              ; A TOUR withholds every key that would replace
     jc .tour                    ; its state or its log (128.14.3.4)
+%if BZ_PATH_N
+    cmp al, '1'                 ; wave 8c (128.19.8.3): 1 2 3 the SLOT, E its
+    jb .ns                      ; MODE, X twice ERASES it
+    cmp al, '3'
+    ja .ns
+    sub al, '1'
+    mov [bz_slot], al
+    jmp short .slotl
+.ns:
+    cmp al, 'e'
+    jne .nx
+    call bz_dslot
+    xor byte [si + 1], 1
+    jmp short .slotw
+.nx:
+    cmp al, 'x'
+    jne .nslot
+    or ch, ch
+    jnz .erase
+    mov byte [bz_xarm], 1
+    jmp short .slotl
+.erase:
+    call bz_dslot
+    mov di, si
+    push es
+    push ds
+    pop es
+    mov cx, BZD_SLOTB / 2
+    xor ax, ax
+    rep stosw
+    pop es
+.slotw:
+    mov byte [bz_gsave], 1      ; the slot to BONANZA.DAT (the merge keeps the
+    call bz_home                ; others; at home, as every file is)
+    jc .slotl
+    call bz_dsave
+    call bz_back
+.slotl:
+    mov si, bz_slotl
+    call bz_redraw
+    jmp .done
+.nslot:
+%endif
     mov bx, bz_game
     cmp al, 'g'
     je .held
@@ -727,6 +774,14 @@ bz_game8:
     mov [bz_nopen], ax
     mov ax, [si + 4]
     mov [bz_ndone], ax
+    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE opens
+    and al, 1                   ; every node to the goal's gate
+    mov [bz_xmode], al
+    mov ax, [bz_nopen]
+    jz .tm
+    mov ax, 0ffffh
+.tm:
+    mov [bz_gmask], ax
     call bz_shdrop              ; (never beside a course, 128.19.2)
     call bz_home
     jc .ret
@@ -739,6 +794,7 @@ bz_game8:
     mov cx, FSXF_FASTTICK
     call OSAPI_FSX_RUN
     mov byte [bz_ingame], 0
+    mov byte [bz_xmode], 0      ; (no other play explores)
     jnc .ran
     mov si, bz_t_nofs
     call bz_toast
@@ -768,7 +824,6 @@ bz_gstore:
 bz_gstorl:
     call bz_dslot
     mov [si], al
-    mov byte [si + 1], 0
     mov ax, [bz_nopen]
     mov [si + 2], ax
     mov ax, [bz_ndone]
@@ -777,19 +832,49 @@ bz_gstorl:
     mov [si + 6], ax
     ret
 
+; bz_medal - node BX's DONE pose (8c.3, 128.19.8.3): DL = 4 GOLD (the slot's
+; best for its course at or under G), 3 SILVER (at or under S), 2 else.
+; Preserves all but DX.
+bz_medal:
+    push ax
+    push bx
+    push si
+    mov bl, [bz_path_crs + bx]  ; its course K
+    xor bh, bh
+    shl bx, 1
+    call bz_dslot
+    mov ax, [si + bx + BZD_SBEST]
+    shl bx, 1
+    mov dl, 2
+    or ax, ax
+    jz .o
+    cmp ax, [bz_cmedals + bx + 2] ; S
+    ja .o
+    inc dx
+    cmp ax, [bz_cmedals + bx]   ; G
+    ja .o
+    inc dx
+.o:
+    pop si
+    pop bx
+    pop ax
+    ret
+
 ; the pathway made the course: its node signs' poses from the game's state,
 ; its ball, a play - and fetched.  CF = 1 refused.
 bz_gpath:
-    xor bx, bx                  ; bz_nst: 2 done, 1 open, 0 locked
-.n:
+    xor bx, bx                  ; bz_nst: 2 done (3 silver, 4 gold), 1 open,
+.n:                             ; 0 locked
     mov cx, bx
     mov ax, 1
     shl ax, cl
-    mov dl, 2
     test ax, [bz_ndone]
-    jnz .w
-    dec dx
-    test ax, [bz_nopen]
+    jz .nd
+    call bz_medal               ; DL = 2, 3 or 4 (8c.3)
+    jmp short .w
+.nd:
+    mov dl, 1
+    test ax, [bz_gmask]         ; (EXPLORE: every node open)
     jnz .w
     dec dx
 .w:
@@ -830,10 +915,13 @@ bz_grounds:
     mov al, [bz_exit]
     mov [bz_gnode], al
     call .swap                  ; ...or node bz_exit's course - its LIFE
-    mov al, [bz_lives]          ; TAKEN on the disk first (128.19.6: off
-    dec ax                      ; mid-course refunds nothing; a finish gives
-    call bz_gstorl              ; it back at the bracket's end), quietly
+    cmp byte [bz_xmode], 0      ; TAKEN on the disk first (128.19.6: off
+    jne .nolife                 ; mid-course refunds nothing; a finish gives
+    mov al, [bz_lives]          ; it back at the bracket's end), quietly -
+    dec ax                      ; never in EXPLORE (8c)
+    call bz_gstorl
     call bz_dwrite
+.nolife:
     mov bl, [bz_gnode]
     xor bh, bh
     mov al, [bz_path_crs + bx]
@@ -857,15 +945,26 @@ bz_grounds:
 .nocard:
     cmp byte [bz_goal], 0
     je .life
-    call bz_post                ; (its best, in memory: bz_dsave on the desktop)
-    call bz_dslot               ; the exit FOUND (128.19.6), a word a course
-    mov bl, [bz_crs]
+    call bz_dslot               ; the exit FOUND (128.19.6), a word a course,
+    mov bl, [bz_crs]            ; in either mode
     xor bh, bh
     shl bx, 1
     mov cl, [bz_exit]
     mov ax, 1
     shl ax, cl
     or [si + bx + BZD_SEXIT], ax
+    cmp byte [bz_xmode], 0      ; EXPLORE posts no best and unlocks nothing
+    jne .back                   ; (8c.2)
+    mov ax, [bz_nstep]          ; the slot's best for the course (8c.3)
+    mov dx, [si + bx + BZD_SBEST]
+    dec dx                      ; (0 none: the largest)
+    dec ax
+    cmp ax, dx
+    jae .nb
+    inc ax
+    mov [si + bx + BZD_SBEST], ax
+.nb:
+    call bz_post                ; (its best, in memory: bz_dsave on the desktop)
     mov cl, [bz_gnode]
     mov ax, 1
     shl ax, cl
@@ -886,11 +985,14 @@ bz_grounds:
     mov ax, 1
     shl ax, cl
     or [bz_nopen], ax
+    or [bz_gmask], ax           ; (the gate follows the open set)
     pop cx
 .en:
     loop .e
     jmp short .back
-.life:                          ; ...or a timeout or an Esc: a life
+.life:                          ; ...or a timeout or an Esc: a life (none
+    cmp byte [bz_xmode], 0      ; in EXPLORE, 8c.2)
+    jne .back
     dec byte [bz_lives]
     jz .over
     cmp byte [bz_retry], 0      ; wave 8c (128.19.8): a RETRY from the pause
@@ -919,6 +1021,7 @@ bz_grounds:
     jmp bzs_gdrop0
 
 bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
+bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
 %endif
 
@@ -1798,6 +1901,7 @@ bz_crskey:
     mov si, bz_crsl             ; Enter's title (1) and the ball (3)
     jmp bz_redraw
 bz_crsl:    db 1, 3, 0ffh
+bz_slotl:   db BZ_LTOUR, 1, 0ffh  ; (8c: the slot's keys and Enter's line)
 bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M,
                                 ; the demo keys and the tour's line
 
@@ -2348,8 +2452,8 @@ bz_dslots:
     mov al, [si]                ; lives
     cmp al, BZ_LIVES
     ja .bad
-    cmp byte [si + 1], 0
-    jne .bad
+    test byte [si + 1], 0feh    ; (+1: bit 0 the MODE, 8c)
+    jnz .bad
     or al, al
     jz .z
     test byte [si + 2], 1       ; a game with lives has node 0 open
@@ -2359,8 +2463,8 @@ bz_dslots:
     jne .bad
 .z:
     push si
-    add si, 24
-    mov cx, (BZD_SLOTB - 24) / 2
+    add si, BZD_SZERO           ; (+24 - +39 the bests a course, 8c)
+    mov cx, (BZD_SLOTB - BZD_SZERO) / 2
 .zz:
     lodsw
     or ax, ax
@@ -3062,6 +3166,9 @@ VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's 
 VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
 VAR bz_gsave,1                  ; 1: the game's slot to be written (bz_dsave)
 VAR bz_retry,1                  ; wave 8c (128.19.8): 1 R on the game's pause card
+VAR bz_xmode,1                  ; ...1 EXPLORE (the slot's mode, while the game plays; 0 else)
+VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
+VAR bz_gmask,2                  ; ...the goal gate's nodes: the open ones, or all (EXPLORE)
 VAR bz_inpause,1                ; ...1 while the pause card is up
 VAR bz_freq,1                   ; ...1: the next frame a full write (a card drawn)
 VAR bz_ff,2                     ; the kernel glyph table's first and last codes

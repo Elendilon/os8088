@@ -328,6 +328,24 @@ bz_kresult:
     xor ah, ah
     xor bx, bx
     call bz_knum
+    cmp byte [bz_xmode], 0      ; (8c.3: a timed finish's MEDAL)
+    jne .nomed
+    mov bl, [bz_crs]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov ax, [bz_nstep]
+    mov si, bz_ks_gold
+    cmp ax, [bz_cmedals + bx]
+    jbe .med
+    mov si, bz_ks_silver
+    cmp ax, [bz_cmedals + bx + 2]
+    ja .nomed
+.med:
+    cmp word [bz_cmedals + bx], 0 ; (a course with no medals)
+    je .nomed
+    call bz_kput
+.nomed:
     xor al, al
     stosb
 .lv:
@@ -379,5 +397,7 @@ bz_ks_tup:   db 'TIME UP', 0
 bz_ks_time:  db 'TIME ', 0
 bz_ks_exit:  db ' S  EXIT ', 0
 bz_ks_lives: db 'LIVES ', 0
+bz_ks_gold:  db '  GOLD', 0
+bz_ks_silver: db '  SILVER', 0
 bz_ks_key:   db 'ANY KEY', 0
 bz_kover_l:  db 'GAME OVER', 0, 'ANY KEY', 0, 0

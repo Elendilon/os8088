@@ -303,6 +303,8 @@ bz_pinit:
     rep stosw
     cmp byte [bz_mode], 1       ; wave 7 (128.18.4): a play's or a replay's time
     je .nolim                   ; limit, the course's (bz_clims; 0 none: BENCH);
+    cmp byte [bz_xmode], 0      ; (wave 8c, 128.19.8.3: EXPLORE has none)
+    jne .nolim
     mov bl, [bz_crs]            ; the benchmark has none
     xor bh, bh
     shl bx, 1
@@ -1150,7 +1152,7 @@ bz_step:
     mov cl, al                  ; like floor
     mov ax, 1
     shl ax, cl
-    test ax, [bz_nopen]
+    test ax, [bz_gmask]         ; (8c: EXPLORE's every node)
     jz .end
     mov al, cl
 .gx:

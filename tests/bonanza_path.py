@@ -41,8 +41,8 @@ import struct                   # noqa: E402
 
 REDS = {
     # the pathway's goal gate (bzphys.inc step 8): every node's cell a finish, locked or not
-    "nogate": [("bzphys.inc", "    test ax, [bz_nopen]\n    jz .end\n",
-                "    test ax, [bz_nopen]                ; RED nogate: no gate\n")],
+    "nogate": [("bzphys.inc", "    test ax, [bz_gmask]         ; (8c: EXPLORE's every node)\n    jz .end\n",
+                "    test ax, [bz_gmask]                ; RED nogate: no gate\n")],
 }
 RED_WANT = {"nogate": "1. "}
 
@@ -120,11 +120,15 @@ def run(tag, apps=None, src=None):
         m.run()
         M.guest_sleep(m, 0.5)
         nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
-        ok = g.w("bz_ndone") == 1 and g.w("bz_nopen") == 3 and nst[:2] == [2, 1] and g.b("bz_lives") == 5
-        print("%s 2. node 0 (FIRST) finished: done %04X, open %04X, the signs %s, lives %d: %s" % (
-            tag, g.w("bz_ndone"), g.w("bz_nopen"), nst, g.b("bz_lives"), "yes" if ok else "NO"), flush=True)
+        best = struct.unpack_from("<H", m.read(g.a("bz_dat") + 64 + 24 + 2 * R.CRS_K["first"], 2))[0]
+        gold = R.medals("first")[0]
+        ok = g.w("bz_ndone") == 1 and g.w("bz_nopen") == 3 and nst[:2] == [4, 1] and g.b("bz_lives") == 5 \
+            and 0 < best <= gold
+        print("%s 2. node 0 (FIRST) finished: done %04X, open %04X, the signs %s (node 0 GOLD: the slot's best %d "
+              "steps, G %d), lives %d: %s" % (tag, g.w("bz_ndone"), g.w("bz_nopen"), nst, best, gold,
+                                              g.b("bz_lives"), "yes" if ok else "NO"), flush=True)
         if not ok:
-            fails.append("2. FIRST's finish did not mark node 0 done and open node 1 (%s)" % nst)
+            fails.append("2. FIRST's finish did not mark node 0 done (GOLD) and open node 1 (%s, best %d)" % (nst, best))
         # --- 3. node 1: TRIAL, left by Esc ---------------------------------------------
         poke_node(g, pc, 1)
         M.until(m, lambda _: g.b("bz_crs") == R.CRS_K["trial"] and g.w("bz_cseg") != 0, "TRIAL from node 1",
@@ -208,6 +212,35 @@ def run(tag, apps=None, src=None):
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("5. Enter after game over did not start a new game")
+        playing(g, "the pathway")
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
+        M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0,
+                "the face back", guest=30)
+        # --- 6. EXPLORE (8c.2): E, then every node open, no life lost ---------------------------
+        g.key("KeyE")
+        GM.motor_off(g)
+        dat = GM.read_dat(g)
+        g.key("Enter")
+        M.until(m, lambda _: on_path(g), "the pathway in EXPLORE", guest=60)
+        playing(g, "the pathway in EXPLORE")
+        nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
+        ok = dat is not None and dat[65] & 1 == 1 and g.w("bz_gmask") == 0xFFFF and min(nst) >= 1
+        print("%s 6. E: the slot's mode EXPLORE on the floppy (+1 %s), every node open (the gate %04X, the signs "
+              "%s): %s" % (tag, dat[65] if dat else None, g.w("bz_gmask"), nst, "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("6. EXPLORE did not open every node (%s, gate %04X)" % (nst, g.w("bz_gmask")))
+        poke_node(g, pc, 4)                     # MOON: locked in TIMED
+        M.until(m, lambda _: g.b("bz_crs") == R.CRS_K["moon"] and g.w("bz_cseg") != 0, "MOON (EXPLORE)", guest=30)
+        playing(g, "MOON")
+        tsec = g.w("bz_tsec")
+        g.key("Escape")
+        M.until(m, lambda _: on_path(g), "back on the pathway (EXPLORE)", guest=30)
+        ok = tsec == 0 and g.b("bz_lives") == 5
+        print("%s 6b. node 4 (MOON, locked when timed) played in EXPLORE: no clock (tsec %d), Esc cost no life "
+              "(lives %d): %s" % (tag, tsec, g.b("bz_lives"), "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("6b. EXPLORE ran a clock or took a life (tsec %d, lives %d)" % (tsec, g.b("bz_lives")))
         playing(g, "the pathway")
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
