@@ -1479,7 +1479,7 @@ def side_leg(g, ref):
     fails, rep = [], []
     # wave 7 (SPEC.md 128.18.5): MILL's lanes sit in columns every CGA window holds, so the scene is
     # searched on each course with a lane that can lie outside the band - a clock's digit beside its route
-    # (FIRST's second clock, TRIAL's first) - planned on the host before the play is launched
+    # (TRIAL's first clock) - planned on the host before the play is launched
     plan = None
     for cname in ("mill", "first", "trial"):
         cref = R.Ref(tag, R.course(cname)) if cname != "mill" else ref

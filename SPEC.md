@@ -273356,6 +273356,7 @@ re-authored).
   (0 the units), +17 the digits (2, or 3 for an explicit `limit` of 100 or
   more), +18 the clock's number; never an OBS cell (`prop_cells`), so no
   physics rule and no boost rule sees it, and `BZ_PHYSV` does not move.
+  **Superseded by 128.18.5.3**: a clock is now a post, its place at +26.
   Its lane is one block, 11 poses (`CLOCK_POSES`): 0 a blank, `1 + d` the
   digit `d`.
 - **The guest**: `bz_ltrue`'s CLOCK case reads the record's place and
@@ -273370,7 +273371,7 @@ re-authored).
   which `bz_wlate` and 128.18.7's measurement watch.
 - **The camera model** (`Heavy._true`) and the rows' oracle
   (`bonanza_ring.true_pose`) know the CLOCK case (`clock_pose`).
-- **The clocks** (story 7.7's): `FIRST` (3, 4) and (11, 4), `TRIAL` (4, 10)
+- **The clocks** (story 7.7's, as measured; `FIRST` has one at (3, 6) since 128.18.5.3): `FIRST` (3, 4) and (11, 4), `TRIAL` (4, 10)
   and (18, 17), `MILL` (8, 11), `PEAK` (11, 7). A digit is in the window on
   **100%** of `FIRST`'s autopilot route's frames, **81%** of `TRIAL`'s,
   **33%** of `MILL`'s and **4 - 5%** of `PEAK`'s on both cards (MEASURED,
@@ -273383,6 +273384,45 @@ re-authored).
   time; `clkfreeze` red at (14). The wheel's SIDE leg (128.18.2) searches
   the clocks' lanes too; no shipped course yet puts one outside the band
   with floor to hold the ball, so it still SKIPs.
+
+##### 128.18.5.3 A clock is SOLID (the owner, 2026-11-15)
+
+*"If it looks solid and has height we shouldn't just roll through it."* A
+clock stands in the course as a crystal ball on a pole, so the ball is
+stopped by it the way it is by a bumper post (128.12.6), and by nothing
+new:
+
+- **The record carries a post's fields at a post's offsets**: K 0, KA 0
+  (no kick, no light), `cx`, `cy` the cell's centre, `ph` 255; the place
+  moves to **+26** (`BZP_CPLACE`), the digits +17 and the number +18 as
+  before. A clock's cell is **OBS** (`prop_cells`); its digits share the
+  cell, and the owner the scan names is the FIRST of them (the model's
+  `prop_cells` keeps the first, as `bz_owner` finds it).
+- **The guest**: `bz_wolf` records a CLOCK's cell under the BUMPER kind, so
+  every post rule (`_circle`, the octant push, the restitution) runs on it
+  unchanged; with K = KA = 0 a hit is the plain bounce, `E_BUMPER`'s share
+  of the inward speed (MILL's clock at the cap: 268 of 384 back). **+7
+  bytes**, no bss (MEASURED, 36267 -> 36274 `bonanza.bin`).
+- **Nothing lands on a crystal ball**: `ph` 255 is over every reachable
+  height, so the post's circle stops the ball at every height and the post
+  top is never a floor; the REACH (128.10.4.1) has no launch from a clock's
+  top. (Letting the reach climb onto the top cost `MILL` 462 packed bytes,
+  9718 against its 9412 cap, for a place the art does not show as one to
+  stand on.)
+- **A physics rule with no table**, so `PHYS_REV` 11 and `BZ_PHYSV` moves
+  D0h -> 21h (D0h appended to `PHYSV_SHIPPED`); the three demos are
+  re-authored.
+- **`FIRST`'s clocks**: every row of FIRST's foot and plateau is a scripted
+  run (--selfcheck items 7 and 8, `bonanza_phys`'s pit, lip, rail and goal),
+  so FIRST keeps ONE clock, at (3, 6), the plateau's front-left corner,
+  which none of them crosses; the wheel's SIDE search reads `TRIAL`'s.
+- **Proved by**: `bonanza_phys`'s replay `clock` (MILL, rolled at the cap
+  into (8, 11): one post hit on the clock's record, back below the cap,
+  never past its centre) and its red arm `clkpass` (the kind left as
+  CLOCK: the ball rolls through, red at `clock`); --selfcheck item 4 with
+  the clocks' cells among the props' OBS cells, and item 10's `no_obs`
+  control on the courses where a prop's cell would be SAFE but for its
+  OBS.
 
 #### 128.18.6 `music` and the sound events (stories 7.5, 7.6)
 

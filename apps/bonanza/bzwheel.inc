@@ -662,8 +662,8 @@ bz_ltrue:
     push es
     mov es, [bz_cseg]
     call bz_lrecsi
-    mov bl, [es:si + BZP_CNUM]  ; (+16: the digit's place, the flag's number's
-    pop es                      ; byte)
+    mov bl, [es:si + BZP_CPLACE] ; (+26: the digit's place; +16 - +25 are its
+    pop es                      ; post's fields, 128.18.5.3)
     pop si
     xor bh, bh
     mov al, [bz_tdig + bx]

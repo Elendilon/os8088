@@ -3,8 +3,8 @@
 # 5 pad swaps, 3 spring launches, to the cup.  The build checks it against the course
 # as built; replaced by the owner's recording the day one is committed.
 demo    PEAK
-ident   0CA2
-physics D0
+ident   0562
+physics 21
 ball    rubber
 flags   complete
 steps   2172
