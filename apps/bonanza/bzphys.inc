@@ -2672,8 +2672,9 @@ bz_setz:
     mov dx, ax
     sar dx, 1
     sar dx, 1
-    mov cl, 6
-    shl al, cl
+    ror al, 1                   ; (h4 & 3) << 6
+    ror al, 1
+    and al, 0c0h
     mov [bz_gz], al
     mov [bz_gz + 1], dx
     mov al, dh
