@@ -331,7 +331,7 @@ PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PL
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
 CLOCK_MAX = 4                 # wave 7: clocks a course
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
-CLOCK_UP = 24                 # the digits' block row's top, px above the clock tile's floor at its centre
+CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 128.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
 CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1, 2, 4, 8, 31),
@@ -2180,7 +2180,7 @@ def clock_face_geom(p, x0, y0):
     n = p["ndig"]
     bx0 = (cx - 4 * n + 4) >> 3
     by = (cy - CLOCK_UP) >> 3
-    return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 5, 9
+    return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 7, 10
 
 
 def clock_digit_block(p, x0, y0):
@@ -2190,23 +2190,84 @@ def clock_digit_block(p, x0, y0):
     return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
 
 
-def clock_face_pix(p, x0, y0):
-    """the crystal ball on its stick, canvas pixels: a CYAN disc with a black
-    rim and a white glint, the stick black, 2 px, from the ball down to the
-    tile's floor at its centre.  -> {(x, y): ink}"""
+def clock_face_pix(p, x0, y0, style="crystal"):
+    """a clock's STATIC ART on the canvas (wave 7, SPEC.md 128.18.5.2): the
+    style's (`crystal`, the default; a course's own later).  Lit from the
+    upper left as the course's blocks are: a soft dithered SHADOW cast to the
+    lower right on the tile; a little isometric PLINTH (a white top, a magenta
+    left face, a dithered right face, black edges); a lit POST and a DISH
+    collar; the crystal BALL - cyan, shaded to the lower right by a cyan and
+    magenta dither, a white rim of light to the upper left, a glint and a
+    finial - with the digits' window left plain cyan.  -> {(x, y): ink},
+    later layers over earlier"""
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
+    n = p["ndig"]
     out = {}
-    for y in range(fy + ry - 1, cy + 1):
-        out[(cx - 1, y)] = BLK
-        out[(cx, y)] = BLK
+
+    def put(x, y, ink):
+        out[(x, y)] = ink
+    # the SHADOW, on the tile's top below and to the right of the plinth: every other pixel black
+    for y in range(cy - 2, cy + 5):
+        for x in range(cx - 6, cx + 14):
+            e = ((x - cx - 4) / 10.0) ** 2 + ((y - cy - 1) / 3.6) ** 2
+            if e <= 1.0 and (x + y) & 1:
+                put(x, y, BLK)
+    # the PLINTH: a diamond top (half-width 7, half-height 3) raised 4 px, two faces under it
+    ph, pw, pt = 4, 9, 4
+    top_y = cy - ph
+    for x in range(cx - pw, cx + pw + 1):
+        half = pt * (pw - abs(x - cx)) / float(pw)
+        y_lo, y_hi = top_y - half, top_y + half
+        for y in range(int(math.floor(y_lo)), int(math.ceil(y_hi)) + 1):
+            if y_lo - 0.5 <= y <= y_hi + 0.5:
+                edge = y <= y_lo + 0.5 or y >= y_hi - 0.5
+                put(x, y, BLK if edge else WHT)
+        for y in range(int(math.ceil(y_hi)) + 1, int(math.ceil(y_hi)) + ph + 1):    # the faces
+            if x == cx - pw or x == cx + pw or y == int(math.ceil(y_hi)) + ph or x == cx:
+                put(x, y, BLK)
+            elif x < cx:
+                put(x, y, MAG)
+            else:
+                put(x, y, MAG if (x + y) & 1 else BLK)
+    # the POST: black edges, a lit column and a shaded one, from the plinth's top to the dish
+    dish_y = fy + ry - 1
+    for y in range(dish_y + 2, top_y + 1):
+        put(cx - 2, y, BLK)
+        put(cx - 1, y, WHT)
+        put(cx, y, MAG)
+        put(cx + 1, y, BLK)
+    # the DISH under the ball: a flat ellipse, magenta, lit at its left, black edged
+    for y in range(dish_y - 1, dish_y + 3):
+        for x in range(cx - 7, cx + 8):
+            e = ((x - cx) / 7.0) ** 2 + ((y - dish_y - 0.5) / 2.0) ** 2
+            if e <= 1.0:
+                put(x, y, BLK if e > 0.55 else (WHT if x < cx - 3 else MAG))
+    # the BALL
+    wx0, wx1, wy0, wy1 = fx - 4 * n - 1, fx + 4 * n, fy - 5, fy + 4      # the digits' window, kept plain
     for y in range(fy - ry, fy + ry + 1):
         for x in range(fx - rx, fx + rx + 1):
-            d = ((x - fx) / float(rx)) ** 2 + ((y - fy) / float(ry)) ** 2
-            if d <= 1.0:
-                out[(x, y)] = BLK if d > 0.78 else CYN
-    for (x, y) in ((fx - rx + 4, fy - ry + 3), (fx - rx + 5, fy - ry + 3), (fx - rx + 4, fy - ry + 4)):
-        if out.get((x, y)) == CYN:
-            out[(x, y)] = WHT
+            ux, uy = (x - fx + 0.5) / float(rx), (y - fy + 0.5) / float(ry)
+            d = ux * ux + uy * uy
+            if d > 1.0:
+                continue
+            if d > 0.80:
+                ink = BLK
+            elif wx0 <= x <= wx1 and wy0 <= y <= wy1:
+                ink = CYN
+            elif d > 0.58 and ux + uy > 0.35:                   # the shaded side, lower right
+                ink = MAG if (x + y) & 1 else CYN
+            elif d > 0.62 and ux + uy < -0.55:                  # the rim of light, upper left
+                ink = WHT
+            else:
+                ink = CYN
+            put(x, y, ink)
+    gx, gy = fx - int(0.55 * rx), fy - int(0.5 * ry)            # the glint
+    for (dx, dy) in ((0, 0), (1, 0), (0, 1), (2, -1)):
+        if out.get((gx + dx, gy + dy)) == CYN:
+            put(gx + dx, gy + dy, WHT)
+    btop = min(y for (x, y) in out if x == fx and y <= fy)       # the finial, on the ball's top
+    for (dx, dy, ink) in ((-2, -1, BLK), (-1, -1, MAG), (0, -1, MAG), (1, -1, BLK), (-1, -2, WHT), (0, -2, MAG)):
+        put(fx + dx, btop + dy, ink)
     return out
 
 
@@ -4676,7 +4737,7 @@ class Physics:
         # benchmark has none): tsec the whole seconds left as the clock shows them
         # (ceil(left / SEC_STEPS)), t55 the steps until it drops, tout the timeout
         self.tsec = getattr(course, "limit", 0) if play and isinstance(course, Course) else 0
-        self.t55, self.tout = SEC_STEPS, 0
+        self.t55, self.tout = (SEC_STEPS if play else 0), 0     # (bz_pinit sets t55 outside the benchmark)
         self.lfall = self.lvz = 0
         self.ztop = 0
         self.safe = self.grid.start
