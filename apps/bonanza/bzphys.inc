@@ -901,12 +901,7 @@ bz_step:
 .pfpost:
     call bz_ptop                ; a post cell: the post's top within 6 gu of
     jmp .psolid                 ; it (128.12.6.3)
-.floorh:
-    mov si, bz_nbr + BZN_C
-    mov al, [si + 2]
-    and al, 0fh
-    cmp al, BZ_KFLOOR
-    je .solid
+.nfloor:                        ; (.floorh's, out of its line: not a FLOOR)
     cmp al, BZ_KGOAL
     je .solid
     mov byte [bz_ghv], 0        ; no floor under it: no shadow
@@ -921,6 +916,12 @@ bz_step:
     cmp [bz_gz + 1], ax
     jge .fnext
     jmp .respawn
+.floorh:
+    mov si, bz_nbr + BZN_C
+    mov al, [si + 2]
+    and al, 0fh
+    cmp al, BZ_KFLOOR
+    jne .nfloor                 ; (a FLOOR, nearly always: no jump taken)
 .solid:
     cmp byte [si + 1], 0        ; a FLAT floor (most steps): 16 z0 wherever
     jne .sslope                 ; the centre is, without bz_h4
