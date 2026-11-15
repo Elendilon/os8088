@@ -435,6 +435,9 @@ BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
 VAR bz_estp,1                   ; 1: an early step ran and its frame is not presented yet
 VAR bz_ersp,1                   ; ...and it respawned the ball (the next frame's bz_resp)
 VAR bz_nearly,2                 ; early steps this play (an instrument: nothing reads it)
+VAR bz_noearly,1                ; a harness's: no early step (a row whose oracle reads the
+                                ; ball at bz_tf / bz_presented needs the state AS DRAWN there;
+                                ; nothing in the package writes it, bss is 0)
 %endif
 %if bz_rframes - bz_frames != BZ_LIVE || bz_npwt + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
  %error "bz_play copies the instruments and the footprints as blocks: their layout moved"
@@ -1005,6 +1008,7 @@ bz_early:
     mov al, [bz_full]
     or al, [bz_goal]
     or al, [bz_wld]
+    or al, [bz_noearly]         ; (a harness's poke)
     jnz .no
     cmp [bz_wvok], al
     je .no
