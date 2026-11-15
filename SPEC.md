@@ -269572,6 +269572,26 @@ before.
   their own medal times; the slot keeps a best a course.
 - **The shell's songs** (8b.10) are the sound session's.
 
+#### 128.19.9 The final pass (MEASURED, 2026-11-15)
+
+One scoped pass over the fourteen BONANZA rows (`os88soak.py -k 'bonanza*'`,
+12.5 min), then the failures alone, fixed, and re-run:
+
+- **PASS**: `bonanzamusic`, `bonanzaassets`, `bonanzamega` (86Box,
+  kern_mega), `bonanzacourse`, `bonanzagame`, `bonanzaexit`, `bonanzasound`,
+  `bonanzapath` (new), `bonanzareplay`, `bonanzaperf`, `bonanzaphys`,
+  `bonanzademo`.
+- **The harness's, fixed**: `Bz.shell_base` read the LAST part row, the
+  pathway's since 8b, so every `FaceLines` capture read nothing
+  (`bonanzademo`, `bonanzareplay`, `bonanzaphys`); `bonanza_ring` and
+  `bonanza_wheel` still launched free plays with Enter; `bonanzademo`'s
+  hostile and double-click legs counted the shell part, held on the
+  desktop by design, as a leak.
+- **FAIL, on the books before wave 8**: `bonanzaring`'s probe (BENCH's
+  window at R0 3, not the top clamp) and its `camhyst` control (failing at
+  8a's commit already), and `bonanzawheel`'s leg (6) on the CGA (the
+  corner leg's light step, the scene to be made lighter).
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
