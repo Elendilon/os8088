@@ -76,6 +76,8 @@ way 20 22
 way 20 30
 
 # Par: the AUTHORED demo's time rounded up (SPEC.md 128.16.8, as MOON's and PEAK's).
-par 28
+# wave 7 (SPEC.md 128.18.3): `par` became `limit`; the PLAYGROUND's is explicit, its
+# AUTHOR demo tours every rung (27 s), past the tool's 15 s from the autopilot's route
+limit 40
 # The design time (CD3); the course budget reads it (SPEC.md 128.15.8).
 target 30
