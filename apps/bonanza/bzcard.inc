@@ -225,3 +225,159 @@ bz_x4:      db 00h, 03h, 0ch, 0fh, 30h, 33h, 3ch, 3fh
 ; and a free play's
 bz_pcardg:  db 'PAUSED', 0, 'P RESUME  R RETRY  ESC MAP', 0, 0
 bz_pcardf:  db 'PAUSED', 0, 'P RESUME  ESC QUIT', 0, 0   ; (and the pathway's)
+
+; ---- the game's other cards (8c.4): built in bz_kbuf, then bz_card ---------------
+; bz_kput - the NUL string at SI appended at DI (ours).  -> DI after it.
+bz_kput:
+    lodsb
+    or al, al
+    jz .e
+    stosb
+    jmp short bz_kput
+.e:
+    ret
+
+; bz_knum - AX appended at DI in decimal (BX = 10: a ".d" before the last digit -
+; tenths; BX = 0 none).  Clobbers AX, CX, DX.
+bz_knum:
+    ; STKBALANCE-LOOP: one digit pushed a turn (and a leading zero) and the second loop pops CX of them
+    xor cx, cx
+.d:
+    xor dx, dx
+    push bx
+    mov bx, 10
+    div bx
+    pop bx
+    push dx
+    inc cx
+    or ax, ax
+    jnz .d
+    cmp bx, 10                  ; tenths: at least "0.d"
+    jne .o
+    cmp cx, 2
+    jae .o
+    push ax                     ; (AX 0: a leading zero)
+    inc cx
+.o:
+    pop ax
+    add al, '0'
+    cmp cx, 1
+    jne .w
+    cmp bx, 10
+    jne .w
+    mov byte [di], '.'
+    inc di
+.w:
+    stosb
+    loop .o
+    ret
+
+; bz_kintro - THE INTRO CARD over the pathway while course [bz_crs] is fetched:
+; its NAME, and the keys of the wait
+bz_kintro:
+    push es
+    push ds
+    pop es
+    mov di, bz_kbuf
+    mov al, [bz_crs]
+    mov ah, BZ_CRS_NAMEB
+    mul ah
+    add ax, bz_cnames
+    xchg ax, si
+    call bz_kput
+    xor al, al
+    stosb                       ; (the line's NUL)
+    mov si, bz_ks_get
+    call bz_kput
+    stosb
+    stosb                       ; (the list's end)
+    pop es
+    mov si, bz_kbuf
+    jmp bz_card
+
+; bz_kresult - THE RESULT CARD after a game course: FINISHED and the time and
+; the exit, or TIME UP; the lives; then any key (or about four seconds)
+bz_kresult:
+    push es
+    push ds
+    pop es
+    mov di, bz_kbuf
+    mov si, bz_ks_fin
+    cmp byte [bz_goal], 0
+    jne .h
+    mov si, bz_ks_tup
+.h:
+    call bz_kput
+    xor al, al
+    stosb
+    cmp byte [bz_goal], 0
+    je .lv
+    mov si, bz_ks_time          ; TIME s.t S  EXIT e
+    call bz_kput
+    mov ax, [bz_nstep]          ; tenths = steps x 2 / 11 (a step is 1/55 s,
+    mov dx, [bz_nstep + 2]      ; the clock's second; under 360,000 steps the
+    shl ax, 1                   ; quotient is a word)
+    rcl dx, 1
+    mov cx, 11
+    div cx
+    mov bx, 10
+    call bz_knum
+    mov si, bz_ks_exit
+    call bz_kput
+    mov al, [bz_exit]
+    xor ah, ah
+    xor bx, bx
+    call bz_knum
+    xor al, al
+    stosb
+.lv:
+    mov si, bz_ks_lives
+    call bz_kput
+    mov al, [bz_lives]
+    xor ah, ah
+    xor bx, bx
+    call bz_knum
+    xor al, al
+    stosb
+    mov si, bz_ks_key
+    call bz_kput
+    xor al, al
+    stosb
+    stosb
+    pop es
+    mov si, bz_kbuf
+    call bz_card
+; bz_kwait - a card read: until a key is typed, or about four seconds of frames
+bz_kwait:
+    mov cx, 30                  ; half a second of keys DRAINED first: the
+.d:                             ; arrows held from the play repeat
+    call bz_drain
+    mov al, FSXW_FRAME
+    call OSAPI_FSX_WAIT
+    loop .d
+    mov cx, 210
+.w:
+    mov al, FSXW_FRAME
+    call OSAPI_FSX_WAIT
+    mov ah, 1
+    int 16h
+    jnz .k
+    loop .w
+    ret
+.k:
+    jmp bz_drain
+
+; bz_kover - GAME OVER
+bz_kover:
+    mov si, bz_kover_l
+    call bz_card
+    jmp short bz_kwait
+
+bz_ks_get:   db 'GET READY', 0
+bz_ks_fin:   db 'FINISHED', 0
+bz_ks_tup:   db 'TIME UP', 0
+bz_ks_time:  db 'TIME ', 0
+bz_ks_exit:  db ' S  EXIT ', 0
+bz_ks_lives: db 'LIVES ', 0
+bz_ks_key:   db 'ANY KEY', 0
+bz_kover_l:  db 'GAME OVER', 0, 'ANY KEY', 0, 0

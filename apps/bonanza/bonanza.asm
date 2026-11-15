@@ -838,10 +838,23 @@ bz_grounds:
     xor bh, bh
     mov al, [bz_path_crs + bx]
     mov [bz_crs], al
-    call bz_gcrs
+    call bz_kintro              ; (8c.4: the INTRO card over the pathway while
+    call bz_gcrs                ; the course is fetched)
     jc .out
     jmp bz_grounds
 .crs:                           ; A COURSE: a finish ...
+    mov ax, word [bz_goal]      ; (8c.4: a finish or a timeout shows THE RESULT
+    or al, ah                   ; card first - an Esc or a retry was the
+    jz .nocard                  ; player's own)
+    cmp byte [bz_goal], 0       ; (the lives it shows are after a timeout's)
+    jne .card
+    dec byte [bz_lives]
+    call bz_kresult
+    inc byte [bz_lives]
+    jmp short .nocard
+.card:
+    call bz_kresult
+.nocard:
     cmp byte [bz_goal], 0
     je .life
     call bz_post                ; (its best, in memory: bz_dsave on the desktop)
@@ -898,6 +911,7 @@ bz_grounds:
     jc .out
     jmp bz_grounds
 .over:                          ; THE GAME IS OVER: the next Enter is a new one
+    call bz_kover               ; (8c.4)
 .out:
     ret
 .swap:                          ; this round's parts and song given back
@@ -3052,6 +3066,7 @@ VAR bz_inpause,1                ; ...1 while the pause card is up
 VAR bz_freq,1                   ; ...1: the next frame a full write (a card drawn)
 VAR bz_ff,2                     ; the kernel glyph table's first and last codes
 VAR bz_font,8 * BZC_NGLYPH      ; the cards' glyphs, 32 - 95 (bzcard.inc)
+VAR bz_kbuf,64                  ; a card's lines, built (bzcard.inc)
 VAR bz_crdls,2                   ; bz_card's list, lines, widest + 2, first cell,
 VAR bz_crdn,2                     ; height, first line, the row's bank and base,
 VAR bz_crdw,2                    ; the glyph row

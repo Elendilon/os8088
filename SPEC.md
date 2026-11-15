@@ -273864,6 +273864,26 @@ before.
   leg. LOOKED AT on both cards: the card over the frozen pathway, and gone
   the frame after P.
 
+##### 128.19.8.2 The intro, result and game-over cards, as built (story 8c.4)
+
+- **INTRO** (`bz_kintro`): over the pathway's last frame while a node's
+  course is fetched - the course's NAME and `GET READY`. Medal times and
+  "exits found n of m" join it with 8c.3.
+- **RESULT** (`bz_kresult`), after a game course that ended by a FINISH
+  (`FINISHED`, `TIME s.t S  EXIT e`, the time in the clock's seconds,
+  steps x 2 / 11 tenths) or a TIMEOUT (`TIME UP`); then `LIVES n` and `ANY
+  KEY`. An Esc or a retry is the player's own and shows none. **GAME
+  OVER** (`bz_kover`) before the bracket ends on the last life.
+- **A card is READ** (`bz_kwait`): half a second of keys drained first (the
+  arrows held from the play repeat), then any key, or about four seconds of
+  frames (`OSAPI_FSX_WAIT`).
+- **The bytes** (MEASURED): the image **35,054 -> 35,424 (+370)**, the bss
+  **+64** (`bz_kbuf`).
+- **Proved by**: `bonanzapath` PASS on both cards with the cards in its
+  legs (the result card after FIRST's finish, GAME OVER before the bracket
+  ends); LOOKED AT on the CGA (the intro card over the pathway, the result
+  card after FIRST).
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

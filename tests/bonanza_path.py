@@ -66,6 +66,13 @@ def on_path(g):
 BB_PATH = None
 
 
+def playing(g, what):
+    """the play's frame loop REACHED (a stop at bz_t0, past bz_play's drain): a
+    key typed before bz_play starts is drained, and the fetch before it takes
+    its time"""
+    X.at_t0(g, lambda g_: None)
+
+
 def run(tag, apps=None, src=None):
     global BB_PATH
     fails = []
@@ -145,7 +152,7 @@ def run(tag, apps=None, src=None):
         if not ok:
             fails.append("3. an Esc on a course cost no life (lives %d)" % g.b("bz_lives"))
         # --- 3b. SAVE V2 (128.19.6): left for the desktop, the slot on the floppy; Enter continues it --
-        M.guest_sleep(m, 0.5)                   # (a key typed as a play starts is drained, bz_drain)
+        playing(g, "the pathway")               # (a key typed as a play starts is drained, bz_drain)
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop (the game left)", guest=30)
         GM.motor_off(g)
@@ -172,7 +179,7 @@ def run(tag, apps=None, src=None):
         m.run()
         poke_node(g, pc, 0)
         M.until(m, lambda _: g.b("bz_crs") == R.CRS_K["first"] and g.w("bz_cseg") != 0, "FIRST again", guest=30)
-        M.guest_sleep(m, 0.5)
+        playing(g, "FIRST again")
         GM.motor_off(g)                     # the LIFE taken on the disk at the course's entry (128.19.6)
         dat = GM.read_dat(g)
         ok = dat is not None and len(dat) == GM.DAT_FILE and dat[64] == 0
@@ -201,7 +208,7 @@ def run(tag, apps=None, src=None):
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("5. Enter after game over did not start a new game")
-        M.guest_sleep(m, 0.5)
+        playing(g, "the pathway")
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
     return fails
