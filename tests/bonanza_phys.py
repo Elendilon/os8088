@@ -314,7 +314,7 @@ class Reader:
             "bz_gx", "bz_gy", "bz_gz", "bz_gvx", "bz_gvy", "bz_gvz", "bz_nstep", "bz_air", "bz_lfall", "bz_lvz",
             "bz_nland", "bz_nfall", "bz_resp", "bz_goal", "bz_lvl", "bz_hopw", "bz_kprev", "bz_mst", "bz_mct",
             "bz_sqf", "bz_nbnc", "bz_nstun", "bz_nshat", "bz_nhop")}
-        for n in ("bz_tout", "bz_tsec", "bz_t55"):  # wave 7 (SPEC.md 128.18.4), in the same run
+        for n in ("bz_tout", "bz_tsec", "bz_t55", "bz_exit"):  # wave 7 (SPEC.md 128.18.4), 8b (128.19.4)
             if n in s:
                 self.off[n] = s[n] - self.lo
 
@@ -337,6 +337,7 @@ class Reader:
         # wave 7 (SPEC.md 128.18.4): the timeout, the seconds left and the steps to the next
         ext["s7"] = ((raw[o["bz_tout"]], struct.unpack_from("<H", raw, o["bz_tsec"])[0], raw[o["bz_t55"]])
                      if "bz_tout" in o else None)
+        ext["s8"] = raw[o["bz_exit"]] if "bz_exit" in o else None   # wave 8b (128.19.4): the finish's exit
         return st, s2, ext
 
     def state6(self, raw):
@@ -437,6 +438,9 @@ def compare(name, frames, st, s2, ext, p):
         return "%s frame %d: wave 7's time differs from the model's after %d steps: %s" % (
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b) for n, a, b in
                                            zip(("tout", "tsec", "t55"), ext["s7"], p.state7()) if a != b))
+    if ext.get("s8") is not None and ext["s8"] != p.exit:
+        return "%s frame %d: the finish's EXIT differs from the model's after %d steps: guest %d model %d " \
+            "(SPEC.md 128.19.4)" % (name, frames, st[0], ext["s8"], p.exit)
     if ext.get("s6") is not None and ext["s6"] != p.state6():
         names = ("btok", "stf", "nboost", "drx", "dry", "bgr", "bgd")
         return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
@@ -559,6 +563,8 @@ def scenario(g, crs, name):
     p.nstep, p.safe = st0[0], safe             # the model picks the play up where the guest is
     if ext0.get("s7") is not None:              # (wave 7: its clock too)
         p.tout, p.tsec, p.t55 = ext0["s7"]
+    if ext0.get("s8") is not None:              # (wave 8b: and the exit, 128.19.4)
+        p.exit = ext0["s8"]
     p._poked_at = st0[0]
     p.lvl, p.hopw, p.kprev = list(s20[0]), s20[1], s20[2]
     for k in ("nland", "nfall", "nbnc", "nstun", "nshat", "nhop"):
@@ -1907,6 +1913,15 @@ def w6b_replays():
     add("timeout", "first", R_, None, keys, "rubber at rest on FIRST, limit %d s (%d steps): the timeout at step %s, "
         "the clock %s then" % (fc.limit, lim, p.nstep if p.tout else None, p.tsec), fc.limit and p.tout
         and p.nstep == lim and p.tsec == 0 and not q.tout and q.tsec == 1, red={"_toutoff": True}, nboost=0)
+    # wave 8b (SPEC.md 128.19.4): SEVERAL FINISHES - TRIAL's goal column split, (8, 17) exit 0 and (8, 18)
+    # exit 1: rolled into each from the sand, the guest's bz_exit the model's every frame and at the end
+    for nm, at, want in (("exit1", (9, 18), 1), ("exit0", (9, 17), 0)):
+        pk = pl_poke("trial", at, R_, d=(-1, 0), v=BB.VMAXG // 2)
+        keys = [CHORD_MX] * 40
+        p, _cs = run_ix("trial", R_, pk, keys)
+        add(nm, "trial", R_, pk, keys, "rubber rolled from %s into TRIAL's goal column: finished at step %s through "
+            "exit %d (want %d)" % (at, p.nstep if p.goal else None, p.exit, want), p.goal and p.exit == want
+            and not p.nfall, nboost=0)
     return S
 
 
@@ -2342,6 +2357,10 @@ REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n.tdone:\n",
 # clkpass (wave 7, SPEC.md 128.18.5.3): a clock's cell is not taken for a post's, so the ball rolls through it
 REDS["clkpass"] = [("bzphys.inc", "    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads\n",
                     "                                ; RED clkpass: the clock's kind left as it is\n")]
+# noexit (wave 8b, SPEC.md 128.19.4): the goal's test writes no exit - red at exit1 (bz_exit 0, the model's 1)
+REDS["noexit"] = [("bzphys.inc", "    shr al, cl\n    mov [bz_exit], al\n    mov byte [bz_goal], 1\n",
+                   "    shr al, cl                  ; RED noexit\n    mov byte [bz_goal], 1\n")]
+RED_ONLY.update({"noexit": ("exit1",)})
 RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",),
                  "clkpass": ("clock",)})
 RED_WANT.update({"toutoff": "timeout frame"})

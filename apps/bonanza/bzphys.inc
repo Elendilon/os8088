@@ -201,9 +201,11 @@ VAR bz_drx,1                    ; (6b, 128.17.4.2); the STRETCH's steps left;
 VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
                                 ; gvy's (128.16.3.1).  A RESPAWN zeroes the four
                                 ; as two words: keep the order
-VAR bz_bsp,2                    ; round 3b (128.17.17): 1 from a boost until the
-                                ; ball is next on the ground, 0 else (a byte;
-                                ; the word keeps BZ_PHSN even)
+VAR bz_bsp,1                    ; round 3b (128.17.17): 1 from a boost until the
+                                ; ball is next on the ground, 0 else
+VAR bz_exit,1                   ; wave 8b (128.19.4): the finish's EXIT, 0 - 15 -
+                                ; a GOAL cell's flags bits 4 - 7, a cup's +27 -
+                                ; written with bz_goal (the pair keeps BZ_PHSN even)
 VAR bz_tsec,2                   ; wave 7 (128.18.4): the whole seconds LEFT, as the
 VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
                                 ; the next one (BZ_SECSTEPS a second)
@@ -1139,6 +1141,10 @@ bz_step:
     jne .end
     cmp byte [bz_mode], 1       ; play or a replay: the benchmark ignores it
     je .end
+    mov al, [bz_nbr + BZN_C + 3] ; wave 8b (128.19.4): the cell's EXIT, its
+    mov cl, 4                   ; flags' bits 4 - 7
+    shr al, cl
+    mov [bz_exit], al
     mov byte [bz_goal], 1
     ; ---- 9. the step counted, the screen state derived ----
 .end:
@@ -1665,6 +1671,9 @@ bz_prule:
     ja .lip
     cmp byte [bz_mode], 1       ; ...in a play or a replay (the goal line's
     je .inmo                    ; rule: the benchmark rolls over it)
+    mov al, [es:si + BZP_UEXIT] ; wave 8b (128.19.4): the cup's EXIT (bit 7
+    and al, 0fh                 ; hidden is the pathway's)
+    mov [bz_exit], al
     xor ax, ax
     mov [bz_gvx], ax
     mov [bz_gvy], ax

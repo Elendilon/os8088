@@ -273637,6 +273637,50 @@ Binding where it adds. Figures are MEASURED, PREDICTED or ESTIMATED as in
   to a loaded image; the claims inside are the desktop's less the shell),
   `bonanzagame` PASS.
 
+#### 128.19.3 The loop's shape (wave 8b, the decisions)
+
+| decision | chosen | why |
+|---|---|---|
+| the points | **8b.4 first** (several finishes: the tool, the grid, the guest's `bz_exit`), then **the loop** (8b.1 - 8b.3, 8b.5, 8b.9: one bracket, the prototype pathway, lives held in memory), then **save v2** (8b.6) with the tour's removal (8b.8), then the shell's sounds (8b.10) | a finish's exit is what the pathway's edges are keyed by, so it comes first; each point is a commit and a disk set |
+| the pathway (PROTOTYPE, the owner's) | **a course of its own**, `apps/bonanza/courses/path.bbc`, compiled by the course tool like every course (its picture, its grid), with **`node` statements**: a node is a CELL, a COURSE and a LANE icon (`PK_NODE`, the clock's lane machinery, poses locked / open / done / silver / gold); **`edge` statements** map (node, exit) to the next node; the course tool writes the graph into `bzcourse.inc` (`BZ_PATH_*`, resident, 8 bytes a node) | the full write, the lanes, the wheel, `bz_hxlat` and the ball box are reused with no new draw path (the plan's 8b.2); the art, the layout and the icons are the owner's to replace as courses are made |
+| the walk | **the graph walk**: the ball rests on the selected node (no physics: `bz_mode` 4, a step that places the ball), the arrows move the selection to the node the tool picked for that arrow (the nearest in that screen direction among its edges, both ways), Enter plays an OPEN node, Esc leaves the bracket for the desktop | the plan's `bonanzapath` graph walk; one key, one move |
+| a node's state | locked (no taken edge reaches it, and it is not the first), **open**, **done** (a finish in time), silver, gold (8c's medals: drawn, never set before 8c) | the plan's 8b.3 / 8c.3 |
+| lives (8b.5) | **5 at a new game**; a timeout or an abandoned course (Esc) costs one; a finish costs none; at 0 the game is over: the bracket ends, the slot's lives are 5 again and its unlocks kept | the owner's *"LIVES are timeouts"*; the game-over rule is the gentlest and the owner's to change |
+| the ball (8b.9) | **the course's own** (`ball` statement), as a tour rolls today | the plan's default |
+| B, R, D, the demos | **unchanged**: one course, one bracket, as now | they are instruments, not the game |
+
+#### 128.19.4 Several finishes (story 8b.4)
+
+- **The statements**: a `goal` statement and a `cup` statement take an
+  **`exit E`** clause (0 - 15; 0 without one) and a **`hidden`** word (a
+  secret finish, decision 6: counted in "found n of m", never drawn on the
+  pathway until found). Two finishes of a course may share an exit only if
+  neither is hidden; the tool prints each course's exits.
+- **The grid**: a GOAL cell's exit is its flags byte's **bits 4 - 7**
+  (128.15.4's cell: bits 0 - 3 are SAFE, OCC, OCCG and OBS; 4 - 7 were
+  zero and item 4 asserted it); a cup's is its record's **+27** byte (bit 7
+  hidden), after the clock's place at +26.
+- **The guest**: the goal's test (step 8) and the cup's capture write
+  **`bz_exit`** (a byte beside `bz_goal`, outside the `bz_goal`/`bz_tout`
+  word): the cell's bits 4 - 7, or the cup's +27 & 0Fh. `bz_goal` keeps
+  its meaning (1: finished). The model's goal event carries the exit.
+- **Nothing in physics moves**: `BZ_PHYSV` is unchanged (no rule, no table);
+  a course's IDENTITY moves only where it names an exit other than 0.
+- **The glyph** (a banner beside a finish and on its pathway edge) is
+  **deferred with the art** (the owner: icons as courses are made); the
+  pathway's edges are drawn as plain floor until then.
+- **The test course**: TRIAL's goal column is split, (8, 17) exit 0 and
+  (8, 18) **exit 1** - a test of the mechanism, not a design.
+- **Proved by**: `--selfcheck` (item 4: every GOAL cell's bits 4 - 7 its
+  statement's exit, every other cell's 0; the cup's +27 through
+  `read_part`); `bonanzaphys` compares the guest's `bz_exit` with the
+  model's on EVERY replay's every frame, and replays **`exit1`** and
+  **`exit0`** roll into TRIAL's two finishes; red arm **`noexit`** (the
+  goal's test writes no exit) red at `exit1`. A cup's exit other than 0 is
+  on no course yet (MOON's and PEAK's cups are exit 0).
+- **The bytes** (MEASURED): **+19** (the image 33,670 -> 33,689), the bss
+  +0 (`bz_bsp` gave up its pad byte to `bz_exit`).
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

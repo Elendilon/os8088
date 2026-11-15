@@ -45,7 +45,10 @@ surface bounce rect 11 19 19 20
 # sand before the goal
 floor rect   9 17 11 19  flat 2
 surface sand   rect  9 17 11 19
-goal  rect   8 17  9 19  flat 2
+goal  rect   8 17  9 18  flat 2
+# wave 8b (SPEC.md 128.19.4): a SECOND finish, the goal column's front cell, exit 1 - a
+# test of several finishes, not a design (the owner: no course here ships as it is)
+goal  rect   8 18  9 19  flat 2 exit 1
 # the mat, off the route beside the steep ramp
 floor rect  19 13 21 17  flat 2
 surface bounce rect 19 13 21 17
