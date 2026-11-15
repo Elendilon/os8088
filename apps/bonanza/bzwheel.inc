@@ -73,7 +73,7 @@ BZ_PWHEEL   equ 6               ; the wheel's part (bz_tw .. bz_tv), appended
 BZ_WKN      equ 7               ; bz_vinit's per-card words, bz_wb0 .. bz_warr
 BZ_PLNONE   equ 8000h           ; bz_pline: the slab is not on the card
 BZ_FOOTW    equ BZ_BAL_RB * 4   ; the ball's footprint, px (SPEC.md 128.4)
-BZ_WBLK     equ 17              ; a wheel slot: the lane state bz_lbr .. bz_lL,
+BZ_WBLK     equ 19              ; a wheel slot: the lane state bz_lbr .. bz_lq1,
 BZ_WSLOT    equ 2 * BZ_WBLK + 4 ; ...then its AHEAD bound and BEHIND time
 BZ_WCSTO    equ 28              ; a slot's cost' (bz_wcst's place in the block)
 BZ_WRB      equ 345             ; PIT counts: the pass's set-up of a second
@@ -217,10 +217,11 @@ VAR bz_lrb,8                    ; r0 r1, words x0 x1) and the entering rows',
 VAR bz_wcst,2                   ; its cost' (bz_wprep), and the first and last
 VAR bz_lF,2                     ; shown window lines - BZ_WBLK words a slot
 VAR bz_lL,2
-VAR bz_lpm,2                    ; ...its pose maps, a pose's bytes and its
-VAR bz_lsz,2                    ; card rows [lq0, lq1)
-VAR bz_lq0,2
-VAR bz_lq1,2
+VAR bz_lq0,2                    ; ...and its card rows [lq0, lq1): the slot's
+VAR bz_lq1,2                    ; last two (bz_lwhole judges a loaded lane by
+                                ; them: its OWN rows, not the last prepared's)
+VAR bz_lpm,2                    ; ...its pose maps and a pose's bytes
+VAR bz_lsz,2
 VAR bz_wct,6 * BZ_WSLOT         ; bz_wheel's candidates, prepared once: each
                                 ; slot BZ_WBLK words of the lane's state from
                                 ; bz_lbr (bz_wsave), its AHEAD bound, its
@@ -272,8 +273,8 @@ VAR bz_kr,8                     ; the calibration corner, px (x0 y0 x1 y1)
 VAR bz_kt,8                     ; ...what it must not meet
 VAR bz_cals,4
 VAR bz_cT,6
-%if bz_lL != bz_lbr + 2 * (BZ_WBLK - 1) || bz_wcst != bz_lbr + BZ_WCSTO || bz_lra != bz_lbr + 12
- %error "bz_wsave/bz_wload copy BZ_WBLK words from bz_lbr: bz_lbr .. bz_lL moved"
+%if bz_lq1 != bz_lbr + 2 * (BZ_WBLK - 1) || bz_lq0 != bz_lq1 - 2 || bz_wcst != bz_lbr + BZ_WCSTO || bz_lra != bz_lbr + 12
+ %error "bz_wsave/bz_wload copy BZ_WBLK words from bz_lbr: bz_lbr .. bz_lq1 moved"
 %endif
 %if bz_wla != bz_wb0 + 2 || bz_wlb != bz_wb0 + 4 || bz_wrefp != bz_wb0 + 6 || bz_wlw != bz_wb0 + 8 || bz_wcw != bz_wb0 + 10 || bz_warr != bz_wb0 + 12
  %error "bz_vinit copies BZ_WKN words to bz_wb0: their order moved"
@@ -1785,16 +1786,16 @@ bz_wslot:
     shl ax, 1
     mov si, ax                  ; 2i
     shl ax, 1
-    add si, ax                  ; 6i
+    shl ax, 1
+    add si, ax                  ; 10i
     shl ax, 1
     shl ax, 1
-    shl ax, 1
-    add si, ax                  ; x BZ_WSLOT (38)
+    add si, ax                  ; x BZ_WSLOT (42)
     add si, bz_wct
     pop ax
     ret
-%if BZ_WSLOT != 38
- %error "bz_wslot scales a candidate's index by 38 = BZ_WSLOT"
+%if BZ_WSLOT != 42
+ %error "bz_wslot scales a candidate's index by 42 = BZ_WSLOT"
 %endif
 
 ; bz_wsave - the lane state (BZ_WBLK words from bz_lbr) into slot SI;
