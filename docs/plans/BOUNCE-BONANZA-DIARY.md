@@ -2344,3 +2344,36 @@ holds. One byte of the 36 is a short jump made near: the held test pushed
 the stun's `jmp short .ground` close enough to its limit that two red arms'
 patches no longer assembled. That was caught by the row's own `--check`,
 which assembles every arm, before anything ran in an emulator.
+
+## 2026-11-15 (gate 1, round 3b: every launch arms, and the boost adds)
+
+The owner answered round 3's questions with "yes to all" - springs, tube
+exits and the cup's lip-out arm a boost too - and asked for one new rule:
+a boost after a fall should ADD to the bounce, by "the difference between a
+bounce and a boost", because "fall bounces did feel a bit low". Mid-build a
+second note arrived: none of today's courses is more than a test.
+
+The first part turned out to need the one flag round 3 had argued away.
+"Stop bouncing before the next boost" was true by construction while only
+a grounded ball could take a token. A spring under a contact and a tube's
+exit launch a ball that may still be bouncing from a boost, so the rule
+needed state after all: `bz_bsp`, set by a boost and cleared by any step on
+the ground. A search on PEAK found the case that proves it - a boost whose
+bounce carries the ball onto the spring - and `nospent` boosts twice there.
+
+The second part had a clean reading hiding in the owner's words. On the
+level a boost is 350 and the Hop's bounce 201; the difference is 149. "The
+boost is the bounce plus 149, never less than 350" changes nothing on the
+level and makes every fall gain - so it was built as that, with 149 derived
+from each material's own Hop rather than written down. The cost is the
+boost's fixed apex: from a 1.5-unit drop down, the boosted ball rises above
+the ledge it fell from, the reach grows, three courses' parts move, and the
+PLAYGROUND's unreachable 2-unit rung becomes reachable. Under the owner's
+note those became reports rather than refusals. The question he did ask -
+offscreen - came back clean on the camera model: nothing leaves the window
+on either card, even after a 6-unit drop.
+
+One control lost a leg honestly: with the larger reach, MILL's occluders
+and so the heavy rule's frames moved, and no ramp-bottom pattern (about
+fifty tried) reverses without hysteresis any more. The control is held red
+where it still is, and the search is written down.
