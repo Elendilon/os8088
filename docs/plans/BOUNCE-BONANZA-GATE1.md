@@ -8,6 +8,38 @@ ask for a change. Every figure here comes from wave 6's final pass
 marked MODEL was computed on the host by `bbcourse.py`, using the same
 physics as the guest, integer for integer.
 
+## Round 3b (SPEC.md 128.17.17): read this first
+
+Two more changes on top of round 3, as you asked:
+
+- **Everything that puts the ball in the air arms one boost**: a spring, a
+  tube's drop or cannon exit, and the cup's lip-out, as well as a Hop and a
+  fall. The stop-bouncing rule still holds through them: a ball still
+  bouncing from a boost that lands on a spring or drops into a tube gets no
+  new boost until it has been back on the ground.
+- **A boost after a fall adds to the bounce.** The boost now adds 149 to
+  whatever the bounce would have been (149 is what it adds on the level, so
+  a level boost is unchanged). Falls you could not boost before now
+  boost, and higher falls boost higher:
+
+  | drop | bounce peak | boost peak |
+  |---|---|---|
+  | 1 unit | 4.6 px | 12.1 px (was 9.3) |
+  | 2 units | 9.0 px | 18.9 px (was 9.3) |
+  | 3 units | 15.0 px | 27.3 px (was none) |
+  | 6 units | 29.6 px | 46.0 px (was none) |
+
+  From 1.5 units down the ball now rises above the ledge it fell from.
+  It never left the screen in any run on either card.
+
+**What to try:** roll off the 1.5- or 2-unit rung onto the apron holding
+Space; ride a spring or MILL's tubes and tap in the flight after; boost,
+then let the bounce carry you onto PEAK's spring (no second boost).
+
+**Known, on purpose:** the PLAYGROUND's 2-unit rung, which nothing could
+reach before, can now be reached by falling off the 1.5-unit rung and
+boosting. It is a test course; the tool reports it instead of refusing.
+
 ## Round 3 (SPEC.md 128.17.16): read this first
 
 Round 3 changes rubber's boost three ways, as your round-2 notes asked.

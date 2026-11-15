@@ -158,7 +158,8 @@ and PASSES only if the row FAILS - at its own check:
                      its boost
        boostdrop     a Hop off the 1-unit top onto the apron, Space at the contact:
                      a boost with sqf 0 although its impact passes 384
-       boostfall     a Hop off the 2-unit top, Space at the contact: a contact
+       boostfall     (round 3b: a BOOST, the bounce plus BADD; was:)
+                     a Hop off the 2-unit top, Space at the contact: a contact
                      Hop at the rebound, nboost 0
        pumpchk       Space at every contact of the chain: one boost, then contact Hops
        bouncefirst   a Hop, no Space at its first contact (a bounce), Space at its
@@ -168,7 +169,8 @@ and PASSES only if the row FAILS - at its own check:
                      Space before it: no boost
        sandnot, matnot  the same on the PLAYGROUND's sand lane and its mat
        liftnot       a Hop on MILL's lift slab, Space before its contact: no boost
-       springnot     a Hop on PEAK's spring (searched): the spring's launch spends
+       springarm     (round 3b: the launch TAKES the token, a boost; wave 6's
+                     springnot:) a Hop on PEAK's spring (searched): the spring's launch spends
                      the token, Space at its flight's first contact a contact Hop
        steelglass-*  steel and glass: contact Hops, never a boost
        drag-rest     one arrow from rest on the PLAYGROUND's longest level run
@@ -185,7 +187,10 @@ and PASSES only if the row FAILS - at its own check:
   rampboost  rule 4's slope test left out: rampnot boosts
   tokbst     the token cleared only by a boost: bouncefirst boosts
   slabcell   rule 4 on the slab's substituted cell (bz_fslab): liftnot boosts
-  springtok  the spring's launch keeps a ground Hop's token: springnot boosts
+  springoff  round 3b: round 3's spring, the launch spends the token:
+             springarm does not boost (wave 6's springtok, inverted)
+  noadd      round 3b: round 3's boost (BOOST, rule 5): boostfall a contact Hop
+  nospent    round 3b: a boost never spent: spentspring boosts twice
   ceildrag   the guest keeps wave 2's round-up drag: drag-rest (|gvx| settles
              at 189, the remainders 0)
   slowdrag   the remainder's split done twice more, by DIV: the drag's span
@@ -218,6 +223,9 @@ and PASSES only if the row FAILS - at its own check:
        fallarm    round 3: rubber rolled off a rung's top, no Hop, a tap 2
                   steps after the take-off: the FALL's token, a boost
        fallnone   the same roll with no Space: no boost
+       spentspring round 3b: a boost whose bounce carries the ball onto
+                  PEAK's spring: the launch out of the air takes no token
+                  while the boost is spent, one boost
        mashchain  rubber at the cap, Space tapped every 2 steps through three
                   contacts of the chain: one boost
        gripchain  a Hop and a mid-flight tap, the boost; Grip through its
@@ -334,6 +342,8 @@ class Reader:
                raw[s["bz_drx"] - lo], raw[s["bz_dry"] - lo])
         if "bz_bgr" in s:
             out += (raw[s["bz_bgr"] - lo], struct.unpack_from("<h", raw, s["bz_bgd"] - lo)[0])
+        if "bz_bsp" in s:                       # round 3b (SPEC.md 128.17.17): the boost spent
+            out += (raw[s["bz_bsp"] - lo],)
         return out
 
     def state4(self, raw):
@@ -1348,9 +1358,9 @@ def w6_replays():
     R_, ST, GL = BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS
     BOOST = BB.MATERIALS[R_]["BOOST"]
 
-    def add(name, crs, mat, poke, keys, what, ok, red=None, span=False):
+    def add(name, crs, mat, poke, keys, what, ok, red=None, span=False, nboost=None):
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
-                  "ok": bool(ok), "red": red, "span": span})
+                  "ok": bool(ok), "red": red, "span": span, "nboost": nboost})
     pc = R.course("play")
     start = BB.Grid(pc.cga).start
     rest = pl_poke("play", start, R_)
@@ -1408,7 +1418,8 @@ def w6_replays():
             hd and hd[2], "boost" if hd and bev else "NO boost", bev[0][2] if hd and bev else None,
             q.sqf if hd else None, q.stf if hd else None),
         hd and bev and bev[0][2] >= BB.SQTHR and q.sqf == 0 and q.stf == BB.BZ_STRS and q.nboost == 1)
-    # boostfall: a Hop off the 2-unit top, Space at its contact: a contact Hop at the rebound, no boost
+    # boostfall: a Hop off the 2-unit top, Space at its contact: round 3b (SPEC.md 128.17.17) a BOOST at the
+    # bounce plus BADD (round 3: a contact Hop, rule 5); `noadd` gives the contact Hop
     t2, r2 = play_rect(2)
     apron2 = {(x, y) for x in range(r2[0] - 2, r2[2] + 2) for y in range(r2[3], BB.PLAY_FRONT + 1)}
     hf = hop_off("play", R_, ((r2[0] + r2[2] - 1) // 2, r2[1]), (0, 1), apron2, 2)
@@ -1417,7 +1428,9 @@ def w6_replays():
     add("boostfall", "play", R_, hf[0] if hf else rest, hf[1] if hf else [0],
         "a Hop off the 2-unit top onto the apron, Space at the contact (step %s): %s" % (
             hf and hf[2], [k_ for _i, k_ in cs][:2] if hf else None),
-        hf and [k_ for _i, k_ in cs][:1] == ["hopc"] and p.nboost == 0 and p.nhop == 2)
+        hf and [k_ for _i, k_ in cs][:1] == ["boost"] and p.nboost == 1
+        and [e for e in p.events if e[0] == "boost"][0][3] > BB.MATERIALS[R_]["BOOST"],
+        red={"_noadd": True}, nboost=1)
     # pumpchk: Space at every contact of the chain: one boost, then contact Hops
     keys = [0] * 3 + [K.K_HOP if i % 2 == 0 else 0 for i in range(300)]
     p, cs = run_ix("play", R_, rest, keys)
@@ -1501,8 +1514,9 @@ def w6_replays():
     add("liftnot", "mill", R_, pk, keys, "a Hop on MILL's lift slab, Space before its contact (step %s) on it: %s, "
         "onp %d" % (c, [k_ for _i, k_ in cs][:1], p.onp), c and [k_ for _i, k_ in cs][:1] == ["hopc"]
         and not p.nboost and p.onp, red={"_slab_boost": True})
-    # springnot (wave 6's review): a Hop taken on PEAK's spring rides the spring's launch, which spends the
-    # Hop's token, so Space at that flight's first contact is a contact Hop, never a boost (128.16.4.1 rule 1)
+    # springarm (round 3b, SPEC.md 128.17.17; wave 6's springnot): a Hop taken on PEAK's spring rides the
+    # spring's launch, which now TAKES the token, so Space before that flight's first contact boosts there
+    # (`springoff`, round 3's spring that spent it: a contact Hop)
     found = None
     for spr in [r for r in R.course("peak").part["props"] if r["kind"] == BB.PK_SPRING]:
         for gv in ((160, 0), (-160, 0), (0, 160), (0, -160), (200, 0), (0, 0)):
@@ -1514,16 +1528,40 @@ def w6_replays():
                 continue
             keys = with_space(base, c - 2)[:c + 20]
             p, cs = run_ix("peak", R_, pk, keys)
-            pr, _cs = run_ix("peak", R_, pk, keys, _spring_tok=True)
-            if p.nspr and [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost and pr.nboost:
+            pr, cs_ = run_ix("peak", R_, pk, keys, _springoff=True)
+            if p.nspr and [k_ for _i, k_ in cs][:1] == ["boost"] and p.nboost == 1 and not pr.nboost \
+                    and [k_ for _i, k_ in cs_][:1] == ["hopc"]:
                 found = (pk, keys, spr["at"], gv, c)
                 break
         if found:
             break
     pk, keys, at, gv, c = found if found else (rest, [0], None, None, None)
-    add("springnot", "peak" if found else "play", R_, pk, keys, "a Hop on PEAK's spring %s at %s, the spring's "
-        "launch, Space before its flight's first contact (step %s): a contact Hop, no boost" % (at, gv, c), found,
-        red={"_spring_tok": True})
+    add("springarm", "peak" if found else "play", R_, pk, keys, "a Hop on PEAK's spring %s at %s, the spring's "
+        "launch, Space before its flight's first contact (step %s): a boost" % (at, gv, c), found,
+        red={"_springoff": True}, nboost=1)
+    # spentspring (round 3b): rubber rolled toward PEAK's spring at (27, 33), a Hop, Space every 2 steps after:
+    # ONE boost, whose bounce carries the ball onto the spring - a launch out of the air while the boost is
+    # spent, so no token and no second boost (`nospent`: the spring's launch arms, a second boost)
+    found = None
+    for d, at, v in (((1, 0), (24, 33), 160),):
+        dk = BB._PLAY_DIRK[d]
+        pk = pl_poke("peak", at, R_, d, v)
+        for a in range(0, 10):
+            keys = [dk | (K.K_HOP if (i == a or (i > a + 4 and (i - a) % 2 == 0)) else 0) for i in range(120)]
+            p, cs = run_ix("peak", R_, pk, keys)
+            ev = [e[0] for e in p.events]
+            if p.nboost != 1 or p.nfall or "boost" not in ev:
+                continue
+            if "spring" not in ev[ev.index("boost"):]:
+                continue
+            q, _c = run_ix("peak", R_, pk, keys, _nospent=True)
+            if q.nboost >= 2 and not q.nfall:
+                found = (pk, keys, at, a)
+                break
+    pk, keys, at, a = found if found else (rest, [0], None, None)
+    add("spentspring", "peak" if found else "play", R_, pk, keys, "rubber from %s toward PEAK's spring, a Hop at %s "
+        "and Space every 2 steps: one boost, its bounce onto the spring, no second boost" % (at, a), found,
+        red={"_nospent": True}, nboost=1)
     # steelglass: steel and glass Hop on the apron, Space before the contact: contact Hops, never a boost
     for mat in (ST, GL):
         pk = pl_poke("play", start, mat)
@@ -2119,9 +2157,9 @@ REDS = {
     # (steps 4 - 6 are written once and run by wave 2's path and the prop path
     # alike, SPEC.md 128.13.8: the patch breaks both)
     "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n    call bz_toff\n",
+                 "    call bz_toff                ; (round 3: a FALL's token too, bz_toff's)\n",
                  ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
-                 "    mov byte [bz_btok], 1\n    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
+                 "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
                 ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
                  "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
                  "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
@@ -2217,8 +2255,8 @@ REDS["rampboost"] = [("bzphys.inc", "    cmp byte [bz_nbr + BZN_C + 1], 1 ; CF =
 REDS["tokbst"] = [("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n",
                    "    nop                         ; RED tokbst: kept past a contact\n")]
 # rule 4 on the cell after the slab's substitution: the slab (level, FLOOR, flags 0) boosts
-REDS["slabcell"] = [("bzphys.inc", "    jae .no                     ; (CF 0)\n",
-                     "    jae .no                     ; (CF 0)\n"
+REDS["slabcell"] = [("bzphys.inc", "    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n",
+                     "    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n"
                      "    cmp byte [bz_fslab], 0      ; RED slabcell: the slab's substituted cell\n"
                      "    je .redslab\n    stc\n    ret\n.redslab:\n")]
 # wave 2's round-up drag kept in the guest (no remainder)
@@ -2242,11 +2280,29 @@ REDS["slowdrag"] = [("bzphys.inc", "    adc bh, 0                   ; BX = t = |
                      "    push dx\n    push cx\n    mov ax, 1\n    shl ax, cl\n    mov cx, ax\n"
                      "    mov ax, bx\n    xor dx, dx\n    div cx\n    mov ax, bx\n    xor dx, dx\n    div cx\n"
                      "    pop cx\n    pop dx\n    pop ax\n")]
-# a spring's launch keeps a ground Hop's token (wave 6's review): springnot boosts
-REDS["springtok"] = [("bzphys.inc", "    mov [bz_btok], dl           ; wave 6: the launch spends a ground Hop's\n",
-                      "    nop                         ; RED springtok: the spring keeps the Hop's token\n")]
-RED_ONLY.update({"springtok": ("springnot",)})
-RED_WANT.update({"springtok": "springnot frame"})
+# springoff (round 3b, SPEC.md 128.17.17; wave 6's springtok inverted): round 3's spring, its launch spends
+# the token - from the ground after bz_toff, and out of the air with no bz_atok
+REDS["springoff"] = [("bzphys.inc", "    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the\n",
+                      "    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the\n"
+                      "    mov byte [bz_btok], 0       ; RED springoff: the spring spends the token\n"),
+                     ("bzphys.inc", "    call bz_atok                ; round 3b: a launch out of the air\n",
+                      "                                ; RED springoff: no token out of the air\n")]
+RED_ONLY.update({"springoff": ("springarm",)})
+RED_WANT.update({"springoff": "springarm frame"})
+# noadd (round 3b): round 3's boost - BOOST alone, refused by rule 5 when the rebound reaches it
+REDS["noadd"] = [("bzphys.inc", "    or ax, ax\n    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n",
+                  "    cmp bp, ax                  ; RED noadd: round 3's rules 3 and 5\n    jae .no\n"),
+                 ("bzphys.inc", "    mov dx, [bz_mrec + BZM_BADD] ; round 3b: AX = min(VZMAX, max(BOOST, rr\n"
+                  "    add dx, bp                  ; + BADD)), the boost ADDED to the bounce\n"
+                  "    cmp dx, ax\n    jbe .lv\n    xchg ax, dx\n    cmp ax, BZ_VZMAX\n    jbe .lv\n"
+                  "    mov ax, BZ_VZMAX\n.lv:\n", "                                ; RED noadd: BOOST alone\n")]
+# nospent (round 3b): a boost never marks itself spent, so a launch out of the air re-arms a bouncing ball
+REDS["nospent"] = [("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    ret\n",
+                    "                                ; RED nospent\n    ret\n"),
+                   ("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    jmp short .st\n",
+                    "                                ; RED nospent\n    jmp short .st\n")]
+RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",)})
+RED_WANT.update({"noadd": "boostfall", "nospent": "spentspring"})
 # wave 6b (SPEC.md 128.17.10): the trigger and the late grace broken six ways, each red at its own replay.
 # heldarm: Space HELD arms the token too (the edge path arms as shipped; the no-edge path as well)
 REDS["heldarm"] = [("bzphys.inc", ".hw:\n    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n",
@@ -2254,9 +2310,9 @@ REDS["heldarm"] = [("bzphys.inc", ".hw:\n    mov ax, [bz_bgr]            ; no ed
                     "    jz .hwr\n    cmp byte [bz_btok], 1\n    jne .hwr\n    inc byte [bz_btok]\n.hwr:\n"
                     "    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n")]
 # hopedge: the Hop's own edge arms its flight (the ground Hop sets the token to 2)
-REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: .launch sets it, 128.16.4.1)\n",
-                    "    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n"
-                    "    call bz_toff\n    jmp .gh\n")]
+REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 128.16.4.1)\n",
+                    "    call bz_toff\n    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n"
+                    "    jmp .gh\n")]
 # armwin: wave 6's test kept, the token AND the window open at the contact
 REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the\n"
                    "    jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =\n",
@@ -2280,13 +2336,13 @@ REDS["noheld"] = [("bzphys.inc", "    cmp byte [bz_btok], 1       ; round 3 (128
 REDS["nogate"] = [("bzphys.inc", "    cmp ax, [bz_zoff]\n    jg .armd\n",
                    "                                ; RED nogate: no take-off gate\n")]
 # nofall: a fall takes off with no token (the Hop's own path through .launch keeps it)
-REDS["nofall"] = [("bzphys.inc", "    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too\n",
-                   "                                ; RED nofall: no fall token (over no floor)\n"),
+REDS["nofall"] = [("bzphys.inc", "    call bz_toff                ; (round 3: a FALL's token too, bz_toff's)\n",
+                   "    call bz_toff\n    mov byte [bz_btok], 0       ; RED nofall: no fall token (over no floor)\n"),
                   ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
                    "    jle .rfall                  ; RED nofall: a fall off a floor takes no token\n"
                    "    mov ax, bx                  ; z = h: the ball follows the floor\n"),
                   ("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n",
-                   ".rfall:\n    call bz_toff\n    jmp short .gh\n"
+                   ".rfall:\n    call bz_toff\n    mov byte [bz_btok], 0\n    jmp short .gh\n"
                    ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n")]
 # graceoff: the conversion without the k - 1 lift (gz kept: the ball one bgd short a step since the contact)
 REDS["graceoff"] = [("bzphys.inc", "    imul cx                     ; where the contact's boost would have it now\n"

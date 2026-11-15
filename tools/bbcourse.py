@@ -22,6 +22,11 @@ contact arms the boost onto a floor no higher than the take-off (zoff); a
 FALL takes the token; PHYS_REV 8; item 7's held, fall and stop-bouncing
 checks (fall_boosts(), fall_spent()) and their controls.
 
+Gate 1's round 3b (SPEC.md 128.17.17): every launch takes the token (bsp,
+the boost spent until the ball is on the ground, for a launch out of the
+air); the boost ADDED to the bounce (badd(), BZ_MATTAB +14), rule 5 gone; the
+reach's added boost; PHYS_REV 9; _launch_checks().
+
 Wave 6 (SPEC.md 128.16): the material table with BOOST (BZ_MATTAB +12) and
 its import-time bound; the fractional drag and the boost's token in
 Physics (state6()); the reach's BOOST launch from every firm level floor;
@@ -273,17 +278,40 @@ def mattab():
     +0 ACC, +1 drag shift, +2 EF, +3 EW, +4 BMIN, +5 GRIP, +6 HOP (word),
     +8 the hard landing (0 none, 1 stun, 2 shatter), +9 its steps,
     +10 its threshold (word, 1/256 px a step), +12 BOOST (word, 0 none:
-    wave 6, 128.16.2), +14 two zero bytes"""
+    wave 6, 128.16.2), +14 BADD (word: round 3b's add, BOOST less the
+    material's level ground Hop's rebound, 0 with no BOOST, 128.17.17)"""
     out = bytearray()
     for m in MATERIALS:
-        out += struct.pack("<BBBBBBHBBHH2x", m["ACC"], m["K"], m["EF"], m["EW"], m["BMIN"], m["GRIP"],
-                           m["HOP"], m["HARD"], m["HSTEPS"], m["HTHR"], m["BOOST"])
+        out += struct.pack("<BBBBBBHBBHHH", m["ACC"], m["K"], m["EF"], m["EW"], m["BMIN"], m["GRIP"],
+                           m["HOP"], m["HARD"], m["HSTEPS"], m["HTHR"], m["BOOST"], badd(m))
     assert len(out) == MATREC * len(MATERIALS)
     return bytes(out)
 
 
+
+def hop_rebound(m):
+    """the rebound of a material's ground Hop at its first contact with the
+    level floor it left (SPEC.md 128.17.17): the Hop leaves at HOP, each later
+    step loses BZ_G (capped at VZMAX) and adds gvz, and the contact's impact
+    is -gvz on the step z reaches the floor; r = (EF x impact) >> 8"""
+    z = g = m["HOP"]
+    while z > 0:
+        g = max(g - G, -VZMAX)
+        z += g
+    return (m["EF"] * -g) >> 8
+
+
+def badd(m):
+    """round 3b's BOOST ADD (SPEC.md 128.17.17): what a boost adds to a
+    bounce - BOOST less the material's level ground Hop's rebound, so a boost
+    on the level is exactly BOOST and a boost after any fall is the fall's
+    bounce plus the same amount; 0 for a material with no BOOST"""
+    return max(0, m["BOOST"] - hop_rebound(m)) if m["BOOST"] else 0
+
+
 HOPMAX = max(m["HOP"] for m in MATERIALS)
 BOOSTMAX = max(m["BOOST"] for m in MATERIALS)   # the reach's BOOST launch (128.16.5.1): rubber's
+BADDMAX = max(badd(m) for m in MATERIALS)        # round 3b (128.17.17): what a boost adds to a bounce
 # a SHATTER's sprite: frame (SHA_STEPS - mct) // SHA_FSTEPS of the ball part's
 # BA.NSH (SPEC.md 128.11.9.2) - so every shattering material's steps are
 # exactly the frames' (bzgame.inc's bz_sprite reads these, and guards them
@@ -1345,6 +1373,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
         t = sol[k]
         U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
         srcs.append((k, hi[k] + UP(U), RADIUS(U), "launch"))
+    bcells = set()
     if boost:
         obs = prop_cells(props)
         for k in sorted(sol):
@@ -1352,6 +1381,8 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             if t.kind in (KIND_FLOOR, KIND_GOAL) and t.sx == 0 and t.sy == 0 \
                     and t.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
                 srcs.append((k, hi[k] + UP(boost - G), RADIUS(boost - G), "boost"))
+                bcells.add(k)
+    badd_ = BADDMAX if _boost is None else 0
     # wave 3 (SPEC.md 128.12.6.7): a LAUNCH exit, a DROP's fall, a post's top
     # and the platform's top over its track are launches too; the slab is a
     # floor the bounces see
@@ -1400,6 +1431,9 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             rh = min(emax * IMP(E - hi[k]) >> 8, emax * VZMAX >> 8)
             rl = min(emax * IMP(E - lo[k]) >> 8, emax * VZMAX >> 8)
             extra.append((k, hi[k] + UP(rh), RADIUS(rl), "bounce"))
+            if k in bcells and badd_:           # round 3b (SPEC.md 128.17.17): the boost ADDS to that bounce
+                ub = min(VZMAX, max(boost, rh + badd_))
+                extra.append((k, hi[k] + UP(ub - G), RADIUS(min(VZMAX, max(boost, rl + badd_)) - G), "boost"))
         nb = spread(srcs + extra)
         if nb == best:
             break
@@ -4406,9 +4440,10 @@ class Physics:
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
                  _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
                  _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False,
-                 _no_clear=False, _boost_rise=False, _pump=False, _spring_tok=False, _iceplain=False,
+                 _no_clear=False, _boost_rise=False, _pump=False, _springoff=False, _iceplain=False,
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
-                 _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None):
+                 _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
+                 _nospent=False, _noadd=False, _nolaunch=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -4462,7 +4497,7 @@ class Physics:
         self.nckpt = self.npad = self.nlip = self.nspr = self.nret = 0
         self._ckpt_safe, self._ckmat_touch, self._pad_noftg = _ckpt_safe, _ckmat_touch, _pad_noftg
         self._cup_nov, self._spring_sum, self._tilt_min = _cup_nov, _spring_sum, _tilt_min
-        self._spring_tok = _spring_tok              # (the `springtok` arm: a spring keeps the Hop's token)
+        self._springoff = _springoff                # (the `springoff` arm: round 3's spring spends the token)
         # wave 6's state (SPEC.md 128.16.4.3): the boost's token, the stretch's
         # steps, the boosts, the drag's remainders; and what bz_surfset holds
         # (the window centre's surface, 0FFh before the first fill as bz_pinit
@@ -4491,6 +4526,13 @@ class Physics:
         # take-off gate, no token on a fall
         self.zoff = 0
         self._noheld, self._nogate, self._nofall = _noheld, _nogate, _nofall
+        # round 3b (SPEC.md 128.17.17): bz_bsp, 1 from a boost until the ball is
+        # next on the ground (a launch from the air - a spring under a contact,
+        # a tube's DROP or LAUNCH exit - takes the token only when it is 0); the
+        # controls: no spent flag, round 3's boost (BOOST, rule 5), and no
+        # token from a launch out of the air
+        self.bsp = 0
+        self._nospent, self._noadd, self._nolaunch = _nospent, _noadd, _nolaunch
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -4656,6 +4698,9 @@ class Physics:
             self.gvx, self.gvy, self.gvz = ux * v, uy * v, 0
             self.air = 1 if pr["sub"] == TK_DROP else 0
             self.ztop = self.gz >> 8
+        if self.air:                                # round 3b (SPEC.md 128.17.17): a DROP or LAUNCH exit
+            self.zoff = self.ztop                   # takes the token unless a boost is spent
+            self.btok = 0 if (self.bsp and not self._nospent) or self._nolaunch else 1
         self._fill(self.gx >> 12, self.gy >> 12)
         self.events.append(("exit", self.nstep + 1, pr["i"], TK_NAMES[pr["sub"]], (self.gvx, self.gvy, self.gvz)))
 
@@ -4782,9 +4827,9 @@ class Physics:
 
     def state6(self):
         """wave 6's state as bonanzaphys compares it (SPEC.md 128.16.4.3):
-        bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry; and wave 6b's (128.17.4.3)
-        bz_bgr, bz_bgd"""
-        return (self.btok, self.stf, self.nboost, self.drx, self.dry, self.bgr, self.bgd)
+        bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry; wave 6b's (128.17.4.3)
+        bz_bgr, bz_bgd; and round 3b's bz_bsp (128.17.17)"""
+        return (self.btok, self.stf, self.nboost, self.drx, self.dry, self.bgr, self.bgd, self.bsp)
 
     def state4(self):
         """wave 4's state as bonanzaphys compares it (SPEC.md 128.14.4.7)"""
@@ -5124,6 +5169,7 @@ class Physics:
         was_air = self.air
         contact = None
         if not self.air:
+            self.bsp = 0                                # round 3b: on the ground, the boost is spent no more
             if self.hopw and not stun and solid:
                 # 128.11.8.6: the Hop from the ground
                 self.air = 1
@@ -5261,11 +5307,12 @@ class Physics:
             # 2a. the BOOST (SPEC.md 128.16.4.1): still airborne at BOOST (a level
             # floor has no rate to add; the `boostrise` arm adds the ramp's), the
             # stretch's cue, and NO squash on this contact (sqf keeps what it held)
-            self.gvz = m["BOOST"] + (base if self._boost_rise else 0)
+            self.gvz = self._boost_v(r, bmin) + (base if self._boost_rise else 0)
             self.ztop = self.gz >> 8
             self.hopw = 0
             self.nboost += 1
             self.stf = BZ_STRS
+            self.bsp = 1                            # round 3b: spent until the ball is on the ground
             if self._no_clear:                      # (the `noclear` arm: cleared only by a boost)
                 self.btok = 0
             self.events.append(("boost", self.nstep + 1, lvz, self.gvz))
@@ -5292,7 +5339,7 @@ class Physics:
                 # LATE GRACE: a Space edge in the next BGRACE steps converts the
                 # rebound into the boost (_convert)
                 self.bgr = self.bgrace
-                self.bgd = m["BOOST"] - self.gvz
+                self.bgd = self._boost_v(r, bmin) - self.gvz
         else:
             self.gvz = 0
             self.air = 0
@@ -5317,7 +5364,17 @@ class Physics:
                     and slab is None)
         else:
             firm = self.firm_level(Cv, slab)
-        return firm and (r if r >= bmin else 0) < m["BOOST"]
+        if self._noadd:                             # (the `noadd` arm: round 3's rule 5)
+            return firm and (r if r >= bmin else 0) < m["BOOST"]
+        return firm
+
+    def _boost_v(self, r, bmin):
+        """round 3b (SPEC.md 128.17.17): the boost's gvz at a contact whose
+        rebound is r - the bounce plus BADD, never under BOOST, at most VZMAX"""
+        m = self.m
+        if self._noadd:
+            return m["BOOST"]
+        return min(VZMAX, max(m["BOOST"], (r if r >= bmin else 0) + badd(m)))
 
     def _convert(self):
         """wave 6b's LATE GRACE converting (SPEC.md 128.17.4.5): in step 1 of the
@@ -5336,6 +5393,7 @@ class Physics:
         self.stf = BZ_STRS
         self.sqf = 0
         self.bgr = 0
+        self.bsp = 1                                # round 3b: spent until the ball is on the ground
         self.events.append(("boostg", self.nstep + 1, k, self.gvz))
 
     # -- wave 4: the cup and the spring (SPEC.md 128.14.4.3, 128.14.4.6) -------
@@ -5363,6 +5421,8 @@ class Physics:
                 self.gvz = LIPZ
                 self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
+                if not self._nolaunch:
+                    self.btok, self.bsp = 1, 0              # round 3b: a launch from the ground (bz_toff)
                 self.nlip += 1
                 self.events.append(("lip", self.nstep + 1, max(abs(self.gvx), abs(self.gvy))))
         self.inmo = 1
@@ -5378,12 +5438,16 @@ class Physics:
             self.gvz = (pr["gvz"] + rb) if self._spring_sum else max(pr["gvz"], rb)
             self.gvz = min(self.gvz, VZMAX)
             self.air = 1
-            self.ztop = self.gz >> 8
+            self.ztop = self.zoff = self.gz >> 8
+            # round 3b (SPEC.md 128.17.17): a launch out of the air takes the token
+            # unless a boost is spent (the contact cleared it)
+            self.btok = 0 if (self.bsp and not self._nospent) or self._nolaunch or self._springoff else 1
         elif not was_air and solid:
             self.gz = h                             # the floor (a Hop this step does not add)
             self.gvz = pr["gvz"]
-            if not self._spring_tok:
-                self.btok = 0                       # wave 6: the launch spends a ground Hop's token
+            # round 3b: a launch from the ground takes the token (bz_toff); round 3's spent it
+            self.btok = 0 if self._nolaunch or self._springoff else 1
+            self.bsp = 0
             self.air = 1
             self.ztop = self.zoff = self.gz >> 8
             self.gz += self.gvz
@@ -5460,7 +5524,7 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
 # rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
 # the constants before it.
-PHYS_REV = 8
+PHYS_REV = 9
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, PHYS_REV)
 # The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
@@ -5472,7 +5536,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -6992,6 +7056,7 @@ def emit_inc(courses):
               "BZM_HSTEPS      equ 9        ; ...its steps",
               "BZM_HTHR        equ 10       ; word: ...its threshold on lvz",
               "BZM_BOOST       equ 12       ; word: wave 6's boost, 0 none (SPEC.md 128.16.4)",
+              "BZM_BADD        equ 14       ; word: round 3b's boost add, BOOST less the level Hop's rebound (128.17.17)",
               "BZ_STRS         equ %d        ; the boost's STRETCH, steps (bz_stf's start)" % BZ_STRS,
               "BZ_PHYS_REV     equ %d        ; the step's rule revision (PHYS_CONSTS' last)" % PHYS_REV,
               "BZ_HARD_STUN    equ %d" % HARD_STUN,
@@ -7573,6 +7638,12 @@ def reach_closure(tiles, start, props=()):
                     rh = min(e * IMP(E - hi[k]) >> 8, e * VZMAX >> 8)
                     rl = min(e * IMP(E - lo[k]) >> 8, e * VZMAX >> 8)
                     extra.append((k, hi[k] + UP(rh), RADIUS(rl)))
+                    u = sol[k]                  # round 3b (SPEC.md 128.17.17): the boost ADDS to that bounce
+                    if BOOSTMAX and BADDMAX and u.kind in (KIND_FLOOR, KIND_GOAL) and not u.sx and not u.sy \
+                            and u.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                        ub = min(VZMAX, max(BOOSTMAX, rh + BADDMAX))
+                        ul = min(VZMAX, max(BOOSTMAX, rl + BADDMAX))
+                        extra.append((k, hi[k] + UP(ub - G), RADIUS(ul - G)))
             nb = spread(srcs + extra)
             if nb == best:
                 break
@@ -7754,10 +7825,13 @@ def _play_checks(c, res):
     R = reach_closure(c.tiles, src.start[0], props)
     tops = {H: _rect(r) for H, r in PLAY_RUNGS}
     seen = {H: len(cs & R) for H, cs in tops.items()}
-    res.append(("7 PLAY: the 2-unit top is outside the reachable set with the Hop and the boost (%d of 9 cells "
-                "reached), and the 1.5-, 1- and half-unit tops are reached (%d, %d, %d of 9)" % (
-                    seen[2], seen[1.5], seen[1], seen[0.5]),
-                seen[2] == 0 and seen[1.5] == seen[1] == seen[0.5] == 9))
+    # round 3b (SPEC.md 128.17.17): the boost ADDED to a fall's bounce takes the reach to the 2-unit top (a
+    # Hop off the 1.5-unit top, the boost on the apron below) - PRINTED, not asserted: the PLAYGROUND is a
+    # test course (the owner, 2026-11-15), and the boost's fixed apex holds only on a level landing now
+    print("    PLAY's 2-unit top in the reachable set with the Hop and the boost: %d of 9 cells (round 3b's added "
+          "boost; wave 6's design had none)" % seen[2])
+    res.append(("7 PLAY: the 1.5-, 1- and half-unit tops are reached (%d, %d, %d of 9)" % (
+                    seen[1.5], seen[1], seen[0.5]), seen[1.5] == seen[1] == seen[0.5] == 9))
     cross = []
     for Ha, ca in tops.items():
         rf = reach_from(c.tiles, ca)
@@ -8859,10 +8933,13 @@ def _cam_controls(courses, demos, by, res):
             n = sum(1 for x in v if x[2] > x[3])
             if n:
                 dn.setdefault(t, []).append("%s %d" % (c.name, n))
-    res.append(("8 control `nohyst` (Hr 0): red at the ramp bottom (%s) and at the dither map (the CGA's reversing "
-                "samples: %s)" % (", ".join("%s reverses %d" % (x[0], x[1]) for x in rb) or "no reversal",
-                                  "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"),
-                bool(rb) and bool(dn)))
+    # (round 3b, SPEC.md 128.17.17: the larger reach moved MILL's occluders and so the heavy rule's frames, and
+    # with Hr 0 no ramp-bottom pattern reverses any more - about 50 searched on both cards - so the ramp
+    # bottom is PRINTED and the control is held red at the dither map)
+    print("    control `nohyst` at the ramp bottom: %s" % (
+        ", ".join("%s reverses %d" % (x[0], x[1]) for x in rb) or "no reversal (round 3b's tree)"))
+    res.append(("8 control `nohyst` (Hr 0): red at the dither map (the CGA's reversing samples: %s)" % (
+        "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"), bool(dn)))
 
     def every(**kw):
         return [("%s %s %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2]), k[1], rows)
@@ -9679,28 +9756,48 @@ def _surface_case(c, far, **kw):
     return tried, boosts
 
 
+def _level_bgd():
+    """the late grace's bgd at a level ground Hop's first contact (the long flat
+    course, rubber at rest, a one-step press): BOOST less that rebound"""
+    p = Physics(_flat("long")).poke(6, 12)
+    for i in range(60):
+        p.step(K_HOP if i == 0 else 0)
+        if p.bgr:
+            return p.bgd
+    return None
+
+
 def _boost_checks(res, mill=None):
     """SPEC.md 128.16.5.3's item 7 list for the boost, with the model's controls"""
     long_ = _flat("long")
     R = MAT_RUBBER
     B = MATERIALS[R]["BOOST"]
-    # no gain after a real fall; the 1-unit drop's boost with no squash
-    th = boost_threshold()
-    cases = {D: _fall_case(D) for D in (1, 1.5, 2)}
-    print("    the boost after a fall (SPEC.md 128.16.4.1): a Hop's rebound reaches BOOST %d below a drop of %d px "
-          "(%.2f units); %s" % (B, th, th / 8.0, "; ".join(
-              "%g units: %s at impact %d, out at %d, nboost %d, nhop %d, sqf %d, stf %d, apex %s px (the take-off "
-              "floor %d)" % (D, v[1][0], v[0][4], v[0][5], v[0][0], v[0][1], v[0][2], v[0][3], v[2], v[3])
-              for D, v in cases.items() if v[0])))
-    one = cases[1]
-    ok1 = one[0] is not None and one[1][0] == "boost" and one[0][0] == 1 and one[0][2] == 0 \
-        and one[0][3] == BZ_STRS and one[0][4] >= SQTHR and one[2] < one[3] + 12
-    okf = all(cases[D][0] is not None and cases[D][1][0] == "hopc" and cases[D][0][0] == 0 and cases[D][0][1] == 2
-              for D in (1.5, 2))
-    res.append(("7 the boost after a fall: off a 1-unit drop it boosts (nboost 1), its apex under the take-off floor "
-                "plus 1.5 units, sqf 0 and stf %d although its impact passes %d; off 1.5 and 2 units Space gives a "
-                "contact Hop at the rebound (nboost 0, nhop 2); the threshold is %d px, between 1 and 1.5 units"
-                % (BZ_STRS, SQTHR, th), ok1 and okf and th is not None and 8 < th <= 12))
+    # round 3b (SPEC.md 128.17.17): a boost after a fall ADDS to the fall's bounce - out at the bounce plus
+    # BADD, never under BOOST - so a Hop off a 1-, 1.5-, 2- or 3-unit ledge, Space 2 steps before the contact
+    # below, boosts every time (round 3: 1.5 units and deeper refused by rule 5, a contact Hop instead); the
+    # boost's own cue (sqf 0, stf BZ_STRS) at any impact.  `noadd`: round 3's rule
+    ba = badd(MATERIALS[R])
+    cases = {D: _fall_case(D) for D in (1, 1.5, 2, 3)}
+    print("    the boost after a fall (SPEC.md 128.17.17): BADD %d (BOOST %d less the level Hop's rebound %d); %s" % (
+        ba, B, hop_rebound(MATERIALS[R]), "; ".join(
+            "%g units: %s at impact %d, out at %d, nboost %d, sqf %d, stf %d, apex %s px (the take-off floor %d)"
+            % (D, v[1][0], v[0][4], v[0][5], v[0][0], v[0][2], v[0][3], v[2], v[3]) for D, v in cases.items()
+            if v[0])))
+
+    def want(v):
+        r = (MATERIALS[R]["EF"] * v[0][4]) >> 8
+        return min(VZMAX, max(B, (r if r >= MATERIALS[R]["BMIN"] else 0) + ba))
+    okf = all(v[0] is not None and v[1][0] == "boost" and v[0][0] == 1 and v[0][2] == 0 and v[0][3] == BZ_STRS
+              and v[0][5] == want(v) for v in cases.values())
+    res.append(("7 the boost after a fall ADDS to its bounce: off 1, 1.5, 2 and 3 units a Hop with Space before the "
+                "contact boosts (nboost 1, sqf 0, stf %d), out at min(VZMAX, max(BOOST, the bounce + BADD %d)): %s"
+                % (BZ_STRS, ba, ", ".join("%s" % (v[0][5] if v[0] else None) for v in cases.values())), okf))
+    na = {D: _fall_case(D, _noadd=True) for D in (1.5, 2)}
+    res.append(("7 negative control `noadd` (round 3's boost: BOOST, rule 5): off 1.5 and 2 units Space gives a "
+                "contact Hop (%s)" % [v[1][0] if v[1] else None for v in na.values()],
+                all(v[0] is not None and v[1][0] == "hopc" and v[0][0] == 0 for v in na.values())))
+    res.append(("7 BADD is BOOST less the level ground Hop's rebound, measured: a level Hop's first contact on the "
+                "apron opens the grace with bgd %s" % _level_bgd(), _level_bgd() == ba))
     # one boost a chain: Space's edge every other step from the Hop on
     p, _cs = _run_keys(_flat_hop(long_), lambda i: K_HOP if i % 2 == 0 else 0, 400)
     hc = len(_ev(p, "hopc"))
@@ -9736,12 +9833,12 @@ def _boost_checks(res, mill=None):
             return None
         q, _ = _run_keys(mk, lambda i: K_HOP if i in (0, cs[0] - 2) else 0, cs[0] + 1)
         return q
-    sq, sqa = spring_hop(), spring_hop(_spring_tok=True)
-    res.append(("7 a Hop on a spring's cell never boosts: the spring's launch spends the Hop's token, and Space at "
-                "the spring flight's first contact is a contact Hop (nboost %s)" % (sq.nboost if sq else None),
-                sq is not None and sq.nboost == 0 and _ev(sq, "hopc")))
-    res.append(("7 negative control `springtok` (the spring keeps the Hop's token): the same press boosts",
-                sqa is not None and sqa.nboost == 1))
+    sq, sqa = spring_hop(), spring_hop(_springoff=True)
+    res.append(("7 round 3b (SPEC.md 128.17.17): a spring's launch TAKES the token - a Hop on a spring's cell rides "
+                "the spring, and Space 2 steps before that flight's first contact (a floor a unit above) boosts "
+                "there (nboost %s)" % (sq.nboost if sq else None), sq is not None and sq.nboost == 1))
+    res.append(("7 negative control `springoff` (round 3's spring, the launch spends the token): the same press is "
+                "a contact Hop", sqa is not None and sqa.nboost == 0 and _ev(sqa, "hopc")))
     # the Grip chain
     p, cs = _run_keys(_flat_hop(long_), lambda i: K_HOP if i == 0 else 0, 100)
     L1 = cs[0]
@@ -10029,7 +10126,7 @@ def fall_boosts(hold=True, **kw):
     return elig, boosted, stray
 
 
-def fall_spent(play, **kw):
+def fall_spent(play, extra=None, **kw):
     """round 3's 'one boost, then stop bouncing' (SPEC.md 128.17.16): the
     PLAYGROUND's autopilot keys with Space held throughout (from before the
     run) and with Space tapped every 2 steps, and the drop courses' falls with
@@ -10046,6 +10143,17 @@ def fall_spent(play, **kw):
     runs.append(("auto+held", lambda: Physics(play, play=True, **kw), [k | K_HOP for k in auto], True))
     runs.append(("auto+mash", lambda: Physics(play, play=True, **kw),
                  [k | (K_HOP if i % 2 == 0 else 0) for i, k in enumerate(auto)], False))
+    if extra is not None:                       # round 3b: a second course's route (springs, tubes)
+        p1 = Physics(extra, play=True)
+        au2 = []
+        while len(au2) < 2500 and not p1.goal:
+            k = p1.auto()
+            p1.step(k)
+            au2.append(k)
+        runs.append(("auto2+held", lambda: Physics(extra, play=True, **kw), [k | K_HOP for k in au2], True))
+        runs.append(("auto2+mash", lambda: Physics(extra, play=True, **kw),
+                     [k | (K_HOP if i % 2 == 0 else 0) for i, k in enumerate(au2)], False))
+        runs = runs[:2] + runs[-2:]             # (a course's two routes, and the other's; no drop courses)
     for D in FALL_DROPS:
         mk = lambda D=D: Physics(_drop_course(D), mat=MAT_RUBBER, **kw).poke(LAD_X0, 12, VMAXG, 0)
         runs.append(("drop %g held" % D, mk, [K_R | K_D | K_HOP] * 200, True))
@@ -10070,6 +10178,67 @@ def fall_spent(play, **kw):
             if p.nfall or p.goal:
                 break
     return steps, boosts, bad
+
+
+def launch_tokens(c, keys, **kw):
+    """round 3b (SPEC.md 128.17.17): over a run of `keys` on course c, every
+    spring launch and every airborne tube exit, with the token and bz_bsp the
+    step after it: -> [(event, step, btok, bsp)]"""
+    p = Physics(c, play=True, **kw)
+    out = []
+    for k in keys:
+        n0 = len(p.events)
+        p.step(k)
+        for e in p.events[n0:]:
+            if e[0] == "spring" or (e[0] == "exit" and e[3] in ("drop", "launch")):
+                out.append((e[0] if e[0] == "spring" else "exit " + e[3], p.nstep, p.btok, p.bsp))
+        if p.goal or p.nfall:
+            break
+    return out
+
+
+def _launch_checks(byname, res):
+    """round 3b (SPEC.md 128.17.17): every launch arms - a spring's and an
+    airborne tube exit's take the token unless a boost is spent - and the
+    stop-bouncing rule over MILL's and PEAK's routes with Space held and
+    mashed, each with its control"""
+    rows, bad, spent = [], [], []
+    for name in ("MILL", "PEAK"):
+        c = byname[name]
+        p0 = Physics(c, play=True)
+        auto = []
+        while len(auto) < 2500 and not p0.goal:
+            k = p0.auto()
+            p0.step(k)
+            auto.append(k)
+        lt = launch_tokens(c, auto)
+        rows.append("%s %s" % (name, ", ".join("%s@%d tok %d" % (e, n, t) for e, n, t, _b in lt) or "none"))
+        bad += [(name, e, n) for e, n, t, b in lt if t != (0 if b else 1)]
+        nl = launch_tokens(c, auto, _nolaunch=True)
+        spent.append((name, len(lt), sum(1 for _e, _n, t, _b in nl if t)))
+    print("    round 3b's launches on the autopilot routes (SPEC.md 128.17.17): %s" % "; ".join(rows))
+    res.append(("7 every launch arms: on MILL's and PEAK's routes each spring launch and each DROP or LAUNCH exit "
+                "leaves the token 1 unless a boost is spent (%d launches, %d wrong)" % (
+                    sum(x[1] for x in spent), len(bad)), sum(x[1] for x in spent) >= 2 and not bad))
+    res.append(("7 negative control `nolaunch` (no token out of a launch): none of those launches arms (%d armed)"
+                % sum(x[2] for x in spent), not sum(x[2] for x in spent)))
+    sp = fall_spent(byname["PEAK"], extra=byname["MILL"])
+    res.append(("7 one boost, then stop bouncing, through springs and tubes: Space held and mashed over PEAK's and "
+                "MILL's routes (%d steps, %d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])),
+                sp[1] >= 2 and not sp[2]))
+    pk = byname["PEAK"]
+    q = Physics(pk, play=True).poke(24, 33, 160, 0)
+    q.lvl = [LVL_MAX] * 4
+    qn = Physics(pk, play=True, _nospent=True).poke(24, 33, 160, 0)
+    qn.lvl = [LVL_MAX] * 4
+    dk = _PLAY_DIRK[(1, 0)]
+    for i in range(120):
+        k = dk | (K_HOP if (i == 0 or (i > 4 and i % 2 == 0)) else 0)
+        q.step(k)
+        qn.step(k)
+    res.append(("7 the spent rule through a spring: rubber toward PEAK's spring at (27, 33), a Hop and Space every 2 "
+                "steps - one boost, its bounce onto the spring, no second (nboost %d, springs %d); `nospent` boosts "
+                "again (%d)" % (q.nboost, q.nspr, qn.nboost), q.nboost == 1 and q.nspr and qn.nboost >= 2))
 
 
 def _trigger_checks(play, res):
@@ -12888,11 +13057,13 @@ def selfcheck(paths=None):
     want_st = bytes([4, 6, 6, 205, 1, 0, 2, 205, 2, 5, 6, 102, 4, 6, 6, 224,
                      2, 8, 3, 38, 1, 0, 1, 38, 2, 5, 3, 19, 2, 8, 3, 224,
                      6, 5, 1, 102, 1, 0, 1, 102, 3, 5, 1, 51, 6, 5, 1, 224])
-    want_mt = bytes([4, 6, 205, 96, 128, 6, 252, 0, 0, 0, 0, 0, 0x5E, 1, 0, 0,
+    # (round 3b, SPEC.md 128.17.17: +14 rubber's BADD 149 as a word)
+    want_mt = bytes([4, 6, 205, 96, 128, 6, 252, 0, 0, 0, 0, 0, 0x5E, 1, 0x95, 0,
                      2, 8, 38, 32, 128, 3, 160, 0, 1, 55, 176, 1, 0, 0, 0, 0,
                      6, 5, 102, 64, 96, 1, 224, 0, 2, 24, 40, 2, 0, 0, 0, 0])
     res.append(("4 BZ_SURFTAB (48 bytes: force, drag shift, brake, floor restitution of each material on normal, ice, "
-                "sand and a mat) and BZ_MATTAB (3 x 16, +12 BOOST) are 128.11.6.2's and 128.16.3's tables",
+                "sand and a mat) and BZ_MATTAB (3 x 16, +12 BOOST, +14 BADD) are 128.11.6.2's, 128.16.3's and "
+                "128.17.17's tables",
                 surftab() == want_st and mattab() == want_mt))
     # item 4 (SPEC.md 128.16.9): BZ_PHYSV is not 00h and not any EARLIER physics' value, with its controls
     try:
@@ -13195,6 +13366,8 @@ def selfcheck(paths=None):
     if "PLAY" in byname:                        # wave 6 (SPEC.md 128.16.8)
         _play_checks(byname["PLAY"], res)
         _trigger_checks(byname["PLAY"], res)    # wave 6b (SPEC.md 128.17.4)
+    if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 128.17.17)
+        _launch_checks(byname, res)
     # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
     # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
     _gap3_report(byname)
@@ -13234,8 +13407,10 @@ def selfcheck(paths=None):
                 hid and _pfront(half) == 0 and _pfront(raw) > 0))
     # item 6's control (128.14.17 item 5): a spring's launch left out of zhi fails item 6's spring test
     fx = _W4C + "spring 8 7 512\n"
-    cs = compile_course(fx, "<a spring, not in the reach>", _hack={"no_spring_reach": True})
-    cf = compile_course(fx, "<a spring>")
+    # (round 3b, SPEC.md 128.17.17: both without the boost's launch, whose added bounce now covers the
+    # spring's flight on this small course by itself)
+    cs = compile_course(fx, "<a spring, not in the reach>", _hack={"no_spring_reach": True, "boost": 0})
+    cf = compile_course(fx, "<a spring>", _hack={"boost": 0})
     res.append(("6 negative control: a spring's launch left out of the reach (its apex %d px over zhi %d) fails item "
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
@@ -13623,7 +13798,7 @@ def apply_tune(assigns):
     """--tune's NAME=VALUE list onto MATERIALS (rubber, steel, glass in that
     order: NAME=a,b,c; BOOST=b alone sets rubber's), and the globals derived
     from it (HOPMAX, BOOSTMAX, BZ_PHYSV).  -> [what changed]"""
-    global HOPMAX, BOOSTMAX, PHYSV
+    global HOPMAX, BOOSTMAX, BADDMAX, PHYSV
     out = []
     for a in assigns:
         if "=" not in a:
@@ -13643,6 +13818,7 @@ def apply_tune(assigns):
                 MATERIALS[m][name] = v
     HOPMAX = max(m["HOP"] for m in MATERIALS)
     BOOSTMAX = max(m["BOOST"] for m in MATERIALS)
+    BADDMAX = max(badd(m) for m in MATERIALS)
     PHYSV = phys_ident()
     return out
 
