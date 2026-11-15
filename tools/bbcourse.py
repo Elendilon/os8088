@@ -342,6 +342,7 @@ CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1,
               (14, 17, 17, 15, 1, 2, 12))
 PF_UNDER, PF_LANE = 1, 2      # record +1: UNDERSIDE (reserved, refused), LANE
 FL_OBS = 8                    # grid +3 bit 3: the cell belongs to a prop
+FL_EXITSH = 4                 # grid +3 bits 4 - 7: a GOAL cell's EXIT (wave 8b, SPEC.md 128.19.4)
 FL_EDGES = 16 | 32            # bits 4 - 5: RESERVED for `edge`
 PROPREC = 32                  # bytes a record
 PROP_MAX = 16                 # props WITH A LANE (first in the table): wave 3's per-prop arrays
@@ -443,11 +444,13 @@ def _tokens(line, where):
 
 
 class Room:
-    def __init__(self, style, tiles, height, line):
+    def __init__(self, style, tiles, height, line, exit=0, hidden=False):
         self.style = style          # 'floor' | 'wall' | 'goal' | None (a hole)
         self.tiles = tiles          # a frozenset of (wx, wy)
         self.height = height        # ('flat', h2) | ('ramp', axis, p0, p1, h0_2, r)
         self.line = line
+        self.exit = exit            # wave 8b (SPEC.md 128.19.4): a goal's EXIT, 0 - 15
+        self.hidden = hidden        # ...and a secret finish
 
 
 class Source:
@@ -536,6 +539,27 @@ def _shape(toks, i, where):
                     out.add(((s + a) // 2, (s - a) // 2))
         return frozenset(out), i + 5
     raise CourseError("%s: unknown shape %r (tile, rect or band)" % (where, kind))
+
+
+EXIT_MAX = 15                 # wave 8b (SPEC.md 128.19.4): a finish's exit, 4 bits
+
+
+def _finish_clauses(toks, where):
+    """a goal's or a cup's trailing `exit E` and `hidden` (SPEC.md 128.19.4):
+    -> (the tokens without them, E (0 without one), hidden)"""
+    ex, hid = None, False
+    while len(toks) >= 2:
+        if toks[-1][0] == 'w' and toks[-1][1] == "hidden" and not hid:
+            hid = True
+            toks = toks[:-1]
+        elif len(toks) >= 3 and toks[-2][0] == 'w' and toks[-2][1] == "exit" and ex is None:
+            ex = _int(toks[-1], where, "exit")
+            if not 0 <= ex <= EXIT_MAX:
+                raise CourseError("%s: an exit is 0 - %d, not %d" % (where, EXIT_MAX, ex))
+            toks = toks[:-2]
+        else:
+            break
+    return toks, ex or 0, hid
 
 
 def _heightspec(toks, i, where):
@@ -728,8 +752,11 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: origin %d is not a multiple of 16" % (where, x0))
             src.origin = (x0, ln)
         elif st in ("floor", "wall", "goal"):
+            ex, hid = 0, False
+            if st == "goal":                    # wave 8b (128.19.4): [exit E] [hidden], at the end
+                toks, ex, hid = _finish_clauses(toks, where)
             tiles, i = _shape(toks, 1, where)
-            src.rooms.append(Room(st, tiles, _heightspec(toks, i, where), ln))
+            src.rooms.append(Room(st, tiles, _heightspec(toks, i, where), ln, ex, hid))
         elif st == "surface":
             if len(toks) < 2 or toks[1][0] != 'w' or toks[1][1] not in SURFACES:
                 raise CourseError("%s: unknown surface %r (normal, ice, sand or bounce)"
@@ -822,13 +849,14 @@ def parse(text, fname="<course>"):
             src.pads.append({"line": ln, "mat": MAT_NAMES.index(toks[1][1]),
                              "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))})
         elif st == "cup":
+            toks, ex, hid = _finish_clauses(toks, where)
             if len(toks) not in (3, 5) or (len(toks) == 5 and toks[3][1] != "capture"):
-                raise CourseError("%s: cup takes <wx> <wy> [capture <v>]" % where)
+                raise CourseError("%s: cup takes <wx> <wy> [capture <v>] [exit <E>] [hidden]" % where)
             cap = _int(toks[4], where, "capture") if len(toks) == 5 else CAPTURE
             if not CAPTURE_LO <= cap <= CAPTURE_HI:
                 raise CourseError("%s: a cup's capture %d is outside %d - %d" % (where, cap, CAPTURE_LO, CAPTURE_HI))
             src.cups.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                             "capture": cap})
+                             "capture": cap, "exit": ex, "hidden": hid})
         elif st == "spring":
             if len(toks) != 4:
                 raise CourseError("%s: spring takes <wx> <wy> <gvz>" % where)
@@ -854,11 +882,12 @@ def parse(text, fname="<course>"):
 # =============================================================================
 
 class Tile:
-    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf")
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit")
 
-    def __init__(self, kind, z0, sx, sy, line):
+    def __init__(self, kind, z0, sx, sy, line, exit=0):
         self.kind, self.z0, self.sx, self.sy, self.line = kind, z0, sx, sy, line
         self.surf = SURF_NORMAL
+        self.exit = exit            # a GOAL tile's exit (128.19.4): its cell's flags bits 4 - 7
 
     def corner(self, dx, dy):
         """corner (wx + dx, wy + dy), half units"""
@@ -882,7 +911,7 @@ def _room_tile(room, wx, wy):
         z0 = h0 + r * (p - p0)
         sx = r if axis in ("x", "s") else 0
         sy = r if axis in ("y", "s") else 0
-    return Tile(_KIND[room.style], z0, sx, sy, room.line)
+    return Tile(_KIND[room.style], z0, sx, sy, room.line, room.exit if room.style == "goal" else 0)
 
 
 def build_tiles(src):
@@ -958,6 +987,8 @@ def build_cells(tiles):
         if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
                 (wx + dx, wy + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
             flags |= FL_SAFE
+        if t.kind == KIND_GOAL:
+            flags |= t.exit << FL_EXITSH        # wave 8b (128.19.4): the finish's exit
         cells[(wx, wy)] = [t.z0, (t.sx & 15) | ((t.sy & 15) << 4), t.kind | (t.surf << 4), flags]
     for (wx, wy) in near:
         low = min(min(t.corners()) for t in _cheb(tiles, wx, wy, 2))
@@ -1239,6 +1270,7 @@ def build_props(src, tiles, fname):
             d["mat"] = sp["mat"]
         elif kind == PK_CUP:
             d["capture"], d["hw"] = sp["capture"], MOUTH_HW
+            d["exit"], d["hidden"] = sp.get("exit", 0), sp.get("hidden", False)
         else:
             d["gvz"] = sp["gvz"]
         d["z4"] = 4 * t.z0                          # its floor, whole px
@@ -3171,8 +3203,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             rec += struct.pack("<BB14x", p["num"], p["ball"])
         elif p["kind"] == PK_PAD:
             rec += struct.pack("<B15x", p["mat"])
-        elif p["kind"] == PK_CUP:
-            rec += struct.pack("<HB13x", p["capture"], p["hw"])
+        elif p["kind"] == PK_CUP:                   # (+27: the exit, bit 7 hidden; wave 8b, 128.19.4)
+            rec += struct.pack("<HB8xB4x", p["capture"], p["hw"], p.get("exit", 0) | (0x80 if p.get("hidden") else 0))
         elif p["kind"] == PK_SPRING:
             rec += struct.pack("<H14x", p["gvz"])
         elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5.3): a POST's fields at the
@@ -4377,7 +4409,8 @@ def read_part(p, fname="<part>"):
             bad("route", "point (%d, %d) outside the picture" % (bx, by))
     for i in range(nrows * kw):
         z0, sl, kd, fl = struct.unpack_from("<bBBB", p, celloff + 4 * i)
-        if kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS) \
+        if kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
+                or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
         # CELLS (128.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
@@ -4499,9 +4532,11 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             d.update(mat=mat)
         elif d["kind"] == PK_CUP:
             cap, hw = struct.unpack_from("<HB", p, r + 16)
-            if not CAPTURE_LO <= cap <= CAPTURE_HI or hw != MOUTH_HW or p[r + 19:r + 32] != bytes(13):
+            ex = p[r + 27]
+            if not CAPTURE_LO <= cap <= CAPTURE_HI or hw != MOUTH_HW or p[r + 19:r + 27] != bytes(8) \
+                    or ex & 0x70 or p[r + 28:r + 32] != bytes(4):
                 bad("prop %d" % d["i"], "a cup's record")
-            d.update(capture=cap, hw=hw)
+            d.update(capture=cap, hw=hw, exit=ex & 15, hidden=bool(ex & 0x80))
         elif d["kind"] == PK_SPRING:
             gvz = struct.unpack_from("<H", p, r + 16)[0]
             if not SPRING_LO <= gvz <= VZMAX or p[r + 18:r + 32] != bytes(14):
@@ -4741,6 +4776,7 @@ class Physics:
         self.route = self.grid.route
         self.nstep = self.nfall = self.nland = 0
         self.goal = 0
+        self.exit = 0                       # wave 8b (128.19.4): the finish's exit (bz_exit)
         # wave 7 (SPEC.md 128.18.4): the time limit, in a play or a replay only (the
         # benchmark has none): tsec the whole seconds left as the clock shows them
         # (ceil(left / SEC_STEPS)), t55 the steps until it drops, tout the timeout
@@ -5533,6 +5569,7 @@ class Physics:
             if C[3] == KIND_GOAL and self.play:
                 if not self.goal:
                     self.events.append(("goal", self.nstep + 1, None))
+                self.exit = C[4] >> FL_EXITSH       # wave 8b (128.19.4): the cell's exit
                 self.goal = 1
         return self._end()
 
@@ -5697,6 +5734,7 @@ class Physics:
                     self.hid = 1
                     if not self.goal:
                         self.events.append(("goal", self.nstep + 1, "cup"))
+                    self.exit = pr.get("exit", 0)   # wave 8b (128.19.4): the cup's exit
                     self.goal = 1
                     self.events.append(("cup", self.nstep + 1, pr["i"]))
             elif not self.inmo:
@@ -7454,6 +7492,7 @@ def emit_inc(courses):
               "BZP_TGVZ        equ 28       ; ...LAUNCH's gvz; DROP's exit z (whole px)",
               "BZP_TC0         equ 30       ; ...a windmill's closed window c0 .. c1 (phases)",
               "BZP_TC1         equ 31",
+              "BZP_UEXIT       equ 27       ; CUP: the EXIT, bits 0 - 3; bit 7 hidden (wave 8b, 128.19.4)",
               "BZP_BK          equ 16       ; BUMPER: K (word)",
               "BZP_BLIT        equ 18       ; ...its lit FRAMES on the glass",
               "BZP_BH          equ 19       ; ...the post's height, px",
@@ -11322,6 +11361,22 @@ def _props_course_checks(c, res, tag):
                 k = 3 * (dy + 1) + dx + 1
                 if (k, next(i for i, pi in enumerate(c.order) if pi == c.pcell[cell])) not in q.wol:
                     scan_ok = False
+    # wave 8b (128.19.4): every GOAL cell's bits 4 - 7 its statement's exit; every other cell's zero
+    ex_ok, exits = True, {}
+    for (wx, wy), t in c.tiles.items():
+        fl = g.cell(wx, wy)[4]
+        want = t.exit if t.kind == KIND_GOAL else 0
+        if fl >> FL_EXITSH != want:
+            ex_ok = False
+        if t.kind == KIND_GOAL:
+            exits[t.exit] = exits.get(t.exit, 0) + 1
+    for pr in c.props:
+        if pr["kind"] == PK_CUP:
+            exits["cup %d" % pr.get("exit", 0)] = 1
+    res.append(("4 %s: the finishes' EXITS (128.19.4) round-trip the grid: every GOAL cell's flags bits 4 - 7 its "
+                "statement's exit, every other cell's 0 (%s)" % (tag, ", ".join(
+                    "exit %s x %d" % (k, v) if isinstance(k, int) else k for k, v in sorted(
+                        exits.items(), key=lambda kv: str(kv[0])))), ex_ok))
     res.append(("4 %s: OBS exactly on the props' %d cells, bits 4 - 7 zero (read_part); bz_wol's scan names the "
                 "owning record in all %d windows that hold one; every track cell NEAR with its kill 3 units under "
                 "the slab and never SAFE; the windmills' seeds as 128.12.3.4 derives them (%s)" % (
@@ -13323,6 +13378,10 @@ def selfcheck(paths=None):
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
             kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"])]
+            # (wave 8b, 128.19.4: a goal's or a cup's `exit E` and `hidden` left out too - the grammar's new
+            # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
+            kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
+                    else ln for ln in kept]
         dst = os.path.join(w5dir, os.path.basename(src_path))
         with open(dst, "w") as fh:
             fh.write("\n".join(kept))
