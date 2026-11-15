@@ -546,6 +546,14 @@ class FaceLines:
             return ("line", m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip(), r)
 
 
+def path_ident():
+    """the PATHWAY's identity (wave 8b, SPEC.md 128.19.5): BZ_CRS_IDS's last entry,
+    out of the generated bzcourse.inc - a save slot's +6 (128.19.6)"""
+    t = open(os.path.join(at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^%macro BZ_CRS_IDS 0\n\s+dw ([^\n]+)", t, re.M)
+    return int(m.group(1).split(",")[-1].strip().rstrip("h"), 16)
+
+
 def make_log(keys, k, mat, ident=None):
     """bbcourse.encode_log's bytes for course K, stamped with that course's
     IDENTITY at +14 (SPEC.md 128.12.8: a replay REFUSES a log whose identity is

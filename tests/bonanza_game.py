@@ -162,18 +162,27 @@ def tourx():
     return x
 
 
-def dat_image(best=None, tour=0, count=None, pv=None):
-    """the 64 bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, +5
+DAT_FILE = 64 + 3 * 48         # save v2 (wave 8b, SPEC.md 128.19.6): the bests, then three game slots
+
+
+def dat_image(best=None, tour=0, count=None, pv=None, v1=False, slots=None):
+    """the bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, +5
     BZ_PHYSV since wave 6, 128.16.9): BEST {K: (steps, falls)}, TOUR the total
-    (0 none), PV +5 (this build's BZ_PHYSV by default)"""
+    (0 none), PV +5 (this build's BZ_PHYSV by default) - since wave 8b
+    (128.19.6) `BZS2` and three 48-byte SLOTS after the 64 (SLOTS: bytes, or
+    empty); V1 the 64-byte `BZT1` file a wave 4 - 7 build wrote"""
     best = best or {}
-    b = bytearray(b"BZT1" + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
+    b = bytearray((b"BZT1" if v1 else b"BZS2")
+                  + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
     idt = ids()
     for k in range(NENT):
         t, f = best.get(k, (0, 0))
         b += struct.pack("<HHH", idt[k], t, f)
     b += struct.pack("<HIH", tourx(), tour, 0)
     assert len(b) == 64
+    if not v1:
+        b += slots if slots is not None else bytes(3 * 48)
+        assert len(b) == DAT_FILE
     return bytes(b)
 
 
@@ -190,7 +199,7 @@ def hostile_set():
     short = bytes(dat_image({1: (99, 0)})[:32])
     out.append(("short", short, first, {1: (t1, 0)}))
     bad = bytearray(good)
-    bad[3] = ord("2")                                     # `BZT2`
+    bad[3] = ord("3")                                     # `BZS3`
     out.append(("magic", bytes(bad), first, {1: (t1, 0)}))
     bad = bytearray(good)
     struct.pack_into("<H", bad, 8 + 6 * 1, R.course_k(1).ident ^ 0x0101)   # FIRST's entry of another identity
@@ -204,6 +213,16 @@ def hostile_set():
     bad = bytearray(good)
     bad[4] = 9                                                              # a count past BZD_NENT
     out.append(("count", bytes(bad), first, {1: (t1, 0)}))
+    # wave 8b (SPEC.md 128.19.6): wave 4's `BZT1` file is still READ - its bests kept, its slots empty
+    v1 = dat_image({1: (t1 + 99, 2), 2: (499, 0)}, v1=True)
+    out.append(("v1", v1, dat_image({1: (t1 + 99, 2), 2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    # ...and a SLOT judged alone: one of another pathway emptied, one of this pathway's kept
+    pid = R.path_ident()
+    keep = struct.pack("<BBHHH", 3, 0, 3, 1, pid) + bytes(16) + bytes(24)
+    other = struct.pack("<BBHHH", 4, 0, 1, 0, pid ^ 0x5A5A) + bytes(40)
+    slots = keep + other + bytes(48)
+    out.append(("slot", dat_image({2: (499, 0)}, slots=slots),
+                dat_image({2: (499, 0)}, slots=keep + bytes(96)), {1: (t1, 0), 2: (499, 0)}))
     return out
 
 
@@ -430,7 +449,7 @@ def leg_tour(g, best):
     if d != exp:
         fails.append("tour: BONANZA.DAT read back off the floppy %s, the expected 64 bytes %s" % (
             d.hex() if d else "ABSENT", exp.hex()))
-    if bytes(g.m.read(g.a("bz_dat"), 64)) != exp:
+    if bytes(g.m.read(g.a("bz_dat"), DAT_FILE)) != exp:
         fails.append("tour: [bz_dat] is not the expected image")
     print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 128.15.13, the launch times "
           "REPORTED): %s; total %d steps; BONANZA.DAT the expected 64 bytes: %s" % (
@@ -532,13 +551,13 @@ def leg_hostile(tag, sym, td, cases=None, o88=None):
         img = R.disk(td, ["SYSTEM/APPDATA:" + p], name="dat" + name, o88=o88)
         with boot(tag, img) as ui:
             g = open_game(ui, tag, sym)
-            got = bytes(g.m.read(g.a("bz_dat"), 64))
+            got = bytes(g.m.read(g.a("bz_dat"), DAT_FILE))
             if got != want:
                 fails.append("hostile %s: [bz_dat] after the entry proc %s, SPEC.md 128.14.3.3's %s" % (
                     name, got.hex(), want.hex()))
             free_play(g, 1, R.course_k(1).ball, "hostile %s: FIRST" % name)
             d = read_dat(g)
-            exp = dat_image(nxt)
+            exp = dat_image(nxt, slots=want[64:])     # (the slots as the entry proc kept them, 128.19.6)
             if d != exp:
                 fails.append("hostile %s: the next best did not rewrite the file whole: %s, want %s" % (
                     name, d.hex() if d else "ABSENT", exp.hex()))
@@ -602,7 +621,7 @@ def leg_physdat(tag, sym, td, o88=None):
         img = R.disk(td, ["SYSTEM/APPDATA:" + p], name="pv" + name, o88=o88)
         with boot(tag, img) as ui:
             g = open_game(ui, tag, sym)
-            got = bytes(g.m.read(g.a("bz_dat"), 64))
+            got = bytes(g.m.read(g.a("bz_dat"), DAT_FILE))
             if got != want:
                 kept = [k for k in range(1, ntour() + 1) if struct.unpack_from("<H", got, 8 + 6 * k + 2)[0]]
                 fails.append("physdat %s: [bz_dat] after the entry proc %s, want %s (+5 %02Xh, this build's "
@@ -662,14 +681,17 @@ REDS = {
                  ("bonanza.asm", "    cmp ax, dx\n    jae .mn\n",
                   "    nop                         ; RED besttime: the merge keeps ours\n")],
     # the length check removed: a short file's bytes are checked as a whole one
-    "datlen": [("bonanza.asm", "    cmp ax, BZD_SIZE\n    jne bz_dnorm\n    call bz_dchk\n",
-                "    nop                         ; RED datlen: no length check\n    call bz_dchk\n")],
+    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v2 (128.19.6): `BZS2` and its slots ...\n"
+                "    je .v2\n    cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone\n"
+                "    jne bz_dnorm\n",
+                "    jmp short .v2               ; RED datlen: no length check\n")],
     # a replay posts a best
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
     # wave 6 (SPEC.md 128.16.14): +5 not checked - a file under other physics keeps its bests
-    "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV\n    je .phys\n    xor cl, cl\n.phys:\n",
+    "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)\n    je .phys\n"
+                 "    xor cl, cl\n.phys:\n",
                  "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
 }
 RED_LEGS = {"besttime": ("pause", "tour", "stop"), "datlen": ("hostile",), "replaybest": ("posts",),

@@ -36,6 +36,8 @@ import os88marty as M           # noqa: E402
 import os88ui                   # noqa: E402
 import bonanza_ring as R        # noqa: E402
 import bonanza_exit as X        # noqa: E402
+import bonanza_game as GM       # noqa: E402
+import struct                   # noqa: E402
 
 REDS = {
     # the pathway's goal gate (bzphys.inc step 8): every node's cell a finish, locked or not
@@ -128,6 +130,28 @@ def run(tag, apps=None, src=None):
               flush=True)
         if not ok:
             fails.append("3. an Esc on a course cost no life (lives %d)" % g.b("bz_lives"))
+        # --- 3b. SAVE V2 (128.19.6): left for the desktop, the slot on the floppy; Enter continues it --
+        M.guest_sleep(m, 0.5)                   # (a key typed as a play starts is drained, bz_drain)
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop (the game left)", guest=30)
+        GM.motor_off(g)
+        dat = GM.read_dat(g)
+        sl = struct.unpack_from("<BBHHH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
+        ok = dat is not None and dat[:4] == b"BZS2" and sl == (4, 0, 3, 1, R.path_ident()) \
+            and struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0] == 1
+        print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, 0, open, done, the pathway), "
+              "FIRST's exits found %s: %s" % (tag, dat[:4] if dat else None, sl,
+                                              struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0]
+                                              if sl else None, "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("3b. the game's slot on the floppy is %s, not (4, 0, 3, 1, the pathway's identity)" % (sl,))
+        g.key("Enter")
+        M.until(m, lambda _: on_path(g), "the pathway again (the game continued)", guest=60)
+        ok = g.b("bz_lives") == 4 and g.w("bz_nopen") == 3 and g.w("bz_ndone") == 1
+        print("%s 3c. Enter continues the slot's game: lives %d, open %04X, done %04X: %s" % (
+            tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("3c. Enter did not continue the slot's game")
         # --- 4. the last life: the game is over -----------------------------------------
         m.pause()
         g.putb("bz_lives", 1)
@@ -135,6 +159,13 @@ def run(tag, apps=None, src=None):
         poke_node(g, pc, 0)
         M.until(m, lambda _: g.b("bz_crs") == R.CRS_K["first"] and g.w("bz_cseg") != 0, "FIRST again", guest=30)
         M.guest_sleep(m, 0.5)
+        GM.motor_off(g)                     # the LIFE taken on the disk at the course's entry (128.19.6)
+        dat = GM.read_dat(g)
+        ok = dat is not None and len(dat) == GM.DAT_FILE and dat[64] == 0
+        print("%s 4a. FIRST entered with the last life: the slot's lives on the floppy %s: %s" % (
+            tag, dat[64] if dat and len(dat) > 64 else None, "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("4a. the life was not taken on the disk at the course's entry")
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the bracket to end (game over)", guest=30)
         M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0,
@@ -156,6 +187,7 @@ def run(tag, apps=None, src=None):
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("5. Enter after game over did not start a new game")
+        M.guest_sleep(m, 0.5)
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
     return fails
