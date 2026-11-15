@@ -273375,6 +273375,23 @@ Where the build differs from the contract above, and why:
   The event map grows from 3 x 12 to 3 x 20 bytes. **Verified by**
   `bonanzasound` (each new counter poked, the event's effect started on both
   arms; I9's kick, knock and tube poked too, closing the sound plan's I9).
+- **As built** (2026-11-15): **no `ntick` counter.** `bzs_events` holds
+  each counter's bit in one word, so 16 counters at most, and the five new
+  ones fill it; the clock's three events come instead from `bz_tsec`
+  against last frame's copy (`bzs_ltsec`): **TIMEOUT** at 0 when `bz_tout`
+  is set (a goal on the limit's last step plays the fanfare, not this),
+  **LOW** at 30 s and at 10 s, a **TICK** at every second under 10 s. The
+  effects (`apps/bonanza/music/bank.bmb`, the same for every ball): FLAG a
+  glock rising a fourth; PAD a rising-and-falling zap; LIP a dull short
+  rubber knock; SPRING a big boing; RETURN a falling zap; TICK a dry high
+  glock click (priority 1, under everything); LOW two glock notes falling a
+  fifth; TIMEOUT a long falling zap (priority 7, the goal's). **+148 bytes**
+  (MEASURED). `bonanzasound`'s step 4 gains `w7_events` (the five counters
+  and I9's three poked with rubber, the clock's three seconds poked, the
+  timeout at `bzs_frame`'s entry), after `bz_tsec` is set to 0 so FIRST's
+  limit neither times the row's play out nor ticks under its checks; red
+  arms `noflag` (`bz_nckpt` out of the table) and `notick` (the clock's
+  events skipped); `noboost` re-anchored.
 
 #### 128.18.7 The measurement that decides the clock's form (story 7.7)
 

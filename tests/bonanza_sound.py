@@ -93,10 +93,17 @@ def symbols(src=None, art=None):
     names = sorted(set(names)) + list(EXTRA)
     with tempfile.TemporaryDirectory() as td:
         p, b = os.path.join(td, "probe.asm"), os.path.join(td, "probe.bin")
-        open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +
-                           "\n".join("dw " + n for n in names))
-        subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
-                        "-I", art + "/", "-o", b, p], cwd=ROOT, check=True)
+        for _try in range(2):                   # (a VAR only an experiment's knob defines - the speed pass's
+            open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +    # BZS_SKIPTEST, off -
+                               "\n".join("dw " + n for n in names))                    # is left out, named)
+            r = subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                                "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)
+            if r.returncode == 0:
+                break
+            undef = set(re.findall(r"symbol `(\w+)' not defined", r.stderr))
+            if not undef or _try:
+                raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
+            names = [n for n in names if n not in undef]
         raw = open(b, "rb").read()
     return dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
 
@@ -215,6 +222,67 @@ def events(g, snd):
         if len({seen.get((m, ev)) for m in range(3)}) != 3:
             fails.append("events: the three balls' %s are not three effects" % ev)
     g.putb("bz_mat", 0)
+    return fails
+
+
+def w7_events(g, snd):
+    """wave 7 (SPEC.md 128.18.6): wave 4's counters mapped - a flag, a pad, a
+    lip-out, a spring, a RETURN - and the sound plan's I9 (a kick, a knock, a
+    tube), each poked with the rubber ball: the next frame's slot holds the
+    event's effect; and the clock's seconds poked (bz_tsec): 30 s left plays
+    LOW, 9 s a TICK, and 0 with bz_tout a TIMEOUT (poked at bzs_frame's
+    entry, after the frame's goal test, as a real timeout's step is)"""
+    fails = []
+    emap, fxt = BM.u16(snd, 12), BM.u16(snd, 10)
+    ne = len(BM.EVENTS)
+
+    def idle():
+        for _ in range(400):
+            stop(g)
+            if g.w("bzs_fx") == 0:
+                return
+
+    def check(ev, what, seq0):
+        n = snd[emap + 0 * ne + EV[ev]]
+        if n == 0xFF:
+            return ["w7: rubber's %s names no effect in BZSND.BIN" % ev]
+        rec = BM.u16(snd, fxt + 2 * n)
+        slot = g.m.read(g.a("bzs_fx"), F_SIZE)
+        dseq = (g.w("bzs_fxseq") - seq0) & 0xFFFF
+        if dseq != 1 or slot[13] != snd[rec] or slot[12] != snd[rec + 1]:
+            return ["w7: %s keyed %d effect(s), the slot instrument %d priority %d - not %s's effect %d "
+                    "(instrument %d, priority %d)" % (what, dseq, slot[13], slot[12], ev, n, snd[rec], snd[rec + 1])]
+        return []
+    g.put("bz_tsec", 0)                         # (no limit from here: the checks' frames hear no tick)
+    stop(g)
+    g.putb("bz_mat", 0)
+    for ev, ctr in (("FLAG", "bz_nckpt"), ("PAD", "bz_npad"), ("LIP", "bz_nlip"), ("SPRING", "bz_nspr"),
+                    ("RETURN", "bz_nret"), ("KNOCK", "bz_nknock"), ("TUBE", "bz_ntube"), ("BUMPER", "bz_nkick")):
+        idle()
+        seq0 = g.w("bzs_fxseq")
+        g.put(ctr, g.w(ctr) + 1)
+        stop(g)
+        fails += check(ev, "%s poked" % ctr, seq0)
+    for secs, ev in ((30, "LOW"), (9, "TICK")):
+        idle()
+        g.put("bz_tsec", secs + 1)
+        stop(g)
+        idle()
+        seq0 = g.w("bzs_fxseq")
+        g.put("bz_tsec", secs)
+        stop(g)
+        fails += check(ev, "%d seconds left" % secs, seq0)
+    idle()
+    g.put("bz_tsec", 1)
+    stop(g)
+    idle()
+    seq0 = g.w("bzs_fxseq")
+    stop(g, "bzs_frame")
+    g.put("bz_tsec", 0)
+    g.putb("bz_tout", 1)
+    stop(g)
+    fails += check("TIMEOUT", "the timeout", seq0)
+    g.putb("bz_tout", 0)                        # (the play goes on: the row's next steps run in it)
     return fails
 
 
@@ -365,6 +433,8 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                 fails += events(g, snd)
             if arm_name == "spk" and only not in ("groove", "mat") and "bz_nboost" in g.sym:
                 fails += boost_events(g, snd)
+            if arm_name == "spk" and only not in ("groove", "mat", "noboost") and "bz_tsec" in g.sym:
+                fails += w7_events(g, snd)              # wave 7 (SPEC.md 128.18.6)
             # 5. THE COST
             if only is None:
                 mean, top = cost(g)
@@ -411,10 +481,18 @@ REDS = {
     "mat": [("bzsound.inc", "    mov ah, [bz_mat]            ; AH = the material, for every trigger\n",
              "    xor ah, ah                  ; RED mat: every event the rubber ball's\n")],
     # wave 6 (SPEC.md 128.16.14): bz_nboost out of the counters' table
-    "noboost": [("bzsound.inc", "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10\n",
-                 "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr9 ; RED noboost: bz_nboost not read\n")],
+    "noboost": [("bzsound.inc", "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10, bzs_ctr11, bzs_ctr12, bzs_ctr13\n",
+                 "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr9, bzs_ctr11, bzs_ctr12, bzs_ctr13 ; RED noboost\n")],
 }
-RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boost keyed 0"}
+    # wave 7 (SPEC.md 128.18.6): bz_nckpt out of the counters' table; the clock's events skipped
+REDS["noflag"] = [("bzsound.inc", "%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 128.18.6)\n",
+                   "%define bzs_ctr11   bz_nret     ; RED noflag: bz_nckpt not read\n")]
+REDS["notick"] = [("bzsound.inc", "    cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),\n"
+                   "    je .nt                      ; LOW at 30 s and 10 s, a TICK under 10 s\n",
+                   "    cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),\n"
+                   "    jmp .nt                     ; RED notick: the clock's events skipped\n")]
+RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boost keyed 0",
+            "noflag": "w7: bz_nckpt poked keyed 0", "notick": "w7: 30 seconds left keyed 0"}
 
 
 def main():

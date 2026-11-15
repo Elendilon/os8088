@@ -43,7 +43,7 @@ BZS_MAXT    equ 8               ; sub-ticks a call steps, at most (the rest of
 BZS_STALL   equ 36              ; desktop: a gap past 2 s (36 ticks) restarts
                                 ; the title rather than chasing it
 BZS_LMIN    equ 48              ; a LANDING's bz_lvz under this is silent
-BZS_NCTR    equ 11              ; the counters bzs_events compares (bzs_ctab;
+BZS_NCTR    equ 16              ; the counters bzs_events compares (bzs_ctab;
                                 ; DX holds a bit each, so at most 16)
 BZS_PRI     equ 40h             ; the tone priority: the package default
 
@@ -187,6 +187,7 @@ VAR bzs_snap,1                  ; 0 until the counters have been read once
 VAR bzs_last,2 * BZS_NCTR       ; the counters, the last frame's (bzs_ctr0..)
 VAR bzs_lgoal,1                 ; bz_goal, the last frame's
 VAR bzs_lsum,2                  ; ...and the counters' sum
+VAR bzs_ltsec,2                 ; wave 7: bz_tsec, the last frame's (the clock's events)
 VAR bzs_dtk,2                   ; the desktop: [ticks] at the last call
 VAR bz_nwall,2                  ; SOUND STATE the physics writes and never
 VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 128.20.5): wall
@@ -570,8 +571,14 @@ bzs_frame:
 %define bzs_ctr8    bz_nknock
 %define bzs_ctr9    bz_ntube
 %define bzs_ctr10   bz_nboost   ; (wave 6's, SPEC.md 128.16.4.4)
+%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 128.18.6)
+%define bzs_ctr12   bz_npad
+%define bzs_ctr13   bz_nlip
+%define bzs_ctr14   bz_nspr
+%define bzs_ctr15   bz_nret
 bzs_ctab:   dw bzs_ctr0, bzs_ctr1, bzs_ctr2, bzs_ctr3, bzs_ctr4, bzs_ctr5, bzs_ctr6
-            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10
+            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10, bzs_ctr11, bzs_ctr12, bzs_ctr13
+            dw bzs_ctr14, bzs_ctr15
 %if ($ - bzs_ctab) / 2 != BZS_NCTR
  %error "bzs_ctab names every counter"
 %endif
@@ -586,8 +593,43 @@ BZS_C_KICK  equ 128
 BZS_C_KNOCK equ 256
 BZS_C_TUBE  equ 512
 BZS_C_BOOST equ 1024
+BZS_C_FLAG  equ 2048            ; wave 7 (SPEC.md 128.18.6)
+BZS_C_PAD   equ 4096
+BZS_C_LIP   equ 8192
+BZS_C_SPR   equ 16384
+BZS_C_RET   equ 32768
 
 bzs_events:
+    mov ax, [bz_tsec]           ; wave 7 (SPEC.md 128.18.6): THE CLOCK's second
+    cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),
+    je .nt                      ; LOW at 30 s and 10 s, a TICK under 10 s
+    mov [bzs_ltsec], ax
+    cmp byte [bzs_snap], 0      ; (the first frame only takes the copy)
+    je .nt
+    or ax, ax
+    jnz .t1
+    cmp byte [bz_tout], 0
+    je .nt
+    mov al, BZS_E_TIMEOUT
+    jmp short .tf
+.t1:
+    cmp ax, 30
+    je .tlow
+    cmp ax, 10
+    je .tlow
+    jae .nt
+    mov al, BZS_E_TICK
+    jmp short .tf
+.tlow:
+    mov al, BZS_E_LOW
+.tf:
+    push cx
+    push dx
+    mov ah, [bz_mat]
+    call bzs_trig0
+    pop dx
+    pop cx
+.nt:
     mov ax, [bzs_ctr0]          ; THE SUM FIRST: the counters only grow, so
 %assign BZS_I 1                 ; it moves when any does (the usual frame:
 %rep BZS_NCTR - 1               ; none does, and this and the goal are all)
@@ -709,8 +751,33 @@ bzs_events:
     call bzs_trig0
 .tube:
     test dx, BZS_C_TUBE         ; a tube's capture
-    jz .out
+    jz .flag
     mov al, BZS_E_TUBE
+    call bzs_trig0
+.flag:                          ; wave 7 (SPEC.md 128.18.6): wave 4's props -
+    test dx, BZS_C_FLAG         ; a flag touched, a pad's swap, the cup's
+    jz .pad                     ; lip-out, a spring's launch, a RETURN
+    mov al, BZS_E_FLAG
+    call bzs_trig0
+.pad:
+    test dx, BZS_C_PAD
+    jz .lip
+    mov al, BZS_E_PAD
+    call bzs_trig0
+.lip:
+    test dx, BZS_C_LIP
+    jz .spr
+    mov al, BZS_E_LIP
+    call bzs_trig0
+.spr:
+    test dx, BZS_C_SPR
+    jz .ret
+    mov al, BZS_E_SPRING
+    call bzs_trig0
+.ret:
+    test dx, BZS_C_RET
+    jz .out
+    mov al, BZS_E_RETURN
     call bzs_trig0
 .out:
     pop cx
