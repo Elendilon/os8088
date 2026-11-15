@@ -269560,6 +269560,18 @@ before.
   open); 6b - MOON, locked when timed, plays with no clock and its Esc
   costs no life. `bonanzagame` and `bonanzaexit` pass with the new lines.
 
+##### 128.19.8.4 What wave 8 leaves for the front window proper
+
+- **The tour's removal (8b.8)** and the face's **artwork band** wait for the
+  FRONT WINDOW PROPER, built with the owner's art (128.19.8's artwork
+  decision): the tour lives in 61 lines of the package and the shell part
+  and in four rows (`bonanzagame`'s tour and stop legs, `bonanzaexit`'s
+  tour legs), and the face it lives on is the one that window replaces.
+  Until then `G` still plays it; nothing of the game reads it.
+- **Per-FINISH bests and medals** (8c.3) wait for finishes that carry
+  their own medal times; the slot keeps a best a course.
+- **The shell's songs** (8b.10) are the sound session's.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

@@ -2486,3 +2486,33 @@ A new row, `bonanzapath`, plays the loop on both cards - a locked node
 rolled over, FIRST finished by the autopilot opening TRIAL, an Esc costing
 a life, the last life ending the game with the memory as it was - and its
 red arm (the gate removed) goes red where it should.
+
+## 2026-11-15 (wave 8c: cards, slots, exploration and medals)
+
+Inside the bracket nothing may draw with the desktop's routines, so the
+game had no way to put words on the screen. It has now: before the mode is
+set, the desktop font's glyphs are copied out, and a small writer puts them
+straight into the page the display shows - one routine for both cards,
+because a text cell is a word of video memory on each (eight two-bit pixels
+on the CGA, eight pairs of the Hercules' pixels). A card is drawn over the
+frozen frame and the next frame is drawn whole, which takes it away with no
+restore of its own.
+
+The first card was PAUSE, with a retry and the map; then an intro card while
+a course loads, a result card with the time and the exit, and GAME OVER.
+Two bugs on the way were worth their lessons. A new include file was not in
+the package's Makefile rule, so an edit to it rebuilt nothing and the tests
+read a stale package against new symbols - the build rule now names it. And
+a routine inserted between two procedures broke a fall-through: the
+pathway's setup had always run on into the course fetch below it, and with a
+new routine between them the pathway was never fetched. Breakpoints on the
+handful of routines involved found it in one run.
+
+Then the slots and modes: three save slots on 1, 2 and 3; E toggles the
+slot between TIMED and EXPLORE, where every node is open, no clock runs and
+nothing costs a life; X twice erases a slot. Medals come from each course's
+route until the owner times them (gold at 1.15 times the autopilot, silver
+at 1.5), and a node's sign turns silver or gold with the slot's best.
+
+Left for the front window proper, with the owner's art: the tour's removal
+and the artwork band.
