@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BONANZA: the wheel - lanes paced by the retrace wait (SPEC.md 128.12.4, 128.12.5, 128.12.13.2, 128.12.15).
 
-    make bonanzadisk && python3 tests/bonanza_wheel.py [--adapter cga|herc|both] [--leg bench|low|corner|stale|side|gate|all]
+    make bonanzadisk && python3 tests/bonanza_wheel.py [--adapter cga|herc|both] [--leg bench|low|corner|stale|side|clock|gate|all]
     python3 tests/bonanza_wheel.py --red NAME      (a red arm, below)
     python3 tests/bonanza_wheel.py --check         (the host half: the gate logs proved, every red arm assembled)
 
@@ -313,14 +313,14 @@ def boot_pkg(tag, apps, src):
     return ui, sym
 
 
-def launch_mill(g, key, hvoff):
-    """KEY (B or Enter) on the desktop, stopped at bz_launch's entry: MILL into
-    [bz_crs], [bz_hvoff] HVOFF; the guest left STOPPED there"""
+def launch_mill(g, key, hvoff, crs="mill"):
+    """KEY (B or Enter) on the desktop, stopped at bz_launch's entry: MILL (or
+    CRS) into [bz_crs], [bz_hvoff] HVOFF; the guest left STOPPED there"""
     m = g.m
     m.bp_exec(g.a("bz_launch"))
     g.key(key)
     assert m.wait_stop(60) == "breakpoint", "%s did not reach bz_launch" % key
-    g.putb("bz_crs", R.CRS_K["mill"])
+    g.putb("bz_crs", R.CRS_K[crs])
     g.putb("bz_hvoff", hvoff)
     m.bp_exec()
 
@@ -341,6 +341,7 @@ def pres_snap(g):
            "pkick": [ph.w("bz_pkick", k) for k in range(pn)], "drawn": list(h.bytes("bz_ldrw", n)),
            "hold": list(h.bytes("bz_lhold", pn)), "wcn": h.b("bz_wcn"), "wskip": cnt.w("bz_wskip"),
            "heavy": h.b("bz_heavy"), "ctype": h.b("bz_ctype"), "cln": h.b("bz_cln"), "mustp": g.b("bz_mustp")}
+    out["tsec"] = g.w("bz_tsec") if "bz_tsec" in g.sym else None   # wave 7: the clocks' seconds left
     if "bz_lnext" in g.sym:                     # (13): the walk's range and bz_lnext (SPEC.md 128.13.5.3)
         out["lnext"] = list(struct.unpack("<%dH" % n, g.m.read(g.a("bz_lnext"), 2 * n))) if n else []
         out["lrw"] = list(struct.unpack("<%dh" % n, g.m.read(g.a("bz_lrw"), 2 * n))) if n else []
@@ -366,7 +367,7 @@ def enter_check(g, ref, prev, out, rects, recs):
         now = clip(q, (out["R0"], out["R0"] + H, out["c0"], out["c0"] + Wc))
         if was or not cells(now):
             continue
-        tq = R.true_pose(recs[i], out["nstep"], out["pkick"], out["hold"])
+        tq = R.true_pose(recs[i], out["nstep"], out["pkick"], out["hold"], out.get("tsec"))
         lk, _ = g.look(crs)
         lanes = dict(enumerate(out["drawn"]))
         lanes[i] = tq
@@ -1416,10 +1417,12 @@ BZ_LCM = 2                      # bzwheel.inc's band margin, block columns
 
 
 def side_plan(g, ref):
-    """-> (rotor, R0, c0, the centre's point, the hold point, the trickle's point, the window's c0 there)
-    or None: a CENTRED full write whose window has a MILL rotor in its rows but wholly OUTSIDE the column
-    band (its columns end at least BZ_LCM before c0, or start at least BZ_LCM past c0 + W), and a resting
-    point whose dead zone is a window that shows the rotor whole (TRICKLE pans to it a column a frame)"""
+    """-> (lane, R0, c0, the cut's point, the hold point, the trickle's point, the window's c0 there) or
+    None: a resting point whose CENTRED window (the cut's: the guest's own centring, check_bounds's) has a
+    lane - a rotor's or a clock's digit - in its rows but wholly OUTSIDE the column band (its columns end
+    at least BZ_LCM before c0, or start at least BZ_LCM past c0 + W), the point inside that window's dead
+    zone; and a resting point whose dead zone is a window that shows the lane whole (TRICKLE pans to it a
+    column a frame).  The cut's point IS the hold point, grounded"""
     tag, crs = g.tag, ref.c
     lsh = LSH[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
@@ -1427,28 +1430,35 @@ def side_plan(g, ref):
     grid = BB.Grid(crs.cga)
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
     H = BB.CARDS[tag == "herc"][1]
-    rl = R.RL[tag]
+    kx, ky = (grid.x0 - 8) << 8, (grid.y0 - 13) << 8
+    lines = range(68, 132)                      # inside TRICKLE's band down: the hold moves no row
     for i in sorted(rects):
-        if recs[i]["kind"] != BB.PK_WINDMILL:
+        if recs[i]["kind"] not in (BB.PK_WINDMILL, BB.PK_CLOCK):    # (wave 7: a clock's digit too)
             continue
         q = lane_cells(rects, i, lsh)
         for R0 in range(max(0, q[1] - H), min(rmax, q[0]) + 1):
             top = R0 << lsh
-            for c0, c0g in ((q[3] + BZ_LCM + 1, max(0, q[2] - 1)), (q[2] - Wc - BZ_LCM - 1, min(cmax, q[3] - Wc + 1))):
+            cands = [(c0, max(0, q[2] - 1)) for c0 in range(q[3] + BZ_LCM, cmax + 1)] + \
+                [(c0, min(cmax, q[3] - Wc + 1)) for c0 in range(0, q[2] - Wc - BZ_LCM + 1)]
+            for c0, c0g in cands:
                 if not 0 <= c0 <= cmax or not (c0g <= q[2] and q[3] <= c0g + Wc):
                     continue
-                left = 8 * c0
-                cen = None
-                for dy in range(rl):
-                    for dx in range(8):
-                        cen = cen or R.probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
-                                                    flags=BB.FL_OCC | BB.FL_OCCG)
-                hold = cen and R.rest_in_window(crs, grid, top, left, Wc, range(70, 112),
-                                                flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
-                go = hold and R.rest_in_window(crs, grid, top, 8 * c0g, Wc, range(70, 112),
-                                               flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
-                if cen and hold and go:
-                    return i, R0, c0, cen, hold, go, c0g
+                hold = R.rest_in_window(crs, grid, top, 8 * c0, Wc, lines, flags=BB.FL_OCC | BB.FL_OCCG,
+                                        slopes=True)
+                if not hold:
+                    continue
+                px = (hold[0] - hold[1] + kx) >> 8
+                py = (((hold[0] + hold[1]) >> 1) - hold[2] + ky) >> 8
+                R0c = max(0, min(max(0, py + 8 - BB.WIN_LINES // 2) >> lsh, rmax))
+                c0c = max(0, min(max(0, px + 8 - 4 * Wc) >> 3, cmax))
+                out = q[3] <= c0c - BZ_LCM or q[2] >= c0c + Wc + BZ_LCM
+                rows = R0c <= q[0] and q[1] <= R0c + H
+                if not (out and rows):
+                    continue
+                go = R.rest_in_window(crs, grid, R0c << lsh, 8 * c0g, Wc, lines, flags=BB.FL_OCC | BB.FL_OCCG,
+                                      slopes=True)
+                if go:
+                    return i, R0c, c0c, hold, hold, go, c0g
     return None
 
 
@@ -1464,20 +1474,41 @@ def side_leg(g, ref):
     TRUE pose on the card).  `nocol` (the band's margin 0) leaves the map
     stale.  Where no window puts a rotor so (the Hercules' 45 words hold
     MILL's every lane), the leg SKIPS naming the card.  -> (failures, reports)"""
-    m, tag, crs = g.m, g.tag, ref.c
+    m, tag = g.m, g.tag
     lsh = LSH[tag]
+    fails, rep = [], []
+    # wave 7 (SPEC.md 128.18.5): MILL's lanes sit in columns every CGA window holds, so the scene is
+    # searched on each course with a lane that can lie outside the band - a clock's digit beside its route
+    # (FIRST's second clock, TRIAL's first) - planned on the host before the play is launched
+    plan = None
+    for cname in ("mill", "first", "trial"):
+        cref = R.Ref(tag, R.course(cname)) if cname != "mill" else ref
+
+        class _G:                               # (the plan reads only the card's window bounds)
+            pass
+        _g = _G()
+        _g.tag = tag
+        W_, H_ = BB.CARDS[tag == "herc"][:2]
+        rl_ = R.RL[tag]
+        _g.w = lambda n, c=cref.c, W_=W_, H_=H_, rl_=rl_: {"bz_W": W_, "bz_cmax": c.cols - W_,
+                                                          "bz_rmax": c.brows * 8 // rl_ - H_}[n]
+        plan = side_plan(_g, cref)
+        if plan is not None:
+            ref, crs_name = cref, cname
+            break
+    crs = ref.c
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
-    fails, rep = [], []
-    launch_mill(g, "Enter", 0)
-    m.run()
-    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
-    m.pause()
-    g.putb("bz_cmode", 1)
-    plan = side_plan(g, ref)
+    if plan is not None:
+        launch_mill(g, "Enter", 0, crs=crs_name)
+        m.run()
+        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the %s play runs" % crs_name, guest=60)
+        m.pause()
+        g.putb("bz_cmode", 1)
     if plan is None:
-        rep.append("(9) the SIDE scene: SKIP - no window on this card puts a MILL rotor in its rows and wholly "
-                   "outside the column band with the ball centred on a floor (the `nocol` arm is UNJUDGED here)")
+        rep.append("(9) the SIDE scene: SKIP - no window on this card puts a lane of MILL's, FIRST's or TRIAL's in "
+                   "its rows and wholly outside the column band with the ball centred on a floor (the `nocol` arm "
+                   "is UNJUDGED here)")
     else:
         lane, R0w, c0w, cen, hold, go, c0g = plan
         rec = recs[lane]
@@ -1490,8 +1521,8 @@ def side_leg(g, ref):
                 st["k"] += 1
                 k = st["k"]
                 if st["step"] is None:
-                    if k == 0:
-                        R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+                    if k == 0:                  # (the cut centred on the grounded hold point)
+                        R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=0)
                         g.putb("bz_first", 1)
                     else:
                         R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=k > 1)
@@ -1503,8 +1534,12 @@ def side_leg(g, ref):
                         st["n0"] = g.d("bz_nstep")
                     elif k > 2:
                         n = g.d("bz_nstep")
-                        if n - st["n0"] >= SIDE_STEPS and rotor_pose(rec, n) != st["fw"] \
-                                and rotor_pose(rec, n + 1) != st["fw"]:
+                        if rec["kind"] == BB.PK_CLOCK:     # (a clock's digit: the next second's too)
+                            ts = g.w("bz_tsec")
+                            moved = all(BB.clock_pose(max(0, ts - d), rec["place"]) != st["fw"] for d in (0, 1))
+                        else:
+                            moved = rotor_pose(rec, n) != st["fw"] and rotor_pose(rec, n + 1) != st["fw"]
+                        if n - st["n0"] >= SIDE_STEPS and moved:
                             st["step"] = k
                             R.poke_ball(g, go[0], go[1], go[2], 0, 0, 0, air=0)
                 else:
@@ -1548,11 +1583,94 @@ def side_leg(g, ref):
                 fails.append("(9) the SIDE scene, frame %d: rotor %d brought in by the columns shows %d px that "
                              "are not its TRUE pose %d (its bz_ldrw %s): the map was left stale while it was "
                              "outside the band" % (e[0], e[1], e[4], e[2], e[3]))
-    g.putb("bz_cmode", 0)
+    if plan is not None:
+        g.putb("bz_cmode", 0)
+        m.run()
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the SIDE leg's play ends on Esc", guest=60)
+        R.dropped(g, "the SIDE leg")
+    return fails, rep
+
+
+# ---- the CLOCK leg: wave 7's course clocks (SPEC.md 128.18.5) --------------------------
+CLOCK_FRAMES = 420              # frames of FIRST's play, held at its start: about 7 seconds of the clock
+CLOCK_LAG = 3                   # frames a digit may trail its second (the wheel defers a commit a frame or two)
+
+
+def clock_leg(g, ref):
+    """THE CLOCK (SPEC.md 128.18.5, story 7.2): FIRST played from its start with
+    the ball HELD there, CLOCK_FRAMES frames; at every bz_presented each clock
+    digit lane's drawn pose ([bz_ldrw]) is its true pose of [bz_tsec]
+    (bbcourse.clock_pose) or was so within CLOCK_LAG frames of the second's
+    change, and it changes at most once a second (a commit a second, never one
+    a frame); the card under every shown digit lane equals the oracle on the
+    frames it is checked (enter_check's picture).  `clkfreeze` (bz_tdset never
+    called on a second) leaves the digits behind.  -> (failures, reports)"""
+    m, tag = g.m, g.tag
+    fails, rep = [], []
+    crs = R.course("first")
+    fref = R.Ref(tag, crs)
+    recs = {r["i"]: r for r in crs.part["props"]}
+    digs = [i for i in recs if recs[i]["kind"] == BB.PK_CLOCK]
+    if not digs:
+        rep.append("(14) the CLOCK: SKIP - FIRST has no clock")
+        return fails, rep
+    launch_mill(g, "Enter", 0, crs="first")
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the FIRST play runs", guest=60)
+    m.pause()
+    hold = None
+    st = {"k": 0, "last": {}, "since": {}, "changes": {i: 0 for i in digs}, "bad": [], "secs": set(),
+          "shown": 0}
+
+    def on_hit(mm, rec_):
+        nonlocal hold
+        if rec_["addr"] == A["bz_t0"]:
+            if hold is None:
+                hold = (g.d("bz_gx"), g.d("bz_gy"), struct.unpack("<i", bytes(mm.read(g.a("bz_gz"), 4)))[0])
+            R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=True)
+            return None
+        st["k"] += 1
+        out = pres_snap(g)
+        ts = out["tsec"]
+        st["secs"].add(ts)
+        for i in digs:
+            want = BB.clock_pose(ts, recs[i]["place"])
+            got = out["drawn"][i]
+            if got != st["last"].get(i, got):
+                st["changes"][i] += 1
+            st["last"][i] = got
+            if got == want:
+                st["since"][i] = 0
+            else:
+                st["since"][i] = st["since"].get(i, 0) + 1
+                if st["since"][i] > CLOCK_LAG:
+                    st["bad"].append((out["frames"], i, ts, got, want))
+        return None
+    A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
+    with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=4 * CLOCK_FRAMES):
+        m.run()
+        M.until(m, lambda _: st["k"] >= CLOCK_FRAMES, "the CLOCK leg's frames", guest=120)
+        m.pause()
+    nsec = len(st["secs"])
+    rep.append("(14) the CLOCK: FIRST held at its start %d frames, the seconds left %s - %s (%d seconds); each "
+               "digit lane's changes %s; frames a digit trailed its second past %d: %d" % (
+                   st["k"], max(st["secs"]), min(st["secs"]), nsec, sorted(st["changes"].values()), CLOCK_LAG,
+                   len(st["bad"])))
+    if nsec < 4:
+        fails.append("(14) the CLOCK: the seconds left moved through %d values in %d frames: the clock did not "
+                     "count down" % (nsec, st["k"]))
+    for f, i, ts, got, want in st["bad"][:5]:
+        fails.append("(14) the CLOCK, frame %d: digit lane %d draws pose %d at %d seconds left, its true pose %d, "
+                     "more than %d frames after its second" % (f, i, got, ts, want, CLOCK_LAG))
+    for i, n in st["changes"].items():
+        if n > nsec:
+            fails.append("(14) the CLOCK: digit lane %d changed %d times over %d seconds (a commit a second at "
+                         "most)" % (i, n, nsec))
     m.run()
     g.key("Escape")
-    M.until(m, lambda _: g.b("bz_fs") == 0, "the SIDE leg's play ends on Esc", guest=60)
-    R.dropped(g, "the SIDE leg")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the CLOCK leg's play ends on Esc", guest=60)
+    R.dropped(g, "the CLOCK leg")
     return fails, rep
 
 
@@ -1625,7 +1743,7 @@ def gate_scen():
     return [s for s in P.mill_replays() if s["name"] in ("knock", "pass")]
 
 
-LEGS = ("bench", "low", "corner", "stale", "side", "gate")
+LEGS = ("bench", "low", "corner", "stale", "side", "clock", "gate")
 
 
 def run(tag, legs=LEGS, apps=None, src=None):
@@ -1677,6 +1795,10 @@ def run(tag, legs=LEGS, apps=None, src=None):
             f, r = side_leg(g, ref)
             fails += f
             rep += r
+        if "clock" in legs:                     # wave 7 (SPEC.md 128.18.5)
+            f, r = clock_leg(g, ref)
+            fails += f
+            rep += r
         if "corner" in legs:
             f, r = corner_leg(g, ref)
             fails += f
@@ -1721,6 +1843,9 @@ REDS = {
     # wave 7 (SPEC.md 128.18.2): the column band with no margin - a lane is walked only from the frame its
     # column is already inside the old window, so the column the camera brings in is drawn from a stale map
     "nocol": [("bzwheel.inc", "BZ_LCM      equ 2               ;", "BZ_LCM      equ 0               ; RED nocol:")],
+    # wave 7 (SPEC.md 128.18.5): the clocks' digits never brought up to date after the first second
+    "clkfreeze": [("bzphys.inc", "    call bz_tdset               ; (the clocks' digits, once a second)\n",
+                   "                                ; RED clkfreeze: the digits frozen\n")],
     "lanestale": [("bzwheel.inc", "    call bz_lsync               ; 2. wholly outside: the map now, in RAM\n",
                    "    nop                         ; RED lanestale: the map and bz_ldrw left stale\n")],
     "gatelate": [("bzwheel.inc", "    call bz_lmust               ; 4. a must-draw rotor or post ...\n    jnc .cont\n",
@@ -1746,7 +1871,7 @@ REDS = {
 RED_LEGS = {"repeat": ("bench",), "ahead": ("bench",), "nobeam": ("low",), "kmod": ("bench",),
             "halfcal": ("bench",), "alias": ("corner",), "corner": ("corner",), "lanestale": ("stale",),
             "gatelate": ("gate",), "litsteps": ("bench",), "costtab": ("low",), "lnext": ("bench",),
-            "pskip": ("low",), "nocol": ("side",)}
+            "pskip": ("low",), "nocol": ("side",), "clkfreeze": ("clock",)}
 # the Hercules' beam checks are reported (128.12.15 item 5); the corner's (6) and (5) are asserted on the CGA
 # ...and `halfcal` the CGA's: on the Hercules every MILL commit leaves more than the halved price's ~600
 # counts before its deadline, so nothing overruns there (the final pass of wave 3b: bz_wover 0, (5)'s
@@ -1758,7 +1883,7 @@ RED_TAGS = {"nocol": ("cga",), "nobeam": ("cga",), "kmod": ("cga",), "corner": (
 # (4)'s overrun no longer follows on the CGA (bonanzaperf's `halfcal` still meets bz_wover)
 RED_WANT = {"repeat": "(1)", "ahead": "(2)", "nobeam": "(3)", "kmod": "(3)", "halfcal": "(5)", "alias": "(6)",
             "corner": "(6)", "lanestale": "(9)", "gatelate": "(10)", "litsteps": "(12)", "costtab": "(5)",
-            "lnext": "(13)", "pskip": "(12)", "nocol": "(9) the SIDE scene"}
+            "lnext": "(13)", "pskip": "(12)", "nocol": "(9) the SIDE scene", "clkfreeze": "(14) the CLOCK"}
 
 
 def main():

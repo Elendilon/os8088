@@ -95,3 +95,7 @@ way 19 25
 # course budget reads it (6275 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 30
+
+# wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
+# seconds left of the limit; placed beside the route for the clock's measurement
+clock 8 11

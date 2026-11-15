@@ -326,8 +326,18 @@ RESERVED = ("edge", "shape")  # checkpoint and pad are wave 4's statements (SPEC
 # --- wave 3: props (SPEC.md 128.12.3, 128.12.6), PROVISIONAL constants -----------
 PK_TUBE, PK_WINDMILL, PK_BUMPER, PK_PLATFORM = 1, 2, 3, 4      # record +0
 PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING = 5, 6, 7, 8          # wave 4 (SPEC.md 128.14.4.2)
+PK_CLOCK = 9                  # wave 7 (SPEC.md 128.18.5): a clock's DIGIT, a record and a lane a digit
 PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform",
-            PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring"}
+            PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
+CLOCK_MAX = 4                 # wave 7: clocks a course
+CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
+CLOCK_UP = 24                 # the digits' block row's top, px above the clock tile's floor at its centre
+# wave 7 (SPEC.md 128.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
+# leftmost column), drawn black on the crystal ball's face
+CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1, 2, 4, 8, 31),
+              (31, 2, 4, 2, 1, 17, 14), (2, 6, 10, 18, 31, 2, 2), (31, 16, 30, 1, 1, 17, 14),
+              (6, 8, 16, 30, 17, 17, 14), (31, 1, 2, 4, 8, 8, 8), (14, 17, 17, 14, 17, 17, 14),
+              (14, 17, 17, 15, 1, 2, 12))
 PF_UNDER, PF_LANE = 1, 2      # record +1: UNDERSIDE (reserved, refused), LANE
 FL_OBS = 8                    # grid +3 bit 3: the cell belongs to a prop
 FL_EDGES = 16 | 32            # bits 4 - 5: RESERVED for `edge`
@@ -456,6 +466,7 @@ class Source:
         self.props = []             # [dict]: windmill, bumper, platform
         # wave 4 (SPEC.md 128.14.4.1): flags, pads, the cup, springs, par, branches
         self.ckpts = []             # [dict at ball line], in file order (their numbers)
+        self.clocks = []            # wave 7 (SPEC.md 128.18.5): [dict at line frame]
         self.pads = []              # [dict at mat line]
         self.cups = []              # [dict at capture line]
         self.springs = []           # [dict at gvz line]
@@ -798,6 +809,11 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: checkpoint takes <wx> <wy> [ball rubber|steel|glass]" % where)
             src.ckpts.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
                               "ball": MAT_NAMES.index(toks[4][1]) if len(toks) == 5 else None})
+        elif st == "clock":                         # wave 7 (SPEC.md 128.18.5)
+            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] != "crystal")):
+                raise CourseError("%s: clock takes <wx> <wy> [frame crystal]" % where)
+            src.clocks.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
+                               "frame": "crystal"})
         elif st == "pad":
             if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
@@ -1225,9 +1241,23 @@ def build_props(src, tiles, fname):
             d["gvz"] = sp["gvz"]
         d["z4"] = 4 * t.z0                          # its floor, whole px
         props.append(d)
-    nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT))
+    # wave 7 (SPEC.md 128.18.5): a CLOCK - a record and a lane for each digit (two, three when the limit
+    # given is 100 s or more), on a FLAT FLOOR tile no other prop has; never an OBS cell (prop_cells)
+    if len(src.clocks) > CLOCK_MAX:
+        raise CourseError("%s:%d: a clock past the %d a course holds" % (f, src.clocks[CLOCK_MAX]["line"], CLOCK_MAX))
+    ndig = 3 if src.limit is not None and src.limit[0] >= 100 else 2
+    for num, sp in enumerate(src.clocks):
+        at, ln = sp["at"], sp["line"]
+        t = tiles.get(at)
+        if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
+            raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR" % (f, ln, at[0], at[1]))
+        claim(at, ln, "clock")
+        for place in range(ndig):
+            props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
+                          "place": place, "ndig": ndig, "z4": 4 * t.z0})
+    nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
-        lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT)]
+        lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -1277,7 +1307,7 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        else:
+        elif p["kind"] != PK_CLOCK:                 # (wave 7: a clock is no obstacle, SPEC.md 128.18.5)
             out[p["at"]] = i
     return out
 
@@ -2138,6 +2168,67 @@ def _staff_pix(p, x0):
     return out
 
 
+def clock_face_geom(p, x0, y0):
+    """wave 7 (SPEC.md 128.18.5): a clock's crystal ball on the CANVAS - its
+    digits' block row starts CLOCK_UP px above the tile's floor at its centre,
+    rounded down to a block (the canvas's), the digits' blocks centred on the
+    stick; the ball an ellipse round them.  -> (the tile centre's x and floor
+    line, the ball's centre x, centre y, x radius, y radius)"""
+    wx, wy = p["at"]
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - p["z4"] + y0
+    n = p["ndig"]
+    bx0 = (cx - 4 * n + 4) >> 3
+    by = (cy - CLOCK_UP) >> 3
+    return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 5, 9
+
+
+def clock_digit_block(p, x0, y0):
+    """the canvas block (column, row) of digit PLACE (0 the units, the rightmost)"""
+    _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
+    n = p["ndig"]
+    return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
+
+
+def clock_face_pix(p, x0, y0):
+    """the crystal ball on its stick, canvas pixels: a CYAN disc with a black
+    rim and a white glint, the stick black, 2 px, from the ball down to the
+    tile's floor at its centre.  -> {(x, y): ink}"""
+    cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
+    out = {}
+    for y in range(fy + ry - 1, cy + 1):
+        out[(cx - 1, y)] = BLK
+        out[(cx, y)] = BLK
+    for y in range(fy - ry, fy + ry + 1):
+        for x in range(fx - rx, fx + rx + 1):
+            d = ((x - fx) / float(rx)) ** 2 + ((y - fy) / float(ry)) ** 2
+            if d <= 1.0:
+                out[(x, y)] = BLK if d > 0.78 else CYN
+    for (x, y) in ((fx - rx + 4, fy - ry + 3), (fx - rx + 5, fy - ry + 3), (fx - rx + 4, fy - ry + 4)):
+        if out.get((x, y)) == CYN:
+            out[(x, y)] = WHT
+    return out
+
+
+def clock_pose(tsec, place):
+    """wave 7 (SPEC.md 128.18.5): digit PLACE's pose for TSEC seconds left - 0
+    blank (a leading zero), 1 + d the digit d; the units never blank"""
+    if place and tsec < 10 ** place:
+        return 0
+    return 1 + (tsec // 10 ** place) % 10
+
+
+def clock_glyph(d, bx, by):
+    """digit D's ink in block (bx, by), canvas pixels: the 5 x 7 glyph a pixel in
+    from the block's left and top"""
+    out = {}
+    for r, bits in enumerate(CLOCK_FONT[d]):
+        for k in range(5):
+            if bits & (16 >> k):
+                out[(8 * bx + 1 + k, 8 * by + r)] = BLK
+    return out
+
+
 def _pennants(p, x0):
     """a flag's two poses (SPEC.md 128.14.4.1): FURLED (pose 0) a white roll
     down the pole's east side, FLYING (pose 1) a pennant out to the east.  A
@@ -2764,6 +2855,33 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": PK_CHECKPOINT, "line": p["line"]})
+        elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): a clock's digit
+            # the crystal ball and its stick are a MARK at the clock's depth (as a flag's pennant: what the
+            # picture draws in front of the clock's cell hides them), painted once, by the units' record;
+            # a clock more than half hidden is REFUSED.  Each digit is a lane of one block, its poses the
+            # blank and 0 - 9, the glyph only where the ball is drawn
+            sC = p["at"][0] + p["at"][1]
+            if p["place"] == 0:
+                face = clock_face_pix(p, x0, y0)
+                shown_ = {(x, y): c for (x, y), c in face.items()
+                          if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sC}
+                if 2 * len(shown_) < len(face):
+                    raise CourseError("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
+                                      "pixels are drawn over by geometry in front of it or lie outside the picture"
+                                      % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)))
+                for (x, y), ink in shown_.items():
+                    cv.rows[y][x] = ink
+                p["face_pix"] = shown_
+                clock_seen = set(shown_)
+            else:
+                clock_seen = next(q["face_pix"] for q in props if q["kind"] == PK_CLOCK and q["num"] == p["num"]
+                                  and q["place"] == 0)
+            bx, by = clock_digit_block(p, x0, y0)
+            poses = {0: {}}
+            for d in range(10):
+                poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+            lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
+                          "kind": PK_CLOCK, "line": p["line"]})
     for L in lanes:
         bx, by, w, h = L["rect"]
         if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= len(L["poses"]) <= LANE_PMAX):
@@ -2993,6 +3111,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             rec += struct.pack("<HB13x", p["capture"], p["hw"])
         elif p["kind"] == PK_SPRING:
             rec += struct.pack("<H14x", p["gvz"])
+        elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): +16 the digit's PLACE
+            rec += struct.pack("<BBB13x", p["place"], p["ndig"], p["num"])
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -4267,6 +4387,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             bad("prop %d" % i, "a %s with a clock" % PK_NAMES[kind])
         if kind == PK_CHECKPOINT and not flags & PF_LANE:
             bad("prop %d" % i, "a checkpoint without its LANE (a flag is a two-pose lane, 128.14.4.2)")
+        if kind == PK_CLOCK and not flags & PF_LANE:
+            bad("prop %d" % i, "a clock's digit without its LANE (128.18.5)")
         if kind in (PK_PAD, PK_CUP, PK_SPRING, PK_TUBE, PK_PLATFORM) and flags & PF_LANE:
             bad("prop %d" % i, "a %s with a LANE" % PK_NAMES[kind])
         d = {"i": i, "kind": kind, "flags": flags, "at": (wx, wy), "mask": mask, "shift": shift, "seed": seed}
@@ -4320,6 +4442,12 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             if not SPRING_LO <= gvz <= VZMAX or p[r + 18:r + 32] != bytes(14):
                 bad("prop %d" % d["i"], "a spring's record")
             d.update(gvz=gvz)
+        elif d["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5)
+            place, ndig, num = struct.unpack_from("<BBB", p, r + 16)
+            if not 2 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 19:r + 32] != bytes(13) \
+                    or d["lane"]["poses"] != CLOCK_POSES or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
+                bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
+            d.update(place=place, ndig=ndig, num=num)
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -6370,6 +6498,8 @@ class Heavy:
             return ((n_last + r["seed"]) & r["mask"]) >> r["shift"]
         if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
             return 1 if self.p.cksn & (1 << r["num"]) else 0
+        if r["kind"] == PK_CLOCK:               # wave 7: its digit of the seconds left (bz_tdig)
+            return clock_pose(self.p.tsec, r["place"])
         i = r["i"]
         k = self.p.pkick[i]
         if self.seen.setdefault(i, k) != k:     # a new kick: lit for PLITF frames on the glass
@@ -7227,6 +7357,7 @@ def emit_inc(courses):
               "BZ_PROPREC      equ %d       ; bytes a prop record" % PROPREC,
               "BZ_PK_TUBE      equ %d        ; record +0, the kind" % PK_TUBE,
               "BZ_PK_WINDMILL  equ %d" % PK_WINDMILL,
+              "BZ_PK_CLOCK     equ %d        ; wave 7: a clock's digit, a one-block lane (128.18.5)" % PK_CLOCK,
               "BZ_PK_BUMPER    equ %d" % PK_BUMPER,
               "BZ_PK_PLATFORM  equ %d" % PK_PLATFORM,
               "BZ_PF_LANE      equ %d        ; record +1: the record has a lane" % PF_LANE,
@@ -10352,6 +10483,37 @@ def _launch_checks(byname, res):
                 "again (%d)" % (q.nboost, q.nspr, qn.nboost), q.nboost == 1 and q.nspr and qn.nboost >= 2))
 
 
+def clock_visibility(c):
+    """wave 7 (SPEC.md 128.18.5, CD1): the share of the autopilot route's frames
+    (the camera model, each card) on which a clock's digit lies inside the
+    window -> (CGA, Hercules), or None for a course with no clock"""
+    digs = [r for r in c.part["props"] if r["kind"] == PK_CLOCK and r["lane"]]
+    if not digs:
+        return None
+    out = []
+    for herc in (0, 1):
+        W, _H, rl, _lsh = CARDS[herc]
+        p = Physics(c, play=True)
+        r = CamRun(c, herc, p)
+        n = [0]
+
+        def st():
+            n[0] += 1
+            if n[0] > 6000 or p.goal or p.tout:
+                return False
+            p.step(p.auto())
+        while r.frame(st):
+            pass
+        seen = 0
+        for f in r.rows:
+            ya, xa = f["R0"] * rl, 8 * f["c0"]
+            if any(xa <= 8 * d["lane"]["col"] < xa + 8 * W and ya <= 8 * d["lane"]["brow"] < ya + WIN_LINES
+                   for d in digs):
+                seen += 1
+        out.append(seen / float(max(1, len(r.rows))))
+    return tuple(out)
+
+
 def _trigger_checks(play, res):
     """item 7's wave-6b trigger on the PLAYGROUND's apron (SPEC.md 128.17.4,
     128.17.9): the offset map at rest and rolling, the grace's exactness,
@@ -11155,6 +11317,8 @@ def _props_course_checks(c, res, tag):
             what += ": %s" % MAT_NAMES[rec["mat"]]
         elif rec["kind"] == PK_CUP:
             what += ": capture %d, mouth %d x %d gu" % (rec["capture"], 2 * rec["hw"] + 1, 2 * rec["hw"] + 1)
+        elif rec["kind"] == PK_CLOCK:               # wave 7 (SPEC.md 128.18.5)
+            what += ": clock %d's digit %d of %d" % (rec["num"], rec["place"], rec["ndig"])
         else:
             what += ": gvz %d (an apex of %d px)" % (rec["gvz"], UP(rec["gvz"]))
         if rec["lane"]:
@@ -13075,17 +13239,28 @@ def selfcheck(paths=None):
     # excluded by name), and this tool with the reach's wave 5b inputs (HOPMAX 224, no BOOST launch) give the
     # same stored parts byte for byte: so the proof is that only the reach's inputs moved.  (5b's own check,
     # against ef59209a's BZC1 parts, and wave 4's before it, are carried by this chain.)  A SKIP is a FAILURE.
+    # (wave 7, SPEC.md 128.18: the texts with the statements that commit's grammar lacks - `clock`, `limit`
+    # and `music` - left out, for both tools: a clock's lanes are new parts' bytes, the rest are not in a part)
     w5 = [c for c in courses if c.name != "PLAY"]
-    old, why = wave2_parts([c.name for c in w5], W5_COMMIT, [os.path.basename(c.fname) for c in w5],
-                           texts=[c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname) for c in w5])
+    import tempfile
+    w5dir = tempfile.mkdtemp(prefix="bbw5")
+    w5txt = []
+    for c in w5:
+        src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
+        with open(src_path) as fh:
+            kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"])]
+        dst = os.path.join(w5dir, os.path.basename(src_path))
+        with open(dst, "w") as fh:
+            fh.write("\n".join(kept))
+        w5txt.append(dst)
+    old, why = wave2_parts([c.name for c in w5], W5_COMMIT, [os.path.basename(c.fname) for c in w5], texts=w5txt)
     if old is None:
         res.append(("1 the courses against %s's parts: %s (a SKIP of this item is a failure, 128.16.13)"
                     % (W5_COMMIT, why), False))
     else:
         diff = []
-        for c in w5:
-            c5 = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),
-                                _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST})
+        for c, txt in zip(w5, w5txt):
+            c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST})
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
@@ -13480,6 +13655,12 @@ def selfcheck(paths=None):
         _trigger_checks(byname["PLAY"], res)    # wave 6b (SPEC.md 128.17.4)
     if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 128.17.17)
         _launch_checks(byname, res)
+    # wave 7 (SPEC.md 128.18.5, CD1): each course's clocks, how often one shows on the route - PRINTED
+    for c in courses:
+        cv_ = clock_visibility(c)
+        if cv_ is not None:
+            print("    %s's clocks (SPEC.md 128.18.5): a digit in the window on %s of the autopilot route's frames "
+                  "(CGA, Hercules)" % (c.name, ", ".join("%d%%" % round(100 * v) for v in cv_)))
     # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
     # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
     _gap3_report(byname)

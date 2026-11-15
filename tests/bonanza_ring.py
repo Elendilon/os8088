@@ -488,7 +488,7 @@ def lane_rects(crs):
             for r in crs.part["props"] if r["lane"]}
 
 
-def true_pose(rec, nstep, pkick=None, hold=None):
+def true_pose(rec, nstep, pkick=None, hold=None, tsec=None):
     """a lane's TRUE pose after the frame's steps (bz_ltrue, SPEC.md 128.12.3.4,
     128.12.15 item 1): a rotor's from the LAST step's n (nstep - 1, the low
     word); a post's LIT while it has lit frames left on the glass ([bz_lhold],
@@ -497,6 +497,8 @@ def true_pose(rec, nstep, pkick=None, hold=None):
     drawn lit)"""
     if rec["kind"] == BB.PK_WINDMILL:
         return (((nstep - 1) + rec["seed"]) & rec["mask"] & 0xFFFF) >> rec["shift"]
+    if rec["kind"] == BB.PK_CLOCK:              # wave 7 (SPEC.md 128.18.5): its digit of the seconds left
+        return BB.clock_pose(tsec or 0, rec["place"])
     return 1 if hold is not None and hold[rec["i"]] else 0
 
 

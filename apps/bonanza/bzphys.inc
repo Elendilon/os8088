@@ -209,6 +209,10 @@ VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps 
                                 ; the next one (BZ_SECSTEPS a second)
 VAR bz_phe,0
 ; the rest: written before they are read
+VAR bz_tdig,3                   ; wave 7 (128.18.5): the clocks' digit poses of
+                                ; bz_tsec - units, tens, hundreds (0 blank, 1 + d
+                                ; the digit d): bz_tdset's, at bz_pinit and once
+                                ; a second
 VAR bz_zoff,2                   ; round 3 (128.17.16): the take-off's z, px
                                 ; (bz_toff's), read under the token 1 only,
                                 ; which only a take-off through bz_toff sets
@@ -303,8 +307,9 @@ bz_pinit:
     mov ax, [bz_clims + bx]
     mov [bz_tsec], ax
     mov byte [bz_t55], BZ_SECSTEPS
-    xor ax, ax
 .nolim:
+    call bz_tdset               ; (wave 7: the clocks' first digits)
+    xor ax, ax
     mov ax, 0fffah              ; every post starts dark: its last kick -6
     mov di, bz_pkick            ; (bbcourse.Physics's pkick)
     mov cx, BZ_PROPMAX
@@ -1149,7 +1154,9 @@ bz_step:
     jnz .tdone                  ; the goal was set (a tie: the goal wins)
     mov byte [bz_t55], BZ_SECSTEPS
     dec word [bz_tsec]
-    jnz .tdone
+    call bz_tdset               ; (the clocks' digits, once a second)
+    cmp word [bz_tsec], 0
+    jne .tdone
     cmp byte [bz_goal], 0
     jne .tdone
     mov byte [bz_tout], 1
@@ -1516,6 +1523,37 @@ bz_bok:
     ret
 .no:
     clc
+    ret
+
+; bz_tdset - wave 7 (SPEC.md 128.18.5): bz_tdig from bz_tsec, the clocks'
+; digit poses - units, tens, hundreds; 0 a blank (a leading zero), 1 + d the
+; digit d; the units never blank (bbcourse.clock_pose).  Two DIVs, once a
+; second.  Preserves all but the flags.
+bz_tdset:
+    push ax
+    push cx
+    push dx
+    mov ax, [bz_tsec]
+    mov cl, 10
+    div cl                      ; AL = tsec / 10 (at most 99), AH the units
+    inc ah
+    mov [bz_tdig], ah
+    xor dx, dx                  ; DL the tens' pose, DH the hundreds'
+    or al, al
+    jz .w
+    xor ah, ah
+    div cl                      ; AL the hundreds, AH the tens
+    inc ah
+    mov dl, ah
+    or al, al
+    jz .w
+    inc al
+    mov dh, al
+.w:
+    mov [bz_tdig + 1], dx
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; bz_toff - TAKE OFF from the ground (128.10.7.3, and the Hop's, 128.11.8.6):
