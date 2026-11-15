@@ -1247,9 +1247,26 @@ bz_occ:
     pop es                      ; ES = ours
     mov ds, [bz_cseg]           ; DS = the course part
 .brow:
+    mov ax, [es:bz_ozk]         ; the row's key in a register first: CL = ks =
+    BZ_OCLAMP                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
+    mov cl, al                  ; br, never carried (SPEC.md 128.15.5.1)
     mov bx, [es:bz_obr]         ; OCCIDX[B / 8]: the row's records [SI, BP)
     shr bx, 1
     shr bx, 1
+    ; THE ROW'S SUMMARY (bz_osum, made at the launch by bz_crshdr): the
+    ; greatest s' and the greatest t' of ALL its records.  The rule lays a
+    ; record only when ks < s' and kt < t', so a row with ks at or over its
+    ; greatest s', or kt at or over its greatest t', lays nothing whatever
+    ; the columns - and is left here, before its index is read.  An empty
+    ; row's summary is 0, 0.  A row past the table (BZ_OSROWS) is searched.
+    cmp bx, 2 * BZ_OSROWS
+    jae .srow
+    mov ax, [es:bz_osum + bx]
+    cmp cl, al
+    jae .nrow0                  ; in front of or beside every record of the row
+    cmp ch, ah
+    jae .nrow0                  ; over every record's top
+.srow:
     mov di, bx
     add bx, [BZC_OCCIDX]
     mov si, [bx]
@@ -1315,13 +1332,11 @@ bz_occ:
     mov al, [si]
     cmp al, dh
     ja .nrow0                   ; the first is right of DH: none in the
-.lines:                         ; footprint's columns
-    mov ax, [es:bz_ozk]         ; the walk's keys in registers: CL = ks =
-    BZ_OCLAMP                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
-    mov cl, al                  ; br, never carried (SPEC.md 128.15.5.1), CH =
-    xor di, di                  ; kt; DI = 0 until the row lays a record, then
-    push dx                     ; MTAB (bz_oprep).  (DL, the first column, is
-    mov al, [si]                ; the next row's)
+.lines:                         ; footprint's columns.  The walk's keys are in
+    xor di, di                  ; registers: CL = ks (.brow), CH = kt; DI = 0
+    push dx                     ; until the row lays a record, then MTAB
+    mov al, [si]                ; (bz_oprep).  (DL, the first column, is the
+                                ; next row's)
 .grp:
     mov dl, al                  ; A GROUP: the records of one block word (AL,
     xor bx, bx                  ; read once a record: the walk's and the group's
