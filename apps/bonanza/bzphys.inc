@@ -364,6 +364,23 @@ bz_ramp:
     mov [bz_sgy + 2], dx
 %endmacro
 
+; BZ_LVL1: the keyboard's ramp for one arrow (128.11.7.1), its level in the
+; byte register %1 and its key BH's bit 0, shifted out: held, up one to
+; BZ_LVLMAX; released, down two to 0.
+%macro BZ_LVL1 1
+    shr bh, 1
+    jnc %%rel
+    cmp %1, BZ_LVLMAX
+    jae %%done
+    inc %1
+    jmp short %%done
+%%rel:
+    sub %1, 2
+    jnc %%done
+    xor %1, %1
+%%done:
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; bz_step - ONE STEP, in SPEC.md 128.11.8.2's binding order (the numbers below
 ; are its steps).  DS = ours.  Preserves CX and ES (the frame loop's count and
@@ -424,20 +441,14 @@ bz_step:
     cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (128.14.8.2): out of
     jne .tilt                   ; the keyboard's path, which is this compare
 .lv:
-    lodsb
-    shr bh, 1
-    jnc .rel
-    cmp al, BZ_LVLMAX
-    jae .lvs
-    inc ax
-    jmp short .lvs
-.rel:
-    sub al, 2
-    jnc .lvs
-    xor al, al
-.lvs:
-    mov [si - 1], al
-    loop .lv
+    mov ax, [bz_lvl]            ; the four levels in AL, AH, DL, DH (L R U D),
+    mov dx, [bz_lvl + 2]        ; each by BH's next bit
+    BZ_LVL1 al
+    BZ_LVL1 ah
+    BZ_LVL1 dl
+    BZ_LVL1 dh
+    mov [bz_lvl], ax
+    mov [bz_lvl + 2], dx
 .hopw:
     mov al, bl                  ; the Hop's window: Space's key-down EDGE opens
     xchg al, [bz_kprev]         ; it, else it counts down (128.11.7.2)
