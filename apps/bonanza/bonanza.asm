@@ -113,6 +113,7 @@ BZC_TB      equ 34              ; the top bias, signed px (0 when RECB is 8)
 BZC_MTAB    equ 36              ; the mask table (0 when RECB is 8)
 BZC_DIROFF  equ 38              ; the section directory (SPEC.md 128.15.4.2):
 BZC_NSEC    equ 40              ; its offset and its 8-byte entries
+BZ_OSROWS   equ 160             ; block rows bz_osum summarises (bz_osmake): PEAK has 135
 BZC_MAP     equ 48              ; the map: COLS x BROWS words, absolute offsets
 BZX_FORM    equ 1               ; (a directory entry's) byte: its stored form
 BZX_OFF     equ 2               ; its RAM offset
@@ -682,6 +683,7 @@ bz_crshdr:
     mov [bz_otb], ax
     mov ax, [es:BZC_MTAB]
     mov [bz_mtab], ax
+    call bz_osmake              ; ...and its rows' summary (bzvideo.inc bz_occ)
     mov ax, [bz_x0]             ; the projection's constants, 24.8 (128.10.8):
     sub ax, 8                   ; bz_kx = (X0 - 8) << 8 ...
     call .k
@@ -702,6 +704,61 @@ bz_crshdr:
     xchg ax, dx
     cbw                         ; (AL = that high byte) AX = the high word
     xchg ax, dx
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_osmake - THE OCCLUDER ROWS' SUMMARY (the speed pass, round 2), DERIVED at
+; the launch from the part's own index - no field of the part, so no course's
+; identity and no demo moves: bz_osum[br] = (the greatest s', the greatest t')
+; of block row br's records, a word a row, for the first BZ_OSROWS rows.  An
+; empty row is 0, 0 (bz_occ leaves it at once); the table's words past BROWS
+; are FFFFh, which leave no row.  The 4-byte record's s' is its byte +1 and
+; its t' its byte +2 (SPEC.md 128.15.5.1).  DS = ours, ES = the course part
+; (a selector on kern_mega: read through, never computed on).  Preserves all
+; but AX, BX, CX, DX, SI, DI, BP.
+; -----------------------------------------------------------------------------
+bz_osmake:
+    mov bx, [es:BZC_OCCIDX]
+    mov di, bz_osum
+    mov bp, [es:BZC_BROWS]
+    cmp bp, BZ_OSROWS
+    jbe .row
+    mov bp, BZ_OSROWS
+.row:
+    mov si, [es:bx]             ; the row's records [SI, CX)
+    mov cx, [es:bx + 2]
+    xor ax, ax
+.rec:
+    cmp si, cx
+    jae .put
+    mov dx, [es:si + 1]         ; DL = s', DH = t'
+    cmp dl, al
+    jbe .t
+    mov al, dl
+.t:
+    cmp dh, ah
+    jbe .n
+    mov ah, dh
+.n:
+    add si, BZ_REC
+    jmp short .rec
+.put:
+    mov [di], ax
+    inc di
+    inc di
+    inc bx
+    inc bx
+    dec bp
+    jnz .row
+    mov ax, 0ffffh
+.rest:
+    cmp di, bz_osum + 2 * BZ_OSROWS
+    jae .out
+    mov [di], ax
+    inc di
+    inc di
+    jmp short .rest
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3620,6 +3677,7 @@ VAR bz_tay,BZT_SIZE             ; ...and its y axis
 BZ_GAME_VARS
 BZ_PHYS_VARS
 BZ_SND_VARS
+VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
 VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 128.11.12.1): `BZR1`,
                                 ; the course (+4), the material (+5), flags,
                                 ; the steps, the runs.  The recorder writes
