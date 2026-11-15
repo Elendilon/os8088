@@ -2427,14 +2427,16 @@ bz_refl:
 bz_corner:
     xor bp, bp                  ; BP: bit 0 east, bit 1 south
     mov bx, BZN_NW              ; BX = the corner cell's window offset
-    mov ax, [bz_gx]             ; across: west (|du| = pu >> 8) or east
-    and ah, 15                  ; ((4,096 - pu) >> 8)
-    cmp ax, BZ_RAD * 256
+    mov dx, 1010h               ; DL, DH = the corner cell's point nearest the
+    mov ax, [bz_gx]             ; centre: 16 west, 0 east; 16 north, 0 south
+    and ah, 15                  ; across: west (|du| = pu >> 8) or east
+    cmp ax, BZ_RAD * 256        ; ((4,096 - pu) >> 8)
     jb .cw
     neg ax
     add ax, 4096
     mov bx, BZN_NE
     inc bp
+    xor dl, dl
 .cw:
     mov cl, ah                  ; CL = |du|
     mov ax, [bz_gy]             ; down: north or south, the same
@@ -2445,8 +2447,15 @@ bz_corner:
     add ax, 4096
     add bx, BZN_SW - BZN_NW
     or bp, 2
+    xor dh, dh
 .cn:                            ; AH = |dv|
-    mov al, cl                  ; the entry: 3 (6 |du| + |dv|)
+    mov ch, ah                  ; the corner cell first: it seldom blocks, and
+    mov di, cx                  ; the table's depth is seldom 0 (|du|, |dv|
+    lea si, [bz_nbr + bx]       ; wait in DI, which bz_blocks keeps)
+    call bz_blocks
+    jnc .out
+    mov ax, di
+    mov cl, al                  ; the entry: 3 (6 |du| + |dv|)
     shl al, 1
     add al, cl
     shl al, 1
@@ -2459,18 +2468,6 @@ bz_corner:
     add di, bz_ctab
     cmp byte [di + 2], 0        ; depth 0: du^2 + dv^2 >= 36, no contact
     je .out
-    xor dx, dx                  ; the corner cell's point nearest the centre:
-    test bp, 1                  ; (16 west, 0 east; 16 north, 0 south)
-    jnz .pe
-    mov dl, 16
-.pe:
-    test bp, 2
-    jnz .ps
-    mov dh, 16
-.ps:
-    lea si, [bz_nbr + bx]
-    call bz_blocks
-    jnc .out
     mov bl, BZ_EBUMPER          ; its restitution, kept on the stack
     cmp byte [si + 2], (BZ_SURF_BOUNCE << 4) | BZ_KWALL
     je .e
