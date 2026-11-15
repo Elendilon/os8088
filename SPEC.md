@@ -268778,6 +268778,213 @@ measures, after the props and mechanics that will move the physics again.
 Until then wave 10's targets, `BENCH`'s A/B and story 7.7 are anchored on
 the speed pass's figures (docs/reports/BONANZA-SPEED-2026-11-15.md).
 
+### 128.18 Wave 7: time
+
+The plan's wave 7 ([docs/plans/BOUNCE-BONANZA-PLAN.md](docs/plans/BOUNCE-BONANZA-PLAN.md),
+*Toward a release*, stories 7.1 - 7.8): **course clocks** on the course
+instead of a HUD, a **time limit** in place of `par`, a **timeout** that
+ends the course, **a song per course** and **the sound events** still
+unmapped. Built on the gate 1 baseline (128.17.18) and on the speed pass
+(docs/reports/BONANZA-SPEED-2026-11-15.md). The owner's end goal
+(2026-11-14) is the brief: *"COURSE CLOCKS on the course instead of a HUD,
+counting down a TIME LIMIT. An EXPLORATION mode in the first release turns
+the timing off"* and *"LIVES are timeouts: running out of time ends the
+course, takes a life and returns to the course pathway"* - the life and the
+pathway are wave 8b's; this wave ends the course.
+
+Binding where it adds; nothing earlier is amended except `par` (128.14.3.1),
+which `limit` replaces (128.18.3). Figures are MEASURED (the image, the
+host model, the camera model), PREDICTED (arithmetic) or ESTIMATED (clocks
+priced from code written down but not assembled). **The design figures**
+were taken once, on the host, at `cc4f7ffb`; no emulator ran for them.
+
+#### 128.18.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| the order | **7.1 first** (the walk narrowed by column), then the limit, the timeout and `music`, then the clock, then the sound events, then the measurement that decides the clock's form, then the pennant's key | a clock off to the side must cost nothing before any clock is placed (the plan's R4: *"fits only with 7.1 first"*) |
+| the walk by column | the row slice stays as it is (contiguous, the tool's lane order); **each walked lane is tested against a COLUMN BAND** `[c0 - 2, c0 + W + 2)` first, and a lane outside it is not walked; a lane that comes back into the band is walked whatever its skip says | the camera pans **at most 1 column a frame** outside a full write (MEASURED: every route on every course, both cards), so a 2-column margin syncs a lane before its column can enter, with one to spare |
+| the clock's second | **55 steps** (1.0070 s at 54.62 steps a second) | an integer countdown, the same in play, a replay and a demo; the 0.7% is printed by the tool beside each limit |
+| `limit` | **replaces `par`**: whole seconds, counted as 55 steps each; computed by the tool when a course gives none (Q-86's rule); an explicit one is refused under the tool's floor | the owner's time limits, in steps so they replay exactly |
+| the timeout | at the limit's last step the play ENDS (`bz_tout`, step 8 beside the goal; the goal wins a tie); the face shows it; wave 8b turns it into a lost life | the owner's *"running out of time ends the course"* |
+| where the time shows | **only on the course's clocks**; the scorecard shows the limit where it showed par | no HUD (128.15.3) |
+| the clock's digits (Q-71) | **built first as form (ii)**: one LANE a digit, its poses the digits drawn by the tool into the block pool, shown by a new lane kind, CLOCK; **form (i)** (glyphs composed at run time into private blocks) only if 128.18.7's measurement refuses (ii) | (ii) adds no compose code and IS the measurement Q-71 asks for; (i)'s 400 - 700 bytes are spent only if (ii) costs misses |
+| the clock's frame | **the crystal ball on a stick**, static picture art the tool draws (the stick an occluder post like the flag's staff); other frames are data for later worlds | the plan's default (C1) |
+| `music` | **`music NAME`** names a song of `tools/bbmusic.py`'s `SONGS`; a course without one keeps today's rule (course K plays song K, wrapping) | the sound plan's S10 |
+| the new sound events | the five physics counters that move and play nothing: **a flag, a pad, a lip-out, a spring, a RETURN**; and the clock's **second tick under 10 s**, **low time** at 30 s and 10 s, and **the timeout** | the plan's G5 |
+| the flag pennant's key (7.8) | **last, and only if the wave's measurement leaves room**: a key of its own so a ball behind it is hidden | it adds occluder records to every flag's window |
+
+#### 128.18.2 The walk by column (story 7.1)
+
+**Today** (MEASURED from the source): `bz_props` walks every lane whose
+block rows meet the window's rows (`.top`, `.rng`, `.l1`); a lane in those
+rows but wholly to the side still has its true pose computed and, on a pose
+change, its map synced (`bz_lsync`, the "RAM sync"), about 0.2k a frame per
+lane (the plan's R4). Columns are read only after the walk (`bz_lshown`).
+
+**The rule** (binding: the guest and `bbcourse.check_bounds`'s model do
+this):
+
+1. The row slice and its order are unchanged.
+2. **The column band** is `[c0 - BZ_LCM, c0 + W + BZ_LCM)` in block
+   columns, `BZ_LCM` = 2. In `.l1`, before the skip, a lane whose columns
+   (`bz_ltcl`, `bz_ltw`) lie wholly outside the band is **not walked**: no
+   true pose, no sync, no candidate. It is marked OUT (a bit a lane,
+   `bz_lout`).
+3. A lane marked OUT that is inside the band again is **walked as if the
+   range had moved** (its skip ignored): its true pose computed and its map
+   synced before any column of it can enter, because the window moves at
+   most one column a frame and the entering column is drawn from the map
+   (`bz_col`).
+4. **A full write** (a cut, `bz_lfull`) walks every lane in the row slice
+   with the band ignored, as today, and clears every OUT mark.
+5. **The quiet walk** also holds only while `bz_c0` is unchanged: a column
+   move makes one walk, in which the OUT lanes cost the band test alone.
+6. The tool's `check_bounds` is unchanged: the 6 lanes a window and 8 a
+   range bound what can be SHOWN, and the band only removes work.
+
+**Cost** (ESTIMATED): an OUT lane about 25 - 35 clk a walked frame against
+about 0.2k; the band's two compares about 20 clk for an in-band lane; the
+rule about +40 - 60 bytes and 2 bytes of bss (`bz_lout`, 16 lanes).
+**Verified by** `bonanzawheel`: a lane off to the side of the window is
+never walked (its true pose not computed) while the camera holds, and is
+synced before its column enters (the card equal to the oracle at every
+checked frame, as today); red arm `nocol` (the band's re-entry walk left
+out: a stale pose enters with the column).
+
+#### 128.18.3 `limit` (story 7.3)
+
+- **The statement**: `limit N`, N whole seconds, 5 - 999, at most once.
+  `par` is **refused** from this wave (the six courses' `par` lines become
+  `limit` lines or are removed). Like `par`, `limit` is a build table
+  (`BZ_CRS_LIMS`, a word a course, in STEPS), not in the part: it moves no
+  identity.
+- **Steps**: the limit is `55 N` steps; the clock shows the whole seconds
+  left, **rounded up**: `ceil(left / 55)`, so it reads N at the start and 0
+  only at the timeout.
+- **The tool's limit** (Q-86, when a course gives none): the slowest
+  finish's route time (the autopilot's, wave 4's routes; one finish a
+  course until wave 8b) times **1.5** for the tutorial and **1.25** for the
+  rest, plus one fall's allowance (the longest respawn-and-return the
+  route's flags give, MEASURED on the model), floored at the autopilot's
+  main route times 1.3, rounded UP to 5 s. **An explicit `limit` under that
+  floor is refused**, naming it; so is a course whose AUTHOR demo does not
+  finish inside its limit.
+- **`BENCH`** has no limit (the benchmark runs 1,200 frames regardless);
+  `limit 0` is its explicit "none", and only `BENCH` may say it.
+- **Where it applies**: play, the tour, `R` and `D`, identically (the
+  limit is steps, and a replay steps the same steps). `B` never.
+
+#### 128.18.4 The timeout (story 7.4)
+
+- **The rule** (binding: `bbcourse.Physics` with `play` and a limit, and
+  `bz_step`): step 8 (`.count`), after the goal's test, sets **`bz_tout`**
+  when `nstep` reaches the limit and the goal is not set. A goal on the same
+  step wins. RETURN, falls and respawns do not stop or reset the count; a
+  pause stops it (its sub-ticks are discarded, 128.11.7).
+- **The frame loop** ends the play on `bz_tout` as it does on the goal (the
+  frame after it; the early step's guard and `bz_estp` treat it as a goal).
+- **`bz_post`**: a timeout is `bz_lsend` 3, the face's line 6 says **time
+  out**, no best is set, and a tour course that times out STOPS the tour as
+  an unfinished one does. Wave 8b replaces "returns to the face" with "a
+  life lost, back to the pathway".
+- **State**: `bz_tout` a byte and `bz_tlim` a word (the course's limit in
+  steps, `bz_pinit`'s copy), in the zeroed block; `Physics.state7()`
+  `(tout, tsec)` is compared by `bonanzaphys` at every frame, `tsec` the
+  whole seconds left as the clock shows them.
+- **Cost** (ESTIMATED): about 25 clk a step (a compare and a countdown of
+  the 55), about +60 - 90 bytes.
+
+#### 128.18.5 The course clock (story 7.2)
+
+- **The statement**: `clock WX WY [frame crystal]` - a prop on a FLOOR
+  tile, at most `CLOCK_MAX` 4 a course. Its FRAME is static picture art the
+  tool paints (the crystal ball, 24 x 16 px on a 2-px stick an occluder post
+  like the flag's staff, 128.14.4.7); its DIGITS are LANES on the ball's
+  face, one a digit: two when the limit is under 100 s, three when it is
+  100 or more.
+- **A digit lane (form ii)**: 1 word x 1 block row, **11 poses**: the
+  digits 0 - 9 and a blank (a leading zero), drawn by the tool from a 3 x 5
+  digit font of its own into the block pool (deduplicated like every lane
+  block; the same digit on two clocks is one block). A new lane kind,
+  **CLOCK** (`bz_ltrue`): the pose is that digit of `tsec`, from three
+  digit bytes the step keeps (`bz_tdig`, written once a second, never a
+  division in the walk). Its wake (`bz_lwake`) is the next second's step,
+  as a rotor's is its next change.
+- **Bounds**: a clock's digit lanes count against the 6 lanes a window and
+  8 a range (128.12.4.6) and their changes against `ROTOR_CHG` 2 a step at
+  the worst alignment (tens and units change together at a ten; a window
+  where that meets a rotor's change is refused), as every lane does. **O25**:
+  the tool refuses a clock whose frame or digits can stand in front of the
+  route (the occluder verdicts over every reachable ball position, as for a
+  flag's pennant, 128.14.4.7).
+- **Visibility** (CD1): the tool PRINTS, per course, the share of the
+  autopilot route's steps on which a clock's digits are inside the window on
+  each card; it does not refuse (a design sheet's call, story 11.5).
+- **Bytes** (PREDICTED): the lane kind and `bz_tdig` about 60 - 90 bytes of
+  code; a clock about 11 x 16 = 176 bytes of CGA blocks (shared across a
+  course's clocks), plus the frame's picture blocks.
+
+#### 128.18.6 `music` and the sound events (stories 7.5, 7.6)
+
+- **`music NAME`**: a `SONGS` name (`fairway`, `trial`, `windmill`,
+  `moonlit`, `summit`; `title` refused); the tool writes `BZ_CRS_SONGS`, a
+  byte a course, and `bzs_gfetch` reads it in place of the course-K rule. A
+  course without `music` keeps the rule. **Verified by** `bonanzamusic`.
+- **The events** (`bzsound.inc`'s counter table, the bank's event map,
+  `tools/bbmusic.py`): new counters `nckpt`, `npad`, `nlip`, `nspr`, `nret`
+  (the physics already counts them, 128.14.4.7) and new events FLAG, PAD,
+  LIP, SPRING, RETURN; and three time events the step raises through a
+  counter of its own, `ntick` (`bz_ntick`: +1 on each whole second under
+  10 s, and at 30 s and 10 s left) - TICK, LOW, TIMEOUT. Each event an effect
+  of the bank's, the same for every ball unless the bank says otherwise.
+  The event map grows from 3 x 12 to 3 x 20 bytes. **Verified by**
+  `bonanzasound` (each new counter poked, the event's effect started on both
+  arms; I9's kick, knock and tube poked too, closing the sound plan's I9).
+
+#### 128.18.7 The measurement that decides the clock's form (story 7.7)
+
+Clocks are placed on `FIRST` and `TRIAL` (two each) and on `MILL` and `PEAK`
+(one each, on their heavy frames' stretches). Through `D` on both cards,
+speaker ON, three runs a side against the same build with the clock lanes
+left out (`-DBZ_NOCLOCK`, a test build): **form (ii) ships if no card's
+misses a second rise by more than 2 on `MILL` or `PEAK`** (the HUD's rule,
+128.14.26) beyond the spread of the runs, and the lane bounds hold on every
+course. Otherwise form (i) is built (glyphs composed in busy time into a
+clock's private blocks, committed as one lane), measured the same way, and
+the figures go to the owner. Taken once, in the wave's final pass.
+
+#### 128.18.8 kern_mega, kern_small, the Hercules
+
+Nothing here touches a kernel, a selector or a segment: the clock is a lane
+like a windmill's (the Hercules's blocks translated by `bz_hxlat` with the
+rest of the pool), the limit and timeout are bss and steps. `bonanzamega`'s
+play on kern_mega's Hercules covers them unchanged; kern_small does not run
+BONANZA.
+
+#### 128.18.9 The rows
+
+`bonanzawheel` (7.1, red arm `nocol`); **`bonanzaclock`** (new, soak: a
+clock's digits equal to the model's `tsec` on the card at every checked
+frame, a commit only once a second, nothing walked off the band; red arm: a
+commit every frame); `bonanzaphys` and `bonanzareplay` (the timeout's step
+equal to the model's, `state7()` every frame; red arm `toutoff`);
+`bonanzagame` (a timeout back to the face, line 6, no best, the tour
+stopped); `bonanzamusic` (`music`); `bonanzasound` (the events);
+`bonanzaperf` (128.18.7); `bonanzademo` (the authored demos inside their
+limits). Under the owner's soak rule (the plan's R5) the rows run in the
+wave's final pass, not per story.
+
+#### 128.18.10 Open questions for the owner
+
+- **The 55-step second** (0.7% slow): *default it*. The alternative is an
+  exact accumulator (about +20 clk a step).
+- **A clock's digits when exploration (wave 8c) turns timing off**: *default
+  blank*, the frame still drawn.
+- **Limits over 99 s** need a third digit lane: *default three lanes* for
+  such a course; the alternative is minutes and seconds.
+- **The timeout's sound**: *default one effect*, the same for every ball.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

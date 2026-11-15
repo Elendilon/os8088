@@ -925,6 +925,12 @@ change).
 **Goal:** the course clocks and time limits, built so that "nothing off
 screen" is true and the heavy frames are measured before the wave closes.
 
+**The contract is SPEC.md 128.18** (written 2026-11-15, before the code).
+Its build order: 7.1; then 7.3, 7.4 and 7.5; then 7.2 (form ii first, the
+measurement Q-71 asks for); then 7.6; then 7.7, which decides the clock's
+form; then 7.8 if the measurement leaves room. The second is 55 steps; the
+limit is steps; `par` is refused from this wave.
+
 | # | story | verified by |
 |---|---|---|
 | 7.1 | **First: the walk's slice narrowed by COLUMN** as well as row (A12), so a lane in the window's rows but off to the side costs nothing, not about 0.2k a frame plus a RAM sync at a pose change. The owner's "costs nothing off screen" depends on it | `bonanzawheel`: a lane off to the side is never walked; red arm |
