@@ -314,6 +314,9 @@ class Reader:
             "bz_gx", "bz_gy", "bz_gz", "bz_gvx", "bz_gvy", "bz_gvz", "bz_nstep", "bz_air", "bz_lfall", "bz_lvz",
             "bz_nland", "bz_nfall", "bz_resp", "bz_goal", "bz_lvl", "bz_hopw", "bz_kprev", "bz_mst", "bz_mct",
             "bz_sqf", "bz_nbnc", "bz_nstun", "bz_nshat", "bz_nhop")}
+        for n in ("bz_tout", "bz_tsec", "bz_t55"):  # wave 7 (SPEC.md 128.18.4), in the same run
+            if n in s:
+                self.off[n] = s[n] - self.lo
 
     def read(self):
         """-> (state, state2, extras): Physics.state()'s and state2()'s shapes"""
@@ -331,6 +334,9 @@ class Reader:
         ext["s3"] = self.state3(raw) if "bz_ps" in self.g.sym else None
         ext["s4"] = self.state4(raw) if "bz_ckpt" in self.g.sym else None
         ext["s6"] = self.state6(raw) if "bz_btok" in self.g.sym else None
+        # wave 7 (SPEC.md 128.18.4): the timeout, the seconds left and the steps to the next
+        ext["s7"] = ((raw[o["bz_tout"]], struct.unpack_from("<H", raw, o["bz_tsec"])[0], raw[o["bz_t55"]])
+                     if "bz_tout" in o else None)
         return st, s2, ext
 
     def state6(self, raw):
@@ -427,6 +433,10 @@ def compare(name, frames, st, s2, ext, p):
         return "%s frame %d: wave 4's state differs from the model's after %d steps: %s" % (
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
                                            for n, a, b in zip(names, ext["s4"], p.state4()) if a != b))
+    if ext.get("s7") is not None and ext["s7"] != p.state7():
+        return "%s frame %d: wave 7's time differs from the model's after %d steps: %s" % (
+            name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b) for n, a, b in
+                                           zip(("tout", "tsec", "t55"), ext["s7"], p.state7()) if a != b))
     if ext.get("s6") is not None and ext["s6"] != p.state6():
         names = ("btok", "stf", "nboost", "drx", "dry", "bgr", "bgd")
         return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
@@ -547,6 +557,8 @@ def scenario(g, crs, name):
     safe = tuple(m.read(g.a("bz_safe"), 2))
     p = MarkPhysics(crs, play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
     p.nstep, p.safe = st0[0], safe             # the model picks the play up where the guest is
+    if ext0.get("s7") is not None:              # (wave 7: its clock too)
+        p.tout, p.tsec, p.t55 = ext0["s7"]
     p._poked_at = st0[0]
     p.lvl, p.hopw, p.kprev = list(s20[0]), s20[1], s20[2]
     for k in ("nland", "nfall", "nbnc", "nstun", "nshat", "nhop"):
@@ -751,8 +763,8 @@ def parts(crs, mat, poke, keys, tilts=None, **red):
         t_ = tilts[i] if tilts else BB.TILT_KEYS
         a.step(k, t_)
         b.step(k, t_)
-        if a.state() + a.state2() + a.state3() + a.state4() + a.state6() != \
-                b.state() + b.state2() + b.state3() + b.state4() + b.state6():
+        if a.state() + a.state2() + a.state3() + a.state4() + a.state6() + a.state7() != \
+                b.state() + b.state2() + b.state3() + b.state4() + b.state6() + b.state7():
             return i + 1
         if a.goal:
             break
@@ -1303,7 +1315,7 @@ def run_ix(crs, mat, poke, keys, **red):
         n0 = len(p.events)
         p.step(k)
         out += [(i, e[0]) for e in p.events[n0:] if e[0] in CONTACT]
-        if p.goal:
+        if p.goal or p.tout:
             break
     return p, out
 
@@ -1872,6 +1884,19 @@ def w6b_replays():
     sf = BB.axis_feel(ST)
     add("gripsteel", "play", ST, pk, [K.K_GRIP] * (sf[6] + 20), "steel at the cap at %s, Grip held: stopped in %s "
         "steps (%.1f tiles), the axis model's %d" % (at, n, sf[7], sf[6]), gs)
+    # wave 7 (SPEC.md 128.18.4): TIMEOUT - rubber left at rest on FIRST's start past its limit: the clock counts
+    # down 55 steps a second, and the limit's last step times the replay out (the guest's run ends there;
+    # `toutoff` runs on, and its state differs at that frame)
+    fc = R.course("first")
+    lim = fc.limit * BB.SEC_STEPS
+    keys = [0] * (lim + 40)
+    p, _cs = run_ix("first", R_, None, keys)
+    q = model("first", R_, None)
+    for k_ in keys[:lim - 1]:
+        q.step(k_)
+    add("timeout", "first", R_, None, keys, "rubber at rest on FIRST, limit %d s (%d steps): the timeout at step %s, "
+        "the clock %s then" % (fc.limit, lim, p.nstep if p.tout else None, p.tsec), fc.limit and p.tout
+        and p.nstep == lim and p.tsec == 0 and not q.tout and q.tsec == 1, red={"_toutoff": True}, nboost=0)
     return S
 
 
@@ -2083,7 +2108,7 @@ def replay(g, s):
         m.pause()
         st, s2, ext = rd.read()
         advance(p, st[0], s["keys"], s.get("tilts"))
-        end = len(s["keys"]) if not p.goal else p.nstep
+        end = len(s["keys"]) if not (p.goal or p.tout) else p.nstep
         if st[0] != end:
             fails.append("%s: the replay ended after step %d, its log holds %d%s" % (
                 name, st[0], len(s["keys"]), " (the goal at %d)" % p.nstep if p.goal else ""))
@@ -2301,7 +2326,11 @@ REDS["nospent"] = [("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: s
                     "                                ; RED nospent\n    ret\n"),
                    ("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    jmp short .st\n",
                     "                                ; RED nospent\n    jmp short .st\n")]
-RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",)})
+# toutoff (wave 7, SPEC.md 128.18.4): the limit's last step never times out
+REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n.tdone:\n",
+                    "                                ; RED toutoff: no timeout\n.tdone:\n")]
+RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",)})
+RED_WANT.update({"toutoff": "timeout frame"})
 RED_WANT.update({"noadd": "boostfall", "nospent": "spentspring"})
 # wave 6b (SPEC.md 128.17.10): the trigger and the late grace broken six ways, each red at its own replay.
 # heldarm: Space HELD arms the token too (the edge path arms as shipped; the no-edge path as well)

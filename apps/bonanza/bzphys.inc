@@ -146,6 +146,9 @@ VAR bz_gh,2
 VAR bz_sb,2
 VAR bz_air,1
 VAR bz_goal,1
+VAR bz_tout,1                   ; wave 7 (128.18.4): 1 when the limit's last step
+                                ; timed the play out (the frame loop reads it and
+                                ; bz_goal as one word: keep the order)
 VAR bz_resp,1
 VAR bz_pokd,1                   ; a harness sets it after POKING the ball (the
                                 ; next step refills the window, then clears it)
@@ -201,6 +204,9 @@ VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
 VAR bz_bsp,2                    ; round 3b (128.17.17): 1 from a boost until the
                                 ; ball is next on the ground, 0 else (a byte;
                                 ; the word keeps BZ_PHSN even)
+VAR bz_tsec,2                   ; wave 7 (128.18.4): the whole seconds LEFT, as the
+VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
+                                ; the next one (BZ_SECSTEPS a second)
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_zoff,2                   ; round 3 (128.17.16): the take-off's z, px
@@ -258,6 +264,9 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %if BZ_PK_CKPT > BZ_PK_PAD || BZ_PK_CKPT > BZ_PK_CUP || BZ_PK_CKPT > BZ_PK_SPRING || BZ_PK_CKPT <= BZ_PK_PLATFORM || BZ_PK_CKPT <= BZ_PK_BUMPER || BZ_PK_CKPT <= BZ_PK_WINDMILL || BZ_PK_CKPT <= BZ_PK_TUBE
  %error "bz_prule tells wave 4's kinds from wave 3's by one compare against BZ_PK_CKPT"
 %endif
+%if bz_tout != bz_goal + 1
+ %error "bz_t0 and the step loop test bz_goal and bz_tout as one word"
+%endif
 %if bz_stf != bz_btok + 1 || bz_drx != bz_btok + 2 || bz_dry != bz_btok + 3
  %error "bz_step's .resp zeroes bz_btok .. bz_dry as two words, bz_land writes bz_btok and bz_stf as one, bz_surfset cuts bz_drx and bz_dry as one"
 %endif
@@ -286,6 +295,16 @@ bz_pinit:
     mov di, bz_phs
     mov cx, BZ_PHSN / 2
     rep stosw
+    cmp byte [bz_mode], 1       ; wave 7 (128.18.4): a play's or a replay's time
+    je .nolim                   ; limit, the course's (bz_clims; 0 none: BENCH);
+    mov bl, [bz_crs]            ; the benchmark has none
+    xor bh, bh
+    shl bx, 1
+    mov ax, [bz_clims + bx]
+    mov [bz_tsec], ax
+    mov byte [bz_t55], BZ_SECSTEPS
+    xor ax, ax
+.nolim:
     mov ax, 0fffah              ; every post starts dark: its last kick -6
     mov di, bz_pkick            ; (bbcourse.Physics's pkick)
     mov cx, BZ_PROPMAX
@@ -1124,6 +1143,17 @@ bz_step:
     jnz .counted
     inc word [bz_nstep + 2]
 .counted:
+    cmp word [bz_tsec], 0       ; wave 7 (128.18.4): after the goal's test, the
+    je .tdone                   ; limit's countdown - BZ_SECSTEPS steps a second;
+    dec byte [bz_t55]           ; the last second's last step TIMES OUT unless
+    jnz .tdone                  ; the goal was set (a tie: the goal wins)
+    mov byte [bz_t55], BZ_SECSTEPS
+    dec word [bz_tsec]
+    jnz .tdone
+    cmp byte [bz_goal], 0
+    jne .tdone
+    mov byte [bz_tout], 1
+.tdone:
     pop es
     pop cx
     ret
