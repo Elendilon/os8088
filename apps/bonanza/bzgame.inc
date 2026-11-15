@@ -210,6 +210,7 @@ VAR bz_tpoke,1                  ; a harness's: time this play's boxes too (bz_wb
 VAR bz_first,1
 VAR bz_oldv,1
 VAR bz_keys,1
+VAR bz_kmap,KEYMAP_BYTES        ; the frame's key map (OSAPI_KEY_MAP, bz_exitchk)
 VAR bz_lsh,1
 VAR bz_row0,1                   ; 1: this frame's box is at window row 0 (bz_csplit)
 VAR bz_r0p,1                    ; 1: a box starts at the new window's first line
@@ -1248,9 +1249,12 @@ bz_rnext:
 bz_exitchk:
     call os88alt_edge
     jc .leave
-    mov al, KSC_ESC
-    call OSAPI_KEY_DOWN
-    jc .leave
+    push di                     ; THE FRAME'S KEYS, ONE CALL (SPEC.md 9.7.3):
+    mov di, bz_kmap             ; Esc here, bz_input's six and bz_kedge's held
+    call OSAPI_KEY_MAP          ; key are each one test of this copy, where
+    pop di                      ; OSAPI_KEY_DOWN was a far call a key
+    KEYMAP_TEST bz_kmap, KSC_ESC
+    jnz .leave
 .drain:
     mov ah, 1
     int 16h
@@ -1302,8 +1306,21 @@ bz_kedge:
 .out:
     ret
 .held:
-    call OSAPI_KEY_DOWN
-    sbb al, al
+    push bx                     ; held still?  bz_exitchk's map, this frame's
+    push cx                     ; (every caller runs after it)
+    mov bl, al
+    mov cl, 3
+    shr bl, cl
+    xor bh, bh
+    mov cl, al
+    and cl, 7
+    mov al, 1
+    shl al, cl
+    and al, [bz_kmap + bx]
+    pop cx
+    pop bx
+    neg al
+    sbb al, al                  ; FFh held, 0 up
     mov [di], al                ; up: the next typed key is a press
     xor al, al                  ; (ZF = 1; a typed key while held - a repeat -
     mov [si], al                ; is dropped)
@@ -1351,9 +1368,11 @@ bz_drain:
 bz_input:
     push ax
     push bx
-    mov al, BZ_KSC_C
-    call OSAPI_KEY_DOWN
-    sbb bl, bl                  ; BL = FFh while C is down
+    xor bl, bl                  ; (bz_exitchk filled bz_kmap this frame)
+    KEYMAP_TEST bz_kmap, BZ_KSC_C
+    jz .cup
+    dec bl                      ; BL = FFh while C is down
+.cup:
     mov al, bl
     xchg al, [bz_ckey]          ; AL = last frame's
     not al
@@ -1373,29 +1392,24 @@ bz_input:
     jz .arrows
     mov bl, BZ_K_RET
 .arrows:
-    mov al, KSC_LEFT
-    call OSAPI_KEY_DOWN
-    jnc .r
+    KEYMAP_TEST bz_kmap, KSC_LEFT
+    jz .r
     or bl, BZ_K_L
 .r:
-    mov al, KSC_RIGHT
-    call OSAPI_KEY_DOWN
-    jnc .u
+    KEYMAP_TEST bz_kmap, KSC_RIGHT
+    jz .u
     or bl, BZ_K_R
 .u:
-    mov al, KSC_UP
-    call OSAPI_KEY_DOWN
-    jnc .d
+    KEYMAP_TEST bz_kmap, KSC_UP
+    jz .d
     or bl, BZ_K_U
 .d:
-    mov al, KSC_DOWN
-    call OSAPI_KEY_DOWN
-    jnc .sp
+    KEYMAP_TEST bz_kmap, KSC_DOWN
+    jz .sp
     or bl, BZ_K_D
 .sp:
-    mov al, KSC_SPACE
-    call OSAPI_KEY_DOWN
-    jnc .sh
+    KEYMAP_TEST bz_kmap, KSC_SPACE
+    jz .sh
     or bl, BZ_K_HOP
 .sh:
     mov ah, 2                   ; the BIOS's shift flags: bit 1 Left Shift
