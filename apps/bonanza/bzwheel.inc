@@ -234,6 +234,9 @@ VAR bz_ltrc,8 * BZ_PROPMAX      ; (bz_lrect's): bz_lshown and bz_lfoot read
                                 ; the tables, no descriptor
 VAR bz_ltmo,2 * BZ_PROPMAX      ; ...and its first map word's offset in the
                                 ; course part (bz_lsync's)
+VAR bz_ltsd,BZ_PROPMAX          ; ...and its clock: the seed's low byte, P - 1
+VAR bz_ltmk,BZ_PROPMAX          ; and the shift (a rotor's true pose reads no
+VAR bz_ltsh,BZ_PROPMAX          ; record: bz_ltrue)
 VAR bz_lcf,2 * BZ_PROPMAX       ; each lane's WHOLE commit's cost (bz_wcalib)
 VAR bz_lxw,BZ_PROPMAX           ; 1: a column of the lane crosses the ring's end
 VAR bz_lnext,2 * BZ_PROPMAX     ; each rotor's next pose change (bz_ltrue)
@@ -334,6 +337,12 @@ bz_pread:
     jz .nl                      ; BZ_PROPALL, SPEC.md 128.14.4.2)
     mov [bz_lknd + di], al
     inc bh
+    mov al, [es:si + BZP_SEED]
+    mov [bz_ltsd + di], al
+    mov al, [es:si + BZP_MASK]
+    mov [bz_ltmk + di], al
+    mov al, [es:si + BZP_SHIFT]
+    mov [bz_ltsh + di], al
     mov al, [es:si + BZP_LCOL]
     mov [bz_ltcl + di], al
     mov al, [es:si + BZP_LH]
@@ -560,15 +569,11 @@ bz_ltrue:
     push cx
     push dx
     push si
-    push es
-    mov es, [bz_cseg]
-    call bz_lrecsi
-    mov ax, [bz_nstep]
-    dec ax
-    add ax, [es:si + BZP_SEED]
-    and al, [es:si + BZP_MASK]  ; AL = m = (n_last + seed) AND (P - 1)
-    mov cl, [es:si + BZP_SHIFT]
-    pop es
+    mov al, [bz_nstep]          ; (the clock's bytes from bz_pread's tables:
+    dec al                      ; the low byte alone is read)
+    add al, [bz_ltsd + bx]
+    and al, [bz_ltmk + bx]      ; AL = m = (n_last + seed) AND (P - 1)
+    mov cl, [bz_ltsh + bx]
     mov dl, 1                   ; ITS NEXT CHANGE (SPEC.md 128.13.5.3): a pose
     shl dl, cl                  ; holds B = 1 << shift steps, so the step
     dec dl                      ; count n' = n + (B - 1 - (m AND (B - 1))) + 1
@@ -747,16 +752,10 @@ bz_lsync:
 ; bz_lcl), row stride ROWB.  Through DS = ES = the course part's own segment
 ; (its selector on kern_mega, as the fetch and the Hercules translation
 ; write it, SPEC.md 128.12.12): offsets under the part's length, nothing
-; through CS.  Preserves all but the flags.
+; through CS.  Clobbers AX - DI and BP (bz_wpass's alone: bz_lsync copies
+; from the per-lane tables).
 ; -----------------------------------------------------------------------------
 bz_lmap:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
     push ds
     push es
     mov di, [bz_lbr]
@@ -787,13 +786,6 @@ bz_lmap:
     jnz .r
     pop es
     pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; AX = a0, DX = a1, BX = b0, CX = b1 -> AX = max(a0, b0), DX = min(a1, b1):
