@@ -61,6 +61,7 @@ BZ_WMARG    equ 1600            ; PIT counts: what runs between a commit's closi
                                 ; 128.12.5.3's table, PROVISIONAL, O26)
 BZ_WGRD     equ 2               ; the beam guard, lines
 BZ_WLAG     equ 8               ; frames due and shown before bz_wlate counts it
+BZ_LCM      equ 2               ; wave 7 (SPEC.md 128.18.2): the walk's column band's margin, block columns
 BZ_WPRO     equ 3               ; frames a WHEEL candidate waits before it takes
                                 ; the contact slot on a frame that allows a
                                 ; contact lane, BZ_WPRF on any frame (the final
@@ -254,6 +255,12 @@ VAR bz_lwake,2                  ; walk), until step bz_lwake (the rotors' first
 VAR bz_lkn,2                    ; the slice's kicks: bz_lkn words of bz_pkick
 VAR bz_lks,2                    ; from bz_lks (the range's, .rng), and its
 VAR bz_lkb,2                    ; lanes' bytes of bz_ldrw from bz_lkb
+VAR bz_lout,BZ_PROPMAX          ; wave 7 (SPEC.md 128.18.2): 1 while a lane in
+                                ; the row slice lay outside the column band at
+                                ; the last walk (not walked: its re-entry walks)
+VAR bz_pc0,2                    ; bz_c0 as the last walk read it (the quiet walk)
+VAR bz_pcl,2                    ; ...and that walk's column band [pcl, pch),
+VAR bz_pch,2                    ; c0 - BZ_LCM to c0 + W + BZ_LCM
 VAR bz_pR0,2                    ; bz_R0 as the walk last read it (8000h: none):
                                 ; bz_pwy and the range are that window's
 VAR bz_pin,1                    ; 1: the lift's rise meets the walk's range
@@ -2378,6 +2385,9 @@ bz_props:
     mov dx, [bz_R0]             ; ITS ROWS AS THE LAST WALK READ THEM: the top
     cmp dx, [bz_pR0]            ; line, the range and the slice stand
     jne .top
+    mov dx, [bz_c0]             ; wave 7 (128.18.2): and its COLUMNS, or a
+    cmp dx, [bz_pc0]            ; lane outside the band may be coming back
+    jne .walk0
     cmp [bz_lqt], al            ; THE QUIET WALK: the last walk skipped every
     je .walk0                   ; lane, and nothing a lane's skip reads has
     mov dx, [bz_lwake]          ; moved since - no rotor's next change is
@@ -2507,6 +2517,13 @@ bz_props:
     mov byte [bz_lnsk], 0
 .walk:
     mov byte [bz_lqt], 1        ; (quiet until a lane is walked: .w0)
+    mov ax, [bz_c0]             ; wave 7 (128.18.2): THE COLUMN BAND, this
+    mov [bz_pc0], ax            ; walk's [c0 - BZ_LCM, c0 + W + BZ_LCM): the
+    sub ax, BZ_LCM              ; camera moves at most a column a frame, so a
+    mov [bz_pcl], ax            ; lane outside it is synced before its column
+    add ax, [bz_W]              ; can enter
+    add ax, 2 * BZ_LCM
+    mov [bz_pch], ax
     mov dx, 7fffh               ; DX = the skipped rotors' nearest change, steps
     xor bx, bx
     mov bl, [bz_lr0]
@@ -2529,6 +2546,22 @@ bz_props:
     add ax, cx
     cmp ax, [bz_pra]
     jle .nx
+    mov al, [bz_ltcl + bx]      ; wave 7 (128.18.2): a lane wholly OUTSIDE
+    xor ah, ah                  ; the column band is not walked (marked OUT);
+    cmp ax, [bz_pch]            ; one that was OUT and is back in it is
+    jge .cout                   ; walked whatever its skip says
+    add al, [bz_ltw + bx]
+    adc ah, 0
+    cmp ax, [bz_pcl]
+    jle .cout
+    cmp byte [bz_lout + bx], 0
+    je .cin
+    mov byte [bz_lout + bx], 0
+    jmp .w0
+.cout:
+    mov byte [bz_lout + bx], 1
+    jmp .next
+.cin:
     cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 128.13.5.3): nothing about
     jne .w0                     ; the lane can change this frame - it is not
     mov al, [bz_ldrw + bx]      ; due, no candidate, its age 0 - while it is
