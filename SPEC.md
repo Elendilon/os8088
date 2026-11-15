@@ -273809,6 +273809,24 @@ before.
   1, this pathway) with FIRST's exit 0 found; Enter continues it; entering
   FIRST with the last life puts lives 0 on the floppy at once.
 
+#### 128.19.7 8b's remaining stories, decided
+
+- **8b.7 (O44, O7)**: a respawn returns to the LAST FLAG touched (or the
+  start), at the distance wave 4 placed it (128.14.4.5) - **unchanged** by
+  several finishes and lives: a fall is never a life, only a timeout or an
+  Esc is.
+- **8b.8 (the tour's removal) moves into 8c.1**: the tour, its `G`, its
+  lines, its best (`BZD_TOUR`, left zero and read as before) and the
+  13-line face all live on the face that 8c.1's front window REPLACES, so
+  they go with it, in the shell part, rather than being cut from a face
+  about to be deleted. Until then Enter is the game, `F` a free play and
+  `G` the tour.
+- **8b.10 (the shell's songs)** waits for the sound session (the plan's
+  "with the sound plan's session"): the pathway plays a course song
+  (`music fairway`), a life lost and the game's end play the TIMEOUT
+  effect the course already played (128.18.6); the title, the pathway's
+  own song, the life-lost and game-over jingles are the sound session's.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
