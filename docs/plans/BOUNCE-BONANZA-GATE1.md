@@ -8,6 +8,50 @@ ask for a change. Every figure here comes from wave 6's final pass
 marked MODEL was computed on the host by `bbcourse.py`, using the same
 physics as the guest, integer for integer.
 
+## Round 3 (SPEC.md 128.17.16): read this first
+
+Round 3 changes rubber's boost three ways, as your round-2 notes asked.
+Nothing else moved: Grip, the camera, the courses and their parts are
+round 2's. Your saved bests are cleared once, because the physics changed.
+
+- **Holding Space arms the boost.** Keep Space down through the landing
+  and the ball boosts there, on a firm level floor (normal or ice, no prop,
+  not a ramp, sand or the mat). A Hop whose key you hold past about 385 ms
+  (22 steps) now boosts on a level landing; a quick tap does not. One
+  exception, on purpose: a Hop UP onto a ledge does not boost on that ledge
+  when Space is only held. Without that gate every held Hop up a half-unit
+  step boosts on top of it and throws the ball off its back. A second TAP in
+  that flight still boosts there, as in round 2.
+- **The late window is 4 steps** (round 2: 3). A tap up to 4 steps (about
+  73 ms) after the ball touches down still turns the bounce into the boost.
+  The ball's line can jump by up to 1.75 px when the tap comes that late.
+- **A fall arms one boost.** Roll off a ledge with no Hop, and the landing
+  below can boost: tap Space in the fall, hold it through the landing, or
+  tap just after. A deep drop still gains nothing; its bounce is already
+  higher than the boost's (the 3-unit drop; 2 units still boosts).
+- **One boost, then stop bouncing.** After a boost, the next one needs the
+  ball to have landed and rolled (or hopped from the ground) first. A ball
+  still bouncing from a boost cannot boost again, whatever you press.
+  Grip held through the boost's landing counts as stopping, so the Grip
+  chain still repeats.
+
+**What to try:**
+1. On the PLAYGROUND's apron: Hop and keep Space down. Then Hop and tap
+   once, late, as you see the ball land.
+2. Roll off the 1-unit rung's top toward the apron with no Hop, Space held
+   or tapped in the fall.
+3. Hop up the half-unit rung holding Space: no boost on top. Then tap
+   twice instead: a boost.
+4. Hold Space and roll around: no Hop happens while it stays down. Roll off
+   a ledge still holding it: one boost below.
+
+Questions for you (each has a default in this build):
+- the ledge gate (on);
+- springs, tube exits and the cup's lip-out give no boost token (default:
+  none; each is a one-line change);
+- if a held Hop boosts too often, the lever is "Space must go down within
+  N steps of the landing".
+
 ## Round 2 (wave 6b, SPEC.md 128.17.12): read this first
 
 Wave 6b is the retune your round-1 notes asked for: a boost you can hit,

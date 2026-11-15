@@ -2296,3 +2296,51 @@ no assertion was loosened to make them pass.
 
 Observed: the verify's clean rebuild produced disks byte-identical to the
 preview (md5 compared), so what the owner played is what was committed.
+
+## 2026-11-15 (gate 1, round 3: a held boost, a fall's boost, a grace of 4)
+
+The owner's next notes were short and concrete: a late window of 4 steps
+instead of 3; Space HELD should arm the boost; a ball that falls off a ledge,
+not only one that jumped, should get one boost; and after a boost the ball
+has to stop bouncing before it can boost again - *"We'll use that eventually
+to make them 'not boost' after multiple fall and forward jumps to make it
+over the final gap."*
+
+Two of the four were already priced. Round 2's contract had held the "held"
+reading back because of one measured hazard: a Hop pressed at the lip of a
+half-unit step meets the ledge one to four steps later, while any ordinary
+press is still down, so "held at the contact" boosts on every such climb
+and the boost's radius throws the ball off the back of a narrow rung. The
+remedy was written down then too, a TAKE-OFF GATE (held arms only onto a
+floor no higher than the one the ball left), at about 25 bytes and a byte
+of bss. It went in as priced, near enough: one word, `bz_zoff`, written by
+`bz_toff`, which every take-off already goes through. Its control,
+`nogate`, boosts on 5 of the 5 lip take-off points that the gate keeps
+quiet.
+
+The fall needed no new mechanism. Step 6 already had the two branches that
+take a grounded ball off its floor without a Hop; each now sets the token,
+and the Hop's own write moved into the `.launch` they share. Everything
+downstream - arming in flight, the held contact, the grace - then works for a
+fall exactly as for a Hop. The model's sweep of five drops at four speeds:
+16 of 20 boost with Space held at the landing, and the four that do not are
+the 3-unit drop, whose bounce (442) is already above the boost (350).
+
+The fourth note turned out to be true by construction rather than something
+to build. The token is set only when a GROUNDED ball leaves the ground,
+every contact clears it, and a bouncing ball is airborne from contact to
+contact. So after a boost there is no way to take a new token until a
+contact has landed the ball. Rather than spend a resident flag on a rule
+the engine already keeps, item 7 now asserts it over 2,303 steps of held
+and mashed Space, including falls, and the carried `pump` control (a
+contact Hop re-arming the token) breaks it eleven times. The rule is still
+written down as binding (SPEC.md 128.17.16.3), because the owner means to
+lean on it in a course.
+
+Measured on the host: +36 bytes and +2 bss; the ladders unchanged; the
+grace exact at k = 1 to 4 on 2,425 ladder cases; the who-hits-it table at
+88% for a player aiming at the landing (round 2: 81%) and 100% for one who
+holds. One byte of the 36 is a short jump made near: the held test pushed
+the stun's `jmp short .ground` close enough to its limit that two red arms'
+patches no longer assembled. That was caught by the row's own `--check`,
+which assembles every arm, before anything ran in an emulator.

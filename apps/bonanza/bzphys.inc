@@ -63,12 +63,16 @@
 ;   bz_pkick    16 words each prop's last kick step (0FFFAh: never)
 ;   bz_nkick, bz_nknock, bz_ntube words: kicks, knock-backs, captures
 ; Wave 6's and 6b's (128.16.4.3, 128.17.4.3; state6, compared at every frame):
-;   bz_btok     byte   the boost's TOKEN: 0, 1 a ground Hop in flight, 2 that
-;                      flight ARMED by a second Space edge (6b)
+;   bz_btok     byte   the boost's TOKEN: 0, 1 a ground Hop or (round 3) a
+;                      fall in flight, 2 that flight ARMED by a second Space
+;                      edge (6b)
 ;   bz_stf      byte   the STRETCH's steps left;  bz_nboost word boosts
 ;   bz_drx, bz_dry bytes the fractional drag's remainders
 ;   bz_bgd      word   6b: BOOST less the rebound's gvz where the late grace
 ;                      opened (bz_bgr above holds its steps left)
+;   bz_zoff     word   round 3 (128.17.16): the take-off's z (px), the held
+;                      arming's gate; not compared (read under the token 1
+;                      only, which is set only where bz_toff writes it)
 ; and, the step's own (not the model's): bz_wcen, bz_wckd, bz_wbmp, bz_wkd
 ; (bz_wolf's centre prop, kinds and bumper count), bz_pcn/pcs/pcv (bz_ppos's
 ; cache), bz_cdd, bz_pdoor, bz_pdi, bz_fslab, bz_fair, bz_fnl.
@@ -193,6 +197,9 @@ VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
                                 ; as two words: keep the order
 VAR bz_phe,0
 ; the rest: written before they are read
+VAR bz_zoff,2                   ; round 3 (128.17.16): the take-off's z, px
+                                ; (bz_toff's), read under the token 1 only,
+                                ; which only a take-off through bz_toff sets
 VAR bz_mrec,BZ_MATREC           ; the material's BZ_MATTAB record (bz_pinit)
 VAR bz_se,BZ_SURFREC            ; BZ_SURFTAB's entry for it on the centre's
                                 ; surface: force, drag shift, brake, floor e
@@ -969,8 +976,7 @@ bz_step:
     mov [bz_gvz], ax
     mov byte [bz_hopw], 0
     inc word [bz_nhop]
-    mov byte [bz_btok], 1       ; wave 6: the boost's TOKEN (128.16.4.1)
-    jmp short .launch
+    jmp short .launch           ; (wave 6's TOKEN: .launch sets it, 128.16.4.1)
 .follow:
     ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
     ; h4 <= floor((z + gvz - BZ_G - 256 BZ_STICK - 1) / 64)
@@ -987,9 +993,11 @@ bz_step:
     call bz_setz
     jmp short .gh
 .takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)
+    mov byte [bz_btok], 1       ; round 3 (128.17.16): a FALL's token too
     call bz_toff
     jmp short .fnext
-.launch:
+.launch:                        ; a Hop from the ground or (round 3) a fall:
+    mov byte [bz_btok], 1       ; the boost's TOKEN (wave 6, 128.16.4.1)
     call bz_toff
     jmp short .gh
 .airsolid:
@@ -1306,8 +1314,8 @@ bz_land:
     xor ax, ax
     mov [bz_gvx], ax
     mov [bz_gvy], ax
-    jmp short .ground
-.soft:
+    jmp .ground                 ; (near since round 3's held test: the red
+.soft:                          ; arms pump and armwin grow the span past 127)
     xor ch, ch                  ; CX = the rebound's floor
     cmp bp, cx
     jae .rok
@@ -1319,6 +1327,16 @@ bz_land:
 .base:
     cmp byte [bz_mst], 0        ; stunned: a bounce or a landing, nothing else
     jne .bnc
+    cmp byte [bz_btok], 1       ; round 3 (128.17.16): Space HELD at the
+    jne .armd                   ; contact ARMS the token 1, onto a floor no
+    mov al, [bz_kstep]          ; higher than the take-off: z is the
+    test al, BZ_K_HOP           ; floor's now (bz_setz above), its px
+    jz .armd
+    mov ax, [bz_gz + 1]         ; against bz_zoff's
+    cmp ax, [bz_zoff]
+    jg .armd
+    inc byte [bz_btok]
+.armd:
     cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the
     jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =
     call bz_bok                 ; BOOST); a failing test is the contact Hop
@@ -1412,6 +1430,7 @@ bz_toff:
     mov byte [bz_air], 1
     mov ax, [bz_gz + 1]
     mov [bz_ztop], ax
+    mov [bz_zoff], ax           ; round 3 (128.17.16): the take-off's z
     mov ax, [bz_gvz]
     cwd
     add [bz_gz], ax
