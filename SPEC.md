@@ -273307,6 +273307,54 @@ out: a stale pose enters with the column).
   code; a clock about 11 x 16 = 176 bytes of CGA blocks (shared across a
   course's clocks), plus the frame's picture blocks.
 
+##### 128.18.5.1 As built (2026-11-15)
+
+Where the build differs from the contract above, and why:
+- **The ball and its stick are a MARK, not geometry.** The digits' block row
+  must lie on the canvas's block grid, and the canvas's top offset (`y0`) is
+  known only after the props' geometry is laid, so the stick cannot be an
+  occluder op laid before it. Both are painted with the lanes, clipped by
+  what the picture draws in front of the clock's cell, as a flag's pennant
+  is; a clock more than half hidden or off the picture is REFUSED. A mark
+  is drawn under the ball, never in front of it, so **O25 holds by
+  construction** and needs no refusal: a ball passing behind a clock is
+  drawn over it.
+- **The font is 5 x 7** (`CLOCK_FONT`), a pixel in from its block's left
+  and top, black on the ball's cyan; the ball an ellipse `4n + 5` by 9 px
+  of radius round `n` digit blocks, a black rim and a white glint, its
+  digit row `CLOCK_UP` 24 px over the tile's floor.
+- **The record**: kind `PK_CLOCK` 9, one a digit, LANE set, +16 the place
+  (0 the units), +17 the digits (2, or 3 for an explicit `limit` of 100 or
+  more), +18 the clock's number; never an OBS cell (`prop_cells`), so no
+  physics rule and no boost rule sees it, and `BZ_PHYSV` does not move.
+  Its lane is one block, 11 poses (`CLOCK_POSES`): 0 a blank, `1 + d` the
+  digit `d`.
+- **The guest**: `bz_ltrue`'s CLOCK case reads the record's place and
+  `bz_tdig`; `bz_tdset` (two `div`s) writes `bz_tdig` at `bz_pinit` and on
+  each second's step; the walk skips a clock's digit while `bz_tsec` is the
+  second the last walk read (`bz_lcsec`), and the quiet walk holds only
+  while it is. **+136 bytes, +5 bss** (MEASURED).
+- **The bounds**: a clock's digits count against the 6 lanes a window and 8
+  a range; **their changes are NOT bounded with the rotors'** (`ROTOR_CHG`):
+  every CGA window on `MILL` holds its windmills, and a digit the wheel
+  defers a frame or two is still the right second within a few frames,
+  which `bz_wlate` and 128.18.7's measurement watch.
+- **The camera model** (`Heavy._true`) and the rows' oracle
+  (`bonanza_ring.true_pose`) know the CLOCK case (`clock_pose`).
+- **The clocks** (story 7.7's): `FIRST` (3, 4) and (11, 4), `TRIAL` (4, 10)
+  and (18, 17), `MILL` (8, 11), `PEAK` (11, 7). A digit is in the window on
+  **100%** of `FIRST`'s autopilot route's frames, **81%** of `TRIAL`'s,
+  **33%** of `MILL`'s and **4 - 5%** of `PEAK`'s on both cards (MEASURED,
+  the camera model): `PEAK`'s one clock stands by its start.
+- **The row** is `bonanzawheel`'s **CLOCK leg** (14), not a new row: FIRST
+  held at its start about 430 frames, every clock digit's drawn pose its
+  true one or within 3 frames of its second, at most one change a second;
+  red arm `clkfreeze` (`bz_tdset` never called on a second). MEASURED once
+  while it was written: CGA 15 -> 8 s, Hercules 15 -> 6 s, every digit on
+  time; `clkfreeze` red at (14). The wheel's SIDE leg (128.18.2) searches
+  the clocks' lanes too; no shipped course yet puts one outside the band
+  with floor to hold the ball, so it still SKIPs.
+
 #### 128.18.6 `music` and the sound events (stories 7.5, 7.6)
 
 - **`music NAME`**: a `SONGS` name (`fairway`, `trial`, `windmill`,

@@ -260,6 +260,8 @@ VAR bz_lout,BZ_PROPMAX          ; wave 7 (SPEC.md 128.18.2): 1 while a lane in
                                 ; the row slice lay outside the column band at
                                 ; the last walk (not walked: its re-entry walks)
 VAR bz_pc0,2                    ; bz_c0 as the last walk read it (the quiet walk)
+VAR bz_lcsec,2                  ; wave 7 (128.18.5): bz_tsec as the last walk
+                                ; read it (a clock's skip, the quiet walk's)
 VAR bz_pcl,2                    ; ...and that walk's column band [pcl, pch),
 VAR bz_pch,2                    ; c0 - BZ_LCM to c0 + W + BZ_LCM
 VAR bz_pR0,2                    ; bz_R0 as the walk last read it (8000h: none):
@@ -481,6 +483,8 @@ bz_lfull:
     mov byte [bz_lqt], 0        ; (the next walk looks at every lane)
     mov al, [bz_cksn]           ; (every flag's true pose read: the walk's
     mov [bz_lcks], al           ; skip holds, SPEC.md 128.14.4.2)
+    mov ax, [bz_tsec]           ; (wave 7: every clock's too)
+    mov [bz_lcsec], ax
     xor bx, bx
 .l:
     cmp bl, [bz_nlane]
@@ -610,6 +614,8 @@ bz_ltrue:
 .post:                          ; (no record read but a new kick's)
     cmp byte [bz_lknd + bx], BZ_PK_CKPT
     je .flag
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    je .clock
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -647,6 +653,21 @@ bz_ltrue:
     shr al, cl
     and al, 1
     pop cx
+    jmp short .out
+; a CLOCK's digit (wave 7, SPEC.md 128.18.5): its PLACE's pose of the seconds
+; left, bz_tdig's (written once a second by the step, bz_tdset)
+.clock:
+    push bx
+    push si
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    mov bl, [es:si + BZP_CNUM]  ; (+16: the digit's place, the flag's number's
+    pop es                      ; byte)
+    pop si
+    xor bh, bh
+    mov al, [bz_tdig + bx]
+    pop bx
     jmp short .out
 
 ; -----------------------------------------------------------------------------
@@ -2389,6 +2410,9 @@ bz_props:
     mov dx, [bz_c0]             ; wave 7 (128.18.2): and its COLUMNS, or a
     cmp dx, [bz_pc0]            ; lane outside the band may be coming back
     jne .walk0
+    mov dx, [bz_tsec]           ; wave 7 (128.18.5): and its clocks' SECOND
+    cmp dx, [bz_lcsec]
+    jne .walk0
     cmp [bz_lqt], al            ; THE QUIET WALK: the last walk skipped every
     je .walk0                   ; lane, and nothing a lane's skip reads has
     mov dx, [bz_lwake]          ; moved since - no rotor's next change is
@@ -2535,6 +2559,8 @@ bz_props:
     mov [bz_lwake], dx          ; is 1)
     mov al, [bz_cksn]           ; (every flag in the slice has read the
     mov [bz_lcks], al           ; touches: a flag's skip holds again)
+    mov ax, [bz_tsec]           ; (wave 7: and every clock the second)
+    mov [bz_lcsec], ax
     jmp .plat
 .l1:
     mov si, bx                  ; in the range exactly
@@ -2581,6 +2607,8 @@ bz_props:
 .skp:
     cmp byte [bz_lknd + bx], BZ_PK_CKPT
     je .skf
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    je .skc
     or al, al                   ; ...or a POST is drawn dark, its lit frames
     jnz .w0                     ; none, every kick seen
     cmp [bz_lhold + bx], al
@@ -2593,6 +2621,11 @@ bz_props:
 .skf:                           ; ...or a FLAG, no flag touched since the
     mov al, [bz_cksn]           ; last walk read them (bz_lcks)
     cmp al, [bz_lcks]
+    je .nx
+    jmp short .w0
+.skc:                           ; ...or (wave 7) a CLOCK's digit, the second
+    mov ax, [bz_tsec]           ; the last walk read (bz_lcsec)
+    cmp ax, [bz_lcsec]
     je .nx
 .w0:
     mov byte [bz_lqt], 0        ; (a lane walked: the next walk is made)
