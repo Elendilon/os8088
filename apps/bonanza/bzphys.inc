@@ -426,18 +426,17 @@ bz_step:
 .auto:
     call bz_auto                ; the benchmark: BL = the arrows it would hold -
     mov [bz_kstep], bl          ; never RETURN and never a tilt, so straight to
-    mov si, bz_lvl              ; the keyboard's ramp: no bit-6 test, no tilt
-    mov bh, bl                  ; byte stored or compared (128.14.12's BENCH
-    mov cx, 4                   ; row; bz_play sets bz_tby to the keyboard's
-    jmp short .lv               ; once, and only a play or a replay moves it)
+    mov bh, bl                  ; the keyboard's ramp: no bit-6 test, no tilt
+    jmp short .lv               ; byte stored or compared (128.14.12's BENCH
+                                ; row; bz_play sets bz_tby to the keyboard's
+                                ; once, and only a play or a replay moves it)
 .key:
     test bl, BZ_K_RET           ; wave 4: RETURN (Backspace) first, and the
     jnz .kret                   ; step runs nothing else (128.14.4.5)
 .key2:
     mov [bz_kstep], bl
-    mov si, bz_lvl              ; the ramp (128.11.7.1): a held arrow's level
-    mov bh, bl                  ; up one to 8, a released one's down two to 0
-    mov cx, 4
+    mov bh, bl                  ; the ramp (128.11.7.1): a held arrow's level
+                                ; up one to 8, a released one's down two to 0
     cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (128.14.8.2): out of
     jne .tilt                   ; the keyboard's path, which is this compare
 .lv:
@@ -1092,6 +1091,8 @@ bz_step:
     ; nibble) for Left and Right, the y cap for Up and Down: a level above
     ; the cap falls by two a step to it, else it rises by one to it ----
 .tilt:
+    mov si, bz_lvl
+    mov cx, 4
     mov dl, [bz_tby]
     mov dh, dl
     shr dh, 1
