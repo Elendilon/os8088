@@ -1014,7 +1014,20 @@ bz_step:
 .pclr:                          ; ...CLEARED otherwise
     mov byte [bz_onp], 0
 .pps:
-    call bz_psync
+    xor al, al                  ; bz_ps (bz_psync's, in line: every step of
+    cmp byte [bz_wol], 0        ; the prop path ends here)
+    je .pp1
+    inc ax
+.pp1:
+    cmp byte [bz_tube], 0
+    je .pp2
+    or al, 2
+.pp2:
+    cmp byte [bz_onp], 0
+    je .pp3
+    or al, 4
+.pp3:
+    mov [bz_ps], al
     ; ---- 8. SAFE and the goal: not shattering ----
 .safe:
     cmp byte [bz_mst], BZ_ST_SHAT
