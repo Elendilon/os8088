@@ -482,6 +482,14 @@ BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
 VAR bz_estp,1                   ; 1: an early step ran and its frame is not presented yet
 VAR bz_ersp,1                   ; ...and it respawned the ball (the next frame's bz_resp)
 VAR bz_nearly,2                 ; early steps this play (an instrument: nothing reads it)
+%ifdef BZS_SKIPTEST
+VAR bz_sskip,1                  ; THE SKIP AUDITION's (bz_frame's .camera): the
+VAR bz_sskc,1                   ; pattern poked, its count, 1 when the last
+VAR bz_sskl,1                   ; frame's call was skipped, this frame's steps,
+VAR bz_ssst,1                   ; and the frames and the calls skipped
+VAR bz_ssf,2
+VAR bz_ssn,2
+%endif
 VAR bz_noearly,1                ; a harness's: no early step (a row whose oracle reads the
                                 ; ball at bz_tf / bz_presented needs the state AS DRAWN there;
                                 ; nothing in the package writes it, bss is 0)
@@ -799,6 +807,9 @@ bz_t0:
     jbe .n
     mov cx, BZ_STEPS
 .n:
+%ifdef BZS_SKIPTEST
+    mov [bz_ssst], cl           ; (the audition's rule: this frame's steps)
+%endif
 %ifdef BZ_EARLYSTEP
     cmp byte [bz_goal], 0       ; the early step was the GOAL step: the last
     jne .camera
@@ -815,7 +826,42 @@ bz_t0:
     jne .camera                 ; its log ends on the same step (128.11.12.2)
     loop .step
 .camera:
+%ifdef BZS_SKIPTEST
+; THE SKIP AUDITION (an experiment build's, nasm -DBZS_SKIPTEST; off, this
+; assembles to nothing): the frame's whole bzs_frame call left out on a
+; pattern a harness pokes into [bz_sskip], NEVER two frames running - the next
+; call catches the sub-ticks up.  0 none; 2 .. 254 one frame in that many;
+; 255 THE RULE: a frame that ran two steps or more (the last one was long),
+; or follows a heavy frame ([bz_heavy], the last frame's here).
+    inc word [bz_ssf]
+    mov al, [bz_sskip]
+    or al, al
+    jz .sk_snd
+    cmp al, 255
+    je .sk_rule
+    inc byte [bz_sskc]
+    cmp [bz_sskc], al
+    jb .sk_snd
+    mov byte [bz_sskc], 0
+    jmp short .sk_two
+.sk_rule:
+    cmp byte [bz_ssst], 2
+    jae .sk_two
+    cmp byte [bz_heavy], 0
+    je .sk_snd
+.sk_two:
+    cmp byte [bz_sskl], 0       ; (the last frame's was skipped: this one runs)
+    jne .sk_snd
+    mov byte [bz_sskl], 1
+    inc word [bz_ssn]
+    jmp short .sk_none
+.sk_snd:
+    mov byte [bz_sskl], 0
+%endif
     call bzs_frame              ; the sound: events, sub-ticks, output (128.20)
+%ifdef BZS_SKIPTEST
+.sk_none:
+%endif
     mov al, [bz_tube]           ; the frame's HIDDEN ball, the display's: in
     or al, [bz_hid]             ; a tube, or holed out (SPEC.md 128.14.4.3:
     mov [bz_hidn], al           ; its capture frame restores its footprint)
