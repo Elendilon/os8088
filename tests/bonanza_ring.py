@@ -2959,6 +2959,8 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = Bz(ui, tag, sym)
+        if "bz_noearly" in g.sym:
+            g.putb("bz_noearly", 1)     # the oracle reads the ball at bz_tf / bz_presented: the state as drawn
         ui.settle()
         if "glass" in parts:
             glass(g, Ref(tag, course("first", art=art), art))

@@ -1469,6 +1469,8 @@ def run(tag, legs=LEGS, apps=None, src=None):
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = R.Bz(ui, tag, sym)
+        if "bz_noearly" in g.sym:
+            g.putb("bz_noearly", 1)     # (9), (13) read bz_nstep at bz_presented
         ui.settle()
         if "bzs_mode" in sym:
             # THE WHEEL AT EQUAL CONTENT: the sound OFF (S's own choice, SPEC.md 128.20.4). Its idle time is
