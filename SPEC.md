@@ -272234,6 +272234,15 @@ a tap 2 steps after the take-off: a boost; red `nofall`) and **`fallnone`**
 (the same roll, no Space: no boost, the grace opened and compared). The
 carried `hopedge` and `takeoff` arms are re-anchored on the moved token write.
 
+**The final pass** (MEASURED, 2026-11-15, one scoped soak): `bonanzacourse`,
+`bonanzaphys`, `bonanzareplay`, `bonanzademo` and `bonanzagame` ok;
+`bonanzamega` ok (86Box); the red arms `noheld`, `nogate`, `nofall`,
+`grace5`, `hopedge`, `takeoff`, `heldarm`, `pump` and `armwin` each red at
+its own replay on both cards. Not run, their inputs unchanged by the round:
+`bonanzaring`, `bonanzaperf`, `bonanzawheel`, `bonanzaexit`, `bonanzasound`,
+`bonanzaassets` and `bonanzamusic` (the demos' keys and paths are round 2's;
+nothing here draws, pans or sounds).
+
 **Still the owner's** (each with this round's default):
 - **The take-off gate**: *on.* Off, a Hop up a ledge with its press held
   boosts on the ledge (5 of 5 lip take-offs).
