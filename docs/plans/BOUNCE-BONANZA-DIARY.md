@@ -2377,3 +2377,16 @@ One control lost a leg honestly: with the larger reach, MILL's occluders
 and so the heavy rule's frames moved, and no ramp-bottom pattern (about
 fifty tried) reverses without hysteresis any more. The control is held red
 where it still is, and the search is written down.
+
+## 2026-11-15 (gate 1 closed: a baseline, not a freeze)
+
+The owner played round 3b - *"Tested, feels much better"* - and closed gate
+1 with a correction to the plan's language: the physics are a BASELINE, not
+frozen, because no real course exists yet and half the props and mechanics
+are still to come. In the same exchange the owner moved the soak cadence
+(every 4 - 5 rounds, or when something breaks) and deferred the 108-run
+performance re-baseline to wave 10, all the more because a parallel speed
+pass had just landed on this branch: 398 commits, MILL's CGA misses 122 to
+24 and its longest run 31 to 4 (docs/reports/BONANZA-SPEED-2026-11-15.md).
+That pass merged every round of this gate as it went, so the branch came
+back together by fast-forward. Next: wave 7, time.
