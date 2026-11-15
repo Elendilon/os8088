@@ -2567,12 +2567,8 @@ bz_corner:
 bz_blocks:
     mov al, [si + 2]
     and al, 0fh
-    cmp al, BZ_KFLOOR           ; (a floor is the likeliest: first)
-    je .plane
-    cmp al, BZ_KWALL
-    je .yes
-    cmp al, BZ_KGOAL
-    jne .no
+    cmp al, BZ_KFLOOR           ; (a floor is the likeliest: first, and it
+    jne .other                  ; falls through)
 .plane:
     cmp byte [si + 1], 0        ; a FLAT floor (most): bz_h4's 16 z0, here
     jne .slope
@@ -2591,6 +2587,13 @@ bz_blocks:
 .slope:
     call bz_h4
     jmp short .cmp
+.other:
+    cmp al, BZ_KWALL
+    je .yes
+    cmp al, BZ_KGOAL
+    je .plane
+    clc
+    ret
 .high:
     test byte [si + 3], BZ_FL_OBS ; wave 3: a BUMPER's post cell never blocks
     jnz .obs                    ; (128.12.6.5 step 5; never set with no prop
