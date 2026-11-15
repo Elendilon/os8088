@@ -590,9 +590,14 @@ bz_step:
     mov [bz_gvz], ax
     ; ---- 3. move ----
 .move:
-    mov ax, [bz_gz]             ; zq = floor(start z / 64) quarter px, plus the
-    mov dx, [bz_gz + 2]         ; climb in either air state: a neighbour BLOCKS
-    BZ_Q64                      ; when its h4 > zq (128.11.8.2 step 5)
+    mov ax, [bz_gz + 1]         ; zq = floor(start z / 64) quarter px, plus the
+    shl ax, 1                   ; climb in either air state: a neighbour BLOCKS
+    shl ax, 1                   ; when its h4 > zq (128.11.8.2 step 5) - BZ_Q64
+    mov dl, [bz_gz]             ; from the cells: the whole px << 2, and the
+    rol dl, 1                   ; fraction's top two bits
+    rol dl, 1
+    and dl, 3
+    or al, dl
     add ax, BZ_CLIMB * 4        ; (+ 1,024 / 64)
     mov [bz_zq], ax
     mov ax, [bz_gvx]            ; gx += gvx, gy += gvy (the start is kept only
@@ -635,10 +640,9 @@ bz_step:
                                 ; move has touched it yet)
     call bz_win9i               ; the centre's new cell
 .w3:
-    mov si, bz_nbr + BZN_C
-    test byte [si + 2], 0fh
+    test byte [bz_nbr + BZN_C + 2], 0fh
     jnz .w4
-    cmp byte [si], BZ_ZOPEN
+    cmp byte [bz_nbr + BZN_C], BZ_ZOPEN
     jne .w4
     jmp .respawn                ; an OPEN cell (or outside the grid)
 .w4:
@@ -1018,15 +1022,14 @@ bz_step:
 .safe:
     cmp byte [bz_mst], BZ_ST_SHAT
     je .end
-    mov si, bz_nbr + BZN_C
     cmp byte [bz_air], 0        ; SAFE: grounded only
     jne .goal
-    test byte [si + 3], BZ_FSAFE
+    test byte [bz_nbr + BZN_C + 3], BZ_FSAFE
     jz .goal
     mov ax, [bz_nwin]
     mov [bz_safe], ax
 .goal:
-    mov al, [si + 2]            ; the goal: grounded OR AIRBORNE, a finish
+    mov al, [bz_nbr + BZN_C + 2] ; the goal: grounded OR AIRBORNE, a finish
     and al, 0fh                 ; line (128.11.8.2 step 8)
     cmp al, BZ_KGOAL
     jne .end
