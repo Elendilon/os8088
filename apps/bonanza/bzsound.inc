@@ -594,39 +594,49 @@ BZS_C_TUBE  equ 512
 BZS_C_BOOST equ 1024
 
 bzs_events:
-    push cx
-    xor dx, dx                  ; DX: a bit for each counter that moved
     mov ax, [bzs_ctr0]          ; THE SUM FIRST: the counters only grow, so
 %assign BZS_I 1                 ; it moves when any does (the usual frame:
-%rep BZS_NCTR - 1               ; none does, and this is all)
+%rep BZS_NCTR - 1               ; none does, and this and the goal are all)
     add ax, [bzs_ctr %+ BZS_I]
  %assign BZS_I BZS_I + 1
 %endrep
     cmp ax, [bzs_lsum]
-    je .goal
+    jne .moved
+    mov al, [bz_goal]
+    cmp al, [bzs_lgoal]
+    jne .gmoved
+    ret
+.gmoved:
+    push cx
+    xor dx, dx
+    jmp short .goal
+.moved:
+    push cx
     mov [bzs_lsum], ax
+    push ds
+    pop es
+    cld
     mov si, bzs_ctab            ; ...and only then which: a loop, on the frame
-    mov di, bzs_last            ; something happened
-    mov cx, 1
+    mov di, bzs_last            ; something happened.  DX: a bit for each
+    xor dx, dx                  ; counter that moved, gathered from the top
+    mov cx, 1 << (16 - BZS_NCTR) ; (the last counter's shift carries out)
 .c:
-    mov bx, [si]
+    lodsw
+    xchg ax, bx
     mov ax, [bx]
-    cmp ax, [di]
+    scasw
     je .n
-    mov [di], ax
+    mov [di - 2], ax
     or dx, cx
 .n:
-    inc si
-    inc si
-    inc di
-    inc di
     shl cx, 1
-    cmp cx, 1 << BZS_NCTR
-    jb .c
+    jnc .c
+    mov cl, 16 - BZS_NCTR
+    shr dx, cl
 .goal:
     mov al, [bz_goal]
     xchg al, [bzs_lgoal]
-    or dx, dx                   ; nothing moved (the usual frame)
+    or dx, dx                   ; nothing moved
     jnz .any
     cmp al, [bzs_lgoal]
     je .out
@@ -1433,9 +1443,10 @@ bzs_rand:
 ; bzs_output - what the arm open makes of this frame's state.  Clobbers AX,
 ; BX, CX, DX, SI, DI, ES.
 bzs_output:
-    cmp word [bzs_pseg], 0
-    je .r
-    mov es, [bzs_pseg]
+    mov ax, [bzs_pseg]
+    or ax, ax
+    jz .r
+    mov es, ax
     mov al, [bzs_arm]
     cmp al, BZS_A_SPK
     je bzs_spk
@@ -1493,9 +1504,7 @@ bzs_spk:
     mov bh, 4
     cmp byte [di + V_ON], 0
     je .off
-.vo:
-    mov cx, [di + V_END]        ; its gate left: end - now
-    sub cx, [bzs_nsub]
+.vo:                            ; (its gate left: only for a tone sent)
 .vk:
     mov bl, [di + V_KEYS]       ; the token: the source, its note
     mov ax, [di + V_PITCH]
@@ -1507,6 +1516,11 @@ bzs_spk:
 .send:
     mov [bzs_spit], ax
     mov [bzs_stok], bx
+    cmp bh, 3                   ; the lead or the bass: its gate left, end -
+    jb .left                    ; now (the effect's and the drum's are in CX)
+    mov cx, [di + V_END]
+    sub cx, [bzs_nsub]
+.left:
     push cx
     call bzs_hz                 ; AX = Hz (only for a tone that is sent)
     pop cx
@@ -1631,18 +1645,28 @@ bzs_fnum:
 ; bzs_fm - THE ADLIB: the logical voices the chip has not caught up with
 ; (bzs_dirty), in the serving order, against the shadows of the CHANNEL each
 ; plays on; the registers that differ onto the batch, capped (Chip.voice_regs);
-; the batch sent.  ES = the sound part.
+; the batch sent.  BP is the batch's next register while it is built (DS:BP,
+; said at each use: BP alone would address the stack), so nothing is counted
+; a register; [bzs_fmn] is worked out once, for the driver.  ES = the sound
+; part.
+%macro BZS_PUT 0                ; register AL, value AH onto the batch
+    mov [ds:bp], ax
+    inc bp
+    inc bp
+%endmacro
 bzs_fm:
     mov word [bzs_fmn], 0
+    test byte [bzs_dirty], 7Fh  ; (the usual frame: the chip has caught up)
+    jz .r
+    push bp
+    mov bp, bzs_fmb
     mov si, bzs_order
+    cld
 .v:
-    lodsb
-    cmp al, 0FFh
-    je .send
-    mov bl, al                  ; only a voice the chip has not caught up with
-    xor bh, bh
-    mov ah, [bzs_bits + bx]
-    test [bzs_dirty], ah
+    lodsw                       ; AL = the voice, AH = its bit (0: the end)
+    or ah, ah
+    jz .send
+    test [bzs_dirty], ah        ; only a voice the chip has not caught up with
     jz .v
     push si
     push ax
@@ -1654,7 +1678,11 @@ bzs_fm:
     and [bzs_dirty], ah
     jmp short .v
 .send:
-    mov cx, [bzs_fmn]
+    mov cx, bp
+    pop bp
+    sub cx, bzs_fmb
+    shr cx, 1
+    mov [bzs_fmn], cx
     jcxz .r
     push es
     push ds
@@ -1673,8 +1701,16 @@ bzs_fm:
 .r:
     ret
 
-bzs_order:  db 6, 0, 5, 1, 2, 3, 4, 0FFh ; the effect, lead, drums, bass, chord
-bzs_bits:   db 1, 2, 4, 8, 10h, 20h, 40h
+; the serving order - the effect, lead, drums, bass, chord - each voice with
+; its bit of bzs_dirty; the music voices' records; a channel's modulator slot
+bzs_order:  dw 6 | 40h << 8, 0 | 01h << 8, 5 | 20h << 8, 1 | 02h << 8
+            dw 2 | 04h << 8, 3 | 08h << 8, 4 | 10h << 8, 0
+bzs_vrec:
+%assign BZS_I 0
+%rep 6
+            dw bzs_v + BZS_I * V_SIZE
+ %assign BZS_I BZS_I + 1
+%endrep
 bzs_slot:   db 0, 1, 2, 8, 9, 10, 16, 17, 18
 bzs_opreg:  db 20h, 40h, 60h, 80h, 0E0h
 
@@ -1682,34 +1718,40 @@ bzs_opreg:  db 20h, 40h, 60h, 80h, 0E0h
 ; on its channel: its own for 0 - 4, 5 or (an `alt` drum) 6 for the drums, 7
 ; for the effect (Chip.voice_regs).  CF = 1: the cap is reached and the
 ; serving stops (this voice and the rest keep their state for the next
-; frame).  ES = the sound part.  Clobbers AX, BX, CX, DX, SI, DI.
+; frame).  A voice puts at most FOUR registers after its patch - the key off
+; of a note struck again, A0h, the carrier's 40h, B0h - and .cap leaves room
+; for the four, so nothing here tests the batch's end.  ES = the sound part.
+; Clobbers AX, BX, CX, DX, SI, DI.
 bzs_fmv:
     cmp al, 6
     jb .mus
     mov bx, bzs_fx              ; THE EFFECT: on while running and sounding
     xor ch, ch
+    mov dx, [bx + F_OUT]
     cmp word [bx + F_PTR], 0
     je .f0
-    cmp word [bx + F_OUT], 0
-    je .f0
+    or dx, dx
+    jz .f0
     inc ch
 .f0:
-    mov dx, [bx + F_OUT]
     mov al, [bx + F_INST]
-    mov ah, 16
-    mul ah
+    xor ah, ah
+    mov cl, 4
+    shl ax, cl
     add ax, [bzs_ins]
     mov si, ax
     mov al, [bx + F_SVOL]       ; its SEGMENT's level: the chip decays it
-    lea bx, [bx + F_RETRIG]
+    add bx, F_RETRIG
     mov cl, 7
+    mov di, bzs_v + 7 * V_SIZE
     jmp short .want
 .mus:
     mov cl, al                  ; CL = the channel: the voice's own, but
-    mov ah, V_SIZE
-    mul ah
-    add ax, bzs_v
-    mov bx, ax
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bzs_vrec + bx]
+    mov di, bx
     mov ch, [bx + V_ON]
     mov dx, [bx + V_PITCH]
     mov si, [bx + V_IREC]
@@ -1718,28 +1760,27 @@ bzs_fmv:
     test byte [es:si + BZI_SPK], 80h
     jz .vv
     inc cx
+    add di, V_SIZE
 .vv:
     mov al, [bx + V_VOL]
-    lea bx, [bx + V_RETRIG]
+    add bx, V_RETRIG
 .want:                          ; CH on, DX the pitch, ES:SI the instrument,
-    push bx                     ; AL the volume, CL the channel, [SP] -> the
-    push ax                     ; retrigger flag
-    mov al, V_SIZE
-    mul cl
-    add ax, bzs_v
-    mov di, ax                  ; DI = the CHANNEL's shadows
-    or ch, ch                   ; ANOTHER PATCH: written first, as much of it
-    jz .cap                     ; as the cap leaves room for this frame; a
-    mov al, [es:si + BZI_PID]   ; patch not finished stops the serving (the
-    cmp al, [di + H_INST]       ; note follows it, a frame or so late)
-    je .cap
-    cmp al, [di + H_PPID]
+    or ch, ch                   ; AL the volume, CL the channel, BX -> the
+    jz .cap                     ; retrigger flag, DI -> the CHANNEL's shadows
+    mov ah, [es:si + BZI_PID]   ; ANOTHER PATCH: written first, as much of it
+    cmp ah, [di + H_INST]       ; as the cap leaves room for this frame; a
+    je .cap                     ; patch not finished stops the serving (the
+    cmp ah, [di + H_PPID]       ; note follows it, a frame or so late)
     je .more
-    mov [di + H_PPID], al
+    mov [di + H_PPID], ah
     mov byte [di + H_PPOS], 0
 .more:
+    push ax
+    mov ax, bp
+    sub ax, bzs_fmb
+    shr ax, 1                   ; AL = the registers on the batch
     mov ah, BZS_FMCAP
-    sub ah, [bzs_fmn]
+    sub ah, al
     mov al, 11
     sub al, [di + H_PPOS]
     cmp ah, al
@@ -1749,141 +1790,124 @@ bzs_fmv:
     mov al, [di + H_PPOS]       ; AL = from, AH = how many
     add [di + H_PPOS], ah
     call bzs_patch
+    pop ax
     cmp byte [di + H_PPOS], 11
     jb .stop
-    mov al, [di + H_PPID]       ; written whole: the channel holds it
-    mov [di + H_INST], al
+    mov ah, [di + H_PPID]       ; written whole: the channel holds it
+    mov [di + H_INST], ah
     mov byte [di + H_TL], 0FFh
     mov byte [di + H_PPID], 0FFh
-.cap:
-    mov bx, [bzs_fmn]           ; THE CAP: the note needs at most 4 more
-    add bx, 4
-    cmp bx, BZS_FMCAP
+.cap:                           ; THE CAP: the note needs at most 4 more
+    cmp bp, bzs_fmb + 2 * (BZS_FMCAP - 4)
     jbe .go
 .stop:
-    pop ax
-    pop bx
     stc
     ret
 .go:
-    pop ax
-    mov ah, al                  ; AH = the volume
-    push dx                     ; the pitch
     or ch, ch
     jz .off
-.tl:
-    mov dl, ah                  ; DL = the carrier's 40h: its TL + (15 - vol)
-    mov al, [es:si + BZI_CAR40] ; x 2, at most 63, under its KSL bits
-    mov ah, al
-    and ah, 0C0h
-    and al, 3Fh
-    mov dh, 15
-    sub dh, dl
-    shl dh, 1
-    add al, dh
+    mov ch, [es:si + BZI_CAR40] ; CH = the carrier's 40h: its TL + (15 - vol)
+    mov ah, ch                  ; x 2, at most 63, under its KSL bits
+    and ah, 3Fh
+    and ch, 0C0h
+    sub al, 15
+    neg al
+    shl al, 1
+    add al, ah
     cmp al, 63
     jbe .t6
     mov al, 63
 .t6:
-    or al, ah
-    mov dl, al
-    pop ax                      ; AX = the pitch
-    pop si                      ; SI -> the retrigger flag
-    push si
+    or ch, al
+    xchg ax, dx                 ; AX = the pitch
+    mov si, bx                  ; SI -> the retrigger flag
     cmp byte [si], 0            ; struck again while keyed: the key off first
     je .pitch
     test byte [di + H_B0], 20h
     jz .pitch
-    push ax
     and byte [di + H_B0], 0DFh
+    mov dx, ax
     mov ah, [di + H_B0]
     mov al, 0B0h
     add al, cl
-    call bzs_put
-    pop ax
+    BZS_PUT
+    mov ax, dx
 .pitch:
     cmp ax, [di + H_PITCH]      ; the same pitch: the registers it made
     je .same
     mov [di + H_PITCH], ax
     push cx
-    push dx
     call bzs_fnum
-    pop dx
     pop cx
-    jmp short .key
-.same:
-    mov al, [di + H_A0]
-    mov ah, [di + H_B0]
-.key:
     or ah, 20h
     cmp al, [di + H_A0]         ; A0h
     je .t
     mov [di + H_A0], al
-    push ax
+    mov dx, ax
     mov ah, al
     mov al, 0A0h
     add al, cl
-    call bzs_put
-    pop ax
+    BZS_PUT
+    mov ax, dx
+    jmp short .t
+.same:
+    mov ax, [di + H_A0]         ; AL = its A0h, AH = its B0h
+    or ah, 20h
 .t:
-    cmp dl, [di + H_TL]         ; the carrier's 40h
+    cmp ch, [di + H_TL]         ; the carrier's 40h
     je .b
-    mov [di + H_TL], dl
-    push ax
-    push bx
-    mov al, cl
-    mov bx, bzs_slot
-    xlatb
+    mov [di + H_TL], ch
+    mov dx, ax
+    mov bl, cl
+    xor bh, bh
+    mov al, [bzs_slot + bx]
     add al, 43h
-    mov ah, dl
-    call bzs_put
-    pop bx
-    pop ax
+    mov ah, ch
+    BZS_PUT
+    mov ax, dx
 .b:
     cmp ah, [di + H_B0]         ; B0h: the key, the block, F's top 2
     je .clr
     mov [di + H_B0], ah
     mov al, 0B0h
     add al, cl
-    call bzs_put
+    BZS_PUT
 .clr:
-    pop si
     mov byte [si], 0
     clc
     ret
 .off:                           ; OFF: the key released, if it is held (the
-    pop dx                      ; retrigger flag is left as it is)
-    pop si
-    test byte [di + H_B0], 20h
+    test byte [di + H_B0], 20h  ; retrigger flag is left as it is)
     jz .r
     and byte [di + H_B0], 0DFh
     mov ah, [di + H_B0]
     mov al, 0B0h
     add al, cl
-    call bzs_put
+    BZS_PUT
 .r:
     clc
     ret
+%if H_B0 != H_A0 + 1 || BZS_FMBUF < BZS_FMCAP
+ %error "bzs_fmv reads H_A0 and H_B0 as one word, and the batch holds the cap"
+%endif
 
 ; bzs_patch - AH of channel CL's patch registers from the AL-th, the
 ; instrument's at ES:SI, in SOUND.DRV's order: the modulator's five (0 - 4),
 ; the carrier's five (5 - 9), C0h (10) - the carrier's 20h with the VIB bit
-; where the instrument has a vibrato, the chip's own (Chip.patch).  Preserves
-; all but the flags.
+; where the instrument has a vibrato, the chip's own (Chip.patch).  The caller
+; has left room for AH (bzs_fmv.more).  Preserves all but the flags and BP,
+; the batch's.
 bzs_patch:
     push ax
     push bx
     push cx
     push dx
-    push si
     or ah, ah
     jz .out
-    mov dh, ah                  ; DH = how many
-    mov dl, al                  ; DL = the index
-    mov al, cl
-    mov bx, bzs_slot
-    xlatb
-    mov ch, al                  ; CH = the modulator's slot
+    mov dx, ax                  ; DL = the index, DH = how many
+    mov bl, cl
+    xor bh, bh
+    mov ch, [bzs_slot + bx]     ; CH = the modulator's slot
 .r:
     mov bl, dl
     xor bh, bh
@@ -1906,27 +1930,13 @@ bzs_patch:
 .md:
     add al, [bzs_opreg + bx]
 .w:
-    call bzs_put
-    inc dl
+    BZS_PUT
+    inc dx
     dec dh
     jnz .r
 .out:
-    pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
-
-; bzs_put - register AL, value AH onto the batch.  Preserves all but the flags.
-bzs_put:
-    push di
-    mov di, [bzs_fmn]
-    cmp di, BZS_FMBUF
-    jae .r
-    inc word [bzs_fmn]
-    shl di, 1
-    mov [bzs_fmb + di], ax
-.r:
-    pop di
     ret
