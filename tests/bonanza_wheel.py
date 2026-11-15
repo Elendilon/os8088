@@ -952,7 +952,7 @@ def low_leg(g, ref):
     k0 = R.LOW_FRAMES
     st = {"k": -1, "plan": None, "what": {}, "sweep": {}, "cand": {}}
     nfr = k0 + SWEEP_CYCLE * len(SWEEP_HOLD) + 2
-    launch_mill(g, "Enter", 0)
+    launch_mill(g, "KeyF", 0)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1069,7 +1069,7 @@ def corner_leg(g, ref):
     rects = R.lane_rects(crs)
     grid = BB.Grid(crs.cga)
     fails, rep = [], []
-    launch_mill(g, "Enter", 0)
+    launch_mill(g, "KeyF", 0)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1316,7 +1316,7 @@ def stale_leg(g, ref):
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
     fails, rep = [], []
-    launch_mill(g, "Enter", 0)
+    launch_mill(g, "KeyF", 0)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1500,7 +1500,7 @@ def side_leg(g, ref):
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
     if plan is not None:
-        launch_mill(g, "Enter", 0, crs=crs_name)
+        launch_mill(g, "KeyF", 0, crs=crs_name)
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the %s play runs" % crs_name, guest=60)
         m.pause()
@@ -1615,7 +1615,7 @@ def clock_leg(g, ref):
     if not digs:
         rep.append("(14) the CLOCK: SKIP - FIRST has no clock")
         return fails, rep
-    launch_mill(g, "Enter", 0, crs="first")
+    launch_mill(g, "KeyF", 0, crs="first")
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the FIRST play runs", guest=60)
     m.pause()

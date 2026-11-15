@@ -855,8 +855,9 @@ class Bz:
             self.base = self.wseg() << 4
         t = self.base + self.sym["op_table"]
         n = self.m.read(t + 8, 1)[0]
-        row = self.m.read(t + 10 + 8 * (n - 1), 8)
-        assert row[1] & 32, "the shell part (row %d) is not fetched: its labels have no address" % (n - 1)
+        k = n - 2 if "BZ_P_PATH" in open(os.path.join(ROOT, "apps", "bonanza", "bonanza.asm")).read() else n - 1
+        row = self.m.read(t + 10 + 8 * k, 8)     # (the shell's row: the last but the pathway's, 128.19.5)
+        assert row[1] & 32, "the shell part (row %d) is not fetched: its labels have no address" % k
         return struct.unpack_from("<H", row, 6)[0] << 4
 
     def b(self, n):
@@ -1073,12 +1074,12 @@ def pic_now(g, ref, st=None):
 def glass(g, ref):
     """Part 1: the card's own rasterisation of a resting ball's frame (FIRST)."""
     m, tag = g.m, g.tag
-    g.key("Enter")
+    g.key("KeyF")                   # (F: a free play - Enter is the game since wave 8b)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "play mode runs", guest=60)
     m.pause()
     g.check_base()
     assert g.b("bz_mode") == 0, "Enter started the benchmark, not play"
-    assert g.b("bz_crs") == CRS_K["first"], "Enter played course %d, not FIRST" % g.b("bz_crs")
+    assert g.b("bz_crs") == CRS_K["first"], "F played course %d, not FIRST" % g.b("bz_crs")
     m.bp_exec(g.a("bz_presented"))
     seen = None
     for _ in range(4):                  # three presents with nothing moving: every refresh since
@@ -2062,8 +2063,8 @@ def mill_play(g, ref):
     if P is None:
         return ["MILL has no platform"], cnt
     m.bp_exec(g.a("bz_launch"))
-    g.key("Enter")
-    assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
+    g.key("KeyF")
+    assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
     g.putb("bz_crs", CRS_K["mill"])
     g.putb("bz_hvoff", 0)
     wk = Walker(g, t0=True, extra=("bz_wcommit", box_point(g)))
@@ -2663,8 +2664,8 @@ def probe(g, ref):
         got = m.read(g.a(nm), 1)[0]
         assert got == op, "%s is not the instruction the probe breakpoints after (%02X, not %02X)" % (nm, got, op)
     m.bp_exec(g.a("bz_launch"))
-    g.key("Enter")
-    assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
+    g.key("KeyF")
+    assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
     g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
     g.putb("bz_cmode", 0)                       # GLIDE (C cycles it; it persists)
     if "bz_hvoff" in g.sym:                     # the shipped camera: a poked frame is HEAVY
