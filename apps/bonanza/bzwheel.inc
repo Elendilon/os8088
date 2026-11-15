@@ -2299,12 +2299,15 @@ bz_kmeet:
 ; (lanes are sorted by first block row, so the slice is contiguous and moves
 ; by a compare or two, and is not looked at when the range has not moved); a
 ; lane outside it costs nothing, and the walk reads no record for a lane's
-; range or a post (bz_lrw, bz_lhh, bz_lknd; a descriptor only for a lit post
-; or a due lane).  A lane that nothing about can change this frame is SKIPPED
+; range, its clock, its window test or its footprint test (bz_pread's per-lane
+; tables; no descriptor).  A lane that nothing about can change this frame is SKIPPED
 ; after its range test (SPEC.md 128.13.5.3): a rotor drawn at its true pose
 ; until its next change (bz_lnext), a post drawn dark with no lit frames and
 ; no kick it has not seen - except on a frame whose range moved, when every
-; lane is walked.  For each lane walked:
+; lane is walked.  A walk that skipped EVERY lane is not made again (THE QUIET
+; WALK, bz_lqt) while the window's rows stand (bz_pR0) and nothing a skip
+; reads has moved: no rotor's next change reached (bz_lwake, the nearest), no
+; flag touched, no kick of the slice's lanes unseen.  For each lane walked:
 ;   0. a POST's lit frames: one counted off when it begins the frame drawn
 ;      lit, all of them when it is wholly out of the shown window;
 ;   1. its TRUE pose (bz_ltrue);
@@ -2378,9 +2381,11 @@ bz_props:
     jcxz .plat0
     mov si, [bz_lks]
     lea di, [si + bz_lkick - bz_pkick]
+    push es
     push ds
     pop es
     repe cmpsw
+    pop es                      ; (ES as it came: the walk keeps it too)
     jne .walk0
 .plat0:
     jmp .plat
