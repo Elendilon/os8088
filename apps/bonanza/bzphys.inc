@@ -364,6 +364,23 @@ bz_ramp:
     mov [bz_sgy + 2], dx
 %endmacro
 
+; BZ_LVL1: the keyboard's ramp for one arrow (128.11.7.1), its level in the
+; byte register %1 and its key BH's bit 0, shifted out: held, up one to
+; BZ_LVLMAX; released, down two to 0.
+%macro BZ_LVL1 1
+    shr bh, 1
+    jnc %%rel
+    cmp %1, BZ_LVLMAX
+    jae %%done
+    inc %1
+    jmp short %%done
+%%rel:
+    sub %1, 2
+    jnc %%done
+    xor %1, %1
+%%done:
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; bz_step - ONE STEP, in SPEC.md 128.11.8.2's binding order (the numbers below
 ; are its steps).  DS = ours.  Preserves CX and ES (the frame loop's count and
@@ -409,35 +426,28 @@ bz_step:
 .auto:
     call bz_auto                ; the benchmark: BL = the arrows it would hold -
     mov [bz_kstep], bl          ; never RETURN and never a tilt, so straight to
-    mov si, bz_lvl              ; the keyboard's ramp: no bit-6 test, no tilt
-    mov bh, bl                  ; byte stored or compared (128.14.12's BENCH
-    mov cx, 4                   ; row; bz_play sets bz_tby to the keyboard's
-    jmp short .lv               ; once, and only a play or a replay moves it)
+    mov bh, bl                  ; the keyboard's ramp: no bit-6 test, no tilt
+    jmp short .lv               ; byte stored or compared (128.14.12's BENCH
+                                ; row; bz_play sets bz_tby to the keyboard's
+                                ; once, and only a play or a replay moves it)
 .key:
     test bl, BZ_K_RET           ; wave 4: RETURN (Backspace) first, and the
     jnz .kret                   ; step runs nothing else (128.14.4.5)
 .key2:
     mov [bz_kstep], bl
-    mov si, bz_lvl              ; the ramp (128.11.7.1): a held arrow's level
-    mov bh, bl                  ; up one to 8, a released one's down two to 0
-    mov cx, 4
+    mov bh, bl                  ; the ramp (128.11.7.1): a held arrow's level
+                                ; up one to 8, a released one's down two to 0
     cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (128.14.8.2): out of
     jne .tilt                   ; the keyboard's path, which is this compare
 .lv:
-    lodsb
-    shr bh, 1
-    jnc .rel
-    cmp al, BZ_LVLMAX
-    jae .lvs
-    inc ax
-    jmp short .lvs
-.rel:
-    sub al, 2
-    jnc .lvs
-    xor al, al
-.lvs:
-    mov [si - 1], al
-    loop .lv
+    mov ax, [bz_lvl]            ; the four levels in AL, AH, DL, DH (L R U D),
+    mov dx, [bz_lvl + 2]        ; each by BH's next bit
+    BZ_LVL1 al
+    BZ_LVL1 ah
+    BZ_LVL1 dl
+    BZ_LVL1 dh
+    mov [bz_lvl], ax
+    mov [bz_lvl + 2], dx
 .hopw:
     mov al, bl                  ; the Hop's window: Space's key-down EDGE opens
     xchg al, [bz_kprev]         ; it, else it counts down (128.11.7.2)
@@ -558,14 +568,14 @@ bz_step:
     mov [bz_gvz], ax
     jmp short .move
 .air:
-    xor cx, cx                  ; airborne: the arrows at half force, clamped
-    mov ax, [bz_gvx]            ; (128.11.7.3); no slope, no drag
-    add ax, di
-    call bz_gax
+                                ; airborne: the arrows at half force, clamped
+    mov ax, [bz_gvx]            ; (128.11.7.3); no slope, no drag - bz_gax's
+    add ax, di                  ; clamp alone
+    call bz_gax.clamp
     mov [bz_gvx], ax
     mov ax, [bz_gvy]
     add ax, bp
-    call bz_gax
+    call bz_gax.clamp
     mov [bz_gvy], ax
     mov ax, [bz_gvz]            ; gravity, clamped
     sub ax, BZ_G
@@ -580,9 +590,14 @@ bz_step:
     mov [bz_gvz], ax
     ; ---- 3. move ----
 .move:
-    mov ax, [bz_gz]             ; zq = floor(start z / 64) quarter px, plus the
-    mov dx, [bz_gz + 2]         ; climb in either air state: a neighbour BLOCKS
-    BZ_Q64                      ; when its h4 > zq (128.11.8.2 step 5)
+    mov ax, [bz_gz + 1]         ; zq = floor(start z / 64) quarter px, plus the
+    shl ax, 1                   ; climb in either air state: a neighbour BLOCKS
+    shl ax, 1                   ; when its h4 > zq (128.11.8.2 step 5) - BZ_Q64
+    mov dl, [bz_gz]             ; from the cells: the whole px << 2, and the
+    rol dl, 1                   ; fraction's top two bits
+    rol dl, 1
+    and dl, 3
+    or al, dl
     add ax, BZ_CLIMB * 4        ; (+ 1,024 / 64)
     mov [bz_zq], ax
     mov ax, [bz_gvx]            ; gx += gvx, gy += gvy (the start is kept only
@@ -603,34 +618,42 @@ bz_step:
     cmp ax, [bz_ztop]
     jle .win
     mov [bz_ztop], ax
+    jmp short .win
+    ; step 4's two seldom-taken parts, out of its line: a cell change ...
+.wcx:
+    inc cx                      ; (wx changed: wy's test, here)
+    mov ax, [bz_gy + 1]
+    and al, 0f0h
+    cmp ax, [bz_wgy]
+    je .w2
+.wcy:
+    or cl, 2
+.w2:
+    mov [bz_wch], cl
+    BZ_START                    ; a new cell: the START's ground position kept
+                                ; for the fallback's undo (gx - gvx: only the
+                                ; move has touched it yet)
+    call bz_win9i               ; the centre's new cell
+    jmp short .w3
+.wopen:                         ; ...and a centre of kind VOID
+    cmp byte [bz_nbr + BZN_C], BZ_ZOPEN
+    jne .w4
+    jmp .respawn                ; an OPEN cell (or outside the grid)
     ; ---- 4. the window ----
 .win:
     xor cx, cx                  ; CL: bit 0 the cell's wx changed, bit 1 its
     mov ax, [bz_gx + 1]         ; wy (the window is on the START's cell)
     and al, 0f0h
     cmp ax, [bz_wgx]
-    je .w1
-    inc cx
-.w1:
+    jne .wcx
     mov ax, [bz_gy + 1]
     and al, 0f0h
     cmp ax, [bz_wgy]
-    je .w2
-    or cl, 2
-.w2:
-    mov [bz_wch], cl
-    jcxz .w3
-    BZ_START                    ; a new cell: the START's ground position kept
-                                ; for the fallback's undo (gx - gvx: only the
-                                ; move has touched it yet)
-    call bz_win9f               ; the centre's new cell
+    jne .wcy
+    mov [bz_wch], cl            ; (the same cell: 0, and no jump taken)
 .w3:
-    mov si, bz_nbr + BZN_C
-    test byte [si + 2], 0fh
-    jnz .w4
-    cmp byte [si], BZ_ZOPEN
-    jne .w4
-    jmp .respawn                ; an OPEN cell (or outside the grid)
+    test byte [bz_nbr + BZN_C + 2], 0fh
+    jz .wopen
 .w4:
     mov al, [bz_ps]             ; wave 3 (128.12.6.5 step 4): an OBS cell in the
     and al, 5                   ; window, or carried - the PROP path, which sets
@@ -738,15 +761,15 @@ bz_step:
     mov byte [bz_gy], 0
     mov ax, [bz_gvy]
     or ax, ax
-    jns .corner
-    call bz_wrefl
+    jns .nocorner               ; (pushed: exactly BZ_RAD from the edge, so
+    call bz_wrefl               ; no corner)
     mov [bz_gvy], ax
-    jmp short .corner
+    jmp short .nocorner
 .trnd:
     jmp .ndoor
 .ye:
     cmp ax, (16 - BZ_RAD) * 256
-    jbe .corner
+    jbe .nocorner               ; (inside on y: no corner)
     mov si, bz_nbr + BZN_S      ; south, at (u, 0)
     mov dh, 0
     call bz_blocks
@@ -758,21 +781,18 @@ bz_step:
     mov byte [bz_gy], 0
     mov ax, [bz_gvy]
     or ax, ax
-    jle .corner
+    jle .nocorner
     call bz_wrefl
     mov [bz_gvy], ax
+    jmp short .nocorner
 .corner:
     mov ax, [bz_gx]             ; the corner: only within BZ_RAD of both a
     and ah, 15                  ; west or east edge and a north or south one
-    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560)
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe .nocorner
-    mov ax, [bz_gy]
-    and ah, 15
-    sub ax, BZ_RAD * 256
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe .nocorner
-    call bz_corner
+    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560).  pv IS
+    cmp ax, (16 - 2 * BZ_RAD) * 256 ; outside here: step 5's y half comes only
+    jbe .nocorner               ; from an edge test whose neighbour did not
+    call bz_corner              ; block (inside, or pushed to exactly BZ_RAD
+                                ; from the edge, it went to .nocorner)
 .nocorner:
     cmp byte [bz_pdoor], 0      ; the prop path: the posts, the window and
     je .fb                      ; the cell change again, then the fallback
@@ -786,7 +806,7 @@ bz_step:
     cmp ax, [bz_wgy]
     je .pfb
 .pmv:
-    call bz_win9f
+    call bz_win9i
 .pfb:
     xor cl, cl                  ; the fallback's cell change is against the
     mov ax, [bz_gx + 1]         ; START's cell
@@ -843,7 +863,7 @@ bz_step:
     sub [bz_gz], ax
     sbb [bz_gz + 2], dx
 .unz:
-    call bz_win9f               ; the window round the start's cell again
+    call bz_win9i               ; the window round the start's cell again
     cmp byte [bz_onp], 0        ; the undo takes the lift's CARRY back too: z
     je .floor                   ; to the step's start (the model's sgz; never
     mov ax, [bz_cdd]            ; on wave 2's path, bz_onp 0 there)
@@ -881,12 +901,7 @@ bz_step:
 .pfpost:
     call bz_ptop                ; a post cell: the post's top within 6 gu of
     jmp .psolid                 ; it (128.12.6.3)
-.floorh:
-    mov si, bz_nbr + BZN_C
-    mov al, [si + 2]
-    and al, 0fh
-    cmp al, BZ_KFLOOR
-    je .solid
+.nfloor:                        ; (.floorh's, out of its line: not a FLOOR)
     cmp al, BZ_KGOAL
     je .solid
     mov byte [bz_ghv], 0        ; no floor under it: no shadow
@@ -901,13 +916,22 @@ bz_step:
     cmp [bz_gz + 1], ax
     jge .fnext
     jmp .respawn
+.floorh:
+    mov si, bz_nbr + BZN_C
+    mov al, [si + 2]
+    and al, 0fh
+    cmp al, BZ_KFLOOR
+    jne .nfloor                 ; (a FLOOR, nearly always: no jump taken)
 .solid:
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov dh, [bz_gy + 1]
-    and dh, 15
-    call bz_h4
-    mov bx, ax                  ; BX = h4, the floor under the centre
+    cmp byte [si + 1], 0        ; a FLAT floor (most steps): 16 z0 wherever
+    jne .sslope                 ; the centre is, without bz_h4
+    mov al, [si]
+    cbw
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    xchg ax, bx                 ; BX = h4, the floor under the centre
 .psolid:
     cmp byte [bz_air], 0
     jne .airsolid
@@ -1000,20 +1024,32 @@ bz_step:
 .pclr:                          ; ...CLEARED otherwise
     mov byte [bz_onp], 0
 .pps:
-    call bz_psync
+    xor al, al                  ; bz_ps (bz_psync's, in line: every step of
+    cmp byte [bz_wol], 0        ; the prop path ends here)
+    je .pp1
+    inc ax
+.pp1:
+    cmp byte [bz_tube], 0
+    je .pp2
+    or al, 2
+.pp2:
+    cmp byte [bz_onp], 0
+    je .pp3
+    or al, 4
+.pp3:
+    mov [bz_ps], al
     ; ---- 8. SAFE and the goal: not shattering ----
 .safe:
     cmp byte [bz_mst], BZ_ST_SHAT
     je .end
-    mov si, bz_nbr + BZN_C
     cmp byte [bz_air], 0        ; SAFE: grounded only
     jne .goal
-    test byte [si + 3], BZ_FSAFE
+    test byte [bz_nbr + BZN_C + 3], BZ_FSAFE
     jz .goal
     mov ax, [bz_nwin]
     mov [bz_safe], ax
 .goal:
-    mov al, [si + 2]            ; the goal: grounded OR AIRBORNE, a finish
+    mov al, [bz_nbr + BZN_C + 2] ; the goal: grounded OR AIRBORNE, a finish
     and al, 0fh                 ; line (128.11.8.2 step 8)
     cmp al, BZ_KGOAL
     jne .end
@@ -1078,6 +1114,8 @@ bz_step:
     ; nibble) for Left and Right, the y cap for Up and Down: a level above
     ; the cap falls by two a step to it, else it rises by one to it ----
 .tilt:
+    mov si, bz_lvl
+    mov cx, 4
     mov dl, [bz_tby]
     mov dh, dl
     shr dh, 1
@@ -1133,6 +1171,14 @@ bz_step:
     call bz_rflag
     pop di
     jmp .rdone
+.sslope:                        ; step 6's floor on a SLOPE: at the centre's
+    mov dl, [bz_gx + 1]         ; point
+    and dl, 15
+    mov dh, [bz_gy + 1]
+    and dh, 15
+    call bz_h4
+    mov bx, ax
+    jmp .psolid
 .pdcap:                         ; the doorway open: swallowed
     mov bl, [bz_pdi]
     call bz_capture
@@ -1180,7 +1226,7 @@ bz_step:
     mov [bz_gvy], ax
     inc word [bz_nknock]
 .ny:
-    jmp .corner
+    jmp .nocorner               ; (pushed to BZ_RAD from the edge: no corner)
 
 ; -----------------------------------------------------------------------------
 ; bz_land - step 6's LAND (SPEC.md 128.11.8.5): an airborne ball meets C's
@@ -1634,15 +1680,21 @@ bz_wolf:
     xor ax, ax
     mov [bz_wcen], ax           ; (and bz_wckd)
     mov [bz_wbmp], al
+    mov al, [bz_nbr + 3]        ; no OBS cell in the window (most refills):
+%assign bz_i 7                  ; an empty bz_wol, without the nine cells' walk
+%rep 8
+    or al, [bz_nbr + bz_i]
+ %assign bz_i bz_i + 4
+%endrep
+    test al, BZ_FL_OBS
+    jz .none
     mov di, bz_wol + 1
     mov si, bz_wotab
     mov cx, 9
+    xor bh, bh                  ; (BX stays under 256 throughout)
 .c:
-    mov bl, [si]
-    xor bh, bh
-    shl bx, 1
-    shl bx, 1
-    test byte [bz_nbr + bx + 3], BZ_FL_OBS
+    mov bl, [si + 3]            ; the cell's flags, bz_nbr + 4 cell + 3
+    test byte [bz_nbr + bx], BZ_FL_OBS
     jz .n
     mov dx, [bz_nwin]           ; the cell's wx, wy
     add dl, [si + 1]
@@ -1670,17 +1722,21 @@ bz_wolf:
     inc di
     inc di
 .n:
-    add si, 3
+    add si, 4
     loop .c
     mov ax, di
     sub ax, bz_wol + 1
     shr ax, 1
     mov [bz_wol], al
     jmp bz_psync
-; the window's cells in bz_wrt's order: the cell 0 - 8, dx, dy
+.none:
+    mov [bz_wol], ah            ; (AH is 0)
+    jmp bz_psync
+; the window's cells in bz_wrt's order: the cell 0 - 8, dx, dy, and its flags'
+; offset in bz_nbr
 bz_wotab:
-    db 0, -1, -1,  3, -1, 0,  1, 0, -1,  6, -1, 1,  4, 0, 0
-    db 2, 1, -1,  7, 0, 1,  5, 1, 0,  8, 1, 1
+    db 0, -1, -1, 3,  3, -1, 0, 15,  1, 0, -1, 7,  6, -1, 1, 27,  4, 0, 0, 19
+    db 2, 1, -1, 11,  7, 0, 1, 31,  5, 1, 0, 23,  8, 1, 1, 35
 
 ; bz_owner - the record owning cell DL = wx, DH = wy (128.12.3.2): the first,
 ; in the records' order, whose anchor is the cell - a tube's or windmill's IN,
@@ -2124,15 +2180,15 @@ bz_posts:
 ; max(K, d) else, and gv += ((t - d) n) >> 6, each axis clamped; the post's
 ; kick step = n, bz_nkick + 1.  Clobbers AX, BX, CX, DX, DI, BP.
 bz_circle:
-    push bx
-    mov ah, 0
-    push ax                     ; (the post's window cell)
+    mov cl, al                  ; (the post's window cell)
     call bz_pdist               ; AX = |du|, DX = |dv|, BP their signs: the
-    cmp ax, BZ_OCTN             ; table's reach first, the cheap refusal
-    ja .out2
+    cmp ax, BZ_OCTN             ; table's reach first, the cheap refusal -
+    ja .far                     ; before anything is pushed
     cmp dx, BZ_OCTN
-    ja .out2
-    pop bx
+    ja .far
+    push bx
+    mov bl, cl
+    xor bh, bh
     push ax
     push dx
     shl bx, 1
@@ -2248,10 +2304,9 @@ bz_circle:
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
     ret
-.out2:
-    pop ax
 .out:
     pop bx
+.far:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2328,15 +2383,16 @@ bz_gax:
     jl .clamp
     xor ax, ax
 .clamp:
-    cmp ax, BZ_VMAXG
-    jle .c1
+    cmp ax, BZ_VMAXG            ; (inside the clamp, nearly always: no jump
+    jg .hi                      ; taken)
+    cmp ax, -BZ_VMAXG
+    jl .lo
+    ret
+.hi:
     mov ax, BZ_VMAXG
     ret
-.c1:
-    cmp ax, -BZ_VMAXG
-    jge .out
+.lo:
     mov ax, -BZ_VMAXG
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2395,14 +2451,16 @@ bz_refl:
 bz_corner:
     xor bp, bp                  ; BP: bit 0 east, bit 1 south
     mov bx, BZN_NW              ; BX = the corner cell's window offset
-    mov ax, [bz_gx]             ; across: west (|du| = pu >> 8) or east
-    and ah, 15                  ; ((4,096 - pu) >> 8)
-    cmp ax, BZ_RAD * 256
+    mov dx, 1010h               ; DL, DH = the corner cell's point nearest the
+    mov ax, [bz_gx]             ; centre: 16 west, 0 east; 16 north, 0 south
+    and ah, 15                  ; across: west (|du| = pu >> 8) or east
+    cmp ax, BZ_RAD * 256        ; ((4,096 - pu) >> 8)
     jb .cw
     neg ax
     add ax, 4096
     mov bx, BZN_NE
     inc bp
+    xor dl, dl
 .cw:
     mov cl, ah                  ; CL = |du|
     mov ax, [bz_gy]             ; down: north or south, the same
@@ -2413,8 +2471,15 @@ bz_corner:
     add ax, 4096
     add bx, BZN_SW - BZN_NW
     or bp, 2
+    xor dh, dh
 .cn:                            ; AH = |dv|
-    mov al, cl                  ; the entry: 3 (6 |du| + |dv|)
+    mov ch, ah                  ; the corner cell first: it seldom blocks, and
+    mov di, cx                  ; the table's depth is seldom 0 (|du|, |dv|
+    lea si, [bz_nbr + bx]       ; wait in DI, which bz_blocks keeps)
+    call bz_blocks
+    jnc .out
+    mov ax, di
+    mov cl, al                  ; the entry: 3 (6 |du| + |dv|)
     shl al, 1
     add al, cl
     shl al, 1
@@ -2427,18 +2492,6 @@ bz_corner:
     add di, bz_ctab
     cmp byte [di + 2], 0        ; depth 0: du^2 + dv^2 >= 36, no contact
     je .out
-    xor dx, dx                  ; the corner cell's point nearest the centre:
-    test bp, 1                  ; (16 west, 0 east; 16 north, 0 south)
-    jnz .pe
-    mov dl, 16
-.pe:
-    test bp, 2
-    jnz .ps
-    mov dh, 16
-.ps:
-    lea si, [bz_nbr + bx]
-    call bz_blocks
-    jnc .out
     mov bl, BZ_EBUMPER          ; its restitution, kept on the stack
     cmp byte [si + 2], (BZ_SURF_BOUNCE << 4) | BZ_KWALL
     je .e
@@ -2524,17 +2577,31 @@ bz_corner:
 bz_blocks:
     mov al, [si + 2]
     and al, 0fh
-    cmp al, BZ_KWALL
-    je .yes
-    cmp al, BZ_KFLOOR
-    je .plane
-    cmp al, BZ_KGOAL
-    jne .no
+    cmp al, BZ_KFLOOR           ; (a floor is the likeliest: first, and it
+    jne .other                  ; falls through)
 .plane:
-    call bz_h4
+    cmp byte [si + 1], 0        ; a FLAT floor (most): bz_h4's 16 z0, here
+    jne .slope
+    mov al, [si]
+    cbw
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+.cmp:
     cmp [bz_zq], ax             ; CF = zq < h4 (signed)
     jl .high
 .no:
+    clc
+    ret
+.slope:
+    call bz_h4
+    jmp short .cmp
+.other:
+    cmp al, BZ_KWALL
+    je .yes
+    cmp al, BZ_KGOAL
+    je .plane
     clc
     ret
 .high:
@@ -2629,8 +2696,9 @@ bz_setz:
     mov dx, ax
     sar dx, 1
     sar dx, 1
-    mov cl, 6
-    shl al, cl
+    ror al, 1                   ; (h4 & 3) << 6
+    ror al, 1
+    and al, 0c0h
     mov [bz_gz], al
     mov [bz_gz + 1], dx
     mov al, dh
@@ -2669,6 +2737,174 @@ bz_smul:
     or bx, bx
     jnz .p
     mov ax, dx
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_win9i - bz_win9f for the step's own refills (its cell change, a post's
+; push, the fallback's undo): the centre moved AT MOST ONE CELL each way from
+; the window's (bz_nwin), so the six (or four) cells both windows hold are
+; MOVED inside bz_nbr and only the three (or five) new ones are read from the
+; grid - a move in wx first (a column), then one in wy (a row).  A window
+; entry is its own grid cell's four bytes and nothing else (or OPEN outside
+; the grid: the same two unsigned tests as bz_fill's, on the cell's own row
+; wx + wy - SMIN and its k (wx - wy - AMIN) >> 1), the grid is never written,
+; and bz_nbr always holds bz_nwin's window (bz_fill and this are its only
+; writers), so the result is bz_fill's, byte for byte; then bz_fill's own
+; tail (the slopes, the surface, bz_wol).  Any other move - a centre further
+; off, or a byte wx or wy that wrapped - is bz_fill itself.  bz_fnr, bz_fkw
+; and bz_frt are the course's, as its last bz_fill left them (bz_pinit's at
+; the least); bz_fr, bz_fka and bz_fdp, bz_fill's scratch, are not written.
+; ES = the course.  -> AX = bz_nwin.  Preserves ES and nothing else (bz_step's
+; three refills keep no register over it).
+; -----------------------------------------------------------------------------
+bz_win9i:
+    mov cl, 4
+    mov si, [bz_gx + 1]
+    and si, 0ff0h               ; SI = 16 wx, DI = 16 wy (bz_wgx, bz_wgy: wx
+    mov di, [bz_gy + 1]         ; and wy are the low BYTES of gu >> 4)
+    and di, 0ff0h
+    mov ax, di
+    shr ax, cl
+    mov ah, al
+    mov dx, si
+    shr dx, cl
+    mov al, dl                  ; AL = wx, AH = wy
+    mov bx, [bz_nwin]
+    mov dx, ax
+    sub dl, bl                  ; the move in wx: 0; 1 with no borrow; -1 with
+    jz .ty                      ; one - anything else is not a neighbour (a
+    sbb cl, cl                  ; byte that wrapped included)
+    or cl, 1
+    cmp dl, cl
+    jne .full
+.ty:
+    sub dh, bh                  ; ...and in wy
+    jz .go
+    sbb cl, cl
+    or cl, 1
+    cmp dh, cl
+    jne .full
+.go:
+    mov [bz_nwin], ax
+    mov [bz_wgx], si
+    mov [bz_wgy], di
+    mov bp, dx                  ; BP = the moves: wx's low, wy's high
+    mov cl, bh
+    xor ch, ch                  ; CX = the OLD wy: the column is read round
+    xor ah, ah                  ; (the new wx, the old wy)
+    mov dx, ax
+    mov si, [bz_goff]
+    add ax, cx
+    sub ax, [es:si + BZG_SMIN]  ; AX = R, that centre's grid row ...
+    sub dx, cx
+    sub dx, [es:si + BZG_AMIN]  ; ...DX = A: its k is A >> 1
+    mov bx, bp
+    or bl, bl
+    jz .ymv
+    js .west
+    mov si, bz_nbr + 4          ; EAST: cells 1 - 8 down one, then SE, E, NE
+    mov cx, 16                  ; read - (R + 2, A), (R + 1, A + 1), (R, A + 2)
+    call .shf
+    inc ax
+    inc ax
+    mov di, bz_nbr + BZN_SE
+    call .col
+    dec dx
+    dec dx
+    jmp short .ymv
+.west:
+    mov si, bz_nbr + 30         ; WEST: cells 0 - 7 up one, then SW, W, NW -
+    mov cx, 16                  ; (R, A - 2), (R - 1, A - 1), (R - 2, A)
+    call .shb
+    dec dx
+    dec dx
+    mov di, bz_nbr + BZN_SW
+    call .col
+    inc ax
+    inc ax
+.ymv:
+    mov bx, bp
+    or bh, bh
+    jz .done
+    js .north
+    mov si, bz_nbr + 12         ; SOUTH (R + 1, A - 1 the centre's): the rows
+    mov cx, 12                  ; up one, then SW, S, SE - from (R + 1, A - 3),
+    call .shf                   ; the row and A up one a cell
+    inc ax
+    sub dx, 3
+    mov di, bz_nbr + BZN_SW
+    jmp short .rowc
+.north:
+    mov si, bz_nbr + 22         ; NORTH (R - 1, A + 1): the rows down one,
+    mov cx, 12                  ; then NW, N, NE - from (R - 3, A + 1)
+    call .shb
+    sub ax, 3
+    inc dx
+    mov di, bz_nbr + BZN_NW
+.rowc:
+    call .cell
+    inc ax
+    inc dx
+    add di, 4
+    call .cell
+    inc ax
+    inc dx
+    add di, 4
+    call .cell
+.done:
+    jmp bz_wtail
+.full:
+    jmp bz_fill
+.col:                           ; three cells UP a column: the row down one,
+    call .cell                  ; A up one
+    dec ax
+    inc dx
+    sub di, 12
+    call .cell
+    dec ax
+    inc dx
+    sub di, 12
+.cell:                          ; [DI] = the grid's cell on row AX with A = DX,
+    cmp ax, [bz_fnr]            ; OPEN outside it (a negative row or k is
+    jae .open                   ; huge).  Preserves AX, DX, DI, BP.
+    mov si, dx
+    sar si, 1
+    cmp si, [bz_fkw]
+    jae .open
+    mov bx, ax
+    shl bx, 1
+    add bx, [bz_frt]
+    mov bx, [es:bx]             ; ROWTAB[r]: the row's first cell
+    shl si, 1
+    shl si, 1
+    mov cx, [es:bx + si]
+    mov [di], cx
+    mov cx, [es:bx + si + 2]
+    mov [di + 2], cx
+    ret
+.open:
+    mov word [di], BZ_ZOPEN     ; z0 -128, flat, VOID, no flags
+    mov word [di + 2], 0
+    ret
+.shf:                           ; CX words from SI DOWN to bz_nbr.  Preserve
+    mov di, bz_nbr              ; AX, DX, BP.
+    push es
+    push ds
+    pop es
+    rep movsw
+    pop es
+    ret
+.shb:                           ; CX words UP, the last from SI to bz_nbr + 34:
+    mov di, bz_nbr + 34         ; backwards, the direction flag set with the
+    push es                     ; interrupts off (no ISR meets it), and POPF
+    push ds                     ; puts both back
+    pop es
+    pushf
+    cli
+    std
+    rep movsw
+    popf
+    pop es
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2782,6 +3018,18 @@ bz_fill:
     inc word [bz_fr]
     pop cx
     loop .row
+    call bz_wtail
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+; bz_wtail - what a window owes after its nine cells (bz_fill's, bz_win9i's):
+; bz_tsx and bz_tsy, the centre's surface, bz_wol and bz_ps.  -> AX = bz_nwin.
+; Clobbers BX, CX, DX, SI, DI.
+bz_wtail:
     xor ax, ax                  ; the centre's slopes, for step 2
     mov dx, ax
     mov si, bz_nbr + BZN_C
@@ -2793,6 +3041,8 @@ bz_fill:
     jne .nosl
 .sl:
     mov al, [si + 1]            ; sy : sx, signed nibbles
+    or al, al
+    jz .nosl                    ; (a flat floor, most: both 0 as they are)
     mov ah, al
     mov cl, 4
     shl al, cl
@@ -2817,12 +3067,6 @@ bz_fill:
     call bz_wolf
 .nowol:
     mov ax, [bz_nwin]
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     ret
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =
@@ -2927,9 +3171,9 @@ bz_derive:
     add ax, [bz_kx]
     adc dx, [bz_kx + 2]
     mov [bz_bx + 2], dx
-    xchg ax, [bz_bx]            ; AX = last step's low word
-    neg ax
-    add ax, [bz_bx]
+    mov dx, [bz_bx]             ; DX = last step's low word
+    mov [bz_bx], ax
+    sub ax, dx
     mov [bz_vx], ax
     add bx, si                  ; (gx + gy) / 2
     adc cx, di
@@ -2940,8 +3184,8 @@ bz_derive:
     add bx, [bz_ky]
     adc cx, [bz_ky + 2]
     mov [bz_by + 2], cx
-    mov ax, bx
-    xchg ax, [bz_by]
+    mov ax, [bz_by]
+    mov [bz_by], bx
     sub bx, ax
     mov [bz_vy], bx
     ret
