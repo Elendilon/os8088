@@ -21470,7 +21470,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/os88lz.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py $(BZ_COURSES) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }

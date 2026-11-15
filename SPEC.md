@@ -268865,13 +268865,20 @@ out: a stale pose enters with the column).
 - **The tool's limit** (Q-86, when a course gives none): the slowest
   finish's route time (the autopilot's, wave 4's routes; one finish a
   course until wave 8b) times **1.5** for the tutorial and **1.25** for the
-  rest, plus one fall's allowance (the longest respawn-and-return the
-  route's flags give, MEASURED on the model), floored at the autopilot's
-  main route times 1.3, rounded UP to 5 s. **An explicit `limit` under that
-  floor is refused**, naming it; so is a course whose AUTHOR demo does not
-  finish inside its limit.
-- **`BENCH`** has no limit (the benchmark runs 1,200 frames regardless);
-  `limit 0` is its explicit "none", and only `BENCH` may say it.
+  rest, plus one fall's allowance (**`FALL_S` 8 s**, a constant until wave
+  11's pipeline measures a course's own), floored at the autopilot's main
+  route times 1.3, rounded UP to 5 s. **An explicit `limit` under that
+  floor is refused**, naming it; a course whose AUTHOR demo does not finish
+  inside its limit is refused by the demo's own check (its replay ends at
+  the timeout, short of its goal). The tutorial's 1.5 waits for wave 11,
+  which marks the tutorial's courses.
+- **`BENCH`** has no limit (the benchmark runs 1,200 frames regardless),
+  by its name; a course whose autopilot cannot finish and that gives no
+  `limit` has none (the tool's own test courses).
+- **As built** (MEASURED, the tool): `FIRST` 15 s (its route 154 steps),
+  `TRIAL` 20 (499), `MILL` 30 (778), `MOON` 55 (2,031), `PEAK` 55 (1,876),
+  `PLAY` **40, explicit** (its route 235 steps gives 15, but its AUTHOR demo
+  tours every rung in 1,504 steps, 27.3 s); `BENCH` none.
 - **Where it applies**: play, the tour, `R` and `D`, identically (the
   limit is steps, and a replay steps the same steps). `B` never.
 
@@ -268884,16 +268891,27 @@ out: a stale pose enters with the column).
   pause stops it (its sub-ticks are discarded, 128.11.7).
 - **The frame loop** ends the play on `bz_tout` as it does on the goal (the
   frame after it; the early step's guard and `bz_estp` treat it as a goal).
-- **`bz_post`**: a timeout is `bz_lsend` 3, the face's line 6 says **time
-  out**, no best is set, and a tour course that times out STOPS the tour as
-  an unfinished one does. Wave 8b replaces "returns to the face" with "a
-  life lost, back to the pathway".
-- **State**: `bz_tout` a byte and `bz_tlim` a word (the course's limit in
-  steps, `bz_pinit`'s copy), in the zeroed block; `Physics.state7()`
-  `(tout, tsec)` is compared by `bonanzaphys` at every frame, `tsec` the
-  whole seconds left as the clock shows them.
-- **Cost** (ESTIMATED): about 25 clk a step (a compare and a countdown of
-  the 55), about +60 - 90 bytes.
+- **`bz_post`**: a timeout is `bz_lsend` 3, the face's line 6 ends
+  **`TIME`** where it says `stop`, `goal` or `cup` (a longer word does not fit
+  the line's 42 cells), no best is set, and a tour course that times out
+  STOPS the tour as an unfinished one does. Wave 8b replaces "returns to the
+  face" with "a life lost, back to the pathway".
+- **The scorecard** shows `lim <l>` where it showed `par <p>`, and its star
+  (a time at or under par) goes: a finish is always inside its limit.
+- **State**: `bz_tout` a byte right after `bz_goal` (the frame loop's three
+  goal tests read the two as one word, the same 5 bytes), `bz_tsec` a word
+  (the whole seconds left, `bz_pinit` copies the course's limit from
+  `bz_clims` outside the benchmark) and `bz_t55` a byte (the steps to the
+  next second), in the zeroed block; `Physics.state7()` `(tout, tsec, t55)`
+  is compared by `bonanzaphys` at every frame. No step count is kept: the
+  seconds count down from the limit, so `tsec` IS the clock's figure.
+- **Cost**: **+55 bytes** with the scorecard's star gone (MEASURED); about
+  25 clk a step (ESTIMATED).
+- **`BZ_PHYSV`** moves (the timeout is a rule of the step, so a log saved
+  before it could replay differently): `SEC_STEPS` joins `PHYS_CONSTS`,
+  `PHYS_REV` 10, **D0h**; 11h (gate 1's baseline, 128.17.17.5) joins
+  `PHYSV_SHIPPED`; MOON, PEAK and PLAY's demos re-authored (step counts
+  unchanged), bests cleared once.
 
 #### 128.18.5 The course clock (story 7.2)
 
@@ -268930,7 +268948,11 @@ out: a stale pose enters with the column).
 - **`music NAME`**: a `SONGS` name (`fairway`, `trial`, `windmill`,
   `moonlit`, `summit`; `title` refused); the tool writes `BZ_CRS_SONGS`, a
   byte a course, and `bzs_gfetch` reads it in place of the course-K rule. A
-  course without `music` keeps the rule. **Verified by** `bonanzamusic`.
+  course without `music` keeps the rule, **now the tool's** (`course_song`):
+  the guest's wrapping code went for the table, +1 byte net (MEASURED). The
+  table reads `1, 1, 2, 3, 4, 5, 1` today, the rule exactly. **Verified by**
+  item 4 (`music trial`, the title and an unknown name refused) and
+  `bonanzamusic`.
 - **The events** (`bzsound.inc`'s counter table, the bank's event map,
   `tools/bbmusic.py`): new counters `nckpt`, `npad`, `nlip`, `nspr`, `nret`
   (the physics already counts them, 128.14.4.7) and new events FLAG, PAD,

@@ -1385,9 +1385,9 @@ BZ_FACEW    equ 42
 BZ_TIMEW    equ 6               ; a time: `ss.hh`, `ssss.h` (from 100 s) or `20:00+`
 BZ_FALLMAX  equ 9999            ; falls are shown, and filed, to four digits
 BZ_SC_NAME  equ 3               ; the scorecard's columns (bz_lbuf offsets; 0 is
-BZ_SC_TIME  equ 9               ; the margin cell): `K NAME  time* f<n> par <p>
+BZ_SC_TIME  equ 9               ; the margin cell): `K NAME  time f<n> lim <l>
 BZ_SC_FALL  equ 17              ; best <b>`
-BZ_SC_PAR   equ 23
+BZ_SC_LIM   equ 23
 BZ_SC_BEST  equ 31
 
 bz_face:
@@ -1785,9 +1785,9 @@ bz_l6:
 .l:
     jmp bz_line
 
-; lines 7 - 12: THE SCORECARD, tour course K = line - 6: `K NAME  <time>[*]
-; f<falls>  par <p>  best <b>` (SPEC.md 128.14.3.1 - 128.14.3.3): the tour's
-; time (`-` none), `*` at or under par, its falls, the par, BONANZA.DAT's best.
+; lines 7 - 12: THE SCORECARD, tour course K = line - 6: `K NAME  <time>
+; f<falls>  lim <l>  best <b>` (SPEC.md 128.14.3.1 - 128.14.3.3, 128.18.3): the
+; tour's time (`-` none), its falls, the time limit, BONANZA.DAT's best.
 ; The NAME, not the title: the title's 24 cells and the rest are 61.
 bz_sc:
     mov ax, [bz_fy]
@@ -1816,38 +1816,21 @@ bz_sc:
     call bz_lch
     jmp short .par
 .t:
-    push ax
-    call bz_ltimew
-    mov ax, 100                 ; the time AT OR UNDER par: hundredths <=
-    mul word [bz_cpars + si]    ; par x 100
-    mov bx, dx
-    xchg ax, cx
-    pop ax
-    xor dx, dx
-    call bz_t100
-    cmp dx, bx
-    ja .nostar
-    jb .star
-    cmp ax, cx
-    ja .nostar
-.star:
-    mov al, '*'
-    call bz_lch
-.nostar:
-    mov cx, bz_lbuf + BZ_SC_FALL
+    call bz_ltimew              ; (wave 7: no star - a finish is always inside
+    mov cx, bz_lbuf + BZ_SC_FALL ; its limit, 128.18.3)
     call bz_lto
     mov al, 'f'
     call bz_lch
     mov ax, [bz_tfall - 2 + si]
     call bz_lnumw
 .par:
-    mov cx, bz_lbuf + BZ_SC_PAR
+    mov cx, bz_lbuf + BZ_SC_LIM
     call bz_lto
     push si
-    mov si, bz_s_par
+    mov si, bz_s_lim
     call bz_lcat
     pop si
-    mov ax, [bz_cpars + si]
+    mov ax, [bz_clims + si]
     call bz_lnumz
     mov cx, bz_lbuf + BZ_SC_BEST
     call bz_lto
@@ -2483,8 +2466,11 @@ bz_post:
     mov [bz_lsc], al
     mov al, [bz_goal]           ; 0 stopped, 1 the goal line, 2 holed out (a
     add al, [bz_hid]            ; holed ball has finished): the GOAL STEP, not
-    mov [bz_lsend], al          ; bz_fin - an Esc in the goal's frame is read
-                                ; first, and the run still finished
+    test byte [bz_tout], 1      ; bz_fin - an Esc in the goal's frame is read
+    jz .lse                     ; first, and the run still finished; 3 the
+    mov al, 3                   ; TIMEOUT (wave 7, 128.18.4)
+.lse:
+    mov [bz_lsend], al
     cmp byte [bz_mode], 0       ; a replay posts nothing
     jne .out
     call bz_intour
@@ -3377,8 +3363,10 @@ bz_ctitles: BZ_CRS_TITLES       ; the courses' titles, BZ_CRS_TITLEB bytes each
 bz_cnames:  BZ_CRS_NAMES        ; ...their NAMEs, BZ_CRS_NAMEB bytes each
 bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_cncks:   BZ_CRS_NCKS         ; ...their flags, a byte each
-bz_cpars:   BZ_CRS_PARS         ; ...their pars, whole seconds, a word each
+bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECSTEPS
+                                ; steps, a word each (0 none; wave 7, 128.18.3)
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
+bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 128.18.6)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 128.16.6: bz_vinit)
 BZS bz_s_cga,   'Adapter: CGA, 320x200 four colours'
@@ -3398,13 +3386,14 @@ BZS bz_s_hint,  'Arrows roll  Space hop  L.Shift grip'
 BZS bz_s_mhint, 'Mouse tilts  left hop  right grip'
 BZS bz_s_demo,  'demo'
 BZS bz_s_secs,  ' s '
-bz_s_ends:  dw bz_s_estop, bz_s_egoal, bz_s_ecup
+bz_s_ends:  dw bz_s_estop, bz_s_egoal, bz_s_ecup, bz_s_etime
 BZS bz_s_estop, 'stop'
 BZS bz_s_egoal, 'goal'
 BZS bz_s_ecup,  'cup'
+BZS bz_s_etime, 'TIME'
 BZS bz_s_falls, ' falls '
 BZS bz_s_flags, ' flags '
-BZS bz_s_par,   'par '
+BZS bz_s_lim,   'lim '
 BZS bz_s_best,  'best '
 BZS bz_s_tnext, 'ENTER next: '
 BZS bz_s_tstop, 'Tour stopped'
@@ -3477,8 +3466,9 @@ BZ_FIT 6, 1 + bz_s_hint_n
 BZ_FIT 6m, 1 + bz_s_mhint_n
 BZ_FIT 6f, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + 1 + 12
 BZ_FIT 6l, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + bz_s_estop_n + bz_s_falls_n + 4 + bz_s_flags_n + 3
+BZ_FIT 6t, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + bz_s_etime_n + bz_s_falls_n + 4 + bz_s_flags_n + 3
 BZ_FIT 7, BZ_SC_BEST + bz_s_best_n + BZ_TIMEW
-%if BZ_SC_NAME + BZ_CRS_NAMEW >= BZ_SC_TIME || BZ_SC_TIME + BZ_TIMEW + 1 >= BZ_SC_FALL || BZ_SC_FALL + 5 >= BZ_SC_PAR || BZ_SC_PAR + bz_s_par_n + BZ_CRS_PARW >= BZ_SC_BEST
+%if BZ_SC_NAME + BZ_CRS_NAMEW >= BZ_SC_TIME || BZ_SC_TIME + BZ_TIMEW + 1 >= BZ_SC_FALL || BZ_SC_FALL + 5 >= BZ_SC_LIM || BZ_SC_LIM + bz_s_lim_n + BZ_CRS_LIMW >= BZ_SC_BEST
  %error "the scorecard's fields overrun their columns (bz_sc)"
 %endif
 BZ_FIT 12, 1 + bz_s_tnext_n + BZ_CRS_TITLEW

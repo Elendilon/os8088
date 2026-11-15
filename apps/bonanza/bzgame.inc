@@ -748,10 +748,11 @@ bz_t0:
     cmp byte [bz_estp], 0       ; an early step ran in the last wait: this frame
     jne .on                     ; presents it before the goal or a log's end
 %endif                          ; ends the run, as the frame it was due in would
-    cmp byte [bz_goal], 0       ; the frame after the step whose centre is on
+    cmp word [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
-    mov byte [bz_fin], 1        ; over (SPEC.md 128.10.6.2), and the face says
-    jmp short .end              ; how long it took
+    mov al, [bz_goal]           ; over (SPEC.md 128.10.6.2), and the face says
+    mov [bz_fin], al            ; how long it took; and (wave 7, 128.18.4) the
+    jmp short .end              ; frame after a TIMEOUT, bz_fin 0
 .live:
     cmp byte [bz_mode], 2       ; a replay's end (R, D): the frame after its
     jb .on                      ; last recorded step (SPEC.md 128.11.12.2)
@@ -800,7 +801,7 @@ bz_t0:
     mov cx, BZ_STEPS
 .n:
 %ifdef BZ_EARLYSTEP
-    cmp byte [bz_goal], 0       ; the early step was the GOAL step: the last
+    cmp word [bz_goal], 0       ; the early step was the GOAL step: the last
     jne .camera
 %endif
     jcxz .camera
@@ -811,7 +812,7 @@ bz_t0:
     jz .camera
 .stp:
     call bz_step
-    cmp byte [bz_goal], 0       ; the GOAL step is a play's last: a replay of
+    cmp word [bz_goal], 0       ; the GOAL step is a play's last: a replay of
     jne .camera                 ; its log ends on the same step (128.11.12.2)
     loop .step
 .camera:
@@ -1054,6 +1055,7 @@ bz_early:
     je .no                      ; none due
     mov al, [bz_full]
     or al, [bz_goal]
+    or al, [bz_tout]            ; (wave 7: the timeout's step ends it too)
     or al, [bz_wld]
     or al, [bz_noearly]         ; (a harness's poke)
     jnz .no

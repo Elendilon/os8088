@@ -376,7 +376,12 @@ CAPTURE_LO, CAPTURE_HI = 64, 384
 MOUTH_HW = 4                  # the mouth's half-width, gu: a 9 x 9 gu mouth round the cell's centre
 LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
-PAR_MAX = 999                 # par: 1 - 999 whole seconds
+PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
+SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
+LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
+LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
+LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit limit neither
+FALL_S = 8                    # ...plus one fall's allowance, seconds (a constant until wave 11)
 PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
@@ -455,9 +460,11 @@ class Source:
         self.cups = []              # [dict at capture line]
         self.springs = []           # [dict at gvz line]
         self.par = None             # (seconds, line)
+        self.limit = None           # wave 7: (seconds, line)
         self.target = None          # wave 5b (SPEC.md 128.15.8): (30|60|90, line), the tool's alone
         self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
         self.palette = None         # wave 6 (SPEC.md 128.16.6): (the 3D9h byte, line); never in the part
+        self.music = None           # wave 7 (SPEC.md 128.18.6): (the song's number, line); never in the part
 
 
 def _int(tok, where, what):
@@ -745,13 +752,24 @@ def parse(text, fname="<course>"):
                 src.start = (t, ln)
             else:
                 src.ways.append((t, ln))
-        elif st == "par":
-            if src.par is not None:
-                raise CourseError("%s: par given twice" % where)
+        elif st == "par":                           # wave 7 (SPEC.md 128.18.3): `limit` replaces it
+            raise CourseError("%s: par is refused since wave 7 - write `limit N` (whole seconds), or none for "
+                              "the tool's (SPEC.md 128.18.3)" % where)
+        elif st == "music":                         # wave 7 (SPEC.md 128.18.6): the course's song
+            if src.music is not None:
+                raise CourseError("%s: music given twice" % where)
+            names = song_names()
+            if len(toks) != 2 or toks[1][1] not in names[1:]:
+                raise CourseError("%s: music takes a course song's name: %s (the title, song 0, is the face's)"
+                                  % (where, ", ".join(names[1:])))
+            src.music = (names.index(toks[1][1]), ln)
+        elif st == "limit":
+            if src.limit is not None:
+                raise CourseError("%s: limit given twice" % where)
             if len(toks) != 2 or toks[1][0] != 'w' or not _INT.match(toks[1][1]) \
-                    or not 1 <= int(toks[1][1]) <= PAR_MAX:
-                raise CourseError("%s: par takes whole seconds, 1 - %d" % (where, PAR_MAX))
-            src.par = (int(toks[1][1]), ln)
+                    or not LIMIT_MIN <= int(toks[1][1]) <= LIMIT_MAX:
+                raise CourseError("%s: limit takes whole seconds, %d - %d" % (where, LIMIT_MIN, LIMIT_MAX))
+            src.limit = (int(toks[1][1]), ln)
         elif st == "target":                        # wave 5b (SPEC.md 128.15.8): the design time, CD3
             if src.target is not None:
                 raise CourseError("%s: target given twice" % where)
@@ -2534,6 +2552,66 @@ def herc_translate_course(part):
     return bytes(p)
 
 
+def song_names():
+    """wave 7 (SPEC.md 128.18.6): tools/bbmusic.py's SONGS, as names (song 0
+    the title) - the manifest is that tool's, read, never copied"""
+    sys.path.insert(0, os.path.dirname(TOOL))
+    try:
+        import bbmusic
+    finally:
+        sys.path.pop(0)
+    return [os.path.splitext(n)[0] for n in bbmusic.SONGS]
+
+
+def course_song(c, k):
+    """the song course K plays: its `music`, else K (BENCH 1), past the last
+    course song wrapping to 1 (128.20.6's rule, now the tool's)"""
+    if c.src.music is not None:
+        return c.src.music[0]
+    n = len(song_names())
+    return 1 if k == 0 else 1 + (k - 1) % (n - 1)
+
+
+def limit_rule(route_steps, tutorial=False):
+    """SPEC.md 128.18.3 (Q-86): the tool's limit for a route of ROUTE_STEPS -
+    the route's time times LIMIT_K (LIMIT_KT the tutorial's) plus FALL_S,
+    never under the route times LIMIT_FLOOR, rounded UP to 5 s -> seconds"""
+    t = route_steps / float(SEC_STEPS)
+    v = max(t * (LIMIT_KT if tutorial else LIMIT_K) + FALL_S, t * LIMIT_FLOOR)
+    return int(-(-v // 5) * 5)
+
+
+def _course_limit(c, src, fname):
+    """wave 7 (SPEC.md 128.18.3): -> (the course's limit in whole seconds, 0
+    none, its autopilot route in steps or None).  BENCH has none (the
+    benchmark); a course with a route takes the tool's limit unless it gives
+    one, and an explicit one under the route's floor is REFUSED; a course
+    with no route and no `limit` has none (the selfcheck's own courses)"""
+    if c.name == "BENCH" and src.limit is None:
+        return 0, None
+    route_steps = None
+    if c.route and c.has_finish:
+        p = Physics(c, play=True)
+        n = 0
+        try:
+            while n < 8000 and not p.goal:
+                p.step(p.auto())
+                n += 1
+        except IndexError:                          # (the route ran out before the goal)
+            pass
+        route_steps = n if p.goal else None
+    if src.limit is not None:
+        lim, ln = src.limit
+        if route_steps is not None and lim * SEC_STEPS < route_steps * LIMIT_FLOOR:
+            raise CourseError("%s:%d: limit %d s is under the route's floor: the autopilot takes %d steps (%.1f s), "
+                              "and a limit is at least %.1f times that (SPEC.md 128.18.3)" % (
+                                  fname, ln, lim, route_steps, route_steps / float(SEC_STEPS), LIMIT_FLOOR))
+        return lim, route_steps
+    if route_steps is None:
+        return 0, None
+    return min(LIMIT_MAX, limit_rule(route_steps)), route_steps
+
+
 def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
@@ -3002,7 +3080,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     c.ident = ident
     c.gflags, c.padmask = gflags, padmask
-    c.par = src.par[0] if src.par else 0
+    c.par = 0                                       # (wave 7: refused; kept for the cross-commit item 1)
     c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (128.16.6)
     c.nflags = len(src.ckpts)
     c.branches = src.branches
@@ -3044,6 +3122,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
                           % (fname, cups[0]["line"]))
     if not has_goal and not cups and occluders and not hack.get("no_finish"):
         raise CourseError("%s: no GOAL cell and no cup: the course has no finish" % fname)
+    c.has_finish = bool(has_goal or cups)
     # wave 4 (SPEC.md 128.14.4.1): NO TRAP.  c.prop_pix: each prop's MARKS, {prop: {what: {(x, y)}}} in
     # picture pixels - a spring's, a pad's and the cup's mark on its top ("spring", "pad", "cup"), the cup's
     # pin and flag ("pin"), a flag's pole and pennants ("flag") and, from 5b.6, a tube's two mouths ("IN",
@@ -3068,6 +3147,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             raise CourseError("%s:%d: NO TRAP: from the %s at (%d, %d) a %s ball cannot reach the %s"
                               % (fname, bad[0], bad[1], bad[2][0], bad[2][1], MAT_NAMES[bad[3]],
                                  "cup" if cups else "goal"))
+    c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 128.18.3): needs the part
     return c
 
 
@@ -4443,7 +4523,7 @@ class Physics:
                  _no_clear=False, _boost_rise=False, _pump=False, _springoff=False, _iceplain=False,
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
-                 _nospent=False, _noadd=False, _nolaunch=False):
+                 _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -4464,6 +4544,11 @@ class Physics:
         self.route = self.grid.route
         self.nstep = self.nfall = self.nland = 0
         self.goal = 0
+        # wave 7 (SPEC.md 128.18.4): the time limit, in a play or a replay only (the
+        # benchmark has none): tsec the whole seconds left as the clock shows them
+        # (ceil(left / SEC_STEPS)), t55 the steps until it drops, tout the timeout
+        self.tsec = getattr(course, "limit", 0) if play and isinstance(course, Course) else 0
+        self.t55, self.tout = SEC_STEPS, 0
         self.lfall = self.lvz = 0
         self.ztop = 0
         self.safe = self.grid.start
@@ -4533,6 +4618,7 @@ class Physics:
         # token from a launch out of the air
         self.bsp = 0
         self._nospent, self._noadd, self._nolaunch = _nospent, _noadd, _nolaunch
+        self._toutoff = _toutoff                    # (the `toutoff` arm: no timeout)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -5459,8 +5545,21 @@ class Physics:
 
     def _end(self):
         self.nstep += 1
+        if self.tsec:                               # wave 7 (128.18.4): after the goal's test, the
+            self.t55 -= 1                           # countdown; the limit's last step TIMES OUT
+            if not self.t55:                        # unless the goal was set (a tie: the goal wins)
+                self.t55 = SEC_STEPS
+                self.tsec -= 1
+                if not self.tsec and not self.goal and not self._toutoff:
+                    self.tout = 1
+                    self.events.append(("timeout", self.nstep, 0))
         self._derive(self.respawned)
         return self
+
+    def state7(self):
+        """wave 7's state as bonanzaphys compares it (SPEC.md 128.18.4):
+        bz_tout, bz_tsec, bz_t55"""
+        return (self.tout, self.tsec, self.t55)
 
 
 def sprite(p, herc):
@@ -5524,9 +5623,10 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
 # rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
 # the constants before it.
-PHYS_REV = 9
+PHYS_REV = 10
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
-               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, PHYS_REV)
+               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
+               PHYS_REV)
 # The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
 # so a new CRC can land on an old value: the build refuses a BZ_PHYSV in this
 # list.  00h is the unset value (every pre-wave-6 BONANZA.DAT has +5 = 0), 9Ah
@@ -5536,7 +5636,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -6996,12 +7096,14 @@ def emit_inc(courses):
               "%macro BZ_CRS_BALLS 0",
               "    db " + ", ".join(str(c.ball) for c in courses),
               "%endmacro", "",
-              "; wave 4 (SPEC.md 128.14.4.2): each course's PAR in whole seconds (0 none; the",
-              "; scorecard's, never in a part) and its IDENTITY (BZG1 +18), a word a course,",
-              "; read without fetching a part (the scorecard, BONANZA.DAT, the demo reader)",
-              "%macro BZ_CRS_PARS 0",
-              "    dw " + ", ".join(str(c.par) for c in courses),
+              "; wave 7 (SPEC.md 128.18.3): each course's time LIMIT in whole seconds of",
+              "; BZ_SECSTEPS steps (0 none; the step's countdown and the scorecard's, never in a",
+              "; part); wave 4's IDENTITY (BZG1 +18), a word a course, read without fetching a",
+              "; part (the scorecard, BONANZA.DAT, the demo reader)",
+              "%macro BZ_CRS_LIMS 0",
+              "    dw " + ", ".join(str(c.limit) for c in courses),
               "%endmacro",
+              "BZ_SECSTEPS     equ %d       ; wave 7: the clock's second, steps (128.18.1)" % SEC_STEPS,
               "%macro BZ_CRS_IDS 0",
               "    dw " + ", ".join("%05Xh" % c.ident for c in courses),
               "%endmacro",
@@ -7012,6 +7114,12 @@ def emit_inc(courses):
               "; wave 6 (SPEC.md 128.16.6): each course's CGA colour select, a byte a course, for",
               "; port 3D9h after the mode set (bits 0 - 3 the ground, 4 bright, 5 the palette);",
               "; 30h without a `palette` statement.  Not in the part: no identity moves",
+              "; wave 7 (SPEC.md 128.18.6): each course's SONG, a byte a course (its `music`",
+              "; statement's; without one course K plays song K, BENCH song 1, past the last",
+              "; course song wrapping to 1 - the rule bzs_gfetch carried until wave 7)",
+              "%macro BZ_CRS_SONGS 0",
+              "    db " + ", ".join(str(course_song(c, k)) for k, c in enumerate(courses)),
+              "%endmacro",
               "%macro BZ_CRS_PALS 0",
               "    db " + ", ".join("%03Xh" % c.pal for c in courses),
               "%endmacro",
@@ -7021,7 +7129,7 @@ def emit_inc(courses):
               "; XOR of courses 1 .. BZ_NCRS - 1's (BONANZA.DAT +56, 128.14.3.3)",
               "BZ_CRS_TITLEW   equ %d" % max(len(c.title) for c in courses),
               "BZ_CRS_NAMEW    equ %d" % max(len(c.name) for c in courses),
-              "BZ_CRS_PARW     equ %d" % max(len(str(c.par)) for c in courses),
+              "BZ_CRS_LIMW     equ %d" % max(len(str(c.limit)) for c in courses),
               "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, c: a ^ c.ident, courses[1:], 0),
               "BZ_PHYSV        equ %03Xh      ; the PHYSICS identity: CRC-16 of BZ_MATTAB, PHYS_CONSTS and the "
               "step's tables, folded (128.14.7.2, 128.14.25 item 4)" % PHYSV,
@@ -7244,7 +7352,8 @@ def stamp(paths, rec=None):
     h = hashlib.sha256()
     h.update(b"BZREC %d\0" % (REC if rec is None else rec))   # the course stamp carries the RECB (128.15.5.3)
     for name, path in (("tools/bbcourse.py", TOOL),
-                       ("tools/bonanza_assets.py", os.path.abspath(BA.__file__))):
+                       ("tools/bonanza_assets.py", os.path.abspath(BA.__file__)),
+                       ("tools/bbmusic.py", os.path.join(os.path.dirname(TOOL), "bbmusic.py"))):
         h.update(name.encode() + b"\0")
         with open(path, "rb") as f:
             h.update(f.read())
@@ -7434,7 +7543,7 @@ def route_demo(c, K):
     DEMO_STEPS steps, as a keyboard log"""
     p = Physics(c, play=True)
     keys = []
-    while len(keys) < DEMO_STEPS and not p.goal:
+    while len(keys) < DEMO_STEPS and not p.goal and not p.tout:
         k = p.auto()
         p.step(k)
         keys.append(k)
@@ -7452,6 +7561,8 @@ def replay_log(c, log):
         p.step(k, t)
         if p.goal and first is None:
             first = p.nstep
+        if p.tout:                                  # wave 7 (128.18.4): the replay ends at its timeout
+            break
     return p, first
 
 
@@ -12032,8 +12143,9 @@ def _w4_cases():
     many = lambda st, n: "".join(st % (5 + k % 8, 5 + k // 8 * 2) for k in range(n))
     return [
         ("par given twice", C + "par 5\npar 6\n", "par given twice"),
-        ("par 0", C + "par 0\n", "par takes whole seconds"),
-        ("par 1000", C + "par 1000\n", "par takes whole seconds"),
+        ("par 10 (wave 7: refused)", C + "par 10\n", "par is refused since wave 7"),
+        ("limit 4", C + "limit 4\n", "limit takes whole seconds"),
+        ("limit 1000", C + "limit 1000\n", "limit takes whole seconds"),
         ("a checkpoint naming no ball", C + "checkpoint 6 6 ball wood\n", "checkpoint takes"),
         ("a pad of no material", C + "pad wood 6 6\n", "pad takes"),
         ("a pad on a ramp", C + "pad steel 14 6\n", "not a FLAT FLOOR"),
@@ -13435,14 +13547,62 @@ def selfcheck(paths=None):
     crc = binascii.crc_hqx(mattab() + b"".join(struct.pack("<H", v) for v in PHYS_CONSTS) + phys_tables(),
                            0xFFFF)
     inc = a[2]["bzcourse.inc"]
-    res.append(("4 bzcourse.inc's BZ_CRS_PARS (%s), BZ_CRS_IDS and BZ_PHYSV (%02Xh: CRC-16/CCITT of BZ_MATTAB, "
-                "PHYS_CONSTS, BZ_SURFTAB, the corner and OCTANT tables, folded; binascii.crc_hqx agrees) are the "
-                "courses' and the model's, and every identity is non-zero" % (
-                    ", ".join(str(c.par) for c in courses), PHYSV),
-                "    dw " + ", ".join(str(c.par) for c in courses) in inc
+    res.append(("4 bzcourse.inc's BZ_CRS_LIMS (%s; wave 7, 128.18.3), BZ_CRS_IDS and BZ_PHYSV (%02Xh: CRC-16/CCITT "
+                "of BZ_MATTAB, PHYS_CONSTS, BZ_SURFTAB, the corner and OCTANT tables, folded; binascii.crc_hqx "
+                "agrees) are the courses' and the model's, and every identity is non-zero" % (
+                    ", ".join(str(c.limit) for c in courses), PHYSV),
+                "    dw " + ", ".join(str(c.limit) for c in courses) in inc
                 and "    dw " + ", ".join("%05Xh" % c.ident for c in courses) in inc
                 and PHYSV == (crc >> 8) ^ (crc & 0xFF) and "BZ_PHYSV        equ %03Xh" % PHYSV in inc
                 and all(c.ident for c in courses)))
+    # wave 7 (SPEC.md 128.18.3): each course's limit by the rule (or explicit and over its floor), printed
+    # with its 55-step seconds against real time; `par` refused; a limit under the floor refused
+    lrows, lbad = [], []
+    for c in courses:
+        if c.name == "BENCH":
+            lbad += [c.name] if c.limit else []
+            continue
+        want = limit_rule(c.lroute) if c.lroute else None
+        expl = c.src.limit is not None
+        lrows.append("%s %d s%s (route %s steps, %.1f s; %d steps = %.1f s real)" % (
+            c.name, c.limit, " explicit" if expl else "", c.lroute, (c.lroute or 0) / float(SEC_STEPS),
+            c.limit * SEC_STEPS, c.limit * SEC_STEPS * STEP_PIT / float(PIT_HZ)))
+        if not c.limit or (not expl and c.limit != want) or (c.lroute and c.limit * SEC_STEPS < c.lroute * LIMIT_FLOOR):
+            lbad.append(c.name)
+    print("    the time limits (SPEC.md 128.18.3; a second of %d steps is %.4f s): %s" % (
+        SEC_STEPS, SEC_STEPS * STEP_PIT / float(PIT_HZ), "; ".join(lrows)))
+    res.append(("4 every course but BENCH has a time limit, the tool's rule's or an explicit one over its route's "
+                "floor; BENCH none (%s)" % (", ".join(lbad) or "all"), not lbad))
+    for what, txt in (("par", 'course PAR "p"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\n'
+                               'goal rect 9 10 12 14 flat 4\nstart 5 12\nway 10 12\npar 10\n'),
+                      ("a limit under the floor", 'course LIM "l"\nwidth 128\norigin 352\n'
+                       'floor rect 3 10 30 14 flat 4\ngoal rect 30 10 33 14 flat 4\nstart 5 12\nway 18 12\n'
+                       'way 31 12\nlimit 5\n')):
+        try:
+            compile_course(txt, "<%s>" % what, occluders=False)
+            why = "accepted"
+        except CourseError as e:
+            why = str(e)
+        res.append(("4 wave 7's refusal: %s is refused (%s)" % (what, why[:120]),
+                    why != "accepted" and ("par is refused" in why if what == "par" else "under the route" in why)))
+    # wave 7 (SPEC.md 128.18.6): `music NAME` names the song; the title and an unknown name are refused;
+    # without it the courses keep 128.20.6's rule, now the tool's table
+    base = 'course MUS "m"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\ngoal rect 9 10 12 14 flat 4\nstart 5 12\n'
+    mc = compile_course(base + "music trial\n", "<music>", occluders=False)
+    sn = song_names()
+    rule = [course_song(c, k) for k, c in enumerate(courses)]
+    mr = []
+    for bad in ("music title\n", "music nosuch\n"):
+        try:
+            compile_course(base + bad, "<music refused>", occluders=False)
+            mr.append("accepted")
+        except CourseError as e:
+            mr.append("refused" if "music takes" in str(e) else str(e))
+    res.append(("4 `music trial` gives song %d (%s); `music title` and an unknown name %s; the courses' songs %s, "
+                "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
+                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused"]
+                and rule == [1 if k == 0 else 1 + (k - 1) % (len(sn) - 1) for k in range(len(courses))]
+                and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)
     tb = phys_tables()
