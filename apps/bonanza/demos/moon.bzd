@@ -4,7 +4,7 @@
 # as built; replaced by the owner's recording the day one is committed.
 demo    MOON
 ident   5E25
-physics 11
+physics D0
 ball    rubber
 flags   complete
 steps   2130

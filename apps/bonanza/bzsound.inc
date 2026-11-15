@@ -319,7 +319,8 @@ bzs_skey:
 ; -----------------------------------------------------------------------------
 
 ; bzs_gfetch - the title off, and the sound part and course [bz_crs]'s song
-; fetched (128.20.6: course K plays song K, BENCH song 1, past five wraps).  A
+; fetched (wave 7, 128.18.6: bz_csongs, the course's `music` or 128.20.6's
+; rule, the tool's - course K plays song K, BENCH song 1, past five wraps).  A
 ; part that cannot be had (its toast said why) leaves the play SILENT, never
 ; refused.  Preserves nothing.
 bzs_gfetch:
@@ -328,16 +329,9 @@ bzs_gfetch:
     je .r
     call bzs_fsnd
     jc .r
-    mov al, [bz_crs]
-    or al, al
-    jnz .k
-    inc ax                      ; BENCH: song 1
-.k:
-    cmp al, BZS_NSONG
-    jb .s
-    sub al, BZS_NSONG - 1
-    jmp short .k
-.s:
+    mov bl, [bz_crs]
+    xor bh, bh
+    mov al, [bz_csongs + bx]
     add al, BZ_P_SONG
     call bzs_fsong
 .r:
