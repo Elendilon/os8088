@@ -246,7 +246,8 @@ VAR bz_lqt,1                    ; 1: the last walk SKIPPED every lane (the quiet
 VAR bz_lwake,2                  ; walk), until step bz_lwake (the rotors' first
                                 ; bz_lnext), a kick or a flag
 VAR bz_lkn,2                    ; the slice's kicks: bz_lkn words of bz_pkick
-VAR bz_lks,2                    ; from bz_lks (the range's, .rng)
+VAR bz_lks,2                    ; from bz_lks (the range's, .rng), and its
+VAR bz_lkb,2                    ; lanes' bytes of bz_ldrw from bz_lkb
 VAR bz_pR0,2                    ; bz_R0 as the walk last read it (8000h: none):
                                 ; bz_pwy and the range are that window's
 VAR bz_pin,1                    ; 1: the lift's rise meets the walk's range
@@ -2307,7 +2308,10 @@ bz_kmeet:
 ; lane is walked.  A walk that skipped EVERY lane is not made again (THE QUIET
 ; WALK, bz_lqt) while the window's rows stand (bz_pR0) and nothing a skip
 ; reads has moved: no rotor's next change reached (bz_lwake, the nearest), no
-; flag touched, no kick of the slice's lanes unseen.  For each lane walked:
+; flag touched, no kick of the slice's lanes unseen, every one of them drawn
+; at its true pose with no lit frames (EVERY input of the skip below is one of
+; these terms, bz_lknd and the range apart, which a play fixes and a range
+; move rewalks).  For each lane walked:
 ;   0. a POST's lit frames: one counted off when it begins the frame drawn
 ;      lit, all of them when it is wholly out of the shown window;
 ;   1. its TRUE pose (bz_ltrue);
@@ -2385,6 +2389,17 @@ bz_props:
     push ds
     pop es
     repe cmpsw
+    jne .walk1
+    mov si, [bz_lkb]            ; ...and the slice's lanes still drawn at
+    lea di, [si + bz_ltru - bz_ldrw] ; their true poses with no lit frames (a
+    mov cx, [bz_lkn]            ; harness pokes bz_ldrw and bz_lhold, display
+    repe cmpsb                  ; state the game changes only in a walk: the
+    jne .walk1                  ; skip reads both, so the quiet walk does)
+    lea di, [si + bz_lhold - bz_ldrw]
+    sub di, [bz_lkn]
+    mov cx, [bz_lkn]
+    repe scasb                  ; (AL = 0)
+.walk1:
     pop es                      ; (ES as it came: the walk keeps it too)
     jne .walk0
 .plat0:
@@ -2476,6 +2491,8 @@ bz_props:
 .ks:
     mov [bz_lkn], bx
     mov bl, [bz_lr0]
+    lea si, [bx + bz_ldrw]
+    mov [bz_lkb], si
     shl bx, 1
     add bx, bz_pkick
     mov [bz_lks], bx
