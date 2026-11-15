@@ -182,6 +182,20 @@ BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 BZ_SPR_STR  equ 72              ; ...and rubber's stretch 72 (wave 6, 128.16.4.4)
 BZ_NBOXMAX  equ 4
+; THE EARLY STEP (bz_early): a step that is already due by the clock runs in
+; the retrace wait's idle time instead of at the next frame's top.  On unless
+; the build defines BZ_NOEARLYSTEP (`nasm -DBZ_NOEARLYSTEP`: the A/B, and the
+; bytes of the tree before it).
+%ifndef BZ_NOEARLYSTEP
+ %define BZ_EARLYSTEP
+%endif
+BZ_EROOM    equ 8000            ; PIT counts (32k clk) the wait must still hold: the
+                                ; worst step MEASURED (21.8k clk, a bz_win9f refill
+                                ; and a tick's ISR in it), the 16 lines the last
+                                ; wait's sample may sit inside its sync (4.9k), a
+                                ; tick more and bz_vr's way to its first read
+BZ_ESYNC    equ 1400            ; ...and a frame this little past a sync may still
+                                ; present in it (bz_vr's "already high"): no step
 
 %macro BZ_GAME_VARS 0
 VAR bz_mode,1
@@ -325,7 +339,8 @@ VAR bz_pitl,2
 VAR bz_msubs,2
 VAR bz_mpit,2
 VAR bz_lsubs,2
-VAR bz_fper,4
+VAR bz_ppit,2                   ; the last frame's bz_presented mark (bz_mpit, bz_msubs
+VAR bz_psubs,2                  ; then): a measured frame's period is this one less it
 VAR bz_mlim,2
 VAR bz_vsubs,2                  ; the retrace wait's last sample (bz_latechk)
 VAR bz_vpit,2
@@ -379,6 +394,8 @@ VAR bz_gr,32                    ; the frame's box rects, before the clip
 VAR bz_nbox,2
 VAR bz_opx,2                    ; the ball's px, py last frame (the idle test)
 VAR bz_opy,2
+VAR bz_boxp,2                   ; bz_addbox: the next box's record in bz_boxes
+VAR bz_sgr,2                    ; bz_mkboxes: the shadow group's first rect in bz_gr
 VAR bz_xlo,2                    ; bz_boxw's copy of a box's overlap band
 VAR bz_xa,2
 VAR bz_xb,2
@@ -414,6 +431,11 @@ VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a
                                 ; Hercules launch, before the bracket (128.11.3)
 BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
+%ifdef BZ_EARLYSTEP
+VAR bz_estp,1                   ; 1: an early step ran and its frame is not presented yet
+VAR bz_ersp,1                   ; ...and it respawned the ball (the next frame's bz_resp)
+VAR bz_nearly,2                 ; early steps this play (an instrument: nothing reads it)
+%endif
 %if bz_rframes - bz_frames != BZ_LIVE || bz_npwt + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
  %error "bz_play copies the instruments and the footprints as blocks: their layout moved"
 %endif
@@ -443,52 +465,56 @@ bz_clk_sample:
 
 ; -----------------------------------------------------------------------------
 ; bz_mark - a frame mark: the PIT counts since the last mark go to part BX/4's
-; accumulator (bz_acc + BX) and to the frame's period (bz_fper) when this
-; frame is measured, and the mark becomes the base.  A mark costs ~1.0k clocks
-; of its own on MartyPC's 8088 (a PIT latch, ~0.2k, and the 32-bit sums;
-; measured: a frame with no rows still shows ~1.07k in the rows part), billed
-; to the part it closes: the small parts' means read that much high, and a
-; benchmark's busy time ~4-5k above play's, where the sums are skipped.  Preserves all but the flags.
+; accumulator (bz_acc + BX) when this frame is measured, and the mark becomes
+; the base.  A PLAY and a REPLAY measure nothing (bz_meas is 0 there, bz_camera)
+; and read no base: their mark is the clock sample alone, ~0.3k clocks where it
+; was ~0.55k.  A benchmark's (B, D) is ~0.7k of its own on MartyPC's 8088 (the
+; latch, ~0.27k, and the 32-bit sum), billed to the part it closes: the small
+; parts' means read that much high, and a benchmark's busy time ~4-5k above
+; play's.  The frame's PERIOD is not summed here: bz_presented takes it once,
+; its mark less the last frame's (the same counts: the marks' gaps telescope).
+; Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_mark:
+    test byte [bz_mode], 1
+    jz bz_clk_sample            ; a play, a replay: the sample, no base
     push ax
-    push cx
-    push dx
-    call bz_clk_sample
+    pushf                       ; (bz_clk_sample, inline: a benchmark's frame
+    cli                         ; has six or seven marks)
+    xor al, al
+    out 43h, al
+    in al, 40h
+    mov ah, al
+    in al, 40h
+    xchg al, ah
+    popf
+    cmp ax, [bz_pitl]
+    jbe .same
+    inc word [bz_subs]
+.same:
+    mov [bz_pitl], ax
+    xchg ax, [bz_mpit]          ; AX = the last mark's count; this one the base
     cmp byte [bz_meas], 0
     je .base
-    mov ax, [bz_subs]
-    sub ax, [bz_msubs]
-    xor dx, dx                  ; DX:AX = whole sub-ticks in counts: 0 on most
-    or ax, ax                   ; marks and 1 on most of the rest, neither of
-    jz .ph                      ; which needs the MUL
-    cmp ax, 1
-    jne .mul
-    mov ax, BZ_SUB
-    jmp .ph
-.mul:
-    mov cx, BZ_SUB
-    mul cx
-.ph:
-    mov cx, [bz_mpit]
-    sub cx, [bz_pitl]           ; + the phase moved (signed: the count runs down)
-    add ax, cx
+    push cx
+    push dx
+    sub ax, [bz_pitl]           ; the phase moved (signed: the count runs down,
+    cwd                         ; and |it| < BZ_SUB < 32,768) ...
+    mov cx, [bz_subs]
+    sub cx, [bz_msubs]          ; ...+ the whole sub-ticks: 0 on most marks and
+    jcxz .ph                    ; 1 on most of the rest, so adds, not a MUL
+.sub:
+    add ax, BZ_SUB
     adc dx, 0
-    test ch, 80h
-    jz .pos
-    dec dx
-.pos:
+    loop .sub
+.ph:
     add [bz_acc + bx], ax
     adc [bz_acc + bx + 2], dx
-    add [bz_fper], ax           ; ...and to this frame's period
-    adc [bz_fper + 2], dx
+    pop dx
+    pop cx
 .base:
     mov ax, [bz_subs]
     mov [bz_msubs], ax
-    mov ax, [bz_pitl]
-    mov [bz_mpit], ax
-    pop dx
-    pop cx
     pop ax
     ret
 
@@ -529,36 +555,36 @@ bz_r0pend:
 ; counts a CGA line, 63 a Hercules one; both round toward LATE).  Preserves
 ; all but the flags.
 ; -----------------------------------------------------------------------------
+%if BZ_LINES + 16 > 255
+ %error "bz_latechk takes 64 n from a line count under 256"
+%endif
 bz_latechk:
     push ax
     push bx
-    push cx
     push dx
+    mov bx, [bz_lblank]         ; BX: the counts the beam takes to get there
     cmp byte [bz_vedge], 0
     je .lv
-    add ax, 16                  ; the sync's lines (less BZ_VLAT, below)
+    add ax, 16                  ; the sync's lines, less BZ_VLAT: the sample
+    sub bx, BZ_VLAT             ; came up to BZ_VLAT after the rise
 .lv:
-    mov bx, ax
-    mov cl, 6
-    shl ax, cl                  ; 64 n
+    mov dx, ax                  ; (n lines, under 256: a window's and the sync's)
+    mov ah, al
+    xor al, al
+    shr ax, 1
+    shr ax, 1                   ; 64 n
     cmp byte [bz_herc], 0
     jne .h
-    mov cx, bx
-    shl bx, 1
-    add bx, cx
-    shl bx, 1
-    shl bx, 1                   ; 12 n
-    add ax, bx                  ; 76 n: CGA lines
+    shl dx, 1
+    shl dx, 1
+    add ax, dx                  ; 68 n
+    shl dx, 1
+    add ax, dx                  ; 76 n: CGA lines
     jmp short .b
 .h:
-    sub ax, bx                  ; 63 n: Hercules lines
+    sub ax, dx                  ; 63 n: Hercules lines
 .b:
-    add ax, [bz_lblank]
-    cmp byte [bz_vedge], 0
-    je .lb
-    sub ax, BZ_VLAT             ; the sample came up to BZ_VLAT after the rise
-.lb:
-    mov bx, ax                  ; BX = the counts the beam takes to get there
+    add bx, ax
     call bz_clk_sample
     mov ax, [bz_subs]
     sub ax, [bz_vsubs]          ; whole sub-ticks since (0 or 1: a sub-tick is
@@ -575,7 +601,6 @@ bz_latechk:
     stc
 .out:
     pop dx
-    pop cx
     pop bx
     pop ax
     ret
@@ -596,13 +621,15 @@ bz_play:
     mov [bz_vy], ax
     mov [bz_tos], ax
     mov [bz_subs], ax
-    mov [bz_fper], ax
-    mov [bz_fper + 2], ax
     mov [bz_keys], al
     mov [bz_oldv], al
     mov [bz_meas], al
     mov [bz_fin], al            ; the face's "Finished" goes with a new play
     mov [bz_rn], al             ; the log: no current run, from its first pair
+%ifdef BZ_EARLYSTEP
+    mov [bz_estp], ax           ; (and bz_ersp)
+    mov [bz_nearly], ax
+%endif
     mov word [bz_rptr], bz_rlog + BZR_RUNS
     mov di, bz_frames
     mov cx, BZ_LIVE / 2
@@ -667,6 +694,10 @@ bz_play:
 bz_t0:
     call bz_exitchk
     jc .out
+%ifdef BZ_EARLYSTEP
+    cmp byte [bz_estp], 0       ; an early step ran in the last wait: this frame
+    jne .on                     ; presents it before the goal or a log's end
+%endif                          ; ends the run, as the frame it was due in would
     cmp byte [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
     mov byte [bz_fin], 1        ; over (SPEC.md 128.10.6.2), and the face says
@@ -703,7 +734,14 @@ bz_t0:
     je .nohold                  ; 128.12.5.6): a spin before the steps
     call bz_hspin
 .nohold:
+%ifdef BZ_EARLYSTEP
+    xor ax, ax                  ; (a respawn in this frame's steps: the cut) -
+    xchg al, [bz_ersp]          ; the early step is this frame's first, and its
+    mov [bz_resp], al           ; respawn this frame's
+    mov [bz_estp], ah
+%else
     mov byte [bz_resp], 0       ; (a respawn in this frame's steps: the cut)
+%endif
     mov cx, [bz_subs]           ; (sampled at the last frame's end mark)
     sub cx, [bz_lsubs]
     add [bz_lsubs], cx
@@ -711,6 +749,10 @@ bz_t0:
     jbe .n
     mov cx, BZ_STEPS
 .n:
+%ifdef BZ_EARLYSTEP
+    cmp byte [bz_goal], 0       ; the early step was the GOAL step: the last
+    jne .camera
+%endif
     jcxz .camera
 .step:
     cmp byte [bz_mode], 2       ; a replay (R, D) steps while its log lasts
@@ -763,6 +805,9 @@ bz_tw:
     mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2
 bz_tv:                          ; parts keep their numbers)
     call bz_mark
+%ifdef BZ_EARLYSTEP
+    call bz_early               ; a due step, in the wait's time (after the wheel)
+%endif
     mov byte [bz_wvok], 0       ; (no rise to reckon from: bz_vr sets it)
     pushf                       ; IF, for the row-0 box's critical section:
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
@@ -871,11 +916,25 @@ bz_presented:
     jnz .fsat                   ; cap, never a wrapped plausible count:
     dec word [bz_frames]        ; 128.14.22 item 13)
 .fsat:
-    cmp byte [bz_meas], 0
+    test byte [bz_mode], 1      ; a benchmark's frame (a play and a replay
+    jz .fper                    ; measure nothing): this mark is the next
+    mov ax, [bz_mpit]           ; frame's base, and a MEASURED frame's period
+    mov cx, [bz_msubs]          ; is this mark less the last frame's - what the
+    xchg ax, [bz_ppit]          ; marks' gaps summed to (the frame before a
+    xchg cx, [bz_psubs]         ; measured one is a benchmark's too: the first
+    cmp byte [bz_meas], 0       ; frame is a full write, never measured)
     je .fper
     inc word [bz_mfr]
-    mov ax, [bz_fper]           ; this frame's period, PIT counts: the worst...
-    mov dx, [bz_fper + 2]
+    sub ax, [bz_ppit]           ; the phase moved (signed) ...
+    cwd
+    sub cx, [bz_psubs]
+    neg cx                      ; ...+ the whole sub-ticks
+    jcxz .per
+.sub:
+    add ax, BZ_SUB
+    adc dx, 0
+    loop .sub
+.per:                           ; DX:AX = the period, PIT counts: the worst...
     cmp dx, [bz_fmax + 2]
     jb .notmax
     ja .max
@@ -892,9 +951,6 @@ bz_presented:
 .miss:
     inc word [bz_miss]
 .fper:
-    xor ax, ax
-    mov [bz_fper], ax
-    mov [bz_fper + 2], ax
     push ds                     ; the footprints drawn are the next frame's old
     pop es                      ; ones: the ball's and the shadow's rects, and
     mov si, bz_nfx0             ; whether the shadow was drawn
@@ -915,6 +971,74 @@ bz_presented:
     jae bz_rcopy                ; the benchmark is done
 .next:
     jmp bz_t0
+
+%ifdef BZ_EARLYSTEP
+; -----------------------------------------------------------------------------
+; bz_early - THE EARLY STEP, at bz_tv: the wheel is done and the frame would
+; now idle until the retrace.  If a step is ALREADY DUE by the loop's own rule
+; (a sub-tick sampled past bz_lsubs: never a predicted one) and the wait holds
+; BZ_EROOM counts still, it runs here and bz_lsubs takes it, so the next
+; frame's top has one fewer to run: the same steps in the same order with the
+; same key bytes off the log, only earlier.  A play's early step reads the keys
+; last sampled (bz_keys, bz_tilt: this frame's bz_input), where it would have
+; read the next frame's.
+;   The room is reckoned as the wheel reckons (bz_wnow: the counts since the
+; last wait's sample S, the refresh bz_wrefp): the next rise is at S + refp, or
+; S + 2 refp on a frame already more than BZ_ESYNC past its first sync - the
+; long wait of a frame that missed, where a step most wants running.  No step
+; when the last wait gave no sample (bz_wvok: a time-out, a full write), on a
+; full write (no wait), when the wheel marked a lane for the LEAD (bz_wld: the
+; one thing after the wait that could commit a lane; with none, nothing drawn
+; or keyed after here reads the ball - the boxes are composed, the column is
+; the map's, bz_presented copies bz_foot's footprints), after the GOAL step,
+; or when a replay's log is spent.
+;   This frame shows the state BEFORE the step.  What the step leaves for the
+; frame level is carried to the next frame, where it was due: bz_estp makes
+; bz_t0 present that frame before the goal or the log's end stops the run,
+; and a respawn's bz_resp is held in bz_ersp over this frame's.
+; Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_early:
+    mov ax, [bz_subs]
+    cmp ax, [bz_lsubs]
+    je .no                      ; none due
+    mov al, [bz_full]
+    or al, [bz_goal]
+    or al, [bz_wld]
+    jnz .no
+    cmp [bz_wvok], al
+    je .no
+    cmp byte [bz_mode], 2
+    jb .room
+    call bz_rleft
+    jz .no
+.room:
+    call bz_wnow                ; AX = the counts since S (CF: past a word)
+    jc .no
+    mov dx, [bz_wrefp]
+    sub ax, dx
+    jb .left                    ; before the first sync
+    cmp ax, BZ_ESYNC            ; just past it: bz_vr may still take it
+    jb .no
+    sub ax, dx
+    jae .no                     ; past the second: no reckoning that far
+.left:
+    neg ax                      ; AX = the counts to the next rise
+    cmp ax, BZ_EROOM
+    jb .no
+    xor al, al
+    xchg al, [bz_resp]
+    push ax
+    call bz_step
+    pop ax
+    xchg al, [bz_resp]
+    mov [bz_ersp], al
+    mov byte [bz_estp], 1
+    inc word [bz_lsubs]
+    inc word [bz_nearly]
+.no:
+    ret
+%endif
 
 ; a benchmark's end (B's last frame, D's log spent): the instruments' results
 ; stay for the desktop's RESULTS page.  ES = ours.  Clobbers CX, SI, DI.
@@ -1721,7 +1845,6 @@ bz_camera:
     mov [bz_R0], ax
     mov ax, [bz_c0n]
     mov [bz_c0], ax
-    mov byte [bz_full], 1
     xor ax, ax                  ; every mode starts at rest, heading right
     mov [bz_gpx], ax            ; and down (bz_gpx, bz_gpy; bz_gpar, bz_gdx)
     mov [bz_gpar], ax
@@ -1738,6 +1861,9 @@ bz_camera:
     dec bx
     dec bx
     jns .tf
+    xor ax, ax                  ; (R0 = R0n, c0 = c0n: no step)
+    cwd
+    mov bl, 1                   ; ...and a full write
     jmp .decided
 .modes:
     ; --- the travel over four frames (SPEC.md 128.11.11.1): read the slot
@@ -1750,7 +1876,9 @@ bz_camera:
     mov dx, ax
     xchg ax, [bz_trx + bx]
     sub dx, ax
-    call bz_abs
+    jns .tx                     ; (bz_abs, inline)
+    neg dx
+.tx:
     cmp dx, BZ_GTRX
     jbe .ty
     inc si
@@ -1759,7 +1887,9 @@ bz_camera:
     mov dx, ax
     xchg ax, [bz_try + bx]
     sub dx, ax
-    call bz_abs
+    jns .tyy
+    neg dx
+.tyy:
     cmp dx, BZ_GTRY
     jbe .tr
     add si, 100h
@@ -1824,12 +1954,15 @@ bz_camera:
     jne .trickle
     mov al, [bz_gpar]           ; (the heavy rule puts the x pan's parity
     mov [bz_kpar], al           ; back when it withholds a column)
-    call bz_camglide
-    cmp byte [bz_heavy], 0      ; THE HEAVY FRAME (SPEC.md 128.12.7): GLIDE's
-    je .moved                   ; rows and column withheld, from the clamped
-    call bz_clampwin            ; step (a light frame is clamped once, at
-    call bz_hvcam               ; .moved: the final pass)
-    jmp .moved
+    call bz_camglide            ; GLIDE's step is CLAMPED as it is made: its
+    cmp byte [bz_heavy], 0      ; targets are held to [0, bz_cmax] and [0,
+    je .moved                   ; bz_rmax] and it steps from the shown window
+    call bz_hvcam               ; (clamped: the first frame's, or a step's)
+    jmp .moved                  ; toward them, never past - so bz_clampwin
+                                ; would change nothing, here or after THE
+                                ; HEAVY FRAME (SPEC.md 128.12.7), which only
+                                ; takes rows and the column back toward the
+                                ; shown window
 .trickle:
     ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
     mov word [bz_gpx], 0        ; (GLIDE's pans are off outside GLIDE)
@@ -1893,31 +2026,28 @@ bz_camera:
     inc si
 .hdone:
     mov [bz_c0n], si
+    call bz_clampwin            ; (TRICKLE's step is not clamped as it is made)
 .moved:
-    call bz_clampwin
-    mov byte [bz_full], 0
-    mov ax, [bz_R0n]            ; a step past the ring's rules: a full write
+    mov ax, [bz_R0n]            ; the frame's step: AX = dr, DX = dc ...
     sub ax, [bz_R0]
-    mov dx, ax
-    call bz_abs
-    cmp dx, BZ_MAXR
+    mov dx, [bz_c0n]
+    sub dx, [bz_c0]
+    xor bx, bx                  ; BL = bz_full: a step past the ring's rules
+    mov cx, ax                  ; (|dr| > BZ_MAXR or |dc| > BZ_MAXC) is a full
+    add cx, BZ_MAXR             ; write
+    cmp cx, 2 * BZ_MAXR
     ja .full
-    mov ax, [bz_c0n]
-    sub ax, [bz_c0]
-    mov dx, ax
-    call bz_abs
-    cmp dx, BZ_MAXC
+    mov cx, dx
+    add cx, BZ_MAXC
+    cmp cx, 2 * BZ_MAXC
     jbe .decided
 .full:
-    mov byte [bz_full], 1
+    inc bx
 .decided:
-    mov ax, [bz_R0n]
-    sub ax, [bz_R0]
     mov [bz_dr], ax
-    mov ax, [bz_c0n]
-    sub ax, [bz_c0]
-    mov [bz_dc], ax
-    mov al, [bz_full]           ; measured: a benchmark's frames but a full
+    mov [bz_dc], dx
+    mov [bz_full], bl
+    mov al, bl                  ; measured: a benchmark's frames but a full
     xor al, 1                   ; write; PLAY and a REPLAY measure nothing,
     and al, [bz_mode]           ; since nothing reads it (bz_mode 1 B and 3 D
                                 ; keep the bit, 0 and 2 do not)
@@ -2370,6 +2500,12 @@ bz_clampwin:
 ; its line) - needs NO box: the card already holds it (128.11.10.4).
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
+%macro BZ_RPUT 0                ; the rect at SI copied to DI, DI past it (SI too).
+    movsw                       ; ES = ours
+    movsw
+    movsw
+    movsw
+%endmacro
 bz_mkboxes:
     push ds
     pop es
@@ -2434,6 +2570,7 @@ bz_mkboxes:
     cbw                         ; hidden ball's, whose capture frame restores
     or bp, ax                   ; the footprint it was drawn in (128.12.6.1)
     mov word [bz_nbox], 0       ; (the new footprints are bz_foot's, rule 0)
+    mov word [bz_boxp], bz_boxes
     mov byte [bz_ohold], 0       ; the old footprints count unless a full write
     cmp byte [bz_full], 0       ; or the first frame
     jne .go
@@ -2458,13 +2595,13 @@ bz_mkboxes:
     call bz_union
     jnc .bu
     mov si, bz_ofx0
-    call bz_rput
+    BZ_RPUT
     mov si, bz_nfx0
     jmp short .bput
 .bu:
     mov si, bz_ur
 .bput:
-    call bz_rput
+    BZ_RPUT
 .sgrp:
     mov dx, di                  ; DX = the shadow group's first rect
     ; THE SHADOW GROUP: the old (drawn last frame) and the new (drawn now)
@@ -2478,7 +2615,7 @@ bz_mkboxes:
     mov bx, bz_snx0
     call bz_union
     jnc .su
-    call bz_rput                ; two: the old, then the new
+    BZ_RPUT                     ; two: the old, then the new
     jmp short .snew
 .su:
     mov si, bz_ur
@@ -2489,7 +2626,7 @@ bz_mkboxes:
 .snew:
     mov si, bz_snx0
 .sput:
-    call bz_rput
+    BZ_RPUT
 .sdone:
     ; ONE BOX when each group is one box and their union fits
     cmp dx, bz_gr + 8
@@ -2502,13 +2639,13 @@ bz_mkboxes:
     jc .split
     mov di, bz_gr
     mov si, bz_ur
-    call bz_rput                ; (DX = bz_gr + 8: the one rect is group 0)
+    BZ_RPUT                     ; (DX = bz_gr + 8: the one rect is group 0)
     jmp short .emit
 .hid:
     cmp byte [bz_ohold], 0      ; (SPEC.md 128.12.6.1: the capture's frame
     je .sgrp                    ; restores it, the frames after compose
     mov si, bz_ofx0             ; nothing for the ball)
-    call bz_rput
+    BZ_RPUT
     jmp short .sgrp
 .split:
     cmp byte [bz_ogate], 0      ; the pass runs and the shadow is not in the
@@ -2544,7 +2681,7 @@ bz_mkboxes:
     push di
     mov di, bz_gr
     mov si, bz_ur
-    call bz_rput
+    BZ_RPUT
     pop di
     jmp short .ct2
 .cadd:
@@ -2555,7 +2692,7 @@ bz_mkboxes:
 .cput:
     mov [bz_cgr], di
     mov si, bz_crect
-    call bz_rput
+    BZ_RPUT
 .ct2:
     ; THE LIFT'S BOX BESIDE A LIGHTING POST (bz_pflag bit 2, SPEC.md
     ; 128.12.5.2): merged into the ball's group (up to BZ_BOXL lines, the
@@ -2582,7 +2719,7 @@ bz_mkboxes:
     push di
     mov di, si
     mov si, bz_ur
-    call bz_rput
+    BZ_RPUT
     pop di
     jmp short .eall
 .ct2c:
@@ -2593,16 +2730,18 @@ bz_mkboxes:
 .ct2p:
     mov [bz_cgr2], di
     mov si, bz_crect2
-    call bz_rput
+    BZ_RPUT
 .eall:
     ; the rects as boxes, each clipped to the new window: group 0 the ball's,
     ; 1 the shadow's, 2 the contact's
+    mov [bz_sgr], dx            ; (the shadow group's first rect)
+    mov bp, di                  ; BP = the rects' end
     mov si, bz_gr
 .e:
-    cmp si, di
+    cmp si, bp
     jae .sort
     xor al, al
-    cmp si, dx
+    cmp si, [bz_sgr]
     jb .g
     inc ax
     cmp si, [bz_cgr]
@@ -2613,18 +2752,12 @@ bz_mkboxes:
     inc ax
 .g:
     mov [bz_grp], al
-    push si
-    push di
-    push dx
-    mov ax, [si]
-    mov bx, [si + 2]
-    mov cx, [si + 4]
-    mov dx, [si + 6]
-    call bz_addbox
-    pop dx
-    pop di
-    pop si
-    add si, 8
+    lodsw
+    mov bx, [si]
+    mov cx, [si + 2]
+    mov dx, [si + 4]
+    add si, 6
+    call bz_addbox              ; (keeps SI and BP)
     jmp short .e
 .sort:
     ; in the order of their first lines (at most four: a bubble sort)
@@ -2638,17 +2771,20 @@ bz_mkboxes:
     mov ax, [si + 2]
     cmp ax, [si + BZ_BOXD + 2]
     jle .inord
-    push cx
-    mov cx, BZ_BOXD / 2
-    mov di, si
-.swap:
-    mov ax, [di]
-    xchg ax, [di + BZ_BOXD]
-    mov [di], ax
-    inc di
-    inc di
-    loop .swap
-    pop cx
+    xchg ax, [si + BZ_BOXD + 2] ; a swap: the rect and the group.  The buffers
+    mov [si + 2], ax            ; stay where they are (four alike, none
+    mov ax, [si]                ; composed yet) and no box has a band yet
+    xchg ax, [si + BZ_BOXD]     ; (+10 is 0 in both; +12 .. +17 are read only
+    mov [si], ax                ; under a band, which bz_band lays whole)
+    mov ax, [si + 4]
+    xchg ax, [si + BZ_BOXD + 4]
+    mov [si + 4], ax
+    mov ax, [si + 6]
+    xchg ax, [si + BZ_BOXD + 6]
+    mov [si + 6], ax
+    mov al, [si + 18]
+    xchg al, [si + BZ_BOXD + 18]
+    mov [si + 18], al
 .inord:
     add si, BZ_BOXD
     loop .cmp
@@ -2747,14 +2883,6 @@ bz_union:
     stc
     ret
 
-; bz_rput - the rect at SI copied to DI, DI past it.  ES = ours.  Clobbers CX.
-bz_rput:
-    push si
-    mov cx, 4
-    rep movsw
-    pop si
-    ret
-
 ; bz_band - the overlap of box SI (written first) and box DI (later, the same
 ; group), in DI's terms (SPEC.md 128.9 item 5): its words [xa, xb) on its lines
 ; whose lines-left count is in (xlo, xhi]; xhi stays 0 when they are apart.
@@ -2809,57 +2937,57 @@ bz_band:
 ; AX = x0, BX = x1 (words), CX = y0, DX = y1 (lines), inclusive: clipped to
 ; the new window and, if anything is left, appended to bz_boxes as group
 ; [bz_grp] with no overlap band, its buffer the next of bz_boxbuf's four.
-; Clobbers AX-DX, SI, DI (never BP).
+; ES = ours.  Clobbers AX-DX, DI (never SI, BP).
 %if BZ_BOXD != 20
- %error "bz_addbox scales the box index by 20 = BZ_BOXD"
+ %error "bz_addbox lays a box record of 20 bytes = BZ_BOXD"
 %endif
 bz_addbox:
-    cmp ax, [bz_c0n]
+    mov di, [bz_c0n]
+    cmp ax, di
     jge .x0
-    mov ax, [bz_c0n]
+    mov ax, di
 .x0:
-    mov si, [bz_c0n]
-    add si, [bz_W]
-    dec si
-    cmp bx, si
+    add di, [bz_W]
+    dec di
+    cmp bx, di
     jle .x1
-    mov bx, si
+    mov bx, di
 .x1:
     sub bx, ax
     jl .out                     ; BX = w - 1
-    mov si, [bz_wtop]           ; the window's top line
-    cmp cx, si
+    mov di, [bz_wtop]           ; the window's top line
+    cmp cx, di
     jge .y0
-    mov cx, si
+    mov cx, di
 .y0:
-    add si, BZ_LINES - 1
-    cmp dx, si
+    add di, BZ_LINES - 1
+    cmp dx, di
     jle .y1
-    mov dx, si
+    mov dx, di
 .y1:
     sub dx, cx
     jl .out                     ; DX = h - 1
-    mov di, [bz_nbox]           ; 0 .. 3: a frame has at most four boxes
-    shl di, 1
-    mov si, di
-    shl si, 1
-    shl si, 1
-    add si, di
-    shl si, 1                   ; x BZ_BOXD (20)
-    add si, bz_boxes
-    mov di, [bz_bbtab + di]     ; ...and its buffer
-    mov [si], ax
-    mov [si + 2], cx
+    mov di, [bz_boxp]           ; the next record (bz_mkboxes starts it at
+    stosw                       ; bz_boxes; 0 .. 3: a frame has at most four)
+    xchg ax, cx
+    stosw
+    lea ax, [bx + 1]
+    stosw
+    xchg ax, dx
+    inc ax
+    stosw
+    mov bx, [bz_nbox]
     inc bx
-    mov [si + 4], bx
-    inc dx
-    mov [si + 6], dx
-    mov [si + 8], di
+    mov [bz_nbox], bx
+    shl bx, 1
+    mov ax, [bz_bbtab - 2 + bx] ; ...and its buffer
+    stosw
     xor ax, ax
-    mov [si + 10], ax           ; no band
+    stosw                       ; no band
     mov al, [bz_grp]
-    mov [si + 18], al
-    inc word [bz_nbox]
+    mov [di + 18 - 12], al
+    add di, BZ_BOXD - 12
+    mov [bz_boxp], di
 .out:
     ret
 bz_bbtab:
