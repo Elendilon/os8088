@@ -251152,6 +251152,11 @@ the choice persists across plays in the session (not on disk).
 | **FOLLOW** (removed in wave 2, 128.11.11.1) | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
 | **TRICKLE** | 2 | wave 0's camera exactly (128.5): kept for the A/B | wave 0's |
 
+*Wave 6b (128.17.6): GLIDE's rules in this table are replaced by LATTICE
+(128.17.6.2): return hysteresis, lattice framings, a pan that never
+reverses inside the band or slows before its target, tubes pre-aimed. The
+row stays as the record.*
+
 All three keep 128.2's limits: at most `BZ_MAXR` rows and `BZ_MAXC` columns a
 frame, a larger move is a full write, and every mode is clamped to the
 course. None of them moves the ball OUT of the dead zone and band that 128.5
@@ -253273,6 +253278,9 @@ and the step reads it:
 | hard landings | the material's | the material's | the material's | **none**: the mat catches steel and glass |
 | as a WALL's surface | `EW` the material's (stone) | - | - | **a bumper**: 230 for every ball |
 
+*Wave 6b (128.17.3): Grip's brake on ice is `max(1, (GRIP + 2) >> 2)`,
+2, 1, 1 at Grips 6, 3, 1.*
+
 `--selfcheck` item 7 holds every pair to a non-zero speed from rest with one
 arrow and with a chord. What that buys: on ice every ball pushes 1 a step at
 full ramp and loses nothing, so it gathers speed slowly (one arrow reaches
@@ -253352,6 +253360,12 @@ owner whether `kbd_track` should drop `2Ah`, `AAh`, `36h` and `B6h` after an
   *Wave 6 (128.16.4): for RUBBER, Space at the first contact of a Hop from
   the ground, on a firm level floor, is the BOOST (`max(BOOST_V, the
   rebound)`), once per Hop; steel and glass hop again as above.*
+
+  *Wave 6b (128.17.4.2, 128.17.4.5): rubber's boost is ARMED by a second
+  Space press any time in the Hop's flight, up to the contact step, and a
+  press within 3 steps after an unarmed bouncing contact converts the
+  rebound; the window need not be open at the contact. Steel's and glass's
+  "hop again" is unchanged.*
 - **Grip**, held and grounded: each ground axis moves toward 0 by the brake
   of `BZ_SURFTAB`, never past 0, after the drag (the arrows still push, so a
   gripped ball CARVES); held at a contact that would bounce, the ball lands
@@ -253876,6 +253890,11 @@ bounce in each of the two modes - for the owner to judge by feel.
 TRICKLE, with the ball's own line as a LATCHED fallback within 16 lines of
 the window's edge; the travel ring and "fast" stay on the ball's own line;
 `BENCH`'s route is re-proved.*
+
+*Wave 6b (128.17.6): GLIDE becomes LATTICE. The ring's y half and its
+"faster than 2 lines a frame" verdict are deleted (rows never read the
+ring); the x half stays. Item 8's directions are proved under `bz_camscr`
+(128.17.6.7).*
 
 ##### 128.11.11.2 A held key on the desktop is one press
 
@@ -256050,6 +256069,11 @@ axis before the footprint is 16 lines or 24 px from that edge.
 it: `--selfcheck` item 8 proves `BENCH`'s eight step directions with the
 rule off, as wave 2 did, and reports them with it on (128.12.9).
 
+*Wave 6b (128.17.6.3): the levels are decided as above, but the camera
+withholds as a bounded DELAY: level 1 side- and axis-aware, level 2 one
+row through on the Hercules, and each axis withheld at most 3 frames
+running (level 2) or 1 (level 1).*
+
 #### 128.12.8 Determinism, replays and the course's identity
 
 *Amended by 128.15.7: the identity is taken over `BZC2`'s RAM form as
@@ -257885,6 +257909,10 @@ shown window is synced. The model's wheel takes every other candidate by
 the frame's end unless `Heavy(phys, wcap=N)` caps it at N a frame, which
 is the only way its promotion fires (the guest's wheel runs out of room on
 heavy frames; the model has no clock).
+
+*Wave 6b (128.17.6.3): `bz_hv1` also publishes the slab's nearness per
+edge, with no ball-side gate (`bz_pflag` bits 4 - 7); the level is decided
+as above, and the camera's use of both levels is 128.17.6.3's.*
 
 #### 128.13.7 The six red arms, each in front of its check
 
@@ -263913,6 +263941,11 @@ tool's.
 | the re-baseline | every demo through `D` and `B`, both cards, speaker OFF and ON, at the FREEZE commit: six runs a configuration for `MILL` and `PEAK`, three for the rest, each figure with its spread, each row keyed to its demo's log | story 6.10 (128.16.10) |
 | gate 1 | a playtest disk; one constants-only retune; then the freeze binds the material table and the step | story 6.11 (128.16.11) |
 
+*Wave 6b (128.17.1): Grip is 6, 3, 1; the boost is armed by a press in
+the flight or converted by one up to 3 steps after the contact; three
+tiles onto a lower floor are CD5; the camera is LATTICE; `BZ_PHYSV` moves
+again. Gate 1 has a round 2 before the freeze.*
+
 #### 128.16.2 What changes in the earlier subsections
 
 The ones marked *(in place)* carry a one-line pointer at the amended text;
@@ -264000,6 +264033,10 @@ same. `BOOST` joins it as a field. **PROVISIONAL until gate 1's freeze**
 | `HOP`: its apex, steps back to its launch height | **252**: 5.7 px, 22 steps | 160: 2.4 px, 15 steps | **224**: 4.5 px, 20 steps | Q-61, bounded by the occluders (128.16.3.2) |
 | `BOOST` (new, `BZ_MATTAB` +12, a word): its flight's apex | **350**: 9.3 px, 29 steps | 0 (none) | 0 (none) | Q-62 (128.16.4.2) |
 | `EF`, `EW`, `BMIN`, the hard landings, squash | unchanged | unchanged | unchanged | not wave 6's |
+
+*Wave 6b (128.17.3): `GRIP` is rubber 6, steel 3, glass 1; Grip from 384
+stops rubber in 1.8 tiles, steel 4.3, glass 2.3 (2.2 from its chord top,
+372).*
 
 The PREDICTED rows are an AXIS MODEL of the step's ground forces on one
 axis (the ramp of 128.11.7.1, the drag, the brake, the clamp, in the
@@ -264190,6 +264227,11 @@ hold:
 5. `rr = r if r >= BMIN else 0` (the rebound, as item 3 takes it) is
    below `BOOST`.
 
+*Wave 6b (128.17.4.2, 128.17.4.5): rule 2 becomes "the token is 2": a
+second Space press after the take-off, on any step up to the contact, ARMS
+the flight; and a press up to 3 steps after an unarmed bouncing contact
+CONVERTS the rebound into the boost, exactly.*
+
 Then: still airborne, `gvz = BOOST` (a level floor has no rate to add),
 `ztop = z`, `hopw = 0`, `nboost += 1`, `stf = BZ_STRS` (4), and `sqf` is
 NOT set by the usual rule (`lvz >= 384`) on this contact: the stretch is
@@ -264332,6 +264374,10 @@ ladder's counts at its drop, so the owner sees each potential new shortcut
 at gate 1. On this tree it finds two, both on `MILL` at wx 10 toward +wx:
 wy 12 half a unit down (the boost from 2 points) and wy 13 **2 units down**
 (the boost from 13 points, rubber's Hop alone from 2).
+
+*Wave 6b (128.17.5): the owner accepted these crossings as design
+knowledge. They are course-design rule CD5, printed under that name, not a
+KNOWN CONFLICT; every assertion above stands.*
 
 **The tool's assertions**, at the import of `bbcourse.py` (so no build can
 carry a bad table): for every material with `BOOST` not 0, the contact
@@ -264581,6 +264627,11 @@ from 2 units down): the known conflict 128.16.4.2 records for the owner,
 with the shipped courses' instances `gap3_scan()` prints. `--tune` prints this ladder too, and a
 value that crosses the level three tiles is refused.
 
+*Wave 6b (128.17.5): the 3-tile rows onto lower floors are CD5, a rubber
+rung from 1.5 units down (fewer than 6 take-off points is luck, not a
+rung). The ladders are byte-identical under 128.17.4.2's in-flight arming,
+and the grace's conversion is exact (128.17.4.5), so their counts hold.*
+
 Item 7 also asserts, by the model:
 - **no gain after a real fall**: a Hop off a 1.5-unit drop and off a
   2-unit drop, Space at its contact, leaves at its rebound, `nboost`
@@ -264784,6 +264835,10 @@ own line, so a bounce bobs the view: wave 2 measured 251 rows panned over
 bounce the player makes on purpose, so it would bob more. **The vertical
 decision now reads the GROUND line**: where the ball would be drawn if it
 were on the floor beneath it.
+
+*Wave 6b (128.17.6): the ground line and its latch below stay; the GLIDE
+that reads them is replaced by LATTICE, and rows no longer read the travel
+ring.*
 
 **The ground height `zg`, whole px, once a frame after the frame's steps**
 (every shift arithmetic, `sar`, as `Physics`' `>>` on Python integers):
@@ -265506,6 +265561,10 @@ replacement re-takes that demo's re-baseline rows (128.16.10).
 
 #### 128.16.13 The tool
 
+*Wave 6b (128.17.9): `Glide` is LATTICE and item 8's directions are
+proved under `bz_camscr` (128.17.6.7); `_nosafe`, `_nolatch` and `_camz`
+are carried onto LATTICE; wave 6's policy is `Glide(..., _w6=True)`.*
+
 `tools/bbcourse.py` gains, beside the physics of 128.16.3 - 128.16.4 in
 `Physics` and the reach of 128.16.5.1:
 - `MATERIALS`' `BOOST` field and `BZ_MATTAB`'s +12; the import-time
@@ -265589,6 +265648,11 @@ different from its HOP, and steel's and glass's absent, with a control:
 rubber's BOOST effect made equal to its HOP's is caught.
 
 #### 128.16.14 The rows
+
+*Wave 6b (128.17.10): `bonanzaring`'s `ringcy` arm is retired, `campad`
+stays on the ground-line block and `latpad` pads `bz_camglide`; item 8's
+directions are scripted; `bonanzaperf` reports LATTICE's pans and `B`'s
+series breaks at 6b.*
 
 Each row changes as below. Every red arm builds a broken copy into a
 private tree and must go red **at its own check**
@@ -265878,6 +265942,9 @@ Launch time: the PLAYGROUND's fetch and expansion about 0.3 - 0.6 s
 
 #### 128.16.16 Open questions for the owner
 
+*Wave 6b (128.17.13): gate 1's round 1 answered Q-63 (Grip 6, 3, 1), the
+boost's trigger and three tiles (CD5); the rest stand.*
+
 Each with the default wave 6 ships; gate 1's play decides (128.16.11).
 
 - **Glass's grip, a KNOWN INVERSION** (first on gate 1's list): with its
@@ -265959,6 +266026,1416 @@ Each with the default wave 6 ships; gate 1's play decides (128.16.11).
 - **Q-64, palettes**: the per-course byte ships; the PLAYGROUND shows
   palette 0. Per-world defaults arrive with the worlds (wave 11's
   pipeline).
+
+### 128.17 Wave 6b: the gate 1 retune
+
+Gate 1's first round
+([docs/plans/BOUNCE-BONANZA-PLAN.md](docs/plans/BOUNCE-BONANZA-PLAN.md),
+*Toward a release*, wave 6b, stories 6b.1 - 6b.8). The owner played wave 6's
+playtest disk (128.16.11) and asked for four changes. This wave makes them,
+sends a second playtest disk, and stops there: 128.16.10's re-baseline and
+128.16.11's freeze wait for the owner's OK on round 2. Binding where it
+amends; each amendment is listed in 128.17.2, and the subsections it
+replaces carry a one-line pointer here.
+
+**The owner's words (2026-11-14), verbatim:**
+
+> Braking is still probably a bit high all around; lets try 6/3/1.
+>
+> Boost: I'm not sure what the trigger here is, I can only get it to bounce
+> maybe 1 out of 20 tries and never when I'm moving. Lets try "if they have
+> pressed space within some time of hitting the ground, trigger the boost".
+> We could make them hold it down, otherwise, if that is easier; "boost when
+> they are holding space when they hit the ground".
+>
+> 3 tile gaps: Probably fine, if we design with it in mind. So far we have
+> nothing but test levels, so we haven't started designing levels yet, only
+> demoing engine capabilities.
+>
+> Camera: Lets try to, either by course design, or by new rules, have
+> "transition points". That way the camera is not bopping back and forth
+> when the player is in certain areas (for example, the bottom of mill's
+> rampway, going back a little bit should not move the camera, they can't
+> get up that hill). There are now transitions that are less smooth, and
+> ones that are still smooth; like the one coming out of Mill's shoot
+> ["chute"] "slows down" before it then quickly moves over smoothly. We
+> should aim for all of them to be smooth; not slowing down.
+
+**The rule this wave is held to.** Grip and the boost trigger are physics,
+so `BZ_PHYSV` moves again, 25h (wave 6's, shipped to the owner as a
+playtest) joins `PHYSV_SHIPPED`, every demo is regenerated or re-authored
+and saved bests are cleared once (128.17.7). The camera is display only: it
+moves no log, no demo and no identity, and the course parts do not change
+at all (128.17.7). No kernel or driver byte, no `OSAPI_*` slot: the camera,
+the trigger and Grip are the package's own (docs/INDEX.md has no camera
+slot; 128.9's camera has always been BONANZA's).
+
+Figures are marked as 128.16 marks them: **MEASURED** (the real parts, the
+image or assembled code), **PREDICTED** (arithmetic or the host model),
+**ESTIMATED** (clocks for code written down but not assembled). **The
+design figures** in this subsection were taken once, on the host, at
+`4d69985c`, by the architect's diagnosis and judging stages (CLAUDE.md's
+rule for a number that decides a design), with scratch copies of
+`bbcourse.Physics`, `bbcourse.Glide` and `bbcourse.Heavy` (not kept in the
+tree). Every scratch copy reproduces the tree's own figures before it
+changes anything: the wave-6 trigger's take-off and contact steps, `--tune`'s
+unchanged records, and `Glide`'s pans equal to `bbcourse.py --pans`
+(128.16.15). No emulator ran. **The review round's figures** (the urgent
+edge across, the column runs, the tube exits, the half-rate pass, the
+per-course savings, the controls' failures and the late grace's hit rates)
+were taken the same way at the contract stage, on the judging harness, and
+are marked where they appear.
+
+#### 128.17.1 The decisions, in one table
+
+| decision | chosen | why, and where |
+|---|---|---|
+| Grip | **rubber 6, steel 3, glass 1** (wave 6: 8, 5, 3) | the owner (128.17.3) |
+| Grip's brake on ice | **`max(1, (GRIP + 2) >> 2)`**, rounded: **2, 1, 1**, as wave 6 shipped. The plain `max(1, GRIP >> 2)` would give 1, 1, 1 | the plain form doubles rubber's ice stop (9 tiles to 18) and makes the three balls the same on ice (128.17.3) |
+| the boost's trigger | **a second Space press ANY time in the Hop's flight, up to and including the contact step**, ARMS the flight; the first contact boosts if armed and rules 1, 3, 4 and 5 hold. **And a LATE GRACE of 3 steps**: a Space press within 3 steps AFTER a first contact that passed those rules and bounced unarmed converts the rebound into the boost, exactly. Space HELD from the Hop does not arm | the owner's "pressed space within some time of hitting the ground", on BOTH sides of the contact as the player sees it: a press aimed at the visible landing falls about 1 - 2 steps after the contact's step (128.17.4.1), so it is physically late. The held form boosts on the ledge a Hop climbs, and is put to the owner (128.17.4.4, 128.17.13) |
+| what the trigger reads | the key byte's Space bit (bit 4) and `bz_kprev`, as the Hop's window does; `bz_btok` gains the value 2; the grace keeps a byte and a word (`bz_bgr`, `bz_bgd`) | 3 bytes of bss, no log change (128.17.4.3) |
+| the late grace | **built**, `BGRACE` = 3 steps, a constant in `PHYS_CONSTS` | a player aiming at the landing goes from about 45% to about 81% (PREDICTED, 128.17.4.4); the in-flight press alone moves that player 2 points (128.17.4.4) |
+| three tiles onto a lower floor | **accepted design knowledge**: course-design rule **CD5**, with the measured gap ladder; no longer printed as a KNOWN CONFLICT. Boost spots are **CD6** | the owner (128.17.5) |
+| the camera | **LATTICE**: GLIDE's policy replaced by a rule with RETURN HYSTERESIS, framings on a LATTICE, a pan that never reverses inside the band and never slows before its target, tubes PRE-AIMED at their exit, and the heavy rule a bounded DELAY, never a stop. Its URGENT edge across sits at `W / 2`, nearer the window's side than the return band's edge (`W`), so a return pan is never born fast | the owner's "transition points" by rule, not by authoring; two designs prototyped and judged on one harness (128.17.6). The urgent edge at `W` (the judged constant) coincided with the return band's edge and made every return pan a run of consecutive column frames (128.17.6.2) |
+| authored camera views | **not built**; their measured comparison is recorded | 128.17.6.8 |
+| the ground line and its latch | **kept** (128.16.7); the tracked point down is the ground line | 128.17.6.4 |
+| TRICKLE | **unchanged** | 128.17.6.4 |
+| the travel ring | its **x half kept** (columns' "fast"), its **y half deleted**: rows never read it | rows on the ring make about 210 more two-row frames on the CGA outside tubes (128.17.10, `ringy`) |
+| `BENCH` and item 8 | a harness byte, **`bz_camscr`**, drives a scripted eight-direction camera on `BENCH`, so item 8 and `bonanzaring`'s `BENCH` leg prove the scroll engine's paths; the play camera's directions on `BENCH` are REPORTED | under LATTICE `BENCH`'s route gives no up-left pan, and a 1,600-route search found none (128.17.6.7) |
+| `BZ_PHYSV` | moves: `PHYS_REV` 7 and `BGRACE` 3 in `PHYS_CONSTS`, **53h PREDICTED**; 25h appended to `PHYSV_SHIPPED` | 128.17.7 |
+| the course parts | **unchanged**, so no identity moves | Grip, the trigger and the grace are not in the reach (128.17.7) |
+| gate 1 round 2 | a second playtest disk; 6.10's re-baseline and 6.11's freeze wait for the owner's OK | 128.17.12 |
+
+#### 128.17.2 What changes in the earlier subsections
+
+The ones marked *(in place)* carry a one-line pointer at the amended text;
+the rest are amended here only.
+
+- **128.9** *(in place)*: GLIDE's horizontal and vertical rules (the
+  trailing-edge target, the lead from `vx` and `vy`, the re-aim every frame,
+  the pace switches) are replaced by 128.17.6.2. The mode table's GLIDE row,
+  the camera-cadence figures and the "never trickles" rule stay as the
+  record; LATTICE still rests or moves fast and never trickles.
+- **128.11.6.2** *(in place)*: Grip's brake on ice is `max(1, (GRIP + 2) >>
+  2)`: 2, 1, 1 (128.17.3).
+- **128.11.7.2** *(in place)*: for rubber, the boost is armed by a Space
+  press during the flight (128.17.4.2), not by the window at the contact,
+  and a press within 3 steps after an unarmed bouncing contact converts the
+  rebound (128.17.4.5). The window itself, and steel's and glass's "hop
+  again", are unchanged.
+- **128.11.11.1** *(in place)*: GLIDE's "faster than 2 lines a frame" verdict and the
+  ring's y half (`bz_try`) are deleted; the x half and its verdict stay.
+- **128.12.7** *(in place)* and **128.13.6** *(in place)*: the heavy rule's
+  levels are decided as before (`bz_props`, `bz_heavy`), but what the camera
+  does with them is 128.17.6.3: level 1 is side- and axis-aware through four
+  near-edge bits (`bz_pflag` bits 4 - 7), level 2 lets one row through on
+  the Hercules, and each axis is withheld at most `H1` or `H2` steps
+  running.
+- **128.16.1, 128.16.3** *(in place)*: the Grip row is 6, 3, 1, and the
+  Grip stops of 128.16.3's table are 128.17.3's.
+- **128.16.4.1** *(in place)*: rule 2 is 128.17.4.2's, and the late grace
+  (128.17.4.5) converts an unarmed rebound. The token's other rules (who
+  sets it, who clears it) are unchanged.
+- **128.16.4.2** *(in place)* and **128.16.5.3** *(in place)*: the
+  half-unit-down and deeper 3-tile crossings are course-design rule CD5
+  (128.17.5), not a KNOWN CONFLICT. The asserted shapes are unchanged;
+  the ladders' sweeps gain the grace's three positions after the contact.
+- **128.16.7** *(in place)*: the ground line and its latch stay; the
+  camera that reads them is LATTICE. The `ringcy` red arm is retired (rows
+  no longer read the ring); `camring` replaces it (128.17.10).
+- **128.16.9**: `PHYSV_SHIPPED` gains 25h; `PHYS_REV` is 7; `BGRACE`
+  joins `PHYS_CONSTS` before it.
+- **128.16.10, 128.16.11**: the re-baseline and the freeze are unchanged in
+  what they do; they now follow round 2 (128.17.12).
+- **128.16.13** *(in place)*: item 8 is 128.17.6.7's (the eight
+  directions under `bz_camscr`, LATTICE's PRINTED); `Glide` is LATTICE, and
+  `_nosafe`, `_nolatch` and `_camz` are carried onto it (128.17.9).
+- **128.16.14** *(in place)*: `bonanzaring`'s `ringcy` arm is retired;
+  `campad` stays on the ground-line block and the new `latpad` pads
+  `bz_camglide` (128.17.10); item 8's directions are scripted; `bonanzaperf`
+  reports LATTICE's pans, and `B`'s series breaks at 6b (128.17.10).
+- **128.16.16** *(in place)*: its questions on Q-63 (the Grips), the boost and three
+  tiles are answered here; the rest stand, and 128.17.13 adds the new ones.
+
+#### 128.17.3 Grip 6/3/1 (story 6b.1)
+
+**The table.** `MATERIALS`' `GRIP` becomes **rubber 6, steel 3, glass 1**.
+`BZ_MATTAB` +5 and `BZ_SURFTAB`'s brake bytes are generated from it, so the
+guest reads the new values with no code change. Sand's brake is `GRIP`, so
+it follows (6, 3, 1). The bounce mat's is `GRIP` (6, 3, 1).
+
+**Ice.** 128.11.6.2's `max(1, GRIP >> 2)` would make ice's brakes **1, 1,
+1**: every ball the same on ice, and rubber's Grip stop on ice from the cap
+twice as long (384 steps, 18.0 tiles, against 192 steps and 9.0 tiles).
+The derivation becomes **`max(1, (GRIP + 2) >> 2)`**, a quarter rounded to
+the nearest: **2, 1, 1**, exactly what wave 6 shipped. Never 0: the `max`
+keeps it at least 1, and `--selfcheck` item 7 asserts every brake on every
+surface is at least 1. This is a change to `surf_entry()` in the tool
+only; the guest reads the generated `BZ_SURFTAB`.
+
+**Stop distances** (PREDICTED by the axis model, `axis_feel()`, which equals
+`Physics` exactly on these runs; one axis; "saves" is the coast less the
+Grip stop):
+
+| surface, ball, from | coast, no keys | Grip, wave 6 | Grip, wave 6b |
+|---|---|---|---|
+| normal, rubber 252 | 151 steps, 3.4 tiles | 8: 26 steps, 0.7 tiles | **6: 32 steps (585 ms), 0.9 tiles** (saves 2.5, was 2.7) |
+| normal, rubber 384 | 178 steps, 5.4 tiles | 36 steps, 1.5 tiles | **44 steps (805 ms), 1.8 tiles** (saves 3.6, was 4.0) |
+| normal, steel 384 | 360 steps, 16.0 tiles | 5: 64 steps, 2.9 tiles | **3: 95 steps (1,738 ms), 4.3 tiles** (saves 11.7, was 13.1) |
+| normal, glass 186 | 87 steps, 1.3 tiles | 3: 33 steps, 0.6 tiles | **1: 55 steps (1,006 ms), 0.9 tiles** (saves 0.4, was 0.7) |
+| normal, glass 372 | 109 steps, 2.7 tiles | 49 steps, 1.6 tiles | **74 steps (1,354 ms), 2.2 tiles** (saves 0.5, was 1.0) |
+| sand, rubber 384 | 110 steps, 2.8 tiles | 29 steps, 1.1 tiles | 35 steps, 1.3 tiles |
+| sand, steel 384 | 110 steps, 2.8 tiles | 39 steps, 1.4 tiles | 50 steps, 1.7 tiles |
+| sand, glass 372 | 109 steps, 2.7 tiles | 49 steps, 1.6 tiles | 74 steps, 2.2 tiles |
+| ice, rubber 384 | never stops | 2: 192 steps, 9.0 tiles | 2: unchanged (1 would be 384 steps, 18.0 tiles) |
+| ice, rubber 252 | never stops | 2: 126 steps, 3.8 tiles | 2: unchanged |
+| ice, steel and glass 384 | never stops | 1: 384 steps, 18.0 tiles | 1: unchanged |
+
+**The PLAYGROUND's brake strip** (`play_grip()`: Grip held from the strip's
+first tile, three tiles before the void; MEASURED on the scratch model):
+rubber stops in **1.84 tiles** (wave 6: 1.52), glass **2.17** (1.64), and
+**steel GOES OVER** (it needs 4.3 tiles; wave 6: 2.91). 128.16.8's check
+asserts rubber and glass only, so it still holds; steel overrunning the
+strip is new information for the owner (128.17.13), and the strip is not
+lengthened.
+
+**Glass.** Its Grip now saves only **0.5 tiles** over its coast from 372,
+because its drag (`K` 5) does the stopping. With Grip glass now stops
+BEHIND rubber (2.2 tiles from its top, 372, against 1.8 from 384), which is the end goal's order, but
+it still coasts half as far (2.7 against 5.4). 128.16.3's KNOWN INVERSION
+stands and `K` stays its lever (128.17.13).
+
+**What else moves** (MEASURED, `bbcourse.py --tune GRIP=6,3,1` against an
+unchanged `--tune`, at `4d69985c`, 74 s): every course compiles with the
+same records, RAM, LZ4 and LZB as 128.16.5.4; the step and gap ladders are
+unchanged and every verdict is ok; every route proof passes; `AUTHOR MOON`
+(2,130 steps) and `AUTHOR PEAK` (2,172) are unchanged; **`AUTHOR PLAY` goes
+from 1,489 to 1,504 steps** (27.5 s; its `par 28` holds). The Grip chain
+(128.16.4.1) does not read `GRIP` (Grip held at a contact lands the ball,
+whatever its brake), so it is unchanged. `--tune` measured the plain ice
+derivation; the rounded one changes only ice's brakes back to wave 6's, and
+no route proof or `AUTHOR` script grips on ice (PREDICTED; the
+implementation's `--tune` re-takes it with the rounding).
+
+#### 128.17.4 The boost trigger (story 6b.2)
+
+##### 128.17.4.1 Why wave 6's trigger was hard to hit (MEASURED on the model)
+
+Wave 6's rule 2 (128.16.4.1) needs a **second key-down edge of Space inside
+the 6-step window that CLOSES ON the contact step**: an edge on steps
+`c - 5` to `c` of a first contact on step `c`. The offset map on the
+PLAYGROUND's apron (Space held 6 steps for the Hop; a second 6-step press
+starting 20 steps before to 10 after the first contact, which is step 21
+after the Hop's press):
+
+    offset   -20 .. -15   -14 .. -6   -5 .. 0   +1 .. +10
+    wave 6   no edge      too early   BOOST     nothing
+
+- **No late side.** A press one step after the contact does nothing: the
+  token was cleared at the contact, the window it opens runs out during the
+  rebound's flight, and no cue plays. A player who presses on SEEING the
+  landing (about 200 ms, 11 steps, late) never boosts.
+- **A second, separate edge.** The Hop spends its own edge. Space held
+  through the flight never boosts, and a quick double tap is too early.
+  Nothing tells the player a second press is needed, or when.
+- **Display latency moves an aimed press LATE.** A frame samples the keys
+  at its start for steps already elapsed (so a press lands up to a frame
+  EARLY, half a frame on average), and a contact appears about 1.5 frames
+  after its step: net, an aimed press is about one frame late, +0.9 steps
+  at the CGA's full rate and +1.8 in a half-rate stretch (PREDICTED). Moving pans the camera, and pans
+  are what make the half-rate stretches (128.16.10).
+- **Rolling does not change the physics on the PLAYGROUND.** The first
+  contact after a level ground Hop is 21 steps after the press at rest and
+  at every speed tried (32 to 296, and the cap), in all eight directions,
+  on `PLAY`, `FIRST`, `MILL` and `TRIAL`; the map above is the same in every
+  case. On `PLAY`'s apron 79 of 79 rolling route Hops boost with perfect
+  timing.
+- **On the other courses, rules 4 and 5 refuse most rolling Hops**, even
+  with perfect timing (a Hop every 3 steps along each autopilot route,
+  Space 2 steps before the contact; 1,517 Hops): of them 32% boost, 37% land
+  lower than they took off (rule 5), 14% on a ramp, 9% on a prop's cell, 6%
+  on sand. A rolling Hop lands about 2 tiles on, and on these small courses
+  that is usually a ramp, sand, a prop or a lower floor. The refusal has no
+  cue.
+- **The contact's step depends on the ground**, so a rhythm learned on the
+  level is wrong elsewhere: rubber at the cap meets a level floor 21 steps
+  after the press, a 1-unit ledge 10 - 16, a half-unit ledge 1 - 4 (pressed
+  at its lip) or 16 - 21, a floor half a unit down 25, 1 unit down 28, 2
+  units down 32.
+
+So "1 in 20" is the timing (a window with no late side, for a second press
+nothing asks for), and "never when I'm moving" is the timing made worse by
+the pans plus the test courses' landings. Keyboard ghosting (two arrows and
+Space on a host keyboard) is not excluded if the owner plays in an emulator.
+
+##### 128.17.4.2 The rule (binding: the guest and `bbcourse.Physics` do exactly this)
+
+This replaces 128.16.4.1's rule 2 and the paragraph after its five rules.
+
+**The TOKEN** `bz_btok` is **0** (no Hop from the ground in flight), **1**
+(a Hop from the ground is in flight) or **2** (that flight is ARMED).
+
+- A Hop from the ground sets it to **1** (128.11.8.6), as in wave 6.
+- **In step 1**, on a key-down EDGE of Space (bit 4 set in this step's key
+  byte and clear in `bz_kprev`), if the token is 1 it becomes **2**. The
+  same edge opens the Hop's window as before (128.11.7.2), and is the
+  grace's edge (128.17.4.5).
+- The Hop's own edge comes before its take-off in the step, when the token
+  is still 0 (a grounded ball carries no token: every contact cleared it),
+  so a Hop never arms its own flight. A second edge needs a release
+  first, so Space HELD from the Hop never arms.
+- It is cleared to **0**, as in wave 6, at every contact with a floor
+  (whatever the contact does), by a RESPAWN, by RETURN, by a tube's capture
+  and by a spring's launch.
+
+**The contact BOOSTS** (item 2a of 128.11.8.5's landing, after the stun and
+the shatter, before the contact Hop) when:
+
+1. the token was set when the contact began (unchanged);
+2. **the token is 2** (Space was pressed again after the take-off, on any
+   step up to and including the contact step) **and the ball is not
+   stunned**. The window need not be open;
+3. - 5. unchanged (`BOOST` not 0; the centre's GRID cell a firm level
+   floor; the rebound below `BOOST`).
+
+Then, as in wave 6: `gvz = BOOST`, `ztop = z`, `hopw = 0`, `nboost += 1`,
+`stf = BZ_STRS`, `sqf` not set by the usual rule. When the token is 2 but
+rule 3, 4 or 5 refuses, the contact is item 3's contact Hop **if the window
+is still open** (the arming edge was within the last 6 steps), otherwise
+item 4's bounce or item 5's landing. The token is spent either way. When
+the token is **1** and rules 1, 3, 4 and 5 hold, the contact may open the
+LATE GRACE (128.17.4.5).
+
+`Physics`: in step 1, `if edge: hopw = HOPWIN; if bgr: convert; elif btok
+== 1: btok = 2` (the grace's conversion, 128.17.4.5, is tested first: a
+flight that is converting carries no token). In `_land`, the boost is
+tested on `btok == 2` (wave 6 tested `btok and hopw`); then the existing
+`elif hopw` contact Hop; the bounce opens the grace. `_boost_rule`'s rule 2
+text names the token and the grace.
+
+**What does not move.** The boost's flight does not depend on which step
+armed it, so the reach (128.16.5.1), the records, the STEP LADDER and the
+GAP LADDER are **byte-identical** to wave 6's for the in-flight arming
+(MEASURED: `step_ladder()` and `gap_ladder()` text compared on the scratch
+model). The grace's conversion is EXACT (128.17.4.5): from the conversion
+on, the flight is the contact boost's, so it adds no reach (PREDICTED; item
+7 asserts the equality). The ladders' "every window position" sweep becomes
+"an arming edge on every step of the flight, and a grace edge on each of
+the three steps after the contact", with the same counts. One boost a
+chain, the token at the first contact only, the Grip chain, firm level
+floors only and "a spring's launch spends the token" (128.16.5.3) all hold
+unchanged.
+
+**The offset map under the rule** (the same presses as 128.17.4.1; the
+in-flight side MEASURED on the scratch model, which ran without the grace;
+`+1 .. +3` PREDICTED from 128.17.4.5's rule; item 7 asserts the whole map):
+
+    offset   -20 .. -15   -14 .. 0   +1 .. +3   +4 .. +10
+    wave 6b  no edge      BOOST      BOOST      nothing
+
+At rest and rolling (chords and single arrows, runs of 8, 20 and 60 steps,
+speeds 32 to 296), on `PLAY`, `FIRST`, `MILL` and `TRIAL`, except where the
+landing is refused by rule 4 or 5. A press HELD from the Hop for 6 to 40
+steps never boosts.
+
+##### 128.17.4.3 What it reads, the state and the log
+
+- **The input**: the step's key byte (bit 4, Space held) and `bz_kprev`, the
+  edge the Hop's window already derives. No new input, no new sample.
+- **The mouse**: under `T` MOUSE the left button is the key byte's bit 4
+  (128.14.8), so a second click in flight arms the boost and a click within
+  3 steps after the contact converts it, exactly as Space. `bonanzareplay`'s
+  mouse play takes its boost by a mid-flight second click (128.17.10).
+- **The state**: `bz_btok` takes a third value, and the grace adds **3
+  bytes of bss**: `bz_bgr` (a byte, the grace's steps left, 0 when none)
+  and `bz_bgd` (a word, `BOOST` less the rebound's `gvz`, 128.17.4.5).
+  `bonanzaphys` compares all three at every frame.
+- **The log**: BZR1 (128.11.12.1) already records the key byte every step,
+  and edges are derived from consecutive bytes, so **the log format and its
+  version are unchanged**. Logs made under wave 6 are refused anyway,
+  because `BZ_PHYSV` moves (128.17.7).
+- **The sample**: Space is read with `OSAPI_KEY_DOWN` once a FRAME and the
+  frame's key byte serves every step the frame runs (128.11.7.2). A release
+  and a re-press inside one frame (16.7 ms at the CGA's full rate, 33 ms at
+  half rate, 19.7 ms on the Hercules) are therefore not seen, and the second
+  press reads as Space still held, which never arms. A deliberate double
+  tap's release lasts about 50 - 120 ms (ESTIMATED), so this loses only a
+  very fast double tap, mostly at the CGA's half rate. It is **not
+  latched**: the typed-key latch Backspace uses (`bz_kedge`) cannot tell a
+  re-press from a typematic repeat without the break code, which the BIOS
+  buffer does not keep.
+
+**Cost, ESTIMATED** (priced per instruction, `max(EU clocks, 4.34 x
+bytes)`, x 1.05):
+- the arming edge: `cmp byte [bz_btok], 1` (5 bytes, 21.7), `jne` not taken
+  (2 bytes, 8.7), `inc byte [bz_btok]` (4 bytes, 21): **about 54 clk** on an
+  edge that arms, **about 40** on one that does not (`jne` taken, 16);
+- the contact test `cmp byte [bz_btok], 2 / jne`: **about 30 - 40 clk** a
+  contact;
+- the grace (128.17.4.5): its countdown in step 1, `cmp byte [bz_bgr], 0 /
+  jne` (7 bytes): **about 32 clk a step**, the only cost on an ordinary
+  step; opening it at a bouncing first contact about 90 clk; a conversion
+  about 150 clk, once a chain;
+- **about +55 - 70 bytes** in all (the arming about 11, the contact test 4 -
+  6, the grace about 40 - 55), and 3 bytes of bss.
+
+##### 128.17.4.4 Accidental boosts, and who hits it
+
+**Accidental boosts** (by construction of the rule; the cases ASSERTED by
+item 7): a single tap of Space never boosts; a Hop key held for any length
+never boosts; mashing Space gives at most one boost per Hop from the ground,
+because the token allows one per chain and the grace is opened only by the
+token's own contact (decision 1's bound; the `pump` red arm still proves
+it). A player who taps twice while climbing a ledge does boost on the
+ledge, as asked. A press within 3 steps after a bouncing first contact,
+which in wave 6 did nothing (its window ran out in the rebound's flight),
+now converts that rebound: that press can mean nothing else.
+
+**Why not "held at the contact"** (the owner's second suggestion): a Hop
+pressed at the lip of a half-unit step meets its ledge **1 - 4 steps**
+later, and a Hop onto a 1-unit step **10 - 16** steps later (rubber at the
+cap, MEASURED on the model, 5 and 7 of 70 take-off points). An ordinary 20 -
+300 ms Hop press would therefore boost on the ledge it climbs, and the
+boost's 3-tile radius throws the ball off the back of a 3-tile rung. A GATE
+removes most of that: "held arms only when the contact's floor is not above
+the take-off floor" leaves the 1 - 4 and 10 - 16-step ledge contacts out,
+and what remains is the long press on the level: a single press held 22
+steps or more boosts there, which the model puts at **0.4 - 5% of plain
+Hops** (ESTIMATED). That alternative costs about **+25 bytes and a byte of
+bss** for the take-off floor's height (ESTIMATED), and is the owner's
+choice (128.17.13): which of his two readings he meant, a second tap or the
+Hop's own press held to the landing. **In this build, holding Space through
+the landing does nothing**, and round 2's notes say so.
+
+**Who hits it** (PREDICTED: a normal timing error laid over the map; the
+column heads name the bias and spread in steps, 18.3 ms each; the bias is
+the display's latency net of the keys' sampling, about one frame
+(128.17.4.1)):
+
+| trigger | aims at the landing, full rate (+0.9, sd 3.0) | half rate (+1.8, sd 3.5) | moving (+1.8, sd 4.5) | has learned it (-1.1, sd 3) | reacts to the landing (+11.8) | taps mid-flight (-8, sd 4) | holds to the landing |
+|---|---|---|---|---|---|---|---|
+| wave 6 (window 6, closing on the contact) | 43% | 34% | 33% | 63% | 0% | 25% | 0% |
+| the whole flight alone | 45% | 36% | 39% | 70% | 0% | 93% | 0% |
+| **wave 6b: the whole flight and a late grace of 3** | **81%** | **69%** | **65%** | **94%** | 0% | **95%** | 0% |
+| ... with a grace of 4 | 88% | 78% | 73% | 97% | 1% | 95% | 0% |
+| held at the contact | 43% | 34% | 33% | 63% | 0% | 25% | 100% |
+| wave 6b, or held with the take-off gate (not built) | 81% | 69% | 65% | 94% | 0% | 95% | 100% |
+
+Widening the window BACKWARD does not help a player who aims at the
+landing; it helps one who presses during the flight. The grace is what
+serves the aiming player, because the latency makes his press late. **A
+player who reacts to the landing** (about 200 ms, 11 - 12 steps after the
+contact) is served by neither: a grace that long would lift the ball about
+6 px in one frame at its conversion, and it is not offered. The figures are
+a model of a player, not a measurement of the owner: his saved plays
+(`W`, a `.BZR` records the key byte every step) would give the real offsets
+of his presses, and round 2's notes ask for the ones that failed
+(128.17.12).
+
+**The Grip chain** (128.16.4.1: Grip held through the boost's landing, then
+Space: a Hop, the tap, the boost, again) repeats about every **52 steps
+(0.95 s)** with a 9.3 px apex. In wave 6 the owner could not reach it; under
+6b a player tapping in rhythm boosts on about 95% of its cycles (the table's
+mid-flight column). It crosses what one boost crosses (every CD5 rung,
+128.16.5.3's step ladder), once a second, on firm level floors only. Whether
+that reads as a flying ball, or as a unique mechanic, is the question wave 6
+deferred to gate 1 and round 1 could not answer; it goes to the owner again
+(128.17.13). The lever if it reads as flying is a **cooldown**: a ground Hop
+sets the token only after N grounded steps (N about 10: ESTIMATED +8 bytes,
+1 byte of bss). `bonanzaphys`'s `gripchain` is re-keyed with the mid-flight
+taps and shows two cycles on the glass (128.17.10).
+
+##### 128.17.4.5 The late grace (built)
+
+**The rule** (binding, part of 128.17.4.2's):
+
+- **Opening.** A first contact whose token was **1** (unarmed), that
+  passes rules 1, 3, 4 and 5 with the ball not stunned, and that BOUNCES
+  (128.11.8.5 item 4: the rebound at least `BMIN`, Grip not held, no contact
+  Hop) sets `bz_bgr = BGRACE` (3) and `bz_bgd = BOOST - gvz` (the rebound's
+  `gvz` as item 4 set it; positive, since rule 5 holds the rebound below
+  `BOOST`). A contact that LANDS (Grip held, or a rebound under `BMIN`)
+  opens nothing: a press after it is a Hop from the ground, as in wave 6, so
+  the Grip chain is unchanged.
+- **The conversion.** In step 1 of each later step, on a Space key-down
+  edge while `bz_bgr` is not 0: `gvz += bgd`; `gz += bgd x (k - 1)` on the
+  `k`-th step after the contact (the integrations of step 3 since the
+  contact; step 3 then moves the ball as usual); `ztop = gz >> 8`; `hopw =
+  0`; `nboost += 1`; `stf = BZ_STRS`; `sqf = 0`; the boost's event; `bz_bgr
+  = 0`. Otherwise `bz_bgr` counts down by one.
+- **Closing.** `bz_bgr` is cleared by any contact with a floor, a wall or a
+  prop's face, a tube's capture, a spring, a stun, a respawn, RETURN and the
+  conversion.
+
+**Exactness.** Gravity is a constant `G` a step and the upward speeds here
+are far under `VZMAX`, so the bounced flight and the boosted flight differ
+by `bgd` in `gvz` and by `bgd` a step in `gz`: the conversion puts `(gx, gy,
+gz, gvx, gvy, gvz, ztop)` exactly where the contact boost would have them at
+that point of the step, and the flight after it IS the contact boost's.
+Anything that touched the ball in between closed the grace, so nothing else
+can differ. Item 7 asserts the equality at `k` = 1, 2 and 3 on the apron and
+on every ladder case (PREDICTED; the scratch model did not run the grace).
+
+**What it looks like.** The ball's line jumps by `bgd x (k - 1)` at the
+conversion: 0 at `k` 1, 0.58 px at 2 and 1.16 px at 3 for a level Hop
+(`bgd` = 350 - 201). The bounce's sound plays, and the boost's stretch and
+sound follow 1 - 3 steps (18 - 55 ms) later.
+
+**Why 3.** A press aimed at the visible contact falls about one frame late
+(the display's 1.5 frames less the keys' sampling, 128.17.4.1): +0.9 steps
+at the CGA's full rate and +1.8 at half rate. Three
+steps covers the half-rate latency with a step to spare: an aiming player
+goes from about 45% to about **81%** at full rate and 36% to 69% at half
+rate (PREDICTED, 128.17.4.4). A grace of 4 gives about 88% and a 1.75 px
+jump. `BGRACE` is a constant in `PHYS_CONSTS`, so a retune before the
+freeze is 128.16.11's one-commit retune.
+
+#### 128.17.5 Three tiles: course-design rules CD5 and CD6 (story 6b.3)
+
+The owner: "Probably fine, if we design with it in mind." The 3-tile
+crossings onto a lower floor stop being a KNOWN CONFLICT and become course
+knowledge, beside CD1 - CD4 in the plan's R1.
+
+**CD5. A 3-tile gap onto a lower floor is rubber's.** The ladder, MEASURED
+by item 7 at `HOP` 252 and `BOOST` 350 (unchanged by this wave; take-off
+points of 70 at the cap with a chord, 18.3 ms each):
+
+| 3 tiles onto a floor ... | rubber's Hop and boost | rubber's Hop alone | glass's Hop | steel |
+|---|---|---|---|---|
+| level | **none** | none | none | none |
+| half a unit down | 2 (37 ms) | none | none | none |
+| 1 unit down | 4 (73 ms) | none | none | none |
+| 1.5 units down | 7 (128 ms) | none | none | none |
+| 2 units down | 13 (238 ms) | 2 (37 ms) | none | none |
+| 3 units down | 22 (403 ms) | 7 (128 ms) | 4 (73 ms) | none |
+
+The rule for a course author:
+- **three tiles LEVEL are nobody's**, the boost included (ASSERTED, as
+  wave 6);
+- **a rung needs a window a player can hit on purpose**: one with fewer
+  than **6 take-off points** (about 110 ms at the cap) counts as NOBODY'S for
+  an intended route. Half a unit down (2 points, 37 ms) and 1 unit down (4
+  points, 73 ms) are crossed by luck, not by design, and a course must not
+  need them;
+- **three tiles onto a floor 1.5 units down or more are a RUBBER rung** (7
+  points or more): a course puts one where rubber crossing it is intended,
+  or where another ball is required by the course's `ball` line or a pad,
+  and its design sheet (wave 11's pipeline) says which;
+- **steel never crosses three tiles at any drop**, and **no ball's Hop alone
+  crosses onto a floor 1.5 units down or less** (ASSERTED, as wave 6);
+- the deeper the drop, the wider the window: rubber's Hop alone crosses
+  from 2 units down (2 points: luck under the floor) and is a rung from 3
+  (7 points); glass's crosses from 3 units down (4 points: luck).
+
+Item 7 keeps every assertion it has and keeps printing the table; its line
+changes from "the KNOWN CONFLICT" to "CD5, the 3-tile rung onto a lower
+floor", and each row is printed with its verdict under the 6-point floor
+("a rung" or "luck"). `gap3_scan()` keeps listing the shipped courses'
+instances (two on `MILL` at wx 10: wy 12 half a unit down, which is luck
+under the floor, and wy 13 two units down, a rung) as course information
+for the design sheets, not as a problem. The test courses are not edited
+for it: they are retrofitted in waves 11 - 13.
+
+**How CD5 and CD6 are enforced in 6b: by listing only.** Wave 6b adds no
+grammar and no refusal: no statement marks an intended rubber rung or a
+boost spot, so nothing can check a design sheet's "says which". Until wave
+11's design-sheet pipeline, `gap3_scan()`'s listing (with the floor's
+verdict) is the whole of the tool's part; wave 11 carries a story to
+cross-check each sheet against `gap3_scan()` and, if one is wanted, a
+`boost` spot declaration the tool can test against rules 4 and 5 (the
+plan's wave 11).
+
+**CD6. A boost spot.** Rule 4 and rule 5 refuse most rolling Hops on the
+test courses (128.17.4.1). A course that wants a boost puts it where the
+rules allow it: a **firm level floor** (normal or ice, no prop) about **2
+tiles past the take-off point** at the cap (21 steps; about 1.3 tiles at
+rubber's one-arrow 252), and **less than about 1.2 units below** the
+take-off floor (rule 5). Rule 4 stays as strict as wave 6 wrote it: a ramp
+would add the floor's rate and break "one launch, never added to a floor's
+rate"; sand is soft; the mat is already a trampoline; props never stack with
+the boost.
+
+#### 128.17.6 The camera: LATTICE (story 6b.4)
+
+##### 128.17.6.1 What was wrong (MEASURED on the host model)
+
+Every figure here is `bbcourse.Glide` and `Heavy` at `4d69985c`, driven a
+frame at a time at each card's nominal step rate, over every shipped demo
+and every course's autopilot (1,800 frames on the CGA, 1,500 on the
+Hercules), with the heavy rule on and off.
+
+- **The back-and-forth is built into GLIDE's target** (128.9). A pan aims
+  to leave the ball exactly on the band's TRAILING edge, so after it the
+  ball sits 0 - 7 px from the dead zone's edge across, and 0 - 1 CGA lines
+  (0 - 3 Hercules lines) from the band's edge down. Any reversal crosses
+  that edge, and the new pan aims at the OPPOSITE trailing edge: the camera
+  swings back the whole lead (20 - 23 columns, 33 CGA rows, 16 Hercules
+  rows). **`MILL`'s ramp bottom** (roll down B's ramp from (15, 7), brake on
+  the green, ease back): on the CGA, easing back 5 lines starts a 36-row pan
+  up, and 1 - 3 lines forward a 35-row pan down; over the session, 8
+  reversals and 298 rows for a ball that moved 12 lines and 24 px.
+- **GLIDE re-aims every frame** from the sign of `vx` and `vy`, so a ball
+  that turns or bounces flips a running pan's target. Vertically the sign
+  is the ball's OWN `vy`, so every Hop's apex flips it although the band
+  reads the ground line: 22 of 39 CGA row reversals in the demos.
+- **The heavy rule STOPS pans** (128.12.7, 128.13.6). Both levels take no
+  column, with no limit on how long. At `MILL`'s chute exit the lift's slab
+  is at the window's bottom right, and every frame turns heavy: columns are
+  withheld 30 frames, rows drop to half rate, the sand bounce flips the pan
+  up 4 rows, and the catch-up runs last, settling 83 frames (1.4 s) after
+  the exit: the owner's "slows down, then quickly moves over". **Level 1
+  locks itself in** when the slab straddles the edge the pan heads for
+  (one column would move the slab inside and end the clause): `PEAK`'s CGA
+  demo withholds columns for **198 frames** with the ball outside the dead
+  zone, its autopilot for **246**, and `MILL` on the Hercules for **102**
+  (37 columns panned against 73 with the rule off). **Level 1 ignores the
+  axis**: a slab at the top or bottom withholds the column, which enters at
+  the side (10 of 28 such frames on `MILL`'s CGA, 25 of 240 on `PEAK`'s).
+- **The pace switches mid-pan.** The rate comes from three per-frame
+  switches (outside the band or dead zone, the ring's "fast", the column
+  alternation), so a pan halves or doubles partway: at every tube exit (the
+  ghost's forced "fast" ends), and in falls (the ring reads the ball's own
+  line, the target the ground line: `TRIAL`'s CGA fall runs 2, 1, 2, 1 rows
+  a frame with 33 rows to go).
+- **The ground-line target jumps at a tube exit**: the ghost's own height
+  is its ground, so `MILL`'s chute retargets 12 rows on the exit frame.
+- **The guest makes it longer** (PREDICTED): the camera runs once a
+  PRESENTED frame, and the lift's box frames near the chute are at about
+  90% of a CGA refresh, so a missed refresh stretches each stall in wall
+  time.
+
+Today's reversals per run: `BENCH` 8 / 8 (CGA / Hercules), `FIRST` 0 / 0,
+`TRIAL` 2 / 2, `MILL` 6 / 1, `MOON` 2 / 2, `PEAK` 13 / 3, `PLAY` 8 / 9. The
+dither map (branching off the demos every 0.5 s with the ball grounded and
+moving, then reverse / release / forward / release / reverse taps of 8, 15
+or 25 steps, about 4 px / 2 lines to 32 px / 16 lines) reverses on **52,
+123 and 186 of about 520 samples** at the three tap lengths.
+
+##### 128.17.6.2 The rule (binding: `bz_camglide` and `bbcourse.Glide` do exactly this)
+
+GLIDE (`bz_cmode` 0, the default) becomes this rule; the mode keeps its
+name and its `C` key. One routine serves both axes with per-axis
+constants. **The tracked point** `b`, the window's position `P` (in the
+axis's units) and the offset `off = b - P x u`:
+
+| | across | down |
+|---|---|---|
+| unit `u` | a column, 8 px | a row, `rl` lines (CGA 2, Hercules 4) |
+| window `Wp` | `8 W` px (CGA 320, Hercules 360) | 200 lines (`WIN_LINES`) |
+| `P`, its range | `bz_c0`, 0 - `cmax` | `bz_R0`, 0 - `rmax` |
+| the tracked point `b` | the ball's centre, `bz_px + 8` | the camera's centre line, 128.16.7's ground line `cy + 8` with its latch |
+| in a tube | the exit point's px + 8 | the exit point's line + 8 |
+| band margin `A` | `2 W` px (CGA 80, Hercules 90): the dead zone as before | 66 lines |
+| return hysteresis `Hr` | `W` px (40, 45) | 16 lines |
+| lead placement `T` | `3 W` px (120, 135) | 76 lines |
+| lattice step `S` | 8 columns | 32 lines: CGA 16 rows, Hercules 8 |
+| urgent edge `Ef` | **`W / 2` px (20, 22)** | 40 lines |
+| "fast" from the travel ring | yes (128.11.11.1's x verdict) | **no** |
+
+**Why the urgent edge across is `W / 2`, not `W`** (the judged constant).
+After a pan one way the return band's edge is `A - Hr = W` from the window's
+side, so with `Ef = W` the frame that starts a return pan also found it
+urgent: every return pan was born fast (16 of 36 column pans on the CGA, 14
+of 29 on the Hercules) and ran a column EVERY frame for 8 - 16 columns.
+Outside tubes that made **17 runs of 2 or more consecutive column frames on
+the CGA, 260 frames, the longest 16** (wave 6: 2 runs of 2), and on the
+Hercules 15 runs, 229 frames, the longest 24 (wave 6: none). Consecutive
+costly frames are what 128.16.10's half-rate stretches are made of. At `W /
+2` (MEASURED on the judging harness): **1 run on the CGA (6 frames) and 1 on
+the Hercules (4)**, no pan born urgent across, reversals, stalls,
+slow-then-fast windows, the dither map, `MILL`'s ramp bottom and the unsafe
+count unchanged, and the ball never nearer the side than 24 px (`W / 2`, `W
+/ 4` and 0 give identical runs: the urgent edge across is a safety net that
+these courses never reach). The cost: 36 more columns over every run (993
+-> 1,029) and +2.3% of the CGA's priced pan work against `Ef = W` (27,249k
+-> 27,880k), because a return pan at the slow rate is extended further
+before it finishes.
+
+**The state, per axis**: `s`, the running pan's sign (0 at rest); `tgt`,
+its target position; `last`, the sign of the last pan that MOVED the window
+(0 at the first frame); `fast`, the pan's rate latch; `since`, frames since
+the pan's last column (across only, saturating at 9); `held`, the axis's
+withheld steps since it last stepped (128.17.6.3).
+
+**Each frame**, after the frame's steps, the ring's x half and the ground
+line block (128.16.7), for each axis, IN THIS ORDER:
+
+1. **The band, with return hysteresis**, computed every frame from `last`:
+   `lo = A - (Hr if last > 0)`, `hi = Wp - A + (Hr if last < 0)`. The point
+   WANTS a pan `w = +1` when `off > hi`, `-1` when `off < lo`, else 0. After
+   a pan one way, coming back the other way needs `Hr` more travel: that is
+   the "transition point" a ball near a ramp's foot does not cross by easing
+   back.
+2. **The lattice target.** For a direction `d`, `cand(d)`: with `t = b - T`
+   when `d > 0`, `P' = floor(t / (u S)) x S`; with `t = b - (Wp - T)` when
+   `d < 0`, `P' = ceil(t / (u S)) x S`; 0 when `t <= 0`; clamped to the
+   range. The same place always gives the same framing, a multiple of `S`,
+   with the ball at least `T` inside the TRAILING side, so the lead ahead
+   of it is at most `Wp - T` and more than `Wp - T - u S`.
+3. **Start or extend.** When `w` is not 0: if `s = w`, `tgt` moves FORWARD to
+   `cand(w)` when that is further (`max` going +, `min` going -); else, when
+   `cand(w)` is beyond `P` in direction `w`, a pan STARTS: `s = w`, `tgt =
+   cand(w)`, `fast` clear, `since` 9 (a pan of the other sign, if one ran,
+   is replaced). When `w` is 0 and a pan runs, `tgt` still moves forward to
+   `cand(s)` when that is further (EXTEND). A pan never moves its target
+   back, and only leaving the band on the far side starts a pan the other
+   way.
+4. **At rest** (`s` 0) the axis takes no step this frame.
+5. **Stop.** When `w` is 0 and the point is back inside its lead placement
+   (`off < T` going +, `off > Wp - T` going -), the pan ends (`s` 0) and the
+   axis takes no step: the ball turned, so the camera stops rather than
+   swinging on.
+6. **One rate a pan, rising only.** `fast` is SET, and stays set until the
+   pan ends, when any of these holds this frame: across, the ring's x
+   verdict (128.11.11.1); the ball is in a tube; the point is past the
+   URGENT edge (`off < Ef` or `off > Wp - Ef`).
+7. **The step.** Columns: `since = min(9, since + 1)` FIRST, then one
+   column when `since >= 2`, or `since >= 1` when fast (so a pan's birth
+   frame, `since` 9, takes a column; then every second frame, or every
+   frame when fast). Rows: one, two when fast. Never more than `|tgt - P|`.
+8. **The heavy rule** may withhold the step or cut rows to one
+   (128.17.6.3). `held` is cleared when the step left after it is not 0.
+9. **Move.** `P += s x step`, clamped to the course. When the window MOVED:
+   `last = s`, and across `since = 0`. When `P = tgt` the pan ends (`s` 0).
+
+An implementation may keep, per axis, the smallest `b` for which
+`cand(s)` exceeds `tgt` (the next re-aim threshold) and compare `b` with it
+instead of computing `cand` every frame, provided it is EXACTLY that value,
+recomputed whenever `s` or `tgt` changes; the model computes `cand` every
+frame, and the window-parity check is the arbiter.
+
+**Tubes are pre-aimed.** While `bz_tube` is set, the tracked point is the
+tube's EXIT: the record's last segment's exit point `(ex, ey, ez)`,
+projected as the ball is (128.10.8's `bz_bx`, `bz_by`): px `ex - ey + X0 - 8`, line
+`((ex + ey) >> 1) - ez + Y0 - 13`, each + 8 for the centre (a new model
+function, `_exit_point()`, written in story 6b.4 beside `_ghost_bxy`). So the pan to the exit's framing runs during the transit,
+at the fast rate with the heavy rule off, and the exit frame has nothing
+left to do: no retarget, no rate drop. `MILL`'s chute, re-traced (CGA
+frames 470 - 580): 2 rows a frame for the whole transit, then nothing at the
+exit or after it.
+
+**Every tube exit**, the keeps and LAUNCHes as well as DROPs like the
+owner's chute (MEASURED on the
+judging harness, every demo and autopilot on both cards: 22 exits through
+`MILL`'s two keeps, its chute (a DROP) and its cannon (a LAUNCH), `MOON`'s
+keep, and `PEAK`'s keep, chute and cannon): **no pan is born fast and no
+pan's rate rises in the 90 frames after any exit.** A pre-aimed pan still
+running at the exit carries on at its rate with no withheld frame (`MILL`'s
+cannon on the CGA: 4 more two-row frames; `PEAK`'s chute: 6 more columns on
+the CGA, 4 on the Hercules). After a DROP the ball's 3-unit fall stays
+inside the 66-line band (`MILL`'s chute: no row for 84 frames on the CGA
+and 72 on the Hercules, then a pan born at the slow rate); after a LAUNCH
+the flight's pans are born slow 41 - 77 frames later. Two alternatives were
+tried and rejected: tracking a DROP's exit at its GROUND line (the floor
+under the exit) leaves `MILL`'s chute pan running past the exit at 2, 0, 2,
+0 rows, withheld beside the lift (two-row frames outside tubes 4 -> 10);
+carrying `fast` 60 frames past every exit makes 36 two-row frames outside
+tubes against 4 and 33 slow-then-fast windows against 26.
+
+**The first frame and a cut** (128.10.8 item 3) centre the window on the
+ball as before and reset both axes: `s` 0, `last` 0, `fast` clear, `since`
+9, `held` 0.
+
+**Deleted**: `gdx`, `gdy` and their per-frame updates from `bz_vx`,
+`bz_vy` (an apex can no longer re-aim a pan); the trailing-edge target;
+the "one more row while one row still leaves the ball outside" switch; the
+ring's y half (`bz_try`) and its verdict.
+
+**The constants were tuned on these seven courses** (the scratch harness's
+variants: `Ty` 84 pans fewer rows but makes 185 two-row frames; no lattice,
+`S` 1, gives 18 reversals; `Hr` 0 gives 26). A new course is re-checked by
+`--camcheck` (128.17.9), which item 8 runs whole, before its gate.
+
+##### 128.17.6.3 The heavy rule as a bounded delay
+
+`bz_props` decides `bz_heavy`'s level EXACTLY as before (128.12.7,
+128.13.6): level 2 for a contact group, the platform's box or the ride box;
+level 1 by 128.13.6's clause, the slab near an edge **on the ball's side**
+of the window (`bz_pnear`, unchanged); the 24 px / 16-line edge clause
+unchanged. What the camera does with a level changes; this replaces
+`bz_hvcam`.
+
+**The near-edge bits.** `bz_hv1` also computes, every frame, four bits with
+NO ball-side gate, in **`bz_pflag` bits 4 - 7** (bits 0 - 3 keep their
+meanings: the slab's box, near, the box beside a post, leaving), cleared
+each frame and set only while the slab's TRUE or drawn footprint is shown
+in the window. From the slab's TRUE line `y_t` and left edge `x_l`, the
+window's top `ya = R0 x rl`, bottom `yb = ya + 200`, left `xa = 8 c0` and
+right `xb = xa + 8 W`:
+- bit 4, LEFT: `x_l < xa + 8`;
+- bit 5, RIGHT: `x_l + PL_W > xb - 8`;
+- bit 6, TOP: `y_t < ya + 2 rl` (4 lines on the CGA, 8 on the Hercules);
+- bit 7, BOTTOM: `y_t + PL_H > yb - 2 rl`.
+
+For each axis with a step this frame that the edge clause did not release:
+
+- **Level 2** withholds the column on both cards, and the rows on the
+  CGA. **On the Hercules it lets one row through** (a box frame of about
+  70.1k plus a row of about 10.1k against its 93.9k refresh, PREDICTED
+  from 128.12.7's parts; the final pass checks it). Cap `H2` = **3**.
+- **Level 1** withholds the **column** only when the bit of the edge the
+  column pan heads to is set (bit 5 going +, bit 4 going -), and limits the
+  **rows** to one only when the bit of the edge the row pan heads to is set
+  (bit 7 going down, bit 6 going up). A slab near the top or bottom no
+  longer withholds a column. Cap `H1` = **1**.
+- **The cap**: an axis whose `held` is at least `H` takes its step
+  whatever the level. A withheld step is never made up as a double step: it
+  is a pan that arrives later, not faster.
+- **`held`** is the axis's withheld steps since it last stepped. A step the
+  heavy rule withheld adds one; a frame whose step after the heavy rule is
+  not 0 clears it (a row cut from two to one by level 1 or the Hercules'
+  level 2 IS a step, and clears it). Nothing else changes it: a frame with
+  no step to take (at rest, a column's cadence frame), a pan's end and a
+  pan's start leave it as it is; only the first frame and a cut reset it.
+
+So the 198-, 246- and 102-frame locks cannot happen: the level-1 lock needs
+only ONE column, after which the slab is inside the window and the clause
+does not fire again (one clipped box of about 6k, once, PREDICTED from
+128.12.4.3). The edge clause, `bz_hvoff` and TRICKLE are unchanged.
+
+**The worst delays** (MEASURED on the judging harness, 6b's constants):
+beside `PEAK`'s lift, a CGA row pan steps on alternate frames for **58
+frames (0.97 s)** of the demo (frames 1723 - 1780: level 2 on every other
+frame, 28 withheld, never more than 3 running); on `MILL`'s CGA a slow
+column pan near the lift takes a column every third frame for 19 frames
+(591 - 609, 9 withheld, once 3 running). Neither stops; both are slower
+than the pan's rate. `H2` 1 or 2 changes 1 of the 26 slow-then-fast windows
+and puts 6 or 3 columns onto the CGA's level-2 box frames: rejected. Round
+2's notes say a half-rate row pan beside the lift is expected (128.17.12).
+
+**The cap on a CGA level-2 frame.** Level 2's box frames are about 90% of a
+CGA refresh, and a column (19.7k) cannot fit beside one: a capped column
+there costs about 70k + 19.7k against about 79.5k, one missed refresh. The
+rule keeps the cap anyway (an uncapped level 2 locks `MILL`'s CGA columns
+for 109 frames: 128.17.10's `nocap`), and on these courses it never fires there: **0
+columns and 0 rows on the CGA's 413 level-2 frames** outside tubes (MEASURED on
+the judging harness). `--camcheck` REPORTS the count, so a new course that
+forces one is seen before its gate.
+
+**The side bits decide no frame on these courses.** Under 6b's constants,
+over every demo and autopilot on both cards, there is no level-1 frame on
+which the side-blind rule would withhold where the side-aware one does not
+(1 row frame on `PEAK`'s CGA demo, where the pan already took one row:
+MEASURED). The rule stays, because a lift near the top of a course would
+otherwise slow every column pan beside it, but the checks that prove it run
+on a CONSTRUCTED scenario (128.17.9, 128.17.10).
+
+##### 128.17.6.4 What stays
+
+- **The ground line and its latch** (128.16.7): the tracked point down is
+  `cy + 8` exactly as 128.16.7 computes it, the latch included, so a fall
+  over the void still keeps the ball on screen and a bounce still does not
+  bob the view.
+- **TRICKLE** (`bz_cmode` 1): wave 0's camera with 128.16.7's ground line,
+  unchanged.
+- **The travel ring's x half** and its "faster than 4 px a frame" verdict,
+  read by the columns.
+- **128.2's limits**: at most `BZ_MAXR` rows and `BZ_MAXC` columns a frame,
+  a larger move a full write, every position clamped to the course.
+- **The benchmark forces GLIDE**, now LATTICE, unless `bz_camscr` is set
+  (128.17.6.7).
+
+##### 128.17.6.5 The guarantees
+
+Each is ASSERTED on the host model over every shipped demo and every
+course's autopilot, both cards (`--camcheck`, 128.17.9, which item 8 runs
+whole), and on the glass by `bonanzaring`'s CAMERA leg where named
+(128.17.10):
+
+1. **No reversal inside the band.** A pan never changes sign while the
+   point is inside `[lo, hi]`; a pan the other way starts only when the
+   point leaves the band on that side.
+2. **No stall-then-catch-up**, as three predicates checked separately:
+   (a) a pan's `fast` latch never clears before the pan ends; (b) no axis's
+   `held` exceeds `H2` (3), and none exceeds `H1` (1) on a level-1 frame;
+   (c) no frame steps more than the pan's rate (a column, or one row slow
+   and two fast), so a withheld step is never made up. A step cut by the
+   heavy rule is allowed by (c) and bounded by (b); it is REPORTED, with the
+   slow-then-fast windows, not forbidden (128.17.6.6).
+3. **The ball inside the window.** The ball's footprint is inside the window
+   on every frame (the latch, the urgent edge and the edge clause). The
+   worst margin on the model is 41 lines at the full rate and 19 at half
+   rate (PREDICTED).
+4. **Dither does not pan back.** On the dither map, no sample at tap lengths
+   of 8, 15 or 25 steps reverses a pan (MEASURED on the scratch model with
+   6b's constants: 0 of 528, 526 and 515; at 40 steps 2 of 469, at 60 steps 8
+   of 391, PRINTED). On `MILL`'s ramp bottom all six patterns (brake and
+   ease, climb tries, wiggles, coasting) give 0 reversals on both cards
+   (today 16).
+5. **Every tube exit is smooth.** At every tube exit (keep, DROP and
+   LAUNCH), in the 90 frames after it no pan is born fast and no pan's rate
+   rises, and a pre-aimed pan still running at the exit takes its step on
+   every frame its rate allows, with no withheld frame, until it ends
+   (MEASURED: holds on all 22 exits, 128.17.6.2).
+6. **Integer-exact parity.** `bbcourse.Glide` is the guest's camera on every
+   frame of every leg `bonanzaring` runs, the respawn cut included (below).
+
+**The respawn cut is modelled.** 128.10.8 item 3's cut is unchanged in the
+guest, but `bbcourse.Glide`'s frame model now includes it (a respawn that
+the guest treats as a cut re-centres the model too). Without it the model
+shows false off-window frames on `PEAK`, on both cameras.
+
+**REPORTED by `--camcheck`, not asserted**: every rate rise with its frame
+and its cause (urgent, ring, tube); the slow-then-fast windows with their
+cause (a heavy withhold or a rate rise); runs of consecutive column frames
+and of frames of 27k or more of priced strips; steps the cap forced onto a
+CGA level-2 frame; the look-ahead percentiles; the same over a half-rate
+pass (each frame twice the steps).
+
+##### 128.17.6.6 The pans, predicted per course
+
+PREDICTED on the host (the judging harness: `Glide` and `Heavy`, the heavy
+rule on, the respawn cut modelled; each demo at its card's nominal step
+rate; 6b's constants, `Ef` across `W / 2`). "Wave 6" is the shipped GLIDE on
+the same harness; it equals `bbcourse.py --pans` (128.16.15) where `--pans`
+runs with the heavy rule. Columns a second, rows a second, two-row frames,
+reversals:
+
+**The strip prices behind every PRICED figure in this subsection and in
+128.17.11** (the totals, the per-run table, the runs of frames of 27k or
+more) are 128.9's: a CGA row 7.5k and column 19.7k, a Hercules row 13.7k
+and column 18.8k. 128.12.7 later MEASURED lower ones (a CGA row 5.7k,
+column 19.8k; a Hercules row 10.1k, column 19.3k). The counts (columns,
+rows, two-row frames, reversals) do not depend on the prices; the priced
+figures do. On the CGA the comparisons keep their direction at 128.12.7's
+prices. On the Hercules two rows are 20.2k at 10.1k a row, under the 27k
+line, so the Hercules runs of 27k or more (25 runs of 112 frames -> 3 of
+36) are NOT expected to survive re-pricing and are not a claim. The final
+pass reports the MEASURED busy figures instead (128.17.10, `bonanzaperf`).
+
+
+| demo | card | seconds | wave 6 | wave 6b (LATTICE) |
+|---|---|---|---|---|
+| `FIRST` | CGA | 2.84 | 4.94, 12.69, 0, 0 | 4.94, 11.28, 0, 0 |
+| `FIRST` | Hercules | 2.83 | 4.24, 6.35, 0, 0 | 4.24, 5.65, 0, 0 |
+| `TRIAL` | CGA | 9.14 | 6.34, 15.75, 37, 2 | 5.25, 14.00, 0, 0 |
+| `TRIAL` | Hercules | 9.15 | 4.81, 5.79, 16, 2 | 3.50, 5.25, 0, 0 |
+| **`MILL`** | **CGA** | 14.25 | **7.44**, 15.09, 28, 6 | **5.19**, 17.33, 51, 1 |
+| `MILL` | Hercules | 14.24 | 2.60, 8.00, 26, 1 | 2.46, 8.64, 25, 1 |
+| `MOON` | CGA | 39.01 | 3.72, 10.33, 36, 2 | 2.00, 10.25, 0, 0 |
+| `MOON` | Hercules | 39.01 | 3.13, 5.02, 29, 2 | 2.28, 5.13, 12, 0 |
+| **`PEAK`** | **CGA** | 39.78 | 3.39, 15.49, 46, 13 | 1.91, 14.03, 8, 2 |
+| `PEAK` | Hercules | 39.78 | 1.86, 7.11, 35, 3 | 0.98, 7.39, 12, 1 |
+| `PLAY` | CGA | 27.27 | 6.27, 11.26, 0, 8 | 2.57, 7.67, 0, 1 |
+| `PLAY` | Hercules | 27.27 | 6.78, 5.76, 2, 9 | 2.46, 3.52, 0, 0 |
+| `BENCH` (`B`) | CGA | 30.04 | 5.39, 11.15, 0, 8 | 1.07, 5.33, 0, 0 |
+| `BENCH` (`B`) | Hercules | 29.51 | 4.27, 5.29, 0, 8 | 1.08, 3.25, 0, 0 |
+
+Wave 6's MEASURED columns a second (128.16.10, speaker ON): `MILL` CGA 7.6,
+`PEAK` CGA 3.0 and Hercules 1.9; the rest matched `--pans` to 0.1.
+
+- **Over every demo and autopilot, both cards** (the totals, `MILL`'s,
+  `TRIAL`'s and `FIRST`'s autopilot counted once with their demos): rows
+  4,273 -> 3,770, columns 1,773 -> 1,029, two-row frames 353 -> 157,
+  reversals 84 -> 7, stalls of 6 frames or more 9 (the longest 246) -> 0,
+  slow-then-fast windows 133 -> 26.
+- **The 26 slow-then-fast windows left are all on `PEAK`'s CGA**: 20 are a
+  row pan at half rate beside the moving lift that returns to full rate
+  when the slab leaves (the demo's frames 1063 - 1084, 1484 - 1505 and 1722;
+  the autopilot's 1198 - 1224: level 2 on alternate frames, 128.17.6.3's
+  worst delay), and 6 are a slow row pan that turns fast when the ball
+  enters `PEAK`'s keep tube (the autopilot's 1314 - 1334: pre-aim, a speed
+  UP inside the tube). None is at `MILL`'s ramp bottom, its chute or its
+  cannon; none is a stall.
+- **The cost in 128.9's strip prices** (a row 7.5k and a column 19.7k on
+  the CGA, 13.7k and 18.8k on the Hercules), outside tubes, summed over
+  those runs: the CGA 39,265k -> 27,880k (-29%), the Hercules 31,246k ->
+  24,070k (-23%). **`BENCH` alone is a third of that** (CGA 5,704k ->
+  1,830k, -68%; Hercules 4,506k -> 1,917k, -57%): **without `BENCH` the
+  authored courses fall 22.4% on the CGA (33,562k -> 26,050k) and 17.2% on
+  the Hercules (26,741k -> 22,154k)**, an average of 0.57k and 0.41k a
+  frame. Column frames on the CGA outside tubes 923 -> 516, two-row frames
+  152 -> **4**, a column with two rows 15 -> 0.
+- **Per run, outside tubes** (priced pan work, wave 6 -> 6b, and the
+  average saving a frame; demos unless named):
+
+  | run | CGA | Hercules |
+  |---|---|---|
+  | `FIRST` | 546k -> 516k, 0.18k | 472k -> 445k, 0.19k |
+  | `TRIAL` | 2,223k -> 1,906k, 0.58k | 1,553k -> 1,259k, 0.63k |
+  | `MILL` | 2,618k -> 2,243k, 0.47k | 1,504k -> 1,344k, 0.24k |
+  | `MOON` | 5,542k -> 4,537k, 0.43k | 4,691k -> 4,413k, 0.14k |
+  | `MOON` autopilot | 4,090k -> 3,621k, 0.26k | 3,398k -> 3,508k, **-0.07k** |
+  | `PEAK` | 6,922k -> 5,562k, 0.57k | 5,145k -> 4,761k, 0.19k |
+  | `PEAK` autopilot | 5,245k -> 3,775k, 0.84k | 3,393k -> 3,012k, 0.26k |
+  | `PLAY` | 5,671k -> 2,946k, 1.67k | 5,629k -> 2,575k, 2.20k |
+  | `PLAY` autopilot | 703k -> 944k, **-0.13k** | 955k -> 836k, 0.08k |
+  | `BENCH` | 5,704k -> 1,830k, 2.15k | 4,506k -> 1,917k, 1.73k |
+
+  **These do not net against the camera's own cost frame by frame.** The
+  saving falls on PAN frames, and the camera's +0.2 - 0.36k at rest
+  (ESTIMATED, 128.17.11) on EVERY frame. Averaged, the saving is below the
+  camera's cost on `FIRST`, `MILL`'s Hercules, `MOON`'s Hercules, `PEAK`'s
+  Hercules, `MOON`'s CGA autopilot and both `PLAY` autopilots. What decides
+  misses is the frames near a refresh: a pan frame (where the saving is),
+  and a box frame at rest beside a lift, which gains about 0.36k against a
+  CGA headroom of about 9k (ESTIMATED). That is the final pass's A/B
+  (128.17.10), not this arithmetic.
+- **Runs of consecutive costly frames** (CGA outside tubes): runs of 2 or
+  more column frames, wave 6 2 (4 frames, the longest 2), 6b **1** (6
+  frames); runs of frames of 27k or more of strips, wave 6 1 (2 frames), 6b
+  **0**. On the Hercules (where two rows are 27.4k): column runs 0 -> 1 (4
+  frames), 27k runs 25 (112 frames, the longest 11) -> 3 (36, the longest
+  12).
+- **A half-rate pass** (every frame runs twice the steps, as in a stretch
+  of misses; `MILL`, `PEAK`, `TRIAL`, `MOON` and `PLAY`, the CGA, outside
+  tubes): two-row frames 388 -> 209; column runs 6 (13 frames, the longest
+  3) -> 1 (15). **`MILL` is the exception**: two-row frames 50 -> 71
+  (priced work 3,024k -> 1,786k, -41%), because at half rate the ball
+  descends B's ramp two steps a frame and a row pan born at the slow rate
+  turns fast at the urgent edge after 20 frames (1 row a frame, then 2 for
+  46 frames): a slow-then-fast rise that the full-rate run does not have.
+  `PEAK`: 84 -> 13.
+- **`MILL`'s CGA** pans fewer columns (106 -> 74) and MORE rows (215 ->
+  247), because the tube pans now happen INSIDE the transit (47 two-row
+  frames in tubes); outside tubes it is 4 two-row frames (the cannon's
+  pre-aimed pan finishing).
+- **The 7 reversals left** are genuine switchbacks, the ball going back 35 -
+  51 lines: `MILL` CGA frame 206 and Hercules 175; `PEAK` CGA autopilot
+  1710, CGA demo 2035 and 2158, Hercules demo 133; `PLAY` CGA 469.
+- **`FIRST`'s falls** (its autopilot, a loop of falls and respawns, counted
+  out of the totals as a repeat of its demo): rows 576 -> 1,000 and two-row
+  frames 173 -> 484 on the CGA (Hercules 288 -> 448, 77 -> 216), priced work
+  4,596k -> 7,776k (+69%). Each fall's down pan is born at the urgent edge
+  (the ground line follows the ball below its last floor, 128.16.7) and
+  runs at two rows a frame to its lattice target, and the respawn's pan
+  goes back up. Taking the urgent edge away over the void was tried and
+  changes nothing (`FIRST`'s falls land on a floor below before the kill).
+  It stays: a fall is a fast move with nothing else in play, and the
+  respawn follows. `bonanzaperf` REPORTS a `FIRST` fall-and-respawn replay
+  (misses and runs of misses a fall, 128.17.10).
+
+**The risks the contract states**, and what reports each:
+1. Beside `PEAK`'s moving lift, CGA row pans run at half rate for up to
+   0.97 s (20 slow-then-fast windows): not a stop, not full speed.
+   `--camcheck` lists them; `bonanzaperf` measures `PEAK`'s misses.
+2. Inside tubes two-row frames rise (CGA 47 -> 80), and columns with two
+   rows are 51, all in tubes. No ball is composed in a tube, so these frames
+   are PREDICTED cheap; `bonanzaperf` reports the misses of tube frames
+   (128.17.10 gives the trigger for 128.17.6.8's in-tube rule).
+3. Less look-ahead across: the room ahead of a moving ball at the 10th
+   percentile is 0.22 of the window against 0.29 (down 0.34 against 0.36).
+   The framing is lattice-placed, not ball-centred. `--camcheck` prints it.
+4. Rows ignore the ring, so a long fall relies on the urgent edge and the
+   latch (the margins in 128.17.6.5 item 3). `--camcheck`'s guarantee 3.
+5. The hysteresis gives way at about 50 px or 25 lines of dither (2 of 469
+   samples at 40-step taps). `--camcheck` prints the 40- and 60-step map.
+6. Row pans START more often (166 -> 181) while the rows panned fall.
+   `--camcheck` prints the pan starts.
+7. The model has no clock: a missed refresh stretches a pan in wall time,
+   and at half rate `MILL`'s ramp descent has a slow-then-fast rise (above).
+   `--camcheck`'s half-rate pass reports it; `bonanzaperf` measures it.
+8. `FIRST`'s falls pan at two rows a frame (above). `bonanzaperf`'s fall
+   replay reports it.
+
+##### 128.17.6.7 `BENCH` and item 8: the scripted camera
+
+`--selfcheck` item 8 (128.11.11.1) asserts all eight step directions at
+least 5 times on both cards over `BENCH`'s 1,200 frames: it is the proof
+that the scroll ENGINE's paths (a row each way, a column each way, the four
+diagonals) are exercised by the benchmark and checked by `bonanzaring`.
+Under LATTICE, `BENCH`'s fewest per direction (UL U UR L R DL D DR, over
+the 0.96 - 1.04 rates and phases) are CGA 0 32 0 2 12 0 99 2 and Hercules
+0 24 0 10 16 5 66 0, and a 1,600-mutation search of `BENCH`'s `way` lines
+never produced an up-left pan. The camera's policy should not be what that
+proof depends on.
+
+**`bz_camscr`**, a harness byte like `bz_hvoff` (0 in play; a row pokes it
+before the benchmark starts). When it is set, the benchmark's camera is a
+SCRIPT, and LATTICE does not run:
+
+- **The cycle**: eight (row, column) steps, each held 8 frames, in the
+  order R (0, +1), DR (+1, +1), D (+1, 0), DL (+1, -1), L (0, -1), UL (-1,
+  -1), U (-1, 0), UR (-1, +1); a byte counts the frames, and the cycle
+  repeats every 64 frames.
+- **The ball stays inside**: on a frame where an axis's scripted step would
+  leave the ball's footprint less than 24 px (across) or 16 lines (down)
+  inside the window, that axis steps ONE UNIT TOWARD THE BALL instead (the
+  other axis keeps its scripted step). The counter advances either way.
+- **The course's edge**: a step the clamp cuts is lost, not carried. The
+  window therefore does not return exactly to where a cycle began; nothing
+  asserts that it does.
+- **The heavy rule does not apply** to a scripted step (128.12.7's eight
+  directions were proved with it off, and `BENCH` has no prop); the edge
+  clause and TRICKLE are not involved.
+- **LATTICE's state is not touched** while the script runs. Clearing
+  `bz_camscr` is a cut: the next frame is a first frame (128.17.6.2).
+- `bbcourse.Glide(scripted=True)` models exactly this, frame for frame.
+
+- **Item 8 is re-stated**: with `bz_camscr`, each of the eight directions at
+  least 5 times on both cards at rates 0.96 - 1.04, and the footprint inside
+  the window on every scripted frame, ASSERTED (PREDICTED: 8-frame holds give
+  each direction about 150 frames in 1,200, less the fallback's and the
+  clamp's); under LATTICE, the counts are
+  PRINTED. If the scripted camera cannot give 5 of each on the model, the
+  implementation says so and the alternative (reshaping `BENCH` with an
+  uphill up-left leg, which changes its bytes and breaks comparison with
+  earlier benchmarks) goes to the owner (128.17.13).
+- **`bonanzaring`'s `BENCH` leg** pokes `bz_camscr` and asserts card =
+  oracle on every frame and the eight directions, as before.
+- **`B`, the benchmark**, runs the PLAY camera (LATTICE, `bz_camscr` 0), so
+  `bonanzaperf`'s `B` measures what a player gets. **`B`'s series breaks
+  at 6b**: it pans a third of wave 6's work (above), so its figures are not
+  comparable with earlier waves'.
+- About **30 - 60 bytes** and 2 bytes of bss (the byte and its counter;
+  PREDICTED, not priced).
+
+##### 128.17.6.8 Considered and not built: authored views
+
+The other design prototyped was **VIEWS**: a `view` statement in the course
+text holding a framing over a tile rectangle, pans of one strip a frame, a
+slow flag beside lifts, and today's GLIDE elsewhere. Measured on the same
+harness as LATTICE (V+D0L, views with a held direction; LATTICE here is the
+judged one, `Ef` across `W`):
+
+| | today | LATTICE | VIEWS |
+|---|---|---|---|
+| rows / columns | 4,273 / 1,773 | 3,770 / 993 | 3,454 / 875 |
+| two-row frames | 353 | 157 | 46 |
+| reversals | 84 | **7** | 25 (9 on the authored courses, 16 on `BENCH`) |
+| dither reversals at 15 / 25-step taps | 123 / 186 | **0 / 0** | 36 / 51 |
+| priced pan work, CGA outside tubes | 39,265k | 27,249k (-31%) | 25,380k (-35%) |
+| room ahead down, 10th percentile | 0.36 | 0.34 | **0.19** |
+| what a course needs | - | nothing | 43 rectangles over six courses, a new part section, an identity move |
+| bytes | - | about +200 - 230 net | about +650, +24 bss, about 0.6KB of course data |
+
+VIEWS is cheaper per frame but fixes only the ground somebody has drawn
+views over, loses look-ahead downward, and moves every identity. It stays
+on record as the fallback if play finds a spot the rule handles badly: a
+`view rect` statement holding a framing there.
+
+Also tried and rejected: "a column frame takes no row" (the views' one-strip
+rule) on LATTICE outside tubes made 162 slow-then-fast windows and 17
+stalls (rows starve while columns alternate). In tubes only (at most one row
+on a column frame) it cut column-with-two-row frames 51 -> 6; it ships only
+on the final pass's trigger (128.17.10).
+
+**Tried at the review, on the judging harness with 6b's constants, and
+rejected**: a DROP tracked at its exit's ground line, and `fast` carried
+past an exit (128.17.6.2); a row pan born fast when the ground line moved
+more than 4, 6 or 8 lines in the last 4 frames (two-row frames 157 -> 407,
+263, 263; the slow-then-fast windows unchanged at full rate, 82 -> 68 - 79
+at half rate); no urgent edge over the void (no change); `H2` 1 or 2
+(128.17.6.3).
+
+#### 128.17.7 `BZ_PHYSV`, the demos, the saves and the identities (story 6b.5)
+
+- **`BZ_PHYSV` moves.** `GRIP` changes `BZ_MATTAB` and `BZ_SURFTAB` (the
+  brakes on normal ground, sand and the mat; ice's stay 2, 1, 1), the
+  trigger is a rule change with no table, so **`PHYS_REV` becomes 7**, and
+  the grace's length **`BGRACE` (3) joins `PHYS_CONSTS`** before it.
+  MEASURED on a scratch import of this tree's tool with exactly these
+  edits: `PHYS_REV` 7 alone gives 1Dh, and with `BGRACE` **`BZ_PHYSV`
+  53h** (the build's value is the authority). 25h, wave 6's value, which
+  the owner has played, is **appended to `PHYSV_SHIPPED`**: 00h, 9Ah, E6h,
+  A0h, 25h. Item 4 asserts the new value is not in the list (controls
+  `physv`, `physv0`).
+- **The course parts do not change.** Grip, the trigger and the grace are
+  not in the reach (128.16.5.1 reads `HOPMAX` and `BOOST`, and a converted
+  flight is the contact boost's), so every course's records, RAM, LZ4 and
+  LZB are unchanged (MEASURED by `--tune`, 128.17.3), and so are the
+  identities: `BENCH` C0B1h, `FIRST` E9F8h, `TRIAL` 465Bh, `MILL` DAE0h,
+  `MOON` 4472h, `PEAK` 57DBh, `PLAY` 18E6h (PREDICTED; the build confirms
+  them, and `bonanzacourse`'s registered identities do not move). The
+  camera is not in a part.
+- **The demos.** The ROUTE demos (`FIRST`, `TRIAL`, `MILL`) are regenerated
+  by the build: their keys hold neither Space nor Grip, so their paths are
+  wave 6's step for step and only their `BZ_PHYSV` moves. `MOON`'s,
+  `PEAK`'s and `PLAY`'s `.bzd` are re-authored by `bbcourse.py author`
+  (PREDICTED 2,130, 2,172 and 1,504 steps; `PLAY`'s `boost` verb still
+  presses 2 steps before the contact, which arms the flight). The build
+  refuses a stale one (128.16.9).
+- **Old logs.** A wave-6 `.BZR` is refused. Since no identity moves, every
+  one reaches the physics check: "Demo from other physics" from `L`, "Other
+  physics' log" from `R` (128.14.7.2's order, unchanged). The model can
+  still READ one (`bbcourse.py demo` decodes the key bytes whatever the
+  physics), which is how the owner's failed boosts are analysed
+  (128.17.12).
+- **The saves.** `BONANZA.DAT` +5 holds 25h on the owner's disk, which is
+  not this build's `BZ_PHYSV`, so its bests and the tour's are cleared once
+  and the file is rewritten at the next best (128.16.9's mechanism,
+  unchanged).
+
+#### 128.17.8 kern_mega, kern_small, the Hercules
+
+- **kern_mega**: nothing here needs a `PKG_MEGA` arm. The trigger, the
+  grace and the camera are package code and bss; the camera does no
+  segment arithmetic. `bonanzamega` plays a Hop and a mid-flight boost
+  press on kern_mega's Hercules (128.17.10).
+- **kern_small** refuses BONANZA on the desktop (128.1), unchanged.
+- **The Hercules**: its own constants per 128.17.6.2's table (`W` 45, `rl`
+  4, `S` 8 rows, `Ef` 22 px), and level 2 lets one row through there
+  (128.17.6.3).
+
+#### 128.17.9 The tool
+
+`tools/bbcourse.py`:
+- `MATERIALS`' `GRIP` 6, 3, 1; `surf_entry()`'s ice brake `max(1, (GRIP +
+  2) >> 2)`; `BGRACE` 3 and `PHYS_REV` 7 in `PHYS_CONSTS`; `PHYSV_SHIPPED`
+  gains 25h;
+- `Physics`: the arming edge in step 1, `_land`'s test on `btok == 2`
+  (128.17.4.2) and the late grace (128.17.4.5), with `bgr` and `bgd` in
+  its compared state;
+- item 7: the offset map (128.17.4.2) ASSERTED at rest and rolling on
+  `PLAY`'s apron (every edge from the first possible after the take-off to
+  3 steps after the contact boosts; none from 4 steps after; a press held 6
+  - 40 steps never; a single tap never; mashing one boost a Hop); the
+  grace's EXACTNESS (at `k` 1, 2 and 3, the converted state equals the
+  contact boost's at that point of the step, on the apron and on every
+  ladder case); the ledge case (a Hop at a half-unit lip, held 4 steps: no
+  boost on the ledge); the who-hits-it table PRINTED from the map, with
+  each column ASSERTED at least the wave-6 trigger's figure computed from a
+  map the model makes under `_w6trig`, never a literal, and "holds to the
+  landing" at 0; the CD5 table printed under its new name with each row's
+  verdict under the 6-point floor; every brake on every surface at least 1,
+  and ice's 2, 1, 1 asserted;
+- **`Glide` becomes LATTICE** (128.17.6.2, 128.17.6.3), integer-exact to
+  `bz_camglide`, with `Heavy`'s four near-edge bits, the respawn cut
+  modelled, and `scripted=True` for `bz_camscr` (128.17.6.7). Wave 6's
+  policy stays in the tool as `Glide(..., _w6=True)`, for `--pans`'
+  comparison;
+- **the model's broken parts**, one flag each, so every control and every
+  red arm's `--check` / `--check-reds` proof derives its broken model from
+  the shipped one rather than from a copy: `Physics` `_iceplain`,
+  `_heldarm`, `_hopedge`, `_armwin` (wave 6's `btok and hopw`), `_nograce`,
+  `_grace4`, `_graceoff` (the conversion without the `k - 1` lift), and
+  `_w6trig` (wave 6's whole trigger, for the who-hits-it
+  floors); `Glide` `_nohyst`, `_nocap`, `_ringy`, `_nopreaim`, `_side0`,
+  `_noscr`, and wave 6's `_nosafe`, `_nolatch` and `_camz` carried onto
+  LATTICE (item 7's `play_fall(_nosafe / _nolatch)` controls read them);
+- **`--camcheck`**: every demo and autopilot, both cards, at the nominal
+  rate: 128.17.6.5's guarantees 1 - 3 and 5 ASSERTED (guarantee 2 as its
+  three predicates; guarantee 5 is the TUBE-EXIT check, on every tube exit
+  of every run); the SIDE check (level 1 withholds a column only with the
+  edge bit of the column pan's heading set, and rows likewise, read from
+  `Heavy`'s bits) on a CONSTRUCTED side scenario, with at least one frame
+  where the side decides ASSERTED (128.17.6.3: the shipped runs have none);
+  the TWO-ROW check (a frame takes two rows only on a pan whose `fast` the
+  urgent edge or a tube set: the model records why each pan went fast);
+  the `MILL` ramp-bottom patterns ASSERTED at 0 reversals; the dither map at
+  tap lengths 8, 15 and 25 ASSERTED at 0 reversing samples (40 and 60
+  PRINTED); and everything 128.17.6.5 lists as REPORTED, including the
+  half-rate pass. **Item 8 runs `--camcheck` whole** (the dither map is
+  about 50 s of the host model, MEASURED on the scratch harness), so the
+  `bonanzacourse` row carries it;
+- **`--pans`** prints wave 6's policy and LATTICE side by side, both cards,
+  with two-row frames, reversals, stalls and column runs;
+- item 8 re-stated (128.17.6.7).
+
+#### 128.17.10 The rows
+
+Each row changes as below. Every red arm builds a broken copy into a private
+tree and must go red **at its own check**
+([docs/WRITING-TESTS.md](docs/WRITING-TESTS.md)). The rows run ONCE, in
+wave 6b's final pass: one `os88test.py soak -k ...` of their union, then
+every red arm the wave touched once: the new ones, and the CARRIED ones
+listed below. **No row asserts a retunable constant as a literal**
+(128.16.11): Grip's stops come from the model, the camera's constants from
+the tool. `bonanzaring`'s CAMERA leg runs each frame's semantic checks
+BEFORE its window-parity check, so a camera arm goes red at the check it
+names rather than at the parity it also breaks. **Each arm's expected
+failure below is the model's with that one part broken off 6b's shipped
+model** (the judging harness, 6b's constants), not wave 6's.
+
+| row | tier | what changes | new red arms, and the check each must fail at |
+|---|---|---|---|
+| `bonanzacourse` | soak, host | item 7: Grip 6, 3, 1 against `axis_feel()`; ice 2, 1, 1 and every brake at least 1; the trigger's offset map with the grace, the grace's exactness, the ledge case, the accidental cases and the who-hits-it floors (128.17.9); CD5's table under its name with the floor's verdicts; the ladders' counts unchanged. Item 4: `BZ_PHYSV` not in a list holding 25h. Item 8: `--camcheck` whole (128.17.9); `BENCH`'s eight directions under `bz_camscr` ASSERTED, under LATTICE PRINTED. The registered text re-taken, and `secs` re-measured (item 8 grows by the dither map and the camera checks) | host controls, each at its own item: `iceplain` (ice by `GRIP >> 2`): item 7's ice brakes 1, 1, 1 against 2, 1, 1. `heldarm` (Space held arms the token): item 7's ledge case boosts. `hopedge` (the Hop's own edge arms its flight): item 7's single tap boosts. `nograce` (no grace): item 7's map at `+1`. `grace4` (`BGRACE` 4 in the rule, not in the constants): item 7's map at `+4`. `nohyst` (`Hr` 0): item 8's `MILL` ramp bottom (the climb try on the Hercules reverses once) and the dither map (2, 2 and 3 reversing samples at 8, 15 and 25 steps, on `MILL`'s and `MOON`'s CGA). `nocap` (no heavy cap): item 8's guarantee 2 (b) (`MILL`'s CGA demo withholds columns 109 frames from frame 590; `PEAK`'s CGA 12). `ringy` (rows read the ring): item 8's two-row check (about 210 more two-row frames on the CGA outside tubes on a pan no urgent edge or tube made fast). `nopreaim` (no tube pre-aim): item 8's tube-exit check (`MILL`'s CGA chute exit runs 2, 1, 0, 2, 0, 2 rows with withheld frames; `PEAK`'s Hercules cannon 2, 1, 2, 1). `side0` (level 1 side-blind): item 8's side check on its constructed scenario. `noscr` (`bz_camscr`'s model ignored): item 8's eight directions. `physv25` (`BZ_PHYSV` forced to 25h, wave 6's): item 4 refuses it |
+| `bonanzaphys` | soak, MartyPC | the boost scenarios re-found on the model (`--check`) and kept; new replays, each on both cards: `armearly` (Space's second press 14 steps before the first contact: a boost, which wave 6 refused); `armroll` (rubber at the cap with a chord, a Hop, a second press mid-flight: a boost); `armlate` (the second press 2 steps after the contact: the GRACE converts, a boost); `armlate4` (4 steps after: no boost, `nboost` 0); `hoponly` (one tap, no second press: no boost); `armheld` (Space held from the Hop through the contact: no boost); `ledgehold` (a Hop at a half-unit lip, Space held 4 steps: on the ledge, no boost); `mashchain` (Space tapped every 2 steps through a chain: one boost); `gripsteel` (steel's Grip from the cap: it stops in the model's steps); `gripchain` re-keyed (Grip through the boost's landing, the Hop, a mid-flight tap: two boost cycles, about 52 steps apart, on the glass). `bz_btok` 2, `bz_bgr` and `bz_bgd` compared every frame | `heldarm` (the guest arms on Space held): red at `ledgehold`'s no-boost check. `hopedge` (the Hop's own edge arms): red at `hoponly`. `armwin` (the guest keeps wave 6's window test, `btok and hopw`): red at `armearly`. `nograce` (the guest without the grace): red at `armlate`. `grace4` (a 4-step grace): red at `armlate4`. `graceoff` (the conversion without the `k - 1` lift): red at `armlate`'s state comparison |
+| `bonanzaring` | soak, MartyPC | **the CAMERA leg**, its own part (`camera` in `RED_PARTS`, so its arms run alone), in GLIDE (LATTICE), both cards, each replay found on the model first: `MILL`'s ramp bottom (brake and ease, and the climb try); `MILL`'s chute transit and exit, and its cannon's; the lift stretches (frames chosen on 6b's model: `PEAK`'s CGA demo's 1723 - 1780, and `MILL`'s CGA 580 - 700, where the uncapped model locks); `TRIAL`'s 6-unit drop; the constructed SIDE scenario (128.17.9). At every frame: the window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s; the footprint inside the window; on the ramp bottom no reversal; on the exits guarantee 5 (no rate rise, and the pre-aimed pan's steps unbroken); on the lift stretch no axis's `held` over its cap; on the side scenario level 1 withholding only on the side its bit says (from `bz_pflag` bits 4 - 7); on the drop no two-row frame outside the model's. **The camera's cost ASSERTED**: a breakpoint round `bz_camglide`, its worst CLEAN span at most its as-built price plus 25%. The `BENCH` leg pokes `bz_camscr`. The GROUND leg is kept, its `ringcy` arm retired and its `campad` arm kept on the ground-line block. `secs` re-measured | `camhyst` (`Hr` 0 in the guest): red at the ramp bottom's climb try on the Hercules. `camcap` (no cap): red at the lift stretch's `held` check (`MILL`'s CGA, 109 frames). `campreaim` (no pre-aim): red at the chute exit's guarantee 5. `camring` (rows read the ring): red at the drop's two-row check, the first frame taking two rows where the model takes one. `camside` (level 1 side-blind): red at the side scenario's check. `latpad` (new: `bz_camglide` padded past its bound): red at the camera's span assertion. `campad` (as wave 6, on the ground-line block): red at the GROUND leg's span assertion |
+| `bonanzaperf` | soak, MartyPC | every demo through `D` and `B`, both cards, speaker OFF and ON, REPORTED against wave 6's final pass (128.16.10) and 128.17.6.6: misses, missed refreshes a second, **runs of two or more misses and the longest run** (the half-rate stretches), columns and rows a second against `--pans`, two-row frames, and the misses of frames in a tube against the run's other frames; a `FIRST` fall-and-respawn replay (misses and runs of misses a fall). **Like for like**: the route demos' keys hold neither Space nor Grip, so `MILL`'s route demo runs the same path in `4d69985c` and in this build; an A/B leg against `4d69985c`, three runs a side, speaker ON, on **`MILL`'s route demo**, which carries the decision below, and on `B`, REPORTED only (its route pans a third of wave 6's work, 128.17.6.7: `B`'s series breaks at 6b). The leg asserts the two logs' key bytes carry no Space or Grip bit. The re-baseline (`--baseline`) is still the freeze's | none new: its arms re-run (`level1` re-pointed to the rewritten `bz_hv1`) |
+| `bonanzareplay` | soak, MartyPC | the PLAYGROUND play's boost taken by a mid-flight second press (about 12 steps before the contact); its mouse play's boost by a mid-flight second click | none new |
+| `bonanzademo` | soak, MartyPC | `V`'s six demos `D`'d to the model's end on both cards; the hostile set gains +7 = 25h (wave 6's value), refused at check 5 | none new |
+| `bonanzagame` | soak, MartyPC | the `physdat` leg's second file is +5 = 25h (the owner's disk): bests cleared | none new |
+| `bonanzamega` | soak, 86Box | the PLAYGROUND case's boost pressed mid-flight | none new |
+| `bonanzawheel` | soak, MartyPC | re-run: `MILL`'s benchmark pans differently under LATTICE (the wheel's frames move with the camera) | none new |
+| `bonanzaexit` | soak, MartyPC | re-run (the image moved) | none new |
+
+**The carried red arms** (WRITING-TESTS §1: an arm is re-proved when the
+code under it, or the scenario it was found on, changes). Each is re-proved
+on 6b's model by its row's `--check` / `--check-reds` BEFORE the final
+pass, and run once in it; one that no longer goes red at its check has its
+scenario re-found on 6b's model, and one with no scenario left is retired
+with its reason written here by the final pass:
+- `bonanzaphys`: `pump`, `tokbst`, `rampboost`, `slabcell`, `springtok`
+  (anchored in `bz_land`'s boost block, whose test 6b rewrites);
+- `bonanzaring`: `camz`, `nosafe`, `nolatch`, `nostretch` (anchored in
+  `bz_camera`; their models move onto LATTICE: `nolatch` was red only on
+  the guest's pacing against the shipped GLIDE, and is re-proved against
+  LATTICE), and the box, probe and lift arms (`ridebox`, `pwait2`,
+  `fastwrap`, `mapskip` and the rest of `REDS`), whose scenarios depend on
+  which frames pan;
+- `bonanzawheel`: `costtab`, `lnext`, `pskip` and the rest of its `REDS`
+  (the wheel's frames move with the camera);
+- `bonanzaperf`: `rideoff`, `level1` (re-pointed);
+- `bonanzademo`, `bonanzagame` (`physdat`), `bonanzamega` (`stretchcs`):
+  re-run once, their code paths unchanged.
+
+**The decision the A/B carries** (story 6b.7): LATTICE ships on round 2's
+disk if, on `MILL`'s route demo on both cards, the misses a second and the
+longest run of misses are no worse than `4d69985c`'s beyond the spread of
+its three runs. Otherwise the measured figures go to the owner with the
+disk held. **The in-tube rule** (128.17.6.8: at most one row on a column
+frame inside a tube) ships when, on any run, the share of tube frames that
+miss a refresh exceeds the same run's share for frames outside tubes; it
+costs about 10 bytes (ESTIMATED) and no row changes.
+
+**Rows the wave cannot reach**: every row outside BONANZA's; and within it
+`bonanzaassets`, `bonanzamusic` and `bonanzasound`, whose inputs (the ball
+parts, the bank, the sound part, the event table) do not change: the grace's
+conversion counts in `nboost`, the existing boost sound.
+
+#### 128.17.11 Bytes and clocks (PREDICTED)
+
+**The resident image:**
+
+| item | code and data | bss |
+|---|---|---|
+| Grip 6/3/1 and the ice rounding | 0 (generated tables) | 0 |
+| the trigger | about +16 | 0 |
+| the late grace | about +40 - 55 | +3 (`bz_bgr`, `bz_bgd`) |
+| the camera: LATTICE in place of `bz_camglide` (343) and `bz_hvcam` (130), sketched at 695 | about +200 - 230 | two 28-byte axis blocks in place of `gpx`, `gpy`, `gpar`, `gdx`, `gdy`, `kpar`: about +50 |
+| the ring's y half deleted | about -15 | -8 (`bz_try`) |
+| `bz_hv1`'s four near-edge bits (`bz_pflag` bits 4 - 7) | about +10 | 0 |
+| `bz_camscr` | about +30 - 60 | +2 |
+| **wave 6b** | **about +280 - 360** | **about +47** |
+
+**The camera's figures are ESTIMATED from a sketch that does not implement
+the rule** (`lcam.asm`, not kept): it tests `since` before counting it (a
+column every third frame slow), fixes the band at a pan's start rather
+than every frame from `last`, loses `b` on its extend path, and its
+"panning" price assumes the stored re-aim threshold, which it does not
+contain. Priced `max(EU, 4.34 x bytes) x 1.05`; the implementation prices
+the written code from its instructions and replaces every camera figure
+here.
+
+**Clocks:**
+
+| | a step | a frame |
+|---|---|---|
+| the trigger | 0 on an ordinary step; about 54 on an arming edge, 40 on another edge; about 30 - 40 at a contact | 0 |
+| the late grace | about 32 (its countdown); about 90 opening it, about 150 converting | 0 |
+| the camera, at rest | 0 | about **+0.36k** as sketched; **target +0.2k** (an inline early exit when both axes rest, a stored next re-aim threshold, stored masks) |
+| the camera, both axes panning | 0 | about +0.57k; target +0.4 - 0.6k |
+| the camera, a lattice re-aim frame | 0 | about +1.35k as sketched |
+| the camera, a heavy frame | 0 | about +0.38k |
+
+**What it buys back**: outside tubes, about 22% of the authored courses'
+priced pan work on the CGA and 17% on the Hercules (29% and 23% with
+`BENCH`), and the CGA's two-row frames 152 -> 4 and runs of consecutive
+column frames 2 -> 1 (128.17.6.6). The saving lands on pan frames and the
+camera's own cost on every frame, so on several runs the AVERAGE is a net
+cost (128.17.6.6 names them); whether misses and their runs fall is the
+final pass's A/B, PREDICTED only here.
+
+**The disk**: the course parts, the ball parts, the sound and the bank are
+unchanged; the image grows about 0.35KB and packs smaller. `bonanza360.img`
+stays at **87 or 88 of 354 clusters** (PREDICTED from 87, 128.16.14).
+
+**kern_mega, kern_small**: package code and bss only; no difference.
+
+#### 128.17.12 What the owner gets next: gate 1, round 2
+
+- **The playtest disk**: `bonanza360.img` and `bonanza.img`, built from the
+  commit AFTER wave 6b's final pass (its rows, its red arms and 6b.7's
+  decision), never from an unverified build (fork rule 3 sends them), with
+  **round 2's notes** in
+  [docs/plans/BOUNCE-BONANZA-GATE1.md](docs/plans/BOUNCE-BONANZA-GATE1.md):
+  what changed and what to try first:
+  - **the boost**: tap Space again while the ball is in the air, or at the
+    moment it lands (up to about 55 ms after it). A Hop and a second tap
+    while rolling across the apron;
+  - **where it boosts**: only landing on a plain LEVEL floor, normal or
+    ice (not a ramp, sand, the bounce mat or a prop's cell), and not after a
+    drop of more than about 1 unit below the take-off. Most of `MILL`'s and
+    `TRIAL`'s rolling landings are one of those, which is why the apron is
+    the place to try it; a refused landing makes no sound of its own;
+  - **holding Space through the landing does nothing** in this build (the
+    owner's second suggestion is a question below);
+  - **steel and glass** still "hop again" only with Space pressed in the 6
+    steps ending at the landing: the in-flight tap is rubber's boost;
+  - **the Grip chain**: with Left Shift held, Hop, tap, boost, every second
+    or so: does it read as a flying ball?
+  - **Grip on the brake strip**: steel needs Grip about a tile BEFORE the
+    strip (at Grip 3 it needs 4.3 tiles from the cap, and the strip is 3);
+    rubber and glass stop on it. Ice's braking was left as before (2, 1, 1),
+    so it can be asked for at 1, 1, 1;
+  - **the camera** at `MILL`'s ramp bottom (ease back: the view should
+    hold), out of `MILL`'s chute and cannon (the pan should finish inside
+    the tube or carry on without a pause), and beside `PEAK`'s lift, where
+    a slower row pan for up to about a second is EXPECTED (the CGA cannot
+    move a row on the lift's heavy frames);
+  - **the camera in TRICKLE** (`C`), unchanged, for comparison;
+  - **the PLAYGROUND's best** is cleared once;
+  - **if a boost still fails**: save the play with `W` and send the
+    `.BZR`. It records every step's keys, so the model can show where each
+    press fell against the contact.
+- **6.10's re-baseline and 6.11's freeze WAIT** for the owner's OK on
+  round 2. A round 3 is another such wave, and a retune after round 2 that
+  changes only constants (`BGRACE` among them) is 128.16.11's one-commit
+  retune.
+- The re-baseline, when it comes, measures the camera that ships; nothing
+  in it changes.
+
+#### 128.17.13 Open questions for the owner
+
+Each with the default wave 6b ships; round 2's play decides.
+
+- **Which "held" did you mean?** "Boost when they are holding space when
+  they hit the ground" reads two ways: a second press held, which 6b
+  serves, or the Hop's OWN press held to the landing, which 6b does not.
+  *Default: a second press (in flight or up to 3 steps after), and holding
+  does nothing.* The alternative is "or Space held at the contact, if the
+  contact's floor is not above the take-off floor" (128.17.4.4): every
+  holder boosts, plain Hops held 22 steps or more boost by accident (0.4 -
+  5%, ESTIMATED), about +25 bytes and a byte of bss.
+- **The late grace's length**: *default 3 steps* (55 ms; an aiming player
+  about 81%, PREDICTED). 4 gives about 88% and a 1.75 px jump at the
+  conversion; it is a constant.
+- **The Grip chain's repeating boost** (wave 6's deferred question, 128.16.4.1,
+  128.17.4.4): about one boost a second for a player holding Grip and
+  tapping in rhythm, crossing every CD5 rung. *Default: allowed.* If it
+  reads as a flying ball, a cooldown (the token only after about 10
+  grounded steps, about +8 bytes) ends it.
+- **A cue for a refused boost**: an armed contact on a ramp, sand, the mat,
+  a prop or after a deeper drop does nothing visible. *Default: no cue.* A
+  short dull sound on an armed contact that rules 3 - 5 refuse needs a
+  counter, a `BZS_C_` bit, a `BZS_E_` event and a bank effect: about +30 -
+  40 bytes and 1 - 2 bytes of bss plus the effect's bank bytes (ESTIMATED),
+  and moves `bonanzasound` and `bonanzamusic`.
+- **The hint line**: `Arrows roll  Space hop  L.Shift grip` does not name
+  the boost; the face line is 42 cells, so the hint may be 41, and it uses
+  36. *Default:
+  unchanged; round 2's notes teach the tap.* A wording that names it must
+  fit `BZ_FIT 6`.
+- **Steel's and glass's contact Hop** ("hop again") still needs Space
+  inside the 6-step window that closes on the contact. *Default:
+  unchanged.* The same buffered rule (a tap in flight turns the first
+  contact into a contact Hop) would make Space mean one thing on every
+  ball; it is a physics change, made before the freeze if asked for.
+- **Steel overruns the PLAYGROUND's brake strip** (4.3 tiles at Grip 3):
+  *default: the strip stays 3 tiles*; steel needs Grip early, which is
+  "moderate" grip. Steel stops inside the strip only at its wave-6 Grip
+  of 5 (2.9 tiles from the cap, by the axis model; 4 gives 3.5).
+  Lengthening the strip to 5 tiles moves `PLAY`'s identity and its demo.
+- **Glass's KNOWN INVERSION stands** (128.16.3): with Grip 1, Grip saves
+  only 0.5 tiles over glass's coast, because its drag (`K` 5) does the
+  stopping. *Default: `K` 5.* The lever is still `K` 6 (about 378 on one
+  arrow, rubber's coast).
+- **Ice**: *default: the rounded brakes, 2, 1, 1* (as wave 6). The plain
+  quarter, 1, 1, 1, would make every ball the same on ice, and lowers
+  rubber's ice braking "all around" as asked.
+- **CD5's instances on `MILL`** (wx 10, wy 12 and 13): *default: left as
+  they are*; `MILL` is a test course, retrofitted in wave 13.
+- **The camera's look-ahead across** is a little smaller (128.17.6.6 risk
+  3). *Default: the constants as tuned*; `T` across is the lever.
+- **`BENCH`'s proof**: *default: the `bz_camscr` harness byte.* The
+  alternative is reshaping `BENCH` (an uphill up-left leg), which changes
+  the benchmark's bytes and its comparisons with earlier waves.
+- **The Hercules's level-2 row** (128.17.6.3): *default: on*; the final
+  pass measures whether its box frames still fit.
+- **Authored camera views** (128.17.6.8): *default: not built.* If round 2
+  finds a spot the rule frames badly, a `view` statement there is the
+  fallback.
 
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
