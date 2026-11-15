@@ -3145,9 +3145,9 @@ bz_derive:
     add ax, [bz_kx]
     adc dx, [bz_kx + 2]
     mov [bz_bx + 2], dx
-    xchg ax, [bz_bx]            ; AX = last step's low word
-    neg ax
-    add ax, [bz_bx]
+    mov dx, [bz_bx]             ; DX = last step's low word
+    mov [bz_bx], ax
+    sub ax, dx
     mov [bz_vx], ax
     add bx, si                  ; (gx + gy) / 2
     adc cx, di
@@ -3158,8 +3158,8 @@ bz_derive:
     add bx, [bz_ky]
     adc cx, [bz_ky + 2]
     mov [bz_by + 2], cx
-    mov ax, bx
-    xchg ax, [bz_by]
+    mov ax, [bz_by]
+    mov [bz_by], bx
     sub bx, ax
     mov [bz_vy], bx
     ret
