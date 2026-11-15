@@ -268738,8 +268738,13 @@ the spent rule through springs and tubes and on `PEAK`'s spring
 frame also `bz_bsp`; `boostfall` now boosts (red `noadd`), `springarm`
 (red `springoff`), new `spentspring` (red `nospent`); `hopedge`, `nofall`,
 `takeoff` and `slabcell` re-anchored. Because the course parts moved, the
-camera, wheel, ring and frame-cost rows can see this round, and run in its
-final pass.
+camera, wheel, ring and frame-cost rows can see this round. **Not soaked
+as a round** (the owner, 2026-11-15: a playtest round is host-verified and
+soaked every 4 - 5 rounds; the plan's R5): the soak was stopped part-way,
+with `bonanzacourse` ok, `bonanzamega` failing only a harness timing miss
+(its lift ride's poke landed in `bz_t0`'s spin), and `bonanzaring`'s
+probe finding `BENCH`'s start window at R0 3, reproduced with `e4da75a`'s
+`bzphys.inc`, so not this round's and open.
 
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
