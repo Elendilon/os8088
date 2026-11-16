@@ -92,10 +92,18 @@ The waves go on a branch of their own off the integration branch after wave
 
 | # | story | verified by |
 |---|---|---|
-| D4.1 | **`_route_lay`'s bands** (128.24.8): up and down 32 px, across 16 lines; the merge of two routes' halves; `path.bbc` unchanged as text | `--selfcheck`'s pathway proofs; the follower's points unchanged (`bonanza_path.py --check`); a `--png` of the map |
-| D4.2 | **The crystal per half** (128.22.8's inks on a triangle and on a front face) | the preview; one MartyPC look on both cards (the route from MILL up to MOON) |
+| D4.1 [x] | **`_route_lay`'s bands** (128.24.8): up and down 32 px, across 16 lines; the merge of two routes' halves; `path.bbc` unchanged as text | `--selfcheck`'s pathway proofs; the follower's points unchanged (`bonanza_path.py --check`); a `--png` of the map |
+| D4.2 [x] | **The crystal per half** (128.22.8's inks on a triangle and on a front face) | the preview; one MartyPC look on both cards (the route from MILL up to MOON) |
 
 **D4's rows (named, not run)**: `bonanzapath`, `bonanzacourse`.
+
+**D4 BUILT**: `_route_lay` returns a fourth value, `halves` ({cell: {(diag, half)}}); a diagonal step lays its
+line cells whole and each side neighbour's inner half (`left`/`right` up and down, `up`/`down` across);
+`path_prepare` lays a Room a piece; `path_mark_rail` and `_secret_tiles` mark the crystal on each record.
+`path.bbc` is unchanged as text, the follower's points are unchanged (`bonanza_path.py --check`: every step
+equal). BZPATH.BIN 23,682 -> 24,406 bytes (+724: the D section and the split grid); the resident image and bss
+are unchanged (40,181 / 10,660). The guest never reads a pathway cell's kind for physics (bz_mode 4), but the
+part now carries GF_SPLIT and kinds 4/5: D3's loader must accept them on the pathway part.
 
 ### Wave D5: the owner's look
 
