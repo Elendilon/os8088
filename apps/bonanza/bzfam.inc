@@ -169,8 +169,8 @@ bz_frst:
 ; batch, SPEC.md 128.25.4) re-takes every segment and fetches nothing: the
 ; segments are never held across a fetch.  A course with no family leaves
 ; bz_fhk and bz_fnf 0.  CF = 1 a fetch was refused (op_fetch toasted why) or
-; a head was not this build's (toasted here, never called): what was fetched
-; is bz_cdrop's to give back.  DS = ours.  Preserves ES; clobbers AX, BX, CX,
+; a head was not this build's (toasted here through op_say, quiet inside a
+; bracket; never called): what was fetched is bz_cdrop's to give back.  DS = ours.  Preserves ES; clobbers AX, BX, CX,
 ; DX, SI, DI.
 ; -----------------------------------------------------------------------------
 bz_ffetch:
@@ -223,9 +223,8 @@ bz_ffetch:
 .bads:
     pop si
 .bad:
-    mov si, bz_t_shell          ; ('Bonanza: bad part', the shell part's)
-    call bz_toast
-    stc
-.out:
+    mov si, bz_t_shell          ; ('Bonanza: bad part', the shell part's) through
+    call op_say                 ; op_say: OP_SAYGATE (bz_fs) holds it quiet in a
+.out:                           ; game round's bracket (SPEC.md 53.7); CF = 1
     pop es
     ret
