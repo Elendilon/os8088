@@ -110,6 +110,10 @@ floor box 15 17 59 67 flat 3
 floor box 15 17 67 69 flat 2.5
 # the platform: 224 x 96 px, its corners cut two cells deep along cell edges
 floor box 9 23 69 81 chamfer 2 flat 2.5
+# ...and it FLOATS (SPEC.md 128.27.2): a dead end out over the void, its straight edges hanging 3 units
+# (today's faces) where every other face over the void reaches the course's ground, the basin's floor less
+# 3 units - the tour's one `float` (the pathway floats whole), so the statement is exercised and previewed
+float box 9 23 69 81 chamfer 2
 # the rails, 16 px each, 1.5 units over the lane beside them; the funnel s 49 .. 55 is open both sides
 wall  box 13 15 55 57 flat 5.5
 wall  box 13 15 57 59 ramp s 57 59 5.5 4.5

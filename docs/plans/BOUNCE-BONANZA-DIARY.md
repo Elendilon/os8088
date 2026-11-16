@@ -2949,3 +2949,71 @@ rows red at once (their symbol tables described another image), and one
 merge cut a row's second leg. And the attribution of a red is a run at the
 base, not an argument: `bonanzapath`'s red was already there, and
 `bonanzaring`'s MILL coverage was not.
+
+## 2026-11-16 (grounded faces: the courses stop floating)
+
+*SPEC.md 128.27; the plan's story 9.10.* The owner looked at the courses and
+asked why everything floated. Every face over the void hung three units
+(24 px, the tool's `FACE8`) and stopped, so a terrace six units up and a
+field at the bottom read the same: thin slabs in the dark. The question was
+what deeper faces would cost, since a face is picture, picture is blocks, and
+blocks are bytes on a disk that was already being counted to the byte.
+
+**Priced first, on MOON, MILL and PEAK** (a scratch hook in `draw_ops`, each
+variant compiled whole; LZ4 bytes of the stored part against today's):
+
+| variant | the face over the void hangs | MOON | MILL | PEAK | picture lines |
+|---|---|---|---|---|---|
+| today | 3 units | 10,157 | 9,406 | 12,552 | - |
+| fix9 | 9 units, everywhere | +233 | +224 | +74 | +16 each |
+| near3 | to the lowest floor within 3 tiles, less 3 units | +107 | +143 | +1 | 0 |
+| **ground3** | **to ONE plane a course: its lowest floor less 3 units** | **+47** | **+102** | **+78** | PEAK +56 |
+| fade3_2_2 | 3 units solid, then 2 at half and 2 at a quarter dither | +667 | +384 | +494 | 0 |
+
+The surprise was that the deepest look was among the cheapest: a column's
+interior repeats, and the block pool shares it, so a taller face is often
+fewer blocks (`FIRST`, `TRIAL` and `MOON` came out SMALLER in RAM). The
+dithered fade, which looked like the gentle option, was the most expensive by
+far - every dither row a block of its own.
+
+**The owner chose ground3**, with three riders: floating stays possible but
+only on purpose; there is no per-course opt-out; and the course budget, not
+the look, is what gives. MILL at 9,508 LZ4 was 96 bytes over its 1.5 x line
+of 9,412, and the owner's words settled it: "we wanted to hit 'seconds per
+course for one 360k disk for 20 courses' but it is very obvious that is not
+going to happen now. So that limit is the thing wrong; we'll end up with less
+courses, or two disks." The 1.5 x refusal became a reported figure; the
+65,024-byte part and the occluder bounds stayed refusals.
+
+**Decisions.**
+- `float <shape>` is a region statement in the grain of `surface`: whole
+  cells (a cell's faces float together, so `half` is refused), applied after
+  every room and hole, refused when it floats nothing. The PLAYGROUND's
+  chamfered platform floats - a dead end out over the void - which also kept
+  its picture from growing 40 lines.
+- The ground is one plane for the whole course, counted over the secret
+  routes and glass tiles too, so a reveal draws to the same floor.
+- The kill height did not move: it was always a separate "3 units" of its
+  own (`_near_low - 6` half units), and the physics, the grid and
+  `BZ_PHYSV` are untouched. The finish-sequence fall drawing over a deep face
+  is accepted.
+
+**Observed.**
+- Every grid section decoded byte-identical, but for five PLAYGROUND cells
+  whose `OCCG` flag came on: the brake strip's column now really stands in
+  front of the basin's back corner, so a ball there can be hidden - the
+  picture changed what can occlude, and the flag followed. Not physics.
+- Every identity moved (the identity covers the picture), so the three
+  authored demos were written again with `bbcourse.py author`. Their runs
+  came out identical; only the `ident` lines changed, which is the replay's
+  own proof that nothing physical moved. PEAK's demo had been the last one
+  shipping RE-STAMPED from its pre-clock course; it now carries its own
+  identity and the re-stamp has nobody left to serve.
+- Wave 5b's cross-commit check (the old tool run from git on today's texts)
+  still holds byte for byte with the ground rule switched off - the
+  cleanest evidence that the rule touches the faces and nothing else.
+- The tour's six courses: +266 bytes LZ4, +110 LZB; PEAK's picture +56 lines.
+
+**Tested:** host only - `make`, the bonanza disk, `bbcourse.py --selfcheck`
+with its new item 14 and the red arms (each broken on purpose, each seen
+red), previews on both cards. The emulator rows are the final pass's.

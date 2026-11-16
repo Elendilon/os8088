@@ -209,7 +209,8 @@ Z_OPEN = -128                 # an OPEN cell's z0
 
 # --- the world (SPEC.md 128.10.2) ---------------------------------------------
 TILE = 16                     # ground units a tile
-FACE8 = 24                    # a face over the void hangs 3 units (24 px)
+FACE8 = 24                    # a FLOATING face over the void hangs 3 units (24 px); every other one hangs to the
+                              # course's ground plane, its lowest floor less FACE8 (SPEC.md 128.27.1)
 BALL_D = BA.D                 # 16
 FOOT_W, FOOT_H = 20, 16       # the footprint the boxes cover (SPEC.md 128.4)
 
@@ -703,6 +704,7 @@ class Source:
         self.start = None           # ((wx, wy), line)
         self.ways = []              # [((wx, wy), line)]
         self.surfaces = []          # [(surface, frozenset of tiles, line)], after every room
+        self.floats = []            # SPEC.md 128.27.2: [(frozenset of cells, line)], the FLOATING cells
         self.ball = None            # (material, line); rubber when there is none
         self.tubes = []             # wave 3: [dict], in file order (SPEC.md 128.12.3.3)
         self.props = []             # [dict]: windmill, bumper, platform
@@ -1280,6 +1282,16 @@ def parse(text, fname="<course>"):
             if src.ball is not None:
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
+        elif st == "float":                         # SPEC.md 128.27.2: cells whose faces over the void hang
+            if len(toks) > 1 and toks[1] in (('w', "half"), ('w', "quarter")):   # 3 units, not to the ground
+                raise CourseError("%s: float takes whole cells, never a half or a quarter: a cell's faces "
+                                  "float together (SPEC.md 128.27.2)" % where)
+            if len(toks) < 2:
+                raise CourseError("%s: float takes a shape and nothing else" % where)
+            tiles, _half, i = _shape_h(toks, 1, where, halves=False)
+            if i != len(toks):
+                raise CourseError("%s: float takes a shape and nothing else" % where)
+            src.floats.append((tiles, ln))
         elif st == "hole":
             tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
@@ -3935,27 +3947,20 @@ def _cell_pieces(tiles):
     return out
 
 
-def draw_ops(tiles, x0, deep=()):
-    """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
-    to front: each tile's two front faces, then its top (128.3's order).
-    deep: cells (a tube's body, SPEC.md 128.12.6.1) whose face over the void
-    hangs as deep as its other front face reaches at their shared corner, so
-    a pipe's wall standing on a lower tier reads as one column, not a column
-    with a bite out of one side.
-    SPEC.md 128.24.6, a SPLIT cell's PIECE (a half or a quarter): its top is
-    its TRIANGLE; it hangs the sw face if it owns the south edge (L to B) and
-    the se face if it owns the east edge (B to R), each down to the record
-    across that edge (the piece that owns it, or a whole cell) or 3 units; a
-    piece whose line inside the cell faces the viewer (an LR split's UP half,
-    a quartered cell's W and N) hangs a FRONT face from it down to the piece in
-    front (or 3 units); a TB line inside the cell, where its sides differ, a
-    1 px black line ("tline", a paint op after the top).  The order and the
-    keys: _cell_pieces"""
-    ops = []
-    for _key, (wx, wy), t, h, s in _cell_pieces(tiles):
+def ground_z(tiles):
+    """SPEC.md 128.27.1: the course's GROUND PLANE, px - its lowest floor (the
+    least corner of every solid record, a whole cell's or a piece's) less 3
+    units (FACE8), the depth every face over the void hangs to"""
+    return 4 * min(min(r.corners()) for t in tiles.values() for r in tile_recs(t)) - FACE8
+
+
+def _cell_faces(tiles):
+    """each piece's front faces, back to front (draw_ops' walk): [(key, (wx, wy), t, h, s, ent, faces)], faces
+    [(p, zp, q, zq, the neighbour's heights at p and q or None for the VOID, which)]"""
+    out = []
+    for key, (wx, wy), t, h, s in _cell_pieces(tiles):
         ent = tiles[(wx, wy)]
         zt, zr, zb, zl = (4 * c for c in t.corners())
-        T = (2 * wx, 2 * wy)
         R = (2 * wx + 2, 2 * wy)
         B = (2 * wx + 2, 2 * wy + 2)
         L = (2 * wx, 2 * wy + 2)
@@ -3971,10 +3976,57 @@ def draw_ops(tiles, x0, deep=()):
             dn = ent.halves[fp]                     # (heights in px: _z2 is quarter units, x 2)
             faces.append(((2 * wx + p0[0], 2 * wy + p0[1]), 2 * _z2(t, p0), (2 * wx + p1[0], 2 * wy + p1[1]),
                           2 * _z2(t, p1), (2 * _z2(dn, p0), 2 * _z2(dn, p1)) if dn else None, "front"))
+        out.append((key, (wx, wy), t, h, s, ent, faces))
+    return out
+
+
+def void_face_cells(tiles):
+    """the cells with a face over the VOID (SPEC.md 128.27.1): the ones the ground rule moves, and the only
+    ones a `float` may name (128.27.2)"""
+    return {cell for _k, cell, _t, _h, _s, _e, faces in _cell_faces(tiles) if any(f[4] is None for f in faces)}
+
+
+GROUND_AUTO = object()          # draw_ops' default: the ground plane of the tiles it is given
+
+
+def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
+    """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
+    to front: each tile's two front faces, then its top (128.3's order).
+    SPEC.md 128.27: a face over the void hangs to the GROUND plane, px
+    (default ground_z(tiles); the compile passes the course's), never less
+    than 3 units - or 3 units exactly for a cell in `floats` (a `float`
+    statement's) or for every cell with ground=None (today's look before
+    128.27: --selfcheck's cross-commit check and its negative controls).
+    deep: cells (a tube's body, SPEC.md 128.12.6.1) whose face over the void
+    hangs as deep as its other front face reaches at their shared corner, so
+    a pipe's wall standing on a lower tier reads as one column, not a column
+    with a bite out of one side.
+    SPEC.md 128.24.6, a SPLIT cell's PIECE (a half or a quarter): its top is
+    its TRIANGLE; it hangs the sw face if it owns the south edge (L to B) and
+    the se face if it owns the east edge (B to R), each down to the record
+    across that edge (the piece that owns it, or a whole cell) or 3 units; a
+    piece whose line inside the cell faces the viewer (an LR split's UP half,
+    a quartered cell's W and N) hangs a FRONT face from it down to the piece in
+    front (or 3 units); a TB line inside the cell, where its sides differ, a
+    1 px black line ("tline", a paint op after the top).  The order and the
+    keys: _cell_pieces"""
+    ops = []
+    if ground is GROUND_AUTO:
+        ground = ground_z(tiles) if tiles else None
+    for _key, (wx, wy), t, h, s, ent, faces in _cell_faces(tiles):
+        zt, zr, zb, zl = (4 * c for c in t.corners())
+        T = (2 * wx, 2 * wy)
+        R = (2 * wx + 2, 2 * wy)
+        B = (2 * wx + 2, 2 * wy + 2)
+        L = (2 * wx, 2 * wy + 2)
         bots = []
+        floating = ground is None or (wx, wy) in floats
         for p, zp, q, zq, nb, which in faces:
-            if nb is None:
-                bots.append([zp - FACE8, zq - FACE8])
+            if nb is None:                          # over the void: 3 units (FLOATING), else to the ground
+                if floating:
+                    bots.append([zp - FACE8, zq - FACE8])
+                else:
+                    bots.append([min(zp - FACE8, ground), min(zq - FACE8, ground)])
             else:
                 bots.append([min(zp, nb[0]), min(zq, nb[1])])
         if (wx, wy) in deep and h is None:          # B is the sw face's q and the se face's p
@@ -5372,8 +5424,22 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+    # SPEC.md 128.27: the GROUND plane, one a course - its lowest floor (a secret route's and a glass tile's
+    # counted) less 3 units - and the FLOATING cells, whose faces over the void hang 3 units instead
+    gtiles = dict(tiles)
+    for ri in (sorted(pth["secret_rooms"]) if pth is not None else ()):
+        gtiles.update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
+    ground = None if hack.get("noground") else ground_z(gtiles)
+    floats = set()
+    vface = void_face_cells({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles)
+    for fcells, fln in src.floats:
+        if not fcells & vface:
+            raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
+                              "(SPEC.md 128.27.2)" % (fname, fln))
+        floats |= fcells
+    floats = frozenset(floats)
     ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
-                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]})
+                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
         ops = prop_ops(tiles, ops, props, x0)
     gtop = min(min(sp) for sp, *_ in ops if sp)
@@ -5387,7 +5453,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         for ri in sorted(pth["secret_rooms"]):
             rtiles[ri] = dict(tiles)
             rtiles[ri].update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
-            rops[ri] = draw_ops(rtiles[ri], x0, set())
+            rops[ri] = draw_ops(rtiles[ri], x0, set(), ground, floats)
             if props:
                 rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
             gtop = min(gtop, min(min(sp) for sp, *_ in rops[ri] if sp))
@@ -5914,7 +5980,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c = Course()
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
-    c.pairs = pairs                                 # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
+    c.ground, c.floats = ground, floats             # SPEC.md 128.27: the ground plane (px), the FLOATING cells
+    c.pairs = pairs                                # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
     c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
@@ -11327,8 +11394,16 @@ def course_cap(c):
 
 
 def budget_cap(t):
-    """the refusal: 1.5 times the budget (R4's ratio)"""
+    """1.5 times the budget (R4's ratio): the refusal until SPEC.md 128.27.5, a REPORTED figure since"""
     return 3 * budget(t) // 2
+
+
+def budget_note(c, n):
+    """SPEC.md 128.15.8 as 128.27.5 amends it: the budget and its 1.5 times, REPORTED (never refused)"""
+    cap = budget_cap(c.target)
+    return "target %d s: budget %d, 1.5x %d - %s (reported, not refused: SPEC.md 128.27.5)" % (
+        c.target, budget(c.target), cap, "OVER 1.5x by %d" % (n - cap) if n > cap else
+        "over the budget by %d" % (n - budget(c.target)) if n > budget(c.target) else "under")
 
 
 _PACKED = {}
@@ -11346,24 +11421,20 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - at most 1.5 times its budget.  The
-    part read is the RECB 4 stored form whatever --rec is, which is the
-    shipped form since 128.15.5.4's verdict shipped D (C's 8-byte records pack
-    larger: MILL's 9,439 against its 9,412 cap before the follow-up).
-    -> the packed bytes, or
-    None for a course 0 with no target"""
+    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
+    is the RECB 4 stored form whatever --rec is, which is the shipped form
+    since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
+    2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
+    "that limit is the thing wrong; we'll end up with less courses, or two
+    disks".  What protects correctness stays refused where it always was (one
+    part's 65,024 bytes, the occluder bounds).  -> the packed bytes, or None
+    for a course 0 with no target"""
     if c.target is None:
         if k:
             raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
-    n = packed_len(c.stored4, "lz4")
-    cap = course_cap(c)
-    if n > cap:
-        raise CourseError("%s:%d: the course packs to %d bytes (LZ4), over its cap of %d, 1.5 times the %d-byte "
-                          "budget of a %d s course (ROOM %d x %d / %d, SPEC.md 128.15.8)"
-                          % (c.fname, c.src.target[1], n, cap, budget(c.target), c.target, ROOM, c.target, PLAN_SECS))
-    return n
+    return packed_len(c.stored4, "lz4")
 
 
 def finish_points(c):
@@ -11677,12 +11748,17 @@ def check_demo(c, K, log, idents, where):
 # (story 9.8, SPEC.md 128.25.20.4: PEAK's demo was written again when PEAK named its families - its identity
 # moved - so NO shipped demo carries a pre-clock identity now and nothing is re-stamped; the rule stays for
 # the record and its proof is item 8R's note.  It was {"PEAK": 0x0562} with CLOCK_BARE {"PEAK": 0x6814})
+# the courses with their diagonal sections, whose identities are their own; and PEAK's 0562h left it in SPEC.md
+# 128.27.8: the grounded faces moved every identity, so PEAK's demo was written again by `bbcourse.py author`,
+# and no shipped demo carries a pre-clock identity any more - the re-stamp has no user, and is kept, empty)
 CLOCK_RESTAMP = {}
 # ...and the course THAT identity was: its source today with its trailing finish clock(s) left out,
 # compiled with no occluders (occluders=False: the identity of the grid alone, a fraction of a second
 # where the shipped one's cut costs PEAK 13 s), must give this identity - so a course edited in any
 # other way is never re-stamped, however its demo replays (an edit, or a tool change that moves it,
 # fails the build as an earlier build's demo, naming `record it again`: the safe side)
+# fails the build as an earlier build's demo, naming `record it again`: the safe side).  PEAK's was 6814h
+# until SPEC.md 128.27.8
 CLOCK_BARE = {}
 
 
@@ -12808,8 +12884,7 @@ def report(c, k=None):
               (pt["propoff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR, 2 * g["nrows"],
               4 * len(c.route), ", props %d" % (pt["diroff"] - pt["propoff"]) if pt["nprop"] else "",
               pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"]),
-              "; LZ4 %d as RECB 4 (target %d s: budget %d, cap %d)" % (c.packed4, c.target, budget(c.target),
-                                                              course_cap(c))
+              "; LZ4 %d as RECB 4 (%s)" % (c.packed4, budget_note(c, c.packed4))
               if getattr(c, "packed4", None) else ""))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
           "dithered left out of the part); most in a block %d -> %d (bound "
@@ -13862,6 +13937,12 @@ def _grammar_cases():
         ("an unknown ball", F + "ball wood\n", "unknown ball 'wood'"),
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
         ("a part over 65,024 bytes", BIG, "one part may be"),
+        # SPEC.md 128.27.2: `float`'s refusals
+        ("a float on a half", F + "float half up tile 4 5\n", "float takes whole cells"),
+        ("a float with a height", F + "float rect 3 4 7 7 flat 4\n", "float takes a shape and nothing else"),
+        ("a float with no shape", F + "float\n", "float takes a shape and nothing else"),
+        ("a float on cells with no face over the void", F + "float tile 4 5\n", "float floats nothing"),
+        ("a float on the void", F + "float rect 20 20 22 22\n", "float floats nothing"),
         # (wave 6: this course trips the block bound under wave 5b's reach inputs, HOPMAX 224 and no BOOST
         # launch, and its records swing under 252's with Y0's alignment, 128.11.4.4 - so the case pins them:
         # it proves the REFUSAL, which the reach's inputs do not touch)
@@ -15938,7 +16019,8 @@ def _mouth_checks(c, res, tag):
             bad.append("the tube on line %d: the ball leaves %+d lines off its mouth" % (p["line"], off))
         if rec["sub"] == TK_DROP:                       # the preview's: the mouth on the floor line
             w, face, xm, rows, half, sill = mo
-            ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]})
+            ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]},
+                           c.ground, c.floats)
             low, _l, _w = _arch(_op_spans(ops, w, face), xm, rows, half, 0)
             if stands(low)[0]:
                 bad.append("negative control: the DROP's mouth on the floor line still passes (b)")
@@ -15956,8 +16038,12 @@ def _mouth_checks(c, res, tag):
         if a is None or b is None:
             return True
         return (a >= b - 1) if void_sw else (b >= a - 1)     # the void face no shallower: no bite
-    ops_deep = draw_ops(c.tiles, c.x0, deep)
-    ops_flat = draw_ops(c.tiles, c.x0)
+    # (SPEC.md 128.27: the course's own look, grounded or floating, must not bite; the deep rule itself is
+    # held on the FLOATING look, every face over the void 3 units - ground None - where it is what keeps the
+    # column whole, and its negative control, that look without the rule, must bite)
+    ops_deep = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+    ops_fdeep = draw_ops(c.tiles, c.x0, deep, None)
+    ops_flat = draw_ops(c.tiles, c.x0, (), None)
     nctl = 0
     for cell in sorted(deep):
         sw_n, se_n = c.tiles.get((cell[0], cell[1] + 1)), c.tiles.get((cell[0] + 1, cell[1]))
@@ -15966,6 +16052,8 @@ def _mouth_checks(c, res, tag):
         ncol += 1
         if not column(ops_deep, cell, sw_n is None):
             cbad.append(cell)
+        if not column(ops_fdeep, cell, sw_n is None):
+            cbad.append("%s floating" % (cell,))
         if not column(ops_flat, cell, sw_n is None):
             nctl += 1
     res.append(("3 %s: the exit MOUTHS (the owner's preview) - %d tube%s leaving by a face the viewer sees, each "
@@ -16071,7 +16159,7 @@ def top_hole_verdict(marks, cell, t, x0, R):
 def _square_hole(c, cell):
     """wave 3's IN hole (a square in ground units, max(|du|, |dv|) <= 5): the negative control"""
     t = c.tiles[cell]
-    ops = draw_ops(c.tiles, c.x0)
+    ops = draw_ops(c.tiles, c.x0, (), c.ground, c.floats)
     sp0 = _op_spans(ops, cell, "top")
     wf = _top_world(t, cell[0], cell[1], c.x0)
     out = set()
@@ -16095,7 +16183,7 @@ def _opening_checks(c, res, tag):
     (one side a larger circle's) fails (b); the rim's pixels put back to the
     checker fail the rim; wave 3's square IN hole fails the circle"""
     deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
-    ops = draw_ops(c.tiles, c.x0, deep)
+    ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
     narch = nrim = nhole = 0
     bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
     want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
@@ -17903,6 +17991,93 @@ def _w5_dither(courses, res, demos=None):
                 % "; ".join(sums), all(c.vis["ghost"] for c in courses)))
 
 
+# SPEC.md 128.27.6: the ground rule's course - a field at 0 and an island 6 units up across the void
+GROUND_TEST = ('course GR "Ground"\nwidth 64\nfloor rect 4 4 10 10 flat 0\nfloor rect 12 4 15 7 flat 6\n'
+               'start 5 5\n')
+
+
+def _face_bottoms(c, ops):
+    """SPEC.md 128.27.6: every whole cell's sw and se face over the VOID in `ops`, read off its spans:
+    [(cell, which, the face's last line, the corners' heights (zp, zq) in px)] - the cells the picture draws
+    (a glass tile's is not one, 128.25.18)"""
+    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
+    drawn = {k: v for k, v in c.tiles.items() if k not in gc}
+    out = []
+    for _k, cell, _t, h, _s, _e, faces in _cell_faces(drawn):
+        if h is not None:
+            continue
+        for fp, zp, fq, zq, nb, which in faces:
+            if nb is not None:
+                continue
+            sp = _op_spans(ops, cell, which)
+            if sp:
+                out.append((cell, which, max(sp), (fp, zp), (fq, zq)))
+    return out
+
+
+def _face_verdict(c, ops, floats, ground):
+    """-> (faces checked, faces whose last line DECIDES grounded from floating, [what is wrong]): each face's
+    last line is the lower of its two bottom corners' - a FLOATING cell's 3 units under its top, any other's
+    the ground plane's or 3 units, whichever is lower (SPEC.md 128.27.1)"""
+    n = dec = 0
+    bad = []
+    for cell, which, last, (fp, zp), (fq, zq) in _face_bottoms(c, ops):
+        n += 1
+        flo = cell in floats
+        bp, bq = (zp - FACE8, zq - FACE8) if flo else (min(zp - FACE8, ground), min(zq - FACE8, ground))
+        want = max(4 * (fp[0] + fp[1]) - bp, 4 * (fq[0] + fq[1]) - bq) - 1
+        if min(zp, zq) - FACE8 > ground + 2:
+            dec += 1
+        if last != want:
+            bad.append("%s %s face's last line %d, not %d (%s)" % (cell, which, last, want,
+                                                                   "floating" if flo else "grounded"))
+    return n, dec, bad
+
+
+def _ground_checks(courses, res):
+    """item 14 (SPEC.md 128.27.6): the grounded faces - the rule on a course made for it and its FLOATING twin,
+    each with its negative control, and every course's faces over the void held to the rule"""
+    try:
+        cg = compile_course(GROUND_TEST, "<GROUND>", _hack={"no_finish": True})
+        cf = compile_course(GROUND_TEST + "float rect 12 4 15 7\n", "<GROUND, floating>", _hack={"no_finish": True})
+        cn = compile_course(GROUND_TEST, "<GROUND, the rule off>", _hack={"no_finish": True, "noground": True})
+    except CourseError as e:
+        res.append(("14 GROUND: the ground rule's course compiles (%s)" % e, False))
+        return
+    isl = [(cell, w, last) for cell, w, last, *_r in _face_bottoms(cg, cg.ops) if cell[0] >= 12]
+    want = 8 * (13 + 6 + 2) - cg.ground - 1          # the island's sw face at (13, 6): corner B (28, 14), the ground
+    got = dict(((cell, w), last) for cell, w, last in isl).get(((13, 6), "sw"))
+    ff = dict(((cell, w), last) for cell, w, last, *_r in _face_bottoms(cf, cf.ops)).get(((13, 6), "sw"))
+    fn = dict(((cell, w), last) for cell, w, last, *_r in _face_bottoms(cn, cn.ops)).get(((13, 6), "sw"))
+    wantf = 8 * (13 + 6 + 2) - (48 - FACE8) - 1      # ... 3 units under its top, 6 units (48 px) up
+    res.append(("14 GROUND: the island 6 units up hangs its face over the void to the ground plane (%d px, the "
+                "field's 0 less 3 units): (13, 6)'s sw face ends on line %s, the ground's %d; FLOATING (`float rect "
+                "12 4 15 7`) it ends on line %s, 3 units down (%d); negative control, the rule off: line %s" % (
+                    cg.ground, got, want, ff, wantf, fn),
+                cg.ground == -FACE8 and got == want and ff == wantf and fn == wantf and cf.floats
+                and not cg.floats))
+    for nm, cc, fl, gr, good in (("the course", cg, cg.floats, cg.ground, True),
+                                 ("its floating twin", cf, cf.floats, cf.ground, True),
+                                 ("negative control: the floating twin read as grounded", cf, frozenset(),
+                                  cf.ground, False),
+                                 ("negative control: the course with the rule off read as grounded", cn,
+                                  frozenset(), cg.ground, False)):
+        n, dec, bad = _face_verdict(cc, cc.ops, fl, gr)
+        res.append(("14 GROUND: %s - %d faces over the void, %d of them deciding: %s" % (
+            nm, n, dec, "every one on its line" if not bad else "%d off (%s)" % (len(bad), "; ".join(bad[:3]))),
+            (not bad) == good and dec > 0))
+    for c in courses:
+        n, dec, bad = _face_verdict(c, c.ops, c.floats, c.ground)
+        res.append(("14 GROUND %s: the ground plane %d px (%s units); %d faces over the void, %d deciding, %d "
+                    "FLOATING cells: %s" % (c.name, c.ground, c.ground / 8.0, n, dec, len(c.floats),
+                                            "every one on its line" if not bad else
+                                            "%d off: %s" % (len(bad), "; ".join(bad[:4]))), not bad))
+    play = next((c for c in courses if c.name == "PLAY"), None)
+    if play is not None:
+        res.append(("14 GROUND: PLAYGROUND uses `float` (%d floating cells), so the statement ships exercised"
+                    % len(play.floats), bool(play.floats)))
+
+
 def _w5_budget(courses, res):
     """item 12 (SPEC.md 128.15.12.3): the `target` statement and the budget"""
     import copy
@@ -17911,13 +18086,15 @@ def _w5_budget(courses, res):
         cc = copy.copy(peak)
         cc.src = copy.copy(peak.src)
         cc.target, cc.src.target = 30, (30, peak.src.target[1])
+        # (SPEC.md 128.27.5: the 1.5x line is REPORTED, never refused - PEAK as a 30 s course, over it, is
+        # accepted and its note says OVER; the red arm, the refusal put back, fails this)
         try:
-            check_budget(cc, 1)
-            got, caught = "accepted", False
+            n_ = check_budget(cc, 1)
+            got, ok_ = budget_note(cc, n_), n_ is not None and "OVER 1.5x" in budget_note(cc, n_)
         except CourseError as e:
-            got, caught = str(e), "budget" in str(e) and "cap" in str(e)
-        res.append(("12 refused: PEAK as a 30 s course (its %d LZ4 bytes over the %d cap) - %s" % (
-            packed_len(peak.stored4), budget_cap(30), got), caught))
+            got, ok_ = "refused: %s" % e, False
+        res.append(("12 reported, not refused (128.27.5): PEAK as a 30 s course (its %d LZ4 bytes over the 1.5x "
+                    "line of %d) - %s" % (packed_len(peak.stored4), budget_cap(30), got), ok_))
     first = _first_text()
     for what, text, want in (("target 45", _swap(first, "target 30", "target 45"), "target takes 30, 60 or 90"),
                              ("target given twice", first + "target 60\n", "target given twice")):
@@ -17939,10 +18116,10 @@ def _w5_budget(courses, res):
             continue
         n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
         bg = budget(c.target)
-        res.append(("12 %s: target %d s, budget %d, cap %d%s: RECB 4's stored form LZ4 %d (%s), LZB %d (%s); RAM %d of %d" % (
-            c.name, c.target, bg, course_cap(c), " (waived +%d, CAP_WAIVE)" % CAP_WAIVE[c.name] if c.name in CAP_WAIVE
-            else "", n, "over" if n > bg else "under", z,
-            "over" if z > bg else "under", len(c.cga), PARTMAX), n <= course_cap(c)))
+        res.append(("12 %s: target %d s, budget %d, 1.5x %d (REPORTED, 128.27.5): RECB 4's stored form LZ4 %d (%s), "
+                    "LZB %d (%s); RAM %d of %d" % (
+                        c.name, c.target, bg, budget_cap(c.target), n, "over" if n > bg else "under", z,
+                        "over" if z > bg else "under", len(c.cga), PARTMAX), len(c.cga) <= PARTMAX))
 
 
 # =============================================================================
@@ -18254,10 +18431,18 @@ def _clock_rule_checks(courses, res, paths=None):
     paths = paths or default_paths()
     byk = {c.name: k for k, c in enumerate(courses)}
     RN = "PEAK"
-    if RN not in CLOCK_RESTAMP:
-        res.append(("8R the clock rule's re-stamp: no shipped demo is recorded on a pre-clock course any more "
-                    "(PEAK's written again by story 9.8, SPEC.md 128.25.20.4), so nothing is re-stamped: CLOCK_RESTAMP "
-                    "is empty", not CLOCK_RESTAMP))
+    if not CLOCK_RESTAMP:                   # SPEC.md 128.27.8: PEAK's demo written again on its grounded course
+        idents = [q.ident for q in courses]
+        stamped = []
+        for k, c in enumerate(courses):
+            if os.path.exists(demo_path(paths[k])):
+                with open(demo_path(paths[k]), encoding="ascii") as f:
+                    lg = bzd_log(parse_bzd(f.read(), "<%s demo>" % c.name), k)
+                stamped.append((c.name, struct.unpack_from("<H", lg, 14)[0] == c.ident))
+        res.append(("8R the clock rule's re-stamp is RETIRED (SPEC.md 128.27.8): no shipped demo is recorded on a "
+                    "pre-clock course, every one carries its course's own identity (%s)" % ", ".join(
+                        "%s %s" % (n, "yes" if g else "NO") for n, g in stamped), bool(stamped) and
+                    all(g for _n, g in stamped)))
     elif RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
         K = byk[RN]
         c = courses[K]
@@ -19271,9 +19456,10 @@ def selfcheck(paths=None):
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
             kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"],
-                                                                                 ["uses"])]
+                                                                                 ["uses"], ["float"])]
             # (story 9.8, SPEC.md 128.25.20: `uses` left out too - that grammar lacks it, and a family list is
-            # not in that commit's parts; this tool compiles the text with the family rule off, "famuses")
+            # not in that commit's parts; this tool compiles the text with the family rule off, "famuses";
+            # and 128.27.2's `float`, which that grammar lacks too)
             # (wave 8b, 128.19.4: a goal's or a cup's `exit E` and `hidden` left out too - the grammar's new
             # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
             kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
@@ -19291,14 +19477,16 @@ def selfcheck(paths=None):
         for c, txt in zip(w5, w5txt):
             _CHECKS_OFF.add("famuses")
             try:
-                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0})  # (that tool had no Y0 search)
+                # (that tool had no Y0 search; and SPEC.md 128.27's ground plane is a picture rule that tool lacks:
+                # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
+                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True})
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
                     "stored part byte for byte, that commit's tool run from git on this tree's course texts (%s): "
-                    "wave 6 moved the reach's inputs and nothing else in a part%s" % (
+                    "wave 6 moved the reach's inputs and nothing else in a part (128.27's ground rule off)%s" % (
                         W5_HOPMAX, W5_COMMIT, ", ".join(c.name for c in w5), "" if not diff else
                         " -- DIFFER: %s" % diff), not diff))
     # 2. the grammar and the bounds
@@ -19638,6 +19826,7 @@ def selfcheck(paths=None):
     _w5_compact(courses, res)
     _w5_dither(courses, res, getattr(compile_all, "demos", None))
     _w5_budget(courses, res)
+    _ground_checks(courses, res)              # SPEC.md 128.27.6
     _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
     _clock_rule_checks(courses, res, paths)         # wave 8R (SPEC.md 128.22.6, 128.22.10)
     _path_checks(courses, res)
@@ -19832,9 +20021,11 @@ def sizes(paths):
                   "this pace" % (c.target, pace, rows, rows * pace))
             if c.target == 90:
                 print("    a 90 s course needs wave 11's levers (story 11.6) and a pace of at least 0.425 s a row")
-            print("    budget %d bytes (ROOM %d x %d / %d), cap %d (LZ4): LZ4 %d, %s; LZB %d, %s" % (
-                bg, ROOM, c.target, PLAN_SECS, cap, whole["lz4"], "OVER" if whole["lz4"] > bg else "under",
-                whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
+            print("    budget %d bytes (ROOM %d x %d / %d), 1.5x %d (LZ4), REPORTED, never refused (SPEC.md "
+                  "128.27.5): LZ4 %d, %s; LZB %d, %s" % (
+                      bg, ROOM, c.target, PLAN_SECS, cap, whole["lz4"],
+                      "OVER 1.5x" if whole["lz4"] > cap else "OVER" if whole["lz4"] > bg else "under",
+                      whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
         tot["lz4"] += whole["lz4"]
         tot["lzb"] += whole["lzb"]
         tot["ram"] += len(c.cga)
