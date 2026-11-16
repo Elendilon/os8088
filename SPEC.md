@@ -276675,7 +276675,7 @@ check expects `GF_SPLIT` exactly when a cell is split; item 1's chain to
 runs on PEAK (128.24.9).
 
 **Bytes** (MEASURED, `make bonanza`): the package's image and bss are not
-changed by D5 (42,384 / 10,846 with the D3 verify's +24 / +1). The
+changed by D5 (42,387 / 10,846 with the D3 verify's +27 / +1). The
 courses' parts, RAM and LZB-packed: MOON 42,282 -> 43,096 (+814) and
 7,886 -> 8,293 (+407); PLAYGROUND 35,636 -> 41,798 and 4,650 -> 6,215
 (the whole section is new). The same section with every piece rounded out
@@ -276694,36 +276694,39 @@ the half's pattern (Q2); the owner judges them on the glass (D5.2).
 
 **The price on the glass (MEASURED, D5, PERFORMANCE.md Part 3's harness:
 `bonanza_perf.measure`'s logged breakpoints, D of a log, MartyPC's guest
-cycles; two runs a figure, the speaker OFF then at S's AUTO).** Each
-course is measured against the SAME geometry in whole cells: MOON's
-shipped course before D5 (its own demo), and for the lane a ZIGZAG twin
-built for the A/B only (`floor band 15 17`, rails `band 13 14` /
-`band 18 19`: the pieces rounded out, as MOON's coast was), rolled by the
-same autopilot route down the lane's middle. Frames whose steps the model
-puts on the section (busy = the frame less the retrace wait and the
-wheel; refresh CGA 79.6k clk, Hercules 93.9k):
+cycles; two runs a figure, the speaker OFF then at S's AUTO; on the guest
+with D3's verify buys, 40e3d57d7).** Each course is measured against the
+SAME geometry in whole cells: MOON's shipped course before D5 (its own
+demo, 10b0c0725's build), and for the lane a ZIGZAG twin built for the A/B
+only (`floor band 15 17`, rails `band 13 14` / `band 18 19`: the pieces
+rounded out, as MOON's coast was), rolled by the same autopilot route down
+the lane's middle. Frames whose steps the model puts on the section (busy =
+the frame less the retrace wait and the wheel; refresh CGA 79.6k clk,
+Hercules 93.9k):
 
 | | whole cells | halves | |
 |---|---|---|---|
-| MOON's coast, CGA, busy mean / p95 / max (OFF) | 36.6k / 54.0k / 63.8k | 40.5k / 56.6k / 69.2k | the halves' ball rolls straight and FASTER: pan rows 0.21 -> 0.29 a frame, most of the +3.9k; simulation + camera 15.7k -> 16.9k |
-| ... speaker ON | 39.7k, max 66.2k | 43.9k, max 71.4k | missed refreshes 0 and 0 |
-| MOON's coast, Hercules (OFF / ON) | 38.8k / 41.9k, max 71.1k / 69.9k | 43.1k / 46.6k, max 69.9k / 81.6k | 0 and 0 |
-| PLAYGROUND's lane, CGA (OFF) | 37.9k / 55.5k / 66.6k | 40.3k / 62.1k / 78.0k | the same path and pans (0.27 rows a frame); simulation + camera 15.9k -> 18.0k (+2.1k a frame, +2.3k a step); the centre in a halved cell 82 of 291 steps |
-| ... speaker ON | 41.5k, max 75.8k, 0 missed | 43.3k, max 86.7k, **1 missed** | the miss is one frame in each run, at the ramp's top (step 371): simulation + camera 48.1k there, against 35.9k on the zigzag's take-off at the same place |
-| PLAYGROUND's lane, Hercules (OFF / ON) | 39.0k / 42.9k, max 67.0k / 75.6k | 41.4k / 45.0k, max 87.0k / 91.8k | 0 and 0 |
-| down the LEFT RAIL (LD held), CGA / Hercules, ON | - | 48.0k, max 78.4k / 49.0k, max 91.3k | 0 missed; 99 diagonal contacts, the centre at DIAG from the rail (a = 15.53) all the way; the zigzag twin's ball under the same keys sticks in the first notch (1,623 wall contacts) |
+| MOON's coast, CGA, busy mean / p95 / max (OFF) | 36.6k / 54.0k / 63.8k | 40.3k / 56.4k / 68.9k | the halves' ball rolls straight and FASTER: pan rows 0.21 -> 0.29 a frame, most of the +3.7k; simulation + camera 15.7k -> 16.7k |
+| ... speaker ON | 39.7k, max 66.2k | 43.7k, max 71.1k | missed refreshes 0 and 0 |
+| MOON's coast, Hercules (OFF / ON) | 38.8k / 41.9k, max 71.1k / 69.9k | 42.9k / 46.3k, max 79.8k / 71.7k | 0 and 0 |
+| PLAYGROUND's lane, CGA (OFF) | 38.2k / 55.8k / 66.6k | 40.3k / 61.7k / 77.7k | the same path and pans (0.27 rows a frame); simulation + camera 16.0k -> 17.9k (+1.9k a frame, +2.1k a step); the centre in a halved cell 82 of 291 steps |
+| ... speaker ON | 41.6k, max 76.8k, 0 missed | 43.1k, max 86.4k, **1 missed** | the miss is one frame in each run, at the ramp's top (steps 371 - 372, a frame of two steps there: simulation + camera 50.8k; the zigzag's take-off at the same place 35.9k a step) |
+| PLAYGROUND's lane, Hercules (OFF / ON) | 39.0k / 42.9k, max 72.5k / 75.6k | 40.9k / 44.6k, max 82.8k / 91.4k | 0 and 0 |
+| down the LEFT RAIL (LD held), CGA (OFF / ON) | - | 44.3k / 47.7k, max 75.2k / 78.1k | 0 missed; simulation + camera 19.2k (+3.2k over the zigzag's middle run); 99 diagonal contacts, the centre at DIAG from the rail (a = 15.53) all the way; the zigzag twin's ball under the same keys sticks in the first notch (1,623 wall contacts) |
+| ... Hercules (OFF / ON) | - | 45.4k / 49.1k, max 96.6k / 97.0k | **1 missed** in one of the two runs each (0 in the other) |
 
 So the owner's price question, answered on the glass: **a lane of halves
-costs about +2.1k clk of simulation a frame (+2.4k busy, 6%) against the
-same lane in whole cells, and a rail slide about +3.5k**; the display holds
-the refresh on both cards with the speaker off, and with it on loses one
-refresh at the ramp's top on the CGA. MOON's straight coast costs +3.9k
-busy a frame, most of it the camera panning a ball that no longer stalls
-on the stairs, at 0 misses on both cards. The cheapest buys if the owner
-wants the miss back are 128.24.7.6's (the edge loop unrolled, one pick a
-step); the frames are no frame-rate argument yet. The scripts are
-dcourse's scratch, not a row: the registered measurement is the rows'
-(128.24.11).
+costs about +1.9k clk of simulation a frame (+2.1k busy, 5.5%) against the
+same lane in whole cells, and a rail slide about +3.2k**; the display holds
+the refresh on both cards with the speaker off down the lane's middle; with
+the speaker on the CGA loses one refresh at the lane's ramp top, and a slide
+down the rail lost one on the Hercules in one run of two. MOON's straight
+coast costs +3.7k busy a frame, most of it the camera panning a ball that no
+longer stalls on the stairs, at 0 misses on both cards. The frames are no
+frame-rate argument yet; the next buys are 128.24.7.6's list. The scripts
+are dcourse's scratch, not a row: the registered measurement is the rows'
+(128.24.11). (Measured once before the verify's buys too, on 0813fdaf0:
+the same shape within 0.2k.)
 
 ### 128.25 Wave 9: mechanics as parts (PLANNED)
 
