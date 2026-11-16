@@ -223,6 +223,14 @@ VAR bz_psp,1                    ; D3 (SPEC.md 128.24.7.6): 8 while a SPLIT cell 
                                 ; step's .pps rebuild from it), else 0
 VAR bz_wfl,1                    ; ...bz_wtail's gate: 1 the course has props, 2 a
                                 ; split cell (GF_SPLIT), 3 both (bz_pinit's)
+VAR bz_vup,2                    ; wave 9 (SPEC.md 128.25.19): what a family adds to
+                                ; the cap BZ_VMAXG (bz_gax.clamp; PICKUPS' speed)
+VAR bz_nfev,2                   ; ...a family's EVENTS, the PICKUP sound's counter
+                                ; (bzs_events: added to its sum, never compared)
+VAR bz_wacc,1                   ; ...what it adds to every force table's force
+                                ; (bz_ramp: the air's ACC and the surface's A)
+VAR bz_cue,1                    ; ...the timed effect's CUE, display only: bit 0
+                                ; SPARKLES, bit 1 the last PU_WARN steps' FLASH
 VAR bz_fst,BZ_FSTB              ; wave 9 (SPEC.md 128.25.7.2): the per-play STATE bits
 VAR bz_fsl,BZ_FAMMAX * BZF_SLOT ; ...and each family's SLOT (both cleared by class:
 VAR bz_fpad,((BZ_FSTB + 1) & 1)  ; a play's start here, a respawn bz_frst's)
@@ -460,10 +468,13 @@ bz_tapply:
     ret
 %endif
 
-; bz_ramp - a force table (128.11.7.1): [DI + l] = (AL l + 4) >> CL for the
-; levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's).  DS = ours.
+; bz_ramp - a force table (128.11.7.1): [DI + l] = ((AL + bz_wacc) l + 4) >> CL
+; for the levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's): bz_wacc
+; is a family's raise (wave 9, SPEC.md 128.25.19: PICKUPS' speed; 0 otherwise),
+; so a pad's swap or a change of surface under it keeps it.  DS = ours.
 ; Clobbers AX, BX, CH, DX, DI.
 bz_ramp:
+    add al, [bz_wacc]
     cbw
     mov dx, 4
     mov ch, BZ_LVLMAX + 1
@@ -3171,7 +3182,8 @@ bz_frate:
 ; and v moves d toward 0.  rem <= bz_dmask holds at every call (bz_surfset
 ; cuts it where the mask changes), so the read needs no mask; t < 700.  The
 ; airborne axis passes CX = 0: the clamp alone.  -> AX.  Preserves SI.
-; Clobbers DX, and BX when CL is not 0.
+; Clobbers DX (.clamp too: wave 9's cap is BZ_VMAXG + bz_vup), and BX when CL
+; is not 0.
 ; -----------------------------------------------------------------------------
 bz_gax:
     or cl, cl
@@ -3210,17 +3222,17 @@ bz_gax:
     add ax, dx                  ; v < -b: v + b; else 0
     jl .clamp
     xor ax, ax
-.clamp:
-    cmp ax, BZ_VMAXG            ; (inside the clamp, nearly always: no jump
+.clamp:                         ; wave 9 (SPEC.md 128.25.19): the cap is
+    mov dx, BZ_VMAXG            ; BZ_VMAXG + bz_vup, a family's raise (0
+    add dx, [bz_vup]            ; but under PICKUPS' speed)
+    cmp ax, dx                  ; (inside the clamp, nearly always: no jump
     jg .hi                      ; taken)
-    cmp ax, -BZ_VMAXG
-    jl .lo
+    neg dx
+    cmp ax, dx
+    jl .hi
     ret
 .hi:
-    mov ax, BZ_VMAXG
-    ret
-.lo:
-    mov ax, -BZ_VMAXG
+    xchg ax, dx                 ; (DX = the bound on either side)
     ret
 
 ; -----------------------------------------------------------------------------

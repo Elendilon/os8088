@@ -973,18 +973,18 @@ def probe_keys():
     p = BB.Physics(R.course("play"), play=True, mat=mat)
     for i, k in enumerate(keys):
         p.step(k)
-        if p.fam and p.fst[0]:
+        if p.fam and p.fst[0] & 1:
             break
     else:
         raise AssertionError("PLAYGROUND's demo never enters its probe")
     out = keys[:i + 31] + [BB.K_RET]
     for k in out[i + 1:]:
         p.step(k)
-    assert p.nret == 1 and not p.fst[0], "the RETURN did not clear the probe"
+    assert p.nret == 1 and not p.fst[0] & 1, "the RETURN did not clear the probe"
     for _ in range(400):
         out.append(K.K_L | K.K_U)
         p.step(K.K_L | K.K_U)
-        if p.fst[0]:
+        if p.fst[0] & 1:
             break
     else:
         raise AssertionError("-wx from the start never enters the probe")
@@ -1000,8 +1000,133 @@ def w9_replays():
               "what": "PLAYGROUND's PROBE: entered at step %d, a RETURN 30 steps later clears its RESPAWN bit, "
                       "-wx from the start enters it again (RESETs %d, ENTERs %d, CONTACTs %d, STEPs %d)" % (
                           ent + 1, sl[0], sl[1], sl[2] | sl[3] << 8, sl[4] | sl[5] << 8),
-              "ok": bool(p.fam) and p.nret == 1 and sl[0] == 2 and sl[1] == 2 and p.fst[0] == 1 and not p.nfall})
+              "ok": bool(p.fam) and p.nret == 1 and sl[0] == 2 and sl[1] == 2 and p.fst[0] & 1 and not p.nfall})
+    keys, marks = pickup_keys()
+    p = run_keys("play", BB.MAT_RUBBER, None, keys)
+    S.append({"name": "pickups", "crs": "play", "mat": BB.MAT_RUBBER, "poke": None, "keys": keys, "red": None,
+              "what": "PLAYGROUND's PICKUPS (SPEC.md 128.25.19): %s" % ", ".join("%s at %d" % (n, i) for n, i in marks),
+              "ok": pickup_ok(p, marks)})
     return S
+
+
+# ---- wave 9: PICKUPS (SPEC.md 128.25.9, 128.25.19) - the scripted scenario ---------------
+def _pu_dirs():
+    out = []
+    for k in (K.K_R, K.K_L, K.K_D, K.K_U, K.K_R | K.K_D, K.K_R | K.K_U, K.K_L | K.K_D, K.K_L | K.K_U):
+        fx = (1 if k & K.K_R else 0) - (1 if k & K.K_L else 0) + (1 if k & K.K_D else 0) - (1 if k & K.K_U else 0)
+        fy = -(1 if k & K.K_R else 0) + (1 if k & K.K_L else 0) + (1 if k & K.K_D else 0) - (1 if k & K.K_U else 0)
+        out.append((k, fx, fy))
+    return out
+
+
+def _pu_steer(p, tx, ty, vmax):
+    """the arrows that push the ball's velocity toward one heading for (tx, ty) (24.8 gu), at most VMAX"""
+    vdx = max(-vmax, min(vmax, (tx - p.gx) // 24))
+    vdy = max(-vmax, min(vmax, (ty - p.gy) // 24))
+    ex, ey = vdx - p.gvx, vdy - p.gvy
+    if abs(ex) + abs(ey) < 40:
+        return 0
+    best, bk = 0, 0
+    for k, fx, fy in _pu_dirs():
+        sc = (ex * fx + ey * fy) / (abs(fx) + abs(fy)) ** 0.5
+        if sc > best:
+            best, bk = sc, k
+    return bk
+
+
+def _pu_goto(p, keys, wx, wy, vmax=300, until=None, n=600):
+    tx, ty = (16 * wx + 8) << 8, (16 * wy + 8) << 8
+    for _ in range(n):
+        if (until(p) if until is not None else
+                abs(p.gx - tx) < 512 and abs(p.gy - ty) < 512 and abs(p.gvx) < 60 and abs(p.gvy) < 60):
+            return
+        k = _pu_steer(p, tx, ty, vmax)
+        keys.append(k)
+        p.step(k)
+    raise AssertionError("the pickups scenario never reached (%d, %d)%s" % (wx, wy, "" if until is None else
+                                                                         " with its condition"))
+
+
+def _pu_t(p):
+    sl = p.fsl[1]
+    return sl[0] | sl[1] << 8, sl[2] | sl[3] << 8
+
+
+def pickup_keys():
+    """THE PICKUPS SCENARIO on PLAYGROUND's yard (SPEC.md 128.25.19), steered on the model from the start:
+    the SPEED taken, a sprint past BZ_VMAXG under it (the raised cap), the JUMP taken while the speed runs
+    (both at once), a Hop with rubber's boost STACKED on its contact onto the 2-unit RIDGE, off it and both
+    worn off, the HOURGLASS (+10 s), a RETURN (the ATTEMPT hourglass stays taken, the RESPAWN two come
+    back), the speed again and a RETURN while it runs, the jump again worn off.  -> (keys, [(mark, step)])"""
+    c = R.course("play")
+    p = BB.Physics(c, play=True, mat=BB.MAT_RUBBER)
+    keys, marks = [], []
+    for wp in ((21, 18), (21, 25), (12, 25)):
+        _pu_goto(p, keys, *wp)
+    _pu_goto(p, keys, 7, 25, until=lambda q: _pu_t(q)[0])
+    marks.append(("speed", len(keys)))
+    vmax0 = abs(p.gvx)
+    _pu_goto(p, keys, 21, 25, vmax=BB.VMAXG + BB.PU_SVUP, until=lambda q: abs(q.gvx) > BB.VMAXG)
+    marks.append(("past the cap (%d)" % abs(p.gvx), len(keys)))
+    _pu_goto(p, keys, 8, 28, vmax=BB.VMAXG, until=lambda q: _pu_t(q)[1])
+    marks.append(("jump with the speed (%d steps of it left)" % _pu_t(p)[0], len(keys)))
+    _pu_goto(p, keys, 5, 28, vmax=200)
+    hopped = armed = None
+    for i in range(300):
+        k = _pu_steer(p, (16 * 5 + 8) << 8, (16 * 20) << 8, BB.VMAXG)
+        if hopped is None and (p.gy >> 8) <= 16 * 28 and not p.air:
+            k |= K.K_HOP
+            hopped = i
+        elif hopped is not None and armed is None and i >= hopped + 4 and p.air:
+            k |= K.K_HOP
+            armed = i
+        keys.append(k)
+        p.step(k)
+        if not p.air and (p.gy >> 12) <= 23 and (p.gz >> 8) >= 48:
+            break
+    else:
+        raise AssertionError("the jump and the boost never landed on the ridge")
+    marks.append(("on the ridge (boost %d)" % p.nboost, len(keys)))
+    _pu_goto(p, keys, 5, 21, vmax=120)
+    _pu_goto(p, keys, 5, 26, vmax=200, until=lambda q: q.gy >> 12 >= 25 and not q.air)
+    _pu_goto(p, keys, 5, 26, vmax=200, until=lambda q: _pu_t(q) == (0, 0))
+    marks.append(("both worn off", len(keys)))
+    hg = next(pr for pr in p.props if pr["kind"] == BB.K_HOURGLASS)
+    _pu_goto(p, keys, *hg["at"], until=lambda q: q.fst[hg["fsb"] >> 3] >> (hg["fsb"] & 7) & 1)
+    marks.append(("hourglass", len(keys)))
+    keys.append(BB.K_RET)
+    p.step(BB.K_RET)
+    marks.append(("RETURN", len(keys)))
+    _pu_goto(p, keys, 7, 25, until=lambda q: _pu_t(q)[0])
+    marks.append(("speed again", len(keys)))
+    for _ in range(40):
+        keys.append(0)
+        p.step(0)
+    keys.append(BB.K_RET)
+    p.step(BB.K_RET)
+    marks.append(("RETURN while it runs", len(keys)))
+    _pu_goto(p, keys, 8, 28, until=lambda q: _pu_t(q)[1])
+    marks.append(("jump again", len(keys)))
+    for _ in range(4 * 41 + 20):
+        keys.append(0)
+        p.step(0)
+    marks.append(("worn off", len(keys)))
+    assert vmax0 >= 0
+    return keys, marks
+
+
+def pickup_ok(p, marks):
+    """what the scenario is for, at its end: every pickup taken (the hourglass kept through two RETURNs,
+    the timed two cleared by the last and the jump taken again), no effect left, two RETURNs, no fall"""
+    hg = next(pr for pr in p.props if pr["kind"] == BB.K_HOURGLASS)
+    jp = next(pr for pr in p.props if pr["kind"] == BB.K_JUMP)
+    sp = next(pr for pr in p.props if pr["kind"] == BB.K_SPEED)
+
+    def bit(pr):
+        return p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7) & 1
+    return (len(marks) == 11 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
+            and _pu_t(p) == (0, 0) and p.hop == BB.MATERIALS[BB.MAT_RUBBER]["HOP"] and not p.wacc and not p.vup
+            and p.nfev == 5 and p.nboost >= 1)
 
 
 # the unicorn half (--check): bz_step itself, on the host, against the model -------
@@ -1024,10 +1149,18 @@ def lst_syms(lst, names):
     return out
 
 
+def _p_fam():
+    """BZ_P_FAM, the first family row (bzlink.inc's constant)"""
+    import re
+    m_ = re.search(r"^BZ_P_FAM\s+equ\s+(\S+)", open(R.at("build/bonanza-art/bzlink.inc")).read(), re.M)
+    return int(m_.group(1), 0)
+
+
 class UGuest:
-    """BONANZA's image under unicorn: the course part at UPS, the family part
-    at UFS, op_fetch a CF = 0 and op_seg / op_cseg answering UFS (the one
-    family part a course here names), bz_toast a HLT (never reached)"""
+    """BONANZA's image under unicorn: the course part at UPS, the family parts
+    from UFS (ID n's at UFS + 200h (n - 1)), op_fetch a CF = 0 and op_seg /
+    op_cseg answering each row's part, bz_toast a HLT (never reached)"""
+    P_FAM = None
 
     def __init__(self, binp, lst, sym, part, fam=None, patch=()):
         from unicorn import Uc, UC_ARCH_X86, UC_MODE_16
@@ -1037,23 +1170,29 @@ class UGuest:
         mu.mem_write(UCS * 16, open(binp, "rb").read())
         mu.mem_write(UPS * 16, bytes(part))
         mu.mem_write(UCS * 16 + USTUB, b"\xf4")
-        if fam:
-            mu.mem_write(UFS * 16, fam)
+        # the family parts, ID n's at UFS + 200h (n - 1) (wave 9: a course naming two - PLAYGROUND's probe
+        # and pickups - fetches both); op_seg / op_cseg answer AL's row's (row BZ_P_FAM + n - 1):
+        # xor ah, ah / sub al, BZ_P_FAM / mov ah, al / mov al, 0 / shl ax, 1 / add ax, UFS / ret
+        fams = [fam] if isinstance(fam, (bytes, bytearray)) else list(fam or ())
+        for j, f in enumerate(fams):
+            if f:
+                mu.mem_write((UFS + 0x200 * j) * 16, bytes(f))
         op = lst_syms(lst, ("op_fetch", "op_seg", "op_cseg", "bz_toast"))
         for n in ("op_seg", "op_cseg"):
             if n in op:
-                mu.mem_write(UCS * 16 + op[n], b"\xb8" + struct.pack("<H", UFS) + b"\xc3")
+                mu.mem_write(UCS * 16 + op[n], b"\x32\xe4\x2c" + bytes((_p_fam(),))
+                             + b"\x8a\xe0\xb0\x00\xd1\xe0\x05" + struct.pack("<H", UFS) + b"\xc3")
         if "op_fetch" in op:
             mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
         mu.mem_write(UCS * 16 + op["bz_toast"], b"\xf4")
         for n, b in patch:
-            mu.mem_write(UCS * 16 + sym[n], b)
+            mu.mem_write(UCS * 16 + (n if isinstance(n, int) else sym[n]), b)
 
     def w(self, n, v, sz, k=0):
         self.mu.mem_write(UCS * 16 + self.sym[n] + k, (v & ((1 << (8 * sz)) - 1)).to_bytes(sz, "little"))
 
-    def r(self, n, sz, signed=True):
-        return int.from_bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz), "little", signed=signed)
+    def r(self, n, sz, signed=True, k=0):
+        return int.from_bytes(self.mu.mem_read(UCS * 16 + self.sym[n] + k, sz), "little", signed=signed)
 
     def rb(self, n, sz):
         return bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz))
@@ -1122,6 +1261,13 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=()):
                 mw = b"".join(_cellb(p.cell(nw[0] + dx, nw[1] + dy)) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
                 if gw != mw:
                     bad.append("step %d: the window %s, the model's %s" % (i, gw.hex(), mw.hex()))
+            if any(fm.row["name"] == "pickups" for fm, _v in p.fam):     # wave 9: the WORKING values
+                gv = (g.r("bz_wacc", 1, False), g.r("bz_vup", 2), g.r("bz_mrec", 2, False, 6), g.r("bz_cue", 1, False), g.r("bz_nfev", 2, False), g.rb("bz_fta", 9),
+                      g.r("bz_tsec", 2, False))
+                mv = (p.wacc, p.vup, p.hop, p.cue, p.nfev, bytes(p.fta), p.tsec)
+                if gv != mv:
+                    bad.append("step %d: the working values (wacc, vup, Hop, cue, nfev, fta, tsec) %s, the "
+                               "model's %s" % (i, gv, mv))
             for pr in elem:
                 g.w("bz_lknd", pr["kind"], 1, pr["i"])
                 ax, _cf = g.call("bz_ltrue", bx=pr["i"])
@@ -1137,14 +1283,16 @@ def fam_host():
     sym = R.symbols()
     binp, lst = R.at("build/bonanza.bin"), R.at("build/bonanza.lst")
     fam = open(R.at("build/bzf-probe.bin"), "rb").read()
+    pick = open(R.at("build/bzf-pickups.bin"), "rb").read()
+    fams = [fam, pick]                              # (FAMILIES' ID order: the rows op_seg answers)
     out, fails = [], []
     mat, keys = play_demo_keys()
-    p, bad = urun(binp, lst, sym, "play", mat, keys, fam)
+    p, bad = urun(binp, lst, sym, "play", mat, keys, fams)
     out.append("PLAYGROUND's demo, %d steps with its probe: %s (slot %s, bz_fst %s)" % (
         len(keys), "; ".join(bad) or "the guest is the model at every step", bytes(p.fsl[0]).hex(), bytes(p.fst).hex()))
     fails += bad
     mat, k2, ent = probe_keys()
-    p, bad = urun(binp, lst, sym, "play", mat, k2, fam)
+    p, bad = urun(binp, lst, sym, "play", mat, k2, fams)
     out.append("the probe scenario (entered at %d, a RETURN at %d): %s (slot %s)" % (
         ent + 1, ent + 31, "; ".join(bad) or "equal at every step", bytes(p.fsl[0]).hex()))
     fails += bad
@@ -1157,14 +1305,45 @@ def fam_host():
     # the red arms, on the unicorn: each must part from the model
     nocell = bytearray(fam)
     nocell[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
-    for name, ff, patch, want in (("famcell", bytes(nocell), (), "the window"),
-                                  ("famrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst")):
+    for name, ff, patch, want in (("famcell", [bytes(nocell), pick], (), "the window"),
+                                  ("famrsp", fams, (("bz_frst", b"\xc3"),), "bz_fst")):
         p, bad = urun(binp, lst, sym, "play", mat, k2, ff, patch)
         ok = any(want in b for b in bad)
         out.append("red %s: %s" % (name, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    # wave 9 (SPEC.md 128.25.19): THE PICKUPS SCENARIO, and its red arms - the STEP entry 0 (no timer
+    # runs down: the slot parts at the first step after the speed's take), the RESET entry 0 (the RETURN
+    # while the speed runs leaves it running: the slot), and the cap without bz_vup (bz_gax.clamp's
+    # `add dx, [bz_vup]` made NOPs: the ball parts in the sprint past BZ_VMAXG)
+    pk, marks = pickup_keys()
+    p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, fams)
+    out.append("the pickups scenario, %d steps (%s): %s (slot %s, bz_fst %s)" % (
+        len(pk), ", ".join("%s %d" % m_ for m_ in marks), "; ".join(bad) or "equal at every step",
+        bytes(p.fsl[1]).hex(), bytes(p.fst).hex()))
+    fails += bad
+    if not pickup_ok(p, marks):
+        fails.append("the pickups scenario does not show what it is for (marks %s)" % marks)
+    img = open(binp, "rb").read()
+    vup = img.find(b"\xba" + struct.pack("<H", BB.VMAXG) + b"\x03\x16" + struct.pack("<H", sym["bz_vup"]),
+                   sym["bz_gax"])
+    for name, ff, patch, want in (("pustep", [fam, _noentry(pick, BB.H_STEP)], (), "slots"),
+                                  ("purst", [fam, _noentry(pick, BB.H_RESET)], (), "slots"),
+                                  ("puvup", fams, ((vup + 3, b"\x90" * 4),), "the ball")):
+        p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, ff, patch)
+        ok = any(want in b for b in bad)
+        out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
     return out, fails
+
+
+def _noentry(part, h):
+    """a family part with hook H's entry zeroed (a red arm: the hook never called)"""
+    b = bytearray(part)
+    k = h.bit_length() - 1
+    b[12 + 2 * k:14 + 2 * k] = b"\0\0"
+    return bytes(b)
 
 
 # ---- MILL (SPEC.md 128.12.6, 128.12.13.2): every obstacle, as replays ------------
