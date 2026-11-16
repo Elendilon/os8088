@@ -4185,10 +4185,10 @@ def shell_part(td, src, art, binp):
 
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
-    8b, 128.19.5) and the title's two (SPEC.md 128.23), where SRC's package
-    carries them"""
+    8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
+    one a family, where SRC's package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
 
 
 def fam_parts(td, src, art):
