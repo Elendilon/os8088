@@ -457,8 +457,8 @@ VAR bz_ur,8                     ; bz_union's
 VAR bz_gr,32                    ; the frame's box rects, before the clip
 VAR bz_nbox,2
 VAR bz_opx,2                    ; the ball's px, py last frame (the idle test)
-VAR bz_ocue,1                   ; wave 9: bz_cue last frame (the idle test)
 VAR bz_opy,2
+VAR bz_ocue,1                   ; wave 9: bz_cue last frame (the idle test)
 VAR bz_boxp,2                   ; bz_addbox: the next box's record in bz_boxes
 VAR bz_sgr,2                    ; bz_mkboxes: the shadow group's first rect in bz_gr
 VAR bz_xlo,2                    ; bz_boxw's copy of a box's overlap band
