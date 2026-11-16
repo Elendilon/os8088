@@ -332,6 +332,12 @@ PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PL
 PK_SIGN = 10                  # wave 8R (SPEC.md 128.22.4.1): a LANE and nothing else, posed by bz_nst[+28]
 PK_NAMES[PK_SIGN] = "sign"
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
+NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
+LABEL_WX, LABEL_WY0 = 255, 224                # SPEC.md 128.23.2: a LABEL's anchor, (255, 224 + N) - past any grid
+LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
+GF_VIEW = 4                   # BZG1 +28: a FIXED window (SPEC.md 128.23.2), +30 its top / 4 and the CGA's c0
+VIEW_DROP = 32                # lines of picture above the windows: the DROP margin (128.23.2)
+HERC_LEFT, HERC_RIGHT = 2, 3  # the Hercules window's words left and right of the CGA's (45 = 40 + 2 + 3)
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
 CLOCK_PH = 255                # a clock's POST's height (128.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
@@ -505,13 +511,18 @@ class Source:
         self.music = None           # wave 7 (SPEC.md 128.18.6): (the song's number, line); never in the part
         self.medals = None          # wave 8c (SPEC.md 128.19.8.3): (G, S, line), whole seconds
         self.pathway = None         # wave 8b (SPEC.md 128.19.5): the line of `pathway` - THE pathway
-        self.view = None            # wave 8R (SPEC.md 128.22.2, 128.23.2): (SX, SY, line)
         self.pages = None           # ...(N, line)
         self.ppads = []             # ...the pathway's pads: [dict num crs at line]
         self.icons = []             # ...[dict num file at fps line]
         self.routes = []            # ...[dict a b exit secret gate pts line]
         self.lives = []             # ...[dict at line]
         self.rail = None            # ...(material name, line)
+        # SPEC.md 128.23.2: THE TITLE - a course nobody plays, behind a fixed window
+        self.title_ln = None        # the line of `title`
+        self.view = None            # (SX, SY, line, drop): the CGA window's centre, projection px (a pathway's
+                                    # page 0's, wave 8R)
+        self.arts = []              # [(file, SX, SY, line)]: text pixmaps painted over the picture
+        self.labels = []            # [dict num col row glyphs ink line]
 
 
 def _int(tok, where, what):
@@ -886,6 +897,37 @@ def parse(text, fname="<course>"):
         elif st in PATH_STMTS or (st == "pad" and len(toks) == 5 and toks[1][0] == 'w'
                                   and _INT.match(toks[1][1])):
             _parse_path_stmt(src, st, toks, where, ln)  # wave 8R (SPEC.md 128.22.2): the pathway's own
+        elif st == "title":                         # SPEC.md 128.23.2
+            if len(toks) != 1 or src.title_ln is not None:
+                raise CourseError("%s: title takes nothing, once" % where)
+            src.title_ln = ln
+        elif st == "view":                          # view SX SY (SPEC.md 128.23.2)
+            if len(toks) not in (3, 5) or src.view is not None or (len(toks) == 5 and toks[3] != ('w', "drop")):
+                raise CourseError("%s: view takes <SX> <SY> [drop <lines>], once" % where)
+            vx, vy = _int(toks[1], where, "SX"), _int(toks[2], where, "SY")
+            if vx % 8 or vy % 4:
+                raise CourseError("%s: view's SX must be a multiple of 8 and SY of 4 (the windows' words and "
+                                  "the Hercules' 4-line card rows), not %d %d" % (where, vx, vy))
+            drop = _int(toks[4], where, "drop") if len(toks) == 5 else VIEW_DROP
+            if not 16 <= drop <= 240:
+                raise CourseError("%s: view's drop margin is 16 - 240 lines, not %d" % (where, drop))
+            src.view = (vx, vy, ln, drop)
+        elif st == "art":                           # art FILE SX SY (SPEC.md 128.23.2)
+            if len(toks) != 4 or toks[1][0] != 'w' or not re.match(r"^[a-z0-9_]+\.bba$", toks[1][1]):
+                raise CourseError("%s: art takes <file.bba> <SX> <SY> (a lower-case name beside the course)"
+                                  % where)
+            src.arts.append((toks[1][1], _int(toks[2], where, "SX"), _int(toks[3], where, "SY"), ln))
+        elif st == "label":                         # label N COL ROW glyphs "TEXT" [ink C] (128.23.2)
+            if (len(toks) not in (6, 8) or toks[4] != ('w', "glyphs") or toks[5][0] != '"'
+                    or (len(toks) == 8 and toks[6] != ('w', "ink"))):
+                raise CourseError('%s: label takes <N> <COL> <ROW> glyphs "TEXT" [ink <0-3>]' % where)
+            n, col, row = _int(toks[1], where, "N"), _int(toks[2], where, "COL"), _int(toks[3], where, "ROW")
+            text, ink = toks[5][1], (_int(toks[7], where, "ink") if len(toks) == 8 else 3)
+            if not (0 <= n < NODE_MAX and 0 <= col < 40 and 0 <= row < 25 and 1 <= len(text) < LANE_PMAX
+                    and 0 <= ink <= 3 and all(32 <= ord(ch) < 127 for ch in text)):
+                raise CourseError("%s: a label is 0 - %d at a cell of the CGA window (0 - 39, 0 - 24), 1 - %d "
+                                  "printable glyphs, ink 0 - 3" % (where, NODE_MAX - 1, LANE_PMAX - 1))
+            src.labels.append({"num": n, "col": col, "row": row, "glyphs": text, "ink": ink, "line": ln})
         elif st == "clock":                         # wave 7 (SPEC.md 128.18.5)
             if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] != "crystal")):
                 raise CourseError("%s: clock takes <wx> <wy> [frame crystal]" % where)
@@ -920,13 +962,12 @@ def parse(text, fname="<course>"):
         else:
             raise CourseError("%s: unknown statement '%s'" % (where, st))
     if src.pathway is None:                         # wave 8R: the pathway's statements are refused elsewhere
-        for what, v in (("view", src.view), ("pages", src.pages), ("pad N", src.ppads), ("icon", src.icons),
+        for what, v in (("pages", src.pages), ("pad N", src.ppads), ("icon", src.icons),
                         ("route", src.routes), ("lives", src.lives), ("rail", src.rail)):
             if v:
                 ln = v[-1] if isinstance(v, tuple) else v[0]["line"]
-                raise CourseError("%s:%d: `%s` is the pathway's statement (SPEC.md 128.22.2%s), and this course "
-                                  "has no `pathway`" % (fname, ln, what, "; a `title` course's view, 128.23.2, "
-                                                        "is not built yet" if what == "view" else ""))
+                raise CourseError("%s:%d: `%s` is the pathway's statement (SPEC.md 128.22.2), and this course "
+                                  "has no `pathway`" % (fname, ln, what))
     else:
         if src.start is not None:
             raise CourseError("%s:%d: the pathway has no `start`: a new game rests on pad 0" % (fname, src.start[1]))
@@ -1166,111 +1207,57 @@ _CHECKS_OFF = set()            # --selfcheck's negative controls switch a refusa
 # proofs (128.22.2) and the follower's host model (128.22.4.2)
 # =============================================================================
 
-# --- shared with 128.23 (title) ---
-# The `view` statement (128.23.2, widened to a `pathway` course by 128.22.2),
-# the `.bba` text pixmap reader and the desktop font's glyphs.  The title
-# session owns 128.23; this block is written so its merge is mechanical: a
-# `title` course calls view_geometry() with npages 1 and cam CAM_FIXED.
-CAM_COURSE, CAM_FIXED, CAM_PAGED = 0, 1, 2      # BZG1 +30 (SPEC.md 128.22.3)
+# The windows, the `.bba` reader and the 8 x 8 face are 128.23's (the title
+# session's: `view`, read_bba, label_glyph, GF_VIEW).  The pathway adds the
+# PAGES above page 0's window, the PAGED flag and a frame split of a pixmap.
+GF_PAGED = 8                  # BZG1 +28 bit 3: a PAGED window (SPEC.md 128.22.4.3); +30 page 0's, as GF_VIEW's
 VIEW_W, VIEW_H = 320, 200                       # the CGA window, world px and lines
-VIEW_HL, VIEW_HR = 2, 3                         # the Hercules window's words beyond it, left and right
-VIEW_DROP = 32                                  # lines kept above the topmost window (128.23.2's DROP margin)
 PAGE_H = 200                                    # a page: page k's window is page 0's moved UP 200 k lines
-BBA_INKS = {".": None, "0": 0, "1": 1, "2": 2, "3": 3}
-DESKTOP_FONT = os.path.join(ROOT, "fonts", "tallx.f8")
 
 
-def read_bba(path, where):
-    """128.23.2's text pixmap: one line a pixel row, every row the same
-    length, '.' transparent, '0' - '3' the CGA's colours, '#' a comment line;
-    `# frames K` (128.22.2) splits the rows into K frames stacked top to
-    bottom.  -> {"w", "h" (a frame's), "frames": [rows of ink / None]}"""
+def bba_frames(path, where):
+    """128.22.2's icon: a `.bba` (read_bba, 128.23.2) whose `# frames K` line
+    stacks K frames top to bottom.  -> {"w", "h" (a frame's), "frames":
+    [{(x, y): ink} a frame, frame-relative]}"""
     try:
         with open(path, "r", encoding="ascii", newline="") as f:
             text = f.read()
-    except (OSError, UnicodeDecodeError) as e:
-        raise CourseError("%s: the pixmap %s cannot be read (%s)" % (where, os.path.relpath(path, ROOT), e))
-    rows, nfr = [], None
-    for k, line in enumerate(text.split("\n"), 1):
-        line = line.rstrip("\r")
-        if line.startswith("#"):
-            m = re.match(r"^#\s*frames\s+(\d+)\s*$", line)
-            if m:
-                if nfr is not None:
-                    raise CourseError("%s: %s:%d: a second `# frames` line" % (where, os.path.basename(path), k))
-                nfr = int(m.group(1))
-            continue
-        if not line:
-            continue
-        if any(ch not in BBA_INKS for ch in line):
-            raise CourseError("%s: %s:%d: a pixel row is '.' and '0' - '3' only, not %r"
-                              % (where, os.path.basename(path), k, line[:40]))
-        rows.append([BBA_INKS[ch] for ch in line])
-    if not rows or any(len(r) != len(rows[0]) for r in rows):
-        raise CourseError("%s: %s: %s" % (where, os.path.basename(path), "no pixel row" if not rows else
-                                          "the rows are not all one length"))
-    nfr = nfr or 1
-    if not 1 <= nfr <= LANE_PMAX or len(rows) % nfr:
-        raise CourseError("%s: %s: %d rows are not %d frames of one height (1 - %d frames)"
+    except OSError as e:
+        raise CourseError("%s: icon: %s" % (where, e))
+    m = re.findall(r"^#\s*frames\s+(\d+)\s*$", text, re.M)
+    rows = [r for r in text.split("\n") if r and not r.startswith("#")]
+    pix = read_bba(path, where.rsplit(":", 1)[0], int(where.rsplit(":", 1)[1]) if ":" in where else 0)
+    nfr = int(m[0]) if m else 1
+    if len(m) > 1 or not 1 <= nfr <= LANE_PMAX or len(rows) % nfr:
+        raise CourseError("%s: %s: %d rows are not %d frames of one height (one `# frames K`, 1 - %d)"
                           % (where, os.path.basename(path), len(rows), nfr, LANE_PMAX))
     h = len(rows) // nfr
-    return {"w": len(rows[0]), "h": h, "frames": [rows[f * h:(f + 1) * h] for f in range(nfr)]}
-
-
-@functools.lru_cache(maxsize=None)
-def desktop_font():
-    """the 8 x 8 glyphs a pathway's titles (and 128.23.2's labels) are written
-    in.  kernel/font.inc carries NO glyph bytes - it asks the machine's ROM -
-    so the tool takes the tree's own 8 x 8 face, fonts/tallx.f8 (the one
-    `make FONT=tallx` bakes), through tools/os88font.py's reader"""
-    import os88font
-    return os88font.parse(DESKTOP_FONT)
+    frames = [{(x, y - k * h): ink for (x, y), ink in pix.items() if k * h <= y < (k + 1) * h} for k in range(nfr)]
+    return {"w": len(rows[0]), "h": h, "frames": frames}
 
 
 def text_pixels(text, x, y, ink=3):
-    """TEXT in the desktop font, its top-left cell at picture (x, y): {(x, y): ink}
-    of the SET pixels (the clear ones transparent)"""
-    g = desktop_font()
+    """TEXT in 128.23.2's 8 x 8 face (label_glyph), its top-left cell at
+    picture (x, y): {(x, y): ink} of the SET pixels"""
     out = {}
     for i, ch in enumerate(text):
-        rows = g.get(ord(ch), g[32])
-        for r, bits in enumerate(rows):
-            for b in range(8):
-                if bits & (0x80 >> b):
-                    out[(x + 8 * i + b, y + r)] = ink
+        for (gx, gy), c in label_glyph(ch, 0, 0, ink).items():
+            out[(x + 8 * i + gx, y + gy)] = c
     return out
 
 
-def view_geometry(view, npages, x0, y0, lines, width, fname):
-    """128.23.2's windows for `view SX SY` (the CGA window's CENTRE in
-    projection pixels) and 128.22.2's pages: page k's window is page 0's moved
-    UP by 200 k lines.  The picture grows so every page's CGA and Hercules
-    window and VIEW_DROP lines above the topmost lie inside it, and Y0 is
-    chosen so the windows' tops are block rows.  -> (y0, lines, {"r0": CGA R0
-    of page 0 (rows of 2 lines; the Hercules' is r0 >> 1), "c0": the CGA's
-    first column, "c0h": the Hercules' (c0 - 2), "tops": [page k's top line],
-    "left": the CGA window's first px})"""
-    sx, sy, ln = view
-    if sx % 8 or sy % 4:
-        raise CourseError("%s:%d: view %d %d: SX is a multiple of 8 and SY of 4" % (fname, ln, sx, sy))
-    top_p = sy - VIEW_H // 2 - PAGE_H * (npages - 1) - VIEW_DROP     # projection line, the picture's least
-    y0_ = y0
-    y0 = max(y0, -top_p)
-    y0 += (-(sy - VIEW_H // 2 + y0)) % 8                             # the windows' tops on block rows
-    lines = max(lines + y0 - y0_, sy + VIEW_H // 2 + y0)
-    lines = max(MINLINES, (lines + 7) // 8 * 8)
-    left = sx - VIEW_W // 2 + x0
-    if left - 8 * VIEW_HL < 0 or left + VIEW_W + 8 * VIEW_HR > width:
-        raise CourseError("%s:%d: view %d %d: the Hercules window (px %d - %d) is outside the %d px picture (its "
-                          "origin %d)" % (fname, ln, sx, sy, left - 8 * VIEW_HL, left + VIEW_W + 8 * VIEW_HR - 1,
-                                          width, x0))
-    top0 = sy - VIEW_H // 2 + y0
-    return y0, lines, {"r0": top0 // 2, "c0": left // 8, "c0h": left // 8 - VIEW_HL, "left": left,
-                       "tops": [top0 - PAGE_H * k for k in range(npages)]}
+def page_windows(view, npages, x0, y0, fname):
+    """the pages' windows once 128.23.2's view code has set Y0: -> {"tops":
+    [page k's top line], "left": the CGA window's first px, "c0", "c0h"}"""
+    vx, vy = view[0], view[1]
+    top0 = vy - VIEW_H // 2 + y0
+    left = vx - VIEW_W // 2 + x0
+    return {"tops": [top0 - PAGE_H * k for k in range(npages)], "left": left, "c0": left // 8,
+            "c0h": left // 8 - HERC_LEFT}
 # --- end shared with 128.23 (title) ---
 
 
-PATH_STMTS = ("view", "pages", "icon", "route", "lives", "rail")
+PATH_STMTS = ("pages", "icon", "route", "lives", "rail")
 PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 128.22.5)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
@@ -1311,10 +1298,8 @@ def _path_point(tok, where):
 def _parse_path_stmt(src, st, toks, where, ln):
     """the pathway's statements (SPEC.md 128.22.2), parsed; their rules are
     path_prepare's"""
-    if st == "view":
-        if len(toks) != 3 or src.view is not None:
-            raise CourseError("%s: view takes <SX> <SY>, once" % where)
-        src.view = (_int(toks[1], where, "SX"), _int(toks[2], where, "SY"), ln)
+    if False:
+        pass
     elif st == "pages":
         if len(toks) != 2 or src.pages is not None:
             raise CourseError("%s: pages takes <N>, once" % where)
@@ -1804,8 +1789,8 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
         cx, cy = _pad_centre(q, x0, y0)
         title = q["title"].upper()
         if ic:
-            b = read_bba(os.path.join(COURSE_DIR, ic["file"]) if not os.path.isabs(ic["file"]) else ic["file"],
-                         "%s:%d" % (f, ic["line"]))
+            b = bba_frames(os.path.join(COURSE_DIR, ic["file"]) if not os.path.isabs(ic["file"]) else ic["file"],
+                           "%s:%d" % (f, ic["line"]))
             px, py = ic["at"][0] + x0, ic["at"][1] + y0
             if px % 8 or py % 8:
                 raise CourseError("%s:%d: the icon's top-left (%d, %d) is picture px %d, line %d: not a block's "
@@ -1813,8 +1798,7 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
                                       f, ic["line"], ic["at"][0], ic["at"][1], px, py, (-y0) % 8))
             frames = []
             for fr in b["frames"]:
-                frames.append({(px + i, py + j): ink for j, row in enumerate(fr) for i, ink in enumerate(row)
-                               if ink is not None})
+                frames.append({(px + i, py + j): ink for (i, j), ink in fr.items()})
             for fp in frames:
                 for (x, y) in fp:
                     if not (0 <= x < cv.w and 0 <= y < cv.h):
@@ -2538,6 +2522,12 @@ def build_props(src, tiles, fname):
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
+    for lb in src.labels:                           # SPEC.md 128.23.2: a LABEL - a sign of ndig 0 with no post,
+        # anchored at a cell no course has (its own row past every grid's), so no OBS cell is its and no owner
+        # lookup ever finds it: physics never meets a label
+        props.append({"kind": PK_CLOCK, "line": lb["line"], "at": (LABEL_WX, LABEL_WY0 + lb["num"]), "mask": 0,
+                      "shift": 0, "seed": 0, "num": lb["num"], "place": 0, "ndig": 0, "z4": 0, "K": 0, "KA": 0,
+                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": 0, "label": lb})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -2590,8 +2580,9 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        else:                                       # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
-            out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first)
+        elif not p.get("label"):                    # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
+            out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first;
+                                                    # 128.23.2: a label has no cell)
     return out
 
 
@@ -3594,6 +3585,47 @@ def clock_glyph(d, bx, by):
     return out
 
 
+def read_bba(path, fname="<course>", ln=0):
+    """SPEC.md 128.23.2: a TEXT PIXMAP - one line a pixel row, every row the
+    same length, '.' transparent, '0' - '3' the CGA's colours, '#' a comment
+    line -> {(x, y): ink} of its opaque pixels"""
+    try:
+        with open(path, "r", encoding="ascii", newline="") as f:
+            text = f.read()
+    except OSError as e:
+        raise CourseError("%s:%d: art: %s" % (fname, ln, e))
+    rows = [r for r in text.split("\n") if r and not r.startswith("#")]
+    if not rows or any(len(r) != len(rows[0]) for r in rows):
+        raise CourseError("%s:%d: art %s: no rows, or rows of different lengths" % (fname, ln, path))
+    out = {}
+    for y, r in enumerate(rows):
+        for x, ch in enumerate(r):
+            if ch in "0123":
+                out[(x, y)] = int(ch)
+            elif ch != ".":
+                raise CourseError("%s:%d: art %s row %d: %r is not '.' or 0 - 3" % (fname, ln, path, y, ch))
+    return out
+
+
+_LABEL_GLYPHS = {}
+
+
+def label_glyph(ch, bx, by, ink):
+    """SPEC.md 128.23.2: character CH of the tree's 8 x 8 face (fonts/tallx.f8)
+    in block (bx, by): its set pixels in INK, its clear ones absent (the bare
+    picture's)"""
+    if not _LABEL_GLYPHS:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import os88font
+        _LABEL_GLYPHS.update(os88font.parse(LABEL_FONT))
+    out = {}
+    for r, bits in enumerate(_LABEL_GLYPHS[ord(ch)]):
+        for k in range(8):
+            if bits & (128 >> k):
+                out[(8 * bx + k, 8 * by + r)] = ink
+    return out
+
+
 def _pennants(p, x0):
     """a flag's two poses (SPEC.md 128.14.4.1): FURLED (pose 0) a white roll
     down the pole's east side, FLYING (pose 1) a pennant out to the east.  A
@@ -4121,6 +4153,20 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         raise CourseError("%s: no solid tile" % fname)
     if pth is not None:
         path_mark_rail(pth, tiles)
+    if src.title_ln is not None:                    # SPEC.md 128.23.2: THE TITLE
+        for what, v in (("pathway", src.pathway), ("limit", src.limit and src.limit[1]),
+                        ("medals", src.medals and src.medals[2]), ("cup", src.cups and src.cups[0]["line"])):
+            if v:
+                raise CourseError("%s:%d: the title has no %s" % (fname, v, what))
+        if any(t.kind == KIND_GOAL for t in tiles.values()):
+            raise CourseError("%s:%d: the title has no goal" % (fname, src.title_ln))
+        if src.view is None:
+            raise CourseError("%s:%d: the title needs a `view`" % (fname, src.title_ln))
+    else:
+        for what, v in (("view", src.pathway is None and src.view and src.view[2]),
+                        ("art", src.arts and src.arts[0][3]), ("label", src.labels and src.labels[0]["line"])):
+            if v:
+                raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
     cells = build_cells(tiles)
     pcell = prop_cells(props)
@@ -4178,14 +4224,38 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     y0 = max(-gtop, -ftop)
     fbot = max(foot_top(rc, rc.zlo) + 30 for rc in reach)
     lines = max(gbot, fbot) + y0 + 1
-    lines = max(MINLINES, (lines + 7) // 8 * 8)
+    view = None
+    if src.view is not None:                        # SPEC.md 128.23.2: the windows and the drop margin inside,
+        vx, vy, vln, vdrop = src.view               # the CGA window's top a block row
+        y0 = max(y0, vdrop + 100 + (PAGE_H * (pth["npages"] - 1) if pth else 0) - vy)   # (wave 8R: the pages)
+        y0 += (vy - 100 + y0) % 8 and 8 - (vy - 100 + y0) % 8
+        wtop, c0 = vy - 100 + y0, (vx - 160 + x0) // 8
+        lines = max(lines, wtop + 200, gbot + y0 + 1, fbot + y0 + 1)
+        if c0 - HERC_LEFT < 0 or c0 + 40 + HERC_RIGHT > src.width:
+            raise CourseError("%s:%d: view %d %d puts a window off the picture's %d words (the CGA's c0 %d, the "
+                              "Hercules' %d - %d)" % (fname, vln, vx, vy, src.width, c0, c0 - HERC_LEFT,
+                                                     c0 + 40 + HERC_RIGHT))
+        if wtop // 4 > 255:
+            raise CourseError("%s:%d: view %d %d: the window's top line %d is past the header's byte (x 4)"
+                              % (fname, vln, vx, vy, wtop))
+        view = (wtop, c0)
     vinfo = None
-    if pth is not None:                             # wave 8R: page 0's window and the pages above it
-        y0, lines, vinfo = view_geometry(src.view, pth["npages"], x0, y0, lines, width, fname)
-        vinfo["npages"] = pth["npages"]
+    if pth is not None:                             # wave 8R (SPEC.md 128.22.2): the pages above page 0's window
+        if view is None:
+            raise CourseError("%s:%d: the pathway has no `view` (its page 0 window, SPEC.md 128.22.2)"
+                              % (fname, src.pathway))
+        vinfo = page_windows(src.view, pth["npages"], x0, y0, fname)
+    lines = max(MINLINES, (lines + 7) // 8 * 8)
     cols, brows = src.width, lines // 8
     owners = any(p["kind"] == PK_WINDMILL for p in props)
     cv = render(tiles, ops, x0, y0, width, lines, owners)
+    for afile, ax, ay, aln in src.arts:              # SPEC.md 128.23.2: ART, the topmost layer, no depth
+        for (x, y), ink in read_bba(os.path.join(COURSE_DIR, afile), fname, aln).items():
+            px, py = 8 * view[1] + ax + x, view[0] + ay + y      # (the CGA window's pixels, 128.23.2)
+            if not (0 <= px < width and 0 <= py < lines):
+                raise CourseError("%s:%d: art %s's pixel (%d, %d) is off the picture (%d x %d)"
+                                  % (fname, aln, afile, x, y, width, lines))
+            cv.rows[py][px] = ink
     if pth is not None:                             # ...its SIGNS (128.22.4.1), each a record and a lane
         rcv = {ri: render(rtiles[ri], rops[ri], x0, y0, width, lines) for ri in rtiles}
         for sp_ in path_signs(pth, src, props, cv, rcv, x0, y0, vinfo, fname):
@@ -4276,6 +4346,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": PK_CHECKPOINT, "line": p["line"]})
+        elif p["kind"] == PK_CLOCK and p.get("label"):   # SPEC.md 128.23.2: a LABEL, one block of the window
+            lb = p["label"]
+            bx, by = view[1] + lb["col"], view[0] // 8 + lb["row"]
+            poses = {0: {}}
+            for q, ch in enumerate(lb["glyphs"], 1):
+                poses[q] = label_glyph(ch, bx, by, lb["ink"])
+            lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
+                          "kind": PK_CLOCK, "line": p["line"]})
         elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): a clock's digit
             # the crystal ball and its stick are a MARK at the clock's depth (as a flag's pennant: what the
             # picture draws in front of the clock's cell hides them), painted once, by the units' record;
@@ -4468,7 +4546,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     segoff = pmoff + sum(2 * len(L["poses"]) * L["rect"][2] * L["rect"][3] for L in lanes)
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
-        | (GF_CUP if cups else 0)
+        | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
@@ -4559,12 +4637,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
              "masks": list(masks),
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
                       "swy": swy, "gflags": gflags, "padmask": padmask,
-                      "cam": CAM_PAGED if pth is not None else CAM_COURSE,
-                      "npages": pth["npages"] if pth is not None else 0},
+                      "view": (view[0] // 4 | view[1] << 8) if view else 0},
              "cells": bytes(cellb), "route": list(route), "ways": [t for t, ln in src.ways],
              "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ptab), "self": selfp, "blk": blkp}
              if props else None,
-             "pth": len(ptab), "view": (vinfo["r0"], vinfo["c0"], vinfo["c0h"]) if vinfo else None}
+             "pth": len(ptab), "npages": pth["npages"] if pth is not None else 0}
     if len(blocks) > BLK_MAX:
         raise CourseError("%s: %d blocks, over the %d a map word's 10-bit index reaches (ROWPLANES, 128.15.4.4)"
                           % (fname, len(blocks), BLK_MAX))
@@ -4630,7 +4707,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.start = (swx, swy)
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 128.22): the pathway's, None on a course
-    c.cam = CAM_PAGED if pth is not None else CAM_COURSE
+    c.paged = pth is not None
     c.ident = ident
     c.gflags, c.padmask = gflags, padmask
     c.par = 0                                       # (wave 7: refused; kept for the cross-commit item 1)
@@ -4675,7 +4752,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if has_goal and cups:
         raise CourseError("%s:%d: a cup on a course with GOAL cells (one goal: the line or the cup)"
                           % (fname, cups[0]["line"]))
-    if not has_goal and not cups and occluders and not hack.get("no_finish") and pth is None:
+    if not has_goal and not cups and occluders and not hack.get("no_finish") and src.title_ln is None \
+            and pth is None:
         raise CourseError("%s: no GOAL cell and no cup: the course has no finish" % fname)
     c.has_finish = bool(has_goal or cups)
     # wave 4 (SPEC.md 128.14.4.1): NO TRAP.  c.prop_pix: each prop's MARKS, {prop: {what: {(x, y)}}} in
@@ -4924,7 +5002,7 @@ def check_bounds(c):
         W, H, rl, lsh = CARDS[herc]
         rmax = c.brows * 8 // rl - H
         cmax = c.cols - W
-        paged = getattr(c, "cam", CAM_COURSE) == CAM_PAGED
+        paged = getattr(c, "paged", False)
         cols_ = [c.vinfo["c0h"] if herc else c.vinfo["c0"]] if paged else range(cmax + 1)
         most = most_r = most_all = most_rall = most_chg = 0
         worst = (0, 0)
@@ -5186,12 +5264,9 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     b[gridoff:gridoff + GHDR] = (b"BZG1" + struct.pack("<HhhHHHhH", g["nrows"], g["smin"], g["amin"], g["kw"],
                                                         rowtab, g["x0"], g["y0"], ident)
                                  + struct.pack("<HHHH", g["swx"], g["swy"], len(m["route"]), routeoff)
-                                 + struct.pack("<BBBB", g["gflags"], g["padmask"], g.get("cam", 0),
-                                               g.get("npages", 0)))
-    if bzc2 and (m.get("pth") or m.get("view")):    # wave 8R (SPEC.md 128.22.3): +42 PTHOFF, +44 the view
-        v = m.get("view") or (0, 0, 0)
-        struct.pack_into("<HHBB", b, 42, propoff + len(m["props"]["blob"]) - m["pth"] if m.get("pth") else 0,
-                         v[0], v[1], v[2])
+                                 + struct.pack("<BBH", g["gflags"], g["padmask"], g.get("view", 0)))
+    if bzc2 and m.get("pth"):                       # wave 8R (SPEC.md 128.22.3): +42 PTHOFF, +44 NPAGES
+        struct.pack_into("<HB", b, 42, propoff + len(m["props"]["blob"]) - m["pth"], m.get("npages", 0))
     b[celloff:celloff + len(m["cells"])] = m["cells"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
@@ -5272,18 +5347,17 @@ def decode_part(p):
     masks = [bytes(p[maskoff + 16 * i:maskoff + 16 * i + 16]) for i in range(nmask)]
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, gridoff + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, gridoff + 20)
-    gflags, padmask = p[gridoff + 28], p[gridoff + 29]
-    cam, npages = p[gridoff + 30], p[gridoff + 31]
-    pthoff, vr0, vc0, vc0h = struct.unpack_from("<HHBB", p, 42) if bzc2 else (0, 0, 0, 0)
+    gflags, padmask, gview = struct.unpack_from("<BBH", p, gridoff + 28)
+    pthoff, npages = struct.unpack_from("<HB", p, 42) if bzc2 else (0, 0)
     celloff = gridoff + GHDR
     m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(p[blkoff:blkoff + 16 * nblk]),
          "recs": recs, "masks": masks,
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
-                  "gflags": gflags, "padmask": padmask, "cam": cam, "npages": npages},
+                  "gflags": gflags, "padmask": padmask, "view": gview},
          "cells": bytes(p[celloff:celloff + 4 * kw * nrows]),
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (diroff - pthoff) if pthoff else 0,
-         "view": (vr0, vc0, vc0h) if cam else None}
+         "npages": npages}
     if nprop:
         end = diroff if bzc2 else len(p)
         pb = bytearray(p[propoff:end])
@@ -5639,7 +5713,7 @@ def read_part(p, fname="<part>"):
         bad("RECB", str(recb))
     if recb == 8 and (SB or TB or mtab):
         bad("RECB", "8 with SB %d, TB %d, MTAB %d (all 0 under C)" % (SB, TB, mtab))
-    pthoff, vr0, vc0, vc0h = struct.unpack_from("<HHBB", p, 42)   # wave 8R (128.22.3): PTHOFF and the view
+    pthoff, npages = struct.unpack_from("<HB", p, 42)   # wave 8R (128.22.3): PTHOFF and NPAGES
     if blkoff != HDR + 2 * cols * brows:
         bad("BLKOFF", str(blkoff))
     if occidx != blkoff + 16 * nblk:
@@ -5755,17 +5829,16 @@ def read_part(p, fname="<part>"):
         bad("BZG1", "magic")
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
-    gflags, padmask, cam, npages = struct.unpack_from("<BBBB", p, g + 28)
-    if gflags & ~(GF_CKPT | GF_CUP) or padmask & ~7 or (gflags & GF_CUP and not gflags & GF_CKPT):
-        bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh" % (gflags, padmask))
-    # wave 8R (SPEC.md 128.22.3): +30 CAM, +31 NPAGES; BZC2 +42 PTHOFF, +44 the view's CGA R0, +46 c0, +47 the
-    # Hercules' c0 - all 0 on a course's camera; a PAGED part's tables at PTHOFF, inside its props
-    if cam not in (CAM_COURSE, CAM_FIXED, CAM_PAGED) or (cam == CAM_PAGED) != (1 <= npages <= PATH_PAGES) \
-            or (cam != CAM_PAGED and npages) or (cam == CAM_COURSE and (pthoff or vr0 or vc0 or vc0h)) \
-            or (cam == CAM_PAGED) != bool(pthoff) or (cam and (vc0h + VIEW_HL != vc0 or vr0 & 3
-                                                            or vc0h + CARDS[1][0] > cols
-                                                            or 2 * vr0 + VIEW_H > 8 * brows)):
-        bad("BZG1 +30", "CAM %d, NPAGES %d, PTHOFF %d, the view (%d, %d, %d)" % (cam, npages, pthoff, vr0, vc0, vc0h))
+    gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
+    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED) or padmask & ~7
+            or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
+            or (gflags & GF_CUP and not gflags & GF_CKPT)):
+        bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
+    # wave 8R (SPEC.md 128.22.3): a PAGED part (BZG1 +28 bit 3) has its tables at BZC2 +42 PTHOFF, inside its
+    # props, and +44 NPAGES; +30 is page 0's window as a FIXED one's (128.23.2).  Every other part: all zero
+    if bool(gflags & GF_PAGED) != bool(pthoff) or bool(gflags & GF_PAGED) != (1 <= npages <= PATH_PAGES) \
+            or (not gflags & GF_PAGED and npages) or p[45:48] != bytes(3):
+        bad("+42", "PTHOFF %d, NPAGES %d with FLAGS %02Xh" % (pthoff, npages, gflags))
     if pthoff and (not nprop or not propoff + PROPREC * nprop <= pthoff < diroff):
         bad("PTHOFF", "%d is not inside the props" % pthoff)
     if amin & 1:
@@ -5811,7 +5884,7 @@ def read_part(p, fname="<part>"):
     for d in props:
         if d["kind"] == PK_PAD:
             want_m |= 1 << d["mat"]
-    if gflags != want_f or padmask != want_m:
+    if gflags & ~(GF_VIEW | GF_PAGED) != want_f or padmask != want_m:
         bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
             % (gflags, padmask, want_f, want_m))
     for d in props:
@@ -5835,10 +5908,10 @@ def read_part(p, fname="<part>"):
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
             "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": diroff, "nsec": nsec, "dir": ents,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
-            "cam": cam, "npages": npages, "pthoff": pthoff, "view": (vr0, vc0, vc0h), "path": path,
+            "npages": npages, "pthoff": pthoff, "path": path,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
-                     "gflags": gflags, "padmask": padmask,
+                     "gflags": gflags, "padmask": padmask, "view": gz,
                      "cells_raw": bytes(p[celloff:rowtab]), "celloff": celloff}}
 
 
@@ -5928,11 +6001,14 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
         elif d["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5, 128.18.5.3)
             K, lit, ph, cx, cy, KA, place, ndig, num = struct.unpack_from("<HBBHHHBBB", p, r + 16)
             d.update(K=K, lit=lit, ph=ph, cx=cx, cy=cy, KA=KA)
-            if K or lit or KA or ph != CLOCK_PH or cx != 16 * d["at"][0] + 8 \
+            label = ndig == 0                       # SPEC.md 128.23.2: a title's LABEL, no post
+            if K or lit or KA or ph != (0 if label else CLOCK_PH) or cx != 16 * d["at"][0] + 8 \
                     or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a clock's post fields")
-            if not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 29:r + 32] != bytes(3) \
-                    or d["lane"]["poses"] != CLOCK_POSES or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
+            if (not label and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX
+                               or d["lane"]["poses"] != CLOCK_POSES)) \
+                    or (label and (place or num >= NODE_MAX or d["at"] != (LABEL_WX, LABEL_WY0 + num))) \
+                    or p[r + 29:r + 32] != bytes(3) or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
         elif d["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): +28 the number, else zero
@@ -6172,6 +6248,7 @@ class Physics:
         self.lfall = self.lvz = 0
         self.ztop = 0
         self.safe = self.grid.start
+        self.rspo = 0                          # SPEC.md 128.23.3: a title demo's RESPAWN cell holds bz_safe
         self.wp = 1                            # bz_play: waypoint 0 is the start
         self.events = []
         # wave 2's state (SPEC.md 128.11.5.2, 128.11.8.1)
@@ -6951,7 +7028,7 @@ class Physics:
             self.ghv = 0
         # 8. SAFE and the goal: not shattering
         if self.mst != ST_SHATTER:
-            if not self.air and C[4] & FL_SAFE:
+            if not self.air and C[4] & FL_SAFE and not self.rspo:
                 self.safe = (cwx, cwy)
             if C[3] == KIND_GOAL and self.play:
                 if not self.goal:
@@ -7993,6 +8070,8 @@ class Heavy:
         if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
             return 1 if self.p.cksn & (1 << r["num"]) else 0
         if r["kind"] == PK_CLOCK:               # wave 7: its digit of the seconds left (bz_tdig)
+            if not r.get("ndig"):               # SPEC.md 128.23.2: a title's label - its pose (bz_nst)
+                return getattr(self.p, "nst", {}).get(r["num"], 0)
             return clock_pose(self.p.tsec, r["place"])
         if r["kind"] == PK_SIGN:                # wave 8R (128.22.4.1): its pose, bz_nst[num]
             return getattr(self.p, "nst", {}).get(r["num"], 0)
@@ -8690,8 +8769,12 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
-def emit_inc(courses, path=None):
+def emit_inc(courses, path=None, title=None):
     allc = courses + ([path] if path is not None else [])   # wave 8b (128.19.5): the pathway's entry LAST
+    if title is not None:                           # SPEC.md 128.23.1: the TITLE's after the pathway's
+        if path is None:
+            raise CourseError("the title is course BZ_CRS_PATH + 1: it needs a pathway")
+        allc = allc + [title]
     lines = [
         "; bzcourse.inc - GENERATED by tools/bbcourse.py (SPEC.md 128.10.4, 128.11.3.1).",
         "; Do not edit: change a course under apps/bonanza/courses/ (the Makefile's",
@@ -8928,7 +9011,8 @@ def emit_inc(courses, path=None):
               "BZ_PK_SIGN      equ %d       ; wave 8R (SPEC.md 128.22.4.1): a SIGN, a lane and nothing else" % PK_SIGN,
               "BZP_SNUM        equ 28       ; SIGN: its number, the pose's index into bz_nst",
               "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
-              % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)] + [1]),
+              % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)]
+                    + [lb["num"] + 1 for c in allc for lb in c.src.labels] + [1]),
               "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
@@ -8989,7 +9073,26 @@ def emit_inc(courses, path=None):
               " %endrep",
               "%endmacro", ""]
     lines += emit_path(path, courses)
+    lines += emit_title(title, courses)
     return "\n".join(lines)
+
+
+def emit_title(title, courses):
+    """SPEC.md 128.23: the title's course number; none without a title"""
+    if title is None:
+        return ["BZ_TITLE        equ 0        ; no title course (SPEC.md 128.23)", ""]
+    return ["; SPEC.md 128.23: THE TITLE - course BZ_CRS_TITLE (= BZ_CRS_PATH + 1: its entry",
+            "; last in every BZ_CRS_ table), part BZTITLE.BIN; a FIXED window (BZG1 +28 bit 2)",
+            "BZ_TITLE        equ 1",
+            "BZ_CRS_TITLE    equ %d" % (len(courses) + 1),
+            "BZ_GF_VIEW      equ %d        ; BZG1 +28: the window is fixed; +30 its top / 4, +31 the CGA's c0"
+            % GF_VIEW,
+            "BZ_HERC_LEFT    equ %d        ; the Hercules' c0 is the CGA's less this" % HERC_LEFT,
+            "BZ_TSTEPS       equ %d      ; every title demo's steps, and the title song's pass (128.23.3)"
+            % TITLE_STEPS,
+            "BZ_TNDEMO       equ %d        ; BZTDEMO.BIN's demos" % TITLE_NDEMO,
+            "BZ_TSTART       equ %d       ; a title demo's START BLOCK, bytes" % TSTART,
+            ""]
 
 
 def table_max(courses, lanes):
@@ -9010,14 +9113,10 @@ def emit_path(path, courses):
            "BZ_FOL_VMIN     equ %d" % FOL_VMIN,
            "BZ_PAD_POSES    equ %d        ; a pad's sign: 0 OPEN, 1 DONE, 2 SILVER, 3 GOLD" % PAD_POSES,
            "BZ_GATE_POSES   equ %d        ; a gate's: 0 closed, 1 - 4 sinking, 5 open" % GATE_POSES,
-           "BZ_CAM_FIXED    equ %d        ; BZG1 +30, the camera: 0 the course's, 1 FIXED, 2 PAGED" % CAM_FIXED,
-           "BZ_CAM_PAGED    equ %d" % CAM_PAGED,
-           "BZG_CAM         equ 30       ; BZG1 +30: the camera; +31 NPAGES",
-           "BZG_NPAGES      equ 31",
-           "BZC_PTHOFF      equ 42       ; BZC2 +42: the pathway's tables (0 none); +44 the view's CGA R0 (word),",
-           "BZC_VR0         equ 44       ; +46 its CGA c0, +47 the Hercules' c0 (the Hercules' R0 is R0 >> 1)",
-           "BZC_VC0         equ 46",
-           "BZC_VC0H        equ 47",
+           "BZ_GF_PAGED     equ %d        ; BZG1 +28 bit 3: a PAGED window, +30 page 0's (as BZ_GF_VIEW's)"
+           % GF_PAGED,
+           "BZC_PTHOFF      equ 42       ; BZC2 +42: a PAGED part's tables (word; 0 none)",
+           "BZC_NPAGES      equ 44       ; BZC2 +44: its pages (byte, 1 - %d)" % PATH_PAGES,
            "BZ_PTH_PADREC   equ %d       ; the tables (SPEC.md 128.22.3): a pad's record" % PADREC,
            "BZ_PTH_ROUTEREC equ %d        ; ...a route's" % ROUTEREC,
            "BZ_PTH_KEYREC   equ %d        ; ...a pad's keys: Up, Down, Left, Right" % KEYREC,
@@ -9086,6 +9185,13 @@ def stamp(paths, rec=None):
         with open(p, "rb") as f:
             h.update(f.read())
         dp = demo_path(p)                       # wave 4: a course's demo source, when it has one
+        if os.path.basename(p) == "title.bbc":  # SPEC.md 128.23.3: the title's demos
+            for n in range(1, TITLE_NDEMO + 1):
+                tp = title_demo_path(n)
+                if os.path.exists(tp):
+                    h.update(os.path.basename(tp).encode() + b"\0")
+                    with open(tp, "rb") as f:
+                        h.update(f.read())
         if os.path.exists(dp):
             h.update(os.path.basename(dp).encode() + b"\0")
             with open(dp, "rb") as f:
@@ -9182,7 +9288,7 @@ def finish_clock_rule(c, _hack=None):
     return "%s: %s" % (c.name, "; ".join(seen))
 
 
-def compile_all(paths, demo_dir=None, path=None):
+def compile_all(paths, demo_dir=None, path=None, title=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     courses = [compile_course(p) for p in paths]
@@ -9199,6 +9305,11 @@ def compile_all(paths, demo_dir=None, path=None):
                 raise CourseError("%s: --path names a course with no `pathway` statement" % path)
         pc = compile_course(path, crsinfo=[(c.name, c.title) for c in courses])
         compile_all.proofs = path_proofs(pc, courses)
+    tc = compile_course(title) if title else None   # SPEC.md 128.23: THE TITLE, beside them
+    if tc is not None and tc.src.title_ln is None:
+        raise CourseError("%s: --title names a course with no `title` statement" % title)
+    if any(c.src.title_ln is not None for c in courses) or (pc is not None and pc.src.title_ln is not None):
+        raise CourseError("the title is --title's, never a course of BZ_COURSES or the pathway")
     for k, c in enumerate(courses):
         c.packed4 = check_budget(c, k)
     files = {}
@@ -9211,7 +9322,12 @@ def compile_all(paths, demo_dir=None, path=None):
     if pc is not None:
         files["BZPATH.BIN"] = pc.stored
     compile_all.path = pc
-    return courses, files, {"bzcourse.inc": emit_inc(courses, pc)}
+    if tc is not None:
+        files["BZTITLE.BIN"] = tc.stored
+        BZ_TITLE_K[0] = len(courses) + 1            # (BZ_CRS_TITLE: the demos' logs name it)
+        files["BZTDEMO.BIN"] = build_title_demos(tc, demo_dir)
+    compile_all.title = tc
+    return courses, files, {"bzcourse.inc": emit_inc(courses, pc, tc)}
 
 
 # =============================================================================
@@ -9423,6 +9539,392 @@ AUTHOR = {
              ("route", ((11, 15), (16, 16), (28, 16))), ("aim", ((28, 25),)), ("grip", (28, 23)),
              ("route", ((28, 21), (22, 21), (22, 24), (22, 25))), ("route", ((20, 26),)), ("wp", 2), ("cup",)],
 }
+
+
+# =============================================================================
+# SPEC.md 128.23.3: THE TITLE DEMOS - a START STATE and a run list each, text,
+# compiled into one part, BZTDEMO.BIN; every one exactly TITLE_STEPS steps
+# =============================================================================
+
+TITLE_STEPS = 832             # BZ_TSTEPS: every title demo, and the title song's one pass (15.23 s)
+TITLE_NDEMO = 4
+TSTART = 20                   # a START BLOCK's bytes: gx gy gz (3 each, 24.8), gvx gvy gvz (words), the air
+                              # flag, the respawn cell (wx, wy; FFh FFh none), a reserved word
+TITLE_EVENTS = ("respawn", "takeoff", "hop", "hopc", "land", "bounce", "boost", "boostg", "stun", "shatter",
+                "capture", "exit", "kick", "knock", "wall", "corner", "spring", "lip")
+
+
+def title_demo_path(n, demo_dir=None):
+    return os.path.join(demo_dir or DEMO_DIR, "title%d.bzt" % n)
+
+
+def parse_bzt(text, fname="<title demo>"):
+    """a .bzt (SPEC.md 128.23.3) -> {num ball at vel air respawn runs [(key,
+    count)] expects [(event, n or None)]}: at and vel in the physics' units
+    (1/256 of a ground unit or a px)"""
+    d = {"runs": [], "expects": [], "vel": (0, 0, 0), "respawn": None}
+    letters = dict((ch, b) for b, ch in KEY_LETTERS)
+
+    def q(v):
+        return int(round(float(v) * 256))
+    for ln, raw in enumerate(text.split("\n"), 1):
+        where = "%s:%d" % (fname, ln)
+        line = raw.split("#", 1)[0].split()
+        if not line:
+            continue
+        st, args = line[0], line[1:]
+        try:
+            if st == "tdemo" and len(args) == 1 and "num" not in d:
+                d["num"] = int(args[0])
+                if not 1 <= d["num"] <= TITLE_NDEMO:
+                    raise ValueError("a title demo is 1 - %d" % TITLE_NDEMO)
+            elif st == "ball" and len(args) == 1 and args[0] in MAT_NAMES and "ball" not in d:
+                d["ball"] = MAT_NAMES.index(args[0])
+            elif st == "at" and len(args) == 3 and "at" not in d:
+                d["at"] = (q(args[0]), q(args[1]), q(args[2]))
+            elif st == "vel" and len(args) == 3:
+                d["vel"] = tuple(int(a) for a in args)
+                if any(not -VZMAX <= v <= VZMAX for v in d["vel"]):
+                    raise ValueError("a velocity is within +-%d (1/256 px a step)" % VZMAX)
+            elif st == "air" and len(args) == 1 and args[0] in ("0", "1"):
+                d["air"] = int(args[0])
+            elif st == "respawn" and len(args) == 2 and d["respawn"] is None:
+                d["respawn"] = (int(args[0]), int(args[1]))
+            elif st == "run" and len(args) == 2:
+                k = 0
+                if args[0] != "-":
+                    for ch in args[0]:
+                        if ch not in letters or k & letters[ch]:
+                            raise ValueError("key letters %r" % args[0])
+                        k |= letters[ch]
+                if not 1 <= int(args[1]) <= 255:
+                    raise ValueError("a run is 1 - 255 steps")
+                d["runs"].append((k, int(args[1])))
+            elif st == "expect" and len(args) in (1, 2) and args[0] in TITLE_EVENTS:
+                d["expects"].append((args[0], int(args[1]) if len(args) == 2 else None))
+            else:
+                raise ValueError("unknown or repeated statement %r" % st)
+        except ValueError as e:
+            raise CourseError("%s: %s" % (where, e))
+    for f in ("num", "ball", "at"):
+        if f not in d:
+            raise CourseError("%s: no '%s' statement" % (fname, {"num": "tdemo"}.get(f, f)))
+    return d
+
+
+def title_start(c, d):
+    """the model at a title demo's start (SPEC.md 128.23.3), as bz_tapply puts
+    the guest there after bz_pinit: the start block's cell placed (bz_placeat),
+    then its position, velocity and air flag over it, bz_safe the respawn cell
+    and held (rspo), and the screen state derived.  -> Physics"""
+    p = Physics(c, play=True, mat=d["ball"])
+    gx, gy, gz = d["at"]
+    cell = (gx >> 12, gy >> 12)
+    if cell not in c.cells:
+        raise CourseError("%s: title demo %d starts over (%d, %d), which is no cell of the grid"
+                          % (c.fname, d["num"], cell[0], cell[1]))
+    p._place(*cell)
+    floor = p.gz                                    # (bz_placeat's: the cell's floor at its centre)
+    p.gx, p.gy, p.gz = gx, gy, gz
+    p.gvx, p.gvy, p.gvz = d["vel"]
+    p.air = d["air"] if "air" in d else (1 if gz > floor else 0)
+    p.ztop = p.gz >> 8
+    if d["respawn"] is not None:
+        p.safe, p.rspo = tuple(d["respawn"]), 1
+    p._derive(True)
+    return p
+
+
+def start_block(d):
+    """a title demo's 20-byte START BLOCK (SPEC.md 128.23.3)"""
+    gx, gy, gz = d["at"]
+    rw, rh = d["respawn"] if d["respawn"] is not None else (0xFF, 0xFF)
+    return (struct.pack("<I", gx)[:3] + struct.pack("<I", gy)[:3] + struct.pack("<I", gz)[:3]
+            + struct.pack("<hhhBBBH", d["vel"][0], d["vel"][1], d["vel"][2], d["air_"], rw, rh, 0))
+
+
+def title_check(c, d, where):
+    """SPEC.md 128.23.3's build check: the demo replayed on the model from its
+    start is exactly TITLE_STEPS steps and meets every expect.  -> (the log's
+    bytes, Physics)"""
+    keys = [k for k, n in d["runs"] for _ in range(n)]
+    if len(keys) != TITLE_STEPS:
+        raise CourseError("%s: title demo %d is %d steps, not BZ_TSTEPS %d" % (where, d["num"], len(keys),
+                                                                              TITLE_STEPS))
+    p = title_start(c, d)
+    d["air_"] = p.air
+    for i, k in enumerate(keys):
+        p.step(k)
+        if p.respawned and d["respawn"] is not None and (p.gx >> 12, p.gy >> 12) != tuple(d["respawn"]):
+            raise CourseError("%s: title demo %d's respawn at step %d is not its cell %s" % (
+                where, d["num"], i + 1, d["respawn"]))
+    for ev, n in d["expects"]:
+        got = [e for e in p.events if e[0] == ev]
+        if (n is None and not got) or (n is not None and len(got) != n):
+            raise CourseError("%s: title demo %d expects %s%s, the model's replay has %d (steps %s)"
+                              % (where, d["num"], ev, "" if n is None else " %d times" % n, len(got),
+                                 ", ".join(str(e[1]) for e in got[:6]) or "none"))
+    log = encode_log(keys, BZ_TITLE_K[0], d["ball"], False, c.ident)
+    return log, p
+
+
+BZ_TITLE_K = [0]              # the title's course number, set by compile_all (BZ_CRS_TITLE)
+
+
+def build_title_demos(tc, demo_dir=None):
+    """BZTDEMO.BIN (SPEC.md 128.23.3): 'BZT1', the count, BZ_TSTEPS, a word
+    offset a demo; each demo its start block and its BZR1 log"""
+    blobs = []
+    for n in range(1, TITLE_NDEMO + 1):
+        dp = title_demo_path(n, demo_dir)
+        rel = os.path.relpath(dp, ROOT) if dp.startswith(ROOT + os.sep) else dp
+        if not os.path.exists(dp):
+            raise CourseError("%s: no title demo %d: write it with `python3 tools/bbcourse.py tauthor`" % (rel, n))
+        with open(dp, "r", encoding="ascii") as f:
+            d = parse_bzt(f.read(), rel)
+        if d["num"] != n:
+            raise CourseError("%s: the file says title demo %d" % (rel, d["num"]))
+        log, p = title_check(tc, d, rel)
+        blobs.append(start_block(d) + log)
+    head = 8 + 2 * TITLE_NDEMO
+    out = bytearray(b"BZT1" + struct.pack("<HH", TITLE_NDEMO, TITLE_STEPS))
+    off = head
+    for b in blobs:
+        out += struct.pack("<H", off)
+        off += len(b)
+    for b in blobs:
+        out += b
+    return bytes(out)
+
+
+# The title demos' AUTHOR scripts (SPEC.md 128.23.3), the owner's four films
+# (docs/plans/BOUNCE-BONANZA-TITLE.md), played on the model by `tauthor`:
+#   ("wait", n)          n steps, no key
+#   ("to", cells)        the autopilot through the tiles' points, slowing to rest at the last
+#   ("go", cells)        the same, not slowing: on to the next verb at the last point's reach
+#   ("until", ev, cells) the autopilot through the points until the model's event EV
+#   ("off", cells)       the autopilot through the points until the ball leaves the glass
+#   ("keys", K, n)       key byte K held n steps
+#   ("press", "LU", ev)  those key letters held until the model's event EV
+#   ("hop"[, cells])     Space's edge (the autopilot's arrows with it, aimed at the cells if given)
+#   ("boost",)           as AUTHOR's: Space 2 steps before the Hop's predicted first contact
+# Each starts from its START (at: tiles and px; vel; air; respawn) and is padded with
+# no key to TITLE_STEPS; a script past it is refused.
+TITLE_AUTHOR = {
+    1: {"what": "the rubber ball dropped onto UR, down the ramp off the front, back, sprung onto UR and off right",
+        "ball": "rubber", "at": (16, 7.5, 250),
+        "expects": (("spring", 1),),
+        "script": [("wait", 115), ("go", ((17, 8), (19, 8))), ("off", ((21, 10),)), ("wait", 12),
+                   ("go", ((18, 12),)), ("to", ((16, 11),)), ("wait", 20),
+                   ("until", "spring", ((15, 10), (15, 9), (16, 7))),
+                   ("go", ((16, 7),)), ("off", ((17, 7), (19, 8), (21, 8)))]},
+    2: {"what": "the steel ball stunned on LL, lost in the pit off spring 1, respawned on LC, through the brown "
+                "tube and down the ramp off the bottom",
+        "ball": "steel", "at": (10.6, 14.6, 200), "respawn": (14, 13),
+        "expects": (("stun",), ("spring", 1), ("respawn", 1), ("capture", 1)),
+        "script": [("wait", 110), ("until", "respawn", ((9, 14), (8, 15), (10, 15), (14, 15))), ("wait", 20),
+                   ("until", "capture", ((12, 13), (11, 12), (10, 12))), ("wait", 10),
+                   ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (20, 14)))]},
+    3: {"what": "the glass ball rolled in onto LL, over its edge, through the brown tube, to the ramp's edge, "
+                "round UR until it falls off the front and shatters",
+        "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
+        "expects": (("capture", 1), ("shatter", 1)),
+        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (12, 13), (12, 12))),
+                   ("until", "capture", ((11, 12), (10, 12))), ("to", ((17, 7),)),
+                   ("wait", 40), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
+                   ("until", "shatter", ((15, 9), (15, 11)))]},
+    4: {"what": "the rubber ball in at speed onto LL, a Hop and its boost onto spring 1, over the pit, off the "
+                "glass into the hidden tube, out on UR, through the windmill, and a Hop and boost over the brown "
+                "tube's mouth off LS's end",
+        "ball": "rubber", "at": (6.6, 15.0, 30), "vel": (260, 0, 0), "air": 1, "respawn": (23, 16),
+        "expects": (("boost", 2), ("spring", 1), ("capture", 2)),
+        "script": [("keys", 0, 18), ("hop", ((10, 15), (14, 15))), ("boost",),
+                   ("until", "spring", ((10, 15), (14, 15))), ("until", "capture", ((20, 14), (23, 13))),
+                   ("go", ((16, 7), (15, 8))), ("press", "LU", "capture"), ("go", ((12, 12),)),
+                   ("hop", ((7, 12),)), ("boost",), ("off", ((7, 12),))]},
+}
+
+
+def title_window(c):
+    """the WIDER (the Hercules') window of a `view` course in picture px:
+    (x0, y0, x1, y1), half-open"""
+    v = c.model["grid"]["view"]
+    top, c0 = 4 * (v & 255), v >> 8
+    return 8 * (c0 - HERC_LEFT), top, 8 * (c0 + 40 + HERC_RIGHT), top + 200
+
+
+def title_author(c, spec):
+    """play a TITLE_AUTHOR script on the title course with the model.  ->
+    (the parsed demo dict with its runs, Physics, [(step, verb)] marks)"""
+    d = {"num": spec["num"], "ball": MAT_NAMES.index(spec["ball"]), "vel": tuple(spec.get("vel", (0, 0, 0))),
+         "respawn": spec.get("respawn"), "runs": [],
+         "expects": [(e[0], e[1] if len(e) > 1 else None) for e in spec.get("expects", ())]}
+    gx, gy, gz = spec["at"]
+    d["at"] = (int(round(16 * gx * 256)), int(round(16 * gy * 256)), int(round(gz * 256)))
+    if "air" in spec:
+        d["air"] = spec["air"]
+    p = title_start(c, d)
+    x0, y0, x1, y1 = title_window(c)
+    keys, marks = [], []
+    title_author.p, title_author.marks = p, marks       # (for a refused script's post-mortem)
+    title_author.trace = []
+
+    class Full(Exception):
+        pass
+
+    def step(k):
+        if len(keys) >= TITLE_STEPS:
+            raise Full()
+        n0 = len(p.events)
+        p.step(k)
+        keys.append(k)
+        ev = [e[0] for e in p.events[n0:]]
+        title_author.trace.append((len(keys), (p.gx >> 12, p.gy >> 12), p.gz >> 8, ev))
+        return ev
+
+    def onglass():
+        bx, by = p.bx >> 8, p.by >> 8
+        return bx + 16 > x0 and bx < x1 and by + 16 > y0 and by < y1
+
+    def aim(cells):
+        p.route = [_way_point(c, tuple(t)) if tuple(t) in c.tiles else           # (a void tile: its
+                   (16 * (t[0] - t[1]) + c.x0 - 8, 8 * (t[0] + t[1]) - 5 + c.y0)   # point at height 0)
+                   for t in cells]
+        p.wp = 0
+    try:
+        _title_verbs(spec, d, p, c, keys, marks, step, onglass, aim)
+    except Full:
+        if len(marks) != len(spec["script"]):
+            raise CourseError("title demo %d: the script runs past BZ_TSTEPS %d in %r, not its last verb"
+                              % (d["num"], TITLE_STEPS, marks[-1][1]))
+    while len(keys) < TITLE_STEPS:
+        step(0)
+    runs = []
+    for k in keys:
+        if runs and runs[-1][0] == k and runs[-1][1] < 255:
+            runs[-1][1] += 1
+        else:
+            runs.append([k, 1])
+    d["runs"] = [tuple(r) for r in runs]
+    return d, p, marks
+
+
+def _title_verbs(spec, d, p, c, keys, marks, step, onglass, aim):
+    """title_author's verbs (TITLE_AUTHOR's), stepping through `step`"""
+    for act in spec["script"]:
+        marks.append((len(keys), act, (p.gx >> 12, p.gy >> 12)))
+        v = act[0]
+        if v == "wait":
+            for _ in range(act[1]):
+                step(0)
+        elif v == "keys":
+            for _ in range(act[2]):
+                step(act[1])
+        elif v == "press":
+            k = 0
+            for ch in act[1]:
+                k |= dict((ch_, b) for b, ch_ in KEY_LETTERS)[ch]
+            while act[2] not in step(k):
+                pass
+        elif v in ("to", "go"):
+            aim(act[1])
+            last = p.route[-1]
+            while True:
+                step(p.auto())
+                near = (p.wp == len(p.route) - 1 and abs(last[0] - (p.bx >> 8)) < AUTO_REACH
+                        and abs(last[1] - (p.by >> 8)) < AUTO_REACH)
+                if near and (v == "go" or (not p.air and abs(p.gvx) + abs(p.gvy) < 24)):
+                    break
+        elif v == "until":
+            aim(act[2])
+            while act[1] not in step(p.auto()):
+                pass
+        elif v == "off":
+            aim(act[1])
+            while onglass():
+                step(p.auto())
+        elif v == "hop":
+            if len(act) > 1:
+                aim(act[1])
+            nh = p.nhop
+            step(p.auto() | K_HOP)
+            if p.nhop == nh:
+                raise CourseError("title demo %d: `hop` at step %d did not Hop" % (d["num"], len(keys)))
+        elif v == "boost":
+            q = _clone(p)
+            ahead = 0
+            while True:
+                n0 = len(q.events)
+                q.step(q.auto())
+                ahead += 1
+                if any(e[0] in _CONTACTS for e in q.events[n0:]) or ahead > 400:
+                    break
+            if ahead < 3 or ahead > 400:
+                raise CourseError("title demo %d: `boost` at step %d: no first contact 3 - 400 steps ahead (%d)"
+                                  % (d["num"], len(keys), ahead))
+            for _ in range(ahead - 3):
+                step(p.auto())
+            step(p.auto() | K_HOP)
+            nb = p.nboost
+            step(p.auto())
+            step(p.auto())
+            if p.nboost == nb:
+                raise CourseError("title demo %d: `boost` at step %d did not boost" % (d["num"], len(keys)))
+        else:
+            raise CourseError("title demo %d: unknown verb %r" % (d["num"], v))
+
+
+def bzt_text(d, note):
+    """a demo dict -> its .bzt"""
+    out = ["# " + ln for ln in note.split("\n")]
+    gx, gy, gz = d["at"]
+    out += ["tdemo   %d" % d["num"], "ball    %s" % MAT_NAMES[d["ball"]],
+            "at      %s %s %s" % (_num(gx / 256.0), _num(gy / 256.0), _num(gz / 256.0)),
+            "vel     %d %d %d" % d["vel"]]
+    if "air" in d:
+        out.append("air     %d" % d["air"])
+    if d["respawn"] is not None:
+        out.append("respawn %d %d" % tuple(d["respawn"]))
+    out += ["expect  %s%s" % (ev, "" if n is None else " %d" % n) for ev, n in d["expects"]]
+    out += ["run     %s %d" % (keys_text(k), n) for k, n in d["runs"]]
+    return "\n".join(out) + "\n"
+
+
+def _num(v):
+    return ("%.4f" % v).rstrip("0").rstrip(".")
+
+
+def main_tauthor(argv):
+    """bbcourse.py tauthor [TITLE.bbc] [-n N]: play TITLE_AUTHOR's scripts on
+    the title course with the model and write apps/bonanza/demos/title<N>.bzt
+    (SPEC.md 128.23.3); -v prints each script's marks and the model's events"""
+    ap = argparse.ArgumentParser(prog="bbcourse.py tauthor")
+    ap.add_argument("course", nargs="?", default=os.path.join(COURSE_DIR, "title.bbc"))
+    ap.add_argument("-n", type=int, action="append")
+    ap.add_argument("-v", action="store_true")
+    ap.add_argument("--dir")
+    a = ap.parse_args(argv)
+    c = compile_course(a.course)
+    BZ_TITLE_K[0] = len(default_paths()) + 1        # (BZ_CRS_TITLE, after the pathway)
+    for n in a.n or sorted(TITLE_AUTHOR):
+        spec = dict(TITLE_AUTHOR[n], num=n)
+        d, p, marks = title_author(c, spec)
+        log, q = title_check(c, d, "title demo %d" % n)
+        note = ("Bounce Bonanza's TITLE DEMO %d (SPEC.md 128.23.3), written by `python3 tools/bbcourse.py tauthor`\n"
+                "from bbcourse.TITLE_AUTHOR[%d] and the model: %s.  %d falls, %d tube rides; the build\n"
+                "replays it from its start and checks every `expect`.") % (
+                    n, n, spec.get("what", ""), q.nfall, q.ntube)
+        out = title_demo_path(n, a.dir)
+        with open(out, "w", newline="\n") as f:
+            f.write(bzt_text(d, note))
+        print("bbcourse: %s: %d runs, %d steps" % (out, len(d["runs"]), TITLE_STEPS))
+        if a.v:
+            for st, act, at in marks:
+                print("   %4d  %-8s %r" % (st, at, act))
+            for e in q.events:
+                if e[0] not in ("wall", "corner"):
+                    print("         %4d %s" % (e[1], e[0]))
+    return 0
 
 
 # The PLAYGROUND (SPEC.md 128.16.8): where its elements are, so item 7 can sweep
@@ -10896,13 +11398,13 @@ def main_camcheck(paths):
     print("bbcourse --camcheck: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
 
-def write_out(out, paths, path=None):
+def write_out(out, paths, path=None, title=None):
     """compile every course IN MEMORY first: a refused course removes the
     stamp and writes nothing, so make cannot take a stale part for current"""
     os.makedirs(out, exist_ok=True)
     st = os.path.join(out, ".bz-crs")
     try:
-        courses, files, texts = compile_all(paths, path=path)
+        courses, files, texts = compile_all(paths, path=path, title=title)
     except CourseError:
         if os.path.exists(st):
             os.remove(st)
@@ -10910,7 +11412,8 @@ def write_out(out, paths, path=None):
     # the stamp before the files: a run that dies writing leaves a stamp and a
     # missing file, which make's fallback turns back into a re-run
     with open(st, "w") as f:
-        f.write(stamp(paths + ([path] if path else []), courses[0].rec if courses else None) + "\n")
+        f.write(stamp(paths + ([path] if path else []) + ([title] if title else []),
+                      courses[0].rec if courses else None) + "\n")
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -16011,9 +16514,9 @@ def main_author(argv):
 
 def main():
     global REC
-    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor"):
         try:
-            return (main_demo if sys.argv[1] == "demo" else main_author)(sys.argv[2:])
+            return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor}[sys.argv[1]](sys.argv[2:])
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
@@ -16023,6 +16526,8 @@ def main():
     ap.add_argument("-o", "--out", help="output directory")
     ap.add_argument("--path", metavar="BBC", help="THE PATHWAY's source (wave 8b, SPEC.md 128.19.5): compiled "
                     "beside the courses as BZPATH.BIN, its entry last in every BZ_CRS_ table")
+    ap.add_argument("--title", metavar="BBC", help="THE TITLE's source (SPEC.md 128.23): compiled beside the "
+                    "courses as BZTITLE.BIN, its entry after the pathway's in every BZ_CRS_ table")
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
@@ -16076,7 +16581,7 @@ def main():
         if a.selfcheck:
             rc |= selfcheck(paths)
         if a.out:
-            write_out(a.out, paths, a.path)
+            write_out(a.out, paths, a.path, a.title)
         if a.sizes:
             rc |= sizes(paths)
         if a.png:

@@ -163,7 +163,9 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %endif
 BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.19.2)
-BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN, the last row (128.19.5)
+BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
+BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
+BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
@@ -395,7 +397,11 @@ bz_onkey:
 .game:                          ; Enter, Alt+Enter: THE GAME (wave 8b,
     call bz_intour              ; 128.19.5) - in a tour, its next course
     jc .play
+%if BZ_TITLE
+    call bz_title8              ; (SPEC.md 128.23.4: the TITLE, P its game)
+%else
     call bz_game8
+%endif
     jmp short .done
 %endif
 .free:
@@ -656,6 +662,12 @@ bz_cload:
     mov al, BZ_P_PATH
 .row:
 %endif
+%if BZ_TITLE
+    cmp byte [bz_crs], BZ_CRS_TITLE ; ...and the title's (128.23)
+    jne .rowt
+    mov al, BZ_P_TITLE
+.rowt:
+%endif
     mov [bz_pc], al
     call op_fetch               ; claim, read, expand - or a toast said why
     jc .out
@@ -761,27 +773,7 @@ bz_game8:
 .ok:
     dec al
     mov [bz_herc], al
-    call bz_dslot               ; THE SLOT (save v2, 128.19.6): its game when
-    mov al, [si]                ; it has lives ...
-    or al, al
-    jnz .on
-    mov al, BZ_LIVES            ; ...else a NEW one in it
-    mov word [si + 2], 1
-    mov word [si + 4], 0
-.on:
-    mov [bz_lives], al
-    mov ax, [si + 2]
-    mov [bz_nopen], ax
-    mov ax, [si + 4]
-    mov [bz_ndone], ax
-    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE opens
-    and al, 1                   ; every node to the goal's gate
-    mov [bz_xmode], al
-    mov ax, [bz_nopen]
-    jz .tm
-    mov ax, 0ffffh
-.tm:
-    mov [bz_gmask], ax
+    call bz_gslot
     call bz_shdrop              ; (never beside a course, 128.19.2)
     call bz_home
     jc .ret
@@ -814,6 +806,33 @@ bz_game8:
     jmp bz_dsave
 
 .ret:
+    ret
+
+; bz_gslot - THE SLOT's game (save v2, 128.19.6) into memory: its game when it
+; has lives, else a NEW one in it; its MODE and the goal gate.  Preserves all
+; but AX and SI.
+bz_gslot:
+    call bz_dslot               ; THE SLOT (save v2, 128.19.6): its game when
+    mov al, [si]                ; it has lives ...
+    or al, al
+    jnz .on
+    mov al, BZ_LIVES            ; ...else a NEW one in it
+    mov word [si + 2], 1
+    mov word [si + 4], 0
+.on:
+    mov [bz_lives], al
+    mov ax, [si + 2]
+    mov [bz_nopen], ax
+    mov ax, [si + 4]
+    mov [bz_ndone], ax
+    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE opens
+    and al, 1                   ; every node to the goal's gate
+    mov [bz_xmode], al
+    mov ax, [bz_nopen]
+    jz .tm
+    mov ax, 0ffffh
+.tm:
+    mov [bz_gmask], ax
     ret
 
 ; bz_gstore - the game's state into the slot played (128.19.6): AL lives
@@ -1020,6 +1039,227 @@ bz_grounds:
     call bz_cdrop
     jmp bzs_gdrop0
 
+%if BZ_TITLE
+; -----------------------------------------------------------------------------
+; bz_title8 - Enter on the face: THE TITLE (SPEC.md 128.23.4).  Its refusals
+; are the game's (kern_small, the adapter); the title's rounds play inside ONE
+; bracket (bz_fullscreen, [bz_ingame] 2: bz_tround), and whatever is held when
+; it ends is given back; a game played from it is written to its slot.
+; -----------------------------------------------------------------------------
+bz_title8:
+    mov byte [bz_newb], 0
+    cmp byte [bz_small], 0
+    je .big
+    mov si, bz_t_small
+    jmp bz_toast
+.big:
+    call bz_adapter
+    or al, al
+    jnz .ok
+    mov si, bz_t_adapt
+    jmp bz_toast
+.ok:
+    dec al
+    mov [bz_herc], al
+    call OSAPI_GET_TICKS        ; the title's own LFSR, seeded from the clock
+    xor ax, [bz_pitl]           ; (never read by physics: replays stay exact)
+    or ax, 1
+    mov [bz_tlfsr], ax
+    mov byte [bz_tlast], 0ffh
+    call bz_shdrop              ; (never beside a course, 128.19.2)
+    call bz_home
+    jc .ret
+    mov byte [bz_ingame], 2
+    mov byte [bz_err], 0
+    mov bx, [bz_win]
+    mov ax, bz_fullscreen
+    mov cx, FSXF_FASTTICK
+    call OSAPI_FSX_RUN
+    mov byte [bz_ingame], 0
+    mov byte [bz_tmode], 0
+    mov byte [bz_xmode], 0
+    jnc .ran
+    mov si, bz_t_nofs
+    call bz_toast
+.ran:
+    mov byte [bz_pgo], 0
+    call bz_cdrop
+    call bzs_gdrop              ; (the desktop's title song back)
+    call bz_back
+    cmp byte [bz_shpend], 0
+    je .sv
+    mov byte [bz_shpend], 0
+    call bz_repaint
+.sv:
+    cmp byte [bz_tgame], 0      ; a game was played: its slot, and a best a
+    je .ret                     ; course set, to BONANZA.DAT
+    mov byte [bz_tgame], 0
+    mov byte [bz_gsave], 1
+    jmp bz_dsave
+.ret:
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_tround - inside the bracket, the mode set: THE TITLE'S ROUNDS (128.23.4).
+; A title demo (random, never the last one shown) on the title course, its
+; keys bz_exitchk's title arm's: P plays THE GAME (bz_grounds, its end back
+; here), S / 1 2 3 the slot, Esc leaves the bracket; its end plays a random
+; COURSE DEMO, which any key ends; then the title again.  Each round's parts
+; are given back before the next's are fetched.
+; -----------------------------------------------------------------------------
+bz_tround:
+    mov byte [bz_tmode], 1
+.pick:
+    call bz_trand               ; a title demo, never the last one shown
+    and al, BZ_TNDEMO - 1
+    cmp al, [bz_tlast]
+    je .pick
+    mov [bz_tlast], al
+    call bz_tdemo               ; its start block and its log (bz_tblk, bz_rlog)
+    jc .out
+    mov byte [bz_crs], BZ_CRS_TITLE
+    call .demo                  ; the log's ball, a replay, fetched
+    jc .out
+    mov al, [bz_slot]           ; the slot's label (128.23.2): pose 1 + slot
+    inc ax
+    mov [bz_nst], al
+    call .play
+    mov al, [bz_twhy]
+    cmp al, 'p'
+    je .game
+    cmp al, 27
+    je .out
+    mov byte [bz_tmode], 2      ; ITS END: a random course's demo (BZD<K>)
+    call bz_trand
+    xor ah, ah
+    mov bl, BZ_NDEMO
+    div bl
+    mov al, ah
+    add al, BZ_P_DEMO
+    call bz_tlog
+    jc .out
+    mov al, [bz_rlog + BZR_CRS]
+    mov [bz_crs], al
+    call .demo
+    jc .out
+    call .play                  ; (any key, its end or a timeout: the title)
+    jmp bz_tround
+.game:                          ; P: THE GAME in the slot shown (bz_game8's,
+    mov byte [bz_tmode], 0      ; its rounds bz_grounds's, back here at its end)
+    mov byte [bz_tgame], 1
+    call bz_gslot
+    call bz_gpath
+    jc .gout
+    call bz_grounds
+.gout:
+    call .swap
+    call bz_gstore              ; (the slot, in memory: bz_dsave on the desktop)
+    mov byte [bz_xmode], 0
+    jmp bz_tround
+.out:
+    mov byte [bz_tmode], 0
+    jmp short .swap
+.demo:                          ; the held log replayed on [bz_crs] with its ball
+    mov al, [bz_rlog + BZR_MAT]
+    mov [bz_mat], al
+    mov byte [bz_mode], 2
+    jmp bz_cload
+.play:
+    mov byte [bz_twhy], 0
+    call bz_vinit
+    call bzs_open
+    call bz_play
+    call bzs_close
+.swap:                          ; this round's parts and song given back
+    call bz_cdrop
+    jmp bzs_gdrop0
+
+; bz_tdemo - title demo AL (0 - 3) out of BZTDEMO.BIN: its START BLOCK into
+; bz_tblk and its log into bz_rlog, the part given back.  CF = 1 refused.
+bz_tdemo:
+    mov [bz_tsel], al
+    mov al, BZ_P_TDEMO
+    mov [bz_pc], al
+    call op_fetch
+    jc .out
+    mov al, [bz_pc]
+    call op_seg
+    push es
+    mov es, ax
+    mov bl, [bz_tsel]
+    xor bh, bh
+    shl bx, 1
+    mov si, [es:bx + 8]         ; its offset (+8, a word a demo)
+    lea di, [si + BZ_TSTART]
+    call bz_esz                 ; CX = its log's bytes
+    add cx, BZ_TSTART
+    mov di, bz_tblk             ; (bz_rlog follows bz_tblk: one copy)
+    jmp short bz_tcopy
+
+; bz_tlog - part AL (a shipped demo, BZD<K>) into bz_rlog, given back.  CF = 1
+; refused.
+bz_tlog:
+    mov [bz_pc], al
+    call op_fetch
+    jc bz_tdemo.out
+    mov al, [bz_pc]
+    call op_seg
+    push es
+    mov es, ax
+    xor di, di
+    call bz_esz
+    xor si, si
+    mov di, bz_rlog
+bz_tcopy:                       ; CX bytes from the part (ES) at SI to DI
+    cld
+    push ds
+    push ds
+    push es
+    pop ds                      ; DS = the part, ES = ours
+    pop es
+    rep movsb
+    pop ds
+    pop es
+    push ds                     ; (op_drop with ES = ours: bz_vkey's kern_mega
+    pop es                      ; lesson)
+    mov al, [bz_pc]
+    call op_drop
+    clc
+bz_tdemo.out:
+    ret
+
+; bz_trand - AL, AX = the title's LFSR stepped (a 16-bit Galois, taps B400h).
+bz_trand:
+    mov ax, [bz_tlfsr]
+    shr ax, 1
+    jnc .n
+    xor ax, 0b400h
+.n:
+    mov [bz_tlfsr], ax
+    ret
+
+; bz_tlabel - the slot changed on the title: its label's pose (bz_nst[0] =
+; 1 + slot) and every CLOCK lane MARKED, the next walk made (128.19.10), so
+; the one block redraws.  Preserves all but AX and BX.
+bz_tlabel:
+    mov al, [bz_slot]
+    inc ax
+    mov [bz_nst], al
+    xor bx, bx
+.l:
+    cmp bl, [bz_nlane]
+    jae .d
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    jne .n
+    mov byte [bz_latt + bx], 1
+.n:
+    inc bx
+    jmp short .l
+.d:
+    mov byte [bz_lqt], 0
+    ret
+%endif
+
 bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
 bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
@@ -1073,6 +1313,26 @@ bz_crshdr:
     mov [bz_rowb], ax
     mov di, [es:BZC_GRID]
     mov [bz_goff], di
+%if BZ_TITLE
+    mov byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window - BZG1 +30
+    test byte [es:di + BZG_FLAGS], BZ_GF_VIEW ; its top line / 4, +31 the
+    jz .nov                     ; CGA's c0; R0 in this card's card rows (2
+    inc byte [bz_fixed]         ; lines the CGA's, 4 the Hercules'), the
+    mov al, [es:di + BZG_FLAGS + 2] ; Hercules' c0 BZ_HERC_LEFT words left
+    xor ah, ah                  ; of the CGA's
+    mov bl, [es:di + BZG_FLAGS + 3]
+    xor bh, bh
+    cmp byte [bz_herc], 0
+    jne .vh
+    shl ax, 1
+    jmp short .vs
+.vh:
+    sub bx, BZ_HERC_LEFT
+.vs:
+    mov [bz_fixr], ax
+    mov [bz_fixc], bx
+.nov:
+%endif
     mov ax, [es:di + BZG_X0]
     mov [bz_x0], ax
     mov ax, [es:di + BZG_Y0]
@@ -3103,7 +3363,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
@@ -3115,6 +3375,10 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (128.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (128.19.2)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (128.19.5)
+%if BZ_TITLE
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
+%endif
 OS88_PARTS_END
 %if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
@@ -3167,6 +3431,15 @@ VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 u
 VAR bz_gsave,1                  ; 1: the game's slot to be written (bz_dsave)
 VAR bz_retry,1                  ; wave 8c (128.19.8): 1 R on the game's pause card
 VAR bz_xmode,1                  ; ...1 EXPLORE (the slot's mode, while the game plays; 0 else)
+%if BZ_TITLE
+VAR bz_tmode,1                  ; SPEC.md 128.23.4: 1 a TITLE DEMO plays, 2 a course demo of the title's chain
+VAR bz_twhy,1                   ; ...why its play left: 'p' play, 27 Esc (leave), 1 a key in a course demo
+VAR bz_tlast,1                  ; ...the title demo last shown (0FFh none)
+VAR bz_tsel,1                   ; ...the one fetched
+VAR bz_tgame,1                  ; ...1: a game was played (its slot written at the bracket's end)
+VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
+VAR bz_tpad,1                   ; (the VARs stay even)
+%endif
 VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
 VAR bz_gmask,2                  ; ...the goal gate's nodes: the open ones, or all (EXPLORE)
 VAR bz_inpause,1                ; ...1 while the pause card is up
@@ -3243,6 +3516,9 @@ BZ_GAME_VARS
 BZ_PHYS_VARS
 BZ_SND_VARS
 VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
+%if BZ_TITLE
+VAR bz_tblk,BZ_TSTART           ; SPEC.md 128.23.3: a title demo's START BLOCK (bz_tapply), bz_rlog right
+%endif                          ; after it (bz_tdemo copies the two as one)
 VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 128.11.12.1): `BZR1`,
                                 ; the course (+4), the material (+5), flags,
                                 ; the steps, the runs.  The recorder writes

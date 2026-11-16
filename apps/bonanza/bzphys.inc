@@ -209,6 +209,8 @@ VAR bz_exit,1                   ; wave 8b (128.19.4): the finish's EXIT, 0 - 15 
 VAR bz_tsec,2                   ; wave 7 (128.18.4): the whole seconds LEFT, as the
 VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
                                 ; the next one (BZ_SECSTEPS a second)
+VAR bz_rspo,2                   ; SPEC.md 128.23.3: 1 a title demo's RESPAWN cell
+                                ; holds bz_safe (no SAFE cell moves it); +1 zero
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_okey,2 * BZ_PROPALL      ; 128.19.10: the records' anchors, sorted (bz_obuild)
@@ -349,11 +351,65 @@ bz_pinit:
     mov ah, [es:di + BZG_WY]
     mov [bz_safe], ax           ; the start is SAFE (128.10.4.5)
     call bz_place
+%if BZ_TITLE
+    cmp byte [bz_tmode], 1      ; SPEC.md 128.23.3: a TITLE DEMO starts from its
+    jne .nts                    ; own START BLOCK (bz_tblk), over the start
+    call bz_tapply
+.nts:
+%endif
     call bz_derive
     xor ax, ax
     mov [bz_vx], ax
     mov [bz_vy], ax
     ret
+
+%if BZ_TITLE
+; bz_tapply - a title demo's START BLOCK (bz_tblk, SPEC.md 128.23.3) over the
+; course's start: its cell placed as a respawn places one (bz_placeat), then
+; its position (24.8, three bytes each), velocity and air flag over that, the
+; flight's top its height, and its respawn cell held in bz_safe (bz_rspo).
+; bbcourse.title_start is the model.  Preserves nothing.
+bz_tapply:
+    mov cl, 4
+    mov ax, [bz_tblk + 1]       ; the cell: gx >> 12, gy >> 12
+    shr ax, cl
+    mov dx, [bz_tblk + 4]
+    shr dx, cl
+    mov ah, dl
+    call bz_placeat
+    mov si, bz_tblk
+    mov di, bz_gx
+    call .p3
+    mov di, bz_gy
+    call .p3
+    mov di, bz_gz
+    call .p3
+    lodsw
+    mov [bz_gvx], ax
+    lodsw
+    mov [bz_gvy], ax
+    lodsw
+    mov [bz_gvz], ax
+    lodsb
+    mov [bz_air], al
+    lodsw                       ; the respawn cell: FFh FFh none
+    cmp al, 0ffh
+    je .nr
+    mov [bz_safe], ax
+    mov byte [bz_rspo], 1
+.nr:
+    mov ax, [bz_gz + 1]
+    mov [bz_ztop], ax
+    ret
+.p3:                            ; three bytes at SI to the dword at DI, its top 0
+    lodsw
+    mov [di], ax
+    lodsb
+    cbw
+    mov ah, 0
+    mov [di + 2], ax
+    ret
+%endif
 
 ; bz_ramp - a force table (128.11.7.1): [DI + l] = (AL l + 4) >> CL for the
 ; levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's).  DS = ours.
@@ -1138,6 +1194,10 @@ bz_step:
     jne .goal
     test byte [bz_nbr + BZN_C + 3], BZ_FSAFE
     jz .goal
+%if BZ_TITLE
+    cmp byte [bz_rspo], 0       ; (a title demo's respawn cell holds it, 128.23.3)
+    jne .goal
+%endif
     mov ax, [bz_nwin]
     mov [bz_safe], ax
 .goal:

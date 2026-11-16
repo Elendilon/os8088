@@ -267,6 +267,9 @@ VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BEN
                                 ; for the benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
 VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
+VAR bz_fixed,2                  ; SPEC.md 128.23.2: 1 the course's window is FIXED (+1 zero)
+VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
+VAR bz_fixc,2                   ; bz_crshdr's, from BZG1 +30 / +31
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
@@ -777,6 +780,10 @@ bz_t0:
 .ret:
     ret
 .on:
+%if BZ_TITLE
+    cmp byte [bz_tmode], 0      ; (the title's P is THE GAME's, 128.23.4)
+    jne .steps
+%endif
     test byte [bz_mode], 1      ; PAUSE (SPEC.md 128.14.4.7), in a play or a
     jnz .steps                  ; replay - B and D ignore P: P's down EDGE stops
     call bz_pkedge              ; the steps until the next one
@@ -1354,6 +1361,10 @@ bz_exitchk:
     mov di, bz_kmap             ; Esc here, bz_input's six and bz_kedge's held
     call OSAPI_KEY_MAP          ; key are each one test of this copy, where
     pop di                      ; OSAPI_KEY_DOWN was a far call a key
+%if BZ_TITLE
+    cmp byte [bz_tmode], 0      ; (the title's keys are TYPED ones: an Esc
+    jne .drain                  ; still held from a course demo is no leave)
+%endif
     KEYMAP_TEST bz_kmap, KSC_ESC
     jnz .leave
 .drain:
@@ -1362,6 +1373,10 @@ bz_exitchk:
     jz .stay
     xor ah, ah
     int 16h
+%if BZ_TITLE
+    cmp byte [bz_tmode], 0      ; SPEC.md 128.23.4: THE TITLE'S KEYS
+    jne .title
+%endif
     cmp al, 27
     je .leave
     cmp ah, BZ_KSC_P            ; P and Backspace TYPED: their presses, for
@@ -1386,7 +1401,46 @@ bz_exitchk:
 .stay:
     clc
     ret
+%if BZ_TITLE
+.title:                         ; a course demo of the title's chain: any key
+    add [bz_tlfsr], ax          ; (a key stirs the title's LFSR)
+    or byte [bz_tlfsr], 1
+    mov ah, 1
+    cmp byte [bz_tmode], 2      ; is the title again
+    je .tk
+    mov ah, 27                  ; a title demo: Esc leaves the bracket, P
+    cmp al, ah                  ; plays, S and 1 2 3 the slot, the rest
+    je .tk                      ; nothing
+    or al, 20h
+    mov ah, al
+    cmp al, 'p'
+    je .tk
+    cmp al, 's'
+    jne .t123
+    mov al, [bz_slot]
+    inc ax
+    cmp al, BZD_NSLOT
+    jb .tsl
+    xor al, al
+    jmp short .tsl
+.t123:
+    sub al, '1'
+    cmp al, BZD_NSLOT
+    jae .drain
+.tsl:
+    mov [bz_slot], al
+    call bz_tlabel              ; (its label's one block, bonanza.asm)
+    jmp .drain
+.tk:
+    mov [bz_twhy], ah
+%endif
 .leave:
+%if BZ_TITLE
+    cmp byte [bz_twhy], 0       ; (Alt+Enter, F: the title's Esc)
+    jne .lv
+    mov byte [bz_twhy], 27
+.lv:
+%endif
     stc
     ret
 
@@ -2000,6 +2054,15 @@ bz_camera:
     shr ax, 1
     shr ax, 1
     mov [bz_c0n], ax
+%if BZ_TITLE
+    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window is the
+    je .nfx                     ; course's own, whatever the ball does
+    mov ax, [bz_fixr]
+    mov [bz_R0n], ax
+    mov ax, [bz_fixc]
+    mov [bz_c0n], ax
+.nfx:
+%endif
     call bz_clampwin
     mov ax, [bz_R0n]
     mov [bz_R0], ax
@@ -2020,6 +2083,16 @@ bz_camera:
     jns .tf
     jmp .decided
 .modes:
+%if BZ_TITLE
+    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window never
+    je .mfx                     ; moves: no step, no full write, boxes only
+    mov ax, [bz_R0]
+    mov [bz_R0n], ax
+    mov ax, [bz_c0]
+    mov [bz_c0n], ax
+    jmp .moved
+.mfx:
+%endif
     cmp byte [bz_camscr], 0     ; a harness's SCRIPTED camera (128.17.6.7):
     je .ring                    ; neither the ring, the ground line nor
     jmp .script                 ; LATTICE runs
