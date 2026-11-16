@@ -752,6 +752,33 @@ BZ_BOXH     equ 24              ; lines: the union limit of every group but the 
 BZ_BOXL     equ 32              ; lines: the platform's union limit, and a buffer's
 BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXL
 BZ_BOXD     equ 20
+; wave 9 (SPEC.md 128.25.19): the pickup cue's LOOK, bz_clook (bz_cuef):
+; bits 0-2 the sparkles' step, 3-4 the sprite's shift, and
+BZ_CL_SP    equ 20h             ; the SPARKLES
+BZ_CL_FL    equ 40h             ; a FLASH frame of a DITHER style
+BZ_CL_BL    equ 80h             ; a FLASH frame of a BLINK style: no ball
+; THE FLASH STYLE, a build knob (the Makefile's BZ_CUEFLASH, the owner's pick):
+; DITHER2 the ball's pixels black on half a checker every 2nd frame (the
+; reference), DITHER4 every 4th; BLINK2 the ball not drawn every 2nd frame,
+; BLINK4 every 4th.  BZ_CFP the period, BZ_CFB 1 for a blink.
+%ifndef BZ_CUEFLASH
+ %define BZ_CUEFLASH DITHER2
+%endif
+%ifidni BZ_CUEFLASH, DITHER2
+ %assign BZ_CFP 2
+ %assign BZ_CFB 0
+%elifidni BZ_CUEFLASH, DITHER4
+ %assign BZ_CFP 4
+ %assign BZ_CFB 0
+%elifidni BZ_CUEFLASH, BLINK2
+ %assign BZ_CFP 2
+ %assign BZ_CFB 1
+%elifidni BZ_CUEFLASH, BLINK4
+ %assign BZ_CFP 4
+ %assign BZ_CFB 1
+%else
+ %error "BZ_CUEFLASH is one of DITHER2, DITHER4, BLINK2, BLINK4"
+%endif
 
 ; bz_boxc - compose box SI (a descriptor): fill from the course, then the
 ; slab when it is under the ball (bz_pov 0, bzwheel.inc bz_pblit), the
@@ -882,16 +909,17 @@ bz_boxc:
     call bz_blit
 .ball:
     ; --- the ball's sprite: mask AND, frame OR; none while it is hidden in a
-    ; tube (SPEC.md 128.12.6.1) or holed out (128.14.4.3) ---
-    cmp byte [bz_hidn], 0
-    jne .nob
+    ; tube (SPEC.md 128.12.6.1) or holed out (128.14.4.3).  ONE word test for
+    ; that and the pickup CUE (wave 9, SPEC.md 128.25.19): bz_hidn and
+    ; bz_clook are adjacent, so a ball with neither pays what it did ---
+    mov bx, [bz_sfd]
+    cmp word [bz_hidn], 0
+    jne .bq
+.bd:
     mov ax, [bz_py]
     mov dx, BZ_BAL_ROWS
     mov di, [bz_smsk]
-    mov bx, [bz_sfd]
     call bz_blit
-    cmp byte [bz_cue], 0        ; wave 9 (SPEC.md 128.25.19): a timed effect's
-    jne .cue                    ; CUE, in this box, after the sprite
 .nob:
     pop ds
     pop es
@@ -903,107 +931,13 @@ bz_boxc:
     pop bx
     pop ax
     ret
-.cue:
-    call bz_cued
-    jmp short .nob
-
-; -----------------------------------------------------------------------------
-; bz_cued - wave 9 (SPEC.md 128.25.9, 128.25.19): a timed effect's CUE in box SI,
-; after the ball's sprite, from [bz_cue] (a family's STEP writes it; display
-; only).  Bit 1, on ODD frames ([bz_frames] bit 0): the FLASH - the ball
-; DITHERED, its mask ORed with a checker by line and ANDed into the box (bz_blit's
-; dither door, BX = -1): the ball's own pixels go to black on half the checker,
-; the box round it untouched.  Bit 0: three SPARKLES, pixels XORed into the box
-; (ORed was the plan: SEEN on the CGA's palette 0, ink 3 ORed onto a yellow tile
-; is the tile, so half the sparkles vanished; XOR changes every pixel it meets)
-; at (px + dx, py + dy) for entries n, n + 3 and n + 5 of bz_spk (n = frames / 4
-; mod 8) - each outside the 16 px silhouette and inside the sprite's own rows
-; and columns (dx 0 - 16 is inside its 5 bytes at every shift), clipped to the
-; box.  Inks and the checker per card: the CGA ink 3 and 33h / CCh (a pixel
-; is two bits), the Hercules one dot and 55h / AAh (a pixel is a mono pair).
-; DS = ES = ours.  Clobbers AX, BX, CX, DX, DI, BP.
-; -----------------------------------------------------------------------------
-bz_cued:
-    test byte [bz_cue], 2
-    jz .sp
-    test byte [bz_frames], 1
-    jz .sp
-    mov ax, 3333h               ; the checker's first line, by card and py's
-    cmp byte [bz_herc], 0       ; parity
-    je .c1
-    mov ax, 5555h
-.c1:
-    test byte [bz_py], 1
-    jz .c2
-    not ax
-.c2:
-    mov [bz_chk], ax
-    mov ax, [bz_py]
-    mov dx, BZ_BAL_ROWS
-    mov di, [bz_smsk]
-    mov bx, -1
-    call bz_blit
-.sp:
-    test byte [bz_cue], 1
-    jz .out
-    mov bp, bz_spm              ; the card's four pixel masks
-    cmp byte [bz_herc], 0
-    je .s0
-    add bp, 4
-.s0:
-    mov ch, [bz_frames]
-    shr ch, 1
-    shr ch, 1
-    mov cl, 3                   ; entries n, n + 3, n + 5
-    mov bx, bz_spo
-.s:
-    mov al, ch
-    add al, [bx]
-    inc bx
-    and ax, 7
-    shl ax, 1
-    xchg ax, di
-    mov al, [bz_spk + di]       ; dx, dy
-    cbw
-    add ax, [bz_px]             ; X
-    mov dl, [bz_spk + di + 1]
-    xor dh, dh
-    add dx, [bz_py]
-    sub dx, [si + 2]            ; its line in the box
-    jl .n
-    cmp dx, [si + 6]
-    jge .n
-    mov di, ax
-    and di, 3                   ; its pixel in the byte: the card's mask
-    push word [ds:bp + di]
-    shr ax, 1
-    shr ax, 1
-    sub ax, [si]
-    sub ax, [si]                ; its byte in the box's line
-    jl .np
-    mov di, [si + 4]
-    shl di, 1
-    cmp ax, di
-    jge .np
-    shl dx, 1
-    shl dx, 1
-    shl dx, 1                   ; x 8, the buffer's stride
-    add ax, dx
-    add ax, [si + 8]
-    xchg ax, di
-    pop ax
-    xor [di], al
-    jmp short .n
-.np:
-    pop ax
-.n:
-    dec cl
-    jnz .s
-.out:
-    ret
-bz_spk:     db 0, 1, 15, 0, 16, 6, 14, 15, 1, 14, 16, 2, 16, 12, 0, 15
-bz_spo:     db 0, 3, 5
-bz_spm:     db 0c0h, 30h, 0ch, 03h, 80h, 20h, 08h, 02h
+.bq:
+    cmp byte [bz_hidn], 0       ; hidden: nothing
+    jne .nob
+    test byte [bz_clook], BZ_CL_BL
+    jnz .nob                    ; a BLINK frame: the ball not drawn
+    or bh, 80h                  ; the CUE's blit (bz_blit's .cwhole)
+    jmp short .bd
 
 ; bz_frun - one run of bz_boxc's fill that is not a whole block: DX lines (0 ..
 ; 8) of CX word columns (at least 1) from the map entry BX, the lines from
@@ -1046,7 +980,9 @@ bz_frun:
 ; at world lines AX + i, i < DX, its 5 bytes a row from world byte px / 4 (the
 ; ball's columns: the sprite and the shadow share them).  Row i, byte k of the
 ; MASK is at DI + 5 i + k in the ball part, the FRAME's BX past it (frames are
-; pre-ANDed, SPEC.md 128.3) - or, BX = 0, no frame: AND only (the shadow).
+; pre-ANDed, SPEC.md 128.3) - or, BX = 0, no frame: AND only (the shadow);
+; BX bit 15 set (wave 9, bz_boxc's .bq): the pickup CUE's look (bz_clook) with
+; the sprite whole in the box - its sparkles and its flash - and none clipped.
 ; A SET mask bit keeps the box.  The whole sprite inside the box takes two
 ; words and a byte a row (`lodsw / and / or / stosw`), and the shadow whole
 ; across the same with AND alone; a sprite or a shadow clipped across, the
@@ -1085,12 +1021,69 @@ bz_blit:
     mov si, di                  ; SI = the mask's row 0
     mov di, bx                  ; DI = the buffer's byte
     mov bx, bp
-    mov ds, [bz_bseg]           ; DS = the ball part from here
     or bx, bx
+    js .cwhole                  ; (wave 9: the pickup CUE, BX bit 15)
+    mov ds, [bz_bseg]           ; DS = the ball part from here
     jz .awhole                  ; (the shadow: DX rows, AND only)
-    js .dwhole                  ; (wave 9: bz_cued's FLASH, BX = -1)
     mov cx, dx
     jmp .wgo
+    ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
+    ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
+    ; SPARKLES first, three 2 x 2 pairs XORed at bz_csk's offsets from the
+    ; sprite's first byte (bz_cuef): outside the silhouette, so the ball's
+    ; mask keeps them; then on a FLASH frame the ball with its frame ANDed with
+    ; the checker (bz_chk, NOT a row) - the ball's own pixels black on half of
+    ; it, the box round it untouched: (box AND mask) OR (frame AND checker) is
+    ; the old dither pass's result, frames being pre-ANDed (SPEC.md 128.3) -
+    ; else the ordinary loop.  A clipped sprite (.gen) draws neither.
+.cwhole:
+    and bh, 7Fh
+    test byte [bz_clook], BZ_CL_SP
+    jz .cf
+    push si
+    mov si, bz_csk
+    mov cx, 3
+.sk:
+    lodsb                       ; the pair's offset from the first byte
+    cbw
+    mov bp, ax
+    lodsw                       ; ...and its mask, on two lines
+    xor [ds:bp + di], ax
+    xor [ds:bp + di + BZ_BOXW * 2], ax
+    loop .sk
+    pop si
+.cf:
+    mov cx, dx                  ; CX = the rows
+    mov al, [bz_clook]
+    mov bp, [bz_chk]
+    mov ds, [bz_bseg]           ; DS = the ball part from here
+    test al, BZ_CL_FL
+    jz .wgo
+    dec bx
+    dec bx
+.fw:
+    lodsw
+    and ax, [es:di]
+    mov dx, [bx + si]
+    and dx, bp
+    or ax, dx
+    stosw
+    lodsw
+    and ax, [es:di]
+    mov dx, [bx + si]
+    and dx, bp
+    or ax, dx
+    stosw
+    lodsb
+    and al, [es:di]
+    mov dl, [bx + si + 1]
+    and dx, bp                  ; (the checker's two bytes are equal)
+    or al, dl
+    stosb
+    add di, byte BZ_BOXW * 2 - BZ_BAL_RB
+    not bp
+    loop .fw
+    jmp .ds
 .gen:
     mov [bz_bly], ax
     mov [bz_blm], di
@@ -1166,7 +1159,7 @@ bz_blit:
     mov ds, [bz_bseg]           ; DS = the ball part from here
     or bx, bx
     jz .andonly
-    js .dither
+    and bh, 7Fh                 ; (wave 9: a clipped sprite draws no cue)
     cmp cx, BZ_BAL_RB
     jne .clip
     mov cx, dx                  ; WHOLE ACROSS (any rows): two words and a byte a row
@@ -1243,58 +1236,6 @@ bz_blit:
     dec dx
     jnz .arow
     jmp short .ds
-    ; wave 9 (SPEC.md 128.25.19): bz_cued's FLASH, BX = -1 - the box ANDed with
-    ; the mask ORed with the checker (bz_chk, the sprite's row 0's; NOT a line),
-    ; so the ball's own pixels go black on half the checker and nothing round
-    ; it moves.  Read through ES: DS is the ball part here.
-.dither:
-    mov bp, [es:bz_chk]         ; clipped: the first row drawn is imin's
-    test byte [es:bz_imin], 1
-    jz .dt0
-    not bp
-.dt0:
-    cmp cx, BZ_BAL_RB
-    jne .dclip
-    jmp short .dw
-.dwhole:
-    mov bp, [es:bz_chk]
-.dw:
-    lodsw
-    or ax, bp
-    and [es:di], ax
-    inc di
-    inc di
-    lodsw
-    or ax, bp
-    and [es:di], ax
-    inc di
-    inc di
-    lodsb
-    or ax, bp
-    and [es:di], al
-    add di, byte BZ_BOXW * 2 - BZ_BAL_RB + 1
-    not bp
-    dec dx
-    jnz .dw
-    jmp short .ds
-.dclip:
-    mov bx, BZ_BOXW * 2
-    sub bx, cx
-.dcrow:
-    push cx
-.dcb:
-    lodsb
-    or ax, bp
-    and [es:di], al
-    inc di
-    loop .dcb
-    pop cx
-    add si, BZ_BAL_RB
-    sub si, cx
-    add di, bx
-    not bp
-    dec dx
-    jnz .dcrow
 .ds:
     push es
     pop ds                      ; DS = ours

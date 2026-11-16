@@ -425,6 +425,15 @@ VAR bz_bsegs,2 * BZ_NMAT        ; wave 4 (SPEC.md 128.14.4.7): each material's
                                 ; ball part, 0 when this launch did not fetch it
 VAR bz_hidn,1                   ; the frame's HIDDEN ball: bz_tube OR bz_hid
                                 ; (the display's test, set after the steps)
+VAR bz_clook,1                  ; wave 9 (SPEC.md 128.25.19): the pickup cue's
+                                ; LOOK this frame (bz_cuef), RIGHT AFTER bz_hidn
+                                ; (bz_boxc tests the two as one word)
+VAR bz_ctog,1                   ; ...flipped when the look changes, XORed into
+                                ; bz_spr (the idle test's change, R1)
+VAR bz_csk,9                    ; ...the three sparkles: offset byte, mask word
+%if bz_clook != bz_hidn + 1
+ %error "bz_boxc tests bz_hidn and bz_clook as one word: keep them adjacent"
+%endif
 VAR bz_vseg,2
 VAR bz_fsi,FSI_SIZE
 VAR bz_W,2
@@ -458,7 +467,6 @@ VAR bz_gr,32                    ; the frame's box rects, before the clip
 VAR bz_nbox,2
 VAR bz_opx,2                    ; the ball's px, py last frame (the idle test)
 VAR bz_opy,2
-VAR bz_ocue,1                   ; wave 9: bz_cue last frame (the idle test)
 VAR bz_boxp,2                   ; bz_addbox: the next box's record in bz_boxes
 VAR bz_sgr,2                    ; bz_mkboxes: the shadow group's first rect in bz_gr
 VAR bz_xlo,2                    ; bz_boxw's copy of a box's overlap band
@@ -476,8 +484,8 @@ VAR bz_fbp,2                    ; line, line word in a block, lines left
 VAR bz_flo,2
 VAR bz_fln,2
 VAR bz_kmin,2
-VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): bz_cued's FLASH checker,
-                                ; its first line's (bz_blit's dither path, read via ES)
+VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): the cue's FLASH checker,
+                                ; the sprite's row 0's (bz_cuef; bz_blit's .cwhole)
 VAR bz_olo,2                    ; bz_occ (SPEC.md 128.10.8 item 1, 128.11.10.2):
 VAR bz_ohi,2                    ; the lines [lo, hi) of the footprint inside the
 VAR bz_ozk,2                    ; window, z_b + m, the block row's first line,
@@ -3272,7 +3280,8 @@ bz_mkboxes:
     mov al, [bz_air]
     xchg al, [bz_oair]
     xor al, [bz_oair]
-    mov ah, [bz_spr]            ; ...the same sprite (128.11.10.4)
+    mov ah, [bz_spr]            ; ...the same sprite (128.11.10.4; bit 7 the
+                                ; dissolve's density, the cue's look: R1)
     xchg ah, [bz_ospr]
     xor ah, [bz_ospr]
     or bp, ax
@@ -3288,11 +3297,7 @@ bz_mkboxes:
 .s1:
     xor ax, dx
     or bp, ax
-    mov al, [bz_cue]            ; ...and no CUE this frame or last (wave 9,
-    mov ah, al                  ; SPEC.md 128.25.19: the sparkles move and the
-    xchg ah, [bz_ocue]          ; flash alternates on a ball at rest, and the
-    or al, ah                   ; frame after the last takes them off)
-    or al, [bz_ctype]           ; ...and no contact group: a frame with one
+    mov al, [bz_ctype]          ; ...and no contact group: a frame with one
     or al, [bz_hidn]            ; is never idle (SPEC.md 128.12.4.3), nor a
     cbw                         ; hidden ball's, whose capture frame restores
     or bp, ax                   ; the footprint it was drawn in (128.12.6.1)
