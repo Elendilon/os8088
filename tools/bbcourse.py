@@ -15925,9 +15925,12 @@ def _w4_records(c, res):
     for p in c.props:
         if p["kind"] == PK_PAD:
             wm |= 1 << p["mat"]
-    ok = ok and pt["grid"]["gflags"] == wf and pt["grid"]["padmask"] == wm
+    ok = ok and pt["grid"]["padmask"] == wm
     lanes = [r for r in pt["props"] if r["lane"]]
     ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
+    # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
+    wf |= GF_SPLIT if any(isinstance(t_, Split) for t_ in c.tiles.values()) else 0
+    ok = ok and pt["grid"]["gflags"] == wf
     res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
                 "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
                 % (c.name, pt["grid"]["gflags"], pt["grid"]["padmask"]), ok))
@@ -18052,7 +18055,10 @@ def selfcheck(paths=None):
     # against ef59209a's BZC1 parts, and wave 4's before it, are carried by this chain.)  A SKIP is a FAILURE.
     # (wave 7, SPEC.md 128.18: the texts with the statements that commit's grammar lacks - `clock`, `limit`
     # and `music` - left out, for both tools: a clock's lanes are new parts' bytes, the rest are not in a part)
-    w5 = [c for c in courses if c.name != "PLAY"]
+    # (wave D5, SPEC.md 128.24: a course with a SPLIT cell - MOON's coast - is written in `box`, which that
+    # commit's grammar lacks, and its part holds halves no tool of that tree lays: excluded by its geometry,
+    # as the PLAYGROUND is by name; the rest still carry the chain)
+    w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())]
     import tempfile
     w5dir = tempfile.mkdtemp(prefix="bbw5")
     w5txt = []
