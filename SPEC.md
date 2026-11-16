@@ -270194,7 +270194,8 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
 
 #### 128.22.6 The finish and the cards (PLANNED)
 
-- **The FINISH SEQUENCE** (any course, a play or the game; not in a
+- **The FINISH SEQUENCE (BUILT, wave 8R: `bz_fstart`, `bz_fstep`, `bz_fflash`
+  in bzphys.inc; the frame loop and `bz_camera` in bzgame.inc)** (any course, a play or the game; not in a
   replay, a benchmark or a demo, whose ends are the log's): at the step
   `bz_goal` is set, the input is IGNORED, the CLOCK stops (`bz_tsec`
   frozen) and the CAMERA holds (no step, no scroll, not even a pan already
@@ -270208,6 +270209,33 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
   ball holed out, not drawn). **Enter** ends the sequence at once; Space
   and the arrows do not. A TIMEOUT runs the same sequence with the clock at
   0 and the TIMEOUT effect in the tune's place.
+  *As built:* `bz_fcnt` (steps left) and `bz_ffl` (the flash phase's steps,
+  bit 7 the clock BLANK) are the sequence's whole state, set by `bz_fstart`
+  at the three finish sites (a goal cell, a cup's capture, the timeout) in
+  `bz_mode` 0 only, so a replay, benchmark or demo never runs it. From the
+  frame after the finishing step the frame loop runs `bz_fstep` for `bz_step`:
+  the key byte 0 (it enters `bz_step` at `.key2`, so neither the keys, the
+  tilt nor the log's recorder are read - **the play's log is not extended**),
+  `bz_nstep` put back after each step (the time, the face's and the log's, is
+  the finishing step's; the scenery freezes with it) and `bz_t55` held off the
+  next second. The sequence is the finishing step plus `FIN_STEPS` = 110 of
+  these. `.respawn` with `bz_goal` or `bz_tout` set makes one gravity step
+  of a fall instead (a shatter's end, a kill plane, an open or outside cell):
+  no respawn, no count. `bz_camera` returns the window unchanged with zero
+  `bz_dr`, `bz_dc`, `bz_full` while `bz_fcnt` is set (from the finishing
+  frame itself); a ball whose footprint is not wholly inside the window
+  (`bz_outwin`) is HIDDEN (`bz_hidn`) for the frame, so it is dropped as it
+  reaches an edge rather than at the window's last line. `bz_t0` ends the
+  play when `bz_fcnt` is 0 or the Enter key is down; `bz_input` is not read.
+  The flash writes `bz_tdig` (zero or `bz_tdset`), sets `bz_lcsec` unequal to
+  `bz_tsec` (the walk's clock skip would otherwise hold) and marks every
+  clock lane of `bz_latt`. A second goal cell met in the sequence changes
+  nothing (`bz_step`'s goal test is skipped while `bz_goal` is set). The
+  VICTORY tune is `bz_fvic`, assembled only under `%ifdef BZ_SONG_VICTORY`
+  (the sound story's): until that is defined the finish keeps `bzsound`'s
+  own goal effect and **this arm is unbuilt and untested**. MEASURED, `make
+  bonanza`: image 36,184 to 36,486 bytes (+302, the tune's arm excluded),
+  bss +2 (`bz_fcnt`, `bz_ffl`); the pathway course is not excluded.
 - **The tool's rule**: every finish of every course has a CLOCK whose digit
   lanes all lie inside a CGA window (320 x 200 world px) centred on the
   finish (a goal cell's centre, a cup's) - refused otherwise, naming the
