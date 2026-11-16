@@ -42,6 +42,8 @@ VAR bz_fhk,1                    ; the ACTIVE HOOKS: every fetched part's mask, O
 VAR bz_fnf,1                    ; ...the families fetched, 0 - 3 (the slots; one word
                                 ; with bz_fhk)
 VAR bz_ffp,4                    ; the far pointer a dispatch calls through
+VAR bz_fmkp,4                   ; ...and bz_fmark's, which every dispatch writes:
+                                ; a hook MARKS a lane by `call far [bz_fmkp]`
 VAR bz_frec,BZ_FAMMAX * BZF_REC ; the slot records
 %endmacro
 
@@ -66,6 +68,8 @@ bz_fh0:
     push bp
     push es
     mov cx, ax                  ; CL the hook, CH its argument
+    mov word [bz_fmkp], bz_fmark ; (the hooks' MARK, at the package's CS now:
+    mov [bz_fmkp + 2], cs       ; a region can move between plays)
     xor bp, bp                  ; (the answer: none yet)
     xor dh, dh                  ; DH the slot
     mov si, bz_frec
@@ -118,6 +122,19 @@ bz_fh0:
     pop bx
     pop dx
     ret
+
+; -----------------------------------------------------------------------------
+; bz_fmark - THE HOOKS' MARK (SPEC.md 128.25.6.3): lane BX MARKED for the walk
+; (bz_latt) and the next walk MADE (bz_lqt 0) - the quiet walk reads no mark,
+; so a mark alone, with the camera still, was never walked: a crack broken by
+; a landing fell the ball through an undrawn hole (the owner, 2026-11-16).  A
+; family part reaches it by `call far [bz_fmkp]`, which every dispatch points
+; here, BX the element (its lane).  Preserves everything.
+; -----------------------------------------------------------------------------
+bz_fmark:
+    mov byte [bz_latt + bx], 1
+    mov byte [bz_lqt], 0
+    retf
 
 ; -----------------------------------------------------------------------------
 ; bz_frst - a RESPAWN's families (SPEC.md 128.25.6.3, 128.25.7.2), from bz_step's

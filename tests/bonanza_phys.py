@@ -1306,8 +1306,8 @@ class UGuest:
     def w(self, n, v, sz, k=0):
         self.mu.mem_write(UCS * 16 + self.sym[n] + k, (v & ((1 << (8 * sz)) - 1)).to_bytes(sz, "little"))
 
-    def r(self, n, sz, signed=True):
-        return int.from_bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz), "little", signed=signed)
+    def r(self, n, sz, signed=True, k=0):
+        return int.from_bytes(self.mu.mem_read(UCS * 16 + self.sym[n] + k, sz), "little", signed=signed)
 
     def rb(self, n, sz):
         return bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz))
@@ -1372,11 +1372,25 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
         bad.append("bz_fhk %02Xh bz_fnf %d, the model's %02Xh, %d" % (g.r("bz_fhk", 1, False), g.r("bz_fnf", 1, False),
                                                                      p.fhk, len(p.fam)))
     elem = [pr for pr in p.props if BB.is_fam(pr["kind"])]
+    lanes = [pr for pr in elem if pr.get("lane")]
+    if lanes:                                   # (bz_pread's count, which a RESET's marks walk: the lane
+        g.w("bz_nlane", sum(1 for pr in p.props if pr.get("lane")), 1)  # records are the first)
     for i, k in enumerate(keys):
         g.w("bz_keys", k, 1)
         g.w("bz_tilt", BB.TILT_KEYS, 1)
+        if lanes:                               # (the display's: every element lane unmarked, the walk
+            pose0 = [p.fpose(pr) for pr in lanes]   # QUIET, as after a walk that skipped every lane)
+            for pr in lanes:
+                g.w("bz_latt", 0, 1, pr["i"])
+            g.w("bz_lqt", 1, 1)
         g.call("bz_step")
         p.step(k)
+        if lanes:                               # SPEC.md 128.25.6.3: a step that moves an element's
+            for pr, q0 in zip(lanes, pose0):    # pose MARKS its lane and makes the next walk (bz_lqt 0,
+                q1 = p.fpose(pr)                # bz_nset's rule: the quiet walk reads no mark)
+                if q1 != q0 and (not g.r("bz_latt", 1, False, pr["i"]) or g.r("bz_lqt", 1, False)):
+                    bad.append("step %d: element %d's pose %d -> %d, but bz_latt %d, bz_lqt %d (never drawn)" % (
+                        i, pr["i"], q0, q1, g.r("bz_latt", 1, False, pr["i"]), g.r("bz_lqt", 1, False)))
         gs = (g.r("bz_nstep", 4), g.r("bz_gx", 4), g.r("bz_gy", 4), g.r("bz_gz", 4), g.r("bz_gvx", 2),
               g.r("bz_gvy", 2), g.r("bz_gvz", 2), g.r("bz_air", 1))
         if gs != p.state():
@@ -1499,6 +1513,37 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    # GLASS's DRAW arms (the owner, 2026-11-16: steel fell through a crack and the hole was never drawn -
+    # the hooks marked the lane but left a QUIET walk quiet, so with the camera still nothing walked it;
+    # SPEC.md 128.25.6.3: a hook marks through bz_fmark, which wakes the walk too).  crack-steel (the
+    # count's break, a landing's, the respawn) must go red with: glsquiet, the part's marks as they were
+    # (bz_latt written, the walk left quiet); glsmark, the count's break leaving its lane unmarked;
+    # fmkquiet, the engine's bz_fmark marking without waking the walk
+    import re
+    sk, sm = gl["crack-steel"][1], gl["crack-steel"][0]
+    gsrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "glass.asm")).read()
+    old = re.sub(r"(?m)^    call far \[bz_fmkp\][^\n]*\n", "    mov byte [bz_latt + bx], 1\n", gsrc)
+    one = gsrc.replace("    call far [bz_fmkp]          ; its lane marked, the next walk made\n", "")
+    la = sym["bz_latt"]
+    for arm, txt, patch in (("glsquiet", old, ()), ("glsmark", one, ()),
+                            ("fmkquiet", None, (("bz_fmark", bytes((0xC6, 0x87, la & 255, la >> 8, 1, 0xCB))),))):
+        assert txt != gsrc, "red %s: its patch did not apply" % arm
+        ff = fam
+        if txt is not None:
+            with tempfile.TemporaryDirectory() as td:
+                src = os.path.join(td, "bonanza")
+                shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+                open(os.path.join(src, "fam", "glass.asm"), "w").write(txt)
+                o = os.path.join(td, "part.bin")
+                subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                                src + "/", "-I", R.at("build/bonanza-art") + "/", "-o", o,
+                                os.path.join(src, "fam", "glass.asm")], cwd=ROOT, check=True)
+                ff = fam_parts({"glass": open(o, "rb").read()})
+        _p, bad = urun(binp, lst, sym, "play", sm, sk, ff, patch)
+        ok = any("never drawn" in b for b in bad)
+        out.append("red %s: %s" % (arm, "red at %s" % bad[0] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     # the RESIDENT BUNDLE (SPEC.md 128.25.6.9): the demos above found rotor, spring and tube by walking its
     # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and PEAK, which names
     # all three, is refused by bz_ffetch (the next header is not where the step lands)
