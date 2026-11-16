@@ -274206,6 +274206,7 @@ the skip's kinds, three taken jumps) - item 6 below.
    | a flag | its first TOUCH (`bz_cksn`'s bit, `bz_phys`) | its pose is the touch |
    | a clock's digit | a new SECOND (`bz_tsec` against `bz_lcsec`), at the walk's start, the clock lanes of the slice | every clock counts the same second |
    | a SIGN (wave 8R, 128.22.4.1: the pathway's pads, icons, gates and reveal groups, the title's label) | `bz_nset` (its pose written) | its pose is the only state it has; a marked sign is walked, never skipped |
+   | a GLASS crack or glass tile (wave 9, 128.25.18) | its family's CONTACT, STEP and RESET hooks, where its state changes | its pose is its state |
    | any lane | ENTERING the range (rows that did not meet the last range, `bz_ora`/`bz_orb`) | a lane outside it may be stale (item 3) |
    | any lane | the column band MOVING while it is OUT (`bz_lout`) | it may be back in the band |
    | every lane | `bz_pread` and `bz_lfull` | a play's start, a full write |
@@ -277629,20 +277630,19 @@ be left in (`states`).
   test-only family whose state makes its cell a WALL, on the only bridge past
   a flag: under `RESPAWN` it compiles, forced `ATTEMPT` it is refused (the
   red arm of 128.25.13).
-- **The reach over the superset: the field is BUILT, its first use is
-  GLASS's.** The reach and the occluder cut take a cell with more than one
-  form as each (a broken crack's VOID with its kill height). Wave 9 ships no
-  kind with a form other than its cell's own (the probe's is), and the tool
-  refuses one at import (`FAMILIES`' assertion) until story 9.5 teaches
-  `build_reach` the first other form, so no course can claim a superset the
-  reach did not take.
+- **The reach over the superset: BUILT (story 9.5).** The reach and the
+  occluder cut take a cell with more than one form as each (a broken crack's
+  VOID with its kill height). `FAMILIES`' import assertion admits the forms
+  the reach takes - `own`, and `own` with `void` (GLASS's crack) - and
+  `reach_forms` (128.25.18) takes the reach a second time with every such
+  element BROKEN and unions the two, outside `build_reach`.
 - **Every finish with no pickup: BUILT, by construction.** A PICKUP kind is
   marked `pickup` in its row. The reach takes no family's effect at all, and
   NO TRAP's model runs with `Physics.nopick` set, under which a pickup
   kind's ENTER and CONTACT never fire, so every finish they prove is proved
   with no pickup taken. No pickup kind exists until 9.6.
 
-#### 128.25.8 GLASS, the first family (story 9.5)
+#### 128.25.8 GLASS, the first family (story 9.5) (BUILT: 128.25.18 is the as-built record)
 
 One family, two kinds, both on PLAYGROUND's new glass section.
 
@@ -277880,6 +277880,127 @@ that clears it, the probe entered again) - the ball, `bz_fst`, the slots,
 PEAK's demos with no family; the red arms `famcell` (the CELL entry 0: the
 window parts at 737, the refill after the ENTER) and `famrsp` (`bz_frst` not
 called: `bz_fst` parts at the RETURN) go red there.
+
+#### 128.25.18 GLASS as built (story 9.5)
+
+ID 2 (`BZ_FID_GLASS`: the part names the generated equate, never a literal,
+so integration renumbers in `FAMILIES` alone), kinds 17 `crack` and 18
+`glass` (`BZ_FK_CRACK`, `BZ_FK_GLASS`), `apps/bonanza/fam/glass.asm`, the
+model `bbcourse.GlassFamily`. Hooks RESET, CONTACT, STEP, POSE, CELL (no
+ENTER). Its slot is ONE byte. `FAMV` folds its row's `consts`, the three
+constants below (the probe has none, so its `FAMV` did not move).
+
+| constant | value | what |
+|---|---|---|
+| `CRACK_TS` | 14 | steel's steps from its first grounded step on a crack to the break: across only above 16 x 256 / 14 = 293 (1/256 gu a step), 76% of `VMAXG` |
+| `CRACK_TR` | 28 | rubber's: above 146, 38% |
+| `CRACK_LATE` | 6 | a count's last steps, drawn as the second cracking pose |
+
+**The state.** A crack's state is a BYTE of `bz_fst` (its kind's `bits` 8):
+0 WHOLE, 1 cracked by one glass IMPACT, 2 - T + 1 COUNTING (T + 1 written at
+the start, one less each STEP), 0FFh BROKEN. A glass tile's is one bit,
+REVEALED. **The tool lays BYTE elements first** (whole bytes, in record order),
+then every other element's bits in record order, so no byte is split and
+none is wasted: on PLAYGROUND the four cracks are bytes 0 - 3, the probe bit
+32, the glass tiles 33 - 36 (`BZ_FSTB` 5). The slot's +0 counts the cracks
+COUNTING, so STEP walks the records only while one is.
+
+**One counter an element, not one in the slot** (the brief's choice, made):
+the limit "one crack counting at a time" would refuse the owner's own
+example, a cracked-tile PATH, where a steel ball at speed is on the next
+tile before the last has broken. The byte an element costs a course with
+`n` cracks `n` bytes of `bz_fst` (bss: the largest course's), and nothing is
+refused.
+
+**A TOUCH and an IMPACT, from what the step already knows.** No seventh hook:
+CONTACT (`bz_prule`'s dispatch, the centre in the element's cell on the prop
+path) reads `bz_fair` (the air state step 6 began with) and `bz_fnl`
+(`bz_nland` then), which `bz_prule`'s own rules read. An IMPACT is a contact
+this step (`bz_nland` moved: a landing or a bounce, a Hop's, a boost's or a
+fall's); a TOUCH is an impact or step 6 begun grounded. The model's
+`Physics.step` keeps the same two (`fair`, `fnl`) where it takes `was_air`.
+No resident physics rule changes; a course without the family runs the code
+it ran.
+
+| hook | GLASS |
+|---|---|
+| RESET (either class) | the slot's count 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change |
+| CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
+| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
+| POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
+| CELL | every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
+
+**The reach (`reach_forms`).** For a course with an element whose `forms` hold
+`void`, the tool takes `build_reach` a second time over the grid with each
+such cell a NEAR VOID at its floor less 3 units (its tile left out) and
+UNIONS the two per cell - the lower `zlo`, the higher `zhi` and its source,
+the cell's kind its whole form's (FLOOR: both air states). The occluders, the
+bounds, the lanes' verdicts and the footprints all read the union.
+`_hack noforms` is its control (`--selfcheck` item 6: the cracks' `zlo` is
+their kill, 8 px on a 4-unit floor, and 32 with the whole form alone). NO
+TRAP and the exits run the model, which breaks a crack as play does.
+
+**The art: 2 x 2-block lanes.** A crack's or glass tile's lane is the two
+block columns round its top's centre (`|u| < 8` of the 32 px top) and the
+two block rows that hold most of it (`(cy - 4) >> 3` on): the lane of the
+tile beside it along `wx` or `wy` is two columns away, the one diagonally
+below two rows down, so A PATH OF THEM SHARES NO BLOCK (a full-tile lane, 4
+x 3, would: two lanes sharing blocks is refused, 128.19.10). The top's centre
+must be on a block column (`x0` a multiple of 8, else refused). SLOW event
+lanes. Poses are MARKS clipped to what is drawn in front of the tile (as a
+pennant's), CGA inks (the Hercules translates them as every lane's):
+
+- `crack`: 0 a black hairline across the top (in the picture: the hint), 1
+  two branches more, 2 more again, 3 the HOLE - the top's middle black, a
+  ragged rim of the tile left round it (`crack_poses`).
+- `glass`: **the picture is drawn WITHOUT the glass tiles** (`draw_ops` is
+  handed the tiles less them: the ground beyond shows, and the neighbours'
+  faces hang into the gap as at any edge), 0 nothing - but the path's FIRST
+  tile, which carries white JAGGED TEETH along its edge toward the ground it
+  leaves from - and 1 the CRYSTAL material (`bonanza_assets.crystal_top_ink`,
+  128.22.8) over the lane's band of the top (`glass_poses`). The FIRST tile is
+  the tool's (`glass_first`): in each 4-connected run of glass tiles, the
+  tile one of whose edge neighbours is a non-glass FLOOR or GOAL nearest the
+  start (Manhattan; ties by the file).
+- The revealed glass is not an occluder (the picture has no tile there), and
+  the band leaves the top's left and right tips undrawn; both are what a
+  2 x 2 lane buys a path of them.
+
+**Show just before it is reached** (128.25.14 Q5's option): not tried; the
+touch rule ships.
+
+**PLAYGROUND's glass section** (off FF's left edge, off every route: the demo
+replays as before, only its identity moved, 6899h -> EAEDh, re-authored): a
+FAR PLATFORM (3 - 5, 23 - 28) with a STEEL pad at (4, 25), joined to FF (its
+column `wx` 10) by the CRACK PATH (four cracks, 6 - 9 at `wy` 24) and the
+GLASS PATH (four glass tiles at `wy` 27, its first tile (9, 27), jagged
+toward FF). NO TRAP from the steel pad passes by the glass path.
+
+**Bytes (MEASURED, against the phase-B base's 46,924 / 10,970).** The image
+46,934 (**+10**: the family's row in the part table), the bss 10,974 (**+4**:
+`BZ_FSTB` 1 -> 5); no engine routine changed. The part 561 bytes (513 of
+code and header, 48 of zeros so it packs: 454 packed).
+
+**Proved on the host.** `tests/bonanza_phys.py --check`: the guest's
+`bz_step` under unicorn equals the model at every step (the ball, `bz_fst`,
+the slots, `bz_fref`, the window's 36 bytes, every element's POSE through
+`bz_ltrue`) on four scenarios from PLAYGROUND's start, each inside its 40 s
+limit (a timed-out play runs the finish sequence, where a fall does not
+respawn): `crack-rubber` (slowly onto the cracks: counted, broken, a fall,
+the respawn restores; a Hop's landing on a whole crack breaks it at once),
+`glass-path` (across at speed, each broken behind it; back by the glass
+path, revealed tile by tile; into a broken crack: a fall, all restored),
+`crack-steel` (the pad; slowly: a fall; a Hop's landing; across at speed),
+`crack-glass` (the pad; across and back, never broken; a landing cracks it,
+the second breaks it: a fall). Each is a replay too (`glass-rubber`,
+`glass-path`, `glass-steel`, `glass-glass`), its milestones asserted on the
+model. Red arms on the unicorn: `glscell` (the CELL entry 0: the ball rolls
+on over the broken crack) and `glsrsp` (`bz_frst` not called: the cracks stay
+broken after the respawn), each parting at its own check. `--selfcheck`:
+GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
+red arm (item 7: a crack path as the only bridge past a flag compiles under
+its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
 
 ### 128.26 The window (the owner's brief, 2026-11-16)
 
