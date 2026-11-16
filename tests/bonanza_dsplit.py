@@ -37,9 +37,8 @@ split runs against the same steps on whole cells (SPEC.md 128.24.7.6).
 import argparse
 import os
 import random
-import re
+import shutil
 import struct
-import subprocess
 import sys
 import tempfile
 
@@ -104,12 +103,18 @@ class Guest:
         assert self.mu.reg_read(X.UC_X86_REG_SP) == 0xFFF0, "%s left the stack unbalanced" % n
 
 
-def build(td):
-    """the package assembled from this tree against the build's art -> (image path, symbols)"""
+def build(td, patches=()):
+    """the package assembled from this tree (PATCHES applied to a copy: a red arm's) against the build's art
+    -> (image path, symbols)"""
     binp = os.path.join(td, "bonanza.bin")
     art = R.at("build/bonanza-art")
-    R.assemble(os.path.join(ROOT, "apps", "bonanza"), art, binp)
-    return binp, R.symbols(None, art)
+    src = os.path.join(ROOT, "apps", "bonanza")
+    if patches:
+        src = os.path.join(td, "bonanza")
+        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+        R.patch_tree(src, patches)
+    R.assemble(src, art, binp)
+    return binp, R.symbols(src if patches else None, art)
 
 
 def start(binp, sym, c, mat):
@@ -248,6 +253,94 @@ def cells_check(binp, sym, cs):
     return bad
 
 
+def notch_sweep(binp, sym, c):
+    """R7 (verify-dtool's): the model's own NOTCH sweep (bbcourse _split_physics) - a ball rolled down a WALL
+    quarter's line out of the cell above, 192 starts x 30 steps - guest against model at every step; and how
+    many of those runs the OLD model (_inner_on: the second line read on the new cell) parts from -> (the first
+    difference or None, steps, runs the rule changes)"""
+    steps, changed = 0, 0
+    for gvy in (180, 260, 320):
+        for gvx in (-200, -50, 0, 50):
+            for pu in range(0, 4096, 256):
+                g, p = start(binp, sym, c, BB.MAT_RUBBER)
+                q = BB.Physics(c, play=True, mat=BB.MAT_RUBBER, _inner_on=True)
+                q.tsec = 0
+                poke(g, p, 10, 9, pu, 2000, gvx, gvy)
+                q.gx, q.gy, q.gz, q.gvx, q.gvy, q.gvz, q.air = p.gx, p.gy, p.gz, gvx, gvy, 0, 0
+                q.drx = q.dry = 0
+                q._fill(10, 9)
+                err, ns, _ = run(g, p, hold(0, 30), "notch pu %d gvx %d gvy %d" % (pu, gvx, gvy))
+                for _ in range(ns):
+                    q.step(0)
+                changed += q.state() != p.state()
+                steps += ns
+                if err:
+                    return err, steps, changed
+    return None, steps, changed
+
+
+def hostile(binp, sym, c):
+    """128.24.5.2's bound on a HOSTILE part: the stored form with one split cell's offset pointed past the part's
+    end, one aligned wrong and one record's kind made a split's; bz_cexp under unicorn with every read and write
+    of the course's segment watched -> [complaints]"""
+    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+    st = bytearray(c.stored4)
+    g0 = struct.unpack_from("<H", st, 26)[0]
+    nrows, smin, amin, kw = struct.unpack_from("<HhhH", st, g0 + 4)
+    diroff, nsec = struct.unpack_from("<HH", st, 38)
+    sec = {}
+    for j in range(nsec):
+        tag, form, off, ln, dl = struct.unpack_from("<BBHHH", st, diroff + 8 * j)
+        sec[chr(tag)] = (off, ln)
+    co, cl = sec["C"]
+    do, dl_ = sec["D"]
+    splits = [i for i in range(co, co + cl, 4) if st[i + 2] & 15 in BB.SPLIT_KINDS]
+    a, b = splits[0], splits[1]
+    struct.pack_into("<H", st, a, do + 4 * ((0xF000 - do) // 4))   # past the part, on D's 4-byte grid
+    struct.pack_into("<H", st, b, do + 2)              # inside D, not on a record
+    st[do + 2] = (st[do + 2] & 0xF0) | BB.KIND_TB      # a record of a split's kind
+    g = Guest(binp, sym, st)
+    lo, hi = PS * 16, PS * 16 + len(st)
+    bad = []
+
+    def watch(mu, access, addr, size, value, ud):
+        if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
+                and not SS * 16 <= addr < SS * 16 + 0x10000:
+            bad.append("an access at %05Xh, outside the part" % addr)
+    g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
+    g.w("bz_cseg", PS, 2)
+    g.call("bz_cexp")
+    ram = bytes(g.mu.mem_read(PS * 16, len(st)))
+    if ram[a:a + 4] != bytes((0x80, 0, 0, 0)) or ram[b:b + 4] != bytes((0x80, 0, 0, 0)):
+        bad.append("the two bad cells are %s, %s - not OPEN" % (ram[a:a + 4].hex(), ram[b:b + 4].hex()))
+    if ram[do + 2] & 15:
+        bad.append("the split-kind record is kind %d, not VOID" % (ram[do + 2] & 15))
+    good = [i for i in splits[2:] if ram[i:i + 4] != c.cga[i:i + 4]]
+    if good:
+        bad.append("a good split cell changed: offsets %s" % good[:3])
+    return bad[:4]
+
+
+# the red arms (SPEC.md 128.24.11, the plan's D3.1 and D3.3): each is a broken copy of the package the check
+# must find - (file, old, new) as bonanza_ring.patch_tree takes them
+REDS = {
+    # D3.1: the SAFE rule without halves - a split edge neighbour read as a whole cell
+    "cellsafe": [("bonanza.asm", "    cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is\n"
+                  "    jae .vs                     ; (128.24.5.3; BZ_SPLIT_WIN, the model's OWNER).\n",
+                  "    cmp ah, BZ_KTB              ; RED cellsafe: a split neighbour read whole\n")],
+    # D3.3: the corner ray dropped
+    "noray": [("bzphys.inc", "    call bz_dray\n    cmp byte [bz_sfb], 0\n",
+               "    mov byte [bz_sfb], 0        ; RED noray: no corner ray\n    mov word [bz_sor], 0\n"
+               "    cmp byte [bz_sfb], 0\n")],
+    # R7: a quartered cell's second line read after a push out of the cell
+    "r7": [("bzphys.inc", "    call bz_dset\n    jnc .lx\n    mov ax, [bz_gx + 1]         ; R7: out of the cell",
+            "    call bz_dset\n    jmp short .lx               ; RED r7\n    mov ax, [bz_gx + 1]         ; R7: out of"
+            " the cell")],
+    # 128.24.5.2: the hostile bound dropped (bz_drec accepts every offset)
+    "nobound": [("bonanza.asm", "    cmp ax, [bz_dhi]\n    ja .bad\n", "    cmp ax, [bz_dhi]  ; RED nobound\n")],
+}
+
+
 def near_split(c, rnd):
     """a random cell within one of a split cell (its RAM form's), and an in-cell point"""
     grid = BB.Grid(c.cga)
@@ -300,12 +393,24 @@ def fuzz(binp, sym, cs, n, seed):
     return bad, steps, kinds
 
 
-def check(n=200, seed=1124, verbose=True):
+def check(n=200, seed=1124, verbose=True, patches=()):
     """-> [complaints]; prints the evidence"""
     out = []
     with tempfile.TemporaryDirectory() as td:
-        binp, sym = build(td)
+        binp, sym = build(td, patches)
         cs = courses()
+        b = hostile(binp, sym, cs["split"])
+        print("bonanza_dsplit 128.24.5.2 HOSTILE: a part with a split cell's offset past its end, one off a record "
+              "and a split-kind record: bz_cexp %s" % ("; ".join(b) or "reads and writes nothing outside the part, "
+                                                       "makes the two cells OPEN and the record VOID"))
+        out += b
+        err, ns, ch = notch_sweep(binp, sym, cs["notch"])
+        print("bonanza_dsplit R7 NOTCH sweep: 192 runs, %d steps: %s; the rule changes %d runs (the old model's "
+              "second line)" % (ns, err or "every step equal", ch))
+        if err:
+            out.append(err)
+        if not ch:
+            out.append("the NOTCH sweep never reaches R7's push out of the cell")
         b = cells_check(binp, sym, cs)
         print("bonanza_dsplit D3.1 CELLS: bz_cexp under unicorn on %s's stored forms -> %s" % (
             ", ".join(sorted(cs)), "; ".join(b) or "each its RAM form, byte for byte"))
@@ -349,7 +454,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1124)
+    ap.add_argument("--red", choices=sorted(REDS))
+    ap.add_argument("--reds", action="store_true", help="every red arm: each must go red")
     a = ap.parse_args()
+    if a.red or a.reds:
+        for name in ([a.red] if a.red else sorted(REDS)):
+            bad = check(a.runs, a.seed, verbose=False, patches=REDS[name])
+            assert bad, "RED ARM %s: the check stayed GREEN against a broken package" % name
+            print("bonanza_dsplit --red %s: went red (%d): %s" % (name, len(bad), bad[0][:160]))
+        return
     bad = check(a.runs, a.seed)
     for b in bad:
         print("FAIL %s" % b)
