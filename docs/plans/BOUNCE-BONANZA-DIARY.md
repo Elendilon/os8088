@@ -3017,3 +3017,46 @@ courses, or two disks." The 1.5 x refusal became a reported figure; the
 **Tested:** host only - `make`, the bonanza disk, `bbcourse.py --selfcheck`
 with its new item 14 and the red arms (each broken on purpose, each seen
 red), previews on both cards. The emulator rows are the final pass's.
+
+### Wave 9: the recipe corrected, and the checks made fast (story 9.7)
+
+**What the recipe missed.** SPEC.md 128.25.6.8 was written before any family
+existed, as six steps. GLASS took it first, PICKUPS second, and the crack
+bug a third time; story 9.7 rewrote it as eight. The new steps are the ones
+nobody thought of until a family needed them:
+- **the reach** - a family that changes where a ball can go needs a pass
+  after the tool's reach, or the compiler proves a course against a ball
+  that cannot do what the family lets it;
+- **the marks** - a hook that changes a tile's pose has to WAKE the walk,
+  not only mark the lane. The owner saw what that costs: steel sank through
+  a cracked tile with no hole ever drawn, because a still camera skipped the
+  walk that would have drawn it. Now there is one resident door,
+  `bz_fmark`, and the unicorn half of the physics check fails any step that
+  moves a pose without it.
+
+Smaller corrections:
+- the family ID is the table's order, not a choice;
+- physics changes go in working values, never the shared material table;
+- what a part cannot do itself (a cue every frame) is resident bytes, priced
+  as such.
+
+**A layout change can disarm a test.** Moving the pickups yard on
+PLAYGROUND (and then grounding its faces) left the camera's hysteresis
+control - `camhyst` in the ring check, `nohyst` in the self-check - with a
+scenario where even a camera with no hysteresis never reverses. The camera
+was fine; the test had stopped being able to fail. It was found because the
+whole chain ran at a merge, and is now a line in the recipe's proofs step.
+
+**The checks.** The owner: *"when every action invokes another action that
+takes this long ... it slows everything to a crawl."* Measured first:
+- 69% of the self-check was course compiles, and wave 9's own alignment
+  search was 1,287 of its 1,896;
+- the ring and physics checks spent 72 - 94% compiling the shipped courses
+  again.
+
+A compile cache keyed on everything a compile reads, forked sections a core
+each, and one shared reach for the eight alignment probes took the chain
+from **23 minutes to 5.5**. Every output matched line for line, and the built
+art and package were byte-identical. Nothing that ships is built from the
+cache. docs/TESTING.md now says which checks each kind of change owes: a
+guest-only change about 75 s, a merge of verified branches under a minute.
