@@ -33,7 +33,8 @@
 ;   bz_frm      word   the ROLL frame: PHY * 8 + (px & 7), PHY the vertical phase
 ;                      off the GROUND line G = the integer part of (gx + gy) / 2:
 ;                      G & 7 on the CGA, (G & 6) | (py & 1) on the Hercules, + 2
-;                      ((mct >> 2) & 1) mod 8 while STUNNED (SPEC.md 128.11.9.2)
+;                      ((mct >> 2) & 1) mod 8 while STUNNED (SPEC.md 128.11.9.2);
+;                      the pathway's FOLDED (bz_fold, 128.22.4.2)
 ;   bz_spr      byte   the SPRITE drawn: 0 - 63 roll frame bz_frm, 64 + k squash
 ;                      k (0, 1), 68 + k shatter k (0 - 3), 72 rubber's stretch
 ;                      (bz_sprite); copy py & 1 of a squash, shatter or stretch
@@ -320,6 +321,9 @@ VAR bz_sov,1
 VAR bz_ohold,1                  ; 1: the old footprints are this frame's (bz_mkboxes)
 VAR bz_ogate,1                  ; 1: the occluder pass runs this frame
 VAR bz_grp,1                    ; bz_addbox: the box's group (0 the ball's)
+VAR bz_fog,1                    ; bz_fold (the pathway's roll): last frame's G,
+VAR bz_fox,1                    ; the px phase's fold and G's (0 or 4; bz_foy
+VAR bz_foy,1                    ; must follow bz_fox)
 ; the replay log's recorder and player (SPEC.md 128.11.12)
 VAR bz_rptr,2                   ; the next run's pair in bz_rlog
 VAR bz_rruns,2                  ; a replay: the runs not yet read
@@ -2486,12 +2490,59 @@ bz_pgtgt:
 %endif
 
 ; -----------------------------------------------------------------------------
+; bz_fold - the PATHWAY's roll phases FOLDED (wave 8R round 2, SPEC.md
+; 128.22.4.2), bz_sprite's in bz_mode 4 alone: DISPLAY ONLY, no step reads
+; them.  The follower's top speed moves the marble 6 px a step along a
+; diagonal route (both axes at once: twice the physics' VMAXG a step), so px & 7
+; ran 7, 5, 3, 1 a frame - the roll's texture stepping BACK 2 while the ball
+; went forward 6, which reads as a ball that does not turn.  A frame's move d
+; in px (from bz_opx, last frame's) and in G (bz_fog) is folded to d' = the
+; one of 1 .. 4 (with d's sign) congruent to d mod 4: the phase's low two bits
+; stay px's (the shift a frame is stored at), its bit 2 flips by ((|d| - 1)
+; AND 4), kept in bz_fox (and bz_foy for G).  |d| <= 4 - every physics ball,
+; whose VMAXG is 3 px a step - is unchanged.  On the Hercules AL also comes back
+; as G less ((G XOR py) AND 1).  In: AL = G.  Out: AL, DL = bz_fox, DH =
+; bz_foy.  Clobbers AH.
+; -----------------------------------------------------------------------------
+bz_fold:
+    mov dl, al
+    xchg dl, [bz_fog]           ; this frame's G kept, DL = last frame's
+    sub dl, al                  ; -d (|d| is all the fold reads)
+    call .one
+    xor [bz_foy], dl
+    mov dl, [bz_px]
+    sub dl, [bz_opx]
+    call .one
+    xor [bz_fox], dl
+    mov dx, [bz_fox]            ; DL = bz_fox, DH = bz_foy
+    cmp byte [bz_herc], 0       ; the Hercules (the phase's low bit py's): G
+    je .x                       ; less ((G XOR py) AND 1), always DOWN to py's
+    mov ah, al                  ; parity - (G AND 6) OR (py AND 1) went down
+    xor ah, [bz_py]             ; or UP by G's own, so a level route at 3
+    and ah, 1                   ; lines a frame stepped -1, -5 (read +3),
+    sub al, ah                  ; -1, -5: backward
+.x:
+    ret
+.one:                           ; DL = d -> (|d| - 1) AND 4, 0 for no move
+    or dl, dl
+    jz .r
+    jns .p
+    neg dl
+.p:
+    dec dl
+    and dl, 4
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
 ; bz_sprite - the frame's SPRITE and SHADOW, from the state the frame's last
 ; step left (SPEC.md 128.11.9.2, 128.11.9.4).  [bz_px], [bz_py] set.
 ;   G   = the integer part of (gx + gy) / 2, the ground's screen line (no z)
 ;   PHY = G & 7 (CGA), (G & 6) | (py & 1) (Hercules: a frame's mid tones are
 ;         tied to its line's parity); + 2 ((mct >> 2) & 1) mod 8 while STUNNED
-;   bz_frm = PHY * 8 + (px & 7), the ROLL frame (stored at shift px & 3)
+;   bz_frm = PHY * 8 + (px & 7), the ROLL frame (stored at shift px & 3); on
+;         the PATHWAY (bz_mode 4) G and px each + its fold, 0 or 4, and the
+;         Hercules' G rounded DOWN to py's parity (bz_fold)
 ;   bz_spr = SHATTER (24 - mct) / 6 (BZ_SHA_*) while SHATTERING; SQUASH 0 / 1 / 0 for
 ;         sqf 6-5 / 4-3 / 2-1 while the ball is AT ITS FLOOR (grounded, or the
 ;         contact step of a bounce or a contact Hop: airborne, whole z at most
@@ -2520,6 +2571,12 @@ bz_sprite:
     mov ah, dl
     shr ax, 1                   ; AX = G = (gx + gy) >> 9
     push ax
+    xor dx, dx                  ; DL, DH: the phases' FOLDS, the pathway's
+    cmp byte [bz_mode], 4       ; alone (0 or 4 each; SPEC.md 128.22.4.2)
+    jne .nf
+    call bz_fold
+.nf:
+    add al, dh
     and al, 7                   ; PHY
     cmp byte [bz_herc], 0
     je .phy
@@ -2539,6 +2596,7 @@ bz_sprite:
     mov cl, 3
     shl al, cl
     mov ah, [bz_px]
+    add ah, dl                  ; (DL 0 or 4: the shift px & 3 is kept)
     and ah, 7
     or al, ah
     xor ah, ah

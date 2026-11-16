@@ -270274,6 +270274,48 @@ the guest's `bz_gx`, `bz_gy`, `bz_gz` equal `Follow`'s at every step of every
 shipped route both ways, of a private map's secret route, and of two
 synthetic ramps (signed heights, a segment of 300 ground px: `t` past 65,535).
 
+**The roll, FOLDED** (BUILT, wave 8R round 2, story 8R.10; the owner: *"When
+moving from bounce trial to playground, the ball doesn't roll"*). Not frame
+sync: ALIASING. The follower draws about one step a frame on both cards
+(MEASURED on MartyPC, 1 step on 18 or 19 of every 20 presented frames, a
+0-step frame on the CGA and a 2-step one on the Hercules for the rest), and at
+`FOL_VMAX` a route that steps both axes at once (TRIAL -> PLAY: `wx+ wy-`,
+screen-RIGHT) moves `px` 6 a frame with `G` still, so 128.11.9.2's
+horizontal phase `px & 7` ran 7, 5, 3, 1: the texture stepped BACK 2 while
+the ball went forward 6, which reads as a ball that does not turn. Up and
+down moved `G` 3 a frame and turned on the CGA; on the Hercules the vertical
+phase `(G & 6) | (py & 1)` stepped -1, -5 (read +3) - backward. A PHYSICS
+ball never gets there: its `VMAXG` (384 a step per axis) is at most 3 px a
+step on any screen axis, and in FIRST, poked screen-right at `VMAXG` on both
+axes, MEASURED `px & 7` 0, 3, 6, 1, 1, 3, 6: it rolls. So the fix is the
+pathway's alone, in `bz_sprite`, DISPLAY ONLY:
+
+- in `bz_mode` 4, a frame's move `d` in `px` (from `bz_opx`, last frame's)
+  and in `G` (`bz_fog`, last frame's) is FOLDED to `d'`, the one of 1 - 4
+  (with `d`'s sign) congruent to `d` mod 4: the phase's low two bits stay
+  `px`'s (the SHIFT a roll frame is stored at, 128.11.9.1), and its bit 2
+  flips by `(|d| - 1) AND 4`, kept in `bz_fox` (`G`'s in `bz_foy`): `f =
+  ((G + foy) & 7) * 8 + ((px + fox) & 7)`. `|d|` at most 4 is unchanged, so
+  6 a frame shows as +2 (`h` 1, 3, 5, 7), 5 as +1, 12 (a 2-step frame) as 4;
+- on the Hercules `G` is first rounded DOWN to `py`'s parity (`G - ((G XOR py)
+  AND 1)`), so the phase's low bit, `py`'s, never steps `G` back or on by
+  one at random (O16's wobble, on the pathway alone: a level route is then
+  -3 a frame, a ramp's height change one step of 1);
+- `bz_fold` holds no state anything else reads: no step reads `bz_frm`,
+  `bz_spr`, `bz_fox`, `bz_foy` or `bz_fog` (the idle test's `bz_spr` is the
+  display's own), a stale `bz_opx` or `bz_fog` at the play's first frame
+  costs one 4 px jump of the texture, never a wrong shift, and `bz_mode` 4 runs
+  no physics step (`bz_follow`), so every course, replay and demo, and
+  `bbcourse.sprite()`'s oracle of every course frame, are as before; the
+  follower's arithmetic (`bbcourse.Follow`) is untouched.
+
+MEASURED on MartyPC (round 2's log, `roll-fold2-{cga,herc}-{right,up}.png`
+the frames along each roll): TRIAL -> PLAY `h` 1, 3, 5, 7, 1, 3 ... (+2 a
+frame) on both cards, PLAY -> TRIAL -2, TRIAL -> MILL `PHY` -2 then -3 a frame
+and MILL -> TRIAL +2, +3 on both cards. **+83 bytes** (`bz_fold` 67, the Hercules'
+round 18 of them; `bz_sprite` +16), **bss +3**: 39,907 and 10,087 -> 39,990 and
+10,090.
+
 ##### 128.22.4.3 The PAGED camera
 
 **PAGED** in the grid header (BZG1 +28 bit 3, `GF_PAGED`, the tool's: the
