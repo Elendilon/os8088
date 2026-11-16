@@ -2988,3 +2988,49 @@ occluders, not the shading, are the biggest byte cost.
   edge test to its own height at the shared point for a plane neighbour - a
   floor at the lip is a lip, a floor above it a wall. The fallback is not
   lifted, so nothing rolls up into a field from below.
+
+## 2026-11-16 (shaped floors, C1 - C4: the tool, the model, the guest and PLAYGROUND)
+
+**Built.** The tool lays a chute or a pit as FIELD cells from one height
+function per piece (a straight, a taper, a radial corner, the bowl),
+sampled at each cell's 17 x 17 points; each cell's relative heights are
+matched against the tables already stored under all eight symmetries
+before a new table is added. THE CHUTES test course (a 2-wide chute with
+two corners and a 1-wide one with a climbing leg) needs 9 tables for 66
+FIELD cells; the pit's 32 cells need 5. The picture draws a field's top as
+4 x 4-unit facets and drops every facet that faces away - the near bank of
+a channel - so the bottom is seen over the lip, as it would be. The first
+render looked right first time; the shading is the facet's normal against
+a light from the upper left, in the 4 colours, world-fixed dithers.
+
+**Discoveries.**
+- The slope bound bites at a radial corner's 45-degree points, where both
+  slopes are large at once: a profile that is fine on a straight is refused
+  in a corner. And rounding half up is not mirror-symmetric, so a depth
+  passes a corner turning one way and is refused turning the other. The
+  profile became a curved bottom and a STRAIGHT bank at the slope the curve
+  reached - steepest at the lip, which also makes the lip a crest - and the
+  deepest every orientation accepts is 10 px (2-wide) and 5 px (1-wide).
+- The model's first guided runs "stalled" at every speed: a coast on the
+  ordinary floor is about v / 4 units, so a ball started eight cells back
+  never reached the corner. Measured from just before the block, with the
+  turn held, the 2-wide carries a ball round at every speed to the cap; the
+  1-wide throws it out over the lip at 384.
+- The guest was wrong in exactly two places before it equalled the model on
+  48,000 fuzzed steps: the tables' offsets were filled by the expander,
+  which the unicorn harness (and nothing that hands the package a RAM form)
+  runs - so they moved to `bz_crshdr`; and `bz_blocks` must keep DI, which
+  `bz_corner` holds across the call and the new height read used.
+- Occluder records, not code, are the cost. A facet's top in whole px broke
+  the four-records-a-block bound; tops in steps of 8 px, then 16, fixed it.
+  A FIELD section on PLAYGROUND hits the RECB 8 layout's 65,024 bytes (the
+  identity is taken over it) before anything else: the 2-wide and 1-wide
+  chutes fit with 460 bytes to spare, the pit does not. A new course would
+  be a TOUR course, and MAIN's 13 lines are full. So the pit is the tool's
+  and the harness's only, for the owner to place.
+
+**Measured.** One MartyPC measurement (CGA 5150, logged breakpoints at
+`bz_step`): a step on a FIELD cell, median 9.4k clk in the 2-wide chute and
+8.5k in the 1-wide, against 8.9k coasting on the apron - about +0.4 - 0.9k a
+step on the mean, against 2.6 - 3.5k predicted; nothing to optimise.
+BONANZA.O88 +680 bytes resident, +36 bss.
