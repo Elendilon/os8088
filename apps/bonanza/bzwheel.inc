@@ -116,8 +116,8 @@ BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
 %if BZ_PROPREC != 32
  %error "bz_lrecsi scales a record's index by 32 = BZ_PROPREC"
 %endif
-%if BZ_PROPMAX != 16
- %error "bz_ldrw, bz_lage and bz_ltru hold BZ_PROPMAX lanes"
+%if (BZ_PROPMAX & 1) || BZ_PROPMAX < 2 || BZ_PROPMAX > 254 || BZ_PROPALL > 255
+ %error "the per-lane tables are BZ_PROPMAX lanes, even (rep stosw), 2 - 254; the props a byte's (128.19.10)"
 %endif
 
 %macro BZ_WHEEL_VARS 0
@@ -203,6 +203,8 @@ VAR bz_psa,2
 VAR bz_prc,8                    ; bz_pstrip: the strips' meets with the slab
 VAR bz_pra,2                    ; the walk's range: block rows [ra, rb)
 VAR bz_prb,2
+VAR bz_ora,2                    ; ...and the LAST one, while the range moved (128.19.10)
+VAR bz_orb,2
 VAR bz_crect,8
 VAR bz_crect2,8                 ; the lift's box beside a lighting post (bz_pflag bit 2)
 VAR bz_cgr,2                    ; bz_mkboxes: the contact's rect in bz_gr (0 none)
@@ -321,7 +323,8 @@ bz_pread:
     mov [bz_hedr], ax
     mov word [bz_trim], 100
     mov word [bz_wtmin], 100
-    mov word [bz_pra], 8000h    ; (the walk's range unknown: its first scan)
+    mov word [bz_pra], 8000h    ; (the walk's range unknown: its first scan,
+    mov word [bz_prb], 8000h    ; and an EMPTY one, met by no lane)
     mov word [bz_pR0], 8000h
     mov byte [bz_pidx], 0ffh
     mov di, bz_ldrw             ; every lane unknown: bz_lfull syncs them all
@@ -481,20 +484,56 @@ bz_pread:
 ; -----------------------------------------------------------------------------
 bz_lfull:
     mov byte [bz_lqt], 0        ; (the next walk looks at every lane)
-    mov al, [bz_cksn]           ; (every flag's true pose read: the walk's
-    mov [bz_lcks], al           ; skip holds, SPEC.md 128.14.4.2)
-    mov ax, [bz_tsec]           ; (wave 7: every clock's too)
-    mov [bz_lcsec], ax
+    mov al, [bz_cksn]           ; SPEC.md 128.19.10: only the SHOWN window's
+    not al                      ; lanes are synced, so no skip of a flag or a
+    mov [bz_lcks], al           ; clock may hold - values none matches, and
+    mov ax, [bz_tsec]           ; the next walk reads every flag and clock in
+    not ax                      ; its range (a lane outside the window is
+    mov [bz_lcsec], ax          ; brought true there, two rows before it shows)
+    push es
+    push ds
+    pop es
+    mov di, bz_lage             ; every lane's age 0
+    mov cx, BZ_PROPMAX / 2
+    xor ax, ax
+    rep stosw
+    pop es
+    mov ax, [bz_R0n]            ; THE NEW WINDOW'S block rows [AX, DX)
+    mov cl, [bz_lsh]
+    shl ax, cl
+    mov dx, ax
+    add dx, BZ_LINES - 1
+    mov cl, 3
+    shr ax, cl
+    shr dx, cl
+    inc dx
     xor bx, bx
 .l:
     cmp bl, [bz_nlane]
     jae .d
+    push bx
+    shl bx, 1
+    mov cx, [bz_lrw + bx]       ; the lane's first block row: the lanes are
+    pop bx                      ; sorted by it, so the first past the window
+    cmp cx, dx                  ; ends the loop
+    jae .d
+    push ax
+    mov al, [bz_lhh + bx]
+    xor ah, ah
+    add cx, ax
+    pop ax
+    cmp cx, ax                  ; ...and one ending above it is skipped
+    jbe .s
+    push ax
+    push dx
     call bz_ltrue
     cmp al, [bz_ldrw + bx]
-    je .s
+    je .s0
     call bz_lsync
+.s0:
+    pop dx
+    pop ax
 .s:
-    mov byte [bz_lage + bx], 0
     inc bx
     jmp short .l
 .d:
@@ -2468,8 +2507,12 @@ bz_props:
     cmp ax, [bz_prb]
     je .walk0
 .rng:
-    mov byte [bz_lnsk], 1       ; (moved: every lane in it walked this frame,
-    mov [bz_pra], dx            ; none skipped - one may have just entered it)
+    mov byte [bz_lnsk], 1       ; (moved: a lane that has just ENTERED it is
+    mov cx, [bz_pra]            ; walked whatever its skip says - one whose
+    mov [bz_ora], cx            ; rows met the last range keeps its skip:
+    mov cx, [bz_prb]            ; SPEC.md 128.19.10, the walk's cost a frame no
+    mov [bz_orb], cx            ; longer every slow lane in it)
+    mov [bz_pra], dx
     mov [bz_prb], ax
     mov byte [bz_pin], 0        ; THE LIFT's whole rise [pyt, pyb) against the
     cmp byte [bz_pidx], 0ffh    ; range's lines [8 ra, 8 rb), once a range
@@ -2595,7 +2638,14 @@ bz_props:
     jmp .next
 .cin:
     cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 128.13.5.3): nothing about
-    jne .w0                     ; the lane can change this frame - it is not
+    je .sk0                     ; the lane can change this frame - it is not
+    mov ax, [bz_lrw + si]       ; (the range moved: a lane whose rows did NOT
+    cmp ax, [bz_orb]            ; meet the last one has entered - walked)
+    jge .w0
+    add ax, cx
+    cmp ax, [bz_ora]
+    jle .w0
+.sk0:
     mov al, [bz_ldrw + bx]      ; due, no candidate, its age 0 - while it is
     cmp al, [bz_ltru + bx]      ; drawn at its true pose and ...
     jne .w0

@@ -329,7 +329,7 @@ PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING = 5, 6, 7, 8          # wave 4 (SPEC.md
 PK_CLOCK = 9                  # wave 7 (SPEC.md 128.18.5): a clock's DIGIT, a record and a lane a digit
 PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform",
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
-CLOCK_MAX = 4                 # wave 7: clocks a course
+CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
 NODE_POSES = 5                # a node SIGN's poses: 0 locked, 1 open, 2 done, 3 silver, 4 gold
 # the signs' glyphs, the clock font's 5 x 7 (128.19.5): pose 0 is the empty ball (no glyph)
@@ -350,9 +350,9 @@ FL_OBS = 8                    # grid +3 bit 3: the cell belongs to a prop
 FL_EXITSH = 4                 # grid +3 bits 4 - 7: a GOAL cell's EXIT (wave 8b, SPEC.md 128.19.4)
 FL_EDGES = 16 | 32            # bits 4 - 5: RESERVED for `edge`
 PROPREC = 32                  # bytes a record
-PROP_MAX = 16                 # props WITH A LANE (first in the table): wave 3's per-prop arrays
-                              # (bz_ldrw, bz_lage, bz_pkick) hold 16 (SPEC.md 128.14.4.2)
-PROP_ALL = 32                 # props in all, the static kinds 6 - 8 and the plain tubes and lift
+PROP_MAX = 255                # props WITH A LANE (first in the table): a CEILING since 128.19.10 (the
+                              # byte indexes); the guest's tables are sized by the build's largest course
+PROP_ALL = 255                # props in all, a CEILING (bz_nprop, bz_owner's byte index; 128.19.10)
                               # after the lanes (never indexed into those arrays)
 SEGREC = 16                   # bytes a tube segment
 SEG_MAX = 8
@@ -377,8 +377,27 @@ PL_W, PL_H = 32, 18           # its sprite: 4 words x 18 lines (16 of top, 2 of 
 PL_SPR = 2 * 2 * PL_W // 4 * PL_H              # two parity copies x (mask + frame): 576
 LANE_WMAX, LANE_HMAX = 4, 3   # a lane: BZ_BOXW words x BZ_BOXH / 8 block rows
 LANE_PMAX = 16
-WIN_LANES = 6                 # lanes meeting any window (SPEC.md 128.12.4.6)
-RANGE_LANES = 8               # lanes in the walk's range
+WIN_LANES = 6                 # FAST lanes meeting any window (SPEC.md 128.12.4.6, as 128.19.10 amends it)
+RANGE_LANES = 8               # FAST lanes in the walk's range (128.19.10: SLOW ones unbounded)
+WIN_CHG = 6                   # pose changes that can land on one step among the lanes meeting a window
+                              # (128.19.10): the rotors', every clock digit, 1 for the event lanes - the
+                              # wheel's candidate list (bz_wcl) holds this many
+
+
+_FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST (compile_course's _hack "fast")
+
+
+def lane_fast(rec):
+    """SPEC.md 128.19.10: a FAST lane changes on its own clock (a windmill's
+    rotor); every other lane is SLOW - a clock digit (once a second) or an
+    EVENT lane (a flag, a post's lit frames, a node's sign)"""
+    return rec["kind"] == PK_WINDMILL or rec["kind"] in _FAST_EXTRA
+
+
+def lane_digit(rec):
+    """a clock's DIGIT lane (not a node's sign, ndig 0): every clock counts the
+    same second, so all their digits change on the same step"""
+    return rec["kind"] == PK_CLOCK and rec.get("ndig", 0) > 0
 ROTOR_CHG = 2                 # rotor pose changes on a step, and in two consecutive
 HEDGE = 16                    # BZ_HEDGE: the heavy rule's edge zone, lines (and 24 px)
 WLAG = 8                      # BZ_WLAG: frames due and shown before a lane is late
@@ -2908,7 +2927,16 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     occluders=False cuts no records (a host model that wants only the grid).
     _hack: --selfcheck's negative controls' switches, and nothing else's.
     _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec)"""
+    global _FAST_EXTRA
     hack = _hack or {}
+    _FAST_EXTRA = tuple(hack.get("fast", ()))
+    try:
+        return _compile_course(source, fname, occluders, hack, _rec)
+    finally:
+        _FAST_EXTRA = ()
+
+
+def _compile_course(source, fname, occluders, hack, _rec):
     if fname is None:
         ab = os.path.abspath(source)
         fname = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
@@ -3699,24 +3727,31 @@ def check_bounds(c):
         W, H, rl, lsh = CARDS[herc]
         rmax = c.brows * 8 // rl - H
         cmax = c.cols - W
-        most = most_r = 0
+        most = most_r = most_all = most_rall = most_chg = 0
         worst = (0, 0)
         for R in range(rmax + 1):
             ya, yb = R * rl, R * rl + WIN_LINES
             ra, rb = 8 * ((ya >> 3) - 2), 8 * (((yb - 1) >> 3) + 3)
             inrange = [L for L in lanes if L[1] < rb and ra < L[3]]
-            most_r = max(most_r, len(inrange))
-            if len(inrange) > RANGE_LANES:
-                raise CourseError("%s: %d lanes in the walk's range of the %s window at row %d, over %d"
-                                  % (c.fname, len(inrange), "Hercules" if herc else "CGA", R, RANGE_LANES))
+            nfr = sum(1 for L in inrange if lane_fast(L[4]))
+            most_r = max(most_r, nfr)
+            most_rall = max(most_rall, len(inrange))
+            if nfr > RANGE_LANES:
+                raise CourseError("%s: %d FAST lanes in the walk's range of the %s window at row %d, over %d "
+                                  "(SPEC.md 128.19.10)" % (c.fname, nfr, "Hercules" if herc else "CGA", R,
+                                                           RANGE_LANES))
             for C in range(cmax + 1):
                 xa, xb = 8 * C, 8 * (C + W)
                 meet = [L for L in inrange if _meet(L, xa, ya, xb, yb)]
-                if len(meet) > WIN_LANES:
-                    raise CourseError("%s: %d lanes meet the %s window at (row %d, column %d), over %d"
-                                      % (c.fname, len(meet), "Hercules" if herc else "CGA", R, C, WIN_LANES))
-                most = max(most, len(meet))
+                nf = sum(1 for L in meet if lane_fast(L[4]))
+                if nf > WIN_LANES:
+                    raise CourseError("%s: %d FAST lanes (rotors) meet the %s window at (row %d, column %d), over "
+                                      "%d (SPEC.md 128.19.10)" % (c.fname, nf, "Hercules" if herc else "CGA", R, C,
+                                                                  WIN_LANES))
+                most = max(most, nf)
+                most_all = max(most_all, len(meet))
                 rot = [L[4] for L in meet if L[4]["kind"] == PK_WINDMILL]
+                w1 = (len(rot), len(rot))
                 if len(rot) > 1:
                     w1 = rotor_changes(rot)
                     worst = max(worst, w1)
@@ -3724,6 +3759,14 @@ def check_bounds(c):
                         raise CourseError("%s: the %s window at (row %d, column %d): %d rotor pose changes on one "
                                           "step, %d in two consecutive (at most %d)" % (
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
+                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) \
+                    + (1 if any(not lane_fast(L[4]) and not lane_digit(L[4]) for L in meet) else 0)
+                most_chg = max(most_chg, chg)
+                if chg > WIN_CHG:
+                    raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
+                                      "(rotors %d, clock digits %d, events 1), over %d (SPEC.md 128.19.10)" % (
+                                          c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
+                                          sum(1 for L in meet if lane_digit(L[4])), WIN_CHG))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
@@ -3752,7 +3795,8 @@ def check_bounds(c):
             raise CourseError("%s: the %s start window (row %d, column %d) has no calibration corner of 4 words x "
                               "3 block rows free of lanes, the track and the ball" % (
                                   c.fname, "Hercules" if herc else "CGA", R0, C0))
-        info[herc] = {"lanes": most, "range": most_r, "worst": worst, "corner": corner}
+        info[herc] = {"lanes": most, "range": most_r, "worst": worst, "corner": corner, "all": most_all,
+                      "rall": most_rall, "chg": most_chg}
     return info
 
 
@@ -7585,7 +7629,8 @@ def emit_inc(courses, path=None):
               "",
               "; wave 3 (SPEC.md 128.12.3, 128.12.6): the props, the prop table, the tubes",
               "BZ_FL_OBS       equ %d        ; grid +3 bit 3: the cell belongs to a prop" % FL_OBS,
-              "BZ_PROPMAX      equ %d       ; props a course (bz_ldrw, bz_lage, bz_pkick)" % PROP_MAX,
+              "BZ_PROPMAX      equ %d       ; LANES the build's largest course has, even (128.19.10: the "
+              "per-lane tables, bz_ldrw, bz_lage, bz_pkick ...)" % table_max(allc, True),
               "BZ_PROPREC      equ %d       ; bytes a prop record" % PROPREC,
               "BZ_PK_TUBE      equ %d        ; record +0, the kind" % PK_TUBE,
               "BZ_PK_WINDMILL  equ %d" % PK_WINDMILL,
@@ -7644,7 +7689,8 @@ def emit_inc(courses, path=None):
               "BZ_PLSPR        equ %d      ; ...two parity copies of mask and frame" % PL_SPR,
               "",
               "; wave 4 (SPEC.md 128.14.4): flags, pads, the cup, springs; RETURN; the tilt",
-              "BZ_PROPALL      equ %d       ; props in all (the lanes first, at most BZ_PROPMAX)" % PROP_ALL,
+              "BZ_PROPALL      equ %d       ; PROPS the build's largest course has (the lanes first; "
+              "128.19.10: bz_okey, bz_oidx)" % table_max(allc, False),
               "BZ_PK_CKPT      equ %d        ; a FLAG: a two-pose lane, FURLED and FLYING" % PK_CHECKPOINT,
               "BZ_PK_PAD       equ %d        ; a BALL-SWAP PAD" % PK_PAD,
               "BZ_PK_CUP       equ %d        ; the CUP" % PK_CUP,
@@ -7714,6 +7760,13 @@ def emit_inc(courses, path=None):
               "%endmacro", ""]
     lines += emit_path(path, courses)
     return "\n".join(lines)
+
+
+def table_max(courses, lanes):
+    """SPEC.md 128.19.10: the guest's tables are as large as the build's largest
+    course needs - its most LANES (or props), even, at least 2"""
+    n = max([sum(1 for r in c.part["props"] if (r["lane"] if lanes else True)) for c in courses] + [2])
+    return n + (n & 1)
 
 
 def emit_path(path, courses):
@@ -9697,8 +9750,6 @@ def _wave3_cases():
          "not a power of two"),
         ("a closed window off the pose boundaries", _swap(W, "prop windmill 9 9", "prop windmill 9 9 closed 20 40"),
          "not on pose boundaries"),
-        ("a 17th prop", big + _posts([_sa(s_, a) for s_ in (30, 36, 42, 48) for a in (-6, -2, 2, 6)] +
-                                     [_sa(54, 0)]), "17th prop"),
         ("a lift's rim at a third height", P + "floor tile 10 7 flat 2.5\n", "at its two docks"),
         ("a lift's rims not L apart", _swap(P, "prop platform 10 8 3", "prop platform 10 8 2"), "at its two docks"),
         ("a lift's shaft not VOID", P + "floor tile 10 8 flat 4\n", "is not VOID"),
@@ -9709,8 +9760,12 @@ def _wave3_cases():
         ("a reserved statement (shape)", W + "shape tile 4 4\n", "reserved for a later wave"),
         ("a reserved statement (shape)", W + "shape 4 4\n", "reserved for a later wave"),
         ("two lanes sharing blocks", big + _posts([(20, 18), (21, 19)]), "two lanes share blocks"),
-        ("bound: a 7th lane in a window", seven, "lanes meet the"),
-        ("bound: a 9th lane in the walk's range", nine, "lanes in the walk's range"),
+        ("bound: a 7th FAST lane in a window (posts counted FAST)", seven, "FAST lanes (rotors) meet the",
+         {"fast": (PK_BUMPER,)}),
+        ("bound: a 9th FAST lane in the walk's range (posts counted FAST)", nine, "FAST lanes in the walk's range",
+         {"fast": (PK_BUMPER,)}),
+        ("bound: four clocks' 8 digits changing on one step in a window", big + "".join(
+            "clock %d %d\n" % _sa(36, a) for a in (-9, -3, 3, 9)), "pose changes can land on one step"),
         ("bound: three rotor changes on one step", _W3H % (0, 0, 0), "rotor pose changes"),
         ("bound: three rotor changes in two consecutive steps", _W3H % (0, 0, 1), "rotor pose changes"),
         ("bound: a windmill and a track in one window", W + "floor tile 12 12 flat 13\nprop platform 11 12 3\n",
@@ -11578,9 +11633,11 @@ def _props_course_checks(c, res, tag):
     # 6. the bounds, printed
     b = c.bounds
     for herc in (0, 1):
-        print("    %s, %s: the most lanes meeting a window %d (bound %d), in the walk's range %d (bound %d); the worst "
-              "rotor coincidence %d on a step, %d in two (bound %d); the calibration corner %s" % (
+        print("    %s, %s: the most FAST lanes meeting a window %d (bound %d), in the walk's range %d (bound %d); "
+              "all lanes %d a window, %d a range (128.19.10: unbounded); the most changes on one step %d (bound %d); "
+              "the worst rotor coincidence %d on a step, %d in two (bound %d); the calibration corner %s" % (
                   tag, "Hercules" if herc else "CGA", b[herc]["lanes"], WIN_LANES, b[herc]["range"], RANGE_LANES,
+                  b[herc]["all"], b[herc]["rall"], b[herc]["chg"], WIN_CHG,
                   b[herc]["worst"][0], b[herc]["worst"][1], ROTOR_CHG, b[herc]["corner"]))
     for rec in info["props"]:
         pr = c.props[c.order[rec["i"]]]
@@ -13581,6 +13638,20 @@ def selfcheck(paths=None):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # wave 8 (SPEC.md 128.19.10): SLOW lanes are unbounded a window, and a course has more than 16 lanes -
+    # each case COMPILES (the controls above are the same posts counted FAST, refused)
+    big_ = _W3F % (60, 20, 20)
+    for what, text in (("seven posts (SLOW lanes) meeting one window",
+                        big_ + _posts([_sa(36, a) for a in (-8, -4, 0, 4, 8)] + [_sa(42, a) for a in (-6, 6)])),
+                       ("seventeen lanes in a course",
+                        big_ + _posts([_sa(s_, a) for s_ in (30, 36, 42, 48) for a in (-6, -2, 2, 6)]
+                                      + [_sa(54, 0)]))):
+        try:
+            cx = compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
+            ok_, msg = True, "%d lanes" % sum(1 for r in cx.part["props"] if r["lane"])
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (128.19.10): %s (%s)" % (what, msg), ok_))
     for what, text, want in _w4_cases():
         try:
             compile_course(text, fname="<%s>" % what)
