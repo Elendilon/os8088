@@ -22095,9 +22095,10 @@ bonanza-art: $(BZ_GEN) $(BZ_CGEN)
 #> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 128.11.17.2)
 bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
-#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 128.10.4.6, 128.15.12.3)
+#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 128.10.4.6, 128.15.12.3); the title art is tools/bbtitle.py's (128.23.2)
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
+	python3 tools/bbtitle.py --check
 #> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 128.15.12.2); minutes
 bonanza-sizes: $(BUILD)/bonanza.o88
 	python3 tools/bbcourse.py --sizes $(BZ_COURSES)
@@ -22105,9 +22106,9 @@ bonanza-sizes: $(BUILD)/bonanza.o88
 # THE SOUND (SPEC.md 128.20): tools/bbmusic.py packs the bank and the songs
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
 # and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
-BZ_SONGS := title fairway trial windmill moonlit summit
+BZ_SONGS := title fairway trial windmill moonlit summit victory attract
 BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
-BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5,$(BZ_ART)/BZM$(i).BIN)
+BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7,$(BZ_ART)/BZM$(i).BIN)
 BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)

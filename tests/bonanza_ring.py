@@ -572,11 +572,13 @@ def medals(crs):
 
 
 def path_ident():
-    """the PATHWAY's identity (wave 8b, SPEC.md 128.19.5): BZ_CRS_IDS's last entry,
-    out of the generated bzcourse.inc - a save slot's +6 (128.19.6)"""
+    """the PATHWAY's identity (wave 8b, SPEC.md 128.19.5): BZ_CRS_IDS's entry
+    BZ_CRS_PATH (= BZ_NCRS; the title's follows it, SPEC.md 128.23), out of
+    the generated bzcourse.inc - a save slot's +6 (128.19.6)"""
     t = open(os.path.join(at("build/bonanza-art"), "bzcourse.inc")).read()
     m = re.search(r"^%macro BZ_CRS_IDS 0\n\s+dw ([^\n]+)", t, re.M)
-    return int(m.group(1).split(",")[-1].strip().rstrip("h"), 16)
+    k = int(re.search(r"^BZ_CRS_PATH\s+equ\s+(\d+)", t, re.M).group(1))
+    return int(m.group(1).split(",")[k].strip().rstrip("h"), 16)
 
 
 def make_log(keys, k, mat, ident=None):
@@ -870,8 +872,8 @@ class Bz:
             self.base = self.wseg() << 4
         t = self.base + self.sym["op_table"]
         n = self.m.read(t + 8, 1)[0]
-        k = n - 2 if "BZ_P_PATH" in open(os.path.join(ROOT, "apps", "bonanza", "bonanza.asm")).read() else n - 1
-        row = self.m.read(t + 10 + 8 * k, 8)     # (the shell's row: the last but the pathway's, 128.19.5)
+        k = n - 1 - after_shell()
+        row = self.m.read(t + 10 + 8 * k, 8)     # (the shell's row: before the pathway's and the title's)
         assert row[1] & 32, "the shell part (row %d) is not fetched: its labels have no address" % k
         return struct.unpack_from("<H", row, 6)[0] << 4
 
@@ -4062,6 +4064,14 @@ def shell_part(td, src, art, binp):
     return out
 
 
+def after_shell(src=None):
+    """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
+    8b, 128.19.5) and the title's two (SPEC.md 128.23), where SRC's package
+    carries them"""
+    asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm)
+
+
 def part_args(art, src=None, shell=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
     rows 0 - 2 the rubber, steel and glass balls, then course K's one part
@@ -4081,8 +4091,10 @@ def part_args(art, src=None, shell=None):
         out += ["--part", os.path.join(art, p)]
     if "BZ_P_SHELL" in asm:                     # wave 8a (128.19.2): the shell part, the tree's own link
         out += ["--part", shell or at("build/bzshell.bin")]
-    if "BZ_P_PATH" in asm:                      # wave 8b (128.19.5): the pathway, the last row
+    if "BZ_P_PATH" in asm:                      # wave 8b (128.19.5): the pathway
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
+    if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
+        out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
     return out
 
 

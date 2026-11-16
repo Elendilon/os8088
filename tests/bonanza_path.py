@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """bonanzapath - THE GAME's loop on the glass (SPEC.md 128.19.5, wave 8b).
 
-BONANZA on MartyPC, CGA and Hercules: Enter on the face starts a NEW game -
+BONANZA on MartyPC, CGA and Hercules: Enter on the face opens the TITLE and P
+there (SPEC.md 128.23.4) starts a NEW game -
 five lives, node 0 open, nothing done - and the pathway comes up in the
 bracket, its node 0 sign OPEN and the rest LOCKED, its clock showing the
 lives.  Then, in that one bracket:
@@ -66,6 +67,32 @@ def on_path(g):
 BB_PATH = None
 
 
+def to_title(g):
+    """SPEC.md 128.23.4: the TITLE up - its course fetched and its demo's frame
+    loop reached (a key typed before bz_play starts is drained)"""
+    m = g.m
+    M.until(m, lambda _: g.b("bz_tmode") == 1 and g.b("bz_crs") == BB_PATH + 1 and g.w("bz_cseg") != 0,
+            "the title", guest=60)
+    X.at_t0(g, lambda g_: None)
+
+
+def enter_game(g, what="the pathway"):
+    """Enter on the face opens the TITLE (128.23.4); P there plays the game"""
+    g.key("Enter")
+    to_title(g)
+    g.key("KeyP")
+    M.until(g.m, lambda _: on_path(g), what, guest=60)
+
+
+def leave_game(g, what="the desktop"):
+    """Esc on the pathway returns to the TITLE (128.23.4); Esc there leaves"""
+    playing(g, "the pathway")
+    g.key("Escape")
+    to_title(g)
+    g.key("Escape")
+    M.until(g.m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, what, guest=30)
+
+
 def playing(g, what):
     """the play's frame loop REACHED (a stop at bz_t0, past bz_play's drain): a
     key typed before bz_play starts is drained, and the fetch before it takes
@@ -89,9 +116,8 @@ def run(tag, apps=None, src=None):
         m.pause()
         base = X.claims(g)
         m.run()
-        # --- a new game ------------------------------------------------------------
-        g.key("Enter")
-        M.until(m, lambda _: on_path(g), "the pathway", guest=60)
+        # --- a new game: Enter opens the title, P plays (SPEC.md 128.23.4) ---------------
+        enter_game(g)
         nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
         ok = g.b("bz_lives") == 5 and g.w("bz_nopen") == 1 and g.w("bz_ndone") == 0 and nst == [1] + [0] * (len(nst) - 1)
         print("%s 0. a new game: lives %d, open %04X, done %04X, the signs %s: %s" % (
@@ -120,7 +146,7 @@ def run(tag, apps=None, src=None):
         m.run()
         M.guest_sleep(m, 0.5)
         nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
-        best = struct.unpack_from("<H", m.read(g.a("bz_dat") + 64 + 24 + 2 * R.CRS_K["first"], 2))[0]
+        best = struct.unpack_from("<H", m.read(g.a("bz_dat") + 64 + 54 + 2 * R.CRS_K["first"], 2))[0]
         gold = R.medals("first")[0]
         ok = g.w("bz_ndone") == 1 and g.w("bz_nopen") == 3 and nst[:2] == [4, 1] and g.b("bz_lives") == 5 \
             and 0 < best <= gold
@@ -156,22 +182,21 @@ def run(tag, apps=None, src=None):
         if not ok:
             fails.append("3. an Esc on a course cost no life (lives %d)" % g.b("bz_lives"))
         # --- 3b. SAVE V2 (128.19.6): left for the desktop, the slot on the floppy; Enter continues it --
-        playing(g, "the pathway")               # (a key typed as a play starts is drained, bz_drain)
-        g.key("Escape")
-        M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop (the game left)", guest=30)
+        leave_game(g, "the desktop (the game left, through the title)")
         GM.motor_off(g)
         dat = GM.read_dat(g)
-        sl = struct.unpack_from("<BBHHH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
-        ok = dat is not None and dat[:4] == b"BZS2" and sl == (3, 0, 3, 1, R.path_ident()) \
-            and struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0] == 1
-        print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, 0, open, done, the pathway), "
-              "FIRST's exits found %s: %s" % (tag, dat[:4] if dat else None, sl,
-                                              struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0]
-                                              if sl else None, "yes" if ok else "NO"), flush=True)
+        sl = struct.unpack_from("<BBBBIIIIH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
+        fx = struct.unpack_from("<H", dat, 64 + 22 + 2 * R.CRS_K["first"])[0] if sl else None
+        # (3, mode 0, pad 1 - TRIAL's, left by Esc -, 0, open 3, done 1, a route opened, none taken, identity)
+        ok = dat is not None and dat[:4] == b"BZS3" and sl is not None and sl[:4] == (3, 0, 1, 0) \
+            and sl[4:6] == (3, 1) and sl[6] != 0 and sl[7] == 0 and sl[8] == R.path_ident() and fx == 1
+        print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, mode, pad, 0, open, done, routes "
+              "opened and taken, the pathway), FIRST's exits found %s: %s" % (
+                  tag, dat[:4] if dat else None, sl, fx, "yes" if ok else "NO"), flush=True)
         if not ok:
-            fails.append("3b. the game's slot on the floppy is %s, not (3, 0, 3, 1, the pathway's identity)" % (sl,))
-        g.key("Enter")
-        M.until(m, lambda _: on_path(g), "the pathway again (the game continued)", guest=60)
+            fails.append("3b. the game's slot on the floppy is %s, not (3, 0, 1, 0, 3, 1, a route, 0, the pathway's "
+                         "identity) with FIRST's exit 0 found" % (sl,))
+        enter_game(g, "the pathway again (the game continued)")
         ok = g.b("bz_lives") == 3 and g.w("bz_nopen") == 3 and g.w("bz_ndone") == 1
         print("%s 3c. Enter continues the slot's game: lives %d, open %04X, done %04X: %s" % (
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
@@ -192,6 +217,8 @@ def run(tag, apps=None, src=None):
         if not ok:
             fails.append("4a. the life was not taken on the disk at the course's entry")
         g.key("Escape")
+        to_title(g)                             # (128.23.4: the game's end is the TITLE again)
+        g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the bracket to end (game over)", guest=30)
         M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0,
                 "the face back", guest=30)
@@ -205,24 +232,20 @@ def run(tag, apps=None, src=None):
         if not ok:
             fails.append("4. game over: lives %d, the claims %s, before %s" % (lives, after, base))
         # --- 5. Enter again: a new game ----------------------------------------------------
-        g.key("Enter")
-        M.until(m, lambda _: on_path(g), "the pathway again", guest=60)
+        enter_game(g, "the pathway again")
         ok = g.b("bz_lives") == 5 and g.w("bz_nopen") == 1 and g.w("bz_ndone") == 0
         print("%s 5. Enter after the game's end: a NEW game (lives %d, open %04X, done %04X): %s" % (
             tag, g.b("bz_lives"), g.w("bz_nopen"), g.w("bz_ndone"), "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("5. Enter after game over did not start a new game")
-        playing(g, "the pathway")
-        g.key("Escape")
-        M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
+        leave_game(g)
         M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0,
                 "the face back", guest=30)
         # --- 6. EXPLORE (8c.2): E, then every node open, no life lost ---------------------------
         g.key("KeyE")
         GM.motor_off(g)
         dat = GM.read_dat(g)
-        g.key("Enter")
-        M.until(m, lambda _: on_path(g), "the pathway in EXPLORE", guest=60)
+        enter_game(g, "the pathway in EXPLORE")
         playing(g, "the pathway in EXPLORE")
         nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
         ok = dat is not None and dat[65] & 1 == 1 and g.w("bz_gmask") == 0xFFFF and min(nst) >= 1
@@ -241,9 +264,7 @@ def run(tag, apps=None, src=None):
               "(lives %d): %s" % (tag, tsec, g.b("bz_lives"), "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("6b. EXPLORE ran a clock or took a life (tsec %d, lives %d)" % (tsec, g.b("bz_lives")))
-        playing(g, "the pathway")
-        g.key("Escape")
-        M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
+        leave_game(g)
     return fails
 
 

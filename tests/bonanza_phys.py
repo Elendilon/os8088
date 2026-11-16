@@ -38,9 +38,11 @@ the guest and the model part.
               model's at the contact
        rail   from (5, 4) at (-150, -250): into the rail at wy = 3, where gvy
               REBOUNDS now (128.11.8.4) and gvx is kept
-       goal   from (12, 6) at gvx 250: the play ENDS the frame after the
-              model's goal step (a finish line, grounded or in the air), and
-              the face's held-log line (6) reads `<NAME> <time> s goal` for the final nstep
+       goal   from (12, 6) at gvx 250: the play's comparison ENDS the frame
+              after the model's goal step (a finish line, grounded or in the
+              air; the finish sequence, 128.22.6, runs on to the play's end),
+              and the face's held-log line (6) reads `<NAME> <time> s goal`
+              for the model's goal step
   3  REPLAYS (SPEC.md 128.11.17.2): each scenario is a LOG the row builds on
      the host (bbcourse.encode_log), writes into bz_rlog and plays with R; at
      the replay's first frame's bz_t0 the ball is poked (or left at the
@@ -619,8 +621,9 @@ def scenario(g, crs, name):
             if last is None or not gs or not (gs[0] <= last[0]):
                 fails.append("goal: the play ended after step %s but the model's goal step is %s" % (
                     last[0] if last else None, gs))
-            n = last[0] if last else 0
-            face = goal_face(g, n)
+            n = gs[0] if gs else 0              # the FINISHING step's time: a play's finish
+            face = goal_face(g, n)              # sequence (128.22.6) runs steps on in that frame
+                                                # and bz_fend takes them back off bz_nstep
             want = " %s s goal " % ftext(n)    # line 6, the held log (SPEC.md 128.14.3.2)
             if face is None or want not in face:
                 fails.append("goal: the face reads %r, the model's time is %r" % (face, want))
@@ -2351,17 +2354,17 @@ REDS["noadd"] = [("bzphys.inc", "    or ax, ax\n    jz .no                      
 # nospent (round 3b): a boost never marks itself spent, so a launch out of the air re-arms a bouncing ball
 REDS["nospent"] = [("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    ret\n",
                     "                                ; RED nospent\n    ret\n"),
-                   ("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    jmp short .st\n",
-                    "                                ; RED nospent\n    jmp short .st\n")]
+                   ("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    jmp .st\n",
+                    "                                ; RED nospent\n    jmp .st\n")]
 # toutoff (wave 7, SPEC.md 128.18.4): the limit's last step never times out
-REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n.tdone:\n",
+REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n    call bz_fstart              ; (the same sequence, the clock at 0)\n.tdone:\n",
                     "                                ; RED toutoff: no timeout\n.tdone:\n")]
 # clkpass (wave 7, SPEC.md 128.18.5.3): a clock's cell is not taken for a post's, so the ball rolls through it
 REDS["clkpass"] = [("bzphys.inc", "    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads\n",
                     "                                ; RED clkpass: the clock's kind left as it is\n")]
 # noexit (wave 8b, SPEC.md 128.19.4): the goal's test writes no exit - red at exit1 (bz_exit 0, the model's 1)
-REDS["noexit"] = [("bzphys.inc", "    mov [bz_exit], al\n    mov byte [bz_goal], 1\n",
-                   "                                ; RED noexit\n    mov byte [bz_goal], 1\n")]
+REDS["noexit"] = [("bzphys.inc", "    mov [bz_exit], al\n    mov byte [bz_goal], 1\n    call bz_fstart              ; (a play's",
+                   "                                ; RED noexit\n    mov byte [bz_goal], 1\n    call bz_fstart              ; (a play's")]
 RED_ONLY.update({"noexit": ("exit1",)})
 RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",),
                  "clkpass": ("clock",)})

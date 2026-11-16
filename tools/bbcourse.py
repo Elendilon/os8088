@@ -852,9 +852,11 @@ def parse(text, fname="<course>"):
             if src.music is not None:
                 raise CourseError("%s: music given twice" % where)
             names = song_names()
-            if len(toks) != 2 or toks[1][1] not in names[1:]:
+            csongs = [x for x in names[1:] if x != "victory"]   # (8R.6: the fanfare is the finish's; a
+            # course may still NAME a non-course song - the title's `music attract`, 128.23)
+            if len(toks) != 2 or toks[1][1] not in csongs:
                 raise CourseError("%s: music takes a course song's name: %s (the title, song 0, is the face's)"
-                                  % (where, ", ".join(names[1:])))
+                                  % (where, ", ".join(csongs)))
             src.music = (names.index(toks[1][1]), ln)
         elif st == "limit":
             if src.limit is not None:
@@ -2558,7 +2560,8 @@ def build_props(src, tiles, fname):
         # lookup ever finds it: physics never meets a label
         props.append({"kind": PK_CLOCK, "line": lb["line"], "at": (LABEL_WX, LABEL_WY0 + lb["num"]), "mask": 0,
                       "shift": 0, "seed": 0, "num": lb["num"], "place": 0, "ndig": 0, "z4": 0, "K": 0, "KA": 0,
-                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": 0, "label": lb})
+                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": CLOCK_PH,
+                      "label": lb})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -4082,12 +4085,22 @@ def song_names():
     return [os.path.splitext(n)[0] for n in bbmusic.SONGS]
 
 
+def _non_course():
+    """8R.6: the songs no course plays (the fanfare, the attract demo): bbmusic's list"""
+    sys.path.insert(0, os.path.dirname(TOOL))
+    try:
+        import bbmusic
+    finally:
+        sys.path.pop(0)
+    return bbmusic.NON_COURSE
+
+
 def course_song(c, k):
     """the song course K plays: its `music`, else K (BENCH 1), past the last
     course song wrapping to 1 (128.20.6's rule, now the tool's)"""
     if c.src.music is not None:
         return c.src.music[0]
-    n = len(song_names())
+    n = len([x for x in song_names() if x not in _non_course()])
     return 1 if k == 0 else 1 + (k - 1) % (n - 1)
 
 
@@ -6039,7 +6052,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
                 bad("prop %d" % d["i"], "a clock's post fields")
             if (not label and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX
                                or d["lane"]["poses"] != CLOCK_POSES)) \
-                    or (label and (place or num >= NODE_MAX or d["at"] != (LABEL_WX, LABEL_WY0 + num))) \
+                    or (label and (place or num >= NODE_MAX or d["at"] != (LABEL_WX, LABEL_WY0 + num)
+                              or not 2 <= d["lane"]["poses"] <= LANE_PMAX)) \
                     or p[r + 29:r + 32] != bytes(3) or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
@@ -9156,7 +9170,8 @@ def emit_path(path, courses):
            "%macro BZ_CRS_NEXITS 0",
            "    db " + ", ".join(str(len(course_exits(c))) for c in courses),
            "%endmacro",
-           "BZ_CRS_MAXCLAIM equ %d      ; paragraphs: the largest pathway course's part and its balls' parts"
+           "BZ_CRS_MAXCLAIM equ %d      ; paragraphs: the most a pad's course claims - part, balls, song, sound - "
+           "each with op_lazyp's cluster slack (SPEC.md 128.22.3)"
            % crs_maxclaim(path, courses)]
     if path is None:
         return out + ["BZ_PATH_N       equ 0        ; no pathway (SPEC.md 128.19.5)",
@@ -9180,18 +9195,34 @@ def emit_path(path, courses):
         "%endmacro", ""]
 
 
+CLAIM_SLACK = 128             # paragraphs a lazy part's claim may pass its RAM form by: op_lazyp's read of its
+                              # packed bytes in whole clusters from the cluster below it, 1 KB clusters at most
+                              # on a shipped floppy - its head slack and its tail's rounding (SPEC.md 20.12.2)
+
+
 def crs_maxclaim(path, courses):
-    """SPEC.md 128.22.3, 128.22.7: the largest claims a course the pathway
-    plays fetches - its part's RAM form and every ball part it can need (its
-    own ball, its pads' and its flags', bz_cload's set), each claim's
-    paragraphs.  The song's claim is not counted: it replaces the pathway's"""
+    """SPEC.md 128.22.3, 128.22.7: a bound on the claims a course the pathway
+    plays holds while the pathway part is HELD - its part, every ball part
+    it can need (its own ball, its pads' and its flags', bz_cload's set), its
+    song's part and the sound part, each its RAM form's paragraphs plus
+    CLAIM_SLACK (op_lazyp's cluster rounding)"""
+    import bbmusic
+    try:
+        snd, songs, _bank, _src = bbmusic.load_parts()
+    except Exception:                               # (a music build error is bbmusic's to report)
+        snd, songs = b"", []
+
+    def para(n):
+        return (n + 15) // 16 + CLAIM_SLACK
     ks = sorted({q["K"] for q in path.pth["pads"]}) if path is not None else range(1, len(courses))
     best = 0
     for k in ks:
         c = courses[k]
         mats = {c.ball} | {m for m in range(3) if c.padmask & (1 << m)} \
             | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT}
-        n = (len(c.cga) + 15) // 16 + sum((BA.B2_SIZE[m] + 15) // 16 for m in mats)
+        sk = course_song(c, k)
+        n = para(len(c.cga)) + sum(para(BA.B2_SIZE[m]) for m in mats) + para(len(snd)) \
+            + (para(len(songs[sk])) if sk < len(songs) else 0)
         best = max(best, n)
     return best
 
@@ -16346,16 +16377,16 @@ def selfcheck(paths=None):
     sn = song_names()
     rule = [course_song(c, k) for k, c in enumerate(courses)]
     mr = []
-    for bad in ("music title\n", "music nosuch\n"):
+    for bad in ("music title\n", "music nosuch\n", "music victory\n"):   # (8R.6: the fanfare is no course's)
         try:
             compile_course(base + bad, "<music refused>", occluders=False)
             mr.append("accepted")
         except CourseError as e:
             mr.append("refused" if "music takes" in str(e) else str(e))
-    res.append(("4 `music trial` gives song %d (%s); `music title` and an unknown name %s; the courses' songs %s, "
+    res.append(("4 `music trial` gives song %d (%s); `music title`, an unknown name and the fanfare %s; the courses' songs %s, "
                 "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
-                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused"]
-                and rule == [1 if k == 0 else 1 + (k - 1) % (len(sn) - 1) for k in range(len(courses))]
+                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused", "refused"]
+                and rule == [1 if k == 0 else 1 + (k - 1) % (len([x for x in sn if x not in _non_course()]) - 1) for k in range(len(courses))]
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)
