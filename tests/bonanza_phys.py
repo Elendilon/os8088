@@ -271,7 +271,7 @@ FIELDS2 = ("lvl", "hopw", "kprev", "mst", "mct", "sqf", "lvz")
 SCEN = {
     # name: (tile, gvx, gvy, frames at most) - poked in play, no key held
     "pit": ((5, 5), 364, 0, 260),
-    "lip": ((9, 4), 100, 0, 120),
+    "lip": ((9, 6), 100, 0, 120),       # 8R: row 6 - row 4 meets the clock at (11, 4) (SPEC.md 128.22.6)
     "rail": ((5, 4), -150, -250, 90),
     "goal": ((12, 6), 250, 0, 60),
 }
