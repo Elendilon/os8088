@@ -1091,7 +1091,7 @@ REDS = {
                    "    jmp .key\n")],
     # wave 3 (SPEC.md 128.12.13.2).  A windmill's gate judged on the FRAME count, not the step's
     # n: the play depends on the display - the model run off its log parts at the gate
-    "propclock": [("bzphys.inc", "    call bz_lrecsi\n    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n"
+    "propclock": [("fam/rotor.asm", "    call bz_lrecsi\n    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n"
                    "    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n",
                    "    call bz_lrecsi\n    mov ax, [bz_frames]         ; RED propclock: the frame count\n"
                    "    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n")],
