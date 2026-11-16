@@ -63,8 +63,9 @@ BONANZA plays on a CGA or a Hercules only - and then:
      the end state the model's;
 
   7  WAVE 4 (SPEC.md 128.14.14): PEAK's shipped demo (V) through D on the
-     Hercules: the launch fetches the course and ALL THREE ball parts (four
-     claims inside), its end state the model's replay of the demo, and at
+     Hercules: the launch fetches the course and ALL THREE ball parts (two
+     claims inside: the course and the ARENA the balls share, SPEC.md
+     128.25.4), its end state the model's replay of the demo, and at
      least one respawn's cut after the first full write - each blanked by
      an OUT to 3B8h, no fault;
   8  W through the Save form into the instance's folder (B:'s root, as
@@ -439,18 +440,22 @@ def bonanzas(b):
 
 def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=None, eq=None):
     """KEY (d or r) on the held log DEMO on the Hercules, to its end: the bracket
-    the Hercules', INSIDE more claims than BASE_CLAIMS while it runs (the course
-    and its balls), the end state the model's replay of DEMO on CRS"""
+    the Hercules', the course and the arena (holding its INSIDE ball rows,
+    128.25.4) claimed while it runs, the end state the model's replay of DEMO
+    on CRS"""
     b.tap(key, gap=300)
     b.until(lambda: pkg.byte("bz_fs") == 1, "%s's bracket" % what, 60000, 100)
     want(pkg.byte("bz_herc") == 1 and pkg.byte("bz_mode") == (3 if key == "d" else 2),
          "%s: on the Hercules in mode %d ([bz_herc] %d, [bz_err] %d)" % (
              what, pkg.byte("bz_mode"), pkg.byte("bz_herc"), pkg.byte("bz_err")))
-    if inside is not None:
+    if inside is not None:                      # INSIDE: the course's ball rows (all in the arena)
         got = claims(b, pkg, hs, eq)
-        want(len(got) == len(base_claims) + SHELL_IN + inside, "%s: inside, %d parts claimed, the shell gone (%d "
-             "claims against %d)" % (
-            what, inside, len(got), len(base_claims)))
+        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls (and the song) are
+                                                    # ONE claim, the arena - the desktop title's (pkg.ar0)
+                                                    # becomes the demo's, as play_case counts it
+        want(len(got) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "%s: inside, the course "
+             "and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the arena "
+             "%d on the desktop)" % (what, inside, len(got), len(base_claims), pkg.ar0))
     b.until(lambda: pkg.byte("bz_fs") == 0, "%s to reach its end" % what, 480000, 250)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
     b.ui_done(limit_ms=30000)
@@ -477,7 +482,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     b.tap("v", gap=300)
     b.until(lambda: bytes(b.memr(pkg.a("bz_rlog"), len(demo))) == demo, "V to load PEAK's demo", 20000, 50)
     b.ui_done(limit_ms=20000)
-    cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo", demo, "peak", inside=4,
+    cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo", demo, "peak", inside=3,
                     base_claims=base_claims, hs=hs, eq=eq)
     # the first full write ASSERTED, a respawn's cut REPORTED: not every
     # respawn cuts (one inside the window scrolls instead), and which of
@@ -509,7 +514,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
          "the demo's %d bytes (%s), the log line a file's ([bz_lsv] %d)" % (
              SAVENAME, len(demo), "equal" if got == demo else "DIFFERENT", pkg.byte("bz_lsv")))
     check_after("8. W and L", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
-    demo_run(b, pkg, "d", "8. D of the loaded log", demo, "peak", inside=4, base_claims=base_claims, hs=hs, eq=eq)
+    demo_run(b, pkg, "d", "8. D of the loaded log", demo, "peak", inside=3, base_claims=base_claims, hs=hs, eq=eq)
     check_after("8. D of the loaded log", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     # 9. the double-click, LAST (a second instance: sel_of would read either after it)
     before = bonanzas(b)

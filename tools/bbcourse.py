@@ -19031,11 +19031,15 @@ def selfcheck(paths=None):
             mr.append("accepted")
         except CourseError as e:
             mr.append("refused" if "music takes" in str(e) else str(e))
-    res.append(("4 `music trial` gives song %d (%s); `music title`, an unknown name and the fanfare %s; the courses' songs %s, "
-                "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
+    # SPEC.md 128.26.5: the desktop's song 0 (`title`) is GONE, so the courses' songs closed up - BENCH
+    # song 0, course K song (K - 1) mod the course songs; `music title` is refused as no song at all
+    ncs = len([x for x in sn if x not in _non_course()])
+    res.append(("4 `music trial` gives song %d (%s); `music title` (no such song since 128.26.5), an unknown name and "
+                "the fanfare %s; the courses' songs %s, 128.20.6's rule as 128.26.5 left it (BENCH 0, K -> (K - 1) mod %d)"
+                % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule, ncs),
                 course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused", "refused"]
-                and rule == [0 if k == 0 else (k - 1) % len([x for x in sn if x not in _non_course()])   # (128.26.5:
-                             for k in range(len(courses))]                    # song 0 gone, one lower)
+                and "title" not in sn
+                and rule == [0 if k == 0 else (k - 1) % ncs for k in range(len(courses))]
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)
