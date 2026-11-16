@@ -208,6 +208,21 @@ sfx tick     inst glock  prio 1 sens 255 : t=1 n=c7 v=9 d=60
 sfx low      inst glock  prio 4 sens 255 : t=4 n=e6 v=13 d=8 ; t=8 n=a5 v=13 d=12
 sfx timeout  inst zap    prio 7 sens 255 : t=36 n=g4 s=-16 v=14 d=4
 
+; WAVE 8R (SPEC.md 128.22.9): the pathway's shell events.  Short, and each its
+; own shape so the ear tells them apart on the speaker: ARRIVE a bright rising
+; two-note chime (the marble resting on a pad, 12 sub-ticks), GATE a crystal
+; slide that climbs and ends in a ping (a gate opening, 27 sub-ticks = 0.5 s),
+; LIFE a falling four-note motif (a life lost, 22), OVER a minor descent to a
+; low toll (game over, 82 sub-ticks = 1.5 s).  LIFE and OVER outrank the FALL
+; that precedes them; OVER outranks LIFE.
+sfx chime    inst glock  prio 4 sens 255 : t=3 n=g6 v=14 ; t=9 n=c7 v=15 d=12
+sfx gate     inst glass  prio 5 sens 255 : t=18 n=c4 s=22 v=11 j=3 ;
+             t=3 n=c7 v=14 ; t=6 n=e7 v=13 d=24 legato
+sfx lifelost inst rubber prio 6 sens 255 : t=4 n=e5 v=14 d=6 ; t=4 n=c5 v=13 d=6 ;
+             t=4 n=g4 v=13 d=6 ; t=10 n=e4 s=-12 v=12 d=10
+sfx gameover inst bumper prio 7 sens 255 : t=8 n=a4 v=14 ; t=8 n=e4 v=14 ;
+             t=8 n=c4 v=14 ; t=8 n=a3 v=14 ; t=50 n=a2 v=15 d=4
+
 ; --- THE EVENT MAP: which effect an event plays, a ball at a time -------------
 
 event LAND    rubber=r_land   steel=s_land   glass=g_land
@@ -230,3 +245,7 @@ event RETURN  all=ret
 event TICK    all=tick
 event LOW     all=low
 event TIMEOUT all=timeout
+event ARRIVE  all=chime
+event GATE    all=gate
+event LIFE    all=lifelost
+event OVER    all=gameover

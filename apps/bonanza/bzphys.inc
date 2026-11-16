@@ -1744,34 +1744,12 @@ bz_fflash:
     ret
 
 %ifdef BZ_SONG_VICTORY
-; bz_fvic - the VICTORY tune over the course's song (a goal's finish; the
-; timeout keeps its effect, a silent play stays silent).  Preserves CX, ES.
+; bz_fvic - the VICTORY tune over the course's song (a goal's finish: the
+; fanfare, fetched beside the song at the play's start, starts with no disk
+; read - bzs_victory, SPEC.md 128.22.9; a timeout keeps its effect, a silent
+; play stays silent: bzs_victory's own tests).  Preserves all.
 bz_fvic:
-    cmp byte [bz_goal], 0
-    je .r
-    cmp byte [bzs_song], 0
-    je .r
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    mov al, [bzs_song]
-    call bzs_dsong
-    mov al, BZ_P_SONG + BZ_SONG_VICTORY
-    call bzs_fsong
-    jc .o
-    call bzs_rstart
-.o:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-.r:
-    ret
+    jmp bzs_victory
 %endif
 
 ; bz_tdset - wave 7 (SPEC.md 128.18.5): bz_tdig from bz_tsec, the clocks'
