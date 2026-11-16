@@ -19,14 +19,20 @@
 BZF_REC     equ 6               ; a slot record (bz_frec): +0 the part's DATA segment,
 BZF_RDSEG   equ 0               ; +2 its CODE segment (both bz_ffetch's: op_seg,
 BZF_RCSEG   equ 2               ; op_cseg), +4 the course's ID and FAMV for it
-BZF_RIDV    equ 4               ; (the row is BZ_P_FAM + ID - 1)
+BZF_RIDV    equ 4               ; (its row bz_ftab's: a fetch family's own, or the bundle's)
 BZ_HK_RESET equ 0               ; the hooks' bit NUMBERS (the dispatchers' AL;
 BZ_HK_ENTER equ 1               ; the masks are bzcourse.inc's BZ_FH_*); hook b's
 BZ_HK_CONT  equ 2               ; entry is the part's word at 12 + 2b
 BZ_HK_STEP  equ 3
 BZ_HK_POSE  equ 4
 BZ_HK_CELL  equ 5
-%if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZF_HDR != 12 + 2 * 6
+BZ_HK_PROP  equ 6               ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone
+                                ; only, its entry at the part's +24
+BZ_PQ_DRAIN equ 0               ; ...its questions (AH): the TUBE family's step-4
+BZ_PQ_CAPTURE equ 1             ; drain, a capture, step 1's transit; the ROTOR
+BZ_PQ_TRANSIT equ 2             ; family's doorway at step 5
+BZ_PQ_DOOR  equ 3
+%if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZ_FH_PROP != 1 << BZ_HK_PROP || BZF_HDR != 12 + 2 * 6
  %error "bzfam.inc's shifts and the hooks' numbering are the tool's (bbcourse.FSLOT, H_*, FAM_HDR)"
 %endif
 
@@ -160,18 +166,20 @@ bz_frst:
 ; -----------------------------------------------------------------------------
 ; bz_ffetch - the course's FAMILY PARTS (SPEC.md 128.25.6.2), right after
 ; bz_crshdr in bz_cload: for each (ID, FAMV) of its family list (BZC2 +45
-; NFAM, +46 FAMOFF), part BZ_P_FAM + ID - 1 fetched and its head checked -
-; 'BF', the ID and FAMV the course names, and the image and bss sizes it was
-; LINKED against, ours (DS:8, DS:10) - its slot record written (its DATA and
-; CODE segments: op_seg, op_cseg, on kern_mega the code selector the far call
-; needs) and its mask ORed into bz_fhk.  A part already here is not read
-; again, so a second call after anything that may MOVE a part (the arena's
-; batch, SPEC.md 128.25.4) re-takes every segment and fetches nothing: the
-; segments are never held across a fetch.  A course with no family leaves
-; bz_fhk and bz_fnf 0.  CF = 1 a fetch was refused (op_fetch toasted why) or
-; a head was not this build's (toasted here through op_say, quiet inside a
-; bracket; never called): what was fetched is bz_cdrop's to give back.  DS = ours.  Preserves ES; clobbers AX, BX, CX,
-; DX, SI, DI.
+; NFAM, +46 FAMOFF), its part row (bz_ftab: a `fetch` family's own, a
+; `resident` one's the BUNDLE, SPEC.md 128.25.6.9, found inside it by
+; bz_fbfind) fetched and its head checked - 'BF', the ID and FAMV the course
+; names, and the image and bss sizes it was LINKED against, ours (DS:8,
+; DS:10) - its slot record written (its DATA and CODE segments: op_seg,
+; op_cseg, on kern_mega the code selector the far call needs) and its mask
+; ORed into bz_fhk.  A part already here is not read again, so a second call
+; after anything that may MOVE a part (the arena's batch, SPEC.md 128.25.4)
+; re-takes every segment and fetches nothing: the segments are never held
+; across a fetch.  A course with no family leaves bz_fhk and bz_fnf 0.  CF =
+; 1 a fetch was refused (op_fetch toasted why) or a head was not this build's
+; (toasted here through op_say, quiet inside a bracket; never called): what
+; was fetched is bz_cdrop's to give back.  DS = ours.  Preserves ES;
+; clobbers AX, BX, CX, DX, SI, DI.
 ; -----------------------------------------------------------------------------
 bz_ffetch:
     push es
@@ -188,20 +196,28 @@ bz_ffetch:
     xchg ax, bx
     mov ax, [es:bx]             ; AL the ID, AH its FAMV
     mov [si + BZF_RIDV], ax
-    add al, BZ_P_FAM - 1
+    mov bx, bz_ftab - 1
+    xlatb                       ; AL = its part row
     push ax
     push si
     call op_fetch               ; (it clobbers AX - DI and ES)
     pop si
-    pop ax
+    pop dx                      ; DL = the row
     jc .out
+    mov al, dl
     call op_cseg
     mov [si + BZF_RCSEG], ax
-    mov al, [si + BZF_RIDV]
-    add al, BZ_P_FAM - 1
+    mov al, dl
     call op_seg
     mov [si + BZF_RDSEG], ax
-    mov es, ax
+%if BZ_NFRES
+    cmp dl, BZ_P_FBUN
+    jne .head
+    call bz_fbfind              ; the family inside the bundle: the record
+    jc .bad                     ; re-aimed at it
+.head:
+%endif
+    mov es, [si + BZF_RDSEG]
     cmp word [es:0], 'BF'
     jne .bad
     mov ax, [es:2]              ; the ID and FAMV
@@ -228,3 +244,55 @@ bz_ffetch:
 .out:                           ; game round's bracket (SPEC.md 53.7); CF = 1
     pop es
     ret
+
+bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.inc)
+    BZ_FTAB
+
+%if BZ_NFRES
+; -----------------------------------------------------------------------------
+; bz_fbfind - record SI's family inside the RESIDENT BUNDLE (SPEC.md 128.25.6.9),
+; whose segments the record holds: the bundle's headers walked from its start,
+; each a part's own but its +11, its PARAGRAPHS there (the step to the next),
+; to the one whose +2 is the record's ID; the record's data segment is then
+; OSAPI_SEG's SEG_SUBC over the bundle's at that paragraph, its reach the
+; family's paragraphs - the bundle's data segment plus them on every real-mode
+; kernel, on kern_mega the data half of a PAIR based there, the same pair
+; each time it is asked (so a second bz_ffetch makes none), moving with the
+; arena and going with it - and its code segment the same distance from it as
+; the bundle's code segment is from the bundle's data: 0 on a real-mode
+; kernel, a pair's -8 on kern_mega (128.25.6.9).  So a part runs at its own
+; org 0 bundled or alone.  CF = 1 no such header, or no selector.  DS = ours.
+; Clobbers AX, BX, CX, DX, ES.
+; -----------------------------------------------------------------------------
+bz_fbfind:
+    mov dx, [si + BZF_RDSEG]    ; the bundle's data segment, its headers' ES
+    mov es, dx
+    sub [si + BZF_RCSEG], dx    ; ...its code segment's distance from it
+    mov dl, [si + BZF_RIDV]     ; DL = the ID
+    xor bx, bx                  ; BX = a header's byte, from the first
+    xor cx, cx
+.w:
+    cmp word [es:bx], 'BF'
+    stc
+    jne .x                      ; (CF = 1: no such family here)
+    mov cl, 4
+    mov ax, bx
+    shr ax, cl                  ; AX = its paragraph in the bundle
+    mov cl, [es:bx + BZF_HPARAS] ; CX = its paragraphs
+    cmp dl, [es:bx + 2]
+    je .hit
+    add ax, cx                  ; the next header's paragraph...
+    mov cl, 4
+    shl ax, cl
+    xchg ax, bx                 ; ...and byte
+    jmp short .w
+.hit:
+    mov dx, [si + BZF_RDSEG]
+    mov bl, SEG_SUBC
+    call OSAPI_SEG              ; DX = its data segment (the pair's data half)
+    jc .x
+    mov [si + BZF_RDSEG], dx
+    add [si + BZF_RCSEG], dx
+.x:
+    ret
+%endif

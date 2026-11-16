@@ -172,8 +172,9 @@ BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
 BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
-BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): family ID n's
-                                ; part BZF<n>.BIN at BZ_P_FAM + n - 1, after every other row
+BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): the family part
+                                ; rows, after every other row: a `fetch` family's own (ID order),
+BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (128.25.6.9); bz_ftab maps an ID
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
@@ -215,6 +216,12 @@ bz_entry:
     call op_load                ; SI is still the kernel's name: FIRST. Every
     pop es                      ; row is lazy, so this copies the name and
     jc .out                     ; claims nothing
+%if BZ_NFRES
+    push es                     ; story 9.8 (SPEC.md 128.25.6.9): the RESIDENT
+    mov al, BZ_P_FBUN           ; families' BUNDLE, one read, the arena's floor
+    call op_fetch               ; before anything else enters it (refused, op_fetch
+    pop es                      ; said why: the first course naming one tries again)
+%endif
     call bz_argget              ; a double-clicked document's name, copied out
                                 ; while ES is still the kernel's (128.14.7.5)
     mov si, bz_tpl
@@ -2530,13 +2537,13 @@ bz_cdrop:
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
     mov word [bz_fhk], 0        ; wave 9 (SPEC.md 128.25.6.2): no hook active
-%if BZ_NFAM                     ; (and bz_fnf 0), the FAMILY parts first, the
-    mov ax, BZ_P_FAM + BZ_NFAM  ; reverse of the fetch's order (a row not here
-.dfam:                          ; is a no-op, so a course with none drops none;
-    dec ax                      ; a build with none has no loop: it would end
-    call op_drop                ; at BZ_P_FAM - 1, the title demo's row)
-    cmp al, BZ_P_FAM            ; (op_drop preserves AX)
-    ja .dfam
+%if BZ_NFFETCH                  ; (and bz_fnf 0), the FETCHED families' parts
+    mov ax, BZ_P_FAM + BZ_NFFETCH ; first, the reverse of the fetch's order (a
+.dfam:                          ; row not here is a no-op, so a course with none
+    dec ax                      ; drops none; a build with none has no loop) -
+    call op_drop                ; never the RESIDENT BUNDLE, the last row (SPEC.md
+    cmp al, BZ_P_FAM            ; 128.25.6.9: the arena's floor). (op_drop
+    ja .dfam                    ; preserves AX)
 %endif
     mov al, BZ_P_BALR + BZ_NMAT - 1 ; the balls, the highest first: the arena's
 .dball:                         ; fetch order backwards (SPEC.md 128.25.4.2)
@@ -4895,7 +4902,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFAM
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFROW
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 2  BZBALG.BIN  glass
@@ -4911,7 +4918,7 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
 %endif
-    BZ_FAM_PARTS                            ; BZ_P_FAM + ID - 1: BZF<ID>.BIN, far-called (128.25.6.2)
+    BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (128.25.6.9)
 OS88_PARTS_END
 %if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"

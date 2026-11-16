@@ -190,9 +190,16 @@ def balls(crs, mat):
 
 
 def title_rows():
-    """the rows the desktop's song held while the window was open: NONE since
-    SPEC.md 128.26.5 (the window is silent)"""
-    return set()
+    """the rows held while the window is open: the desktop's song's held none
+    since SPEC.md 128.26.5 (the window is silent); story 9.8 (SPEC.md
+    128.25.6.9): the RESIDENT families' BUNDLE, one row (BZ_P_FBUN), fetched
+    once at the start and never dropped"""
+    import re
+    link = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzlink.inc")).read()
+    nr = re.search(r"^BZ_NFRES\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M)
+    if not nr or not int(nr.group(1), 0):
+        return set()
+    return {int(re.search(r"^BZ_P_FBUN\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M).group(1), 0)}
 
 
 def shell_row():

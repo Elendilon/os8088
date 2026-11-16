@@ -21,7 +21,7 @@ org 0
 %include "bzcourse.inc"         ; the course tables' equates (BZ_FK0, BZP_FSB, ...)
 %include "bzlink.inc"           ; the package's constants and bss (pxlink)
 
-PR_ID       equ 1
+PR_ID       equ BZ_FID_PROBE    ; (bzcourse.inc's: never a literal, SPEC.md 128.25.6.2)
 PR_KIND     equ BZ_FK0
 
     db 'BF'
