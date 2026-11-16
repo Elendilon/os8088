@@ -22120,7 +22120,7 @@ bonanza-music-check:
 	python3 tools/bbmusic.py --selfcheck
 
 $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzwheel.inc apps/bonanza/bzphys.inc \
-                      apps/bonanza/bzsound.inc apps/bonanza/bzfam.inc drivers/sound/sndpkg.inc \
+                      apps/bonanza/bzsound.inc apps/bonanza/bzfam.inc apps/bonanza/bzballgen.inc drivers/sound/sndpkg.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
