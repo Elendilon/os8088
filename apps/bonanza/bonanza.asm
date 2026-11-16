@@ -2578,6 +2578,7 @@ bz_cdrop:
 bz_crshdr:
     push es
     mov es, [bz_cseg]
+    call bz_fsbset              ; SPEC.md 128.27.7: the FIELD tables' offsets
     mov ax, [es:BZC_COLS]
     mov [bz_cols], ax
     mov ax, [es:BZC_BROWS]
@@ -2774,6 +2775,8 @@ bz_cexp:
 ; CX, DX.
 bz_dfind:
     xor ax, ax
+    mov [bz_ffo], ax
+    mov [bz_ffe], ax
     mov [bz_dlo], ax
     mov [bz_dhi], ax
     mov [bz_clo], ax
@@ -2791,6 +2794,13 @@ bz_dfind:
     mov [bz_dhi], dx
     jmp short .n
 .c:
+    cmp al, 'F'                 ; (SPEC.md 128.27.2: the FIELD tables)
+    jne .c2
+    mov [bz_ffo], dx
+    add dx, [es:bx + BZX_LEN]
+    mov [bz_ffe], dx
+    jmp short .n
+.c2:
     cmp al, 'C'
     jne .n
     mov [bz_clo], dx
@@ -2800,6 +2810,32 @@ bz_dfind:
     add bx, BZX_ENTB
     loop .e
 .r:
+    ret
+
+; bz_fsbset - bz_fsb[i] = section F's offset + 289 i (SPEC.md 128.27.7): the
+; tables bz_fhp reads, off the directory (no F: offsets from 0, never read -
+; no cell is a FIELD one).  ES = the part.  Clobbers AX, BX, CX.
+bz_fsbset:
+    xor ax, ax
+    mov bx, [es:BZC_DIROFF]
+    mov cx, [es:BZC_NSEC]
+    jcxz .f
+.e:
+    cmp byte [es:bx], 'F'
+    jne .n
+    mov ax, [es:bx + BZX_OFF]
+.n:
+    add bx, BZX_ENTB
+    loop .e
+.f:
+    mov bx, bz_fsb
+    mov cl, BZ_FSHAPE_MAX
+.t:
+    mov [bx], ax
+    add ax, BZ_FTAB
+    inc bx
+    inc bx
+    loop .t
     ret
 
 ; bz_drec - ES:SI a cell of kind AL (4 - 15): CF = 0 and SI its records'
@@ -2838,7 +2874,9 @@ bz_drec:
 ; flat, VOID, no flags), and every record of D a kind 0 - 3 (above: VOID) -
 ; so the step's window (bz_wsplit) and bz_blocks read only D and only a
 ; record of 128.24.5.2's kinds.  A part the tool built has neither (its
-; read_part checks them).  ES = the part.  Clobbers AX, BX, SI.
+; read_part checks them).  SPEC.md 128.27.2: a FIELD cell whose shape is not
+; inside F, or whose +1 has bit 7, becomes OPEN.  ES = the part.  Clobbers AX,
+; BX, CX, DX, SI.
 bz_dval:
     mov bx, [bz_clo]
 .c:
@@ -2848,14 +2886,30 @@ bz_dval:
     and al, 0fh
     cmp al, BZ_KTB
     jb .cn
+    cmp al, BZ_KFIELD           ; a FIELD cell: its shape inside F, bit 7
+    je .cf                      ; of its +1 clear (else OPEN)
     mov si, bx
     call bz_drec
     jnc .cn
+.co:
     mov word [es:bx], BZ_ZOPEN
     mov word [es:bx + 2], 0
 .cn:
     add bx, 4
     jmp short .c
+.cf:
+    mov al, [es:bx + 1]
+    test al, 80h
+    jnz .co
+    and ax, 0fh
+    mov si, BZ_FTAB
+    mul si                      ; (launch-only: one MUL a FIELD cell)
+    add ax, BZ_FTAB
+    add ax, [bz_ffo]
+    jc .co
+    cmp ax, [bz_ffe]
+    ja .co
+    jmp short .cn
 .d:
     mov bx, [bz_dlo]
 .r:
@@ -3157,7 +3211,7 @@ bz_cxcel:
     jz .scn                     ; VOID: no corner
     call bz_cxsafe
     test byte [es:si + 2], 0ch  ; D3: a SPLIT cell (kind 4 - 15): its V by its
-    jnz .ssp                    ; records (128.24.5.3)
+    jnz .ssp                    ; records (128.24.5.3); 128.27.2: a FIELD's, its z0's
     mov dx, [es:si]             ; DL = z0, DH = sy : sx
     call .v
 .ly:                            ; AL = V, what this cell lays
@@ -3276,8 +3330,17 @@ bz_cxcel:
 .lv:
     ret
 .ssp:                           ; D3: a split cell's V, the least of its
-    push si                     ; records' that are not VOID (FFh: none, or
-    push cx                     ; records bz_drec refuses)
+    mov al, [es:si + 2]         ; records' that are not VOID (FFh: none, or
+    and al, 15                  ; records bz_drec refuses) - or a FIELD cell's,
+    cmp al, BZ_KFIELD           ; z0 + 79h (SPEC.md 128.27.2: its +1 is not
+    jne .ssq                    ; slopes)
+    mov dl, [es:si]
+    xor dh, dh
+    call .v
+    jmp .ly
+.ssq:
+    push si
+    push cx
     mov al, [es:si + 2]
     and al, 15
     mov ah, 0ffh
@@ -3349,6 +3412,11 @@ bz_cxsafe:
     or ah, ah                   ; Preserves all but AX
     ret
 .vs:
+    cmp ah, BZ_KFIELD           ; SPEC.md 128.27.2: a FIELD neighbour is not VOID
+    jne .vs2
+    or ah, ah                   ; (ZF clear: AH is 7)
+    ret
+.vs2:
     push bx
     push si
     mov bl, al
@@ -4955,6 +5023,9 @@ VAR bz_dlo,2                    ; D3 (SPEC.md 128.24.5.2): the part's section D,
 VAR bz_dhi,2                    ; [bz_dlo, bz_dhi) (0, 0 none), and C, the cells
 VAR bz_clo,2                    ; (bz_cexp's, from the directory: every split
 VAR bz_chi,2                    ; cell's offset is bounded inside D, bz_drec)
+VAR bz_ffo,2                    ; SPEC.md 128.27.2: section F, [bz_ffo, bz_ffe) (0, 0
+VAR bz_ffe,2                    ; none: bz_dfind's), and each table's offset in the
+VAR bz_fsb,2 * BZ_FSHAPE_MAX    ; part (bz_dval's; bzphys.inc's bz_fhp reads them)
 VAR bz_shpend,2                 ; byte 1: a paint put off while a course was held (a word: the run stays even)
 ; the game (wave 8b, SPEC.md 128.19.5): the pathway's state, held in memory
 VAR bz_nopen,4                  ; a bit a pad: OPEN (pad 0 from a new game's start; a dword)

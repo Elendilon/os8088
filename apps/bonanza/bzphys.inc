@@ -1542,6 +1542,8 @@ bz_step:
     jmp .end
 .ngs:                           ; step 6: a GOAL, or a SPLIT centre - its
     je .ngg                     ; picked RECORD is C from here (128.24.7.1)
+    cmp al, BZ_KFIELD           ; (SPEC.md 128.27.5.1: a FIELD centre's table
+    je .nfld                    ; at the point, and the slopes there)
     call bz_srec
     mov [bz_srp], si            ; (and step 8's: the centre does not move)
     mov al, [si + 2]
@@ -1552,7 +1554,12 @@ bz_step:
     jne .nf2
 .ngg:
     jmp .solid
+.nfld:
+    call bz_fh4                 ; BX = h4, SI = C
+    jmp .psolid
 .sgoal:                         ; step 8: the split centre's record a GOAL?
+    cmp al, BZ_KFIELD           ; (a FIELD centre never is, 128.27.5.2)
+    je .sgx
     mov si, [bz_srp]            ; (step 6's pick)
     mov al, [si + 2]
     and al, 0fh
@@ -3436,6 +3443,8 @@ bz_blocks:
 .other2:
     cmp al, BZ_KGOAL
     je .plane
+    cmp al, BZ_KFIELD           ; SPEC.md 128.27.5.3: a FIELD cell
+    je .field
     ; D3 (SPEC.md 128.24.7.3 - 128.24.7.4): a SPLIT window cell is tested by
     ; its RECORD - an edge neighbour's that owns the shared edge, a corner
     ; neighbour's at K (either of two, the first that blocks), the centre's
@@ -3473,7 +3482,50 @@ bz_blocks:
     jmp bz_blocks
 .r1:
     ret
+.field:                         ; a FIELD record: never from a FIELD centre's
+    cmp si, bz_nbr + BZN_C      ; edges and corner (field to field); else by
+    je .fpl                     ; its height at the point, as a plane's (and
+    mov bl, [bz_nbr + BZN_C + 2] ; the fallback, SI the centre, so)
+    and bl, 0fh
+    cmp bl, BZ_KFIELD
+    je .no
+.fpl:
+    push di                     ; (bz_blocks keeps DI: bz_corner's)
+    call bz_fhp
+    pop di
+    jmp short .cmp
+.lift:                          ; a FIELD centre's LIFT (128.27.5.3): AX = the
+    push dx                     ; neighbour's h4; it blocks only above C's own
+    push si                     ; at the same point (in C's units) + the climb
+    push di
+    push ax
+    mov bx, si
+    sub bx, bz_nbr
+    shr bx, 1
+    mov ax, [bz_fmap + bx]      ; (16 dx, 16 dy) of this window cell
+    add dl, al
+    add dh, ah
+    mov si, bz_nbr + BZN_C
+    call bz_fhp
+    add ax, BZ_CLIMB * 4
+    pop bx
+    pop di
+    pop si
+    pop dx
+    cmp ax, bx
+    jl .h2                      ; above it: on to the blocking tests
+    clc
+    ret
 .high:
+    cmp si, bz_nbr + BZN_SE     ; an edge or a corner cell of the window (not
+    ja .h2                      ; the centre: the fallback is not lifted) ...
+    cmp si, bz_nbr + BZN_C
+    je .h2
+    mov bl, [bz_nbr + BZN_C + 2] ; ... of a FIELD centre: the lift
+    and bl, 0fh
+    cmp bl, BZ_KFIELD
+    je .lift
+.h2:
     test byte [si + 3], BZ_FL_OBS ; wave 3: a BUMPER's post cell never blocks
     jnz .obs                    ; (128.12.6.5 step 5; never set with no prop
 .yes:                           ; in the window)
@@ -3618,6 +3670,8 @@ bz_wsplit:
     and al, 0fh
     cmp al, BZ_KTB
     jb .n
+    cmp al, BZ_KFIELD           ; (SPEC.md 128.27: a FIELD cell is none)
+    je .n
     mov dl, 8
     push ax                     ; bz_nbp: this cell's record(s) for bz_blocks,
     push bx                     ; BZ_SPLIT_WIN's entry made offsets in bz_nbh
@@ -3686,6 +3740,8 @@ bz_wsplit:
     and al, 0fh
     cmp al, BZ_KTB
     jb .r
+    cmp al, BZ_KFIELD
+    je .r
     jmp bz_srec
 .r:
     ret
@@ -4674,7 +4730,7 @@ bz_wtail:
     cmp cl, BZ_KFLOOR
     je .sl
     cmp cl, BZ_KGOAL
-    jne .nosl
+    jne .nfs
 .sl:
     mov al, [si + 1]            ; sy : sx, signed nibbles
     or al, al
@@ -4691,6 +4747,7 @@ bz_wtail:
 .nosl:
     mov [bz_tsx], dx
     mov [bz_tsy], ax
+.slset:
     mov al, [bz_nbr + BZN_C + 2] ; the centre's SURFACE (whatever its kind): a
     mov cl, 4                   ; new one rebuilds the step's force, drag,
     shr al, cl                  ; brake and floor e (128.11.7.1)
@@ -4733,6 +4790,149 @@ bz_wtail:
     pop ax
 .fx:
     ret
+
+; (bz_wtail's, out of its line: a centre neither FLOOR nor GOAL - a FIELD
+; one's slopes at the ball's point, SPEC.md 128.27.5.1)
+bz_wtail.nfs:
+    cmp cl, BZ_KFIELD
+    jne bz_wtail.nosl
+    call bz_fh4
+    jmp bz_wtail.slset
+
+; =============================================================================
+; SPEC.md 128.27: FIELD CELLS - a cell's floor a 17 x 17 table of section F
+; through one of the square's eight symmetries.  bz_fsb (bz_cexp's) holds each
+; table's offset in the course; BZ_FSYM's entry, 16 x the symmetry, the
+; origin (the index of (0, 0)), the strides DU, DV and the two walks.
+; =============================================================================
+
+; bz_fhp - SI = a FIELD cell's 4 bytes (DS), DL = u, DH = v (0 .. 16), ES =
+; the course -> AX = h4 there, 16 z0 + F[17 V + U] (quarter px); DI = that
+; byte's offset in ES, BX = 16 x the symmetry (bz_fh4's).  Preserves CX, DX,
+; SI, BP.
+bz_fhp:
+    push si
+    mov bl, [si + 1]            ; shape : symmetry
+    xor bh, bh
+    mov di, bx
+    and di, 0fh
+    shl di, 1
+    mov di, [bz_fsb + di]       ; the table
+    and bl, 70h                 ; BX = 16 x the symmetry: its BZ_FSYM entry
+    add di, [bz_fsymt + bx]     ; + the origin
+    mov si, [bz_fsymt + bx + 6] ; + u's walk: u DU
+    mov al, dl
+    xor ah, ah
+    shl ax, 1
+    add si, ax
+    add di, [si]
+    mov si, [bz_fsymt + bx + 8] ; + v's: v DV
+    mov al, dh
+    xor ah, ah
+    shl ax, 1
+    add si, ax
+    add di, [si]
+    pop si
+    mov al, [si]                ; 16 z0 + the byte
+    cbw
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add al, [es:di]
+    adc ah, 0
+    ret
+
+; bz_fh4 - the window centre, a FIELD cell, at the ball's integer point:
+; BX = its h4 (step 6's floor), and bz_tsx, bz_tsy its slopes there - the
+; forward differences F[i + DU] - F[i], F[i + DV] - F[i] (128.27.2).  SI =
+; the centre.  ES = the course.  Clobbers AX, CX, DX, DI.
+bz_fh4:
+    mov si, bz_nbr + BZN_C
+    mov dl, [bz_gx + 1]
+    and dl, 15
+    mov dh, [bz_gy + 1]
+    and dh, 15
+    call bz_fhp
+    push ax
+    mov cl, [es:di]
+    xor ch, ch
+    mov dx, di
+    add di, [bz_fsymt + bx + 2]
+    mov al, [es:di]
+    xor ah, ah
+    sub ax, cx
+    mov [bz_tsx], ax
+    mov di, dx
+    add di, [bz_fsymt + bx + 4]
+    mov al, [es:di]
+    xor ah, ah
+    sub ax, cx
+    mov [bz_tsy], ax
+    pop bx
+    ret
+
+; BZ_FSYM: a symmetry s (bit 0 MU, 1 MV, 2 SW) -> 16 bytes: the index of
+; (0, 0), DU, DV, u's walk, v's walk (the multiples of DU, DV, 0 - 16), pad
+%macro BZ_FSYMENT 1
+ %assign %%mu (%1) & 1
+ %assign %%mv ((%1) >> 1) & 1
+ %if (%1) & 4
+  %assign %%o 17 * 16 * %%mu + 16 * %%mv
+  %assign %%du 17 * (1 - 2 * %%mu)
+  %assign %%dv 1 - 2 * %%mv
+ %else
+  %assign %%o 17 * 16 * %%mv + 16 * %%mu
+  %assign %%du 1 - 2 * %%mu
+  %assign %%dv 17 * (1 - 2 * %%mv)
+ %endif
+    dw %%o, %%du, %%dv
+ %if %%du == 1
+    dw bz_fkp1
+ %elif %%du == -1
+    dw bz_fkm1
+ %elif %%du == 17
+    dw bz_fkp17
+ %else
+    dw bz_fkm17
+ %endif
+ %if %%dv == 1
+    dw bz_fkp1
+ %elif %%dv == -1
+    dw bz_fkm1
+ %elif %%dv == 17
+    dw bz_fkp17
+ %else
+    dw bz_fkm17
+ %endif
+    dw 0, 0, 0
+%endmacro
+bz_fsymt:
+%assign bz_s 0
+%rep 8
+    BZ_FSYMENT bz_s
+ %assign bz_s bz_s + 1
+%endrep
+%macro BZ_FWALK 1
+ %assign bz_k 0
+ %rep 17
+    dw (%1) * bz_k
+  %assign bz_k bz_k + 1
+ %endrep
+%endmacro
+bz_fkp1:
+    BZ_FWALK 1
+bz_fkm1:
+    BZ_FWALK -1
+bz_fkp17:
+    BZ_FWALK 17
+bz_fkm17:
+    BZ_FWALK -17
+; the lift's offsets: each window cell's (16 dx, 16 dy), bz_nbr's order
+bz_fmap:
+    db -16, -16, 0, -16, 16, -16
+    db -16, 0, 0, 0, 16, 0
+    db -16, 16, 0, 16, 16, 16
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =
 ; BZ_SURFTAB's entry for [bz_mat] on it (force, drag shift, brake, floor e),
