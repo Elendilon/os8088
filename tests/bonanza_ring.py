@@ -4433,8 +4433,8 @@ REDS = {
     "hidden": [("bzgame.inc", "    cmp byte [bz_hidn], 0       ; a HIDDEN ball (in a tube, or holed) has no\n"
                 "    jne .hid                    ; new footprint: its old one alone, restored\n",
                 "    nop                         ; RED hidden: a hidden ball boxed as any\n"),
-               ("bzvideo.inc", "    cmp byte [bz_hidn], 0\n    jne .nob\n    mov ax, [bz_py]\n",
-                "    mov ax, [bz_py]             ; RED hidden: its sprite composed in a tube\n")],
+               ("bzvideo.inc", "    cmp byte [bz_hidn], 0       ; hidden: nothing\n    jne .nob\n",
+                "    nop                         ; RED hidden: its sprite composed in a tube\n")],
 }
 # wave 6 (SPEC.md 128.16.14): the camera's ground line broken five ways, and the stretch never drawn
 REDS["camz"] = [("bzgame.inc", ".cgl:\n    add bp, ax                  ; BP = cy + 8\n",

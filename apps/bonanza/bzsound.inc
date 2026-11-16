@@ -183,6 +183,8 @@ VAR bzs_snap,1                  ; 0 until the counters have been read once
 VAR bzs_last,2 * BZS_NCTR       ; the counters, the last frame's (bzs_ctr0..)
 VAR bzs_lgoal,1                 ; bz_goal, the last frame's
 VAR bzs_lsum,2                  ; ...and the counters' sum
+VAR bzs_lfev,2                  ; ...and bz_nfev (wave 9: a family's events, the
+                                ; PICKUP sound, SPEC.md 128.25.19)
 VAR bzs_ltsec,2                 ; wave 7: bz_tsec, the last frame's (the clock's events)
 VAR bz_nwall,2                  ; SOUND STATE the physics writes and never
 VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 128.20.5): wall
@@ -607,6 +609,7 @@ bzs_events:
     add ax, [bzs_ctr %+ BZS_I]
  %assign BZS_I BZS_I + 1
 %endrep
+    add ax, [bz_nfev]           ; (wave 9: a family's events join the sum alone)
     cmp ax, [bzs_lsum]
     jne .moved
     mov al, [bz_goal]
@@ -640,6 +643,15 @@ bzs_events:
     jnc .c
     mov cl, 16 - BZS_NCTR
     shr dx, cl
+    mov ax, [bz_nfev]           ; wave 9 (SPEC.md 128.25.19): a family's EVENT,
+    cmp ax, [bzs_lfev]          ; PICKUP (DX has no bit left for it: played here,
+    je .goal                    ; the rest of the frame's events after it)
+    mov [bzs_lfev], ax
+    cmp byte [bzs_snap], 0
+    je .goal
+    mov ah, [bz_mat]
+    mov al, BZS_E_PICKUP
+    call bzs_trig0
 .goal:
     mov al, [bz_goal]
     xchg al, [bzs_lgoal]
