@@ -591,6 +591,17 @@ These follow CLAUDE.md's waves and testing rules:
   part-way on this rule (`bonanzacourse` ok; `bonanzamega` a harness timing
   miss at its lift ride; `bonanzaring`'s probe settling at R0 3 on `BENCH`,
   reproduced with `e4da75a`'s physics, so older than both rounds and open).
+- **The HOST checks are owed by what a change touched, not run as one
+  chain after every action** (2026-11-16, docs/TESTING.md *BONANZA's host
+  checks: what a change owes*): a guest-only change owes `make bonanza`,
+  `make bonanza-check`, `bonanza_phys.py --check` and `bonanza_ring.py
+  --check-reds` (about 75 s); a course or demo change adds the
+  selfcheck; a `bbcourse.py` change the selfcheck SECTIONS it reaches
+  (`--selfcheck --only ...`); a merge of verified branches with no code
+  conflict `make bonanza` and `make bonanza-check` alone; and the whole
+  chain runs once at a phase end, in the background. The chain itself went
+  from 23 minutes to 5.5 (a compile cache, forked sections, the Y0
+  probes' shared reach), every proof's verdict and the built art unchanged.
 - **`test-full` runs when major work merges to `elendilon`**: at gate 2
   and at release 1.
 - The whole soak tier is never run unless the owner asks for it.
