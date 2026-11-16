@@ -12,6 +12,9 @@ of falling through to the hole in the bottom".
 
 ## Where it stands
 
+**C0 - C4 BUILT** (SPEC.md 128.27 "Built so far"), with C4 partly: the pit
+is not on a shipped course (story C4.1). The rows below are named, not run.
+
 Branch `bounce-shaped`, cut from `bounce-bonanza` at `38d7a1f`. It is kept
 apart from `bounce-ground` (which changes how block faces extend into the
 void, `draw_ops`' `FACE8`, and SPEC.md 128.15.8's budget): this branch
@@ -41,35 +44,35 @@ leaves both alone, so the two merge without meeting.
 
 | # | story | verified by |
 |---|---|---|
-| C1.1 [ ] | `FieldTile` beside `Tile` and `Split`; kind 7 `KIND_FIELD`; `BZ_KFIELD` in `bzcourse.inc` (replacing `BZ_KCHANNEL`) | `--selfcheck` |
-| C1.2 [ ] | the grammar: `chute` and `pit`, the refusals of 128.27.3 as string cases | `--selfcheck`'s field item, each refusal named |
-| C1.3 [ ] | the generator: straights (level and sloped), tapers, 1- and 2-wide radial corners, the pit; the normalisation and the table search over the 8 symmetries; the slope bound and the SEAM rule | `--selfcheck`: every table under every symmetry against its world function; red arms (a symmetry's mirror wrong, a seam off by one) |
-| C1.4 [ ] | the grid and section `F`: `build_cells`, `GF_FIELD`, the encoder, `decode_part`, `read_part` (and its refusals), the CELLS rule (`V` of kind 7), `expand == RAM` | `--selfcheck` item 10 on a field course; reader refusals |
-| C1.5 [ ] | the picture: facets, culling, inks, faces along the profile; the occluder key; previews CGA and Hercules | the PNGs, looked at |
-| C1.6 [ ] | every shipped course's part byte for byte unchanged | the identities before and after |
+| C1.1 [x] | `FieldTile` beside `Tile` and `Split`; kind 7 `KIND_FIELD`; `BZ_KFIELD` in `bzcourse.inc` (replacing `BZ_KCHANNEL`) | `--selfcheck` |
+| C1.2 [x] | the grammar: `chute` and `pit`, the refusals of 128.27.3 as string cases | `--selfcheck`'s field item, each refusal named |
+| C1.3 [x] | the generator: straights (level and sloped), tapers, 1- and 2-wide radial corners, the pit; the normalisation and the table search over the 8 symmetries; the slope bound and the SEAM rule | `--selfcheck`: every table under every symmetry against its world function; red arms (a symmetry's mirror wrong, a seam off by one) |
+| C1.4 [x] | the grid and section `F`: `build_cells`, `GF_FIELD`, the encoder, `decode_part`, `read_part` (and its refusals), the CELLS rule (`V` of kind 7), `expand == RAM` | `--selfcheck` item 10 on a field course; reader refusals |
+| C1.5 [x] | the picture: facets, culling, inks, faces along the profile; the occluder key; previews CGA and Hercules | the PNGs, looked at |
+| C1.6 [x] | every shipped course's part byte for byte unchanged | the identities before and after |
 
 ### Wave C2: the model
 
 | # | story | verified by |
 |---|---|---|
-| C2.1 [ ] | `Physics`: the floor and the slopes of a FIELD centre, the edges and the corner with the lift and the field-to-field rule, the fallback unlifted; never SAFE, GOAL or FIRM | `--selfcheck` scripted runs, red arms (no lift, field neighbours blocking) |
-| C2.2 [ ] | the reach (`build_reach`), the exits, NO TRAP, the occluders on a field course | `--selfcheck`, a field course compiles |
-| C2.3 [ ] | the tuning: the corner carries round for 1- and 2-wide at several speeds, flies out over the lip when too fast, comes to rest without a dither; the pit's ride round against its fall through. The profiles' constants written into 128.27.4 | the scripted runs' table in the diary |
+| C2.1 [x] | `Physics`: the floor and the slopes of a FIELD centre, the edges and the corner with the lift and the field-to-field rule, the fallback unlifted; never SAFE, GOAL or FIRM | `--selfcheck` scripted runs, red arms (no lift, field neighbours blocking) |
+| C2.2 [x] | the reach (`build_reach`), the exits, NO TRAP, the occluders on a field course | `--selfcheck`, a field course compiles |
+| C2.3 [x] | the tuning: the corner carries round for 1- and 2-wide at several speeds, flies out over the lip when too fast, comes to rest without a dither; the pit's ride round against its fall through. The profiles' constants written into 128.27.4 | the scripted runs' table in the diary |
 
 ### Wave C3: the guest
 
 | # | story | verified by |
 |---|---|---|
-| C3.1 [ ] | `bzphys.inc`: `bz_fhp`, `bz_fh4`, the hooks of 128.27.7, `BZ_FSYM`, `bz_fsb`; `bonanza.asm`: `bz_cxcel`'s `V`, the hostile bound | unicorn: the guest equals the model step for step on field courses (`tests/bonanza_dsplit.py` extended), a HOSTILE field part reads nothing outside the part |
-| C3.2 [ ] | the cost: ONE MartyPC measurement of the field step and the occluder cost in a channel, against 128.27.8 | the number, in 128.27.8 and the diary |
-| C3.3 [ ] | `make bonanza`: image and bss delta measured | 128.27.8 |
+| C3.1 [x] | `bzphys.inc`: `bz_fhp`, `bz_fh4`, the hooks of 128.27.7, `BZ_FSYM`, `bz_fsb`; `bonanza.asm`: `bz_cxcel`'s `V`, the hostile bound | unicorn: the guest equals the model step for step on field courses (`tests/bonanza_dsplit.py` extended), a HOSTILE field part reads nothing outside the part |
+| C3.2 [x] | the cost: ONE MartyPC measurement of the field step and the occluder cost in a channel, against 128.27.8 | the number, in 128.27.8 and the diary |
+| C3.3 [x] | `make bonanza`: image and bss delta measured | 128.27.8 |
 
 ### Wave C4: the showcase
 
 | # | story | verified by |
 |---|---|---|
-| C4.1 [ ] | PLAYGROUND (or a new test course): a 2-wide chute with two curved corners, a 1-wide chute, a sloped leg, a pit | compiles; previews looked at, CGA and Hercules |
-| C4.2 [ ] | the bonanza disk builds | `make bonanzadisk` |
+| C4.1 [~] | PLAYGROUND (or a new test course): a 2-wide chute with two curved corners, a 1-wide chute, a sloped leg, a pit | **PARTLY**: PLAYGROUND carries the 2-wide chute (two radial corners, a climbing leg, a falling one) and the 1-wide chute; the PIT does not fit (its RECB 8 layout would be 73.7KB, SPEC.md 128.27.8) and a new course is a tour course (MAIN's 13 lines are full: `bzface.inc`), so the pit is in `--selfcheck`'s PIT course and the guest's harness only - the owner's call where it goes. Previews looked at, CGA and Hercules |
+| C4.2 [x] | the bonanza disk builds | `make bonanzadisk` |
 
 ## The rows (named, run once in the final pass)
 
