@@ -414,6 +414,17 @@ def build_rec(art=None):
     return int(m_.group(1)) if m_ else 8
 
 
+def prefetch(names):
+    """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
+    course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
+    rec = build_rec()
+    todo = [n for n in names if (os.path.join(ROOT, COURSES[n]), rec) not in _COURSE]
+    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _rec=rec),
+                                          todo)):
+        if e is None:
+            _COURSE[(os.path.join(ROOT, COURSES[n]), rec)] = c
+
+
 def course(name, src=None, art=None):
     """bbcourse's compile of a course, once a process (a few seconds each),
     its RAM form (c.cga, c.part's offsets) under the ART's RECB (build_rec).
@@ -4523,12 +4534,19 @@ def nodither_art(td):
     shutil.copytree(at("build/bonanza-art"), art)
     rec = build_rec()
     CRS_K["bench"]                              # (fills the table)
-    for name, k in sorted(CRS_K.items(), key=lambda kv: kv[1]):
+    order = sorted(CRS_K.items(), key=lambda kv: kv[1])
+    # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
+    und = dict(zip([n for n, _k in order], BB.par_map(
+        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}, _rec=rec),
+        [n for n, _k in order])))
+    for name, k in order:
         f = os.path.join(art, "BZ%d.BIN" % k)
         c = course(name)
         if open(f, "rb").read() != c.stored:
             raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (f, name))
-        u = BB.compile_course(os.path.join(ROOT, COURSES[name]), _hack={"no_dither": True}, _rec=rec)
+        u, e = und[name]
+        if e is not None:
+            raise e
         ram = bytearray(u.cga)
         g = struct.unpack_from("<H", ram, 26)[0]
         struct.pack_into("<H", ram, g + 18, c.ident)
@@ -4591,6 +4609,8 @@ def main():
                     help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
     if a.check_reds:
+        COURSES["bench"]                        # (fills the table)
+        prefetch(sorted(COURSES))               # (the host half reads every shipped course)
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)
         gbad, gsay = ground_check()             # wave 6: the GROUND leg's host half
