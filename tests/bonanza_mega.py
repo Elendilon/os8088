@@ -678,8 +678,10 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
          "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
-    want(len(inside) == len(base_claims) + SHELL_IN + 1 + nballs, "10. inside: the course and its %d ball rows claimed, the shell gone (%d "
-         "claims against %d)" % (nballs, len(inside), len(base_claims)))
+    fan = 1 if pkg.word("bzs_vseg") else 0      # 8R (SPEC.md 128.22.9): a play of a course with music holds
+                                                # the VICTORY fanfare beside its song
+    want(len(inside) == len(base_claims) + SHELL_IN + 1 + nballs + fan, "10. inside: the course and its %d ball rows "
+         "claimed (and %d fanfare), the shell gone (%d claims against %d)" % (nballs, fan, len(inside), len(base_claims)))
     steps(b, pkg, 5, "the PLAYGROUND's first steps")
     rd = _PkgS(b, pkg)
     boosted, tries = False, 0
