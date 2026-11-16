@@ -2719,6 +2719,54 @@ pause on UR that keeps its shatter near the end.
 equal to the model at its end, one full write) and Hercules (demo 3). One
 boot to look: the plaque, the label and the arch on MartyPC's CGA.
 
+## 2026-11-16 (wave 8R: the path screen, built by seven agents in an afternoon)
+
+The owner answered the ten questions, and the answers made the design small:
+pages scroll only when the marble leaves them; it stops at every pad; a
+diagonal route answers both of its arrows; gates, not dither; a secret route
+appears as it is first rolled; each finish kind has its own rule, and a
+checkered finish lets the ball roll off an edge without dying. Mid-build
+they added the last of those, and that the screen must not scroll during the
+finish.
+
+SPEC.md 128.22 was written first, then the work fanned out
+(`story-fanout`): the course tool (Opus), the finish sequence, the cards and
+save, the sounds and the art (Sonnet), then the guest's pathway (Opus) once
+the tool's formats were fixed. Every branch got an independent Opus
+verifier, and every verifier found something real: the art's picture origin
+had its sign wrong; the finish froze the windmills while the ball rolled on
+and turned a timeout into a finish when a cup was met; an EXPLORE save
+emptied its slot, bests and all; the re-stamp of the old demos would have
+accepted any edit that left a replay unchanged; the pathway kept a stale
+retry, so a later Esc retried instead of costing a life.
+
+A title-screen session worked on the same branch at the same time. The two
+sessions traded messages instead of editing each other's routines: one
+camera flag each beside the other's, its slot label turned into our new SIGN
+lane, and a song order agreed before either pushed (victory 6, attract 7).
+The merges were mechanical because of that.
+
+The sound agent found a bug from the first sound commit: the music tool read
+every `;` as a comment, so 21 effects had only ever played their first
+segment. The fix makes them whole; the owner has before and after renders to
+judge.
+
+The final pass ran fifteen rows. The new failures were all in tests, not in
+the game: the rewritten `bonanzapath` had never run, and its first run read
+the pathway's frames as the finish's, because a host compile in the middle
+let the whole 2-second sequence go by. A wheel scene that had SKIPPED on every
+soak since wave 3 ran for the first time, because TRIAL's new finish clock
+gave it a lane to judge, and its plan put the ball in the camera's dead zone.
+The one perf failure was older than the wave: the same late frame appears on
+the commit before it, the open item wave 10 owns.
+
+What it cost: the resident image 36,184 -> 39,897 bytes across the
+afternoon, the title screen's own code (128.23) included; wave 8R's share is
+the finish +343, the cards and save +513, the sounds +161 and the signs,
+camera, follower and loop +1,832 net (2,849). The bss 9,080 -> 10,087, most
+of 8R's part the lane tables the pathway's 23 lanes size. The pathway part
+is 6,410 bytes packed.
+
 ## 2026-11-16 (the title screen, round 3b: something to do on UR)
 
 The owner liked demo 4 but found the two circles of UR dull, and asked

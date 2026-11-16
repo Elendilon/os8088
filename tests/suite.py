@@ -5343,7 +5343,7 @@ SOAK = [
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 128.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 780.0,
+    Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 115.0,
         "WAVE 8R (SPEC.md 128.22.4, 128.22.10; REWRITTEN - wave 8b's rolled prototype, 128.19.5, is gone): "
         "THE PATHWAY's loop on MartyPC's CGA and Hercules, reached as the title session does (Enter on the "
         "face, P on the title), every item on guest state: a new game RESTS on pad 0 (5 lives, every gate "
@@ -5366,9 +5366,10 @@ SOAK = [
         "unicorn equals bbcourse.Follow on every route of both maps both ways. Red arms: nopage (no PAGED "
         "bit: GLIDE, red at 5.), nogate (bz_nset marks nothing: the gate's lane never drawn past 1, red at "
         "3.), nodiag (Left not the pathway's: red at 4.), finfall (a fall in a finish sequence respawns: "
-        "red at 2.). secs: PREDICTED (two cards' main legs and the secret leg's 45 s compile), never run "
-        "by its author (8R guest: a soak row).",
-        needs=("marty", "nasm"), timeout=2400,
+        "red at 2.); a wait that raises after an item failed is one more failure (an abort), so a red is "
+        "judged by its item. secs MEASURED: 115 s host for the whole row (both cards' main legs and the "
+        "secret leg, 8R pathrow); each red arm ~30 s and red at its item.",
+        needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzatitle", "soak", py("tests/bonanza_title.py"), 60.0,
         "THE TITLE SCREEN (SPEC.md 128.23) on MartyPC's CGA and Hercules, in one bracket: Enter opens the "

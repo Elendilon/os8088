@@ -2452,7 +2452,7 @@ def probe_ground(crs, px, py, grid, sx=1, clear=16, flags=0):
     return best
 
 
-def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False):
+def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False, xzone=None):
     """a RESTING point (24.8 gx, gy, gz): the ball GROUNDED on a level FLOOR
     cell (or, SLOPES, any floor: re-poked every frame, a step's roll is a
     fraction of a pixel), none of FLAGS set, its circle wholly inside the cell, its picture
@@ -2461,9 +2461,12 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False):
     LEFT), nearest the window's centre first.  A ball held there moves no
     camera: grounded, its line is the camera's (wave 6, SPEC.md 128.16.7),
     where a ball held AIRBORNE puts the camera on the GROUND line under it.
+    XZONE (lo, hi): the ball's centre px (world, px + 8) in [lo, hi] instead of
+    the dead zone, nearest its middle first (a point the camera MOVES to reach).
     -> the point, or None"""
     kx, ky = (grid.x0 - 8) << 8, (grid.y0 - 13) << 8
     lo, hi = min(lines), max(lines)
+    xlo, xhi = (left + 2 * Wc, left + 6 * Wc) if xzone is None else xzone
     best = None
     for r in range(grid.nrows):
         for k in range(grid.kw):
@@ -2482,10 +2485,10 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False):
                         gx8, gy8 = (wx << 12) | (u << 8) | 0x80, (wy << 12) | (v << 8) | 0x80
                         px = (gx8 - gy8 + kx) >> 8
                         py = (((gx8 + gy8) >> 1) - gz8 + ky) >> 8
-                        y, x = py - top, px - left
-                        if not lo <= y <= hi or not 2 * Wc <= x + 8 <= 6 * Wc:
+                        y = py - top
+                        if not lo <= y <= hi or not xlo <= px + 8 <= xhi:
                             continue
-                        dist = abs(x + 8 - 4 * Wc) + abs(y - (lo + hi) // 2)
+                        dist = abs(2 * (px + 8) - xlo - xhi) // 2 + abs(y - (lo + hi) // 2)
                         if best is None or dist < best[0]:
                             best = (dist, (gx8, gy8, gz8))
     return best and best[1]

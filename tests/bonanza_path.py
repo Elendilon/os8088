@@ -220,7 +220,12 @@ class Stops:
     def __init__(self, g, names):
         self.g, self.m = g, g.m
         self.at = {g.a(n): n for n in names}
-        self.m.pause()
+        # NO pause on a guest already STOPPED (a breakpoint's): the server's pause turns BreakpointHit into
+        # Paused with the CPU's breakpoint flag still set, so the next run steps nothing and stops AGAIN at
+        # the same CS:IP - a stop at an address no longer armed, which next() reads as None (debug_server.rs
+        # "run"'s comment is that flag's account)
+        if self.m.status().get("state") == "running":
+            self.m.pause()
         self.m.bp_exec(*self.at)
 
     def next(self, guest=20.0):
@@ -306,11 +311,19 @@ def finish_first(g, fails):
     """item 2: FIRST from pad 0, the autopilot to its goal, the finish sequence,
     a fall in it, Enter skipping it.  -> paused at bz_fend, breakpoints clear"""
     m = g.m
+    void = void_cell(R.course("first"))         # (the host's work BEFORE the play: the sequence is ~3 guest s)
     g.key("Enter")
     course_up(g, R.CRS_K["first"], "FIRST from pad 0")
     X.at_t0(g, lambda g_: g_.putb("bz_apilot", 1))
-    M.until(m, lambda _: g.b("bz_fcnt") > 1, "FIRST's finish (the autopilot)", guest=120)
-    void = void_cell(R.course("first"))
+    # the guest STOPPED at the goal step's bz_fstart (a poll of bz_fcnt lets the guest run on while the host
+    # reads: a whole sequence can pass before the next breakpoint is set)
+    sp = Stops(g, ("bz_fstart",))
+    hit = sp.next(guest=120)
+    sp.done(run=False)
+    if hit != "bz_fstart":
+        check(fails, False, "2.", "FIRST's finish sequence: the autopilot's goal step (%s)" % hit,
+              "the autopilot reached no goal (%s)" % hit)
+        return
     sp = Stops(g, ("bz_t0", "bz_fend"))
     hit = sp.next()
     if hit != "bz_t0":
@@ -345,9 +358,25 @@ def finish_first(g, fails):
           "bz_fend with %d left" % (left, fc), "Enter did not skip the finish sequence (%s, %d left)" % (hit, fc))
 
 
-def run(tag, apps=None, src=None):
-    TAG[0] = tag
-    fails = []
+def aborts(leg):
+    """LEG(tag, fails, ...) run with a wait that RAISES (a guest that never reaches a later item's state, a
+    red arm's usual way past the item it breaks) recorded as one more failure - after the items already
+    checked, so a red arm is judged by the item it went red at -> fails"""
+    def run_(tag, *a, **k):
+        TAG[0] = tag
+        fails = []
+        try:
+            leg(tag, fails, *a, **k)
+        except M.MartyError as e:
+            why = str(e).split(" THE BUDGET")[0]
+            print("%s aborted: %s" % (tag, why), flush=True)
+            fails.append("abort (after %d failed item(s)): %s" % (len(fails), why))
+        return fails
+    return run_
+
+
+@aborts
+def run(tag, fails, apps=None, src=None):
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
                      machine=R.MACHINE[tag]) as ui:
         ui.open_drive("B")
@@ -573,10 +602,9 @@ def secret_art(td):
     return art, crs
 
 
-def run_secret(tag):
+@aborts
+def run_secret(tag, fails):
     """the SECRET leg: a private tree's map and TRIAL"""
-    TAG[0] = tag
-    fails = []
     with tempfile.TemporaryDirectory() as td:
         art, crs = secret_art(td)
         src, img = R.build_tree(td, [], art=art)
