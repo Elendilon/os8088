@@ -555,6 +555,18 @@ def check(n=200, seed=1124, verbose=True, patches=()):
         if not ch:
             out.append("the NOTCH sweep never reaches R7's push out of the cell")
         b = cells_check(binp, sym, cs)
+        pth = R.at("build/bonanza-art/BZPATH.BIN")
+        if os.path.exists(pth):                     # the SHIPPED pathway part (D4's halves): the guest's
+            st = open(pth, "rb").read()             # expander against the tool's
+            g = Guest(binp, sym, st)
+            g.w("bz_cseg", PS, 2)
+            g.call("bz_cexp")
+            same = bytes(g.mu.mem_read(PS * 16, len(st))) == BB.expand(st, "BZPATH")
+            sp = bool(BB.Grid(BB.expand(st, "BZPATH")).gflags & BB.GF_SPLIT)
+            print("bonanza_dsplit the shipped pathway part (%s split cells): bz_cexp %s" % (
+                "with" if sp else "no", "is the tool's expand, byte for byte" if same else "DIFFERS"))
+            if not same:
+                b.append("BZPATH: the guest's bz_cexp differs from the tool's expand")
         print("bonanza_dsplit D3.1 CELLS: bz_cexp under unicorn on %s's stored forms -> %s" % (
             ", ".join(sorted(cs)), "; ".join(b) or "each its RAM form, byte for byte"))
         out += b
