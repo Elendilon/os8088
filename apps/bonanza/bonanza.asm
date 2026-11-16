@@ -1683,7 +1683,8 @@ bz_follow:
 ; bz_pwroll - THE FOLLOWER's step, bbcourse.Follow's exactly: s a dword of
 ; 1/256 ground px, v a word of 1/256 a step; left = 256 L - s, D = v v div
 ; (2 FOL_ACC): BRAKING (v - FOL_ACC, not under FOL_VMIN) when left <= D, else
-; v + FOL_ACC up to FOL_VMAX; s += v, at 256 L ARRIVED; the segment holding s
+; v + FOL_ACC; then at most the top speed of the segment holding s, FOL_VMAX or
+; on a screen-horizontal one FOL_VMAXD; s += v, at 256 L ARRIVED; the segment holding s
 ; (bz_pwdk its start, bz_pwln its length) and the position on it (bz_pwpos);
 ; a secret route's next reveal group as s passes its distance; ARRIVING,
 ; bz_pwarr.  ES = the pathway.  Preserves nothing.
@@ -1706,14 +1707,31 @@ bz_pwroll:
     ja .acc
     sub dx, BZ_FOL_ACC          ; braking
     cmp dx, BZ_FOL_VMIN
-    jge .v
+    jge .cap
     mov dx, BZ_FOL_VMIN
-    jmp short .v
+    jmp short .cap
 .acc:
     add dx, BZ_FOL_ACC
-    cmp dx, BZ_FOL_VMAX
+.cap:                           ; v = min(v, the segment's top speed):
+    mov si, [bz_pwp]            ; FOL_VMAXD where its two axes move OPPOSITE
+    mov di, si                  ; ways (screen-horizontal: px 2 a ground px,
+    add di, [bz_pwpd]           ; 3.0 would be 6 px a step, past the art's
+    mov ax, [es:di]             ; roll - a SKID), else FOL_VMAX
+    sub ax, [es:si]
+    mov bx, [es:di + 2]
+    sub bx, [es:si + 2]
+    mov cx, BZ_FOL_VMAX
+    or ax, ax
+    jz .c
+    or bx, bx
+    jz .c
+    xor ax, bx
+    jns .c
+    mov cx, BZ_FOL_VMAXD
+.c:
+    cmp dx, cx
     jle .v
-    mov dx, BZ_FOL_VMAX
+    mov dx, cx
 .v:
     mov [bz_pwv], dx
     add [bz_pws], dx
