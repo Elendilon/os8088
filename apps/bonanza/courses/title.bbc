@@ -1,0 +1,63 @@
+# THE TITLE SCREEN - a course nobody plays (SPEC.md 128.23): after the owner's
+# sketch (docs/plans/bounce-bonanza/title-sketch.png), its perspective made
+# isometric. The window never moves (`view`); the lettering and the key hints
+# are ART painted over the picture (title.bba); label 0 is the slot's digit.
+# PROVISIONAL: the owner's to refine (128.23.5).
+#
+# Screen directions: +x is right-down, +y left-down, -x up-left, -y up-right.
+#  UR  the upper right platform, 4 units up: the brown tube's exit and the
+#      hidden tube's on its back row, the windmill's doorway on its -x edge
+#  the PILLAR, the windmill's house, between UR and LS; the RAIL behind UR
+#  LS  the strip under the lettering, half a unit up: the brown tube's ENTRY
+#  LL  the lower left platform, 1.5 units up, running off the glass to the
+#      left: spring 1 at its front, aimed over the PIT at LC
+#  LC  the lower centre, the front floor, running off the bottom; spring 2 in
+#      front of UR's cliff, its power set to land a ball on UR
+#  the RAMP from UR's +x edge down to the floor; LR, the row BEHIND it, holds
+#      the HIDDEN tube's mouth (a ball rolling there is behind the ramp)
+course TITLE "Bounce Bonanza"
+width 128
+origin 512
+ball rubber
+title
+view 56 124 drop 128
+
+# LC, and the channel in front of UR's cliff; the pit beside LL
+floor rect 12 12 17 17 flat 2
+floor rect 14 9 18 12 flat 2
+hole rect 12 15 14 17
+# the pillar, its back, and the rail behind UR and LR
+wall rect 12 7 14 12 flat 9.5
+wall rect 12 6 14 7 flat 9
+wall rect 12 5 25 6 flat 9
+# UR
+floor rect 14 6 18 9 flat 6
+# the ramp, LR behind it, its foot and the floor in front of it
+floor rect 18 7 20 9 ramp x 18 20 6 2
+floor rect 18 6 20 7 flat 2
+floor rect 20 6 21 11 flat 2
+floor rect 18 9 20 11 flat 2
+# LR, running off the glass to the right and the bottom
+floor rect 21 6 24 11 flat 2
+floor rect 17 11 24 17 flat 2
+# LR's rails, off the glass: the east one holds the hidden tube
+wall rect 24 6 25 18 flat 3
+wall rect 12 17 24 18 flat 3
+# LS and its back wall
+floor rect 9 12 12 13 flat 2.5
+wall rect 9 11 12 12 flat 3.5
+# LL
+floor rect 7 14 12 17 flat 3.5
+
+# the brown tube, LS to UR, through the back wall, the pillar and the rail
+tube keep 10 12 16 6 via 10 11 via 12 11 via 12 5 via 16 5
+# the windmill, UR through the pillar onto LS's end of LC
+prop windmill 14 8
+tube keep 14 8 13 12 via 13 8 out -x
+# the HIDDEN tube, off the glass: LR's east rail up and along the back rail to UR's back row
+tube keep 23 13 17 6 via 24 13 via 24 5 via 17 5 out +y
+spring 10 15 512
+spring 15 9 768
+
+art title.bba 4 4
+start 15 13
