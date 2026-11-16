@@ -1052,6 +1052,16 @@ def selfcheck():
                     and len({tuple(sorted(p.items())) for p in pads}) == PAD_POSES
                     and all(crystal_inside(u, v) and 0 <= c <= 3 for p in pads for (u, v), c in p.items())
                     and all(any(c == 3 for c in p.values()) for p in pads)))
+    f = crystal_ink(2, 1, 40, 12, 1)                # (2, 1) at 1 unit: centre (40 + 16, 12 + 24 + 8 - 8)
+    results.append(("crystal_ink: a tile's centre lands at (16 (wx - wy) + x0, 8 (wx + wy) + 8 - 8 z0 + y0)",
+                    f(56, 36) == crystal_top_ink(0, 0) and f(56 - 17, 36) is None and f(56 - 15, 36) is not None))
+    try:                                            # the committed icons and pads equal tools/bbicons.py's output
+        import bbicons
+        ic = bbicons.check() == 0
+    except ImportError:
+        ic = False
+    results.append(("icons and pads: apps/bonanza/courses/icons/*.bba and pads/*.bba are what tools/bbicons.py "
+                    "writes (its --check)", ic))
     ht = htab()
     mono = all(herc_pair(c, v, u) == 3 for v, r in enumerate(c1) for u, c in enumerate(r) if c == 3)
     lit = sum(1 for r in c1 for c in r if c == 3)
@@ -1142,10 +1152,13 @@ def crystal_side_ink(face, k, j):
 
 
 def crystal_ink(wx, wy, x0, y0, z0=0):
-    """crystal_top_ink as a picture-pixel function for the tile (wx, wy) at
-    height z0 units (picture origin x0, Y0 = y0): ink(x, y) -> index or None"""
+    """crystal_top_ink as a picture-pixel function for the flat tile (wx, wy)
+    at height z0 UNITS (8 px a unit, SPEC.md 128.10.2 - a bbcourse Tile's z0 is
+    HALF units, so pass t.z0 / 2), in a picture whose origin is x0 across and
+    Y0 = y0 down, bbcourse's convention (picture y = the Y0 = 0 line + y0, as
+    render() / _top_fn() / clock_face_geom() have it): ink(x, y) -> index or None"""
     cx = 16 * (wx - wy) + x0
-    cy = 8 * (wx + wy) + 8 - 8 * z0 - y0
+    cy = 8 * (wx + wy) + 8 - 8 * z0 + y0
     return lambda x, y: crystal_top_ink(x - cx, y - cy)
 
 
