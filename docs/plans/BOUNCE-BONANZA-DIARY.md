@@ -2516,3 +2516,40 @@ at 1.5), and a node's sign turns silver or gold with the slot's best.
 
 Left for the front window proper, with the owner's art: the tour's removal
 and the artwork band.
+
+## 2026-11-16 (the title screen: the brief and the contract)
+
+The owner sketched the title screen in Paint and wrote four little films
+for it: a rubber ball dropped onto a high platform that rolls down a ramp and
+springs back up; a steel ball that lands too hard, is stunned, misjudges a
+spring over a pit and has to take the tube instead; a glass ball that does a
+lap of the high platform until it gets careless and shatters; and a rubber
+ball that runs the whole screen - a boost, a spring over the pit, behind the
+ramp, through a hidden tube, a windmill, and a last boost over a tube's mouth
+into the void. The title is a course nobody plays, with the lettering and the
+key hints painted into it; it never scrolls; a demo of a real course follows
+each film; a song ends exactly when the film does.
+
+**Observed, reading the tree first.** Three findings made the design small.
+The boxes the ball is drawn through were already clipped to the window, so a
+camera that does not follow the ball needed no new clip at all - a ball off
+the glass is simply not drawn. Every course picture is at least 512 pixels
+wide, so the glass shows 320 of them on the CGA and 360 on the Hercules, and
+the rest is where the balls can roll off and where a hidden tube can carry
+them round. And a spring's power was already set per spring.
+
+What did not exist: a demo is only a list of key presses from the course's
+start, so it cannot drop a ball from above or begin with one already moving.
+The title demos get a start block of their own - position, velocity, a
+respawn cell - and the build writes their course identity itself, because
+that identity is a checksum over every pixel of the picture, and the owner
+expects to repaint the art.
+
+**Decided** (SPEC.md 128.23): the title is a course after the pathway; a
+`view` statement pins the window; `art` paints a committed pixmap over the
+finished picture; a `label` lane shows the slot digit; four `.bzt` demos of
+exactly 832 steps (15.23 s); a seventh song of exactly that length whose
+last pattern is silence. Enter on the desktop face opens the title, P plays
+and the game returns to the title.
+
+**Tested so far: nothing on a guest.** The contract passes `checkdocs`.

@@ -269939,3 +269939,168 @@ for a ~1 us ISA read where an XT's is ~2.5 us, is a driver-side saving.
 |---|---|---|
 | `bonanzamusic` | soak | `tools/bbmusic.py --selfcheck`, host only: the tables against the equal-tempered pitches; every song's notes, gates, instruments and volumes as the model keys them against the source's; the speaker's tones and the chip's registers well formed; every ball's impacts present and different; packing deterministic |
 | `bonanzasound` | soak | the guest held to the model on MartyPC: the title on the desktop, S's four choices, FIRST's song in the bracket, every ball's bounce, wall and bumper poked into the counters, the cost, Esc; on the AdLib machine the chip's shadows equal the model's registers whenever nothing is dirty, the OPL's capture loud, and the window's close giving the chip back. Red arms `--red groove` (every row the groove's first count) and `--red mat` (every event the rubber ball's), each red at its own check |
+
+### 128.23 The title screen
+
+The owner's brief (2026-11-16), with a sketch (kept as
+`docs/plans/bounce-bonanza/title-sketch.png`): *"The title screen will be a
+'course', but not played by the player - one of a handful of builtin demos
+will randomly play. User input will take them into the game - P to play, S
+(or 1/2/3) to change save slot. The screen will never scroll ... The title
+will just be artwork baked in, the same as the key hints, with an item
+handling the 1/2/3 draw change."* Once a title demo ends, a demo of a random
+course plays, and any key returns to the title; the title has its own song,
+which ends with the demo, and every title demo is the same length.
+
+The plan and its stories are
+[docs/plans/BOUNCE-BONANZA-TITLE.md](docs/plans/BOUNCE-BONANZA-TITLE.md).
+Binding where it adds; each item says PLANNED until the commit that builds it
+says BUILT, and figures are MEASURED, PREDICTED or ESTIMATED as in 128.18.
+(128.21 is the `bounce-bonanza-finescroll` experiment's; 128.22 is left for
+the pathway's rework.)
+
+#### 128.23.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| what the title IS | **a course**, `apps/bonanza/courses/title.bbc`, compiled by `tools/bbcourse.py` like the pathway (its picture, its grid, its lanes, its props), index **`BZ_CRS_TITLE` = `BZ_CRS_PATH` + 1**, its part `BZTITLE.BIN` and its demos' part `BZTDEMO.BIN` the two LAST rows of the parts table | the full write, the wheel, the boxes, the physics and `bz_hxlat` are reused with no new draw path, exactly as the pathway's (128.19.5) |
+| the camera | **FIXED**: a course with a `view` statement pins the window - a `(R0, c0)` for each card, written by the tool - and the camera never moves; C's mode does not apply on it | the brief: the screen never scrolls. The boxes are already clipped to the window (128.4, `bz_addbox`), so a ball outside it is simply not drawn and no clip is new |
+| the art | **baked into the picture**: `art FILE SX SY` paints a committed text pixmap over the finished picture, before it is cut into blocks; the title lettering and the key hints are art | the brief: "artwork baked in, the same as the key hints"; art is source (CLAUDE.md's waves, step 5), its generator committed beside it |
+| the slot digit | **a LABEL lane**: `label N COL ROW glyphs "123"` - a lane of one block in the window's 8 x 8 cell grid, posed by `bz_nst[N]` (the pathway's node-sign mechanism, 128.19.5), no post, no crystal ball, never an obstacle | the brief: "an item handling the 1/2/3 draw change" - a wheel item, so the change is one lane's pose and nothing else is redrawn |
+| the demos | **four TITLE DEMOS**, text (`apps/bonanza/demos/title<N>.bzt`), each a START STATE (the ball, its position and velocity, airborne or not, and a respawn cell) and a `BZR1` run list, compiled into one part; the build writes the identity and checks each against the model and its own `expect` lines | a title demo starts where the brief puts the ball (dropped from above, already rolling), which a course's `start` cannot say; the identity is the build's so an art change never stales them |
+| their length | **`BZ_TSTEPS` = 832 steps** (15.23 s at 54.62 steps a second), every title demo exactly, the title song's one pass exactly | the brief: about 15 s, all the same length, the music ending with them |
+| the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once | the brief |
+| the keys on the title | **P** plays (the game: the pathway loop, 128.19.5, in the same bracket); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
+| the way in | **Enter on the desktop face opens the title** (the bracket); P on the title is what Enter was (the game in the slot shown). F, B, R, D, V and the rest of the face are unchanged | the face stays the instruments' (128.19.3); the title is the game's front |
+| the way back | the pathway's **Esc** and the game's end return to the TITLE, not to the desktop | the game is entered from the title, so it leaves to it |
+| the song | a seventh song, **`attract`**, `apps/bonanza/music/attract.bmu`: one pass of exactly `BZ_TSTEPS` sub-ticks, its last order row silent with `loop` pointing at it, so it ends with the demo; the course's `music attract` picks it | no new player code: a song already plays from its top at every `bzs_open` and is step-locked to the physics in a replay (128.20.6) |
+| randomness | **an LFSR of the title's own**, seeded from the PIT's low byte (`bz_pitl`) at the bracket's entry and stirred at every key; never read by physics | a replay must stay deterministic; the sound's LFSR is reseeded at every `bzs_open` (128.20) |
+
+#### 128.23.2 The course statements (PLANNED)
+
+On a course with **`title`** (once, no clauses; refused beside `pathway`,
+`limit`, `medals`, `goal` and `cup`), and only there:
+
+- **`view SX SY`**: the CGA window's CENTRE in projection pixels - tile
+  corner `(cx, cy)` at height `h` units is `(16 (cx - cy), 8 (cx + cy) - 8h)`
+  before the origin - with **SX a multiple of 8 and SY of 4**. The CGA window
+  is `SX - 160 .. SX + 159` across and `SY - 100 .. SY + 99` down; the
+  Hercules window (45 words) is the CGA's with **two words more on the left
+  and three on the right**, the same 200 lines. The tool grows the picture
+  (its `Y0`, its height) so that both windows, **32 lines above them** (the
+  DROP margin: a ball can start above the glass and fall in) and every reach
+  lie inside it, and chooses `Y0` so that the CGA window's top is a block
+  row (a multiple of 8). It writes the four values (CGA R0 and c0, Hercules
+  R0 and c0) into the grid header, and a `title` course's header flag.
+- **`art FILE SX SY`**: FILE (in `apps/bonanza/courses/`) is a TEXT PIXMAP,
+  `.bba`: one line a pixel row, every row the same length, `.` transparent
+  and `0 1 2 3` the CGA's four colours (`#` starts a comment line). Its
+  top-left pixel lands at projection `(SX, SY)`. It is painted over the
+  finished picture - over every tile, wall, mark, clock and flag - before the
+  picture is cut into blocks, so it is the topmost layer and has no depth:
+  the ball is drawn over it. Refused if any opaque pixel falls outside the
+  picture. The Hercules gets it through `htab()` like every other pixel
+  (128.11.3).
+- **`label N COL ROW glyphs "TEXT" [ink C]`**: a lane of ONE block at cell
+  `(COL, ROW)` of the CGA window (0 - 39, 0 - 24), posed by `bz_nst[N]` (0 -
+  15): pose 0 the bare picture, pose `1 + i` the `i`-th character of TEXT
+  (at most 15) in the DESKTOP font's 8 x 8 glyph (`kernel/font.inc`), set
+  pixels in ink C (default 3, white), clear pixels the bare picture's. Its
+  record is a `PK_CLOCK` of ndig 0 that marks NO cell OBS: physics never
+  meets it. The title's label 0 is the slot: `glyphs "123"`, pose `1 +
+  bz_slot`.
+
+#### 128.23.3 The title demos (PLANNED)
+
+A `.bzt` file (`apps/bonanza/demos/title1.bzt` .. `title4.bzt`, all four
+compiled by the course run into **`BZTDEMO.BIN`**):
+
+```
+tdemo   N                 # 1 - 4
+ball    rubber|steel|glass
+at      GX GY GZ          # the ball's position: ground px (16 a tile) across and down, px above the
+                          # floor plane's 0 - decimals allowed, rounded to the physics' 1/256
+vel     VX VY VZ          # its velocity, 1/256 px a step (the physics' units); default 0 0 0
+air     0|1               # airborne at the first step (default 1 if GZ is above the floor there)
+respawn WX WY             # where a fall or a shatter puts it back (default: the course's rule, 128.14.4.5)
+run     KEYS COUNT        # as a .bzd's (128.14.7.4): the letters LRUDHGB or -, 1 - 255 steps
+expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at least once (or exactly N times)
+```
+
+- **The part**: `+0 'BZT1'`, `+4` the count (4), `+6` `BZ_TSTEPS`, `+8` a
+  word offset a demo; a demo is a 16-byte START BLOCK - `+0` gx, `+3` gy (24.8
+  each, three bytes), `+6` gz (8.8 px), `+8` gvx, `+10` gvy, `+12` gvz (words),
+  `+14` the air flag, `+15` the respawn cell's index into the grid's cell list
+  or FFh - then its `BZR1` log (128.14.7.4), course `BZ_CRS_TITLE`, its
+  identity the title course's as BUILT.
+- **The build's checks** (the course run, every build): each demo replayed
+  on the model from its start block is **exactly `BZ_TSTEPS` steps**, ends
+  with the ball alive or in a shatter or fall the file `expect`s, and meets
+  every `expect`; a demo that does not is a refused build naming the demo,
+  the step and the event. The identity is written by the build, never by
+  hand, so redrawing the art never stales a demo; a change to the GEOMETRY
+  re-runs the expects, which say whether the demo still does what it shows.
+- **The guest**: after `bz_pinit` (the course's `start`), the start block
+  overwrites the position, velocity and air flag and derives the rest as a
+  harness poke does; a respawn cell other than FFh wins over every flag and
+  SAFE cell for the play (`bz_rspo`). The replay is then mode 2's, unchanged.
+
+#### 128.23.4 The title's loop (PLANNED)
+
+Inside ONE bracket, `bz_title` (resident: it is the bracket's):
+
+1. **Fetch** the title course (row `BZ_P_TITLE`; the Hercules: `bz_hgen` and
+   `bz_hxlat`) and `BZTDEMO.BIN`; pick a demo `d`, never the last one shown.
+2. **Play it**: `bz_rlog` from demo `d`, `bz_mode` 2, the start block
+   applied, `bz_nst[0]` = `1 + bz_slot`, the FIXED window, the course's song
+   (`attract`) from its top. Keys, every frame (`bz_exitchk`'s title arm):
+   **P** -> 4; **S**, **1**, **2**, **3** -> `bz_slot` changed, `bz_nst[0]`
+   set and the label's lane marked for the walk (a pose change, one block);
+   **Esc** (or F, Alt+Enter) -> the bracket ends, the desktop; anything else
+   drained and ignored. The demo's last step -> 3.
+3. **A course demo**: drop the title's parts; fetch `BZD<K>` for a random K
+   (1 - `BZ_NDEMO`), its course and balls, play it as V and R do (mode 2,
+   the course's camera and song). Any key, its end, or a timeout -> drop
+   them, back to 1.
+4. **The game**: drop the title's parts and run the pathway loop (128.19.5,
+   `bz_grounds`) in the same bracket with the slot shown; where it would end
+   the bracket (the pathway's Esc, the game over) it returns to 1 instead.
+
+#### 128.23.5 The layout (PLANNED, PROVISIONAL: the owner's to refine)
+
+Five tiers and four features, after the sketch:
+
+| | |
+|---|---|
+| UR, the upper right platform | high on the right, running off the glass to the right; the brown tube's exit near its right end; the windmill's doorway on its left edge |
+| the PILLAR | a tall wall between UR and the strip, the windmill's house: its tube runs down through it onto the strip |
+| LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit |
+| LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT |
+| LC, the lower centre | the key hints painted beside it; joined to LS behind and to the ramp's foot on the right |
+| the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
+| the hidden tube | off the glass to the right: LR to UR, so a ball that rolls off right comes back on UR |
+
+The four demos are the brief's, one each: the rubber dropped onto UR, down
+the ramp and back up by the spring; the steel stunned on LL, lost in the pit,
+respawned on LC, through the brown tube and down the ramp; the glass off LL,
+through the tube, round UR until it falls and shatters; the rubber rolling in
+at speed, boosting, sprung over the pit, behind the ramp, through the hidden
+tube, the windmill, and a boost over the brown tube's mouth.
+
+#### 128.23.6 The rows (PLANNED)
+
+- **`bonanzacourse`** (the tool's `--selfcheck`): `view`'s windows inside the
+  picture and the drop margin above them; an `art` pixel off the picture
+  refused; a label's glyph poses the font's; every title demo `BZ_TSTEPS`
+  steps and its expects met; red arms: a demo one step short, an expect not
+  met.
+- **`bonanzamusic`**: `attract`'s one pass is exactly `BZ_TSTEPS` sub-ticks
+  and its loop row silent.
+- **`bonanzatitle`** (new, soak, MartyPC, both cards): Enter opens the title;
+  the window never moves (`bz_R0`, `bz_c0` the header's on every frame); the
+  slot label's pose follows S, 1, 2, 3 and nothing else is redrawn; a title
+  demo's ball equals the model's at every frame; after `BZ_TSTEPS` steps a
+  course demo runs (`bz_crs` < `BZ_NCRS`) and a key brings the title back; P
+  enters the pathway and its Esc returns to the title; Esc leaves to the
+  desktop with the claims as before the bracket. Red arm `--red view` (the
+  fixed camera ignored) red at the window check.
