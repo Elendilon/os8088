@@ -274800,7 +274800,7 @@ figure. Looked at on MartyPC (CGA and Hercules): the INFO
 card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
 its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
 
-#### 128.22.6 The finish and the cards (PLANNED; the cards' bullets BUILT)
+#### 128.22.6 The finish and the cards (PLANNED; the cards' bullets and the finish BUILT)
 
 - **The FINISH SEQUENCE (BUILT, wave 8R: `bz_fstart`, `bz_fstep`, `bz_fflash`, `bz_fend`
   in bzphys.inc; the frame loop and `bz_camera` in bzgame.inc)** (any course, a play or the game; not in a
@@ -274813,8 +274813,10 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   A **GOAL** (checkers) finish leaves the physics running: the ball rolls
   on, and a fall, a shatter or a kill plane in those steps neither kills
   nor respawns it (the ball simply goes on, clipped to the window as it
-  leaves it, or lies shattered); a **CUP** finish keeps 128.14.4.4's capture (the
-  ball holed out, not drawn). **Enter** ends the sequence at once; Space,
+  leaves it, or lies shattered) - and it is **DISSOLVED** out as it rolls
+  (8R.11, below): whole for 5 steps, through seven ordered-dither densities,
+  gone from step 40 (0.73 s); a **CUP** finish keeps 128.14.4.4's capture (the
+  ball holed out, not drawn: nothing to dissolve). **Enter** ends the sequence at once; Space,
   the arrows and P do not (Esc, F and Alt+Enter leave as in any play, and
   the play still FINISHED). A TIMEOUT runs the same sequence with the clock at
   0 and the TIMEOUT effect in the tune's place. The SCENERY is not frozen:
@@ -274856,6 +274858,57 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   bonanza`: image 36,184 to 36,527 bytes (+343, the tune's arm excluded;
   the first cut's +302 and the verify's +41), bss +2 (`bz_fcnt`, `bz_ffl`);
   the pathway course is not excluded.
+- **THE DISSOLVE (BUILT, 8R.11, round 2: `bz_fdis`, `bz_fdor`, `bz_fdand`,
+  `bz_fdtab` in bzphys.inc; called in the frame loop after `bz_foot`).** The
+  owner: *"Do we have the processing power to dither the ball out, and still
+  let it roll? If we freeze the camera movement? Over 0.7s or so."* In every
+  finish sequence (a goal's or a timeout's; a play's only, as the sequence is:
+  a replay, a benchmark, a demo or the title never runs it) the ball keeps
+  rolling under physics and is DRAWN: **whole** for the step that finished and
+  the sequence's first 4 steps (`BZ_FDSTEPS` = 5); then through **7 densities**
+  of a 2 x 4 ORDERED DITHER (`[0 4 2 6 / 5 1 7 3]`: density k hides the game
+  pixels whose entry is under k - one pixel of the eight more a density,
+  alternating the lines, a checkerboard at 4), 5 steps each; and from step
+  **40** (8 x 5, 0.733 s at 54.6 Hz) to the sequence's end it is **not drawn**,
+  nor its shadow. The density is `(BZ_FIN_STEPS + 1 - bz_fcnt) / 5`, the
+  sequence's own count, so it needs no state. The dither is anchored to the
+  WORLD (a line's parity and the byte's four game pixels, two bits each on
+  both cards), so it is one byte a line parity a density: each frame of the
+  fade `bz_fdis` copies the frame's sprite out of the material's ball part
+  (`bz_bsegs[bz_mat]`) into `bz_fdb` - the MASK ORed with the line's byte (a
+  set bit keeps the box), the FRAME ANDed with its complement (frames are
+  pre-ANDed, 128.3), the SHADOW's mask ORed (AND only) when it is drawn - and
+  points `bz_smsk`, `bz_sfd`, `bz_shm` and `bz_bseg` at the copies, so
+  `bz_blit` and every box path are unchanged; `bz_fend` gives `bz_bseg` the
+  material's part back on every way out of the play. A hidden pixel is the
+  box's own FILL, the course under it, and the occluders are laid after as
+  ever - no hole. A new density sets `bz_spr`'s bit 7 on every other one, so
+  `bz_mkboxes` never takes a fading but resting ball's frame for an idle one.
+  GONE is `bz_hidn` (and no shadow candidate): the tube's and the holed ball's
+  path, its last footprint restored and nothing composed after. The camera is
+  held (above), the clock flash, the tune, the physics and `bz_lsend` are
+  unchanged (the ball is NOT holed: a goal finish stays a goal). A ball
+  already hidden (a tube, a cup's capture) is left as it is.
+  *MEASURED* (MartyPC, `os8088_5150_cga_gla` / `_herc_gla`, FIRST finished by
+  the autopilot, the sequence traced frame by frame at `bz_t0` .. `bz_presented`
+  and replayed in place; the A/B against the tree before it, 37b614c65):
+  `bz_fdis` costs **5.5k - 6.9k clocks** a fading frame (6.9k with the
+  shadow; 9.3k at most with an interrupt inside it), ~200 a whole frame and
+  ~0.6 - 1.2k a gone one. The sequence's frames have no pan, so a frame is
+  the steps, the sound, the box compose and the box write: before the
+  dissolve the fade's steps (5 - 39) ran **39.9k clocks mean, 64.6k at most**
+  on the CGA (the wheel's idle-time work excluded) against a **79.5k**
+  refresh, and **43.7k / 61.6k** on the Hercules against **93.7k**; with it
+  **47.4k / 69.7k** and **48.9k / 72.3k** - every frame presented in the one
+  refresh it had (no period over 88.8k on the CGA nor 99.4k on the Hercules,
+  as before it: a missed refresh is twice one). After the fade the ball's
+  boxes are gone too, so the rest of the sequence costs less than it did
+  (22.5k mean on the CGA, 24.1k before). `m.flicker` over the sequence's
+  first 60 frames: worst transient **248 px** on the CGA (362 before) and
+  **142** on the Hercules (240 before) - the rolling ball's own, fading - and
+  **0** on every frame once it is gone. MEASURED, `make bonanza`: image
+  **39,907 to 40,156 bytes (+249)**, bss **10,087 to 10,277 (+190**, `bz_fdb`:
+  the copies' 80 + 80 + 30 bytes).
 - **The tool's rule** (BUILT, `finish_clock_rule`): every finish of every
   course with a time limit has a CLOCK whose digit lanes all lie inside a
   CGA window (320 x 200 world px) centred on the finish - EVERY goal cell's
