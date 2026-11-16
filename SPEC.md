@@ -270244,7 +270244,10 @@ harness byte, `bz_phforce`).
   - `crystal_top_ink(u, v)` -> ink or None outside the diamond: a lit table
     (3), a bevel step, four facets split on the axes (NW lit 3, NE / SW 1,
     SE 2) and a mid rim; `crystal_ink(wx, wy, x0, y0, z0)` is it as a
-    picture-pixel function; `crystal_tile_pixmap()` the 32 x 16 sample.
+    picture-pixel function for a flat tile at `z0` UNITS in a picture whose
+    origin is `x0` across and `Y0 = y0` down (bbcourse's convention: the tile's
+    centre at `y = 8 (wx + wy) + 8 - 8 z0 + y0`; a bbcourse `Tile.z0` is HALF
+    units); `crystal_tile_pixmap()` the 32 x 16 sample.
   - `crystal_side_ink(face, k, j)` ('sw' or 'se', k across, j down from the
     top edge): a DARK wall (0, with glints of 2), so a route reads as a raised
     rail over the void. The renderer's own black outline still draws the edge.
@@ -270258,16 +270261,21 @@ harness byte, `bz_phforce`).
   The material's NAME is `CRYSTAL = "crystal"`; the course tool (which owns
   the floor drawing) calls these.
 - **The icons**: `tools/bbicons.py` (deterministic; `--check` is the gate that
-  the committed files equal its output, `--png DIR` the previews) writes one
+  the committed files equal its output, which `tools/bonanza_assets.py
+  --selfcheck` also runs; `--png DIR` the previews) writes one
   `.bba` a course to `apps/bonanza/courses/icons/`: `first.bba` (FIRST, a
   rolling ball), `trial.bba` (TRIAL, a stopwatch), `mill.bba` (MILL, a
   windmill turning), `moon.bba` (MOON, a crescent and twinkling stars),
   `summit.bba` (PEAK, a mountain and a rippling flag), `playground.bba` (PLAY, a
-  spring and a ball). **The true size limit**: a word is 8 world px, a block 8
-  x 8 px, a lane at most `LANE_WMAX` x `LANE_HMAX` = 4 words x 3 block rows =
-  32 x 24 px, and an icon may span 2 x 2 lanes = **64 x 48 px** (this item
-  first said "4 words x 4 block rows (64 x 32)"). Every icon is **48 x 32 px**
-  (6 words x 4 block rows, two lanes across and two down), 5 or 6 frames,
+  spring and a ball). **The size**: a word is 8 world px, a block 8 x 8 px, a
+  lane at most `LANE_WMAX` x `LANE_HMAX` = 4 words x 3 block rows = 32 x 24 px,
+  and the tool cuts an icon into as many lanes as it needs (128.22.2); what
+  bounds an icon is that its lanes count FAST while its pad is the marble's,
+  against 128.19.10's `WIN_LANES` = 6 and `WIN_CHG` = 6 for the page (this
+  item first said "at most 4 words x 4 block rows (64 x 32)", which was no
+  limit of the engine's and wrong in itself: 4 words are 32 px). Every icon is
+  **48 x 32 px** (6 words x 4 block rows: four lanes, e.g. 4 + 2 words across
+  and 3 + 1 block rows down, leaving two of each bound to the page), 5 or 6 frames,
   frame 0 the rest pose, `# frames K` and the frames stacked top to bottom.
   Lane data, words x lines x frames (bytes at 2bpp): FIRST 6 x 32 x 6 = 2,304;
   TRIAL 6 x 32 x 6 = 2,304; MILL 6 x 32 x 6 = 2,304; MOON 6 x 32 x 5 = 1,920;

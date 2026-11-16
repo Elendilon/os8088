@@ -2,7 +2,8 @@
 """BONANZA's pathway icons and glowing pads, generated (SPEC.md 128.22.8).
 
     python3 tools/bbicons.py              # write apps/bonanza/courses/icons/*.bba and courses/pads/*.bba
-    python3 tools/bbicons.py --check      # the committed files equal what the generator writes (make's gate)
+    python3 tools/bbicons.py --check      # the committed files equal what the generator writes
+                                          # (tools/bonanza_assets.py --selfcheck runs it too)
     python3 tools/bbicons.py --png DIR    # previews: CGA palette 1 and the Hercules mono, 4x, frames side by side
 
 One `.bba` text pixmap (128.23.2's format: one line a pixel row, `.` transparent,
@@ -13,13 +14,15 @@ randomness, no clock, sorted iteration), standard library only (Pillow is for
 --png and nothing else).
 
 SIZE: an icon is W x H = 48 x 32 world pixels (6 words x 4 block rows).  The
-engine's limits are a WORD = 8 world px (2 bytes of 2bpp), a BLOCK = 8 x 8
-px, a LANE at most `LANE_WMAX` x `LANE_HMAX` = 4 words x 3 block rows = 32 x
-24 px (bbcourse.py), and an icon may span up to 2 x 2 lanes = 64 x 48 px.
-(128.22.8 first said "4 words x 4 block rows (64 x 32)"; the true limit for
-one lane is 32 x 24 and 64 x 48 for an icon.)  48 x 32 is 2 x 2 lanes
-(4 + 2 words across, 3 + 1 block rows down): 4 lanes a frame set, 384 bytes a
-frame as lane data.
+engine's units are a WORD = 8 world px (2 bytes of 2bpp) and a BLOCK = 8 x 8
+px; a LANE is at most `LANE_WMAX` x `LANE_HMAX` = 4 words x 3 block rows = 32
+x 24 px (bbcourse.py), and the course tool cuts an icon into as many lanes as
+it needs (128.22.2).  What bounds an icon is that every one of those lanes is
+counted FAST while its pad is the marble's, against 128.19.10's per-window
+bounds (`WIN_LANES` = 6 FAST lanes, `WIN_CHG` = 6 pose changes a step) - not a
+fixed rectangle.  48 x 32 is 4 lanes (e.g. 4 + 2 words across, 3 + 1 block
+rows down), which leaves two of each bound for the rest of the page; 384
+bytes a frame as lane data.
 
 Luminance: every icon is drawn so that colour 3 (white / brown) carries the
 shape against black, and colours 1 and 2 (which the Hercules shows as the same
@@ -113,10 +116,7 @@ def _ball(cv, cx, cy, r, rot):
 
 def _first(t, n):
     cv = Canvas()
-    for x in range(W):                                        # the ground, a dash train that loops every frame period
-        if ((x - 8 * t) // 4) & 1 == 0 or True:
-            pass
-    for x in range(0, W):
+    for x in range(0, W):                                     # the ground, a dash train that loops every frame period
         ph = (x + 8 * t) % 8
         cv.put(x, 28, 1)
         if ph < 5:
@@ -191,7 +191,6 @@ def _moon(t, n):
     stars = ((34, 5, 3), (41, 14, 2), (36, 24, 3), (29, 13, 1), (44, 28, 1), (9, 4, 1))
     for i, (sx, sy, sz) in enumerate(stars):
         ph = (t + i * 2) % n                                  # twinkle: phase 0 is the lit rest pose in frame 0
-        on = ph if i else 0
         lit = 0 if i == 0 else ph
         size = sz if (lit % n) < n - 2 else sz - 1
         if t == 0:
@@ -206,7 +205,6 @@ def _moon(t, n):
             cv.put(sx, sy, 3)
         else:
             cv.put(sx, sy, 1)
-        del on
     return cv
 
 
@@ -364,12 +362,9 @@ def _png(out):
     def tiles_img(herc, palette):
         cw, ch = 192, 96
         pic = [[None] * cw for _ in range(ch)]
-        cells = [(i, i) for i in range(0)]
-        route = [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (3, 2), (2, 3)]
         route = [(0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (4, 2), (4, 1), (5, 1), (6, 1)]
-        for pose_i, (wx, wy) in enumerate(sorted(route, key=lambda c: (c[0] + c[1], c[0]))):
+        for wx, wy in sorted(route, key=lambda c: (c[0] + c[1], c[0])):
             cx, cy = 16 * (wx - wy) + 96, 8 * (wx + wy) + 12
-            side = BA.crystal_top_ink
             for j in range(10):                                    # the side walls: columns 0..15 sw, 16..31 se
                 for k in range(16):
                     for face, xx in (("sw", cx - 16 + k), ("se", cx + k)):
@@ -381,7 +376,6 @@ def _png(out):
                     c = BA.crystal_top_ink(u, v)
                     if c is not None and 0 <= cx + u < cw and 0 <= cy + v < ch:
                         pic[cy + v][cx + u] = c
-            del side
         for pose, (wx, wy) in zip((0, 1, 2, 3), ((0, 3), (3, 3), (4, 1), (6, 1))):
             cx, cy = 16 * (wx - wy) + 96, 8 * (wx + wy) + 12
             for (u, v), c in BA.pad_overlay(pose).items():
