@@ -271267,6 +271267,16 @@ landing, the goal and its exit, a bumper's restitution) reads a half
 unchanged; physics adds a half PICK and a WALL ALONG A DIAGONAL, whose
 45-degree rebound needs no square root.
 
+**Built so far** (the stories of the plan, each with its figures): **D1, the
+tool - BUILT** (`tools/bbcourse.py`: `Split`, `half` and `box`, section `D`,
+`GF_SPLIT`, the CELLS rule by halves, the picture and the down half's key;
+`bzcourse.inc`'s `BZ_KTB`, `BZ_KLR`, `BZ_GF_SPLIT`, `BZ_PAIR`; `--selfcheck`
+compiles THE SPLIT COURSE, a string in the tool, and runs items 2 - 6 and
+10 on it; `--png split:` draws it and the owner's mock-up scenes from text,
+`--sizes split:` prices it). No shipped course uses a half: the tool
+refuses one in a `BZ_COURSES` file until wave D3 (`GUEST_SPLIT`), and every
+shipped part is byte for byte what it was (identities unchanged).
+
 The owner's ruling of 2026-11-16 (*"nothing has been released yet, nothing
 needs to stay compatible with any old format"*) frees this design from
 keeping any format; it is chosen as the cleanest, and it happens to leave a
@@ -271375,6 +271385,10 @@ Two additions to 128.10.3's grammar:
 - **A wall is above its floors**, the rule of 128.10.3, now across the
   diagonal too: a WALL half's top is above the other half's floor along the
   whole diagonal.
+- **`surface` takes a `box` too** (BUILT, D1): it sets the surface of the
+  half each box cell lays and no other, so a box whose edge halves are
+  floors beside a floor of another surface is the two-surfaces refusal
+  above. `surface` has no `half` clause; a `hole half` makes a VOID half.
 
 **A worked example**, a route straight up the screen with rails and a step
 (the mock-up `diag-wall`):
@@ -271406,7 +271420,8 @@ the 16 px rail.
 A pair is two cell records, **half A then half B** (left then right for TB,
 up then down for LR), each exactly 128.10.4.3's four bytes with these limits:
 the kind 0 - 3 (a half is never split); a VOID half's `z0` its KILL height,
-computed by the NEAR rule (128.24.5.3) at its cell; SAFE, OCC, OCCG and OBS
+computed by the NEAR rule (128.24.5.3) at its cell, its slopes and surface
+0; SAFE, OCC, OCCG and OBS
 clear; a GOAL half's exit in bits 4 - 7 as a goal cell's (128.19.4); the
 surface its own (a bounce WALL half is a bumper rail). The two halves differ
 (else the cell is whole) and at least one is not VOID.
@@ -271468,12 +271483,26 @@ kinds 6 - 15 refused, as today.
   its ends. Where its two sides differ (a height, a style, a void), the
   diagonal is drawn as a **1 px black line** on the higher (or solid) side -
   PROVISIONAL, and the only cue a straight-up rail stands above the lane.
+  BUILT (D1): the line is the half's own column next to the diagonal on
+  every line of its top; "higher" is the larger sum of the plane's heights
+  at T and B, then WALL over GOAL over FLOOR, and a full tie (two planes
+  that cross) draws it on B. R3's Q2 ruled that the front face's ink (and
+  the line's) follows the HALF's material as the cell-edge faces follow
+  their tile's: a crystal rail half's front face takes the crystal's side
+  ink as its `se` face does; every other half's is the provisional dotted
+  magenta (a per-tile override would be two bits of the half record's
+  flags, which are free, and two compares in the renderer - nothing in the
+  guest, which draws no face).
 
 ##### 128.24.6.2 The order
 
 Back to front by `(2 s + d, wx)`, `d` 1 for an LR split's DOWN half and 0
 for everything else: a down half is drawn after its own row and before the
-next. Both halves of a TB split are side by side and keep the cell's place.
+next. Both halves of a TB split are side by side and keep the cell's place,
+A (left) before B. Each half draws its faces, then its top (then a TB
+half's edge line): an UP half's front face, a DOWN half's `sw` and `se`, a
+LEFT half's `sw`, a RIGHT half's `se`. On a course with no split cell the
+order is today's exactly (`2 s` sorts as `s`).
 
 ##### 128.24.6.3 The occluders
 
