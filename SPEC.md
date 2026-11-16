@@ -273245,9 +273245,10 @@ refused (no memory; `op_fetch` toasts why, as any fetch does), a course that
 names the family fetches it then, and it stays (a hole the arena carries
 until the package ends).
 
-**BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FHMASK` (bit
-ID - 1 a resident family's), `BZ_FID_<NAME>` and `BZ_FAMMAX` (the courses'
-longest list, at least 3); the tool's 3-a-course count and `crs_arena` count
+**BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FID_<NAME>`
+and `BZ_FAMMAX` (the courses' longest list, at least 3) - and, until the
+bundle, `BZ_FHMASK` (bit ID - 1 a resident family's), which the bundle left
+with no reader and the tool no longer emits; the tool's 3-a-course count and `crs_arena` count
 only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe and GLASS
 `fetch`. As story 9.8 built it each resident family was its own row, fetched
 by `bz_fhome` (a read each, MEASURED +0.9 - 1.1 s at the start, 128.25.10);
