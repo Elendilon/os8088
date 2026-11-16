@@ -24,6 +24,8 @@
 course PEAK "Summit Rush"
 width 64
 ball rubber
+# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9)
+uses rotor spring tube
 # 1 the summit: three steep ramps (r -4) and their landings, the ice chute
 floor rect  11  7 14 10  flat 36
 wall  rect  10  6 15  7  flat 37

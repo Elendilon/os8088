@@ -306,6 +306,9 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %if BZ_PK_CKPT > BZ_PK_PAD || BZ_PK_CKPT > BZ_PK_CUP || BZ_PK_CKPT > BZ_PK_SPRING || BZ_PK_CKPT <= BZ_PK_PLATFORM || BZ_PK_CKPT <= BZ_PK_BUMPER || BZ_PK_CKPT <= BZ_PK_WINDMILL || BZ_PK_CKPT <= BZ_PK_TUBE
  %error "bz_prule tells wave 4's kinds from wave 3's by one compare against BZ_PK_CKPT"
 %endif
+%if BZ_FK_WINDMILL < BZ_FK0 || BZ_FK_SPRING < BZ_FK0 || BZ_FK_TUBE < BZ_FK0
+ %error "story 9.8 (SPEC.md 128.25.20): the families' KEYS (bz_fone's DL) are family kinds"
+%endif
 %if bz_tout != bz_goal + 1
  %error "bz_t0 and the step loop test bz_goal and bz_tout as one word"
 %endif
@@ -880,16 +883,8 @@ bz_step:
 .ptube:
     cmp ah, BZ_PK_TUBE
     jne .walls
-    push bx                     ; a DRAIN: grounded, or airborne with z at
-    cmp byte [bz_air], 0        ; most IN's floor + BZ_CLIMB at the centre's
-    je .pcap                    ; point (128.12.6.1)
-    call bz_ztouch
-    jc .pcap
-    pop bx
-    jmp short .walls
-.pcap:
-    pop bx
-    call bz_capture
+    call bz_tdrain              ; (the TUBE family's DRAIN, 128.25.20.2)
+    jnc .walls
     jmp .end
 .walls:
     ; ---- 5. walls: the circle, the edge test SYMMETRIC (128.11.8.3), every
@@ -1452,13 +1447,13 @@ bz_step:
     jmp .end
 .wdoor:                         ; the ball's circle touches the doorway: low
     mov dx, bp                  ; enough (z <= IN's floor + BZ_CLIMB at its
-    call bz_ztouchp             ; point, u before the push) ...
-    mov si, bz_nbr + BZN_W
-    jc .wd1
+    call bz_door                ; point, u before the push) - and the gate at
+    mov si, bz_nbr + BZN_W      ; the step's n: OPEN swallows it, CLOSED
+    cmp al, 1                   ; knocks it back with eG (the ROTOR family's
+    jae .wd1                    ; DOOR, 128.25.20.2)
     jmp .wwall
 .wd1:
-    call bz_gate                ; ...the gate at the step's n: OPEN swallows
-    jc .pdcap                   ; it, CLOSED knocks it back with eG
+    ja .pdcap
     mov ax, [bz_gx + 1]
     and al, 0f0h
     add al, BZ_RAD
@@ -1475,13 +1470,13 @@ bz_step:
     jmp .y
 .ndoor:
     mov dx, bp
-    call bz_ztouchp
+    call bz_door
     mov si, bz_nbr + BZN_N
-    jc .nd1
+    cmp al, 1
+    jae .nd1
     jmp .nwall
 .nd1:
-    call bz_gate
-    jc .pdcap
+    ja .pdcap
     mov ax, [bz_gy + 1]
     and al, 0f0h
     add al, BZ_RAD
@@ -1515,12 +1510,8 @@ bz_step:
     jne .sw
     mov bl, al
     xor bh, bh
-    push bx
-    cmp byte [bz_air], 0
-    je .spcap
-    call bz_ztouch
-    jc .spcap
-    pop bx
+    call bz_tdrain              ; (the TUBE family's DRAIN, 128.25.20.2)
+    jc .spend
 .sw:
     call bz_swalls              ; step 5: the lines inside C, the edges, the
     jc .swcap                   ; corner's rays and the corner (CF: a doorway
@@ -1536,9 +1527,7 @@ bz_step:
     jmp .fb
 .swcap:
     jmp .pdcap
-.spcap:
-    pop bx
-    call bz_capture
+.spend:
     jmp .end
 .ngs:                           ; step 6: a GOAL, or a SPLIT centre - its
     je .ngg                     ; picked RECORD is C from here (128.24.7.1)
@@ -2120,8 +2109,11 @@ bz_prule:
     cmp ah, BZ_PK_CUP
     je .cup
     mov byte [bz_inmo], 0
-    cmp ah, BZ_PK_SPRING
-    je .spring
+    cmp ah, BZ_PK_SPRING        ; story 9.8 (SPEC.md 128.25.20): a SPRING is the
+    jne .nspr                   ; SPRING family's, its CONTACT by its key
+    mov ah, BZ_FK_SPRING
+    jmp short .fam
+.nspr:
     cmp ah, BZ_PK_PAD
     je .pad
     cmp ah, BZ_PK_CKPT
@@ -2239,52 +2231,6 @@ bz_prule:
 .m1:
     cmp al, cl
     ret
-.spring:                        ; A SPRING (128.14.4.6), never under a
-    cmp byte [bz_mst], BZ_ST_SHAT ; shattering ball
-    je .out
-    call .rec
-    mov ax, [bz_nland]          ; this step's CONTACT (a landing, a bounce, a
-    cmp ax, [bz_fnl]            ; Hop at the contact, a stun): gvz =
-    je .sgr                     ; min(VZMAX, max(SPRING, the gvz it left, 0
-    xor ax, ax                  ; when it stopped)), airborne, ztop = z, z not
-    cmp [bz_air], al            ; moved - never the SUM (O13)
-    je .s0
-    mov ax, [bz_gvz]
-.s0:
-    cmp ax, [es:si + BZP_SGVZ]
-    jge .s1
-    mov ax, [es:si + BZP_SGVZ]
-.s1:
-    cmp ax, BZ_VZMAX
-    jle .s2
-    mov ax, BZ_VZMAX
-.s2:
-    mov [bz_gvz], ax
-    mov byte [bz_air], 1
-    mov ax, [bz_gz + 1]
-    mov [bz_ztop], ax
-    call bz_atok                ; round 3b: a launch out of the air
-    jmp short .sl
-.sgr:                           ; a ball that BEGAN the step grounded on it:
-    cmp byte [bz_fair], 0       ; z its floor (a Hop this step does not add),
-    jne .out                    ; gvz = SPRING, the ground Hop's take-off
-    mov al, [bz_nbr + BZN_C + 2]
-    and al, 0fh
-    cmp al, BZ_KFLOOR
-    je .sg1
-    cmp al, BZ_KGOAL
-    jne .out
-.sg1:
-    mov ax, bx
-    push bx
-    call bz_setz
-    pop bx
-    mov ax, [es:si + BZP_SGVZ]
-    mov [bz_gvz], ax
-    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the
-.sl:                            ; token, bz_toff's; a contact's, bz_atok's)
-    mov byte [bz_bgr], 0        ; wave 6b: a spring closes the grace
-    inc word [bz_nspr]
 .launched:                      ; the shadow's floor for the now airborne ball
     mov byte [bz_ghv], 1        ; (its cell solid: BX the h4)
     mov [bz_gh], bx
@@ -2581,231 +2527,8 @@ bz_obuild:
  %error "bz_owner compares a record's (wx, wy) as one word and scales by 32"
 %endif
 
-; bz_ztouch - CF = 1 when the ball's z is at most the centre cell's floor at
-; its point plus BZ_CLIMB (a drain's capture, a doorway's touch: 128.12.6.1,
-; 128.12.6.2), exactly: z <= 64 (h4 + 16) <=> floor((z - 1) / 64) < h4 + 16.
-; bz_ztouchp: at the point DL = u, DH = v.  Clobbers AX, BX, CX, DX, SI.
-bz_ztouch:
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov dh, [bz_gy + 1]
-    and dh, 15
-bz_ztouchp:
-    mov si, bz_nbr + BZN_C
-    call bz_h4
-    add ax, BZ_CLIMB * 4
-    xchg ax, bx
-    mov ax, [bz_gz]
-    mov dx, [bz_gz + 2]
-    sub ax, 1
-    sbb dx, 0
-    BZ_Q64
-    cmp ax, bx
-    jl .y
-    clc
-    ret
-.y:
-    stc
-    ret
-
-; bz_gate - the doorway's windmill ([bz_pdi]) at the step's n (128.12.6.2):
-; phase = (n + seed) AND (P - 1), OPEN while phase < c0 or phase >= c1.  CF = 1
-; open; else CF = 0 and BL = its gate's restitution eG (record +19).
-; Clobbers AX, BX, SI.
-bz_gate:
-    mov bl, [bz_pdi]
-    xor bh, bh
-    call bz_lrecsi
-    mov ax, [bz_nstep]
-    add ax, [es:si + BZP_SEED]
-    and al, [es:si + BZP_MASK]
-    cmp al, [es:si + BZP_TC0]
-    jb .open
-    cmp al, [es:si + BZP_TC1]
-    jae .open
-    mov bl, [es:si + BZP_TEG]
-    clc
-    ret
-.open:
-    stc
-    ret
-
-; bz_capture - prop BL's tube takes the ball (128.12.6.1): the entry speed
-; s_in = max(|gvx|, |gvy|); the centre at segment 0's start - IN's centre, a
-; windmill's at its DOORWAY (the midpoint of IN's -x or -y edge) - on IN's
-; floor there (IN is the window's centre); every velocity 0, grounded, no
-; squash, no bz_gh, off the platform; the tube's first segment; bz_ntube + 1.
-; Clobbers AX, BX, CX, DX, SI, DI.
-bz_capture:
-    xor bh, bh
-    call bz_lrecsi
-    inc bx
-    mov [bz_tube], bl
-    call bz_vmax
-    mov [bz_tsin], ax
-    mov bx, 0808h               ; BL = u, BH = v: the centre ...
-    cmp byte [es:si + BZP_KIND], BZ_PK_WINDMILL
-    jne .at
-    cmp byte [es:si + BZP_TGVX], 0
-    jne .dy
-    xor bl, bl                  ; ...the -x doorway's midpoint
-    jmp short .at
-.dy:
-    xor bh, bh                  ; ...the -y one's
-.at:
-    mov cl, 4
-    xor ah, ah
-    mov al, [es:si + BZP_WX]
-    shl ax, cl
-    add al, bl
-    mov [bz_gx + 1], ax
-    xor ah, ah
-    mov al, [es:si + BZP_WY]
-    shl ax, cl
-    add al, bh
-    mov [bz_gy + 1], ax
-    xor ax, ax
-    mov [bz_gx], al
-    mov [bz_gx + 3], al
-    mov [bz_gy], al
-    mov [bz_gy + 3], al
-    mov [bz_gvx], ax
-    mov [bz_gvy], ax
-    mov [bz_gvz], ax
-    mov [bz_air], al
-    mov [bz_sqf], ax            ; (and bz_ghv)
-    mov [bz_btok], al           ; wave 6: a capture spends the boost's token,
-    mov [bz_bgr], al            ; and (6b) closes the grace
-    mov [bz_onp], al
-    mov [bz_tseg], al
-    mov di, [es:si + BZP_TSEGS]
-    mov ax, [es:di]
-    mov [bz_tcnt], ax
-    inc word [bz_ntube]
-    mov dx, bx
-    mov si, bz_nbr + BZN_C
-    call bz_h4
-    call bz_setz
-    jmp bz_psync
-
-; bz_transit - a step in a tube (128.12.6.1): the ghost along its segment,
-; the count down; at 0 the segment's END exactly and the next; after the last,
-; the EXIT - KEEP grounded along the mouth at max(s_in, BZ_TMIN), LAUNCH
-; airborne at the record's velocity (a take-off), DROP airborne along the
-; mouth as KEEP with gvz 0 - and the window refilled round OUT.  Clobbers
-; AX, BX, CX, DX, SI, DI.
-bz_transit:
-    mov bl, [bz_tube]
-    dec bx
-    xor bh, bh
-    call bz_lrecsi
-    mov al, [bz_tseg]
-    xor ah, ah
-    mov cl, 4
-    shl ax, cl
-    mov di, [es:si + BZP_TSEGS]
-    add di, ax                  ; DI = the segment (BZ_SEGREC bytes)
-    mov ax, [es:di + 2]
-    cwd
-    add [bz_gx], ax
-    adc [bz_gx + 2], dx
-    mov ax, [es:di + 4]
-    cwd
-    add [bz_gy], ax
-    adc [bz_gy + 2], dx
-    mov ax, [es:di + 6]
-    cwd
-    add [bz_gz], ax
-    adc [bz_gz + 2], dx
-    dec word [bz_tcnt]
-    jnz .out
-    xor ax, ax                  ; the segment's END, exactly
-    mov [bz_gx], al
-    mov [bz_gx + 3], al
-    mov [bz_gy], al
-    mov [bz_gy + 3], al
-    mov [bz_gz], al
-    mov ax, [es:di + 8]
-    mov [bz_gx + 1], ax
-    mov ax, [es:di + 10]
-    mov [bz_gy + 1], ax
-    mov ax, [es:di + 12]
-    mov [bz_gz + 1], ax
-    mov al, ah
-    cbw
-    mov [bz_gz + 3], ah
-    inc byte [bz_tseg]
-    mov al, [bz_tseg]
-    cmp al, [es:si + BZP_TNSEG]
-    jae .exit
-    mov ax, [es:di + BZ_SEGREC]
-    mov [bz_tcnt], ax
-.out:
-    jmp bz_psync
-.exit:
-    xor ax, ax
-    mov [bz_tube], al
-    mov [bz_tseg], al
-    mov ax, [bz_gz + 1]         ; ztop = z, whole px
-    mov [bz_ztop], ax
-    mov al, [es:si + BZP_TSUB]
-    cmp al, BZ_TK_LAUNCH
-    jne .keep
-    mov ax, [es:si + BZP_TGVX]  ; LAUNCH: the cannon's velocity, a take-off
-    mov [bz_gvx], ax
-    mov ax, [es:si + BZP_TGVY]
-    mov [bz_gvy], ax
-    mov ax, [es:si + BZP_TGVZ]
-    mov [bz_gvz], ax
-    mov byte [bz_air], 1
-    cwd
-    add [bz_gz], ax
-    adc [bz_gz + 2], dx
-    jmp short .win
-.keep:                          ; KEEP grounded, DROP airborne: along the
-    cmp al, BZ_TK_DROP          ; mouth at max(s_in, BZ_TMIN), gvz 0
-    mov al, 0
-    jne .k1
-    inc ax
-.k1:
-    mov [bz_air], al
-    mov ax, [bz_tsin]
-    cmp ax, BZ_TMIN
-    jae .v
-    mov ax, BZ_TMIN
-.v:
-    xor dx, dx
-    mov cl, [es:si + BZP_TDIR]  ; 0 +x, 1 -x, 2 +y, 3 -y
-    test cl, 1
-    jz .vs
-    neg ax
-.vs:
-    test cl, 2
-    jnz .vy
-    xchg ax, dx
-.vy:
-    mov [bz_gvx], dx
-    mov [bz_gvy], ax
-    xor ax, ax
-    mov [bz_gvz], ax
-.win:
-    cmp byte [bz_air], 0        ; round 3b (128.17.17): a DROP or LAUNCH exit
-    je .w9                      ; takes the token unless a boost is spent
-    call bz_atok
-.w9:
-    call bz_win9f               ; the window round OUT (bz_ps with it)
-    ret
-
-; bz_atok - round 3b (128.17.17): a launch OUT OF THE AIR (a spring under a
-; contact, a tube's DROP or LAUNCH exit) takes the boost's token unless a
-; boost is spent: bz_btok = 1 - bz_bsp, bz_zoff = bz_ztop.  Clobbers AX.
-bz_atok:
-    mov ax, [bz_ztop]
-    mov [bz_zoff], ax
-    mov al, [bz_bsp]
-    xor al, 1
-    mov [bz_btok], al
-    ret
+%include "fam/bzthunk.inc"      ; story 9.8 (SPEC.md 128.25.20): the TUBE family's thunks
+%include "fam/bzdoor.inc"       ; the windmill's doorway: the ROTOR family's
 
 ; bz_ppos - the LIFT's (ES:SI, its record) rise above its low top at step AX
 ; = n, in 1/256 px (128.12.6.4; bbcourse.plat_pos): m = (n + seed) AND
@@ -3855,13 +3578,12 @@ bz_swalls:
     clc
     ret
 .edoor:                         ; the doorway: low enough to touch it ...
-    push si
-    mov dx, bp
-    call bz_ztouchp
-    pop si
-    jnc .elo
-    call bz_gate                ; ... OPEN swallows it (CF = 1 out), CLOSED
-    jnc .knock                  ; knocks it back with eG
+    mov dx, bp                  ; ... OPEN swallows it (CF = 1 out), CLOSED
+    call bz_door                ; knocks it back with eG (the ROTOR family's
+    cmp al, 1                   ; DOOR, 128.25.20.2)
+    jb .elo
+    je .knock
+    stc
     ret
 .knock:
     push bx

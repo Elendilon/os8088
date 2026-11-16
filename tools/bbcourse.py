@@ -365,7 +365,9 @@ FSLOT = 8                     # BZF_SLOT: a family's slot, bytes
 FST_MAXBITS = 256             # a course's state bits: FSB is a byte (BZ_FSTB <= 32)
 FAM_HDR = 24                  # BZF_HDR: 'BF', ID, FAMV, the stamp, the mask, the kinds, 0, six entries
 H_RESET, H_ENTER, H_CONTACT, H_STEP, H_POSE, H_CELL = 1, 2, 4, 8, 16, 32
-HOOK_NAMES = ("RESET", "ENTER", "CONTACT", "STEP", "POSE", "CELL")
+H_PROP = 64                   # story 9.8 (SPEC.md 128.25.20.2): a prop's physics question, through bz_fone only
+HOOK_NAMES = ("RESET", "ENTER", "CONTACT", "STEP", "POSE", "CELL", "PROP")
+HOME_FETCH, HOME_RESIDENT = "fetch", "resident"   # a family's HOME (SPEC.md 128.25.6.9)
 CL_ATTEMPT, CL_RESPAWN, CL_FLAG = 0, 1, 2      # a family element's RESET CLASS (record +17, 128.25.7.1)
 CLASS_NAMES = ("attempt", "respawn", "flag")
 # Each row: its NAME (the `uses` word and the part's file), its ID (1 - 254: part row BZ_P_FAM + ID - 1,
@@ -380,19 +382,52 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 # built after bzcourse.inc, so the ARENA reserve (crs_arena, SPEC.md 128.25.4.2) counts this.  Every
 # family's row is OP_COMP: one plain lazy row would assemble the parts standard's plain-row path, 86
 # resident bytes (os88parts.inc), so a part too small to pack carries zeros until it packs (the probe).
+#
+# Story 9.8 (SPEC.md 128.25.20): today's props as families - each an OWN-LAYOUT kind ("own"): the
+# record keeps its wave-3/4 layout and statement (`tube`, `prop windmill`, `spring`), with no state bits,
+# no reset class and no `prop <kind>` line; the tool and its model keep the kind's own number (PK_TUBE,
+# PK_WINDMILL, PK_SPRING, "of"), in the record too: the family's kind is only the engine's bz_fone key.
+# HOME (SPEC.md 128.25.6.9): "fetch", a course's launch fetches the part, or "resident", fetched once when
+# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
-                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20},
+                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20,
+     "home": HOME_FETCH},
+    {"name": "rotor", "id": 2, "rev": 1, "hooks": H_PROP, "slot": 0,
+     "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_WINDMILL},), "paras": 16,
+     "home": HOME_RESIDENT},
+    {"name": "spring", "id": 3, "rev": 1, "hooks": H_CONTACT, "slot": 0,
+     "kinds": ({"name": "spring", "kind": 24, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_SPRING},), "paras": 20,
+     "home": HOME_RESIDENT},
+    {"name": "tube", "id": 4, "rev": 1, "hooks": H_PROP, "slot": 0,
+     "kinds": ({"name": "tube", "kind": 25, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_TUBE},), "paras": 48,
+     "home": HOME_RESIDENT},
 )
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
-FKIND_BY_NAME = dict((k["name"], (f, k)) for f in FAMILIES for k in f["kinds"])
+FKIND_BY_NAME = dict((k["name"], (f, k)) for f in FAMILIES for k in f["kinds"] if not k.get("own"))
 for _k, (_f, _r) in FKIND.items():
-    PK_NAMES[_k] = _r["name"]
+    if not _r.get("own"):
+        PK_NAMES[_k] = _r["name"]
+# story 9.8: an OWN-LAYOUT kind's family by its record's kind (OWN_FAM).  Its record keeps the kind it
+# always had (PK_TUBE, PK_WINDMILL, PK_SPRING): the family kind (22, 24, 25) is only the KEY the engine
+# hands bz_fone (bzcourse.inc's BZ_FK_<NAME>), so no course byte moves but its family list
+OWN_FAM = dict((k["of"], f) for f in FAMILIES for k in f["kinds"] if k.get("own"))
+OWN_KEY = dict((k["of"], k["kind"]) for f in FAMILIES for k in f["kinds"] if k.get("own"))
+
+
+def prop_fam(p):
+    """the family a placed prop belongs to (a family element's, or an own-layout kind's), or None"""
+    return p.get("fam") or OWN_FAM.get(p["kind"])
 assert [f["id"] for f in FAMILIES] == list(range(1, len(FAMILIES) + 1)), "family IDs are 1 - n in order"
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
+assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
+assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
 assert all(k["forms"] == ("own",) for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form other than its own: the reach's superset is story 9.5's (SPEC.md 128.25.7.3)"
 assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
@@ -417,7 +452,14 @@ def famv(f):
 
 
 def is_fam(kind):
+    """a family ELEMENT (128.25.6.4's record: FSB, its class): a family kind that is not own-layout (story
+    9.8's are never seen here - the tool keeps their own numbers)"""
     return kind >= FAM_K0
+
+
+def fam_fetched(fams):
+    """the families of a list a course's launch FETCHES (home `fetch`): the ones the 3-a-course limit counts"""
+    return [f for f in fams if f["home"] == HOME_FETCH]
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
 LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
@@ -1211,9 +1253,10 @@ def parse(text, fname="<course>"):
                 if any(f is FAM_BY_NAME[t[1]] for f, _l in src.uses):
                     raise CourseError("%s: uses: the family %s is named twice" % (where, t[1]))
                 src.uses.append((FAM_BY_NAME[t[1]], ln))
-            if len(src.uses) > FAM_MAX:
-                raise CourseError("%s: uses: a %dth family, over the %d a course may name (SPEC.md 128.25.6.5)"
-                                  % (where, len(src.uses), FAM_MAX))
+            if len(fam_fetched([f for f, _l in src.uses])) > FAM_MAX:
+                raise CourseError("%s: uses: a %dth fetched family, over the %d a course may name (SPEC.md "
+                                  "128.25.6.5; a RESIDENT family is not counted, 128.25.6.9)"
+                                  % (where, len(fam_fetched([f for f, _l in src.uses])), FAM_MAX))
         else:
             raise CourseError("%s: unknown statement '%s'" % (where, st))
     if src.pathway is None:                         # wave 8R: the pathway's statements are refused elsewhere
@@ -3161,8 +3204,18 @@ def build_props(src, tiles, fname):
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                       "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0})
+    for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
+        fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
+        need = [fm] if fm else []                   # and transit are the tube's)
+        if p_["kind"] == PK_WINDMILL:
+            need.append(OWN_FAM[PK_TUBE])
+        for fm in need:
+            if not any(f_ is fm for f_, _l in src.uses):
+                raise CourseError("%s:%d: a %s needs the %s family, which the course does not name (`uses %s`, "
+                                  "SPEC.md 128.25.20)" % (f, p_.get("wline", p_["line"]), PK_NAMES[p_["kind"]],
+                                                          fm["name"], fm["name"]))
     for fm, ln in src.uses:
-        if not any(p_.get("fam") is fm for p_ in props):
+        if not any(prop_fam(p_) is fm for p_ in props):
             raise CourseError("%s:%d: uses %s, and no element of it is placed: a family a course names costs "
                               "a fetch every launch (SPEC.md 128.25.6.4)" % (f, ln, fm["name"]))
     # wave 7 (SPEC.md 128.18.5): a CLOCK - a record and a lane for each digit (two, three when the limit
@@ -6887,7 +6940,7 @@ def read_part(p, fname="<part>"):
     # pathway's tables: NFAM (ID, FAMV) pairs of distinct known families, NFST and the RESPAWN mask
     nfam, famoff = struct.unpack_from("<BH", p, 45)
     fams, nfst, rmask = [], 0, b""
-    if bool(nfam) != bool(famoff) or nfam > FAM_MAX:
+    if bool(nfam) != bool(famoff) or nfam > len(FAMILIES):
         bad("+45", "NFAM %d with FAMOFF %d" % (nfam, famoff))
     if famoff:
         fend = pthoff or diroff
@@ -6901,6 +6954,9 @@ def read_part(p, fname="<part>"):
         for fid, fv in fams:
             if fid not in FAM_BY_ID or [x for x, _v in fams].count(fid) != 1:
                 bad("FAMOFF", "family ID %d unknown or named twice" % fid)
+        if len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])) > FAM_MAX:
+            bad("FAMOFF", "%d fetched families, over the %d a course may name" % (
+                len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])), FAM_MAX))
     props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or diroff) if nprop else []
     fk = [k for fid, _v in fams for k in FKIND if FKIND[k][0]["id"] == fid]
     for d in props:                                 # wave 9: every family element's family is listed, its
@@ -7354,7 +7410,19 @@ class ProbeFamily(Family):
                 win[pr["at"]][4] |= 0x80
 
 
-FAM_MODEL = {"probe": ProbeFamily()}
+class OwnFamily(Family):
+    """story 9.8 (SPEC.md 128.25.20): ROTOR, SPRING and TUBE - the guest's parts
+    hold today's rules (the doorway, the spring, the tube), which the model
+    keeps where they always were (Physics: _capture, _transit, the gate, the
+    spring): moving the guest's code moved no rule.  So the model's family has
+    no hook of its own; its row is the identity's (FAMV) and the list's"""
+
+    def __init__(self, name):
+        self.row = FAM_BY_NAME[name]
+
+
+FAM_MODEL = {"probe": ProbeFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
+             "tube": OwnFamily("tube")}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -10572,19 +10640,28 @@ def emit_inc(courses, path=None, title=None):
               "kinds, 0, six entries" % FAM_HDR,
               "BZ_NFAM         equ %d        ; the families the build has: rows BZ_P_FAM .. + BZ_NFAM - 1, ID 1 - "
               "BZ_NFAM" % len(FAMILIES),
-              "BZ_FAMMAX       equ %d        ; families a course" % FAM_MAX,
+              "BZ_FAMMAX       equ %d        ; families a course's list holds at most: FETCHED ones (3) and "
+              "RESIDENT ones (SPEC.md 128.25.6.9), the courses' longest, never under 3" % max(
+                  [len(getattr(getattr(c_, "src", None), "uses", ())) for c_ in allc] + [FAM_MAX]),
               "BZ_FH_RESET     equ %d        ; the hook mask's bits (bz_fhk, the part's +8)" % H_RESET,
               "BZ_FH_ENTER     equ %d" % H_ENTER,
               "BZ_FH_CONTACT   equ %d" % H_CONTACT,
               "BZ_FH_STEP      equ %d" % H_STEP,
               "BZ_FH_POSE      equ %d" % H_POSE,
               "BZ_FH_CELL      equ %d" % H_CELL,
+              "BZ_FH_PROP      equ %d       ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone only, entry +24" % H_PROP] + [
+              "BZ_FK_%-9s equ %d       ; story 9.8: the %s's family KEY (bz_fone's DL; its record keeps kind %d)"
+              % (PK_NAMES[k].upper(), v, PK_NAMES[k], k) for k, v in sorted(OWN_KEY.items())] + [
+              "BZ_FHMASK       equ %04Xh    ; the RESIDENT families (SPEC.md 128.25.6.9): bit ID - 1" % sum(
+                  1 << (f["id"] - 1) for f in FAMILIES if f["home"] == HOME_RESIDENT),
               "BZC_NFAM        equ 45       ; BZC2 +45: the course's families, 0 - 3",
               "BZC_FAMOFF      equ 46       ; BZC2 +46: its FAMILY LIST (ID, FAMV pairs; NFST; the RESPAWN mask)",
               "BZP_FSB         equ 16       ; a FAMILY ELEMENT: its first state bit in bz_fst",
               "BZP_FCLS        equ 17       ; ...its reset class: 0 ATTEMPT, 1 RESPAWN",
               "; each family's FAMV (bbcourse.famv), its part's +3 and the courses' lists'"] + [
               "BZ_FAMV_%-8s equ %03Xh" % (f["name"].upper(), famv(f)) for f in FAMILIES] + [
+              "; each family's ID (FAMILIES' order: the guest and the parts name it only through these)"] + [
+              "BZ_FID_%-9s equ %d" % (f["name"].upper(), f["id"]) for f in FAMILIES] + [
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
@@ -10773,7 +10850,8 @@ def crs_arena(c, k, ncrs):
     if k < ncrs and vic is not None and vic < len(songs):
         n += _para(len(songs[vic]))
     src = getattr(c, "src", None)                   # wave 9 (128.25.6.2): its FAMILIES' parts, the batch's
-    n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ()))   # last fetches, each at its ceiling
+    n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
+             if fm["home"] == HOME_FETCH)           # RESIDENT one is the arena's floor already (128.25.6.9)
     return n + CLAIM_SLACK
 
 
@@ -10844,6 +10922,13 @@ def budget(t):
     return ROOM * t // PLAN_SECS
 
 
+# NAMED exceptions to the cap, bytes (the lead's decision for the owner, 2026-11-16, story 9.8): MILL - an
+# OLD course the owner plans to drop as the new courses land - packed 9,406 against its 9,412 cap, and naming
+# the families its props now belong to (`uses rotor tube`, SPEC.md 128.25.20) adds 12 packed bytes.  It is
+# waived for MILL ALONE by exactly what that costs; no other course's cap moves.
+CAP_WAIVE = {"MILL": 6}
+
+
 def budget_cap(t):
     """the refusal: 1.5 times the budget (R4's ratio)"""
     return 3 * budget(t) // 2
@@ -10877,6 +10962,7 @@ def check_budget(c, k):
         return None
     n = packed_len(c.stored4, "lz4")
     cap = budget_cap(c.target)
+    cap += CAP_WAIVE.get(c.name, 0)
     if n > cap:
         raise CourseError("%s:%d: the course packs to %d bytes (LZ4), over its cap of %d, 1.5 times the %d-byte "
                           "budget of a %d s course (ROOM %d x %d / %d, SPEC.md 128.15.8)"
