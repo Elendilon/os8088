@@ -5346,6 +5346,7 @@ SOAK = [
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 115.0,
+        "8R (the final pass of 7a644820e): the SECRET leg models TRIAL's poke BEFORE the plays - compiled after TRIAL came up (~4 host s since the Y0 search, SPEC.md 128.25.3, about 20 guest s at MartyPC's pace) it ran out TRIAL's 20 s limit, and the poke landed on the pathway the timeout went back to. "
         "WAVE 8R (SPEC.md 128.22.4, 128.22.10; REWRITTEN - wave 8b's rolled prototype, 128.19.5, is gone): "
         "THE PATHWAY's loop on MartyPC's CGA and Hercules, reached as the title session does (Enter on the "
         "face, P on the title), every item on guest state: a new game RESTS on pad 0 (5 lives, every gate "
