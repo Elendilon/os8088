@@ -1284,6 +1284,8 @@ PADREC, ROUTEREC, KEYREC = 10, 8, 4             # the tables' records (SPEC.md 1
 SIGN_AT = (255, 255)          # a sign's anchor: no cell (record +2 / +3), never a prop's
 # the follower (SPEC.md 128.22.4.2): 8.8 ground px a step, PROVISIONAL
 FOL_VMAX, FOL_ACC, FOL_VMIN = 768, 192, 128     # 3.0, 0.75, 0.5
+FOL_SEGMAX, FOL_DZMAX = 127, 127              # a ramp's follower segment: ground px long, px high (the
+                                              # guest's word imul/idiv, class Follow; tool-side only)
 # screen directions of a route's first step (128.22.4.5): (dx, dy) in ground cells -> its name and arrows
 KEY_ARROWS = ("Up", "Down", "Left", "Right")
 SCREEN_DIR = {(1, 0): ("down-right", (1, 3)), (-1, 0): ("up-left", (0, 2)), (0, 1): ("down-left", (1, 2)),
@@ -1440,6 +1442,13 @@ def _route_lay(r, fname, pads_at):
                 if abs(rr) > 4:
                     raise CourseError("%s:%d: the ramp (%d, %d) -> (%d, %d) is %d half units a cell, past the limit 4"
                                       % (fname, ln, ax, ay, bx, by, rr))
+                if 16 * (hi - lo - 1) > FOL_SEGMAX or 4 * abs(num) > FOL_DZMAX:
+                    # the follower's gz is (dz t) idiv len in WORDS (bz_follow, class Follow): t < 256 len
+                    # must fit a word and the quotient, under 256 dz, a signed one
+                    raise CourseError("%s:%d: the ramp (%d, %d) -> (%d, %d) is %d ground px long and rises %d px: the "
+                                      "follower's ramp is at most %d px long and %d px high (SPEC.md 128.22.4.2): "
+                                      "split it with a flat cell" % (fname, ln, ax, ay, bx, by, 16 * (hi - lo - 1),
+                                                                    4 * abs(num), FOL_SEGMAX, FOL_DZMAX))
                 spec = ("ramp", axis, lo + 1, hi, h_lo, rr)
                 for k in range(1, n):
                     put((ax + k * sx, ay + k * sy), spec)
@@ -1750,7 +1759,10 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
         if c0 < 0 or r0 < 0 or c0 + w > cols or 8 * (r0 + h) > lines:
             raise CourseError("%s:%d: %s's lane is outside the picture" % (f, spec["line"], spec["what"]))
         if bl & busy:
-            other = next(s_ for s_ in specs if _rect_blocks(s_["rect"]) & bl)
+            other = next((s_ for s_ in specs if _rect_blocks(s_["rect"]) & bl), None)
+            if other is None:                       # (busy's other holder: a lives counter's digit)
+                raise CourseError("%s:%d: %s's lane shares a block with a lives counter's digit: move one" % (
+                    f, spec["line"], spec["what"]))
             raise CourseError("%s:%d: %s's lane shares blocks with %s's (line %d): move one" % (
                 f, spec["line"], spec["what"], other["what"], other["line"]))
         busy.update(bl)
@@ -1963,9 +1975,10 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
         clash = blocks & busy
         if clash:
             b = min(clash)
-            other = next(s_ for s_ in specs if b in _rect_blocks(s_["rect"]))
-            raise CourseError("%s:%d: the secret route draws in block (column %d, row %d), which %s's lane holds"
-                              % (f, rt["line"], b[0], b[1], other["what"]))
+            other = next((s_ for s_ in specs if b in _rect_blocks(s_["rect"])), None)
+            raise CourseError("%s:%d: the secret route draws in block (column %d, row %d), which %s holds"
+                              % (f, rt["line"], b[0], b[1], "a lives counter's digit" if other is None
+                                 else "%s's lane" % other["what"]))
         # the route's polyline on the glass, a sample a ground px: a block's distance is its nearest sample's
         samp = []
         d = 0
@@ -2251,7 +2264,14 @@ class Follow:
         bz_gz = 256 gz_k + ((gz_(k+1) - gz_k) t) idiv len_k   (imul / idiv: TRUNCATED toward zero)
 
     with the ball GROUNDED.  FOL_VMAX 768 (3.0), FOL_ACC 192 (0.75),
-    FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps."""
+    FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps.
+
+    SIGNED WORDS suffice for the height: a segment that changes height is a
+    ramp's, which the tool keeps at most FOL_SEGMAX (127) ground px long and
+    FOL_DZMAX (127) px high (_route_lay), so on it t < 256 len_k < 32,768 is a
+    positive signed word for imul and the quotient, under 256 |dz|, a signed
+    word for idiv; on a level segment dz is 0 and the product is 0 whatever
+    t's high word."""
 
     def __init__(self, pts, reverse=False):
         self.pts = [tuple(p) for p in (reversed(pts) if reverse else pts)]
@@ -9186,9 +9206,11 @@ def emit_path(path, courses):
         "%endmacro", ""]
 
 
-CLAIM_SLACK = 128             # paragraphs a lazy part's claim may pass its RAM form by: op_lazyp's read of its
-                              # packed bytes in whole clusters from the cluster below it, 1 KB clusters at most
-                              # on a shipped floppy - its head slack and its tail's rounding (SPEC.md 20.12.2)
+CLAIM_SLACK = 159             # paragraphs a lazy part's claim may pass its RAM form by (SPEC.md 20.12.2, 20.12.7.4):
+                              # op_lazyp claims R = roundup512(len - packed) and the read roundupC(h + packed), C
+                              # the cluster (1 KB at most on a shipped floppy), h the head slack - a part starts
+                              # on a PARAGRAPH, so h is up to C - 16, not C - 512: in bytes at most
+                              # len + 511 + (C - 16) + (C - 1) = len + 2,542, under ceil(len / 16) + 159 paragraphs
 
 
 def crs_maxclaim(path, courses):
@@ -9561,25 +9583,44 @@ def check_demo(c, K, log, idents, where):
 # the identities of the authored demos' courses before wave 8R's finish clocks (SPEC.md 128.22.6): a
 # demo carrying one of these may be re-stamped by clock_restamp, and no other identity ever is
 CLOCK_RESTAMP = {"MOON": 0x5E25, "PEAK": 0x0562, "PLAY": 0x9D5E}
+# ...and the course THAT identity was: its source today with its trailing finish clock(s) left out,
+# compiled with no occluders (occluders=False: the identity of the grid alone, a fraction of a second
+# where the shipped one's cut costs PEAK 13 s), must give this identity - so a course edited in any
+# other way is never re-stamped, however its demo replays (an edit, or a tool change that moves it,
+# fails the build as an earlier build's demo, naming `record it again`: the safe side)
+CLOCK_BARE = {"MOON": 0xEA00, "PEAK": 0x6814, "PLAY": 0xD8A8}
 
 
 def clock_restamp(c, log):
-    """True when the model's replay of LOG gives the same events, step for
-    step, on course c and on c with every `clock` statement left out: the
-    clocks (SOLID posts, 128.18.5.3) are never met, so they cannot have moved
-    the demo (the wave 8R clock rule's re-stamp, SPEC.md 128.22.6)"""
+    """True when (1) course c's source with its last j `clock` statements
+    left out (j = 1, 2, ...) is the course the demo was recorded on - its
+    no-occluder identity CLOCK_BARE's - and (2) the model's replay of LOG
+    gives the same ball state and events, step for step, on c and on that
+    course: the finish clocks (SOLID posts, 128.18.5.3) are never met, so
+    they cannot have moved the demo (the wave 8R clock rule's re-stamp,
+    SPEC.md 128.22.6).  Anything else - a course changed some other way, a
+    clock the ball meets - is False, and the demo fails the build"""
+    want = CLOCK_BARE.get(c.name)
     path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
     try:
         with open(path, encoding="ascii") as f:
             text = f.read()
     except OSError:
         return False
-    bare = "\n".join(ln for ln in text.split("\n") if ln.split()[:1] != ["clock"])
-    if bare == text:
-        return False
-    try:
-        c0 = compile_course(bare, fname=c.fname + " (no clocks)", occluders=False, _hack={"no_finish": 1})
-    except CourseError:
+    lines = text.split("\n")
+    cl = [i for i, ln in enumerate(lines) if ln.split()[:1] == ["clock"]]
+    c0 = None
+    for j in range(1, len(cl) + 1):
+        drop = set(cl[-j:])
+        try:
+            cj = compile_course("\n".join(ln for i, ln in enumerate(lines) if i not in drop),
+                                fname=c.fname + " (no finish clock)", occluders=False, _hack={"no_finish": 1})
+        except CourseError:
+            continue
+        if want is not None and cj.ident == want:
+            c0 = cj
+            break
+    if c0 is None:
         return False
     _K, mat, kt, _fl = decode_log_t(log)
     runs = []
@@ -15665,6 +15706,32 @@ def _path_checks(courses, res):
     except CourseError as e:
         why = str(e)
     res.append(("8R refused: two routes leaving a pad one way (%s)" % why[:80], "two routes leave pad 0" in why))
+    # a route left with no arrow: down-right's Down and Right both straights' (a synthetic map again)
+    syn = {"pads": [{"num": 0}, {"num": 1}, {"num": 2}, {"num": 3}],
+           "routes": [{"i": 0, "a": 0, "b": 1, "line": 1, "src": {"pts": [(5, 5, 0), (9, 5, 0)]}},
+                      {"i": 1, "a": 0, "b": 2, "line": 2, "src": {"pts": [(5, 5, 0), (8, 8, 0)]}},
+                      {"i": 2, "a": 0, "b": 3, "line": 3, "src": {"pts": [(5, 5, 0), (8, 2, 0)]}}]}
+    try:
+        path_keymap(syn, "<no arrow>")
+        why = "accepted"
+    except CourseError as e:
+        why = str(e)
+    res.append(("8R refused: a route left with no arrow (%s)" % why[:80], "has no arrow" in why))
+    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal)
+    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 23 28"), courses, "a lives counter's digit",
+                               "a lane over a lives digit", ex)
+    res.append(("8R refused: a pad's lane over a lives counter's digit%s" % ("" if fired else " -- got: " + msg[:160]),
+                fired))
+    # the follower's word arithmetic (SPEC.md 128.22.4.2): a ramp over FOL_SEGMAX px long (FOL_DZMAX, 127 px,
+    # cannot bind on its own while a ramp is at most 4 half units a cell: 7 cells rise 112 px at most)
+    for what, pts in (("long", [(0, 0, 0), (9, 0, 8)]),):
+        try:
+            _route_lay({"line": 1, "pts": pts}, "<ramp %s>" % what, {})
+            why = "accepted"
+        except CourseError as e:
+            why = str(e)
+        res.append(("8R refused: a ramp too %s for the follower's words (%s)" % (what, why[:90]),
+                    "the follower's ramp is at most" in why))
     # the key map's rule: a straight claim beats a diagonal (TRIAL's Up and Right are straights' and its
     # Left and Down the down-left route's alone)
     k1 = pth["pads"][1]["keys"]
@@ -15751,6 +15818,37 @@ def _clock_rule_checks(courses, res, paths=None):
                     "its replay the same with the finish clock and without; red control: a clock put on its route at "
                     "%s moves the replay and is not re-stamped" % (CLOCK_RESTAMP["MOON"], c.ident, red and red[0]),
                     bool(ok1) and red is not None and red[1] is False))
+        # the second red control: MOON changed some OTHER way (a `way` added - the part, so the identity,
+        # moves; a keyboard replay cannot see it), its demo's replay the same: never re-stamped, because the
+        # course minus its finish clock is no longer the course the demo was recorded on (CLOCK_BARE)
+        import tempfile
+
+        def trace(cc):
+            p_ = Physics(cc, play=True, mat=mat)
+            tr = []
+            for k_, t_ in kt:
+                p_.step(k_, t_)
+                tr.append((p_.gx, p_.gy, p_.gz, p_.gvx, p_.gvy, p_.gvz, p_.air, p_.goal))
+                if p_.tout:
+                    break
+            return tr, [(e[0], e[1]) for e in p_.events]
+        red2 = None
+        with tempfile.TemporaryDirectory() as td:
+            tp = os.path.join(td, os.path.basename(c.fname))
+            for cl in cells:
+                text3 = text.replace("\nclock ", "\nway %d %d\nclock " % cl, 1)
+                with open(tp, "w", encoding="ascii") as f:
+                    f.write(text3)
+                try:
+                    c3 = compile_course(tp, occluders=False, _hack={"no_bounds": 1})
+                except CourseError:
+                    continue
+                if c3.name == "MOON" and trace(c3) == trace(c):
+                    red2 = (cl, clock_restamp(c3, log))
+                    break
+        res.append(("8R the clock rule's re-stamp, red control 2: MOON with a `way` added at %s (its demo's replay "
+                    "unchanged, its no-occluder identity no longer CLOCK_BARE's %04Xh) is not re-stamped" % (
+                        red2 and red2[0], CLOCK_BARE["MOON"]), red2 is not None and red2[1] is False))
     for c in courses:
         print("    the clock rule: %s" % finish_clock_rule(c))
     ok = True
