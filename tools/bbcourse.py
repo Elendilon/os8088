@@ -619,7 +619,7 @@ def box_cells(a0, a1, s0, s1, where):
     to 16 s + 32, its LR diagonal at 16 s + 16: whole across when a0 < a < a1, its RIGHT half on a = a0 and
     its LEFT half on a = a1; whole in depth when s0 <= s and s + 2 <= s1, its DOWN half when s + 1 = s0 and
     its UP half when s + 1 = s1.  Cut both ways (a corner whose a and s differ in parity) it lays the ONE
-    QUARTER inside the box (R4: the box's corner is a 45-degree chamfer): the quarter on the right (N or E)
+    QUARTER inside the box (R4; the corner is that cell's centre, so the box stays SQUARE): the right (N or E)
     when a = a0, on the left (S or W) when a = a1, the down one (E or S) when s + 1 = s0, the up one (N or
     W) when s + 1 = s1.  -> (cells, {cell: (kind, half or quarter)})"""
     if a1 <= a0 or s1 <= s0:
@@ -1317,8 +1317,8 @@ def build_tiles(src):
                 continue
             piece = hm.get(t)
             if piece is not None and not isinstance(ent, _Quarters):
-                _put(tiles, t, piece, ent, ln)
-                ent = tiles[t]
+                _put(tiles, t, piece, _tile_copy(ent), ln)   # (a COPY: _put keeps ent itself as the N
+                ent = tiles[t]                                # quarter, which the surface must not reach)
             tl_ = [ent[i] for i in PIECE_QS[piece]] if piece is not None else (
                 list(ent) if isinstance(ent, _Quarters) else [ent])
             for tl in tl_:
@@ -3328,13 +3328,16 @@ class Canvas:
                     if orow is not None:
                         orow[x] = owner
 
-    def outline(self, sp, left=False):
+    def outline(self, sp, left=False, also=None):
+        """black on each pixel with nothing of sp above it (left: and each run's first); also: spans whose
+        pixels count as sp's (a quartered cell's equal partner, BACK_PARTNER)"""
         for y, runs in sp.items():
             above = sp.get(y - 1)
+            above2 = also.get(y - 1) if also else None
             row = self.rows[y]
             for a, b in runs:
                 for x in range(a, b):
-                    if not _inside(above, x) or (left and x == a):
+                    if not (_inside(above, x) or _inside(above2, x)) or (left and x == a):
                         row[x] = BLK
 
 
@@ -3394,6 +3397,10 @@ FRONT_PIECE = {(KIND_LR, 1), (KIND_Q, Q_E), (KIND_Q, Q_S)}
 # the piece in front (or 3 units): (the line's ends, the piece in front) - an UP half's diagonal, a W
 # quarter's L - c, an N quarter's c - R
 FRONT_FACES = {(KIND_LR, 0): ((H_L, H_R, 1),), (KIND_Q, Q_W): ((H_L, H_C, Q_S),), (KIND_Q, Q_N): ((H_C, H_R, Q_E),)}
+# a quartered cell's FRONT quarter whose top's upper boundary is a line inside the cell (S's L - c, E's c - R)
+# and the quarter behind that line: when the two are the SAME record the line is no edge, so it draws no
+# outline (D2's verify: a box's odd corner left a 16 px black stub on the flat field beside it)
+BACK_PARTNER = {(KIND_Q, Q_S): Q_W, (KIND_Q, Q_E): Q_N}
 
 
 def _cell_pieces(tiles):
@@ -3480,7 +3487,12 @@ def draw_ops(tiles, x0, deep=()):
             quad = [_scr(2 * wx + q_[0], 2 * wy + q_[1], 2 * _z2(t, q_), x0) for q_ in PIECE_POLY[(ent.diag, h)]]
         mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(t, wx, wy)
         sp = spans(quad)
-        ops.append((sp, "top", s, mk, False, t, (wx, wy)))
+        bp = BACK_PARTNER.get((ent.diag, h)) if h is not None else None
+        noline = False                              # (render's outline: the partner's pixels count as inside)
+        if bp is not None and _tile_same(t, ent.halves[bp]):
+            noline = spans([_scr(2 * wx + q_[0], 2 * wy + q_[1], 2 * _z2(t, q_), x0)
+                            for q_ in PIECE_POLY[(ent.diag, bp)]])
+        ops.append((sp, "top", s, mk, noline, t, (wx, wy)))
         if h is not None:                           # the TB lines inside the cell this piece borders
             for i, j, p0, p1, k in INNER[ent.diag]:
                 if k != KIND_TB or h not in (i, j) or _line_side(ent.halves[i], ent.halves[j], p0, p1) != (h == j):
@@ -3591,7 +3603,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                 c = BA.crystal_top_ink(int(math.floor(du - dv)), int(math.floor((du + dv) / 2.0)))
                 return 1 if c is None else c
             cv.fill(sp, ink, s, top, own)
-            cv.outline(sp)
+            cv.outline(sp, also=_shift(left, y0) if left else None)
         elif which == "sw":
             cv.fill(sp, MAG, s, top, own)
             cv.outline(sp, left=True)
@@ -3619,7 +3631,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                                 row[x] = ink
             else:
                 cv.fill(sp, WHT if (wx + wy) & 1 else CYN, s, top, own)
-            cv.outline(sp)
+            cv.outline(sp, also=_shift(left, y0) if left else None)
     return cv
 
 
@@ -6920,7 +6932,7 @@ class Physics:
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
                  _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
-                 _dsig_flip=False, _ray_inv=False, _all_radial=False):
+                 _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -7022,6 +7034,7 @@ class Physics:
         # diagonal's sigma flipped, the corner's ray choice inverted, every diagonal end a radial corner (no ray)
         self._own_swap, self._pick_swap, self._dsig_flip = _own_swap, _pick_swap, _dsig_flip
         self._ray_inv, self._all_radial = _ray_inv, _all_radial
+        self._inner_on = _inner_on                  # (a red arm: a quartered cell's second line after a push out)
         self.wsplit = False                         # bz_ps bit 3 (128.24.7.6)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
@@ -7139,8 +7152,11 @@ class Physics:
         corner table at |pu - 2048| >> 8, |pv - 2048| >> 8, 128.10.7.3's push and reflection) when it blocks
         at (8, 8) - and neither partner blocked (else c is a point of a straight face, which the line meets
         exactly; the table's whole gu would meet it up to 1.4 gu early, as 128.24.7.4's K on a straight wall).
-        A push off one line keeps the centre in its quarter (it moves along the other line's direction).
-        -> True on any contact"""
+        A push off one line keeps the centre in its quarter (it moves along the other line's direction) - but
+        it can carry it out of the CELL across the quarter's own edge (near T or B, say, off the TB line): then
+        nothing more of C's is tested this step (the second line and the centre would read the new cell's pu,
+        pv as C's, and a wild push of up to 8 gu was the result, D2's verify) and the step refills the window
+        round the new cell before its edges, as after any push out.  -> True on any contact"""
         pr = self.grid.pair(cwx, cwy)
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         hc = pick(C[3], pu, pv)
@@ -7160,6 +7176,9 @@ class Physics:
                 straight = True                     # (a partner wall: c is on a straight face, no radial there)
                 if self._dline(kind, sig, 0 if kind == KIND_TB else 4096, other, "in"):
                     hit = True
+                    if (self.gx >> 12, self.gy >> 12) != (cwx, cwy) and not self._inner_on:
+                        return True                 # pushed out of the cell (near a tip): nothing more of C's -
+                        # its second line's pu, pv would be the NEW cell's, and the push a wild one (D2 verify)
         if C[3] == KIND_Q and not straight:         # the centre c: the opposite quarter, radially
             tb, lr = QSIDE[hc]
             opp = pr[QIDX[(1 - tb, 1 - lr)]]
@@ -16997,7 +17016,7 @@ def _clock_rule_checks(courses, res, paths=None):
 # end a half unit up (an LR step with its FRONT face), a field to its right whose right side is a straight
 # 45-degree course EDGE (VOID halves), a TB step inside the field (the edge line), a raised DOWN half (the
 # occluders' s + 1 key), a goal tile across the lane, a raised platform whose box corners are QUARTERED (R4:
-# a 45-degree chamfer), a wall quarter standing in it
+# the box stays square), a wall quarter standing in it
 _SPLIT = ('course SPLIT "Split"\nwidth 64\n'
           'floor box -1 1 15 31 flat 0\n'
           'floor box -1 1 15 21 flat 0.5\n'
@@ -17297,6 +17316,31 @@ def _split_physics(res):
                 "straight at the cell's centre the opposite S quarter is met radially (%s); red arm, the pick "
                 "swapped: %s" % (q1, qw, q2, q3),
                 q1 == "diag:in" and qw in (DIAG, DIAG + 1) and q2 == "centre" and (n3 is None or n3 > n2)))
+    # R4, QUARTERS (D2's verify): a push off a quarter's FIRST line can carry the centre out of the cell (near
+    # T, off the TB line, into the north cell); nothing more of the old cell's is tested then.  A floor N
+    # quarter between WALL W and E quarters, the ball rolled down the W quarter's line from the north cell:
+    # no step moves the ball further than its speed; red arm, the second line tested on the new cell's pu,
+    # pv: a wild push of about 8 gu
+    cn_ = compile_course('course NOTCH "Notch"\nwidth 128\nfloor rect 5 5 18 18 flat 0\n'
+                         'wall quarter w tile 10 10 flat 1.5\nwall quarter e tile 10 10 flat 1.5\nstart 7 14\n',
+                         "<NOTCH>", _hack={"no_finish": True})
+
+    def notch(**kw):
+        worst = 0
+        for gvy in (180, 260, 320):
+            for gvx in (-200, -50, 0, 50):
+                for pu in range(0, 4096, 256):
+                    p = at(cn_, 10, 9, pu, 2000, gvx, gvy, **kw)
+                    for i in range(30):
+                        ox, oy = p.gx, p.gy
+                        p.step(0)
+                        worst = max(worst, abs(p.gx - ox), abs(p.gy - oy))
+        return worst
+    nw, nr = notch(), notch(_inner_on=True)
+    res.append(("7 NOTCH (R4, quarters): a ball rolled down a WALL quarter's line out of the cell above it is never "
+                "moved more than its speed in a step (the largest move %d, 1/256 gu; BZ_VMAXG %d) - a push out of "
+                "the cell ends the cell's lines; red arm, the second line tested on the new cell's position: %d"
+                % (nw, VMAXG, nr), nw <= VMAXG and nr > 4 * VMAXG))
     # D2.5: the host tools that walk a course, on RAIL with props - its exits by the model (check_exits), NO
     # TRAP from a flag and a pad to the goal HALF (trap_reach), the finish's reach per record and the clock
     # rule (finish_reach_rule, finish_clock_rule), OCCG (in the compile, _occg per record)
@@ -17409,6 +17453,31 @@ def _split_checks(res, t):
     res.append(("5 SPLIT: an LR split's raised DOWN half is keyed s + 1 (%d ball pixels hidden for a ball on the up "
                 "half behind it); negative control: keyed s, it hides %d" % (hid(c), hid(c0)),
                 bool(keyed) and hid(c) > 0 and hid(c0) == 0))
+    # D2's verify: `surface` on a box's piece of a WHOLE cell reaches that piece alone (it once reached the N
+    # quarter too: _put kept the whole tile itself as N), and a quartered cell's S or E top draws no outline
+    # along its inner line when the quarter behind it is the same record (a box corner's 16 px stub)
+    cw_ = compile_course('course SURF "Surf"\nwidth 128\nfloor rect 5 5 18 18 flat 0\n'
+                         'wall tile 9 10 flat 1.5\nwall tile 10 10 flat 1.5\nwall tile 9 11 flat 1.5\n'
+                         'wall tile 10 11 flat 1.5\nsurface bounce box -2 0 20 22\nstart 7 14\n',
+                         "<SURF>", _hack={"no_finish": True})
+    got = {k_: (v.diag, tuple(h.surf for h in v.halves)) for k_, v in cw_.tiles.items() if isinstance(v, Split)}
+    want = {(9, 10): (KIND_LR, (SURF_NORMAL, SURF_BOUNCE)), (10, 10): (KIND_TB, (SURF_BOUNCE, SURF_NORMAL)),
+            (9, 11): (KIND_TB, (SURF_NORMAL, SURF_BOUNCE)), (10, 11): (KIND_LR, (SURF_BOUNCE, SURF_NORMAL))}
+    res.append(("2 `surface bounce box` on whole wall cells reaches each cell's piece inside the box alone - two "
+                "TB and two LR halves, none quartered (%s)" % sorted(got.items()), got == want))
+    cq_ = compile_course('course QS "Qs"\nwidth 128\nfloor rect 8 8 12 12 flat 0\nfloor quarter s tile 10 10 flat 1\n'
+                         'start 9 9\n', "<QS>", _hack={"no_finish": True})
+    eq = cq_.tiles[(10, 10)].halves[Q_E]
+    ops_ = draw_ops(cq_.tiles, cq_.x0)
+    esp = next(o[0] for o in ops_ if o[1] == "top" and o[5] is eq)
+    y_ = min(esp)
+
+    def stub(ops):
+        pic = render(cq_.tiles, ops, cq_.x0, cq_.y0, cq_.width, cq_.lines).rows
+        return sum(1 for a_, b_ in esp[y_] for x_ in range(a_ + 1, b_ - 1) if pic[y_ + cq_.y0][x_] == BLK)
+    sg, sr = stub(ops_), stub([o if o[5] is not eq else o[:4] + (False,) + o[5:] for o in ops_])
+    res.append(("3 a quartered cell's E top under an EQUAL N quarter draws no outline along c - R (%d black px of "
+                "its first row); negative control, outlined as before: %d" % (sg, sr), sg == 0 and sr > 4))
     return c
 
 
