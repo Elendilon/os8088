@@ -126,7 +126,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass
+uses probe glass pickups
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -145,3 +145,22 @@ prop glass 8 27
 prop glass 7 27
 prop glass 6 27
 pad steel 4 25
+
+# wave 9 (SPEC.md 128.25.9, 128.25.19, moved here at integration: glass's section holds FF's left edge): the
+# PICKUPS YARD, left of the mat at the apron's level - an
+# hourglass, a speed and a jump - joined to the apron's left end by a row above the mat and a row below
+# it (wy 14 and 18; wy 19 - 22 stay void, so the yard is no way round the gap ladder's 1-tile notch and
+# no step towards the glass section's far platform), and behind it the RIDGE, 2 units up, the step
+# ladder's "nobody's" height: over a Hop (5.7 px and the 4 px climb) and over rubber's boost (9.3 px);
+# the jump's own Hop (13.8 px) climbs it, and a jump with rubber's boost STACKED on its contact (18.0
+# px) clears it with room.  Nothing is up there but the view, and it is no trap: its front edge is open,
+# so a ball rolls off it back into the yard.  Every timed pickup is short (3 s each), so their reach
+# regions stay off the 2-unit rung (wx 31).  The ridge is 3 tiles wide with FOUR of void between it
+# and the 1.5-unit rung (wx 6 - 9), so no ball reaches it from that ledge
+floor rect   3 13  7 19  flat 4
+floor rect   7 14 10 15  flat 4
+floor rect   7 18 10 19  flat 4
+floor rect   3  8  6 13  flat 6
+prop hourglass 3 18
+prop speed     5 14 for 3
+prop jump      6 17 for 3

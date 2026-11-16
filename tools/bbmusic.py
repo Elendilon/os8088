@@ -76,7 +76,8 @@ EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
           "HOP", "FALL", "TUBE", "GOAL", "BOOST",      # BOOST: wave 6, rubber's (128.16.4.4)
           "FLAG", "PAD", "LIP", "SPRING", "RETURN",     # wave 7 (SPEC.md 128.18.6): wave 4's counters
           "TICK", "LOW", "TIMEOUT",                     # ...and the clock's seconds
-          "ARRIVE", "GATE", "LIFE", "OVER"]             # wave 8R (128.22.9): the pathway's shell
+          "ARRIVE", "GATE", "LIFE", "OVER",             # wave 8R (128.22.9): the pathway's shell
+          "PICKUP"]                                     # wave 9 (128.25.19): a family's event, PICKUPS' take
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 

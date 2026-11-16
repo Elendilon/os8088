@@ -223,6 +223,14 @@ VAR bz_psp,1                    ; D3 (SPEC.md 128.24.7.6): 8 while a SPLIT cell 
                                 ; step's .pps rebuild from it), else 0
 VAR bz_wfl,1                    ; ...bz_wtail's gate: 1 the course has props, 2 a
                                 ; split cell (GF_SPLIT), 3 both (bz_pinit's)
+VAR bz_vup,2                    ; wave 9 (SPEC.md 128.25.19): what a family adds to
+                                ; the cap BZ_VMAXG (bz_gax.clamp; PICKUPS' speed)
+VAR bz_nfev,2                   ; ...a family's EVENTS, the PICKUP sound's counter
+                                ; (bzs_events: added to its sum, never compared)
+VAR bz_wacc,1                   ; ...what it adds to every force table's force
+                                ; (bz_ramp: the air's ACC and the surface's A)
+VAR bz_cue,1                    ; ...the timed effect's CUE, display only: bit 0
+                                ; SPARKLES, bit 1 the last PU_WARN steps' FLASH
 VAR bz_fst,BZ_FSTB              ; wave 9 (SPEC.md 128.25.7.2): the per-play STATE bits
 VAR bz_fsl,BZ_FAMMAX * BZF_SLOT ; ...and each family's SLOT (both cleared by class:
 VAR bz_fpad,((BZ_FSTB + 1) & 1)  ; a play's start here, a respawn bz_frst's)
@@ -463,10 +471,13 @@ bz_tapply:
     ret
 %endif
 
-; bz_ramp - a force table (128.11.7.1): [DI + l] = (AL l + 4) >> CL for the
-; levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's).  DS = ours.
+; bz_ramp - a force table (128.11.7.1): [DI + l] = ((AL + bz_wacc) l + 4) >> CL
+; for the levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's): bz_wacc
+; is a family's raise (wave 9, SPEC.md 128.25.19: PICKUPS' speed; 0 otherwise),
+; so a pad's swap or a change of surface under it keeps it.  DS = ours.
 ; Clobbers AX, BX, CH, DX, DI.
 bz_ramp:
+    add al, [bz_wacc]
     cbw
     mov dx, 4
     mov ch, BZ_LVLMAX + 1
@@ -1912,7 +1923,10 @@ bz_fdis:
 .gone:                          ; bz_bseg may still be our copies' segment
     mov byte [bz_hidn], 1       ; GONE: the ball and its shadow
     mov byte [bz_shc], 0
-.r:
+.r:                             ; wave 9 (SPEC.md 128.25.19): every way out
+    mov al, [bz_cue]            ; takes the pickup CUE's look (bzvideo.inc
+    or al, [bz_clook]           ; bz_cuef) while a cue shows or the last
+    jnz bz_cuef                 ; frame's did - with neither, three tests
     ret
 .dith:
     test cl, 1                  ; (a new density is a new sprite to bz_mkboxes)
@@ -1958,7 +1972,7 @@ bz_fdis:
     call bz_fdor                ; the shadow's mask: OR
 .out:
     pop es
-    ret
+    jmp short .r
 .wd:                            ; DL an even line's dither byte, DH an odd
     test al, 1                  ; one's, AL a line: DX = AL's (both bytes),
     jz .w0                      ; BX the next line's
@@ -1967,6 +1981,113 @@ bz_fdis:
     mov bl, dh
     mov bh, dh
     mov dh, dl
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_cuef - wave 9 (SPEC.md 128.25.9, 128.25.19): the pickup CUE's LOOK for the
+; frame, once a frame from bz_fdis's tail while [bz_cue] (a family's STEP
+; writes it; display only) or the last frame's look is set.  The look
+; (bz_clook): while bit 0 of bz_cue is set, BZ_CL_SP + the sparkles' HOP
+; count mod 16: sparkle k holds a place for 8 frames, its epoch e_k =
+; (frames + 0, 5, 2) / 8 - the three hop on frames 0, 3 and 6 mod 8, never
+; together - so the hops so far are e_0 + e_1 + e_2 = 3 frames / 8, which
+; moves at each hop and at no other frame (bar 3 frames' 16-bit wrap: one
+; extra recompose in 6 minutes).  On
+; a FLASH frame under bit 1 (the last PU_WARN steps; which frames is the
+; build's BZ_CUEFLASH) BZ_CL_FL (a DITHER style: the checker folded into the
+; ball's blit, bz_chk its row 0's by card and py's parity) or BZ_CL_BL (a
+; BLINK style: the ball not drawn).  bz_boxc and bz_blit draw from it.  When
+; the look changes, bz_ospr (the sprite bz_mkboxes's idle test compares
+; against: last frame's) is made this frame's bz_spr NOT, so that test
+; recomposes a RESTING ball on exactly the frames its cue's look changed -
+; a hop, the first, and the one the cue ends on included - whatever the
+; frames before it were and whatever the dissolve did to bz_spr's bit 7 this
+; frame (a ball that moves is recomposed for its move: the sprite's shift is
+; not in the look).  And on that change, with the sparkles, each sparkle's
+; PLACE (bz_spq: a pointer to its four entries in the card's table, the
+; place e_k mod 4 as the steps a b c b) - only at a hop or the sparkles'
+; start, not at a flash turning on or off.  (The first build flipped
+; a toggle XORed into bz_spr - the dissolve's trick - and a cue that began
+; with the toggle left set by the last one changed nothing the idle test
+; saw.)  Clobbers AX, CX, DX.
+; -----------------------------------------------------------------------------
+bz_cuef:
+    mov ah, [bz_cue]
+    xor dx, dx                  ; DL = the look
+    test ah, 2
+    jz .sp
+%if BZ_CFP == 2
+    test byte [bz_frames], 1    ; every 2nd frame
+    jz .sp
+%else
+    test byte [bz_frames], 3    ; every 4th frame
+    jnz .sp
+%endif
+%if BZ_CFB
+    mov dl, BZ_CL_BL
+%else
+    mov dl, BZ_CL_FL
+    mov cx, 3333h               ; the checker's row 0: by card (a CGA pixel is
+    cmp byte [bz_herc], 0       ; two bits, a Hercules one a mono pair) and
+    je .c1                      ; by py's parity
+    mov cx, 5555h
+.c1:
+    test byte [bz_py], 1
+    jz .c2
+    not cx
+.c2:
+    mov [bz_chk], cx
+%endif
+.sp:
+    test ah, 1
+    jz .lk
+    mov ax, [bz_frames]
+    mov cx, ax
+    shl ax, 1
+    add ax, cx
+    mov cl, 3
+    shr ax, cl                  ; the HOPS: 3 frames / 8, one a hop
+    and al, 0Fh
+    or al, BZ_CL_SP
+    or dl, al
+.lk:
+    mov al, [bz_clook]
+    cmp dl, al
+    je .r
+    mov [bz_clook], dl
+    mov dh, [bz_spr]            ; a changed look: never an idle frame
+    not dh
+    mov [bz_ospr], dh
+    test dl, BZ_CL_SP
+    jz .r
+    xor al, dl                  ; the places only at a HOP (or the sparkles'
+    test al, BZ_CL_SP | 0Fh     ; start): a flash on or off moves none
+    jz .r
+    push bx                     ; each sparkle's place, a pointer into the
+    mov dx, bz_spr0             ; card's table, off the epochs
+    cmp byte [bz_herc], 0       ; (frames + 0, 5, 2) / 8 (a byte's wrap is
+    je .pc                      ; 32 epochs: 0 mod 4) - all three: at a hop
+    add dx, BZ_SPRC             ; one moves, but picking it costs the bytes
+.pc:                            ; it saves (MEASURED: 50 - 90 clk a hop
+    mov al, [bz_frames]         ; frame for 41 bytes)
+    mov cl, 3
+%assign BZ_SPK 0
+%rep 3
+    mov bl, al
+ %if BZ_SPK == 1
+    add bl, 5
+ %elif BZ_SPK == 2
+    add bl, 2
+ %endif
+    shr bl, cl
+    and bx, 3                   ; e_k mod 4, the step...
+    mov bl, [bx + bz_sps + 4 * BZ_SPK]  ; ...its place (a b c b)
+    add bx, dx
+    mov [bz_spq + 2 * BZ_SPK], bx
+ %assign BZ_SPK BZ_SPK + 1
+%endrep
+    pop bx
+.r:
     ret
 
 ; bz_fdor / bz_fdand - CX rows of the ball part's BZ_BAL_RB bytes from BP:SI to
@@ -2894,7 +3015,8 @@ bz_frate:
 ; and v moves d toward 0.  rem <= bz_dmask holds at every call (bz_surfset
 ; cuts it where the mask changes), so the read needs no mask; t < 700.  The
 ; airborne axis passes CX = 0: the clamp alone.  -> AX.  Preserves SI.
-; Clobbers DX, and BX when CL is not 0.
+; Clobbers DX (.clamp too, past BZ_VMAXG: wave 9's cap is BZ_VMAXG + bz_vup),
+; and BX when CL is not 0.
 ; -----------------------------------------------------------------------------
 bz_gax:
     or cl, cl
@@ -2935,15 +3057,22 @@ bz_gax:
     xor ax, ax
 .clamp:
     cmp ax, BZ_VMAXG            ; (inside the clamp, nearly always: no jump
-    jg .hi                      ; taken)
-    cmp ax, -BZ_VMAXG
-    jl .lo
-    ret
-.hi:
-    mov ax, BZ_VMAXG
+    jg .hi                      ; taken, and not a clock more than before
+    cmp ax, -BZ_VMAXG           ; wave 9 - the raise is read only past the
+    jl .lo                      ; table's cap)
     ret
 .lo:
-    mov ax, -BZ_VMAXG
+    neg ax                      ; (|v| < 2^15: no overflow)
+    call .hi
+    neg ax
+    ret
+.hi:                            ; wave 9 (SPEC.md 128.25.19): the cap is
+    mov dx, BZ_VMAXG            ; BZ_VMAXG + bz_vup, a family's raise (0 but
+    add dx, [bz_vup]            ; under PICKUPS' speed)
+    cmp ax, dx
+    jle .in
+    xchg ax, dx
+.in:
     ret
 
 ; -----------------------------------------------------------------------------

@@ -418,11 +418,34 @@ FAMILIES = (
      "kinds": ({"name": "tube", "kind": 25, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
                 "states": (0,), "pickup": False, "own": True, "of": PK_TUBE},), "paras": 48,
      "home": HOME_RESIDENT},
+    # wave 9 (SPEC.md 128.25.9, 128.25.19): PICKUPS - the hourglass (+PU_HGSEC on the limit, once per attempt,
+    # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
+    # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
+    # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `fetch`; kinds 19 - 21
+    {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
+     "consts": "PU",
+     "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},
+               {"name": "speed", "kind": FAM_K0 + 4, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},
+               {"name": "jump", "kind": FAM_K0 + 5, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True}), "paras": 40,
+     "home": HOME_FETCH},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
 FK_CRACK, FK_GLASS = FAM_K0 + 1, FAM_K0 + 2
 CR_WHOLE, CR_IMPACT, CR_BROKEN = 0, 1, 0xFF     # a crack's byte; 2 - T + 1 counting (T + 1 - v steps gone)
+# PICKUPS' constants (SPEC.md 128.25.19): every one in its FAMV (famv's "consts"), so a retune moves the
+# identity of every course that names the family
+PU_HGSEC = 10                 # the hourglass: seconds added to the limit (bz_tsec)
+PU_SACC = 2                   # speed: added to every surface's force and to the air's ACC (bz_wacc)
+PU_SVUP = 64                  # ...and to the cap BZ_VMAXG on both axes (bz_vup): 384 -> 448, 1.75 px a step
+PU_JHOP = 400                 # jump: the Hop for ANY ball (rubber's 252 raised; apex 13.8 px, 18.0 with
+                              # rubber's boost stacked on its contact)
+K_HOURGLASS, K_SPEED, K_JUMP = FAM_K0 + 3, FAM_K0 + 4, FAM_K0 + 5
+PU_OVERWRITE = 1              # record +19 bit 0: taking it ENDS the other timed effect (SPEC.md 128.25.9)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -517,9 +540,13 @@ def famv(f):
     b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
-                    {None: 0, "pennant": 1, "crack": 2, "glass": 3}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                    {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4}[k["art"]], len(k["forms"]),
+                    int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
-    b += bytes(f.get("consts", ()))             # (GLASS's constants; the probe has none: its FAMV as before)
+    if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
+        b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
+    else:
+        b += bytes(f.get("consts", ()))         # (GLASS's constants; the probe has none: its FAMV as before)
     crc = 0xFFFF
     for x in b:
         crc ^= x << 8
@@ -626,6 +653,8 @@ LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
+PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball DITHER-FLASHED (about 1 s)
+PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
 LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit limit neither
@@ -1120,7 +1149,33 @@ def glass_first(tiles, props, start):
 def _pennant(p):
     """a prop drawn as a FLAG (a pole and two poses, furled and flying): a
     checkpoint, or a family kind whose art is "pennant" (wave 9: the PROBE's)"""
-    return p["kind"] == PK_CHECKPOINT or p.get("art") == "pennant"
+    return p["kind"] == PK_CHECKPOINT or p.get("art") in ("pennant", "icon")
+
+
+# wave 9 (SPEC.md 128.25.19): a PICKUP's ICON, its lane's pose 1 (pose 0 the ground: taken, or the hourglass
+# hidden with no limit) - 7 x 8 px over the cell's centre, its foot PU_ICON_UP px above the floor, black
+# outlined; '#' the outline, 'o' the kind's ink
+PU_ICON_UP = 3
+PU_ICONS = {
+    FAM_K0 + 3: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
+    FAM_K0 + 4: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
+    FAM_K0 + 5: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
+}
+PU_INK = {FAM_K0 + 3: WHT, FAM_K0 + 4: CYN, FAM_K0 + 5: MAG}
+
+
+def _icon_pix(p, x0):
+    """a pickup's icon, {(x, y at Y0 = 0): ink}, centred on its cell's centre, PU_ICON_UP px above the floor"""
+    wx, wy = p["at"]
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - p["z4"]
+    rows = PU_ICONS[p["kind"]]
+    out = {}
+    for j, row in enumerate(rows):
+        for i, ch in enumerate(row):
+            if ch != " ":
+                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else PU_INK[p["kind"]]
+    return out
 
 
 def _parse_fprop(toks, where, ln):
@@ -1128,6 +1183,8 @@ def _parse_fprop(toks, where, ln):
     [reset attempt|respawn|flag] - the class only where the kind's row has
     none, and `flag` written but not built"""
     fam, kr = FKIND_BY_NAME[toks[1][1]]
+    if fam.get("consts") == "PU":
+        return _parse_pickup(toks, where, ln, fam, kr)
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -1147,6 +1204,40 @@ def _parse_fprop(toks, where, ln):
                           "128.25.7.1: every element declares how it resets)" % (where, kr["name"]))
     return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
             "cls": cls, "seed": None}
+
+
+def _parse_pickup(toks, where, ln, fam, kr):
+    """a PICKUP (SPEC.md 128.25.9, 128.25.19): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy> [for <S>]
+    [overwrite] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's steps / 4), 5 by
+    default, 1 - 255 of the byte; `overwrite` ends the OTHER timed effect when this one is taken.  The
+    class is the kind's (ATTEMPT the hourglass, RESPAWN the timed two): no `reset`"""
+    if len(toks) < 4:
+        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], "" if kr["kind"] == K_HOURGLASS
+                                                              else " [for <seconds>] [overwrite]"))
+    dur, ow, i = PU_DUR, 0, 4
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if kr["kind"] != K_HOURGLASS and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
+            try:
+                sec = float(toks[i + 1][1])
+            except ValueError:
+                raise CourseError("%s: %s's `for` takes seconds, not %r" % (where, kr["name"], toks[i + 1][1]))
+            dur = int(sec * SEC_STEPS / 4 + 0.5)
+            if not 1 <= dur <= 255:
+                raise CourseError("%s: a %s for %s s: the duration is a byte of steps / 4, 1 - 255 (0.07 - "
+                                  "18.5 s)" % (where, kr["name"], toks[i + 1][1]))
+            i += 2
+        elif kr["kind"] != K_HOURGLASS and t == "overwrite" and not ow:
+            ow, i = PU_OVERWRITE, i + 1
+        elif t == "reset":
+            raise CourseError("%s: a %s's reset class is its family's (%s): it takes no `reset`"
+                              % (where, kr["name"], CLASS_NAMES[kr["cls"]]))
+        else:
+            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (
+                where, kr["name"], "" if kr["kind"] == K_HOURGLASS else " [for <seconds>] [overwrite]",
+                toks[i][1]))
+    return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
+            "cls": kr["cls"], "seed": None, "dur": 0 if kr["kind"] == K_HOURGLASS else dur, "ow": ow}
 
 
 def _pow2(v):
@@ -3429,7 +3520,8 @@ def build_props(src, tiles, fname):
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, kr["name"], at[0], at[1]))
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
-                      "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0})
+                      "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
+                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0)})
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -3610,6 +3702,59 @@ class Reach:
         self.wx, self.wy = wx, wy
         self.s, self.a = wx + wy, wx - wy
         self.zlo, self.zhi, self.kind, self.src = zlo, zhi, kind, src
+
+
+def pickup_region(e):
+    """the cells a timed pickup's effect can reach (SPEC.md 128.25.19): every cell within its duration's
+    travel at the raised cap, Chebyshev, of the element's, plus one"""
+    return -(-(4 * e["dur"] * (VMAXG + PU_SVUP)) // (256 * TILE)) + 1
+
+
+def pickup_reach(tiles, cells, fname, props, reach, hack=None):
+    """wave 9 (SPEC.md 128.25.9, 128.25.19): the reach with PICKUPS' raised values WHERE ONE IS REACHABLE.
+    For each timed kind the course places, the reach is taken again with its values - jump: every launch at
+    PU_JHOP (its contact's boost, round 3b's add, stacks on that bounce inside build_reach, up to VZMAX);
+    speed: the cap VMAXG + PU_SVUP (every floor's rate and every carry) - and each cell within the effect's
+    REGION (pickup_region of an element of that kind) takes the higher zhi.  A course placing both, with
+    any one of them not marked `overwrite`, takes ONE reach with BOTH raised over both kinds' regions (the
+    pair can be held at once); every one marked `overwrite`, each alone.  build_reach is called as it is,
+    the cap swapped round the call (VMAXG is the module's)."""
+    global VMAXG
+    pk = [p for p in props if p.get("fam") is not None and p["fam"].get("consts") == "PU"
+          and p["kind"] in (K_SPEED, K_JUMP)]
+    if not pk:
+        return reach
+    S = [p for p in pk if p["kind"] == K_SPEED]
+    J = [p for p in pk if p["kind"] == K_JUMP]
+    if S and J and not all(p["ow"] & PU_OVERWRITE for p in pk):
+        runs = [(S + J, True, True)]
+    else:
+        runs = [(g, g is S, g is J) for g in (S, J) if g]
+    by = dict(((r.wx, r.wy), r) for r in reach)
+    for els, spd, jmp in runs:
+        v0 = VMAXG
+        try:
+            if spd:
+                VMAXG = v0 + PU_SVUP
+            r2, _rounds, _e = build_reach(tiles, cells, fname, props, _hopmax=PU_JHOP if jmp else None)
+        finally:
+            VMAXG = v0
+        for q in r2:
+            c = (q.wx, q.wy)
+            if c in by and q.zhi > by[c].zhi and any(
+                    max(abs(c[0] - e["at"][0]), abs(c[1] - e["at"][1])) <= pickup_region(e) for e in els):
+                by[c].zhi, by[c].src = q.zhi, (q.src[0] if q.src else c, "pickup " + (
+                    "speed and jump" if spd and jmp else "speed" if spd else "jump"))
+    return reach
+
+
+def _pairnote(reach):
+    """a bound's refusal on a course whose speed and jump pickups are held TOGETHER (SPEC.md 128.25.9): the
+    pair the tool cannot bound - the author separates them or marks them `overwrite`"""
+    if any(r.src and r.src[1] == "pickup speed and jump" for r in reach):
+        return (" - the speed and jump pickups held together raise the reach this bound is taken over: "
+                "separate them, or mark them `overwrite` (SPEC.md 128.25.9: the latest then replaces the other)")
+    return ""
 
 
 def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hopmax=None, _boost=None):
@@ -4536,6 +4681,9 @@ def prop_ops(tiles, ops, props, x0):
                 pix = _top_mark(tiles, ops, p, x0)
                 p["mark_pix"] = pix                 # the visibility audit's mark (128.15.10.4)
                 add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
+            if p.get("art") == "icon":              # wave 9: a PICKUP - no pole, its icon its lane's (128.25.19)
+                p["geo"], p["furl"], p["fly"] = {}, {}, _icon_pix(p, x0)
+                continue
             geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
             p["geo"] = geo
             top = 4 * t.z0 + FLAG_H
@@ -5397,6 +5545,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                       _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
     reach = reach_forms(reach, tiles, cells, fname, props, hack)
+    if not hack.get("nopickreach"):                 # (a red arm's switch: the pickups' reach not taken)
+        reach = pickup_reach(tiles, cells, fname, props, reach, hack)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -5574,7 +5724,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                 return {(x, y + y0): c for (x, y), c in q.items()
                         if not clip or (0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF)}
             q0, q1 = seen(p["furl"]), seen(p["fly"])
-            if 2 * len(q1) < len(p["fly"]) or not q0:
+            if 2 * len(q1) < len(p["fly"]) or (not q0 and p.get("art") != "icon"):   # (a pickup's pose 0 is empty)
                 hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
                 raise CourseError("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
                                   "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
@@ -5714,12 +5864,12 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     for key in sorted(per_block):
         if per_block[key] > REC_BLOCK_MAX:
             raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
-                              "over %d" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
-                                           8 * key[1] + 7, per_block[key], REC_BLOCK_MAX))
+                              "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
+                                             8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
     for br in sorted(per_row):
         if per_row[br] > REC_ROW_MAX:
-            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d"
-                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX))
+            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
+                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX, _pairnote(reach)))
     by_block = {}
     for r in records:
         by_block.setdefault((r["brow"], r["col"]), []).append(r)
@@ -5898,7 +6048,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rec += struct.pack("<12xB3x", p["num"])
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             p["fsb"] = fsbs[i]
-            rec += struct.pack("<BB14x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"])
+            rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p.get("dur", 0),
+                               p.get("ow", 0))         # (+18, +19: PICKUPS' duration and OVERWRITE, 128.25.19)
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -7460,11 +7611,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
         elif is_fam(d["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             fam, kr = FKIND[d["kind"]]
             fsb_, cls = p[r + 16], p[r + 17]
-            if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 18:r + 32] != bytes(14) \
+            dur_, ow_ = p[r + 18], p[r + 19]
+            pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 128.25.19)
+            if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 20:r + 32] != bytes(12) \
                     or bool(d["lane"]) != (kr["art"] is not None) \
-                    or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2}[kr["art"]]):
+                    or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2, "icon": 2}[kr["art"]]) \
+                    or (not pu and (dur_ or ow_)) or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
+                    or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
+                    or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
-            d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"])
+            d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -7844,7 +8000,87 @@ class GlassFamily(Family):
                     c[3] = KIND_VOID
                     c[5] = 0
 
+class PickupFamily(Family):
+    """PICKUPS (SPEC.md 128.25.9, 128.25.19).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4 the
+    Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
+    one bit is COLLECTED.  CONTACT takes an element whose bit is clear (an hourglass only while there is a
+    limit, bz_tsec not 0: hidden otherwise); STEP counts the timers down, puts the jump's Hop back over a
+    pad's swap, ends an effect at 0 and writes the cue byte; RESET (a respawn; a play's start finds all
+    zero) ends both effects.  Every change of bz_wacc rebuilds BOTH force tables, as the part does"""
+    row = FAM_BY_NAME["pickups"]
 
+    @staticmethod
+    def _tables(p):
+        p.fta = fta_table(p.m["ACC"] + p.wacc)      # (the ground's: the model's per step, from wacc)
+
+    def _speed_off(self, p, sb):
+        sb[0] = sb[1] = 0
+        p.wacc = p.vup = 0
+        self._tables(p)
+
+    def _jump_off(self, p, sb):
+        sb[2] = sb[3] = 0
+        p.hop = sb[4] | sb[5] << 8
+
+    def reset(self, p, slot, cls):
+        sb = p.fsl[slot]
+        if sb[0] | sb[1]:
+            self._speed_off(p, sb)
+        if sb[2] | sb[3]:
+            self._jump_off(p, sb)
+        p.cue = 0
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1:
+            return
+        k = pr["kind"]
+        if k == K_HOURGLASS and not p.tsec:
+            return                                  # hidden: no limit to add to
+        p.fst[b >> 3] |= 1 << (b & 7)
+        p.nfev = p.nfev + 1 & 0xFFFF
+        sb = p.fsl[slot]
+        if k == K_HOURGLASS:
+            p.tsec += PU_HGSEC
+        elif k == K_SPEED:
+            if pr["ow"] & PU_OVERWRITE and sb[2] | sb[3]:
+                self._jump_off(p, sb)
+            sb[0], sb[1] = (4 * pr["dur"]) & 255, (4 * pr["dur"]) >> 8
+            p.wacc, p.vup = PU_SACC, PU_SVUP
+            self._tables(p)
+        else:
+            if pr["ow"] & PU_OVERWRITE and sb[0] | sb[1]:
+                self._speed_off(p, sb)
+            if not sb[2] | sb[3]:
+                sb[4], sb[5] = p.hop & 255, p.hop >> 8
+                p.hop = PU_JHOP
+            sb[2], sb[3] = (4 * pr["dur"]) & 255, (4 * pr["dur"]) >> 8
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        ts, tj = sb[0] | sb[1] << 8, sb[2] | sb[3] << 8
+        if ts:
+            ts -= 1
+            sb[0], sb[1] = ts & 255, ts >> 8
+            if not ts:
+                self._speed_off(p, sb)
+        if tj:
+            if p.hop != PU_JHOP:                    # a pad's swap copied its own Hop: keep it, put ours back
+                sb[4], sb[5] = p.hop & 255, p.hop >> 8
+                p.hop = PU_JHOP
+            tj -= 1
+            sb[2], sb[3] = tj & 255, tj >> 8
+            if not tj:
+                self._jump_off(p, sb)
+        p.cue = (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1 or (pr["kind"] == K_HOURGLASS and not p.tsec):
+            return 0
+        return 1
 
 
 class OwnFamily(Family):
@@ -7859,7 +8095,8 @@ class OwnFamily(Family):
 
 
 FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
-             "tube": OwnFamily("tube")}
+             "tube": OwnFamily("tube"),
+             "pickups": PickupFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -7918,6 +8155,11 @@ class Physics:
         self.mst = self.mct = self.sqf = 0
         self.gh = self.ghv = 0
         self.nbnc = self.nstun = self.nshat = self.nhop = 0
+        # wave 9 (SPEC.md 128.25.19): the WORKING values a family may raise - bz_wacc (added to every force
+        # table's AL, bz_ramp), bz_vup (added to the cap BZ_VMAXG, bz_gax.clamp) and bz_mrec's HOP (the
+        # material's copy the step reads) - and PICKUPS' sound counter and cue byte (bz_nfev, bz_cue)
+        self.wacc = self.vup = self.nfev = self.cue = 0
+        self.hop = self.m["HOP"]
         self.fta = fta_table(self.m["ACC"])
         # wave 3's state (SPEC.md 128.12.6.6) and the prop table it reads
         self._gate_late, self._kick_k, self._no_carry = _gate_late, _kick_k, _no_carry
@@ -8348,8 +8590,8 @@ class Physics:
             t = max(pr["K"], ((E_BUMPER * -d) >> 8) + pr["KA"])
         else:
             t = max(pr["K"], d)
-        self.gvx = _clamp(self.gvx + (((t - d) * nx) >> 6), VMAXG)
-        self.gvy = _clamp(self.gvy + (((t - d) * ny) >> 6), VMAXG)
+        self.gvx = _clamp(self.gvx + (((t - d) * nx) >> 6), VMAXG + self.vup)
+        self.gvy = _clamp(self.gvy + (((t - d) * ny) >> 6), VMAXG + self.vup)
         self.pkick[pr["i"]] = n
         self.nkick += 1
         self.events.append(("kick", self.nstep + 1, pr["i"], d, t, nx, ny))
@@ -8411,8 +8653,9 @@ class Physics:
         model's per step, from surf_entry): a pad's swap and a respawn's"""
         self.mat = mat
         self.m = MATERIALS[mat]
+        self.hop = self.m["HOP"]                    # (bz_setmat copies the record: the working Hop too)
         if not self._pad_noftg:
-            self.fta = fta_table(self.m["ACC"])
+            self.fta = fta_table(self.m["ACC"] + self.wacc)
         self._surfset(self.surf)                    # bz_setmat calls bz_surfset: k may change
 
     def _respawn(self, ret=False):
@@ -8637,7 +8880,7 @@ class Physics:
         if not self.air:
             force, dk, brake, _ = surf_entry(self.mat, Cs[5], self._iceplain)
             if not stun:
-                fx, fy = self._forces(K, ftg_table(force))
+                fx, fy = self._forces(K, ftg_table(force + self.wacc))
                 self.gvx += fx
                 self.gvy += fy
             sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL) else (0, 0)
@@ -8652,16 +8895,16 @@ class Physics:
             if K & K_GRIP and not stun:
                 self.gvx = _brake(self.gvx, brake)
                 self.gvy = _brake(self.gvy, brake)
-            self.gvx = _clamp(self.gvx, VMAXG)
-            self.gvy = _clamp(self.gvy, VMAXG)
+            self.gvx = _clamp(self.gvx, VMAXG + self.vup)
+            self.gvy = _clamp(self.gvy, VMAXG + self.vup)
             self.gvz = (sx * self.gvx + sy * self.gvy) >> 2
         else:
             if not stun:
                 fx, fy = self._forces(K, self.fta)
                 self.gvx += fx
                 self.gvy += fy
-            self.gvx = _clamp(self.gvx, VMAXG)
-            self.gvy = _clamp(self.gvy, VMAXG)
+            self.gvx = _clamp(self.gvx, VMAXG + self.vup)
+            self.gvy = _clamp(self.gvy, VMAXG + self.vup)
             self.gvz = _clamp(self.gvz - G, VZMAX)
         # 3. move
         sgx, sgy, sgz = self.gx, self.gy, self.gz   # the undo's start: before the carry too
@@ -8861,7 +9104,7 @@ class Physics:
             if self.hopw and not stun and solid:
                 # 128.11.8.6: the Hop from the ground
                 self.air = 1
-                self.gvz = min(VZMAX, self.gvz + m["HOP"])
+                self.gvz = min(VZMAX, self.gvz + self.hop)
                 self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.hopw = 0
@@ -9013,7 +9256,7 @@ class Physics:
             return "boost"
         elif self.hopw and not stun:
             rr = r if r >= bmin else 0
-            self.gvz = (m["HOP"] + rr if self._hop_add else max(m["HOP"], rr)) + base
+            self.gvz = (self.hop + rr if self._hop_add else max(self.hop, rr)) + base
             self.ztop = self.gz >> 8
             self.hopw = 0
             self.nhop += 1
@@ -11114,6 +11357,12 @@ def emit_inc(courses, path=None, title=None):
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
+              "; PICKUPS' constants (SPEC.md 128.25.19; bbcourse PU_*)",
+              "BZ_PU_HGSEC     equ %d" % PU_HGSEC, "BZ_PU_SACC      equ %d" % PU_SACC,
+              "BZ_PU_SVUP      equ %d" % PU_SVUP, "BZ_PU_JHOP      equ %d" % PU_JHOP,
+              "BZ_PU_WARN      equ %d" % PU_WARN, "BZ_PU_OVER      equ %d" % PU_OVERWRITE,
+              "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
+              "BZ_K_JUMP       equ %d" % K_JUMP] + [
               "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
               "; RESIDENT BUNDLE's (SPEC.md 128.25.6.9)",
               "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; bzf-%s.bin (ID %d, FAMV %02Xh)"
@@ -17064,6 +17313,13 @@ def _w9_cases():
          "which is SPLIT"),
         ("a crack whose top is not on a block (origin 228)", C.replace("origin 224", "origin 228")
          + "uses glass\nprop crack 6 6\n", "not on a block"),
+        # PICKUPS (SPEC.md 128.25.19): the element's own syntax
+        ("an hourglass with a duration", C + "uses pickups\nprop hourglass 6 6 for 3\n", "not 'for'"),
+        ("a speed for 0 s", C + "uses pickups\nprop speed 6 6 for 0\n", "the duration is a byte"),
+        ("a jump for 20 s", C + "uses pickups\nprop jump 6 6 for 20\n", "the duration is a byte"),
+        ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
+        ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
+        ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
     ]
 
 
@@ -17164,6 +17420,52 @@ def _w9_checks(res):
                 "records against %d" % ([lo[c] for c in cr], want, [lo0[c] for c in cr], len(g.records),
                                          len(g0.records)),
                 [lo[c] for c in cr] == want and all(lo0[c] > lo[c] for c in cr)))
+    _pickup_checks(res)
+
+
+def _pickup_checks(res):
+    """PICKUPS (SPEC.md 128.25.9, 128.25.19): the records, FAMV over the constants, and the reach with the
+    raised values where a pickup is reachable - its red arm `nopickreach`, the pair taken together unless
+    every one is marked `overwrite`, and a bound's refusal naming the pair"""
+    t = _W4C + "uses pickups\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite\nprop jump 8 6\n"
+    c = compile_course(t, fname="<pickups>", occluders=False)
+    recs = sorted((r["kind"], r["cls"], r["dur"], r["ow"]) for r in c.part["props"] if is_fam(r["kind"]))
+    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0), (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE),
+            (K_JUMP, CL_RESPAWN, PU_DUR, 0)]
+    j0 = globals()["PU_JHOP"]
+    f0 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0 + 4
+    f1 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0
+    res.append(("3 PICKUPS' records (128.25.19): (kind, class, +18 duration, +19 flags) %s; FAMV %02Xh, %02Xh with "
+                "PU_JHOP + 4 (the constants are in it)" % (recs, f0, f1), recs == want and f0 != f1))
+    # the reach: the jump raises the reach where it is reachable; the arm without it raises nothing
+    # (on SAND, where no boost launches: on a firm level floor rubber's boosted bounce chain already
+    # reaches VZMAX's cap in the reach, so a jump there raises nothing - the owner's "bounded only by VZMAX")
+    S = _W4C + ("surface sand rect 4 4 12 9\nsurface sand rect 13 4 14 9\nsurface sand rect 12 4 13 6\n"
+                "surface sand rect 12 7 13 9\n")      # (every floor sand but the cup's own cell)
+    base = compile_course(S, fname="<no pickup>", occluders=False)
+    tj = S + "uses pickups\nprop jump 8 6\n"
+    cj = compile_course(tj, fname="<jump>", occluders=False)
+    cr = compile_course(tj, fname="<jump, nopickreach>", occluders=False, _hack={"nopickreach": True})
+    zb = dict(((r.wx, r.wy), r.zhi) for r in base.reach)
+    up = sorted((r.wx, r.wy) for r in cj.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi))
+    upr = [r for r in cr.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi)]
+    res.append(("6 PICKUPS' reach (128.25.19): a jump raises zhi on %d cells (its Hop %d and the boost stacked); "
+                "the red arm nopickreach raises %d" % (len(up), PU_JHOP, len(upr)), len(up) > 0 and not upr))
+    # the pair: held together unless every one is `overwrite` - and a bound's refusal says so
+    both = S + "uses pickups\nprop speed 6 6\nprop jump 8 6%s\n"
+    cp = compile_course(both % "", fname="<pair>", occluders=False)
+    co = compile_course((both % " overwrite").replace("prop speed 6 6", "prop speed 6 6 overwrite"),
+                        fname="<pair overwrite>", occluders=False)
+    sp = {r.src[1] for r in cp.reach if r.src and r.src[1].startswith("pickup")}
+    so = {r.src[1] for r in co.reach if r.src and r.src[1].startswith("pickup")}
+    note = _pairnote(cp.reach)
+    res.append(("6 PICKUPS' pair (128.25.9): unmarked, the reach's raised cells come from %s; every one "
+                "`overwrite`, from %s; a bound's refusal on the pair names `overwrite`: %s" % (
+                    sorted(sp), sorted(so), bool(note)),
+                sp == {"pickup speed and jump"} and "pickup speed and jump" not in so and "overwrite" in note
+                and not _pairnote(co.reach)))
 
 
 def _w4_records(c, res):

@@ -274221,7 +274221,7 @@ the skip's kinds, three taken jumps) - item 6 below.
    | a flag | its first TOUCH (`bz_cksn`'s bit, `bz_phys`) | its pose is the touch |
    | a clock's digit | a new SECOND (`bz_tsec` against `bz_lcsec`), at the walk's start, the clock lanes of the slice | every clock counts the same second |
    | a SIGN (wave 8R, 128.22.4.1: the pathway's pads, icons, gates and reveal groups, the title's label) | `bz_nset` (its pose written) | its pose is the only state it has; a marked sign is walked, never skipped |
-   | a GLASS crack or glass tile (wave 9, 128.25.18) | its family's CONTACT, STEP and RESET hooks, where its state changes | its pose is its state |
+   | a GLASS crack or glass tile (wave 9, 128.25.18) | its family's CONTACT, STEP and RESET hooks, where its state changes, through `bz_fmark` (which also makes the next walk: 128.25.6.3) | its pose is its state |
    | any lane | ENTERING the range (rows that did not meet the last range, `bz_ora`/`bz_orb`) | a lane outside it may be stale (item 3) |
    | any lane | the column band MOVING while it is OUT (`bz_lout`) | it may be back in the band |
    | every lane | `bz_pread` and `bz_lfull` | a play's start, a full write |
@@ -275380,7 +275380,9 @@ today against the sum's 5,993.
     units); `crystal_tile_pixmap()` the 32 x 16 sample.
   - `crystal_side_ink(face, k, j)` ('sw' or 'se', k across, j down from the
     top edge): a DARK wall (0, with glints of 2), so a route reads as a raised
-    rail over the void. The renderer's own black outline still draws the edge.
+    rail over the void. The renderer's own black outline still draws the edge.  The glints of BOTH faces stop at line 6 (the owner, 2026-11-16: the
+    'icicles' on the left (sw) ran the whole face, the right's (se) stopped
+    short; both are short now, a pure art rule: no physics, no layout).
   - `pad_overlay(pose)` -> `{(u, v): ink}` (transparent elsewhere) for the
     four `PAD_POSES` (`PAD_POSE_NAMES` open, done, silver, gold): a ring of
     the light colour round the cell and a black gap inside it so the ring
@@ -275640,7 +275642,7 @@ the pathway's rework.)
 | the slot digit | **a LABEL lane**: `label N COL ROW glyphs "123"` - a lane of one block in the window's 8 x 8 cell grid, posed by `bz_nst[N]` (the pathway's node-sign mechanism, 128.19.5), no post, no crystal ball, never an obstacle | the brief: "an item handling the 1/2/3 draw change" - a wheel item, so the change is one lane's pose and nothing else is redrawn |
 | the demos | **four TITLE DEMOS**, text (`apps/bonanza/demos/title<N>.bzt`), each a START STATE (the ball, its position and velocity, airborne or not, and a respawn cell) and a `BZR1` run list, compiled into one part; the build writes the identity and checks each against the model and its own `expect` lines | a title demo starts where the brief puts the ball (dropped from above, already rolling), which a course's `start` cannot say; the identity is the build's so an art change never stales them |
 | their length | **`BZ_TSTEPS` = 832 steps** (15.23 s at 54.62 steps a second), every title demo exactly, the title song's one pass exactly | the brief: about 15 s, all the same length, the music ending with them |
-| the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once | the brief |
+| the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once - **except Esc, F and Alt+Enter, which leave the bracket as they do on the title** (128.23.4.1) | the brief; the exception the owner's (2026-11-16) |
 | the keys on the title | **P** plays (the game: the pathway loop, 128.19.5, in the same bracket); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
 | the way in | **Enter on the desktop face opens the title** (the bracket); P on the title is what Enter was (the game in the slot shown). F, B, R, D, V and the rest of the face are unchanged | the face stays the instruments' (128.19.3); the title is the game's front |
 | the way back | the pathway's **Esc** and the game's end return to the TITLE, not to the desktop | the game is entered from the title, so it leaves to it |
@@ -275787,10 +275789,40 @@ Inside ONE bracket, `bz_title` (resident: it is the bracket's):
 3. **A course demo**: drop the title's parts; fetch `BZD<K>` for a random K
    (1 - `BZ_NDEMO`), its course and balls, play it as V and R do (mode 2,
    the course's camera and song). Any key, its end, or a timeout -> drop
-   them, back to 1.
+   them, back to 1; **Esc, F and Alt+Enter** -> the bracket ends, the
+   desktop, as on the title (128.23.4.1).
 4. **The game**: drop the title's parts and run the pathway loop (128.19.5,
    `bz_grounds`) in the same bracket with the slot shown; where it would end
    the bracket (the pathway's Esc, the game over) it returns to 1 instead.
+
+##### 128.23.4.1 Esc and Alt+Enter, place by place (BUILT)
+
+The owner, 2026-11-16: *"Pressing esc/alt enter will sometimes return to the
+title screen, instead of the desktop."* The "sometimes" was the title chain's
+COURSE DEMO: about 15 s after the title opens its demo hands over to a random
+course's demo (`bz_tmode` 2), which looks like the title's own attract loop,
+and there every key - Esc and Alt+Enter among them - was "the title again".
+Alt+Enter also left `bz_towin` set behind it, so the game's next pathway Esc
+went to the window instead of the title. Now the course demo's Esc, F and
+Alt+Enter are the title's (`bz_exitchk`'s title arm: `bz_twhy` 27, and
+`bz_tround` reads it after the course demo as after a title demo); every other
+key still brings the title back. One rule for the whole bracket: **Alt+Enter
+(and F) is always the window; Esc goes ONE LEVEL UP** - a course to its
+pathway, the pathway to the title, the title (and its demos) to the window.
+
+| where | Esc | Alt+Enter, F |
+|---|---|---|
+| the window | nothing | Play Game (128.26.4) |
+| a title demo | the window (the bracket ends) | the window |
+| the title's course demo | the window (the bracket ends) | the window; any OTHER key: the title |
+| the pathway, resting | the title (a typed press, never one held since the course or the last departure: `bz_pwek`) | the window, the game suspended (`BZ_SU_PATH`) |
+| the pathway, rolling, a gate opening, the game over's wait | not read | the window, the game suspended |
+| the pathway's pause card | the title | the window, the game suspended |
+| the pathway's INFO card | any typed key takes it down | not typed (no XT BIOS enqueues it, 9.7.1): nothing while it is up |
+| a course in play, its pause card, its finish sequence | the course left: a life (none in EXPLORE; a finish sequence counts as its finish), the pathway; at no life left the game over, then the title | the window, the play suspended whole (`BZ_SU_CRS`) |
+| a replay at a pad (F6, V) | the pathway, at the pad | the window, the game suspended (`BZ_SU_PATH`) |
+| a launch bracket (Load Replay's replay, the instruments' plays) | the window | the window |
+| the GAME OVER card | any typed key takes it down: the title | not typed: the card's own 4 s, then the title |
 
 #### 128.23.5 The layout (PLANNED, PROVISIONAL: the owner's to refine)
 
@@ -277471,6 +277503,31 @@ where the step tests its own), so the next step's window reads the new state.
 lane kind: a family's ENTER, CONTACT and STEP hooks set the mark of each
 lane whose true pose they moved, as physics' kick and flag do today.
 
+**A hook marks through `bz_fmark`, never by writing `bz_latt` itself**
+(the owner, 2026-11-16: *"When rolling steel (or jumping steel) onto a
+cracked tile, you fall through it without the hole ever forming."*). The
+walk's QUIET test (`bz_props`, 128.19.10) reads the camera, the clocks,
+the kicks and the flags but no MARK, so a mark alone with the camera still
+was never walked: a crack broken by a landing (the camera at rest over a
+ball falling straight down) dropped the ball through a hole that was never
+drawn, and the respawn's restore waited up to a second the same way. A
+pose change made outside the walk's own reads therefore also clears
+`bz_lqt` - `bz_nset`'s rule for a sign. `bz_fmark` (bzfam.inc) does both:
+
+    call far [bz_fmkp]          ; BX = the element (its lane): bz_latt
+                                ; marked, bz_lqt 0; preserves everything
+
+`bz_fmkp` is a far pointer in the package's bss (so `bzlink.inc` names it)
+which every dispatch (`bz_fall`, `bz_fone`) writes before it calls a hook,
+at the package's CS of that moment; 4 bytes a site in a part (a
+`mov byte [bz_latt + bx], 1` was 5). MEASURED: 21 resident bytes (the
+routine 11, the dispatch's two writes 10) and 4 of bss. `bonanzaphys`'s
+unicorn half holds it: every step of every family scenario starts with the
+element lanes unmarked and the walk QUIET, and a step that moves an
+element's pose must leave its lane marked and `bz_lqt` 0; red arms
+`glsquiet` (the part's marks as they were), `glsmark` (the count's break
+unmarked) and `fmkquiet` (`bz_fmark` without the wake) go red.
+
 **PINNED (story 9.1): the register contract.** A hook is entered by `call
 far` with DS = ES = the package, SS the task's, the direction flag clear,
 and:
@@ -277621,6 +277678,43 @@ What story 9.6 proves by following it for PICKUPS after GLASS:
    scene on PLAYGROUND, its `bonanzaphys` frames, its red arms.
 6. Its `FAMV`, recorded by the tool, and the SPEC.md row in 128.25.8 -
    128.25.10's form.
+
+**What PICKUPS found following it (story 9.6, against each step):**
+
+1. *The row* was right, and not enough: (a) the **IDs must be 1 - n with
+   no gap** (the tool asserts it; the guest's row is `BZ_P_FAM + ID - 1`),
+   so a family built beside another one's reserved ID cannot build alone -
+   PICKUPS carried ID 2 on its branch (ID 6 at integration, merge order) and
+   its part takes the ID from a generated equate, `BZ_FID_<NAME>`, so the renumbering at integration is
+   one edit; (b) a family with CONSTANTS needs them in its `FAMV` (the row's
+   `consts`, folded by `famv`), or a retune moves no identity; (c) a family
+   whose elements carry FIELDS (+18 - +31) needs its own element syntax in
+   `_parse_fprop`, the record's packing, and the reader's acceptance - three
+   places the recipe did not name.
+2. *The model* was right; what it did not say is that a family that changes
+   PHYSICS needs WORKING values the step reads, and that the model reads the
+   material as a SHARED dict (`MATERIALS[mat]`), which a hook must never
+   write: PICKUPS added `Physics.wacc`, `vup` and `hop` beside `m`, and the
+   step's reads of them (step 2's forces and clamps, a post's kick clamp,
+   the two Hop reads).
+3. *The art* had no generic form: every lane kind was special-cased in the
+   compile (`_pennant`). PICKUPS added the art `"icon"` (pose 0 nothing,
+   pose 1 a 7 x 8 icon over the cell, no pole), riding the pennant's
+   lane path; a third family with art will want a real table of art kinds.
+4. *The guest* missed the RESIDENT half: a family that changes physics or
+   draws a cue needs engine bytes (128.25.19: 386), and "a part may not call
+   the package" means anything the engine already does (`bz_ramp`) is
+   written again in the part. The unicorn harness (`UGuest`) fetched ONE
+   family part; a course naming two needs `op_seg` to answer by row (built).
+5. *The proofs* missed two things: the REACH with the family's effect (no
+   step said where it goes: PICKUPS takes a second `build_reach` and unions
+   it outside, 128.25.19), and that a family on PLAYGROUND re-identifies its
+   demo (re-authored with `bbcourse.py author`; the runs were unchanged).
+6. *The FAMV* step was right.
+
+And one the recipe never reached: a DISPLAY effect (a cue drawn every frame)
+meets the frame's IDLE test (128.11.10.4): a ball at rest draws no box, so a
+cue on it froze until `bz_mkboxes` learned `bz_cue` (+8 bytes).
 
 ##### 128.25.6.9 A family's HOME: fetched, or resident (the owner, 2026-11-16)
 
@@ -277883,7 +277977,29 @@ touch rule ships first.
 commit is a contact-box frame (128.12.4.2) at the crack and at the break;
 the STEP hook only while a crack is counting. (MEASURED, 128.25.18: the part 559 bytes, 452 packed.)
 
-#### 128.25.9 PICKUPS, the second family (story 9.6)
+#### 128.25.9 PICKUPS, the second family (story 9.6) (BUILT)
+
+**BUILT (story 9.6)**, as below with the detail and the measurements in
+128.25.19. What the build changed in this contract: the speed's top is the
+cap raised (`BZ_VMAXG` + `PU_SVUP`, a word `bz_vup` the step's clamp adds)
+and its acceleration every surface's force raised (`bz_wacc`, which
+`bz_ramp` adds); the jump's Hop is 400 for any ball (rubber's 252 raised);
+the sparkles are XORed, not ORed (SEEN: ORed ink 3 vanished on palette 0's
+yellow tiles), 2 x 2 pixel pairs drawn inside the ball's own blit; the flash
+is folded into that blit's loop, its STYLE a build knob (`BZ_CUEFLASH`:
+DITHER2, DITHER4, BLINK2, **BLINK4 the shipped default** - the owner's pick
+from the videos: BLINK2 reads as partly TRANSPARENT on the CGA, whose 60 Hz
+alternate frames the eye averages, where the Hercules' 50 Hz visibly
+flashes; DITHER4 was as acceptable, BLINK4 the cheapest); the sparkles HOP
+(the owner's): each holds one of its places round the ball for 8 frames,
+then moves on, the three on offset clocks; a ball at rest is recomposed only
+on the frames the cue's LOOK changes (`bz_ospr` set unlike `bz_spr` on those
+frames); and the cost is MEASURED at about 0.65k clk in the blit and 0.29k
+in `bz_cuef` a frame with the sparkles (128.25.19: FULLY RESOLVED tables, the
+owner's ~360 bytes, 0.92k in the blit before them), not the 150 - 300
+predicted below. **A future pickup, noted**: the "ghost" - drawing the ball
+on alternate frames reads as see-through at 60 Hz, so BLINK2's look is a
+free GHOST effect (the ball half-there) for a pickup that wants one.
 
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
@@ -278034,7 +278150,7 @@ selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
 | per-play state `bz_fst`, slots | about 60 (the class clears) | `BZ_FSTMAX` / 8 + 3 x `BZF_SLOT` (about 64) | 0 | 0 |
 | the arena in `os88parts.inc` | about 250 - 400 (assembled only with `OP_WANT_ARENA`) | about 10 | 0 | 0 |
 | the ball generator V1 + V2 | about 410 (the report's) | 0 | 0 | balls -3 to -4KB packed (LZB, MEASURED by the story) |
-| sparkles and the flash | about 120 - 200 | 2 | +0.15 - 0.3k while a pickup lasts | 0 |
+| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 385 the whole story, 128.25.19) | 2 (BUILT: 12) | +0.15 - 0.3k while a pickup lasts (MEASURED as first built: 1.8k a box a frame, 6.1k on a flash frame; REBUILT on the ball's blit: about 1.45k a frame with the sparkles, 2.3k on a DITHER2 flash frame; BLINK4 with the per-shift table and hopping sparkles: about 1.2k a frame with the sparkles (the blit +0.92k); AS SHIPPED, the tables FULLY RESOLVED (the owner's ~360 bytes): **about 0.95k a frame with the sparkles (the blit +0.65k CGA, +0.68k Hercules, `bz_cuef` 0.29k; 0.82k in `bz_cuef` on a hop frame, 3 in 8), a flash frame drawing no ball (about -4.4k; `bz_cuef` 0.44k when the flash turns on or off, was 1.0k), a ball at rest composed only when its look changes (a hop: 15 frames of 40), about +0.03k a frame with no pickup**) | 0 |
 | GLASS, PICKUPS | 0 (parts) | 0 | a contact-box frame per crack, break or collection | about 0.3 - 0.5KB packed each |
 | props moved out (9.8) | about -1.3 to -1.6KB (WINDMILL, BUMPER, SPRING, TUBE) | 0 | +0.1k a far call per active hook | their parts |
 
@@ -278190,7 +278306,7 @@ it ran.
 | hook | GLASS |
 |---|---|
 | RESET (either class) | the slot's count 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
-| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
 | STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
 | POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
@@ -278286,6 +278402,221 @@ broken after the respawn), each parting at its own check. `--selfcheck`:
 GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
 red arm (item 7: a crack path as the only bridge past a flag compiles under
 its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
+
+#### 128.25.19 PICKUPS as built (story 9.6)
+
+The second family, built by the recipe (128.25.6.8, with what it found).
+`apps/bonanza/fam/pickups.asm` is the part, `bbcourse.PickupFamily` the
+model. Figures MEASURED unless marked.
+
+**The row.** ID **2 on its branch** (the lead renumbers it 3 at integration
+with GLASS: the part assembles its ID from `BZ_FID_PICKUPS`), kinds **19
+hourglass, 20 speed, 21 jump** (one run), hooks RESET, CONTACT, STEP and
+POSE, a 6-byte slot, one state bit an element (COLLECTED), the art `icon`,
+every kind `pickup`. Its constants are in its `FAMV`:
+
+| constant | value | what |
+|---|---|---|
+| `PU_HGSEC` | 10 | the hourglass's seconds on `bz_tsec` |
+| `PU_SACC` | 2 | speed: added to every force table's force (`bz_wacc`) |
+| `PU_SVUP` | 64 | speed: added to the cap (`bz_vup`): 384 to 448, 1.75 px a step |
+| `PU_JHOP` | 400 | jump: the Hop for any ball - apex 13.8 px alone, 18.0 with rubber's boost stacked on its contact |
+| `PU_WARN` | 55 | the FLASH's steps (`SEC_STEPS`, about 1 s) |
+| `PU_DUR` | 69 | the default duration, steps / 4 (5 s) |
+
+**The elements.** `prop hourglass <wx> <wy>`; `prop speed|jump <wx> <wy>
+[for <seconds>] [overwrite]`: +18 the duration (steps / 4, 1 - 255, 0.07 -
+18.5 s), +19 bit 0 OVERWRITE (taking this one ends the OTHER timed effect).
+The class is the kind's (hourglass ATTEMPT, the timed two RESPAWN), so no
+`reset`. Refused (`--selfcheck` item 2): an hourglass with `for`, a duration
+outside the byte, a `reset`, a word of no meaning, a pickup off a flat floor.
+
+**The hooks** (the part, step for step the model):
+
+| hook | what |
+|---|---|
+| CONTACT | an element whose bit is clear is TAKEN - bit set, lane marked, `bz_nfev` counted (the sound) - except an hourglass while `bz_tsec` is 0 (no limit: exploration, the benchmark), which is HIDDEN. Hourglass: `bz_tsec` += 10. Speed: its timer (slot +0) = 4 x +18, `bz_wacc` = 2, `bz_vup` = 64, both force tables rebuilt. Jump: its timer (+2); the Hop it replaces kept at +4 when no jump runs, `bz_mrec`'s HOP = 400. OVERWRITE ends the other first |
+| STEP | each running timer counted down, its effect ended at 0 (the speed: `bz_wacc`, `bz_vup` 0, tables rebuilt; the jump: the kept Hop back); a running jump's Hop written again after a pad's swap (`bz_setmat` copies the material's - the copy kept as the one to put back); then `bz_cue` = bit 0 while either runs, bit 1 while either has `PU_WARN` steps or fewer left |
+| RESET | both effects ended (only those running: a play's start finds the slot zero), `bz_cue` 0, every pickup's lane marked |
+| POSE | 1 the icon; 0 gone (COLLECTED, or an hourglass with no limit) |
+
+**The resident half** (the step reads WORKING values; a family sets them,
+the RESET restores them; none is in `bz_step`'s routines but the clamp):
+
+| | where | bytes |
+|---|---|---|
+| `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
+| `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick), read only PAST `BZ_VMAXG` - the two immediate compares of the common path are as they were, so a velocity inside the table's cap (nearly every call, and every call with no speed running) costs not a clock more; past it, `.hi` takes the raised bound and `.lo` is `.hi` on the negated value (the verifier's: the first build read `bz_vup` on every call, about +25 clk a call, two to four calls a step) | +12 |
+| the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
+| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' HOP count mod 16 under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. **The hops** (the owner's: "sparkling AROUND the ball, not glittering in place"): sparkle k holds a place for 8 frames, its epoch e_k = (frames + 0, 5, 2) / 8, so the three hop on frames 0, 3 and 6 mod 8, never together, and the hops so far are 3 frames / 8 - the look's count, which moves at each hop and at no other frame (bar one extra at the word's wrap). Its place is e_k mod 4 as the steps a b c b over its three (`bz_spq`, a pointer each to the place's four entries in the card's resolved table, `bz_sps` the steps' offsets), written only when the HOP count or the sparkles' start changes the look - not when a flash turns on or off, which moves no place (the cheap fix, about 0.6k off 2 frames in 4 of the flash; all three are rewritten, since picking the one that hopped MEASURED 50 - 90 clk a hop frame for 41 bytes). A changed look sets `bz_ospr` (the sprite `bz_mkboxes`'s idle test compares against, last frame's) to this frame's `bz_spr` NOT, so that test, unchanged, recomposes a ball AT REST on exactly the frames its cue changed - a hop (3 in 8 under the sparkles alone), the cue's first frame and the frame it ends included; MEASURED on both cards, a resting ball over 40 frames of sparkles: composed on every frame its look changed and on no other (14 - 15 of 40, 0 missed). (Built first as a toggle `bz_ctog` XORed into `bz_spr` every frame, the dissolve's bit-7 trick of 128.22.6; the verifier found that a cue beginning with the toggle left set by the last one - half of them - changed nothing the idle test saw, so a ball at rest showed it up to 4 frames late, and that a dissolve density and a look changing on one frame cancelled. The `bz_ospr` form has no state across cues.) The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 110 |
+| the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a BLINK frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
+| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws no sparkles and no dither checker, about 1 frame in 20 on a fast ball, never at rest; a BLINK style's flash is `bz_boxc`'s, before any clip, so a clipped ball BLINKS too): the SPARKLES first, three 2 x 2 pixel pairs XORed, each at its place's entry for the sprite's shift s in **the FULLY RESOLVED table `bz_spr0`** (the owner's, spending about 360 bytes for about 0.5k: 2 cards x 8 places x 4 shifts x 3 bytes, 192, and `bz_sps` 12; an entry is the byte off = 8 dy + W from the sprite's first byte and the first line's word mask - W the byte whose WORD holds pixels x and x + 1, x = s + dx, at its pixels j and j + 1, W at most 3, so the word XORed is inside the sprite's 5 bytes at every shift and byte 5, which a 32-line buffer's bottom-right ball once read one past the buffer, is never touched; an `%error` holds it). The second line's mask is the first's on the CGA and the first's rotated right 2 on the Hercules (an `%error` proves it for every j), so each card has its own copy of the three pairs' code, chosen once a blit: a pair is `mov si, [bz_spq + 2k]` / `add si, cx` (CX = 3 s, the one piece of arithmetic, once) / `lodsb` / `mov bl, al` / `lodsw` / two `xor [bx + di (+ 8)], ax` (the Hercules two `ror ax, 1` between); no push, no clip - the mask's row, the frame's distance and the rows are kept in BP and DX and the rows reloaded as `BZ_BAL_ROWS` (`bz_boxc`'s `.bd` is the one way in). The ball's mask then keeps them. (The 5-byte form with both masks stored, 320 bytes, MEASURED the same to 10 clk; the 3-byte form keeps 128 of them. Before: `bz_spt` 9 places x 4 shifts of (8 dy + W, 4 j) and `bz_spm` the card's pair masks by j, 128 bytes, +0.92k.) The places (dx, dy; dx 0 - 15, dy 0 - 14, all outside the 16 px silhouette): sparkle 0 (0, 0), (15, 2), (13, 14); sparkle 1 (13, 0), (15, 12), (0, 14); sparkle 2 (15, 14) and (15, 0), none shared, so two never cancel. The CGA XORs both pixels on both lines (ink XOR 3); the Hercules pixel x on the first line and x + 1 on the second (a diagonal of whole mono pairs, chosen against its dithered floors; KEPT, the owner, who read the zoomed clips as visible). Then on a FLASH frame of a DITHER style the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop | about 300 (the tables 204 of it; 190 and 128 before they were resolved) |
+| the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
+
+**The image 47,551 bytes (+627 on 46,924; 47,298 as first built, 47,310
+with the clamp's zero-cost common path, 47,309 with the cue rebuilt below,
+47,305 with its idle signal on `bz_ospr` - a DITHER2 build; 47,369 the
+BLINK4 default with the per-shift table and the hops: +64 on 47,305, +150 on
+the same tree built BLINK4, 47,219 - the tables +104 over the 24 bytes they
+replace, the code +46; 47,551 the tables FULLY RESOLVED: +182 on 47,369, the
+tables 204 against 128, +76, the two cards' pair code and the places'
+pointers +106), the bss 10,987 (+17)**: `bz_vup`, `bz_nfev`,
+`bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2, `bz_clook` 1,
+`bz_spq` 6, `bzs_lfev` 2. Budgets +400 / +24: the bss met; the image 227
+over, the sparkles' bytes approved by the owner (the per-shift table: about
+57 + 20 asked, 104 + 46 taken; the resolved tables: about 360 approved, 182
+taken). **The part 485 bytes,
+424 packed** (no zero padding: it packs).
+
+**The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and `_herc_gla`,
+PLAYGROUND's yard, the speed on a ball ROLLING along row 26 and the jump on a
+ball AT REST at (6, 26); `~/Repos/w9-logs/cuefix-look.py measure`, breakpoints
+at `bz_fdis`, `bz_cuef`, `bz_props`, `bz_blit` and the ball's call's return,
+`bz_mkboxes` and its return, `bz_ts` and `bz_tw` off the cycle counter; the
+build the cue-report priced, 4870aa529, measured the same way). One ball box a
+frame, the CGA (the Hercules within 2%; `cuefix-measure-dither2-<card>.json`):
+
+| | as first built | the rebuild (DITHER2) | BLINK4, the per-shift table, the hops (`spark-measure2-blink4-<card>.json`) | **as shipped: the tables FULLY RESOLVED** (`spark2-measure-blink4-<card>.json`; the Hercules equal to the clock but where noted) |
+|---|---|---|---|---|
+| the ball's blit, no cue | 4,364 - 4,368 | 4,407 - 4,413 | 4,379 - 4,395 | 4,407 - 4,417 |
+| a frame with SPARKLES | 1,829 - 1,838 (`bz_cued`) | about 1.45k: the blit 5,534 - 5,576 (+1.13 - 1.16k), `bz_cuef` 292 - 350 | about 1.2k: the blit 5,299 - 5,303 (+0.92k), `bz_cuef` 280 - 286 | **about 0.95k**: the blit 5,051 - 5,060 (**+0.65k**; the Hercules 5,083 - 5,093, +0.68k: its `ror`s), `bz_cuef` 283 - 289 |
+| ...a frame a sparkle HOPS on (3 in 8) | - | - | `bz_cuef` 990 - 1,001 (the places, about +0.71k) | `bz_cuef` 818 - 834 (the places, about +0.53k): about 1.5k the frame |
+| a FLASH frame | 6,077 - 6,086, 1,876 between | about 2.3k: the blit 6,274 - 6,291 (+1.87k: the folded checker +0.73k), `bz_cuef` 294 - 524 | no ball blit (about -4.4k): the box composed in 8.3 - 8.7k against a sparkle frame's 14k; `bz_cuef` 300 - 1,040 (its look changes on and off: the places again) | **no ball blit**; `bz_cuef` 317 - 326, and **443 - 444 where the flash turns on or off** (the places NOT recomputed: was 1,012 - 1,040) |
+| a ball AT REST with the sparkles | the box composed EVERY frame: 15.0 - 18.0k, mean 15.4k | composed 10 - 11 frames of 40 (the look's 1 in 4): mean 5.5k a frame | composed 14 - 15 frames of 40 (the hops' 3 in 8, 0 missed): mean 6.9k a frame | **composed 15 frames of 40** (the hops, **0 missed**, both cards): mean 6.85k (the Hercules 6.87k) |
+| ...in the flash | every frame, mean 16.3k | DITHER2: every frame, mean 14.0k | BLINK4: 34 - 41 of 60 (hops, and the blink on and off), mean 8.5 - 9.4k | 41 of 60 (the Hercules 35), **0 missed**: mean 9.3k (8.3k); after the wear-off 0 of 30 |
+| NO PICKUP: `bz_fdis` | 93 - 103 | 155 - 165 (+62: the cue's three tests in its tail) | 155 - 165 | 155 - 165 |
+| NO PICKUP: `bz_mkboxes` idle | 1,490 - 1,495 | 1,419 - 1,424 (-71: `bz_ocue`'s `xchg` gone) | 1,419 - 1,432 | 1,421 - 1,433 |
+
+So with no pickup a frame pays about +62 - 71 + 45 a ball blit (the blit's
++43 - 45 is not an instruction: the plain path's are as they were bar the
+cue door's `js`, so the queue's alignment, PERFORMANCE.md Part 7) - about
+**+0.03k**, and an idle frame less than before. The sparkles came out at
+about 2.5x the cue-report's predicted 0.5k (each pair's offset and two masks
+worked out in the blit, about 350 clk with the queue's stalls), the flash
+frame at 2.3k against its 1.6k; the resting ball as predicted. **The
+per-shift table** (the owner's, to bring the sparkles toward 0.5k) took the
+blit's part from +1.13k to **+0.92k** and the frame from about 1.45k to
+about 1.2k, not 0.5k: the shift arithmetic it removes was the smaller
+part. Each pair is now three dependent table reads and two read-modify-write
+word XORs, about 30 bytes of code and 15 of data through the 8088's bus,
+about 240 clk with the queue's stalls, and the blit's set-up (the pushes,
+the shift, the card's table) about 0.2k; the first try, the table with the
+old loop's card branch, was +1.01k. What would reach 0.5k is a FULLY
+resolved entry per place, shift and card (the offset and both masks: about
+360 bytes of tables), or resolving the three once per change into bss
+(about 15 bytes) - which a rolling ball, whose shift changes nearly every
+frame, pays every frame anyway. **The FULLY RESOLVED tables** (the
+owner's, 15:34: spend about 360 bytes; built at 182) took the blit's part to
+**+0.65k** (the Hercules +0.68k) and the frame to **about 0.95k**, not 0.5k:
+a pair is now two table loads and two word XORs, but the pointer to the
+place's entries (a 4-byte load and an add), the `lodsb` / `lodsw` and the
+two read-modify-writes are still about 26 bytes through the bus, about 170
+clk a pair, and the blit's set-up about 0.1k; `bz_cuef`'s 0.29k is the look
+worked out every frame. The floor with tables is about 0.45k in the blit
+(two word XORs a pair at the bus's 4 clk a byte are 0.1k of it); 0.5k for the
+whole frame would need the pairs as immediates in the code (written through
+CS, which kern_mega's code selectors refuse) or the three resolved into a
+contiguous bss block at each hop (about 36 bytes of bss, over the +24
+budget, for about 0.1k). The cheap fix took the flash's on and off frames'
+`bz_cuef` from about 1.0k to 0.44k. The other
+styles were not timed: DITHER4's flash frame is DITHER2's, one frame in four;
+a BLINK frame draws no ball blit (about -4.4k), and BLINK2 / DITHER2 at rest
+recompose every frame of the flash, BLINK4 / DITHER4 two frames in four. A
+BLINK build assembles neither the checker's look nor the folded loop: its
+image is 47,219 bytes (86 under a DITHER build's), MEASURED off the four
+assemblies.
+
+**The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
+each timed kind a course places, `build_reach` is taken again with its
+raised values - the jump at `_hopmax = PU_JHOP` (its contact's boost, round
+3b's add, stacks inside it up to `VZMAX`), the speed with the module's
+`VMAXG` raised by `PU_SVUP` round the call - and each cell inside the
+effect's REGION (Chebyshev, the duration's travel at 448 plus one, of an
+element of that kind) takes the higher `zhi`. A course placing both kinds,
+any of them not `overwrite`, takes ONE reach with both raised over both
+regions (the pair can be held at once); every one `overwrite`, each alone.
+A bound's refusal on a course whose pair was taken together says to
+separate them or mark them `overwrite` (`_pairnote`). On a firm level
+floor rubber's boosted bounce chain already reaches `VZMAX`'s cap in the
+reach, so a jump raises nothing there (the owner's "bounded only by
+`VZMAX`"); `--selfcheck` item 6 proves the union on a sand course, where it
+raises 148 cells, and its red arm `nopickreach` raises none. Every finish
+with no pickup: 128.25.7.3's `nopick`, unchanged.
+
+**PLAYGROUND's yard.** Built off FF's left edge on its branch. At
+integration it moved LEFT OF THE MAT, because GLASS's section (128.25.18)
+holds FF's left edge (the lead's choice (A), 2026-11-16). The yard is
+`floor rect 3 13 7 19 flat 4`, at the apron's level, and two one-row strips
+join it to the apron's left end: above the mat (wy 14) and below it
+(wy 18). Rows wy 19 - 22 stay void at wx < 10, so the yard is no way round
+the gap ladder's 1-tile notch and no step towards glass's far platform.
+
+It holds the hourglass (3, 18), a speed for 3 s (5, 14) and a jump for 3 s
+(6, 17). They are short, so their regions stay off the 2-unit rung (wx 31).
+Behind the yard is the RIDGE (`floor rect 3 8 6 13 flat 6`), 2 units up.
+It is 3 tiles wide, with four tiles of void between it and the 1.5-unit
+rung.
+
+**The ridge is the jump's alone**, MEASURED on the model by
+`bonanza_phys --check` (`ridge_apex`): every ball, held on the yard,
+pumping the Hop and the boost (the key held, or tapped every 1 - 9 steps in
+the air).
+- With no jump, the best apex is 41 px, under the 44 px the ridge needs
+  (48 less `CLIMB`).
+- The control, with the jump's Hop, reaches 49.
+
+The over-approximating `reach_closure` takes the ridge either way, as it
+takes the 2-unit rung since round 3b (`--selfcheck` item 7 prints that and
+does not assert it), so it cannot decide this. No trap: the ridge's front
+edge is open.
+
+The demo's runs are unchanged. Its identity moved: 6899h -> 222Ch on the
+branch, then EAEDh -> 8ADCh at integration (re-authored both times).
+
+**The proof** (`tests/bonanza_phys.py --check`, the unicorn half): the
+guest's `bz_step` with every fetched part (probe, glass and pickups at
+integration: `UGuest`'s `op_seg` answers by row) equals the model at every step of PLAYGROUND's
+demo, the probe scenario and the PICKUPS scenario, 1,605 steps steered on
+the model from the start (the yard at integration's place): the speed (398),
+a sprint past the cap to 390 (454), the jump (632), a Hop with rubber's
+boost stacked onto the ridge (808), both worn off (1057), the hourglass (1131), a RETURN (the hourglass
+stays, the timed two come back), BACK INTO THE HOURGLASS'S CELL and held
+there (1198: not taken again - ONCE AN ATTEMPT on the guest, not only in the
+model's bits; added by the verifier, whose scratch part that re-takes an
+hourglass went red there and stayed green on the scenario without it), the
+speed again and the jump while it runs (101 steps of it left), a RETURN while
+both run, the jump a third time, worn off - the ball, `bz_fst`, the slots,
+`bz_fref`, the window, every element's POSE, and `bz_wacc`, `bz_vup`, the
+Hop, `bz_cue`, `bz_nfev`, `bz_fta`, `bz_tsec`. Red arms, each red there:
+`pustep` (STEP entry 0: the slot parts at 397), `puretake` (CONTACT's
+COLLECTED test NOPed: an element taken again while its cell is held, 398),
+`purst` (RESET entry 0: at integration it parts first at 1131, an element's
+pose changed with its lane never marked, the `bz_fmark` check `w9/crackfix`
+added), `puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in the
+sprint, 453). Since `w9/crackfix` the part marks a lane with
+`call far [bz_fmkp]` (128.25.6.3), not a byte store into `bz_latt`. Not on any host check: the FLASH's frame parity and the sparkles'
+pixels (`bz_cuef` and `bz_blit`'s `.cwhole` are display, never in the
+unicorn's `bz_step`) - the SEEN looks and videos below and `bonanzaperf` are
+their only witnesses; nor a jump and a
+speed of DIFFERENT durations on one course (the yard's are both 3 s, so a
+guest reading the wrong element's +18 would agree; `--selfcheck` item 2
+holds the records' fields).
+
+**SEEN** (one look, `~/Repos/w9-logs/pickups-look.py`, CGA and Hercules):
+the icons on the yard; the speed taken (slot, `bz_wacc`, `bz_vup`, `bz_cue`
+1); the sparkles on the CGA; the dithered ball on a flash frame on both
+cards; the cue off when the effect wore off. On the Hercules the single-dot
+sparkles are not distinguishable from the dithered ground in the captures.
+**Not covered by a scenario**: a pad's swap under a running jump (the STEP
+hook's re-write is code both sides carry, but nothing drives it); the
+PICKUP sound on the glass.
+
+**Rows**: `bonanzaphys` (the unicorn scenario and its red arms; a MartyPC
+`pickups` replay registered beside the probe's), `bonanzacourse`
+(`--selfcheck` items 2, 3, 6), `bonanzasound` and `bonanzamusic` (the
+`PICKUP` event), `bonanzaperf` (the cue's frames), `bonanzareplay`,
+`bonanzademo`, `bonanzagame` (PLAYGROUND's re-authored demo), `bonanzamega`
+(two family parts in the arena).
 
 #### 128.25.20 Today's props as families: the design (story 9.8)
 
