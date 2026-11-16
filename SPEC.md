@@ -272757,6 +272757,12 @@ the shell's.
   non-zero, `op_areserve` reserves nothing and the arena is claimed from the
   ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
   row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
+  **Since story 9.8 (128.25.6.9) the arena is claimed at `bz_entry`** by
+  `bz_fhome` for the RESIDENT families, before any harness can set the
+  byte, so the ceiling claim no longer happens in a session: the forced-move
+  leg must arrange its move another way (a claim pressed against the
+  arena's top before the launch, or the byte honoured by `op_arset`'s
+  REGROW arm), or set the byte before the package starts.
   SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
   `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
   2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
@@ -273432,8 +273438,12 @@ play** (home `resident`, 128.25.6.9): the arena's floor, **72 paragraphs =
 1,152 bytes**, held from the package's start (SEEN on MartyPC, the CGA: the
 desktop's arena `op_artop` 72 of `op_arsz` 128 - the claim rounds to
 `OP_ARQUANT` - where the base had none), so the desktop holds one claim more
-(the arena). **What they cost in time** (MartyPC, guest seconds at 4.77 MHz,
-two boots each): opening BONANZA **9.62 - 9.84 s against 8.71 s (+0.9 - 1.1
+(the arena) and that claim is **128 paragraphs = 2,048 bytes**, PINNED (no
+`OP_ONMOVE`), on the desktop for the window's whole life: `op_arfit` rounds
+the 72 up to the next `OP_ARQUANT` step after every drop, so the 896 bytes
+above the parts are the standard's rounding, not the families' (the verifier,
+story 9.8). **What they cost in time** (MartyPC, guest seconds at 4.77 MHz,
+three boots of the branch, one of the base): opening BONANZA **9.62 - 9.84 s against 8.71 s (+0.9 - 1.1
 s)**, 8 floppy reads and 97 sectors against 5 and 81 - the three fetches at
 the start, each a seek to the file's END where the family rows are; a PEAK
 launch (D of its shipped demo, to the bracket) **5.13 - 5.52 s against 5.25
