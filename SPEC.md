@@ -270641,10 +270641,19 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   bz_slot`; a change marks every CLOCK lane for the walk (128.19.10's
   marks) and the next frame redraws the one block (`bz_tlabel`).
 
+- **A title's spring may stand at a pit's edge.** The props' rule that a
+  flag, a pad, the cup and a spring have floor on all four sides (so that a
+  SAFE cell could be where they are) is waived for a spring on a course with
+  `title`: the title is never played, and its demos name their own respawn
+  cells (128.23.3). LL's spring stands on its front edge over the pit, where
+  the steel's try-and-fail jump and the rubber's carry across both need it.
+
 - **The title's art, as built** (T1.4): `tools/bbtitle.py` DRAWS it from
   code - BOUNCE BONANZA in one line of fat rounded strokes (white, a black
   keyline, a magenta rim, a cyan shadow), each letter bobbing on its own
-  baseline, across the window's top 40 lines, which the scene leaves black;
+  baseline, in the window's lines 4 - 44 (`TOP` 16, lowered on the owner's
+  word, 2026-11-16, so that no letter's bob takes it off the top of the glass;
+  the closest scene pixel is 9 px under the lettering);
   and the KEY HINTS on a plaque in the sky's left pocket (cells 1 - 11, rows
   6 - 9: `P  PLAY`, `S  SLOT` and the label's digit) in `fonts/tallx.f8`.
   The program is the source and `title.bba` its committed output;
@@ -270675,7 +270684,7 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   `+9` gvx, `+11` gvy, `+13` gvz (words), `+15` the air flag, `+16` the
   respawn cell (wx, wy; FFh FFh none), `+18` zero - then its `BZR1` log
   (128.14.7.4), course `BZ_CRS_TITLE`, its identity the title course's as
-  BUILT. **BUILT** (T3.1): 1,278 bytes for the four.
+  BUILT. **BUILT** (T3.1): 1,336 bytes for the four (round 2, 2026-11-16).
 - **The build's checks** (the course run, every build): each demo replayed
   on the model from its start block is **exactly `BZ_TSTEPS` steps**, ends
   with the ball alive or in a shatter or fall the file `expect`s, and meets
@@ -270692,6 +270701,18 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   cell may be OFF the glass: a ball that shatters or falls at a demo's end
   is not seen again. The replay is then mode 2's, unchanged. **BUILT**
   (T3.2).
+
+- **The glass is never blanked inside a title play, and stays black between
+  plays** (the owner, 2026-11-16: the flash to black at a respawn read as the
+  demo ending). A respawn normally CUTS the camera to the new cell, and a cut
+  is a full write, which blanks the video for its frame (128.19.5). On a
+  FIXED window there is nowhere to cut to, so `bz_camera` skips the cut when
+  `bz_fixed` is set, and the ball simply reappears. Between plays, and
+  between a title demo and the course demo that follows it, `bz_tround`
+  calls `bz_blank` once its play is closed. The glass stays black while the
+  next one is fetched, and that play's first frame (its one full write)
+  lights it. So the only black on the title is the load, and a glass ball's
+  shatter is seen to its last frame before the glass goes dark.
 
 - **The song, as built** (T4.1): `apps/bonanza/music/attract.bmu`, song 7
   (the manifest's last, after wave 8R's `victory`, 128.22.9; PLAY names
@@ -270730,18 +270751,32 @@ Five tiers and four features, after the sketch:
 |---|---|
 | UR, the upper right platform | high on the right, running off the glass to the right; the brown tube's exit near its right end; the windmill's doorway on its left edge |
 | the PILLAR | a tall wall between UR and the strip, the windmill's house: its tube runs down through it onto the strip |
-| LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit |
-| LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT |
+| LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit; it runs off the glass to the left, and a STEP (a half-unit tier, 9 - 11 x 13) takes a ball down to it from LL, so a ball on LL can reach the brown tube without jumping |
+| LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT (128.23.2's waiver) |
 | LC, the lower centre | the key hints painted beside it; joined to LS behind and to the ramp's foot on the right |
 | the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
-| the hidden tube | off the glass to the right: LR to UR, so a ball that rolls off right comes back on UR |
+| the hidden tube | its mouth on the south rail just under the glass's bottom edge (15, 16), its run off the glass round the right to UR, so a ball sprung over the pit drops into it and comes back on UR |
 
-The four demos are the brief's, one each: the rubber dropped onto UR, down
-the ramp and back up by the spring; the steel stunned on LL, lost in the pit,
-respawned on LC, through the brown tube and down the ramp; the glass off LL,
-through the tube, round UR until it falls and shatters; the rubber rolling in
-at speed, boosting, sprung over the pit, behind the ramp, through the hidden
-tube, the windmill, and a boost over the brown tube's mouth.
+The four demos, as revised after the owner first watched them
+(2026-11-16; the first round followed the brief, which was written against
+the sketch, and the built course is a different shape):
+
+1. **Rubber**: dropped onto UR, bounces to a stop, rolls down the ramp and off
+   the front of the glass (only just), comes straight back with no pause,
+   onto UR's spring and back up onto UR, then off the glass to the right as
+   the demo ends.
+2. **Steel**: dropped onto LL and stunned; rolls to the spring and tries the
+   gap, falls in the pit; respawns on LL, the side it fell from, so it never
+   seems to jump the gap by dying; rolls down the step to LS and into the brown tube,
+   comes out on UR, and down the ramp off the glass.
+3. **Glass**: off LL, through the brown tube onto UR, round UR until it falls
+   and shatters. Its shatter finishes on the glass and the respawn is off it.
+4. **Rubber at speed**: comes in on LL already moving, one tile further north
+   than the first round so that its first bounce across stays on the glass;
+   boosts, the spring carries it over the pit into the hidden tube at the
+   glass's bottom edge, quickly, and it comes out on UR; laps UR through the
+   windmill, and its boosted bounce CLEARS the brown tube's mouth on LS,
+   carrying on off the glass to the left.
 
 #### 128.23.6 The rows (BUILT; the final pass's figures in the plan)
 
@@ -270753,7 +270788,9 @@ tube, the windmill, and a boost over the brown tube's mouth.
 - **`bonanzamusic`**: `attract`'s one pass is exactly `BZ_TSTEPS` sub-ticks
   and its loop row silent.
 - **`bonanzatitle`** (new, soak, MartyPC, both cards): Enter opens the title;
-  the window never moves (`bz_R0`, `bz_c0` the header's on every frame); the
+  the window never moves (`bz_R0`, `bz_c0` the header's on every frame); a
+  title demo with a fall makes ONE full write, its first (check 4b: no
+  respawn cut, no blank flash); the
   slot label's pose follows S, 1, 2, 3 and nothing else is redrawn; a title
   demo's ball equals the model's at every frame; after `BZ_TSTEPS` steps a
   course demo runs (`bz_crs` < `BZ_NCRS`) and a key brings the title back; P

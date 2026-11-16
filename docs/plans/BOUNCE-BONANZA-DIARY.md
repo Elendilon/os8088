@@ -2645,3 +2645,41 @@ work WHILE the run read it, so every row assembled a probe from the new
 source against the frozen run's old tables. The lesson is the soak's own
 rule, learned the expensive way: nothing touches the checkout until the run
 is finished. The second run, on the merged tree, is the plan's T5.2.
+
+## 2026-11-16 (the title screen, round 2: the owner watched it)
+
+The owner liked the music and the letters, and asked for the letters lower:
+the bob took the tallest of them off the top of the glass. `bbtitle.py`'s
+`TOP` went from 10 to 16. The letters now sit on lines 4 - 44, and the
+closest scene pixel is 9 px under them, so they still fit at their size.
+
+**The black flash was two things.** A respawn CUTS the camera, which is a
+full write, and a full write blanks the video for its frame. That is right
+on a scrolling course, where the whole window changes, and wrong on a fixed
+one, where nothing does: the glass went black for a frame at every death,
+which read as the demo ending. `bz_camera` now skips the cut on a fixed
+window. The second flash was the gap between plays. The glass lit again for
+the last frames of a play and then went dark for the load. Now `bz_tround`
+blanks once a play is closed, and the next play's first frame is the only
+thing that lights it. A glass ball's shatter is therefore seen to the end.
+`bonanzatitle`'s new check 4b counts the full writes in a demo with a fall:
+there must be exactly one.
+
+**The demos changed because the course is not the sketch.** The brief was
+written against a rough drawing, and the owner said so: the demos work
+better a little different. Demo 1 lost its pause and now ends off the glass
+to the right. Demo 2's steel tries the gap from the spring and fails, and
+the respawn puts it back on the SAME side. A half-unit step from LL down to
+LS lets it reach the brown tube without jumping, so it never seems to
+jump the gap by dying. A ramp was the first try, and it broke the occluder
+limit: six records in one block where four are allowed. Demo 4 starts a
+tile further north. Its hidden tube's mouth moved to the glass's bottom
+edge, where its sprung bounce lands anyway: every bounce after the spring
+went to row 16 however it was steered, so the mouth went to the ball. Its
+boosted bounce off the windmill run now clears the brown tube's mouth and
+leaves to the left.
+
+**Tested**: `bonanzatitle` PASS on CGA and Hercules (with 4b), the course
+selfcheck (item 13 and its four controls), `bbtitle.py --check`. Not looked
+at by the session on the glass: the owner's eyes are the check of how
+the new films read.
