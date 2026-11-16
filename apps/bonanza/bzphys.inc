@@ -272,6 +272,7 @@ VAR bz_sq,1                     ; quadrant; bz_dinner's pick and its "straight"
 VAR bz_dhc,1
 VAR bz_dst,1
 VAR bz_srf,1                    ; bz_swalls: 1 when its inner push refilled the window
+VAR bz_srp,2                    ; step 6's record of a split centre (step 8 reads it)
 VAR bz_nbp,18                   ; bz_wsplit: each split window cell's record(s) in
                                 ; bz_nbh for bz_blocks (FFh: none; the centre FFh FFh)
 ; the idle test's last frame (bz_mkboxes, 128.10.8 item 2)
@@ -1514,6 +1515,7 @@ bz_step:
 .ngs:                           ; step 6: a GOAL, or a SPLIT centre - its
     je .ngg                     ; picked RECORD is C from here (128.24.7.1)
     call bz_srec
+    mov [bz_srp], si            ; (and step 8's: the centre does not move)
     mov al, [si + 2]
     and al, 0fh
     cmp al, BZ_KFLOOR
@@ -1523,7 +1525,7 @@ bz_step:
 .ngg:
     jmp .solid
 .sgoal:                         ; step 8: the split centre's record a GOAL?
-    call bz_srec
+    mov si, [bz_srp]            ; (step 6's pick)
     mov al, [si + 2]
     and al, 0fh
     cmp al, BZ_KGOAL
@@ -3543,6 +3545,8 @@ bz_tslope:
     jne .st
 .sl:
     mov al, [si + 1]            ; sy : sx, signed nibbles
+    or al, al
+    jz .st                      ; (flat, most: both 0 as they are)
     mov ah, al
     mov cl, 4
     shl al, cl
