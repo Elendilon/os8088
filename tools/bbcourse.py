@@ -18171,13 +18171,15 @@ def sizes(paths):
                                    lambda m_: "%s%sband %d %d %d %d" % (m_.group(1), m_.group(2), int(m_.group(3)),
                                                                        int(m_.group(4)), int(m_.group(5)) - 1,
                                                                        int(m_.group(6))),
-                                   "\n".join(ln for ln in _SPLIT.split("\n") if " half " not in ln)),
+                                   "\n".join(ln for ln in _SPLIT.split("\n") if " half " not in ln and " quarter " not in ln)),
                             "<SPLIT, whole>", _hack={"no_finish": True})
         for nm, cc in (("SPLIT", c), ("the same boxes as whole-cell bands (every half rounded out)", cw)):
             pt = cc.part
-            print("  %s: RAM %d, stored %d, LZ4 %d, LZB %d; %d split cells, D %d bytes; %d blocks, %d records" % (
-                nm, len(cc.cga), len(cc.stored), packed_len(cc.stored, "lz4"), packed_len(cc.stored, "lzb"),
-                len(cc.pairs), PAIR * len(cc.pairs), len(cc.blocks), len(cc.records)))
+            print("  %s: RAM %d, stored %d, LZ4 %d, LZB %d; %d split cells (%d quartered), D %d bytes; %d blocks, "
+                  "%d records" % (nm, len(cc.cga), len(cc.stored), packed_len(cc.stored, "lz4"),
+                                  packed_len(cc.stored, "lzb"), len(cc.pairs),
+                                  sum(1 for v in cc.pairs.values() if len(v) == 4),
+                                  sum(4 * len(v) for v in cc.pairs.values()), len(cc.blocks), len(cc.records)))
             for e in pt["dir"]:
                 print("    %-3s %-22s %-10s %7d %7d" % (e["tag"], SEC_NAMES[e["tag"]], FORM_NAMES[e["form"]],
                                                         e["len"], e["dlen"]))
