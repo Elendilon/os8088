@@ -837,9 +837,11 @@ def parse(text, fname="<course>"):
             if src.music is not None:
                 raise CourseError("%s: music given twice" % where)
             names = song_names()
-            if len(toks) != 2 or toks[1][1] not in names[1:]:
+            csongs = [x for x in names[1:] if x != "victory"]   # (8R.6: the fanfare is the finish's; a
+            # course may still NAME a non-course song - the title's `music attract`, 128.23)
+            if len(toks) != 2 or toks[1][1] not in csongs:
                 raise CourseError("%s: music takes a course song's name: %s (the title, song 0, is the face's)"
-                                  % (where, ", ".join(names[1:])))
+                                  % (where, ", ".join(csongs)))
             src.music = (names.index(toks[1][1]), ln)
         elif st == "limit":
             if src.limit is not None:
@@ -2943,12 +2945,22 @@ def song_names():
     return [os.path.splitext(n)[0] for n in bbmusic.SONGS]
 
 
+def _non_course():
+    """8R.6: the songs no course plays (the fanfare, the attract demo): bbmusic's list"""
+    sys.path.insert(0, os.path.dirname(TOOL))
+    try:
+        import bbmusic
+    finally:
+        sys.path.pop(0)
+    return bbmusic.NON_COURSE
+
+
 def course_song(c, k):
     """the song course K plays: its `music`, else K (BENCH 1), past the last
     course song wrapping to 1 (128.20.6's rule, now the tool's)"""
     if c.src.music is not None:
         return c.src.music[0]
-    n = len(song_names())
+    n = len([x for x in song_names() if x not in _non_course()])
     return 1 if k == 0 else 1 + (k - 1) % (n - 1)
 
 
@@ -14759,16 +14771,16 @@ def selfcheck(paths=None):
     sn = song_names()
     rule = [course_song(c, k) for k, c in enumerate(courses)]
     mr = []
-    for bad in ("music title\n", "music nosuch\n"):
+    for bad in ("music title\n", "music nosuch\n", "music victory\n"):   # (8R.6: the fanfare is no course's)
         try:
             compile_course(base + bad, "<music refused>", occluders=False)
             mr.append("accepted")
         except CourseError as e:
             mr.append("refused" if "music takes" in str(e) else str(e))
-    res.append(("4 `music trial` gives song %d (%s); `music title` and an unknown name %s; the courses' songs %s, "
+    res.append(("4 `music trial` gives song %d (%s); `music title`, an unknown name and the fanfare %s; the courses' songs %s, "
                 "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
-                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused"]
-                and rule == [1 if k == 0 else 1 + (k - 1) % (len(sn) - 1) for k in range(len(courses))]
+                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused", "refused"]
+                and rule == [1 if k == 0 else 1 + (k - 1) % (len([x for x in sn if x not in _non_course()]) - 1) for k in range(len(courses))]
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)

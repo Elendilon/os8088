@@ -147,6 +147,8 @@ VAR bzs_goalp,1                 ; 1: the desktop plays the goal's fanfare first
 VAR bzs_song,1                  ; the song part's row, 0 none
 VAR bzs_pseg,2                  ; the sound part's segment, 0 none
 VAR bzs_mseg,2                  ; the song part's segment, 0 none
+VAR bzs_vic,1                   ; 1: the fanfare played this play (the desktop's goal effect is then not)
+VAR bzs_vseg,2                  ; the VICTORY fanfare's, fetched with the course's song (8R.6), 0 none
 VAR bzs_hzt,2                   ; the sound part's tables (its header, copied)
 VAR bzs_opt,2
 VAR bzs_ins,2
@@ -335,6 +337,19 @@ bzs_gfetch:
     mov al, [bz_csongs + bx]
     add al, BZ_P_SONG
     call bzs_fsong
+    jc .r
+    cmp byte [bz_mode], 0       ; ...and the fanfare beside it, so the finish
+    jne .r                      ; starts it with NO disk read (8R.6, D2) - for
+    cmp byte [bz_crs], BZ_NCRS  ; a PLAY of a COURSE only, the one thing that
+    jae .r                      ; has a finish sequence (not a replay, a
+    cmp byte [bzs_mode], BZS_M_FX ; benchmark, a demo, the pathway or the
+    jae .r                      ; title), and with music; not had: the
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY ; finish plays without it
+    call op_fetch
+    jc .r
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY
+    call op_seg
+    mov [bzs_vseg], ax
 .r:
     ret
 
@@ -350,15 +365,89 @@ bzs_gdrop0:
     push ax
     mov al, [bzs_song]
     call bzs_dsong
+    cmp word [bzs_vseg], 0
+    je .nv
+    push ds
+    pop es
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY
+    call op_drop
+    mov word [bzs_vseg], 0
+.nv:
     mov al, BZ_P_SND
     call op_drop
     mov word [bzs_pseg], 0
     cmp byte [bz_mode], 1       ; (a benchmark has no finish)
     je .t
     mov al, [bz_goal]
+    cmp byte [bzs_vic], 0       ; (8R.6: the finish sequence's own tune has
+    je .g                       ; played - the desktop's GOAL effect over the
+    xor al, al                  ; title would be a second fanfare)
+.g:
     mov [bzs_goalp], al
 .t:
+    mov byte [bzs_vic], 0
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; WAVE 8R (SPEC.md 128.22.9): the shell's four events and the finish's tune
+; -----------------------------------------------------------------------------
+BZS_EV_PAD  equ BZS_E_ARRIVE    ; the marble arrives on a pad: a bright chime
+BZS_EV_GATE equ BZS_E_GATE      ; a gate opens: a rising crystal slide, 0.5 s
+BZS_EV_LIFE equ BZS_E_LIFE      ; a life lost: a short falling motif
+BZS_EV_OVER equ BZS_E_OVER      ; game over: a minor descent, 1.5 s
+
+; bzs_ev - event AL (BZS_EV_*, any BZS_E_*) played as a SHARED effect, the way
+; bzs_events plays the clock's: nothing when no arm is open (sound OFF, a part
+; not had).  Callable in the bracket and over the desktop's title.  Preserves
+; all.  (An event is `mov al, BZS_EV_x` / `call bzs_ev`: 5 bytes a site.)
+bzs_ev:
+    cmp byte [bzs_arm], BZS_A_NONE
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    xor ah, ah                  ; (these map one effect to all three balls)
+    call bzs_trig0
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; bzs_victory - THE FINISH'S TUNE, NO DISK READ: the fanfare (BZ_SONG_VICTORY,
+; at most 110 sub-ticks, it does not loop) was fetched by bzs_gfetch beside the
+; course's song (a play of a course with music: one more claim, a 512-byte
+; granule for its 224 bytes), so this only points the sequencer at it and
+; starts from its top.  The course's song part stays claimed and is
+; bzs_gdrop0's as before.  Nothing on a TIMEOUT (bz_goal 0: its own effect
+; plays), under EFFECTS ONLY, with no arm, or with the fanfare not had (the
+; course's song then plays on).  Call it once at the finish start.  Preserves
+; all.
+bzs_victory:
+    cmp byte [bz_goal], 0
+    je .r
+    cmp byte [bzs_arm], BZS_A_NONE
+    je .r
+    cmp byte [bzs_mode], BZS_M_FX
+    jae .r
+    cmp word [bzs_vseg], 0
+    je .r
+    push ax
+    mov ax, [bzs_vseg]
+    mov [bzs_mseg], ax
+    mov byte [bzs_vic], 1
+    call bzs_rstart             ; (preserves all but flags; sets live)
+    pop ax
+.r:
     ret
 
 ; bzs_fsnd - the sound part fetched and its tables read.  CF = 1 it could not
@@ -686,10 +775,12 @@ bzs_events:
     cmp byte [bzs_snap], 0
     je .out
     mov ah, [bz_mat]            ; AH = the material, for every trigger
-    or al, al                   ; GOAL: 0 to 1 (in the bracket only on the
-    jnz .shat                   ; frame the loop leaves; the desktop plays the
-    cmp byte [bz_goal], 0       ; fanfare after it, bzs_gdrop)
-    je .shat
+    or al, al                   ; GOAL: 0 to 1 (a replay's on the frame the
+    jnz .shat                   ; loop leaves; the desktop plays its GOAL after
+    cmp byte [bz_goal], 0       ; it, bzs_gdrop) - but a play that has the
+    je .shat                    ; fanfare plays THAT instead, through the
+    cmp word [bzs_vseg], 0      ; finish sequence (bzs_victory, 8R.6): its
+    jne .shat                   ; goal step can end a frame before it starts
     mov al, BZS_E_GOAL
     call bzs_trig0
 .shat:

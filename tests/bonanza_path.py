@@ -146,7 +146,7 @@ def run(tag, apps=None, src=None):
         m.run()
         M.guest_sleep(m, 0.5)
         nst = list(m.read(g.a("bz_nst"), len(pc.src.nodes)))
-        best = struct.unpack_from("<H", m.read(g.a("bz_dat") + 64 + 24 + 2 * R.CRS_K["first"], 2))[0]
+        best = struct.unpack_from("<H", m.read(g.a("bz_dat") + 64 + 54 + 2 * R.CRS_K["first"], 2))[0]
         gold = R.medals("first")[0]
         ok = g.w("bz_ndone") == 1 and g.w("bz_nopen") == 3 and nst[:2] == [4, 1] and g.b("bz_lives") == 5 \
             and 0 < best <= gold
@@ -185,15 +185,17 @@ def run(tag, apps=None, src=None):
         leave_game(g, "the desktop (the game left, through the title)")
         GM.motor_off(g)
         dat = GM.read_dat(g)
-        sl = struct.unpack_from("<BBHHH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
-        ok = dat is not None and dat[:4] == b"BZS2" and sl == (3, 0, 3, 1, R.path_ident()) \
-            and struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0] == 1
-        print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, 0, open, done, the pathway), "
-              "FIRST's exits found %s: %s" % (tag, dat[:4] if dat else None, sl,
-                                              struct.unpack_from("<H", dat, 64 + 8 + 2 * R.CRS_K["first"])[0]
-                                              if sl else None, "yes" if ok else "NO"), flush=True)
+        sl = struct.unpack_from("<BBBBIIIIH", dat, 64) if dat and len(dat) == GM.DAT_FILE else None
+        fx = struct.unpack_from("<H", dat, 64 + 22 + 2 * R.CRS_K["first"])[0] if sl else None
+        # (3, mode 0, pad 1 - TRIAL's, left by Esc -, 0, open 3, done 1, a route opened, none taken, identity)
+        ok = dat is not None and dat[:4] == b"BZS3" and sl is not None and sl[:4] == (3, 0, 1, 0) \
+            and sl[4:6] == (3, 1) and sl[6] != 0 and sl[7] == 0 and sl[8] == R.path_ident() and fx == 1
+        print("%s 3b. left for the desktop: BONANZA.DAT %s, slot 0 %s (lives, mode, pad, 0, open, done, routes "
+              "opened and taken, the pathway), FIRST's exits found %s: %s" % (
+                  tag, dat[:4] if dat else None, sl, fx, "yes" if ok else "NO"), flush=True)
         if not ok:
-            fails.append("3b. the game's slot on the floppy is %s, not (3, 0, 3, 1, the pathway's identity)" % (sl,))
+            fails.append("3b. the game's slot on the floppy is %s, not (3, 0, 1, 0, 3, 1, a route, 0, the pathway's "
+                         "identity) with FIRST's exit 0 found" % (sl,))
         enter_game(g, "the pathway again (the game continued)")
         ok = g.b("bz_lives") == 3 and g.w("bz_nopen") == 3 and g.w("bz_ndone") == 1
         print("%s 3c. Enter continues the slot's game: lives %d, open %04X, done %04X: %s" % (
