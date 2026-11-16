@@ -2626,3 +2626,22 @@ with the film. The session cannot hear it: the WAVs went to the owner.
 **Not yet**: the row that proves all of this (`bonanzatitle`), the
 Hercules on the guest, and the guest's replay checked step by step against
 the model.
+
+## 2026-11-16 (the title screen: the rows, and a run that tested nothing)
+
+`bonanzatitle` was written red-first and its red arm stayed GREEN twice
+before it bit. The first broke the window's every-frame hold, but the ball
+never left the camera's rest band in 40 frames, so nothing moved; the second
+compared the flag against FFh where the code jumps on equal, so the "broken"
+build fixed the window anyway. The third skips the first frame's placement,
+and the window lands at (0, 36) instead of (64, 51). The row also caught a
+race of its own: the bracket's restore can paint the face before the title's
+tail has fetched the desktop's song back, so the claims were read one disk
+read too early - it now waits for the song.
+
+The first scoped soak reported twelve failures in eight minutes, and none of
+them was about the title: the tree had been merged with the pathway session's
+work WHILE the run read it, so every row assembled a probe from the new
+source against the frozen run's old tables. The lesson is the soak's own
+rule, learned the expensive way: nothing touches the checkout until the run
+is finished. The second run, on the merged tree, is the plan's T5.2.

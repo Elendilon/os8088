@@ -861,10 +861,10 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
                          % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
-        if len(base_rows) != shell_row() + 2:
+        if len(base_rows) != shell_row() + 1 + R.after_shell():
             fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs, %d "
-                         "shipped demos, the shell and the pathway (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4, "
-                         "128.19.2, 128.19.5)" % (
+                         "shipped demos, the shell, the pathway and the title's two (SPEC.md 128.11.3.1, "
+                         "128.20.3, 128.14.7.4, 128.19.2, 128.19.5, 128.23)" % (
                              len(base_rows), dict.__len__(R.CRS_K), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)

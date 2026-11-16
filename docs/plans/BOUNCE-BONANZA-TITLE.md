@@ -177,4 +177,16 @@ A box is ticked only for what was built AND checked as its line says.
       a groove of 6 6. The rows the title changed: `bonanzapath` goes through
       the title (Enter, P), `bonanza_sound`'s FIRST is F, and the harness counts
       the title's two rows after the shell's (`after_shell`, `path_ident`).*
-- [ ] **T5.2** The final pass: the deduplicated BONANZA rows once.
+- [x] **T5.2** The final pass: the deduplicated BONANZA rows once.
+      *MEASURED 2026-11-16, `os88soak.py -k 'bonanza*'` on the merged tree
+      (671f5dc8, with wave 8R), 20.6 min: 10 of 15 PASS - `bonanzatitle`,
+      `bonanzapath` (through the title), `bonanzagame`, `bonanzademo`,
+      `bonanzaphys`, `bonanzareplay`, `bonanzaperf`, `bonanzacourse` (item 13
+      in it), `bonanzamusic`, `bonanzaassets`. FAIL: `bonanzaexit` - its row
+      count did not know the title's two rows (fixed here, then PASS on the
+      CGA) and its in-bracket claims did not know 8R's fanfare (8R's fix,
+      b2d47f35); `bonanzamega` - 8R's fanfare claim (8R's fix, 8e372c47);
+      `bonanzaring`'s probe and `bonanzawheel`'s leg (6), both failing before
+      this work (SPEC.md 128.19.9); `bonanzasound`'s boost and w7 legs - the
+      effects 8R reworked, passed to that session. A first run of the same
+      scope was void: the tree was merged under it.*
