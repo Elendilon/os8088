@@ -20,8 +20,17 @@ CSEG, DSEG, ESEG = 0x1000, 0x3000, 0x5000
 BOX = 0x0400
 
 
-def assemble(drop_nothing=True):
+def assemble(patch=None):
+    """the routine assembled at org 0 behind a 3-instruction driver; patch =
+    (old, new) breaks the source on purpose (the selfcheck's red arm)"""
     with tempfile.TemporaryDirectory() as td:
+        inc = os.path.join(ROOT, "apps/bonanza/bzballgen.inc")
+        if patch is not None:
+            text = open(inc).read()
+            assert text.count(patch[0]) == 1, patch[0]
+            inc = os.path.join(td, "bzballgen.inc")
+            with open(inc, "w") as f:
+                f.write(text.replace(*patch))
         art = os.path.join(td, "art")
         os.makedirs(art)
         with open(os.path.join(art, "bzconst.inc"), "w") as f:
@@ -31,7 +40,7 @@ def assemble(drop_nothing=True):
             f.write("cpu 8086\nbits 16\norg 0\nBZ_BOXB equ 256\nBZB_NSTR equ 14\nbz_boxbuf equ %d\n"
                     "%%include \"bzconst.inc\"\n"
                     "start: mov ax, %d\n call bz_ballgen\n hlt\n"
-                    "%%include \"%s\"\n" % (BOX, ESEG, os.path.join(ROOT, "apps/bonanza/bzballgen.inc")))
+                    "%%include \"%s\"\n" % (BOX, ESEG, inc))
         out = os.path.join(td, "t.bin")
         lst = os.path.join(td, "t.lst")
         subprocess.run(["nasm", "-w+error", "-f", "bin", "-I", art + "/", "-l", lst, "-o", out, src], check=True)
