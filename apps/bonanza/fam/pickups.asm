@@ -74,7 +74,7 @@ pu_reset:
     sub al, BZ_K_HOURGLASS
     cmp al, 3
     jae .n
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]          ; its lane MARKED, the next walk made (bz_fmark; BX the element)
 .n:
     add si, 32
     inc bx
@@ -96,7 +96,7 @@ pu_contact:
     je .out
 .take:
     or [si], al
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]          ; its lane MARKED, the next walk made (bz_fmark; BX the element)
     inc word [bz_nfev]
     cmp dl, BZ_K_HOURGLASS
     jne .timed

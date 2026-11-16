@@ -274158,25 +274158,27 @@ The demo's runs are unchanged. Its identity moved: 6899h -> 222Ch on the
 branch, then EAEDh -> 8ADCh at integration (re-authored both times).
 
 **The proof** (`tests/bonanza_phys.py --check`, the unicorn half): the
-guest's `bz_step` with BOTH parts fetched (probe and pickups: `UGuest`'s
-`op_seg` answers by row) equals the model at every step of PLAYGROUND's
-demo, the probe scenario and the PICKUPS scenario, 1,572 steps steered on
-the model from the start: the speed (488), a sprint past the cap to 389
-(544), the jump (651), a Hop with rubber's boost stacked onto the ridge
-(850), both worn off (1055), the hourglass (1112), a RETURN (the hourglass
+guest's `bz_step` with every fetched part (probe, glass and pickups at
+integration: `UGuest`'s `op_seg` answers by row) equals the model at every step of PLAYGROUND's
+demo, the probe scenario and the PICKUPS scenario, 1,605 steps steered on
+the model from the start (the yard at integration's place): the speed (398),
+a sprint past the cap to 390 (454), the jump (632), a Hop with rubber's
+boost stacked onto the ridge (808), both worn off (1057), the hourglass (1131), a RETURN (the hourglass
 stays, the timed two come back), BACK INTO THE HOURGLASS'S CELL and held
-there (1168: not taken again - ONCE AN ATTEMPT on the guest, not only in the
+there (1198: not taken again - ONCE AN ATTEMPT on the guest, not only in the
 model's bits; added by the verifier, whose scratch part that re-takes an
 hourglass went red there and stayed green on the scenario without it), the
-speed again and the jump while it runs (99 steps of it left), a RETURN while
+speed again and the jump while it runs (101 steps of it left), a RETURN while
 both run, the jump a third time, worn off - the ball, `bz_fst`, the slots,
 `bz_fref`, the window, every element's POSE, and `bz_wacc`, `bz_vup`, the
 Hop, `bz_cue`, `bz_nfev`, `bz_fta`, `bz_tsec`. Red arms, each red there:
-`pustep` (STEP entry 0: the slot parts at 487), `puretake` (CONTACT's
-COLLECTED test NOPed: an element taken again while its cell is held, 488),
-`purst` (RESET entry 0: the slot parts at the RETURN while both run, 1355),
-`puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in the sprint,
-543). Not on any host check: the FLASH's frame parity and the sparkles'
+`pustep` (STEP entry 0: the slot parts at 397), `puretake` (CONTACT's
+COLLECTED test NOPed: an element taken again while its cell is held, 398),
+`purst` (RESET entry 0: at integration it parts first at 1131, an element's
+pose changed with its lane never marked, the `bz_fmark` check `w9/crackfix`
+added), `puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in the
+sprint, 453). Since `w9/crackfix` the part marks a lane with
+`call far [bz_fmkp]` (128.25.6.3), not a byte store into `bz_latt`. Not on any host check: the FLASH's frame parity and the sparkles'
 pixels (`bz_cuef` and `bz_blit`'s `.cwhole` are display, never in the
 unicorn's `bz_step`) - the SEEN looks and videos below and `bonanzaperf` are
 their only witnesses; nor a jump and a
