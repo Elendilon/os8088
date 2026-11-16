@@ -356,6 +356,14 @@ C apps/bonanza/bzsound.inc bzs_mseg      # the song playing (one part a song, at
                                          # while it plays, swapped at a launch
                                          # (bzs_gfetch / bzs_gdrop) and dropped at
                                          # the close (SPEC.md 128.20.3)
+C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
+                                         # bytes): fetched beside the course's
+                                         # song for a play of a course, held
+                                         # across the bracket so the finish
+                                         # starts it with no disk read, read
+                                         # every sub-tick as bzs_mseg once it
+                                         # plays, dropped by bzs_gdrop0 on every
+                                         # way the play ends (SPEC.md 128.22.9)
 C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
                                          # copied whole into bz_rlog and dropped
                                          # inside V's one key call (SPEC.md

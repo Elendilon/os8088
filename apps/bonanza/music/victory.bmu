@@ -1,0 +1,32 @@
+; BOUNCE BONANZA - the VICTORY fanfare (SPEC.md 128.22.9): the finish sequence's
+; tune, played over its 2 s (BZ_FIN_STEPS = 110 sub-ticks) in the course song's
+; place.  C major at 164 BPM - a 16th is a row of FIVE sub-ticks - two
+; patterns of 11 rows, exactly 110 sub-ticks of sound:
+;   A  the trumpet climbs a C triad: g c e G(dotted) e g, then C held
+;   B  IV - V - I: f a c d b, and the C held to the last sub-tick
+; and a third pattern of nothing, which `loop` points at: the song does NOT
+; repeat, it ends in silence (the same shape 128.23's `attract` plans).
+; On the speaker the lead is the whole tune (the bass only where it rests).
+
+song victory "Victory"
+groove 5
+unit 16
+rows 11
+spkbass
+voice lead trumpet
+voice bass pluckbass
+voice chord stab
+
+lead LA = o4 v14 l16 g o5 c e g8 e16 g16 c4 |
+lead LB = o5 v14 l16 f a o6 c d o5 b o6 c4. |
+bass BA = o3 l8 c r g r l16 c r c |
+bass BB = o3 l16 f r f r g r g r c:3 |
+chord CA = o4 [c e g]:3 [c e g]:3 [e g >c]:5 |
+chord CB = o4 [f a >c]:3 [g b >d]:2 [e g >c]:6 |
+drum DA = l16 k r k r s s s s k8 r |
+drum DB = l16 s s s s t T k4 r |
+
+order LA BA CA DA
+order LB BB CB DB
+order - - - -
+loop 2
