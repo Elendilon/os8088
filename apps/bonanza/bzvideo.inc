@@ -951,9 +951,9 @@ bz_boxc:
 bz_spk:     BZ_SPKS
             db BZ_SPK(15, 12), BZ_SPK(0, 14)
             BZ_SPKS
-bz_spw:     dw 00F0h, 003Ch, 000Fh, 0C003h ; two pixels at phase 0 - 3, both
-                                ; bits each: the CGA ink XOR 3 (the Hercules
-                                ; keeps one dot of each pair, .sk)
+bz_spw:     dw 00C0h, 0030h, 000Ch, 0003h, 0C000h ; ONE pixel at phase 0 - 4
+                                ; (4: the next byte's first), both bits: the
+                                ; CGA ink XOR 3, a Hercules mono pair
 
 ; bz_frun - one run of bz_boxc's fill that is not a whole block: DX lines (0 ..
 ; 8) of CX word columns (at least 1) from the map entry BX, the lines from
@@ -1077,18 +1077,20 @@ bz_blit:
     mov bl, al
     and bx, 3
     shl bx, 1
-    mov bp, [bz_spw + bx]       ; the pair's word mask at phase x & 3
-    or ch, ch                   ; the Hercules: one dot of each mono pair, on
-    jz .sm                      ; both lines - over its checkered grounds a
-    and bp, 5555h               ; solid black-and-white bar, where all four
-.sm:                            ; dots XORed are the checker shifted (unseen)
+    mov bp, [bz_spw + bx]       ; pixel x's mask (phase x & 3)...
+    mov bx, [bz_spw + bx + 2]   ; ...and pixel x + 1's
     shr al, 1
     shr al, 1
     add al, ah                  ; 8 dy + x / 4 (under 128)
     cbw
-    xchg ax, bx
+    or ch, ch                   ; the Hercules: pixel x on the first line and
+    jnz .sh                     ; x + 1 on the second - its grounds are a
+    or bp, bx                   ; checker of whole pixels (mono pairs), where
+    mov bx, bp                  ; a 2 x 2 XORed is the checker shifted, unseen,
+.sh:                            ; and the diagonal is a solid square; the CGA
+    xchg ax, bx                 ; both pixels on both lines
     xor [bx + di], bp
-    xor [bx + di + BZ_BOXW * 2], bp
+    xor [bx + di + BZ_BOXW * 2], ax
     dec cl
     jnz .sk
     pop dx
