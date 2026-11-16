@@ -1471,12 +1471,13 @@ bz_step:
     ; window with a split cell runs the prop path's steps 4 and 6 and its
     ; own step 5 (bz_swalls); a course with none never comes here ----
 .split:
+    mov byte [bz_pdoor], 1      ; (no prop in the window: no windmill, no
+    test byte [bz_ps], 5        ; tube, and bz_wcen 0 - bz_wolf's)
+    jz .sw
     cmp byte [bz_wch], 0        ; the START for the fallback's undo, as the
     jne .sp0                    ; prop path keeps it: with a prop in the
-    test byte [bz_ps], 5        ; window here; a split centre's lines take
-    jz .sp0                     ; it at their first push (bz_dinner: they
-    call bz_sstart              ; can push it into another cell)
-.sp0:
+    call bz_sstart              ; window here; a split centre's lines take
+.sp0:                           ; it at their first push (bz_dinner's)
     call bz_sdoor               ; bz_pdoor: 1, or a windmill's doorway
     mov ax, [bz_wcen]           ; the centre a plain tube's IN: its drain
     dec al                      ; (step 4, before the lines inside C)
@@ -3700,24 +3701,37 @@ bz_swalls:
     call bz_sdoor
 .edges:
     mov dh, [bz_gy + 1]         ; BP = (u, v) before any push: both axes'
-    and dh, 15
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov bp, dx
+    and dh, 15                  ; points read it.  The two axes UNROLLED
+    mov dl, [bz_gx + 1]         ; (verify-dguest: the table loop was ~180
+    and dl, 15                  ; clk an axis); DI = the axis' bz_sedt entry
+    mov bp, dx                  ; for a contact's paths
     mov di, bz_sedt
-.ea:
-    mov bx, [di]                ; the axis' position: its in-cell 1/256 gu
-    mov ax, [bx]
+    mov ax, [bz_gx]             ; x: pu, its in-cell 1/256 gu
     and ah, 15
-    mov dx, bp
-    and dx, [di + 8]            ; the point: the other axis' gu, and 0 ...
     cmp ax, BZ_RAD * 256
-    jae .ehi
-    or dx, [di + 10]            ; ... or 16 on the near side
-    mov si, [di + 4]            ; west / north
+    jae .exh
+    mov si, bz_nbr + BZN_W      ; west, at (16, v)
+    mov dl, 16
+    jmp short .elw
+.exh:
+    cmp ax, (16 - BZ_RAD) * 256
+    jbe .ey
+    mov si, bz_nbr + BZN_E      ; east, at (0, v)
+    xor dl, dl
+    jmp short .ehw
+.ey:
+    mov di, bz_sedt + BZ_SEDTE
+    mov dx, bp
+    mov ax, [bz_gy]             ; y: pv
+    and ah, 15
+    cmp ax, BZ_RAD * 256
+    jae .eyh
+    mov si, bz_nbr + BZN_N      ; north, at (u, 16)
+    mov dh, 16
+.elw:                           ; the near side
     call bz_blocks
     jnc .enx
-    mov al, [di + 12]           ; the windmill's doorway on this edge?
+    mov al, [di + 4]            ; the windmill's doorway on this edge?
     cmp al, [bz_pdoor]
     je .edoor
 .elo:
@@ -3733,9 +3747,25 @@ bz_swalls:
     mov bx, [di + 2]
     mov [bx], ax
 .enx:
-    add di, BZ_SEDTE
-    cmp di, bz_sedt + 2 * BZ_SEDTE
-    jb .ea
+    cmp di, bz_sedt             ; x done: y
+    je .ey
+    jmp short .edn
+.eyh:
+    cmp ax, (16 - BZ_RAD) * 256
+    jbe .edn
+    mov si, bz_nbr + BZN_S      ; south, at (u, 0)
+    xor dh, dh
+.ehw:                           ; the far side
+    call bz_blocks
+    jnc .enx
+    mov bl, 16 - BZ_RAD
+    call .eclamp
+    mov bx, [di + 2]
+    mov ax, [bx]
+    or ax, ax
+    jg .erf
+    jmp short .enx
+.edn:
     cmp byte [bz_psp], 0        ; the rays, a split cell in the window (the
     je .corn                    ; inner refill can leave none) - and the
     mov ax, [bz_gx]             ; centre near its quadrant's corner K: its
@@ -3784,19 +3814,6 @@ bz_swalls:
 .out:
     clc
     ret
-.ehi:
-    cmp ax, (16 - BZ_RAD) * 256
-    jbe .enx
-    mov si, [di + 6]            ; east / south
-    call bz_blocks
-    jnc .enx
-    mov bl, 16 - BZ_RAD
-    call .eclamp
-    mov bx, [di + 2]
-    mov ax, [bx]
-    or ax, ax
-    jg .erf
-    jmp .enx
 .edoor:                         ; the doorway: low enough to touch it ...
     push si
     mov dx, bp
@@ -3829,14 +3846,14 @@ bz_swalls:
     mov byte [bz_bgr], 0
     pop si
     ret
-; the two axes: the position, the velocity, the near and far neighbours, the
-; point's mask and its near value, the doorway's bz_pdoor
-BZ_SEDTE    equ 14
+; the two axes' contact paths: the position, the velocity, the doorway's
+; bz_pdoor
+BZ_SEDTE    equ 5
 bz_sedt:
-    dw bz_gx, bz_gvx, bz_nbr + BZN_W, bz_nbr + BZN_E, 0ff00h, 0010h
-    db 2, 0
-    dw bz_gy, bz_gvy, bz_nbr + BZN_N, bz_nbr + BZN_S, 00ffh, 1000h
-    db 3, 0
+    dw bz_gx, bz_gvx
+    db 2
+    dw bz_gy, bz_gvy
+    db 3
 
 ; bz_dinner - 128.24.7.2's lines INSIDE the centre's split cell
 ; (bbcourse.Physics._inner): the pick's record (bz_dhc); a halved cell's

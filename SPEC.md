@@ -276351,11 +276351,29 @@ cell.
   window step is +1.8k (whole centre) to +5k (a halved centre), about 6% of
   a CGA frame (79.6k): no frame-rate argument yet, but **a long lane of
   halved cells is the case to measure on the glass** (D5's PLAYGROUND,
-  `bonanzaperf`: MEASURED in 128.24.14 - +2.2k clk a frame's simulation
-  down a lane of halves against the same lane in whole cells, no missed
-  refresh on either card but one landing frame with the speaker on); the
-  cheapest further buys are the edge loop unrolled
-  (about +80 bytes for 0.2k) and one pick a step held for step 6 and 8.
+  `bonanzaperf`; MEASURED on the glass in 128.24.14, on the guest with
+  the verify's buys below).
+- **D3's verify bought back** (the same instructions priced, the same four
+  courses' no-contact steps; equal to the model under unicorn throughout,
+  red arm `nostart`): the START no longer taken on every step with a split
+  centre - only a push of `bz_dinner`'s lines can carry the centre into
+  another cell, so `bz_dline` takes it (`bz_sstart`) at that push, the same
+  value (-203 clk a halved or quartered centre's step); `bz_swalls`' edge
+  loop UNROLLED, its table cut to the contact paths' fields (-140 a split
+  window step, and 2 bytes FEWER); no doorway or drain test with no prop in
+  the window (`bz_pdoor` 1 in line, -144). **Whole centre 6,653 -> 6,342
+  (+1.1k over plain), halved 8,870 -> 8,388 (+3.2k), quartered 9,361 ->
+  8,874 (+3.7k)**, +27 bytes of image, +1 of bss; a contact step pays
+  about +0.1k for the START's call. Not bought, with estimates for the
+  owner: step 6's slopes not re-derived when the picked record is the last
+  step's (about -50 a split-centre step, +12 bytes); the corner zone's
+  distances shared between the ray gate and `.corn` (about -60, no bytes);
+  `bz_wtail`'s slopes through `bz_tslope` (-30 bytes, +40 clk a refill -
+  wave 9's overlay sits at that routine's start, so it is theirs to take);
+  the hostile bound (-198 bytes, 128.24.5.3) if a part's cell bytes are
+  trusted as its directory, G and header already are; one pick a step
+  held for step 6 is NOT available - an edge's clamp can carry the centre
+  across the diagonal after step 5's pick.
 
 #### 128.24.8 The pathway
 
@@ -276434,7 +276452,9 @@ crosses its middle; no GOAL half is needed for it.
   (`BZ_SPLIT_WIN` 27, `BZ_SPLIT_RAYS` 64) +91; launch-only: the CELLS rules
   by records +146 and **the hostile part's bound +198** (128.24.5.3, not
   in the prediction). bss: `bz_nbh` 144, `bz_nbp` 18, the C and D bounds 8,
-  the split path's scratch 11.
+  the split path's scratch 11. D3's verify (128.24.7.6's buys): **+27
+  bytes and +1 of bss**, on the R9 merge's 42,360 / 10,845: **42,387 /
+  10,846**.
 
 - **Resident image: about 0.5 - 0.7KB for halves, and R4's QUARTERS about
   0.15 - 0.2KB more** (the pick's second test and a quarter table, about 25;
@@ -276509,17 +276529,23 @@ crosses its middle; no GOAL half is needed for it.
   PLAYGROUND's diagonal section (story D5), with a red arm that drops the
   corner ray. BUILT (D3), its HOST half: `tests/bonanza_dsplit.py`, run by
   `bonanza_phys.py --check` - the package's `bz_crshdr`, `bz_pinit` and
-  `bz_step` under unicorn on four split courses against the model, every
+  `bz_step` under unicorn on six split courses against the model, every
   step's state, state2, state6, `bz_ps`, the goal, its exit, the respawns
-  and SAFE compared EXACTLY: 17 scripted runs (the take-off at the pick, a
+  and SAFE compared EXACTLY: 20 scripted runs (the take-off at the pick, a
   VOID half's kill, a goal half's exit, slides up both rails, a head-on hit,
   a wall's END, the edge by its owning half, a quarter's line and its
   centre, a fall off and a Hop onto a diagonal step, glass shattered off a
-  ledge, a bumper half, a ramped half, a box's chamfers), R7's NOTCH sweep
-  (192 runs, 10 of which R7 changes), 200 random runs from states near
-  split cells, the CELLS forms, the HOSTILE part, and TRIAL (no split cell)
-  2,000 steps equal with `bz_psp` 0. Red arms by hand (`--reds`), each red:
-  `noray` (the corner ray dropped), `r7`, `cellhalves`, `nobound`. The
+  ledge, a bumper half, a ramped half, a box's chamfers; D3's verify: a
+  line's push into a blocking cell undone to the START, a windmill's
+  doorway knock and capture with a split cell in the window), R7's NOTCH
+  sweep (192 runs, 10 of which R7 changes), 200 random runs from states
+  near split cells - D3's verify added THE EDGE (split cells on the grid's
+  own edges, the window's out-of-grid cells OPEN beside them) and THE MILLS
+  (MILL's windmills, bumpers, tubes and lift with split cells beside them)
+  to the four - the CELLS forms, the HOSTILE part, and TRIAL (no split
+  cell) 2,000 steps equal with `bz_psp` 0. Red arms by hand (`--reds`),
+  each red: `noray` (the corner ray dropped), `r7`, `cellhalves`,
+  `nobound`, `nostart` (a split centre's push takes no START). The
   GLASS leg needs a shipped course with split cells - D5's PLAYGROUND - and
   then only a scenario list: a replay up its lane along a rail, a fall off
   its diagonal edge, its step, poked as the row's wave-3 replays are.
