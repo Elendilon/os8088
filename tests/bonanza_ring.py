@@ -4252,8 +4252,19 @@ def check_reds(reds, label):
             except AssertionError as e:
                 raise AssertionError("%s --red %s: %s" % (label, name, e))
             assemble(src, art, os.path.join(td, "bonanza.bin"))
-            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes)" % (
-                label, name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
+            fp = sorted({f for f, _o, _n in patches if f.startswith("fam/")})
+            for f in fp:                        # story 9.8: an arm whose code is a FAMILY PART's - each
+                fams = [n["name"] for n in BB.FAMILIES]     # part that includes the patched file assembled,
+                for nm in fams:                 # against this build's bzlink.inc (the package is the same)
+                    pa = os.path.join(src, "fam", nm + ".asm")
+                    if f != "fam/%s.asm" % nm and '"%s"' % f not in open(pa).read():
+                        continue
+                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                                    src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
+                                   cwd=ROOT, check=True)
+            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
+                label, name, os.path.getsize(os.path.join(td, "bonanza.bin")),
+                ", and its family part" if fp else ""))
     return out
 
 
