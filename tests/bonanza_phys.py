@@ -1216,11 +1216,26 @@ def w9_replays():
 UCS, UPS, UFS, USS, USTUB = 0x1000, 0x3000, 0x6000, 0x8000, 0xFFF0
 
 
+_LST_SYMS = {}
+
+
 def lst_syms(lst, names):
-    """labels out of a listing (the parts standard's op_*, which R.symbols does not read)"""
+    """labels out of a listing (the parts standard's op_*, which R.symbols does not read); read once a
+    process for each listing's CONTENT and NAMES (fam_host builds a guest per scenario, 59 of them)"""
+    import hashlib
+    import io
+    with open(lst, "rb") as f:
+        data = f.read()
+    key = (hashlib.sha256(data).digest(), tuple(names))
+    if key not in _LST_SYMS:
+        _LST_SYMS[key] = _lst_syms(io.TextIOWrapper(io.BytesIO(data)), names)
+    return dict(_LST_SYMS[key])
+
+
+def _lst_syms(lines, names):
     import re
     out, pend = {}, []
-    for ln in open(lst):
+    for ln in lines:
         m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s+[0-9A-F\[\]\(\)]+", ln)
         lm = re.search(r"(?:^|\s)(%s):(?:\s|$)" % "|".join(names), ln.split(";", 1)[0])
         if lm:
@@ -3052,31 +3067,55 @@ def main():
                     help="the host half only: the replays proved on the model, every red arm assembled")
     a = ap.parse_args()
     if a.check:
-        S = replays()
-        bad = prove(S)
-        for s in S:
-            print("bonanza_phys replay %-16s %s, %s, %d steps: %s%s" % (
-                s["name"], s["crs"], BB.MAT_NAMES[s["mat"]], len(s["keys"]), s["what"],
-                "; red %s parts at step %s" % (s["red"], s.get("parts_at")) if s["red"] else ""))
-        b1, say = prove_wave1()
-        for line in say:
-            print("bonanza_phys %s" % line)
-        bad += b1
-        say9, b9 = fam_host()
-        for line in say9:
-            print("bonanza_phys wave 9 (unicorn): %s" % line)
-        bad += b9
-        for b in bad:
-            print("FAIL %s" % b)
-        for line in R.check_reds(REDS, "bonanza_phys"):
-            print(line)
-        # SPEC.md 128.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn against
-        # the model, every step (tests/bonanza_dsplit.py; its red arms by hand, `--reds`), until D5's PLAYGROUND
-        # gives this row a split course to replay on the glass
+        # (the unicorn halves - fam_host's and the SPLIT leg's - are independent of the replays' proofs and
+        # of each other: each a forked child of this process (BB.jobs_default() > 1), started first, its
+        # output printed where the sequential run printed it; BB_JOBS=1 runs them here, in order)
         import bonanza_dsplit
-        bad += bonanza_dsplit.check(200)
-        for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
-            print(line)
+        pool = BB._Pool(BB.jobs_default()) if BB.jobs_default() > 1 and hasattr(os, "fork") else None
+
+        def kid(fn, *a_):
+            if pool is None:
+                return None, fn, a_
+            return pool.start(fn, *a_), None, None
+
+        def got(k):
+            if k[0] is None:
+                return k[1](*k[2])
+            val, text, exc = pool.wait(k[0])
+            sys.stdout.write(text)
+            if exc is not None:
+                raise exc
+            return val
+        try:
+            k9 = kid(fam_host)
+            kd = kid(bonanza_dsplit.check, 200)
+            S = replays()
+            bad = prove(S)
+            for s in S:
+                print("bonanza_phys replay %-16s %s, %s, %d steps: %s%s" % (
+                    s["name"], s["crs"], BB.MAT_NAMES[s["mat"]], len(s["keys"]), s["what"],
+                    "; red %s parts at step %s" % (s["red"], s.get("parts_at")) if s["red"] else ""))
+            b1, say = prove_wave1()
+            for line in say:
+                print("bonanza_phys %s" % line)
+            bad += b1
+            say9, b9 = got(k9)
+            for line in say9:
+                print("bonanza_phys wave 9 (unicorn): %s" % line)
+            bad += b9
+            for b in bad:
+                print("FAIL %s" % b)
+            for line in R.check_reds(REDS, "bonanza_phys"):
+                print(line)
+            # SPEC.md 128.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn
+            # against the model, every step (tests/bonanza_dsplit.py; its red arms by hand, `--reds`), until
+            # D5's PLAYGROUND gives this row a split course to replay on the glass
+            bad += got(kd)
+            for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
+                print(line)
+        finally:
+            if pool is not None:
+                pool.kill()
         assert not bad, "%d scenario(s) not proved on the model" % len(bad)
         return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)

@@ -4293,10 +4293,15 @@ def part_args(art, src=None, shell=None, fams=None):
 
 def check_reds(reds, label):
     """the HOST half of a red arm: every patch's anchor is still there once, and
-    the broken copy ASSEMBLES (nasm -w+error into a temporary file).  -> lines"""
-    out = []
+    the broken copy ASSEMBLES (nasm -w+error into a temporary file).  -> lines
+    (in the arms' order; the arms are independent - each its own copy of the
+    tree - so they run BB.jobs_default() at once, threads over nasm; the first
+    arm in that order that fails is the one raised)"""
+    import concurrent.futures
     art = at("build/bonanza-art")
-    for name, patches in sorted(reds.items()):
+
+    def one(item):
+        name, patches = item
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "bonanza")
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
@@ -4315,10 +4320,12 @@ def check_reds(reds, label):
                     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
                                     src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
                                    cwd=ROOT, check=True)
-            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
+            return "%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
                 label, name, os.path.getsize(os.path.join(td, "bonanza.bin")),
-                ", and its family part" if fp else ""))
-    return out
+                ", and its family part" if fp else "")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=BB.jobs_default()) as ex:
+        futs = [ex.submit(one, it) for it in sorted(reds.items())]
+        return [f.result() for f in futs]
 
 
 # the pass's six map stores (bz_wprect.col and .sl, the CGA's and the Hercules' column writers' block heads
