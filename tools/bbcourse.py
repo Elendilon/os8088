@@ -329,12 +329,9 @@ PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING = 5, 6, 7, 8          # wave 4 (SPEC.md
 PK_CLOCK = 9                  # wave 7 (SPEC.md 128.18.5): a clock's DIGIT, a record and a lane a digit
 PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PLATFORM: "platform",
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
+PK_SIGN = 10                  # wave 8R (SPEC.md 128.22.4.1): a LANE and nothing else, posed by bz_nst[+28]
+PK_NAMES[PK_SIGN] = "sign"
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
-NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
-NODE_POSES = 5                # a node SIGN's poses: 0 locked, 1 open, 2 done, 3 silver, 4 gold
-# the signs' glyphs, the clock font's 5 x 7 (128.19.5): pose 0 is the empty ball (no glyph)
-NODE_FONT = (None, (0, 14, 17, 17, 17, 14, 0), (0, 1, 2, 20, 8, 0, 0), (14, 17, 16, 14, 1, 17, 14),
-             (14, 17, 16, 23, 17, 17, 15))
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
 CLOCK_PH = 255                # a clock's POST's height (128.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
@@ -390,13 +387,14 @@ _FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST 
 def lane_fast(rec):
     """SPEC.md 128.19.10: a FAST lane changes on its own clock (a windmill's
     rotor); every other lane is SLOW - a clock digit (once a second) or an
-    EVENT lane (a flag, a post's lit frames, a node's sign)"""
+    EVENT lane (a flag, a post's lit frames, a SIGN; an icon's sign is FAST
+    only while its pad is the marble's, which check_path_bounds counts)"""
     return rec["kind"] == PK_WINDMILL or rec["kind"] in _FAST_EXTRA
 
 
 def lane_digit(rec):
-    """a clock's DIGIT lane (not a node's sign, ndig 0): every clock counts the
-    same second, so all their digits change on the same step"""
+    """a clock's DIGIT lane: every clock counts the same second, so all their
+    digits change on the same step"""
     return rec["kind"] == PK_CLOCK and rec.get("ndig", 0) > 0
 ROTOR_CHG = 2                 # rotor pose changes on a step, and in two consecutive
 HEDGE = 16                    # BZ_HEDGE: the heavy rule's edge zone, lines (and 24 px)
@@ -507,8 +505,13 @@ class Source:
         self.music = None           # wave 7 (SPEC.md 128.18.6): (the song's number, line); never in the part
         self.medals = None          # wave 8c (SPEC.md 128.19.8.3): (G, S, line), whole seconds
         self.pathway = None         # wave 8b (SPEC.md 128.19.5): the line of `pathway` - THE pathway
-        self.nodes = []             # ...[dict num crs at sign line]
-        self.edges = []             # ...[(node, exit, next, line)]
+        self.view = None            # wave 8R (SPEC.md 128.22.2, 128.23.2): (SX, SY, line)
+        self.pages = None           # ...(N, line)
+        self.ppads = []             # ...the pathway's pads: [dict num crs at line]
+        self.icons = []             # ...[dict num file at fps line]
+        self.routes = []            # ...[dict a b exit secret gate pts line]
+        self.lives = []             # ...[dict at line]
+        self.rail = None            # ...(material name, line)
 
 
 def _int(tok, where, what):
@@ -877,23 +880,12 @@ def parse(text, fname="<course>"):
             if len(toks) != 1 or src.pathway is not None:
                 raise CourseError("%s: pathway takes nothing, once" % where)
             src.pathway = ln
-        elif st == "node":                          # node N COURSE wx wy sign sx sy
-            if len(toks) != 8 or toks[5][1] != "sign" or toks[2][0] != 'w' or not _NAME.match(toks[2][1]):
-                raise CourseError("%s: node takes <N> <COURSE> <wx> <wy> sign <sx> <sy>" % where)
-            n = _int(toks[1], where, "N")
-            if not 0 <= n < NODE_MAX:
-                raise CourseError("%s: a node is 0 - %d, not %d" % (where, NODE_MAX - 1, n))
-            src.nodes.append({"line": ln, "num": n, "crs": toks[2][1],
-                              "at": (_int(toks[3], where, "wx"), _int(toks[4], where, "wy")),
-                              "sign": (_int(toks[6], where, "sx"), _int(toks[7], where, "sy"))})
-        elif st == "edge":                          # edge N E M
-            if len(toks) != 4:
-                raise CourseError("%s: edge takes <N> <EXIT> <M>" % where)
-            e = (_int(toks[1], where, "N"), _int(toks[2], where, "exit"), _int(toks[3], where, "M"), ln)
-            if not (0 <= e[0] < NODE_MAX and 0 <= e[1] <= EXIT_MAX and 0 <= e[2] < NODE_MAX):
-                raise CourseError("%s: an edge's nodes are 0 - %d and its exit 0 - %d" % (where, NODE_MAX - 1,
-                                                                                          EXIT_MAX))
-            src.edges.append(e)
+        elif st in ("node", "edge"):                # wave 8b's prototype, gone (SPEC.md 128.22.2)
+            raise CourseError("%s: '%s' is gone: the pathway is `pad`s and `route`s since wave 8R (SPEC.md "
+                              "128.22.2)" % (where, st))
+        elif st in PATH_STMTS or (st == "pad" and len(toks) == 5 and toks[1][0] == 'w'
+                                  and _INT.match(toks[1][1])):
+            _parse_path_stmt(src, st, toks, where, ln)  # wave 8R (SPEC.md 128.22.2): the pathway's own
         elif st == "clock":                         # wave 7 (SPEC.md 128.18.5)
             if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] != "crystal")):
                 raise CourseError("%s: clock takes <wx> <wy> [frame crystal]" % where)
@@ -927,9 +919,27 @@ def parse(text, fname="<course>"):
             src.props.append(_parse_prop(toks, where, ln))
         else:
             raise CourseError("%s: unknown statement '%s'" % (where, st))
+    if src.pathway is None:                         # wave 8R: the pathway's statements are refused elsewhere
+        for what, v in (("view", src.view), ("pages", src.pages), ("pad N", src.ppads), ("icon", src.icons),
+                        ("route", src.routes), ("lives", src.lives), ("rail", src.rail)):
+            if v:
+                ln = v[-1] if isinstance(v, tuple) else v[0]["line"]
+                raise CourseError("%s:%d: `%s` is the pathway's statement (SPEC.md 128.22.2%s), and this course "
+                                  "has no `pathway`" % (fname, ln, what, "; a `title` course's view, 128.23.2, "
+                                                        "is not built yet" if what == "view" else ""))
+    else:
+        if src.start is not None:
+            raise CourseError("%s:%d: the pathway has no `start`: a new game rests on pad 0" % (fname, src.start[1]))
+        if src.clocks:
+            raise CourseError("%s:%d: the pathway's clocks are its `lives` counters (SPEC.md 128.22.2)"
+                              % (fname, src.clocks[0]["line"]))
+        p0 = [q for q in src.ppads if q["num"] == 0]
+        if p0:
+            src.start = (p0[0]["at"], p0[0]["line"])
     for what, v in (("course", src.name), ("width", src.width), ("start", src.start)):
         if v is None:
-            raise CourseError("%s: no '%s' statement" % (fname, what))
+            raise CourseError("%s: no '%s' statement%s" % (fname, what, " (the pathway's start is pad 0)"
+                                                            if what == "start" and src.pathway is not None else ""))
     return src
 
 
@@ -938,11 +948,12 @@ def parse(text, fname="<course>"):
 # =============================================================================
 
 class Tile:
-    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit")
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail")
 
     def __init__(self, kind, z0, sx, sy, line, exit=0):
         self.kind, self.z0, self.sx, self.sy, self.line = kind, z0, sx, sy, line
         self.surf = SURF_NORMAL
+        self.rail = False           # wave 8R (SPEC.md 128.22.8): the pathway's CRYSTAL route material
         self.exit = exit            # a GOAL tile's exit (128.19.4): its cell's flags bits 4 - 7
 
     def corner(self, dx, dy):
@@ -1149,28 +1160,1183 @@ def plat_pos(pr, n):
 _CHECKS_OFF = set()            # --selfcheck's negative controls switch a refusal off here, and nothing else
 
 
-def _pathway_nodes(src, tiles, fname):
-    """wave 8b (SPEC.md 128.19.5): the pathway's rules, and each node's cell made
-    a 1-tile GOAL whose exit is the node's number"""
+# =============================================================================
+# wave 8R (SPEC.md 128.22): THE PATHWAY - pads, routes, gates, icons, reveals,
+# the lives counters; the tables (128.22.3), the key map (128.22.4.5), the
+# proofs (128.22.2) and the follower's host model (128.22.4.2)
+# =============================================================================
+
+# --- shared with 128.23 (title) ---
+# The `view` statement (128.23.2, widened to a `pathway` course by 128.22.2),
+# the `.bba` text pixmap reader and the desktop font's glyphs.  The title
+# session owns 128.23; this block is written so its merge is mechanical: a
+# `title` course calls view_geometry() with npages 1 and cam CAM_FIXED.
+CAM_COURSE, CAM_FIXED, CAM_PAGED = 0, 1, 2      # BZG1 +30 (SPEC.md 128.22.3)
+VIEW_W, VIEW_H = 320, 200                       # the CGA window, world px and lines
+VIEW_HL, VIEW_HR = 2, 3                         # the Hercules window's words beyond it, left and right
+VIEW_DROP = 32                                  # lines kept above the topmost window (128.23.2's DROP margin)
+PAGE_H = 200                                    # a page: page k's window is page 0's moved UP 200 k lines
+BBA_INKS = {".": None, "0": 0, "1": 1, "2": 2, "3": 3}
+DESKTOP_FONT = os.path.join(ROOT, "fonts", "tallx.f8")
+
+
+def read_bba(path, where):
+    """128.23.2's text pixmap: one line a pixel row, every row the same
+    length, '.' transparent, '0' - '3' the CGA's colours, '#' a comment line;
+    `# frames K` (128.22.2) splits the rows into K frames stacked top to
+    bottom.  -> {"w", "h" (a frame's), "frames": [rows of ink / None]}"""
+    try:
+        with open(path, "r", encoding="ascii", newline="") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise CourseError("%s: the pixmap %s cannot be read (%s)" % (where, os.path.relpath(path, ROOT), e))
+    rows, nfr = [], None
+    for k, line in enumerate(text.split("\n"), 1):
+        line = line.rstrip("\r")
+        if line.startswith("#"):
+            m = re.match(r"^#\s*frames\s+(\d+)\s*$", line)
+            if m:
+                if nfr is not None:
+                    raise CourseError("%s: %s:%d: a second `# frames` line" % (where, os.path.basename(path), k))
+                nfr = int(m.group(1))
+            continue
+        if not line:
+            continue
+        if any(ch not in BBA_INKS for ch in line):
+            raise CourseError("%s: %s:%d: a pixel row is '.' and '0' - '3' only, not %r"
+                              % (where, os.path.basename(path), k, line[:40]))
+        rows.append([BBA_INKS[ch] for ch in line])
+    if not rows or any(len(r) != len(rows[0]) for r in rows):
+        raise CourseError("%s: %s: %s" % (where, os.path.basename(path), "no pixel row" if not rows else
+                                          "the rows are not all one length"))
+    nfr = nfr or 1
+    if not 1 <= nfr <= LANE_PMAX or len(rows) % nfr:
+        raise CourseError("%s: %s: %d rows are not %d frames of one height (1 - %d frames)"
+                          % (where, os.path.basename(path), len(rows), nfr, LANE_PMAX))
+    h = len(rows) // nfr
+    return {"w": len(rows[0]), "h": h, "frames": [rows[f * h:(f + 1) * h] for f in range(nfr)]}
+
+
+@functools.lru_cache(maxsize=None)
+def desktop_font():
+    """the 8 x 8 glyphs a pathway's titles (and 128.23.2's labels) are written
+    in.  kernel/font.inc carries NO glyph bytes - it asks the machine's ROM -
+    so the tool takes the tree's own 8 x 8 face, fonts/tallx.f8 (the one
+    `make FONT=tallx` bakes), through tools/os88font.py's reader"""
+    import os88font
+    return os88font.parse(DESKTOP_FONT)
+
+
+def text_pixels(text, x, y, ink=3):
+    """TEXT in the desktop font, its top-left cell at picture (x, y): {(x, y): ink}
+    of the SET pixels (the clear ones transparent)"""
+    g = desktop_font()
+    out = {}
+    for i, ch in enumerate(text):
+        rows = g.get(ord(ch), g[32])
+        for r, bits in enumerate(rows):
+            for b in range(8):
+                if bits & (0x80 >> b):
+                    out[(x + 8 * i + b, y + r)] = ink
+    return out
+
+
+def view_geometry(view, npages, x0, y0, lines, width, fname):
+    """128.23.2's windows for `view SX SY` (the CGA window's CENTRE in
+    projection pixels) and 128.22.2's pages: page k's window is page 0's moved
+    UP by 200 k lines.  The picture grows so every page's CGA and Hercules
+    window and VIEW_DROP lines above the topmost lie inside it, and Y0 is
+    chosen so the windows' tops are block rows.  -> (y0, lines, {"r0": CGA R0
+    of page 0 (rows of 2 lines; the Hercules' is r0 >> 1), "c0": the CGA's
+    first column, "c0h": the Hercules' (c0 - 2), "tops": [page k's top line],
+    "left": the CGA window's first px})"""
+    sx, sy, ln = view
+    if sx % 8 or sy % 4:
+        raise CourseError("%s:%d: view %d %d: SX is a multiple of 8 and SY of 4" % (fname, ln, sx, sy))
+    top_p = sy - VIEW_H // 2 - PAGE_H * (npages - 1) - VIEW_DROP     # projection line, the picture's least
+    y0_ = y0
+    y0 = max(y0, -top_p)
+    y0 += (-(sy - VIEW_H // 2 + y0)) % 8                             # the windows' tops on block rows
+    lines = max(lines + y0 - y0_, sy + VIEW_H // 2 + y0)
+    lines = max(MINLINES, (lines + 7) // 8 * 8)
+    left = sx - VIEW_W // 2 + x0
+    if left - 8 * VIEW_HL < 0 or left + VIEW_W + 8 * VIEW_HR > width:
+        raise CourseError("%s:%d: view %d %d: the Hercules window (px %d - %d) is outside the %d px picture (its "
+                          "origin %d)" % (fname, ln, sx, sy, left - 8 * VIEW_HL, left + VIEW_W + 8 * VIEW_HR - 1,
+                                          width, x0))
+    top0 = sy - VIEW_H // 2 + y0
+    return y0, lines, {"r0": top0 // 2, "c0": left // 8, "c0h": left // 8 - VIEW_HL, "left": left,
+                       "tops": [top0 - PAGE_H * k for k in range(npages)]}
+# --- end shared with 128.23 (title) ---
+
+
+PATH_STMTS = ("view", "pages", "icon", "route", "lives", "rail")
+PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 128.22.5)
+PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
+PATH_PAGES = 8
+PAD_POSES = 4                 # a pad's sign: 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (128.22.2)
+GATE_POSES = 6                # a gate's sign: 0 closed, 1 - 4 the bar sinking, 5 open
+GATE_POST = 11                # a gate post's height, px (its black cap the 12th): any gate in 3 block rows
+PAD_EDGE = 24                 # a pad's cell centre at least this many lines inside its page's top and bottom
+ICON_FPS, ICON_FPS_MAX = 6, 18
+STEP_HZ = PIT_HZ / float(STEP_PIT)              # 54.62: the physics step (and the follower's)
+REVEAL_LEAD = 16              # gu: a reveal group is shown this far before the marble's nearest point to it
+PADREC, ROUTEREC, KEYREC = 10, 8, 4             # the tables' records (SPEC.md 128.22.3)
+SIGN_AT = (255, 255)          # a sign's anchor: no cell (record +2 / +3), never a prop's
+# the follower (SPEC.md 128.22.4.2): 8.8 ground px a step, PROVISIONAL
+FOL_VMAX, FOL_ACC, FOL_VMIN = 768, 192, 128     # 3.0, 0.75, 0.5
+# screen directions of a route's first step (128.22.4.5): (dx, dy) in ground cells -> its name and arrows
+KEY_ARROWS = ("Up", "Down", "Left", "Right")
+SCREEN_DIR = {(1, 0): ("down-right", (1, 3)), (-1, 0): ("up-left", (0, 2)), (0, 1): ("down-left", (1, 2)),
+              (0, -1): ("up-right", (0, 3)), (1, 1): ("down", (1,)), (-1, -1): ("up", (0,)),
+              (1, -1): ("right", (3,)), (-1, 1): ("left", (2,))}
+
+
+def _sgn(v):
+    return (v > 0) - (v < 0)
+
+
+def _path_point(tok, where):
+    """`WX,WY[,H]` -> (wx, wy, h2), H in units (half units allowed)"""
+    if tok[0] != 'w':
+        raise CourseError("%s: a path point is WX,WY[,H], not a string" % where)
+    parts = tok[1].split(",")
+    if len(parts) not in (2, 3):
+        raise CourseError("%s: a path point is WX,WY[,H], not %r" % (where, tok[1]))
+    wx, wy = (_int(('w', q), where, "a path point") for q in parts[:2])
+    h2 = _height2(('w', parts[2]), where) if len(parts) == 3 else 0
+    return (wx, wy, h2)
+
+
+def _parse_path_stmt(src, st, toks, where, ln):
+    """the pathway's statements (SPEC.md 128.22.2), parsed; their rules are
+    path_prepare's"""
+    if st == "view":
+        if len(toks) != 3 or src.view is not None:
+            raise CourseError("%s: view takes <SX> <SY>, once" % where)
+        src.view = (_int(toks[1], where, "SX"), _int(toks[2], where, "SY"), ln)
+    elif st == "pages":
+        if len(toks) != 2 or src.pages is not None:
+            raise CourseError("%s: pages takes <N>, once" % where)
+        n = _int(toks[1], where, "N")
+        if not 1 <= n <= PATH_PAGES:
+            raise CourseError("%s: pages is 1 - %d, not %d" % (where, PATH_PAGES, n))
+        src.pages = (n, ln)
+    elif st == "pad":                               # pad N COURSE WX WY
+        if toks[2][0] != 'w' or not _NAME.match(toks[2][1]):
+            raise CourseError("%s: pad takes <N> <COURSE> <WX> <WY> (a course NAME)" % where)
+        n = _int(toks[1], where, "N")
+        if not 0 <= n < PATH_PADS:
+            raise CourseError("%s: a pad is 0 - %d, not %d" % (where, PATH_PADS - 1, n))
+        src.ppads.append({"line": ln, "num": n, "crs": toks[2][1],
+                          "at": (_int(toks[3], where, "WX"), _int(toks[4], where, "WY"))})
+    elif st == "icon":                              # icon N FILE SX SY [fps F]
+        if len(toks) not in (5, 7) or toks[2][0] != 'w' or (len(toks) == 7 and toks[5][1] != "fps"):
+            raise CourseError("%s: icon takes <N> <FILE> <SX> <SY> [fps <F>]" % where)
+        fps = _int(toks[6], where, "fps") if len(toks) == 7 else ICON_FPS
+        if not 1 <= fps <= ICON_FPS_MAX:
+            raise CourseError("%s: an icon's fps is 1 - %d, not %d" % (where, ICON_FPS_MAX, fps))
+        src.icons.append({"line": ln, "num": _int(toks[1], where, "N"), "file": toks[2][1],
+                          "at": (_int(toks[3], where, "SX"), _int(toks[4], where, "SY")), "fps": fps})
+    elif st == "route":                             # route A B exit E [secret] [gate WX WY] path P ...
+        if len(toks) < 7 or toks[3][1] != "exit":
+            raise CourseError("%s: route takes <A> <B> exit <E> [secret] [gate <WX> <WY>] path <WX,WY[,H]> ..."
+                              % where)
+        r = {"line": ln, "a": _int(toks[1], where, "A"), "b": _int(toks[2], where, "B"),
+             "exit": _int(toks[4], where, "E"), "secret": False, "gate": None, "pts": []}
+        if not 0 <= r["exit"] <= EXIT_MAX:
+            raise CourseError("%s: an exit is 0 - %d, not %d" % (where, EXIT_MAX, r["exit"]))
+        i = 5
+        while i < len(toks) and toks[i][1] != "path":
+            w = _word(toks, i, where)
+            if w == "secret" and not r["secret"]:
+                r["secret"] = True
+                i += 1
+            elif w == "gate" and r["gate"] is None and i + 3 <= len(toks):
+                r["gate"] = (_int(toks[i + 1], where, "gate WX"), _int(toks[i + 2], where, "gate WY"))
+                i += 3
+            else:
+                raise CourseError("%s: unknown or repeated route clause %r" % (where, w))
+        if i >= len(toks) or len(toks) - i - 1 < 2:
+            raise CourseError("%s: a route's path lists at least two points, A's cell and B's" % where)
+        r["pts"] = [_path_point(t, where) for t in toks[i + 1:]]
+        src.routes.append(r)
+    elif st == "lives":
+        if len(toks) != 3:
+            raise CourseError("%s: lives takes <WX> <WY>" % where)
+        src.lives.append({"line": ln, "at": (_int(toks[1], where, "WX"), _int(toks[2], where, "WY"))})
+    elif st == "rail":
+        if len(toks) != 2 or src.rail is not None:
+            raise CourseError("%s: rail takes <MATERIAL>, once" % where)
+        names = (getattr(BA, "CRYSTAL", "crystal"),) + SURFACES
+        if toks[1][1] not in names:
+            raise CourseError("%s: rail takes a floor material: %s" % (where, ", ".join(names)))
+        src.rail = (toks[1][1], ln)
+
+
+def rail_crystal(src):
+    """the route material is the art set's crystal (tools/bonanza_assets.py,
+    SPEC.md 128.22.8) - when that tool has it; else the ICE look stands in"""
+    name = src.rail[0] if src.rail else getattr(BA, "CRYSTAL", "crystal")
+    return name == getattr(BA, "CRYSTAL", "crystal") and hasattr(BA, "crystal_top_ink")
+
+
+def _route_lay(r, fname, pads_at):
+    """one route's cells and its follower points: -> (cells {(wx, wy): (height spec, ordered index)},
+    the polyline cells in order [(cell, direction)], points [(gx, gy, gz px)])"""
+    ln = r["line"]
+    pts = r["pts"]
+    cells = {}
+    line_cells = []
+    gpts = []
+
+    def put(c, spec, d=None):
+        old = cells.get(c)
+        if old is not None and old[0] != spec:
+            raise CourseError("%s:%d: the route lays cell (%d, %d) twice at two heights" % (fname, ln, c[0], c[1]))
+        cells[c] = (spec, old[1] if old else len(cells))
+    for (ax, ay, ha), (bx, by, hb) in zip(pts, pts[1:]):
+        dx, dy = bx - ax, by - ay
+        if (dx, dy) == (0, 0):
+            raise CourseError("%s:%d: the path repeats the point (%d, %d)" % (fname, ln, ax, ay))
+        sx, sy = _sgn(dx), _sgn(dy)
+        if dx and dy and abs(dx) != abs(dy):
+            raise CourseError("%s:%d: the step (%d, %d) -> (%d, %d) is neither along one axis nor along both by "
+                              "equal amounts (SPEC.md 128.22.2)" % (fname, ln, ax, ay, bx, by))
+        put((ax, ay), ("flat", ha))
+        if not gpts:
+            gpts.append((16 * ax + 8, 16 * ay + 8, 4 * ha))
+        if dx and dy:                                   # a screen ACROSS or DOWN step: level, a fat band
+            if ha != hb:
+                raise CourseError("%s:%d: the step (%d, %d) -> (%d, %d) runs along both axes and changes height: "
+                                  "only a step along one axis is a ramp" % (fname, ln, ax, ay, bx, by))
+            for k in range(abs(dx)):
+                c = (ax + k * sx, ay + k * sy)
+                put((c[0] + sx, c[1]), ("flat", ha))
+                put((c[0], c[1] + sy), ("flat", ha))
+                if k:
+                    line_cells.append((c, (sx, sy)))
+                put((c[0] + sx, c[1] + sy), ("flat", ha))
+            gpts.append((16 * bx + 8, 16 * by + 8, 4 * hb))
+        else:
+            n = abs(dx + dy)
+            axis = "x" if dx else "y"
+            for k in range(1, n):
+                c = (ax + k * sx, ay + k * sy)
+                line_cells.append((c, (sx, sy)))
+            if ha == hb:
+                for k in range(1, n):
+                    put((ax + k * sx, ay + k * sy), ("flat", ha))
+            else:
+                if n < 2:
+                    raise CourseError("%s:%d: the step (%d, %d) -> (%d, %d) changes height between two neighbouring "
+                                      "cells: a ramp needs a cell between them" % (fname, ln, ax, ay, bx, by))
+                p_a, p_b = (ax, bx) if dx else (ay, by)
+                lo, hi = min(p_a, p_b), max(p_a, p_b)
+                h_lo, h_hi = (ha, hb) if p_a < p_b else (hb, ha)
+                num = h_hi - h_lo
+                if num % (hi - lo - 1):
+                    raise CourseError("%s:%d: the ramp (%d, %d) -> (%d, %d) rises %s units over %d cells: not a whole "
+                                      "number of half units a cell" % (fname, ln, ax, ay, bx, by, _units(num),
+                                                                       hi - lo - 1))
+                rr = num // (hi - lo - 1)
+                if abs(rr) > 4:
+                    raise CourseError("%s:%d: the ramp (%d, %d) -> (%d, %d) is %d half units a cell, past the limit 4"
+                                      % (fname, ln, ax, ay, bx, by, rr))
+                spec = ("ramp", axis, lo + 1, hi, h_lo, rr)
+                for k in range(1, n):
+                    put((ax + k * sx, ay + k * sy), spec)
+                # the follower's points: the ramp's two ends, on the cells' edges
+                ea = 16 * (p_a + (1 if sx + sy > 0 else 0))
+                eb = 16 * (p_b + (0 if sx + sy > 0 else 1))
+                if dx:
+                    gpts += [(ea, 16 * ay + 8, 4 * ha), (eb, 16 * ay + 8, 4 * hb)]
+                else:
+                    gpts += [(16 * ax + 8, ea, 4 * ha), (16 * ax + 8, eb, 4 * hb)]
+            gpts.append((16 * bx + 8, 16 * by + 8, 4 * hb))
+        line_cells.append(((bx, by), (sx, sy)))
+    put(pts[-1][:2], ("flat", pts[-1][2]))
+    return cells, line_cells, gpts
+
+
+def path_prepare(src, fname, crsinfo):
+    """SPEC.md 128.22.2: the pathway's statements checked against each other,
+    its rooms LAID (the routes', the pads' and the lives counters' cells, a
+    FLOOR of the route material each) and its START put on pad 0.  A secret
+    route's cells, and a pad only a secret route reaches, are kept OUT of the
+    picture's tiles: the reveal lanes draw them (path_signs).  -> the
+    pathway's dict for path_signs, path_tables and path_proofs"""
+    f = fname
+    crsnames = [n for n, _t in crsinfo]
+    if src.view is None:
+        raise CourseError("%s:%d: the pathway has no `view` (its page 0 window, SPEC.md 128.22.2)"
+                          % (f, src.pathway))
     if src.limit is not None:
-        raise CourseError("%s:%d: the pathway has no limit" % (fname, src.limit[1]))
+        raise CourseError("%s:%d: the pathway has no limit" % (f, src.limit[1]))
     if src.cups or any(r.style == "goal" for r in src.rooms):
-        raise CourseError("%s:%d: the pathway's finishes are its nodes': no goal or cup" % (fname, src.pathway))
-    if not src.nodes:
-        raise CourseError("%s:%d: the pathway has no node" % (fname, src.pathway))
-    nums = [n["num"] for n in src.nodes]
-    if sorted(nums) != list(range(len(nums))):
-        raise CourseError("%s:%d: the nodes are numbered %s, not 0 - %d" % (fname, src.pathway, sorted(nums),
-                                                                         len(nums) - 1))
-    for n in src.nodes:
-        t = tiles.get(n["at"])
-        if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
-            raise CourseError("%s:%d: node %d's cell (%d, %d) is not a FLAT FLOOR" % (fname, n["line"], n["num"],
-                                                                                    n["at"][0], n["at"][1]))
-        t.kind, t.exit = KIND_GOAL, n["num"]
-    for (a, e, b, ln) in src.edges:
-        if a >= len(nums) or b >= len(nums):
-            raise CourseError("%s:%d: an edge names a node the pathway has not" % (fname, ln))
+        raise CourseError("%s:%d: the pathway has no goal or cup: its courses are its pads'" % (f, src.pathway))
+    if src.medals is not None:
+        raise CourseError("%s:%d: the pathway has no medals" % (f, src.medals[2]))
+    pads = sorted(src.ppads, key=lambda q: q["num"])
+    nums = [q["num"] for q in pads]
+    if not pads or nums != list(range(len(nums))):
+        raise CourseError("%s:%d: the pads are numbered %s, not 0 - %d with pad 0 the start" % (
+            f, src.pathway, nums, max(len(nums) - 1, 0)))
+    for q in pads:
+        if q["crs"] not in crsnames or q["crs"] == "BENCH":
+            raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (BENCH is none): %s"
+                              % (f, q["line"], q["num"], q["crs"], ", ".join(n for n in crsnames if n != "BENCH")))
+        q["K"] = crsnames.index(q["crs"])
+        q["title"] = crsinfo[q["K"]][1]
+    pad_at = {q["at"]: q for q in pads}
+    if len(pad_at) != len(pads):
+        raise CourseError("%s: two pads share a cell" % f)
+    icons = {}
+    for ic in src.icons:
+        if ic["num"] not in nums:
+            raise CourseError("%s:%d: an icon for pad %d, which the pathway has not" % (f, ic["line"], ic["num"]))
+        if ic["num"] in icons:
+            raise CourseError("%s:%d: a second icon for pad %d" % (f, ic["line"], ic["num"]))
+        icons[ic["num"]] = ic
+    # the routes
+    routes = []
+    keyed = {}
+    for ri, r in enumerate(src.routes):
+        ln = r["line"]
+        if r["a"] not in nums or r["b"] not in nums or r["a"] == r["b"]:
+            raise CourseError("%s:%d: a route from pad %d to pad %d (two different pads the pathway has)"
+                              % (f, ln, r["a"], r["b"]))
+        if (r["a"], r["exit"]) in keyed:
+            raise CourseError("%s:%d: pad %d's exit %d already opens the route on line %d (one route an (A, E))"
+                              % (f, ln, r["a"], r["exit"], keyed[(r["a"], r["exit"])]))
+        keyed[(r["a"], r["exit"])] = ln
+        if r["pts"][0][:2] != pads[r["a"]]["at"] or r["pts"][-1][:2] != pads[r["b"]]["at"]:
+            raise CourseError("%s:%d: the path runs from (%d, %d) to (%d, %d), not from pad %d's cell (%d, %d) to "
+                              "pad %d's (%d, %d)" % (f, ln, r["pts"][0][0], r["pts"][0][1], r["pts"][-1][0],
+                                                     r["pts"][-1][1], r["a"], pads[r["a"]]["at"][0],
+                                                     pads[r["a"]]["at"][1], r["b"], pads[r["b"]]["at"][0],
+                                                     pads[r["b"]]["at"][1]))
+        if r["secret"] and r["gate"] is not None:
+            raise CourseError("%s:%d: a secret route has no gate: nothing of it is drawn until it is taken" % (f, ln))
+        cells, lc, gpts = _route_lay(r, f, pad_at)
+        for c in cells:
+            if c in pad_at and c not in (r["pts"][0][:2], r["pts"][-1][:2]):
+                raise CourseError("%s:%d: the route runs over pad %d's cell (%d, %d): a route is pad to pad"
+                                  % (f, ln, pad_at[c]["num"], c[0], c[1]))
+        cand = [c for c, d in lc if c not in pad_at]
+        if r["gate"] is not None and r["gate"] not in cand:
+            raise CourseError("%s:%d: the gate (%d, %d) is not a cell on the route's line (A's and B's excluded)"
+                              % (f, ln, r["gate"][0], r["gate"][1]))
+        routes.append({"i": ri, "src": r, "line": ln, "a": r["a"], "b": r["b"], "exit": r["exit"],
+                       "secret": r["secret"], "cells": cells, "lc": lc, "gpts": gpts, "cand": cand,
+                       "dirs": {c: d for c, d in lc}})
+    if len(routes) > PATH_ROUTES:
+        raise CourseError("%s: %d routes, over %d" % (f, len(routes), PATH_ROUTES))
+    # a pad's height: every route end there agrees
+    for q in pads:
+        hs = {r["src"]["pts"][0][2] for r in routes if r["a"] == q["num"]} \
+            | {r["src"]["pts"][-1][2] for r in routes if r["b"] == q["num"]}
+        if len(hs) > 1:
+            raise CourseError("%s:%d: the routes meet pad %d at heights %s: one height a pad" % (
+                f, q["line"], q["num"], ", ".join(_units(h) for h in sorted(hs))))
+        q["h2"] = hs.pop() if hs else 0
+    # a pad no visible route reaches is HIDDEN (a secret route's B): drawn by its reveal
+    seen = {0}
+    for rt in routes:
+        if not rt["secret"]:
+            seen |= {rt["a"], rt["b"]}
+    for q in pads:
+        q["hidden"] = q["num"] not in seen
+        if q["hidden"] and not any(rt["secret"] and rt["b"] == q["num"] for rt in routes):
+            raise CourseError("%s:%d: pad %d is on no route" % (f, q["line"], q["num"]))
+    # a route's cells never cross another route's except at a pad (128.22.2's proofs)
+    owner = {}
+    for rt in routes:
+        for c in rt["cells"]:
+            if c in pad_at:
+                continue
+            if c in owner and owner[c] != rt["i"]:
+                o = routes[owner[c]]
+                apron = [q for q in pads if q["num"] in (rt["a"], rt["b"]) and q["num"] in (o["a"], o["b"])
+                         and abs(q["at"][0] - c[0]) + abs(q["at"][1] - c[1]) == 1]
+                if apron and o["cells"][c][0] == rt["cells"][c][0]:
+                    continue                        # (a pad's APRON: two diagonals leaving it share its side)
+                raise CourseError("%s:%d: the route crosses the route on line %d at cell (%d, %d) (routes meet only "
+                                  "at pads)" % (f, rt["line"], routes[owner[c]]["line"], c[0], c[1]))
+            owner[c] = rt["i"]
+    lives = []
+    for lv in src.lives:
+        c = lv["at"]
+        if c in owner or c in pad_at:
+            raise CourseError("%s:%d: the lives counter on (%d, %d) is on a route's or a pad's cell" % (
+                f, lv["line"], c[0], c[1]))
+        lives.append(lv)
+    if not lives:
+        raise CourseError("%s:%d: the pathway has no `lives` counter (one on every page)" % (f, src.pathway))
+    # the rooms: every visible cell a FLAT or RAMP floor of the route material
+    secret_rooms = {}
+    rail = set()
+
+    def room(cells_spec, ln, into):
+        for c, spec in sorted(cells_spec.items()):
+            h = spec if spec[0] == "ramp" else ("flat", spec[1])
+            into.append(Room("floor", frozenset([c]), h, ln))
+    for rt in routes:
+        spec = {c: v[0] for c, v in rt["cells"].items() if c not in pad_at}
+        if rt["secret"]:
+            spec.update({c: ("flat", pad_at[c]["h2"]) for c in rt["cells"] if c in pad_at and pad_at[c]["hidden"]})
+            secret_rooms[rt["i"]] = []
+            room(spec, rt["line"], secret_rooms[rt["i"]])
+        else:
+            room(spec, rt["line"], src.rooms)
+            rail |= set(spec)
+    for q in pads:
+        if not q["hidden"]:
+            room({q["at"]: ("flat", q["h2"])}, q["line"], src.rooms)
+            rail.add(q["at"])
+    for lv in lives:
+        room({lv["at"]: ("flat", 0)}, lv["line"], src.rooms)
+        rail.add(lv["at"])
+        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "crystal"})
+    return {"pads": pads, "routes": routes, "icons": icons, "lives": lives, "rail": rail,
+            "secret_rooms": secret_rooms, "npages": src.pages[0] if src.pages else 1,
+            "crystal": rail_crystal(src), "surf": (SURFACES.index(src.rail[0]) if src.rail and
+                                                   src.rail[0] in SURFACES else SURF_ICE)}
+
+
+def path_mark_rail(pth, tiles):
+    """the route material on the laid cells: the crystal look (render), or a
+    surface's look (`rail ice`, or the stand-in while the art set has none)"""
+    for c in pth["rail"]:
+        t = tiles.get(c)
+        if t is not None:
+            t.rail = pth["crystal"]
+            if not pth["crystal"]:
+                t.surf = pth["surf"]
+
+
+def _secret_tiles(pth, ri):
+    """route ri's (secret) tiles, the route material's"""
+    out = {}
+    for room in pth["secret_rooms"][ri]:
+        for (wx, wy) in room.tiles:
+            t = _room_tile(room, wx, wy)
+            t.rail = pth["crystal"]
+            if not pth["crystal"]:
+                t.surf = pth["surf"]
+            out[(wx, wy)] = t
+    return out
+
+
+def _scr_pt(gx, gy, z, x0, y0):
+    """a ground point (gu) at height z px -> its picture pixel"""
+    return gx - gy + x0, ((gx + gy) >> 1) - z + y0
+
+
+def _pad_centre(q, x0, y0):
+    wx, wy = q["at"]
+    return 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - 4 * q["h2"] + y0
+
+
+def _bbox_blocks(pix):
+    xs = [x for x, _ in pix]
+    ys = [y for _, y in pix]
+    c0, r0 = min(xs) >> 3, min(ys) >> 3
+    return (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
+
+
+def _rect_blocks(rect):
+    c0, r0, w, h = rect
+    return {(c0 + i, r0 + j) for i in range(w) for j in range(h)}
+
+
+def cover_blocks(blocks, key, blocked, where):
+    """cut a set of blocks (column, row) into LANES of at most LANE_WMAX x
+    LANE_HMAX blocks, none containing a `blocked` block: greedy, the first
+    uncovered block by `key` each time, the 4 x 3 placement covering the most
+    of what is left, shrunk to what it covers.  -> [rect (col, row, w, h)]"""
+    left = set(blocks)
+    taken = set(blocked)
+    out = []
+    while left:
+        b = min(left, key=key)
+        best = None
+        for c0 in range(b[0] - LANE_WMAX + 1, b[0] + 1):
+            for r0 in range(b[1] - LANE_HMAX + 1, b[1] + 1):
+                cov = {q for q in left if c0 <= q[0] < c0 + LANE_WMAX and r0 <= q[1] < r0 + LANE_HMAX}
+                rc = _bbox_blocks([(8 * q[0], 8 * q[1]) for q in cov])
+                if _rect_blocks(rc) & taken:
+                    continue
+                score = (-len(cov), rc[2] * rc[3], rc[1], rc[0])
+                if best is None or score < best[0]:
+                    best = (score, rc, cov)
+        if best is None:
+            raise CourseError("%s: block (column %d, row %d) cannot be put in a lane of its own: another lane holds "
+                              "it" % (where, b[0], b[1]))
+        out.append(best[1])
+        taken |= _rect_blocks(best[1])
+        left -= best[2]
+    return out
+
+
+def _gate_pix(cell, d, h2, pose, x0, y0, cv):
+    """SPEC.md 128.22.8's gate, RENDERED (any of the eight ways): two crystal
+    posts either side of the route at its cell, and a bar between them that
+    sinks into the floor over poses 1 - 4 (5 open: the posts alone); clipped
+    by what the picture draws in front of the cell.  -> {(x, y): ink}"""
+    wx, wy = cell
+    gcx, gcy, z = 16 * wx + 8, 16 * wy + 8, 4 * h2
+    px_, py_ = -d[1], d[0]                          # across the route
+    W = 6 if not (d[0] and d[1]) else 4 if d[0] == d[1] else 2      # (across the screen: seen edge-on)
+    p1 = _scr_pt(gcx - W * px_, gcy - W * py_, z, x0, y0)
+    p2 = _scr_pt(gcx + W * px_, gcy + W * py_, z, x0, y0)
+    if p1[0] > p2[0]:
+        p1, p2 = p2, p1
+    out = {}
+    top = (9, 7, 5, 3, 1, None)[pose]
+    if top is not None:
+        bot = max(0, top - 3)
+        if p1[0] == p2[0]:
+            cols = [(p1[0] + k, min(p1[1], p2[1]), max(p1[1], p2[1])) for k in (-1, 0)]
+            for x, ya, yb in cols:
+                for yy in range(ya - top, yb - bot):
+                    out[(x, yy)] = WHT if yy == ya - top else CYN
+        else:
+            for x in range(p1[0], p2[0] + 1):
+                yb = p1[1] + (p2[1] - p1[1]) * (x - p1[0]) // (p2[0] - p1[0])
+                for k in range(bot, top):
+                    out[(x, yb - k - 1)] = WHT if k == top - 1 else BLK if k == bot and bot else CYN
+    for (x, y) in (p1, p2):                         # the posts, over the bar
+        for k in range(GATE_POST):
+            out[(x - 1, y - k)] = WHT
+            out[(x, y - k)] = CYN
+        out[(x - 1, y - GATE_POST)] = out[(x, y - GATE_POST)] = BLK
+    s = wx + wy
+    return {(x, y): c for (x, y), c in out.items()
+            if 0 <= y < cv.h and 0 <= x < cv.w and cv.sbuf[y][x] <= s}
+
+
+def _pad_pose_pix(q, pose, x0, y0, cv):
+    """pad q's overlay at pose 0 - 3 (tools/bonanza_assets.py's pad_overlay,
+    SPEC.md 128.22.8) on its cell's top, where the cell itself is drawn"""
+    cx, cy = _pad_centre(q, x0, y0)
+    s = q["at"][0] + q["at"][1]
+    if hasattr(BA, "pad_overlay"):
+        ov = BA.pad_overlay(pose)
+    else:                                       # (the art set's stand-in: a ring, a fill, S, G)
+        ov = {}
+        for v in range(-8, 8):
+            for u in range(-16, 16):
+                e = 1.0 - abs(u + 0.5) / 16.0 - abs(v + 0.5) / 8.0
+                if 0 <= e < 0.22:
+                    ov[(u, v)] = (WHT, MAG, CYN, WHT)[pose]
+    return {(cx + u, cy + v): c for (u, v), c in ov.items()
+            if 0 <= cy + v < cv.h and 0 <= cx + u < cv.w and cv.sbuf[cy + v][cx + u] == s}
+
+
+def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
+    """SPEC.md 128.22.2 and 128.22.4.1: every SIGN lane of the pathway, cut
+    and posed.  cv is the picture (the static icons and titles painted into
+    it here); rcv {route: canvas} each secret route's picture WITH it drawn.
+    Signs are numbered pads (pad N's sign N), then icons, gates and reveal
+    groups.  -> [lane spec {num kind rect poses line what}], and pth gains
+    each pad's page, sign and icon sign, each route's gate and reveal signs"""
+    f = fname
+    pads, routes = pth["pads"], pth["routes"]
+    cols, lines = cv.w // 8, cv.h
+    specs = []
+    busy = set()                                    # blocks some lane holds
+
+    def add(spec):
+        bl = _rect_blocks(spec["rect"])
+        c0, r0, w, h = spec["rect"]
+        if c0 < 0 or r0 < 0 or c0 + w > cols or 8 * (r0 + h) > lines:
+            raise CourseError("%s:%d: %s's lane is outside the picture" % (f, spec["line"], spec["what"]))
+        if bl & busy:
+            other = next(s_ for s_ in specs if _rect_blocks(s_["rect"]) & bl)
+            raise CourseError("%s:%d: %s's lane shares blocks with %s's (line %d): move one" % (
+                f, spec["line"], spec["what"], other["what"], other["line"]))
+        busy.update(bl)
+        specs.append(spec)
+    for p in c_props:                               # the lives counters' digits first: they are fixed
+        if p["kind"] == PK_CLOCK:
+            busy.add(clock_digit_block(p, x0, y0))
+    tops = vinfo["tops"]
+    left = vinfo["left"]
+    for q in pads:                                  # a pad's page, and the marble resting whole on it
+        cx, cy = _pad_centre(q, x0, y0)
+        pg = [k for k, t in enumerate(tops) if t + PAD_EDGE <= cy <= t + VIEW_H - 1 - PAD_EDGE
+              and left + 8 <= cx <= left + VIEW_W - 8]
+        if not pg:
+            raise CourseError("%s:%d: pad %d (picture px %d, line %d) is inside no page's CGA window, %d lines in "
+                              "from its top and bottom and the ball's width from its sides (SPEC.md 128.22.2)"
+                              % (f, q["line"], q["num"], cx, cy, PAD_EDGE))
+        q["page"] = pg[0]
+    npages = len(tops)
+    for k in range(npages):                         # one lives counter on every page, its digit inside
+        ok = False
+        for p in c_props:
+            if p["kind"] == PK_CLOCK:
+                bx, by = clock_digit_block(p, x0, y0)
+                if left <= 8 * bx and 8 * bx + 8 <= left + VIEW_W and tops[k] <= 8 * by and 8 * by + 8 <= tops[k] + VIEW_H:
+                    ok = True
+        if not ok:
+            raise CourseError("%s:%d: page %d has no `lives` counter whose digit is inside its CGA window" % (
+                f, src.pathway, k))
+    for p in c_props:
+        if p["kind"] == PK_CLOCK:
+            bx, by = clock_digit_block(p, x0, y0)
+            if not any(left <= 8 * bx and 8 * bx + 8 <= left + VIEW_W and t <= 8 * by and 8 * by + 8 <= t + VIEW_H
+                       for t in tops):
+                raise CourseError("%s:%d: the lives counter at (%d, %d) is inside no page's CGA window" % (
+                    f, p["line"], p["at"][0], p["at"][1]))
+    canv = {}                                       # a hidden pad's picture: the first secret route's to it
+    for q in pads:
+        if q["hidden"]:
+            ri = next(rt["i"] for rt in routes if rt["secret"] and rt["b"] == q["num"])
+            canv[q["num"]] = rcv[ri]
+    allcv = [cv] + [rcv[k] for k in sorted(rcv)]
+    # the icons' STATIC pixels and every pad's TITLE: art, painted (a hidden pad's into its route's picture)
+    icon_frames = {}
+    for q in pads:
+        ic = pth["icons"].get(q["num"])
+        targets = [canv[q["num"]]] if q["hidden"] else allcv
+        cx, cy = _pad_centre(q, x0, y0)
+        title = q["title"].upper()
+        if ic:
+            b = read_bba(os.path.join(COURSE_DIR, ic["file"]) if not os.path.isabs(ic["file"]) else ic["file"],
+                         "%s:%d" % (f, ic["line"]))
+            px, py = ic["at"][0] + x0, ic["at"][1] + y0
+            if px % 8 or py % 8:
+                raise CourseError("%s:%d: the icon's top-left (%d, %d) is picture px %d, line %d: not a block's "
+                                  "corner (SX a multiple of 8, SY %% 8 = %d with this view)" % (
+                                      f, ic["line"], ic["at"][0], ic["at"][1], px, py, (-y0) % 8))
+            frames = []
+            for fr in b["frames"]:
+                frames.append({(px + i, py + j): ink for j, row in enumerate(fr) for i, ink in enumerate(row)
+                               if ink is not None})
+            for fp in frames:
+                for (x, y) in fp:
+                    if not (0 <= x < cv.w and 0 <= y < cv.h):
+                        raise CourseError("%s:%d: the icon's pixel (%d, %d) is off the picture" % (f, ic["line"], x, y))
+            anim = set()
+            for fp in frames[1:]:
+                for xy in set(fp) | set(frames[0]):
+                    if fp.get(xy) != frames[0].get(xy):
+                        anim.add((xy[0] >> 3, xy[1] >> 3))
+            for t in targets:
+                for (x, y), ink in frames[0].items():
+                    if (x >> 3, y >> 3) not in anim:
+                        t.rows[y][x] = ink
+            icon_frames[q["num"]] = (frames, anim, ic)
+            tx, ty = px + b["w"] // 2 - 4 * len(title), py - 10
+        else:
+            tx, ty = cx - 4 * len(title), cy - 22
+        tp = text_pixels(title, tx, ty)
+        for (x, y) in tp:
+            if not (0 <= x < cv.w and 0 <= y < cv.h):
+                raise CourseError("%s:%d: pad %d's title %r runs off the picture" % (f, q["line"], q["num"], title))
+        for t in targets:
+            for (x, y), ink in tp.items():
+                t.rows[y][x] = ink
+    # pad N's sign N: the overlay's four poses (a hidden pad's one more: 0 the bare picture)
+    nxt = len(pads)
+    for q in pads:
+        q["sign"] = q["num"]
+        base = canv.get(q["num"])
+        poses = {}
+        for k in range(PAD_POSES):
+            poses[k] = _pad_pose_pix(q, k, x0, y0, base or cv)
+        rect = _bbox_blocks([xy for k in poses for xy in poses[k]])
+        if base is not None:                        # its reveal: the route's picture in the rect, then the ring
+            reg = {}
+            for (bx, by) in _rect_blocks(rect):
+                for y in range(8 * by, 8 * by + 8):
+                    for x in range(8 * bx, 8 * bx + 8):
+                        if base.rows[y][x] != cv.rows[y][x]:
+                            reg[(x, y)] = base.rows[y][x]
+            poses = {0: {}}
+            for k in range(PAD_POSES):
+                poses[k + 1] = dict(reg)
+                poses[k + 1].update(_pad_pose_pix(q, k, x0, y0, base))
+        add({"num": q["num"], "kind": "pad", "rect": rect, "poses": poses, "line": q["line"],
+             "what": "pad %d" % q["num"]})
+    # the icons: the blocks a frame changes, cut into lanes of one sign
+    for q in pads:
+        if q["num"] not in icon_frames:
+            q["isign"], q["iposes"], q["ifps"] = None, 0, 0
+            continue
+        frames, anim, ic = icon_frames[q["num"]]
+        if not anim:
+            q["isign"], q["iposes"], q["ifps"] = None, 0, 0
+            continue
+        q["isign"], q["iposes"], q["ifps"] = nxt, len(frames), ic["fps"]
+        base = canv.get(q["num"])
+        for rect in cover_blocks(anim, lambda b: (b[1], b[0]), busy, "%s:%d: the icon" % (f, ic["line"])):
+            rb = _rect_blocks(rect)
+            poses = {}
+            for k, fp in enumerate(frames):
+                poses[k] = {xy: ink for xy, ink in fp.items() if (xy[0] >> 3, xy[1] >> 3) in rb}
+            if base is not None:
+                reg = {}
+                for (bx, by) in rb:
+                    for y in range(8 * by, 8 * by + 8):
+                        for x in range(8 * bx, 8 * bx + 8):
+                            if base.rows[y][x] != cv.rows[y][x]:
+                                reg[(x, y)] = base.rows[y][x]
+                poses = {0: {}}
+                for k, fp in enumerate(frames):
+                    poses[k + 1] = dict(reg)
+                    poses[k + 1].update({xy: ink for xy, ink in fp.items() if (xy[0] >> 3, xy[1] >> 3) in rb})
+            if len(poses) > LANE_PMAX:
+                raise CourseError("%s:%d: the icon has %d frames: over %d poses a lane%s" % (
+                    f, ic["line"], len(frames), LANE_PMAX, " (a hidden pad's icon has one pose more)"
+                    if base is not None else ""))
+            add({"num": nxt, "kind": "icon", "rect": rect, "poses": poses, "line": ic["line"],
+                 "what": "pad %d's icon" % q["num"]})
+        nxt += 1
+    # the gates: rendered across the route at its cell, the first cell past A whose lane fits by default
+    for rt in routes:
+        rt["gsign"] = None
+        if rt["secret"]:
+            continue
+        h2 = pads[rt["a"]]["h2"]
+        cand = [rt["src"]["gate"]] if rt["src"]["gate"] is not None else rt["cand"]
+        why = None
+        for cell in cand:
+            spec_h = rt["cells"][cell][0]
+            if spec_h[0] != "flat":
+                why = "(%d, %d) is a ramp" % cell
+                continue
+            poses = {k: _gate_pix(cell, rt["dirs"][cell], spec_h[1], k, x0, y0, cv) for k in range(GATE_POSES)}
+            rect = _bbox_blocks([xy for k in poses for xy in poses[k]])
+            if rect[2] > LANE_WMAX or rect[3] > LANE_HMAX or _rect_blocks(rect) & busy:
+                why = "(%d, %d)'s lane %s" % (cell[0], cell[1], "is %d x %d blocks" % rect[2:]
+                                             if rect[2] > LANE_WMAX or rect[3] > LANE_HMAX else "meets another lane")
+                continue
+            rt["gcell"] = cell
+            break
+        else:
+            if "gateplace" in _CHECKS_OFF:          # (a layout preview's: the gate left out)
+                continue
+            raise CourseError("%s:%d: the route's gate has no place: %s (SPEC.md 128.22.2)" % (f, rt["line"], why))
+        rt["gsign"] = nxt
+        add({"num": nxt, "kind": "gate", "rect": rect, "poses": poses, "line": rt["line"],
+             "what": "the gate of the route %d -> %d" % (rt["a"], rt["b"])})
+        nxt += 1
+    # the reveals: each secret route's picture against the visible one, cut into lanes along it
+    own = {}
+    for s_ in specs:
+        if s_["kind"] in ("pad", "icon"):
+            own.setdefault(s_["what"].split("'")[0], set()).update(_rect_blocks(s_["rect"]))
+    for rt in routes:
+        rt["rsign"], rt["rdist"] = None, []
+        if not rt["secret"]:
+            continue
+        rc_ = rcv[rt["i"]]
+        mine = set()
+        for q in pads:
+            if q["hidden"] and canv.get(q["num"]) is rc_:
+                mine |= own.get("pad %d" % q["num"], set())
+        diff = {}
+        for y in range(cv.h):
+            r0, r1 = cv.rows[y], rc_.rows[y]
+            if r0 != r1:
+                for x in range(cv.w):
+                    if r0[x] != r1[x] and ((x >> 3, y >> 3) not in mine):
+                        diff[(x, y)] = r1[x]
+        blocks = {(x >> 3, y >> 3) for (x, y) in diff}
+        clash = blocks & busy
+        if clash:
+            b = min(clash)
+            other = next(s_ for s_ in specs if b in _rect_blocks(s_["rect"]))
+            raise CourseError("%s:%d: the secret route draws in block (column %d, row %d), which %s's lane holds"
+                              % (f, rt["line"], b[0], b[1], other["what"]))
+        # the route's polyline on the glass, a sample a ground px: a block's distance is its nearest sample's
+        samp = []
+        d = 0
+        g = rt["gpts"]
+        for (ax, ay, az), (bx_, by_, bz) in zip(g, g[1:]):
+            n = max(abs(bx_ - ax), abs(by_ - ay))
+            for t in range(n):
+                z = az + (bz - az) * t // n
+                samp.append((d + t, _scr_pt(ax + _sgn(bx_ - ax) * t, ay + _sgn(by_ - ay) * t, z, x0, y0)))
+            d += n
+        samp.append((d, _scr_pt(g[-1][0], g[-1][1], g[-1][2], x0, y0)))
+
+        def bdist(b, samp=samp):
+            cx_, cy_ = 8 * b[0] + 4, 8 * b[1] + 4
+            return min(samp, key=lambda e: (abs(e[1][0] - cx_) + abs(e[1][1] - cy_), e[0]))[0]
+        dist = {b: bdist(b) for b in blocks}
+        rects = cover_blocks(blocks, lambda b: (dist[b], b[1], b[0]), busy, "%s:%d: the secret route" % (f, rt["line"]))
+        groups = sorted(((min(dist[b] for b in _rect_blocks(r) if b in dist), r) for r in rects),
+                        key=lambda e: (e[0], e[1][1], e[1][0]))
+        rt["rsign"] = nxt
+        last = -1
+        for dd, rect in groups:
+            dd = max(last + 1, dd - REVEAL_LEAD, 0)
+            last = dd
+            rb = _rect_blocks(rect)
+            add({"num": nxt, "kind": "reveal", "rect": rect,
+                 "poses": {0: {}, 1: {xy: ink for xy, ink in diff.items() if (xy[0] >> 3, xy[1] >> 3) in rb}},
+                 "line": rt["line"], "what": "the secret route %d -> %d's reveal group %d" % (
+                     rt["a"], rt["b"], nxt - rt["rsign"])})
+            rt["rdist"].append(dd)
+            nxt += 1
+    pth["nsign"] = nxt
+    return specs
+
+
+def path_keymap(pth, fname):
+    """SPEC.md 128.22.4.5: each pad's four arrows (Up, Down, Left, Right) ->
+    (route, travelled B to A); refused where two routes leave a pad one way,
+    two diagonals share an arrow no straight claims, or a route gets no arrow"""
+    out = []
+    for q in pth["pads"]:
+        leave = []
+        for rt in pth["routes"]:
+            pts = rt["src"]["pts"]
+            if rt["a"] == q["num"]:
+                d = (_sgn(pts[1][0] - pts[0][0]), _sgn(pts[1][1] - pts[0][1]))
+                leave.append((rt, 0, d))
+            if rt["b"] == q["num"]:
+                d = (_sgn(pts[-2][0] - pts[-1][0]), _sgn(pts[-2][1] - pts[-1][1]))
+                leave.append((rt, 1, d))
+        dirs = {}
+        for rt, rev, d in leave:
+            if d in dirs:
+                raise CourseError("%s:%d: two routes leave pad %d %s (lines %d and %d)" % (
+                    fname, rt["line"], q["num"], SCREEN_DIR[d][0], dirs[d][0]["line"], rt["line"]))
+            dirs[d] = (rt, rev)
+        keys = [None] * 4
+        for d, (rt, rev) in dirs.items():               # a straight direction claims its one arrow
+            if len(SCREEN_DIR[d][1]) == 1:
+                keys[SCREEN_DIR[d][1][0]] = (rt["i"], rev)
+        for k in range(4):                              # ...an arrow only diagonals claim
+            if keys[k] is not None:
+                continue
+            dg = [(d, v) for d, v in dirs.items() if len(SCREEN_DIR[d][1]) == 2 and k in SCREEN_DIR[d][1]]
+            if len(dg) > 1:
+                raise CourseError("%s:%d: at pad %d the %s arrow is claimed by two diagonals (%s and %s): move a "
+                                  "route (SPEC.md 128.22.4.5)" % (fname, dg[1][1][0]["line"], q["num"],
+                                                                 KEY_ARROWS[k], SCREEN_DIR[dg[0][0]][0],
+                                                                 SCREEN_DIR[dg[1][0]][0]))
+            if dg:
+                keys[k] = (dg[0][1][0]["i"], dg[0][1][1])
+        for d, (rt, rev) in dirs.items():
+            if (rt["i"], rev) not in keys:
+                raise CourseError("%s:%d: the route leaving pad %d %s has no arrow: both of its arrows are "
+                                  "straight routes'" % (fname, rt["line"], q["num"], SCREEN_DIR[d][0]))
+        q["keys"] = keys
+        q["leave"] = {SCREEN_DIR[d][0]: (rt["i"], rev) for d, (rt, rev) in dirs.items()}
+        out.append(keys)
+    return out
+
+
+def path_graph_proofs(pth, fname):
+    """SPEC.md 128.22.2's graph proofs that need no course: every pad
+    reachable from pad 0 through opened routes; each secret route a SHORTCUT
+    or a SIDE.  -> {route: verdict}"""
+    pads, routes = pth["pads"], pth["routes"]
+    reach = {0}
+    grew = True
+    while grew:
+        grew = False
+        for rt in routes:
+            if rt["a"] in reach and rt["b"] not in reach:
+                reach.add(rt["b"])
+                grew = True
+    for q in pads:
+        if q["num"] not in reach:
+            raise CourseError("%s:%d: pad %d is not reachable from pad 0 through the routes its courses' exits open"
+                              % (fname, q["line"], q["num"]))
+    # the map's END: a pad no route leaves, reached by an open route (a SIDE pad leaves nothing too, but
+    # only a secret route reaches it)
+    ends = {q["num"] for q in pads if not q["hidden"] and not any(rt["a"] == q["num"] for rt in routes)}
+
+    def dist(start, use):
+        """fewest pads after `start` to an END, routes A -> B among `use`"""
+        best = {start: 0}
+        todo = [start]
+        while todo:
+            n = todo.pop(0)
+            for rt in use:
+                if rt["a"] == n and rt["b"] not in best:
+                    best[rt["b"]] = best[n] + 1
+                    todo.append(rt["b"])
+        e = [best[k] for k in best if k in ends]
+        return min(e) if e else None
+    verdict = {}
+    for rt in routes:
+        if not rt["secret"]:
+            continue
+        via = dist(rt["b"], routes)
+        plain = dist(rt["a"], [r for r in routes if not r["secret"]])
+        if via is None:
+            verdict[rt["i"]] = "SIDE"
+        elif plain is not None and 1 + via < plain:
+            verdict[rt["i"]] = "SHORTCUT (%d pads to the end where the open way takes %d)" % (1 + via, plain)
+        else:
+            raise CourseError("%s:%d: the secret route %d -> %d is neither a SHORTCUT (it reaches the end in %s pads, "
+                              "the open way in %s) nor a SIDE (it leads nowhere): SPEC.md 128.22.2" % (
+                                  fname, rt["line"], rt["a"], rt["b"], 1 + via,
+                                  "no" if plain is None else plain))
+        rt["verdict"] = verdict[rt["i"]]
+    return verdict
+
+
+def course_exits(c):
+    """{exit: hidden} of a compiled course's finishes (SPEC.md 128.19.4)"""
+    out = {}
+    for t in c.tiles.values():
+        if t.kind == KIND_GOAL:
+            out.setdefault(t.exit, False)
+    for room in c.src.rooms:
+        if room.style == "goal":
+            out[room.exit] = out.get(room.exit, False) or room.hidden
+    for cp in c.src.cups:
+        out[cp["exit"]] = out.get(cp["exit"], False) or cp["hidden"]
+    return out
+
+
+def path_proofs(pc, courses):
+    """the proofs that need the courses (SPEC.md 128.22.2): every route's E
+    an exit A's course HAS, a secret route's a HIDDEN one.  -> lines for the
+    report"""
+    pth = pc.pth
+    out = []
+    for rt in pth["routes"]:
+        a = pth["pads"][rt["a"]]
+        c = courses[a["K"]]
+        ex = course_exits(c)
+        if rt["exit"] not in ex:
+            raise CourseError("%s:%d: the route %d -> %d is opened by %s's exit %d, which it has not (its exits: %s)"
+                              % (pc.fname, rt["line"], rt["a"], rt["b"], c.name, rt["exit"],
+                                 ", ".join(str(e) for e in sorted(ex)) or "none"))
+        if rt["secret"] and not ex[rt["exit"]]:
+            raise CourseError("%s:%d: the secret route %d -> %d is opened by %s's exit %d, which is not HIDDEN"
+                              % (pc.fname, rt["line"], rt["a"], rt["b"], c.name, rt["exit"]))
+        out.append("%d -> %d by %s's exit %d%s" % (rt["a"], rt["b"], c.name, rt["exit"],
+                                                   " (secret, %s)" % rt["verdict"] if rt["secret"] else ""))
+    return out
+
+
+def path_tables(pth):
+    """SPEC.md 128.22.3's tables, the bytes after the records in the part:
+    +0 npad, nroute, nsign, 0; PADS (10 bytes); ROUTES (8); KEYS (4 a pad);
+    then each route's POINTS block: npts, ngroups (bytes), npts (gx, gy, gz)
+    words, ngroups reveal distances (words, ground px, strictly increasing)"""
+    pads, routes = pth["pads"], pth["routes"]
+    hdr = 4 + PADREC * len(pads) + ROUTEREC * len(routes) + KEYREC * len(pads)
+    pts = bytearray()
+    poff = []
+    for rt in routes:
+        poff.append(hdr + len(pts))
+        g = rt["gpts"]
+        if len(g) > 255:
+            raise CourseError("%s:%d: %d points, over 255" % ("<path>", rt["line"], len(g)))
+        pts += struct.pack("<BB", len(g), len(rt["rdist"]))
+        for gx, gy, gz in g:
+            pts += struct.pack("<HHh", gx, gy, gz)
+        for dd in rt["rdist"]:
+            pts += struct.pack("<H", dd)
+    b = bytearray(struct.pack("<BBBB", len(pads), len(routes), pth["nsign"], 0))
+    for q in pads:
+        wx, wy = q["at"]
+        ivl = int(round(STEP_HZ / q["ifps"])) if q["ifps"] else 0
+        b += struct.pack("<BBBBHHBB", q["K"], q["sign"], 0xFF if q["isign"] is None else q["isign"],
+                         q["page"] | (0x80 if q["hidden"] else 0), 16 * wx + 8, 16 * wy + 8, q["iposes"], ivl)
+    for rt, po in zip(routes, poff):
+        b += struct.pack("<BBBBBBH", rt["a"], rt["b"], rt["exit"], 1 if rt["secret"] else 0,
+                         0xFF if rt["gsign"] is None else rt["gsign"], 0xFF if rt["rsign"] is None else rt["rsign"], po)
+    for q in pads:
+        b += bytes(0xFF if k is None else (k[0] | (0x80 if k[1] else 0)) for k in q["keys"])
+    assert len(b) == hdr
+    return bytes(b + pts)
+
+
+def read_path_tables(p, off, end, nsign, fname="<part>"):
+    """the tables as the guest reads them, checked against themselves"""
+    def bad(why):
+        if "gateplace" in _CHECKS_OFF:
+            return
+        raise CourseError("%s: the pathway's tables: %s" % (fname, why))
+    if off + 4 > end:
+        bad("past the part")
+    npad, nroute, ns, z = p[off:off + 4]
+    if z or not 1 <= npad <= PATH_PADS or nroute > PATH_ROUTES or ns != nsign:
+        bad("header %d %d %d %d (the records' signs %d)" % (npad, nroute, ns, z, nsign))
+    o = off + 4
+    pads, routes, keys = [], [], []
+    for i in range(npad):
+        K, sg, isg, pg, gx, gy, ip, ivl = struct.unpack_from("<BBBBHHBB", p, o)
+        if sg >= ns or (isg != 0xFF and isg >= ns) or (pg & 0x7F) >= PATH_PAGES or bool(ip) != (isg != 0xFF) \
+                or bool(ivl) != bool(ip):
+            bad("pad %d" % i)
+        pads.append({"K": K, "sign": sg, "isign": None if isg == 0xFF else isg, "page": pg & 0x7F,
+                     "hidden": bool(pg & 0x80), "gx": gx, "gy": gy, "iposes": ip, "ivl": ivl})
+        o += PADREC
+    for i in range(nroute):
+        a, b_, e, fl, gs, rs, po = struct.unpack_from("<BBBBBBH", p, o)
+        if a >= npad or b_ >= npad or e > EXIT_MAX or fl & ~1 or (gs != 0xFF and gs >= ns) or \
+                (rs != 0xFF and rs >= ns) or (fl & 1) == (gs != 0xFF) or off + po + 2 > end:
+            bad("route %d" % i)
+        n, ng = p[off + po], p[off + po + 1]
+        if n < 2 or off + po + 2 + 6 * n + 2 * ng > end or bool(ng) != (rs != 0xFF):
+            bad("route %d's points" % i)
+        pts = [struct.unpack_from("<HHh", p, off + po + 2 + 6 * k) for k in range(n)]
+        dist = list(struct.unpack_from("<%dH" % ng, p, off + po + 2 + 6 * n))
+        if dist != sorted(set(dist)):
+            bad("route %d's reveal distances not strictly increasing" % i)
+        if (pts[0][0], pts[0][1]) != (pads[a]["gx"], pads[a]["gy"]) or (pts[-1][0], pts[-1][1]) != \
+                (pads[b_]["gx"], pads[b_]["gy"]):
+            bad("route %d's points do not run from pad %d's cell to pad %d's" % (i, a, b_))
+        for (ax, ay, _), (bx, by, _) in zip(pts, pts[1:]):
+            dx, dy = bx - ax, by - ay
+            if (dx, dy) == (0, 0) or (dx and dy and abs(dx) != abs(dy)):
+                bad("route %d's step (%d, %d) -> (%d, %d)" % (i, ax, ay, bx, by))
+        routes.append({"a": a, "b": b_, "exit": e, "secret": bool(fl & 1), "gsign": None if gs == 0xFF else gs,
+                       "rsign": None if rs == 0xFF else rs, "pts": pts, "dist": dist})
+        o += ROUTEREC
+    for i in range(npad):
+        ks = []
+        for k in p[o:o + 4]:
+            if k != 0xFF and ((k & 0x7F) >= nroute or k & 0x60):
+                bad("pad %d's keys" % i)
+            ks.append(None if k == 0xFF else (k & 0x7F, bool(k & 0x80)))
+        keys.append(ks)
+        o += KEYREC
+    return {"pads": pads, "routes": routes, "keys": keys, "nsign": ns}
+
+
+class Follow:
+    """SPEC.md 128.22.4.2: the FOLLOWER, the host's copy of bz_follow step for
+    step, in the guest's fixed point.  The guest implements exactly this:
+
+    the route's POINTS P0 .. Pn (from the tables: (gx, gy) ground px, gz whole
+    px), walked A to B, or B to A with the list reversed; a segment's length
+    len_k = max(|dgx|, |dgy|) (one axis, or both by equal amounts), D_k the
+    sum of the lengths before it, L the route's length.  The state: s, the
+    distance along the route, a DWORD of 1/256 ground px (24.8); v, a WORD of
+    1/256 ground px a step (8.8).  Departing: s = 0, v = 0.  Each step:
+
+        left = 256 L - s                               (unsigned dword)
+        D    = (v * v) div (2 FOL_ACC)                 (mul: dx:ax; div by 384 -> ax, at most 1536)
+        if left <= D:  v = max(v - FOL_ACC, FOL_VMIN)  (braking)
+        else:          v = min(v + FOL_ACC, FOL_VMAX)
+        s = s + v
+        if s >= 256 L: s = 256 L, ARRIVED (the pad's cell exactly; RESTING)
+
+    then the position: k the segment with 256 D_k <= s < 256 D_(k+1) (the last
+    one when s = 256 L), t = s - 256 D_k, (sx, sy) its step's signs (-1, 0, 1):
+
+        bz_gx = 256 gx_k + sx t          (24.8, the dword's low byte the fraction)
+        bz_gy = 256 gy_k + sy t
+        bz_gz = 256 gz_k + ((gz_(k+1) - gz_k) t) idiv len_k   (imul / idiv: TRUNCATED toward zero)
+
+    with the ball GROUNDED.  FOL_VMAX 768 (3.0), FOL_ACC 192 (0.75),
+    FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps."""
+
+    def __init__(self, pts, reverse=False):
+        self.pts = [tuple(p) for p in (reversed(pts) if reverse else pts)]
+        self.d = [0]
+        for (ax, ay, _), (bx, by, _) in zip(self.pts, self.pts[1:]):
+            self.d.append(self.d[-1] + max(abs(bx - ax), abs(by - ay)))
+        self.L = self.d[-1]
+        self.s = 0
+        self.v = 0
+        self.arrived = False
+        self.nstep = 0
+
+    def step(self):
+        """one step -> (bz_gx, bz_gy, bz_gz), 24.8"""
+        if not self.arrived:
+            left = 256 * self.L - self.s
+            D = (self.v * self.v) // (2 * FOL_ACC)
+            if left <= D:
+                self.v = max(self.v - FOL_ACC, FOL_VMIN)
+            else:
+                self.v = min(self.v + FOL_ACC, FOL_VMAX)
+            self.s += self.v
+            if self.s >= 256 * self.L:
+                self.s = 256 * self.L
+                self.arrived = True
+            self.nstep += 1
+        return self.pos()
+
+    def pos(self):
+        s = self.s
+        k = 0
+        while k < len(self.pts) - 2 and s >= 256 * self.d[k + 1]:
+            k += 1
+        (ax, ay, az), (bx, by, bz) = self.pts[k], self.pts[k + 1]
+        t = s - 256 * self.d[k]
+        ln = self.d[k + 1] - self.d[k]
+        n = (bz - az) * t
+        q = abs(n) // ln
+        return 256 * ax + _sgn(bx - ax) * t, 256 * ay + _sgn(by - ay) * t, 256 * az + (q if n >= 0 else -q)
+
+    def run(self, n=100000):
+        """every step to the arrival: [(gx, gy, gz)]"""
+        out = []
+        while not self.arrived and len(out) < n:
+            out.append(self.step())
+        return out
+
+
+def check_path_bounds(c):
+    """SPEC.md 128.22.2: every page's lanes within 128.19.10's bounds, an
+    icon's animation counted FAST while its pad is the marble's: that pad's
+    page window, on both cards.  -> report lines"""
+    pth, vi = c.pth, c.vinfo
+    lanes, _sl = _rects(c)
+    out = []
+    worst = (0, 0, 0)
+    for herc in (0, 1):
+        W = CARDS[herc][0]
+        xa = 8 * (vi["c0h"] if herc else vi["c0"])
+        xb = xa + 8 * W
+        for q in pth["pads"]:
+            if q["isign"] is None:
+                continue
+            ya = vi["tops"][q["page"]]
+            yb = ya + WIN_LINES
+            ra, rb = 8 * ((ya >> 3) - 2), 8 * (((yb - 1) >> 3) + 3)
+            fast = [L for L in lanes if L[4]["kind"] == PK_SIGN and L[4]["num"] == q["isign"]]
+            meet = [L for L in fast if _meet(L, xa, ya, xb, yb)]
+            rng = [L for L in fast if L[1] < rb and ra < L[3]]
+            digits = sum(1 for L in lanes if lane_digit(L[4]) and _meet(L, xa, ya, xb, yb))
+            chg = len(meet) + digits + 1
+            worst = max(worst, (len(meet), len(rng), chg))
+            if len(meet) > WIN_LANES or len(rng) > RANGE_LANES or chg > WIN_CHG:
+                raise CourseError("%s: pad %d's icon on page %d (%s): %d FAST lanes in the window (at most %d), %d in "
+                                  "the walk's range (%d), %d pose changes on one step (%d; SPEC.md 128.19.10)" % (
+                                      c.fname, q["num"], q["page"], "Hercules" if herc else "CGA", len(meet),
+                                      WIN_LANES, len(rng), RANGE_LANES, chg, WIN_CHG))
+    out.append("the icons' FAST lanes at their pads' page windows: at most %d in a window, %d in a range, %d "
+               "changes on a step" % worst)
+    return out
+
+
+def path_costs(c):
+    """the pathway part's bytes by kind (SPEC.md 128.22.2's last proof): each
+    lane's record, pose maps and the blocks it adds to the pool"""
+    kinds = {}
+    seen = set(c.map)
+    order = sorted(c.lanes, key=lambda L: L["prop"])
+    for L in order:
+        p = c.props[L["prop"]]
+        k = p.get("spec", {}).get("kind") if p["kind"] == PK_SIGN else PK_NAMES[p["kind"]]
+        k = {"pad": "pads", "icon": "icons", "gate": "gates", "reveal": "reveals", "clock": "lives"}.get(k, k)
+        bx, by, w, h = L["rect"]
+        new = {n for q in L["words"] for n in L["words"][q]} - seen
+        seen |= new
+        e = kinds.setdefault(k, [0, 0, 0])
+        e[0] += 1
+        e[1] += PROPREC + 2 * len(L["poses"]) * w * h + 16 * len(new)
+        e[2] += len(new)
+    pic = HDR + 2 * c.cols * c.brows + 16 * c.nblk_pic
+    return pic, kinds
 
 
 def build_props(src, tiles, fname):
@@ -1360,8 +2526,8 @@ def build_props(src, tiles, fname):
     if len(src.clocks) > CLOCK_MAX:
         raise CourseError("%s:%d: a clock past the %d a course holds" % (f, src.clocks[CLOCK_MAX]["line"], CLOCK_MAX))
     ndig = 3 if src.limit is not None and src.limit[0] >= 100 else 2
-    if src.pathway is not None:                     # wave 8b (128.19.5): the pathway's clock shows the
-        ndig = 1                                    # LIVES, one digit
+    if src.pathway is not None:                     # the pathway's clocks are its LIVES counters (wave 8R,
+        ndig = 1                                    # SPEC.md 128.22.2): one digit
     for num, sp in enumerate(src.clocks):
         at, ln = sp["at"], sp["line"]
         t = tiles.get(at)
@@ -1372,16 +2538,6 @@ def build_props(src, tiles, fname):
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
-    for nd in src.nodes:                            # wave 8b (128.19.5): a node's SIGN, a clock of ndig 0
-        at, ln = nd["sign"], nd["line"]
-        t = tiles.get(at)
-        if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
-            raise CourseError("%s:%d: node %d's sign on (%d, %d), not a FLAT FLOOR" % (f, ln, nd["num"], at[0],
-                                                                                    at[1]))
-        claim(at, ln, "sign")
-        props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": nd["num"],
-                      "place": 0, "ndig": 0, "z4": 4 * t.z0, "K": 0, "KA": 0,
-                      "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -1863,7 +3019,28 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.fill(sp, ink, s, top, own)
             continue
         top = mk(y0)
-        if which == "sw":
+        if t.rail and which in ("sw", "se"):          # wave 8R: the crystal rail's dark side (128.22.8)
+            tops = {}
+            for y in sorted(sp):
+                for a, b in sp[y]:
+                    for x in range(a, b):
+                        tops.setdefault(x, y)
+            xl = min(tops)
+            cv.fill(sp, lambda x, y, w=which, tops=tops, xl=xl: BA.crystal_side_ink(w, x - xl, y - tops[x]),
+                    s, top, own)
+            cv.outline(sp, left=True)
+        elif t.rail:                                  # ...and its faceted, lit top
+            wf = _top_world(t, wx, wy, x0)
+            cgx, cgy = 16 * wx + 8, 16 * wy + 8
+
+            def ink(x, y, wf=wf, cgx=cgx, cgy=cgy):
+                gx, gy = wf(x, y - y0)
+                du, dv = gx - cgx, gy - cgy
+                c = BA.crystal_top_ink(int(math.floor(du - dv)), int(math.floor((du + dv) / 2.0)))
+                return 1 if c is None else c
+            cv.fill(sp, ink, s, top, own)
+            cv.outline(sp)
+        elif which == "sw":
             cv.fill(sp, MAG, s, top, own)
             cv.outline(sp, left=True)
         elif which == "se":
@@ -2304,7 +3481,7 @@ def clock_face_geom(p, x0, y0):
     wx, wy = p["at"]
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"] + y0
-    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
+    n = p["ndig"]
     bx0 = (cx - 4 * n + 4) >> 3
     by = (cy - CLOCK_UP) >> 3
     return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 7, 10
@@ -2313,7 +3490,7 @@ def clock_face_geom(p, x0, y0):
 def clock_digit_block(p, x0, y0):
     """the canvas block (column, row) of digit PLACE (0 the units, the rightmost)"""
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
-    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
+    n = p["ndig"]
     return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
 
 
@@ -2328,7 +3505,7 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     finial - with the digits' window left plain cyan.  -> {(x, y): ink},
     later layers over earlier"""
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
-    n = p["ndig"] or 1                    # (a node's sign, ndig 0: one glyph, 128.19.5)
+    n = p["ndig"]
     out = {}
 
     def put(x, y, ink):
@@ -2411,17 +3588,6 @@ def clock_glyph(d, bx, by):
     from the block's left and top"""
     out = {}
     for r, bits in enumerate(CLOCK_FONT[d]):
-        for k in range(5):
-            if bits & (16 >> k):
-                out[(8 * bx + 1 + k, 8 * by + r)] = BLK
-    return out
-
-
-def node_glyph(st, bx, by):
-    """a node sign's status ST's ink in block (bx, by) (SPEC.md 128.19.5): the
-    NODE_FONT glyph a pixel in from the block's left and top; 0 none"""
-    out = {}
-    for r, bits in enumerate(NODE_FONT[st] or ()):
         for k in range(5):
             if bits & (16 >> k):
                 out[(8 * bx + 1 + k, 8 * by + r)] = BLK
@@ -2922,21 +4088,23 @@ def _course_limit(c, src, fname):
     return min(LIMIT_MAX, limit_rule(route_steps)), route_steps
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, crsinfo=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
     _hack: --selfcheck's negative controls' switches, and nothing else's.
-    _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec)"""
+    _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
+    crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
+    courses; default the shipped list's, read off their `course` lines)"""
     global _FAST_EXTRA
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     try:
-        return _compile_course(source, fname, occluders, hack, _rec)
+        return _compile_course(source, fname, occluders, hack, _rec, crsinfo)
     finally:
         _FAST_EXTRA = ()
 
 
-def _compile_course(source, fname, occluders, hack, _rec):
+def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if fname is None:
         ab = os.path.abspath(source)
         fname = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
@@ -2945,14 +4113,14 @@ def _compile_course(source, fname, occluders, hack, _rec):
     else:
         text = source
     src = parse(text, fname)
+    pth = None
+    if src.pathway is not None:                     # wave 8R (SPEC.md 128.22.2): THE PATHWAY, its rooms laid
+        pth = path_prepare(src, fname, crsinfo if crsinfo is not None else _course_info(default_paths()))
     tiles = build_tiles(src)
     if not tiles:
         raise CourseError("%s: no solid tile" % fname)
-    if src.pathway is not None:                     # wave 8b (SPEC.md 128.19.5): THE PATHWAY
-        _pathway_nodes(src, tiles, fname)
-    elif src.nodes or src.edges:
-        ln = (src.nodes[0]["line"] if src.nodes else src.edges[0][3])
-        raise CourseError("%s:%d: a node or an edge is the pathway's, and this is no `pathway`" % (fname, ln))
+    if pth is not None:
+        path_mark_rail(pth, tiles)
     props = build_props(src, tiles, fname)
     cells = build_cells(tiles)
     pcell = prop_cells(props)
@@ -2972,7 +4140,7 @@ def _compile_course(source, fname, occluders, hack, _rec):
     # the start: SAFE
     (swx, swy), sln = src.start
     sc = cells.get((swx, swy))
-    if sc is None or not sc[3] & FL_SAFE:
+    if pth is None and (sc is None or not sc[3] & FL_SAFE):     # (the pathway's: pad 0, no physics there)
         raise CourseError("%s:%d: start (%d, %d) is not SAFE (a flat floor with four solid edge neighbours)"
                           % (fname, sln, swx, swy))
     for (wx, wy), ln in src.ways + [w for b in sorted(src.branches) for w in src.branches[b]]:
@@ -2997,14 +4165,34 @@ def _compile_course(source, fname, occluders, hack, _rec):
         if p["kind"] == PK_PLATFORM:
             gtop = min(gtop, slab_xy(p, 8 * p["L"], x0, 0)[1])
             gbot = max(gbot, slab_xy(p, 0, x0, 0)[1] + PL_H - 1)
+    rtiles, rops = {}, {}
+    if pth is not None:                             # each secret route's tiles, drawn by its reveal: inside too
+        for ri in sorted(pth["secret_rooms"]):
+            rtiles[ri] = dict(tiles, **{k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
+            rops[ri] = draw_ops(rtiles[ri], x0, set())
+            if props:
+                rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
+            gtop = min(gtop, min(min(sp) for sp, *_ in rops[ri] if sp))
+            gbot = max(gbot, max(max(sp) for sp, *_ in rops[ri] if sp))
     ftop = min(foot_top(rc, rc.zhi) for rc in reach)
     y0 = max(-gtop, -ftop)
     fbot = max(foot_top(rc, rc.zlo) + 30 for rc in reach)
     lines = max(gbot, fbot) + y0 + 1
     lines = max(MINLINES, (lines + 7) // 8 * 8)
+    vinfo = None
+    if pth is not None:                             # wave 8R: page 0's window and the pages above it
+        y0, lines, vinfo = view_geometry(src.view, pth["npages"], x0, y0, lines, width, fname)
+        vinfo["npages"] = pth["npages"]
     cols, brows = src.width, lines // 8
     owners = any(p["kind"] == PK_WINDMILL for p in props)
     cv = render(tiles, ops, x0, y0, width, lines, owners)
+    if pth is not None:                             # ...its SIGNS (128.22.4.1), each a record and a lane
+        rcv = {ri: render(rtiles[ri], rops[ri], x0, y0, width, lines) for ri in rtiles}
+        for sp_ in path_signs(pth, src, props, cv, rcv, x0, y0, vinfo, fname):
+            props.append({"kind": PK_SIGN, "line": sp_["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
+                          "num": sp_["num"], "spec": sp_})
+        path_keymap(pth, fname)
+        pth["verdicts"] = path_graph_proofs(pth, fname)
     # ---- the lanes (SPEC.md 128.12.4): a rotor stood on its house, a post ----
     lanes = []
     for i, p in enumerate(props):
@@ -3111,14 +4299,13 @@ def _compile_course(source, fname, occluders, hack, _rec):
                                   and q["place"] == 0)
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
-            if p["ndig"] == 0:                      # wave 8b (128.19.5): a node's sign - its status glyphs
-                for st_ in range(1, NODE_POSES):
-                    poses[st_] = {k: v for k, v in node_glyph(st_, bx, by).items() if k in clock_seen}
-            else:
-                for d in range(10):
-                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+            for d in range(10):
+                poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
+        elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): a sign, path_signs's lane
+            lanes.append({"prop": i, "rect": p["spec"]["rect"], "poses": p["spec"]["poses"], "st": {},
+                          "kind": PK_SIGN, "line": p["line"]})
     for L in lanes:
         bx, by, w, h = L["rect"]
         if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= len(L["poses"]) <= LANE_PMAX):
@@ -3351,6 +4538,8 @@ def _compile_course(source, fname, occluders, hack, _rec):
         elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5.3): a POST's fields at the
             rec += struct.pack("<HBBHHHBBB3x", 0, 0, p["ph"], p["cx"], p["cy"], 0,     # bumper's offsets (no
                                p["place"], p["ndig"], p["num"])                      # kick), +26 the PLACE
+        elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): +28 the sign's number
+            rec += struct.pack("<12xB3x", p["num"])
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -3363,15 +4552,19 @@ def _compile_course(source, fname, occluders, hack, _rec):
     for blk in blocks:
         for y in range(8):
             blkb += cga_bytes(blk[y * 8:y * 8 + 8])
+    ptab = path_tables(pth) if pth is not None else b""     # wave 8R (SPEC.md 128.22.3): after the records
     model = {"cols": cols, "brows": brows, "idx": list(mp), "blocks": bytes(blkb),
              "recs": [(r["brow"], r["col"], r["s"], r["top"], mindex[r["kmask"]]) for r in records
                       if r["kmask"] != ALLKEEP],
              "masks": list(masks),
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
-                      "swy": swy, "gflags": gflags, "padmask": padmask},
+                      "swy": swy, "gflags": gflags, "padmask": padmask,
+                      "cam": CAM_PAGED if pth is not None else CAM_COURSE,
+                      "npages": pth["npages"] if pth is not None else 0},
              "cells": bytes(cellb), "route": list(route), "ways": [t for t, ln in src.ways],
-             "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb), "self": selfp, "blk": blkp}
-             if props else None}
+             "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ptab), "self": selfp, "blk": blkp}
+             if props else None,
+             "pth": len(ptab), "view": (vinfo["r0"], vinfo["c0"], vinfo["c0h"]) if vinfo else None}
     if len(blocks) > BLK_MAX:
         raise CourseError("%s: %d blocks, over the %d a map word's 10-bit index reaches (ROWPLANES, 128.15.4.4)"
                           % (fname, len(blocks), BLK_MAX))
@@ -3436,6 +4629,8 @@ def _compile_course(source, fname, occluders, hack, _rec):
     c.route = route
     c.start = (swx, swy)
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
+    c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 128.22): the pathway's, None on a course
+    c.cam = CAM_PAGED if pth is not None else CAM_COURSE
     c.ident = ident
     c.gflags, c.padmask = gflags, padmask
     c.par = 0                                       # (wave 7: refused; kept for the cross-commit item 1)
@@ -3473,12 +4668,14 @@ def _compile_course(source, fname, occluders, hack, _rec):
         check_exits(c)
     if props and occluders and not hack.get("no_bounds"):
         c.bounds = check_bounds(c)
+        if pth is not None:
+            c.path_bounds = check_path_bounds(c)
     # wave 4 (SPEC.md 128.14.4.1): GOAL cells or a cup, never both, never neither
     # (a course's: the host models' fixtures, compiled without occluders, need no finish)
     if has_goal and cups:
         raise CourseError("%s:%d: a cup on a course with GOAL cells (one goal: the line or the cup)"
                           % (fname, cups[0]["line"]))
-    if not has_goal and not cups and occluders and not hack.get("no_finish"):
+    if not has_goal and not cups and occluders and not hack.get("no_finish") and pth is None:
         raise CourseError("%s: no GOAL cell and no cup: the course has no finish" % fname)
     c.has_finish = bool(has_goal or cups)
     # wave 4 (SPEC.md 128.14.4.1): NO TRAP.  c.prop_pix: each prop's MARKS, {prop: {what: {(x, y)}}} in
@@ -3727,6 +4924,8 @@ def check_bounds(c):
         W, H, rl, lsh = CARDS[herc]
         rmax = c.brows * 8 // rl - H
         cmax = c.cols - W
+        paged = getattr(c, "cam", CAM_COURSE) == CAM_PAGED
+        cols_ = [c.vinfo["c0h"] if herc else c.vinfo["c0"]] if paged else range(cmax + 1)
         most = most_r = most_all = most_rall = most_chg = 0
         worst = (0, 0)
         for R in range(rmax + 1):
@@ -3740,7 +4939,7 @@ def check_bounds(c):
                 raise CourseError("%s: %d FAST lanes in the walk's range of the %s window at row %d, over %d "
                                   "(SPEC.md 128.19.10)" % (c.fname, nfr, "Hercules" if herc else "CGA", R,
                                                            RANGE_LANES))
-            for C in range(cmax + 1):
+            for C in cols_:            # (a PAGED camera's columns are page 0's, 128.22.4.3)
                 xa, xb = 8 * C, 8 * (C + W)
                 meet = [L for L in inrange if _meet(L, xa, ya, xb, yb)]
                 nf = sum(1 for L in meet if lane_fast(L[4]))
@@ -3774,10 +4973,12 @@ def check_bounds(c):
                 if sl and rot:
                     raise CourseError("%s: a platform's track and a windmill's rotor in one %s window (row %d, "
                                       "column %d)" % (c.fname, "Hercules" if herc else "CGA", R, C))
-        # the start window's calibration corner (128.12.5.4)
+        # the start window's calibration corner (128.12.5.4): a PAGED course's is page 0's window
         p = Physics(c)
         R0 = max(0, min(max(0, p.py + 8 - WIN_LINES // 2) >> lsh, rmax))
         C0 = max(0, min(max(0, p.px + 8 - 4 * W) >> 3, cmax))
+        if paged:
+            R0, C0 = c.vinfo["tops"][0] >> lsh, cols_[0]
         ya, yb = R0 * rl, R0 * rl + WIN_LINES
         top, bot = (ya + 7) >> 3, (yb >> 3) - 3
         foot = ((p.px & ~3), p.py, (p.px & ~3) + FOOT_W, p.py + FOOT_H)
@@ -3985,7 +5186,12 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     b[gridoff:gridoff + GHDR] = (b"BZG1" + struct.pack("<HhhHHHhH", g["nrows"], g["smin"], g["amin"], g["kw"],
                                                         rowtab, g["x0"], g["y0"], ident)
                                  + struct.pack("<HHHH", g["swx"], g["swy"], len(m["route"]), routeoff)
-                                 + struct.pack("<BBH", g["gflags"], g["padmask"], 0))
+                                 + struct.pack("<BBBB", g["gflags"], g["padmask"], g.get("cam", 0),
+                                               g.get("npages", 0)))
+    if bzc2 and (m.get("pth") or m.get("view")):    # wave 8R (SPEC.md 128.22.3): +42 PTHOFF, +44 the view
+        v = m.get("view") or (0, 0, 0)
+        struct.pack_into("<HHBB", b, 42, propoff + len(m["props"]["blob"]) - m["pth"] if m.get("pth") else 0,
+                         v[0], v[1], v[2])
     b[celloff:celloff + len(m["cells"])] = m["cells"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
@@ -4067,14 +5273,17 @@ def decode_part(p):
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, gridoff + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, gridoff + 20)
     gflags, padmask = p[gridoff + 28], p[gridoff + 29]
+    cam, npages = p[gridoff + 30], p[gridoff + 31]
+    pthoff, vr0, vc0, vc0h = struct.unpack_from("<HHBB", p, 42) if bzc2 else (0, 0, 0, 0)
     celloff = gridoff + GHDR
     m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(p[blkoff:blkoff + 16 * nblk]),
          "recs": recs, "masks": masks,
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
-                  "gflags": gflags, "padmask": padmask},
+                  "gflags": gflags, "padmask": padmask, "cam": cam, "npages": npages},
          "cells": bytes(p[celloff:celloff + 4 * kw * nrows]),
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
-         "props": None}
+         "props": None, "pth": (diroff - pthoff) if pthoff else 0,
+         "view": (vr0, vc0, vc0h) if cam else None}
     if nprop:
         end = diroff if bzc2 else len(p)
         pb = bytearray(p[propoff:end])
@@ -4430,8 +5639,7 @@ def read_part(p, fname="<part>"):
         bad("RECB", str(recb))
     if recb == 8 and (SB or TB or mtab):
         bad("RECB", "8 with SB %d, TB %d, MTAB %d (all 0 under C)" % (SB, TB, mtab))
-    if p[42:48] != bytes(6):
-        bad("+42", "the six reserved bytes are not 0")
+    pthoff, vr0, vc0, vc0h = struct.unpack_from("<HHBB", p, 42)   # wave 8R (128.22.3): PTHOFF and the view
     if blkoff != HDR + 2 * cols * brows:
         bad("BLKOFF", str(blkoff))
     if occidx != blkoff + 16 * nblk:
@@ -4547,9 +5755,19 @@ def read_part(p, fname="<part>"):
         bad("BZG1", "magic")
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
-    gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
-    if gflags & ~(GF_CKPT | GF_CUP) or padmask & ~7 or gz or (gflags & GF_CUP and not gflags & GF_CKPT):
-        bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
+    gflags, padmask, cam, npages = struct.unpack_from("<BBBB", p, g + 28)
+    if gflags & ~(GF_CKPT | GF_CUP) or padmask & ~7 or (gflags & GF_CUP and not gflags & GF_CKPT):
+        bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh" % (gflags, padmask))
+    # wave 8R (SPEC.md 128.22.3): +30 CAM, +31 NPAGES; BZC2 +42 PTHOFF, +44 the view's CGA R0, +46 c0, +47 the
+    # Hercules' c0 - all 0 on a course's camera; a PAGED part's tables at PTHOFF, inside its props
+    if cam not in (CAM_COURSE, CAM_FIXED, CAM_PAGED) or (cam == CAM_PAGED) != (1 <= npages <= PATH_PAGES) \
+            or (cam != CAM_PAGED and npages) or (cam == CAM_COURSE and (pthoff or vr0 or vc0 or vc0h)) \
+            or (cam == CAM_PAGED) != bool(pthoff) or (cam and (vc0h + VIEW_HL != vc0 or vr0 & 3
+                                                            or vc0h + CARDS[1][0] > cols
+                                                            or 2 * vr0 + VIEW_H > 8 * brows)):
+        bad("BZG1 +30", "CAM %d, NPAGES %d, PTHOFF %d, the view (%d, %d, %d)" % (cam, npages, pthoff, vr0, vc0, vc0h))
+    if pthoff and (not nprop or not propoff + PROPREC * nprop <= pthoff < diroff):
+        bad("PTHOFF", "%d is not inside the props" % pthoff)
     if amin & 1:
         bad("AMIN", "odd")
     celloff = g + GHDR
@@ -4581,7 +5799,11 @@ def read_part(p, fname="<part>"):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
-    props = read_props(p, propoff, nprop, blkoff, occidx, bad, diroff) if nprop else []
+    props = read_props(p, propoff, nprop, blkoff, occidx, bad, pthoff or diroff) if nprop else []
+    path = None
+    if pthoff:
+        path = read_path_tables(p, pthoff, diroff, max([d["num"] + 1 for d in props if d["kind"] == PK_SIGN] + [0]),
+                                fname)
     # wave 4: the header's flags and pad mask are the records' (SPEC.md 128.14.4.2)
     kinds = [d["kind"] for d in props]
     want_f = (GF_CKPT if PK_CHECKPOINT in kinds or PK_CUP in kinds else 0) | (GF_CUP if PK_CUP in kinds else 0)
@@ -4613,6 +5835,7 @@ def read_part(p, fname="<part>"):
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
             "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": diroff, "nsec": nsec, "dir": ents,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
+            "cam": cam, "npages": npages, "pthoff": pthoff, "view": (vr0, vc0, vc0h), "path": path,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
                      "gflags": gflags, "padmask": padmask,
@@ -4645,6 +5868,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             bad("prop %d" % i, "a checkpoint without its LANE (a flag is a two-pose lane, 128.14.4.2)")
         if kind == PK_CLOCK and not flags & PF_LANE:
             bad("prop %d" % i, "a clock's digit without its LANE (128.18.5)")
+        if kind == PK_SIGN and (not flags & PF_LANE or (wx, wy) != SIGN_AT):
+            bad("prop %d" % i, "a sign without its LANE, or anchored on a cell (128.22.4.1)")
         if kind in (PK_PAD, PK_CUP, PK_SPRING, PK_TUBE, PK_PLATFORM) and flags & PF_LANE:
             bad("prop %d" % i, "a %s with a LANE" % PK_NAMES[kind])
         d = {"i": i, "kind": kind, "flags": flags, "at": (wx, wy), "mask": mask, "shift": shift, "seed": seed}
@@ -4706,13 +5931,14 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             if K or lit or KA or ph != CLOCK_PH or cx != 16 * d["at"][0] + 8 \
                     or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a clock's post fields")
-            sign = ndig == 0                        # wave 8b (128.19.5): a node's sign
-            if (not sign and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX)) \
-                    or (sign and (place or num >= NODE_MAX)) or p[r + 29:r + 32] != bytes(3) \
-                    or d["lane"]["poses"] != (NODE_POSES if sign else CLOCK_POSES) or d["lane"]["w"] != 1 \
-                    or d["lane"]["h"] != 1:
+            if not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or p[r + 29:r + 32] != bytes(3) \
+                    or d["lane"]["poses"] != CLOCK_POSES or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
+        elif d["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): +28 the number, else zero
+            if p[r + 16:r + 28] != bytes(12) or p[r + 29:r + 32] != bytes(3):
+                bad("prop %d" % d["i"], "a sign's record")
+            d.update(num=p[r + 28])
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -6767,9 +7993,9 @@ class Heavy:
         if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
             return 1 if self.p.cksn & (1 << r["num"]) else 0
         if r["kind"] == PK_CLOCK:               # wave 7: its digit of the seconds left (bz_tdig)
-            if not r.get("ndig"):               # wave 8b (128.19.5): a node's sign - its state (bz_nst)
-                return getattr(self.p, "nst", {}).get(r["num"], 0)
             return clock_pose(self.p.tsec, r["place"])
+        if r["kind"] == PK_SIGN:                # wave 8R (128.22.4.1): its pose, bz_nst[num]
+            return getattr(self.p, "nst", {}).get(r["num"], 0)
         i = r["i"]
         k = self.p.pkick[i]
         if self.seen.setdefault(i, k) != k:     # a new kick: lit for PLITF frames on the glass
@@ -7697,8 +8923,12 @@ def emit_inc(courses, path=None):
               "BZ_PK_SPRING    equ %d        ; a SPRING pad" % PK_SPRING,
               "BZP_CNUM        equ 16       ; CHECKPOINT: its number 0 - 7",
               "BZP_CPLACE      equ 26       ; CLOCK: its digit's place (0 the units; +16 - +25 a post's)",
-              "BZP_CNDIG       equ 27       ; ...its digits: 0 a pathway node's SIGN (wave 8b, 128.19.5)",
-              "BZP_CNODE       equ 28       ; ...its clock's number - a sign's node",
+              "BZP_CNDIG       equ 27       ; ...its digits, 1 - 3",
+              "BZP_CNODE       equ 28       ; ...its clock's number (kept for the 8b prototype's guest)",
+              "BZ_PK_SIGN      equ %d       ; wave 8R (SPEC.md 128.22.4.1): a SIGN, a lane and nothing else" % PK_SIGN,
+              "BZP_SNUM        equ 28       ; SIGN: its number, the pose's index into bz_nst",
+              "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
+              % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)] + [1]),
               "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
@@ -7770,30 +9000,69 @@ def table_max(courses, lanes):
 
 
 def emit_path(path, courses):
-    """wave 8b (SPEC.md 128.19.5): the pathway's constants and its graph -
-    resident in the package (bzcourse.inc); none without a pathway"""
+    """wave 8R (SPEC.md 128.22.3): the pathway's resident constants -
+    BZ_PATH_NPAD, BZ_PATH_CLAIM, BZ_CRS_MAXCLAIM, the follower's and the
+    signs' constants, and (until the guest's 8R.2 rewrite reads the tables
+    instead) the 8b prototype's BZ_PATH_N, BZ_PATH_CRS and BZ_PATH_EDGES,
+    DERIVED: N = the pads, CRS each pad's course, EDGES (A, E, B) a route"""
+    out = ["; wave 8R (SPEC.md 128.22.4.2): the follower, 8.8 ground px a step (PROVISIONAL)",
+           "BZ_FOL_VMAX     equ %d" % FOL_VMAX, "BZ_FOL_ACC      equ %d" % FOL_ACC,
+           "BZ_FOL_VMIN     equ %d" % FOL_VMIN,
+           "BZ_PAD_POSES    equ %d        ; a pad's sign: 0 OPEN, 1 DONE, 2 SILVER, 3 GOLD" % PAD_POSES,
+           "BZ_GATE_POSES   equ %d        ; a gate's: 0 closed, 1 - 4 sinking, 5 open" % GATE_POSES,
+           "BZ_CAM_FIXED    equ %d        ; BZG1 +30, the camera: 0 the course's, 1 FIXED, 2 PAGED" % CAM_FIXED,
+           "BZ_CAM_PAGED    equ %d" % CAM_PAGED,
+           "BZG_CAM         equ 30       ; BZG1 +30: the camera; +31 NPAGES",
+           "BZG_NPAGES      equ 31",
+           "BZC_PTHOFF      equ 42       ; BZC2 +42: the pathway's tables (0 none); +44 the view's CGA R0 (word),",
+           "BZC_VR0         equ 44       ; +46 its CGA c0, +47 the Hercules' c0 (the Hercules' R0 is R0 >> 1)",
+           "BZC_VC0         equ 46",
+           "BZC_VC0H        equ 47",
+           "BZ_PTH_PADREC   equ %d       ; the tables (SPEC.md 128.22.3): a pad's record" % PADREC,
+           "BZ_PTH_ROUTEREC equ %d        ; ...a route's" % ROUTEREC,
+           "BZ_PTH_KEYREC   equ %d        ; ...a pad's keys: Up, Down, Left, Right" % KEYREC,
+           "; each course's distinct EXITS, hidden ones included (the info card's EXITS n OF m)",
+           "%macro BZ_CRS_NEXITS 0",
+           "    db " + ", ".join(str(len(course_exits(c))) for c in courses),
+           "%endmacro",
+           "BZ_CRS_MAXCLAIM equ %d      ; paragraphs: the largest pathway course's part and its balls' parts"
+           % crs_maxclaim(path, courses)]
     if path is None:
-        return ["BZ_PATH_N       equ 0        ; no pathway (SPEC.md 128.19.5)", ""]
-    names = [c.name for c in courses]
-    crs = []
-    for nd in sorted(path.src.nodes, key=lambda n: n["num"]):
-        if nd["crs"] not in names or nd["crs"] in ("BENCH",):
-            raise CourseError("%s:%d: node %d plays %r, which is not a course of BZ_COURSES (BENCH is none)"
-                              % (path.fname, nd["line"], nd["num"], nd["crs"]))
-        crs.append(names.index(nd["crs"]))
-    edges = [(a, e, b) for (a, e, b, _ln) in path.src.edges]
-    return ["; wave 8b (SPEC.md 128.19.5): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its",
-            "; entry last in every BZ_CRS_ table), part BZPATH.BIN; its nodes' courses and its",
-            "; edges (node, exit, node), three bytes each",
-            "BZ_CRS_PATH     equ %d" % len(courses),
-            "BZ_PATH_N       equ %d        ; nodes, 1 - %d" % (len(crs), NODE_MAX),
-            "BZ_PATH_NEDGE   equ %d" % len(edges),
-            "%macro BZ_PATH_CRS 0",
-            "    db " + ", ".join(str(k) for k in crs),
-            "%endmacro",
-            "%macro BZ_PATH_EDGES 0",
-            ("    db " + ", ".join("%d, %d, %d" % e for e in edges)) if edges else "",
-            "%endmacro", ""]
+        return out + ["BZ_PATH_N       equ 0        ; no pathway (SPEC.md 128.19.5)",
+                      "BZ_PATH_NPAD    equ 0", "BZ_PATH_CLAIM   equ 0", ""]
+    pth = path.pth
+    edges = [(rt["a"], rt["exit"], rt["b"]) for rt in pth["routes"]]
+    return out + [
+        "; wave 8R (SPEC.md 128.22): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its entry",
+        "; last in every BZ_CRS_ table), part BZPATH.BIN; its tables are the part's (PTHOFF)",
+        "BZ_CRS_PATH     equ %d" % len(courses),
+        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PADS),
+        "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
+        "; the 8b prototype's names, DERIVED from the pads and routes until the guest reads the tables",
+        "BZ_PATH_N       equ %d        ; = BZ_PATH_NPAD" % len(pth["pads"]),
+        "BZ_PATH_NEDGE   equ %d        ; the routes" % len(edges),
+        "%macro BZ_PATH_CRS 0",
+        "    db " + ", ".join(str(q["K"]) for q in pth["pads"]),
+        "%endmacro",
+        "%macro BZ_PATH_EDGES 0",
+        ("    db " + ", ".join("%d, %d, %d" % e for e in edges)) if edges else "",
+        "%endmacro", ""]
+
+
+def crs_maxclaim(path, courses):
+    """SPEC.md 128.22.3, 128.22.7: the largest claims a course the pathway
+    plays fetches - its part's RAM form and every ball part it can need (its
+    own ball, its pads' and its flags', bz_cload's set), each claim's
+    paragraphs.  The song's claim is not counted: it replaces the pathway's"""
+    ks = sorted({q["K"] for q in path.pth["pads"]}) if path is not None else range(1, len(courses))
+    best = 0
+    for k in ks:
+        c = courses[k]
+        mats = {c.ball} | {m for m in range(3) if c.padmask & (1 << m)} \
+            | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT}
+        n = (len(c.cga) + 15) // 16 + sum((BA.B2_SIZE[m] + 15) // 16 for m in mats)
+        best = max(best, n)
+    return best
 
 
 def stamp(paths, rec=None):
@@ -7805,8 +9074,15 @@ def stamp(paths, rec=None):
         h.update(name.encode() + b"\0")
         with open(path, "rb") as f:
             h.update(f.read())
+    extra = [DESKTOP_FONT]                       # wave 8R: the pathway's titles' face and its pixmaps
     for p in paths:
+        with open(p, "rb") as f:
+            for m in re.finditer(rb"^\s*icon\s+\d+\s+(\S+)", f.read(), re.M):
+                extra.append(os.path.join(COURSE_DIR, m.group(1).decode("ascii")))
+    for p in paths + sorted(set(extra)):
         h.update(os.path.basename(p).encode() + b"\0")
+        if not os.path.exists(p):
+            continue
         with open(p, "rb") as f:
             h.update(f.read())
         dp = demo_path(p)                       # wave 4: a course's demo source, when it has one
@@ -7864,18 +9140,65 @@ def check_budget(c, k):
     return n
 
 
+def finish_points(c):
+    """every FINISH of a compiled course, as the picture pixel of its centre:
+    [(what, x, y)] - each goal cell's, the cup's (SPEC.md 128.22.6)"""
+    out = []
+    for (wx, wy), t in sorted(c.tiles.items()):
+        if t.kind == KIND_GOAL:
+            out.append(("the goal cell (%d, %d)%s" % (wx, wy, ", exit %d" % t.exit if t.exit else ""),
+                        16 * (wx - wy) + c.x0, 8 * (wx + wy) + 8 - _h4t(t, 8, 8) // 4 + c.y0))
+    for p in c.props:
+        if p["kind"] == PK_CUP:
+            wx, wy = p["at"]
+            out.append(("the cup (%d, %d)" % (wx, wy), 16 * (wx - wy) + c.x0, 8 * (wx + wy) + 8 - p["z4"] + c.y0))
+    return out
+
+
+def finish_clock_rule(c, _hack=None):
+    """SPEC.md 128.22.6, the tool's rule: every finish of a course with a time
+    limit (the clock the finish sequence FLASHES) has a clock whose digit
+    lanes all lie inside a CGA window, 320 x 200 world px, centred on it.  A
+    course with no limit (BENCH, the benchmark) has no clock to flash.  ->
+    the verdict, printed by the selfcheck; refused naming the finish"""
+    if not c.limit:
+        return "%s: no limit, no clock to flash (exempt)" % c.name
+    clocks = {}
+    for L in c.lanes:
+        p = c.props[L["prop"]]
+        if p["kind"] == PK_CLOCK:
+            clocks.setdefault(p["num"], []).append(L["rect"])
+    seen = []
+    for what, x, y in finish_points(c):
+        xa, ya = x - VIEW_W // 2, y - VIEW_H // 2
+        ok = [n for n, rs in sorted(clocks.items())
+              if all(xa <= 8 * bx and 8 * (bx + w) <= xa + VIEW_W and ya <= 8 * by and 8 * (by + h) <= ya + VIEW_H
+                     for bx, by, w, h in rs)]
+        if not ok and "clockrule" not in (_hack or ()) and "clockrule" not in _CHECKS_OFF:
+            raise CourseError("%s: %s has no clock whose digits lie inside the CGA window centred on it (px %d - %d, "
+                              "lines %d - %d): SPEC.md 128.22.6's rule - add a `clock` within reach of it"
+                              % (c.fname, what, xa, xa + VIEW_W - 1, ya, ya + VIEW_H - 1))
+        seen.append("%s clock %s" % (what, ok[0] if ok else "NONE"))
+    return "%s: %s" % (c.name, "; ".join(seen))
+
+
 def compile_all(paths, demo_dir=None, path=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     courses = [compile_course(p) for p in paths]
-    pc = compile_course(path) if path else None    # wave 8b (128.19.5): THE PATHWAY, beside them
-    if pc is not None and pc.src.pathway is None:
-        raise CourseError("%s: --path names a course with no `pathway` statement" % path)
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
+    compile_all.clocks = [finish_clock_rule(c) for c in courses]   # wave 8R (SPEC.md 128.22.6): every finish
+    pc = None
+    if path:                                       # wave 8R (128.22): THE PATHWAY, beside them
+        with open(path, encoding="ascii") as f_:
+            if not re.search(r"^\s*pathway\b", f_.read(), re.M):
+                raise CourseError("%s: --path names a course with no `pathway` statement" % path)
+        pc = compile_course(path, crsinfo=[(c.name, c.title) for c in courses])
+        compile_all.proofs = path_proofs(pc, courses)
     for k, c in enumerate(courses):
         c.packed4 = check_budget(c, k)
     files = {}
@@ -14495,6 +15818,22 @@ def _course_list(paths):
             m = re.search(r"^\s*course\s+([A-Z0-9]{1,5})\b", f.read(), re.M)
         out.append((m.group(1) if m else None, p))
     return out
+
+
+@functools.lru_cache(maxsize=None)
+def _course_info_t(paths):
+    out = []
+    for p in paths:
+        with open(p, encoding="ascii") as f:
+            m = re.search(r'^\s*course\s+([A-Z0-9]{1,5})\s+"([^"]*)"', f.read(), re.M)
+        out.append((m.group(1), m.group(2)) if m else (None, None))
+    return out
+
+
+def _course_info(paths):
+    """[(NAME, title)] of every course in BZ_COURSES's order, from the `course` lines alone (the
+    pathway's pads' courses, SPEC.md 128.22.2)"""
+    return _course_info_t(tuple(paths))
 
 
 # 128.16.5.4's figures (as built by wave 6, rule 4 exactly): --tune prints a trial against them
