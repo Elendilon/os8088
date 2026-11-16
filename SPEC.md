@@ -256358,7 +256358,7 @@ exactly planar: its slopes are `(r, 0)` for `x`, `(0, r)` for `y` and
 | `floor` ramp | FLOOR, a plane | the finer 2 x 2 checker that reads as a slope |
 | `wall` | WALL: impassable from every side and at every height - the ball's circle never enters it, so it is never landed on or rolled along (a mini-golf rail). Its top must be above every floor that shares an edge with it, or the line is refused: a wall must look like one | white top |
 | `goal` | GOAL: a floor whose every grounded step, at any speed, ends the run - a FINISH LINE. Plan 8's cup, which captures only a slow ball, is wave 4's | the black and white finish checker |
-| (no room, or `hole`) | VOID: no floor; the ball falls. A VOID cell within two tiles of a solid cell is NEAR and kills below a height; farther it is OPEN (128.10.4.3) | nothing; the neighbours' faces hang 3 units (24 px) into it |
+| (no room, or `hole`) | VOID: no floor; the ball falls. A VOID cell within two tiles of a solid cell is NEAR and kills below a height; farther it is OPEN (128.10.4.3) | nothing; the neighbours' faces hang into it - 3 units (24 px) until 128.27, down to the course's GROUND plane since (a `float` cell's still 3 units) |
 
 `start` is not a kind of cell but a point: the centre of its tile. `way` is
 only meaningful in the benchmark's course.
@@ -256445,6 +256445,11 @@ those numbers rather than estimates.
 Tiles are drawn back to front exactly as 128.3's generator does (sorted by
 `(wx + wy, wx)`; each tile's two front faces down to its lower neighbour or
 3 units into the void, then its top; black outlines), into a picture
+*(Amended by 128.27, the owner's decision of 2026-11-16: a face over the
+void hangs down to the course's GROUND plane - its lowest floor less 3
+units - and only a cell a `float` statement names keeps the 3 units. The
+kill height of a NEAR void, 128.10.4.3's own "3 units", is NOT this rule
+and does not move.)*
 `width x 8` px wide. While it draws, the renderer keeps for every pixel the
 CELL whose geometry drew it last and that geometry's height there: the
 per-pixel `(s, top)` buffer the occluders are cut from (128.10.4.4).
@@ -267696,6 +267701,14 @@ form's offsets.
 
 #### 128.15.8 The course budget (story 5b.4)
 
+*Amended by 128.27.5 (the owner, 2026-11-16): the 1.5 x line below is
+REPORTED, never refused, and the twenty-courses-on-one-360KB-disk goal it
+was sized for is no longer binding - "we wanted to hit 'seconds per course
+for one 360k disk for 20 courses' but it is very obvious that is not going
+to happen now. So that limit is the thing wrong; we'll end up with less
+courses, or two disks." The `target` statement, the budget's arithmetic
+and the 65,024-byte RAM refusal stand.*
+
 **The `target` statement**: `target 30|60|90`, the course's design time in
 seconds (CD3).
 - Required on every course except course 0 (the benchmark's), and refused
@@ -267946,6 +267959,8 @@ cycle counter:
 owner, 2026-11-14: "'a second Worlds disk': I'd prefer not, but we can see
 what we need in the end. 20 is a rough want, too; it could be 19, or 18
 total."
+- *Amended by 128.27.5 (the owner, 2026-11-16): the one-disk target below
+  is no longer binding - "we'll end up with less courses, or two disks."*
 - **The target is 18 - 20 courses on ONE disk**, `bonanza360.img`. With
   LZB parts the CD3 set of twenty needs about 206 KiB against `ROOM`'s 239
   (the report's section 7), so it fits; with LZ4 parts it needed about 253
@@ -275244,6 +275259,10 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   its finish clocks. Any other identity is still an earlier build's demo,
   refused (`--selfcheck` item 9; the re-stamp's two red controls: a clock on
   PEAK's route, and PEAK with a `way` added - MOON's until wave D5).
+  *Retired with its last user in 128.27.8: the grounded faces moved every
+  identity, PEAK's demo was written again by `bbcourse.py author` on its
+  course, and `CLOCK_RESTAMP` / `CLOCK_BARE` are empty; the selfcheck item
+  now holds every shipped demo to its course's own identity.*
 - **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
@@ -278208,3 +278227,235 @@ door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
 `F or Alt+Enter: window`, `Esc map or quit`, and last `Contributed by
 Elendilon` (the owner, 2026-11-16: the description line goes - launching
 the game says what it is).
+
+### 128.27 Grounded faces (the owner's decision, 2026-11-16)
+
+Until now every face over the void hung **3 units** (24 px, the tool's
+`FACE8`) below its tile, so every course read as a set of thin slabs
+floating in the dark, however it was built. The owner asked for the
+alternatives priced (a fixed depth, the lowest floor nearby, one ground
+plane a course, a dithered fade; the diary's entry of the same day has
+the table) and chose **one ground plane a course** as the default look,
+with floating kept for the tiles a course means to float. Everything here
+is the course tool's picture: **no guest code changes** (the row, column
+and box writers copy every block whatever it holds, and the occluder
+pass's gate is per cell), **no physics constant moves** (`BZ_PHYSV`
+stays B1h) and the NEAR void's kill height is untouched. Figures are
+MEASURED on the host by `tools/bbcourse.py` unless marked.
+
+#### 128.27.1 The rule
+
+- **The GROUND plane** of a course is its **lowest floor less 3 units**:
+  `ground = 4 x min(every corner of every solid record) - FACE8` px - a
+  whole cell's plane or a half's or quarter's (128.24.3), a WALL's and a
+  GOAL's included, a GLASS tile's (128.25.18) and a pathway's SECRET
+  route's tiles (128.22.4) counted though neither is drawn at first, so a
+  reveal draws to the same plane. One a course, so every column of it
+  stands on one floor (`ground_z`).
+- **A face over the void** - a whole cell's `sw` or `se` face with no
+  record across that edge, a split piece's (128.24.6.1) cell-edge face
+  likewise, and a piece's FRONT face with no piece in front - hangs from
+  its top edge down to `min(top - 3 units, ground)` at each of its two
+  ends: to the ground, and never less than the 3 units it had. A face over
+  a LOWER neighbour hangs to that neighbour as before.
+- **A FLOATING cell** (128.27.2) keeps today's faces: `top - 3 units`.
+- The painter's order (128.3, 128.24.6.2) is unchanged, so a grounded
+  column in FRONT of a floating tile simply covers its lower part, and a
+  grounded column BEHIND one shows under the floating tile's short face:
+  both are what the order draws, and neither needs a rule.
+
+So `FIRST` (floors 0 - 6 units) grounds at -3; `MILL` at -7 (its lift's
+foot at -4); `MOON` and `PEAK` at 10 (their lowest floor 13); `TRIAL` and
+the title at -1; the `PLAYGROUND` at -11, its basin being 12 units under
+the apron; `BENCH` at 11.
+
+#### 128.27.2 Floating: the `float` statement
+
+    float    <shape>             the cells of the shape FLOAT: their faces over the void hang 3 units
+
+- **The shape** is any of 128.10.3's and 128.24.4's (`tile`, `rect`,
+  `band`, `box` with its `chamfer`), and it names **whole CELLS**: a split
+  cell inside it floats every piece, because a cell's faces are drawn
+  together. A `half` or `quarter` clause is refused (`float takes whole
+  cells`).
+- It marks cells by POSITION, after every room and hole, wherever it
+  stands in the file; a later `hole` that empties a cell leaves nothing to
+  float there.
+- **Refused**: anything after the shape (`float takes a shape and nothing
+  else`), a missing shape, and a `float` none of whose cells hangs a face
+  over the void - a cell inside a field, or a shape on the void alone
+  (`float floats nothing`): a statement that changes no pixel is a mistake,
+  not a no-op.
+- It is the PICTURE's alone: no grid byte, no physics, no route.
+- **Shipped once**, on the `PLAYGROUND`: its diagonal section's chamfered
+  platform, a dead end out over the void, `float box 9 23 69 81 chamfer 2`
+  (73 cells, its 45-degree edges' front faces among them), so the
+  statement is exercised and previewed. Without it the platform's sides
+  would drop 13.5 units to the basin's ground and the picture would grow
+  40 lines.
+
+#### 128.27.3 Everything else that draws down into the void
+
+- **A tube's body** (128.12.6.1, `deep`): its rule lowers a body wall's
+  face over the void to its other face's depth at their shared corner, so
+  a pipe standing on a lower tier reads as one column. On a grounded cell
+  the void face is already at the ground, the lowest a face can reach, so
+  the rule never fires there; it still does on a FLOATING tube wall.
+  `--selfcheck` item 3 holds both looks (128.27.6).
+- **A split cell** (128.24.6): its pieces' cell-edge faces and FRONT faces
+  ground like a whole cell's; the TB lines inside it draw no face. The
+  `PLAYGROUND`'s lane and platform and `MOON`'s coast were looked at on
+  both cards.
+- **Exit mouths and the windmill's doorway** (128.14.20) are cut into a
+  wall's face; a deeper face is a taller face, and `--selfcheck` item 3's
+  arch and mouth checks pass unchanged.
+- **The lift** (128.12.5): its slab and shaft are drawn by the prop, not
+  by a face; nothing changes there. Its shaft cells stay the NEAR void the
+  slab's kill height names.
+- **GLASS** (128.25.18): the picture is drawn as if the glass tile were
+  absent, so its neighbours' faces over the gap now reach the ground too:
+  an invisible bridge over a chasm, which is what glass is.
+- **The pathway and the title** ground like any course (the pathway's
+  rail and the title's terrace grow a few lines of face); their windows and
+  pages do not move.
+- **The ball falling past the kill height** (the finish sequence's fall,
+  a fall into the void) may now draw over a deep face below it: the ball
+  dithers out as it falls, and the owner has **accepted** that (2026-11-16)
+  - no ordering rule is added.
+
+#### 128.27.4 What does not change
+
+- **The grid's physics bytes**: every course's `G`, `C`, `D`, route and
+  props, decoded with their offsets normalised, are byte-identical before
+  and after (MEASURED) - except **five cells of the `PLAYGROUND`** whose
+  flags gain `OCCG` (128.11.10): the basin's back corner, (24, 24) -
+  (26, 25), where a grounded ball can now be hidden behind the brake strip's
+  column, which really does stand there now. `OCCG` gates the shadow and
+  the occluder pass, never a step of physics. A lane's props words differ
+  only in its block indices (the block pool moved).
+- **The kill height** of a NEAR void is 128.10.4.3's own "3 units under
+  the lowest solid cell within two tiles" and is a separate constant from
+  `FACE8`; it does not move.
+- **The authored demos replay step for step**: written again by
+  `bbcourse.py author`, `moon.bzd`, `summit.bzd` and `playground.bzd`
+  differ from their old files in their `ident` line alone (128.27.8).
+- **`BONANZA.O88`'s image** (the resident code and data, its bss): the
+  same code at the same size, 46,957 bytes, its bss unchanged; 23 bytes
+  differ, all of them `bzcourse.inc` constants the tool writes: the
+  identity table `BZ_CRS_IDS` (128.15.7), the tour's XOR `BZ_CRS_TOURX`
+  (128.22.5) and `BZ_CRS_MAXCLAIM`, 3,104 -> 3,168 paragraphs (PEAK's RAM
+  form grew, so the pathway keeps its part only beside 1KB more free heap,
+  128.22.3) (MEASURED: the image assembled against the old `bzcourse.inc`
+  and compared byte for byte).
+
+#### 128.27.5 The course budget, reported (amends 128.15.8)
+
+128.15.8 sized the budget for "20 courses on one 360KB disk" and refused a
+course over 1.5 x it. Grounded `MILL` packs to 9,508 bytes LZ4 against its
+9,412 line, and the owner's verdict (2026-11-16) is that the line is what
+is wrong: *"we wanted to hit 'seconds per course for one 360k disk for 20
+courses' but it is very obvious that is not going to happen now. So that
+limit is the thing wrong; we'll end up with less courses, or two disks."*
+There is **no per-course opt-out** statement; instead:
+
+- the 1.5 x line is **REPORTED, never refused**: the build's course line
+  prints `budget N, 1.5x M` and `under`, `over the budget by D` or `OVER
+  1.5x by D`; `--sizes` prints the same (`OVER 1.5x`), the set's line
+  against `ROOM` likewise as information;
+- `target 30|60|90` stays required (course 0 excepted) and its refusals
+  stand; `ROOM`, `PLAN_SECS` and `budget(t)` stay as the report's
+  arithmetic;
+- **the hard refusals that protect correctness stay**: a RAM form over
+  65,024 bytes (20.12.11), the occluder bounds (128.11.4.2), and every
+  check the run makes on what it wrote (128.10.4);
+- the twenty-courses-on-one-disk goal of CD3 and 128.15.9's "one disk" is
+  no longer binding; whether a second disk comes is the owner's when the
+  set is known. Today's disk: 128.27.7.
+
+#### 128.27.6 The checks (`--selfcheck`)
+
+- **Item 14, GROUND** (new): a course made for it (`GROUND_TEST`, a field
+  at 0 and an island 6 units up across the void) - the island's `sw` face
+  ends on the ground's line (191), and with `float rect 12 4 15 7` on
+  line 143, 3 units under its top; every face over the void of the course
+  and of its floating twin on its line, each read off the drawn face's
+  spans against the corners' heights. Negative controls: the floating twin
+  read as grounded, and the course with the rule off read as grounded, are
+  both caught. Then every shipped course's faces over the void, floating
+  and grounded, held to the rule, and the `PLAYGROUND` ships a `float`.
+- **Item 2**: `float`'s refusals - a half, a height after the shape, no
+  shape, a field cell, the void.
+- **Item 1's cross-commit check** (128.16.13): wave 5b's tool has no
+  ground plane, so this tool compiles its side with the rule off
+  (`_hack` `noground`, every face 3 units) and the parts are still that
+  tool's byte for byte - which also proves the rule touches nothing but
+  the faces.
+- **Item 3's tube column** holds the course's own look (no bite) AND the
+  floating look with the `deep` rule (no bite), and its negative control is
+  the floating look without the rule (bitten).
+- **Item 12** (the budget): PEAK as a 30 s course is over its 1.5 x line
+  and is ACCEPTED, its note saying `OVER 1.5x`; each course's line passes
+  on its RAM form under 65,024.
+- **Item 8R's re-stamp** is retired (128.22.6, 128.27.8): the item holds
+  every shipped demo to its course's own identity.
+- **Red arms**, each run on a patched copy of the tool (MEASURED red): the
+  float ignored (item 14's island and floating twin), the ground rule
+  removed (item 14's island and course), `float floats nothing` removed
+  (item 2's two cases), the `half` refusal removed (item 2), and the 1.5 x
+  refusal put back (item 12's PEAK).
+
+#### 128.27.7 Bytes (MEASURED, `bbcourse.py` at 38d7a1f and after)
+
+Each course's part: its RAM form, its STORED form packed both ways, its
+picture's lines and its occluder records.
+
+| course | RAM | LZ4 | LZB | lines | records |
+|---|---|---|---|---|---|
+| `BENCH` | 40,410 -> 40,156 (-254) | 7,648 -> 7,607 (-41) | 6,083 -> 6,011 (-72) | 1,040 | 2,643 -> 2,660 |
+| `FIRST` | 10,234 -> 10,140 (-94) | 2,726 -> 2,693 (-33) | 2,219 -> 2,194 (-25) | 296 | 290 -> 291 |
+| `TRIAL` | 16,944 -> 16,880 (-64) | 4,680 -> 4,636 (-44) | 3,834 -> 3,798 (-36) | 448 | 707 |
+| `MILL` | 29,804 -> 29,970 (+166) | 9,406 -> 9,508 (+102) | 7,698 -> 7,775 (+77) | 648 | 1,257 -> 1,279 |
+| `MOON` | 43,096 -> 43,084 (-12) | 10,157 -> 10,204 (+47) | 8,293 -> 8,309 (+16) | 1,040 | 2,489 -> 2,535 |
+| `PEAK` | 47,056 -> 48,122 (+1,066) | 12,552 -> 12,630 (+78) | 10,319 -> 10,310 (-9) | 1,080 -> 1,136 | 2,996 -> 3,079 |
+| `PLAY` | 44,632 -> 44,700 (+68) | 8,823 -> 8,939 (+116) | 7,152 -> 7,239 (+87) | 672 | 1,691 -> 1,728 |
+| the pathway | 24,278 -> 24,286 (+8) | 8,501 -> 8,498 (-3) | 7,240 -> 7,233 (-7) | 480 | 452 -> 454 |
+| the title | 30,812 -> 30,804 (-8) | 7,720 -> 7,700 (-20) | 6,304 -> 6,285 (-19) | 488 | 933 -> 943 |
+| **the tour, 1 - 6** | 191,766 -> 192,896 (+1,130) | 48,344 -> 48,610 (+266) | 39,515 -> 39,625 (+110) | | |
+
+- A taller face is often FEWER blocks: a column's interior repeats, and the
+  pool shares it (`FIRST`, `TRIAL`, `MOON` lose blocks).
+- `PEAK` is the one course whose picture grows (+56 lines, +1,066 bytes of
+  RAM, 16,902 bytes under its part's 65,024); the `PLAYGROUND` would have
+  grown 40 lines without its `float`.
+- The most records in a block, a block row and laid at a position are
+  each course's as before (no bound moved; MEASURED by the build's report).
+- **The disk**: `BONANZA.O88` 115,764 -> 115,796 bytes (+32, LZB parts);
+  `bonanza360.img` **122 of 354 clusters before and after**, 232 free
+  (MEASURED: `make bonanzadisk`, and the old parts packed by the same
+  `os88pkg` command onto the same disk).
+
+#### 128.27.8 The demos, written again
+
+The identity (128.15.7) is a checksum of the whole RAM form, picture
+included, so every course's identity moved, and every shipped demo whose
+`ident` names its course failed `check_demo` (MOON's first: `identity
+ADADh, the course's 3E19h`). All three are AUTHORED demos (128.14.7.4)
+and were written again by the sanctioned path, `python3 tools/bbcourse.py
+author <course>`: `moon.bzd` 3E19h, `summit.bzd` AFB8h, `playground.bzd`
+26ACh - the same runs and steps as before (1,983, 2,172 and 1,504), only
+the `ident` line moving, which is the replay's own proof that no physics
+moved. The route demos (FIRST, TRIAL, MILL) are made by every build and
+need nothing; the title's `.bzt` demos carry no identity (128.23.3).
+PEAK's demo was the last one recorded on its pre-clock course and shipped
+re-stamped (128.22.6); written again on its course, it carries the
+course's identity, and the re-stamp has no user left.
+
+#### 128.27.9 The rows
+
+No guest code changed, so the emulator rows run the new PARTS, not new
+code: `bonanzacourse` (the selfcheck above) and `bonanzaassets` on the
+host; `bonanzaring` (the oracle against the card, every course's picture
+and occluders), `bonanzaphys` and `bonanzareplay` (the demos and the
+model, identities included), `bonanzaperf` (the frame cost: PEAK's picture
+grew 56 lines), `bonanzawheel` (MILL), `bonanzapath` and `bonanzamega`
+(kern_mega's Hercules) - named, run in the final pass.
