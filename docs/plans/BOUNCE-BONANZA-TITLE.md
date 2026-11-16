@@ -170,6 +170,11 @@ A box is ticked only for what was built AND checked as its line says.
 
 ### Wave T5: the rows and the final pass
 
-- [ ] **T5.1** `bonanzatitle` (new), the selfcheck controls, the music row's
-      length check.
+- [x] **T5.1** `bonanzatitle` (new), the selfcheck controls, the music row's
+      length check. *MEASURED PASS on both cards (CGA 26.3 s); red arm `view`
+      red at check 2 (the window (0, 36), not (64, 51)). The selfcheck's item
+      13 and its four controls pass on the host; the music check goes red on
+      a groove of 6 6. The rows the title changed: `bonanzapath` goes through
+      the title (Enter, P), `bonanza_sound`'s FIRST is F, and the harness counts
+      the title's two rows after the shell's (`after_shell`, `path_ident`).*
 - [ ] **T5.2** The final pass: the deduplicated BONANZA rows once.
