@@ -1,8 +1,8 @@
 # BOUNCE BONANZA: diagonal tiles (half tiles)
 
-*The contract is SPEC.md 128.24 (D1 - D3 BUILT); where this plan and it disagree, it
+*The contract is SPEC.md 128.24 (D1 - D5 BUILT); where this plan and it disagree, it
 wins. Item 8R.15 of [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md)'s wave 8R
-table points here. D1 - D3 are built (ticked below); D4 - D5 are not.*
+table points here. D1 - D5 are built (ticked below); D5.4, the owner's play, is open.*
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -113,10 +113,10 @@ part now carries GF_SPLIT and kinds 4/5: D3's loader must accept them on the pat
 
 | # | story | verified by |
 |---|---|---|
-| D5.1 | **PLAYGROUND's diagonal section** (Q8): a straight-up lane with rails, a 45-degree course edge, a diagonal step with its front face, a lane that climbs (`ramp s`); `playground.bzd` written again | the build; `--selfcheck` |
-| D5.2 | **The look**: MartyPC, CGA and Hercules, through `tools/os88ui.py`; the front face, the edge line, the rail's ends (Q2) | screenshots cropped and zoomed for the owner |
-| D5.3 | **MOON's coast** (Q8): its straight (`floor band 0 6 48 70` between `wall band -2 -1 48 70` and `wall band 7 8 48 66`) rewritten as a `box` with straight rails; the authored demo, which meets the left rail's zigzag at a corner on every cell from (27, 26) to (31, 30), written again (`bbcourse.py author`); its NO TRAP and exits re-proved | the build's demo check; `--selfcheck`; the model's corner contacts on the coast 0 (MEASURED today: 40 corner contacts over the demo) |
-| D5.4 | **The owner plays it**: the rail's feel, `BZ_DWMIN`, the lane's width, the step | the diary |
+| D5.1 [x] | **PLAYGROUND's diagonal section** (Q8): a straight-up lane with rails, a 45-degree course edge, a diagonal step with its front face, a lane that climbs (`ramp s`); `playground.bzd` written again | the build; `--selfcheck` - **DONE (SPEC.md 128.24.14)**: off the apron's right end, a 32 px lane straight down the screen between straight 16 px rails, a unit's `ramp s`, a half-unit diagonal step with its front face, a `chamfer 2` platform with four straight 45-degree edges; no quarter (every box number odd), 49 split cells; off every route; `playground.bzd` the same runs (its `ident` line moved); `--selfcheck` ok, `make bonanzadisk` ok |
+| D5.2 [x] | **The look**: MartyPC, CGA and Hercules, through `tools/os88ui.py`; the front face, the edge line, the rail's ends (Q2) | screenshots cropped and zoomed for the owner - **DONE**: both cards, the lane, a rail slide and MOON's coast old and new (`dcourse-*.png` in the round's logs, outside the tree), seen through D of scratch logs and MOON's demo; the frame cost MEASURED against the same geometry in whole cells (SPEC.md 128.24.14's table). The inks are the owner's to judge |
+| D5.3 [x] | **MOON's coast** (Q8): its straight (`floor band 0 6 48 70` between `wall band -2 -1 48 70` and `wall band 7 8 48 66`) rewritten as a `box` with straight rails; the authored demo, which meets the left rail's zigzag at a corner on every cell from (27, 26) to (31, 30), written again (`bbcourse.py author`); its NO TRAP and exits re-proved | the build's demo check; `--selfcheck`; the model's corner contacts on the coast 0 (MEASURED today: 40 corner contacts over the demo) - **DONE**: `floor box -1 7 48 71`, `wall box -3 -1 48 71`, `wall box 7 9 48 67`, laid before the corridor; the demo 2,130 -> 1,983 steps, the coast's corners 9 -> 0 (the demo's 40 -> 25), the autopilot's 8 -> 0; limit 55 s, medals moved with the route, the clock rule, NO TRAP and the finishes' reach green |
+| D5.4 [ ] | **The owner plays it**: the rail's feel, `BZ_DWMIN`, the lane's width, the step | the diary |
 
 ### The final pass
 

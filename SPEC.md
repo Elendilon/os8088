@@ -270735,17 +270735,19 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   course's clock stood by its start); the clocks added are listed in the
   8R.1 report and the courses' files. A shipped demo recorded on its course
   as it was BEFORE the finish clocks (its identity that one, listed in the
-  tool's `CLOCK_RESTAMP`: MOON 5E25h, PEAK 0562h, PLAY 9D5Eh) whose replay
+  tool's `CLOCK_RESTAMP`: PEAK 0562h - MOON's 5E25h and PLAY's 9D5Eh left
+  it when wave D5 wrote their demos again on their diagonal courses,
+  128.24.9) whose replay
   never meets a clock ships with the BUILD's identity re-stamped (the build
   prints it), never re-recorded - when BOTH hold (`clock_restamp`): the
   course's source with its trailing `clock` statement(s) left out IS that
-  course (its no-occluder identity the tool's `CLOCK_BARE`: MOON EA00h,
-  PEAK 6814h, PLAY D8A8h - so a course edited any other way is never
+  course (its no-occluder identity the tool's `CLOCK_BARE`: PEAK 6814h
+  - so a course edited any other way is never
   re-stamped, however its demo replays), and the ball's state every step
   and the events' kinds and steps are the same on it and on the course with
   its finish clocks. Any other identity is still an earlier build's demo,
   refused (`--selfcheck` item 9; the re-stamp's two red controls: a clock on
-  MOON's route, and MOON with a `way` added).
+  PEAK's route, and PEAK with a `way` added - MOON's until wave D5).
 - **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
@@ -271304,7 +271306,7 @@ the sketch, and the built course is a different shape):
   desktop with the claims as before the bracket. Red arm `--red view` (the
   fixed camera ignored) red at the window check.
 
-### 128.24 Diagonal tiles (D1 - D3 BUILT; D4 - D5 PLANNED)
+### 128.24 Diagonal tiles (D1 - D5 BUILT; the owner's play, D5.4, open)
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -271352,9 +271354,14 @@ goal and step 2's slopes by the picked record; `bonanza.asm`: the CELLS
 rules by records and a hostile part's offsets bounded; the guest equals the
 model step for step under unicorn, `tests/bonanza_dsplit.py`; priced in
 128.24.7.6 and 128.24.10), and the tool's refusal of a split cell in a
-`BZ_COURSES` file (`GUEST_SPLIT`) is gone. No shipped course uses one yet
-(D5's PLAYGROUND is the first): every shipped part is byte for byte what it
-was (identities unchanged). Where
+`BZ_COURSES` file (`GUEST_SPLIT`) is gone. **D5, the first courses - BUILT**
+(128.24.14): PLAYGROUND's DIAGONAL SECTION (a lane straight down the screen
+between straight rails, a ramp, a diagonal step with its front face, a
+chamfered platform with straight 45-degree edges) and MOON's COAST as
+`box`es, both demos written again, looked at on MartyPC's CGA and Hercules
+and their frames priced on the glass against the same geometry in whole
+cells. Before D5 no shipped course used a split cell and every shipped
+part was byte for byte what it was (identities unchanged). Where
 building found this contract wrong it says so at the place ("BUILT ... a
 finding"): no clamp in 128.24.7.2, the radial corner never on a straight
 wall's face in 128.24.7.4.
@@ -271980,7 +271987,10 @@ cell.
   window step is +1.8k (whole centre) to +5k (a halved centre), about 6% of
   a CGA frame (79.6k): no frame-rate argument yet, but **a long lane of
   halved cells is the case to measure on the glass** (D5's PLAYGROUND,
-  `bonanzaperf`); the cheapest further buys are the edge loop unrolled
+  `bonanzaperf`: MEASURED in 128.24.14 - +2.2k clk a frame's simulation
+  down a lane of halves against the same lane in whole cells, no missed
+  refresh on either card but one landing frame with the speaker on); the
+  cheapest further buys are the edge loop unrolled
   (about +80 bytes for 0.2k) and one pick a step held for step 6 and 8.
 
 #### 128.24.8 The pathway
@@ -272027,6 +272037,14 @@ crosses its middle; no GOAL half is needed for it.
   laid as halves. It carries no demo.
 - **A course that USES halves** moves its own identity the day it does, and
   its authored demo, if it has one, is written again (PLAYGROUND, story D5).
+  BUILT (D5, 128.24.14): PLAYGROUND (identity EBD8h) and MOON (ADADh) moved,
+  and `playground.bzd` and `moon.bzd` were written again by `bbcourse.py
+  author` on them - PLAYGROUND's the same runs and 1,504 steps (only its
+  `ident` line moved: its demo never reaches the section), MOON's 2,130 ->
+  1,983 steps (the coast no longer bounces it). Both now carry their
+  courses' own identities, so `CLOCK_RESTAMP` / `CLOCK_BARE` keep PEAK
+  alone and the clock rule's re-stamp check and its two red controls run on
+  PEAK's demo (128.22.6).
 - BUILT (D2.4): `PHYS_REV` 12, `DIAG` and `DWMIN` in `PHYS_CONSTS`,
   `split_tables()` (OWNER, RAYS with their quarters, K_RECS) in
   `phys_tables`; **`BZ_PHYSV` 21h -> B1h**, 21h appended to
@@ -272153,6 +272171,12 @@ crosses its middle; no GOAL half is needed for it.
   --price`, 128.24.7.6's BUILT table); the glass measurement wants a
   shipped split course (D5's PLAYGROUND lane) in the row's legs.
 - **`bonanzademo`**, **`bonanzagame`**: the re-authored demos replay.
+- D5 (128.24.14): the shipped split courses now exist - MOON's coast (its
+  demo crosses it) and PLAYGROUND's section (no demo reaches it). The rows'
+  glass legs that waited on them (`bonanzaphys`'s replay down the lane and
+  along a rail, `bonanzaexit`'s claim leg on a split course, `bonanzaperf`'s
+  lane frames) are NOT written: D5 measured the frames with scratch logs
+  (128.24.14's table) and names the rows; they are the final pass's.
 
 #### 128.24.12 Open questions for the owner, and the owner's answers (2026-11-16)
 
@@ -272190,7 +272214,8 @@ autopilot make at most one such contact (PEAK's demo one, at (41, 37)) and
 none along a straight. As `box`es (`floor box -1 7 48 71`, `wall box -3 -1
 48 71`, `wall box 7 9 48 67`) the coast is a straight lane between straight
 rails, and the ball slides along them (128.24.7). Wave D5's second course;
-it is NOT changed in D1 - D2.
+it is NOT changed in D1 - D2. **BUILT (D5.3, 128.24.14)**: exactly those
+three boxes, and the demo's radial corners on the coast are 0.
 
 #### 128.24.13 Channels: the next core tile type (RESERVED, not built)
 
@@ -272213,6 +272238,102 @@ V in the cross direction, the slope term of 128.11.8.2's step 2 its
 derivative), and its lips are edges the ball rolls over. Kinds 8 - 15 stay
 reserved for 128.10.4.3's other non-planar floors. Not designed further
 here: the owner's next design question.
+
+#### 128.24.14 The first courses: PLAYGROUND's diagonal section and MOON's coast (D5, BUILT)
+
+**PLAYGROUND (D5.1, `apps/bonanza/courses/playground.bbc`).** The
+DIAGONAL SECTION hangs off the apron's right end, where nothing ran before
+(off every route and the demo; the step ladder's rungs, the brake strip
+and the basin untouched): a LANE straight DOWN the screen, `box 15 17`
+(32 px), between two 16 px straight RAILS (`box 13 15`, `box 17 19`, 1.5
+units over the lane beside them), stepping down as it goes - level at the
+apron's 4, a unit's RAMP (`ramp s 57 59 4 3`), level at 3, a half-unit
+diagonal STEP at s 67 whose FRONT face is a 4-line ledge - onto a
+CHAMFERED PLATFORM (`floor box 9 23 69 81 chamfer 2 flat 2.5`, 224 x 96
+px) whose four sides are straight 45-degree course EDGES over the void;
+the funnel from the apron (s 49 - 55) is open both sides. Every box number
+is odd, so no cell is quartered: 49 split cells (35 TB, 14 LR). A dead end
+on purpose: a half unit rolls up and the ramp's unit wants speed, so the
+way back is RETURN or the edge (NO TRAP is a flag's and a pad's, 128.14.4.1:
+unchanged). The demo's script and runs are unchanged (it never reaches the
+section); the course and its demo's `ident` line moved (EBD8h).
+
+**MOON (D5.3, `apps/bonanza/courses/moon.bbc`).** The coast is the three
+boxes of 128.24.12's Q8 paragraph - `floor box -1 7 48 71`, `wall box -3
+-1 48 71`, `wall box 7 9 48 67` - laid BEFORE the zig-zag corridor, so the
+corridor and the ramp keep their whole cells where the box's top edge (s
+48) crosses them (laid after, the ramp's cell (24, 23) was split under
+the route's way and refused). 50 split cells (41 TB, 6 LR, 3 quartered:
+the rails' square ends). The top edge gains two floor halves and the
+rails' square tops; the bottom-left edge is now straight (an LR edge with
+its front face) where the band stood a whole cell; between the right
+rail's end and H a floor half where there was a notch of void. The demo,
+written again with the same AUTHOR script: **2,130 -> 1,983 steps**
+(36.3 s), a fall, a RETURN and three pads as before; **the coast's radial
+corners 9 -> 0** and its edge contacts 1 -> 0 (one corner RAY at its top,
+step 952); over the whole demo 40 -> 25 corners. The autopilot's route
+2,031 -> 1,870 steps (its coast corners 8 -> 0). The limit stays 55 s
+(3,025 steps); the medals the tool derives moved with the route, G 2,365
+-> 2,200 and S 3,025 -> 2,805 steps; the clock rule (the cup's clock),
+NO TRAP from every flag and pad, every finish reachable with its clocks
+and the clock off the routes: `--selfcheck` green.
+
+**The tool** (`tools/bbcourse.py`, selfcheck only): item 3's BZG1 +28
+check expects `GF_SPLIT` exactly when a cell is split; item 1's chain to
+`503031d4`'s parts leaves out a course with a split cell (that tool has no
+`box`), as it leaves out the PLAYGROUND; the clock rule's re-stamp check
+runs on PEAK (128.24.9).
+
+**Bytes** (MEASURED, `make bonanza`): the package's image and bss are not
+changed by D5 (42,384 / 10,846 with the D3 verify's +24 / +1). The
+courses' parts, RAM and LZB-packed: MOON 42,282 -> 43,096 (+814) and
+7,886 -> 8,293 (+407); PLAYGROUND 35,636 -> 41,798 and 4,650 -> 6,215
+(the whole section is new). The same section with every piece rounded out
+to whole cells (the A/B's ZIGZAG twin below) is 42,180 RAM and 6,429
+packed: **the halves are 382 bytes of RAM and 214 packed SMALLER** than
+the zigzag they replace (a narrower lane, fewer cells and occluder
+records), D's 8 bytes a halved cell included. `moon.bzd` 624 -> 616.
+
+**The look** (MartyPC, `os8088_5150_cga_gla` and `_herc_gla`, the demo
+and two scratch logs through D, the glass at chosen steps): the lane's
+rails as straight white columns with the black EDGE LINE down each TB
+diagonal on the rail's side, the rails' ends and the step hanging their
+dotted FRONT faces, the ramp's checker, the platform's straight sides and
+chamfered corners; MOON's coast between straight rails. The inks follow
+the half's pattern (Q2); the owner judges them on the glass (D5.2).
+
+**The price on the glass (MEASURED, D5, PERFORMANCE.md Part 3's harness:
+`bonanza_perf.measure`'s logged breakpoints, D of a log, MartyPC's guest
+cycles; two runs a figure, the speaker OFF then at S's AUTO).** Each
+course is measured against the SAME geometry in whole cells: MOON's
+shipped course before D5 (its own demo), and for the lane a ZIGZAG twin
+built for the A/B only (`floor band 15 17`, rails `band 13 14` /
+`band 18 19`: the pieces rounded out, as MOON's coast was), rolled by the
+same autopilot route down the lane's middle. Frames whose steps the model
+puts on the section (busy = the frame less the retrace wait and the
+wheel; refresh CGA 79.6k clk, Hercules 93.9k):
+
+| | whole cells | halves | |
+|---|---|---|---|
+| MOON's coast, CGA, busy mean / p95 / max (OFF) | 36.6k / 54.0k / 63.8k | 40.5k / 56.6k / 69.2k | the halves' ball rolls straight and FASTER: pan rows 0.21 -> 0.29 a frame, most of the +3.9k; simulation + camera 15.7k -> 16.9k |
+| ... speaker ON | 39.7k, max 66.2k | 43.9k, max 71.4k | missed refreshes 0 and 0 |
+| MOON's coast, Hercules (OFF / ON) | 38.8k / 41.9k, max 71.1k / 69.9k | 43.1k / 46.6k, max 69.9k / 81.6k | 0 and 0 |
+| PLAYGROUND's lane, CGA (OFF) | 37.9k / 55.5k / 66.6k | 40.3k / 62.1k / 78.0k | the same path and pans (0.27 rows a frame); simulation + camera 15.9k -> 18.0k (+2.1k a frame, +2.3k a step); the centre in a halved cell 82 of 291 steps |
+| ... speaker ON | 41.5k, max 75.8k, 0 missed | 43.3k, max 86.7k, **1 missed** | the miss is one frame in each run, at the ramp's top (step 371): simulation + camera 48.1k there, against 35.9k on the zigzag's take-off at the same place |
+| PLAYGROUND's lane, Hercules (OFF / ON) | 39.0k / 42.9k, max 67.0k / 75.6k | 41.4k / 45.0k, max 87.0k / 91.8k | 0 and 0 |
+| down the LEFT RAIL (LD held), CGA / Hercules, ON | - | 48.0k, max 78.4k / 49.0k, max 91.3k | 0 missed; 99 diagonal contacts, the centre at DIAG from the rail (a = 15.53) all the way; the zigzag twin's ball under the same keys sticks in the first notch (1,623 wall contacts) |
+
+So the owner's price question, answered on the glass: **a lane of halves
+costs about +2.1k clk of simulation a frame (+2.4k busy, 6%) against the
+same lane in whole cells, and a rail slide about +3.5k**; the display holds
+the refresh on both cards with the speaker off, and with it on loses one
+refresh at the ramp's top on the CGA. MOON's straight coast costs +3.9k
+busy a frame, most of it the camera panning a ball that no longer stalls
+on the stairs, at 0 misses on both cards. The cheapest buys if the owner
+wants the miss back are 128.24.7.6's (the edge loop unrolled, one pick a
+step); the frames are no frame-rate argument yet. The scripts are
+dcourse's scratch, not a row: the registered measurement is the rows'
+(128.24.11).
 
 ### 128.25 Wave 9: mechanics as parts (PLANNED)
 
