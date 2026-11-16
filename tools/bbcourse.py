@@ -1279,7 +1279,7 @@ PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
 PAD_POSES = 4                 # a pad's sign: 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (128.22.2)
 GATE_POSES = 6                # a gate's sign: 0 closed, 1 - 4 the bar sinking, 5 open
-GATE_POST = 11                # a gate post's height, px (its black cap the 12th): any gate in 3 block rows
+GATE_POST = 11                # a gate post's height, px (its cap the 12th, the black outline over it): any gate in 3 block rows
 PAD_EDGE = 24                 # a pad's cell centre at least this many lines inside its page's top and bottom
 ICON_FPS, ICON_FPS_MAX = 6, 18
 STEP_HZ = PIT_HZ / float(STEP_PIT)              # 54.62: the physics step (and the follower's)
@@ -1689,11 +1689,37 @@ def cover_blocks(blocks, key, blocked, where):
     return out
 
 
+def _gate_line(out, x0_, y0_, x1_, y1_, ink, thick=0):
+    """a Bresenham line into out; thick 1 doubles it upward (a rail is 2 high)"""
+    dx, dy = abs(x1_ - x0_), abs(y1_ - y0_)
+    sx, sy = (1 if x1_ > x0_ else -1), (1 if y1_ > y0_ else -1)
+    err, x, y = dx - dy, x0_, y0_
+    while True:
+        out[(x, y)] = ink
+        if thick:
+            out[(x, y - 1)] = ink
+        if x == x1_ and y == y1_:
+            return
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            x += sx
+        if e2 < dx:
+            err += dx
+            y += sy
+
+
 def _gate_pix(cell, d, h2, pose, x0, y0, cv):
-    """SPEC.md 128.22.8's gate, RENDERED (any of the eight ways): two crystal
-    posts either side of the route at its cell, and a bar between them that
-    sinks into the floor over poses 1 - 4 (5 open: the posts alone); clipped
-    by what the picture draws in front of the cell.  -> {(x, y): ink}"""
+    """SPEC.md 128.22.8's gate, RENDERED (any of the eight ways): a GATE and
+    not a bar - two posts either side of the route at its cell and a FRAME
+    between them (a top rail, a bottom rail and vertical bars, the middle
+    open), in the brightest ink (WHT) with a black outline so it stands off
+    the crystal tiles on both CGA palettes and on the Hercules.  The span is
+    TILTED (a route that would show it edge-on gets a 3/4 view, one that
+    would show it face-on a slope), so it reads as a 3D gate whichever way
+    the route runs.  Poses 1 - 4 sink the frame into the floor, 5 leaves the
+    posts alone; clipped by what the picture draws in front of the cell.
+    -> {(x, y): ink}"""
     wx, wy = cell
     gcx, gcy, z = 16 * wx + 8, 16 * wy + 8, 4 * h2
     px_, py_ = -d[1], d[0]                          # across the route
@@ -1702,25 +1728,41 @@ def _gate_pix(cell, d, h2, pose, x0, y0, cv):
     p2 = _scr_pt(gcx + W * px_, gcy + W * py_, z, x0, y0)
     if p1[0] > p2[0]:
         p1, p2 = p2, p1
-    out = {}
-    top = (9, 7, 5, 3, 1, None)[pose]
-    if top is not None:
-        bot = max(0, top - 3)
-        if p1[0] == p2[0]:
-            cols = [(p1[0] + k, min(p1[1], p2[1]), max(p1[1], p2[1])) for k in (-1, 0)]
-            for x, ya, yb in cols:
-                for yy in range(ya - top, yb - bot):
-                    out[(x, yy)] = WHT if yy == ya - top else CYN
-        else:
-            for x in range(p1[0], p2[0] + 1):
-                yb = p1[1] + (p2[1] - p1[1]) * (x - p1[0]) // (p2[0] - p1[0])
-                for k in range(bot, top):
-                    out[(x, yb - k - 1)] = WHT if k == top - 1 else BLK if k == bot and bot else CYN
-    for (x, y) in (p1, p2):                         # the posts, over the bar
+    if p1[0] == p2[0]:                              # edge-on: swing it to a 3/4 view
+        p1, p2 = (p1[0] - 6, p1[1]), (p2[0] + 6, p2[1])
+    elif p1[1] == p2[1]:                            # face-on: tilt it
+        p1, p2 = (p1[0], p1[1] + 2), (p2[0], p2[1] - 2)
+    p1, p2 = (p1[0] + 1, p1[1]), (p2[0] - 1, p2[1])     # (the posts are 2 wide, drawn leftward)
+    H = GATE_POST - 1                               # the top rail's height when closed
+    sink = (0, 2, 4, 6, 8, None)[pose]
+    ink = {}
+    def at(t, u):                                   # fraction t along the span, u px up
+        return (p1[0] + ((p2[0] - p1[0]) * t) // 12, p1[1] + ((p2[1] - p1[1]) * t) // 12 - u)
+    if sink is not None:
+        bot, top = 1 - sink, H - sink
+        for u in range(max(bot, 0), top + 1):       # the bars (clipped at the floor)
+            for t in (4, 8):
+                x, y = at(t, u)
+                ink[(x, y)] = WHT
+        for u in (top, bot):                        # the top and bottom rails, 2 high
+            if u < 1 and u != top:
+                continue
+            xa, ya = at(0, u)
+            xb, yb = at(12, u)
+            _gate_line(ink, xa, ya, xb, yb, WHT, 1)
+        ink = {k: v for k, v in ink.items() if k[1] <= max(p1[1], p2[1]) + 1}
+    pos = {}
+    for (x, y) in (p1, p2):                         # the posts, over the frame
         for k in range(GATE_POST):
-            out[(x - 1, y - k)] = WHT
-            out[(x, y - k)] = CYN
-        out[(x - 1, y - GATE_POST)] = out[(x, y - GATE_POST)] = BLK
+            pos[(x - 1, y - k)] = WHT
+            pos[(x, y - k)] = WHT
+        pos[(x - 1, y - GATE_POST)] = pos[(x, y - GATE_POST)] = WHT
+    ink.update(pos)
+    out = dict(ink)                                 # the black outline, 8-connected, over nothing lit
+    for (x, y) in ink:
+        for ddy in (-1, 0, 1):
+            for ddx in (-1, 0, 1):
+                out.setdefault((x + ddx, y + ddy), BLK)
     s = wx + wy
     return {(x, y): c for (x, y), c in out.items()
             if 0 <= y < cv.h and 0 <= x < cv.w and cv.sbuf[y][x] <= s}
@@ -9360,6 +9402,42 @@ def finish_clock_rule(c, _hack=None):
     return "%s: %s" % (c.name, "; ".join(seen))
 
 
+def finish_reach_rule(c, _hack=None, _posts=()):
+    """R1 (the owner: a finish clock walled off TRIAL's exit 0): every FINISH
+    cell of a course - each goal cell, the cup's cell - stays REACHABLE with
+    its clocks in place: the start's reach closure over the tiles less the
+    clocks' posts (solid, 128.18.5.3) and less every goal cell of ANOTHER exit
+    (a ball that rolls into one has finished there) holds it, with a FREE
+    4-neighbour in the closure it rolls in from (the closure's launches fly
+    over a post).  One closure an exit, not one a cell.  _posts: extra posts
+    (the selfcheck's red controls).  -> the verdict; refused naming the cell"""
+    goals = sorted(k for k, t in c.tiles.items() if t.kind == KIND_GOAL)
+    cups = sorted(p["at"] for p in c.props if p["kind"] == PK_CUP)
+    if not (goals or cups) or c.src.start is None:
+        return "%s: no finish cell to reach" % c.name
+    posts = {p["at"] for p in c.props if p["kind"] == PK_CLOCK} | set(_posts)
+    if "clockreach" in (_hack or ()):
+        posts = set()
+    byex = {}
+    for g in goals:
+        byex.setdefault(c.tiles[g].exit, []).append(g)
+    if cups:
+        byex[None] = cups
+    for e, fins in sorted(byex.items(), key=lambda kv: -1 if kv[0] is None else kv[0]):
+        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k not in goals or c.tiles[k].exit == e)}
+        R = reach_closure(t2, c.src.start[0]) if c.src.start[0] in t2 else set()
+        for g in fins:
+            if g not in R or not any((g[0] + dx, g[1] + dy) in R and 4 * min(t2[g].corners())
+                                     <= 4 * max(t2[(g[0] + dx, g[1] + dy)].corners()) + CLIMB
+                                     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                raise CourseError("%s: the %s (%d, %d) cannot be reached with the course's clocks in place "
+                                  "(clock posts at %s): move the clock (SPEC.md 128.22.6)"
+                                  % (c.fname, "cup" if e is None else "goal cell", g[0], g[1], sorted(posts)))
+    n = len(goals) + len(cups)
+    return "%s: all %d finish cell%s reachable past %d clock post%s" % (
+        c.name, n, "s" * (n != 1), len(posts), "s" * (len(posts) != 1))
+
+
 def compile_all(paths, demo_dir=None, path=None, title=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
@@ -9372,6 +9450,8 @@ def compile_all(paths, demo_dir=None, path=None, title=None):
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
+    for c_ in courses:
+        finish_reach_rule(c_)
     compile_all.clocks = [finish_clock_rule(c) for c in courses]   # wave 8R (SPEC.md 128.22.6): every finish
     pc = None
     if path:                                       # wave 8R (128.22): THE PATHWAY, beside them
@@ -15724,9 +15804,7 @@ def _path_checks(courses, res):
          "neither along one axis", False),
         ("a ramp between neighbouring cells", ptext.replace("13,12 10,12 8,12,1 7,12,1", "13,12 9,12 8,12,1 7,12,1"),
          "between two neighbouring cells", False),
-        ("two routes crossing", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
-                                              "route 1 3 exit 1  path 22,21 25,18\n"
-                                              "route 3 2 exit 0 path 25,18 20,18 20,17 18,17"),
+        ("two routes crossing", ptext.replace("path 25,18 25,17 18,17", "path 25,18 20,18 20,17 18,17"),
          "crosses the route", False),
         ("(A, E) keyed twice", ptext.replace("route 1 3 exit 1 ", "route 1 3 exit 0 "), "already opens", False),
         ("two diagonals sharing an arrow", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
@@ -15736,7 +15814,7 @@ def _path_checks(courses, res):
         ("a pad no route opens (unreachable)", ptext.replace("route 4 5 exit 0 ", "route 5 4 exit 0 ").replace(
             "path 13,12 10,12 8,12,1 7,12,1", "path 7,12,1 8,12,1 10,12 13,12"), "not reachable", False),
         ("a pad outside every page's window", ptext.replace("pad 3 PLAY   25 18", "pad 3 PLAY   26 16").replace(
-            "path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
+            "path 25,18 25,17 18,17", "path 26,16 26,17 18,17").replace("path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
                                                                          ""),
          "inside no page's CGA window", False),
         ("a page with no lives counter", ptext.replace("lives 11  4", ""), "has no `lives` counter", False),
@@ -15929,6 +16007,66 @@ def _clock_rule_checks(courses, res, paths=None):
         why = "accepted"
     except CourseError as e:
         why = str(e)
+    # R1: every finish cell stays reachable with its clocks in place; red controls: TRIAL's clock back at (9, 17)
+    # (a goal cell), and posts round MOON's cup on its four sides (a cup: the closure flies over a post, so the
+    # free neighbour is what refuses it)
+    okr, verd = True, []
+    try:
+        for c in courses:
+            verd.append(finish_reach_rule(c))
+    except CourseError as e:
+        okr, verd = False, [str(e)]
+    redr = redc = "accepted"
+    if "TRIAL" in byk:
+        c = courses[byk["TRIAL"]]
+        with open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname), encoding="ascii") as f:
+            txt = f.read()
+        try:
+            finish_reach_rule(compile_course(txt.replace("clock 14 18", "clock 9 17"), fname=c.fname))
+        except CourseError as e:
+            redr = str(e)
+    if "MOON" in byk:
+        c = courses[byk["MOON"]]
+        cup = next(p["at"] for p in c.props if p["kind"] == PK_CUP)
+        try:
+            finish_reach_rule(c, _posts=[(cup[0] + dx, cup[1] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))])
+        except CourseError as e:
+            redc = str(e)
+    res.append(("8R every finish cell (goal cells, the cups) is reachable with its clocks in place, a free neighbour "
+                "to roll in from (%s); red controls: TRIAL's clock put back on (9, 17) walls exit 0's goal (8, 17) "
+                "off, posts round MOON's cup wall it off" % ("%d courses, %d finish cells" % (
+                    len(verd), sum(int(v.split("all ")[1].split()[0]) for v in verd if "all " in v))
+                    if okr else verd[0][:120]),
+                okr and "goal cell (8, 17) cannot be reached" in redr and "the cup " in redc
+                and "cannot be reached" in redc))
+    # R1: TRIAL's finish clock is off the autopilot's route - the route demo's replay is the same, step for
+    # step, with it and without it, and so is the limit; red control: the clock on (11, 17), where the
+    # autopilot meets it (796 steps, a 30 s limit)
+    okt, wt = False, "no TRIAL"
+    if "TRIAL" in byk:
+        c = courses[byk["TRIAL"]]
+        with open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname), encoding="ascii") as f:
+            txt = f.read()
+        bare = compile_course(txt.replace("\nclock 14 18", "\n"), fname=c.fname)
+        moved = compile_course(txt.replace("\nclock 14 18", "\nclock 11 17"), fname=c.fname)
+        log = bytes(route_demo(bare, byk["TRIAL"]))
+        _k, mat, kt, _fl = decode_log_t(log)
+
+        def trace(cc):
+            p = Physics(cc, play=True, mat=mat)
+            tr = []
+            for k_, t_ in kt:
+                p.step(k_, t_)
+                tr.append((p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, p.air, p.goal))
+            return tr
+        t0 = trace(bare)
+        same, red = trace(c) == t0, trace(moved) == t0
+        okt = same and not red and c.limit == bare.limit and moved.limit != bare.limit \
+            and bytes(route_demo(c, byk["TRIAL"]))[16:] == log[16:]
+        wt = "limit %d s with it and without, %d steps; the red control's limit %d s" % (
+            c.limit, len(kt), moved.limit)
+    res.append(("8R TRIAL's finish clock is off the autopilot's route: the route demo replays the same step for "
+                "step with it and without it (%s)" % wt, okt))
     res.append(("8R the clock rule: every shipped course with a limit has a clock in the CGA window centred on each "
                 "of its finishes (BENCH, no limit, exempt); a finish with its clock too far is refused (%s)" % why[:90],
                 ok and "has no clock whose digits" in why))

@@ -102,8 +102,10 @@ BZP_SNUM = 28
 MAXR = 2                                            # bzgame.inc BZ_MAXR
 LINES = 200                                         # bzvideo.inc BZ_LINES
 
-# the private map (the SECRET leg): TRIAL's exit-1 route a secret one, its goal hidden
+# the private map (the SECRET leg): TRIAL's exit-1 route a secret one, its goal hidden, and PLAY's own route
+# on to MILL (8R.9, round 2) left out, so the secret route is a SIDE (PLAY leads nowhere) as the leg needs
 SECRET_PATCH = [("path.bbc", "route 1 3 exit 1  path 22,21 25,18", "route 1 3 exit 1 secret path 22,21 25,18"),
+                ("path.bbc", "route 3 2 exit 0  path 25,18 25,17 18,17", "# (route 3 2: not on the private map)"),
                 ("trial.bbc", "goal  rect   8 18  9 19  flat 2 exit 1",
                  "goal  rect   8 18  9 19  flat 2 exit 1 hidden")]
 COURSES = ["bench", "first", "trial", "mill", "moon", "summit", "playground"]
