@@ -613,6 +613,11 @@ def run_secret(tag, fails):
         T = tables(open(os.path.join(art, "BZPATH.BIN"), "rb").read())
         rt = next(r for r in T["routes"] if r["secret"])
         hid, vend = T["pads"][rt["b"]], T["pads"][rt["a"]]
+        # the host's work BEFORE the plays: TRIAL's compile is ~4 host s since the Y0 search (SPEC.md
+        # 128.25.3; 1 s before it), ~20 GUEST s at MartyPC's pace - done after TRIAL came up it ran out
+        # TRIAL's own 20 s limit, and the poke landed on the pathway the timeout went back to
+        trial = R.course("trial", src=os.path.join(crs, "trial.bbc"), art=art)
+        p = BB.Physics(trial, play=True, mat=trial.ball).poke(8, 18)
         with os88ui.boot(R.at("build/os8088-360.img"), apps=img, machine=R.MACHINE[tag]) as ui:
             ui.open_drive("B")
             ui.open("BONANZA.O88")
@@ -635,8 +640,6 @@ def run_secret(tag, fails):
             M.guest_sleep(m, 0.3)
             g.key("Enter")                          # TRIAL, finished by its HIDDEN exit 1
             course_up(g, R.CRS_K["trial"], "TRIAL")
-            p = BB.Physics(R.course("trial", src=os.path.join(crs, "trial.bbc"), art=art), play=True,
-                           mat=g.b("bz_mat")).poke(8, 18)
             X.at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, 0, 0, 0, air=0))
             M.until(m, lambda _: g.b("bz_fcnt") > 1, "TRIAL's hidden finish", guest=30)
             ex = g.b("bz_exit")
