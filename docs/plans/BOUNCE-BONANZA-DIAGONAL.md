@@ -10,11 +10,15 @@ the test courses too."*
 
 ## Where it stands
 
-**A design for the owner and the lead to decide on**: SPEC.md 128.24 is
-written and its open questions (128.24.12, Q1 - Q9) carry a recommendation
-each. No story starts before Q1 is answered (it decides the format); Q2 is
-decided on the glass in D5; the rest have defaults the stories follow unless
-the owner says otherwise.
+**DECIDED, to be built as soon as possible** (the owner, 2026-11-16, the
+lead's round R3; SPEC.md 128.24.12 has each answer): the format is (a), half
+records in section `D`; a face's ink follows the half's pattern; the
+pathway's straight bands and diagonal steps, yes; the diagonal's dead band
+the named `BZ_DWMIN` (11.3); PLAYGROUND first, then MOON's coast. **Two
+answers wait on pictures the owner asked for**: Q3 (a `box` that quarters a
+cell: `diag-q3`) and Q6 (the occluder over-lay: `diag-q6`). D1 starts with
+the stories they do not touch; Q3 changes only D1.2's refusal, Q6 only
+D1.4's key.
 
 What was investigated, what a half is and why this shape, the grammar, the
 grid, the art, the physics and its cost, the pathway, and what it does and
@@ -92,13 +96,39 @@ The waves go on a branch of their own off the integration branch after wave
 |---|---|---|
 | D5.1 | **PLAYGROUND's diagonal section** (Q8): a straight-up lane with rails, a 45-degree course edge, a diagonal step with its front face, a lane that climbs (`ramp s`); `playground.bzd` written again | the build; `--selfcheck` |
 | D5.2 | **The look**: MartyPC, CGA and Hercules, through `tools/os88ui.py`; the front face, the edge line, the rail's ends (Q2) | screenshots cropped and zoomed for the owner |
-| D5.3 | **The owner plays it**: the rail's feel, the lane's width, the step | the diary |
+| D5.3 | **MOON's coast** (Q8): its straight (`floor band 0 6 48 70` between `wall band -2 -1 48 70` and `wall band 7 8 48 66`) rewritten as a `box` with straight rails; the authored demo, which meets the left rail's zigzag at a corner on every cell from (27, 26) to (31, 30), written again (`bbcourse.py author`); its NO TRAP and exits re-proved | the build's demo check; `--selfcheck`; the model's corner contacts on the coast 0 (MEASURED today: 40 corner contacts over the demo) |
+| D5.4 | **The owner plays it**: the rail's feel, `BZ_DWMIN`, the lane's width, the step | the diary |
 
 ### The final pass
 
 The deduplicated union of the waves' rows once (`bonanzacourse`,
 `bonanzademo`, `bonanzaphys`, `bonanzaexit`, `bonanzaperf`, `bonanzaring`,
 `bonanzapath`, `bonanzagame`), then `test-full`, then the disks.
+
+## Footprint
+
+Wave 9 (mechanics as parts) is built by another session in the same two
+places, so the diagonal work stays local there, and this is every routine it
+touches (the owner passes it on):
+
+- **`apps/bonanza/bzphys.inc`**: `bz_step` (step 4's `bz_ps` mask at `.w4`;
+  `.walls`, which calls the two new routines round the edge tests; the
+  centre's RECORD pointer at `.floorh`, `.nfloor` and the fallback `.fb`;
+  `.pps`, where `bz_ps` is rebuilt, keeping bit 3); `bz_psync` (bit 3);
+  `bz_blocks` (`.other`'s kind dispatch to a split); `bz_corner` (`K`
+  blocked by either half, and by the other ray); `bz_refl` (a second entry
+  taking `BZ_DWMIN`); `bz_fill` and `bz_win9i` (`bz_nbh`, `GF_SPLIT`).
+  **New**: `bz_dpick` (the half pick), `bz_diag` (the push and reflection
+  off a diagonal, the cell's own or a corner's line), `bz_dray` (the
+  corner's quadrant, distance and ray); bss `bz_nbh`.
+- **`apps/bonanza/bonanza.asm`**: `bz_cxcel` and `bz_cxsafe` (the CELLS
+  rules by halves); `GF_SPLIT` read where the grid flags are read.
+- **`tools/bbcourse.py`'s model**: `Grid.cell` (and a new `Grid.pair`),
+  `Physics.cell`, `Physics.blocks`, `Physics._fill`, `Physics._floor`, and
+  `Physics.step`'s step 5 (the walls) and its fallback. **New**:
+  `Physics._dpick`, `Physics._diag`, `Physics._dray`; `PHYS_CONSTS` gains
+  `DIAG` and `BZ_DWMIN`, `phys_tables` the owning-half and ray tables.
+- The tool's other consumers of a course are D1.1's list (host only).
 
 ## What is not in this plan
 

@@ -271522,15 +271522,25 @@ kinds 6 - 15 refused, as today.
 - **The FRONT face (new).** An LR split's UP half has its diagonal facing
   the viewer: when the DOWN half is lower (or VOID), the up half hangs a
   face from the diagonal down to it (or 3 units). On the screen it is a
-  RECTANGLE 32 px wide, a straight ledge. Its ink is PROVISIONAL (128.24.12
-  Q2): the mock-ups use magenta with a black pixel on every other column of
-  every other line, between `sw`'s solid and `se`'s checker. The down half's
+  RECTANGLE 32 px wide, a straight ledge. **Its ink follows the half's
+  pattern** (the owner, 128.24.12 Q2): it is drawn by the same rule as the
+  half's own `sw` and `se` faces - the material the tile is drawn in (the
+  course's magenta side, the pathway's crystal dark side, a later pattern's
+  own) - at a shade between `sw`'s and `se`'s (the mock-ups: magenta with a
+  black pixel on every other column of every other line). The down half's
   diagonal faces away and draws nothing.
 - **The TB diagonal is edge-on.** Its face would be seen exactly side-on, so
   it has no pixels; a screen-vertical step or rail shows its height ONLY at
   its ends. Where its two sides differ (a height, a style, a void), the
-  diagonal is drawn as a **1 px black line** on the higher (or solid) side -
-  PROVISIONAL, and the only cue a straight-up rail stands above the lane.
+  diagonal is drawn as a **1 px line** on the higher (or solid) side, in
+  the outline ink of that half's pattern (black on today's tiles): the only
+  cue a straight-up rail stands above the lane.
+- **What an ink costs.** The picture is the TOOL's: the guest blits pre-cut
+  blocks and never chooses an ink. So a face's ink, and any per-tile
+  override of it (a clause in the course text, if one is ever wanted), costs
+  **no bit in the grid or the half record and no guest byte** - only the
+  picture blocks a new ink pattern adds, a few per ink, in that course's
+  part.
 
 ##### 128.24.6.2 The order
 
@@ -271601,9 +271611,12 @@ scale-free, so the new normal component is `t` on the same scale and the
 change splits equally between the axes. The push and the change are halved
 with the odd unit rounded as written (the push up, the velocity down): the
 ball ends at most 1/256 gu further out and loses at most 1/256 gu a step of
-tangential speed, deterministically. `BZ_WMIN` applies to `|wv|` and `t`
-as they are, so the diagonal's dead band is `16 / sqrt 2` = 11.3 of normal
-speed against an edge's 16 (128.24.12 Q7).
+tangential speed, deterministically. **The dead band is its own NAMED
+constant, `BZ_DWMIN`** (the owner, 128.24.12 Q7), in `PHYS_CONSTS`: 16 on
+`|wv|`'s and `t`'s scale, which is `16 / sqrt 2` = **11.3** of normal speed
+against an edge's `BZ_WMIN` of 16, to be tuned alone once the owner has
+played it. `bz_refl` takes the threshold from its caller (a second entry,
+about 6 bytes).
 
 **Nothing tunnels.** The fastest move is `|gvx - gvy| <= 768`, 2.1 gu along
 the normal a step, against 6: the circle meets a diagonal at least twice
@@ -271796,16 +271809,25 @@ crosses its middle; no GOAL half is needed for it.
 - **`bonanzaperf`**: a split course's step priced against 128.24.7.6.
 - **`bonanzademo`**, **`bonanzagame`**: the re-authored demos replay.
 
-#### 128.24.12 Open questions for the owner
+#### 128.24.12 Open questions for the owner, and the owner's answers (2026-11-16)
 
-| # | question | recommended |
-|---|---|---|
-| Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells |
-| Q2 | **The new art**: the front face's ink (the mock-ups' dotted magenta) and the 1 px black line down a screen-vertical diagonal, the only cue that a straight-up rail stands above the lane | try both in the mock-ups' form, decide on the glass (story D5's look) |
-| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch at a rail's end), or round it out to a half | **refuse**, and finish odd-width ends with `half` |
-| Q4 | **The pathway's bands**: a 32 px straight band up and down, a 16-line one across, in place of the 64 px zigzag | **yes**: no physics runs there, and the marble (16 px) rolls down the middle |
-| Q5 | **Diagonal STEPS** (two floor heights across one diagonal), which (a) gives for free | **yes**: the LR one is a straight ledge with a front face, the TB one a straight cliff seen from its end |
-| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it; revisit if a course shows it |
-| Q7 | The diagonal's wall dead band: `BZ_WMIN` on the diagonal's scale (11.3 of normal speed, `bz_refl` unchanged) or exactly 16 (a constant and a compare more) | **11.3**, unless a ball held against a diagonal rail is seen to chatter |
-| Q8 | **Where halves first appear**: PLAYGROUND (the feel test bed, 128.16.8) gains a diagonal section - a straight-up lane with rails, a diagonal edge, a diagonal step - for the owner's play, before the 14 - 20 courses use them | **yes** |
-| Q9 | **When**: after wave 8R lands, before the course waves | the plan's waves D1 - D5 |
+The answers are the owner's (the lead's round R3) unless marked; Q3 and Q6
+wait on the pictures the owner asked for (`diag-q3`, `diag-q6`, made by the
+same throwaway prototype as the mock-ups).
+
+| # | question | recommended | ANSWERED |
+|---|---|---|---|
+| Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells | **(a)** (the lead, on the owner's goals: no speed lost, the game, the courses and the storage as small as possible, and EXTENDABLE for another core tile type; compatibility no concern): a course with no split cell pays nothing, a split cell 8 bytes, and kinds 6 - 15 stay reserved for the next core tile type |
+| Q2 | **The new art**: the front face's ink and the 1 px line down a screen-vertical diagonal | try both in the mock-ups' form, decide on the glass | **The ink follows the half's PATTERN**, as the tile's own side faces do (128.24.6.1). A per-tile override would cost no grid bit and no guest byte, only the picture blocks it adds |
+| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch), or round it out to a half (a bump) | **refuse**, naming the cell and the corner to move; finish an odd-width end with `half` | **OPEN: the owner asked for a picture first** (`diag-q3`: the quartered corners, the one-number fix, the guesses; allowing it would take a QUARTER cell type) |
+| Q4 | **The pathway's bands**: a 32 px straight band up and down, a 16-line one across, in place of the 64 px zigzag | **yes** | **yes** |
+| Q5 | **Diagonal STEPS** (two floor heights across one diagonal), which (a) gives for free | **yes** | **yes** |
+| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it | **OPEN: the owner asked for a picture first** (`diag-q6`: MEASURED by the prototype over every whole-gu position of the two cells beside a 1-unit down half, the ball grounded: keyed `s + 1`, 18 of 512 positions (3%) show a wrong pixel, at most 23 px; for scale, a WHOLE raised tile under today's rule, 44 (8%), at most 55 px, the error the other way) |
+| Q7 | The diagonal's wall dead band: 11.3 of normal speed or exactly 16 | **11.3** | **11.3, as a NAMED constant `BZ_DWMIN`** (128.24.7.2), tuned after the owner plays it |
+| Q8 | **Where halves first appear** | PLAYGROUND (128.16.8) | **PLAYGROUND first, then MOON's COAST**, "the course with a big straightway where the current demo bounces off all the jagged corners": MOON's coast is `floor band 0 6 48 70` between `wall band -2 -1 48 70` and `wall band 7 8 48 66`, and its authored demo meets the left rail's zigzag at a CORNER on every cell of the straight - cells (27, 26) to (31, 30), steps 1,027 - 1,186 (MEASURED, the model's replay: 40 corner contacts and 149 edge contacts over MOON's demo, against 2 and 31 on `PEAK`'s) |
+| Q9 | **When** | after wave 8R | **BUILD IT AS SOON AS POSSIBLE** |
+
+**The footprint** (the owner's note: wave 9, mechanics as parts, is built by
+another session in `bzphys.inc` and `bbcourse.Physics`, so the diagonal work
+stays as small and local there as the design allows; every routine it
+touches is listed in the plan's *Footprint*, docs/plans/BOUNCE-BONANZA-DIAGONAL.md).
