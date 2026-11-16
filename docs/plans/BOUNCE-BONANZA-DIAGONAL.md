@@ -77,6 +77,8 @@ The waves go on a branch of their own off the integration branch after wave
 
 | R4 [x] | **QUARTERS** (the owner's Q3): kind 6, four records N E S W; `quarter`; a box's corners; the picture (front faces on W and N, the edge line on T - c and c - B, E and S keyed s + 1); the model (the pick by two tests, the quarter's two lines, the centre met radially by the opposite quarter); priced (SPEC.md 128.24.7.6, 128.24.10) - **DONE**: RAIL's wall quarter: its inner line at DIAG, the centre radial, the pick swapped red |
 
+| CH [x] | **`box ... chamfer [N]`** (after D2's verify found a box's odd corner square): each corner cut along cell edges, an octagon; panel 3's notch at N = 1; tool only (SPEC.md 128.24.3 - 128.24.4) - **DONE**: `--selfcheck`'s chamfer item and two refusals; `--png split:`'s `chamfer0` - `chamfer2`, looked at on CGA and Hercules (`dtool-chamfer.png`) |
+
 **D2's rows (named, not run)**: `bonanzacourse`, `bonanzademo`.
 
 ### Wave D3: the guest

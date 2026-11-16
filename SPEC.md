@@ -271449,8 +271449,21 @@ verify, a finding: this paragraph first called it "a 45-degree CHAMFER, the
 'rounded' platform of the owner's panel 3", and it is not one - panel 3's
 look is the quarter DROPPED or a half laid, whose outer sides are cell edges.
 A rounded or cut corner is authored piece by piece, with `quarter`, `half`
-and `hole quarter`; an owner's look, 128.24.12 Q3.) A box whose four numbers
-are all even or all odd has no quartered cell.
+and `hole quarter` - or, for a whole box, with `chamfer`: 128.24.4.) A box
+whose four numbers are all even or all odd has no quartered cell.
+
+**A CHAMFERED box** (BUILT, the lead's story after D2's verify: panel 3's
+look, "lets us build 'rounded' looking platforms"): each corner is CUT along
+a line of CELL EDGES - `wx = c` (`a + s = 2 c`) at the top-left and
+bottom-right corners, `wy = c` (`s - a = 2 c`) at the top-right and
+bottom-left - so the cut runs at the iso angle and the platform reads as an
+octagon. No cell is ever cut by it: whole cells and the box's pieces beyond
+the line are dropped, nothing new is laid, so it needs no record, kind or
+model change (a halved or quartered cell left by the box is the box's own).
+`chamfer 1` drops the corner's own piece - at a corner whose `a` and `s`
+differ in parity its QUARTER (exactly panel 3's red outline: a notch 16 px
+along the top, 8 lines down the side), at a corner whose do not the two
+HALVES that meet there - and each `N` more cuts one cell deeper.
 
 #### 128.24.4 The text course
 
@@ -271460,7 +271473,7 @@ Three additions to 128.10.3's grammar:
     hole     [half <side> | quarter <edge>] <shape>
     <side>   ::= up | down | left | right          left / right: a TB split; up / down: an LR split
     <edge>   ::= n | e | s | w                      the quarter that owns that cell edge (128.24.3)
-    <shape>  ::= ... | box <a0> <a1> <s0> <s1>     the screen rectangle 16 a0 <= gx - gy <= 16 a1,
+    <shape>  ::= ... | box <a0> <a1> <s0> <s1> [chamfer [<N>]]   the screen rectangle 16 a0 <= gx - gy <= 16 a1,
                                                   16 s0 <= gx + gy <= 16 s1 (a0 < a1, s0 < s1)
 
 - **`box`** lays the ground between the four lines: whole cells inside,
@@ -271468,6 +271481,16 @@ Three additions to 128.10.3's grammar:
   parity the one QUARTER inside (128.24.3). `band` and `rect` keep their
   meanings; `box a0 a1 s0 s1` with every piece dropped is today's zigzag
   `band a0+1 a1-1 s0 s1-1`.
+- **`box a0 a1 s0 s1 chamfer [N]`** (`N` 1 if left out, 1 - 16) cuts its
+  four corners (128.24.3) along cell edges: the top-left drops `wx <
+  floor((a0 + s0) / 2) + N`, the top-right `wy < floor((s0 - a1) / 2) + N`,
+  the bottom-left `wy >= ceil((s1 - a0) / 2) - N`, the bottom-right `wx >=
+  ceil((a1 + s1) / 2) - N`. Without the clause the corners are SQUARE, as
+  before. Two cuts that would overlap on one side are refused, and so is a
+  chamfer of 0 (`--selfcheck`'s cases; `--png split:` draws square, chamfer
+  1 and chamfer 2 side by side, `chamfer0` - `chamfer2`). It is a property of
+  the box, so it works wherever a box does (`floor`, `wall`, `goal`, `hole`,
+  `surface`).
 - **`half <side>`** and **`quarter <edge>`** apply the room (or the hole) to
   that piece only of every cell of the shape. Without them a room lays the
   whole cell, as today. Either on a `box` is refused (the box already decides
