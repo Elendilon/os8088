@@ -16722,6 +16722,13 @@ def _w9_cases():
         ("a probe in the void", C + "uses probe\nprop probe 30 30 reset respawn\n", "not a FLAT FLOOR"),
         ("a probe on a SPLIT cell (128.24.2)", C + "floor box 1 3 13 17 flat 3\nuses probe\n"
          "prop probe 7 5 reset respawn\n", "which is SPLIT"),
+        # PICKUPS (SPEC.md 128.25.19): the element's own syntax
+        ("an hourglass with a duration", C + "uses pickups\nprop hourglass 6 6 for 3\n", "not 'for'"),
+        ("a speed for 0 s", C + "uses pickups\nprop speed 6 6 for 0\n", "the duration is a byte"),
+        ("a jump for 20 s", C + "uses pickups\nprop jump 6 6 for 20\n", "the duration is a byte"),
+        ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
+        ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
+        ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
     ]
 
 
@@ -16786,6 +16793,52 @@ def _w9_checks(res):
             fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
     res.append(("7 NO TRAP under the reset classes (128.25.7.3): a WALL-making element on the only bridge past a "
                 "flag - RESPAWN (cleared at the respawn): %s; forced ATTEMPT: %s" % (msg_g, msg), ok_g and fired))
+    _pickup_checks(res)
+
+
+def _pickup_checks(res):
+    """PICKUPS (SPEC.md 128.25.9, 128.25.19): the records, FAMV over the constants, and the reach with the
+    raised values where a pickup is reachable - its red arm `nopickreach`, the pair taken together unless
+    every one is marked `overwrite`, and a bound's refusal naming the pair"""
+    t = _W4C + "uses pickups\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite\nprop jump 8 6\n"
+    c = compile_course(t, fname="<pickups>", occluders=False)
+    recs = sorted((r["kind"], r["cls"], r["dur"], r["ow"]) for r in c.part["props"] if is_fam(r["kind"]))
+    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0), (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE),
+            (K_JUMP, CL_RESPAWN, PU_DUR, 0)]
+    j0 = globals()["PU_JHOP"]
+    f0 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0 + 4
+    f1 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0
+    res.append(("3 PICKUPS' records (128.25.19): (kind, class, +18 duration, +19 flags) %s; FAMV %02Xh, %02Xh with "
+                "PU_JHOP + 4 (the constants are in it)" % (recs, f0, f1), recs == want and f0 != f1))
+    # the reach: the jump raises the reach where it is reachable; the arm without it raises nothing
+    # (on SAND, where no boost launches: on a firm level floor rubber's boosted bounce chain already
+    # reaches VZMAX's cap in the reach, so a jump there raises nothing - the owner's "bounded only by VZMAX")
+    S = _W4C + ("surface sand rect 4 4 12 9\nsurface sand rect 13 4 14 9\nsurface sand rect 12 4 13 6\n"
+                "surface sand rect 12 7 13 9\n")      # (every floor sand but the cup's own cell)
+    base = compile_course(S, fname="<no pickup>", occluders=False)
+    tj = S + "uses pickups\nprop jump 8 6\n"
+    cj = compile_course(tj, fname="<jump>", occluders=False)
+    cr = compile_course(tj, fname="<jump, nopickreach>", occluders=False, _hack={"nopickreach": True})
+    zb = dict(((r.wx, r.wy), r.zhi) for r in base.reach)
+    up = sorted((r.wx, r.wy) for r in cj.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi))
+    upr = [r for r in cr.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi)]
+    res.append(("6 PICKUPS' reach (128.25.19): a jump raises zhi on %d cells (its Hop %d and the boost stacked); "
+                "the red arm nopickreach raises %d" % (len(up), PU_JHOP, len(upr)), len(up) > 0 and not upr))
+    # the pair: held together unless every one is `overwrite` - and a bound's refusal says so
+    both = S + "uses pickups\nprop speed 6 6\nprop jump 8 6%s\n"
+    cp = compile_course(both % "", fname="<pair>", occluders=False)
+    co = compile_course((both % " overwrite").replace("prop speed 6 6", "prop speed 6 6 overwrite"),
+                        fname="<pair overwrite>", occluders=False)
+    sp = {r.src[1] for r in cp.reach if r.src and r.src[1].startswith("pickup")}
+    so = {r.src[1] for r in co.reach if r.src and r.src[1].startswith("pickup")}
+    note = _pairnote(cp.reach)
+    res.append(("6 PICKUPS' pair (128.25.9): unmarked, the reach's raised cells come from %s; every one "
+                "`overwrite`, from %s; a bound's refusal on the pair names `overwrite`: %s" % (
+                    sorted(sp), sorted(so), bool(note)),
+                sp == {"pickup speed and jump"} and "pickup speed and jump" not in so and "overwrite" in note
+                and not _pairnote(co.reach)))
 
 
 def _w4_records(c, res):
