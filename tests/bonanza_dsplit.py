@@ -37,7 +37,9 @@ split runs against the same steps on whole cells (SPEC.md 128.24.7.6).
 import argparse
 import os
 import random
+import re
 import shutil
+import subprocess
 import struct
 import sys
 import tempfile
@@ -393,6 +395,147 @@ def fuzz(binp, sym, cs, n, seed):
     return bad, steps, kinds
 
 
+# ---- D3.4: the price (128.11.15's method) -----------------------------------------------------------------
+# 8086 clocks (Intel's tables), each instruction at max(EU + EA, 4 x its bytes), the 8088's +4 a WORD memory
+# transfer (a read-modify-write twice), as 128.11.15 priced wave 2's step: an ESTIMATE of the instruction
+# stream, not a measurement (bonanzaperf measures)
+_EA = {"d": 6, "b": 5, "bd": 9, "bx+si": 7, "bp+di": 7, "bx+di": 8, "bp+si": 8, "bid": 11}
+_R8 = {"al", "ah", "bl", "bh", "cl", "ch", "dl", "dh"}
+_R16 = {"ax", "bx", "cx", "dx", "si", "di", "bp", "sp"}
+_SREG = {"cs", "ds", "es", "ss"}
+
+
+def _ea(m):
+    """a memory operand's EA clocks"""
+    s = m.replace(" ", "").lower()
+    seg = 2 if re.search(r"\b[cdes]s:", s) else 0
+    s = re.sub(r"^.*\[|\].*$", "", s)
+    regs = [r for r in re.split(r"[+-]", s) if r in _R16]
+    disp = any(not (x in _R16) for x in re.split(r"[+-]", s) if x)
+    if not regs:
+        return 6 + seg
+    if len(regs) == 1:
+        return (9 if disp else 5) + seg
+    k = "+".join(sorted(regs, key=lambda r: ("bx", "bp", "si", "di").index(r)))
+    return (_EA.get(k, 8) + (4 if disp else 0)) + seg
+
+
+def price_line(text, nbytes, taken=False):
+    """one instruction's clocks, 128.11.15's method"""
+    s = text.split(";")[0].strip().lower()
+    s = re.sub(r"^(\.\w+:|\w+:)\s*", "", s)
+    if not s:
+        return 0
+    m = re.match(r"(rep\s+)?(\w+)\s*(.*)", s)
+    rep, op, rest = m.group(1), m.group(2), m.group(3)
+    ops = [o.strip() for o in re.split(r",(?![^\[]*\])", rest)] if rest else []
+    mem = [o for o in ops if "[" in o]
+    word = (any(o in _R16 for o in ops) or "word" in rest) and "byte" not in rest
+    ea = _ea(mem[0]) if mem else 0
+    w = 4 if (mem and word) else 0                  # the 8088's word transfer
+    imm = len(ops) == 2 and not ("[" in ops[1] or ops[1] in _R8 | _R16 | _SREG)
+    if op in ("jmp",):
+        eu = 15
+    elif op.startswith("j") or op == "loop":
+        eu = (16 if op != "loop" else 17) if taken else (4 if op != "loop" else 5)
+    elif op == "call":
+        eu = 23
+    elif op == "ret":
+        eu = 20
+    elif op == "push":
+        eu = 15 if not mem else 24 + ea
+    elif op == "pop":
+        eu = 12 if not mem else 25 + ea
+    elif op in ("pushf", "popf"):
+        eu = 14 if op == "pushf" else 12
+    elif op == "mov":
+        if not mem:
+            eu = 4 if imm else 2
+        elif "[" in ops[0]:
+            eu = (10 + ea if imm else 9 + ea) + w
+            if not imm and ops[1] in ("al", "ax") and re.fullmatch(r"\[[^\]+]*\]", ops[0].replace(" ", "")):
+                eu = 10 + w
+        else:
+            eu = 8 + ea + w
+            if ops[0] in ("al", "ax") and re.fullmatch(r"\[[^\]+]*\]", ops[1].replace(" ", "")):
+                eu = 10 + w
+    elif op in ("add", "sub", "and", "or", "xor", "adc", "sbb", "cmp", "test"):
+        rmw = op not in ("cmp", "test")
+        if not mem:
+            eu = 4 if imm else 3
+        elif "[" in ops[0]:
+            eu = ((17 if rmw else 10) + ea if imm else (16 if rmw else 9) + ea) + (2 * w if rmw else w)
+        else:
+            eu = 9 + ea + w
+    elif op in ("inc", "dec"):
+        eu = (15 + ea + 2 * w) if mem else (2 if ops[0] in _R16 else 3)
+    elif op in ("neg", "not"):
+        eu = (16 + ea + 2 * w) if mem else 3
+    elif op in ("shl", "shr", "sar", "rol", "ror", "rcl", "rcr", "sal"):
+        eu = (15 + ea + 2 * w) if mem else (2 if ops[1] == "1" else 8 + 4 * 4)
+    elif op in ("mul", "imul"):
+        eu = (74 if op == "mul" else 89) if not word else (128 if op == "mul" else 141)
+        eu += ea + w
+    elif op in ("cbw",):
+        eu = 2
+    elif op == "cwd":
+        eu = 5
+    elif op == "xchg":
+        eu = (17 + ea + 2 * w) if mem else (3 if "ax" in ops else 4)
+    elif op == "lea":
+        eu = 2 + ea
+    elif op in ("clc", "stc", "cld", "std", "cli", "sti", "cmc", "nop"):
+        eu = 2
+    elif op == "xlat":
+        eu = 11
+    elif op in ("lodsb", "lodsw"):
+        eu = 12 + (4 if op[-1] == "w" else 0)
+    elif op in ("stosb", "stosw"):
+        eu = 11 + (4 if op[-1] == "w" else 0)
+    elif op in ("movsb", "movsw"):
+        eu = 18 + (8 if op[-1] == "w" else 0)
+    elif op == "jcxz":
+        eu = 18 if taken else 6
+    else:
+        raise ValueError("unpriced: %r" % text)
+    return max(eu, 4 * nbytes)
+
+
+def listing(td, patches=()):
+    """address -> the instruction's source text, off nasm's listing of the tree"""
+    src = os.path.join(ROOT, "apps", "bonanza") if not patches else os.path.join(td, "bonanza")
+    lst = os.path.join(td, "bonanza.lst")
+    art = R.at("build/bonanza-art")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                    "-I", art + "/", "-o", os.path.join(td, "lst.bin"), "-l", lst, os.path.join(src, "bonanza.asm")],
+                   cwd=ROOT, check=True)
+    out = {}
+    for ln in open(lst, errors="replace"):
+        m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s+([0-9A-F\[\]()]+)-?\s+(?:<\d+>)?(.*)$", ln.rstrip("\n"))
+        if m:
+            a = int(m.group(1), 16)
+            if a not in out:
+                out[a] = m.group(3)
+                n = len(re.sub(r"[\[\]()]", "", m.group(2))) // 2
+                op = m.group(3).split(";")[0].split()
+                if n == 5 and op and op[0].lower().startswith("j"):     # nasm's long Jcc: Jncc +3, JMP NEAR
+                    out[a + 2] = "jmp near"
+    return out
+
+
+def price(trace, lst):
+    """a step's instruction trace [(address, size)] -> clocks (a conditional jump TAKEN when the next
+    instruction is not the one after it)"""
+    clk = 0
+    for i, (a, sz) in enumerate(trace):
+        nxt = trace[i + 1][0] if i + 1 < len(trace) else None
+        tx = lst.get(a, "")
+        if not tx.split(";")[0].strip() and a != STUB:
+            raise ValueError("no listing line for the executed %04Xh" % a)
+        clk += price_line(tx, sz, taken=nxt is not None and nxt != a + sz)
+    return clk
+
+
 def check(n=200, seed=1124, verbose=True, patches=()):
     """-> [complaints]; prints the evidence"""
     out = []
@@ -450,13 +593,111 @@ def check(n=200, seed=1124, verbose=True, patches=()):
     return out
 
 
+BASE = "0e0b0b5f3"                  # the guest before D3 (8r2/dtool's head: apps/bonanza untouched since 139009354)
+
+
+def price_report(n, seed):
+    """D3.4: every split run's steps priced from the instructions unicorn executed; TRIAL (no split cell) on
+    this package and on BASE's, step for step"""
+    with tempfile.TemporaryDirectory() as td:
+        binp, sym = build(td)
+        lst = listing(td)
+        bt = os.path.join(td, "base")
+        os.makedirs(bt)
+        subprocess.run("git archive %s apps/bonanza | tar -x -C %s" % (BASE, bt), shell=True, cwd=ROOT, check=True)
+        bsrc = os.path.join(bt, "apps", "bonanza")
+        bbin = os.path.join(td, "base.bin")
+        art = R.at("build/bonanza-art")
+        R.assemble(bsrc, art, bbin)
+        bsym = R.symbols(bsrc, art)
+        blst_td = os.path.join(td, "bl")
+        os.makedirs(blst_td)
+        shutil.copytree(bsrc, os.path.join(blst_td, "bonanza"))
+        blst = listing(blst_td, patches=True)
+        # 1. a course with no split cell: TRIAL's and FIRST's play, this package against BASE's, step for step
+        res = {}
+        for crs in ("trial", "mill", "first"):
+            c = R.course(crs)
+            rnd = random.Random(seed)
+            keys = []
+            while len(keys) < 1500:
+                keys += [rnd.choice((0, BB.K_U, BB.K_D, BB.K_L, BB.K_R, BB.K_HOP, BB.K_U | BB.K_R))] * \
+                    rnd.randrange(1, 40)
+            keys = keys[:1500]
+            tr = {}
+            for tag, b_, s_, l_ in (("new", binp, sym, lst), ("base", bbin, bsym, blst)):
+                g, p = start(b_, s_, c, BB.MAT_RUBBER)
+                out = []
+                run(g, p, keys, crs, stop_goal=True, trace=out)
+                tr[tag] = [price(x, l_) for x in out]
+            d = [a - b for a, b in zip(tr["new"], tr["base"])]
+            res[crs] = (len(d), sum(tr["base"]) / len(d), sum(d) / len(d), max(d), min(d),
+                        sum(1 for x in d if x))
+            print("bonanza_dsplit PRICE %s (no split cell, %d steps): BASE %.0f clk a step; D3 %+.1f clk a step "
+                  "mean, %+d .. %+d, %d steps differ" % ((crs,) + res[crs][:1] + res[crs][1:]))
+        # 2. split courses: each step's price by what it met
+        cs = courses()
+        cat = {}
+        rnd = random.Random(seed)
+        names = sorted(cs)
+        for i in range(n):
+            k = names[i % len(names)]
+            c = cs[k]
+            g, p = start(binp, sym, c, BB.MAT_RUBBER)
+            wx, wy, pu, pv = near_split(c, rnd)
+            rec = p.prec(wx, wy) if 0 <= wx < 64 and 0 <= wy < 64 else None
+            if rec is None or rec[3] not in (BB.KIND_FLOOR, BB.KIND_GOAL):
+                continue
+            v = BB.VMAXG
+            poke(g, p, wx, wy, pu, pv, rnd.randrange(-v, v + 1), rnd.randrange(-v, v + 1))
+            keys = []
+            while len(keys) < 120:
+                keys += [rnd.choice((0, BB.K_U, BB.K_D, BB.K_L, BB.K_R, BB.K_U | BB.K_L))] * rnd.randrange(1, 30)
+            out = []
+            e0 = len(p.events)
+            for kk in keys[:120]:
+                g.w("bz_keys", kk)
+                g.w("bz_tilt", BB.TILT_KEYS)
+                g.trace = []
+                ps0 = g.r("bz_ps")
+                cq = BB.Grid(c.cga).cell(g.r("bz_gx", 2, k=1) >> 4, g.r("bz_gy", 2, k=1) >> 4)[3]
+                g.call("bz_step")
+                p.step(kk)
+                ev = {e[0] + (":" + e[2] if e[0] == "diag" else "") for e in p.events[e0:] if e[1] == p.nstep}
+                clk = price(g.trace, lst)
+                g.trace = None
+                if not ps0 & 8:
+                    key = "no split cell in the window"
+                elif ev & {"diag:in", "diag:ray", "centre", "corner"}:
+                    key = "a diagonal contact (%s)" % ",".join(sorted(ev & {"diag:in", "diag:ray", "centre",
+                                                                             "corner"}))
+                elif cq == BB.KIND_Q:
+                    key = "split window, the centre QUARTERED, no contact"
+                elif cq in BB.SPLIT_KINDS:
+                    key = "split window, the centre halved, no contact"
+                else:
+                    key = "split window, the centre whole, no contact"
+                if ev & {"land", "bounce", "takeoff", "wall", "undo", "respawn", "hop"}:
+                    key += " +other"
+                cat.setdefault(key, []).append(clk)
+        for key in sorted(cat):
+            xs = cat[key]
+            print("bonanza_dsplit PRICE split courses: %-58s %5d steps, mean %5.0f, max %5d clk" % (
+                key, len(xs), sum(xs) / len(xs), max(xs)))
+        return res, cat
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1124)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--reds", action="store_true", help="every red arm: each must go red")
+    ap.add_argument("--price", action="store_true", help="D3.4: the steps priced (128.11.15's method)")
     a = ap.parse_args()
+    if a.price:
+        price_report(a.runs, a.seed)
+        return
     if a.red or a.reds:
         for name in ([a.red] if a.red else sorted(REDS)):
             bad = check(a.runs, a.seed, verbose=False, patches=REDS[name])
