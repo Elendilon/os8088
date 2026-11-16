@@ -1636,6 +1636,15 @@ LOW_SETTLE = 10                     # the full write and a few held frames befor
 LOW_CYCLE = 6
 LOW_CYCLES = 6
 LOW_HOLD = {"cga": 16, "herc": 24}  # x 256 PIT counts: the held dark frame past the wheel's room (skipped)
+# ...and on the CGA (the MILL play's LOW, not bonanzawheel's LOW leg) the DARK cycles' own lateness, one hold
+# a dark cycle, and as many cycles again as LOW_CYCLES: the lit box's write alone made the dark frame late
+# enough for the LEAD once (3 of 3 dark cycles in wave 8R's round 2), but as the guest got faster that fell to
+# 1 and then 0 on 7a644820e (an AHEAD commit instead), and the frame's phase against the rise moves run to run
+# (the play's start is not pinned to it) - so the frame is made late on purpose, as the held cycles and
+# bonanzawheel's BEAM sweep make theirs.  Measured on 7a644820e, LEADs of three dark cycles: hold 0 -> 0 and
+# 1, 2 - 6 -> 2, 8 -> 2, 10 -> 3, 8/10/12 -> 3 and 1, 12 and 14 -> 0 (past the room: skipped, 16 always).
+# The Hercules' dark frames as they were (its LEAD is reported, its BEHIND comes from them)
+LOW_DARK = {"cga": (8, 10, 9, 10, 8, 11), "herc": None}
 # (wave 6's final pass: the held ball RESTS on a level floor, rest_in_window - held 186 px over its floor it
 # put the GROUND line, the camera's since 128.16.7, off the window, GLIDE panned 44 rows and no wheel commit
 # came; grounded, the camera's line is the ball's own as in wave 2)
@@ -1702,8 +1711,10 @@ def low_plan(g, crs, near=0):
 low_plan.line = LOW_F
 
 
-def low_poke(g, plan, k):
-    """THE LOW SCENARIO's pokes at its K-th bz_t0 (0 the first): -> 'lit', 'dark', 'held' or None"""
+def low_poke(g, plan, k, dark=None):
+    """THE LOW SCENARIO's pokes at its K-th bz_t0 (0 the first): -> 'lit', 'dark', 'held' or None.
+    DARK: the dark (not held) cycles' own [bz_hold], one a dark cycle (LOW_DARK) - 2 x len(DARK) cycles
+    then, not LOW_CYCLES - or None"""
     lane, _, _, pt, rest = plan
     if k == 0:                                  # the centred full write's point (airborne: the cut centres
         poke_ball(g, pt[0], pt[1], pt[2], 0, 0, 0, air=1)       # the window on the BALL)...
@@ -1714,7 +1725,7 @@ def low_poke(g, plan, k):
         return None                                                           # green slopes, and a rolling
                                                                               # ball scrolls the window
     j, r = divmod(k - LOW_SETTLE, LOW_CYCLE)
-    if j >= LOW_CYCLES:
+    if j >= (2 * len(dark) if dark else LOW_CYCLES):
         return None
     if r == 0:
         g.m.write(g.a("bz_lhold") + lane, bytes([1]))
@@ -1724,11 +1735,18 @@ def low_poke(g, plan, k):
         if j % 2:
             g.putb("bz_hold", LOW_HOLD[g.tag])
             return "held"
+        if dark and dark[j // 2]:
+            g.putb("bz_hold", dark[j // 2])
         return "dark"
     return None
 
 
 LOW_FRAMES = LOW_SETTLE + LOW_CYCLE * LOW_CYCLES + 2
+
+
+def low_frames(dark=None):
+    """the LOW scenario's frames with DARK's cycles (low_poke)"""
+    return LOW_SETTLE + LOW_CYCLE * (2 * len(dark) if dark else LOW_CYCLES) + 2
 
 
 def commit_kind(g, r):
@@ -2143,7 +2161,7 @@ def mill_play(g, ref):
     sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0,
           "strip": 0, "waits": 0, "dframes": 0, "tall": 0, "ptall": 0, "rideb": 0, "tfwait": False,
           "wfr": set()}
-    low_end = RIDE_FRAMES + OVER_FRAMES + LOW_FRAMES
+    low_end = RIDE_FRAMES + OVER_FRAMES + low_frames(LOW_DARK[tag])
     df_end = low_end + DF_END + 1
     nmax = df_end + 600                         # (the pwait scene waits for the lift's next rise: at most a
     tag_pw = PW_FRAMES[tag]                     # period, 256 steps)
@@ -2225,7 +2243,7 @@ def mill_play(g, ref):
                     if plan is None:
                         fails.append("MILL play: no post the LOW scenario can put low in a centred window")
                         break
-                low_poke(g, plan, frames - RIDE_FRAMES - OVER_FRAMES)
+                low_poke(g, plan, frames - RIDE_FRAMES - OVER_FRAMES, LOW_DARK[tag])
             elif frames >= RIDE_FRAMES:
                 phase = "over"
                 slab_ball(g, P, n + 1, -12, 1, False)
@@ -2358,7 +2376,7 @@ def mill_play(g, ref):
           "(%d tries), %d checked; THE RING'S-END SCENE: %d frames with a 3- or 4-word box's whole row across "
           "2000h checked; THE ENTERING-COLUMN SCENE (lane %s): %d frames bringing it in by a column checked; the tallest box %d lines, the tallest platform box %d; card = oracle: %s" % (
               tag, RIDE_FRAMES, OVER_FRAMES, cnt["ride"], cnt.get("ridebox", 0), cnt["pover"],
-              plan[0] if plan else None, low_plan.line, LOW_FRAMES, cnt["ahead"], cnt["behind"], cnt["lead"],
+              plan[0] if plan else None, low_plan.line, low_frames(LOW_DARK[tag]), cnt["ahead"], cnt["behind"], cnt["lead"],
               cnt["wrapcommit"], sc["df"][0] if sc["df"] else None, sc["dframes"], sc["pwn0"], nlift, sc["waits"], sc["strip"],
               sc["tries"], cnt.get("pwait", 0), cnt.get("wrapbox", 0),
               sc["ec"][0] if sc.get("ec") else None, sc.get("ecn", 0), sc["tall"], sc["ptall"],
