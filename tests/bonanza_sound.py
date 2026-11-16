@@ -14,19 +14,18 @@ age and PITCH WORD, and the song's order row, row, groove step and sub-ticks
 left - and on the speaker the Hz it last sent against the model's fold.
 
 LEG spk, os8088_5150_cga_gla (no card, the owner's 5150 #1):
-  1  THE TITLE on the desktop: the speaker arm, song 0's part fetched, three
-     stops a second apart held to the model;
-  2  S cycles SPEAKER, EFFECTS ONLY (no song live), OFF (no arm, both parts
-     given back) and AUTO (the title from its top);
-  3  ENTER plays FIRST: course 1's song (song 1, the part row after the
-     title's) in the bracket, three stops held to the model;
+  1  THE WINDOW IS SILENT (SPEC.md 128.26.5): no arm, no song held;
+  2  S (the harness's key, bz_dev) toggles OFF and AUTO, the window silent
+     either way;
+  3  F plays FIRST: course 1's song (song 0 since 128.26.5, the part row after
+     the sound part's) in the bracket, three stops held to the model;
   4  THE EVENTS, poked into the counters the physics keeps (SPEC.md 128.20.5)
      at a stop, each ball in turn (bz_mat): a bounce, a wall, a bumper's face -
      the next frame's slot holds that ball's effect (its instrument, priority
      and transpose), and the three balls' effects are not the same;
   5  the cost: every frame's sound (bzs_frame to .fend) in guest cycles over
      120 frames of play;
-  6  Esc: the song given back, the title again.
+  6  Esc: the song given back, the window silent again.
 LEG fm, os8088_5150_sb (the same 5150 with an AdLib, SOUND.DRV loaded at
 boot): 1 and 3 on the ADLIB arm (two effect slots), 5 priced there, the OPL's
 own capture loud in play, and Esc and the window's close giving the chip back
@@ -447,22 +446,15 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             ui.open("BONANZA.O88")
             g = R.Bz(ui, "cga", sym, live=True)
             g.secsteps = sec_steps(art)
-            M.until(m, lambda _: g.w("bzs_nsub") > 60, "the title is playing", guest=30)
+            M.guest_sleep(m, 2.0)
             m.pause()
-            # 1. THE TITLE
-            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 1:
-                fails.append("title: arm %d, song row %d - not arm %d, row %d"
-                             % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 1))
-            if only not in ("mat", "noboost"):
-                for k in range(3):
-                    m.run()
-                    M.guest_sleep(m, 1.0)
-                    stop(g)
-                    f, n = held(g, snd, songs[0], want_arm, "title")
-                    fails += f
-            # 2. S (the speaker leg only)
+            # 1. THE WINDOW IS SILENT (SPEC.md 128.26.5)
+            if g.b("bzs_arm") != A_NONE or g.b("bzs_song") or g.b("bzs_live"):
+                fails.append("the window: arm %d, song row %d, live %d - not silent"
+                             % (g.b("bzs_arm"), g.b("bzs_song"), g.b("bzs_live")))
+            # 2. S (the speaker leg only): OFF and AUTO, the window silent either way
             if arm_name == "spk" and only is None:
-                for mode, arm, live in ((1, A_SPK, 1), (2, A_SPK, 0), (3, A_NONE, 0), (0, A_SPK, 1)):
+                for mode, arm, live in ((3, A_NONE, 0), (0, A_NONE, 0)):
                     m.run()
                     g.key("KeyS")
                     M.guest_sleep(m, 0.4)
@@ -480,14 +472,14 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
             m.pause()
-            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 2:
-                fails.append("play: arm %d, song row %d - not arm %d, row %d (song 1)"
-                             % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 2))
+            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 1:
+                fails.append("play: arm %d, song row %d - not arm %d, row %d (song 0)"
+                             % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 1))
             if only not in ("mat", "noboost"):
                 for k in range(3):
                     for _ in range(25 + 40 * k):
                         stop(g)
-                    f, n = held(g, snd, songs[1], want_arm, "FIRST")
+                    f, n = held(g, snd, songs[0], want_arm, "FIRST")
                     fails += f
             # 4. THE EVENTS (the speaker leg; the slots are the same code on both),
             # FIRST's limit stopped first: its clock's LOW and TICKs are w7's to poke
@@ -509,24 +501,18 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             if arm_name == "fm":
                 M.guest_sleep(m, 4.0)               # play, for the capture
             g.key("Escape")
-            M.until(m, lambda _: g.b("bz_fs") == 0 and g.b("bzs_desk") == 1, "the desktop and the title",
-                    guest=30)
+            M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
+            M.guest_sleep(m, 0.5)
             m.pause()
-            if g.b("bzs_song") != p_snd + 1 or g.b("bzs_arm") != want_arm:
-                fails.append("Esc: song row %d, arm %d - not the title's %d on arm %d"
-                             % (g.b("bzs_song"), g.b("bzs_arm"), p_snd + 1, want_arm))
+            if g.b("bzs_song") or g.b("bzs_arm") != A_NONE:
+                fails.append("Esc: song row %d, arm %d - not the silent window's (none)"
+                             % (g.b("bzs_song"), g.b("bzs_arm")))
             if arm_name == "fm" and only is None:
                 import os88drvsym
                 sy = os88drvsym.symbols("sound.bin")
                 fseg = struct.unpack("<H", bytes(m.read(m.sym("drv_fseg"), 2)))[0]
-                if m.read(fseg * 16 + sy["opl_xown"], 1)[0] == 0xFF:
-                    fails.append("the title on the AdLib holds no claim")
-                m.run()
-                ui.menu_pick("BONANZA", "Close")
-                M.guest_sleep(m, 1.0)
-                m.pause()
                 if m.read(fseg * 16 + sy["opl_xown"], 1)[0] != 0xFF:
-                    fails.append("closing the window left the chip claimed")
+                    fails.append("the silent window kept the chip claimed")
     finally:
         os.environ.pop("MARTYPC_WAV", None)
     if cap and only is None:

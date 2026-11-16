@@ -190,11 +190,9 @@ def balls(crs, mat):
 
 
 def title_rows():
-    """the two rows the desktop's title holds while the window is open: the
-    sound part and song 0 (SPEC.md 128.20.6) - after the courses' rows"""
-    R.CRS_K["bench"]
-    snd = CRS_ROW0 + dict.__len__(R.CRS_K)
-    return {snd, snd + 1}
+    """the rows the desktop's song held while the window was open: NONE since
+    SPEC.md 128.26.5 (the window is silent)"""
+    return set()
 
 
 def shell_row():
