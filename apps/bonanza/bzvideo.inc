@@ -753,7 +753,7 @@ BZ_BOXL     equ 32              ; lines: the platform's union limit, and a buffe
 BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXL
 BZ_BOXD     equ 20
 ; wave 9 (SPEC.md 128.25.19): the pickup cue's LOOK, bz_clook (bz_cuef):
-; bits 0-2 the sparkles' step, 3-4 the sprite's shift, and
+; bits 0-2 the sparkles' step (the sprite's shift is not in it), and
 BZ_CL_SP    equ 20h             ; the SPARKLES
 BZ_CL_FL    equ 40h             ; a FLASH frame of a DITHER style
 BZ_CL_BL    equ 80h             ; a FLASH frame of a BLINK style: no ball
