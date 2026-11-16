@@ -459,7 +459,7 @@ def is_fam(kind):
 
 def fam_fetched(fams):
     """the families of a list a course's launch FETCHES (home `fetch`): the ones the 3-a-course limit counts"""
-    return [f for f in fams if f["home"] == HOME_FETCH]
+    return [f for f in fams if f.get("home", HOME_FETCH) == HOME_FETCH]
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
 LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
@@ -1254,7 +1254,7 @@ def parse(text, fname="<course>"):
                     raise CourseError("%s: uses: the family %s is named twice" % (where, t[1]))
                 src.uses.append((FAM_BY_NAME[t[1]], ln))
             if len(fam_fetched([f for f, _l in src.uses])) > FAM_MAX:
-                raise CourseError("%s: uses: a %dth fetched family, over the %d a course may name (SPEC.md "
+                raise CourseError("%s: uses: a %dth family to FETCH, over the %d a course may name (SPEC.md "
                                   "128.25.6.5; a RESIDENT family is not counted, 128.25.6.9)"
                                   % (where, len(fam_fetched([f for f, _l in src.uses])), FAM_MAX))
         else:
@@ -10851,7 +10851,7 @@ def crs_arena(c, k, ncrs):
         n += _para(len(songs[vic]))
     src = getattr(c, "src", None)                   # wave 9 (128.25.6.2): its FAMILIES' parts, the batch's
     n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
-             if fm["home"] == HOME_FETCH)           # RESIDENT one is the arena's floor already (128.25.6.9)
+             if fm.get("home", HOME_FETCH) == HOME_FETCH)           # RESIDENT one is the arena's floor already (128.25.6.9)
     return n + CLAIM_SLACK
 
 
@@ -16541,6 +16541,11 @@ class _famtest:
             d.pop(k, None)
 
 
+def _mill_text():
+    """MILL's text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE)"""
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read()
+
+
 def _w9_cases():
     """(what, text, the refusal's substring): 128.25.6.4's statements and rules"""
     C = _W4C
@@ -16550,6 +16555,11 @@ def _w9_cases():
         ("a family named twice", C + "uses probe probe\nprop probe 6 6 reset respawn\n", "named twice"),
         ("a probe of a family not named", C + "prop probe 6 6 reset respawn\n", "does not name"),
         ("a family named, none placed", C + "uses probe\n", "no element of it is placed"),
+        # story 9.8 (SPEC.md 128.25.20.4): today's props name their families
+        ("a spring, its family not named", C + "spring 6 6 300\n", "needs the spring family"),
+        ("a windmill, ROTOR not named", _mill_text().replace("uses rotor tube", "uses tube"), "needs the rotor family"),
+        ("a windmill, TUBE not named", _mill_text().replace("uses rotor tube", "uses rotor"), "needs the tube family"),
+        ("a tube, its family not named", _mill_text().replace("uses rotor tube", ""), "needs the"),
         ("an element with no reset class", C + "uses probe\nprop probe 6 6\n", "needs its reset class"),
         ("reset flag (written, not built)", C + "uses probe\nprop probe 6 6 reset flag\n", "written, not built"),
         ("reset of no class", C + "uses probe\nprop probe 6 6 reset never\n", "reset takes attempt or respawn"),
