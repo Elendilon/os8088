@@ -26,7 +26,17 @@
 #  - the MAT, level, at the apron's left end beside the 1.5-unit ledge, so a
 #    Hop lands on it (no boost on a mat);
 #  - a PAD for each ball on FF beside the goal;
-#  - the GOAL, at the end of a ROLLING route (the apron, FF's right, no Hop).
+#  - the GOAL, at the end of a ROLLING route (the apron, FF's right, no Hop);
+#  - the DIAGONAL SECTION (SPEC.md 128.24, wave D5): off the apron's right
+#    end a LANE straight DOWN the screen, 32 px wide between two straight
+#    diagonal RAILS (16 px, 1.5 units over the lane), stepping down as it
+#    goes - a RAMP (`ramp s`, one unit), then a half-unit diagonal STEP whose
+#    FRONT face is a 4-line ledge - onto a CHAMFERED PLATFORM whose four sides
+#    are straight 45-degree course EDGES over the void.  Every piece of it is
+#    a half (the rails' sides, the lane's sides, the step, the platform's
+#    edges) or a whole cell; no quarter.  A dead end on purpose, off every
+#    route: a half unit rolls up and the ramp's unit wants speed, so the way
+#    back is RETURN or the edge.
 # No ramp anywhere, so no up-ramp is within 6 tiles of the rungs or the gaps
 # (SPEC.md 128.16.5.2).  Width 128: the apron and its four rungs need 24
 # tiles along +wx, which width 64's footprints cannot hold.
@@ -89,3 +99,28 @@ target 30
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 18 28
+
+# the DIAGONAL SECTION (SPEC.md 128.24, wave D5): `box a0 a1 s0 s1` is a rectangle ON THE SCREEN
+# (16 a0 <= gx - gy <= 16 a1, 16 s0 <= gx + gy <= 16 s1); every number odd, so no cell is quartered.
+# The lane, a = 15 .. 17 (32 px), from inside the apron's right end down to the platform: level, a unit's
+# ramp, level, the half-unit step at s 67 (its front face), and the platform's own height
+floor box 15 17 49 57 flat 4
+floor box 15 17 57 59 ramp s 57 59 4 3
+floor box 15 17 59 67 flat 3
+floor box 15 17 67 69 flat 2.5
+# the platform: 224 x 96 px, its corners cut two cells deep along cell edges
+floor box 9 23 69 81 chamfer 2 flat 2.5
+# the rails, 16 px each, 1.5 units over the lane beside them; the funnel s 49 .. 55 is open both sides
+wall  box 13 15 55 57 flat 5.5
+wall  box 13 15 57 59 ramp s 57 59 5.5 4.5
+wall  box 13 15 59 69 flat 4.5
+wall  box 17 19 55 57 flat 5.5
+wall  box 17 19 57 59 ramp s 57 59 5.5 4.5
+wall  box 17 19 59 69 flat 4.5
+
+# wave 9 (SPEC.md 128.25.15): the PROBE family, which proves the family hooks and the per-play state
+# with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
+# without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
+# flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
+uses probe
+prop probe 16 16 reset respawn

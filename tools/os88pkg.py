@@ -99,7 +99,12 @@ OPF_ZFILL = 64                  # an EAGER OP_COMP row stored as TWO streams
                                 # byte they do not write being ZERO (SPEC.md
                                 # 20.12.7.5): op_unpack fills it and this tool
                                 # cuts the streams round the zeros
-OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP | OPF_ZFILL
+OPF_ARENA = 128                 # an OP_LAZY row fetched into the package's
+                                # ONE arena claim rather than one of its own
+                                # (SPEC.md 20.12.15): the standard's business
+                                # at run time, so this tool only refuses it
+                                # off a lazy row
+OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP | OPF_ZFILL | OPF_ARENA
 PART_FMT_AT = PARTS_HDR - 1     # the table's reserved byte, which is the
                                 # FORMAT the OP_COMP rows use (SPEC.md
                                 # 20.12.7). It is the package's own scope, so
@@ -823,6 +828,10 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         if pflags & ~OPF_ALL:
             fail(f"part {i}: flags 0x{pflags:02X}; this toolchain writes "
                  "OP_XMS, OP_ZERO, OP_OPT and OP_LAZY (SPEC.md 20.12.4)")
+        if pflags & OPF_ARENA and not pflags & OPF_LAZY:
+            fail(f"part {i}: OP_ARENA on an eager part. The arena holds what "
+                 "op_fetch reads, and an eager part is in the carve (SPEC.md "
+                 "20.12.15)")
         if pflags & OPF_XMS and kind != PK_ASSET:
             fail(f"part {i}: OP_XMS on a SEGMENT. Code has to be addressable "
                  "and extended memory is not (SPEC.md 41)")

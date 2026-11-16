@@ -23,4 +23,6 @@ BZH_FACE    equ 0               ; paint the face (bz_face)
 BZH_REDRAW  equ 1               ; SI = a 0FFh-ended line list in the PACKAGE (bz_redraw)
 BZH_LINE    equ 2               ; AH = one of MAIN's lines (bz_redraw1)
 BZH_NVEC    equ 3
+BZW_LBOT_S  equ 1               ; the window's ledge: its bottom margin, SHORT and
+BZW_LBOT_T  equ 2               ; TALL (bzwface.inc draws it; bzmenu.inc's button sits by it)
 %endif

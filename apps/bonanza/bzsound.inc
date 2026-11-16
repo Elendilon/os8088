@@ -248,16 +248,16 @@ bzs_gfetch:
 bzs_gdrop:
 bzs_gdrop0:
     push ax
-    mov al, [bzs_song]
-    call bzs_dsong
-    cmp word [bzs_vseg], 0
-    je .nv
-    push ds
+    cmp word [bzs_vseg], 0      ; the arena's fetch order backwards: the
+    je .nv                      ; fanfare, the song, the sound part (SPEC.md
+    push ds                     ; 128.25.4.2)
     pop es
     mov al, BZ_P_SONG + BZ_SONG_VICTORY
     call op_drop
     mov word [bzs_vseg], 0
 .nv:
+    mov al, [bzs_song]
+    call bzs_dsong
     mov al, BZ_P_SND
     call op_drop
     mov word [bzs_pseg], 0
