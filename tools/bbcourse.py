@@ -16761,6 +16761,15 @@ def _w9_cases():
         ("a probe in the void", C + "uses probe\nprop probe 30 30 reset respawn\n", "not a FLAT FLOOR"),
         ("a probe on a SPLIT cell (128.24.2)", C + "floor box 1 3 13 17 flat 3\nuses probe\n"
          "prop probe 7 5 reset respawn\n", "which is SPLIT"),
+        # GLASS (128.25.18): its kinds' classes are the family's; a crack or a glass tile where a floor is not
+        ("a crack given a reset class (its family's)", C + "uses glass\nprop crack 6 6 reset attempt\n",
+         "takes no `reset`"),
+        ("a glass tile on a ramp", C + "uses glass\nprop glass 14 6\n", "not a FLAT FLOOR"),
+        ("a crack on the cup's cell", C + "uses glass\nprop crack 12 6\n", "already belongs"),
+        ("a crack on a SPLIT cell (128.24.2)", C + "floor box 1 3 13 17 flat 3\nuses glass\nprop crack 7 5\n",
+         "which is SPLIT"),
+        ("a crack whose top is not on a block (origin 228)", C.replace("origin 224", "origin 228")
+         + "uses glass\nprop crack 6 6\n", "not on a block"),
     ]
 
 
@@ -16825,6 +16834,42 @@ def _w9_checks(res):
             fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
     res.append(("7 NO TRAP under the reset classes (128.25.7.3): a WALL-making element on the only bridge past a "
                 "flag - RESPAWN (cleared at the respawn): %s; forced ATTEMPT: %s" % (msg_g, msg), ok_g and fired))
+    # GLASS (128.25.18, 128.25.13): a CRACK PATH as that bridge - its own class RESPAWN compiles (the respawn
+    # restores every crack); the class forced ATTEMPT with BROKEN among the states a pass can leave it in is
+    # refused, naming the state (the red arm 128.25.13 names)
+    cb = _W9B + "uses glass\nprop crack 9 5\nprop crack 10 5\nprop crack 11 5\n"
+    ok_g, msg_g = True, "compiled"
+    try:
+        g = compile_course(cb, fname="<crack bridge>")
+        msg_g = "compiled, %d flag run(s)" % len(g.trap)
+    except CourseError as e:
+        ok_g, msg_g = False, str(e)
+    kr = FAM_BY_NAME["glass"]["kinds"][0]
+    keep = (kr["cls"], kr["states"])
+    kr["cls"], kr["states"] = CL_ATTEMPT, (CR_WHOLE, CR_BROKEN)
+    try:
+        compile_course(cb, fname="<crack bridge attempt>")
+        fired, msg = False, "compiled"
+    except CourseError as e:
+        fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
+    finally:
+        kr["cls"], kr["states"] = keep
+    res.append(("7 NO TRAP, GLASS's crack (128.25.18): a crack path as the only bridge past a flag - RESPAWN, its "
+                "class: %s; forced ATTEMPT (whole or broken): %s" % (msg_g, msg), ok_g and fired))
+    # the reach over the SUPERSET (128.25.7.3): each crack's cell takes its broken form's kill as its zlo -
+    # the floor less 3 units - so the occluders and the bounds see a ball falling through it; _hack noforms
+    # (the whole form alone) leaves it at the floor
+    g = compile_course(cb, fname="<crack bridge>")
+    g0 = compile_course(cb, fname="<crack bridge, no forms>", _hack={"noforms": True})
+    lo = dict(((r.wx, r.wy), r.zlo) for r in g.reach)
+    lo0 = dict(((r.wx, r.wy), r.zlo) for r in g0.reach)
+    cr = [(9, 5), (10, 5), (11, 5)]
+    want = [4 * (g.cells[c][0] - 6) for c in cr]
+    res.append(("6 the reach over a crack's superset (128.25.7.3, 128.25.18): the cracks' zlo %s px (their broken "
+                "kill, the floor less 3 units: %s), %s px with the whole form alone (_hack noforms); %d occluder "
+                "records against %d" % ([lo[c] for c in cr], want, [lo0[c] for c in cr], len(g.records),
+                                         len(g0.records)),
+                [lo[c] for c in cr] == want and all(lo0[c] > lo[c] for c in cr)))
 
 
 def _w4_records(c, res):
