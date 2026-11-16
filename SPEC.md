@@ -273000,7 +273000,8 @@ are chosen OUTSIDE the routines 128.24's D3 changes (128.25.2).
 | 3 | `STEP` | every physics step while the family is active | `.count` (the step's timer block) | count its timers down, wear a pickup off, crack a tile through |
 | 4 | `POSE` | the lane walk asks an element lane's TRUE pose | `bz_ltrue`'s kind dispatch (bzwheel.inc) | answer the pose from the state bits and the step |
 | 5 | `CELL` | a refilled window holds an element whose state changes its CELL | the START of `bz_wtail`, which `bz_fill` and `bz_win9i` both end in, before it reads the centre's slopes and surface | rewrite that cell's 4 bytes in `bz_nbr` (the WINDOW, never the grid: 128.25.7.2) |
-| 6, 7 | reserved | | | |
+| 6 | `PROP` (story 9.8, 128.25.20) | a prop's physics QUESTION at a site the other hooks do not reach: AH the question (128.25.20.2) | through `bz_fone` ONLY, DL the owning kind (never `bz_fall`): the tube's drain at step 4 (`.w4`, the split path), a capture (a windmill's open door), step 1's transit (`.pst`), a windmill's doorway at step 5 (`.wdoor`, `.ndoor`, `bz_swalls`) | the TUBE's and the ROTOR's rules, answering AL (and AH) |
+| 7 | reserved | | | |
 
 A hook that changes a cell's state in the window asks for the refill step 5
 already makes when a push changes the cell (a new byte, `bz_fref`, tested
@@ -273375,6 +273376,26 @@ changes the identity of every course that has it (its `FAMV` joins the
 course): the old courses are re-stamped once more, or simply dropped if the
 first new course has landed by then (the owner's plan, 128.25.13).
 
+**DESIGNED (story 9.8, 2026-11-16; 128.25.20 is the design, and the BUILT
+figures replace this paragraph when it lands).** Two rows of the table above
+do not survive the inventory (MEASURED, `62cdee325`'s listing):
+
+- **The BUMPER stays resident.** A CLOCK's cell IS a post (128.18.5.3:
+  `bz_wolf` records a clock's kind as `BZ_PK_BUMPER`, and `bz_circle`,
+  `bz_ptop`, `bz_blocks`' OBS case and the octant table are its collision),
+  every play course has a clock, the owner keeps clocks resident, and a POST
+  family every clock course named would be PLAYGROUND's fourth (128.25.6.5).
+  The 709 bytes the table counted (762 with `bz_blocks`' OBS case) stay; the
+  POST slot carries the SPRING alone, as the family `spring` (kind 24; kind 23
+  stays unused).
+- **A windmill is a tube with a door**: its capture and its transit ARE the
+  tube's routines. So ROTOR holds only the DOOR (the touch test and the gate),
+  and with the tube a family a course that places a windmill names TUBE as
+  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`).
+
+PREDICTED: about -550 to -600 image bytes net of the dispatch, under the
+-1.0KB target, which assumed the post's 709.
+
 #### 128.25.11 kern_mega, kern_small, the Hercules
 
 **BUILT for 9.1 (by reading, not on 86Box):** a family part is far-called
@@ -273516,6 +273537,89 @@ that clears it, the probe entered again) - the ball, `bz_fst`, the slots,
 PEAK's demos with no family; the red arms `famcell` (the CELL entry 0: the
 window parts at 737, the refill after the ENTER) and `famrsp` (`bz_frst` not
 called: `bz_fst` parts at the RETURN) go red there.
+
+#### 128.25.20 Today's props as families: the design (story 9.8)
+
+**DESIGNED, then BUILT where 128.25.10 says so.** Three families take the
+code 128.25.10 moves. Their IDs are the generated equates `BZ_FID_ROTOR`,
+`BZ_FID_SPRING`, `BZ_FID_TUBE` (bzcourse.inc, from `bbcourse.FAMILIES`' order:
+nothing in the guest or a part writes an ID), their kinds the reserved ones.
+
+| family | kinds | hooks | its part holds | the course names it when it places |
+|---|---|---|---|---|
+| `rotor` | 22 `windmill` | PROP (DOOR) | the doorway's touch test (`bz_ztouchp`, with a copy of `bz_h4`) and the gate (`bz_gate`) | a windmill (and, the tube a family, `tube` too) |
+| `spring` | 24 `spring` | CONTACT | the spring's rule, `bz_prule`'s `.spring` as it was | a spring |
+| `tube` | 25 `tube` | PROP (DRAIN, CAPTURE, TRANSIT) | `bz_capture`, `bz_transit`, `bz_ztouch(p)`, `bz_atok` | a tube, or a windmill |
+
+##### 128.25.20.1 What stays resident, and why
+
+| what | why |
+|---|---|
+| the bumper's post (`bz_circle`, `bz_posts`, `bz_ptop`, `bz_octe`, `bz_pdist`, `bz_otab`, `bz_blocks`' OBS case) | a clock's collision (128.25.10) |
+| the windmill's doorway SETUP (`.w4`'s `bz_pdoor` / `bz_pdi`, `bz_sdoor`) and the KNOCK (the clamp, `bz_refl`, `bz_nknock`) | 20 - 40 bytes each that read the record or reuse the edge's own clamp: a question to a part costs as much as the answer |
+| the rotor's LANES (`bz_ltrue`'s rotor, the walk's skip, `bz_lmust`) | lane machinery; a family draws through lanes, and the POSE hook answers a pose, not a FAST lane's next change (128.25.6.3) |
+| the camera's `bz_lexit` (62) and every read of `bz_tube` (the camera, the wheel, `.kret`, `.pps`, `bz_psync`, `bz_pinit`) | they READ the tube's resident state and record; its answer is two words, which no hook returns |
+| the tube's STATE (`bz_tube`, `bz_tseg`, `bz_tcnt`, `bz_tsin`, the counters) | physics state, compared as before; moving code moves no state, and no family slot or `bz_fst` bit is used (`NFST` 0 on a course that names only these) |
+| `bz_vmax` | the cup's |
+
+##### 128.25.20.2 The PROP hook (bit 6)
+
+Hook bit 6 is called ONLY through `bz_fone` with DL the owning kind, so only
+a part whose mask has bit 6 carries its entry, at +24 (`BZF_HDR` stays 24
+for every other part; a part with bit 6 has a 26-byte header). The
+contract is 128.25.6.3's (DS = ES = the package, `retf`, AL the slot), with:
+
+| AH | the question | DL | BX | the answer |
+|---|---|---|---|---|
+| 0 `DRAIN` | step 4: the centre is a plain tube's IN - captured if grounded, or airborne with z at most IN's floor + `BZ_CLIMB` at its point | `BZ_PK_TUBE` | the tube | AL bit 0: captured (the step ends) |
+| 1 `CAPTURE` | a windmill's open doorway swallowed the ball | `BZ_PK_TUBE` | the windmill | - |
+| 2 `TRANSIT` | step 1, a ball in a tube | `BZ_PK_TUBE` | - | AL bit 0: it EXITED, and the engine refills the window round OUT (`bz_win9f`), as the routine did itself |
+| 3 `DOOR` | step 5: the ball's circle meets a windmill's doorway (`[bz_pdi]`) | `BZ_PK_WINDMILL` | the point (BL u, BH v: the integer gu before the step's x push) | AL 0 not touching (a wall), 1 CLOSED (AH = its gate's eG: the knock), 2 OPEN (the engine captures) |
+
+The engine's thunks (bzphys.inc, the tube a family): `bz_capture` (BL the
+record) and `bz_tdrain` ask the TUBE family, `bz_transit` asks and refills,
+`bz_door` asks the ROTOR family; every one preserves what the routine it
+replaces preserved and more. ES is the course at every site; a part loads
+`[bz_cseg]` itself.
+
+##### 128.25.20.3 The tube behind a switch (`BZ_TUBE_RESIDENT`)
+
+The owner's Q2: the tube a family "for now", moved back by a build switch.
+The tube's code is ONE source, `apps/bonanza/fam/bztube.inc` (and the touch
+test's `fam/bzztouch.inc`), included by the TUBE part or, with the switch,
+by `bzphys.inc` - never two copies. `make BZTUBE=resident` (the tool's
+`--tube-resident`, which writes `BZ_TUBE_RESIDENT equ 1` into bzcourse.inc):
+the tube is kind 1 again and no family, `bz_capture` / `bz_transit` /
+`bz_ztouch(p)` / `bz_atok` resident as before, no `uses tube` (a windmill
+needs `rotor` only), and the ROTOR part keeps its own touch test.
+`tests/bonanza_ring.py --check-reds` compiles the courses with the switch
+and assembles that arm's package and parts every time, so the arm cannot
+rot.
+
+##### 128.25.20.4 The tool
+
+- The record keeps its wave-3/4 LAYOUT: these are **OWN-LAYOUT** family
+  kinds, with no state bits, no reset class and no `prop <kind>` line (the
+  `tube`, `prop windmill` and `spring` statements place them as before).
+  The tool's model and every table keep their kind numbers (`PK_TUBE`,
+  `PK_WINDMILL`, `PK_SPRING`): only the RECORD's +0 carries the family kind
+  (`wire_kind` on the way out, `unwire_kind` on the way in), and
+  bzcourse.inc's `BZ_PK_*` are the wire values the guest compares.
+- `uses`: a course that places one of them names its family, and a windmill
+  names `tube` too while the tube is a family; refused otherwise, naming the
+  line. Every family named still needs an element (128.25.6.4).
+- The physics is UNCHANGED, so `BZ_PHYSV` is; each course's identity moves
+  by its family list (the `FAMV`s), its demos are re-authored and must run
+  as before - the same steps, the same ends.
+
+##### 128.25.20.5 What it costs (PREDICTED)
+
+| item | image | per step |
+|---|---|---|
+| out: `bz_capture` 135, `bz_transit` 263, `bz_ztouch(p)` 62, `bz_atok` 15, `bz_gate` 40, the spring's case 127 | about -640 | - |
+| in: the four thunks, the door's answer at three sites | about +60 | a far call (about 0.1k) where a resident call was, only on those events; none on a course without the props |
+| bss | 0 | |
+| a launch | one part fetch a family (MEASURED in 128.25.10 when built) | |
 
 ### 128.26 The window (the owner's brief, 2026-11-16)
 
