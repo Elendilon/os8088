@@ -1403,8 +1403,9 @@ bz_trand:
     ret
 
 ; bz_tlabel - the slot changed on the title: its label's pose (bz_nst[0] =
-; 1 + slot) and every CLOCK lane MARKED, the next walk made (128.19.10), so
-; the one block redraws.  Preserves all but AX and BX.
+; 1 + slot) and every CLOCK lane MARKED, the next walk made and its clocks'
+; second unread (128.19.10, the skip's), so the one block redraws.  Preserves
+; all but AX and BX.
 bz_tlabel:
     mov al, [bz_slot]
     inc ax
@@ -1421,7 +1422,8 @@ bz_tlabel:
     jmp short .l
 .d:
     mov byte [bz_lqt], 0
-    ret
+    mov word [bz_lcsec], 0ffffh ; (a CLOCK lane's skip holds while the second
+    ret                         ; is the one the last walk read: none is now)
 %endif
 
 bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)

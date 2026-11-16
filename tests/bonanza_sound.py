@@ -414,9 +414,9 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                                      % (g.w("bzs_pseg"), g.w("bzs_mseg")))
                 m.run()
                 M.guest_sleep(m, 0.4)
-            # 3. FIRST
+            # 3. FIRST - a free play, F (Enter is the TITLE since SPEC.md 128.23.4)
             m.run()
-            g.key("Enter")
+            g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
             m.pause()
             if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 2:

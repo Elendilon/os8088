@@ -110,15 +110,23 @@ A box is ticked only for what was built AND checked as its line says.
 - [x] **T1.2** `art FILE X Y` and the `.bba` pixmap; refused off the
       picture. *Host: a control; the preview.* *Built; a placeholder box
       LOOKED AT on the host and the guest. The control is T5.1's.*
-- [ ] **T1.3** `label N COL ROW glyphs "..." [ink C]`: one block, the desktop
+- [x] **T1.3** `label N COL ROW glyphs "..." [ink C]`: one block, the desktop
       font's glyphs, a `PK_CLOCK` of ndig 0 with no OBS cell. *Host: the
-      lane's poses equal the font; no cell of the grid OBS for it.*
-- [ ] **T1.4** The title art: the lettering and the key hints, generated
+      lane's poses equal the font; no cell of the grid OBS for it.* *Built;
+      LOOKED AT on MartyPC's CGA: `SLOT 1`, then `SLOT 3` after the 3 key
+      (the walk's clock skip had to be told, `bz_tlabel`). The host checks are
+      T5.1's.*
+- [x] **T1.4** The title art: the lettering and the key hints, generated
       once by a committed script into `title.bba`. *Looked at: the preview
-      PNG, CGA and the Hercules translation.*
-- [ ] **T1.5** `title.bbc`: the layout of 128.23.5, its two tubes, the
+      PNG, CGA and the Hercules translation.* *Built (`tools/bbtitle.py`);
+      LOOKED AT on both host previews and on MartyPC's CGA. One line of
+      lettering, not the sketch's two (SPEC.md 128.23.2).*
+- [x] **T1.5** `title.bbc`: the layout of 128.23.5, its two tubes, the
       windmill, the two springs, the ramp, the label. *Looked at: the
-      preview against the sketch; every reach inside the picture.*
+      preview against the sketch; every reach inside the picture.* *Built,
+      width 128 (a 64-word picture cannot hold the reach's corners and the
+      off-glass margins); LOOKED AT on both cards' previews and the CGA
+      guest. PROVISIONAL, the owner's to refine.*
 
 ### Wave T2: the guest - the fixed camera and the title loop
 
@@ -153,9 +161,12 @@ A box is ticked only for what was built AND checked as its line says.
 
 ### Wave T4: the song
 
-- [ ] **T4.1** `attract.bmu`: one pass of `BZ_TSTEPS` sub-ticks, catchy,
+- [x] **T4.1** `attract.bmu`: one pass of `BZ_TSTEPS` sub-ticks, catchy,
       ending with the demo; PLAY's `music fairway`. *Host: the music
-      selfcheck; listened to as WAV on the host (speaker and OPL2).*
+      selfcheck; listened to as WAV on the host (speaker and OPL2).* *Built;
+      the selfcheck's length and silence check passes and goes red on a
+      groove of 6 6; both WAVs rendered for the owner. NOT listened to by
+      the session (it cannot): the owner's ears are the check.*
 
 ### Wave T5: the rows and the final pass
 
