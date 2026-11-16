@@ -24,12 +24,13 @@ the guest's clock:
   4. Down at pad 1 (a down-left route: both of its arrows) takes route 0 back
      to pad 0 (Follow, reversed), Up brings it back; LEFT, the diagonal's
      second arrow, takes it too, and Right brings it back;
-  5. routes 1 and 3 opened by a poke: Up to MILL (pad 2), Up to MOON (pad 4,
-     page 1): bz_R0 at every bz_presented on page 0's rows (bz_fixr) until it
+  5. the routes 1 -> 2, 2 -> 4 and 4 -> 5 opened by a poke: Up to MILL (pad
+     2), Up to MOON (pad 4, page 1): bz_R0 at every bz_presented on page 0's rows (bz_fixr) until it
      moves BZ_MAXR rows a frame to page 1's and stops there; bz_c0 never moves;
   6. RESTING on MOON its icon's lanes are walked (their drawn pose changes)
-     and no other icon's lane is MARKED (bz_latt) at any bz_presented; on PEAK
-     (up a ramp, pad 5) MOON's icon is back at its rest pose and unmarked;
+     and no other icon's lane is MARKED (bz_latt) at any walk's entry
+     (bz_props); on PEAK (up a ramp, pad 5) MOON's icon is back at its rest
+     pose and its lanes unmarked at every walk's entry;
   7. the HELD pathway: Enter at PEAK plays it beside the pathway's row, kept
      fetched (bz_phold 1) and re-entered with no fetch (bz_phre); Esc in the
      course costs a LIFE (4) on the counters (their digit lanes drawn 1 + 4);
@@ -435,7 +436,9 @@ def run(tag, apps=None, src=None):
         # --- 5. the PAGED camera: Up to MILL, Up to MOON (page 1) ------------------------------------------
         resting(g, 1, "resting on pad 1")
         m.pause()
-        g.putd("bz_nrop", g.d("bz_nrop") | (1 << 1) | (1 << 3))
+        rid = {(r["a"], r["b"]): i for i, r in enumerate(T["routes"])}
+        # (opened by a poke: TRIAL to MILL, MILL to MOON for this item, MOON to PEAK for 6b's ramp)
+        g.putd("bz_nrop", g.d("bz_nrop") | (1 << rid[(1, 2)]) | (1 << rid[(2, 4)]) | (1 << rid[(4, 5)]))
         fixr = g.w("bz_fixr")
         m.run()
         M.guest_sleep(m, 0.2)
@@ -470,23 +473,28 @@ def run(tag, apps=None, src=None):
         icons = {i: q["isign"] for i, q in enumerate(T["pads"]) if q["isign"] is not None}
         moon = [i for i, n in sl.items() if n == icons[4]]
         other = [i for i, n in sl.items() if n in icons.values() and n != icons[4]]
-        sp = Stops(g, ("bz_presented",))
+        # (the MARKS are read at the walk's ENTRY, bz_props: after it a lane it walked is unmarked again, so a
+        # mark set on a lane that should have none would be gone by bz_presented)
+        sp = Stops(g, ("bz_props", "bz_presented"))
         drawn, marked = set(), set()
-        for _ in range(90):
-            if sp.next() != "bz_presented":
+        for _ in range(180):
+            hit = sp.next()
+            if hit == "bz_props":
+                marked |= {i for i in other if g.m.read(g.a("bz_latt") + i, 1)[0]}
+            elif hit == "bz_presented":
+                drawn |= {ldrw(g, i) for i in moon}
+            else:
                 break
-            drawn |= {ldrw(g, i) for i in moon}
-            marked |= {i for i in other if g.m.read(g.a("bz_latt") + i, 1)[0]}
         sp.done()
         check(fails, len(drawn) >= 2 and not marked, "6.", "resting on MOON: its icon's lanes drawn at poses %s, no "
               "other icon's lane marked" % sorted(drawn),
               "the icons' marks: MOON's lanes drawn %s, others marked %s" % (sorted(drawn), sorted(marked)))
         g.key("ArrowLeft")                          # up-left and up a ramp: PEAK
         resting(g, 5, "resting on PEAK (pad 5)")
-        sp = Stops(g, ("bz_presented",))
+        sp = Stops(g, ("bz_props",))               # (the marks at the walk's entry, as above)
         mk = set()
         for _ in range(60):
-            if sp.next() != "bz_presented":
+            if sp.next() != "bz_props":
                 break
             mk |= {i for i in moon if g.m.read(g.a("bz_latt") + i, 1)[0]}
         pose, gz = nst(g, icons[4]), g.sd("bz_gz")

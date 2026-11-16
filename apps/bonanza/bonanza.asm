@@ -788,11 +788,12 @@ bz_cload:
 ; tool's, 128.22.3): a pad's course's part, balls, song and sound part, each
 ; its RAM form plus op_lazyp's cluster slack (a compressed row claims R and
 ; the read of its packed bytes in whole clusters)
+%if BZ_TITLE == 0
 ; -----------------------------------------------------------------------------
-; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face.  Its
-; refusals are bz_launch's (kern_small, the adapter); a game with no lives left
-; is a NEW one (5 lives, node 0 open, nothing done), else it goes on where it
-; was.  The pathway is fetched here at home, on the desktop, and the bracket
+; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face - a build
+; with no TITLE's only (the title's P plays it, bz_tround).  Its refusals are
+; bz_launch's (kern_small, the adapter); a game with no lives left is a NEW
+; one (5 lives, pad 0 open, nothing done), else it goes on where it was.  The pathway is fetched here at home, on the desktop, and the bracket
 ; (bz_fullscreen, [bz_ingame] 1) plays the rounds; whatever is held when it
 ; ends is given back, and a best a course set is written (bz_dsave).
 ; -----------------------------------------------------------------------------
@@ -846,6 +847,7 @@ bz_game8:
 
 .ret:
     ret
+%endif
 
 ; bz_gslot - THE SLOT's game (save v3, 128.22.5) into memory: its game when
 ; it has lives, else a NEW one in it; the pad, the pads open and done, the
@@ -1925,7 +1927,8 @@ bz_pwkey:
     mov al, [es:si]
     pop es
     call bz_kinfow
-    cmp al, al
+    mov byte [bz_pwek], 0ffh    ; (the key that took the card down, held, is
+    cmp al, al                  ; no press: Space's repeat no second card)
     ret
 
 ; bz_phfetch - the PATHWAY's part, its ball, a play (bz_gpath makes it the
@@ -2019,16 +2022,18 @@ bz_grounds:
     call bz_dwset
     jmp short .back
 .life:                          ; ...or a timeout or an Esc: a life (none
-    cmp byte [bz_xmode], 0      ; in EXPLORE, 8c.2)
-    jne .back
+    xor al, al                  ; in EXPLORE, 8c.2) - R's RETRY taken here
+    xchg al, [bz_retry]         ; whatever follows (EXPLORE's R, the last
+    cmp byte [bz_xmode], 0      ; life's, would else retry a later game's
+    jne .back                   ; first Esc)
     mov byte [bz_pwev], BZ_PE_OVER
     dec byte [bz_lives]
     jz .back
     mov byte [bz_pwev], BZ_PE_LIFE
-    cmp byte [bz_retry], 0      ; wave 8c (128.19.8): a RETRY from the pause
-    je .back                    ; card - the same course again, nothing
-    mov byte [bz_retry], 0      ; re-fetched, the next life taken on the disk
-    mov bl, [bz_crs]            ; first; its own ball again
+    or al, al                   ; wave 8c (128.19.8): a RETRY from the pause
+    jz .back                    ; card - the same course again, nothing
+    mov bl, [bz_crs]            ; re-fetched, the next life taken on the disk
+                                ; first; its own ball again
     xor bh, bh
     mov al, [bz_cballs + bx]
     mov [bz_mat], al
@@ -3772,7 +3777,7 @@ bz_dslz:
 ; bz_dslots - each SLOT judged alone (save v3, SPEC.md 128.22.5): EMPTIED when
 ; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found past the courses or +70 -
-; +79 are not zero, or - it having lives - node 0's pad is not open, it is
+; +79 are not zero, or - it having lives - pad 0 is not open, it is
 ; not this build's pathway's, its pad is not one of the pathway's
 ; (BZD_NPAD), or - TIMED - its pad is not open (EXPLORE rests on any pad:
 ; every one is open to it, none in the open set).  An empty slot (lives 0)
@@ -4532,8 +4537,7 @@ VAR bz_lbuf,BZ_LMAX + 2
 VAR bz_shfp,4                   ; the shell part's far pointer (bz_shcall)
 VAR bz_shpend,2                 ; byte 1: a paint put off while a course was held (a word: the run stays even)
 ; the game (wave 8b, SPEC.md 128.19.5): the pathway's state, held in memory
-VAR bz_nopen,4                  ; a bit a pad: OPEN (pad 0 from a new game's start; a dword,
-                                ; the low word the prototype loop's node bits)
+VAR bz_nopen,4                  ; a bit a pad: OPEN (pad 0 from a new game's start; a dword)
 VAR bz_ndone,4                  ; ...and DONE (a finish in time)
 VAR bz_nrop,4                   ; ...the routes OPENED (a bit a route)
 VAR bz_nrtk,4                   ; ...and TAKEN (a secret's reveal; a subset)
@@ -4576,7 +4580,7 @@ VAR bz_pwst,1                   ; BZ_PW_*: resting, rolling, a gate opening, the
 VAR bz_pwq,1                    ; the play's end: 13 Enter (bz_pwck), 27 Esc, 'o' the game over, 0 else
 VAR bz_pwev,1                   ; BZ_PE_*: what the last course left the pathway (0 none) ...
 VAR bz_pwex,1                   ; ...a finish's exit
-VAR bz_pwek,1                   ; FFh: Enter, Esc, Space or an arrow held since the course or the press
+VAR bz_pwek,1                   ; FFh: Enter, Esc, Space or an arrow held since the course, the press or the info card
 VAR bz_pwrt,1                   ; the route rolled (or a gate's) ...
 VAR bz_pwrv,1                   ; ...1 travelled B to A
 VAR bz_pwdst,1                  ; ...the pad it goes to

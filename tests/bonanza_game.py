@@ -268,11 +268,10 @@ def hostile_set():
 
 
 def npad():
-    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD once the tool emits
-    it (128.22.3), the prototype's BZ_PATH_N until then"""
+    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (128.22.3)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    m = re.search(r"^BZ_PATH_NPAD\s+equ\s+(\d+)", inc, re.M) or re.search(r"^BZ_PATH_N\s+equ\s+(\d+)", inc, re.M)
+    m = re.search(r"^BZ_PATH_NPAD\s+equ\s+(\d+)", inc, re.M)
     return int(m.group(1))
 
 
