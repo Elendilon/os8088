@@ -81,5 +81,10 @@ clock 18 17
 
 # the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
-# are the same with it and without it, so the build re-stamps the demo's identity
-clock 9 17
+# are the same with it and without it, so the build re-stamps the demo's identity.  Wave 8R round 2 (R1): it
+# stood at (9, 17), SOLID in front of the goal column, and walled exit 0's goal cell off from the sand (the
+# tool's finish-reach rule refuses that now).  On the ice's front row at (14, 18): both goal cells open and
+# plainly visible, and the autopilot (which rolls the ice's back row there) never meets it - its replay is
+# the same step for step with the clock and without it, so the route demo and the limit (20 s) do not move
+# (bbcourse --selfcheck; (11, 17), tried first, is met: 796 steps and a 30 s limit)
+clock 14 18

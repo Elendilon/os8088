@@ -217,6 +217,9 @@ VAR bz_ffl,1                    ; steps left + 1 (0: none ran; 1: run out), and 
                                 ; clock BLANK as bit 7 (bz_fstart, bz_fstep)
 VAR bz_phe,0
 ; the rest: written before they are read
+VAR bz_fdb,2 * BZ_FDMSK + BZ_BAL_SHDROWS * BZ_BAL_RB ; 8R.11 (128.22.6): THE DISSOLVE's
+                                ; copies - the frame's sprite mask, its frame, its
+                                ; shadow - dithered (bz_fdis: the blits' source)
 VAR bz_okey,2 * BZ_PROPALL      ; 128.19.10: the records' anchors, sorted (bz_obuild)
 VAR bz_oidx,BZ_PROPALL          ; ...and each one's record (bz_owner's search)
 VAR bz_tdig,3                   ; wave 7 (128.18.5): the clocks' digit poses of
@@ -1685,12 +1688,20 @@ bz_fstep:
 
 ; bz_fend - a PLAY's end, every way out (bz_t0): the steps a finish sequence
 ; ran (BZ_FIN_STEPS + 1 - bz_fcnt) taken back off bz_nstep, so the log's, the
-; face's and the best's time is the finishing step's; bz_fcnt 0; and bz_fin
-; from bz_goal (an Esc or F in the sequence finished the play too).
+; face's and the best's time is the finishing step's; bz_fcnt 0; bz_fin
+; from bz_goal (an Esc or F in the sequence finished the play too); and
+; bz_bseg the material's ball part (bz_fdis's copies may have stood in).
 ; Clobbers AX.
 bz_fend:
     mov al, [bz_goal]
     mov [bz_fin], al
+    push bx                     ; the blits' ball part the material's again
+    mov bl, [bz_mat]            ; (the DISSOLVE's copies were their source:
+    xor bh, bh                  ; bz_fdis)
+    shl bx, 1
+    mov ax, [bz_bsegs + bx]
+    mov [bz_bseg], ax
+    pop bx
     xor ax, ax
     xchg al, [bz_fcnt]
     or al, al
@@ -1731,6 +1742,159 @@ bz_fflash:
     jmp short .l
 .r:
     ret
+
+; bz_fdis - THE DISSOLVE (8R.11, SPEC.md 128.22.6), once a frame after bz_foot
+; (the frame's sprite, shadow and footprints chosen): in a finish sequence the
+; ball is drawn WHOLE for the step that finished and the sequence's first
+; BZ_FDSTEPS - 1 steps, then through 7 ORDERED-DITHER densities (k / 8 of its
+; pixels hidden, k = 1 - 7, BZ_FDSTEPS steps each, rolling on all the while),
+; and from step 8 BZ_FDSTEPS (40, 0.73 s) to the sequence's end it is not
+; drawn at all, nor its shadow: HIDDEN as in a tube (bz_hidn; bz_mkboxes
+; restores its last footprint and composes nothing for it after).  A hidden
+; pixel is the box's own fill, the course under it (bz_boxc), never a hole.
+; The dither is 2 x 4 game pixels, anchored to the WORLD's lines and bytes,
+; so one byte a line parity a density (bz_fdtab): a mask byte ORed with it
+; (a set bit keeps the box), a frame byte ANDed with its complement (frames
+; are pre-ANDed, 128.3), the shadow's mask ORed (AND only, 128.11.10.2) -
+; copied into bz_fdb, which the blits then read: bz_smsk, bz_sfd and bz_shm
+; point there and bz_bseg is OUR segment until bz_fend puts the material's
+; back.  A new density sets bz_spr's bit 7 on every other one, so bz_mkboxes
+; never takes the frame for an idle one.  Nothing else changes: the physics,
+; the camera (held), the flash and the tune are the sequence's.  A ball
+; hidden while it is still whole (a cup's capture) is left as it is; hidden
+; once the fade has begun (a tube, a cup the sequence rolls into) it takes
+; GONE's path for that frame - no shadow either - because bz_bseg may still
+; be OUR segment from the last fading frame while bz_sprite's bz_shm is an
+; offset in the ball part.  Clobbers AX, BX, CX, DX, SI, DI, BP.
+%if BZ_BAL_ROWS & 1
+ %error "bz_fdis swaps a row's dither a row: the ball's rows must be even"
+%endif
+bz_fdis:
+    mov al, [bz_fcnt]
+    or al, al
+    jz .r                       ; (every frame but a finish sequence's)
+    mov ah, BZ_FIN_STEPS + 1
+    sub ah, al                  ; AH = the sequence's steps run
+    xor cx, cx
+.d:
+    sub ah, BZ_FDSTEPS
+    jc .k
+    inc cx
+    jmp short .d
+.k:
+    jcxz .r                     ; CX = the density k: 0 whole
+    cmp cl, 8
+    jae .gone
+    cmp byte [bz_hidn], 0       ; HIDDEN in the fade (a tube, a cup the
+    je .dith                    ; sequence rolled into): GONE's path, as
+.gone:                          ; bz_bseg may still be our copies' segment
+    mov byte [bz_hidn], 1       ; GONE: the ball and its shadow
+    mov byte [bz_shc], 0
+.r:
+    ret
+.dith:
+    test cl, 1                  ; (a new density is a new sprite to bz_mkboxes)
+    jz .p
+    or byte [bz_spr], 80h
+.p:
+    push es
+    mov bx, cx
+    shl bx, 1
+    push word [bz_fdtab - 2 + bx] ; k's bytes: an even line's, an odd line's
+    mov bl, [bz_mat]
+    xor bh, bh
+    shl bx, 1
+    mov bp, [bz_bsegs + bx]     ; BP = the material's ball part, the source
+    mov [bz_bseg], ds           ; ...and the blits' source: the copies, ours
+    push ds
+    pop es
+    pop dx
+    push dx
+    mov al, [bz_py]
+    call .wd                    ; DX the sprite's row 0's dither, BX row 1's
+    mov si, [bz_smsk]
+    mov di, bz_fdb
+    mov [bz_smsk], di
+    mov cx, BZ_BAL_ROWS
+    push si
+    call bz_fdor                ; the mask: OR
+    pop si
+    add si, [bz_sfd]
+    mov word [bz_sfd], BZ_FDMSK
+    not dx                      ; (row 0's again: the rows are even)
+    not bx
+    mov cx, BZ_BAL_ROWS
+    call bz_fdand               ; the frame: AND NOT
+    pop dx
+    cmp byte [bz_shc], 0
+    je .out
+    mov al, [bz_spy]
+    call .wd
+    mov si, [bz_shm]
+    mov [bz_shm], di
+    mov cx, BZ_BAL_SHDROWS
+    call bz_fdor                ; the shadow's mask: OR
+.out:
+    pop es
+    ret
+.wd:                            ; DL an even line's dither byte, DH an odd
+    test al, 1                  ; one's, AL a line: DX = AL's (both bytes),
+    jz .w0                      ; BX the next line's
+    xchg dl, dh
+.w0:
+    mov bl, dh
+    mov bh, dh
+    mov dh, dl
+    ret
+
+; bz_fdor / bz_fdand - CX rows of the ball part's BZ_BAL_RB bytes from BP:SI to
+; ES:DI, each ORed (ANDed) with DX, BX the next row's: the two swapped a row.
+; -> SI, DI past them, DX and BX swapped CX times.  Clobbers AX, CX.
+%if BZ_BAL_RB != 5
+ %error "bz_fdor's rows are two words and a byte (SPEC.md 128.3's 5-byte rows)"
+%endif
+bz_fdor:
+    push ds
+    mov ds, bp
+.l:
+    lodsw
+    or ax, dx
+    stosw
+    lodsw
+    or ax, dx
+    stosw
+    lodsb
+    or al, dl
+    stosb
+    xchg dx, bx
+    loop .l
+    pop ds
+    ret
+bz_fdand:
+    push ds
+    mov ds, bp
+.l:
+    lodsw
+    and ax, dx
+    stosw
+    lodsw
+    and ax, dx
+    stosw
+    lodsb
+    and al, dl
+    stosb
+    xchg dx, bx
+    loop .l
+    pop ds
+    ret
+
+; the densities k = 1 - 7: the bytes (an even line's, an odd line's) of the
+; 2 x 4 ordered dither [0 4 2 6 / 5 1 7 3] - a game pixel hidden where its
+; entry is under k (its two bits set; pixel 0 is bits 7 - 6): each density
+; one pixel more of the eight, alternating the lines, a checkerboard at 4
+bz_fdtab:
+    db 0c0h, 000h, 0c0h, 030h, 0cch, 030h, 0cch, 033h
+    db 0fch, 033h, 0fch, 0f3h, 0ffh, 0f3h
 
 %ifdef BZ_SONG_VICTORY
 ; bz_fvic - the VICTORY tune over the course's song (a goal's finish: the
