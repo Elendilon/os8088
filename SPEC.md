@@ -274767,9 +274767,10 @@ each step:
   until it arrives; then at most the TOP SPEED of the segment holding `s`:
   `FOL_VMAXD` on a segment whose two axes move OPPOSITE ways (screen-
   horizontal: `px` moves 2 a ground px), else `FOL_VMAX` (PROVISIONAL:
-  `FOL_VMAX` 3.0 ground px a step, `FOL_VMAXD` 1.5, `FOL_ACC` 0.75,
+  `FOL_VMAX` 3.0 ground px a step, `FOL_VMAXD` 1.0, `FOL_ACC` 0.75,
   `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second, and `px`
-  never more than 3 a step: the roll below).
+  never more than 3 a step, 2 on a screen-horizontal segment: the roll
+  below).
   The test is made before each step, so the marble can brake a step early
   and speed up once more before it arrives (the selfcheck's hand-worked
   16 px route: `v` 768, 768, 576, 384, then 576 into the pad) - the model's
@@ -274870,6 +274871,26 @@ the 0-step frames), back -3/-3; Hercules +3/+3 and +2 on its two-step frames
 3 lines with the ball's 3). **Bytes**: image 45,241 -> 45,276 (+35, by
 symbol span: `bz_pwroll` 238 -> 277, the cap +39; `bz_fold` 67 -> 63, the
 hold -4), bss unchanged (10,920).
+
+*Round 3: 1.5 was right by the numbers and wrong to the eye.* The owner
+played it and saw a slide with a flicker, and named the reason off a frame
+by frame recording: the two spots across the ball land in roughly the same
+place every OTHER frame. At 3 px a frame on an 8 px period, two frames move
+the texture 6 = -2 (mod 8), so frames n and n + 2 look alike, a little
+BEHIND, and frame n + 1 has the spots in the gaps - a slide that flickers,
+however 1:1 each single frame is. (The 6 px original failed the same way.)
+Mock-ups from `bonanza_assets.py`'s own generator, at about 50 frames a
+second, compared redrawn spots in the same 64 frames (bigger, biggest,
+staggered: the staggered spots roll, but read as less rubber and too like
+steel), a 16-phase texture (rolls; 5 - 15 KB, a last resort), and the
+shipped art at 2 px a frame, which rolls. The owner chose that, and noted
+that the shipped spots roll *really* well on the courses, where a ball's
+motion is mostly diagonal on the screen and each phase moves less. So
+**`FOL_VMAXD` = 1.0**: `px` 2 a step on a screen-horizontal segment, a
+quarter period, which is a direction the eye reads; two such steps in one
+frame (4 px) are HELD by the fold, never shown as half a period.
+`TRIAL -> PLAY` takes 49 steps (0.89 s). The owner may slow the vertical
+routes to match once played (open; 3 lines a step today).
 
 *The other way* (the owner's to choose; not built): keep 3.0 on the side
 routes and give the pathway marble a texture that can roll at 6 px a frame.
