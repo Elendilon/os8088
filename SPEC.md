@@ -273682,7 +273682,15 @@ macros, `BZT_GOING` and `BZT_EXITED`, default to the resident spelling).
   line. Every family named still needs an element (128.25.6.4).
 - The physics is UNCHANGED, so `BZ_PHYSV` is; each course's identity moves
   by its family list (the `FAMV`s), its demos are re-authored and must run
-  as before - the same steps, the same ends.
+  as before - the same steps, the same ends. **BUILT**: `moon.bzd` and
+  `summit.bzd` written again with only their `ident` line changed. PEAK's
+  was the last shipped demo recorded on a pre-clock course (128.22.6's
+  re-stamp, `CLOCK_RESTAMP` 0562h): written again, nothing is re-stamped
+  any more and `CLOCK_RESTAMP` / `CLOCK_BARE` are empty (`--selfcheck` item
+  8R says so). Item 1's cross-commit compile leaves `uses` out of the texts
+  (that grammar lacks it) and compiles them here with the family rule off.
+  MILL's packed cap is waived by its 6 bytes, by name (`CAP_WAIVE`, item 12
+  prints it).
 
 ##### 128.25.20.5 What it costs (PREDICTED)
 

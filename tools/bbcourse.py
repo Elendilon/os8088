@@ -3210,12 +3210,14 @@ def build_props(src, tiles, fname):
         if p_["kind"] == PK_WINDMILL:
             need.append(OWN_FAM[PK_TUBE])
         for fm in need:
+            if "famuses" in _CHECKS_OFF:            # (item 1's cross-commit compile: that grammar had no uses)
+                break
             if not any(f_ is fm for f_, _l in src.uses):
                 raise CourseError("%s:%d: a %s needs the %s family, which the course does not name (`uses %s`, "
                                   "SPEC.md 128.25.20)" % (f, p_.get("wline", p_["line"]), PK_NAMES[p_["kind"]],
                                                           fm["name"], fm["name"]))
-    for fm, ln in src.uses:
-        if not any(prop_fam(p_) is fm for p_ in props):
+    for fm, ln in src.uses:                         # (a windmill is the TUBE family's element too)
+        if not any(prop_fam(p_) is fm or (p_["kind"] == PK_WINDMILL and fm is OWN_FAM[PK_TUBE]) for p_ in props):
             raise CourseError("%s:%d: uses %s, and no element of it is placed: a family a course names costs "
                               "a fetch every launch (SPEC.md 128.25.6.4)" % (f, ln, fm["name"]))
     # wave 7 (SPEC.md 128.18.5): a CLOCK - a record and a lane for each digit (two, three when the limit
@@ -10929,6 +10931,11 @@ def budget(t):
 CAP_WAIVE = {"MILL": 6}
 
 
+def course_cap(c):
+    """course C's cap: budget_cap's, plus its NAMED waiver (CAP_WAIVE) if it has one"""
+    return budget_cap(c.target) + CAP_WAIVE.get(c.name, 0)
+
+
 def budget_cap(t):
     """the refusal: 1.5 times the budget (R4's ratio)"""
     return 3 * budget(t) // 2
@@ -10961,8 +10968,7 @@ def check_budget(c, k):
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
     n = packed_len(c.stored4, "lz4")
-    cap = budget_cap(c.target)
-    cap += CAP_WAIVE.get(c.name, 0)
+    cap = course_cap(c)
     if n > cap:
         raise CourseError("%s:%d: the course packs to %d bytes (LZ4), over its cap of %d, 1.5 times the %d-byte "
                           "budget of a %d s course (ROOM %d x %d / %d, SPEC.md 128.15.8)"
@@ -11278,13 +11284,16 @@ def check_demo(c, K, log, idents, where):
 # demo carrying one of these may be re-stamped by clock_restamp, and no other identity ever is
 # (MOON's 5E25h and PLAYGROUND's 9D5Eh left it in wave D5, SPEC.md 128.24.9: their demos were written again on
 # the courses with their diagonal sections, whose identities are their own)
-CLOCK_RESTAMP = {"PEAK": 0x0562}
+# (story 9.8, SPEC.md 128.25.20.4: PEAK's demo was written again when PEAK named its families - its identity
+# moved - so NO shipped demo carries a pre-clock identity now and nothing is re-stamped; the rule stays for
+# the record and its proof is item 8R's note.  It was {"PEAK": 0x0562} with CLOCK_BARE {"PEAK": 0x6814})
+CLOCK_RESTAMP = {}
 # ...and the course THAT identity was: its source today with its trailing finish clock(s) left out,
 # compiled with no occluders (occluders=False: the identity of the grid alone, a fraction of a second
 # where the shipped one's cut costs PEAK 13 s), must give this identity - so a course edited in any
 # other way is never re-stamped, however its demo replays (an edit, or a tool change that moves it,
 # fails the build as an earlier build's demo, naming `record it again`: the safe side)
-CLOCK_BARE = {"PEAK": 0x6814}
+CLOCK_BARE = {}
 
 
 def clock_restamp(c, log):
@@ -12410,7 +12419,7 @@ def report(c, k=None):
               4 * len(c.route), ", props %d" % (pt["diroff"] - pt["propoff"]) if pt["nprop"] else "",
               pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"]),
               "; LZ4 %d as RECB 4 (target %d s: budget %d, cap %d)" % (c.packed4, c.target, budget(c.target),
-                                                              budget_cap(c.target))
+                                                              course_cap(c))
               if getattr(c, "packed4", None) else ""))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
           "dithered left out of the part); most in a block %d -> %d (bound "
@@ -13548,7 +13557,7 @@ def _wave3_cases():
          "floor tile 7 15 flat 16\ntube keep 7 12 7 14\nprop windmill 7 12\n", "entered along +y"),
         ("a windmill without a wall behind its doorway", W + "tube keep 10 12 10 11\nprop windmill 10 12\n",
          "without a wall behind its doorway"),
-        ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nfloor rect 6 9 11 14 flat 16\n'
+        ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\n'
          'wall rect 7 8 12 9 flat 17\nfloor rect 7 5 12 8 flat 16.5\ntube keep 9 9 9 7\nprop windmill 9 9\n'
          'start 9 12\n', "cannot hold its rotor"),
         ("a doorway in the shade", W + "wall tile 11 10 flat 30\n", "is in the shade"),
@@ -17495,9 +17504,10 @@ def _w5_budget(courses, res):
             continue
         n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
         bg = budget(c.target)
-        res.append(("12 %s: target %d s, budget %d, cap %d: RECB 4's stored form LZ4 %d (%s), LZB %d (%s); RAM %d of %d" % (
-            c.name, c.target, bg, budget_cap(c.target), n, "over" if n > bg else "under", z,
-            "over" if z > bg else "under", len(c.cga), PARTMAX), n <= budget_cap(c.target)))
+        res.append(("12 %s: target %d s, budget %d, cap %d%s: RECB 4's stored form LZ4 %d (%s), LZB %d (%s); RAM %d of %d" % (
+            c.name, c.target, bg, course_cap(c), " (waived +%d, CAP_WAIVE)" % CAP_WAIVE[c.name] if c.name in CAP_WAIVE
+            else "", n, "over" if n > bg else "under", z,
+            "over" if z > bg else "under", len(c.cga), PARTMAX), n <= course_cap(c)))
 
 
 # =============================================================================
@@ -17787,7 +17797,11 @@ def _clock_rule_checks(courses, res, paths=None):
     paths = paths or default_paths()
     byk = {c.name: k for k, c in enumerate(courses)}
     RN = "PEAK"
-    if RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
+    if RN not in CLOCK_RESTAMP:
+        res.append(("8R the clock rule's re-stamp: no shipped demo is recorded on a pre-clock course any more "
+                    "(PEAK's written again by story 9.8, SPEC.md 128.25.20.4), so nothing is re-stamped: CLOCK_RESTAMP "
+                    "is empty", not CLOCK_RESTAMP))
+    elif RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
         K = byk[RN]
         c = courses[K]
         with open(demo_path(paths[K]), encoding="ascii") as f:
@@ -18799,7 +18813,10 @@ def selfcheck(paths=None):
     for c in w5:
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
-            kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"])]
+            kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"],
+                                                                                 ["uses"])]
+            # (story 9.8, SPEC.md 128.25.20: `uses` left out too - that grammar lacks it, and a family list is
+            # not in that commit's parts; this tool compiles the text with the family rule off, "famuses")
             # (wave 8b, 128.19.4: a goal's or a cup's `exit E` and `hidden` left out too - the grammar's new
             # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
             kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
@@ -18815,7 +18832,11 @@ def selfcheck(paths=None):
     else:
         diff = []
         for c, txt in zip(w5, w5txt):
-            c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0})  # (that tool had no Y0 search)
+            _CHECKS_OFF.add("famuses")
+            try:
+                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0})  # (that tool had no Y0 search)
+            finally:
+                _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
@@ -19343,7 +19364,7 @@ def sizes(paths):
         if c.target is None:
             print("    no target (course 0, the benchmark's): no budget")
         else:
-            bg, cap = budget(c.target), budget_cap(c.target)
+            bg, cap = budget(c.target), course_cap(c)
             pace = c.target / float(c.brows)
             rows = int((PARTMAX - HDR) / (len(c.cga) / float(c.brows)))
             print("    target %d s: %.3f s a block row; one part holds about %d rows at this density, about %.0f s at "
