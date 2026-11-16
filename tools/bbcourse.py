@@ -1714,18 +1714,32 @@ def rail_crystal(src):
 
 def _route_lay(r, fname, pads_at):
     """one route's cells and its follower points: -> (cells {(wx, wy): (height spec, ordered index)},
-    the polyline cells in order [(cell, direction)], points [(gx, gy, gz px)])"""
+    the polyline cells in order [(cell, direction)], points [(gx, gy, gz px)], halves {(wx, wy): {piece}}).
+    SPEC.md 128.24.8: a diagonal step lays its LINE cells whole and the two side neighbours' INNER halves
+    only (`halves`: the cell -> the pieces (diag, half) this route lays of it; a cell in `cells` and not in
+    `halves` is laid whole - and a cell laid whole stays whole however many halves also name it)"""
     ln = r["line"]
     pts = r["pts"]
     cells = {}
     line_cells = []
     gpts = []
+    halves = {}
 
-    def put(c, spec, d=None):
+    def put(c, spec, d=None, piece=None):
         old = cells.get(c)
         if old is not None and old[0] != spec:
             raise CourseError("%s:%d: the route lays cell (%d, %d) twice at two heights" % (fname, ln, c[0], c[1]))
         cells[c] = (spec, old[1] if old else len(cells))
+        if piece is None:
+            halves[c] = None                        # whole (a later half cannot take it back)
+        elif halves.get(c, set()) is not None:
+            halves.setdefault(c, set()).add(piece)
+
+    def inner(c, n):
+        """the INNER half of the side cell n of the line cell c: the one whose edge faces the line"""
+        if sx == sy:                                # up or down the screen: the band is a straight 32 px column
+            return SIDES["left" if (n[0] - n[1]) > (c[0] - c[1]) else "right"]
+        return SIDES["up" if n[0] + n[1] > c[0] + c[1] else "down"]     # across: a 16-line row
     for (ax, ay, ha), (bx, by, hb) in zip(pts, pts[1:]):
         dx, dy = bx - ax, by - ay
         if (dx, dy) == (0, 0):
@@ -1743,8 +1757,8 @@ def _route_lay(r, fname, pads_at):
                                   "only a step along one axis is a ramp" % (fname, ln, ax, ay, bx, by))
             for k in range(abs(dx)):
                 c = (ax + k * sx, ay + k * sy)
-                put((c[0] + sx, c[1]), ("flat", ha))
-                put((c[0], c[1] + sy), ("flat", ha))
+                for n in ((c[0] + sx, c[1]), (c[0], c[1] + sy)):
+                    put(n, ("flat", ha), piece=inner(c, n))
                 if k:
                     line_cells.append((c, (sx, sy)))
                 put((c[0] + sx, c[1] + sy), ("flat", ha))
@@ -1794,7 +1808,11 @@ def _route_lay(r, fname, pads_at):
             gpts.append((16 * bx + 8, 16 * by + 8, 4 * hb))
         line_cells.append(((bx, by), (sx, sy)))
     put(pts[-1][:2], ("flat", pts[-1][2]))
-    return cells, line_cells, gpts
+    for c in list(halves):                          # a cell's two halves of one diagonal are the cell
+        h = halves[c]
+        if h is not None and any((d, 0) in h and (d, 1) in h for d in (KIND_TB, KIND_LR)):
+            halves[c] = None
+    return cells, line_cells, gpts, {c: h for c, h in halves.items() if h is not None}
 
 
 def path_prepare(src, fname, crsinfo):
@@ -1856,7 +1874,7 @@ def path_prepare(src, fname, crsinfo):
                                                      pads[r["b"]]["at"][1]))
         if r["secret"] and r["gate"] is not None:
             raise CourseError("%s:%d: a secret route has no gate: nothing of it is drawn until it is taken" % (f, ln))
-        cells, lc, gpts = _route_lay(r, f, pad_at)
+        cells, lc, gpts, hlv = _route_lay(r, f, pad_at)
         for c in cells:
             if c in pad_at and c not in (r["pts"][0][:2], r["pts"][-1][:2]):
                 raise CourseError("%s:%d: the route runs over pad %d's cell (%d, %d): a route is pad to pad"
@@ -1866,7 +1884,7 @@ def path_prepare(src, fname, crsinfo):
             raise CourseError("%s:%d: the gate (%d, %d) is not a cell on the route's line (A's and B's excluded)"
                               % (f, ln, r["gate"][0], r["gate"][1]))
         routes.append({"i": ri, "src": r, "line": ln, "a": r["a"], "b": r["b"], "exit": r["exit"],
-                       "secret": r["secret"], "cells": cells, "lc": lc, "gpts": gpts, "cand": cand,
+                       "secret": r["secret"], "cells": cells, "halves": hlv, "lc": lc, "gpts": gpts, "cand": cand,
                        "dirs": {c: d for c, d in lc}})
     if len(routes) > PATH_ROUTES:
         raise CourseError("%s: %d routes, over %d" % (f, len(routes), PATH_ROUTES))
@@ -1915,18 +1933,23 @@ def path_prepare(src, fname, crsinfo):
     secret_rooms = {}
     rail = set()
 
-    def room(cells_spec, ln, into):
+    def room(cells_spec, ln, into, halves=None):
+        """a floor room a cell; a cell the route lays only a HALF of (128.24.8) a room a piece, its `half`"""
         for c, spec in sorted(cells_spec.items()):
             h = spec if spec[0] == "ramp" else ("flat", spec[1])
-            into.append(Room("floor", frozenset([c]), h, ln))
+            for pc in (sorted((halves or {}).get(c, ())) or [None]):
+                rm = Room("floor", frozenset([c]), h, ln)
+                if pc is not None:
+                    rm.half = {c: pc}
+                into.append(rm)
     for rt in routes:
         spec = {c: v[0] for c, v in rt["cells"].items() if c not in pad_at}
         if rt["secret"]:
             spec.update({c: ("flat", pad_at[c]["h2"]) for c in rt["cells"] if c in pad_at and pad_at[c]["hidden"]})
             secret_rooms[rt["i"]] = []
-            room(spec, rt["line"], secret_rooms[rt["i"]])
+            room(spec, rt["line"], secret_rooms[rt["i"]], rt["halves"])
         else:
-            room(spec, rt["line"], src.rooms)
+            room(spec, rt["line"], src.rooms, rt["halves"])
             rail |= set(spec)
     for q in pads:
         if not q["hidden"]:
@@ -1947,22 +1970,31 @@ def path_mark_rail(pth, tiles):
     surface's look (`rail ice`, or the stand-in while the art set has none)"""
     for c in pth["rail"]:
         t = tiles.get(c)
-        if t is not None:
-            t.rail = pth["crystal"]
+        for r_ in tile_recs(t):                     # a split cell's records each (128.24.8: a half's crystal)
+            r_.rail = pth["crystal"]
             if not pth["crystal"]:
-                t.surf = pth["surf"]
+                r_.surf = pth["surf"]
+        if isinstance(t, Split) and not pth["crystal"]:
+            t.surf = pth["surf"]
 
 
 def _secret_tiles(pth, ri):
-    """route ri's (secret) tiles, the route material's"""
+    """route ri's (secret) tiles, the route material's - a half cell (128.24.8) as build_tiles lays it"""
     out = {}
     for room in pth["secret_rooms"][ri]:
         for (wx, wy) in room.tiles:
             t = _room_tile(room, wx, wy)
-            t.rail = pth["crystal"]
+            _put(out, (wx, wy), room.half.get((wx, wy)), t, room.line)
+    for c in sorted(out):
+        if isinstance(out[c], _Quarters):
+            out[c] = _normal(out[c], out[c].line)
+    for t in out.values():
+        for r_ in tile_recs(t):
+            r_.rail = pth["crystal"]
             if not pth["crystal"]:
-                t.surf = pth["surf"]
-            out[(wx, wy)] = t
+                r_.surf = pth["surf"]
+        if isinstance(t, Split) and not pth["crystal"]:
+            t.surf = pth["surf"]
     return out
 
 
@@ -16742,6 +16774,20 @@ def _path_checks(courses, res):
             why = str(e)
         res.append(("8R refused: a ramp too %s for the follower's words (%s)" % (what, why[:90]),
                     "the follower's ramp is at most" in why))
+    # 128.24.8's bands: an UP step lays its line cells whole and the side cells' INNER TB halves (a 32 px band),
+    # an ACROSS step the side cells' LR halves (16 lines), the follower's points the same either way
+    for what, pts, diag, nside in (("up", [(10, 10, 0), (14, 14, 0)], KIND_TB, 2), ("across", [(10, 14, 0), (14, 10, 0)], KIND_LR, 2)):
+        cl, lcs, gp, hv = _route_lay({"line": 1, "pts": pts}, "<band %s>" % what, {})
+        whole = [c for c in cl if c not in hv]
+        pcs = sorted(p_ for h in hv.values() for p_ in h)
+        res.append(("8R the %s band: %d line cells whole, %d side cells each ONE %s half (inner side: %s), "
+                    "follower points %d" % (what, len(whole), len(hv), "TB" if diag == KIND_TB else "LR",
+                                            "/".join(SIDE_NAME[p_] for p_ in sorted(set(pcs))), len(gp)),
+                    len(whole) == 5 and len(hv) == 8 and all(len(h) == 1 for h in hv.values())
+                    and {p_[0] for p_ in pcs} == {diag} and len({p_[1] for p_ in pcs}) == 2
+                    and gp == [(168, 168, 0), (232, 232, 0)] if what == "up" else
+                    len(whole) == 5 and len(hv) == 8 and {p_[0] for p_ in pcs} == {diag}
+                    and gp == [(168, 232, 0), (232, 168, 0)]))
     # the key map's rule: a straight claim beats a diagonal (TRIAL's Up and Right are straights' and its
     # Left and Down the down-left route's alone)
     k1 = pth["pads"][1]["keys"]
