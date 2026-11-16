@@ -14307,7 +14307,10 @@ def _props_course_checks(c, res, tag):
             what += ": capture %d, mouth %d x %d gu" % (rec["capture"], 2 * rec["hw"] + 1, 2 * rec["hw"] + 1)
         elif rec["kind"] == PK_CLOCK:               # wave 7 (SPEC.md 128.18.5)
             what += ": clock %d's digit %d of %d" % (rec["num"], rec["place"], rec["ndig"])
-        else:
+        elif is_fam(rec["kind"]):                   # wave 9 (SPEC.md 128.25.6.4)
+            what += ": the %s family's, state bits %d - %d, reset %s" % (
+                rec["fam"]["name"], rec["fsb"], rec["fsb"] + rec["bits"] - 1, CLASS_NAMES[rec["cls"]].upper())
+        elif rec["kind"] == PK_SPRING:
             what += ": gvz %d (an apex of %d px)" % (rec["gvz"], UP(rec["gvz"]))
         if rec["lane"]:
             Ln = rec["lane"]
