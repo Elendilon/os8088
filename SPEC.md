@@ -271301,7 +271301,7 @@ the sketch, and the built course is a different shape):
   desktop with the claims as before the bracket. Red arm `--red view` (the
   fixed camera ignored) red at the window check.
 
-### 128.24 Diagonal tiles (D1 - D2 BUILT; D3 - D5 PLANNED)
+### 128.24 Diagonal tiles (D1 - D3 BUILT; D4 - D5 PLANNED)
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -271342,9 +271342,16 @@ compiles THE SPLIT COURSE, a string in the tool, and runs items 2 - 6 and
 the pick, the lines inside a cell, the edges by their owning record, the
 corner's rays, a quartered cell's centre; `BZ_PHYSV` B1h; the reach tools
 per record; THE RAIL COURSE's scripted runs). **R4's QUARTERS** (the
-owner's Q3) are in both. No shipped course uses a split cell: the tool
-refuses one in a `BZ_COURSES` file until wave D3 (`GUEST_SPLIT`), and every
-shipped part is byte for byte what it was (identities unchanged). Where
+owner's Q3) are in both. **D3, the guest - BUILT** (`bzphys.inc`: the
+window's records `bz_nbh`, the split path entered at step 4 with a step 5
+of its own, the pick, the lines, the rays and the corner, the floor, the
+goal and step 2's slopes by the picked record; `bonanza.asm`: the CELLS
+rules by records and a hostile part's offsets bounded; the guest equals the
+model step for step under unicorn, `tests/bonanza_dsplit.py`; priced in
+128.24.7.6 and 128.24.10), and the tool's refusal of a split cell in a
+`BZ_COURSES` file (`GUEST_SPLIT`) is gone. No shipped course uses one yet
+(D5's PLAYGROUND is the first): every shipped part is byte for byte what it
+was (identities unchanged). Where
 building found this contract wrong it says so at the place ("BUILT ... a
 finding"): no clamp in 128.24.7.2, the radial corner never on a straight
 wall's face in 128.24.7.4.
@@ -271559,7 +271566,26 @@ refused, as today. BUILT (D1): `tools/bbcourse.py` `read_part`.
   its offset (PLAIN, already in place); both are launch-only. `--selfcheck`
   item 10's `expand == RAM` and `bonanzaexit`'s claim leg hold them to the
   tool (a guest rule that ignores halves gives a different grid on a split
-  course).
+  course). BUILT (D3): `bz_cxcel`'s V of a split cell is the least of its
+  non-VOID records' (FFh none), `bz_cxsafe` reads an edge neighbour that is
+  split by its record that owns the shared edge (`BZ_SPLIT_WIN`, below);
+  the package's own `bz_cexp` under unicorn turns the stored form of four
+  split courses (SPLIT, RAIL, NOTCH, STEPS) into the tool's RAM form byte
+  for byte (`tests/bonanza_dsplit.py`; red arm `cellhalves`, a split
+  neighbour read whole).
+- **A part is HOSTILE** (D3, the verify of D2): a split cell's +0 - +1 is an
+  offset in the part the guest reads through, so `bz_cexp` bounds it first -
+  `bz_dfind` takes sections C and D off the directory, `bz_drec` accepts an
+  offset only inside D, on D's 4-byte grid, with its 2 or 4 records inside
+  D's length (a kind 7 - 15 never), and `bz_dval`, after the walk, makes
+  every cell it refuses OPEN (z0 -128, VOID) and every record of D a kind
+  0 - 3 (above: VOID), so the step's window and `bz_blocks` read only D and
+  only 128.24.5.2's kinds (kern_mega: nothing past the selector's limit).
+  The directory's own entries are trusted as the walk already trusts them.
+  A part the tool built has neither (`read_part`); the unicorn check's
+  HOSTILE part (an offset past the part, one off D's grid, a record of a
+  split's kind) reads and writes nothing outside the part, red arm
+  `nobound`.
 
 #### 128.24.6 The picture
 
@@ -271711,7 +271737,11 @@ is its own NAMED constant, `BZ_DWMIN`** (the owner, 128.24.12 Q7), in
 `PHYS_CONSTS` with `DIAG`: 16 on `|wv|`'s and `t`'s scale, which is `16 /
 sqrt 2` = **11.3** of normal speed against an edge's `BZ_WMIN` of 16, to be
 tuned alone once the owner has played it. `bz_refl` takes the threshold
-from its caller (a second entry, about 6 bytes).
+from its caller (a second entry, about 6 bytes). BUILT (D3): with
+`BZ_DWMIN` equal to `BZ_WMIN` the diagonal reflects through `bz_wrefl`
+itself and no entry is built; `bzphys.inc` refuses to assemble the day the
+two differ (its `%error` names the second entry to write), so the tuning
+cannot be silently ignored.
 
 **A QUARTERED cell** (R4): the quarter the centre is in has two lines of
 its own, half-diagonals that end at the cell's centre `c`. First its TB
@@ -271866,6 +271896,67 @@ cell.
   without a clamp (128.24.7.2). **R4's question, "unless it is going to
   completely sink sizes": it does not** - 128.24.10's figures.
 
+**BUILT and PRICED (D3).** The guest as built, its routines named for wave
+9 in the plan's *Footprint*:
+- **The window.** `bz_wtail`'s prop test became a byte `bz_wfl` (bit 0
+  props, bit 1 `GF_SPLIT`, `bz_pinit`'s) compared once: `cmp`, `jb` on a
+  course with neither - today's two instructions - and `ja` to
+  `bz_wsplit` on a split course, which copies each split cell's records to
+  `bz_nbh`, makes `bz_nbp` (each window cell's record(s) for `bz_blocks`),
+  sets `bz_psp` and `bz_ps` bit 3, and a split centre's slopes. `bz_psync`
+  and the step's `.pps` start from `bz_psp` (8 or 0) instead of 0.
+- **The step.** `and al, 5` became `and al, 0dh` and the prop path's first
+  instruction a `test al, 8 / jnz .split`. The SPLIT PATH has a step 5 of
+  its own, `bz_swalls`: the lines inside a split centre (`bz_dinner`, R7's
+  stop after a push out of the cell), the window refilled round a cell a
+  push carried the centre into, the four edges (`bz_blocks`' dispatch), the
+  windmill's doorway, then the rays (`bz_dray`) only where one can act -
+  the centre's distance to its quadrant's corner lines under `DIAG`, or the
+  corner zone - and the corner through K's records or the other ray's
+  (`bz_dcorn`, entering `bz_corner` at `.k`). A window with no prop leaves
+  for wave 2's tail after it. Step 6's floor: `.nfloor`'s `je` to a GOAL
+  became `jae`, a split centre's picked record (`bz_srec`) is C from there,
+  `bz_land`'s `bz_bok` reads C through SI; step 8's goal reads the same
+  record. Why a step 5 of its own: the corner's rays must run after the
+  edges and before today's inline corner, which every course reaches; a
+  test there would have cost every course's corner steps.
+- **A course with no split cell runs today's instructions**, PRICED from
+  the instructions unicorn executed against the guest before D3 (`8r2/dtool`
+  `0e0b0b5f3`), 1,500 played steps each on TRIAL, MILL and FIRST: wave 2's
+  path and every refill exactly today's price (`and al, 0dh`, `jb .end` for
+  `jne .end`, `bz_blocks`' VOID path one compare SHORTER: -16 clk on such a
+  step); the PROP path **+20 clk** a step (`test`, `jnz` +16, `.pps`'s
+  `mov al, [bz_psp]` +4) - at 128.24.7.6's allowance of 20, not over it; a
+  refill on a course with props +8 (`ja`). Mean +4.6 (MILL) to +11.7 (TRIAL)
+  clk a step, the range -16 .. +52 (a landing's `bz_bok` through SI and a
+  GOAL's extra jump among them).
+- **A split course**, PRICED (128.11.15's method, `--price`: 150 random
+  runs on four split courses, 13,600 steps, rubber), raw clocks a step:
+
+  | the step | steps | mean | max |
+  |---|---|---|---|
+  | no split cell in the window | 5,339 | 5,263 | - |
+  | a split cell in the window, the centre WHOLE, no contact | 6,427 | 6,690 (+1.4k) | 18,121 |
+  | the centre in a HALVED cell, no contact | 1,021 | 9,084 (+3.8k) | 18,977 |
+  | the centre in a QUARTERED cell, no contact | 37 | 9,823 (+4.6k) | 19,237 |
+  | a diagonal contact inside the cell (`diag:in`) | 134 | 10,841 (+5.6k) | 27,238 |
+  | a corner ray's contact (`diag:ray`) | 38 | 8,838 (+3.6k) | 20,147 |
+  | a line and a ray at once | 116 | 10,924 (+5.7k) | 11,742 |
+  | the radial corner | 35 | 10,230 | 18,627 |
+
+  (maxima are refills and landings). **Over the prediction**, about 3 to
+  10 times its 0.2 - 0.7k: the separate step 5's edge loop and the record
+  dispatch (`bz_blocks` 0.3 - 0.8k a step), the rays near a corner
+  (`bz_dray` + `bz_dcorn` about 0.6 - 1.2k), and a halved or quartered
+  centre's pick, its line and its record two to three times a step
+  (`bz_dinner`, `bz_srec`, the fallback; about 1.5k), each at the 8088's
+  memory-operand prices the prediction's sketch left out. x 1.3, a split
+  window step is +1.8k (whole centre) to +5k (a halved centre), about 6% of
+  a CGA frame (79.6k): no frame-rate argument yet, but **a long lane of
+  halved cells is the case to measure on the glass** (D5's PLAYGROUND,
+  `bonanzaperf`); the cheapest further buys are the edge loop unrolled
+  (about +80 bytes for 0.2k) and one pick a step held for step 6 and 8.
+
 #### 128.24.8 The pathway
 
 `_route_lay`'s diagonal step (both axes at once, equal amounts; 128.22.2)
@@ -271921,7 +272012,21 @@ crosses its middle; no GOAL half is needed for it.
   own `ident` line, the course's current identity, was put back, or the
   clock rule's re-stamp check reads a file that needs no re-stamp).
 
-#### 128.24.10 Bytes (PREDICTED for the guest; MEASURED for the courses)
+#### 128.24.10 Bytes (MEASURED: the guest D3, the courses D1 - D2)
+
+- **MEASURED (D3, `make bonanza`): BONANZA.O88's image 40,181 -> 42,334
+  (+2,153 bytes resident), bss 10,660 -> 10,841 (+181).** Over the
+  prediction below (0.65 - 0.9KB) by about 1.3KB: the split path's own step
+  5 and its edge loop with the doorway (`bz_swalls` 369 + its table 28),
+  the lines (`bz_dinner` 268), the push (`bz_dset` 28, `bz_dline` 122), the
+  rays (`bz_dray` 168) and the corner's entry (`bz_dcorn` 94), the window
+  (`bz_wsplit` 155, `bz_sdoor` 37), the pick and the record (`bz_dpick` 59,
+  `bz_srec` 17, `bz_tslope` 50); `bz_step`'s split path and hooks +221,
+  `bz_blocks`' dispatch +68, `bz_pinit` +21, `bz_wtail` +14, the tables
+  (`BZ_SPLIT_WIN` 27, `BZ_SPLIT_RAYS` 64) +91; launch-only: the CELLS rules
+  by records +146 and **the hostile part's bound +198** (128.24.5.3, not
+  in the prediction). bss: `bz_nbh` 144, `bz_nbp` 18, the C and D bounds 8,
+  the split path's scratch 11.
 
 - **Resident image: about 0.5 - 0.7KB for halves, and R4's QUARTERS about
   0.15 - 0.2KB more** (the pick's second test and a quarter table, about 25;
@@ -271994,13 +272099,33 @@ crosses its middle; no GOAL half is needed for it.
   rule, OCCG).
 - **`bonanzaphys`**: the guest equals the model at every frame on
   PLAYGROUND's diagonal section (story D5), with a red arm that drops the
-  corner ray.
+  corner ray. BUILT (D3), its HOST half: `tests/bonanza_dsplit.py`, run by
+  `bonanza_phys.py --check` - the package's `bz_crshdr`, `bz_pinit` and
+  `bz_step` under unicorn on four split courses against the model, every
+  step's state, state2, state6, `bz_ps`, the goal, its exit, the respawns
+  and SAFE compared EXACTLY: 17 scripted runs (the take-off at the pick, a
+  VOID half's kill, a goal half's exit, slides up both rails, a head-on hit,
+  a wall's END, the edge by its owning half, a quarter's line and its
+  centre, a fall off and a Hop onto a diagonal step, glass shattered off a
+  ledge, a bumper half, a ramped half, a box's chamfers), R7's NOTCH sweep
+  (192 runs, 10 of which R7 changes), 200 random runs from states near
+  split cells, the CELLS forms, the HOSTILE part, and TRIAL (no split cell)
+  2,000 steps equal with `bz_psp` 0. Red arms by hand (`--reds`), each red:
+  `noray` (the corner ray dropped), `r7`, `cellhalves`, `nobound`. The
+  GLASS leg needs a shipped course with split cells - D5's PLAYGROUND - and
+  then only a scenario list: a replay up its lane along a rail, a fall off
+  its diagonal edge, its step, poked as the row's wave-3 replays are.
 - **`bonanzaexit`**: the claim leg on a split course (the CELLS rule by
-  halves).
+  halves). D3: the rule is the guest's and held to the tool under unicorn
+  (128.24.5.3); the claim leg reaches it once a shipped course has a split
+  cell (D5).
 - **`bonanzaring`**: the occluder oracle over the down half.
 - **`bonanzapath`**: the straight-up and across routes rolled (the follower
   unchanged, the picture's new blocks).
 - **`bonanzaperf`**: a split course's step priced against 128.24.7.6.
+  D3: PRICED from the instructions under unicorn (`bonanza_dsplit.py
+  --price`, 128.24.7.6's BUILT table); the glass measurement wants a
+  shipped split course (D5's PLAYGROUND lane) in the row's legs.
 - **`bonanzademo`**, **`bonanzagame`**: the re-authored demos replay.
 
 #### 128.24.12 Open questions for the owner, and the owner's answers (2026-11-16)
