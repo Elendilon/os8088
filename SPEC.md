@@ -275360,11 +275360,13 @@ the sketch, and the built course is a different shape):
    respawn is off it.
 4. **Rubber at speed** (the owner's drawn path, 2026-11-16): flies in from
    the left, bounces on LS's step, over the pit's corner onto LC and on
-   along the front, off the bottom right into the hidden tube; out on UR,
-   two circles of it and straight into the windmill (timed to its open
-   blades: no bump off the wall), out of the arch in the pillar's face, a
-   Hop and a boost, and bouncing off the bottom right again as the demo
-   ends.
+   along the front, off the bottom right into the hidden tube; out on UR, a
+   run at the back rail and a Hop and boost, its highest bounce (9 px) well
+   short of the rail's top (24 px), so it drops back; round the right end
+   and along UR's front edge hanging over it (its centre a tenth of a tile
+   from the drop) and straight into the windmill (timed to its open blades:
+   no bump off the wall), out of the arch in the pillar's face, a Hop and a
+   boost, and bouncing off the bottom right again as the demo ends.
 
 #### 128.23.6 The rows (BUILT; the final pass's figures in the plan)
 
