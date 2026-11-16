@@ -287,9 +287,15 @@ def scripted():
 
 
 def courses():
-    return {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
-            for k, t in (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS),
-                         ("edge", EDGE), ("mills", mills()))}
+    """the six test courses, compiled (independent of each other: a core each, BB.par_map; the first refusal
+    in this order raised)"""
+    kt = (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS), ("edge", EDGE),
+          ("mills", mills()))
+    got = BB.par_map(lambda kt_: BB.compile_course(kt_[1], "<%s>" % kt_[0].upper(), _hack={"no_finish": True}), kt)
+    for _c, e in got:
+        if e is not None:
+            raise e
+    return {k: c for (k, _t), (c, _e) in zip(kt, got)}
 
 
 def cells_check(binp, sym, cs):

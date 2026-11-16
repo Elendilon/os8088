@@ -5379,11 +5379,26 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     _hack: --selfcheck's negative controls' switches, and nothing else's.
     _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
     crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
-    courses; default the shipped list's, read off their `course` lines)"""
-    global _FAST_EXTRA, _DOWN_S0
+    courses; default the shipped list's, read off their `course` lines)
+    Every compile is looked up in the compile cache (build/bbcache/, docs/TESTING.md *BONANZA's host
+    checks*), and one of a course FILE or one that took a second or more is written to it: cache_key() is
+    every input the compile reads, so a hit is the compile it stands for"""
+    key = cache_key(source, fname, occluders, _hack, _rec, crsinfo)
+    c = cache_get(key)
+    if c is None:
+        t0 = time.time()
+        c = _compile_y0(source, fname, occluders, _hack, _rec, crsinfo)
+        if fname is None or time.time() - t0 >= 1.0:
+            cache_put(key, c)
+    return c
+
+
+def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
+    saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
     try:
         counts, order = None, [None]
         if occluders and "y0add" not in hack:        # SPEC.md 128.25.3: the Y0 search
@@ -5404,6 +5419,24 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     finally:
         _FAST_EXTRA = ()
         _DOWN_S0 = False
+        _REACH_MEMO = saved
+
+
+_REACH_MEMO = None      # one compile_course's (or a bare y0_search's): {inputs: the reach}, shared by its 8
+                        # probes and its compiles - the reach is computed before Y0 exists (2026-11-16)
+
+
+def _reach_once(key, make):
+    """make() -> the reach (build_reach's, then reach_forms'), once per KEY inside one compile_course or
+    y0_search: a later probe or compile of the SAME course text, name and hack (Y0's alignment and the probe
+    flag aside, which nothing before the reach reads) gets a deep copy - the compile goes on to change the
+    Reach records it is handed, and a copy is exactly what a second build would have made"""
+    import copy
+    if _REACH_MEMO is None:
+        return make()
+    if key not in _REACH_MEMO:
+        _REACH_MEMO[key] = copy.deepcopy(make())
+    return copy.deepcopy(_REACH_MEMO[key])
 
 
 class _Y0Probe(Exception):
@@ -5421,6 +5454,18 @@ def y0_search(source, fname, hack, _rec, crsinfo):
     records are merged.  -> [(records, most a block, most a row) or None for an
     alignment a compile refused before its records], or None for a course with
     a `view` (its alignment is the view's)."""
+    global _REACH_MEMO
+    own = _REACH_MEMO is None                       # (a bare search, as --selfcheck's MOON control: its own memo)
+    if own:
+        _REACH_MEMO = {}
+    try:
+        return _y0_search(source, fname, hack, _rec, crsinfo)
+    finally:
+        if own:
+            _REACH_MEMO = None
+
+
+def _y0_search(source, fname, hack, _rec, crsinfo):
     counts = []
     for k in range(8):
         try:
@@ -5490,11 +5535,16 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
-                                      _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
-    reach = reach_forms(reach, tiles, cells, fname, props, hack)
-    if not hack.get("nopickreach"):                 # (a red arm's switch: the pickups' reach not taken)
-        reach = pickup_reach(tiles, cells, fname, props, reach, hack)
+    def _reach():
+        r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                 _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+        r_ = reach_forms(r_, tiles, cells, fname, props, hack)
+        if not hack.get("nopickreach"):             # (a red arm's switch: the pickups' reach not taken)
+            r_ = pickup_reach(tiles, cells, fname, props, r_, hack)
+        return r_, n_, e_
+    reach, rounds, emax = _reach_once((hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
+        (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))), tuple(sorted(_CHECKS_OFF)),
+        _FAST_EXTRA, _DOWN_S0, _rec, repr(crsinfo)), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -11698,13 +11748,415 @@ def finish_reach_rule(c, _hack=None, _posts=()):
         c.name, n, "s" * (n != 1), len(posts), "s" * (len(posts) != 1))
 
 
+# =============================================================================
+# the host checks' speed (2026-11-16, docs/TESTING.md *BONANZA's host checks*): independent work in FORKED
+# children, a core each.  Nothing here changes what a compile or a check computes - a child is a fork of
+# this process at the point the work would have run, so it sees exactly the state the sequential run would
+# have, and only its RESULT (pickled) and its OUTPUT (captured) come back, spliced in where the sequential
+# run would have printed and appended them.  BB_JOBS=1 (or --jobs 1) is the sequential run.
+# =============================================================================
+
+def jobs_default():
+    """BB_JOBS, else the cores this process may use, at most 4 (each child is a fork of a process that holds
+    every compiled course: four is what the 15 GB hosts here hold beside everything else they run)"""
+    v = os.environ.get("BB_JOBS")
+    if v:
+        return max(1, int(v))
+    try:
+        n = len(os.sched_getaffinity(0))
+    except AttributeError:
+        n = os.cpu_count() or 1
+    return max(1, min(4, n))
+
+
+JOBS = [None]                   # main()'s --jobs; None: jobs_default()
+
+
+def _jobs():
+    return JOBS[0] if JOBS[0] is not None else jobs_default()
+
+
+def _mkfn(code, mod, name, qual, defaults, kwdefaults, cells):
+    import marshal
+    import types
+    f = types.FunctionType(marshal.loads(code), sys.modules[mod].__dict__, name, defaults,
+                           None if cells is None else tuple(types.CellType(v) for v in cells))
+    f.__kwdefaults__, f.__qualname__ = kwdefaults, qual
+    return f
+
+
+def _dump(obj, f, gids=None):
+    """pickle OBJ to F, a compile's closures included (draw_ops' top-makers, in Course.ops): a nested
+    function goes as its code and its cells' values and comes back the same function.  The code is this
+    interpreter's (the cache's key holds its version).  GIDS: {id: (path, object)} of module-level objects
+    pickled by name (_globals_ids)"""
+    import marshal
+    import pickle
+    import types
+
+    class _P(pickle.Pickler):
+        def persistent_id(self, o):
+            g = gids.get(id(o)) if gids else None
+            return g[0] if g is not None and g[1] is o else None
+
+        def reducer_override(self, o):
+            if isinstance(o, types.FunctionType) and "<locals>" in o.__qualname__:
+                return (_mkfn, (marshal.dumps(o.__code__), o.__module__, o.__name__, o.__qualname__,
+                                o.__defaults__, o.__kwdefaults__,
+                                None if o.__closure__ is None else tuple(c.cell_contents for c in o.__closure__)))
+            return NotImplemented
+    _P(f, protocol=pickle.HIGHEST_PROTOCOL).dump(obj)
+
+
+# ---- the compile cache (build/bbcache/<tool>/<key>.pkl) ----
+# A compile of a course FILE (the shipped courses, a red tree's copies) is pickled under a key that is a hash
+# of everything the compile reads: the course's bytes and the name it is compiled under, every argument, the
+# tools' source (this file and every tools/ module it has imported) and the interpreter, every file under
+# apps/bonanza/courses/ (the art a course names) and demos/, the font, the Makefile (the course list), and
+# this module's and bonanza_assets' module-level data as it stands at the call (a control that switches a
+# refusal off or tunes a material is a different key).  A key that names any input wrong is a MISS, never a
+# stale hit.  BB_CACHE=0 turns it off; compile_all (the build's, and --selfcheck item 1's two) compiles
+# fresh every time and only WRITES it.
+
+CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
+_CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
+_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS"))
+# (memo tables whose contents are a function of their keys, and this machinery's own state)
+
+
+def _fp(o, depth=0):
+    """a stable rendering of module data for the key: containers by content (sets sorted), objects by their
+    class and attributes - never by address, so two processes agree"""
+    if depth > 8:
+        return "..."
+    if o is None or isinstance(o, (bool, int, float, str, bytes, bytearray, Fraction)):
+        return repr(o)
+    if isinstance(o, dict):
+        return "{%s}" % ",".join(sorted("%s:%s" % (_fp(k, depth + 1), _fp(v, depth + 1)) for k, v in o.items()))
+    if isinstance(o, (list, tuple)):
+        return "%s[%s]" % (type(o).__name__, ",".join(_fp(v, depth + 1) for v in o))
+    if isinstance(o, (set, frozenset)):
+        return "set{%s}" % ",".join(sorted(_fp(v, depth + 1) for v in o))
+    if callable(o) and not hasattr(o, "__dict__") or isinstance(o, type) or hasattr(o, "__code__"):
+        return "<%s>" % getattr(o, "__qualname__", type(o).__name__)
+    d = getattr(o, "__dict__", None)
+    return "<%s %s>" % (type(o).__qualname__, _fp(d, depth + 1) if d is not None else repr(o))
+
+
+def _state_fp():
+    """this module's and bonanza_assets' module-level DATA, and the data attributes of this module's
+    classes, as they stand now"""
+    import types
+    out = []
+    for mod in (sys.modules[__name__], BA):
+        for k, v in sorted(vars(mod).items()):
+            if k.startswith("__") or k in _FP_SKIP or isinstance(v, (types.ModuleType, types.FunctionType,
+                                                                     types.BuiltinFunctionType)):
+                continue
+            if isinstance(v, type):
+                if v.__module__ == mod.__name__:
+                    out.append("%s:%s" % (k, _fp({a: b for a, b in vars(v).items() if not a.startswith("__")
+                                                  and not callable(b) and not isinstance(b, (staticmethod,
+                                                                                             classmethod,
+                                                                                             property))})))
+                continue
+            out.append("%s=%s" % (k, _fp(v)))
+    return hashlib.sha256("\n".join(out).encode()).hexdigest()
+
+
+def _tool_hash():
+    """this file and every tools/ module it imports, at any depth and wherever the import stands (a lazy
+    one inside a function too), and the interpreter's version - hashed ONCE, as this process starts, so
+    the key names the source this process runs even if the file is edited under it"""
+    td = os.path.dirname(TOOL)
+    h = hashlib.sha256(sys.version.encode())
+    seen, todo = set(), ["bbcourse"]
+    while todo:
+        m = todo.pop()
+        if m in seen:
+            continue
+        seen.add(m)
+        with open(os.path.join(td, m + ".py"), "rb") as f:
+            b = f.read()
+        h.update(m.encode() + b"\0" + hashlib.sha256(b).digest())
+        todo += [n for n in re.findall(rb"^\s*(?:import|from)\s+(\w+)", b, re.M)
+                 for n in [n.decode()] if os.path.exists(os.path.join(td, n + ".py"))]
+    return h.hexdigest()[:20], tuple(sorted(seen))
+
+
+TOOL_HASH, TOOL_MODULES = _tool_hash()
+
+
+def tool_hash():
+    """the cache's directory: _tool_hash()'s, taken as this process started"""
+    return TOOL_HASH
+
+
+def _inputs_hash():
+    """every file under apps/bonanza/courses/ and apps/bonanza/demos/, the font and the Makefile, by content
+    (read again at every key: a file edited while a process runs is a new key)"""
+    h = hashlib.sha256()
+    fs = [LABEL_FONT, os.path.join(ROOT, "Makefile")]
+    for d in (COURSE_DIR, os.path.join(ROOT, "apps", "bonanza", "demos")):
+        for dp, dn, fn in os.walk(d):
+            dn.sort()
+            fs += [os.path.join(dp, n) for n in sorted(fn)]
+    for p in fs:
+        try:
+            with open(p, "rb") as f:
+                h.update(os.path.relpath(p, ROOT).encode() + b"\0" + hashlib.sha256(f.read()).digest())
+        except OSError:
+            h.update(p.encode() + b"\0missing")
+    return h.hexdigest()
+
+
+def _cache_on():
+    m = _CACHE["mode"]
+    if m is not None:
+        return None if m == "off" else m
+    return "rw" if os.environ.get("BB_CACHE", "1") != "0" else None
+
+
+def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _inputs=None, _state=None):
+    """the compile's key (None when the cache is off).  _tool, _inputs, _state: --selfcheck's proof that
+    each of them moves the key"""
+    if not _cache_on():
+        return None
+    if fname is not None:                           # (the text itself)
+        text, name = source.encode("utf-8", "surrogateescape"), "text:" + fname
+    else:
+        try:
+            with open(source, "rb") as f:
+                text = f.read()
+        except OSError:
+            return None                             # (the compile says why)
+        ab = os.path.abspath(source)
+        name = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
+    h = hashlib.sha256()
+    for part in (_tool or tool_hash(), _inputs or _inputs_hash(), _state or _state_fp(), name,
+                 hashlib.sha256(text).hexdigest(), repr(bool(occluders)), _fp(_hack or {}),
+                 repr(REC if _rec is None else _rec), _fp(crsinfo)):
+        h.update(part.encode() + b"\0")
+    return (_tool or tool_hash(), h.hexdigest())
+
+
+def _cache_path(key):
+    return os.path.join(CACHE_DIR, key[0], key[1] + ".pkl")
+
+
+def _globals_ids():
+    """module-level objects a Course may point at (a family's row, a material): pickled BY NAME, so a cached
+    course points at the live object, as a fresh compile's does"""
+    out = {}
+    for mn, mod in (("bb", sys.modules[__name__]), ("ba", BA)):
+        for k, v in vars(mod).items():
+            if k.startswith("__") or isinstance(v, (int, float, str, bytes, bool)) or v is None:
+                continue
+            todo = [((mn, k), v, 0)]
+            while todo:
+                path, o, d = todo.pop()
+                if isinstance(o, (int, float, str, bytes, bool)) or o is None or id(o) in out:
+                    continue
+                out[id(o)] = (path, o)
+                if d < 3 and isinstance(o, dict):
+                    todo += [(path + (("k", kk),), vv, d + 1) for kk, vv in o.items()
+                             if isinstance(kk, (int, str))]
+                elif d < 3 and isinstance(o, (list, tuple)):
+                    todo += [(path + (("i", i),), vv, d + 1) for i, vv in enumerate(o)]
+    return out
+
+
+def _resolve(path):
+    o = vars(sys.modules[__name__] if path[0] == "bb" else BA)[path[1]]
+    for kind, k in path[2:]:
+        o = o[k]
+    return o
+
+
+def cache_get(key):
+    if key is None or _CACHE["mode"] == "w":
+        return None
+    import pickle
+    try:
+        with open(_cache_path(key), "rb") as f:
+            up = pickle.Unpickler(f)
+            up.persistent_load = _resolve
+            return up.load()
+    except Exception:                               # (missing, or a torn file: a miss)
+        return None
+
+
+def cache_put(key, c):
+    if key is None:
+        return
+    import tempfile
+    try:
+        d = os.path.dirname(_cache_path(key))
+        os.makedirs(d, exist_ok=True)
+        for old in os.listdir(CACHE_DIR):           # (another tool's entries can never hit again)
+            if old != key[0]:
+                import shutil
+                shutil.rmtree(os.path.join(CACHE_DIR, old), ignore_errors=True)
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        with os.fdopen(fd, "wb") as f:
+            _dump(c, f, _globals_ids())
+        os.replace(tmp, _cache_path(key))
+    except OSError:
+        pass
+
+
+class _Kid:
+    """one forked child running FN(*A): .wait() -> (value, its captured output, the exception or None).
+    The child's stdout and stderr (file descriptors 1 and 2, so a subprocess's too) go to a file read back
+    by the parent; the result goes through a file, not a pipe, so a large one never blocks the child's exit"""
+    def __init__(self, fn, a):
+        import tempfile
+        fd, self.res = tempfile.mkstemp(prefix="bbkid", suffix=".pkl")
+        os.close(fd)
+        fd, self.out = tempfile.mkstemp(prefix="bbkid", suffix=".out")
+        os.close(fd)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self.status = None
+        self.pid = os.fork()
+        if self.pid == 0:                               # the child
+            try:
+                sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__     # (not a parent's capture)
+                o = os.open(self.out, os.O_WRONLY)
+                os.dup2(o, 1)
+                os.dup2(o, 2)
+                os.close(o)
+                try:
+                    val, exc = fn(*a), None
+                except BaseException as e:          # (the parent re-raises it where the sequential run would)
+                    import traceback
+                    traceback.print_exc()
+                    val, exc = None, e
+                sys.stdout.flush()
+                sys.stderr.flush()
+                with open(self.res, "wb") as f:
+                    try:
+                        _dump((val, exc), f, _globals_ids())
+                    except Exception as e2:         # (an unpicklable result or exception: said, not lost)
+                        f.seek(0)
+                        f.truncate()
+                        _dump((None, RuntimeError("bbcourse: a child's result did not pickle: %r (%r)"
+                                                  % (e2, exc))), f)
+            finally:
+                os._exit(0)
+
+    def wait(self):
+        import pickle
+        if self.status is None:
+            _pid, self.status = os.waitpid(self.pid, 0)
+        try:
+            with open(self.out, encoding="utf-8", errors="replace") as f:
+                out = f.read()
+            with open(self.res, "rb") as f:
+                data = f.read()
+        finally:
+            for p_ in (self.out, self.res):
+                try:
+                    os.unlink(p_)
+                except OSError:
+                    pass
+        if not data:
+            return None, out, RuntimeError("bbcourse: a child died (status %d) with no result:\n%s"
+                                           % (self.status, out[-2000:]))
+        import io
+        up = pickle.Unpickler(io.BytesIO(data))
+        up.persistent_load = _resolve
+        val, exc = up.load()
+        return val, out, exc
+
+
+class _Pool:
+    """at most N children at once: start() blocks while N are running"""
+    def __init__(self, n):
+        self.n, self.live = n, {}
+
+    def start(self, fn, *a):
+        while len([k for k in self.live.values() if k.status is None]) >= self.n:
+            for k in self.live.values():            # (our own children only: never another's exit status)
+                if k.status is None:
+                    pid, st = os.waitpid(k.pid, os.WNOHANG)
+                    if pid:
+                        k.status = st
+            else:
+                time.sleep(0.05)
+        k = _Kid(fn, a)
+        self.live[k.pid] = k
+        return k
+
+    def wait(self, k):
+        r = k.wait()
+        self.live.pop(k.pid, None)
+        return r
+
+    def kill(self):
+        import signal
+        for pid, k in list(self.live.items()):
+            if k.status is None:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            k.wait()
+        self.live.clear()
+
+
+def par_map(fn, args, jobs=None):
+    """[(fn(a), None) or (None, its CourseError)] for each A of ARGS, in order: each in a forked child when
+    there is more than one job and more than one A, else here, one after the other.  Any other exception is
+    raised; the children's output is printed in ARGS' order"""
+    n = _jobs() if jobs is None else jobs
+    if n <= 1 or len(args) <= 1 or not hasattr(os, "fork"):
+        out = []
+        for a in args:
+            try:
+                out.append((fn(a), None))
+            except CourseError as e:
+                out.append((None, e))
+        return out
+    pool = _Pool(n)
+    try:
+        kids = [pool.start(fn, a) for a in args]
+        out = []
+        for k in kids:
+            val, text, exc = pool.wait(k)
+            sys.stdout.write(text)
+            if exc is not None and not isinstance(exc, CourseError):
+                raise exc
+            out.append((val, exc))
+        return out
+    finally:
+        pool.kill()
+
+
 def compile_all(paths, demo_dir=None, path=None, title=None):
+    """every course, the pathway and the title, each compiled FRESH: the compile cache is written and never
+    read here - what the build ships and what --selfcheck item 1's determinism compares are compiles, never
+    a cache's"""
+    mode, _CACHE["mode"] = _CACHE["mode"], ("w" if _cache_on() else "off")
+    try:
+        return _compile_all(paths, demo_dir, path, title)
+    finally:
+        _CACHE["mode"] = mode
+
+
+def _compile_all(paths, demo_dir=None, path=None, title=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     if len(paths) > CRS_MAX:
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
                           "BONANZA.DAT's BZS4 (SPEC.md 128.22.5)" % (len(paths), CRS_MAX))
-    courses = [compile_course(p) for p in paths]
+    # (the courses and the title, a core each: no compile reads another's; the first refusal in the
+    # sequential order is the one raised, and the title's where the sequential run compiled it)
+    got = par_map(compile_course, list(paths) + ([title] if title else []))
+    for _c, e in got[:len(paths)]:
+        if e is not None:
+            raise e
+    courses = [c_ for c_, _e in got[:len(paths)]]
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
@@ -11720,7 +12172,9 @@ def compile_all(paths, demo_dir=None, path=None, title=None):
                 raise CourseError("%s: --path names a course with no `pathway` statement" % path)
         pc = compile_course(path, crsinfo=[(c.name, c.title) for c in courses])
         compile_all.proofs = path_proofs(pc, courses)
-    tc = compile_course(title) if title else None   # SPEC.md 128.23: THE TITLE, beside them
+    if title and got[-1][1] is not None:             # SPEC.md 128.23: THE TITLE, beside them
+        raise got[-1][1]
+    tc = got[-1][0] if title else None
     if tc is not None and tc.src.title_ln is None:
         raise CourseError("%s: --title names a course with no `title` statement" % title)
     if any(c.src.title_ln is not None for c in courses) or (pc is not None and pc.src.title_ln is not None):
@@ -19515,28 +19969,9 @@ def _course_items(c, k, res, t):
                     % (tag, ", ".join("%s apex %d px, zhi %d, footprint line %d" % o for o in sb)), sok))
 
 
-def selfcheck(paths=None):
-    paths = paths or default_paths()
-    res = []
-    skipped = []
-    # 1. determinism
-    a = compile_all(paths)
-    b = compile_all(paths)
-    same = all(a[1][k] == b[1][k] for k in a[1]) and a[2] == b[2] and sorted(a[1]) == sorted(b[1])
-    res.append(("1 two compiles byte-identical, file for file (%s, bzcourse.inc)" % ", ".join(sorted(a[1])), same))
-    courses = a[0]
-    byname = {c.name: c for c in courses}
-    for k, c in enumerate(courses):
-        report(c, k)
-    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
-               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
-    res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
-                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
-                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
-    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
-        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
-    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
-                "compared above)", st1))
+def _sc_seeds(X, res):
+    """--selfcheck's section `seeds` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:                    # the negative control: two windmills' seeds exchanged
         src = open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
                    else os.path.join(ROOT, byname["MILL"].fname)).read()
@@ -19555,6 +19990,11 @@ def selfcheck(paths=None):
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
             res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
+
+
+def _sc_crosscommit(X, res):
+    """--selfcheck's section `crosscommit` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 6 (SPEC.md 128.16.13): item 1's cross-commit check RE-ANCHORED on 503031d4.  That commit's tool,
     # run from git in a temporary tree on THIS tree's course texts (the PLAYGROUND, which that tree lacks,
     # excluded by name), and this tool with the reach's wave 5b inputs (HOPMAX 224, no BOOST launch) give the
@@ -19603,8 +20043,21 @@ def selfcheck(paths=None):
                     "wave 6 moved the reach's inputs and nothing else in a part%s" % (
                         W5_HOPMAX, W5_COMMIT, ", ".join(c.name for c in w5), "" if not diff else
                         " -- DIFFER: %s" % diff), not diff))
+
+
+def _sc_grammar(X, res, part=(0, 1)):
+    """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
+    the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases())
+    lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
+
+    def mine():
+        n_[0] += 1
+        return lo <= n_[0] < hi
     # 2. the grammar and the bounds
     for case in _grammar_cases():
+        if not mine():
+            continue
         what, text, want = case[:3]
         try:
             compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
@@ -19613,6 +20066,8 @@ def selfcheck(paths=None):
             fired, msg = want in str(e), str(e)
         res.append(("2 refused: %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     for case in _wave3_cases():
+        if not mine():
+            continue
         what, text, want = case[:3]
         try:
             compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
@@ -19628,6 +20083,8 @@ def selfcheck(paths=None):
                        ("seventeen lanes in a course",
                         big_ + _posts([_sa(s_, a) for s_ in (30, 36, 42, 48) for a in (-6, -2, 2, 6)]
                                       + [_sa(54, 0)]))):
+        if not mine():
+            continue
         try:
             cx = compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
             ok_, msg = True, "%d lanes" % sum(1 for r in cx.part["props"] if r["lane"])
@@ -19635,13 +20092,24 @@ def selfcheck(paths=None):
             ok_, msg = False, str(e)
         res.append(("2 accepted (128.19.10): %s (%s)" % (what, msg), ok_))
     for what, text, want in _w4_cases():
+        if not mine():
+            continue
         try:
             compile_course(text, fname="<%s>" % what)
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+
+
+def _sc_w9(X, res):
+    """--selfcheck's section `w9` (selfcheck(): a fork of its state after the compile)"""
     _w9_checks(res)
+
+
+def _sc_palette(X, res):
+    """--selfcheck's section `palette` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 6 (SPEC.md 128.16.6): the palette statement's refusals, and its byte
     ft = _first_text()
     for what, text, want in (("palette given twice", ft + "palette 1\npalette 0\n", "palette given twice"),
@@ -19687,6 +20155,10 @@ def selfcheck(paths=None):
                 fired = "UNDERSIDE" in str(e)
             res.append(("2 refused: %s's first record with the UNDERSIDE flag (the reader's own check)" % c.name, fired))
             break
+
+
+def _sc_tables(X, res):
+    """--selfcheck's section `tables` (selfcheck(): a fork of its state after the compile)"""
     # 4. the tables the guest reads, against 128.11.6.2's table written out here
     # (wave 6, SPEC.md 128.16.3: the Grips 8, 5, 3 - so ice's brakes 2, 1, 1 - the Hops 252, 160, 224, and
     # BZ_MATTAB +12 rubber's BOOST 350 as a word)
@@ -19723,11 +20195,28 @@ def selfcheck(paths=None):
     res.append(("4 a rule-only change moves BZ_PHYSV: PHYS_REV %d -> %d gives %02Xh against %02Xh" % (
         PHYS_REV, PHYS_REV + 1, phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)), PHYSV),
         phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)) != PHYSV))
-    t = htab()
+
+
+def _sc_courses(X, res):
+    """--selfcheck's section `courses` (selfcheck(): a fork of its state after the compile)"""
+    courses, t = X.courses, X.t
     for k, c in enumerate(courses):
         _course_items(c, k, res, t)
+
+
+def _sc_split(X, res):
+    """--selfcheck's section `split` (selfcheck(): a fork of its state after the compile)"""
+    t = X.t
     split = _split_checks(res, t)                   # SPEC.md 128.24.11: THE SPLIT COURSE (stories D1 - D2)
+
+
+def _sc_splitphys(X, res):
+    """--selfcheck's section `splitphys` (selfcheck(): a fork of its state after the compile)"""
     _split_physics(res)                             # ...and the model's runs on its halves (story D2)
+
+
+def _sc_gaps(X, res):
+    """--selfcheck's section `gaps` (selfcheck(): a fork of its state after the compile)"""
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()
@@ -19752,30 +20241,80 @@ def selfcheck(paths=None):
     print("    glass's ledge-gap table (SPEC.md 128.16.5.3), printed beside rubber's:")
     for line in gap_table_text(gg, MAT_GLASS).split("\n"):
         print("      " + line)
+
+
+def _sc_physics(X, res):
+    """--selfcheck's section `physics` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "FIRST" in byname:
         _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
+
+
+def _sc_props(X, res):
+    """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:
         _props_physics(byname["MILL"], res)
+
+
+def _sc_routes(X, res):
+    """--selfcheck's section `routes` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "BENCH" in byname:
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
+
+
+def _sc_millroute(X, res):
+    """--selfcheck's section `millroute` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
+
+
+def _sc_camcheck(X, res):
+    """--selfcheck's section `camcheck` (selfcheck(): a fork of its state after the compile)"""
+    courses, byname = X.courses, X.byname
     if {"BENCH", "MILL"} <= set(byname):        # wave 6b (SPEC.md 128.17.9): item 8 runs --camcheck whole
         camcheck(courses, compile_all.demos, res)
+
+
+def _sc_play(X, res):
+    """--selfcheck's section `play` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "PLAY" in byname:                        # wave 6 (SPEC.md 128.16.8)
         _play_checks(byname["PLAY"], res)
         _trigger_checks(byname["PLAY"], res)    # wave 6b (SPEC.md 128.17.4)
+
+
+def _sc_launch(X, res):
+    """--selfcheck's section `launch` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 128.17.17)
         _launch_checks(byname, res)
+
+
+def _sc_clockvis(X, res):
+    """--selfcheck's section `clockvis` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 7 (SPEC.md 128.18.5, CD1): each course's clocks, how often one shows on the route - PRINTED
     for c in courses:
         cv_ = clock_visibility(c)
         if cv_ is not None:
             print("    %s's clocks (SPEC.md 128.18.5): a digit in the window on %s of the autopilot route's frames "
                   "(CGA, Hercules)" % (c.name, ", ".join("%d%%" % round(100 * v) for v in cv_)))
+
+
+def _sc_gap3(X, res):
+    """--selfcheck's section `gap3` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
     # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
     _gap3_report(byname)
+
+
+def _sc_w4(X, res):
+    """--selfcheck's section `w4` (selfcheck(): a fork of its state after the compile)"""
+    courses, byname = X.courses, X.byname
     # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the demos
     _w4_physics(byname, res)
     for c in courses:
@@ -19787,6 +20326,11 @@ def selfcheck(paths=None):
         if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
             _w4_course_report(c, res)
             _w4_route(c, res)
+
+
+def _sc_flags(X, res):
+    """--selfcheck's section `flags` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # item 5, the flags (128.14.25 item 1): a pennant is clipped by what is drawn in front of its flag, and
     # a flag the player cannot see is refused - every shipped flag's two poses clear of nearer geometry
     def _pfront(c):
@@ -19820,6 +20364,10 @@ def selfcheck(paths=None):
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
                 not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
+
+
+def _sc_y0moon(X, res):
+    """--selfcheck's section `y0moon` (selfcheck(): a fork of its state after the compile)"""
     # item 6's Y0 control (SPEC.md 128.25.3, docs/reports/BONANZA-APEX-2026-11-16.md): MOON with every Hop at
     # 366 (a 12 px apex) at the alignment wave 6 met it at refuses on the block bound, and the search finds an
     # alignment that compiles - the height was never the limit
@@ -19836,6 +20384,10 @@ def selfcheck(paths=None):
                     "the block bound" if "occluder records, over" in forced else "got: " + forced, len(mok),
                     ", ".join("+%d" % k for k in mok)),
                 "occluder records, over" in forced and len(mok) > 0))
+
+
+def _sc_hud(X, res):
+    """--selfcheck's section `hud` (selfcheck(): a fork of its state after the compile)"""
     # item 8 (SPEC.md 128.15.3): NOTHING UNDER THE HUD went with the HUD, and its `underhud` control (which had
     # to MOVE the rect onto a cup) with it. No compilable cup reached the real rect: the reach's two-cell moat
     # keeps a cup's mark at least 41 px from the picture's left edge (the rect ended at 24) and the fall margin
@@ -19849,7 +20401,17 @@ def selfcheck(paths=None):
     except CourseError as e:
         why, cok = "refused: %s" % e, False
     res.append(("8 no HUD refusal: a cup on the green's front-left cell compiles (%s)" % why, cok))
+
+
+def _sc_demos4(X, res):
+    """--selfcheck's section `demos4` (selfcheck(): a fork of its state after the compile)"""
+    paths, courses = X.paths, X.courses
     _w4_demos(courses, paths, res)
+
+
+def _sc_inc(X, res):
+    """--selfcheck's section `inc` (selfcheck(): a fork of its state after the compile)"""
+    a, courses, byname = X.a, X.courses, X.byname
     # the tables bzcourse.inc carries (128.14.4.2, 128.14.7.2): BZ_CRS_PARS, BZ_CRS_IDS, BZ_PHYSV - the
     # physics identity recomputed with the standard library's own CRC-CCITT (binascii.crc_hqx)
     import binascii
@@ -19937,18 +20499,304 @@ def selfcheck(paths=None):
         res.append(("5 MILL negative control: a rotor whose blades are drawn IN FRONT of the doorway (a moving part "
                     "before the ball in one pose and not another) is REFUSED by the pose check", caught))
     # wave 5b (SPEC.md 128.15.12.3): item 10, the compact form; item 12, the budget
+
+
+def _sc_compact(X, res):
+    """--selfcheck's section `compact` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_compact(courses, res)
+
+
+def _sc_dither(X, res):
+    """--selfcheck's section `dither` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_dither(courses, res, getattr(compile_all, "demos", None))
+
+
+def _sc_budget(X, res):
+    """--selfcheck's section `budget` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_budget(courses, res)
+
+
+def _sc_title(X, res):
+    """--selfcheck's section `title` (selfcheck(): a fork of its state after the compile)"""
     _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
+
+
+def _sc_clockrule(X, res):
+    """--selfcheck's section `clockrule` (selfcheck(): a fork of its state after the compile)"""
+    paths, courses = X.paths, X.courses
     _clock_rule_checks(courses, res, paths)         # wave 8R (SPEC.md 128.22.6, 128.22.10)
+
+
+def _sc_path(X, res):
+    """--selfcheck's section `path` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _path_checks(courses, res)
+
+
+class _Slot:
+    """a section's place in --selfcheck's items: filled at the end, in the sequential order"""
+    def __init__(self, name, post):
+        self.name, self.post, self.kid, self.val, self.items = name, post, None, None, None
+
+
+class _Sections:
+    """--selfcheck's SECTIONS (2026-11-16, docs/TESTING.md *BONANZA's host checks*): each a block of items
+    that reads the compiled courses and appends to the items.  JOBS 1: each runs here, in order, as the
+    sequential selfcheck always did.  More: each is a forked child of this process taken once the courses
+    are compiled (so each sees exactly that state, whatever ran before it), started longest first
+    (SC_COST), a core each; its items and its output come back and are spliced in at its place, so the
+    report is the sequential one, line for line.  ONLY: the section names to run (--only), the rest left
+    out and said so"""
+    def __init__(self, res, jobs, only):
+        import io
+        self.res, self.only, self.left, self.times = res, only, [], {}
+        self.par = jobs > 1 and hasattr(os, "fork")
+        self.pool = _Pool(jobs) if self.par else None
+        self.todo, self.segs, self.slots = [], [], []
+        self.real = sys.stdout
+        if self.par:
+            self.buf = io.StringIO()
+            sys.stdout = self.buf
+
+    def want(self, name):
+        if self.only is None or name in self.only:
+            return True
+        if name not in self.left:
+            self.left.append(name)
+        return False
+
+    def _slot(self, name, post):
+        s = _Slot(name, post)
+        self.res.append(s)
+        self.slots.append(s)
+        if self.par:
+            self.segs += [self.buf.getvalue(), s]
+            self.buf.seek(0)
+            self.buf.truncate()
+        return s
+
+    def _child(self, fn, a, post):
+        n0, t0 = len(self.res), time.time()
+        v = fn(*a)
+        return (v if post else self.res[n0:]), time.time() - t0
+
+    def add(self, name, fn, *a, post=None, now=False):
+        """the section NAME: fn(*a) appends its items to the list it is handed (or, with POST, returns a
+        value that post(value) turns into items, at the end).  NOW: started at once (in a child when
+        parallel), not with the rest"""
+        if not self.want(name):
+            return
+        if not self.par:
+            t0 = time.time()
+            if post:
+                s = self._slot(name, post)
+                s.val = fn(*a)
+            else:
+                fn(*a)
+            self.times[name] = time.time() - t0
+            return
+        s = self._slot(name, post)
+        if now:
+            s.kid = self.pool.start(self._child, fn, a, post)
+        else:
+            self.todo.append((s, fn, a))
+
+    def finish(self):
+        """every section run and its items in place (res, in order); its output printed in order"""
+        if self.par:
+            sys.stdout = self.real
+            self.segs.append(self.buf.getvalue())
+            for s, fn, a in sorted(self.todo, key=lambda t_: -SC_COST.get(t_[0].name, 30)):
+                s.kid = self.pool.start(self._child, fn, a, s.post)
+            self.todo = []
+            err = None
+            for seg in self.segs:
+                if isinstance(seg, str):
+                    sys.stdout.write(seg)
+                    continue
+                val, text, exc = self.pool.wait(seg.kid)
+                sys.stdout.write(text)
+                if exc is not None:
+                    err = err or exc
+                    seg.items = []
+                    continue
+                seg.val, self.times[seg.name] = val
+            if err is not None:
+                raise err
+        for s in self.slots:
+            if s.items is None:
+                s.items = s.post(s.val) if s.post else s.val
+        self.res[:] = [r for x in self.res for r in (x.items if isinstance(x, _Slot) else [x])]
+
+    def close(self):
+        """on the way out of a failure: this process's output back, no child left running"""
+        if self.par and sys.stdout is self.buf:
+            sys.stdout = self.real
+            sys.stdout.write("".join(x for x in self.segs if isinstance(x, str)) + self.buf.getvalue())
+        if self.pool is not None:
+            self.pool.kill()
+
+
+# --selfcheck's sections' seconds (BB_TIMES=1), measured 2026-11-16 on four cores: only the order the
+# parallel run starts them in, longest first - a section missing here is started as if 30 s
+SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
+           "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
+           "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
+           "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
+           "seeds": 1, "tables": 1, "title": 1}
+
+
+def _sc_cache(X, res):
+    """--selfcheck's section `cache`: the compile cache's key (cache_key) names every input, so a hit is the
+    compile it stands for - each input moved by itself moves the key, and an entry comes back as the
+    compile it was"""
+    import copy
+    import tempfile
+    p = os.path.join(COURSE_DIR, "first.bbc")
+    mode, _CACHE["mode"] = _CACHE["mode"], "rw"     # (on, whatever BB_CACHE says: this is the key's proof)
+    try:
+        k0 = cache_key(p, None, True, None, None, None)
+        moved = {}
+        with tempfile.TemporaryDirectory() as td:
+            q = os.path.join(td, "first.bbc")
+            with open(p, "rb") as f:
+                txt = f.read()
+            with open(q, "wb") as f:
+                f.write(txt)
+            kq = cache_key(q, None, True, None, None, None)
+            with open(q, "wb") as f:                # one byte of the course
+                f.write(txt.replace(b"course ", b"course  ", 1))
+            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None, None) != kq
+        moved["the course's name"] = kq != k0
+        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None, None,
+                                                           _tool="0" * 20) != k0
+        moved["a file under courses/ or demos/, the font or the Makefile"] = cache_key(
+            p, None, True, None, None, None, _inputs="0") != k0
+        moved["occluders"] = cache_key(p, None, False, None, None, None) != k0
+        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None, None) != k0
+        moved["RECB"] = cache_key(p, None, True, None, 8, None) != k0
+        moved["crsinfo"] = cache_key(p, None, True, None, None, [("X", "x")]) != k0
+        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None, None) != k0
+        _CHECKS_OFF.add("flat")
+        try:
+            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None, None) != k0
+        finally:
+            _CHECKS_OFF.discard("flat")
+        keep = copy.deepcopy(MATERIALS[MAT_RUBBER])
+        MATERIALS[MAT_RUBBER]["HOP"] += 1
+        try:
+            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None, None) != k0
+        finally:
+            MATERIALS[MAT_RUBBER].update(keep)
+        back = cache_key(p, None, True, None, None, None) == k0
+        with _famtest():                            # (last: its class attribute stays set, a later key's miss)
+            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None, None) != k0
+        imp = {"bbcourse", "bonanza_assets", "os88lz", "os88font", "bbmusic"} <= set(TOOL_MODULES)
+        res.append(("1 the compile cache's key moves with each input by itself (%s), comes back when they do, and "
+                    "TOOL_HASH covers %s" % ("; ".join("%s %s" % (w, "moves" if v else "DOES NOT MOVE")
+                                                       for w, v in moved.items()), ", ".join(TOOL_MODULES)),
+                    all(moved.values()) and back and imp))
+        # an entry is the compile it was: FIRST compiled fresh, written, read back - the same part, picture
+        # and records - and a FALSE entry under another key is never what a lookup returns
+        global CACHE_DIR
+        keepdir = CACHE_DIR
+        with tempfile.TemporaryDirectory() as td:
+            CACHE_DIR = td
+            try:
+                c = _compile_y0(p, None, True, None, None, None)
+                cache_put(k0, c)
+                h = cache_get(k0)
+                same = h is not None and (h.cga, h.stored, h.ident, h.pic, [r["mask"] for r in h.records]) == (
+                    c.cga, c.stored, c.ident, c.pic, [r["mask"] for r in c.records])
+                cache_put((k0[0], "f" * 64), X.courses[0])
+                other = cache_get((k0[0], "e" * 64)) is None and cache_get(k0).cga == c.cga
+                ops = all(callable(o[3]) for o in h.ops if len(o) > 3 and o[3] is not None)
+            finally:
+                CACHE_DIR = keepdir
+        res.append(("1 a cache entry is its compile: FIRST written and read back has the same RAM and stored "
+                    "parts, identity, picture and records (its closures restored), and a lookup under another "
+                    "key misses", same and other and ops))
+    finally:
+        _CACHE["mode"] = mode
+
+
+SC_SPLIT = {"grammar": 4}      # a section run as N slices in the parallel run (its function takes part=(k, n))
+
+
+def _sc_files(paths):
+    """item 1's SECOND compile (its files and bzcourse.inc), beside the first"""
+    _c, files, inc = compile_all(paths)
+    return files, inc
+
+
+def selfcheck(paths=None, only=None, jobs=None):
+    """the course compiler's selfcheck (SPEC.md 128.10.4.6): the courses compiled, then every section
+    (selfcheck_sections()), each a forked child when JOBS > 1 (the default: jobs_default(); _Sections
+    says why the report is the sequential one).  ONLY: the sections to run, by name (--only)"""
+    paths = paths or default_paths()
+    res = []
+    skipped = []
+    S = _Sections(res, _jobs() if jobs is None else jobs, only)
+    try:
+        return _selfcheck(paths, res, skipped, S)
+    finally:
+        S.close()
+
+
+def selfcheck_sections():
+    """--selfcheck's section names, in the report's order"""
+    return ["determinism"] + [n[4:] for n in _SC_ORDER]
+
+
+_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palette", "_sc_tables", "_sc_courses",
+             "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
+             "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
+             "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
+             "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
+
+
+def _selfcheck(paths, res, skipped, S):
+    # 1. determinism: the second compile is a child's, beside the first - two compiles, two processes
+    A = {}
+    S.add("determinism", _sc_files, paths, now=True, post=lambda b: [(
+        "1 two compiles byte-identical, file for file (%s, bzcourse.inc)" % ", ".join(sorted(A["a"][1])),
+        all(A["a"][1][k] == b[0][k] for k in A["a"][1]) and A["a"][2] == b[1] and sorted(A["a"][1]) == sorted(b[0]))])
+    a = A["a"] = compile_all(paths)
+    courses = a[0]
+    byname = {c.name: c for c in courses}
+    for k, c in enumerate(courses):
+        report(c, k)
+    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
+               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
+    res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
+                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
+                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
+    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
+        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
+    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
+                "compared above)", st1))
+    import types
+    X = types.SimpleNamespace(paths=paths, a=a, courses=courses, byname=byname, t=htab())
+    for fn in _SC_ORDER:
+        n = SC_SPLIT.get(fn[4:], 1) if S.par else 1
+        for k in range(n):
+            S.add(fn[4:], globals()[fn], X, res, *([(k, n)] if n > 1 else []))
+    S.finish()
     ok = True
     for what, good in res:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
         ok = ok and good
     for what in skipped:
         print("  SKIP %s" % what)
+    if S.left:                                  # (--only: what was left out is said, never a silent pass)
+        print("  ONLY %d of %d sections ran (%s); left out: %s" % (
+            len(selfcheck_sections()) - len(S.left), len(selfcheck_sections()),
+            ", ".join(n for n in selfcheck_sections() if n not in S.left), ", ".join(S.left)))
+    if os.environ.get("BB_TIMES"):              # (each section's seconds, for SC_COST and the policy's table)
+        print("  times: " + ", ".join("%s %.1f" % kv for kv in sorted(S.times.items(), key=lambda kv: -kv[1])))
     print("bbcourse selfcheck: %s" % ("ok" if ok and not skipped else "FAILED" if not ok else
                                       "ok, but %d item%s SKIPPED (exit 77)" % (len(skipped), "s" if len(skipped) > 1
                                                                                else "")))
@@ -20508,6 +21356,12 @@ def main():
     ap.add_argument("--title", metavar="BBC", help="THE TITLE's source (SPEC.md 128.23): compiled beside the "
                     "courses as BZTITLE.BIN, its entry after the pathway's in every BZ_CRS_ table")
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--only", metavar="SECTIONS",
+                    help="--selfcheck: only these sections, comma-separated (`--only list` names them); the "
+                         "courses are compiled whatever is named (docs/TESTING.md, *BONANZA's host checks*)")
+    ap.add_argument("--jobs", "-j", type=int, metavar="N",
+                    help="processes at once: the courses' compiles and --selfcheck's sections (default BB_JOBS, "
+                         "else the cores, at most 4); 1 is the sequential run")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
                     help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
@@ -20527,10 +21381,21 @@ def main():
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 128.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck):
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
     REC = a.rec
+    JOBS[0] = a.jobs
     paths = a.courses or default_paths()
+    only = None
+    if a.only:
+        if a.only == "list":
+            print("\n".join(selfcheck_sections()))
+            return 0
+        only = [n.strip() for n in a.only.split(",") if n.strip()]
+        bad = [n for n in only if n not in selfcheck_sections()]
+        if bad or not a.selfcheck:
+            ap.error("--only takes --selfcheck's sections (%s)%s" % (", ".join(selfcheck_sections()),
+                                                                     ": not %s" % ", ".join(bad) if bad else ""))
     if a.camcheck:
         if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans:
             ap.error("--camcheck writes nothing and runs alone")
@@ -20558,7 +21423,7 @@ def main():
     try:
         rc = 0
         if a.selfcheck:
-            rc |= selfcheck(paths)
+            rc |= selfcheck(paths, only=only)
         if a.out:
             write_out(a.out, paths, a.path, a.title)
         if a.sizes:
@@ -20572,4 +21437,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import bbcourse                             # (run as the MODULE, so what this run pickles - the compile cache's
+    sys.exit(bbcourse.main())                   # courses - names bbcourse.Course, as a test that imports it reads)
