@@ -1,33 +1,51 @@
-# The PATHWAY - BONANZA's map between courses (wave 8b, SPEC.md 128.19.5).
-# A PROTOTYPE (the owner, 2026-11-15: "the pathway itself will be a prototype,
-# probably; we'll flesh out exact course icons, exact pathway, etc as we make
-# courses"). The ball ROLLS across it; each node is a 1-tile finish whose exit
-# is the node's number, and rolling onto an OPEN node plays its course. Each
-# node's SIGN is a crystal ball beside it: empty locked, a ring open, a tick
-# done (S and G are 8c's medals). The clock by the start shows the lives.
+# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 128.22).
+# A PROTOTYPE of today's six courses on two pages (the owner, 2026-11-16: a
+# path screen; the map's final shape, 14 - 20 courses, is a later wave's).
+# The marble AUTO-ROLLS along a route between glowing pads: finishing course
+# A by exit E opens the one route keyed (A, E), whose gate sinks; an arrow
+# on that route's side of the screen takes it, Enter plays the pad's course.
+#
+#   page 1 (above):   PEAK <-up-left-  MOON
+#                                   ^ up (crosses into page 1)
+#   page 0 (below):   MILL <-up- TRIAL -right-> PLAY (a side pad)
+#                                   ^ up-right
+#                                 FIRST (pad 0, where a new game rests)
+#
+# A screen direction is a ground step: +x down-right, -x up-left, +y
+# down-left, -y up-right; both axes at once (equal amounts) down, up, left
+# or right.  No secret route on the shipped map (--selfcheck tests one).
 course PATH "The Pathway"
 width  64
 ball   rubber
 pathway
-music  fairway                              # (the title is the face's; 8b.10 gives the pathway its own)
+music  fairway                              # (8b.10 gives the pathway its own)
+rail   crystal                              # the route material (SPEC.md 128.22.8)
+view   0 340                                # page 0's CGA window, centred at projection (0, 340)
+pages  2
 
-floor rect   4  4 15 15  flat 0             # the green the nodes stand on (down the screen: x is wx - wy)
-start  5  5
+# pad N COURSE WX WY
+pad 0 FIRST  22 26
+pad 1 TRIAL  22 21
+pad 2 MILL   18 17
+pad 3 PLAY   25 18
+pad 4 MOON   13 12
+pad 5 PEAK    7 12
 
-clock  5  8                                 # the lives left, one digit (no countdown here)
-# (five nodes: a window holds 6 lanes at most, 128.12.4.6 - the five signs and
-# the lives' digit; PEAK waits for a pathway that scrolls, or the HUD band)
+# route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...
+route 0 1 exit 0  path 22,26 22,21                  # FIRST -> TRIAL, up-right
+route 1 2 exit 0  path 22,21 18,17                  # TRIAL's back goal -> MILL, up
+route 1 3 exit 1  path 22,21 25,18                  # TRIAL's front goal (128.19.4) -> PLAY, right
+route 2 4 exit 0  path 18,17 13,12                  # MILL -> MOON, up, into page 1
+route 4 5 exit 0  path 13,12 10,12 8,12,1 7,12,1    # MOON -> PEAK, up-left and up a ramp
 
-# node N COURSE wx wy sign sx sy
-node 0 FIRST   6  6  sign  6  5
-node 1 TRIAL   8  8  sign  8  7
-node 2 MILL   12  8  sign 12  7
-node 3 PLAY    8 12  sign  8 11
-node 4 MOON   11 11  sign 11 10
+# icon N FILE SX SY [fps F]: frame 0 the rest pose, the rest while the marble rests here
+icon 0 icons/first.bba        -120 376
+icon 1 icons/trial.bba         -88 328
+icon 2 icons/mill.bba          -96 272
+icon 3 icons/playground.bba     96 304
+icon 4 icons/moon.bba           40 192
+icon 5 icons/summit.bba       -104 104
 
-# edge N EXIT M: a finish of node N's course through EXIT opens node M
-edge 0 0 1
-edge 1 0 2                                  # TRIAL's back goal cell ...
-edge 1 1 3                                  # ...and its front one (exit 1, 128.19.4): a branch
-edge 2 0 4
-edge 3 0 4                                  # the branch joins again
+# the lives, one counter a page
+lives 29 22
+lives 11  4
