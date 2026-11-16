@@ -276516,10 +276516,12 @@ CS.
   `bzballgen.inc` and runs it under unicorn (an emulated 8086) on the stored
   file, the package's image and its scratch in one segment, the scratch
   pre-filled with junk: equal to `build_ball2`, every byte, all three
-  materials. Three negative controls must differ: one stored ellipse row
-  changed, one rank-coded threshold raised a class, and the ROUTINE broken
-  (the mask table's field no longer stepping to its next byte, every
-  material).
+  materials, with AX, ES (the caller's, not the part's), DS, SP and DF kept
+  and no write outside the part, `bz_boxbuf` and the stack. Four negative
+  controls must go red: one stored ellipse row changed, one rank-coded
+  threshold raised a class, the ROUTINE broken (the mask table's field no
+  longer stepping to its next byte, every material), and the routine
+  returning the part's selector in ES.
 - **Cost, PRICED** (`bzballchk.py --clocks`, `--profile` by phase): the
   executed instructions at 8088 clocks - the 8086's EU time, +4 a word
   memory transfer, the EA, +2 a segment prefix, a branch taken or not as it

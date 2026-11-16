@@ -1301,7 +1301,8 @@ def selfcheck():
         print("  SKIP bz_ballgen under an emulated 8086: unicorn is not importable here")
     else:
         results.append(("bz_ballgen, run under an emulated 8086 IN PLACE on the stored part, equals build_ball2 "
-                        "for rubber, steel and glass, every byte (scratch pre-filled with junk)", all(ok for _, ok, _ in emu)))
+                        "for rubber, steel and glass, every byte (scratch pre-filled with junk), AX ES DS SP DF kept, "
+                        "no write outside the part, bz_boxbuf and the stack", all(ok for _, ok, _ in emu)))
         bad = bytearray(st3[MAT_STEEL])
         bad[BG_BLK + BG_SQ0 + 5] += 1                   # one row of squash 0's ellipse widened
         code = bzballchk.assemble()
@@ -1311,6 +1312,12 @@ def selfcheck():
         broke = bzballchk.assemble(patch=("    adc di, 0                   ; the field wrapped to the next byte\n", ""))
         results.append(("negative control: bz_ballgen with its mask table's byte step removed differs, every material",
                         all(bzballchk.run(broke, st3[m]) != a_files[BALL_FILES[m]] for m in range(3))))
+        # ...and the ROUTINE handing back the ball's selector in ES (9f73af482's fix: the
+        # ES a later POP takes must not be a part's, 128.14.26 item 2)
+        pr = {}
+        bzballchk.run(bzballchk.assemble(patch=("    pop es\n    pop ax\n    ret", "    pop ax\n    pop ax\n    ret")),
+                      st3[MAT_STEEL], probe=pr)
+        results.append(("negative control: bz_ballgen returning without the caller's ES is caught", not pr["kept"]))
         # ...and the stored rank coding broken: one row's threshold one class higher
         bad = bytearray(st3[MAT_RUBBER])
         j = next(j for j in range(128) if 0 < bad[BG_BLK + BG_YE + j] < (bad[BG_BLK + BG_NP] - 2) * BG_PSTR)
