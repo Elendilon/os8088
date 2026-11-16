@@ -1477,6 +1477,33 @@ def fx_ticks(bank, name):
     return sum(seg[0] for seg in bank.sfx[name].segs)
 
 
+def seg_problems(bank, path=BANK):
+    """8R.6's guard on strip_comment: every effect keeps EVERY segment its
+       source writes.  Read off the raw text, NOT through strip_comment: an
+       effect's lines (its `sfx` line and the indented ones under it, comment
+       lines left out) carry one `n=` a segment (the parser requires it), so a
+       separator read as a comment - every multi-segment effect cut to one, as
+       it was before wave 8R - is a count that differs."""
+    out, cur = [], None
+    want = {}
+    for raw in open(path, encoding="utf-8"):
+        st = raw.strip()
+        if not st or st.startswith(";"):
+            if not st:
+                cur = None
+            continue
+        t = st.split()
+        if raw[0] not in " \t":
+            cur = t[1] if t[0] == "sfx" else None
+        if cur is not None:
+            want[cur] = want.get(cur, 0) + len(re.findall(r"(?:^|[\s:;])n=", st))
+    for nm, n in want.items():
+        got = len(bank.sfx[nm].segs) if nm in bank.sfx else 0
+        if got != n:
+            out.append("effect %s keeps %d segment(s), its source writes %d" % (nm, got, n))
+    return out
+
+
 def shell_problems(snd, parts, bank, songs):
     """the four events present for every ball, inside their lengths and each its
        own effect; the VICTORY song at most FIN_STEPS of sound that ends and
@@ -1611,6 +1638,8 @@ def selfcheck():
             bad("the effects never sound on the speaker")
     # 4b. wave 8R (SPEC.md 128.22.9): the shell's four events and the VICTORY tune
     for msg in shell_problems(snd, parts, bank, songs):
+        bad(msg)
+    for msg in seg_problems(bank):
         bad(msg)
     # 5. the packing is deterministic
     if build_snd(bank) != snd or [build_song(s, bank) for s in songs] != parts:
