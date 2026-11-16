@@ -271257,7 +271257,7 @@ the pathway's rework.)
 | the slot digit | **a LABEL lane**: `label N COL ROW glyphs "123"` - a lane of one block in the window's 8 x 8 cell grid, posed by `bz_nst[N]` (the pathway's node-sign mechanism, 128.19.5), no post, no crystal ball, never an obstacle | the brief: "an item handling the 1/2/3 draw change" - a wheel item, so the change is one lane's pose and nothing else is redrawn |
 | the demos | **four TITLE DEMOS**, text (`apps/bonanza/demos/title<N>.bzt`), each a START STATE (the ball, its position and velocity, airborne or not, and a respawn cell) and a `BZR1` run list, compiled into one part; the build writes the identity and checks each against the model and its own `expect` lines | a title demo starts where the brief puts the ball (dropped from above, already rolling), which a course's `start` cannot say; the identity is the build's so an art change never stales them |
 | their length | **`BZ_TSTEPS` = 832 steps** (15.23 s at 54.62 steps a second), every title demo exactly, the title song's one pass exactly | the brief: about 15 s, all the same length, the music ending with them |
-| the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once | the brief |
+| the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once - **except Esc, F and Alt+Enter, which leave the bracket as they do on the title** (128.23.4.1) | the brief; the exception the owner's (2026-11-16) |
 | the keys on the title | **P** plays (the game: the pathway loop, 128.19.5, in the same bracket); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
 | the way in | **Enter on the desktop face opens the title** (the bracket); P on the title is what Enter was (the game in the slot shown). F, B, R, D, V and the rest of the face are unchanged | the face stays the instruments' (128.19.3); the title is the game's front |
 | the way back | the pathway's **Esc** and the game's end return to the TITLE, not to the desktop | the game is entered from the title, so it leaves to it |
@@ -271404,10 +271404,40 @@ Inside ONE bracket, `bz_title` (resident: it is the bracket's):
 3. **A course demo**: drop the title's parts; fetch `BZD<K>` for a random K
    (1 - `BZ_NDEMO`), its course and balls, play it as V and R do (mode 2,
    the course's camera and song). Any key, its end, or a timeout -> drop
-   them, back to 1.
+   them, back to 1; **Esc, F and Alt+Enter** -> the bracket ends, the
+   desktop, as on the title (128.23.4.1).
 4. **The game**: drop the title's parts and run the pathway loop (128.19.5,
    `bz_grounds`) in the same bracket with the slot shown; where it would end
    the bracket (the pathway's Esc, the game over) it returns to 1 instead.
+
+##### 128.23.4.1 Esc and Alt+Enter, place by place (BUILT)
+
+The owner, 2026-11-16: *"Pressing esc/alt enter will sometimes return to the
+title screen, instead of the desktop."* The "sometimes" was the title chain's
+COURSE DEMO: about 15 s after the title opens its demo hands over to a random
+course's demo (`bz_tmode` 2), which looks like the title's own attract loop,
+and there every key - Esc and Alt+Enter among them - was "the title again".
+Alt+Enter also left `bz_towin` set behind it, so the game's next pathway Esc
+went to the window instead of the title. Now the course demo's Esc, F and
+Alt+Enter are the title's (`bz_exitchk`'s title arm: `bz_twhy` 27, and
+`bz_tround` reads it after the course demo as after a title demo); every other
+key still brings the title back. One rule for the whole bracket: **Alt+Enter
+(and F) is always the window; Esc goes ONE LEVEL UP** - a course to its
+pathway, the pathway to the title, the title (and its demos) to the window.
+
+| where | Esc | Alt+Enter, F |
+|---|---|---|
+| the window | nothing | Play Game (128.26.4) |
+| a title demo | the window (the bracket ends) | the window |
+| the title's course demo | the window (the bracket ends) | the window; any OTHER key: the title |
+| the pathway, resting | the title (a typed press, never one held since the course or the last departure: `bz_pwek`) | the window, the game suspended (`BZ_SU_PATH`) |
+| the pathway, rolling, a gate opening, the game over's wait | not read | the window, the game suspended |
+| the pathway's pause card | the title | the window, the game suspended |
+| the pathway's INFO card | any typed key takes it down | not typed (no XT BIOS enqueues it, 9.7.1): nothing while it is up |
+| a course in play, its pause card, its finish sequence | the course left: a life (none in EXPLORE; a finish sequence counts as its finish), the pathway; at no life left the game over, then the title | the window, the play suspended whole (`BZ_SU_CRS`) |
+| a replay at a pad (F6, V) | the pathway, at the pad | the window, the game suspended (`BZ_SU_PATH`) |
+| a launch bracket (Load Replay's replay, the instruments' plays) | the window | the window |
+| the GAME OVER card | any typed key takes it down: the title | not typed: the card's own 4 s, then the title |
 
 #### 128.23.5 The layout (PLANNED, PROVISIONAL: the owner's to refine)
 

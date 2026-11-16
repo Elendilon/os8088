@@ -2399,7 +2399,9 @@ bz_tround:
     mov [bz_crs], al
     call .demo
     jc .out
-    call .play                  ; (any key, its end or a timeout: the title)
+    call .play                  ; (any key, its end or a timeout: the title;
+    cmp byte [bz_twhy], 27      ; Esc, F or Alt+Enter leave the bracket as
+    je .out                     ; on the title, SPEC.md 128.23.4.1)
     jmp bz_tround
 .game:                          ; P: THE GAME in the slot shown (bz_game8's,
     mov byte [bz_tmode], 0      ; its rounds bz_grounds's, back here at its end)
@@ -4985,7 +4987,7 @@ VAR bz_retry,1                  ; wave 8c (128.19.8): 1 R on the game's pause ca
 VAR bz_xmode,1                  ; ...1 EXPLORE (the slot's mode, while the game plays; 0 else)
 %if BZ_TITLE
 VAR bz_tmode,1                  ; SPEC.md 128.23.4: 1 a TITLE DEMO plays, 2 a course demo of the title's chain
-VAR bz_twhy,1                   ; ...why its play left: 'p' play, 27 Esc (leave), 1 a key in a course demo
+VAR bz_twhy,1                   ; ...why its play left: 'p' play, 27 Esc, F or Alt+Enter (leave), 1 another key in a course demo
 VAR bz_tlast,1                  ; ...the title demo last shown (0FFh none)
 VAR bz_tsel,1                   ; ...the one fetched
 VAR bz_tgame,1                  ; ...1: a game was played (its slot written at the bracket's end)
