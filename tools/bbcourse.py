@@ -9401,8 +9401,8 @@ def finish_reach_rule(c, _hack=None):
     """R1 (the owner: a finish clock walled off TRIAL's exit 1): every goal
     cell of a course stays REACHABLE with its clocks in place - the start's
     reach closure over the tiles less the clocks' posts (solid, 128.18.5.3)
-    and less every OTHER goal cell (a ball that rolls into one has finished
-    there) holds it.  -> the verdict; refused naming the cell"""
+    and less every goal cell of ANOTHER exit (a ball that rolls into one has
+    finished there) holds it.  -> the verdict; refused naming the cell"""
     goals = sorted(k for k, t in c.tiles.items() if t.kind == KIND_GOAL)
     if not goals or c.src.start is None:
         return "%s: no goal cell to reach" % c.name
@@ -9410,7 +9410,8 @@ def finish_reach_rule(c, _hack=None):
     if "clockreach" in (_hack or ()):
         posts = set()
     for g in goals:
-        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k == g or k not in goals)}
+        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k == g or k not in goals
+                                                                         or c.tiles[k].exit == c.tiles[g].exit)}
         R = reach_closure(t2, c.src.start[0])
         # (the closure's launches fly over a post: the goal also needs a FREE neighbour a ball rolls in from)
         if g not in R or not any((g[0] + dx, g[1] + dy) in R and (g[0] + dx, g[1] + dy) != g
