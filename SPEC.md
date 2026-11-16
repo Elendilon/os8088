@@ -276532,7 +276532,10 @@ CS.
   MartyPC (CGA 5150, PLAYGROUND, whose pads fetch all three balls, cycles
   from `bz_ballgen` to its return): rubber 625,823, steel 557,030, glass
   482,630 = **1,665,483 cycles, 349 ms** (the timer's interrupts included);
-  BEFORE_MEASURED. The owner's target (about 0.75 s, about 1.8 M clocks for
+  the first 9.4 build measured the same way: 3,012,804 + 2,788,499 +
+  2,791,667 = 8,592,970 cycles, 1.80 s. The whole launch, `bz_launch` to
+  `fsx_run` (the fetches, the generation, the course's expansion): **5.32 s
+  -> 3.74 s**. The owner's target (about 0.75 s, about 1.8 M clocks for
   three) is met.
 - **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 327, steel
   1,476 -> 177, glass 2,144 -> 1,268: **5,974 -> 1,772, -4,202 bytes** (the
