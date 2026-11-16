@@ -272652,7 +272652,7 @@ ESTIMATED as in 128.18. The plan's stories are
 | Play Game | **resumes** where the player left the bracket for the window (128.26.4); otherwise the title (128.23), as Enter was | the brief: *"go back to where they last were, not restart the game (so we can't clear the memory)"* |
 | replays | **SYSTEM\APPDATA**, one file a save, **`NNNCOURS.BZR`**: a three-digit number and the course's NAME truncated to five; F5 in the game and Save Replay write the held log; F6 at a pad replays the course's newest save; Load Replay... opens the Open dialog there and replays the pick at once, full screen (128.26.3) | the brief |
 | V | **at a pad, the course's shipped demo** (`BZD<K>`), played and the pathway again after it; on the window V is an instrument (`bz_dev`) | the brief |
-| the About card | the name, `Isometric rolling-ball game`, and the keys a player needs that no menu carries (128.26.7); the wave line and the art line go | the brief |
+| the About card | the name, the keys a player needs that no menu carries, and `Contributed by Elendilon` (128.26.7); the wave line, the art line and the description go | the brief |
 
 #### 128.26.2 The art (`tools/bzwinart.py`, BUILT)
 
@@ -272770,7 +272770,9 @@ door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
 
 #### 128.26.7 The About card (BUILT)
 
-`Bounce Bonanza`, `Isometric rolling-ball game`, then the keys:
+`Bounce Bonanza`, then the keys:
 `Arrows roll, Space hop`, `L.Shift grip, P pause`, `Bksp back to flag`,
 `At a pad: Enter play`, `Space info, V demo`, `F5 save, F6 replay`,
-`F or Alt+Enter: window`, `Esc map or quit`.
+`F or Alt+Enter: window`, `Esc map or quit`, and last `Contributed by
+Elendilon` (the owner, 2026-11-16: the description line goes - launching
+the game says what it is).

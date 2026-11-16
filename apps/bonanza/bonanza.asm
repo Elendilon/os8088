@@ -4627,8 +4627,8 @@ bz_tpl: dw 40, 24, 344, 168, bz_title, bz_cls
                ONCLICK, os88ui_btnclick, ONMOUSEUP, bz_onup, ONDRAG, bz_ondrag, \
                ABOUT, bz_about, ONTIMER, bz_ontimer, ONWAKE, bz_onwake
 bz_title: db 'Bounce Bonanza',0
-bz_credits: dw bz_title, bz_credit1, bz_ck1, bz_ck2, bz_ck3, bz_ck4, bz_ck5, bz_ck6, bz_ck7, bz_ck8, 0
-bz_credit1: db 'Isometric rolling-ball game',0
+bz_credits: dw bz_title, bz_ck1, bz_ck2, bz_ck3, bz_ck4, bz_ck5, bz_ck6, bz_ck7, bz_ck8, bz_credit1, 0
+bz_credit1: db 'Contributed by Elendilon',0
 bz_ck1:     db 'Arrows roll, Space hop',0       ; the player's keys no menu carries
 bz_ck2:     db 'L.Shift grip, P pause',0        ; (SPEC.md 128.26.7)
 bz_ck3:     db 'Bksp back to the flag',0
