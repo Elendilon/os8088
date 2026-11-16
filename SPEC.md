@@ -273654,7 +273654,10 @@ are worked out in the blit, about 350 clk with the queue's stalls), the flash
 frame at 2.3k against its 1.6k; the resting ball as predicted. The other
 styles were not timed: DITHER4's flash frame is DITHER2's, one frame in four;
 a BLINK frame draws no ball blit (about -4.4k), and BLINK2 / DITHER2 at rest
-recompose every frame of the flash, BLINK4 / DITHER4 two frames in four.
+recompose every frame of the flash, BLINK4 / DITHER4 two frames in four. A
+BLINK build assembles neither the checker's look nor the folded loop: its
+image is 47,219 bytes (86 under a DITHER build's), MEASURED off the four
+assemblies.
 
 **The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
 each timed kind a course places, `build_reach` is taken again with its
