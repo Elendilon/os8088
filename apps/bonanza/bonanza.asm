@@ -172,6 +172,8 @@ BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
 BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
+BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): family ID n's
+                                ; part BZF<n>.BIN at BZ_P_FAM + n - 1, after every other row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
@@ -820,8 +822,14 @@ bz_cload:
     call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
     pop es
     call bz_crshdr              ; the course's header, copied into our data
+    call bz_ffetch              ; wave 9 (SPEC.md 128.25.6.2): its FAMILIES' parts
+    jc .drop                    ; (OP_ARENA code rows, the batch's last fetches)
     call bz_arload              ; THE BATCH'S END (every arena fetch above it -
                                 ; the families' too): each word read again
+    call bz_ffetch              ; ...and the families' far pointers taken again:
+                                ; it fetches nothing now, and a later family's
+                                ; fetch can have MOVED the arena under an
+                                ; earlier one's (CF: no fetch, so it is 0)
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
     je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
@@ -2501,6 +2509,15 @@ bz_cdrop:
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
+    mov word [bz_fhk], 0        ; wave 9 (SPEC.md 128.25.6.2): no hook active
+%if BZ_NFAM                     ; (and bz_fnf 0), the FAMILY parts first, the
+    mov ax, BZ_P_FAM + BZ_NFAM  ; reverse of the fetch's order (a row not here
+.dfam:                          ; is a no-op, so a course with none drops none;
+    dec ax                      ; a build with none has no loop: it would end
+    call op_drop                ; at BZ_P_FAM - 1, the title demo's row)
+    cmp al, BZ_P_FAM            ; (op_drop preserves AX)
+    ja .dfam
+%endif
     mov al, BZ_P_BALR + BZ_NMAT - 1 ; the balls, the highest first: the arena's
 .dball:                         ; fetch order backwards (SPEC.md 128.25.4.2)
     call op_drop                ; (it preserves AX)
@@ -3754,7 +3771,7 @@ bz_shdrop:
     pop ax
     ret
 
-TOASTSTR bz_t_shell, 'Bonanza: bad shell part'
+TOASTSTR bz_t_shell, 'Bonanza: bad part'   ; (the shell part's and a family part's, bz_ffetch)
 
 ; -----------------------------------------------------------------------------
 ; THE GAME'S BOOKS (SPEC.md 128.14.3.1, 128.14.3.3)
@@ -4840,6 +4857,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzgame.inc"
 %include "bzwheel.inc"
 %include "bzphys.inc"
+%include "bzfam.inc"            ; wave 9 (SPEC.md 128.25.6): the families' dispatch
 %include "bzsound.inc"
 %include "bzmenu.inc"           ; SPEC.md 128.26: the window's button, menus and replays
 %if 4 * BZ_BOXB < 512
@@ -4849,13 +4867,14 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; --- the part table (SPEC.md 128.11.3.1, 20.12) --------------------------------
 ; 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO rows, in the Makefile's BZ_PARTS
 ; order, every one OP_LAZY | OP_COMP - and a play's SMALL ones, the balls, the
-; sound part and the songs (the fanfare is one), OP_ARENA: ONE claim between
+; sound part, the songs (the fanfare is one) and the families' code parts
+; (wave 9, SPEC.md 128.25.6.2), OP_ARENA: ONE claim between
 ; them (SPEC.md 128.25.4), so a play holds three claims with the pathway held
 ; and two without.  The three balls, then each course
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFAM
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 2  BZBALG.BIN  glass
@@ -4871,6 +4890,7 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
 %endif
+    BZ_FAM_PARTS                            ; BZ_P_FAM + ID - 1: BZF<ID>.BIN, far-called (128.25.6.2)
 OS88_PARTS_END
 %if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
@@ -5083,6 +5103,7 @@ VAR bz_tay,BZT_SIZE             ; ...and its y axis
 ; the engine's (bzgame.inc's head documents the ones a harness reads)
 BZ_GAME_VARS
 BZ_PHYS_VARS
+BZ_FAM_VARS
 BZ_SND_VARS
 VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
 %if BZ_TITLE
