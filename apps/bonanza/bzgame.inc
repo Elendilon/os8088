@@ -475,6 +475,8 @@ VAR bz_fbp,2                    ; line, line word in a block, lines left
 VAR bz_flo,2
 VAR bz_fln,2
 VAR bz_kmin,2
+VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): bz_cued's FLASH checker,
+                                ; its first line's (bz_blit's dither path, read via ES)
 VAR bz_olo,2                    ; bz_occ (SPEC.md 128.10.8 item 1, 128.11.10.2):
 VAR bz_ohi,2                    ; the lines [lo, hi) of the footprint inside the
 VAR bz_ozk,2                    ; window, z_b + m, the block row's first line,

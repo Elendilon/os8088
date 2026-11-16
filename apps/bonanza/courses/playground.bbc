@@ -124,3 +124,17 @@ wall  box 17 19 59 69 flat 4.5
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
 uses probe
 prop probe 16 16 reset respawn
+
+# wave 9 (SPEC.md 128.25.9, 128.25.19): the PICKUPS YARD, off FF's left edge at FF's level - an
+# hourglass, a speed and a jump - and behind it the RIDGE, 2 units up, the step ladder's "nobody's"
+# height: over a Hop (5.7 px and the 4 px climb) and over rubber's boost (9.3 px); the jump's own Hop
+# (13.8 px) climbs it, and a jump with rubber's boost STACKED on its contact (18.0 px) clears it with room.
+# Nothing is up there but the view, and it is no trap: its edges are open, so a ball rolls off it back
+# into the yard.  Every timed pickup is
+# short (3 s each), so their reach regions stay off the step ladder's rungs
+floor rect   3 24 10 30  flat 4
+floor rect   3 19  7 24  flat 6
+uses pickups
+prop hourglass 4 28
+prop speed     7 25 for 3
+prop jump      8 28 for 3
