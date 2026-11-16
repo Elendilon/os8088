@@ -39,7 +39,7 @@ This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
 **"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
-first commit and before any `git` question about ancestry.** Nine rules that
+first commit and before any `git` question about ancestry.** Ten rules that
 are this fork's rather than the project's, kept in one section at the bottom
 so that a PR going upstream deletes them rather than hunting for them. The
 first of them fires in the first minute of a session.
@@ -1251,6 +1251,8 @@ repository", which is where the branch already lives, and do nothing.
 the two 1.44MB main disks,
 `build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
+**No soak stands between a commit and its disks** (fork rule 9): build,
+commit, send, then start the soak in the background.
 **And when the code being worked on ships on a disk OUTSIDE that set, send
 that disk too** - the owner wants the disks relevant to the work in hand,
 not only the normal set: WIN16's `build/win16.img` while WIN16 is off the
@@ -1305,7 +1307,8 @@ run needs a held waiting task for its whole life (see `tools/os88soak.py`'s own
 note), so the tick and the hold are the same shape: a background task that
 waits up to fifteen minutes *or* until the run's marker appears, then prints
 the status. Poll `status` as often as you like on top of that — it reads a
-file and cannot perturb anything.
+file and cannot perturb anything. **The hold is a BACKGROUND task, never a
+foreground wait** (fork rule 9): the work goes on while it ticks.
 
     end=$((SECONDS+900))
     while [ $SECONDS -lt $end ] && [ ! -f build/soak/<run>/finished ]; do
@@ -1368,7 +1371,9 @@ and every image with them — which makes the shortcut answer "yes, a byte
 moved" across any commit and useless between two.
 
 **Either way the merge commits nothing under `build/`**, which is gitignored
-outright.
+outright. And a merge's soak is fork rule 9's like any other: in the
+background, after the rebuild-and-boot, with the push and the disks not
+waiting on it.
 
 ### 7. Upstream squash-merges, and the branch is disposable
 
@@ -1405,3 +1410,53 @@ which background holds ended) and carry on with the task already in hand. Do
 not ask what it refers to, and do not undo or redo work that had already
 landed. It was once read as "the fix you sent does not work, do it again",
 which it never means.
+
+### 9. A soak runs in the BACKGROUND, ONE AT A TIME, and never blocks the work or the disks
+
+The owner's rule (2026-11-16), and it binds **scoped** soaks as much as the
+whole tier. Soaks are for keeping the branch working, and they are run **at
+the end of a development phase, in the background, while the next phase
+goes on**. They are not a gate in front of the next change, and nothing
+waits on one: not the next edit, not a commit, not a push, and above all
+**not fork rule 3's disks** - build, commit and SEND, then start the soak
+behind that.
+
+**The incident that wrote it**, on `bounce-bonanza`: a change of one
+constant took thirty seconds to make and an hour and a half to land - a
+thirty-minute scoped soak, one flaky row failing, a twenty-minute bisect, a
+ten-minute rebuild and a grep script, and a second thirty-minute soak - with
+the disks held back the whole time. Each step was a reasonable reading of
+"keep it working". Together they turned every iteration into a soak cycle
+and made each change cost more than the one before.
+
+The rule:
+
+- **One scoped soak at a time, started with `tools/os88soak.py start -k ...`**
+  and held by fork rule 4's background tick. The runner builds a FROZEN tree
+  of its own and prints *"the run reads ..., so build/ is yours while it
+  runs"* - so `make`, commits and disk sends carry on beside it. Never
+  `--shared-build`, and never `os88test.py soak` in the foreground: both put
+  the run in the way of the work.
+- **The next iteration does not wait for it.** Keep working, building,
+  committing and sending while it runs. If the next one finds a bug the soak
+  would have caught, fix it then, as if the soak had found it.
+- **If a whole phase finishes before the soak does,** the next phase's soak
+  starts after the running one ends, never beside it. It covers the union of
+  what has landed since the last soak's tree froze.
+- **A red row is triaged off the critical path.** Most of the time the test
+  is broken (flaky, a stale coordinate, a harness assumption), not the OS.
+  When sub-agents are in scope, hand the failure to one in the background,
+  with the row name, the soak's status output and the commit its tree froze
+  at. Otherwise set it aside and fix it when that fits the work: a known
+  flaky row is not a reason to stop, re-soak or bisect right away. Say it in
+  the next fork rule 4 report, and say whether it is new or already known.
+- **A bisect or a re-soak is background work too.** `os88bisect.py
+  classify` and a re-run of the failing rows belong to the same one-at-a-time
+  lane as the soak, never in front of the next change.
+
+This **narrows the Testing section's "after the last batch" on this fork**:
+there, the soak union runs once after the final batch. Here, "final" means
+the end of a development PHASE, the run goes in the background, and it is
+never the reason a disk or a commit waits. It changes nothing about WHAT a
+soak runs: still scoped with `-k` by what the build says moved, and the
+whole tier still only when the owner asks in as many words.
