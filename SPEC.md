@@ -274689,40 +274689,91 @@ the speaker the lead is the whole tune (the fold: effect, drum blip, lead,
 bass where the lead rests) - the selfcheck holds that the speaker plays
 every lead note's Hz in order. **`bzs_victory`** starts it with **no disk
 read** (the owner's finish must not stall): `bzs_gfetch` fetches the fanfare
-beside the course's song at the play's start (a second 224-byte claim,
-`bzs_vseg`, one more part read at launch), and `bzs_victory` points the
-sequencer at it and starts from its top; `bzs_gdrop0` gives both back. Nothing
-under EFFECTS ONLY or with no arm, and a fanfare not had leaves the course's
-song playing. The finish sequence calls it once at its start. **The fanfare
-replaces the GOAL effect**: the in-bracket sound plays no goal effect, and
-when the fanfare played (`bzs_vic`) `bzs_gdrop0` does not set the desktop's
-`bzs_goalp`, so the title after a finish comes back without a second
-fanfare; a play that ends to the desktop without the finish sequence (the
-replay, a failed fetch) still gets the GOAL effect there.
+beside the course's song at the play's start (a second song claim,
+`bzs_vseg`: 224 bytes in one 512-byte heap granule, and one more part read
+at launch) - for a PLAY (`bz_mode` 0) of a COURSE (`bz_crs` < `BZ_NCRS`)
+with music (AUTO or SPEAKER) only, the one thing with a finish sequence: a
+replay, a benchmark, a title or course demo, the pathway and the title
+course fetch nothing more. `bzs_victory` points the sequencer at it and
+starts from its top; `bzs_gdrop0` gives both back on every way a play ends
+(`tests/pins.txt` keys the claim by `bzs_vseg`). Nothing on a TIMEOUT
+(`bz_goal` 0: its own effect plays), under EFFECTS ONLY or with no arm, and
+a fanfare not had leaves the course's song playing. The finish sequence
+calls it once at its start. **The fanfare replaces the GOAL effect**: with
+the fanfare had (`bzs_vseg` non-zero) `bzs_events` plays no GOAL effect in
+the bracket - the finish sequence runs on after the goal step, so the effect
+would otherwise cover the fanfare's first half-second on the speaker, and
+the goal step can end a frame before `bzs_victory` runs, so the test is the
+claim and not `bzs_vic` - and when the fanfare played (`bzs_vic`)
+`bzs_gdrop0` does not set the desktop's `bzs_goalp`, so the title after a
+finish comes back without a second fanfare; a play that ends to the desktop
+without the fanfare (a replay, a fetch refused, EFFECTS ONLY) still gets the
+GOAL effect there.
+
+**Claims.** A play holds the course, up to three balls, the sound part, the
+course's song and now the fanfare: SEVEN of `MEM_OWNER_MAX`'s eight data
+claims on a three-ball course (128.20.7's "two claims" of sound are three
+during a play). With 128.22.7's HELD pathway beside a course that is
+**eight of eight**: it fits, with nothing to spare, and the fanfare is the
+last fetch of a launch, so a claim refused there costs only the fanfare
+(op_fetch's toast, the course's song plays on). kern_mega allows twelve.
+
+**Calling the events, for the guest and the shell.** `bzs_ev` only puts the
+effect in its slot; it SOUNDS as `bzs_frame` (the bracket) or the desktop's
+timer steps it. So an event is called while a play's arm is open and its
+frames run after it - LIFE on the pathway's play, as 128.22.4.2 places it -
+and an event called after `bzs_close` (between two rounds, or under
+`bz_kwait`'s GAME OVER card, which steps no sound) is silent: OVER has to be
+called inside the pathway's play before the card, or the card's wait has to
+step the sound.
 
 `NON_COURSE` in `tools/bbmusic.py` (`victory`, and the title session's
 `attract`) keeps a course from wrapping onto either: `bbcourse.course_song`
-counts the songs that are not in it.
+counts the songs that are not in it - which holds only while every
+`NON_COURSE` song comes AFTER the course songs in `SONGS`, so both are
+appended, never inserted (every course's song is unchanged: 1, 1, 2, 3, 4,
+5, 1 for BENCH to PLAYGROUND, before and after). A course's `music` may not
+name `victory` (the finish's, refused like `title`); it may name `attract`,
+which is how 128.23's title course picks its song. With `victory` song 6,
+128.23's `attract` is song **7** when it lands: `BZ_SONGS` and
+`BZ_SNDPARTS`' list (`0 1 2 3 4 5 6`) each gain it, and both indices come
+from the generated `bzsnd.inc` by name, never by number.
 
 **Found on the way, fixed**: `bbmusic.py` read `;` only as a comment, so
-every multi-segment effect in the bank kept ONE segment (the last of a
-continued line, the first of a one-line one): wave 2's clanks, the boost, the
-goal, the flag. A `;` after content and followed by nothing or `t=` is now
-the segment separator. That makes 21 effects longer than they have been
-(**BZSND.BIN +276 bytes** from the fix alone) and is the owner's ear to
-confirm.
+every multi-segment effect in the bank kept ONE segment (a one-line effect
+its first; a continued one its segments' fields MERGED, the last written of
+each, legato and all) since 128.20 was built - against the bank's own
+grammar line (`sfx NAME ... : SEGMENT ; SEGMENT ...`) and 128.20.5's own
+words (steel's "two pitches a tritone apart, a sub-tick each, then the ring
+falling"; the goal's arpeggio). A `;` after content and followed by nothing
+or `t=` is now the segment separator, and `--selfcheck`'s `seg_problems`
+holds every effect to the number of `n=` its raw source writes (red on the
+old reading: 25 effects). The 21 existing effects that change, sub-ticks
+before -> after: `r_bounce` 9 -> 11, `r_bump` 6 -> 16, `r_knock` 4 -> 6,
+`s_land` 1 -> 6, `s_bounce` 1 -> 9, `s_wall` 5 -> 7, `s_bump` 10 -> 12,
+`s_knock` 2 -> 10, `s_stun` 2 -> 21, `g_land` 3 -> 4, `g_bounce` 3 -> 6,
+`g_wall` 3 -> 4, `g_bump` 4 -> 8, `g_knock` 3 -> 5, `g_shat` 4 -> 19,
+`boost` 14 -> 16, `goal` 4 -> 26, `flag` 4 -> 14, `pad` 6 -> 14, `spring`
+12 -> 15, `low` 4 -> 12 (the other nine, one segment each, are unchanged).
+**BZSND.BIN +264 bytes** from the fix alone. Longer effects are more frames
+with an effect sounding, so 128.20.7's EFFECTS figures are the final pass's
+`bonanzasound` to re-take. The owner's ear to confirm.
 
-**MEASURED** (the tool, the build): the effects' records 15, 21, 27 and 33
-bytes, **BZSND.BIN +108 bytes for the four** (1,248 with the fix, 1,356
-with them; 972 before the fix); **the song 224 bytes** (177 under zlib) in its
-own part; **the resident image +126 bytes**, bss +3 (`bonanza.bin` 36,184 to 36,310:
-`bzs_ev`, `bzs_victory` and their names), bss +0; the package 87,790 to
-88,302 bytes. The per-sub-tick path is the existing effect segment's and
+**MEASURED** (the tool, the build): `BZSND.BIN` 972 -> 984 (the four event
+columns, 12 bytes) -> 1,248 (the fix) -> **1,356** (the four effects, +108:
+records of 15, 21, 27 and 33 bytes and their pointers); **the song 224
+bytes** (177 under zlib) in its own part; **the resident image +151
+bytes**, bss +3 (`bzs_vic`, `bzs_vseg`), on the tree with the title merged
+(`bonanza.bin` 37,032 to 37,183, bss 9,119): +116 for `bzs_ev`,
+`bzs_victory` and the fetch (+126 on the sound branch's own tree, 36,184 to
+36,310 - jump encodings), then +35 for the verify's gates (the fetch's three
+tests, the timeout test, the GOAL test). The per-sub-tick path is the existing effect segment's and
 the song's, unchanged, so a sub-tick with a new event costs what the same
 length of an existing effect does (128.20.7); **not measured on MartyPC
 here** (`bonanzasound` prices a frame and runs in the final pass).
 Host renders of each event and the tune, speaker and AdLib, are
-`~/Repos/8r-logs/sound-renders/`. Nothing here has been HEARD.
+`tools/bbmusic.py wav --event NAME` (and `--song 6`). Nothing here has been
+HEARD.
 
 #### 128.22.10 The rows (PLANNED)
 
