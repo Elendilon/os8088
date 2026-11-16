@@ -1439,11 +1439,13 @@ def crystal_side_ink(face, k, j):
     'se', k the column across the face (0 at its left edge), j the line down
     from the face's top edge at that column (0 the first).  Dark: black with
     the facets' glints (colour 2) every fourth column on 'sw', and a black
-    'se' lit only at its seams, so on the Hercules the edge is a dark band"""
+    'se' lit only at its seams, so on the Hercules the edge is a dark band.
+    Both faces' glints stop at line 6 (the owner, 2026-11-16: the 'icicles'
+    on the left were long and the right's short), SPEC.md 128.22.8"""
     if face == "sw":
         if j == 0:
             return 2
-        return 2 if (k >> 2) & 1 == 0 and j & 1 == 0 else 0
+        return 2 if (k >> 2) & 1 == 0 and j & 1 == 0 and j < 6 else 0
     if j == 0:
         return 0
     return 2 if k & 3 == 1 and j < 6 else 0
