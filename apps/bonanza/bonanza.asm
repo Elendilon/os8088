@@ -1479,9 +1479,20 @@ bz_crshdr:
     mov [bz_goff], di
 %if BZ_TITLE
     mov byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window - BZG1 +30
+ %if BZ_PATH_NPAD
+    mov byte [bz_paged], 0      ; (wave 8R, 128.22.4.3: or PAGED, bit 3, +30
+    test byte [es:di + BZG_FLAGS], BZ_GF_PAGED ; page 0's, BZC2 +44 the pages)
+    jz .npg
+    inc byte [bz_paged]
+    mov al, [es:BZC_NPAGES]
+    mov [bz_paged + 1], al
+    jmp short .pgd
+.npg:
+ %endif
     test byte [es:di + BZG_FLAGS], BZ_GF_VIEW ; its top line / 4, +31 the
     jz .nov                     ; CGA's c0; R0 in this card's card rows (2
     inc byte [bz_fixed]         ; lines the CGA's, 4 the Hercules'), the
+.pgd:
     mov al, [es:di + BZG_FLAGS + 2] ; Hercules' c0 BZ_HERC_LEFT words left
     xor ah, ah                  ; of the CGA's
     mov bl, [es:di + BZG_FLAGS + 3]

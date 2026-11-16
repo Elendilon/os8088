@@ -271,6 +271,9 @@ VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
 VAR bz_fixed,2                  ; SPEC.md 128.23.2: 1 the course's window is FIXED (+1 zero)
 VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
 VAR bz_fixc,2                   ; bz_crshdr's, from BZG1 +30 / +31
+VAR bz_paged,2                  ; SPEC.md 128.22.4.3: 1 the window is PAGED (+1 the pages,
+                                ; BZC2 +44), page 0's at bz_fixr / bz_fixc (bz_crshdr's)
+VAR bz_pgk,2                    ; ...the TARGET page (bz_pgtgt; +1 zero)
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
@@ -2111,6 +2114,16 @@ bz_camera:
     mov [bz_c0n], ax
 .nfx:
 %endif
+%if BZ_PATH_NPAD
+    cmp byte [bz_paged], 0      ; SPEC.md 128.22.4.3: a PAGED window shows the
+    je .npg                     ; page holding the marble, its columns page 0's
+    mov byte [bz_pgk], 0
+    call bz_pgtgt
+    mov [bz_R0n], ax
+    mov ax, [bz_fixc]
+    mov [bz_c0n], ax
+.npg:
+%endif
     call bz_clampwin
     mov ax, [bz_R0n]
     mov [bz_R0], ax
@@ -2140,6 +2153,10 @@ bz_camera:
     mov [bz_c0n], ax
     jmp .moved
 .mfx:
+%endif
+%if BZ_PATH_NPAD
+    cmp byte [bz_paged], 0      ; SPEC.md 128.22.4.3: PAGED - the target page's
+    jne .paged                  ; rows, BZ_MAXR a frame toward them
 %endif
     cmp byte [bz_camscr], 0     ; a harness's SCRIPTED camera (128.17.6.7):
     je .ring                    ; neither the ring, the ground line nor
@@ -2374,6 +2391,64 @@ bz_camera:
     ret
 bz_scyc:                        ; the script's cycle: (row, column), R DR D DL
     BZ_SCR_CYCLE                ; L UL U UR (bzcourse.inc)
+%if BZ_PATH_NPAD
+; --- the PAGED camera (wave 8R, SPEC.md 128.22.4.3): the columns page 0's
+; always; the rows move toward the TARGET page's at BZ_MAXR rows a frame
+; (no GLIDE, no TRICKLE, no C), a whole page's scroll only when the
+; marble's footprint centre line leaves the target's window ---
+bz_camera.paged:
+    call bz_pgtgt               ; AX = the target page's R0
+    mov dx, [bz_R0]
+    sub ax, dx                  ; its distance, rows: at most BZ_MAXR of it
+    cmp ax, BZ_MAXR
+    jle .pg1
+    mov ax, BZ_MAXR
+.pg1:
+    cmp ax, -BZ_MAXR
+    jge .pg2
+    mov ax, -BZ_MAXR
+.pg2:
+    add ax, dx
+    mov [bz_R0n], ax
+    mov ax, [bz_fixc]
+    mov [bz_c0n], ax
+    jmp bz_camera.moved
+
+; bz_pgtgt - the PAGED camera's TARGET page, bz_pgk, moved while the marble's
+; footprint centre line (py + 8) is above its window's top (the page above) or
+; at or below its bottom (the page below), within the part's pages; page k's
+; window is page 0's moved up 200 k lines (128.22.2) -> AX = its R0, card rows.
+; CL = bz_lsh.  Clobbers BX, DX.
+bz_pgtgt:
+    mov dx, [bz_py]
+    add dx, 8                   ; DX = the footprint's centre line
+.l:
+    mov ax, BZ_LINES            ; AX = page k's R0: page 0's less k pages of
+    shr ax, cl                  ; this card's rows (CGA 100, Hercules 50) ...
+    mul byte [bz_pgk]
+    neg ax
+    add ax, [bz_fixr]
+    mov bx, ax                  ; ...BX = its window's top line
+    shl bx, cl
+    cmp dx, bx
+    jge .nup
+    mov bl, [bz_pgk]            ; above it: the page above, if there is one
+    inc bx
+    cmp bl, [bz_paged + 1]
+    jae .out
+    mov [bz_pgk], bl
+    jmp short .l
+.nup:
+    add bx, BZ_LINES
+    cmp dx, bx
+    jl .out
+    cmp byte [bz_pgk], 0        ; at or below its bottom: the page below
+    je .out
+    dec byte [bz_pgk]
+    jmp short .l
+.out:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; bz_sprite - the frame's SPRITE and SHADOW, from the state the frame's last
