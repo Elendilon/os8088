@@ -434,9 +434,11 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
                      "with a course (SPEC.md 128.19.2)" % (way, shell_row()))
     fan = 1 if g.w("bzs_vseg") else 0          # 8R (SPEC.md 128.22.9): a play of a course with music holds the
                                                 # VICTORY fanfare beside its song (a benchmark and a replay do not)
-    if len(c_in) != len(base_claims) - 1 + 1 + len(nb) + fan:
+    snd = 2 if g.w("bzs_pseg") and g.w("bzs_mseg") else 0   # SPEC.md 128.26.5: the window is silent, so the
+                                                # sound part and the course's song are claims the bracket ADDS
+    if len(c_in) != len(base_claims) - 1 + 1 + len(nb) + fan + snd:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + 1 + %d "
-                     "balls + %d fanfare: %s" % (way, len(c_in), len(base_claims), len(nb), fan, c_in))
+                     "balls + %d fanfare + %d sound: %s" % (way, len(c_in), len(base_claims), len(nb), fan, snd, c_in))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
