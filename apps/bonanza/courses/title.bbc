@@ -22,6 +22,8 @@ course TITLE "Bounce Bonanza"
 width 128
 origin 512
 ball rubber
+# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9)
+uses rotor spring tube
 title
 view 56 124 drop 128
 # the title screen's song (song 7, by name): a ONE-SHOT exactly as long as a title demo (BZ_TSTEPS)

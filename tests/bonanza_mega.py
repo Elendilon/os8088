@@ -382,7 +382,8 @@ def title_rows(n):
     # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
     # (wave 8b, 128.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
     shell = n - 1 - R.after_shell()             # (SPEC.md 128.23: and the title's two rows after it)
-    return {shell} if snd >= 3 else set()   # (SPEC.md 128.26.5: the window is silent, no song held)
+    import bonanza_exit as X                    # story 9.8 (SPEC.md 128.25.6.9): and every RESIDENT family's
+    return ({shell} if snd >= 3 else set()) | X.title_rows()   # part, fetched at the start, never dropped
 
 
 SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (128.19.2)

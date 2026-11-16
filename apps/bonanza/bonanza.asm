@@ -215,6 +215,11 @@ bz_entry:
     call op_load                ; SI is still the kernel's name: FIRST. Every
     pop es                      ; row is lazy, so this copies the name and
     jc .out                     ; claims nothing
+%if BZ_FHMASK
+    push es                     ; story 9.8 (SPEC.md 128.25.6.9): the RESIDENT
+    call bz_fhome               ; families, the arena's floor before anything
+    pop es                      ; else enters it
+%endif
     call bz_argget              ; a double-clicked document's name, copied out
                                 ; while ES is still the kernel's (128.14.7.5)
     mov si, bz_tpl
@@ -2532,8 +2537,17 @@ bz_cdrop:
     mov ax, BZ_P_FAM + BZ_NFAM  ; reverse of the fetch's order (a row not here
 .dfam:                          ; is a no-op, so a course with none drops none;
     dec ax                      ; a build with none has no loop: it would end
-    call op_drop                ; at BZ_P_FAM - 1, the title demo's row)
-    cmp al, BZ_P_FAM            ; (op_drop preserves AX)
+%if BZ_FHMASK                   ; at BZ_P_FAM - 1, the title demo's row) - but
+    mov cl, al                  ; never a RESIDENT family's (SPEC.md 128.25.6.9:
+    sub cl, BZ_P_FAM            ; the arena's floor, BZ_FHMASK bit ID - 1)
+    mov bx, 1
+    shl bx, cl
+    test bx, BZ_FHMASK
+    jnz .dkeep
+%endif
+    call op_drop                ; (op_drop preserves AX)
+.dkeep:
+    cmp al, BZ_P_FAM
     ja .dfam
 %endif
     mov al, BZ_P_BALR + BZ_NMAT - 1 ; the balls, the highest first: the arena's
