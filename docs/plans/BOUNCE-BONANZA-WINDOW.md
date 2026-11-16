@@ -60,6 +60,7 @@ height); the AdLib leg.
 
 `bonanzagame`, `bonanzaexit`, `bonanzapath`, `bonanzatitle`, `bonanzademo`,
 `bonanzareplay`, `bonanzasound`, `bonanzamusic`, `bonanzamega` - each
-launches through the window, so each needs `bz_dev` (128.26.6) - and a new
-`bonanzawin` for W1 - W6. Run once, after the last batch (CLAUDE.md,
+launches through the window, so each needs `bz_dev` (128.26.6). A row of
+its own for W1 - W6 (`bonanzawin`, the scratch drives above made a row) is
+NOT written yet: the next step. Run once, after the last batch (CLAUDE.md,
 Testing).
