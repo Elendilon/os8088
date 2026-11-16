@@ -39,6 +39,8 @@ the row FAILS at its own check:
   mat      every event played as the rubber ball's: the events check fails
   noboost  wave 6: bz_nboost left out of bzs_ctab (its slot names bz_ntube
            again): the boost check's rubber poke keys no effect
+  nofree   wave 8R round 2: an effect's 0 terminator read, its slot not
+           freed (F_PTR kept): the wait for an idle slot fails, naming it
 
 WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): step 4 gains THE BOOST: bz_nboost
 poked with each ball - rubber's next frame's slot holds rubber's BOOST effect,
@@ -47,6 +49,18 @@ glass's key NOTHING (bzs_fxseq unchanged: their columns name no effect); and
 a boost contact keys no LAND (bz_nland, bz_lvz past BZS_LMIN and bz_nboost
 poked in one frame: one effect keyed, the BOOST).  The effect numbers are read
 out of the built BZSND.BIN, never written here.
+
+WAVE 8R ROUND 2 (SPEC.md 128.20.5, 128.18.6): THE COURSE'S CLOCK HELD.  FIRST has
+a 15 s limit and its countdown ran under step 4: its LOW at 10 s and a TICK
+every second after are the game's own, and one keyed in a poked frame was a
+second effect ('rubber's boost keyed 2'), while w7's pokes left bz_t55 stale,
+so the poked 10 s could run out a step later under its own LOW (priority 4)
+and the game's TICK at 9 (priority 1) found the slot taken - the test's 9 then
+moved nothing.  The longer effects of 128.22.9's `strip_comment` fix widened
+both windows (LOW 4 sub-ticks -> 13).  So step 4 runs with the limit off
+(bz_tsec 0), w7 pokes each second AT ITS START (bz_t55 = BZ_SECSTEPS, the
+countdown's own state there) and fails if the clock still moved, and every
+wait for an idle slot FAILS when an effect never frees it.
 
 WAVE 5B (SPEC.md 128.15.9, 128.15.13): unchanged in logic.  The parts table's
 format byte is the whole table's, so with BZPARTZ=lzb the sound part and the
@@ -127,6 +141,48 @@ def stop(g, label="bzs_tp", guest=10):
     m.breakpoints([])
 
 
+IDLE_FRAMES = 400
+
+
+def idle(g, what):
+    """stop frame by frame until the effect slot is idle (F_PTR 0: the effect
+    read its 0 terminator) -> [] or a failure naming an effect that never ends"""
+    for _ in range(IDLE_FRAMES):
+        stop(g)
+        if g.w("bzs_fx") == 0:
+            return []
+    return ["%s: the effect slot never went idle in %d frames (F_PTR %04X, instrument %d): an effect that "
+            "never frees its slot" % (what, IDLE_FRAMES, g.w("bzs_fx"), g.m.read(g.a("bzs_fx") + 13, 1)[0])]
+
+
+def sec_steps(art=None):
+    """BZ_SECSTEPS, the clock's second in steps, out of the built include"""
+    t = open(os.path.join(art or R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_SECSTEPS\s+equ\s+(\d+)", t, re.M).group(1))
+
+
+def set_clock(g, secs):
+    """THE CLOCK POKED AT A SECOND'S START (bzphys.inc .counted): bz_tsec and
+    bz_t55 = BZ_SECSTEPS, as the countdown leaves them the step a second
+    changes - so the course's own clock cannot move bz_tsec again for a second
+    (a stale bz_t55 let it end the poked second a step later: the 10 s LOW
+    poke's own second ran out under the LOW, priority 4, whose slot the
+    game's TICK at 9, priority 1, could not take - and the test's 9 then
+    moved nothing)"""
+    g.put("bz_tsec", secs)
+    g.putb("bz_t55", g.secsteps)
+
+
+def clock_off(g):
+    """the course's LIMIT stopped for the contact checks (bz_tsec 0: no limit):
+    FIRST's 15 s run under them - its LOW at 10 s and a TICK every second
+    after are the game's, and one keyed in a poke's frame is a second effect
+    beside the poked one (rubber's boost 'keyed 2 effect(s)').  One frame
+    takes the copy (bz_tsec 0 and no bz_tout: nothing keyed)"""
+    g.put("bz_tsec", 0)
+    stop(g)
+
+
 def voices(g):
     """the guest's voices, its stamps turned into the model's gate and age
     (bzsound.inc's record: a note is when it was keyed and when it goes up)"""
@@ -195,10 +251,7 @@ def events(g, snd):
              ("BUMPER", "bz_nwall", {"bz_lwv": 100, "bz_lwb": 1}))
     for mat in range(3):
         for ev, ctr, extra in pokes:
-            for _ in range(400):                # the slot idle first (play makes its own)
-                stop(g)
-                if g.w("bzs_fx") == 0 and g.w("bzs_fx") == 0:
-                    break
+            fails += idle(g, "events")          # the slot idle first (play makes its own)
             g.putb("bz_mat", mat)
             for k, v in extra.items():
                 (g.putb if k == "bz_lwb" else g.put)(k, v)
@@ -236,11 +289,18 @@ def w7_events(g, snd):
     emap, fxt = BM.u16(snd, 12), BM.u16(snd, 10)
     ne = len(BM.EVENTS)
 
-    def idle():
-        for _ in range(400):
-            stop(g)
-            if g.w("bzs_fx") == 0:
-                return
+    def idle_w7():
+        """True when the slot is idle; a slot that never frees ends the clock's
+        checks (400 frames outrun a pinned second: the course would time out)"""
+        f = idle(g, "w7")
+        fails.extend(f)
+        return not f
+
+    def held_at(secs):
+        """the poked second still the guest's (the course's clock did not move it)"""
+        if g.w("bz_tsec") != secs:
+            fails.append("w7: the clock poked to %d s reads %d s a frame on: the course's countdown moved it "
+                         "under the check" % (secs, g.w("bz_tsec")))
 
     def check(ev, what, seq0):
         n = snd[emap + 0 * ne + EV[ev]]
@@ -253,29 +313,34 @@ def w7_events(g, snd):
             return ["w7: %s keyed %d effect(s), the slot instrument %d priority %d - not %s's effect %d "
                     "(instrument %d, priority %d)" % (what, dseq, slot[13], slot[12], ev, n, snd[rec], snd[rec + 1])]
         return []
-    g.put("bz_tsec", 0)                         # (no limit from here: the checks' frames hear no tick)
-    stop(g)
+    clock_off(g)                                # (no limit from here: the checks' frames hear no tick)
     g.putb("bz_mat", 0)
     for ev, ctr in (("FLAG", "bz_nckpt"), ("PAD", "bz_npad"), ("LIP", "bz_nlip"), ("SPRING", "bz_nspr"),
                     ("RETURN", "bz_nret"), ("KNOCK", "bz_nknock"), ("TUBE", "bz_ntube"), ("BUMPER", "bz_nkick")):
-        idle()
+        idle_w7()
         seq0 = g.w("bzs_fxseq")
         g.put(ctr, g.w(ctr) + 1)
         stop(g)
         fails += check(ev, "%s poked" % ctr, seq0)
-    for secs, ev in ((30, "LOW"), (9, "TICK")):
-        idle()
-        g.put("bz_tsec", secs + 1)
+    for secs, ev in ((30, "LOW"), (9, "TICK")):    # (each second poked at its start: set_clock)
+        if not idle_w7():
+            return fails
+        set_clock(g, secs + 1)
         stop(g)
-        idle()
+        if not idle_w7():                       # (31 keys nothing; 10 is a LOW, 13 sub-ticks)
+            return fails
+        held_at(secs + 1)
         seq0 = g.w("bzs_fxseq")
-        g.put("bz_tsec", secs)
+        set_clock(g, secs)
         stop(g)
         fails += check(ev, "%d seconds left" % secs, seq0)
-    idle()
-    g.put("bz_tsec", 1)
-    stop(g)
-    idle()
+    if not idle_w7():
+        return fails
+    set_clock(g, 1)                             # (and 1 s held: the course's own step to 0 would
+    stop(g)                                     # time the play out - bz_fstart - under the check)
+    if not idle_w7():
+        return fails
+    held_at(1)
     seq0 = g.w("bzs_fxseq")
     stop(g, "bzs_frame")
     g.put("bz_tsec", 0)
@@ -297,11 +362,6 @@ def boost_events(g, snd):
         n = snd[emap + mat * ne + EV[ev]]
         return n, (None if n == 0xFF else BM.u16(snd, fxt + 2 * n))
 
-    def idle():
-        for _ in range(400):
-            stop(g)
-            if g.w("bzs_fx") == 0:
-                return
     nb, rb = eff(0, "BOOST")
     nh, rh = eff(0, "HOP")
     if rb is None:
@@ -315,7 +375,7 @@ def boost_events(g, snd):
         fails.append("boost: rubber's BOOST effect %d is its HOP's (%d) by name or by content" % (nb, nh))
     for mat in range(3):
         for with_land in ((False, True) if mat == 0 else (False,)):
-            idle()
+            fails += idle(g, "boost")
             g.putb("bz_mat", mat)
             seq0 = g.w("bzs_fxseq")
             if with_land:
@@ -386,6 +446,7 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             ui.open_drive("B")
             ui.open("BONANZA.O88")
             g = R.Bz(ui, "cga", sym, live=True)
+            g.secsteps = sec_steps(art)
             M.until(m, lambda _: g.w("bzs_nsub") > 60, "the title is playing", guest=30)
             m.pause()
             # 1. THE TITLE
@@ -428,7 +489,10 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                         stop(g)
                     f, n = held(g, snd, songs[1], want_arm, "FIRST")
                     fails += f
-            # 4. THE EVENTS (the speaker leg; the slots are the same code on both)
+            # 4. THE EVENTS (the speaker leg; the slots are the same code on both),
+            # FIRST's limit stopped first: its clock's LOW and TICKs are w7's to poke
+            if arm_name == "spk" and only != "groove" and "bz_tsec" in g.sym:
+                clock_off(g)
             if arm_name == "spk" and only not in ("groove", "noboost"):
                 fails += events(g, snd)
             if arm_name == "spk" and only not in ("groove", "mat") and "bz_nboost" in g.sym:
@@ -491,8 +555,12 @@ REDS["notick"] = [("bzsound.inc", "    cmp ax, [bzs_ltsec]         ; moved - the
                    "    je .nt                      ; LOW at 30 s and 10 s, a TICK under 10 s\n",
                    "    cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),\n"
                    "    jmp .nt                     ; RED notick: the clock's events skipped\n")]
+    # wave 8R round 2: an effect's 0 terminator read but its slot never freed
+REDS["nofree"] = [("bzsound.inc", "    jnz .seg\n    mov word [di + F_PTR], 0\n",
+                   "    jnz .seg\n    mov byte [di + F_LEFT], 1    ; RED nofree: the slot never freed\n")]
 RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boost keyed 0",
-            "noflag": "w7: bz_nckpt poked keyed 0", "notick": "w7: 30 seconds left keyed 0"}
+            "noflag": "w7: bz_nckpt poked keyed 0", "notick": "w7: 30 seconds left keyed 0",
+            "nofree": "the effect slot never went idle"}
 
 
 def shell_static():

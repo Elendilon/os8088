@@ -2840,3 +2840,70 @@ window refill ends in and the diagonal does not touch.
 **Measured for the contract** (`make bonanza`, `a5bd683c`): image 40,181,
 bss 10,660; the balls unpack to 31,168 bytes and pack to 5,974 with LZB.
 Nothing of wave 9 is built yet.
+
+## 2026-11-16 (wave 8R, round 2: the owner played it)
+
+The owner played the path screen and sent eight things back. Seven agents took
+one each; every branch but two small ones got an Opus verifier, and each
+verifier found something. Gates that read as gates (a frame with an open middle,
+tilted, a 3/4 view on the edge-on routes). TRIAL's new finish clock had walled
+off its second exit, which is why the owner never found it: the tool now
+proves every finish reachable with its clocks in place, and the verifier moved
+the clock again when the first new cell turned out to sit on the autopilot's
+route (the demo's finish moved from step 499 to 796 and nobody had checked).
+The marble not rolling right was temporal aliasing - 6 px a frame reads as 2
+backwards on an 8-phase texture - folded on the pathway only. The finish now
+DITHERS the ball out over 0.73 s while it rolls on (the owner asked whether the
+machine had the power: measured, 69.7k of a CGA's 79.5k-clock refresh at the
+worst fading frame, no refresh missed). The music under the info card ran at
+half tempo because the wait sampled the PIT once a frame against an 18.3 ms
+sub-tick. The save holds 23 courses (24 made the file a whole sector, and
+`od_write` then rewrites the FAT and the entry on every save: about 1.6 s
+against 0.4), and reads no older format (the owner: nothing is released).
+The four known-broken checks were all fixed, none removed; and a flaky sound
+row turned out to be the test racing FIRST's own 15-second clock.
+
+Diagonal tiles became a contract (SPEC.md 128.24) with pictures, and the owner
+chose HALF and QUARTER cells, with CHANNELS (a tile that cradles the ball) as
+the next core type the format reserves room for. Wave 9 started in another
+session the same afternoon; the two sessions trade file and routine lists
+through the owner.
+
+## 2026-11-16 (wave 9, story 9.0: the Y0 search, and a camera guarantee that was luck)
+
+The search itself was small: compile each of the eight alignments as far as
+the merged occluder records and no further, keep the one with the fewest
+records that meets the bounds, then compile it for real. The trap check,
+which is most of PEAK's compile time, runs once. Every play course but BENCH
+and TRIAL chose +4; PEAK's compile went from about 20 s to 26 s, and the
+demos re-stamped without being re-authored, because the identity they are
+checked against is taken with no occluders.
+
+Then the camera check failed, and only on PEAK. Inside a tube the camera
+pans straight to the exit's framing with the heavy rule switched off, so
+the exit has nothing left to do; the tube-exit guarantee says a pan still
+running at the exit is never held back afterwards. That had been MEASURED
+on 22 exits and never built: the heavy rule comes back on at the exit, and
+no heavy frame had ever happened to land in the 90 frames after one. The new
+alignment moved the occluders, so it moved which frames are heavy, and one
+landed one frame after PEAK's cannon exit. The fix makes the guarantee true
+by construction: a pan a tube made fast is never withheld until it ends. It
+costs one byte on each of the camera's two axis records and two instructions.
+
+The pre-aim's own control had been riding on the same luck: switching the
+pre-aim off only ever failed the guarantee through the heavy rule. Measured
+directly, what the pre-aim buys is the pan finished inside the tube: with
+it, 247 camera steps are left in the 90 frames after all the exits across
+every demo and autopilot; without it, 458 (MILL's chute 2 against 32). The
+control now asserts that, and a new one removes the exemption.
+
+Three of the tool's deliberate refusals also leaned on the alignment: two
+lanes sharing blocks, a start window with no calibration corner, and the
+wave 5b byte comparison. They now pin it, and a real course whose best
+alignment a later rule refuses falls back to the next best.
+
+**Tested** (host): `--selfcheck`, `make bonanza`, `bonanza_ring.py
+--check-reds` (both camera arms' models red at their checks, every arm
+assembled), `bonanza_phys.py --check`. **Not yet run**: `bonanzaring`'s
+camera leg on MartyPC, the guest's `BZL_PRE` against the model; it is in
+wave 9's final pass.

@@ -4756,10 +4756,65 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     try:
-        return _compile_course(source, fname, occluders, hack, _rec, crsinfo)
+        counts, order = None, [None]
+        if occluders and "y0add" not in hack:        # SPEC.md 128.25.3: the Y0 search
+            counts = y0_search(source, fname, hack, _rec, crsinfo)
+            if counts is not None:
+                order = y0_order(counts)
+        first = None
+        for k in order:                             # the best alignment first; one that a later rule refuses (a
+            h = hack if k is None else dict(hack, y0add=k)      # lane's blocks, a corner) gives way to the next,
+            try:                                    # and if every one is refused, the first one's reason
+                c = _compile_course(source, fname, occluders, h, _rec, crsinfo)
+            except CourseError as e:
+                first = first or e
+                continue
+            c.y0add, c.y0counts = h.get("y0add", 0), counts
+            return c
+        raise first
     finally:
         _FAST_EXTRA = ()
         _DOWN_S0 = False
+
+
+class _Y0Probe(Exception):
+    """a probe compile's end (SPEC.md 128.25.3): .counts = (records, the most in
+    one block, the most in one block row) at that alignment, or None when the
+    course's `view` fixes its alignment"""
+    def __init__(self, counts):
+        Exception.__init__(self, "y0 probe")
+        self.counts = counts
+
+
+def y0_search(source, fname, hack, _rec, crsinfo):
+    """SPEC.md 128.25.3: the occluder records at each of the picture's eight
+    block alignments (Y0 + k, k = 0 - 7), each a compile that stops once its
+    records are merged.  -> [(records, most a block, most a row) or None for an
+    alignment a compile refused before its records], or None for a course with
+    a `view` (its alignment is the view's)."""
+    counts = []
+    for k in range(8):
+        try:
+            _compile_course(source, fname, True, dict(hack, y0add=k, y0probe=True), _rec, crsinfo)
+        except _Y0Probe as p:
+            if p.counts is None:
+                return None
+            counts.append(p.counts)
+            continue
+        except CourseError:
+            counts.append(None)                     # the full compile below says why, at the pick
+            continue
+        raise AssertionError("a y0 probe compiled to the end")
+    return counts
+
+
+def y0_order(counts):
+    """the alignments to try, best first: those whose records meet both bounds
+    (128.11.4.2) by fewest records, then by k; if none does, [0], so the full
+    compile refuses naming the block as it always has"""
+    ok = sorted((c[0], k) for k, c in enumerate(counts)
+                if c is not None and c[1] <= REC_BLOCK_MAX and c[2] <= REC_ROW_MAX)
+    return [k for _n, k in ok] or [0]
 
 
 def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
@@ -4850,6 +4905,10 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             gbot = max(gbot, max(max(sp) for sp, *_ in rops[ri] if sp))
     ftop = min(foot_top(rc, rc.zhi) for rc in reach)
     y0 = max(-gtop, -ftop)
+    if src.view is None:                            # SPEC.md 128.25.3: the block alignment compile_course chose
+        y0 += hack.get("y0add", 0)                  # (a view fixes its own, below)
+    elif hack.get("y0probe"):
+        raise _Y0Probe(None)                        # nothing to search
     fbot = max(foot_top(rc, rc.zlo) + 30 for rc in reach)
     lines = max(gbot, fbot) + y0 + 1
     view = None
@@ -5075,6 +5134,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     for r in records:
         per_row[r["brow"]] = per_row.get(r["brow"], 0) + 1
         per_block[(r["brow"], r["col"])] = per_block.get((r["brow"], r["col"]), 0) + 1
+    if hack.get("y0probe"):                         # SPEC.md 128.25.3: one alignment's records, and no more
+        raise _Y0Probe((len(records), max(per_block.values(), default=0), max(per_row.values(), default=0)))
     for key in sorted(per_block):
         if per_block[key] > REC_BLOCK_MAX:
             raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
@@ -8693,7 +8754,8 @@ class Glide:
     The broken parts, one flag each (128.17.9): _w6 wave 6's whole policy
     (GLIDE as 128.9 wrote it, the heavy rule as bz_hvcam, --pans' comparison);
     _nohyst Hr 0; _nocap no cap on the heavy rule; _ringy rows read the ring's
-    y verdict; _nopreaim no tube pre-aim; _side0 level 1 side-blind; _noscr
+    y verdict; _nopreaim no tube pre-aim; _noprex a pan a tube made fast
+    withheld like any other (128.25.3); _side0 level 1 side-blind; _noscr
     bz_camscr's model ignored (LATTICE runs); and wave 6's _nosafe, _nolatch
     and _camz carried (the ground line's)."""
 
@@ -8702,8 +8764,9 @@ class Glide:
 
     def __init__(self, phys, herc, brows, cols, _w1=False, heavy=None, _camz=False, _nosafe=False,
                  _nolatch=False, scripted=False, _w6=False, _nohyst=False, _nocap=False, _ringy=False,
-                 _nopreaim=False, _side0=False, _noscr=False):
+                 _nopreaim=False, _side0=False, _noscr=False, _noprex=False):
         self.p, self.herc, self._w1, self._camz = phys, herc, _w1, _camz
+        self._noprex = _noprex
         self._nosafe, self._nolatch = _nosafe, _nolatch   # the `nosafe` and `nolatch` arms' models
         self._w6, self._ringy, self._nopreaim, self._side0 = _w6, _ringy, _nopreaim, _side0
         self.scripted = scripted and not _noscr
@@ -8889,7 +8952,10 @@ class Glide:
         for a, st, rel, bits, isrow in ((ax, sc, relc, (NEAR_L, NEAR_R), False),
                                         (ay, sr, relr, (NEAR_T, NEAR_B), True)):
             wh, capped, side = 0, False, False
-            if st and level and not rel:
+            # (a pan a tube made fast - PRE-AIMED - is never withheld until it ends: guarantee 5 by
+            # construction, SPEC.md 128.25.3; it held by measurement only, until the Y0 search moved
+            # PEAK's heavy frames onto a tube exit)
+            if st and level and not rel and (a.why != "tube" or self._noprex):
                 if level == 2:
                     cap, lim, gate = self.h2, 1 if isrow and self.herc else 0, True
                 else:
@@ -12114,6 +12180,19 @@ def cam_exits(rows, name):
     return n, bad
 
 
+def cam_exit_work(rows):
+    """the camera's pan work left after the tube exits: the steps (rows and
+    columns) taken in the CAM_EXIT frames after each exit, summed"""
+    n = 0
+    for i, f in enumerate(rows):
+        if i and rows[i - 1]["tube"] and not f["tube"]:
+            for g in rows[i:i + CAM_EXIT]:
+                if g["full"]:
+                    break
+                n += sum(abs(g[ax]["step"]) for ax in ("x", "y") if g[ax] is not None)
+    return n
+
+
 def _cam_fork(base):
     """a CamRun's copy a branch can step without touching BASE (the course,
     its grid and props shared, never written)"""
@@ -12551,10 +12630,19 @@ def _cam_controls(courses, demos, by, res):
     b = [x for nm, _h, rows in every(_ringy=True) for x in cam_two_rows(rows, nm)]
     res.append(("8 control `ringy` (rows read the ring): red at the two-row check (%d two-row frames on a pan the "
                 "ring made fast; the first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
-    # nopreaim: guarantee 5
-    b = [x for nm, _h, rows in every(_nopreaim=True) for x in cam_exits(rows, nm)[1]]
-    res.append(("8 control `nopreaim` (no tube pre-aim): red at the tube-exit check (%d failures; the first: %s)" % (
-        len(b), b[0] if b else "-"), bool(b)))
+    # noprex: guarantee 5 (SPEC.md 128.25.3: a pan a tube made fast is never withheld - the rule guarantee 5
+    # rests on since the Y0 search moved PEAK's heavy frames onto a tube exit)
+    b = [x for nm, _h, rows in every(_noprex=True) for x in cam_exits(rows, nm)[1]]
+    res.append(("8 control `noprex` (a pre-aimed pan withheld like any other): red at the tube-exit check (%d "
+                "failures; the first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
+    # nopreaim: the pan left after an exit (128.17.6.2: the pre-aim runs the pan during the transit, so the exit
+    # has little left to do; without it the window still pans to the exit's framing, AFTER the exit). Before
+    # 128.25.3 this control went red at guarantee 5, through the heavy rule's withholding, which the exemption
+    # now rules out whatever the pre-aim does
+    w0 = sum(cam_exit_work(rows) for _nm, _h, rows in every())
+    w1 = sum(cam_exit_work(rows) for _nm, _h, rows in every(_nopreaim=True))
+    res.append(("8 control `nopreaim` (no tube pre-aim): red at the work left after the exits (%d steps in the %d "
+                "frames after every exit, against the shipped camera's %d)" % (w1, CAM_EXIT, w0), w1 > w0))
     # side0: the side check
     b = []
     for herc in (0, 1):
@@ -12749,8 +12837,11 @@ def _grammar_cases():
         # launch, and its records swing under 252's with Y0's alignment, 128.11.4.4 - so the case pins them:
         # it proves the REFUSAL, which the reach's inputs do not touch)
         ("a block over %d records (a steep ramp's faces over the void)" % REC_BLOCK_MAX, STEEP,
-         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST}),
-        ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX),
+         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0}),
+        # (both bound refusals PIN their alignment, SPEC.md 128.25.3: the Y0 search would otherwise look for
+        # one that compiles, and these prove the refusal itself)
+        ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX,
+         {"y0add": 0}),
     ]
 
 
@@ -12777,7 +12868,8 @@ def _corner_case():
     """a start window with no free calibration corner on the CGA: posts
     placed (by the window's own arithmetic) in all four corners"""
     base = _W3F % (60, 20, 20)
-    c = compile_course(base, "<corners>", _hack={"no_finish": True, "hopmax": W5_HOPMAX, "boost": W5_BOOST})
+    c = compile_course(base, "<corners>", _hack={"no_finish": True, "hopmax": W5_HOPMAX, "boost": W5_BOOST,
+                                                 "y0add": 0})
     p = Physics(c)
     W, H, rl, lsh = CARDS[0]
     rmax, cmax = c.brows * 8 // rl - H, c.cols - W
@@ -12845,7 +12937,9 @@ def _wave3_cases():
          "flat 1", "floor rect 6 6 10 10 flat 1\nfloor rect 11 7 13 10 flat 4"), "overlaps pixel"),
         ("a reserved statement (shape)", W + "shape tile 4 4\n", "reserved for a later wave"),
         ("a reserved statement (shape)", W + "shape 4 4\n", "reserved for a later wave"),
-        ("two lanes sharing blocks", big + _posts([(20, 18), (21, 19)]), "two lanes share blocks"),
+        # (the refusals that hang on the block grid PIN their alignment, SPEC.md 128.25.3: the Y0 search would
+        # otherwise find one where the lanes, the corner or the bound no longer meet)
+        ("two lanes sharing blocks", big + _posts([(20, 18), (21, 19)]), "two lanes share blocks", {"y0add": 0}),
         ("bound: a 7th FAST lane in a window (posts counted FAST)", seven, "FAST lanes (rotors) meet the",
          {"fast": (PK_BUMPER,)}),
         ("bound: a 9th FAST lane in the walk's range (posts counted FAST)", nine, "FAST lanes in the walk's range",
@@ -12860,7 +12954,7 @@ def _wave3_cases():
          "a second lift"),
         ("bound: a lane meeting the slab", P + "prop bumper 9 8\n", "meets the platform's sprite"),
         ("bound: a start window with no free calibration corner", _corner_case(), "no calibration corner",
-         {"hopmax": W5_HOPMAX, "boost": W5_BOOST}),
+         {"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0}),
     ]
 
 
@@ -17796,9 +17890,21 @@ def _course_items(c, k, res, t):
               ("a %s of cell %s" % (top_rc.src[1], top_rc.src[0])) if top_rc.src else "its own floor", c.rounds,
               c.gtop + c.y0, fall.zhi - fall.zlo, fall.wx, fall.wy, void.zhi - void.zlo, void.wx, void.wy,
               sum(rc.zhi - rc.zlo for rc in c.reach) / float(len(c.reach))))
-    res.append(("6 %s: every reachable footprint inside the picture; Y0 the least that does it (line %d); the "
-                "reach settled in %d rounds (at most %d)" % (tag, least, c.rounds, REACH_ROUNDS),
-                inside and least == 0 and c.rounds <= REACH_ROUNDS))
+    res.append(("6 %s: every reachable footprint inside the picture; Y0 the least that does it plus the "
+                "alignment the search chose (line %d, +%d); the reach settled in %d rounds (at most %d)"
+                % (tag, least, c.y0add, c.rounds, REACH_ROUNDS),
+                inside and least == c.y0add and c.rounds <= REACH_ROUNDS))
+    if c.y0counts is not None:                  # SPEC.md 128.25.3: the eight alignments
+        ok = [k for k, n in enumerate(c.y0counts) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
+        print("    %s: Y0's alignments, records (most a block) at +0 - +7: %s; +%d chosen" % (
+            tag, ", ".join("refused" if n is None else "%d (%d)" % (n[0], n[1]) for n in c.y0counts),
+            c.y0add))
+        best = y0_order(c.y0counts)[0]
+        res.append(("6 %s: the Y0 search kept +%d (%d records, %s) of the %d alignments that meet the "
+                    "bounds, and its compile has the records its probe counted" % (
+                        tag, c.y0add, len(c.records), "the fewest" if c.y0add == best else
+                        "+%d, the fewest, refused by a later rule" % best, len(ok)),
+                    c.y0add in ok and len(c.records) == c.y0counts[c.y0add][0]))
     if c.props:
         _props_course_checks(c, res, tag)
     _w4_records(c, res)
@@ -17878,7 +17984,7 @@ def selfcheck(paths=None):
     else:
         diff = []
         for c, txt in zip(w5, w5txt):
-            c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST})
+            c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0})  # (that tool had no Y0 search)
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
@@ -18102,6 +18208,22 @@ def selfcheck(paths=None):
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
                 not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
+    # item 6's Y0 control (SPEC.md 128.25.3, docs/reports/BONANZA-APEX-2026-11-16.md): MOON with every Hop at
+    # 366 (a 12 px apex) at the alignment wave 6 met it at refuses on the block bound, and the search finds an
+    # alignment that compiles - the height was never the limit
+    mtxt = os.path.join(ROOT, "apps", "bonanza", "courses", "moon.bbc")
+    try:
+        compile_course(mtxt, _hack={"hopmax": 366, "y0add": 0})
+        forced = "compiled"
+    except CourseError as e:
+        forced = str(e)
+    mc = y0_search(mtxt, None, {"hopmax": 366}, None, None)
+    mok = [k for k, n in enumerate(mc or []) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
+    res.append(("6 negative control: MOON with every Hop at 366 refuses at +0 (%s) and the Y0 search finds %d "
+                "alignment(s) that meet the bounds (%s)" % (
+                    "the block bound" if "occluder records, over" in forced else "got: " + forced, len(mok),
+                    ", ".join("+%d" % k for k in mok)),
+                "occluder records, over" in forced and len(mok) > 0))
     # item 8 (SPEC.md 128.15.3): NOTHING UNDER THE HUD went with the HUD, and its `underhud` control (which had
     # to MOVE the rect onto a cup) with it. No compilable cup reached the real rect: the reach's two-cell moat
     # keeps a cup's mark at least 41 px from the picture's left edge (the rect ended at 24) and the fall margin
