@@ -921,9 +921,11 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
 BALL_ROW0, CRS_ROW0 = 0, 3                  # SPEC.md 128.11.3.1: BZ_P_BALR, BZ_P_CRS
 REDS = {
     # the goal path does not drop the course's row: bz_fin is set only by a play that reached the goal
-    "leak": [("bonanza.asm", "    jb .dball\n    mov al, [bz_pc]\n    call op_drop\n",
+    "leak": [("bonanza.asm", "    jb .dball\n    mov al, [bz_pc]\n",
               "    jb .dball\n    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n"
-              "    jne .redleak\n    mov al, [bz_pc]\n    call op_drop\n.redleak:\n")],
+              "    jne .redleak\n    mov al, [bz_pc]\n"),
+             ("bonanza.asm", "    call op_drop\n%if BZ_PATH_N\n.held:\n%endif\n",
+              "    call op_drop\n.redleak:\n%if BZ_PATH_N\n.held:\n%endif\n")],
     # the held-key guard taken out: every typed C, M or N acts
     "crepeat": [("bonanza.asm", "    call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed\n"
                  "    jc .done\n", "    ; RED crepeat: no guard\n")],
