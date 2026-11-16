@@ -762,6 +762,8 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: NAME in insts(b), "BONANZA to start", 60000, 100)
         b.ui_done(limit_ms=60000)
         pkg = Pkg(b, sym)
+        if "bz_dev" in sym:                             # SPEC.md 128.26.6: the instruments' keys (B, R, F's free
+            b.cmd("memw 0x%X 01" % pkg.a("bz_dev"))     # play), which this row drives - the window's are a player's
         # the window onto the Hercules: display 1 sits RIGHT of the VGA ([vid_dlay] 0)
         d1 = b.memr(b.sym("vid_ctx") + G.VID_CTX_SZ, G.VID_CTX_SZ)
         vx1, cw1 = u16(d1, G.VID_CTX_VX), u16(d1, G.VID_CTX_CW)
