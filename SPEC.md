@@ -270519,7 +270519,13 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   **BUILT:** `bz_kinfo` (AL = the course K; `bzcard.inc`) builds the lines in
   `bz_kbuf` and draws them with `bz_card`; `bz_kinfow` draws and then WAITS for
   a key as `bz_pause` waits (`bz_clk_sample`, `bzs_frame`, the discarded
-  sub-ticks) and sets `bz_freq`. `LIMIT` is `bz_clims`, `GOLD` and `SILVER` the
+  sub-ticks) and sets `bz_freq`. **The song keeps its tempo under the card**
+  (8R.12): the wait polls like `bz_pause`'s, NOT once per `OSAPI_FSX_WAIT`
+  frame - a frame (16.7 ms CGA, 20 ms Hercules) is about a sub-tick
+  (18.3 ms), and one PIT sample per frame sees the count go UP (a reload)
+  only now and then, so the sequencer was stepped at about half its rate
+  (MartyPC, 28 sub-ticks/s against the desktop's 58, both cards); now 56-58
+  with the card up and down. `LIMIT` is `bz_clims`, `GOLD` and `SILVER` the
   medals' steps over `BZ_SECSTEPS`, `BEST` the played slot's best (steps x 2 /
   11 tenths) with its medal, `EXITS` the bits of the slot's word for K and
   `bz_cnex`'s count - `BZ_CRS_NEXITS` of `bzcourse.inc` once the tool emits it,
