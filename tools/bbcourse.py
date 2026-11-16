@@ -172,9 +172,10 @@ NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
-            "G": F_PLAIN, "C": F_CELLS, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
+            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
-             "O": "the mask table", "G": "the grid's header", "C": "the cells", "T": "ROWTAB",
+             "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
+             "T": "ROWTAB",
              "W": "the route", "P": "the props"}
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
 BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
@@ -402,6 +403,9 @@ WIN_CHG = 6                   # pose changes that can land on one step among the
 
 
 _FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST (compile_course's _hack "fast")
+_DOWN_S0 = False              # --selfcheck's control (SPEC.md 128.24.11): an LR down half keyed s, not s + 1
+GUEST_SPLIT = False           # SPEC.md 128.24, story D1.5: the guest steps split cells (wave D3 sets it, and
+                              # compile_all's refusal of a half in a shipped course goes)
 
 
 def lane_fast(rec):
@@ -439,6 +443,8 @@ LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit
 FALL_S = 8                    # ...plus one fall's allowance, seconds (a constant until wave 11)
 PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
+GF_SPLIT = 16                 # BZG1 +28 bit 4: the course has a SPLIT cell, its pairs in section D (SPEC.md 128.24.5.2)
+PAIR = 8                      # a split cell's PAIR: half A's four bytes, then half B's
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
 TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
 FLAG_H = 8                    # a flag's pole and the cup's pin: one unit, px
@@ -493,6 +499,7 @@ class Room:
         self.line = line
         self.exit = exit            # wave 8b (SPEC.md 128.19.4): a goal's EXIT, 0 - 15
         self.hidden = hidden        # ...and a secret finish
+        self.half = {}              # SPEC.md 128.24.4: {cell: (diag, half)} - the cells this room lays ONE half of
 
 
 class Source:
@@ -537,6 +544,7 @@ class Source:
                                     # page 0's, wave 8R)
         self.arts = []              # [(file, SX, SY, line)]: text pixmaps painted over the picture
         self.labels = []            # [dict num col row glyphs ink line]
+        self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
 
 
 def _int(tok, where, what):
@@ -594,7 +602,67 @@ def _shape(toks, i, where):
                 if (s + a) & 1 == 0:
                     out.add(((s + a) // 2, (s - a) // 2))
         return frozenset(out), i + 5
-    raise CourseError("%s: unknown shape %r (tile, rect or band)" % (where, kind))
+    if kind == "box":
+        raise CourseError("%s: box lays halves (SPEC.md 128.24.4): floor, wall, goal, hole and surface take it"
+                          % where)
+    raise CourseError("%s: unknown shape %r (tile, rect, band or box)" % (where, kind))
+
+
+def box_cells(a0, a1, s0, s1, where):
+    """SPEC.md 128.24.3 - 128.24.4's `box a0 a1 s0 s1`: the screen rectangle 16 a0 <= gx - gy <= 16 a1,
+    16 s0 <= gx + gy <= 16 s1, as whole cells inside and HALVES along its sides.  A cell (a = wx - wy,
+    s = wx + wy) spans gx - gy from 16 (a - 1) to 16 (a + 1), its TB diagonal at 16 a, and gx + gy from 16 s
+    to 16 s + 32, its LR diagonal at 16 s + 16: whole across when a0 < a < a1, its RIGHT half on a = a0 and
+    its LEFT half on a = a1; whole in depth when s0 <= s and s + 2 <= s1, its DOWN half when s + 1 = s0 and
+    its UP half when s + 1 = s1.  Cut both ways it would be QUARTERED: refused, naming the corner (a box
+    whose four numbers are all even or all odd never quarters a cell).  -> (cells, {cell: (diag, half)})"""
+    if a1 <= a0 or s1 <= s0:
+        raise CourseError("%s: box %d %d %d %d is empty (a0 < a1, s0 < s1)" % (where, a0, a1, s0, s1))
+    out, half = set(), {}
+    for s in range(s0 - 1, s1):
+        for a in range(a0, a1 + 1):
+            if (s + a) & 1:
+                continue
+            cell = ((s + a) // 2, (s - a) // 2)
+            cut_a = a in (a0, a1)
+            cut_s = s + 1 in (s0, s1)
+            in_a = a0 < a < a1
+            in_s = s0 <= s and s + 2 <= s1
+            if cut_a and cut_s:
+                ca, cs = a, s + 1
+                raise CourseError("%s: box %d %d %d %d would cut cell (%d, %d) in QUARTERS at its corner a %d, "
+                                  "s %d (the box's four numbers differ in parity there): move that corner one "
+                                  "column or row, or finish the end with a `half` (SPEC.md 128.24.4)"
+                                  % (where, a0, a1, s0, s1, cell[0], cell[1], ca, cs))
+            if cut_a and in_s:
+                half[cell] = (KIND_TB, 1 if a == a0 else 0)
+            elif cut_s and in_a:
+                half[cell] = (KIND_LR, 1 if s + 1 == s0 else 0)
+            elif not (in_a and in_s):
+                continue
+            out.add(cell)
+    return frozenset(out), half
+
+
+def _shape_h(toks, i, where, halves=True):
+    """a shape that may lay HALVES (SPEC.md 128.24.4): `[half <side>] <shape>` or `box a0 a1 s0 s1`.
+    halves=False: no `half` clause (surface).  -> (frozenset of cells, {cell: (diag, half)}, next index)"""
+    side = None
+    if halves and i < len(toks) and toks[i] == ('w', "half"):
+        if i + 1 >= len(toks) or toks[i + 1][1] not in SIDES:
+            raise CourseError("%s: half takes up, down, left or right" % where)
+        side = SIDES[toks[i + 1][1]]
+        i += 2
+    if i < len(toks) and toks[i] == ('w', "box"):
+        if side is not None:
+            raise CourseError("%s: `half` on a box: the box already decides its halves (SPEC.md 128.24.4)" % where)
+        if i + 5 > len(toks):
+            raise CourseError("%s: box needs <a0> <a1> <s0> <s1>" % where)
+        a0, a1, s0, s1 = (_int(toks[i + k], where, "box") for k in range(1, 5))
+        cells, half = box_cells(a0, a1, s0, s1, where)
+        return cells, half, i + 5
+    cells, i = _shape(toks, i, where)
+    return cells, ({c: side for c in cells} if side is not None else {}), i
 
 
 EXIT_MAX = 15                 # wave 8b (SPEC.md 128.19.4): a finish's exit, 4 bits
@@ -811,16 +879,22 @@ def parse(text, fname="<course>"):
             ex, hid = 0, False
             if st == "goal":                    # wave 8b (128.19.4): [exit E] [hidden], at the end
                 toks, ex, hid = _finish_clauses(toks, where)
-            tiles, i = _shape(toks, 1, where)
-            src.rooms.append(Room(st, tiles, _heightspec(toks, i, where), ln, ex, hid))
+            tiles, half, i = _shape_h(toks, 1, where)
+            room = Room(st, tiles, _heightspec(toks, i, where), ln, ex, hid)
+            room.half = half
+            src.rooms.append(room)
+            if half and src.halves is None:
+                src.halves = ln
         elif st == "surface":
             if len(toks) < 2 or toks[1][0] != 'w' or toks[1][1] not in SURFACES:
                 raise CourseError("%s: unknown surface %r (normal, ice, sand or bounce)"
                                   % (where, toks[1][1] if len(toks) > 1 else ""))
-            tiles, i = _shape(toks, 2, where)
+            tiles, half, i = _shape_h(toks, 2, where, halves=False)
             if i != len(toks):
                 raise CourseError("%s: surface takes a surface, a shape and nothing else" % where)
-            src.surfaces.append((SURFACES.index(toks[1][1]), tiles, ln))
+            src.surfaces.append((SURFACES.index(toks[1][1]), tiles, ln, half))
+            if half and src.halves is None:
+                src.halves = ln
         elif st == "ball":
             if len(toks) != 2 or toks[1][0] != 'w' or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: unknown ball %r (rubber, steel or glass)"
@@ -829,10 +903,12 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
         elif st == "hole":
-            tiles, i = _shape(toks, 1, where)
+            tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
                 raise CourseError("%s: hole takes a shape and nothing else" % where)
-            src.holes.append((tiles, ln))
+            src.holes.append((tiles, ln, half))
+            if half and src.halves is None:
+                src.halves = ln
         elif st == "way" and len(toks) == 5:
             if toks[3][1] != "branch" or toks[4][0] != 'w' or not _NAME.match(toks[4][1]):
                 raise CourseError("%s: way takes <wx> <wy> [branch <name>] (a name of 1-5 of A-Z 0-9)" % where)
@@ -1024,6 +1100,91 @@ class Tile:
 
 _KIND = {"floor": KIND_FLOOR, "wall": KIND_WALL, "goal": KIND_GOAL}
 
+# --- SPEC.md 128.24: a SPLIT cell, cut along one diagonal into two HALVES ------------------------------
+# TB (kind 4): the diagonal T to B, u = v, screen-VERTICAL: half A the LEFT (T, B, L: u < v), owning the
+# west and south edges; half B the RIGHT (T, R, B: u >= v), north and east.  LR (kind 5): L to R,
+# u + v = 16, screen-HORIZONTAL: half A the UP (T, R, L: u + v < 16), west and north; half B the DOWN
+# (R, B, L: u + v >= 16), east and south.  A point ON the diagonal is B's (128.24.7.1).
+KIND_TB, KIND_LR = 4, 5
+SIDES = {"left": (KIND_TB, 0), "right": (KIND_TB, 1), "up": (KIND_LR, 0), "down": (KIND_LR, 1)}
+SIDE_NAME = {v: k for k, v in SIDES.items()}
+EDGE_D = {"W": (-1, 0), "N": (0, -1), "E": (1, 0), "S": (0, 1)}   # a cell's edges: W u = 0 (T-L), N v = 0
+OPP = {"W": "E", "E": "W", "N": "S", "S": "N"}                     # (T-R), E u = 16 (R-B), S v = 16 (L-B)
+# 128.24.7.3's table: the half (0 A, 1 B) of a split cell that OWNS each of its edges
+OWNER = {KIND_TB: {"W": 0, "S": 0, "N": 1, "E": 1}, KIND_LR: {"W": 0, "N": 0, "E": 1, "S": 1}}
+# a cell's corners as (dx, dy): T (0, 0), R (1, 0), B (1, 1), L (0, 1); each edge's two, each half's three
+_T, _R, _B, _L = (0, 0), (1, 0), (1, 1), (0, 1)
+EDGE_CORNERS = {"W": (_T, _L), "N": (_T, _R), "E": (_R, _B), "S": (_L, _B)}
+HALF_CORNERS = {(KIND_TB, 0): (_T, _B, _L), (KIND_TB, 1): (_T, _R, _B),
+                (KIND_LR, 0): (_T, _R, _L), (KIND_LR, 1): (_R, _B, _L)}
+DIAG_ENDS = {KIND_TB: (_T, _B), KIND_LR: (_L, _R)}
+
+
+class Split:
+    """a SPLIT cell (SPEC.md 128.24.3): its diagonal (KIND_TB or KIND_LR) and
+    its two halves, A then B, each a Tile or None (VOID).  A whole cell is a
+    Tile; nothing else in `tiles` is a Split.  .surf the cell's surface (its
+    floor halves', 128.24.4), set by build_tiles.  It has no plane of its own:
+    every consumer of a `tiles` entry reads its RECORDS (tile_recs(), edge_rec())"""
+    __slots__ = ("diag", "halves", "line", "surf")
+
+    def __init__(self, diag, halves, line):
+        self.diag, self.halves, self.line = diag, list(halves), line
+        self.surf = SURF_NORMAL
+
+    @property
+    def kind(self):
+        return self.diag
+
+    @property
+    def rail(self):
+        return False
+
+    def owner(self, edge):
+        """the half (a Tile or None) that owns the cell's edge W, N, E or S"""
+        return self.halves[OWNER[self.diag][edge]]
+
+
+def tile_recs(t):
+    """a `tiles` entry's RECORDS: [t] for a whole Tile, a split's non-VOID halves"""
+    if t is None:
+        return []
+    if isinstance(t, Split):
+        return [h for h in t.halves if h is not None]
+    return [t]
+
+
+def edge_rec(t, edge):
+    """the record of a `tiles` entry at its edge W/N/E/S: a whole tile, the owning half (None: VOID)"""
+    return t.owner(edge) if isinstance(t, Split) else t
+
+
+def pick(diag, pu, pv):
+    """SPEC.md 128.24.7.1's half pick at the in-cell point (pu, pv) - in any unit, 16 gu = 4096 when 24.8:
+    0 (half A) strictly inside A, else 1 (a point on the diagonal is B's)"""
+    if diag == KIND_TB:
+        return 0 if pu < pv else 1
+    return 0 if pu + pv < 4096 else 1
+
+
+def has_split(tiles):
+    return any(isinstance(t, Split) for t in tiles.values())
+
+
+def _tile_same(a, b):
+    """two halves the same (style, plane, surface, exit, rail): the cell is stored WHOLE (128.24.4)"""
+    if a is None or b is None:
+        return a is b
+    return (a.kind, a.z0, a.sx, a.sy, a.surf, a.exit, a.rail) == (b.kind, b.z0, b.sx, b.sy, b.surf, b.exit, b.rail)
+
+
+def _tile_copy(t):
+    if t is None:
+        return None
+    n = Tile(t.kind, t.z0, t.sx, t.sy, t.line, t.exit)
+    n.surf, n.rail = t.surf, t.rail
+    return n
+
 
 def _room_tile(room, wx, wy):
     h = room.height
@@ -1038,49 +1199,128 @@ def _room_tile(room, wx, wy):
     return Tile(_KIND[room.style], z0, sx, sy, room.line, room.exit if room.style == "goal" else 0)
 
 
+def _put(tiles, cell, piece, tile, f, ln):
+    """lay `tile` (None: a hole) on a cell, or on one HALF of it (piece (diag, h)); later statements override
+    per half (SPEC.md 128.24.4).  A cell split one way and then the other is a QUARTER: refused"""
+    if piece is None:
+        if tile is None:
+            tiles.pop(cell, None)
+        else:
+            tiles[cell] = tile
+        return
+    diag, h = piece
+    cur = tiles.get(cell)
+    if isinstance(cur, Split):
+        if cur.diag != diag:
+            raise CourseError("%s:%d: cell (%d, %d) is split %s by line %d and %s here: two diagonals would cut it "
+                              "in QUARTERS, which no split holds (SPEC.md 128.24.4)"
+                              % (f, ln, cell[0], cell[1], "TB" if cur.diag == KIND_TB else "LR", cur.line,
+                                 "TB" if diag == KIND_TB else "LR"))
+        cur.halves[h] = tile
+        cur.line = ln
+        return
+    halves = [cur, _tile_copy(cur)]
+    halves[h] = tile
+    tiles[cell] = Split(diag, halves, ln)
+
+
+def _wall_above(f, t, n, wx, wy, nx, ny, mine, theirs, what):
+    """a WALL record t above a FLOOR or GOAL record n along their shared line (corner pairs)"""
+    if t is None or n is None or t.kind != KIND_WALL or n.kind == KIND_WALL:
+        return
+    if not all(t.corner(*m) > n.corner(*o) for m, o in zip(mine, theirs)):
+        raise CourseError("%s:%d: wall (%d, %d)%s is not above the floor (%d, %d) beside it"
+                          % (f, t.line, wx, wy, what, nx, ny))
+
+
 def build_tiles(src):
+    """-> {(wx, wy): Tile, or a Split (SPEC.md 128.24.3) whose halves are Tiles or None}, every cell that
+    holds a solid record.  The rooms in order (a room's `half` or a `box` laying halves), the surfaces after
+    every room, the holes after; then two equal halves normalised to a WHOLE tile and every refusal of
+    128.10.3 and 128.24.4 checked per record"""
     tiles = {}
-    for room in src.rooms:
-        for (wx, wy) in room.tiles:
-            tiles[(wx, wy)] = _room_tile(room, wx, wy)
     f = src.fname
+    for room in src.rooms:
+        hm = getattr(room, "half", None) or {}
+        for (wx, wy) in sorted(room.tiles):
+            _put(tiles, (wx, wy), hm.get((wx, wy)), _room_tile(room, wx, wy), f, room.line)
     # surfaces after every room, before every hole (SPEC.md 128.11.6.1): a
-    # WALL takes only normal or bounce (a bumper rail)
-    for surf, shape, ln in src.surfaces:
+    # WALL takes only normal or bounce (a bumper rail); on a split cell, the half the shape covers
+    for sent in src.surfaces:
+        surf, shape, ln = sent[:3]
+        hm = sent[3] if len(sent) > 3 else {}
         for t in sorted(shape):
-            tl = tiles.get(t)
-            if tl is None:
+            ent = tiles.get(t)
+            if ent is None:
                 continue
-            if tl.kind == KIND_WALL and surf not in (SURF_NORMAL, SURF_BOUNCE):
-                raise CourseError("%s:%d: %s on the wall (%d, %d): a wall takes normal or bounce"
-                                  % (f, ln, SURFACES[surf], t[0], t[1]))
-            tl.surf = surf
-    for hole, _ in src.holes:
-        for t in hole:
-            tiles.pop(t, None)
+            piece = hm.get(t)
+            if isinstance(ent, Split):
+                if piece is not None and piece[0] != ent.diag:
+                    raise CourseError("%s:%d: surface on the %s half of cell (%d, %d), which is split the other way"
+                                      % (f, ln, SIDE_NAME[piece], t[0], t[1]))
+                tl_ = [ent.halves[piece[1]]] if piece is not None else ent.halves
+            elif piece is not None:
+                ent = Split(piece[0], [ent, _tile_copy(ent)], ln)
+                tiles[t] = ent
+                tl_ = [ent.halves[piece[1]]]
+            else:
+                tl_ = [ent]
+            for tl in tl_:
+                if tl is None:
+                    continue
+                if tl.kind == KIND_WALL and surf not in (SURF_NORMAL, SURF_BOUNCE):
+                    raise CourseError("%s:%d: %s on the wall (%d, %d): a wall takes normal or bounce"
+                                      % (f, ln, SURFACES[surf], t[0], t[1]))
+                tl.surf = surf
+    for hent in src.holes:
+        hole, ln = hent[:2]
+        hm = hent[2] if len(hent) > 2 else {}
+        for t in sorted(hole):
+            _put(tiles, t, hm.get(t), None, f, ln)
+    # 128.24.4: a split whose halves are the same is WHOLE (a split that changes nothing costs nothing);
+    # both VOID is no cell
+    for cell in sorted(tiles):
+        t = tiles[cell]
+        if isinstance(t, Split):
+            a, b = t.halves
+            if _tile_same(a, b):
+                if a is None:
+                    del tiles[cell]
+                else:
+                    tiles[cell] = a
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
             raise CourseError("%s:%d: tile (%d, %d) is solid outside 3 .. 252" % (f, t.line, wx, wy))
-        for c in t.corners():
-            if not -120 <= c <= 127:
-                raise CourseError("%s:%d: tile (%d, %d) has a corner at %s units, out of range"
-                                  % (f, t.line, wx, wy, c / 2))
-    # a wall must look like one: above every floor that shares an edge with it
+        for r in tile_recs(t):
+            for c in r.corners():
+                if not -120 <= c <= 127:
+                    raise CourseError("%s:%d: tile (%d, %d) has a corner at %s units, out of range"
+                                      % (f, r.line, wx, wy, c / 2))
+        if isinstance(t, Split):
+            fl = {h.surf for h in t.halves if h is not None and h.kind != KIND_WALL}
+            if len(fl) > 1:
+                raise CourseError("%s:%d: cell (%d, %d) is split into floor halves of two surfaces (%s): a split "
+                                  "cell has ONE surface for its floors (SPEC.md 128.24.4)"
+                                  % (f, t.line, wx, wy, " and ".join(SURFACES[s] for s in sorted(fl))))
+            t.surf = fl.pop() if fl else SURF_NORMAL
+    # a wall must look like one: above every floor that shares an edge with it - and, a split's, the
+    # floor across its own diagonal (SPEC.md 128.24.4)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
-        if t.kind != KIND_WALL:
-            continue
-        for dx, dy, mine, theirs in ((1, 0, ((1, 0), (1, 1)), ((0, 0), (0, 1))),
-                                     (-1, 0, ((0, 0), (0, 1)), ((1, 0), (1, 1))),
-                                     (0, 1, ((0, 1), (1, 1)), ((0, 0), (1, 0))),
-                                     (0, -1, ((0, 0), (1, 0)), ((0, 1), (1, 1)))):
+        for e in ("E", "W", "S", "N"):
+            dx, dy = EDGE_D[e]
             n = tiles.get((wx + dx, wy + dy))
-            if n is None or n.kind == KIND_WALL:
+            if n is None:
                 continue
-            if not all(t.corner(*m) > n.corner(*o) for m, o in zip(mine, theirs)):
-                raise CourseError("%s:%d: wall (%d, %d) is not above the floor (%d, %d) beside it"
-                                  % (f, t.line, wx, wy, wx + dx, wy + dy))
+            mine = EDGE_CORNERS[e]
+            theirs = tuple((m[0] - dx, m[1] - dy) for m in mine)
+            _wall_above(f, edge_rec(t, e), edge_rec(n, OPP[e]), wx, wy, wx + dx, wy + dy, mine, theirs, "")
+        if isinstance(t, Split):
+            a, b = t.halves
+            ends = DIAG_ENDS[t.diag]
+            for w_, o_ in ((a, b), (b, a)):
+                _wall_above(f, w_, o_, wx, wy, wx, wy, ends, ends, " (a half, across its diagonal)")
     return tiles
 
 
@@ -1096,9 +1336,25 @@ def _cheb(tiles, wx, wy, r):
                 yield t
 
 
+def _near_low(tiles, wx, wy):
+    """the NEAR rule's lowest corner (SPEC.md 128.10.4.3, 128.24.5.3): over every non-VOID RECORD within two
+    tiles - a whole cell, or a half, each by its own plane's four corners"""
+    return min(min(r.corners()) for t in _cheb(tiles, wx, wy, 2) for r in tile_recs(t))
+
+
+def _rec4(t, kill):
+    """a record's four grid bytes (128.10.4.3): a Tile, or a VOID half (None) at its kill height"""
+    if t is None:
+        return [kill, 0, KIND_VOID, 0]
+    return [t.z0, (t.sx & 15) | ((t.sy & 15) << 4), t.kind | (t.surf << 4),
+            (t.exit << FL_EXITSH) if t.kind == KIND_GOAL else 0]
+
+
 def build_cells(tiles):
     """-> {(wx, wy): [z0, slopes byte, kind byte, flags]} for every cell that is
-    not OPEN: the solid ones and the NEAR void"""
+    not OPEN: the solid ones and the NEAR void.  A SPLIT cell (SPEC.md 128.24.5.1)
+    is [0, 0, kind 4 or 5 | its surface << 4, 0] - its +0 - +1 the pair's offset,
+    written by the encoder; build_pairs() its pair"""
     cells = {}
     near = set()
     for (wx, wy) in tiles:
@@ -1107,17 +1363,31 @@ def build_cells(tiles):
                 if (wx + dx, wy + dy) not in tiles:
                     near.add((wx + dx, wy + dy))
     for (wx, wy), t in tiles.items():
+        if isinstance(t, Split):
+            cells[(wx, wy)] = [0, 0, t.diag | (t.surf << 4), 0]
+            continue
         flags = 0
         if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
-                (wx + dx, wy + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                edge_rec(tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()):
             flags |= FL_SAFE
         if t.kind == KIND_GOAL:
             flags |= t.exit << FL_EXITSH        # wave 8b (128.19.4): the finish's exit
         cells[(wx, wy)] = [t.z0, (t.sx & 15) | ((t.sy & 15) << 4), t.kind | (t.surf << 4), flags]
     for (wx, wy) in near:
-        low = min(min(t.corners()) for t in _cheb(tiles, wx, wy, 2))
-        cells[(wx, wy)] = [low - 6, 0, KIND_VOID, 0]
+        cells[(wx, wy)] = [_near_low(tiles, wx, wy) - 6, 0, KIND_VOID, 0]
     return cells
+
+
+def build_pairs(tiles):
+    """-> {(wx, wy): (half A's four grid bytes, half B's)} for every SPLIT cell (SPEC.md 128.24.5.2): a VOID
+    half's z0 its KILL height by the NEAR rule at its cell, SAFE, OCC, OCCG and OBS clear, a goal half's exit
+    in bits 4 - 7, the surface its own"""
+    pairs = {}
+    for (wx, wy), t in tiles.items():
+        if isinstance(t, Split):
+            kill = _near_low(tiles, wx, wy) - 6
+            pairs[(wx, wy)] = tuple(_rec4(h, kill) for h in t.halves)
+    return pairs
 
 
 def _nib(v):
@@ -2421,12 +2691,34 @@ def path_costs(c):
     return pic, kinds
 
 
+def split_anchors(src, tiles, f):
+    """SPEC.md 128.24.4: every statement that stands on a cell's CENTRE - start, way, a material pad, a
+    pathway pad, checkpoint, clock, cup, spring, a route's gate, a tube's cells, a windmill, a bumper, a
+    lift - is refused on a SPLIT cell (its centre is on the diagonal), naming the cell"""
+    at = [(src.start[0], src.start[1], "the start")] if src.start else []
+    at += [(c, ln, "a way") for c, ln in src.ways]
+    at += [(c, ln, "a branch's way") for b in sorted(src.branches) for c, ln in src.branches[b]]
+    at += [(q["at"], q["line"], what) for what, lst in (("a pad", src.pads), ("a checkpoint", src.ckpts),
+                                                         ("a clock", src.clocks), ("a cup", src.cups),
+                                                         ("a spring", src.springs), ("a pathway pad", src.ppads))
+           for q in lst]
+    at += [(r["gate"], r["line"], "a route's gate") for r in src.routes if r.get("gate") is not None]
+    for tb in src.tubes:
+        at += [(c, tb["line"], "a tube's cell") for c in [tb["inn"]] + tb["via"] + [tb["out"]]]
+    at += [(q["at"], q["line"], "a %s" % PK_NAMES[q["kind"]]) for q in src.props]
+    for cell, ln, what in at:
+        if isinstance(tiles.get(tuple(cell)), Split):
+            raise CourseError("%s:%d: %s on cell (%d, %d), which is SPLIT: it stands on the cell's centre, which "
+                              "is on the diagonal (SPEC.md 128.24.4)" % (f, ln, what, cell[0], cell[1]))
+
+
 def build_props(src, tiles, fname):
     """-> [prop dict], in the course file's order: the tubes (a windmill's is
     its tube's record) and the props.  Every check of 128.12.3.3 that the
     tiles alone decide; the model's exits, the art's and the bounds' come
     later, once the part exists."""
     f = fname
+    split_anchors(src, tiles, f)
     props = []
     owner = {}
 
@@ -2582,7 +2874,7 @@ def build_props(src, tiles, fname):
         t = tiles.get(at)
         if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
-        if not all((at[0] + dx, at[1] + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))) \
+        if not all(edge_rec(tiles.get((at[0] + dx, at[1] + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()) \
                 and not (kind == PK_SPRING and src.title_ln is not None):   # (128.23.2: a title's spring
             # may stand at a pit's edge - the title is never played, and its demos choose their respawns)
             raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad, the cup and a spring "
@@ -2783,26 +3075,32 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     cross-commit check (128.16.13)."""
     hopmax = HOPMAX if _hopmax is None else _hopmax
     boost = BOOSTMAX if _boost is None else _boost
-    sol = {k: t for k, t in tiles.items() if t.kind != KIND_WALL}
-    hi = {k: 4 * max(t.corners()) for k, t in sol.items()}
-    lo = {k: 4 * min(t.corners()) for k, t in sol.items()}
+    # SPEC.md 128.24.2: a cell's floors are its RECORDS - a whole tile, or a split cell's FLOOR and GOAL halves,
+    # each launching from its own top (the apex per half); a cell's hi and lo span them all
+    sol = {}
+    for k, t in tiles.items():
+        rs = [r for r in tile_recs(t) if r.kind != KIND_WALL]
+        if rs:
+            sol[k] = rs
+    hi = {k: 4 * max(max(r.corners()) for r in rs) for k, rs in sol.items()}
+    lo = {k: 4 * min(min(r.corners()) for r in rs) for k, rs in sol.items()}
     emax = max(m["EF"] for m in MATERIALS)
-    if any(t.surf == SURF_BOUNCE for t in sol.values()):
+    if any(r.surf == SURF_BOUNCE for rs in sol.values() for r in rs):
         emax = max(emax, E_MAT)
     srcs = []
     for k in sorted(sol):
-        t = sol[k]
-        U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
-        srcs.append((k, hi[k] + UP(U), RADIUS(U), "launch"))
+        for t in sol[k]:
+            U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
+            srcs.append((k, 4 * max(t.corners()) + UP(U), RADIUS(U), "launch"))
     bcells = set()
     if boost:
         obs = prop_cells(props)
         for k in sorted(sol):
-            t = sol[k]
-            if t.kind in (KIND_FLOOR, KIND_GOAL) and t.sx == 0 and t.sy == 0 \
-                    and t.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
-                srcs.append((k, hi[k] + UP(boost - G), RADIUS(boost - G), "boost"))
-                bcells.add(k)
+            for t in sol[k]:
+                if t.kind in (KIND_FLOOR, KIND_GOAL) and t.sx == 0 and t.sy == 0 \
+                        and t.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                    srcs.append((k, 4 * max(t.corners()) + UP(boost - G), RADIUS(boost - G), "boost"))
+                    bcells.add(k)
     badd_ = BADDMAX if _boost is None else 0
     # wave 3 (SPEC.md 128.12.6.7): a LAUNCH exit, a DROP's fall, a post's top
     # and the platform's top over its track are launches too; the slab is a
@@ -2865,7 +3163,16 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
         kind &= 15
         if kind == KIND_WALL:
             continue
-        zlo = 4 * z0 if kind == KIND_VOID else 4 * min(tiles[(wx, wy)].corners())
+        if kind in (KIND_TB, KIND_LR):             # SPEC.md 128.24: the lowest of its floors and a VOID half's kill
+            t = tiles[(wx, wy)]
+            zs = [4 * min(r.corners()) for r in t.halves if r is not None and r.kind != KIND_WALL]
+            if None in t.halves:
+                zs.append(4 * (_near_low(tiles, wx, wy) - 6))
+            if not zs:                              # (two WALL halves: no ball is ever in it)
+                continue
+            zlo = min(zs)
+        else:
+            zlo = 4 * z0 if kind == KIND_VOID else 4 * min(tiles[(wx, wy)].corners())
         zhi, src = zlo, None
         if (wx, wy) in best and best[(wx, wy)][0] > zhi:
             zhi, src = best[(wx, wy)][0], best[(wx, wy)][1:]
@@ -3008,35 +3315,81 @@ def _face_fn(xp4, zp, xq4, zq):
     return top
 
 
+def _diag_line_half(t):
+    """SPEC.md 128.24.6.1: a TB split's diagonal is edge-on; where its two sides differ it is drawn as a 1 px
+    black line on the HIGHER (or solid) side.  -> the half (0 A, 1 B) that draws it, or None (no line).
+    PROVISIONAL (128.24.12 Q2): higher by the sum of the two diagonal-end heights (T and B), then a WALL
+    over a GOAL over a FLOOR; a full tie, or planes that cross, B's"""
+    a, b = t.halves
+    if a is None or b is None:
+        return 0 if b is None else 1
+    if _tile_same(a, b):
+        return None
+    rank = {KIND_FLOOR: 0, KIND_GOAL: 1, KIND_WALL: 2}
+    ka = (a.corner(*_T) + a.corner(*_B), rank[a.kind])
+    kb = (b.corner(*_T) + b.corner(*_B), rank[b.kind])
+    return 0 if ka > kb else 1
+
+
+def _cell_pieces(tiles):
+    """the drawing's pieces back to front (SPEC.md 128.24.6.2): (key, cell, the record, which half or None,
+    s the per-pixel key) - by (2 s + d, wx), d 1 for an LR split's DOWN half, keyed s + 1 (128.24.6.3); a
+    whole cell and a TB split's halves (A then B) keep the cell's place, keyed s"""
+    out = []
+    for (wx, wy), t in tiles.items():
+        s = wx + wy
+        if isinstance(t, Split):
+            for h, r in enumerate(t.halves):
+                if r is None:
+                    continue
+                d = 1 if (t.diag == KIND_LR and h == 1) else 0
+                out.append(((2 * s + d, wx, h), (wx, wy), r, h, s + (0 if _DOWN_S0 else d)))
+        else:
+            out.append(((2 * s, wx, 0), (wx, wy), t, None, s))
+    out.sort(key=lambda e: e[0])
+    return out
+
+
 def draw_ops(tiles, x0, deep=()):
     """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
     to front: each tile's two front faces, then its top (128.3's order).
     deep: cells (a tube's body, SPEC.md 128.12.6.1) whose face over the void
     hangs as deep as its other front face reaches at their shared corner, so
     a pipe's wall standing on a lower tier reads as one column, not a column
-    with a bite out of one side"""
+    with a bite out of one side.
+    SPEC.md 128.24.6, a SPLIT cell's HALF: its top is its TRIANGLE; it hangs
+    the sw face if it owns the south edge (L to B) and the se face if it owns
+    the east edge (B to R), each down to the record across that edge (the half
+    that owns it, or a whole cell) or 3 units; an LR split's UP half hangs a
+    FRONT face from the diagonal (L to R) down to the down half (or 3 units);
+    a TB split's diagonal, where its sides differ, a 1 px black line ("tline",
+    a paint op after the top).  The order and the keys: _cell_pieces"""
     ops = []
-    for (wx, wy) in sorted(tiles, key=lambda t: (t[0] + t[1], t[0])):
-        t = tiles[(wx, wy)]
+    for _key, (wx, wy), t, h, s in _cell_pieces(tiles):
+        ent = tiles[(wx, wy)]
         zt, zr, zb, zl = (4 * c for c in t.corners())
-        s = wx + wy
         T = (2 * wx, 2 * wy)
         R = (2 * wx + 2, 2 * wy)
         B = (2 * wx + 2, 2 * wy + 2)
         L = (2 * wx, 2 * wy + 2)
-        sw = tiles.get((wx, wy + 1))
-        se = tiles.get((wx + 1, wy))
-        faces = (
-            (L, zl, B, zb, (4 * sw.corner(0, 0), 4 * sw.corner(1, 0)) if sw else None, "sw"),
-            (B, zb, R, zr, (4 * se.corner(0, 1), 4 * se.corner(0, 0)) if se else None, "se"),
-        )
+        owns = EDGE_D if h is None else {e for e in EDGE_D if OWNER[ent.diag][e] == h}
+        sw = edge_rec(tiles.get((wx, wy + 1)), "N")
+        se = edge_rec(tiles.get((wx + 1, wy)), "W")
+        faces = []
+        if "S" in owns:
+            faces.append((L, zl, B, zb, (4 * sw.corner(0, 0), 4 * sw.corner(1, 0)) if sw else None, "sw"))
+        if "E" in owns:
+            faces.append((B, zb, R, zr, (4 * se.corner(0, 1), 4 * se.corner(0, 0)) if se else None, "se"))
+        if h == 0 and ent.diag == KIND_LR:          # the UP half's diagonal faces the viewer: the FRONT face
+            dn = ent.halves[1]
+            faces.append((L, zl, R, zr, (4 * dn.corner(*_L), 4 * dn.corner(*_R)) if dn else None, "front"))
         bots = []
         for p, zp, q, zq, nb, which in faces:
             if nb is None:
                 bots.append([zp - FACE8, zq - FACE8])
             else:
                 bots.append([min(zp, nb[0]), min(zq, nb[1])])
-        if (wx, wy) in deep:                        # B is the sw face's q and the se face's p
+        if (wx, wy) in deep and h is None:          # B is the sw face's q and the se face's p
             if faces[0][4] is None and faces[1][4] is not None and bots[1][0] < bots[0][1]:
                 d = bots[0][1] - bots[1][0]
                 bots[0] = [bots[0][0] - d, bots[0][1] - d]
@@ -3051,11 +3404,38 @@ def draw_ops(tiles, x0, deep=()):
             mk = (lambda xp4, zp_, xq4, zq_: lambda y0: _face_fn(xp4, zp_, xq4, zq_))(
                 poly[0][0], zp, poly[1][0], zq)
             ops.append((spans(poly), which, s, mk, True, t, (wx, wy)))
-        quad = [_scr(T[0], T[1], zt, x0), _scr(R[0], R[1], zr, x0),
-                _scr(B[0], B[1], zb, x0), _scr(L[0], L[1], zl, x0)]
+        corner = {_T: (T, zt), _R: (R, zr), _B: (B, zb), _L: (L, zl)}
+        shape = (_T, _R, _B, _L) if h is None else HALF_CORNERS[(ent.diag, h)]
+        quad = [_scr(corner[k][0][0], corner[k][0][1], corner[k][1], x0) for k in shape]
         mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(t, wx, wy)
-        ops.append((spans(quad), "top", s, mk, False, t, (wx, wy)))
+        sp = spans(quad)
+        ops.append((sp, "top", s, mk, False, t, (wx, wy)))
+        if h is not None and ent.diag == KIND_TB and _diag_line_half(ent) == h:
+            pix = {}
+            for y, runs in sp.items():
+                for ra, rb in runs:
+                    pix[(rb - 1 if h == 0 else ra, y)] = BLK
+            op = _paint_op(pix, s, t, (wx, wy))
+            ops.append((op[0], "tline") + op[2:])
     return ops
+
+
+def _span_and(a, b):
+    """the pixels in both of two span sets"""
+    out = {}
+    for y, ra in a.items():
+        rb = b.get(y)
+        if not rb:
+            continue
+        runs = []
+        for x0_, x1_ in ra:
+            for y0_, y1_ in rb:
+                lo, hi = max(x0_, y0_), min(x1_, y1_)
+                if lo < hi:
+                    runs.append((lo, hi))
+        if runs:
+            out[y] = sorted(runs)
+    return out
 
 
 def _top_subquads(t, wx, wy, x0):
@@ -3089,12 +3469,20 @@ def _surface_ink(surf, x0, y0):
     return lambda x, y: WHT if abs(((x - x0) & 15) - 8) + 2 * abs(((y - y0) & 7) - 4) == 8 else MAG
 
 
+def FRONT_INK(x, y):
+    """SPEC.md 128.24.6.1's FRONT face, PROVISIONAL (128.24.12 Q2): magenta, a black pixel on every other
+    column of every other line - between the sw face's solid and the se face's checker.  A rail half (the
+    pathway's crystal) takes the crystal's side ink instead, as its sw and se faces do (R3's Q2: the front
+    face follows the half's material, as the cell-edge faces follow their tile's)"""
+    return BLK if (x & 1) == 0 and (y & 1) == 0 else MAG
+
+
 def render(tiles, ops, x0, y0, w, h, owners=False):
     cv = Canvas(w, h, owners)
     for sp0, which, s, mk, left, t, (wx, wy) in ops:
         sp = _shift(sp0, y0)
         own = 256 * wx + wy
-        if which == "paint":                        # wave 3: a mark on what is drawn
+        if which in ("paint", "tline"):             # wave 3: a mark on what is drawn (128.24.6.1: a TB edge line)
             ink = mk(y0)
             for y, runs in sp.items():
                 row = cv.rows[y]
@@ -3109,15 +3497,15 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.fill(sp, ink, s, top, own)
             continue
         top = mk(y0)
-        if t.rail and which in ("sw", "se"):          # wave 8R: the crystal rail's dark side (128.22.8)
+        if t.rail and which in ("sw", "se", "front"):   # wave 8R: the crystal rail's dark side (128.22.8)
             tops = {}
             for y in sorted(sp):
                 for a, b in sp[y]:
                     for x in range(a, b):
                         tops.setdefault(x, y)
             xl = min(tops)
-            cv.fill(sp, lambda x, y, w=which, tops=tops, xl=xl: BA.crystal_side_ink(w, x - xl, y - tops[x]),
-                    s, top, own)
+            cv.fill(sp, lambda x, y, w=("se" if which == "front" else which), tops=tops, xl=xl:
+                    BA.crystal_side_ink(w, x - xl, y - tops[x]), s, top, own)
             cv.outline(sp, left=True)
         elif t.rail:                                  # ...and its faceted, lit top
             wf = _top_world(t, wx, wy, x0)
@@ -3136,6 +3524,9 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
         elif which == "se":
             cv.fill(sp, lambda x, y: MAG if (x + y) & 1 == 0 else BLK, s, top, own)
             cv.outline(sp, left=True)
+        elif which == "front":                      # SPEC.md 128.24.6.1: an LR up half's FRONT face, PROVISIONAL
+            cv.fill(sp, FRONT_INK, s, top, own)     # (128.24.12 Q2): between sw's solid and se's checker
+            cv.outline(sp, left=True)
         else:
             if t.kind == KIND_WALL:
                 cv.fill(sp, MAG if t.surf == SURF_BOUNCE else WHT, s, top, own)   # a bumper rail: magenta
@@ -3145,6 +3536,8 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                 cv.fill(sp, BLK, s, top, own)            # the ground and the keys...
                 for sub, ink in _top_subquads(t, wx, wy, x0):
                     sub = _shift(sub, y0)
+                    if isinstance(tiles.get((wx, wy)), Split):  # (128.24.6.1: a half's, clipped to its triangle)
+                        sub = _span_and(sub, sp)
                     for y, runs in sub.items():     # ...then the checker's inks
                         row = cv.rows[y]
                         for a, b in runs:
@@ -4091,19 +4484,23 @@ def _occg(reach, by_block, x0, y0, tiles, slab=None):
     hT)}, a lift's, where a ball grounded on the slab is anywhere from its low
     top to its high one (wave 3)"""
     slab = slab or {}
-    fl = [rc for rc in reach if rc.kind in (KIND_FLOOR, KIND_GOAL) or (rc.wx, rc.wy) in slab]
+
+    def flo(rc):                        # the cell's FLOOR and GOAL records (a split cell's halves, 128.24.2)
+        return [r for r in tile_recs(tiles.get((rc.wx, rc.wy))) if r.kind in (KIND_FLOOR, KIND_GOAL)]
+    fl = [rc for rc in reach if rc.kind in (KIND_FLOOR, KIND_GOAL) or (rc.wx, rc.wy) in slab
+          or (rc.kind in (KIND_TB, KIND_LR) and flo(rc))]
 
     def zr(rc):
         if (rc.wx, rc.wy) in slab:
             return slab[(rc.wx, rc.wy)]
-        t = tiles[(rc.wx, rc.wy)]
-        return 4 * min(t.corners()), 4 * max(t.corners())
+        rs = flo(rc)
+        return 4 * min(min(t.corners()) for t in rs), 4 * max(max(t.corners()) for t in rs)
 
     def frac(rc, z):                    # a plane's height carries a fraction
         if (rc.wx, rc.wy) in slab:
             return False
-        t = tiles[(rc.wx, rc.wy)]
-        return bool(t.sx or t.sy) and z < 4 * max(t.corners())
+        rs = flo(rc)
+        return any(t.sx or t.sy for t in rs) and z < max(4 * max(t.corners()) for t in rs)
     return _laid(reach, by_block, x0, y0, rc_list=fl, zr=zr, margin=CLIMB, frac=frac)[0]
 
 
@@ -4236,13 +4633,15 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
     crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
     courses; default the shipped list's, read off their `course` lines)"""
-    global _FAST_EXTRA
+    global _FAST_EXTRA, _DOWN_S0
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
+    _DOWN_S0 = bool(hack.get("down_s0"))
     try:
         return _compile_course(source, fname, occluders, hack, _rec, crsinfo)
     finally:
         _FAST_EXTRA = ()
+        _DOWN_S0 = False
 
 
 def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
@@ -4267,7 +4666,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                         ("medals", src.medals and src.medals[2]), ("cup", src.cups and src.cups[0]["line"])):
             if v:
                 raise CourseError("%s:%d: the title has no %s" % (fname, v, what))
-        if any(t.kind == KIND_GOAL for t in tiles.values()):
+        if any(r.kind == KIND_GOAL for t in tiles.values() for r in tile_recs(t)):
             raise CourseError("%s:%d: the title has no goal" % (fname, src.title_ln))
         if src.view is None:
             raise CourseError("%s:%d: the title needs a `view`" % (fname, src.title_ln))
@@ -4278,6 +4677,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
     cells = build_cells(tiles)
+    pairs = build_pairs(tiles)                      # SPEC.md 128.24.5.2: the split cells' halves
     pcell = prop_cells(props)
     for c_ in pcell:                                  # no prop's cell is SAFE (a respawn lands in no drain)
         if c_ in cells:
@@ -4303,7 +4703,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         if t is None or t.kind == KIND_WALL:
             raise CourseError("%s:%d: way (%d, %d) is on a %s tile" % (
                 fname, ln, wx, wy, "WALL" if t else "VOID"))
-    has_goal = any(t.kind == KIND_GOAL for t in tiles.values())
+    has_goal = any(r.kind == KIND_GOAL for t in tiles.values() for r in tile_recs(t))
     cups = [p for p in props if p["kind"] == PK_CUP]
     # every footprint inside the width (before any pixel: footprints are wider)
     for rc in reach:
@@ -4545,7 +4945,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     kw = ((max(aa) - amin) >> 1) + 1
     nrows = smax - smin + 1
     least = (HDR + 2 * cols * brows + 16 * len(blocks) + 2 * (brows + 1) + GHDR
-             + 4 * nrows * kw + 2 * nrows + 4 * len(src.ways))
+             + 4 * nrows * kw + PAIR * len(pairs) + 2 * nrows + 4 * len(src.ways))
     if least > PARTMAX:
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
@@ -4656,12 +5056,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     segoff = pmoff + sum(2 * len(L["poses"]) * L["rect"][2] * L["rect"][3] for L in lanes)
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
-        | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0)
+        | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0) \
+        | (GF_SPLIT if pairs else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
             padmask |= 1 << p["mat"]
-    cellb = bytearray()
+    cellb, pairb = bytearray(), bytearray()
     for r in range(nrows):
         s = smin + r
         for k in range(kw):
@@ -4670,6 +5071,10 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             c = cells.get((wx, wy))
             if c is None:
                 cellb += struct.pack("<bBBB", Z_OPEN, 0, KIND_VOID, 0)
+            elif (wx, wy) in pairs:                 # SPEC.md 128.24.5: the pair's offset, RELATIVE to D in the
+                cellb += struct.pack("<HBB", len(pairb), c[2], c[3])     # model (the encoder makes it absolute)
+                for h in pairs[(wx, wy)]:
+                    pairb += struct.pack("<bBBB", *h)
             else:
                 cellb += struct.pack("<bBBB", c[0], c[1], c[2], c[3])
     recp, pmb, segb, sprb = bytearray(), bytearray(), bytearray(), bytearray()
@@ -4748,7 +5153,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
                       "swy": swy, "gflags": gflags, "padmask": padmask,
                       "view": (view[0] // 4 | view[1] << 8) if view else 0},
-             "cells": bytes(cellb), "route": list(route), "ways": [t for t, ln in src.ways],
+             "cells": bytes(cellb), "pairs": bytes(pairb), "route": list(route), "ways": [t for t, ln in src.ways],
              "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ptab), "self": selfp, "blk": blkp}
              if props else None,
              "pth": len(ptab), "npages": pth["npages"] if pth is not None else 0}
@@ -4794,6 +5199,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c = Course()
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
+    c.pairs = pairs                                 # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
     c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
@@ -5307,7 +5713,8 @@ def part_layout(m, recb, bzc2=True):
             ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if bzc2 and recb == 4:
         lens.append(("O", 2 * len(m["masks"])))
-    lens += [("G", GHDR), ("C", len(m["cells"])), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
+    lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")), ("T", 2 * g["nrows"]),
+             ("W", 4 * len(m["route"]))]
     if m["props"]:
         lens.append(("P", len(m["props"]["blob"])))
     off = HDR if bzc2 else HDR1
@@ -5378,6 +5785,12 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     if bzc2 and m.get("pth"):                       # wave 8R (SPEC.md 128.22.3): +42 PTHOFF, +44 NPAGES
         struct.pack_into("<HB", b, 42, propoff + len(m["props"]["blob"]) - m["pth"], m.get("npages", 0))
     b[celloff:celloff + len(m["cells"])] = m["cells"]
+    if m.get("pairs"):                              # SPEC.md 128.24.5: D after C; a split cell's +0 the pair's
+        doff = sec["D"][0]                          # WORD offset in the part (the model's: relative to D)
+        b[doff:doff + len(m["pairs"])] = m["pairs"]
+        for i in range(0, len(m["cells"]), 4):
+            if m["cells"][i + 2] & 15 in (KIND_TB, KIND_LR):
+                struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
     for i, (x, y) in enumerate(m["route"]):
@@ -5460,11 +5873,20 @@ def decode_part(p):
     gflags, padmask, gview = struct.unpack_from("<BBH", p, gridoff + 28)
     pthoff, npages = struct.unpack_from("<HB", p, 42) if bzc2 else (0, 0)
     celloff = gridoff + GHDR
+    cells = bytearray(p[celloff:celloff + 4 * kw * nrows])
+    pairs = b""
+    for j in range(nsec):                           # SPEC.md 128.24.5.2: section D, if there is one
+        tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
+        if tag == ord("D"):
+            pairs = bytes(p[off:off + ln])
+            for i in range(0, len(cells), 4):
+                if cells[i + 2] & 15 in (KIND_TB, KIND_LR):
+                    struct.pack_into("<H", cells, i, (struct.unpack_from("<H", cells, i)[0] - off) & 0xFFFF)
     m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(p[blkoff:blkoff + 16 * nblk]),
          "recs": recs, "masks": masks,
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
                   "gflags": gflags, "padmask": padmask, "view": gview},
-         "cells": bytes(p[celloff:celloff + 4 * kw * nrows]),
+         "cells": bytes(cells), "pairs": pairs,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (diroff - pthoff) if pthoff else 0,
          "npages": npages}
@@ -5525,10 +5947,16 @@ def _s8(v):
 # the eight cells within one tile of a cell's four EDGE neighbours, and the 25
 # within two tiles: (dx, dy) in wx and wy
 _EDGE4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+_EDGE4_OPP = ("W", "E", "N", "S")                # the edge of each of those neighbours that C shares
 _CHEB2 = tuple((dx, dy) for dy in range(-2, 3) for dx in range(-2, 3))
 
 
-def cells_rule(cells, nrows, kw, smin, _no_obs=False):
+def _pair_reader(buf):
+    """a split cell's pair from a part's bytes at its absolute word offset: (half A's 4 bytes, half B's)"""
+    return lambda off: (bytes(buf[off:off + 4]), bytes(buf[off + 4:off + PAIR]))
+
+
+def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
     """the follow-up's RULE (SPEC.md 128.15.6) over a grid's cells (4 KW NROWS
     bytes, row r's s = SMIN + r, cell k's a = AMIN + 2 k + (s AND 1)), exactly
     as bz_cxcel computes it -> (rz, rs), a list each: rz the rule's z0 for a
@@ -5545,8 +5973,14 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False):
           ones a NEAR cell can be built from, that is 128.10.4.3's rule
       rs = 1 on a FLOOR cell with sx = sy = 0, OBS clear and none of its four
           edge neighbours VOID or outside the grid
+    SPEC.md 128.24.5.3, a SPLIT cell (kind 4 or 5): its V is the least of its
+    non-VOID HALVES' (each its own plane's lowest corner), its own rz and rs
+    none and 0 (its +0 - +1 are an offset, not a z0); a split EDGE neighbour
+    is VOID for SAFE when the half that owns the shared edge is.  pair(offset)
+    -> its two halves' bytes (the part's, through the cell's absolute word).
     _no_obs: --selfcheck item 10's negative control, the red arm cellsafe's
-    rule (SAFE's OBS clause taken out)"""
+    rule (SAFE's OBS clause taken out); _no_halves: 128.24.11's, a rule that
+    reads a split cell as a whole one (its offset taken for a z0)"""
     n = nrows * kw
 
     def at(r, k, dx, dy):
@@ -5555,14 +5989,20 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False):
         p, p2 = (smin + r) & 1, (smin + r2) & 1
         k2 = k + (p + da - p2) // 2
         return kw * r2 + k2 if 0 <= r2 < nrows and 0 <= k2 < kw else None
-    V = []
+    def vrec(z0, sl):
+        sx, sy = _nib(sl & 15), _nib(sl >> 4)
+        return (z0 + min(0, sx) + min(0, sy) + 0x79) & 0xFF
+    V, H = [], {}
     for i in range(n):
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
         if kd & 15 == KIND_VOID:
             V.append(0xFF)
+        elif kd & 15 in (KIND_TB, KIND_LR) and not _no_halves:
+            hs = pair(cells[4 * i] | cells[4 * i + 1] << 8)
+            H[i] = hs
+            V.append(min([vrec(_s8(h[0]), h[1]) for h in hs if h[2] & 15 != KIND_VOID] + [0xFF]))
         else:
-            sx, sy = _nib(sl & 15), _nib(sl >> 4)
-            V.append((z0 + min(0, sx) + min(0, sy) + 0x79) & 0xFF)
+            V.append(vrec(_s8(z0), sl))
     rz, rs = [None] * n, [0] * n
     for r in range(nrows):
         for k in range(kw):
@@ -5573,16 +6013,18 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False):
                 rz[i] = _s8(b + 0x81)
             elif kd & 15 == KIND_FLOOR and not sl and (_no_obs or not fl & FL_OBS):
                 nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
-                rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID for j in nb))
+                rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID
+                                and (j not in H or H[j][OWNER[cells[4 * j + 2] & 15][e]][2] & 15 != KIND_VOID)
+                                for j, e in zip(nb, _EDGE4_OPP)))
     return rz, rs
 
 
-def _cells(ram_cells, nrows, kw, smin, _no_obs=False):
+def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
     """7 CELLS: each cell as in RAM but two fields, each stored as its
     DIFFERENCE from the rule: a VOID cell's z0 as (z0 - rule_z0) mod 256, and
     every cell's flags bit 0 (SAFE) XOR rule_safe.  -> (stored bytes, the
     exceptions: [(r, k, what)] where the stored field is not 0)"""
-    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs)
+    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs, pair, _no_halves)
     out = bytearray(ram_cells)
     exc = []
     for i in range(nrows * kw):
@@ -5602,7 +6044,7 @@ def cells_exceptions(ram, _no_obs=False):
     g = struct.unpack_from("<H", ram, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", ram, g + 4)
     co = g + GHDR
-    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs)
+    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs, _pair_reader(ram))
     out = []
     for r, k, what in exc:
         s = smin + r
@@ -5642,7 +6084,8 @@ def stored_form(m, recb, ram=None, fname="<course>", _hack=None):
         elif form == F_CELLS:
             g = struct.unpack_from("<H", ram, 26)[0]
             nrows, smin, _, kw = struct.unpack_from("<HhhH", ram, g + 4)
-            data = _cells(ram[off:off + ln], nrows, kw, smin, hack.get("no_obs", False))[0]
+            data = _cells(ram[off:off + ln], nrows, kw, smin, hack.get("no_obs", False), _pair_reader(ram),
+                          hack.get("no_halves", False))[0]
         elif form == F_WAYS:
             if m["ways"] is None:
                 raise CourseError("%s: the route's way tiles are not in a RAM form: only a compile writes the "
@@ -5737,7 +6180,8 @@ def expand(st, fname="<part>", sim=False, _hack=None):
             nrows, smin, _, kw = struct.unpack_from("<HhhH", b, gridoff + 4)
             if ln != 4 * kw * nrows:
                 raise CourseError("%s: section C is %d bytes, not 4 KW NROWS" % (fname, ln))
-            rz, rs = cells_rule(bytes(b[S:S + ln]), nrows, kw, smin, hack.get("no_obs", False))
+            rz, rs = cells_rule(bytes(b[S:S + ln]), nrows, kw, smin, hack.get("no_obs", False), _pair_reader(b),
+                                hack.get("no_halves", False))
             for i in range(nrows * kw):
                 o = S + 4 * i
                 z0, sl, kd, fl = rd(o), rd(o + 1), rd(o + 2), rd(o + 3)
@@ -5850,12 +6294,16 @@ def read_part(p, fname="<part>"):
     nway, routeoff = struct.unpack_from("<HH", p, gridoff + 24)
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
+    dlen = 0                                        # SPEC.md 128.24.5.2: section D's length, its entry's alone
+    for j in range(nsec):
+        if p[diroff + DIRENT * j] == ord("D"):
+            dlen = struct.unpack_from("<H", p, diroff + DIRENT * j + 4)[0]
     want = [("M", HDR, 2 * cols * brows), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, 2 * nmask))
-    want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows), ("T", rowtab, 2 * nrows),
-             ("W", routeoff, 4 * nway)]
+    want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
+             ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
     if nprop:
         want.append(("P", propoff, diroff - propoff))
     wantd = {t: (o, ln) for t, o, ln in want}
@@ -5940,7 +6388,7 @@ def read_part(p, fname="<part>"):
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
     gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
-    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED) or padmask & ~7
+    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT) or padmask & ~7
             or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
             or (gflags & GF_CUP and not gflags & GF_CKPT)):
         bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
@@ -5954,11 +6402,12 @@ def read_part(p, fname="<part>"):
     if amin & 1:
         bad("AMIN", "odd")
     celloff = g + GHDR
-    if rowtab != celloff + 4 * nrows * kw:
+    cellend = doff = celloff + 4 * nrows * kw
+    if rowtab != cellend + dlen:
         bad("ROWTAB", "offset %d" % rowtab)
     rt = struct.unpack_from("<%dH" % nrows, p, rowtab)
     for r, o in enumerate(rt):
-        if o < celloff or o + 4 * kw > rowtab:
+        if o < celloff or o + 4 * kw > cellend:
             bad("ROWTAB[%d]" % r, "row outside the cells")
     if routeoff != rowtab + 2 * nrows or routeoff + 4 * nway != (propoff if nprop else diroff):
         bad("route", "offset %d, %d ways" % (routeoff, nway))
@@ -5966,9 +6415,33 @@ def read_part(p, fname="<part>"):
     for (bx, by) in route:
         if bx + FOOT_W > 8 * cols or by + FOOT_H > 8 * brows:
             bad("route", "point (%d, %d) outside the picture" % (bx, by))
+    named = {}
     for i in range(nrows * kw):
         z0, sl, kd, fl = struct.unpack_from("<bBBB", p, celloff + 4 * i)
-        if kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
+        if kd & 15 in (KIND_TB, KIND_LR):           # SPEC.md 128.24.5: a SPLIT cell and its pair in D
+            po = struct.unpack_from("<H", p, celloff + 4 * i)[0]
+            if fl & ~(FL_OCC | FL_OCCG) or (fl & FL_OCCG and not fl & FL_OCC):
+                bad("cell %d" % i, "a split cell's flags %02Xh (SAFE, OBS and bits 4 - 7 never)" % fl)
+            if not (doff <= po and po + PAIR <= doff + dlen and (po - doff) % PAIR == 0):
+                bad("cell %d" % i, "a split cell's pair offset %d is not a pair inside D (%d, %d bytes)"
+                    % (po, doff, dlen))
+            if po in named:
+                bad("cell %d" % i, "its pair at %d is cell %d's too (each pair is named by one cell)"
+                    % (po, named[po]))
+            named[po] = i
+            hs = [struct.unpack_from("<bBBB", p, po + 4 * h) for h in (0, 1)]
+            for h, (hz, hsl, hk, hf) in enumerate(hs):
+                if hk & 15 > KIND_GOAL or hk >> 4 > SURF_BOUNCE or hf & (FL_SAFE | FL_OCC | FL_OCCG | FL_OBS) \
+                        or (hf & 0xF0 and hk & 15 != KIND_GOAL) or (hk & 15 == KIND_VOID and (hsl or hk >> 4)):
+                    bad("cell %d" % i, "half %s of its pair: kind %02Xh flags %02Xh (a half is a cell record, "
+                        "kind 0 - 3, SAFE, OCC, OCCG and OBS clear)" % ("AB"[h], hk, hf))
+            if hs[0] == hs[1] or all(h[2] & 15 == KIND_VOID for h in hs):
+                bad("cell %d" % i, "its pair's halves are %s (a split cell's halves differ and one is solid)"
+                    % ("the same" if hs[0] == hs[1] else "both VOID"))
+            floors = {h[2] >> 4 for h in hs if h[2] & 15 in (KIND_FLOOR, KIND_GOAL)}
+            if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
+                bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
+        elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
                 or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
@@ -5982,6 +6455,9 @@ def read_part(p, fname="<part>"):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
+    if len(named) * PAIR != dlen or bool(gflags & GF_SPLIT) != bool(dlen):
+        bad("D", "%d bytes for %d split cells, GF_SPLIT %s" % (dlen, len(named), "set" if gflags & GF_SPLIT
+                                                                 else "clear"))
     props = read_props(p, propoff, nprop, blkoff, occidx, bad, pthoff or diroff) if nprop else []
     path = None
     if pthoff:
@@ -5994,7 +6470,7 @@ def read_part(p, fname="<part>"):
     for d in props:
         if d["kind"] == PK_PAD:
             want_m |= 1 << d["mat"]
-    if gflags & ~(GF_VIEW | GF_PAGED) != want_f or padmask != want_m:
+    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT) != want_f or padmask != want_m:
         bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
             % (gflags, padmask, want_f, want_m))
     for d in props:
@@ -6022,7 +6498,8 @@ def read_part(p, fname="<part>"):
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
                      "gflags": gflags, "padmask": padmask, "view": gz,
-                     "cells_raw": bytes(p[celloff:rowtab]), "celloff": celloff}}
+                     "cells_raw": bytes(p[celloff:cellend]), "celloff": celloff, "pairoff": doff,
+                     "pairs": bytes(p[doff:doff + dlen])}}
 
 
 def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
@@ -6178,13 +6655,35 @@ class Grid:
         self.props = info["props"]
 
     def cell(self, wx, wy):
-        """-> (z0, sx, sy, kind, flags, surface); OPEN outside the grid"""
+        """-> (z0, sx, sy, kind, flags, surface); OPEN outside the grid.  A SPLIT
+        cell (SPEC.md 128.24.5.1) is (0, 0, 0, 4 or 5, flags, the cell's surface):
+        its bytes +0 - +1 are its pair's offset, read by pair()"""
         r = wx + wy - self.smin
         k = (wx - wy - self.amin) >> 1
         if r < 0 or r >= self.nrows or k < 0 or k >= self.kw:
             return (Z_OPEN, 0, 0, KIND_VOID, 0, 0)
         z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, self.rowtab[r] + 4 * k)
+        if kd & 15 in (KIND_TB, KIND_LR):
+            return (0, 0, 0, kd & 15, fl, kd >> 4)
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
+
+    def pair(self, wx, wy):
+        """a SPLIT cell's pair (128.24.5.2): (half A's record, half B's), each as cell() reads a cell"""
+        r = wx + wy - self.smin
+        k = (wx - wy - self.amin) >> 1
+        po = struct.unpack_from("<H", self.p, self.rowtab[r] + 4 * k)[0]
+        out = []
+        for h in (0, 1):
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, po + 4 * h)
+            out.append((z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4))
+        return tuple(out)
+
+    def rec(self, wx, wy, pu, pv):
+        """the RECORD at in-cell point (pu, pv), 1/256 gu (SPEC.md 128.24.7.1): the cell, or its picked half"""
+        c = self.cell(wx, wy)
+        if c[3] in (KIND_TB, KIND_LR):
+            return self.pair(wx, wy)[pick(c[3], pu, pv)]
+        return c
 
 
 # =============================================================================
@@ -7460,6 +7959,7 @@ def phys_tables():
     table and the bumpers' OCTANT table, as bzcourse.inc emits them"""
     return (surftab() + bytes((v & 255) for e in CORNER for v in e)
             + bytes((v & 255) for e in OCTANT for v in e))
+
 
 
 def phys_ident(_mt=None, _consts=None, _tabs=None):
@@ -8966,6 +9466,13 @@ def emit_inc(courses, path=None, title=None):
               "BZ_CLIMB        equ %d        ; px" % CLIMB,
               "BZ_STICK        equ %d        ; px" % STICK,
               "",
+              "; SPEC.md 128.24.5: a SPLIT cell's kinds, its pair in section D, and the course flag",
+              "; (story D1.5: nothing in the guest reads them until wave D3; no shipped course has one)",
+              "BZ_KTB          equ %d        ; split along T - B (screen-vertical): half A left, B right" % KIND_TB,
+              "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
+              "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
+              "BZ_PAIR         equ %d        ; a pair: half A's cell record, then half B's" % PAIR,
+              "",
               "; wave 2 (SPEC.md 128.11.5 - 128.11.8): keys, materials, surfaces, flags",
               "BZ_K_HOP        equ %02Xh      ; the key byte: Space held" % K_HOP,
               "BZ_K_GRIP       equ %02Xh      ; ...Left Shift held" % K_GRIP,
@@ -9445,6 +9952,10 @@ def compile_all(paths, demo_dir=None, path=None, title=None):
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
                           "BONANZA.DAT's BZS4 (SPEC.md 128.22.5)" % (len(paths), CRS_MAX))
     courses = [compile_course(p) for p in paths]
+    for c_ in courses:                              # SPEC.md 128.24 (story D1.5): the guest reads no half
+        if c_.src.halves is not None and not GUEST_SPLIT:   # until wave D3 - the one line D3 removes
+            raise CourseError("%s:%d: a half or a box in a shipped course: the guest steps no split cell until "
+                              "the diagonal plan's wave D3 (SPEC.md 128.24)" % (c_.fname, c_.src.halves))
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
@@ -16072,6 +16583,449 @@ def _clock_rule_checks(courses, res, paths=None):
                 ok and "has no clock whose digits" in why))
 
 
+# SPEC.md 128.24.11: THE SPLIT COURSE - --selfcheck's own, a string here (nothing under apps/ uses a half
+# until wave D3): a lane straight up the screen 32 px wide (`box -1 1`) between two diagonal rails, its far
+# end a half unit up (an LR step with its FRONT face), a field to its right whose right side is a straight
+# 45-degree course EDGE (VOID halves), a TB step inside the field (the edge line), a raised DOWN half (the
+# occluders' s + 1 key), a goal tile across the lane
+_SPLIT = ('course SPLIT "Split"\nwidth 64\n'
+          'floor box -1 1 15 31 flat 0\n'
+          'floor box -1 1 15 21 flat 0.5\n'
+          'wall  box -3 -1 15 31 flat 1.5\n'
+          'wall  box 1 3 15 31 flat 1.5\n'
+          'floor box 3 7 15 23 flat 0\n'
+          'floor half right tile 12 6 flat 0.5\n'
+          'floor half down tile 13 9 flat 2\n'
+          'goal  tile 9 9 flat 0.5\n'
+          'start 12 12\n')
+
+
+def _split_cases():
+    """SPEC.md 128.24.4's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    S = _SPLIT
+    return [
+        ("a box that quarters a cell (an odd width)", S + "floor box 7 10 15 23 flat 0\n", "in QUARTERS"),
+        ("a cell split one way and then the other", S + "floor half up tile 12 12 flat 0\n"
+         "floor half left tile 12 12 flat 0.5\n", "in QUARTERS"),
+        ("`half` on a box", S + "floor half left box -1 1 15 31 flat 0\n", "the box already decides"),
+        ("half takes a side", S + "floor half middle tile 12 12 flat 0\n", "half takes up, down, left or right"),
+        ("the start on a split cell", _swap(S, "start 12 12", "start 11 12"), "the start on cell (11, 12)"),
+        ("a way on a split cell", S + "way 11 12\n", "a way on cell (11, 12)"),
+        ("a pad on a split cell", S + "pad steel 11 12\n", "a pad on cell (11, 12)"),
+        ("a checkpoint on a split cell", S + "checkpoint 11 12\n", "a checkpoint on cell (11, 12)"),
+        ("a clock on a split cell", S + "clock 11 12\n", "a clock on cell (11, 12)"),
+        ("a cup on a split cell", S + "cup 11 12\n", "a cup on cell (11, 12)"),
+        ("a spring on a split cell", S + "spring 11 12 400\n", "a spring on cell (11, 12)"),
+        ("a bumper on a split cell", S + "prop bumper 11 12\n", "a bumper on cell (11, 12)"),
+        ("a tube's cell on a split cell", S + "tube keep 11 12 12 12\n", "a tube's cell on cell (11, 12)"),
+        ("two floor surfaces in one split cell", S + "surface ice box 5 7 15 23\n", "two surfaces"),
+        ("a wall half not above the floor across its diagonal", S + "wall half left tile 12 6 flat 0.5\n",
+         "across its diagonal"),
+    ]
+
+
+def _split_mockups():
+    """the four scenes of the owner's mock-ups (SPEC.md 128.24, `diag-*.png`) as course TEXT, the tool's own
+    picture of each (`--png`): {name: text}"""
+    hd = 'course %s "%s"\nwidth 64\n'
+    zig = "".join("floor tile %d %d flat 0.5\n" % ((s_ + a) // 2, (s_ - a) // 2)
+                  for s_ in range(12, 24) for a in range(-5, 6) if (s_ + a) % 2 == 0)
+    halves = ""
+    for i, (side, st, z) in enumerate((("left", "floor", 1), ("right", "floor", 1), ("left", "floor", 1),
+                                       ("right", "floor", 1), ("up", "floor", 2), ("down", "floor", 2),
+                                       ("up", "floor", 2), ("down", "floor", 2))):
+        wx, wy = 10 + 2 * i, 10 - 2 * i + 8
+        halves += "%s half %s tile %d %d flat %d\n" % (st, side, wx, wy, z)
+        if i == 2:
+            halves += "wall half right tile %d %d flat 3\n" % (wx, wy)
+        if i == 3:
+            halves += "wall half left tile %d %d flat 3\n" % (wx, wy)
+        if i == 6:
+            halves += "floor half down tile %d %d flat 0\n" % (wx, wy)
+        if i == 7:
+            halves += "floor half up tile %d %d flat 0\n" % (wx, wy)
+    return {
+        "edge-zigzag": hd % ("EDGEZ", "Edge zigzag") + zig + "start 9 9\n",
+        "edge-halves": hd % ("EDGEH", "Edge halves") + "floor box -6 6 12 24 flat 0.5\nstart 9 9\n",
+        "upband-halves": hd % ("BAND", "Up band") + "floor box -1 1 15 29 flat 0\nstart 11 11\n",
+        "wall": hd % ("WALL", "Rails") + _SPLIT.split("\n", 2)[2].replace("start 12 12\n", "") + "start 12 12\n",
+        "halves": (hd % ("HALF", "Halves")).replace("width 64", "width 128") + halves
+                  + "floor rect 3 3 6 6 flat 0\nstart 4 4\n",
+    }
+
+
+def _split_checks(res, t):
+    """SPEC.md 128.24.11's `bonanzacourse` items on THE SPLIT COURSE (stories D1.1 - D1.4): the refusals, the
+    normalisation, items 3 - 6 on halves, the reader's refusals of a bad pair, the stored form with D, the
+    down half's key, and the shipped courses untouched"""
+    for what, text, want in _split_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (128.24.4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(_SPLIT, "<SPLIT>", _hack={"no_finish": True})
+    nsp = sum(1 for v in c.tiles.values() if isinstance(v, Split))
+    kinds = {}
+    for v in c.tiles.values():
+        if isinstance(v, Split):
+            key = "+".join("VOID" if h is None else {KIND_FLOOR: "floor", KIND_WALL: "wall", KIND_GOAL: "goal"}[
+                h.kind] for h in v.halves)
+            kinds[key] = kinds.get(key, 0) + 1
+    print("    SPLIT (SPEC.md 128.24.11): %d split cells (%s), %d whole; part %d bytes (D %d), identity %04Xh"
+          % (nsp, ", ".join("%s %d" % kv for kv in sorted(kinds.items())), len(c.tiles) - nsp, len(c.cga),
+             PAIR * len(c.pairs), c.ident))
+    res.append(("2 the SPLIT course compiles: %d split cells of both diagonals, GF_SPLIT set, section D %d bytes "
+                "(8 a split cell) after C, PLAIN" % (nsp, PAIR * len(c.pairs)),
+                nsp == len(c.pairs) > 0 and c.gflags & GF_SPLIT and {v.diag for v in c.tiles.values()
+                                                                    if isinstance(v, Split)} == {KIND_TB, KIND_LR}
+                and any(e["tag"] == "D" and e["form"] == F_PLAIN and e["len"] == PAIR * nsp for e in c.part["dir"])))
+    # the normalisation: a half equal to its partner is stored WHOLE - the same part, byte for byte
+    cn = compile_course(_SPLIT + "floor half left tile 12 12 flat 0\nfloor half up tile 9 9 flat 0.5\n"
+                        "goal half up tile 9 9 flat 0.5\ngoal half down tile 9 9 flat 0.5\n",
+                        "<SPLIT, equal halves>", _hack={"no_finish": True})
+    res.append(("2 two equal halves are stored WHOLE (cell (12, 12) laid again as its left half; (9, 9)'s up half a "
+                "floor, then a goal again, then its down half a goal again): the part is the SPLIT course's byte "
+                "for byte", not isinstance(cn.tiles[(12, 12)], Split) and not isinstance(cn.tiles[(9, 9)], Split)
+                and cn.cga == c.cga))
+    _course_items(c, -1, res, t)
+    # the reader: every bad pair refused (D1.3)
+    g = c.part["grid"]
+    co, po, dl = g["celloff"], g["pairoff"], len(g["pairs"])
+    idx = [i for i in range(0, po - co, 4) if c.cga[co + i + 2] & 15 in (KIND_TB, KIND_LR)]
+    i0, i1 = idx[0], idx[1]
+
+    def _vv(b):
+        o = struct.unpack_from("<H", b, co + i0)[0]
+        b[o:o + PAIR] = bytes([0x80, 0, 0, 0, 0x81, 0, 0, 0])
+    bads = (("a dangling pair offset", lambda b: struct.pack_into("<H", b, co + i0, po + dl), "not a pair inside D"),
+            ("a pair named twice", lambda b: struct.pack_into("<H", b, co + i1, struct.unpack_from("<H", b, co + i0)[0]),
+             "is cell"),
+            ("a split VOID-VOID", _vv, "both VOID"),
+            ("a SAFE split cell", lambda b: b.__setitem__(co + i0 + 3, b[co + i0 + 3] | FL_SAFE), "flags"),
+            ("a reserved kind 6", lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 6), "kind 6"),
+            ("GF_SPLIT clear", lambda b: b.__setitem__(c.part["gridoff"] + 28, b[c.part["gridoff"] + 28] & ~GF_SPLIT),
+             "GF_SPLIT"))
+    for what, f_, want in bads:
+        b = bytearray(c.cga)
+        f_(b)
+        restamp(b)
+        try:
+            read_part(bytes(b))
+            fired, msg = False, "accepted"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("10 SPLIT: read_part refuses %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # the stored form (item 10): CELLS reads the halves through D, PLAIN and in place before C expands
+    sim = all(expand(st, "<SPLIT>", sim=True) == ram for st, ram in ((c.stored4, c.cga4), (c.stored8, c.cga8)))
+    exc = cells_exceptions(c.cga)
+    try:
+        wrong = stored_form(c.model, 4, c.cga4, "<SPLIT>", _hack={"no_halves": True})
+        red = expand(wrong, "<SPLIT>") != c.cga4
+    except (CourseError, struct.error, IndexError):
+        red = True
+    res.append(("10 SPLIT: both stored forms expand IN PLACE to their RAM forms with section D (the in-place "
+                "simulation: every byte read before it is written), and the CELLS rule BY HALVES reproduces every "
+                "cell (%d exceptions); negative control: the rule without halves (a split cell's offset read as a "
+                "z0) gives another grid" % len(exc), sim and not exc and red))
+    # the down half's key (128.24.6.3): a ball in the up half behind a raised down half is laid under it
+    s0 = 13 + 9
+    gx, gy = (16 * 13 + 6) << 8, (16 * 9 + 3) << 8
+    px = ((gx - gy) >> 8) + c.x0 - 8
+    py = (((gx + gy) >> 1) >> 8) + c.y0 - 13
+
+    def hid(cc):
+        return sum(len(r["pix"] & set(ball_pixels(px, py))) for r in laid_at(cc, px, py, s0, 0, 0)
+                   if r["s"] == s0 + 1)
+    c0 = compile_course(_SPLIT, "<SPLIT, down half keyed s>", _hack={"no_finish": True, "down_s0": True})
+    keyed = {c.sbuf[y][x] for y in range(c.lines) for x in range(c.width) if c.sbuf[y][x] == s0 + 1}
+    res.append(("5 SPLIT: an LR split's raised DOWN half is keyed s + 1 (%d ball pixels hidden for a ball on the up "
+                "half behind it); negative control: keyed s, it hides %d" % (hid(c), hid(c0)),
+                bool(keyed) and hid(c) > 0 and hid(c0) == 0))
+    return c
+
+
+def _course_items(c, k, res, t):
+    """--selfcheck items 3 - 6 on ONE compiled course (each shipped course; SPEC.md 128.24.11's split
+    course, the same items on halves)"""
+    tag = "%s" % c.name
+    # 3. the picture, the CGA's and the Hercules's through htab()
+    try:
+        dc = _decode(c.cga)
+        ok = all(bytes(dc[y]) == bytes(c.pic[y]) for y in range(c.lines))
+    except CourseError as e:
+        print("    " + str(e))
+        ok = False
+    pt = c.part
+
+    def herc_ok(hpart):
+        for y in range(c.lines):
+            for bx in range(c.cols):
+                off = pt["map"][(y >> 3) * c.cols + bx]
+                w = hpart[off + 2 * (y & 7):off + 2 * (y & 7) + 2]
+                if bytes(w) != herc_bytes(c.pic[y][bx * 8:bx * 8 + 8], line=y, col0=bx * 8):
+                    return False
+        return True
+    res.append(("3 %s: the map and the CGA blocks decode to the picture; the Hercules picture is the CGA blocks "
+                "through htab() (bz_hgen's algorithm), equal to herc_bytes of it; every map word a block offset "
+                "inside the part; block 0 black; ROWB = 2 COLS" % tag,
+                ok and herc_ok(c.herc) and pt["rowb"] == 2 * pt["cols"]
+                and c.cga[pt["blkoff"]:pt["blkoff"] + 16] == bytes(16)))
+    bad = bytearray(c.cga)
+    w0 = struct.unpack_from("<H", bad, HDR + 2 * 37)[0]
+    alt = next(HDR + 2 * i for i, w in enumerate(pt["map"]) if w != w0)
+    struct.pack_into("<H", bad, HDR + 2 * 37, struct.unpack_from("<H", bad, alt)[0])
+    try:
+        dd = _decode(bytes(bad))
+        caught = any(bytes(dd[y]) != bytes(c.pic[y]) for y in range(c.lines))
+    except CourseError:
+        caught = True
+    res.append(("3 %s negative control: one map word moved fails the decode" % tag, caught))
+    if k == 0:
+        tb = bytearray(t)
+        blk = c.cga[pt["blkoff"] + 16:pt["blkoff"] + 32]
+        tb[256 * 0 + blk[0]] ^= 0x03
+        import bonanza_assets as _BA
+        old = _BA.htab
+        _BA.htab = lambda: bytes(tb)
+        try:
+            caught = not herc_ok(herc_translate_course(c.cga))
+        finally:
+            _BA.htab = old
+        res.append(("3 %s negative control: one htab() entry flipped fails the Hercules picture" % tag, caught))
+    # 4. the grid against the geometry
+    g = Grid(c.cga)
+    okp = okk = okv = oks = oksf = True
+    nsplit = 0
+    for (wx, wy), ent in c.tiles.items():
+        cl = g.cell(wx, wy)
+        if isinstance(ent, Split):                  # SPEC.md 128.24.11: the pick and each half's h4 at all 256
+            nsplit += 1                             # integer points; a VOID half's kill by NEAR
+            pr = g.pair(wx, wy)
+            if cl[3] != ent.diag or cl[4] & (FL_SAFE | FL_OBS):
+                okk = False
+            for h, tl in enumerate(ent.halves):
+                if tl is None:
+                    if pr[h][3] != KIND_VOID or pr[h][0] != _near_low(c.tiles, wx, wy) - 6:
+                        okv = False
+                elif pr[h][3] != tl.kind or pr[h][5] != tl.surf:
+                    okk = False
+            for u in range(16):
+                for v in range(16):
+                    hh = pick(ent.diag, u << 8, v << 8)
+                    want_h = 1 if (u >= v if ent.diag == KIND_TB else u + v >= 16) else 0
+                    tl = ent.halves[hh]
+                    if hh != want_h or g.rec(wx, wy, u << 8, v << 8) != pr[hh]:
+                        okp = False
+                    if tl is not None:
+                        zt, zr, zb, zl = (4 * w_ for w_ in tl.corners())
+                        if 4 * (16 * zt + (zr - zt) * u + (zl - zt) * v) != 16 * Physics.h4(pr[hh], u, v):
+                            okp = False
+            continue
+        tl = ent
+        zt, zr, zb, zl = (4 * v for v in tl.corners())
+        if zb != zr + zl - zt:
+            okp = False
+        for u in range(16):
+            for v in range(16):
+                if 4 * (16 * zt + (zr - zt) * u + (zl - zt) * v) != 16 * Physics.h4(cl, u, v):
+                    okp = False
+        if cl[3] != tl.kind:
+            okk = False
+        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell
+                and all(edge_rec(c.tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()))
+        if bool(cl[4] & FL_SAFE) != safe:
+            oks = False
+    # the surfaces as the statements set them, read back independently
+    want_s = {}
+    for surf, shape, _ln, *_ in c.src.surfaces:
+        for tt in shape:
+            if tt in c.tiles:
+                want_s[tt] = surf
+    for tt in c.tiles:
+        if isinstance(c.tiles[tt], Split):          # (a split cell's surface: its floor halves', 128.24.4)
+            if g.cell(*tt)[5] != max([h.surf for h in c.tiles[tt].halves if h is not None and h.kind != KIND_WALL]
+                                     + [0]):
+                oksf = False
+        elif g.cell(*tt)[5] != want_s.get(tt, SURF_NORMAL):
+            oksf = False
+    for r in range(g.nrows):
+        sR = g.smin + r
+        for kk in range(-2, g.kw + 2):
+            aC = g.amin + 2 * kk + (sR & 1)
+            wx, wy = (sR + aC) >> 1, (sR - aC) >> 1
+            if (wx, wy) in c.tiles:
+                continue
+            cl = g.cell(wx, wy)
+            near = [r_ for tt in _cheb(c.tiles, wx, wy, 2) for r_ in tile_recs(tt)]
+            want = (min(min(tt.corners()) for tt in near) - 6) if near else Z_OPEN
+            if (wx, wy) in c.slabcells:
+                want = (c.slabcells[(wx, wy)][0] >> 2) - 6
+            if cl[3] != KIND_VOID or cl[0] != want or cl[4] & FL_SAFE or cl[5]:
+                okv = False
+    res.append(("4 %s: at all 256 integer points of every solid cell h4 is the plane the renderer drew%s" % (
+        tag, "; on each of the %d SPLIT cells the pick names the half 128.24.7.1 says and h4 is that half's "
+        "plane (SPEC.md 128.24.11)" % nsplit if nsplit else ""), okp))
+    res.append(("4 %s: kinds are the rooms' styles; VOID is NEAR with the kill height or OPEN exactly where no "
+                "solid cell is within two tiles; SAFE exactly where 128.10.4.3 says; every surface nibble as the "
+                "statements set it (%d tiles not normal)" % (tag, sum(1 for v in want_s.values() if v)),
+                okk and okv and oks and oksf))
+    # OCCG: never without OCC; and sound - a grounded ball anywhere in a cell that lays a record has it
+    occg_ok = all(not (v[3] & FL_OCCG) or v[3] & FL_OCC for v in c.cells.values())
+    tried = missed = 0
+    for (wx, wy), cl in c.cells.items():
+        if not cl[3] & FL_OCC or (cl[2] & 15) not in (KIND_FLOOR, KIND_GOAL, KIND_TB, KIND_LR):
+            continue
+        for u in range(0, 16, 2):
+            for v in range(0, 16, 2):
+                for fr in (0, 128):
+                    gx, gy = ((16 * wx + u) << 8) + fr, ((16 * wy + v) << 8) + fr
+                    rc_ = g.rec(wx, wy, (u << 8) + fr, (v << 8) + fr)   # (a split cell: the half there)
+                    if rc_[3] not in (KIND_FLOOR, KIND_GOAL):
+                        continue
+                    gz = Physics.h4(rc_, u, v) << 6
+                    px = ((gx - gy) >> 8) + c.x0 - 8
+                    py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
+                    tried += 1
+                    if laid_at(c, px, py, wx + wy, gz >> 8, 0) and not cl[3] & FL_OCCG:
+                        missed += 1
+    res.append(("4 %s: OCCG (%d cells) never without OCC, and set wherever a grounded ball at its floor lays a "
+                "record (%d grounded positions of OCC cells tried, %d missed)" % (
+                    tag, sum(1 for v in c.cells.values() if v[3] & FL_OCCG), tried, missed),
+                occg_ok and missed == 0))
+    # 5. the occluders, on the MERGED records
+    recs = c.records
+    srt = all((x["brow"], x["col"], x["s"]) <= (y["brow"], y["col"], y["s"]) for x, y in zip(recs, recs[1:]))
+    seen = set()
+    dup = False
+    for r in recs:
+        if seen & r["pix"]:
+            dup = True
+        seen |= r["pix"]
+    span = 0
+    for r in c.raw:
+        tops = [c.tbuf[y][x] for (x, y) in r["pix"]]
+        span = max(span, max(tops) - min(tops))
+        if r["top"] != max(tops) or any(c.sbuf[y][x] != r["s"] for (x, y) in r["pix"]):
+            dup = True
+    masks_unique = len(c.masks) == len(set(c.masks))
+    res.append(("5 %s: OCCIDX non-decreasing to the records' end, records sorted, no pixel in two records, no "
+                "unmerged record's tops spanning over %d px (most %d), masks deduplicated (%d for %d records)"
+                % (tag, BAND, span, len(c.masks), len(recs)), srt and not dup and span <= BAND and masks_unique))
+    tried, diff = merge_exact(c.raw, c.records, c.queries)
+    res.append(("5 %s: the merge is exact - for every block and every (s_b, z_b + m) of its query set the %d "
+                "merged records lay exactly the pixels the %d unmerged ones lay (%d queries%s)" % (
+                    tag, len(c.records), len(c.raw), tried, "" if diff is None else ", differs at %s" % (diff,)),
+                diff is None))
+    if k == 0:
+        key = next(kk for kk, v in sorted(c.raw_block.items()) if v >= 2)
+        rr = [r for r in c.raw if (r["brow"], r["col"]) == key]
+        Q = sorted(c.queries.get(key, ()))
+        pair = next(((i, j) for i in range(len(rr)) for j in range(i + 1, len(rr))
+                     if _verdict(rr[i], Q) != _verdict(rr[j], Q) and any(_verdict(rr[i], Q))
+                     and any(_verdict(rr[j], Q))), None)
+        if pair:
+            forced = merge_records(c.raw, c.queries, _force=(key, pair[0], pair[1]))
+            res.append(("5 %s negative control: two records of block %s with different verdicts merged by force "
+                        "fail the merge's check" % (tag, key), merge_exact(c.raw, forced, c.queries)[1] is not None))
+    c._raised = _raised_tops(c)
+    mism = 0
+    tried = 0
+    first_laid = None
+    for rc in c.reach:
+        gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
+        for z in sorted({rc.zlo, rc.zhi}):
+            for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+                px = ((gx - gy) >> 8) + c.x0 - 8
+                py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
+                tried += 1
+                A = composite(c, px, py, rc.s, z, air, "records")
+                Bp = composite(c, px, py, rc.s, z, air, "pixels")
+                if A != Bp:
+                    mism += 1
+                if first_laid is None:
+                    for r in laid_at(c, px, py, rc.s, z, air):
+                        if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
+                            first_laid = (r, px, py, rc.s, z, air)
+                            break
+    res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's (tops raised to "
+                "the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
+                "states (%d positions, %d differ)" % (tag, tried, mism), mism == 0))
+    fmism = fgate = ftried = 0
+    fneg = None
+    for rc in c.reach:
+        if rc.zhi <= rc.zlo:
+            continue
+        for z in sorted({rc.zlo, rc.zhi - 1}):
+            gx, gy, gz = (16 * rc.wx) << 8, (16 * rc.wy) << 8, (z << 8) + 128
+            px = ((gx - gy) >> 8) + c.x0 - 8
+            py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
+            for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+                ftried += 1
+                if composite(c, px, py, rc.s, z, air, "records") != composite(c, px, py, rc.s, z, air, "pixels"):
+                    fmism += 1
+                if laid_at(c, px, py, rc.s, z, air):
+                    if not c.cells[(rc.wx, rc.wy)][3] & FL_OCC:
+                        fgate += 1
+                    elif fneg is None:
+                        fneg = (rc, px, py, z, air)
+    res.append(("5 %s: at the fractional-height line the records composite as the pixels and every position that "
+                "lays one is in an OCC cell (%d positions, %d differ, %d ungated)" % (tag, ftried, fmism, fgate),
+                fmism == 0 and fgate == 0))
+    if fneg is not None:
+        rc, px, py, z, air = fneg
+        cl = c.cells[(rc.wx, rc.wy)]
+        cl[3] &= ~FL_OCC
+        try:
+            caught = bool(laid_at(c, px, py, rc.s, z, air)) and not cl[3] & FL_OCC
+        finally:
+            cl[3] |= FL_OCC
+        res.append(("5 %s negative control: cell (%d, %d)'s OCC cleared is caught at its fractional-height line"
+                    % (tag, rc.wx, rc.wy), caught))
+    occ_ok = all(bool(v[3] & FL_OCC) == bool(c.laid.get(k_, 0)) for k_, v in c.cells.items()
+                 if v[2] & 15 != KIND_WALL)
+    res.append(("5 %s: OCC set exactly on the cells some position of which lays a record" % tag, occ_ok))
+    if first_laid is not None:
+        r, px, py, sb, z, air = first_laid
+        old = r["s"]
+        r["s"] = sb
+        try:
+            caught = composite(c, px, py, sb, z, air, "records") != composite(c, px, py, sb, z, air, "pixels")
+        finally:
+            r["s"] = old
+        res.append(("5 %s negative control: one record's s_C lowered to the ball's row fails the composite" % tag,
+                    caught))
+    # 6. the bounds
+    inside = True
+    for rc in c.reach:
+        xl, xh = foot_x(rc, c.x0)
+        if xl < 0 or xh >= c.width or foot_top(rc, rc.zhi) + c.y0 < 0 or foot_top(rc, rc.zlo) + c.y0 + 30 >= c.lines:
+            inside = False
+    least = min(c.gtop, c.ftop) + c.y0
+    top_rc = min(c.reach, key=lambda rc: foot_top(rc, rc.zhi))
+    floors = [rc for rc in c.reach if rc.kind != KIND_VOID]
+    fall = max(floors, key=lambda rc: rc.zhi - rc.zlo)
+    void = max(c.reach, key=lambda rc: rc.zhi - rc.zlo)
+    print("    %s: Y0 %d - the least reachable footprint top is line %d, cell (%d, %d) at %d px, set by %s; %d "
+          "rounds to settle; the geometry's top is line %d.  Longest reachable fall onto a floor %d px (cell "
+          "(%d, %d)), into a kill %d px (cell (%d, %d)); mean zhi - zlo %.1f px" % (
+              tag, c.y0, c.ftop + c.y0, top_rc.wx, top_rc.wy, top_rc.zhi,
+              ("a %s of cell %s" % (top_rc.src[1], top_rc.src[0])) if top_rc.src else "its own floor", c.rounds,
+              c.gtop + c.y0, fall.zhi - fall.zlo, fall.wx, fall.wy, void.zhi - void.zlo, void.wx, void.wy,
+              sum(rc.zhi - rc.zlo for rc in c.reach) / float(len(c.reach))))
+    res.append(("6 %s: every reachable footprint inside the picture; Y0 the least that does it (line %d); the "
+                "reach settled in %d rounds (at most %d)" % (tag, least, c.rounds, REACH_ROUNDS),
+                inside and least == 0 and c.rounds <= REACH_ROUNDS))
+    if c.props:
+        _props_course_checks(c, res, tag)
+    _w4_records(c, res)
+    sb, sok = spring_bounds(c)
+    if sb:
+        res.append(("6 %s: every SPRING's flight in the reach - %s - and its apex footprint inside the picture"
+                    % (tag, ", ".join("%s apex %d px, zhi %d, footprint line %d" % o for o in sb)), sok))
+
+
 def selfcheck(paths=None):
     paths = paths or default_paths()
     res = []
@@ -16271,247 +17225,8 @@ def selfcheck(paths=None):
         phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)) != PHYSV))
     t = htab()
     for k, c in enumerate(courses):
-        tag = "%s" % c.name
-        # 3. the picture, the CGA's and the Hercules's through htab()
-        try:
-            dc = _decode(c.cga)
-            ok = all(bytes(dc[y]) == bytes(c.pic[y]) for y in range(c.lines))
-        except CourseError as e:
-            print("    " + str(e))
-            ok = False
-        pt = c.part
-
-        def herc_ok(hpart):
-            for y in range(c.lines):
-                for bx in range(c.cols):
-                    off = pt["map"][(y >> 3) * c.cols + bx]
-                    w = hpart[off + 2 * (y & 7):off + 2 * (y & 7) + 2]
-                    if bytes(w) != herc_bytes(c.pic[y][bx * 8:bx * 8 + 8], line=y, col0=bx * 8):
-                        return False
-            return True
-        res.append(("3 %s: the map and the CGA blocks decode to the picture; the Hercules picture is the CGA blocks "
-                    "through htab() (bz_hgen's algorithm), equal to herc_bytes of it; every map word a block offset "
-                    "inside the part; block 0 black; ROWB = 2 COLS" % tag,
-                    ok and herc_ok(c.herc) and pt["rowb"] == 2 * pt["cols"]
-                    and c.cga[pt["blkoff"]:pt["blkoff"] + 16] == bytes(16)))
-        bad = bytearray(c.cga)
-        w0 = struct.unpack_from("<H", bad, HDR + 2 * 37)[0]
-        alt = next(HDR + 2 * i for i, w in enumerate(pt["map"]) if w != w0)
-        struct.pack_into("<H", bad, HDR + 2 * 37, struct.unpack_from("<H", bad, alt)[0])
-        try:
-            dd = _decode(bytes(bad))
-            caught = any(bytes(dd[y]) != bytes(c.pic[y]) for y in range(c.lines))
-        except CourseError:
-            caught = True
-        res.append(("3 %s negative control: one map word moved fails the decode" % tag, caught))
-        if k == 0:
-            tb = bytearray(t)
-            blk = c.cga[pt["blkoff"] + 16:pt["blkoff"] + 32]
-            tb[256 * 0 + blk[0]] ^= 0x03
-            import bonanza_assets as _BA
-            old = _BA.htab
-            _BA.htab = lambda: bytes(tb)
-            try:
-                caught = not herc_ok(herc_translate_course(c.cga))
-            finally:
-                _BA.htab = old
-            res.append(("3 %s negative control: one htab() entry flipped fails the Hercules picture" % tag, caught))
-        # 4. the grid against the geometry
-        g = Grid(c.cga)
-        okp = okk = okv = oks = oksf = True
-        for (wx, wy), tl in c.tiles.items():
-            cl = g.cell(wx, wy)
-            zt, zr, zb, zl = (4 * v for v in tl.corners())
-            if zb != zr + zl - zt:
-                okp = False
-            for u in range(16):
-                for v in range(16):
-                    if 4 * (16 * zt + (zr - zt) * u + (zl - zt) * v) != 16 * Physics.h4(cl, u, v):
-                        okp = False
-            if cl[3] != tl.kind:
-                okk = False
-            safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell
-                    and all((wx + dx, wy + dy) in c.tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
-            if bool(cl[4] & FL_SAFE) != safe:
-                oks = False
-        # the surfaces as the statements set them, read back independently
-        want_s = {}
-        for surf, shape, _ln in c.src.surfaces:
-            for tt in shape:
-                if tt in c.tiles:
-                    want_s[tt] = surf
-        for tt in c.tiles:
-            if g.cell(*tt)[5] != want_s.get(tt, SURF_NORMAL):
-                oksf = False
-        for r in range(g.nrows):
-            sR = g.smin + r
-            for kk in range(-2, g.kw + 2):
-                aC = g.amin + 2 * kk + (sR & 1)
-                wx, wy = (sR + aC) >> 1, (sR - aC) >> 1
-                if (wx, wy) in c.tiles:
-                    continue
-                cl = g.cell(wx, wy)
-                near = [tt for tt in _cheb(c.tiles, wx, wy, 2)]
-                want = (min(min(tt.corners()) for tt in near) - 6) if near else Z_OPEN
-                if (wx, wy) in c.slabcells:
-                    want = (c.slabcells[(wx, wy)][0] >> 2) - 6
-                if cl[3] != KIND_VOID or cl[0] != want or cl[4] & FL_SAFE or cl[5]:
-                    okv = False
-        res.append(("4 %s: at all 256 integer points of every solid cell h4 is the plane the renderer drew" % tag, okp))
-        res.append(("4 %s: kinds are the rooms' styles; VOID is NEAR with the kill height or OPEN exactly where no "
-                    "solid cell is within two tiles; SAFE exactly where 128.10.4.3 says; every surface nibble as the "
-                    "statements set it (%d tiles not normal)" % (tag, sum(1 for v in want_s.values() if v)),
-                    okk and okv and oks and oksf))
-        # OCCG: never without OCC; and sound - a grounded ball anywhere in a cell that lays a record has it
-        occg_ok = all(not (v[3] & FL_OCCG) or v[3] & FL_OCC for v in c.cells.values())
-        tried = missed = 0
-        for (wx, wy), cl in c.cells.items():
-            if not cl[3] & FL_OCC or (cl[2] & 15) not in (KIND_FLOOR, KIND_GOAL):
-                continue
-            for u in range(0, 16, 2):
-                for v in range(0, 16, 2):
-                    for fr in (0, 128):
-                        gx, gy = ((16 * wx + u) << 8) + fr, ((16 * wy + v) << 8) + fr
-                        gz = Physics.h4(g.cell(wx, wy), u, v) << 6
-                        px = ((gx - gy) >> 8) + c.x0 - 8
-                        py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
-                        tried += 1
-                        if laid_at(c, px, py, wx + wy, gz >> 8, 0) and not cl[3] & FL_OCCG:
-                            missed += 1
-        res.append(("4 %s: OCCG (%d cells) never without OCC, and set wherever a grounded ball at its floor lays a "
-                    "record (%d grounded positions of OCC cells tried, %d missed)" % (
-                        tag, sum(1 for v in c.cells.values() if v[3] & FL_OCCG), tried, missed),
-                    occg_ok and missed == 0))
-        # 5. the occluders, on the MERGED records
-        recs = c.records
-        srt = all((x["brow"], x["col"], x["s"]) <= (y["brow"], y["col"], y["s"]) for x, y in zip(recs, recs[1:]))
-        seen = set()
-        dup = False
-        for r in recs:
-            if seen & r["pix"]:
-                dup = True
-            seen |= r["pix"]
-        span = 0
-        for r in c.raw:
-            tops = [c.tbuf[y][x] for (x, y) in r["pix"]]
-            span = max(span, max(tops) - min(tops))
-            if r["top"] != max(tops) or any(c.sbuf[y][x] != r["s"] for (x, y) in r["pix"]):
-                dup = True
-        masks_unique = len(c.masks) == len(set(c.masks))
-        res.append(("5 %s: OCCIDX non-decreasing to the records' end, records sorted, no pixel in two records, no "
-                    "unmerged record's tops spanning over %d px (most %d), masks deduplicated (%d for %d records)"
-                    % (tag, BAND, span, len(c.masks), len(recs)), srt and not dup and span <= BAND and masks_unique))
-        tried, diff = merge_exact(c.raw, c.records, c.queries)
-        res.append(("5 %s: the merge is exact - for every block and every (s_b, z_b + m) of its query set the %d "
-                    "merged records lay exactly the pixels the %d unmerged ones lay (%d queries%s)" % (
-                        tag, len(c.records), len(c.raw), tried, "" if diff is None else ", differs at %s" % (diff,)),
-                    diff is None))
-        if k == 0:
-            key = next(kk for kk, v in sorted(c.raw_block.items()) if v >= 2)
-            rr = [r for r in c.raw if (r["brow"], r["col"]) == key]
-            Q = sorted(c.queries.get(key, ()))
-            pair = next(((i, j) for i in range(len(rr)) for j in range(i + 1, len(rr))
-                         if _verdict(rr[i], Q) != _verdict(rr[j], Q) and any(_verdict(rr[i], Q))
-                         and any(_verdict(rr[j], Q))), None)
-            if pair:
-                forced = merge_records(c.raw, c.queries, _force=(key, pair[0], pair[1]))
-                res.append(("5 %s negative control: two records of block %s with different verdicts merged by force "
-                            "fail the merge's check" % (tag, key), merge_exact(c.raw, forced, c.queries)[1] is not None))
-        c._raised = _raised_tops(c)
-        mism = 0
-        tried = 0
-        first_laid = None
-        for rc in c.reach:
-            gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({rc.zlo, rc.zhi}):
-                for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
-                    px = ((gx - gy) >> 8) + c.x0 - 8
-                    py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
-                    tried += 1
-                    A = composite(c, px, py, rc.s, z, air, "records")
-                    Bp = composite(c, px, py, rc.s, z, air, "pixels")
-                    if A != Bp:
-                        mism += 1
-                    if first_laid is None:
-                        for r in laid_at(c, px, py, rc.s, z, air):
-                            if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
-                                first_laid = (r, px, py, rc.s, z, air)
-                                break
-        res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's (tops raised to "
-                    "the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
-                    "states (%d positions, %d differ)" % (tag, tried, mism), mism == 0))
-        fmism = fgate = ftried = 0
-        fneg = None
-        for rc in c.reach:
-            if rc.zhi <= rc.zlo:
-                continue
-            for z in sorted({rc.zlo, rc.zhi - 1}):
-                gx, gy, gz = (16 * rc.wx) << 8, (16 * rc.wy) << 8, (z << 8) + 128
-                px = ((gx - gy) >> 8) + c.x0 - 8
-                py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
-                for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
-                    ftried += 1
-                    if composite(c, px, py, rc.s, z, air, "records") != composite(c, px, py, rc.s, z, air, "pixels"):
-                        fmism += 1
-                    if laid_at(c, px, py, rc.s, z, air):
-                        if not c.cells[(rc.wx, rc.wy)][3] & FL_OCC:
-                            fgate += 1
-                        elif fneg is None:
-                            fneg = (rc, px, py, z, air)
-        res.append(("5 %s: at the fractional-height line the records composite as the pixels and every position that "
-                    "lays one is in an OCC cell (%d positions, %d differ, %d ungated)" % (tag, ftried, fmism, fgate),
-                    fmism == 0 and fgate == 0))
-        if fneg is not None:
-            rc, px, py, z, air = fneg
-            cl = c.cells[(rc.wx, rc.wy)]
-            cl[3] &= ~FL_OCC
-            try:
-                caught = bool(laid_at(c, px, py, rc.s, z, air)) and not cl[3] & FL_OCC
-            finally:
-                cl[3] |= FL_OCC
-            res.append(("5 %s negative control: cell (%d, %d)'s OCC cleared is caught at its fractional-height line"
-                        % (tag, rc.wx, rc.wy), caught))
-        occ_ok = all(bool(v[3] & FL_OCC) == bool(c.laid.get(k_, 0)) for k_, v in c.cells.items()
-                     if v[2] & 15 != KIND_WALL)
-        res.append(("5 %s: OCC set exactly on the cells some position of which lays a record" % tag, occ_ok))
-        if first_laid is not None:
-            r, px, py, sb, z, air = first_laid
-            old = r["s"]
-            r["s"] = sb
-            try:
-                caught = composite(c, px, py, sb, z, air, "records") != composite(c, px, py, sb, z, air, "pixels")
-            finally:
-                r["s"] = old
-            res.append(("5 %s negative control: one record's s_C lowered to the ball's row fails the composite" % tag,
-                        caught))
-        # 6. the bounds
-        inside = True
-        for rc in c.reach:
-            xl, xh = foot_x(rc, c.x0)
-            if xl < 0 or xh >= c.width or foot_top(rc, rc.zhi) + c.y0 < 0 or foot_top(rc, rc.zlo) + c.y0 + 30 >= c.lines:
-                inside = False
-        least = min(c.gtop, c.ftop) + c.y0
-        top_rc = min(c.reach, key=lambda rc: foot_top(rc, rc.zhi))
-        floors = [rc for rc in c.reach if rc.kind != KIND_VOID]
-        fall = max(floors, key=lambda rc: rc.zhi - rc.zlo)
-        void = max(c.reach, key=lambda rc: rc.zhi - rc.zlo)
-        print("    %s: Y0 %d - the least reachable footprint top is line %d, cell (%d, %d) at %d px, set by %s; %d "
-              "rounds to settle; the geometry's top is line %d.  Longest reachable fall onto a floor %d px (cell "
-              "(%d, %d)), into a kill %d px (cell (%d, %d)); mean zhi - zlo %.1f px" % (
-                  tag, c.y0, c.ftop + c.y0, top_rc.wx, top_rc.wy, top_rc.zhi,
-                  ("a %s of cell %s" % (top_rc.src[1], top_rc.src[0])) if top_rc.src else "its own floor", c.rounds,
-                  c.gtop + c.y0, fall.zhi - fall.zlo, fall.wx, fall.wy, void.zhi - void.zlo, void.wx, void.wy,
-                  sum(rc.zhi - rc.zlo for rc in c.reach) / float(len(c.reach))))
-        res.append(("6 %s: every reachable footprint inside the picture; Y0 the least that does it (line %d); the "
-                    "reach settled in %d rounds (at most %d)" % (tag, least, c.rounds, REACH_ROUNDS),
-                    inside and least == 0 and c.rounds <= REACH_ROUNDS))
-        if c.props:
-            _props_course_checks(c, res, tag)
-        _w4_records(c, res)
-        sb, sok = spring_bounds(c)
-        if sb:
-            res.append(("6 %s: every SPRING's flight in the reach - %s - and its apex footprint inside the picture"
-                        % (tag, ", ".join("%s apex %d px, zhi %d, footprint line %d" % o for o in sb)), sok))
+        _course_items(c, k, res, t)
+    split = _split_checks(res, t)                   # SPEC.md 128.24.11: THE SPLIT COURSE (stories D1 - D2)
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()
@@ -16833,8 +17548,28 @@ def sizes(paths):
     both ways with its predicted decode, its RAM and its budget; then the
     package's.  Figures are MEASURED on the host (the packers are the
     shipped ones) except the decode times, which are PREDICTED"""
-    courses, files, texts = compile_all(paths)
     fmts = (("lz4", "LZ4"), ("lzb", "LZB"))
+    if "split:" in paths:                           # SPEC.md 128.24.10 (story D1.5): THE SPLIT COURSE's bytes,
+        c = compile_course(_SPLIT, "<SPLIT>", _hack={"no_finish": True})    # and the same course with every
+        cw = compile_course(re.sub(                 # half ROUNDED OUT to a whole cell (a zigzag band)
+            r"(floor|wall|goal)(\s+)box (\S+) (\S+) (\S+) (\S+)",
+                                   lambda m_: "%s%sband %d %d %d %d" % (m_.group(1), m_.group(2), int(m_.group(3)),
+                                                                       int(m_.group(4)), int(m_.group(5)) - 1,
+                                                                       int(m_.group(6))),
+                                   "\n".join(ln for ln in _SPLIT.split("\n") if " half " not in ln)),
+                            "<SPLIT, whole>", _hack={"no_finish": True})
+        for nm, cc in (("SPLIT", c), ("the same boxes as whole-cell bands (every half rounded out)", cw)):
+            pt = cc.part
+            print("  %s: RAM %d, stored %d, LZ4 %d, LZB %d; %d split cells, D %d bytes; %d blocks, %d records" % (
+                nm, len(cc.cga), len(cc.stored), packed_len(cc.stored, "lz4"), packed_len(cc.stored, "lzb"),
+                len(cc.pairs), PAIR * len(cc.pairs), len(cc.blocks), len(cc.records)))
+            for e in pt["dir"]:
+                print("    %-3s %-22s %-10s %7d %7d" % (e["tag"], SEC_NAMES[e["tag"]], FORM_NAMES[e["form"]],
+                                                        e["len"], e["dlen"]))
+        paths = [q for q in paths if q != "split:"]
+        if not paths:
+            return 0
+    courses, files, texts = compile_all(paths)
     tot = {"lz4": 0, "lzb": 0, "ram": 0}
     print("bbcourse --sizes: RECB %d (%s), the stored form of SPEC.md 128.15.4.3; packed as os88pkg packs a part "
           "(os88lz, the near-call filter tried); KiB = 1,024 bytes" % (REC, "D" if REC == 4 else "C"))
@@ -16922,8 +17657,16 @@ def previews(paths, out):
         print("bbcourse: --png needs Pillow; skipped", file=sys.stderr)
         return 1
     os.makedirs(out, exist_ok=True)
-    for path in paths:
-        c = compile_course(path)
+    items = []
+    for path in paths:                              # `split:` - SPEC.md 128.24's SPLIT course and the owner's
+        if path == "split:":                        # mock-up scenes, from their text (story D1.4)
+            items += [(_SPLIT, "<SPLIT>")] + [(t, "<%s>" % n) for n, t in sorted(_split_mockups().items())]
+        else:
+            items.append((path, None))
+    for path, nm in items:
+        c = compile_course(path, nm, _hack={"no_finish": True}) if nm else compile_course(path)
+        if nm:
+            c.name = nm.strip("<>").upper() if nm != "<SPLIT>" else "SPLIT"
         img = Image.new("RGB", (c.width, c.lines))
         img.putdata([CGA1[v] for r in c.pic for v in r])
         px = img.load()
