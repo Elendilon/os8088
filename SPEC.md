@@ -274594,20 +274594,53 @@ held pathway re-enters with no `int 13h`: the full write and its tables'
 pose pass only. Proved by `bonanzapath` both ways (the fallback forced by a
 harness byte, `bz_phforce`).
 
-#### 128.22.8 The art (PLANNED, PROVISIONAL: the owner's to refine)
+#### 128.22.8 The art (BUILT - generators, files and previews; not yet seen in the guest. PROVISIONAL: the owner's to refine)
 
-- **The look**: a **crystal** route material (a floor with a faceted, lit
-  top and a dark edge, so a route reads as a raised crystal rail over a dark
-  void), and pads that GLOW (a ring of the light colour round the cell).
-  Both are made by `tools/bonanza_assets.py`'s generators, deterministic,
-  committed beside the art (CLAUDE.md, waves step 5), with a mono form for
-  the Hercules through `htab()`.
-- **The icons**: one `.bba` a course (`apps/bonanza/courses/icons/`), its
-  theme (FIRST a first rolling ball; TRIAL a stopwatch; MILL a windmill
-  turning; MOON a crescent and stars; PEAK a mountain with a flag; PLAY a
-  spring and a ball), at most 4 words x 4 block rows (64 x 32 world px), 4
-  - 6 frames, made by a committed generator script
-  (`tools/bbicons.py`), PLACEHOLDERS for the owner's art.
+- **The look**: a **crystal** route material and pads that GLOW, both from
+  `tools/bonanza_assets.py` (deterministic, no input; `--selfcheck` holds their
+  determinism, ink range, shape and the Hercules survival), pure functions of
+  TILE-LOCAL pixels `(u, v) = (x - cx, y - cy)`, the 32 x 16 top diamond's
+  centre `cx = 16 (wx - wy) + x0`, `cy = 8 (wx + wy) + 8 - 8 h`, so the tool
+  paints them wherever a tile lands. Ink is a CGA colour index (0 black, 1 / 2 /
+  3; palette 1 cyan, magenta, white; palette 0 green, red, brown), so BOTH
+  palettes of 128.16.6 read, and the Hercules gets them through `htab()` (3
+  white, 0 black, 1 and 2 the checker):
+  - `crystal_top_ink(u, v)` -> ink or None outside the diamond: a lit table
+    (3), a bevel step, four facets split on the axes (NW lit 3, NE / SW 1,
+    SE 2) and a mid rim; `crystal_ink(wx, wy, x0, y0, z0)` is it as a
+    picture-pixel function; `crystal_tile_pixmap()` the 32 x 16 sample.
+  - `crystal_side_ink(face, k, j)` ('sw' or 'se', k across, j down from the
+    top edge): a DARK wall (0, with glints of 2), so a route reads as a raised
+    rail over the void. The renderer's own black outline still draws the edge.
+  - `pad_overlay(pose)` -> `{(u, v): ink}` (transparent elsewhere) for the
+    four `PAD_POSES` (`PAD_POSE_NAMES` open, done, silver, gold): a ring of
+    the light colour round the cell and a black gap inside it so the ring
+    stays apart from the crystal's lit table on the Hercules; `pad_rows(pose)`
+    the 16 x 32 grid and `bba_text(rows, frames, comment)` the `.bba` writer.
+    The four poses are written as `apps/bonanza/courses/pads/pad0.bba` ..
+    `pad3.bba` (32 x 16, `.` outside the ring).
+  The material's NAME is `CRYSTAL = "crystal"`; the course tool (which owns
+  the floor drawing) calls these.
+- **The icons**: `tools/bbicons.py` (deterministic; `--check` is the gate that
+  the committed files equal its output, `--png DIR` the previews) writes one
+  `.bba` a course to `apps/bonanza/courses/icons/`: `first.bba` (FIRST, a
+  rolling ball), `trial.bba` (TRIAL, a stopwatch), `mill.bba` (MILL, a
+  windmill turning), `moon.bba` (MOON, a crescent and twinkling stars),
+  `summit.bba` (PEAK, a mountain and a rippling flag), `playground.bba` (PLAY, a
+  spring and a ball). **The true size limit**: a word is 8 world px, a block 8
+  x 8 px, a lane at most `LANE_WMAX` x `LANE_HMAX` = 4 words x 3 block rows =
+  32 x 24 px, and an icon may span 2 x 2 lanes = **64 x 48 px** (this item
+  first said "4 words x 4 block rows (64 x 32)"). Every icon is **48 x 32 px**
+  (6 words x 4 block rows, two lanes across and two down), 5 or 6 frames,
+  frame 0 the rest pose, `# frames K` and the frames stacked top to bottom.
+  Lane data, words x lines x frames (bytes at 2bpp): FIRST 6 x 32 x 6 = 2,304;
+  TRIAL 6 x 32 x 6 = 2,304; MILL 6 x 32 x 6 = 2,304; MOON 6 x 32 x 5 = 1,920;
+  PEAK 6 x 32 x 6 = 2,304; PLAY 6 x 32 x 6 = 2,304 - 13,440 for the six
+  before the tool's merging. White (3) carries every shape against black so
+  the Hercules reads it; 1 and 2 shade (the checker there). PLACEHOLDERS for
+  the owner's art; previews (CGA palette 1, palette 0 and the Hercules, 4x,
+  all frames) in the wave's logs, `art-icons*.png`, `art-pads.png`,
+  `art-crystal.png`.
 - **The gates**: rendered by the tool (128.22.2): two crystal posts and a
   bar between them across the route, the bar sinking into the floor over
   poses 1 - 4.
