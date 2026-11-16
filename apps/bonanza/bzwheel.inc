@@ -2794,6 +2794,8 @@ bz_props:
     je .skc
     cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (a SIGN is marked only when its pose
     je .w0                      ; was written, bz_nset: walked)
+    cmp byte [bz_lknd + bx], BZ_FK0 ; (wave 9, 128.25.18: so is a FAMILY lane,
+    jae .w0                     ; by its hooks - never a post's skip)
     or al, al                   ; ...or a POST is drawn dark, its lit frames
     jnz .w0                     ; none, every kick seen
     cmp [bz_lhold + bx], al
