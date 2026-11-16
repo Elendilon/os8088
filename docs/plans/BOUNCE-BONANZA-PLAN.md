@@ -1,5 +1,7 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
+**STATUS (2026-11-16): WAVE 8R's ROUNDS AND THE DIAGONAL TILES (SPEC.md 128.24) IN PROGRESS; WAVE 9's CONTRACT WRITTEN (SPEC.md 128.25), its story 9.0 next.** Earlier:
+
 **STATUS (2026-11-15): WAVES 5a TO 6b DONE, GATE 1 CLOSED AS A BASELINE
 (SPEC.md 128.17.18), THE SPEED PASS MERGED; WAVE 7 (TIME) IS NEXT.** Below,
 the status as it stood at the regroup.
@@ -381,7 +383,7 @@ owner play; R5 says when the scoped soak runs.
 | **8a** | The shell's code part (O46), proven on kern_mega | S-M | | 1 |
 | **8b** | The loop: one bracket, the pathway, several finishes, lives, save v2, the tour removed | L | | 1 |
 | **8c** | The front window, exploration, medals, intro and result cards, the pause overlay | M | **gate 2: the shell** | 1 |
-| **9** | Mechanics as parts: the family framework, the per-play state contract, pickups | L | | 1 |
+| **9** | Mechanics as parts (SPEC.md 128.25): the Y0 search, the hook table, per-play state and resets, the claim arena, the balls generated at fetch, GLASS and PICKUPS on PLAYGROUND, today's props as families | L | the owner plays PLAYGROUND's new sections | 1 |
 | **10** | Performance (the owner's "later"), the ghost measured | L | | 1 |
 | **11** | The tutorial (FIRST and TRIAL rebuilt) and the course pipeline | M | gate per course | 1 |
 | **12** | World 1, one course at a time | L | gate per course | 1 |
@@ -1042,43 +1044,44 @@ paragraph; 128.19.5's prototype is superseded where 128.22 says so.
 
 #### Wave 9: Mechanics as parts (L)
 
-**Goal:** the owner's decision 8 made concrete, with an unused mechanic
-costing nothing, and pickups (decision 5). The families themselves land
-with the first course that uses them (waves 12, 13, 16, 17).
+**Goal** (the owner, 2026-11-16): *"the ability to build out all the props,
+tile types and mechanics in a way that doesn't overload the renderer or bloat
+course size"* - the last engine wave before the course pipeline. **The
+contract is SPEC.md 128.25** (written 2026-11-16, before any code; nothing of
+it is built). It replaces this section's earlier text, which predated wave
+8R: what changed and why is in 128.25.1's table and the diary's entry of
+2026-11-16 (*wave 9: the contract*). The apex question that went before it is
+[BONANZA-APEX-2026-11-16](../reports/BONANZA-APEX-2026-11-16.md).
 
-**The framework:**
-- A **family** is three things:
-  - a **code part** with its rules: hooks for cell-enter, contact, the
-    per-step force and a timer;
-  - its **art**, rendered by the tool into the course's own block pool as
-    lanes (already scoped per course today);
-  - its **model** in `bbcourse.Physics`, behind the same hook table.
-- A course declares `uses wind, cracked`. The launch fetches every family
-  part the course names into **one claim** (R4's claim count).
-- The engine keeps a hook bitmask. An unused hook costs a bit test, about
-  0 a step; an active one costs a far call, about 0.1k.
-- **An unused family costs 0 image bytes and 0 clk.**
-- **A family draws only through lanes and the static picture.** A family
-  that needs a draw path of its own is a resident engine change and a
-  decision of its own (water is one: wave 17).
-- Family state lives in a fixed bss slot per family, reset by W, L, a
-  replay, a retry or a respawn.
-- The course identity carries each family's version byte.
+**Built beside the diagonal tiles** (SPEC.md 128.24,
+[BOUNCE-BONANZA-DIAGONAL.md](BOUNCE-BONANZA-DIAGONAL.md)), by another session
+on the same branch; the order agreed is SPEC.md 128.25.2: 9.0 lands first and
+alone, 9.1's hook sites before the diagonal's guest wave D3, and whoever lands
+second re-authors MOON's, PEAK's and PLAYGROUND's demos.
 
-**The per-course limits** (Q-91): at most **3 families**; at most **1 timed
-pickup kind**; at most 6 lanes meeting a window (O24); the part at most
-65,024 bytes; the packed budget (R4); and the claim count.
+**The test course is PLAYGROUND**, grown as needed; every new check is on
+it, because the current courses are to be dropped as the new ones arrive
+(SPEC.md 128.25.13).
 
 | # | story | verified by |
 |---|---|---|
-| 9.1 | The framework; the three ball parts in one carved claim; a red arm: a course using an undeclared family is refused by the tool. **With the ball claim, the ball parts are regenerated at fetch** (BONANZA-SIZE-2026-11-14 section 3.4): V1 stores every mask and frame once at shift 0 and builds the shifts, parity copies, shadow and shatter cut; V2 generates the 64 roll frames from a per-material template and phase table. The balls go from 7,380 to 1,668 bytes packed, at 0 clk a frame and about +150 ms for a three-ball launch (PREDICTED) | host; `bonanzaphys`; the generator held bit-exact against `build_ball2` under an emulated 8086, every material, as `bz_hxlat` is |
-| 9.2 | **The per-play state contract** (a resident engine change, a review finding). Today every prop's pose is a function of the step, its seed and the course (SPEC.md 128.12.8). A cracked tile, a revealed path, a collected pickup and a used hourglass depend on the ball's history instead. So: a per-play STATE BITSET (broken, revealed, collected), reset at the play's start, a retry and a respawn exactly as SPEC.md 128.12.6.6's state is; **the grid is never written**, and physics reads the bitset over the grid; the true-pose routine reads the bitset; the reach model and the occluder build cover the broken-cell superset. A retry clears the bitset and re-poses the lanes: no re-fetch | `bonanzaphys` and `bonanzareplay` red arms for "retry after a crack" and "a respawn after a pickup" |
-| 9.3 | **Pickups** (decision 5, Q-92): an HOURGLASS (+10 s, once per attempt); a SPEED pickup (more acceleration for N s and a bounded raise of the top speed, priced by the tool, so it is not read as broken once at the cap); a JUMP pickup (rubber's Hop amount for N s, never stacked with the boost, never over 2 units). The tool proves every finish is reachable with NO pickup, so a pickup only shortens a route, and a boosted reach stays inside the bounds or is refused. Cued by sound, not a HUD | `bonanzaphys`; the tool's routes; red arms |
-| 9.4 | A test course for the framework and the pickups, built from an existing course, not a world course | `bonanzacourse`; owner look |
+| 9.0 | **The Y0 search** (128.25.3): the tool tries the picture's eight block alignments for a play course and keeps the smallest that meets the bounds with the fewest records; the `STEEP` refusal case pins its alignment. Host only; every play course's identity moves once | `--selfcheck` (item 6's eight counts; a red arm forcing MOON's worst alignment at Hop 366 refuses); `make bonanza`; the compile time reported |
+| 9.1 | **The hook table** (128.25.6.2, 128.25.6.3): `bz_fhk`, the six sites, the family part's header and far pointers, the stamp check, `uses` and its refusals, the family list in BZG1 and the identity; a NULL family (every hook a `retf`) proves the dispatch. Landed before D3 | `--selfcheck` (the refusals); `bonanzaphys` on PLAYGROUND with the null family; `bonanzaperf`'s step price with no family within 0.1k a step |
+| 9.2 | **Per-play state and resets** (128.25.7): `bz_fst`, the slots, `ATTEMPT` / `RESPAWN` (and `FLAG`'s layout), the CELL overlay at `bz_wtail`'s start, the model's same; the reach over each element's states; NO TRAP per flag under the classes; every finish with no pickup | `--selfcheck` (red arm: a crack on the only route past a flag forced `ATTEMPT` refuses); `bonanzaphys`, `bonanzareplay` red arms |
+| 9.3 | **The arena** (128.25.4): `OP_ARENA` rows, `op_areserve`, the regrow in steps, rebanking after a move, `SEG_SUB`/`SEG_SUBC` on kern_mega, in `apps/os88parts.inc`; BONANZA's small parts moved in; `BZ_CRS_MAXCLAIM` fixed (the fanfare it omits) and split from `BZ_CRS_ARENA` | `bonanzaexit` (3 of 8 claims, the arena empty after every way out); `bonanzamega` (a forced move under a play); the standard's own gates (`make`) |
+| 9.4 | **The balls generated at fetch** (128.25.5): `BZB3` stored, V1 then V2, `BZB2` written byte for byte; 128.11.9.1's table corrected (rubber's stretch) | `make bonanza-check`: the generator under an emulated 8086 equals `build_ball2`, every material; a red arm without the edge table differs; the packed bytes MEASURED |
+| 9.5 | **GLASS** (128.25.8): `crack` and `glass`, on PLAYGROUND's glass section | `bonanzaphys` (each ball on a crack, a fall through, the respawn restoring it; a path revealed tile by tile); red arms; the owner's look and play |
+| 9.6 | **PICKUPS** by the recipe (128.25.6.8, 128.25.9): hourglass (hidden in exploration), speed, jump stacked with the boost; the sparkles and the dither flash in the ball's box; the `PICKUP` sound event | `bonanzaphys`; `bonanzaperf` (the sparkles' frames); the owner's look and play |
+| 9.7 | **The recipe written down**: SPEC.md 128.25.6.8 checked against what 9.5 and 9.6 actually took, corrected | the diary |
+| 9.8 | **Today's props as families** (128.25.10): ROTOR, POST (with the spring), TUBE; pads, flags, clocks, signs, the cup resident; the lift and the tube decided by measurement (the owner) | the bytes MEASURED; `bonanzaphys`, `bonanzaperf` on the courses that have them |
+| 9.9 | **The final pass**: the rows of 128.25.13 once, the disks; the owner plays PLAYGROUND's new sections | diary |
 
-**Rows:** `bonanzaphys`, `bonanzareplay`, `bonanzacourse`, `bonanzamega`.
+**Open questions** (SPEC.md 128.25.14): one timed pickup kind a course; the
+lift and the tube; steel and glass on a cracked tile; the defaults; the glass
+path's hint.
+
 **Inventory:** C10's framework, I7's scene (with 12's first glass path),
-C8's state.
+C8's state; the props' move (R1 decision 8).
 
 #### Wave 10: Performance (L)
 
