@@ -277158,7 +277158,7 @@ the shell's.
   ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
   row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
   **Since story 9.8 (128.25.6.9) the arena is claimed at `bz_entry`** by
-  `bz_fhome` for the RESIDENT families, before any harness can set the
+  the RESIDENT families' bundle's fetch, before any harness can set the
   byte, so the ceiling claim no longer happens in a session: the forced-move
   leg must arrange its move another way (a claim pressed against the
   arena's top before the launch, or the byte honoured by `op_arset`'s
@@ -277359,10 +277359,15 @@ header is **24 bytes** (`BZF_HDR`; bits 6 and 7 have no entry). The part is
 `apps/bonanza/fam/<name>.asm`, linked against `bzlink.inc` as the shell part
 is, so it names the package's BSS and constants and never a code label: a
 `call` into the package cannot assemble, and a hook does all of its work
-itself. Its row is a lazy `OP_SEG` row, one a family in `bbcourse.FAMILIES`'
-order after every other row: family ID `n` is row `BZ_P_FAM + n - 1`
-(`bzcourse.inc`'s `BZ_FAM_PARTS`, `BZ_NFAM` rows; the Makefile's
-`BZ_FAMPARTS` in the same order, which `os88pkg` holds to the row count).
+itself. Its row is a lazy `OP_SEG` row after every other row: one a
+home-`fetch` family, `bbcourse.FAMILIES`' order, from `BZ_P_FAM`, and then
+ONE row for every home-`resident` family together, the RESIDENT BUNDLE
+(`BZ_P_FBUN`, 128.25.6.9). `bzcourse.inc`'s `BZ_FTAB` maps an ID to its row
+(`bz_ftab`, one byte an ID, `xlat`), `BZ_FAM_PARTS` emits the rows
+(`BZ_NFROW` of them), and `tools/bbcourse.py famparts` prints the Makefile's
+`--part` list for them in the same order, which `os88pkg` holds to the row
+count. (Until the bundle, story 9.8's integration, family ID `n` was row
+`BZ_P_FAM + n - 1`, a row a family.)
 **Every family row is `OP_COMP`**: one plain lazy row would assemble the
 parts standard's plain-row path, 86 resident bytes (MEASURED), so a part LZB
 cannot shrink carries zeros until it can (the probe's 48).
@@ -277388,9 +277393,10 @@ runs `bz_crshdr`, `bz_ffetch` (a refusal ends the load), `bz_arload` (the
 batch's end), then `bz_ffetch` again; the family rows are `OP_ARENA` code
 rows (128.25.4.3). `bz_cdrop` drops the family rows FIRST, the
 reverse of the fetch order, and zeroes `bz_fhk` and `bz_fnf` (one word); a
-row the course did not fetch is a no-op, and a build with no family
-(`BZ_NFAM` 0) assembles no loop, which would otherwise end at `BZ_P_FAM - 1`,
-the title demo's row.
+row the course did not fetch is a no-op, and a build with no fetched family
+(`BZ_NFFETCH` 0) assembles no loop, which would otherwise end at
+`BZ_P_FAM - 1`, the title demo's row. The loop covers the fetch families'
+rows alone: the bundle, the last row, is never dropped.
 
 ##### 128.25.6.3 The hooks
 
@@ -277578,7 +277584,7 @@ its `FAMILIES` row, `home`.
 | home | where the part is | fetched | dropped | the 3-a-course limit (128.25.6.5) | the course's arena reserve (`BZ_CRS_ARENA`) |
 |---|---|---|---|---|---|
 | `fetch` (the default; the probe, GLASS, PICKUPS) | an `OP_ARENA` code row, fetched by the launch of a course that names it (128.25.6.2) | every launch that names it | at every `bz_cdrop` | counted | counted |
-| `resident` (ROTOR, SPRING, TUBE: the owner's "common props always loaded") | the SAME kind of row, fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_fhome`, `bz_entry`) | never | NOT counted | NOT counted |
+| `resident` (ROTOR, SPRING, TUBE: the owner's "common props always loaded") | inside the RESIDENT BUNDLE, ONE `OP_ARENA` code row for every resident family (below), fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_entry`: one read for them all) | never | NOT counted | NOT counted |
 
 Everything else is as for a fetched family: a course names it with `uses`,
 its `FAMV` is in the course's family list and so in the identity, `bz_ffetch`
@@ -277605,11 +277611,78 @@ until the package ends).
 
 **BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FHMASK` (bit
 ID - 1 a resident family's), `BZ_FID_<NAME>` and `BZ_FAMMAX` (the courses'
-longest list, at least 3); `bz_fhome` (bzfam.inc, 22 bytes) from `bz_entry`
-after `op_load`; `bz_cdrop` skips a `BZ_FHMASK` row (16 bytes); the tool's
-3-a-course count and `crs_arena` count only home `fetch`. ROTOR, SPRING and
-TUBE are `resident`; the probe `fetch`. MEASURED in 128.25.10: the floor 72
-paragraphs, the start +0.9 - 1.1 s.
+longest list, at least 3); the tool's 3-a-course count and `crs_arena` count
+only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe and GLASS
+`fetch`. As story 9.8 built it each resident family was its own row, fetched
+by `bz_fhome` (a read each, MEASURED +0.9 - 1.1 s at the start, 128.25.10);
+the bundle below replaced that at integration.
+
+**THE RESIDENT BUNDLE (the owner, 2026-11-16: "all resident families in ONE
+bundled part loaded once at start"; BUILT at integration).** Every
+home-`resident` family's part rides ONE part row, `bzfbun.bin`
+(`BZ_P_FBUN`, the last family row), fetched by `bz_entry` right after
+`op_load` with one `op_fetch` - one read instead of one a family - and never
+dropped (`bz_cdrop`'s loop ends below it). The rule:
+
+- **The rows follow `FAMILIES` alone.** A home-`fetch` family has its own
+  row (ID order, from `BZ_P_FAM`); the resident ones share the bundle's.
+  `bbcourse.py` derives everything from the rows' `home`: `BZ_NFFETCH`,
+  `BZ_NFRES`, `BZ_NFROW`, the part rows (`BZ_FAM_PARTS`), the ID -> row table
+  (`BZ_FTAB`), the bundle's contents (`fbundle`, `fam_bundle`) and the
+  Makefile's `--part` list (`famparts`). Moving a family between `fetch` and
+  `resident` is its row's `home` and nothing else; every part is built
+  whatever its home (`BZ_FAMS`), so the bytes of a part are the same in
+  either place.
+- **The bundle is the parts back to back**, `FAMILIES`' order, each from a
+  paragraph (zeros to the next), each part byte for byte its own build but
+  its header's +11 (`BZF_HPARAS`: 0 in a part alone, its PARAGRAPHS in the
+  bundle, the step to the next header; the tool refuses a part whose +11 is
+  not 0 or that is 256 paragraphs or more).
+- **`bz_ffetch` finds a family by walking the headers.** Its row is
+  `bz_ftab`'s; for the bundle's row it takes the bundle's segments
+  (`op_seg`, `op_cseg`) and `bz_fbfind` walks from the bundle's first byte,
+  each header `'BF'` (anything else: CF, the launch refused as for a bad
+  head), stepping by +11 until +2 is the ID. The family's DATA segment is
+  then **`OSAPI_SEG`'s `SEG_SUBC` over the bundle's data segment at that
+  paragraph, its reach the family's paragraphs**: the bundle's segment plus
+  the paragraph on every real-mode kernel (the kernel's own sum), and on
+  kern_mega the DATA half of a code/data PAIR based there - the same pair
+  every time it is asked (the kernel matches base, limit and kind), so the
+  second `bz_ffetch` of a launch and every later launch make none; it is
+  rebased with the arena and goes with it. The family's CODE segment is the
+  same DISTANCE from its data segment as the bundle's code segment is from
+  the bundle's: 0 on a real-mode kernel, -8 for a pair on kern_mega
+  (`OSAPI_SEG`'s pair convention) - so no CPU test is made. Then the head is
+  checked exactly as a fetched family's (`'BF'`, ID, `FAMV`, the stamp).
+- **kern_mega: a pair per resident family (`SEG_SUBC`), chosen over far
+  entries at the bundle's own code selector plus an offset.** The offset
+  scheme would need every part assembled at its bundle offset (its org no
+  longer 0, so a part's bytes would depend on its neighbours and its home)
+  and `bz_fone`'s header reads and the slot record to carry the offset; the
+  pair costs one LDT pair a resident family (three), made once, and leaves
+  every part at org 0 and `bz_fone` as it was. The bundle row itself is an
+  `OP_ARENA` CODE row like any family row (its own `SEG_SUBC` pair, 20.12.15).
+- **Refused at the start** (no memory; `op_fetch` toasts why), the first
+  course that names a resident family fetches the bundle then, as before,
+  and it stays.
+
+**MEASURED at integration** (`make bonanza`, the merged tree's 46,405 before
+it): BONANZA's image **46,429 (+24)**: `bz_fbfind` 64 and `bz_ftab` 5 (one
+byte an ID) in; `bz_ffetch` 126 -> 137 (+11: the `xlat`, the row kept in DL,
+the bundle's test), `bz_fhome` 22 out, `bz_cdrop` 84 -> 68 (-16: no
+resident row to skip), `bz_entry` 126 -> 128, and two part rows fewer (-16);
+bss unchanged. The bundle **1,152 bytes RAM (72 paragraphs, the same floor:
+rotor 13, spring 16, tube 43), 827 packed - the three parts alone were 193 +
+241 + 590 = 1,024 packed, so the disk saves 197 bytes** (one LZB stream
+over three). **The open, MEASURED** (MartyPC, the CGA, guest seconds at 4.77
+MHz from the double-click to the window, one boot): **8.87 s, 6 reads and 85
+sectors** - against 8.71 s (5 / 81) with no resident family and 9.62 - 9.84 s
+(8 / 97) with three rows: the bundle takes back about 0.8 s of story 9.8's
+0.9 - 1.1, its cost now the one read (and its 4 sectors). The desktop's arena
+as before (`op_artop` 72 of `op_arsz` 128); the record SEEN on PEAK's launch:
+rotor at the bundle's segment, spring +13 paragraphs, tube +29 (data and
+code equal: a real-mode kernel). A PEAK launch 5.58 s and a MILL launch 3.93 s
+to the bracket, inside story 9.8's spread (no family is fetched at a launch).
 
 #### 128.25.7 Per-play state and resets (story 9.2)
 
@@ -277846,7 +277919,9 @@ above the parts are the standard's rounding, not the families' (the verifier,
 story 9.8). **What they cost in time** (MartyPC, guest seconds at 4.77 MHz,
 three boots of the branch, one of the base): opening BONANZA **9.62 - 9.84 s against 8.71 s (+0.9 - 1.1
 s)**, 8 floppy reads and 97 sectors against 5 and 81 - the three fetches at
-the start, each a seek to the file's END where the family rows are; a PEAK
+the start, each a seek to the file's END where the family rows are (the
+RESIDENT BUNDLE, 128.25.6.9, made them one read at integration: **8.87 s**,
+6 reads and 85 sectors, MEASURED); a PEAK
 launch (D of its shipped demo, to the bracket) **5.13 - 5.52 s against 5.25
 s** and MILL's 3.27 - 4.00 s against 3.95 s: no family is fetched at a
 launch, the difference noise. So a family at home `fetch` would cost a launch

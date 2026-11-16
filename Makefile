@@ -22133,8 +22133,11 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
+# The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
+# family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
+# family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
 BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
-            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_FAMPARTS)
+            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -22151,15 +22154,21 @@ $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
                       apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# wave 9 (SPEC.md 128.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row IN ID ORDER (row
-# BZ_P_FAM + ID - 1; bzcourse.inc's BZ_FAM_PARTS has a row a family, so a family added there and not
-# here leaves the --part list a row short, which os88pkg refuses), each apps/bonanza/fam/<name>.asm
+# wave 9 (SPEC.md 128.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
+# family, whatever its home; a family added there and not here leaves `famparts` naming a file nothing
+# builds), each apps/bonanza/fam/<name>.asm
 # LINKED against the package as the shell part is (bzlink.inc: its bss and constants, never a code label)
 $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP) $(BZPARTZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) --part-compress $(BZPARTZF)
+# THE RESIDENT BUNDLE (SPEC.md 128.25.6.9): the home-`resident` families' parts back to back, each from a
+# paragraph, its header's +11 its paragraphs (empty with none resident, and then not a row)
+$(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) tools/bbcourse.py
+	python3 tools/bbcourse.py fbundle $(BUILD)
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
+                      $(PKGZSTAMP) $(BZPARTZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+		--part-compress $(BZPARTZF)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
 bonanza: $(BUILD)/bonanza.o88

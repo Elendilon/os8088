@@ -1236,20 +1236,24 @@ USEGT = 0xFA00                  # (op_seg's table in the image's segment: past t
 
 
 def fam_parts(over=None, nocell=()):
-    """story 9.8: every family part of the build, {its part row: its bytes}
-    (row BZ_P_FAM + ID - 1, bzlink.inc's), OVER replacing a family's by name;
-    NOCELL: the families whose CELL entry is zeroed (GLASS's and the probe's
-    red arms)"""
+    """story 9.8: every family part ROW of the build, {its part row: its bytes}
+    (BZ_P_FAM + bbcourse.fam_row: a `fetch` family's own part, and the RESIDENT
+    BUNDLE, SPEC.md 128.25.6.9, made by bbcourse.fam_bundle as the build makes
+    it), OVER replacing a family's part by name; NOCELL: the families whose
+    CELL entry is zeroed (GLASS's and the probe's red arms)"""
     link = open(R.at("build/bonanza-art/bzlink.inc")).read()
     import re
     pf = int(re.search(r"^BZ_P_FAM\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M).group(1), 0)
-    out = {}
+    parts = {}
     for f in BB.FAMILIES:
         b = (over or {}).get(f["name"])
         b = bytearray(b if b is not None else open(R.at("build/bzf-%s.bin" % f["name"]), "rb").read())
         if f["name"] in nocell:
             b[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
-        out[pf + f["id"] - 1] = bytes(b)
+        parts[f["name"]] = bytes(b)
+    out = dict((pf + BB.fam_row(f), parts[f["name"]]) for f in BB.FAM_FETCH)
+    if BB.FAM_RES:
+        out[pf + len(BB.FAM_FETCH)] = BB.fam_bundle(parts)
     return out
 
 
@@ -1288,6 +1292,13 @@ class UGuest:
                              + struct.pack("<H", USEGT) + b"\x5b\xc3")
         if "op_fetch" in op:
             mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
+        # OSAPI_SEG (bz_fbfind's SEG_SUBC into the RESIDENT BUNDLE, SPEC.md 128.25.6.9): a real-mode
+        # kernel's answer, DX + AX - add dx, ax; clc; retf - at the slot's own far address
+        api = open(os.path.join(ROOT, "apps", "os88api.inc")).read()
+        import re
+        ks = int(re.search(r"^KERNEL_SEG\s+equ\s+(0x[0-9A-Fa-f]+)", api, re.M).group(1), 16)
+        so = int(re.search(r"^%define OSAPI_SEG\s+KERNEL_SEG:(0x[0-9A-Fa-f]+)", api, re.M).group(1), 16)
+        mu.mem_write(ks * 16 + so, b"\x01\xc2\xf8\xcb")
         mu.mem_write(UCS * 16 + op["bz_toast"], b"\xf4")
         for n, b in patch:
             mu.mem_write(UCS * 16 + sym[n], b)
@@ -1488,6 +1499,28 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    # the RESIDENT BUNDLE (SPEC.md 128.25.6.9): the demos above found rotor, spring and tube by walking its
+    # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and PEAK, which names
+    # all three, is refused by bz_ffetch (the next header is not where the step lands)
+    if BB.FAM_RES:
+        ff = dict(fam)
+        row = max(ff)
+        b = bytearray(ff[row])
+        b[BB.FAM_HDR_PARAS] += 1
+        ff[row] = bytes(b)
+        cf = []
+        for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
+            g = UGuest(binp, lst, sym, R.course("peak").cga, parts)
+            g.w("bz_cseg", UPS, 2)
+            g.w("bz_crs", R.CRS_K["peak"], 1)
+            g.w("bz_fs", 1, 1)                  # (OP_SAYGATE: the refusal quiet, as inside a bracket)
+            g.call("bz_crshdr")
+            cf.append(g.call("bz_ffetch")[1])
+        red = cf == [0, 1]
+        out.append("red bunwalk: %s" % ("red: bz_ffetch refused PEAK (its control fetched all three)" if red
+                                        else "STAYED GREEN (CF %s)" % cf))
+        if not red:
+            fails.append("red bunwalk stayed green: a bundle header's step one paragraph off went unnoticed")
     return out, fails
 
 
