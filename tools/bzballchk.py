@@ -18,6 +18,7 @@ import bonanza_assets as B
 
 CSEG = DSEG = 0x1000                # one segment: the package's image (its
 ESEG = 0x5000                       # constants read through DS) and its bss
+ESEG_IN = 0x6000                    # ES at the call (not the part's)
 BOX = 0x2000
 
 
@@ -49,9 +50,14 @@ def assemble(patch=None, listing=False):
         return (code, _labels(lst)) if listing else code
 
 
-def run(code, stored, trace=None):
-    from unicorn import Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE
+def run(code, stored, trace=None, probe=None):
+    """the routine on the stored part; probe = {} also records what the call
+    must keep (SPEC.md 128.25.5.1: AX and ES, the ball's selector never left in
+    ES; DS, SP, DF) and every write outside the part, bz_boxbuf's 1,024 bytes
+    and the stack (kern_mega: the claim is written only through ES)"""
+    from unicorn import Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE, UC_HOOK_MEM_WRITE
     from unicorn.x86_const import UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS, UC_X86_REG_SP
+    from unicorn.x86_const import UC_X86_REG_AX, UC_X86_REG_EFLAGS
     mu = Uc(UC_ARCH_X86, UC_MODE_16)
     mu.mem_map(0, 0x100000)
     assert len(code) <= BOX
@@ -60,11 +66,25 @@ def run(code, stored, trace=None):
     mu.mem_write(DSEG * 16 + BOX, bytes([0xA5]) * 1024)      # scratch is never clean
     mu.reg_write(UC_X86_REG_DS, DSEG)
     mu.reg_write(UC_X86_REG_CS, CSEG)
+    mu.reg_write(UC_X86_REG_ES, ESEG_IN)                     # the caller's ES, which must come back
     mu.reg_write(UC_X86_REG_SS, 0x4000)
     mu.reg_write(UC_X86_REG_SP, 0xFFF0)
     if trace is not None:
         mu.hook_add(UC_HOOK_CODE, lambda uc, a, n, u: trace(uc, a - CSEG * 16, n))
+    if probe is not None:
+        ok = ((ESEG * 16, ESEG * 16 + len(stored)), (DSEG * 16 + BOX, DSEG * 16 + BOX + 1024),
+              (0x40000 + 0xFFF0 - 256, 0x40000 + 0xFFF0))
+        stray = probe.setdefault("stray", [])
+
+        def wr(uc, acc, a, n, v, u):
+            if not any(lo <= a and a + n <= hi for lo, hi in ok):
+                stray.append(a)
+        mu.hook_add(UC_HOOK_MEM_WRITE, wr)
     mu.emu_start(CSEG * 16, CSEG * 16 + 6, count=50000000)
+    if probe is not None:
+        probe["kept"] = (mu.reg_read(UC_X86_REG_AX) == ESEG and mu.reg_read(UC_X86_REG_ES) == ESEG_IN
+                         and mu.reg_read(UC_X86_REG_DS) == DSEG and mu.reg_read(UC_X86_REG_SP) == 0xFFF0
+                         and not mu.reg_read(UC_X86_REG_EFLAGS) & 0x400)
     return bytes(mu.mem_read(ESEG * 16, len(stored)))
 
 
@@ -77,9 +97,13 @@ def check(verbose=True):
     res = []
     for mat in range(3):
         st = B.build_ball3(mat)
-        got = run(code, st)
+        pr = {}
+        got = run(code, st, probe=pr)
         ref = B.build_ball2(mat)
-        res.append((mat, got == ref, next((i for i in range(len(ref)) if got[i] != ref[i]), -1)))
+        at = next((i for i in range(len(ref)) if got[i] != ref[i]), -1)
+        if at < 0 and not (pr["kept"] and not pr["stray"]):
+            at = -2                 # equal, but AX/ES/DS/SP/DF not kept or a write outside its fence
+        res.append((mat, at == -1, at))
     return res
 
 
@@ -120,6 +144,9 @@ def price(text, size, taken, cl, cx, first):
             break
         pre += 2
         t = t[3:]
+    t, n = re.subn(r"\[(es|cs|ss|ds):", "[", t)   # ndisasm writes an override INSIDE the operand
+    pre += 2 * n
+    t = re.sub(r"\b(byte|word) \+(0x[0-9a-f]+)", r"\2", t)   # a sign-extended immediate: still an immediate
     rep = t.startswith(("rep ", "repe ", "repne "))
     if rep:
         t = t.split(" ", 1)[1]
@@ -314,5 +341,6 @@ if __name__ == "__main__":
         print("bzballchk: SKIP - unicorn is not importable here")
         sys.exit(77)
     for mat, ok, at in r:
-        print("  %s: %s%s" % (B.MAT_NAMES[mat], "equal" if ok else "DIFFERS at ", "" if ok else at))
+        print("  %s: %s" % (B.MAT_NAMES[mat], "equal, registers kept, writes fenced" if ok else
+                            "registers not kept or a stray write" if at == -2 else "DIFFERS at %d" % at))
     sys.exit(0 if all(o for _, o, _ in r) else 1)
