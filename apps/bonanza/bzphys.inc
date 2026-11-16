@@ -265,14 +265,15 @@ VAR bz_nbr,36
 VAR bz_nbh,144                  ; D3 (SPEC.md 128.24.7.6): each SPLIT cell of bz_nbr's
                                 ; records, copied from section D at 16 x its window
                                 ; index (a halved cell's two, a quartered one's four)
-VAR bz_dmx,2                    ; bz_dline's two signs as masks (0: +1, FFFFh: -1):
-VAR bz_dmy,2                    ; x's and y's along the line's normal
 VAR bz_sor,2                    ; bz_dray: the other ray's beyond record when it
                                 ; blocks at K (0 none); bz_sfb 1 when the facing
 VAR bz_sfb,1                    ; ray's blocks (no radial corner then), bz_sq the
 VAR bz_sq,1                     ; quadrant; bz_dinner's pick and its "straight"
 VAR bz_dhc,1
 VAR bz_dst,1
+VAR bz_srf,1                    ; bz_swalls: 1 when its inner push refilled the window
+VAR bz_nbp,18                   ; bz_wsplit: each split window cell's record(s) in
+                                ; bz_nbh for bz_blocks (FFh: none; the centre FFh FFh)
 ; the idle test's last frame (bz_mkboxes, 128.10.8 item 2)
 VAR bz_osb,2
 VAR bz_ozb,2
@@ -1469,7 +1470,12 @@ bz_step:
     ; own step 5 (bz_swalls); a course with none never comes here ----
 .split:
     cmp byte [bz_wch], 0        ; the START for the fallback's undo, as the
-    jne .sp0                    ; prop path keeps it
+    jne .sp0                    ; prop path keeps it: with a prop in the
+    test byte [bz_ps], 5        ; window, or a split centre (its lines can
+    jnz .sst                    ; push it into another cell)
+    test byte [bz_nbr + BZN_C + 2], 0ch
+    jz .sp0
+.sst:
     BZ_START
 .sp0:
     call bz_sdoor               ; bz_pdoor: 1, or a windmill's doorway
@@ -1489,7 +1495,16 @@ bz_step:
 .sw:
     call bz_swalls              ; step 5: the lines inside C, the edges, the
     jc .swcap                   ; corner's rays and the corner (CF: a doorway
-    jmp .nocorner               ; open), then the prop path's posts on
+    test byte [bz_ps], 5        ; open), then the prop path's posts on - or,
+    jz .swpl                    ; with no prop in the window, wave 2's tail
+    jmp .nocorner
+.swpl:
+    mov byte [bz_pdoor], 0      ; (bz_wch against the START again, as .pfb
+    cmp byte [bz_srf], 0        ; makes it, when an inner push refilled the
+    je .swfb                    ; window round another cell)
+    jmp .pfb
+.swfb:
+    jmp .fb
 .swcap:
     jmp .pdcap
 .spcap:
@@ -3384,52 +3399,36 @@ bz_blocks:
     ; its RECORD - an edge neighbour's that owns the shared edge, a corner
     ; neighbour's at K (either of two, the first that blocks), the centre's
     ; picked one - and SI is left on the record that decided (its e for the
-    ; caller's reflection).  BZ_SPLIT_WIN is the model's OWNER and K_RECS
+    ; caller's reflection).  bz_nbp holds each window cell's, bz_wsplit's
+    ; from BZ_SPLIT_WIN (the model's OWNER and K_RECS)
     mov bx, si
-    sub bx, bz_nbr              ; BX = 4 x the window index
-    mov cx, bx
-    shl cx, 1
-    shl cx, 1
-    add cx, bz_nbh              ; CX = the cell's records
+    sub bx, bz_nbr
     shr bx, 1
-    shr bx, 1
-    sub al, BZ_KTB
-    mov ah, 9
-    mul ah
-    add bx, ax
-    mov al, [bz_swin + bx]
+    mov ax, [bz_nbp + bx]       ; AL, AH: the record(s) in bz_nbh (FFh none)
     cmp al, 0ffh
     jne .sk
     mov al, [si + 2]            ; the centre: the pick
     and al, 0fh
-    push cx
     call bz_dpick
-    pop cx
+    shl al, 1
+    shl al, 1
+    add al, 16 * 4
+    mov ah, 0ffh
 .sk:
-    mov bl, al                  ; BL = the record(s)
-    and al, 3
-    shl al, 1
-    shl al, 1
-    cbw
-    mov si, cx
-    add si, ax                  ; SI = the (first) record
-    test bl, 16
-    jz bz_blocks                ; one record: its own test
-    push cx
+    mov bl, ah
+    xor ah, ah
+    add ax, bz_nbh
+    xchg ax, si                 ; SI = the (first) record
+    cmp bl, 0ffh
+    je bz_blocks                ; one record: its own test
     push bx
     call bz_blocks              ; (a record's test keeps SI)
     pop bx
-    pop cx
     jc .r1                      ; the first blocks: SI on it
     mov al, bl                  ; else the second, at K too
-    shr al, 1
-    shr al, 1
-    and al, 3
-    shl al, 1
-    shl al, 1
-    cbw
-    mov si, cx
-    add si, ax
+    xor ah, ah
+    add ax, bz_nbh
+    xchg ax, si
     jmp bz_blocks
 .r1:
     ret
@@ -3577,6 +3576,43 @@ bz_wsplit:
     cmp al, BZ_KTB
     jb .n
     mov dl, 8
+    push ax                     ; bz_nbp: this cell's record(s) for bz_blocks,
+    push bx                     ; BZ_SPLIT_WIN's entry made offsets in bz_nbh
+    mov cx, bx
+    sub cx, bz_nbr
+    shr cx, 1                   ; CX = 2 x the window index
+    sub al, BZ_KTB              ; + 9 (the kind - 4)
+    mov ah, al
+    shl al, 1
+    shl al, 1
+    shl al, 1
+    add al, ah
+    mov bx, cx
+    shr bx, 1
+    add bl, al
+    mov al, [bz_swin + bx]      ; first | second << 2 | 16 when two; FFh the centre
+    mov ah, 0ffh
+    cmp al, ah
+    je .p
+    mov bl, cl                  ; 16 x the index = 8 CX
+    shl bl, 1
+    shl bl, 1
+    shl bl, 1
+    test al, 16
+    jz .one
+    mov ah, al
+    and ah, 0ch
+    add ah, bl                  ; the second's offset
+.one:
+    and al, 3
+    shl al, 1
+    shl al, 1
+    add al, bl
+.p:
+    mov bx, cx
+    mov [bz_nbp + bx], ax
+    pop bx
+    pop ax
     mov cx, BZ_PAIR / 2         ; a halved cell's words ...
     cmp al, BZ_KQ
     jne .h
@@ -3641,6 +3677,7 @@ bz_sdoor:
 ; facing ray's piece blocked - else today's corner.  -> CF = 1: the doorway
 ; was OPEN (the caller captures).  ES = the course.  Preserves ES.
 bz_swalls:
+    mov byte [bz_srf], 0
     mov al, [bz_nbr + BZN_C + 2]
     and al, 0fh
     cmp al, BZ_KTB
@@ -3655,6 +3692,7 @@ bz_swalls:
     cmp ax, [bz_wgy]
     je .edges
 .mv:
+    mov byte [bz_srf], 1        ; (the step's .pfb: the cell against the START)
     call bz_win9i
     call bz_sdoor
 .edges:
@@ -3696,7 +3734,30 @@ bz_swalls:
     cmp di, bz_sedt + 2 * BZ_SEDTE
     jb .ea
     cmp byte [bz_psp], 0        ; the rays, a split cell in the window (the
-    je .corn                    ; inner refill can leave none)
+    je .corn                    ; inner refill can leave none) - and the
+    mov ax, [bz_gx]             ; centre near its quadrant's corner K: its
+    and ah, 15                  ; distance x sqrt 2 x 256 to K's lines, du +
+    cmp ah, 8                   ; dv, under DIAG (a ray's push), or in the
+    jb .du                      ; corner zone (its radial).  Neither: no ray
+    neg ax                      ; can push, and no corner follows
+    add ax, 4096
+.du:
+    mov cx, [bz_gy]
+    and ch, 15
+    cmp ch, 8
+    jb .dv
+    neg cx
+    add cx, 4096
+.dv:
+    mov bx, ax
+    add bx, cx
+    cmp bx, BZ_DIAG
+    jb .ray
+    cmp ax, BZ_RAD * 256
+    jae .out
+    cmp cx, BZ_RAD * 256
+    jae .out
+.ray:
     call bz_dray
     cmp byte [bz_sfb], 0
     jne .out
@@ -3732,7 +3793,7 @@ bz_swalls:
     mov ax, [bx]
     or ax, ax
     jg .erf
-    jmp short .enx
+    jmp .enx
 .edoor:                         ; the doorway: low enough to touch it ...
     push si
     mov dx, bp
@@ -3913,46 +3974,51 @@ bz_dinner:
     ret
 
 ; bz_dset - bz_dline's line: AL = its kind (TB, LR), AH = sigma's mask (0 for
-; +1, FFh for -1), CX = its offset (x 256) -> bz_dmx = sigma's, bz_dmy =
-; -sigma's (TB) or sigma's (LR), DX = sigma x the offset; then bz_dline.
+; +1, FFh for -1), CX = its offset (x 256), SI = the record beyond it.  The
+; masks of sx = sigma and sy = -sigma (TB) or sigma (LR) in DI and BP - each
+; also the sign word of its product - and DX = sigma x the offset; then
+; bz_dline.  Preserves SI, DI, BP; clobbers AX, BX, CX, DX.
 bz_dset:
+    push di
+    push bp
     mov dl, ah
     mov dh, ah
-    mov [bz_dmx], dx
+    mov di, dx
     cmp al, BZ_KTB
     jne .lr
     not dx
 .lr:
-    mov [bz_dmy], dx
-    mov dx, [bz_dmx]
-    xor cx, dx
-    sub cx, dx
+    mov bp, dx
+    xor cx, di
+    sub cx, di
     mov dx, cx
+    call bz_dline
+    pop bp
+    pop di
+    ret
 ; bz_dline - 128.24.7.2's push and reflection off a DIAGONAL line, the
 ; cell's own or a corner's ray (bbcourse.Physics._dline, integer-exact): sx,
-; sy the signs bz_dmx, bz_dmy hold (the line's normal toward the centre), DX
-; = sigma x the line's offset.  w = sx pu + sy pv - DX (its distance x sqrt 2
-; x 256); w >= DIAG: nothing, CF = 0.  Else h = (DIAG - w + 1) >> 1, gx +=
-; sx h, gy += sy h; wv = sx gvx + sy gvy (the velocity into it, x sqrt 2) and
-; when wv < 0, t = (e |wv|) >> 8, 0 under BZ_DWMIN (e by the record at SI:
-; bz_wrefl's, 230 a bumper half, else the material's EW), k = (t + |wv|) >> 1,
-; gvx += sx k, gvy += sy k; bz_bgr = 0; CF = 1.  No clamp: every e <= 256
-; keeps each new component between the old two (128.24.7.2).  Preserves SI,
-; DI, BP; clobbers AX, BX, CX, DX.
+; sy the signs whose masks DI, BP hold (the line's normal toward the centre),
+; DX = sigma x the line's offset.  w = sx pu + sy pv - DX (its distance x
+; sqrt 2 x 256); w >= DIAG: nothing, CF = 0.  Else h = (DIAG - w + 1) >> 1,
+; gx += sx h, gy += sy h; wv = sx gvx + sy gvy (the velocity into it, x
+; sqrt 2) and when wv < 0, t = (e |wv|) >> 8, 0 under BZ_DWMIN (e by the
+; record at SI: bz_wrefl's, 230 a bumper half, else the material's EW), k =
+; (t + |wv|) >> 1, gvx += sx k, gvy += sy k; bz_bgr = 0; CF = 1.  No clamp:
+; every e <= 256 keeps each new component between the old two (128.24.7.2).
+; Preserves SI, DI, BP; clobbers AX, BX, CX, DX.
 %if BZ_DWMIN != BZ_WMIN
  %error "bz_dline reflects through bz_wrefl, whose dead band is BZ_WMIN: give bz_refl a second entry taking BZ_DWMIN (SPEC.md 128.24.7.2)"
 %endif
 bz_dline:
     mov ax, [bz_gx]
     and ah, 0fh
-    mov bx, [bz_dmx]
-    xor ax, bx
-    sub ax, bx                  ; sx pu
+    xor ax, di
+    sub ax, di                  ; sx pu
     mov cx, [bz_gy]
     and ch, 0fh
-    mov bx, [bz_dmy]
-    xor cx, bx
-    sub cx, bx                  ; sy pv
+    xor cx, bp
+    sub cx, bp                  ; sy pv
     add ax, cx
     sub ax, dx                  ; w
     cmp ax, BZ_DIAG
@@ -3964,25 +4030,21 @@ bz_dline:
     add ax, BZ_DIAG + 1
     shr ax, 1                   ; h >= 1
     mov cx, ax
-    mov dx, [bz_dmx]
-    xor ax, dx
-    sub ax, dx                  ; sx h, DX its sign
+    xor ax, di
+    sub ax, di                  ; sx h: its high word the mask
     add [bz_gx], ax
-    adc [bz_gx + 2], dx
+    adc [bz_gx + 2], di
     mov ax, cx
-    mov dx, [bz_dmy]
-    xor ax, dx
-    sub ax, dx
+    xor ax, bp
+    sub ax, bp
     add [bz_gy], ax
-    adc [bz_gy + 2], dx
+    adc [bz_gy + 2], bp
     mov ax, [bz_gvx]
-    mov bx, [bz_dmx]
-    xor ax, bx
-    sub ax, bx
+    xor ax, di
+    sub ax, di
     mov cx, [bz_gvy]
-    mov bx, [bz_dmy]
-    xor cx, bx
-    sub cx, bx
+    xor cx, bp
+    sub cx, bp
     add ax, cx                  ; wv
     jns .nv
     push ax
@@ -3991,14 +4053,12 @@ bz_dline:
     sub ax, cx                  ; t + |wv|
     shr ax, 1                   ; k
     mov cx, ax
-    mov bx, [bz_dmx]
-    xor ax, bx
-    sub ax, bx
+    xor ax, di
+    sub ax, di
     add [bz_gvx], ax
     mov ax, cx
-    mov bx, [bz_dmy]
-    xor ax, bx
-    sub ax, bx
+    xor ax, bp
+    sub ax, bp
     add [bz_gvy], ax
 .nv:
     mov byte [bz_bgr], 0        ; (6b: a wall closes the grace)

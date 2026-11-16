@@ -5,7 +5,8 @@
                                                       [--only NAME ...]
     python3 tests/bonanza_phys.py --red NAME        (a red arm, below)
     python3 tests/bonanza_phys.py --check           (the host half: every scenario built and proved on the
-                                                     model, every red arm's broken copy assembled)
+                                                     model, every red arm's broken copy assembled; and the
+                                                     SPLIT leg, tests/bonanza_dsplit.py, under unicorn)
 
 THE REFERENCE is tools/bbcourse.py's Physics class - the model SPEC.md
 128.11.8 binds the guest to ("the guest and bbcourse.Physics do exactly
@@ -2450,6 +2451,13 @@ def main():
         for b in bad:
             print("FAIL %s" % b)
         for line in R.check_reds(REDS, "bonanza_phys"):
+            print(line)
+        # SPEC.md 128.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn against
+        # the model, every step (tests/bonanza_dsplit.py; its red arms by hand, `--reds`), until D5's PLAYGROUND
+        # gives this row a split course to replay on the glass
+        import bonanza_dsplit
+        bad += bonanza_dsplit.check(200)
+        for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
             print(line)
         assert not bad, "%d scenario(s) not proved on the model" % len(bad)
         return
