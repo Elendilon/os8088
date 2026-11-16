@@ -10189,6 +10189,59 @@ def write_out(out, paths, path=None, title=None):
     return courses
 
 
+def _title_checks(res):
+    """SPEC.md 128.23.6, item 13: the title course compiles with its view, art
+    and label as built, its four demos meet their expects and are BZ_TSTEPS
+    steps; and the controls - a view off the picture, an art pixel off it, a
+    demo a step short, an expect not met - are each REFUSED"""
+    path = os.path.join(COURSE_DIR, "title.bbc")
+    if not os.path.exists(path):
+        return
+    src = open(path).read()
+    tc = compile_course(path)
+    v = tc.model["grid"]["view"]
+    lab = [L for L in tc.lanes if props_label(tc, L)]
+    ok = (tc.gflags & GF_VIEW and v and len(lab) == 1 and len(lab[0]["poses"]) == 4
+          and all(lab[0]["poses"][1 + i] == label_glyph(ch, lab[0]["rect"][0], lab[0]["rect"][1], 3)
+                  for i, ch in enumerate("123")))
+    res.append(("13 TITLE: the window FIXED (BZG1 +28 bit 2, +30/+31 %04Xh), one LABEL lane whose poses 1 - 3 are "
+                "tallx.f8's 1 2 3, never an OBS cell" % v, bool(ok) and not any(
+                    p.get("label") and p["at"] in tc.pcell for p in tc.props)))
+    BZ_TITLE_K[0] = len(default_paths()) + 1
+    try:
+        demos = build_title_demos(tc)
+        res.append(("13 TITLE: its %d demos replayed on the model from their starts, every one BZ_TSTEPS (%d) steps "
+                    "and its expects met (BZTDEMO.BIN %d bytes)" % (TITLE_NDEMO, TITLE_STEPS, len(demos)), True))
+    except CourseError as e:
+        res.append(("13 TITLE: its demos: %s" % e, False))
+    controls = []
+    for what, text in (("a view off the picture", src.replace("view 56 124", "view 4000 124")),
+                       ("an art pixel off the picture", src.replace("art title.bba 0 0", "art title.bba 700 0"))):
+        try:
+            compile_course(text, "<title, %s>" % what)
+            controls.append((what, False))
+        except CourseError:
+            controls.append((what, True))
+    with open(title_demo_path(1)) as f:
+        d = parse_bzt(f.read())
+    short = dict(d, runs=d["runs"][:-1] + ([(d["runs"][-1][0], d["runs"][-1][1] - 1)] if d["runs"][-1][1] > 1
+                                            else []))
+    for what, dd in (("a demo a step short", short), ("an expect not met", dict(d, expects=[("shatter", 1)]))):
+        try:
+            title_check(tc, dd, "<title demo 1, %s>" % what)
+            controls.append((what, False))
+        except CourseError:
+            controls.append((what, True))
+    res.append(("13 TITLE negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
+                                                                     for w, g in controls),
+                all(g for _w, g in controls)))
+
+
+def props_label(c, L):
+    """is lane L a LABEL's (SPEC.md 128.23.2)?"""
+    return bool(c.props[L["prop"]].get("label"))
+
+
 # =============================================================================
 # --selfcheck (SPEC.md 128.10.4.6): every malformed input is a string HERE,
 # so nothing under apps/ is a fixture
@@ -14752,6 +14805,7 @@ def selfcheck(paths=None):
     _w5_compact(courses, res)
     _w5_dither(courses, res, getattr(compile_all, "demos", None))
     _w5_budget(courses, res)
+    _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
     ok = True
     for what, good in res:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
