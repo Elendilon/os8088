@@ -274206,7 +274206,7 @@ the skip's kinds, three taken jumps) - item 6 below.
    | a flag | its first TOUCH (`bz_cksn`'s bit, `bz_phys`) | its pose is the touch |
    | a clock's digit | a new SECOND (`bz_tsec` against `bz_lcsec`), at the walk's start, the clock lanes of the slice | every clock counts the same second |
    | a SIGN (wave 8R, 128.22.4.1: the pathway's pads, icons, gates and reveal groups, the title's label) | `bz_nset` (its pose written) | its pose is the only state it has; a marked sign is walked, never skipped |
-   | a GLASS crack or glass tile (wave 9, 128.25.18) | its family's CONTACT, STEP and RESET hooks, where its state changes | its pose is its state |
+   | a GLASS crack or glass tile (wave 9, 128.25.18) | its family's CONTACT, STEP and RESET hooks, where its state changes, through `bz_fmark` (which also makes the next walk: 128.25.6.3) | its pose is its state |
    | any lane | ENTERING the range (rows that did not meet the last range, `bz_ora`/`bz_orb`) | a lane outside it may be stale (item 3) |
    | any lane | the column band MOVING while it is OUT (`bz_lout`) | it may be back in the band |
    | every lane | `bz_pread` and `bz_lfull` | a play's start, a full write |
@@ -277452,6 +277452,31 @@ where the step tests its own), so the next step's window reads the new state.
 lane kind: a family's ENTER, CONTACT and STEP hooks set the mark of each
 lane whose true pose they moved, as physics' kick and flag do today.
 
+**A hook marks through `bz_fmark`, never by writing `bz_latt` itself**
+(the owner, 2026-11-16: *"When rolling steel (or jumping steel) onto a
+cracked tile, you fall through it without the hole ever forming."*). The
+walk's QUIET test (`bz_props`, 128.19.10) reads the camera, the clocks,
+the kicks and the flags but no MARK, so a mark alone with the camera still
+was never walked: a crack broken by a landing (the camera at rest over a
+ball falling straight down) dropped the ball through a hole that was never
+drawn, and the respawn's restore waited up to a second the same way. A
+pose change made outside the walk's own reads therefore also clears
+`bz_lqt` - `bz_nset`'s rule for a sign. `bz_fmark` (bzfam.inc) does both:
+
+    call far [bz_fmkp]          ; BX = the element (its lane): bz_latt
+                                ; marked, bz_lqt 0; preserves everything
+
+`bz_fmkp` is a far pointer in the package's bss (so `bzlink.inc` names it)
+which every dispatch (`bz_fall`, `bz_fone`) writes before it calls a hook,
+at the package's CS of that moment; 4 bytes a site in a part (a
+`mov byte [bz_latt + bx], 1` was 5). MEASURED: 21 resident bytes (the
+routine 11, the dispatch's two writes 10) and 4 of bss. `bonanzaphys`'s
+unicorn half holds it: every step of every family scenario starts with the
+element lanes unmarked and the walk QUIET, and a step that moves an
+element's pose must leave its lane marked and `bz_lqt` 0; red arms
+`glsquiet` (the part's marks as they were), `glsmark` (the count's break
+unmarked) and `fmkquiet` (`bz_fmark` without the wake) go red.
+
 **PINNED (story 9.1): the register contract.** A hook is entered by `call
 far` with DS = ES = the package, SS the task's, the direction flag clear,
 and:
@@ -278229,7 +278254,7 @@ it ran.
 | hook | GLASS |
 |---|---|
 | RESET (either class) | the slot's count 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
-| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
 | STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
 | POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
