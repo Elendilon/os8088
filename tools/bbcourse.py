@@ -261,6 +261,12 @@ BGRACE = 4                    # wave 6b: the boost's LATE GRACE, steps after an 
                               # bouncing first contact (SPEC.md 128.17.4.5; 4 since
                               # gate 1's round 3, 128.17.16)
 WMIN = 16                     # a wall rebound under this is 0 (no chatter)
+# SPEC.md 128.24.7 (story D2): a WALL ALONG A DIAGONAL.  Its distance and the normal speed are taken x sqrt 2
+# (w = pu - pv, wv = gvx - gvy, ...), so the radius is too: DIAG = round(6 sqrt 2 x 256), 1/256 gu.  DWMIN is
+# the diagonal's dead band on that scale (128.24.12 Q7, the owner: "the tighter 11.3, a NAMED constant to
+# tune after the owner plays"): 16 there is 16 / sqrt 2 = 11.3 of normal speed against an edge's WMIN 16
+DIAG = 2172
+DWMIN = 16
 E_BUMPER = 230                # a WALL with a bounce surface, every ball
 E_MAT = 224                   # a bounce FLOOR (a mat), every ball
 BMIN_MAT = 128                # ...and its rebound floor
@@ -614,8 +620,10 @@ def box_cells(a0, a1, s0, s1, where):
     s = wx + wy) spans gx - gy from 16 (a - 1) to 16 (a + 1), its TB diagonal at 16 a, and gx + gy from 16 s
     to 16 s + 32, its LR diagonal at 16 s + 16: whole across when a0 < a < a1, its RIGHT half on a = a0 and
     its LEFT half on a = a1; whole in depth when s0 <= s and s + 2 <= s1, its DOWN half when s + 1 = s0 and
-    its UP half when s + 1 = s1.  Cut both ways it would be QUARTERED: refused, naming the corner (a box
-    whose four numbers are all even or all odd never quarters a cell).  -> (cells, {cell: (diag, half)})"""
+    its UP half when s + 1 = s1.  Cut both ways (a corner whose a and s differ in parity) it lays the ONE
+    QUARTER inside the box (R4: the box's corner is a 45-degree chamfer): the quarter on the right (N or E)
+    when a = a0, on the left (S or W) when a = a1, the down one (E or S) when s + 1 = s0, the up one (N or
+    W) when s + 1 = s1.  -> (cells, {cell: (kind, half or quarter)})"""
     if a1 <= a0 or s1 <= s0:
         raise CourseError("%s: box %d %d %d %d is empty (a0 < a1, s0 < s1)" % (where, a0, a1, s0, s1))
     out, half = set(), {}
@@ -629,12 +637,8 @@ def box_cells(a0, a1, s0, s1, where):
             in_a = a0 < a < a1
             in_s = s0 <= s and s + 2 <= s1
             if cut_a and cut_s:
-                ca, cs = a, s + 1
-                raise CourseError("%s: box %d %d %d %d would cut cell (%d, %d) in QUARTERS at its corner a %d, "
-                                  "s %d (the box's four numbers differ in parity there): move that corner one "
-                                  "column or row, or finish the end with a `half` (SPEC.md 128.24.4)"
-                                  % (where, a0, a1, s0, s1, cell[0], cell[1], ca, cs))
-            if cut_a and in_s:
+                half[cell] = (KIND_Q, QIDX[(1 if a == a0 else 0, 1 if s + 1 == s0 else 0)])
+            elif cut_a and in_s:
                 half[cell] = (KIND_TB, 1 if a == a0 else 0)
             elif cut_s and in_a:
                 half[cell] = (KIND_LR, 1 if s + 1 == s0 else 0)
@@ -645,17 +649,24 @@ def box_cells(a0, a1, s0, s1, where):
 
 
 def _shape_h(toks, i, where, halves=True):
-    """a shape that may lay HALVES (SPEC.md 128.24.4): `[half <side>] <shape>` or `box a0 a1 s0 s1`.
-    halves=False: no `half` clause (surface).  -> (frozenset of cells, {cell: (diag, half)}, next index)"""
+    """a shape that may lay PIECES (SPEC.md 128.24.4): `[half <side>] <shape>`, `[quarter n|e|s|w] <shape>`
+    or `box a0 a1 s0 s1`.  halves=False: no `half` or `quarter` clause (surface).  -> (frozenset of cells,
+    {cell: (kind, half or quarter)}, next index)"""
     side = None
     if halves and i < len(toks) and toks[i] == ('w', "half"):
         if i + 1 >= len(toks) or toks[i + 1][1] not in SIDES:
             raise CourseError("%s: half takes up, down, left or right" % where)
         side = SIDES[toks[i + 1][1]]
         i += 2
+    elif halves and i < len(toks) and toks[i] == ('w', "quarter"):
+        if i + 1 >= len(toks) or toks[i + 1][1] not in QUARTERS:
+            raise CourseError("%s: quarter takes n, e, s or w (the cell edge the quarter owns)" % where)
+        side = QUARTERS[toks[i + 1][1]]
+        i += 2
     if i < len(toks) and toks[i] == ('w', "box"):
         if side is not None:
-            raise CourseError("%s: `half` on a box: the box already decides its halves (SPEC.md 128.24.4)" % where)
+            raise CourseError("%s: `half` or `quarter` on a box: the box already decides its pieces (SPEC.md "
+                              "128.24.4)" % where)
         if i + 5 > len(toks):
             raise CourseError("%s: box needs <a0> <a1> <s0> <s1>" % where)
         a0, a1, s0, s1 = (_int(toks[i + k], where, "box") for k in range(1, 5))
@@ -1100,32 +1111,59 @@ class Tile:
 
 _KIND = {"floor": KIND_FLOOR, "wall": KIND_WALL, "goal": KIND_GOAL}
 
-# --- SPEC.md 128.24: a SPLIT cell, cut along one diagonal into two HALVES ------------------------------
+# --- SPEC.md 128.24: a SPLIT cell - cut along one diagonal into two HALVES, or along both into four QUARTERS
 # TB (kind 4): the diagonal T to B, u = v, screen-VERTICAL: half A the LEFT (T, B, L: u < v), owning the
 # west and south edges; half B the RIGHT (T, R, B: u >= v), north and east.  LR (kind 5): L to R,
 # u + v = 16, screen-HORIZONTAL: half A the UP (T, R, L: u + v < 16), west and north; half B the DOWN
-# (R, B, L: u + v >= 16), east and south.  A point ON the diagonal is B's (128.24.7.1).
-KIND_TB, KIND_LR = 4, 5
+# (R, B, L: u + v >= 16), east and south.  A point ON the diagonal is B's (128.24.7.1).  QUARTERED (kind 6,
+# R4): both diagonals, four triangles meeting at the centre c, each named by the ONE cell edge it owns -
+# N (T, R, c: u >= v, u + v < 16), E (R, B, c: u >= v, u + v >= 16), S (B, L, c: u < v, u + v >= 16),
+# W (L, T, c: u < v, u + v < 16) - records in that order.  Kind 7 is RESERVED for a CHANNEL (128.24.13),
+# 8 - 15 for 128.10.4.3's other non-planar floors: every kind from 4 up is "a cell whose +0 - +1 point into
+# section D", the kind saying how many records are there and how they are read
+KIND_TB, KIND_LR, KIND_Q = 4, 5, 6
+KIND_CHANNEL = 7              # RESERVED (SPEC.md 128.24.13): not built
+SPLIT_KINDS = (KIND_TB, KIND_LR, KIND_Q)
+NREC = {KIND_TB: 2, KIND_LR: 2, KIND_Q: 4}        # the records a split cell's offset names in D
+Q_N, Q_E, Q_S, Q_W = 0, 1, 2, 3
+QIDX = {(1, 0): Q_N, (1, 1): Q_E, (0, 1): Q_S, (0, 0): Q_W}   # (u >= v, u + v >= 16) -> the quarter
+QSIDE = {Q_N: (1, 0), Q_E: (1, 1), Q_S: (0, 1), Q_W: (0, 0)}
 SIDES = {"left": (KIND_TB, 0), "right": (KIND_TB, 1), "up": (KIND_LR, 0), "down": (KIND_LR, 1)}
-SIDE_NAME = {v: k for k, v in SIDES.items()}
+QUARTERS = {"n": (KIND_Q, Q_N), "e": (KIND_Q, Q_E), "s": (KIND_Q, Q_S), "w": (KIND_Q, Q_W)}
+SIDE_NAME = dict([(v, k) for k, v in SIDES.items()] + [(v, "quarter " + k) for k, v in QUARTERS.items()])
 EDGE_D = {"W": (-1, 0), "N": (0, -1), "E": (1, 0), "S": (0, 1)}   # a cell's edges: W u = 0 (T-L), N v = 0
 OPP = {"W": "E", "E": "W", "N": "S", "S": "N"}                     # (T-R), E u = 16 (R-B), S v = 16 (L-B)
-# 128.24.7.3's table: the half (0 A, 1 B) of a split cell that OWNS each of its edges
-OWNER = {KIND_TB: {"W": 0, "S": 0, "N": 1, "E": 1}, KIND_LR: {"W": 0, "N": 0, "E": 1, "S": 1}}
-# a cell's corners as (dx, dy): T (0, 0), R (1, 0), B (1, 1), L (0, 1); each edge's two, each half's three
+# 128.24.7.3's table: the record (0 A, 1 B; a quarter's index) of a split cell that OWNS each of its edges
+OWNER = {KIND_TB: {"W": 0, "S": 0, "N": 1, "E": 1}, KIND_LR: {"W": 0, "N": 0, "E": 1, "S": 1},
+         KIND_Q: {"N": Q_N, "E": Q_E, "S": Q_S, "W": Q_W}}
+# a cell's corners as (dx, dy): T (0, 0), R (1, 0), B (1, 1), L (0, 1); each edge's two.  Pieces' polygons in
+# HALF cells (0 - 2, the centre c (1, 1))
 _T, _R, _B, _L = (0, 0), (1, 0), (1, 1), (0, 1)
 EDGE_CORNERS = {"W": (_T, _L), "N": (_T, _R), "E": (_R, _B), "S": (_L, _B)}
-HALF_CORNERS = {(KIND_TB, 0): (_T, _B, _L), (KIND_TB, 1): (_T, _R, _B),
-                (KIND_LR, 0): (_T, _R, _L), (KIND_LR, 1): (_R, _B, _L)}
-DIAG_ENDS = {KIND_TB: (_T, _B), KIND_LR: (_L, _R)}
+H_T, H_R, H_B, H_L, H_C = (0, 0), (2, 0), (2, 2), (0, 2), (1, 1)
+PIECE_POLY = {(KIND_TB, 0): (H_T, H_B, H_L), (KIND_TB, 1): (H_T, H_R, H_B),
+              (KIND_LR, 0): (H_T, H_R, H_L), (KIND_LR, 1): (H_R, H_B, H_L),
+              (KIND_Q, Q_N): (H_T, H_R, H_C), (KIND_Q, Q_E): (H_R, H_B, H_C),
+              (KIND_Q, Q_S): (H_B, H_L, H_C), (KIND_Q, Q_W): (H_L, H_T, H_C)}
+# the lines inside a split cell between two of its records: (record, record, its two ends in half cells, its
+# kind TB or LR) - a WALL record above the other along it (128.24.4), a TB one edge-on (the black line)
+INNER = {KIND_TB: ((0, 1, H_T, H_B, KIND_TB),), KIND_LR: ((0, 1, H_L, H_R, KIND_LR),),
+         KIND_Q: ((Q_W, Q_N, H_T, H_C, KIND_TB), (Q_S, Q_E, H_C, H_B, KIND_TB),
+                  (Q_W, Q_S, H_L, H_C, KIND_LR), (Q_N, Q_E, H_C, H_R, KIND_LR))}
+# a corner K's records in a split cell (128.24.7.4): both halves where K ends the diagonal, the quarters it is
+# a corner of
+K_RECS = {KIND_TB: {(0, 0): (0, 1), (16, 16): (0, 1), (16, 0): (1,), (0, 16): (0,)},
+          KIND_LR: {(0, 16): (0, 1), (16, 0): (0, 1), (0, 0): (0,), (16, 16): (1,)},
+          KIND_Q: {(0, 0): (Q_W, Q_N), (16, 0): (Q_N, Q_E), (16, 16): (Q_E, Q_S), (0, 16): (Q_S, Q_W)}}
 
 
 class Split:
-    """a SPLIT cell (SPEC.md 128.24.3): its diagonal (KIND_TB or KIND_LR) and
-    its two halves, A then B, each a Tile or None (VOID).  A whole cell is a
-    Tile; nothing else in `tiles` is a Split.  .surf the cell's surface (its
-    floor halves', 128.24.4), set by build_tiles.  It has no plane of its own:
-    every consumer of a `tiles` entry reads its RECORDS (tile_recs(), edge_rec())"""
+    """a SPLIT cell (SPEC.md 128.24.3): its kind (KIND_TB, KIND_LR, or KIND_Q
+    for a QUARTERED cell) and its records - two halves A, B, or four quarters N,
+    E, S, W - each a Tile or None (VOID).  A whole cell is a Tile; nothing else
+    in `tiles` is a Split.  .surf the cell's surface (its floor records', 128.24.4),
+    set by build_tiles.  It has no plane of its own: every consumer of a `tiles`
+    entry reads its RECORDS (tile_recs(), edge_rec())"""
     __slots__ = ("diag", "halves", "line", "surf")
 
     def __init__(self, diag, halves, line):
@@ -1141,12 +1179,12 @@ class Split:
         return False
 
     def owner(self, edge):
-        """the half (a Tile or None) that owns the cell's edge W, N, E or S"""
+        """the record (a Tile or None) that owns the cell's edge W, N, E or S"""
         return self.halves[OWNER[self.diag][edge]]
 
 
 def tile_recs(t):
-    """a `tiles` entry's RECORDS: [t] for a whole Tile, a split's non-VOID halves"""
+    """a `tiles` entry's RECORDS: [t] for a whole Tile, a split's non-VOID halves or quarters"""
     if t is None:
         return []
     if isinstance(t, Split):
@@ -1155,16 +1193,19 @@ def tile_recs(t):
 
 
 def edge_rec(t, edge):
-    """the record of a `tiles` entry at its edge W/N/E/S: a whole tile, the owning half (None: VOID)"""
+    """the record of a `tiles` entry at its edge W/N/E/S: a whole tile, the owning record (None: VOID)"""
     return t.owner(edge) if isinstance(t, Split) else t
 
 
 def pick(diag, pu, pv):
-    """SPEC.md 128.24.7.1's half pick at the in-cell point (pu, pv) - in any unit, 16 gu = 4096 when 24.8:
-    0 (half A) strictly inside A, else 1 (a point on the diagonal is B's)"""
+    """SPEC.md 128.24.7.1's PICK at the in-cell point (pu, pv), 1/256 gu (0 - 4095): the record's index.  TB:
+    0 (A) when pu < pv, else 1; LR: 0 when pu + pv < 4096, else 1 (a point on the diagonal is B's); a
+    QUARTERED cell by both tests, (pu >= pv, pu + pv >= 4096) -> N (1, 0), E (1, 1), S (0, 1), W (0, 0)"""
     if diag == KIND_TB:
         return 0 if pu < pv else 1
-    return 0 if pu + pv < 4096 else 1
+    if diag == KIND_LR:
+        return 0 if pu + pv < 4096 else 1
+    return QIDX[(1 if pu >= pv else 0, 1 if pu + pv >= 4096 else 0)]
 
 
 def has_split(tiles):
@@ -1172,7 +1213,7 @@ def has_split(tiles):
 
 
 def _tile_same(a, b):
-    """two halves the same (style, plane, surface, exit, rail): the cell is stored WHOLE (128.24.4)"""
+    """two records the same (style, plane, surface, exit, rail): one record serves both (128.24.4)"""
     if a is None or b is None:
         return a is b
     return (a.kind, a.z0, a.sx, a.sy, a.surf, a.exit, a.rail) == (b.kind, b.z0, b.sx, b.sy, b.surf, b.exit, b.rail)
@@ -1184,6 +1225,11 @@ def _tile_copy(t):
     n = Tile(t.kind, t.z0, t.sx, t.sy, t.line, t.exit)
     n.surf, n.rail = t.surf, t.rail
     return n
+
+
+def _z2(t, p):
+    """a record's height at a point in HALF cells (0 - 2), in QUARTER units (half units x 2)"""
+    return 2 * t.z0 + t.sx * p[0] + t.sy * p[1]
 
 
 def _room_tile(room, wx, wy):
@@ -1199,29 +1245,47 @@ def _room_tile(room, wx, wy):
     return Tile(_KIND[room.style], z0, sx, sy, room.line, room.exit if room.style == "goal" else 0)
 
 
-def _put(tiles, cell, piece, tile, f, ln):
-    """lay `tile` (None: a hole) on a cell, or on one HALF of it (piece (diag, h)); later statements override
-    per half (SPEC.md 128.24.4).  A cell split one way and then the other is a QUARTER: refused"""
+# a piece -> the quarters it covers (N, E, S, W)
+PIECE_QS = {(KIND_TB, 0): (Q_S, Q_W), (KIND_TB, 1): (Q_N, Q_E), (KIND_LR, 0): (Q_N, Q_W), (KIND_LR, 1): (Q_E, Q_S),
+            (KIND_Q, Q_N): (Q_N,), (KIND_Q, Q_E): (Q_E,), (KIND_Q, Q_S): (Q_S,), (KIND_Q, Q_W): (Q_W,)}
+
+
+class _Quarters(list):
+    """build_tiles' working form of a cell some statement laid a piece of: its four quarters N, E, S, W"""
+    __slots__ = ("line",)
+
+
+def _put(tiles, cell, piece, tile, ln):
+    """lay `tile` (None: a hole) on a cell, or on one piece of it - a half (TB or LR) or a quarter; later
+    statements override per piece (SPEC.md 128.24.4).  A cell laid by pieces is held as its four quarters
+    until build_tiles normalises it"""
     if piece is None:
         if tile is None:
             tiles.pop(cell, None)
         else:
             tiles[cell] = tile
         return
-    diag, h = piece
     cur = tiles.get(cell)
-    if isinstance(cur, Split):
-        if cur.diag != diag:
-            raise CourseError("%s:%d: cell (%d, %d) is split %s by line %d and %s here: two diagonals would cut it "
-                              "in QUARTERS, which no split holds (SPEC.md 128.24.4)"
-                              % (f, ln, cell[0], cell[1], "TB" if cur.diag == KIND_TB else "LR", cur.line,
-                                 "TB" if diag == KIND_TB else "LR"))
-        cur.halves[h] = tile
-        cur.line = ln
-        return
-    halves = [cur, _tile_copy(cur)]
-    halves[h] = tile
-    tiles[cell] = Split(diag, halves, ln)
+    if not isinstance(cur, _Quarters):
+        q = _Quarters([cur] + [_tile_copy(cur) for _ in range(3)])
+        tiles[cell] = cur = q
+    for i, qq in enumerate(PIECE_QS[piece]):
+        cur[qq] = tile if i == 0 else _tile_copy(tile)
+    cur.line = ln
+
+
+def _normal(q, ln):
+    """SPEC.md 128.24.4's NORMALISATION of a cell's four quarters: all four the same - WHOLE (or no cell, all
+    VOID); N = E and S = W - a TB split (A the S/W record, B the N/E); N = W and E = S - an LR split (A up,
+    B down); otherwise QUARTERED.  A split that changes nothing costs nothing"""
+    n, e, s_, w = q
+    if _tile_same(n, e) and _tile_same(e, s_) and _tile_same(s_, w):
+        return n
+    if _tile_same(n, e) and _tile_same(s_, w):
+        return Split(KIND_TB, [w, n], ln)
+    if _tile_same(n, w) and _tile_same(e, s_):
+        return Split(KIND_LR, [n, e], ln)
+    return Split(KIND_Q, [n, e, s_, w], ln)
 
 
 def _wall_above(f, t, n, wx, wy, nx, ny, mine, theirs, what):
@@ -1234,18 +1298,18 @@ def _wall_above(f, t, n, wx, wy, nx, ny, mine, theirs, what):
 
 
 def build_tiles(src):
-    """-> {(wx, wy): Tile, or a Split (SPEC.md 128.24.3) whose halves are Tiles or None}, every cell that
-    holds a solid record.  The rooms in order (a room's `half` or a `box` laying halves), the surfaces after
-    every room, the holes after; then two equal halves normalised to a WHOLE tile and every refusal of
-    128.10.3 and 128.24.4 checked per record"""
+    """-> {(wx, wy): Tile, or a Split (SPEC.md 128.24.3) whose records are Tiles or None}, every cell that
+    holds a solid record.  The rooms in order (a room's `half` or `quarter`, a `box` laying halves and, at
+    its corners, quarters), the surfaces after every room, the holes after; then each cell laid by pieces
+    normalised (_normal) and every refusal of 128.10.3 and 128.24.4 checked per record"""
     tiles = {}
     f = src.fname
     for room in src.rooms:
         hm = getattr(room, "half", None) or {}
         for (wx, wy) in sorted(room.tiles):
-            _put(tiles, (wx, wy), hm.get((wx, wy)), _room_tile(room, wx, wy), f, room.line)
+            _put(tiles, (wx, wy), hm.get((wx, wy)), _room_tile(room, wx, wy), room.line)
     # surfaces after every room, before every hole (SPEC.md 128.11.6.1): a
-    # WALL takes only normal or bounce (a bumper rail); on a split cell, the half the shape covers
+    # WALL takes only normal or bounce (a bumper rail); on a split cell, the piece the shape covers
     for sent in src.surfaces:
         surf, shape, ln = sent[:3]
         hm = sent[3] if len(sent) > 3 else {}
@@ -1254,17 +1318,11 @@ def build_tiles(src):
             if ent is None:
                 continue
             piece = hm.get(t)
-            if isinstance(ent, Split):
-                if piece is not None and piece[0] != ent.diag:
-                    raise CourseError("%s:%d: surface on the %s half of cell (%d, %d), which is split the other way"
-                                      % (f, ln, SIDE_NAME[piece], t[0], t[1]))
-                tl_ = [ent.halves[piece[1]]] if piece is not None else ent.halves
-            elif piece is not None:
-                ent = Split(piece[0], [ent, _tile_copy(ent)], ln)
-                tiles[t] = ent
-                tl_ = [ent.halves[piece[1]]]
-            else:
-                tl_ = [ent]
+            if piece is not None and not isinstance(ent, _Quarters):
+                _put(tiles, t, piece, ent, ln)
+                ent = tiles[t]
+            tl_ = [ent[i] for i in PIECE_QS[piece]] if piece is not None else (
+                list(ent) if isinstance(ent, _Quarters) else [ent])
             for tl in tl_:
                 if tl is None:
                     continue
@@ -1276,18 +1334,15 @@ def build_tiles(src):
         hole, ln = hent[:2]
         hm = hent[2] if len(hent) > 2 else {}
         for t in sorted(hole):
-            _put(tiles, t, hm.get(t), None, f, ln)
-    # 128.24.4: a split whose halves are the same is WHOLE (a split that changes nothing costs nothing);
-    # both VOID is no cell
+            _put(tiles, t, hm.get(t), None, ln)
     for cell in sorted(tiles):
         t = tiles[cell]
-        if isinstance(t, Split):
-            a, b = t.halves
-            if _tile_same(a, b):
-                if a is None:
-                    del tiles[cell]
-                else:
-                    tiles[cell] = a
+        if isinstance(t, _Quarters):
+            t = _normal(t, t.line)
+            if t is None:
+                del tiles[cell]
+            else:
+                tiles[cell] = t
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
@@ -1300,12 +1355,12 @@ def build_tiles(src):
         if isinstance(t, Split):
             fl = {h.surf for h in t.halves if h is not None and h.kind != KIND_WALL}
             if len(fl) > 1:
-                raise CourseError("%s:%d: cell (%d, %d) is split into floor halves of two surfaces (%s): a split "
+                raise CourseError("%s:%d: cell (%d, %d) is split into floors of two surfaces (%s): a split "
                                   "cell has ONE surface for its floors (SPEC.md 128.24.4)"
                                   % (f, t.line, wx, wy, " and ".join(SURFACES[s] for s in sorted(fl))))
             t.surf = fl.pop() if fl else SURF_NORMAL
     # a wall must look like one: above every floor that shares an edge with it - and, a split's, the
-    # floor across its own diagonal (SPEC.md 128.24.4)
+    # floor across each line inside it (SPEC.md 128.24.4)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         for e in ("E", "W", "S", "N"):
@@ -1317,10 +1372,13 @@ def build_tiles(src):
             theirs = tuple((m[0] - dx, m[1] - dy) for m in mine)
             _wall_above(f, edge_rec(t, e), edge_rec(n, OPP[e]), wx, wy, wx + dx, wy + dy, mine, theirs, "")
         if isinstance(t, Split):
-            a, b = t.halves
-            ends = DIAG_ENDS[t.diag]
-            for w_, o_ in ((a, b), (b, a)):
-                _wall_above(f, w_, o_, wx, wy, wx, wy, ends, ends, " (a half, across its diagonal)")
+            for i, j, p0, p1, _k in INNER[t.diag]:
+                for w_, o_ in ((t.halves[i], t.halves[j]), (t.halves[j], t.halves[i])):
+                    if w_ is not None and o_ is not None and w_.kind == KIND_WALL and o_.kind != KIND_WALL \
+                            and not (_z2(w_, p0) > _z2(o_, p0) and _z2(w_, p1) > _z2(o_, p1)):
+                        raise CourseError("%s:%d: wall (%d, %d) (a %s, across the line inside it) is not above "
+                                          "the floor beside it" % (f, w_.line, wx, wy, "quarter" if t.diag == KIND_Q
+                                                                    else "half"))
     return tiles
 
 
@@ -1379,9 +1437,9 @@ def build_cells(tiles):
 
 
 def build_pairs(tiles):
-    """-> {(wx, wy): (half A's four grid bytes, half B's)} for every SPLIT cell (SPEC.md 128.24.5.2): a VOID
-    half's z0 its KILL height by the NEAR rule at its cell, SAFE, OCC, OCCG and OBS clear, a goal half's exit
-    in bits 4 - 7, the surface its own"""
+    """-> {(wx, wy): (each record's four grid bytes)} for every SPLIT cell (SPEC.md 128.24.5.2) - two for a
+    halved cell, A then B, four for a quartered one, N E S W: a VOID record's z0 its KILL height by the NEAR
+    rule at its cell, SAFE, OCC, OCCG and OBS clear, a goal record's exit in bits 4 - 7, the surface its own"""
     pairs = {}
     for (wx, wy), t in tiles.items():
         if isinstance(t, Split):
@@ -2431,7 +2489,7 @@ def path_graph_proofs(pth, fname):
 def course_exits(c):
     """{exit: hidden} of a compiled course's finishes (SPEC.md 128.19.4)"""
     out = {}
-    for t in c.tiles.values():
+    for t in rec_map(c.tiles).values():            # (SPEC.md 128.24: a goal half's or quarter's too)
         if t.kind == KIND_GOAL:
             out.setdefault(t.exit, False)
     for room in c.src.rooms:
@@ -3163,7 +3221,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
         kind &= 15
         if kind == KIND_WALL:
             continue
-        if kind in (KIND_TB, KIND_LR):             # SPEC.md 128.24: the lowest of its floors and a VOID half's kill
+        if kind in SPLIT_KINDS:             # SPEC.md 128.24: the lowest of its floors and a VOID half's kill
             t = tiles[(wx, wy)]
             zs = [4 * min(r.corners()) for r in t.halves if r is not None and r.kind != KIND_WALL]
             if None in t.halves:
@@ -3315,26 +3373,36 @@ def _face_fn(xp4, zp, xq4, zq):
     return top
 
 
-def _diag_line_half(t):
-    """SPEC.md 128.24.6.1: a TB split's diagonal is edge-on; where its two sides differ it is drawn as a 1 px
-    black line on the HIGHER (or solid) side.  -> the half (0 A, 1 B) that draws it, or None (no line).
-    PROVISIONAL (128.24.12 Q2): higher by the sum of the two diagonal-end heights (T and B), then a WALL
-    over a GOAL over a FLOOR; a full tie, or planes that cross, B's"""
-    a, b = t.halves
+def _line_side(a, b, p0, p1):
+    """SPEC.md 128.24.6.1: a screen-vertical (TB) line inside a split cell, between record a (its LEFT) and b
+    (its RIGHT), is edge-on; where they differ it is drawn as a 1 px black line on the HIGHER (or solid)
+    side.  -> 0 (a's side), 1 (b's) or None (no line).  PROVISIONAL (128.24.12 Q2): higher by the sum of the
+    planes' heights at the line's two ends, then a WALL over a GOAL over a FLOOR; a full tie, or planes that
+    cross, the right's"""
     if a is None or b is None:
-        return 0 if b is None else 1
+        return None if a is b else (0 if b is None else 1)
     if _tile_same(a, b):
         return None
     rank = {KIND_FLOOR: 0, KIND_GOAL: 1, KIND_WALL: 2}
-    ka = (a.corner(*_T) + a.corner(*_B), rank[a.kind])
-    kb = (b.corner(*_T) + b.corner(*_B), rank[b.kind])
+    ka = (_z2(a, p0) + _z2(a, p1), rank[a.kind])
+    kb = (_z2(b, p0) + _z2(b, p1), rank[b.kind])
     return 0 if ka > kb else 1
 
 
+# the pieces of a split cell that lie in the FRONT half of its row (gx + gy from 16 s + 16): an LR split's
+# DOWN half, a quartered cell's E and S - drawn after the row and keyed s + 1 (128.24.6.2 - 128.24.6.3)
+FRONT_PIECE = {(KIND_LR, 1), (KIND_Q, Q_E), (KIND_Q, Q_S)}
+# a piece's FRONT faces: the lines inside its cell that face the viewer, below which it hangs a face down to
+# the piece in front (or 3 units): (the line's ends, the piece in front) - an UP half's diagonal, a W
+# quarter's L - c, an N quarter's c - R
+FRONT_FACES = {(KIND_LR, 0): ((H_L, H_R, 1),), (KIND_Q, Q_W): ((H_L, H_C, Q_S),), (KIND_Q, Q_N): ((H_C, H_R, Q_E),)}
+
+
 def _cell_pieces(tiles):
-    """the drawing's pieces back to front (SPEC.md 128.24.6.2): (key, cell, the record, which half or None,
-    s the per-pixel key) - by (2 s + d, wx), d 1 for an LR split's DOWN half, keyed s + 1 (128.24.6.3); a
-    whole cell and a TB split's halves (A then B) keep the cell's place, keyed s"""
+    """the drawing's pieces back to front (SPEC.md 128.24.6.2): (key, cell, the record, which piece or None,
+    s the per-pixel key) - by (2 s + d, wx, piece), d 1 for a FRONT piece (an LR split's DOWN half, a
+    quartered cell's E and S), keyed s + 1 (128.24.6.3); a whole cell, a TB split's halves (A then B) and
+    the back pieces keep the cell's place, keyed s"""
     out = []
     for (wx, wy), t in tiles.items():
         s = wx + wy
@@ -3342,7 +3410,7 @@ def _cell_pieces(tiles):
             for h, r in enumerate(t.halves):
                 if r is None:
                     continue
-                d = 1 if (t.diag == KIND_LR and h == 1) else 0
+                d = 1 if (t.diag, h) in FRONT_PIECE else 0
                 out.append(((2 * s + d, wx, h), (wx, wy), r, h, s + (0 if _DOWN_S0 else d)))
         else:
             out.append(((2 * s, wx, 0), (wx, wy), t, None, s))
@@ -3357,13 +3425,15 @@ def draw_ops(tiles, x0, deep=()):
     hangs as deep as its other front face reaches at their shared corner, so
     a pipe's wall standing on a lower tier reads as one column, not a column
     with a bite out of one side.
-    SPEC.md 128.24.6, a SPLIT cell's HALF: its top is its TRIANGLE; it hangs
-    the sw face if it owns the south edge (L to B) and the se face if it owns
-    the east edge (B to R), each down to the record across that edge (the half
-    that owns it, or a whole cell) or 3 units; an LR split's UP half hangs a
-    FRONT face from the diagonal (L to R) down to the down half (or 3 units);
-    a TB split's diagonal, where its sides differ, a 1 px black line ("tline",
-    a paint op after the top).  The order and the keys: _cell_pieces"""
+    SPEC.md 128.24.6, a SPLIT cell's PIECE (a half or a quarter): its top is
+    its TRIANGLE; it hangs the sw face if it owns the south edge (L to B) and
+    the se face if it owns the east edge (B to R), each down to the record
+    across that edge (the piece that owns it, or a whole cell) or 3 units; a
+    piece whose line inside the cell faces the viewer (an LR split's UP half,
+    a quartered cell's W and N) hangs a FRONT face from it down to the piece in
+    front (or 3 units); a TB line inside the cell, where its sides differ, a
+    1 px black line ("tline", a paint op after the top).  The order and the
+    keys: _cell_pieces"""
     ops = []
     for _key, (wx, wy), t, h, s in _cell_pieces(tiles):
         ent = tiles[(wx, wy)]
@@ -3380,9 +3450,10 @@ def draw_ops(tiles, x0, deep=()):
             faces.append((L, zl, B, zb, (4 * sw.corner(0, 0), 4 * sw.corner(1, 0)) if sw else None, "sw"))
         if "E" in owns:
             faces.append((B, zb, R, zr, (4 * se.corner(0, 1), 4 * se.corner(0, 0)) if se else None, "se"))
-        if h == 0 and ent.diag == KIND_LR:          # the UP half's diagonal faces the viewer: the FRONT face
-            dn = ent.halves[1]
-            faces.append((L, zl, R, zr, (4 * dn.corner(*_L), 4 * dn.corner(*_R)) if dn else None, "front"))
+        for p0, p1, fp in (FRONT_FACES.get((ent.diag, h), ()) if h is not None else ()):
+            dn = ent.halves[fp]                     # (heights in px: _z2 is quarter units, x 2)
+            faces.append(((2 * wx + p0[0], 2 * wy + p0[1]), 2 * _z2(t, p0), (2 * wx + p1[0], 2 * wy + p1[1]),
+                          2 * _z2(t, p1), (2 * _z2(dn, p0), 2 * _z2(dn, p1)) if dn else None, "front"))
         bots = []
         for p, zp, q, zq, nb, which in faces:
             if nb is None:
@@ -3404,19 +3475,24 @@ def draw_ops(tiles, x0, deep=()):
             mk = (lambda xp4, zp_, xq4, zq_: lambda y0: _face_fn(xp4, zp_, xq4, zq_))(
                 poly[0][0], zp, poly[1][0], zq)
             ops.append((spans(poly), which, s, mk, True, t, (wx, wy)))
-        corner = {_T: (T, zt), _R: (R, zr), _B: (B, zb), _L: (L, zl)}
-        shape = (_T, _R, _B, _L) if h is None else HALF_CORNERS[(ent.diag, h)]
-        quad = [_scr(corner[k][0][0], corner[k][0][1], corner[k][1], x0) for k in shape]
+        if h is None:
+            quad = [_scr(T[0], T[1], zt, x0), _scr(R[0], R[1], zr, x0),
+                    _scr(B[0], B[1], zb, x0), _scr(L[0], L[1], zl, x0)]
+        else:
+            quad = [_scr(2 * wx + q_[0], 2 * wy + q_[1], 2 * _z2(t, q_), x0) for q_ in PIECE_POLY[(ent.diag, h)]]
         mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(t, wx, wy)
         sp = spans(quad)
         ops.append((sp, "top", s, mk, False, t, (wx, wy)))
-        if h is not None and ent.diag == KIND_TB and _diag_line_half(ent) == h:
-            pix = {}
-            for y, runs in sp.items():
-                for ra, rb in runs:
-                    pix[(rb - 1 if h == 0 else ra, y)] = BLK
-            op = _paint_op(pix, s, t, (wx, wy))
-            ops.append((op[0], "tline") + op[2:])
+        if h is not None:                           # the TB lines inside the cell this piece borders
+            for i, j, p0, p1, k in INNER[ent.diag]:
+                if k != KIND_TB or h not in (i, j) or _line_side(ent.halves[i], ent.halves[j], p0, p1) != (h == j):
+                    continue
+                pix = {}
+                for y, runs in sp.items():
+                    for ra, rb in runs:
+                        pix[(rb - 1 if h == i else ra, y)] = BLK
+                op = _paint_op(pix, s, t, (wx, wy))
+                ops.append((op[0], "tline") + op[2:])
     return ops
 
 
@@ -4488,7 +4564,7 @@ def _occg(reach, by_block, x0, y0, tiles, slab=None):
     def flo(rc):                        # the cell's FLOOR and GOAL records (a split cell's halves, 128.24.2)
         return [r for r in tile_recs(tiles.get((rc.wx, rc.wy))) if r.kind in (KIND_FLOOR, KIND_GOAL)]
     fl = [rc for rc in reach if rc.kind in (KIND_FLOOR, KIND_GOAL) or (rc.wx, rc.wy) in slab
-          or (rc.kind in (KIND_TB, KIND_LR) and flo(rc))]
+          or (rc.kind in SPLIT_KINDS and flo(rc))]
 
     def zr(rc):
         if (rc.wx, rc.wy) in slab:
@@ -5789,7 +5865,7 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         doff = sec["D"][0]                          # WORD offset in the part (the model's: relative to D)
         b[doff:doff + len(m["pairs"])] = m["pairs"]
         for i in range(0, len(m["cells"]), 4):
-            if m["cells"][i + 2] & 15 in (KIND_TB, KIND_LR):
+            if m["cells"][i + 2] & 15 in SPLIT_KINDS:
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
@@ -5880,7 +5956,7 @@ def decode_part(p):
         if tag == ord("D"):
             pairs = bytes(p[off:off + ln])
             for i in range(0, len(cells), 4):
-                if cells[i + 2] & 15 in (KIND_TB, KIND_LR):
+                if cells[i + 2] & 15 in SPLIT_KINDS:
                     struct.pack_into("<H", cells, i, (struct.unpack_from("<H", cells, i)[0] - off) & 0xFFFF)
     m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(p[blkoff:blkoff + 16 * nblk]),
          "recs": recs, "masks": masks,
@@ -5952,8 +6028,8 @@ _CHEB2 = tuple((dx, dy) for dy in range(-2, 3) for dx in range(-2, 3))
 
 
 def _pair_reader(buf):
-    """a split cell's pair from a part's bytes at its absolute word offset: (half A's 4 bytes, half B's)"""
-    return lambda off: (bytes(buf[off:off + 4]), bytes(buf[off + 4:off + PAIR]))
+    """a split cell's records from a part's bytes at its absolute word offset: (off, n) -> n 4-byte records"""
+    return lambda off, n: tuple(bytes(buf[off + 4 * i:off + 4 * i + 4]) for i in range(n))
 
 
 def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
@@ -5997,8 +6073,8 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
         if kd & 15 == KIND_VOID:
             V.append(0xFF)
-        elif kd & 15 in (KIND_TB, KIND_LR) and not _no_halves:
-            hs = pair(cells[4 * i] | cells[4 * i + 1] << 8)
+        elif kd & 15 in SPLIT_KINDS and not _no_halves:
+            hs = pair(cells[4 * i] | cells[4 * i + 1] << 8, NREC[kd & 15])
             H[i] = hs
             V.append(min([vrec(_s8(h[0]), h[1]) for h in hs if h[2] & 15 != KIND_VOID] + [0xFF]))
         else:
@@ -6418,26 +6494,32 @@ def read_part(p, fname="<part>"):
     named = {}
     for i in range(nrows * kw):
         z0, sl, kd, fl = struct.unpack_from("<bBBB", p, celloff + 4 * i)
-        if kd & 15 in (KIND_TB, KIND_LR):           # SPEC.md 128.24.5: a SPLIT cell and its pair in D
+        if kd & 15 in SPLIT_KINDS:                  # SPEC.md 128.24.5: a SPLIT cell and its records in D
             po = struct.unpack_from("<H", p, celloff + 4 * i)[0]
+            nr = NREC[kd & 15]
             if fl & ~(FL_OCC | FL_OCCG) or (fl & FL_OCCG and not fl & FL_OCC):
                 bad("cell %d" % i, "a split cell's flags %02Xh (SAFE, OBS and bits 4 - 7 never)" % fl)
-            if not (doff <= po and po + PAIR <= doff + dlen and (po - doff) % PAIR == 0):
-                bad("cell %d" % i, "a split cell's pair offset %d is not a pair inside D (%d, %d bytes)"
-                    % (po, doff, dlen))
-            if po in named:
-                bad("cell %d" % i, "its pair at %d is cell %d's too (each pair is named by one cell)"
-                    % (po, named[po]))
-            named[po] = i
-            hs = [struct.unpack_from("<bBBB", p, po + 4 * h) for h in (0, 1)]
+            if not (doff <= po and po + 4 * nr <= doff + dlen and (po - doff) % 4 == 0):
+                bad("cell %d" % i, "a split cell's offset %d is not %d records inside D (%d, %d bytes)"
+                    % (po, nr, doff, dlen))
+            for o_ in range(po, po + 4 * nr, 4):
+                if o_ in named:
+                    bad("cell %d" % i, "its records at %d are cell %d's too (each record is named by one cell)"
+                        % (po, named[o_]))
+                named[o_] = i
+            hs = [struct.unpack_from("<bBBB", p, po + 4 * h) for h in range(nr)]
             for h, (hz, hsl, hk, hf) in enumerate(hs):
                 if hk & 15 > KIND_GOAL or hk >> 4 > SURF_BOUNCE or hf & (FL_SAFE | FL_OCC | FL_OCCG | FL_OBS) \
                         or (hf & 0xF0 and hk & 15 != KIND_GOAL) or (hk & 15 == KIND_VOID and (hsl or hk >> 4)):
-                    bad("cell %d" % i, "half %s of its pair: kind %02Xh flags %02Xh (a half is a cell record, "
-                        "kind 0 - 3, SAFE, OCC, OCCG and OBS clear)" % ("AB"[h], hk, hf))
-            if hs[0] == hs[1] or all(h[2] & 15 == KIND_VOID for h in hs):
-                bad("cell %d" % i, "its pair's halves are %s (a split cell's halves differ and one is solid)"
-                    % ("the same" if hs[0] == hs[1] else "both VOID"))
+                    bad("cell %d" % i, "record %d of its %d: kind %02Xh flags %02Xh (a piece is a cell record, "
+                        "kind 0 - 3, SAFE, OCC, OCCG and OBS clear)" % (h, nr, hk, hf))
+            if all(h[2] & 15 == KIND_VOID for h in hs):
+                bad("cell %d" % i, "its records are all VOID (a split cell has a solid piece)")
+            if nr == 2 and hs[0] == hs[1]:
+                bad("cell %d" % i, "its pair's halves are the same (a split cell's halves differ)")
+            if nr == 4 and ((hs[0] == hs[1] and hs[2] == hs[3]) or (hs[0] == hs[3] and hs[1] == hs[2])):
+                bad("cell %d" % i, "its quarters are halves (N = E and S = W, or N = W and E = S): the cell is "
+                    "stored as a halved one (128.24.4's normalisation)")
             floors = {h[2] >> 4 for h in hs if h[2] & 15 in (KIND_FLOOR, KIND_GOAL)}
             if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
                 bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
@@ -6455,9 +6537,9 @@ def read_part(p, fname="<part>"):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
-    if len(named) * PAIR != dlen or bool(gflags & GF_SPLIT) != bool(dlen):
-        bad("D", "%d bytes for %d split cells, GF_SPLIT %s" % (dlen, len(named), "set" if gflags & GF_SPLIT
-                                                                 else "clear"))
+    if len(named) * 4 != dlen or bool(gflags & GF_SPLIT) != bool(dlen):
+        bad("D", "%d bytes for %d split records, GF_SPLIT %s" % (dlen, len(named), "set" if gflags & GF_SPLIT
+                                                                   else "clear"))
     props = read_props(p, propoff, nprop, blkoff, occidx, bad, pthoff or diroff) if nprop else []
     path = None
     if pthoff:
@@ -6663,17 +6745,18 @@ class Grid:
         if r < 0 or r >= self.nrows or k < 0 or k >= self.kw:
             return (Z_OPEN, 0, 0, KIND_VOID, 0, 0)
         z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, self.rowtab[r] + 4 * k)
-        if kd & 15 in (KIND_TB, KIND_LR):
+        if kd & 15 in SPLIT_KINDS:
             return (0, 0, 0, kd & 15, fl, kd >> 4)
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
 
     def pair(self, wx, wy):
-        """a SPLIT cell's pair (128.24.5.2): (half A's record, half B's), each as cell() reads a cell"""
+        """a SPLIT cell's records (128.24.5.2): (half A's, half B's) or the quarters (N, E, S, W), each as
+        cell() reads a cell"""
         r = wx + wy - self.smin
         k = (wx - wy - self.amin) >> 1
-        po = struct.unpack_from("<H", self.p, self.rowtab[r] + 4 * k)[0]
+        po, kd, _ = struct.unpack_from("<HBB", self.p, self.rowtab[r] + 4 * k)
         out = []
-        for h in (0, 1):
+        for h in range(NREC[kd & 15]):
             z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, po + 4 * h)
             out.append((z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4))
         return tuple(out)
@@ -6681,7 +6764,7 @@ class Grid:
     def rec(self, wx, wy, pu, pv):
         """the RECORD at in-cell point (pu, pv), 1/256 gu (SPEC.md 128.24.7.1): the cell, or its picked half"""
         c = self.cell(wx, wy)
-        if c[3] in (KIND_TB, KIND_LR):
+        if c[3] in SPLIT_KINDS:
             return self.pair(wx, wy)[pick(c[3], pu, pv)]
         return c
 
@@ -6718,6 +6801,20 @@ def corner_table():
 
 
 CORNER = corner_table()
+
+# SPEC.md 128.24.7.4: THE CORNER'S RAYS, by the centre's quadrant q = (pu >= 2048) + 2 (pv >= 2048), each
+# (the corner K's line: its diagonal kind, the side sigma the centre is on, its offset off - so its distance
+# x sqrt 2 x 256 is w = sigma (pu - pv - off) for a TB line, sigma (pu + pv - off) for an LR one, as inside a
+# cell (128.24.7.2: off 0 and 4096) -; the facing test's kind, 0 "pu >= pv" or 1 "pu + pv >= 4096"; the ray
+# taken when it holds (dx, dy), the ray taken when not; the half BEYOND the line, the one that does not own
+# the edge its cell shares with C; K's in-cell point (gu); and for a QUARTERED neighbour (R4) the quarter
+# beyond the line at K on the yes ray's cell, on the no ray's - the quarter at K across the half-diagonal from
+# the one that owns the shared edge)
+#        kind     sig  off    test  yes       no        beyond  K       yes's q  no's q
+RAYS = ((KIND_LR, +1, 0, 0, (0, -1), (-1, 0), 0, (0, 0), Q_W, Q_N),          # 0 T (NW): north if pu >= pv
+        (KIND_TB, -1, 4096, 1, (1, 0), (0, -1), 1, (16, 0), Q_N, Q_E),       # 1 R (NE): east if pu + pv >= 4096
+        (KIND_TB, +1, -4096, 1, (0, 1), (-1, 0), 0, (0, 16), Q_W, Q_S),      # 2 L (SW): south if pu + pv >= 4096
+        (KIND_LR, -1, 8192, 0, (1, 0), (0, 1), 1, (16, 16), Q_S, Q_E))       # 3 B (SE): east if pu >= pv
 
 
 def bumper_table():
@@ -6824,7 +6921,8 @@ class Physics:
                  _no_clear=False, _boost_rise=False, _pump=False, _springoff=False, _iceplain=False,
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
-                 _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False):
+                 _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
+                 _dsig_flip=False, _ray_inv=False, _all_radial=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -6922,6 +7020,11 @@ class Physics:
         self.bsp = 0
         self._nospent, self._noadd, self._nolaunch = _nospent, _noadd, _nolaunch
         self._toutoff = _toutoff                    # (the `toutoff` arm: no timeout)
+        # SPEC.md 128.24.11's red arms (story D2): the owning halves swapped, the pick's sides swapped, the
+        # diagonal's sigma flipped, the corner's ray choice inverted, every diagonal end a radial corner (no ray)
+        self._own_swap, self._pick_swap, self._dsig_flip = _own_swap, _pick_swap, _dsig_flip
+        self._ray_inv, self._all_radial = _ray_inv, _all_radial
+        self.wsplit = False                         # bz_ps bit 3 (128.24.7.6)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -6947,6 +7050,7 @@ class Physics:
             pr = self.owner(at)
             if pr is not None and pr["kind"] in (PK_BUMPER, PK_CLOCK):
                 return False
+        assert c[3] not in SPLIT_KINDS, "blocks() takes a RECORD, never a split cell (SPEC.md 128.24.7.3)"
         if c[3] == KIND_WALL:
             return True
         if c[3] in (KIND_FLOOR, KIND_GOAL):
@@ -6954,6 +7058,144 @@ class Physics:
             marg = 0 if (self.air and self._no_airclimb) else CLIMB << 8
             return h > self.zs + marg
         return False
+
+    # -- SPEC.md 128.24.7: split cells ---------------------------------------
+    def erec(self, wx, wy, edge):
+        """the RECORD of cell (wx, wy) at its edge W, N, E or S: the cell, or the half that owns that edge
+        (128.24.7.3's table, OWNER)"""
+        c = self.cell(wx, wy)
+        if c[3] in SPLIT_KINDS:
+            o = OWNER[c[3]][edge]
+            if self._own_swap:                      # (a red arm: the other half; a quarter's opposite)
+                o ^= 1 if c[3] != KIND_Q else 2
+            return self.grid.pair(wx, wy)[o]
+        return c
+
+    def prec(self, wx, wy):
+        """the RECORD the centre (gx, gy) is in, its cell (wx, wy): the cell, or its PICKED half (128.24.7.1)"""
+        c = self.cell(wx, wy)
+        if c[3] in SPLIT_KINDS:
+            h = pick(c[3], self.gx & 0xFFF, self.gy & 0xFFF)
+            if self._pick_swap:                     # (a red arm: the pick's sides swapped)
+                h ^= 1 if c[3] != KIND_Q else 2
+            return self.grid.pair(wx, wy)[h]
+        return c
+
+    def _dline(self, kind, sig, off, rec, why):
+        """SPEC.md 128.24.7.2: the circle against a WALL ALONG A DIAGONAL (inside the centre's cell, or a
+        corner's ray through K, 128.24.7.4).  The line is u - v = off / 256 (TB) or u + v = off / 256 (LR) in
+        the centre's cell's units, the centre on its side sig; rec the record beyond it, which BLOCKS (the
+        caller tested).  EXACTLY, in 16-bit integers (pu, pv the in-cell 24.8 position, 0 - 4095):
+
+            w  = sig (pu - pv - off)          TB      the distance x sqrt 2 x 256, 0 <= w
+                 sig (pu + pv - off)          LR
+            w >= DIAG: no contact, nothing changes
+            h  = (DIAG - w + 1) >> 1          the push, rounded UP (DIAG - w > 0, so h >= 1)
+            gx += sig h;  gy -= sig h         TB  (gy += sig h  LR)
+            wv = sig (gvx - gvy)              TB  (sig (gvx + gvy)  LR): the velocity INTO the line x sqrt 2
+            wv < 0 only:
+                a  = -wv                      (|wv| <= 768)
+                t  = (e a) >> 8               e = e_wall(rec): 230 a bumper half, else the material's EW;
+                t  = 0 when t < DWMIN         the dead band on wv's scale (16: 11.3 of normal speed)
+                k  = (t + a) >> 1             the change, rounded DOWN
+                gvx += sig k; gvy -= sig k    TB  (gvy += sig k  LR)
+            bz_bgr = 0 (a wall closes the grace)
+
+        After it w is DIAG or DIAG + 1 (the push's odd unit), the new wv is t or t - 1 (the halving's), and the
+        TANGENTIAL component, gvx + gvy for TB and gvx - gvy for LR, is EXACTLY what it was.  No clamp: every
+        restitution is at most 256 (E_BUMPER 230, the materials' EW), so t <= a and k <= a, and each new
+        component lies between the old gvx and gvy - inside +-BZ_VMAXG already (selfcheck item 7 asserts the
+        tables' bound; 128.24.7.2's clamp is not needed, and the guest has none).  -> True on a contact"""
+        pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
+        w = sig * ((pu - pv) if kind == KIND_TB else (pu + pv)) - sig * off
+        if w >= DIAG:
+            return False
+        if self._dsig_flip:                         # (a red arm: the push and the reflection the wrong way)
+            sig = -sig
+        hh = (DIAG - w + 1) >> 1
+        self.gx += sig * hh
+        self.gy += -sig * hh if kind == KIND_TB else sig * hh
+        wv = sig * ((self.gvx - self.gvy) if kind == KIND_TB else (self.gvx + self.gvy))
+        if wv < 0:
+            a = -wv
+            t = (self.e_wall(rec) * a) >> 8
+            if t < DWMIN:
+                t = 0
+            k = (t + a) >> 1
+            self.gvx += sig * k
+            self.gvy += -sig * k if kind == KIND_TB else sig * k
+        self.bgr = 0
+        self.events.append(("diag", self.nstep + 1, why, w, wv))
+        return True
+
+    def _inner(self, C, cwx, cwy):
+        """SPEC.md 128.24.7.2: the lines INSIDE the centre's split cell C.  A HALVED cell: its diagonal, when
+        the half the centre is NOT in blocks - a WALL, or a floor above the step's start z + BZ_CLIMB at the
+        diagonal's point nearest the centre, ((u + v) >> 1, (u + v) >> 1) for TB, ((u - v + 16) >> 1,
+        (v - u + 16) >> 1) for LR (u, v the centre's whole gu) - pushed off as _dline says, sigma +1 in half B
+        and -1 in A.  A QUARTERED cell (R4): the quarter the centre is in (by both tests) has two lines of its
+        own, half-diagonals ending at the cell's centre c - first the TB one (its partner the quarter across
+        it, sigma +1 on the u >= v side), then the LR one (sigma +1 on the u + v >= 16 side), each its
+        partner's test at the same nearest point (on the quarter's own half of the line, always) - and then
+        THE CENTRE c as a corner: the OPPOSITE quarter, touching the centre's at c alone, met RADIALLY (the
+        corner table at |pu - 2048| >> 8, |pv - 2048| >> 8, 128.10.7.3's push and reflection) when it blocks
+        at (8, 8) - and neither partner blocked (else c is a point of a straight face, which the line meets
+        exactly; the table's whole gu would meet it up to 1.4 gu early, as 128.24.7.4's K on a straight wall).
+        A push off one line keeps the centre in its quarter (it moves along the other line's direction).
+        -> True on any contact"""
+        pr = self.grid.pair(cwx, cwy)
+        pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
+        hc = pick(C[3], pu, pv)
+        if self._pick_swap:                         # (a red arm: the pick's sides swapped)
+            hc ^= 1 if C[3] != KIND_Q else 2
+        if C[3] != KIND_Q:
+            lines = [(C[3], 1 if hc else -1, pr[1 - hc])]
+        else:
+            tb, lr = QSIDE[hc]
+            lines = [(KIND_TB, 1 if tb else -1, pr[QIDX[(1 - tb, lr)]]),
+                     (KIND_LR, 1 if lr else -1, pr[QIDX[(tb, 1 - lr)]])]
+        hit = straight = False
+        for kind, sig, other in lines:
+            u, v = (self.gx & 0xFFF) >> 8, (self.gy & 0xFFF) >> 8
+            du, dv = ((u + v) >> 1, (u + v) >> 1) if kind == KIND_TB else ((u - v + 16) >> 1, (v - u + 16) >> 1)
+            if self.blocks(other, du, dv):
+                straight = True                     # (a partner wall: c is on a straight face, no radial there)
+                if self._dline(kind, sig, 0 if kind == KIND_TB else 4096, other, "in"):
+                    hit = True
+        if C[3] == KIND_Q and not straight:         # the centre c: the opposite quarter, radially
+            tb, lr = QSIDE[hc]
+            opp = pr[QIDX[(1 - tb, 1 - lr)]]
+            pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
+            sx, sy = (1 if pu >= 2048 else -1), (1 if pv >= 2048 else -1)
+            adu, adv = (sx * (pu - 2048)) >> 8, (sy * (pv - 2048)) >> 8
+            if adu < 6 and adv < 6 and self.blocks(opp, 8, 8):
+                nx, ny, depth = CORNER[adu * 6 + adv]
+                if depth:
+                    nx, ny = sx * nx, sy * ny
+                    mx, my = (depth * abs(nx)) >> 2, (depth * abs(ny)) >> 2
+                    self.gx += mx if nx >= 0 else -mx
+                    self.gy += my if ny >= 0 else -my
+                    d = (self.gvx * nx + self.gvy * ny) >> 6
+                    if d < 0:
+                        t = (self.e_wall(opp) * -d) >> 8
+                        if t < WMIN:
+                            t = 0
+                        self.gvx -= ((d - t) * nx) >> 6
+                        self.gvy -= ((d - t) * ny) >> 6
+                    self.bgr = 0
+                    self.events.append(("centre", self.nstep + 1, (sx * adu, sy * adv)))
+                    hit = True
+        return hit
+
+    def _krec(self, wx, wy, ku, kv):
+        """the records of cell (wx, wy) at its corner point (ku, kv) (gu): a whole cell's, a split cell's half
+        there - or BOTH when the corner ends its diagonal, a quartered cell's two quarters it is a corner of
+        (128.24.7.4: then either blocks; K_RECS)"""
+        c = self.cell(wx, wy)
+        if c[3] not in SPLIT_KINDS:
+            return [c]
+        pr = self.grid.pair(wx, wy)
+        return [pr[i] for i in K_RECS[c[3]][(ku, kv)]]
 
     def e_wall(self, c):
         """a blocking cell's restitution: a bumper (a WALL with a bounce
@@ -6996,6 +7238,9 @@ class Physics:
         if sf != self.surf:
             self._surfset(sf)
         self.wol = []
+        # SPEC.md 128.24.7.6: bz_ps bit 3 - a split cell in the window (a GF_SPLIT course's alone)
+        self.wsplit = bool(self.gflags & GF_SPLIT) and any(
+            self.cell(wx + dx, wy + dy)[3] in SPLIT_KINDS for dx, dy in self.WORDER)
         if self.props:
             for dx, dy in self.WORDER:
                 if self.cell(wx + dx, wy + dy)[4] & FL_OBS:
@@ -7015,7 +7260,7 @@ class Physics:
         self.dry &= self.dmask
 
     def _ps(self):
-        self.ps = (1 if self.wol else 0) | (2 if self.tube else 0) | (4 if self.onp else 0)
+        self.ps = (1 if self.wol else 0) | (2 if self.tube else 0) | (4 if self.onp else 0) | (8 if self.wsplit else 0)
 
     def phase(self, pr, n):
         return (n + pr["seed"]) & pr["mask"]
@@ -7370,10 +7615,11 @@ class Physics:
             self._ps()
             return self._end()
         cwx, cwy = self.gx >> 12, self.gy >> 12
-        C = self.cell(cwx, cwy)
+        Cs = self.cell(cwx, cwy)                    # (the CELL's surface; 128.24.7.5: a split cell's is its floors')
+        C = self.prec(cwx, cwy)                     # ...and the centre's RECORD's slopes (128.24.7.1)
         # 2. forces
         if not self.air:
-            force, dk, brake, _ = surf_entry(self.mat, C[5], self._iceplain)
+            force, dk, brake, _ = surf_entry(self.mat, Cs[5], self._iceplain)
             if not stun:
                 fx, fy = self._forces(K, ftg_table(force))
                 self.gvx += fx
@@ -7435,13 +7681,19 @@ class Physics:
                     return self._end()
         # 5. walls: the circle, the edge test SYMMETRIC (128.11.8.3), every
         # zeroing a reflection (128.11.8.4)
+        if C[3] in SPLIT_KINDS:              # SPEC.md 128.24.7.2: the diagonal INSIDE the centre's cell -
+            if self._inner(C, cwx, cwy):            # the OTHER record(s) blocking: the lines inside the cell
+                if (self.gx >> 12, self.gy >> 12) != (cwx, cwy):    # a push across the cell's edge (near a
+                    cwx, cwy = self.gx >> 12, self.gy >> 12        # tip): the window refilled round it
+                    self._fill(cwx, cwy)
+                C = self.cell(cwx, cwy)
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         u, v = pu >> 8, pv >> 8
         lo = RAD << 8
         hi = (16 - RAD) << 8 if not self._east_w1 else ((16 - RAD) << 8) + 255
         door = self._door(C, cwx, cwy)
         if pu < lo:
-            c = self.cell(cwx - 1, cwy)
+            c = self.erec(cwx - 1, cwy, "E")        # (128.24.7.3: a split neighbour by its half that owns the edge)
             if self.blocks(c, 16, v, (cwx - 1, cwy)):
                 if door and door[0] == 0 and self._door_touch(C, u, v):
                     if self.gate_open(door[1], n):
@@ -7460,7 +7712,7 @@ class Physics:
                         self.gvx = _refl(self.gvx, self.e_wall(c))
                         self.events.append(("wall", self.nstep + 1, (-1, 0)))
         elif pu > hi:
-            c = self.cell(cwx + 1, cwy)
+            c = self.erec(cwx + 1, cwy, "W")
             if self.blocks(c, 0, v, (cwx + 1, cwy)):
                 self.gx = (16 * cwx + 16 - RAD) << 8
                 self.bgr = 0                        # wave 6b: a wall closes the grace
@@ -7468,7 +7720,7 @@ class Physics:
                     self.gvx = _refl(self.gvx, self.e_wall(c))
                     self.events.append(("wall", self.nstep + 1, (1, 0)))
         if pv < lo:
-            c = self.cell(cwx, cwy - 1)
+            c = self.erec(cwx, cwy - 1, "S")
             if self.blocks(c, u, 16, (cwx, cwy - 1)):
                 if door and door[0] == 1 and self._door_touch(C, u, v):
                     if self.gate_open(door[1], n):
@@ -7487,7 +7739,7 @@ class Physics:
                         self.gvy = _refl(self.gvy, self.e_wall(c))
                         self.events.append(("wall", self.nstep + 1, (0, -1)))
         elif pv > hi:
-            c = self.cell(cwx, cwy + 1)
+            c = self.erec(cwx, cwy + 1, "N")
             if self.blocks(c, u, 0, (cwx, cwy + 1)):
                 self.gy = (16 * cwy + 16 - RAD) << 8
                 self.bgr = 0                        # wave 6b: a wall closes the grace
@@ -7497,7 +7749,29 @@ class Physics:
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         wu, eu = pu < lo, pu > hi
         wv, ev = pv < lo, pv > hi
-        if (wu or eu) and (wv or ev):
+        rayed, orec, fblock = False, None, False
+        if self.wsplit:                             # SPEC.md 128.24.7.4: a DIAGONAL THROUGH THE CORNER - by the
+            q = (1 if pu >= 2048 else 0) + (2 if pv >= 2048 else 0)     # quadrant, K and its line; the ray its
+            kind, sig, off, test, yes, no, beyond, KK, yq, nq = RAYS[q]   # foot of perpendicular falls on FACES
+            hold = (pu >= pv) if test == 0 else (pu + pv >= 4096)       # the centre
+            if self._ray_inv:                       # (a red arm: the other ray - an invisible extension)
+                hold = not hold
+            face, oth = (yes, no) if hold else (no, yes)
+            fq, oq = (yq, nq) if hold else (nq, yq)
+            w = sig * ((pu - pv) if kind == KIND_TB else (pu + pv)) - sig * off
+            fc = self.cell(cwx + face[0], cwy + face[1])
+            if fc[3] in (kind, KIND_Q) and not self._all_radial:   # (a halved neighbour along this line, or a
+                rec = self.grid.pair(cwx + face[0], cwy + face[1])[beyond if fc[3] == kind else fq]   # quartered)
+                if self.blocks(rec, KK[0] - 16 * face[0], KK[1] - 16 * face[1]):
+                    fblock = True                   # K is on a straight wall: the line alone meets it, at DIAG
+                    if w < DIAG:
+                        rayed = self._dline(kind, sig, off, rec, "ray")
+            oc = self.cell(cwx + oth[0], cwy + oth[1])  # the OTHER ray's beyond piece: a wall's END at K
+            if oc[3] in (kind, KIND_Q):
+                rec = self.grid.pair(cwx + oth[0], cwy + oth[1])[beyond if oc[3] == kind else oq]
+                if self.blocks(rec, KK[0] - 16 * oth[0], KK[1] - 16 * oth[1]):
+                    orec = rec
+        if not fblock and (wu or eu) and (wv or ev):
             dx = -1 if wu else 1
             dy = -1 if wv else 1
             if self._east_w1:
@@ -7507,8 +7781,15 @@ class Physics:
                 adu = (pu >> 8) if wu else (4096 - pu) >> 8
                 adv = (pv >> 8) if wv else (4096 - pv) >> 8
             nx, ny, depth = CORNER[adu * 6 + adv]
-            c = self.cell(cwx + dx, cwy + dy)
-            if depth and self.blocks(c, 16 if dx < 0 else 0, 16 if dy < 0 else 0, (cwx + dx, cwy + dy)):
+            ku, kv = 16 if dx < 0 else 0, 16 if dy < 0 else 0
+            c = None                                # K BLOCKED: the corner neighbour's record(s) at K (a split's
+            for r_ in self._krec(cwx + dx, cwy + dy, ku, kv):   # both when K ends its diagonal, the first that
+                if self.blocks(r_, ku, kv, (cwx + dx, cwy + dy)):  # blocks), else the other ray's beyond half
+                    c = r_
+                    break
+            if c is None:
+                c = orec
+            if depth and c is not None:
                 nx = -nx if dx > 0 else nx
                 ny = -ny if dy > 0 else ny
                 mx, my = (depth * abs(nx)) >> 2, (depth * abs(ny)) >> 2
@@ -7533,7 +7814,7 @@ class Physics:
         # the fallback
         cwx, cwy = self.gx >> 12, self.gy >> 12
         if (cwx, cwy) != scell:
-            C = self.cell(cwx, cwy)
+            C = self.prec(cwx, cwy)                 # (128.24.7.5: the centre's RECORD)
             u, v = (self.gx >> 8) & 15, (self.gy >> 8) & 15
             if self.blocks(C, u, v, (cwx, cwy)):
                 e = self.e_wall(C)
@@ -7547,8 +7828,9 @@ class Physics:
                     self._fill(*scell)
                 self.events.append(("undo", self.nstep + 1, None))
                 self.bgr = 0                                # wave 6b: closes the grace
-        # 6. the floor (a track cell's and a post cell's are 128.12.6.4's and 128.12.6.3's)
-        C = self.cell(cwx, cwy)
+        # 6. the floor (a track cell's and a post cell's are 128.12.6.4's and 128.12.6.3's): the centre's
+        # RECORD (128.24.7.1) - the cell, or its picked half
+        C = self.prec(cwx, cwy)
         Cv = C
         C, h4, slab = self._floor(C, (cwx, cwy), n)
         solid = C[3] in (KIND_FLOOR, KIND_GOAL)
@@ -7928,10 +8210,11 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # Wave 6b (SPEC.md 128.17.7): the boost armed in flight and the late grace are a
 # rule change with no table, so PHYS_REV 7, and the grace's length BGRACE joins
 # the constants before it.
-PHYS_REV = 11                 # wave 7 (128.18.5.3): a clock's post stops the ball
+PHYS_REV = 12                 # SPEC.md 128.24.7 (story D2.4): the step reads split cells (the half pick,
+                              # the diagonal inside a cell, the edges by their owning half, the corner's rays)
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
-               PHYS_REV)
+               DIAG, DWMIN, PHYS_REV)
 # The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
 # so a new CRC can land on an old value: the build refuses a BZ_PHYSV in this
 # list.  00h is the unset value (every pre-wave-6 BONANZA.DAT has +5 = 0), 9Ah
@@ -7941,7 +8224,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -7958,8 +8241,23 @@ def phys_tables():
     BZ_SURFTAB (ice, sand and the mat derived from each material), the corner
     table and the bumpers' OCTANT table, as bzcourse.inc emits them"""
     return (surftab() + bytes((v & 255) for e in CORNER for v in e)
-            + bytes((v & 255) for e in OCTANT for v in e))
+            + bytes((v & 255) for e in OCTANT for v in e) + split_tables())
 
+
+def split_tables():
+    """SPEC.md 128.24.7.3 - 128.24.7.4's tables as bytes (BZ_PHYSV hashes them, story D2.4): the owning half
+    of each edge W, N, E, S for TB, LR and a quartered cell (12 bytes), RAYS (13 bytes a quadrant: kind, sigma,
+    off / 256, test, the yes ray's dx dy, the no ray's dx dy, the beyond half, K's u, v, the two rays'
+    quarters) and K_RECS (each kind's records at each corner)"""
+    out = bytes(OWNER[k][e] for k in SPLIT_KINDS for e in ("W", "N", "E", "S"))
+    for kind, sig, off, test, yes, no, beyond, K, yq, nq in RAYS:
+        out += bytes(v & 255 for v in (kind, sig, off >> 8, test, yes[0], yes[1], no[0], no[1], beyond, K[0], K[1],
+                                       yq, nq))
+    for k in SPLIT_KINDS:
+        for K in ((0, 0), (16, 0), (16, 16), (0, 16)):
+            rs = K_RECS[k][K]
+            out += bytes((len(rs),) + rs + (0,) * (2 - len(rs)))
+    return out
 
 
 def phys_ident(_mt=None, _consts=None, _tabs=None):
@@ -9471,7 +9769,12 @@ def emit_inc(courses, path=None, title=None):
               "BZ_KTB          equ %d        ; split along T - B (screen-vertical): half A left, B right" % KIND_TB,
               "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
               "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
+              "BZ_KQ           equ %d        ; QUARTERED (R4): records N, E, S, W" % KIND_Q,
+              "BZ_KCHANNEL     equ %d        ; RESERVED: a CHANNEL (SPEC.md 128.24.13), not built" % KIND_CHANNEL,
               "BZ_PAIR         equ %d        ; a pair: half A's cell record, then half B's" % PAIR,
+              "BZ_QUAD         equ %d       ; a quartered cell's four records" % (2 * PAIR),
+              "BZ_DIAG         equ %d     ; round(6 sqrt 2 x 256): the radius along a diagonal's normal" % DIAG,
+              "BZ_DWMIN        equ %d       ; the diagonal's dead band on |wv|'s scale (11.3 of normal speed)" % DWMIN,
               "",
               "; wave 2 (SPEC.md 128.11.5 - 128.11.8): keys, materials, surfaces, flags",
               "BZ_K_HOP        equ %02Xh      ; the key byte: Space held" % K_HOP,
@@ -9871,9 +10174,11 @@ def finish_points(c):
     """every FINISH of a compiled course, as the picture pixel of its centre:
     [(what, x, y)] - each goal cell's, the cup's (SPEC.md 128.22.6)"""
     out = []
-    for (wx, wy), t in sorted(c.tiles.items()):
+    for k, t in sorted(rec_map(c.tiles).items()):  # (SPEC.md 128.24: a goal half or quarter is a finish too,
+        wx, wy = k[:2]                              # placed at its cell's centre)
         if t.kind == KIND_GOAL:
-            out.append(("the goal cell (%d, %d)%s" % (wx, wy, ", exit %d" % t.exit if t.exit else ""),
+            out.append(("the goal %s (%d, %d)%s" % ("cell" if len(k) == 2 else "piece of", wx, wy,
+                                                      ", exit %d" % t.exit if t.exit else ""),
                         16 * (wx - wy) + c.x0, 8 * (wx + wy) + 8 - _h4t(t, 8, 8) // 4 + c.y0))
     for p in c.props:
         if p["kind"] == PK_CUP:
@@ -9917,8 +10222,11 @@ def finish_reach_rule(c, _hack=None, _posts=()):
     (a ball that rolls into one has finished there) holds it, with a FREE
     4-neighbour in the closure it rolls in from (the closure's launches fly
     over a post).  One closure an exit, not one a cell.  _posts: extra posts
-    (the selfcheck's red controls).  -> the verdict; refused naming the cell"""
-    goals = sorted(k for k, t in c.tiles.items() if t.kind == KIND_GOAL)
+    (the selfcheck's red controls).  SPEC.md 128.24 (story D2.5): per RECORD -
+    a goal half or quarter is a finish, reached with a free record it rolls
+    in from (rec_adj).  -> the verdict; refused naming the cell"""
+    rm = rec_map(c.tiles)
+    goals = sorted(k for k, t in rm.items() if t.kind == KIND_GOAL)
     cups = sorted(p["at"] for p in c.props if p["kind"] == PK_CUP)
     if not (goals or cups) or c.src.start is None:
         return "%s: no finish cell to reach" % c.name
@@ -9927,16 +10235,16 @@ def finish_reach_rule(c, _hack=None, _posts=()):
         posts = set()
     byex = {}
     for g in goals:
-        byex.setdefault(c.tiles[g].exit, []).append(g)
+        byex.setdefault(rm[g].exit, []).append(g)
     if cups:
         byex[None] = cups
     for e, fins in sorted(byex.items(), key=lambda kv: -1 if kv[0] is None else kv[0]):
-        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k not in goals or c.tiles[k].exit == e)}
-        R = reach_closure(t2, c.src.start[0]) if c.src.start[0] in t2 else set()
+        drop = {k for k in rm if k[:2] in posts or (k in goals and rm[k].exit != e)}
+        start = tuple(c.src.start[0])
+        R = reach_closure(c.tiles, start, drop=drop) if start in rm and start not in drop else set()
         for g in fins:
-            if g not in R or not any((g[0] + dx, g[1] + dy) in R and 4 * min(t2[g].corners())
-                                     <= 4 * max(t2[(g[0] + dx, g[1] + dy)].corners()) + CLIMB
-                                     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            if g not in R or not any(n in R and 4 * min(rm[g].corners()) <= 4 * max(rm[n].corners()) + CLIMB
+                                     for n in rec_adj(c.tiles, g)):
                 raise CourseError("%s: the %s (%d, %d) cannot be reached with the course's clocks in place "
                                   "(clock posts at %s): move the clock (SPEC.md 128.22.6)"
                                   % (c.fname, "cup" if e is None else "goal cell", g[0], g[1], sorted(posts)))
@@ -10728,7 +11036,48 @@ def play_geometry(c):
     return bad
 
 
-def reach_closure(tiles, start, props=()):
+def rec_map(tiles):
+    """SPEC.md 128.24.2: a course's RECORDS by key - (wx, wy) for a whole cell, (wx, wy, i) for piece i of a
+    split one - each a Tile"""
+    out = {}
+    for k, t in tiles.items():
+        if isinstance(t, Split):
+            for i, r in enumerate(t.halves):
+                if r is not None:
+                    out[k + (i,)] = r
+        else:
+            out[k] = t
+    return out
+
+
+def rec_adj(tiles, key):
+    """the records a ball can roll to from record `key` (SPEC.md 128.24.7.3): across each edge the key's record
+    owns, the record that owns it on the other side; inside a split cell, the pieces across its lines"""
+    cell = key[:2]
+    t = tiles[cell]
+    out = []
+    edges = EDGE_D if len(key) == 2 else [e for e in EDGE_D if OWNER[t.diag][e] == key[2]]
+    for e in edges:
+        dx, dy = EDGE_D[e]
+        n = (cell[0] + dx, cell[1] + dy)
+        nt = tiles.get(n)
+        if nt is None:
+            continue
+        if isinstance(nt, Split):
+            i = OWNER[nt.diag][OPP[e]]
+            if nt.halves[i] is not None:
+                out.append(n + (i,))
+        else:
+            out.append(n)
+    if len(key) == 3:
+        for i, j, _p0, _p1, _k in INNER[t.diag]:
+            o = j if key[2] == i else i if key[2] == j else None
+            if o is not None and t.halves[o] is not None:
+                out.append(cell + (o,))
+    return out
+
+
+def reach_closure(tiles, start, props=(), drop=()):
     """SPEC.md 128.11.4.4's reach RESTRICTED to what the start can get to (the
     PLAYGROUND's dead ends, 128.16.8): a launch (HOPMAX on a floor's rate), a
     BOOST launch from a firm level floor and a bounce only from a cell already
@@ -10737,8 +11086,16 @@ def reach_closure(tiles, start, props=()):
     bounce on every floor); a cell is reached when a flight there is at least
     its low corner less BZ_CLIMB, or it rolls on from a reached 4-neighbour
     (its low corner within BZ_CLIMB of that one's top).  An over-approximation
-    still, as the reach is: a cell it leaves out is unreachable.  -> the set"""
-    sol = {k: u for k, u in tiles.items() if u.kind != KIND_WALL}
+    still, as the reach is: a cell it leaves out is unreachable.
+    SPEC.md 128.24 (story D2.5): per RECORD - rec_map's keys, a whole cell's
+    (wx, wy) as before, a split cell's pieces (wx, wy, i); a flight over a cell
+    reaches each of its records, a roll goes by rec_adj.  drop: record keys left
+    out (posts, another exit's goals).  -> the set of record keys"""
+    rm = rec_map(tiles)
+    sol = {k: u for k, u in rm.items() if u.kind != KIND_WALL and k not in drop}
+    bycell = {}
+    for k in sol:
+        bycell.setdefault(k[:2], []).append(k)
     hi = {k: 4 * max(u.corners()) for k, u in sol.items()}
     lo = {k: 4 * min(u.corners()) for k, u in sol.items()}
     obs = prop_cells(props)
@@ -10753,9 +11110,9 @@ def reach_closure(tiles, start, props=()):
         for (k, h, r) in sl:
             for dy in range(-r, r + 1):
                 for dx in range(-r, r + 1):
-                    c_ = (k[0] + dx, k[1] + dy)
-                    if c_ in sol and (c_ not in best or h > best[c_]):
-                        best[c_] = h
+                    for c_ in bycell.get((k[0] + dx, k[1] + dy), ()):
+                        if c_ not in best or h > best[c_]:
+                            best[c_] = h
         return best
     R = {start}
     while True:
@@ -10765,7 +11122,7 @@ def reach_closure(tiles, start, props=()):
             U = (abs(u.sx) + abs(u.sy)) * VMAXG // 4 + HOPMAX
             srcs.append((k, hi[k] + UP(U), RADIUS(U)))
             if BOOSTMAX and u.kind in (KIND_FLOOR, KIND_GOAL) and not u.sx and not u.sy \
-                    and u.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                    and u.surf in (SURF_NORMAL, SURF_ICE) and k[:2] not in obs:
                 srcs.append((k, hi[k] + UP(BOOSTMAX - G), RADIUS(BOOSTMAX - G)))
         best = spread(srcs)
         while True:
@@ -10779,7 +11136,7 @@ def reach_closure(tiles, start, props=()):
                     extra.append((k, hi[k] + UP(rh), RADIUS(rl)))
                     u = sol[k]                  # round 3b (SPEC.md 128.17.17): the boost ADDS to that bounce
                     if BOOSTMAX and BADDMAX and u.kind in (KIND_FLOOR, KIND_GOAL) and not u.sx and not u.sy \
-                            and u.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                            and u.surf in (SURF_NORMAL, SURF_ICE) and k[:2] not in obs:
                         ub = min(VZMAX, max(BOOSTMAX, rh + BADDMAX))
                         ul = min(VZMAX, max(BOOSTMAX, rl + BADDMAX))
                         extra.append((k, hi[k] + UP(ub - G), RADIUS(ul - G)))
@@ -10791,8 +11148,7 @@ def reach_closure(tiles, start, props=()):
         todo = list(R2)
         while todo:
             k = todo.pop()
-            for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                n = (k[0] + d[0], k[1] + d[1])
+            for n in rec_adj(tiles, k):
                 if n in sol and n not in R2 and lo[n] <= hi[k] + CLIMB:
                     R2.add(n)
                     todo.append(n)
@@ -16587,16 +16943,19 @@ def _clock_rule_checks(courses, res, paths=None):
 # until wave D3): a lane straight up the screen 32 px wide (`box -1 1`) between two diagonal rails, its far
 # end a half unit up (an LR step with its FRONT face), a field to its right whose right side is a straight
 # 45-degree course EDGE (VOID halves), a TB step inside the field (the edge line), a raised DOWN half (the
-# occluders' s + 1 key), a goal tile across the lane
+# occluders' s + 1 key), a goal tile across the lane, a raised platform whose box corners are QUARTERED (R4:
+# a 45-degree chamfer), a wall quarter standing in it
 _SPLIT = ('course SPLIT "Split"\nwidth 64\n'
           'floor box -1 1 15 31 flat 0\n'
           'floor box -1 1 15 21 flat 0.5\n'
           'wall  box -3 -1 15 31 flat 1.5\n'
           'wall  box 1 3 15 31 flat 1.5\n'
           'floor box 3 7 15 23 flat 0\n'
-          'floor half right tile 12 6 flat 0.5\n'
           'floor half down tile 13 9 flat 2\n'
           'goal  tile 9 9 flat 0.5\n'
+          'floor box 4 7 15 20 flat 1\n'
+          'floor half right tile 12 6 flat 0.5\n'
+          'wall  quarter s tile 11 7 flat 2\n'
           'start 12 12\n')
 
 
@@ -16604,11 +16963,13 @@ def _split_cases():
     """SPEC.md 128.24.4's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
     S = _SPLIT
     return [
-        ("a box that quarters a cell (an odd width)", S + "floor box 7 10 15 23 flat 0\n", "in QUARTERS"),
-        ("a cell split one way and then the other", S + "floor half up tile 12 12 flat 0\n"
-         "floor half left tile 12 12 flat 0.5\n", "in QUARTERS"),
         ("`half` on a box", S + "floor half left box -1 1 15 31 flat 0\n", "the box already decides"),
+        ("`quarter` on a box", S + "floor quarter n box -1 1 15 31 flat 0\n", "the box already decides"),
         ("half takes a side", S + "floor half middle tile 12 12 flat 0\n", "half takes up, down, left or right"),
+        ("quarter takes an edge", S + "floor quarter up tile 12 12 flat 0\n", "quarter takes n, e, s or w"),
+        ("a wall quarter not above the floor across its line", S + "floor quarter e tile 12 12 flat 1\n"
+         "wall quarter n tile 12 12 flat 0.5\n",
+         "across the line inside it"),
         ("the start on a split cell", _swap(S, "start 12 12", "start 11 12"), "the start on cell (11, 12)"),
         ("a way on a split cell", S + "way 11 12\n", "a way on cell (11, 12)"),
         ("a pad on a split cell", S + "pad steel 11 12\n", "a pad on cell (11, 12)"),
@@ -16654,6 +17015,254 @@ def _split_mockups():
     }
 
 
+# SPEC.md 128.24.11 (story D2): the model's scripted runs on halves.  _RAIL: a floor with one diagonal RAIL
+# three cells long in its middle (the left halves of (10, 10) - (12, 12), a straight screen-vertical wall
+# whose ends are the T of (10, 10) and the B of (12, 12)), a straight course EDGE (VOID halves) on its right,
+# a goal half with an exit
+_RAIL = ('course RAIL "Rail"\nwidth 128\n'
+         'floor rect 5 5 18 18 flat 0\n'
+         'wall half left tile 10 10 flat 1.5\nwall half left tile 11 11 flat 1.5\nwall half left tile 12 12 flat 1.5\n'
+         'hole half right rect 17 5 18 18\n'
+         'goal half left tile 14 8 flat 0 exit 3\n'
+         'wall quarter s tile 8 14 flat 1.5\n'
+         'start 7 14\n')
+
+
+def _dl(p, kind, sig, off, e_rec):
+    """_dline's arithmetic alone, on a Physics' state: -> (w, wv, tangential) before, after"""
+    ox, oy = p.gx & ~0xFFF, p.gy & ~0xFFF          # (the cell's origin: a push may leave the cell)
+
+    def st():
+        pu, pv = p.gx - ox, p.gy - oy
+        w = sig * ((pu - pv) if kind == KIND_TB else (pu + pv)) - sig * off
+        wv = sig * ((p.gvx - p.gvy) if kind == KIND_TB else (p.gvx + p.gvy))
+        tg = (p.gvx + p.gvy) if kind == KIND_TB else (p.gvx - p.gvy)
+        return w, wv, tg
+    a = st()
+    hit = p._dline(kind, sig, off, e_rec, "test")
+    return hit, a, st()
+
+
+def _split_physics(res):
+    """SPEC.md 128.24.11's scripted runs (stories D2.1 - D2.3) on the SPLIT course and the RAIL course, each
+    with its red arm"""
+    cs = compile_course(_SPLIT, "<SPLIT>", _hack={"no_finish": True})
+    cr = compile_course(_RAIL, "<RAIL>", _hack={"no_finish": True})
+
+    def at(c, wx, wy, pu, pv, gvx=0, gvy=0, air=0, gz=None, **kw):
+        """a ball put at in-cell (pu, pv) of (wx, wy), 1/256 gu, on its record's floor (or at gz px)"""
+        p = Physics(c, **kw).poke(*c.start)
+        p.gx, p.gy = (16 * wx << 8) + pu, (16 * wy << 8) + pv
+        r = p.prec(wx, wy)
+        p.gz = (Physics.h4(r, pu >> 8, pv >> 8) << 6) if gz is None else gz << 8
+        p.gvx, p.gvy, p.air = gvx, gvy, air
+        p._fill(wx, wy)
+        p._derive(True)
+        return p
+
+    # D2.1: a roll off a diagonal edge - the take-off at the pick's boundary
+    def takeoff(**kw):
+        p = at(cr, 17, 10, 6 << 8, 8 << 8, 32, -32, **kw)   # (17, 10): a left floor half, its right VOID
+        for i in range(40):
+            pu, pv = p.gx & 0xFFF, p.gy & 0xFFF
+            p.step(0)
+            ev = [e for e in p.events if e[1] == p.nstep and e[0] == "takeoff"]
+            if ev:
+                q = Physics(cr)
+                c_ = (p.gx >> 12, p.gy >> 12)
+                return c_ == (17, 10) and (p.gx & 0xFFF) >= (p.gy & 0xFFF) and pu < pv, i
+        return False, None
+    ok, n = takeoff()
+    bad, _ = takeoff(_pick_swap=True)
+    res.append(("7 SPLIT (128.24.7.1): a ball rolling across a TB cell's diagonal from its floor half into its VOID "
+                "half takes off on the step its centre crosses the diagonal (step %s), not at the cell's edge; red "
+                "arm: the pick's sides swapped" % n, ok and not bad))
+    # D2.1: a fall into a VOID half and its kill height (the pair's z0, by NEAR)
+    def fall(**kw):
+        p = at(cr, 17, 10, 12 << 8, 3 << 8, 0, 0, air=1, gz=8, **kw)
+        kill = p.grid.pair(17, 10)[1][0]
+        seen = []
+        prev = p.gz
+        orig = p._respawn
+
+        def spy(ret=False):
+            seen.append((p.gx, p.gy, p.gz))
+            return orig(ret)
+        p._respawn = spy
+        for i in range(80):
+            p.step(0)
+            if seen:
+                gx, gy, gz = seen[0]
+                return (gx >> 12, gy >> 12) == (17, 10) and pick(KIND_TB, gx & 0xFFF, gy & 0xFFF) == 1 \
+                    and gz < (4 * kill) << 8 and prev >= (4 * kill) << 8, kill, i
+            prev = p.gz
+        return False, kill, None
+    ok, kill, n = fall()
+    res.append(("7 SPLIT (128.24.7.1): a ball falling in a VOID half is killed at the half's own kill height (%d "
+                "half units, 128.24.5.3's NEAR at its cell), on step %s" % (kill, n), ok))
+    # D2.1: a goal half's exit: the goal counts when the centre is in the GOAL half, its exit the half's
+    p = at(cr, 15, 8, 8 << 8, 8 << 8, -192, 0, play=True)
+    hit = None
+    for i in range(120):
+        p.step(0)
+        if p.goal:
+            hit = (p.gx >> 12, p.gy >> 12, (p.gx & 0xFFF) < (p.gy & 0xFFF), p.exit)
+            break
+    res.append(("7 SPLIT: a GOAL half's finish counts only with the centre in it - the ball rolling west across "
+                "(14, 8)'s floor half first - and its exit is the half's (%s)" % (hit,),
+                hit is not None and hit[:3] == (14, 8, True) and hit[3] == 3))
+    # D2.2: the diagonal's arithmetic, against 128.24.7.2: w after DIAG or DIAG + 1, wv after t or t - 1, the
+    # tangential component EXACT; no clamp needed (every e <= 256: each new component between the old two)
+    import random
+    rnd = random.Random(2408)
+    p = at(cs, 12, 12, 2048, 2048)
+    worst = 0
+    okd = True
+    for kind in (KIND_TB, KIND_LR):
+        for n_ in range(2000):
+            sig = rnd.choice((1, -1))
+            off = 0 if kind == KIND_TB else 4096
+            pu, pv = rnd.randrange(4096), rnd.randrange(4096)
+            p.gx, p.gy = (16 * 12 << 8) + pu, (16 * 12 << 8) + pv
+            p.gvx, p.gvy = rnd.randrange(-VMAXG, VMAXG + 1), rnd.randrange(-VMAXG, VMAXG + 1)
+            rec = rnd.choice(((0, 0, 0, KIND_WALL, 0, SURF_NORMAL), (0, 0, 0, KIND_WALL, 0, SURF_BOUNCE)))
+            hit, (w0, wv0, tg0), (w1, wv1, tg1) = _dl(p, kind, sig, off, rec)
+            if w0 < 0:
+                continue
+            if not hit:
+                okd = okd and w0 >= DIAG and (w1, wv1, tg1) == (w0, wv0, tg0)
+                continue
+            t = (p.e_wall(rec) * -wv0) >> 8 if wv0 < 0 else None
+            t = 0 if t is not None and t < DWMIN else t
+            okd = okd and w1 in (DIAG, DIAG + 1) and tg1 == tg0 and abs(p.gvx) <= VMAXG and abs(p.gvy) <= VMAXG
+            okd = okd and (wv1 == wv0 if wv0 >= 0 else wv1 in (t, t - 1))
+            worst = max(worst, abs(p.gvx), abs(p.gvy))
+    emax = max([E_BUMPER] + [m["EW"] for m in MATERIALS])
+    res.append(("7 SPLIT (128.24.7.2): the diagonal's push and reflection on 4,000 random states: after a contact w is "
+                "DIAG or DIAG + 1, the normal speed t or t - 1, the tangential speed EXACTLY kept, both components "
+                "inside +-BZ_VMAXG with no clamp (every restitution <= 256, the largest %d; the largest component "
+                "met %d)" % (emax, worst), okd and emax <= 256))
+    # D2.2 - D2.3: a slide along the rail at a shallow angle, through split cells and the whole cells beside
+    def slide(**kw):
+        p = at(cs, 12, 12, 2048, 2048, **kw)
+        dmin, dmax, contacts, kinds, inwall = 99999, 0, 0, set(), 0
+        for i in range(150):
+            if (p.gx + p.gy) >> 12 < 17:            # (the lane's far end: the rail's tip, met radially)
+                break
+            p.step(K_U | K_L)
+            d = (p.gx - p.gy) + (16 << 8)          # x sqrt 2 x 256 from the left rail's line, gx - gy = -16 gu
+            ev = [e for e in p.events if e[1] == p.nstep and e[0] in ("diag", "corner", "wall")]
+            if ev:
+                contacts += 1
+                kinds |= {e[0] + ("" if e[0] != "diag" else ":" + e[2]) for e in ev}
+                dmin, dmax = min(dmin, d), max(dmax, d)
+            r = p.prec(p.gx >> 12, p.gy >> 12)
+            inwall += r[3] == KIND_WALL
+        return dmin, dmax, contacts, kinds, inwall
+    dmin, dmax, ncon, kinds, inwall = slide()
+    res.append(("7 SPLIT (128.24.7.2 - 128.24.7.4): a ball held Up and Left slides up the lane's left rail to its far end "
+                "through its split cells and the whole lane cells beside them (contacts %s, %d steps): at every "
+                "contact its centre ends DIAG or DIAG + 1 from the rail's line (%d - %d), never in a wall half - no "
+                "kick at a cell corner" % (", ".join(sorted(kinds)), ncon, dmin, dmax),
+                ncon > 60 and dmin >= DIAG and dmax <= DIAG + 1 and not inwall and kinds == {"diag:in", "diag:ray"}))
+    d1 = slide(_dsig_flip=True)
+    d2 = slide(_all_radial=True)
+    res.append(("7 SPLIT red arms: the diagonal's sigma flipped (the ball %s); every diagonal end a radial corner "
+                "(contacts %s, distance %d - %d: a kick off the rail at the cell corners)" % (
+                    "enters the rail" if d1[4] else "does not enter the rail", ", ".join(sorted(d2[3])), d2[0], d2[1]),
+                d1[4] > 0 and (d2[0] < DIAG or d2[1] > DIAG + 1 or "corner" in d2[3])))
+    # D2.2: a head-on hit: the normal component reflected to (EW |wv|) >> 8
+    p = at(cs, 12, 12, 2048, 2048, -200, 200)
+    hit = None
+    for i in range(40):
+        g0 = (p.gvx, p.gvy)
+        p.step(0)
+        ev = [e for e in p.events if e[1] == p.nstep and e[0] == "diag"]
+        if ev:
+            hit = (g0, (p.gvx, p.gvy), ev[0])
+            break
+    if hit:
+        wv0 = hit[2][4]
+        t = (MATERIALS[MAT_RUBBER]["EW"] * -wv0) >> 8
+        wv1 = -(hit[1][0] - hit[1][1])           # the left rail: the centre in half B, sigma +1 ... its own cell's
+    res.append(("7 SPLIT (128.24.7.2): a head-on hit on the left rail (rubber, EW %d): the normal speed into it %s "
+                "reflected to %s, (EW |wv|) >> 8 = %s less the halving's unit at most" % (
+                    MATERIALS[MAT_RUBBER]["EW"], hit and -hit[2][4], hit and (hit[1][0] - hit[1][1]),
+                    hit and t), hit is not None and (hit[1][0] - hit[1][1]) in (t, t - 1)))
+    # D2.3: a wall's END met RADIALLY: up the right side of RAIL's rail from below its bottom tip (B of
+    # (12, 12), gx + gy 416), the circle's centre 5.7 gu right of its line - the first contact the radial
+    # corner at the tip, from (13, 12) (128.24.7.4's "otherwise": the tip blocked by the OTHER ray's beyond
+    # half, (12, 12)'s wall); red arm: the ray choice inverted - the line pushed off BELOW the tip, steps
+    # before the ball reaches it: an invisible extension
+    def tip(**kw):
+        p = at(cr, 14, 13, 2 << 8, 10 << 8, -160, -160, **kw)    # gx - gy = 8 gu (5.7 across) right of gx = gy
+        for i in range(40):
+            p.step(0)
+            ev = [e for e in p.events if e[1] == p.nstep and e[0] in ("diag", "corner", "wall")]
+            if ev:
+                return ev[0][0] + (":" + ev[0][2] if ev[0][0] == "diag" else ""), (p.gx + p.gy) >> 8, i
+        return None, None, None
+    good, gs, gn = tip()
+    red, rs, rn = tip(_ray_inv=True)
+    res.append(("7 RAIL (128.24.7.4): a ball rolling up beside the rail from below meets its END radially (first "
+                "contact %s at gx + gy %s, step %s); red arm, the ray choice inverted: %s at %s, step %s (an "
+                "invisible extension below the tip)" % (good, gs, gn, red, rs, rn),
+                good == "corner" and red == "diag:ray" and rn < gn))
+    # D2.3: the edges by their owning half: into the lane's left split cells from the lane, the shared edge is
+    # their FLOOR half's - no wall at the cell edge, the diagonal is what stops the ball; red arm, the owning
+    # halves swapped: an edge contact
+    def own(**kw):
+        p = at(cs, 12, 12, 2048, 2048, -300, 0, **kw)
+        for i in range(30):
+            p.step(0)
+            ev = [e for e in p.events if e[1] == p.nstep and e[0] in ("diag", "corner", "wall")]
+            if ev:
+                return ev[0][0]
+        return None
+    res.append(("7 SPLIT (128.24.7.3): a ball rolling from a lane cell into the left rail's split cell meets the "
+                "diagonal (%s), not the cell edge; red arm, the owning halves swapped: %s" % (own(), own(_own_swap=True)),
+                own() == "diag" and own(_own_swap=True) == "wall"))
+    # R4, QUARTERS: RAIL's (8, 14) has a WALL S quarter.  From its W quarter toward it, the half-diagonal L - c
+    # is a wall (128.24.7.2 on the quarter's own line): pushed off to DIAG or DIAG + 1; from its N quarter
+    # straight at the centre, the S quarter touches the N one at c alone - met RADIALLY ("centre"); red arm,
+    # the pick swapped (N read as S): no centre contact
+    def quarter(start, vel, **kw):
+        p = at(cr, 8, 14, start[0] << 8, start[1] << 8, vel[0], vel[1], **kw)
+        for i in range(30):
+            p.step(0)
+            ev = [e for e in p.events if e[1] == p.nstep and e[0] in ("diag", "corner", "wall", "centre")]
+            if ev:
+                pu, pv = p.gx & 0xFFF, p.gy & 0xFFF
+                return ev[0][0] + (":" + ev[0][2] if ev[0][0] == "diag" else ""), 8192 - pu - pv - 4096, i
+        return None, None, None
+    q1, qw, qn = quarter((2, 6), (100, 100))
+    q2, _, n2 = quarter((8, 1), (0, 100))
+    q3, _, n3 = quarter((8, 1), (0, 100), _pick_swap=True)
+    q3 = "%s on step %s (against %s)" % (q3, n3, n2)
+    res.append(("7 RAIL (R4, quarters): from the W quarter into a WALL S quarter the line L - c inside the cell "
+                "stops the ball (%s, its centre then %s from the line: DIAG or DIAG + 1); from the N quarter "
+                "straight at the cell's centre the opposite S quarter is met radially (%s); red arm, the pick "
+                "swapped: %s" % (q1, qw, q2, q3),
+                q1 == "diag:in" and qw in (DIAG, DIAG + 1) and q2 == "centre" and (n3 is None or n3 > n2)))
+    # D2.5: the host tools that walk a course, on RAIL with props - its exits by the model (check_exits), NO
+    # TRAP from a flag and a pad to the goal HALF (trap_reach), the finish's reach per record and the clock
+    # rule (finish_reach_rule, finish_clock_rule), OCCG (in the compile, _occg per record)
+    txt = _RAIL + "pad steel 7 7\ncheckpoint 15 15\nclock 12 7\nlimit 60\nmedals 20 40\n"
+    try:
+        cp = compile_course(txt, "<RAIL, with props>")
+        v = (finish_reach_rule(cp), finish_clock_rule(cp), [t[3] for t in getattr(cp, "trap", None) or ()],
+             sum(1 for cl in cp.cells.values() if cl[3] & FL_OCCG))
+        ok = all(v[2]) and len(v[2]) == 2 and "reachable" in v[0]
+    except CourseError as e:
+        v, ok = (str(e),), False
+    res.append(("7 RAIL with a pad, a flag and a clock (story D2.5): the course compiles with every check a shipped "
+                "course has - the props' exits by the model, NO TRAP from the flag and the pad to the GOAL HALF "
+                "(%s), the finish's reach per record (%s), the clock rule (%s), OCCG on %s cells" % (
+                    v[2] if len(v) > 2 else "-", v[0], v[1] if len(v) > 1 else "-", v[3] if len(v) > 3 else "-"),
+                ok))
+    return cs, cr
+
+
 def _split_checks(res, t):
     """SPEC.md 128.24.11's `bonanzacourse` items on THE SPLIT COURSE (stories D1.1 - D1.4): the refusals, the
     normalisation, items 3 - 6 on halves, the reader's refusals of a bad pair, the stored form with D, the
@@ -16667,20 +17276,23 @@ def _split_checks(res, t):
         res.append(("2 refused (128.24.4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     c = compile_course(_SPLIT, "<SPLIT>", _hack={"no_finish": True})
     nsp = sum(1 for v in c.tiles.values() if isinstance(v, Split))
+    nq = sum(1 for v in c.tiles.values() if isinstance(v, Split) and v.diag == KIND_Q)
+    dbytes = sum(4 * len(v.halves) for v in c.tiles.values() if isinstance(v, Split))
     kinds = {}
     for v in c.tiles.values():
         if isinstance(v, Split):
             key = "+".join("VOID" if h is None else {KIND_FLOOR: "floor", KIND_WALL: "wall", KIND_GOAL: "goal"}[
                 h.kind] for h in v.halves)
             kinds[key] = kinds.get(key, 0) + 1
-    print("    SPLIT (SPEC.md 128.24.11): %d split cells (%s), %d whole; part %d bytes (D %d), identity %04Xh"
-          % (nsp, ", ".join("%s %d" % kv for kv in sorted(kinds.items())), len(c.tiles) - nsp, len(c.cga),
-             PAIR * len(c.pairs), c.ident))
-    res.append(("2 the SPLIT course compiles: %d split cells of both diagonals, GF_SPLIT set, section D %d bytes "
-                "(8 a split cell) after C, PLAIN" % (nsp, PAIR * len(c.pairs)),
+    print("    SPLIT (SPEC.md 128.24.11): %d split cells, %d of them quartered (%s), %d whole; part %d bytes (D %d), "
+          "identity %04Xh" % (nsp, nq, ", ".join("%s %d" % kv for kv in sorted(kinds.items())), len(c.tiles) - nsp,
+                               len(c.cga), dbytes, c.ident))
+    res.append(("2 the SPLIT course compiles: %d split cells of both diagonals and %d QUARTERED (R4: a box's "
+                "corners), GF_SPLIT set, section D %d bytes (8 a halved cell, 16 a quartered one) after C, PLAIN"
+                % (nsp - nq, nq, dbytes),
                 nsp == len(c.pairs) > 0 and c.gflags & GF_SPLIT and {v.diag for v in c.tiles.values()
-                                                                    if isinstance(v, Split)} == {KIND_TB, KIND_LR}
-                and any(e["tag"] == "D" and e["form"] == F_PLAIN and e["len"] == PAIR * nsp for e in c.part["dir"])))
+                                                                    if isinstance(v, Split)} == set(SPLIT_KINDS)
+                and any(e["tag"] == "D" and e["form"] == F_PLAIN and e["len"] == dbytes for e in c.part["dir"])))
     # the normalisation: a half equal to its partner is stored WHOLE - the same part, byte for byte
     cn = compile_course(_SPLIT + "floor half left tile 12 12 flat 0\nfloor half up tile 9 9 flat 0.5\n"
                         "goal half up tile 9 9 flat 0.5\ngoal half down tile 9 9 flat 0.5\n",
@@ -16693,18 +17305,19 @@ def _split_checks(res, t):
     # the reader: every bad pair refused (D1.3)
     g = c.part["grid"]
     co, po, dl = g["celloff"], g["pairoff"], len(g["pairs"])
-    idx = [i for i in range(0, po - co, 4) if c.cga[co + i + 2] & 15 in (KIND_TB, KIND_LR)]
+    idx = [i for i in range(0, po - co, 4) if c.cga[co + i + 2] & 15 in SPLIT_KINDS]
     i0, i1 = idx[0], idx[1]
 
     def _vv(b):
         o = struct.unpack_from("<H", b, co + i0)[0]
         b[o:o + PAIR] = bytes([0x80, 0, 0, 0, 0x81, 0, 0, 0])
-    bads = (("a dangling pair offset", lambda b: struct.pack_into("<H", b, co + i0, po + dl), "not a pair inside D"),
-            ("a pair named twice", lambda b: struct.pack_into("<H", b, co + i1, struct.unpack_from("<H", b, co + i0)[0]),
-             "is cell"),
-            ("a split VOID-VOID", _vv, "both VOID"),
+    bads = (("a dangling offset", lambda b: struct.pack_into("<H", b, co + i0, po + dl), "inside D"),
+            ("records named twice", lambda b: struct.pack_into("<H", b, co + i1, struct.unpack_from("<H", b, co + i0)[0]),
+             "are cell"),
+            ("a split VOID-VOID", _vv, "all VOID"),
             ("a SAFE split cell", lambda b: b.__setitem__(co + i0 + 3, b[co + i0 + 3] | FL_SAFE), "flags"),
-            ("a reserved kind 6", lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 6), "kind 6"),
+            ("the reserved kind 7 (a channel)", lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7),
+             "kind 7"),
             ("GF_SPLIT clear", lambda b: b.__setitem__(c.part["gridoff"] + 28, b[c.part["gridoff"] + 28] & ~GF_SPLIT),
              "GF_SPLIT"))
     for what, f_, want in bads:
@@ -16814,7 +17427,8 @@ def _course_items(c, k, res, t):
             for u in range(16):
                 for v in range(16):
                     hh = pick(ent.diag, u << 8, v << 8)
-                    want_h = 1 if (u >= v if ent.diag == KIND_TB else u + v >= 16) else 0
+                    want_h = (1 if (u >= v if ent.diag == KIND_TB else u + v >= 16) else 0) if ent.diag != KIND_Q \
+                        else {(1, 0): Q_N, (1, 1): Q_E, (0, 1): Q_S, (0, 0): Q_W}[(int(u >= v), int(u + v >= 16))]
                     tl = ent.halves[hh]
                     if hh != want_h or g.rec(wx, wy, u << 8, v << 8) != pr[hh]:
                         okp = False
@@ -16875,7 +17489,7 @@ def _course_items(c, k, res, t):
     occg_ok = all(not (v[3] & FL_OCCG) or v[3] & FL_OCC for v in c.cells.values())
     tried = missed = 0
     for (wx, wy), cl in c.cells.items():
-        if not cl[3] & FL_OCC or (cl[2] & 15) not in (KIND_FLOOR, KIND_GOAL, KIND_TB, KIND_LR):
+        if not cl[3] & FL_OCC or (cl[2] & 15) not in (KIND_FLOOR, KIND_GOAL) + SPLIT_KINDS:
             continue
         for u in range(0, 16, 2):
             for v in range(0, 16, 2):
@@ -17227,6 +17841,7 @@ def selfcheck(paths=None):
     for k, c in enumerate(courses):
         _course_items(c, k, res, t)
     split = _split_checks(res, t)                   # SPEC.md 128.24.11: THE SPLIT COURSE (stories D1 - D2)
+    _split_physics(res)                             # ...and the model's runs on its halves (story D2)
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()

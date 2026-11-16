@@ -271238,7 +271238,7 @@ the sketch, and the built course is a different shape):
   desktop with the claims as before the bracket. Red arm `--red view` (the
   fixed camera ignored) red at the window check.
 
-### 128.24 Diagonal tiles (PLANNED)
+### 128.24 Diagonal tiles (D1 - D2 BUILT; D3 - D5 PLANNED)
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -271251,8 +271251,9 @@ grid, and with whole cells it is a zigzag: a route straight up the pathway is
 laid as a FAT staircase three cells a step (`bbcourse._route_lay`), and a
 course edge, a wall or a rail can follow only the two grid axes.
 
-**This section is a CONTRACT, nothing of it is built.** It is written for the
-owner and the lead to decide on (128.24.12) before a line of it is coded; the
+**This section is a CONTRACT, built wave by wave** (the paragraph "Built so
+far" below says which). It was written for the
+owner and the lead to decide on (128.24.12) before a line of it was coded; the
 stories are [docs/plans/BOUNCE-BONANZA-DIAGONAL.md](docs/plans/BOUNCE-BONANZA-DIAGONAL.md).
 Every figure here is PREDICTED unless it says MEASURED. The mock-ups the owner
 was shown were drawn by a throwaway host prototype (outside the tree) that
@@ -271267,15 +271268,23 @@ landing, the goal and its exit, a bumper's restitution) reads a half
 unchanged; physics adds a half PICK and a WALL ALONG A DIAGONAL, whose
 45-degree rebound needs no square root.
 
-**Built so far** (the stories of the plan, each with its figures): **D1, the
-tool - BUILT** (`tools/bbcourse.py`: `Split`, `half` and `box`, section `D`,
-`GF_SPLIT`, the CELLS rule by halves, the picture and the down half's key;
-`bzcourse.inc`'s `BZ_KTB`, `BZ_KLR`, `BZ_GF_SPLIT`, `BZ_PAIR`; `--selfcheck`
+**Built so far** (the stories of the plan, each with its figures): **D1,
+the tool - BUILT** (`tools/bbcourse.py`: `Split`, `half`, `quarter` and
+`box`, section `D`, `GF_SPLIT`, the CELLS rule by pieces, the picture and
+the front pieces' key; `bzcourse.inc`'s `BZ_KTB`, `BZ_KLR`, `BZ_KQ`,
+`BZ_KCHANNEL` (reserved), `BZ_GF_SPLIT`, `BZ_PAIR`, `BZ_QUAD`; `--selfcheck`
 compiles THE SPLIT COURSE, a string in the tool, and runs items 2 - 6 and
 10 on it; `--png split:` draws it and the owner's mock-up scenes from text,
-`--sizes split:` prices it). No shipped course uses a half: the tool
+`--sizes split:` prices it). **D2, the model - BUILT** (`bbcourse.Physics`:
+the pick, the lines inside a cell, the edges by their owning record, the
+corner's rays, a quartered cell's centre; `BZ_PHYSV` B1h; the reach tools
+per record; THE RAIL COURSE's scripted runs). **R4's QUARTERS** (the
+owner's Q3) are in both. No shipped course uses a split cell: the tool
 refuses one in a `BZ_COURSES` file until wave D3 (`GUEST_SPLIT`), and every
-shipped part is byte for byte what it was (identities unchanged).
+shipped part is byte for byte what it was (identities unchanged). Where
+building found this contract wrong it says so at the place ("BUILT ... a
+finding"): no clamp in 128.24.7.2, the radial corner never on a straight
+wall's face in 128.24.7.4.
 
 The owner's ruling of 2026-11-16 (*"nothing has been released yet, nothing
 needs to stay compatible with any old format"*) frees this design from
@@ -271343,35 +271352,55 @@ cells of row `s - 1`, and the same holds across it. A band one diamond wide,
 `a1 - a0 = 2`, is 32 px on the screen, `32 / sqrt 2` = **22.6 gu** across
 the ground: a ball's centre has 22.6 gu to roam, 10.6 between two rails.
 
-**A quarter is refused.** Where a vertical and a horizontal edge of a shape
-meet inside one cell they would cut it in QUARTERS, which no split holds.
-For a screen rectangle that happens exactly when a corner's `a` and `s`
-differ in parity, so a `box` whose four lines are all even or all odd never
-quarters a cell; a box an ODD number of 16-px columns wide always quarters
-one cell at each end, and its ends are finished with `half` (128.24.4).
+**QUARTERS (R4, the owner's Q3: "Visually, 3 is obviously right; that
+gives us the most tools, and lets us build 'rounded' looking platforms").**
+A cell may be cut along BOTH diagonals into four triangles meeting at its
+centre `c` `(8, 8)`, a **QUARTERED** cell (kind 6), each quarter a record of
+its own and named by the ONE cell edge it owns:
+
+| quarter | its triangle | the tests (`u >= v`, `u + v >= 16`) | owns |
+|---|---|---|---|
+| **N** | T, R, c | yes, no | the north edge (T - R) |
+| **E** | R, B, c | yes, yes | the east edge (R - B) |
+| **S** | B, L, c | no, yes | the south edge (L - B) |
+| **W** | L, T, c | no, no | the west edge (T - L) |
+
+A halved cell is a quartered one whose quarters pair up (a TB split is S =
+W and N = E, an LR split N = W and E = S), and the tool stores the
+SIMPLEST form (128.24.4's normalisation). Where a vertical and a horizontal
+edge of a shape meet inside one cell - a screen rectangle's corner whose `a`
+and `s` differ in parity - the cell holds the one quarter inside the shape:
+a `box` corner there is a 45-degree CHAMFER, the "rounded" platform of the
+owner's panel 3. A box whose four numbers are all even or all odd has no
+quartered cell.
 
 #### 128.24.4 The text course
 
-Two additions to 128.10.3's grammar:
+Three additions to 128.10.3's grammar:
 
-    <style>  [half <side>] <shape> <height>       a ROOM, or the given HALF of each of its cells
-    hole     [half <side>] <shape>
+    <style>  [half <side> | quarter <edge>] <shape> <height>   a ROOM, or the given piece of each of its cells
+    hole     [half <side> | quarter <edge>] <shape>
     <side>   ::= up | down | left | right          left / right: a TB split; up / down: an LR split
+    <edge>   ::= n | e | s | w                      the quarter that owns that cell edge (128.24.3)
     <shape>  ::= ... | box <a0> <a1> <s0> <s1>     the screen rectangle 16 a0 <= gx - gy <= 16 a1,
                                                   16 s0 <= gx + gy <= 16 s1 (a0 < a1, s0 < s1)
 
 - **`box`** lays the ground between the four lines: whole cells inside,
-  halves along the sides, by 128.24.3. A cell it would quarter is refused,
-  naming the cell and which corner to move. `band` and `rect` keep their
-  meanings; `box a0 a1 s0 s1` with every half dropped is today's zigzag
+  halves along the sides, and at a corner whose `a` and `s` differ in
+  parity the one QUARTER inside (128.24.3). `band` and `rect` keep their
+  meanings; `box a0 a1 s0 s1` with every piece dropped is today's zigzag
   `band a0+1 a1-1 s0 s1-1`.
-- **`half <side>`** applies the room (or the hole) to that half only of
-  every cell of the shape. Without it a room lays both halves, as today.
-  `half` on a `box` is refused (the box already decides its halves).
-- **Later statements override per half**, as rooms override per cell today;
-  a cell whose two halves end up the same (style, plane, surface) is stored
-  WHOLE, so a split that changes nothing costs nothing. A cell split one way
-  by one room and the other way by a later one is refused (a quarter).
+- **`half <side>`** and **`quarter <edge>`** apply the room (or the hole) to
+  that piece only of every cell of the shape. Without them a room lays the
+  whole cell, as today. Either on a `box` is refused (the box already decides
+  its pieces).
+- **Later statements override per piece**, as rooms override per cell today:
+  the tool holds a cell laid by pieces as its four quarters and, once every
+  statement is in, NORMALISES it - four the same (style, plane, surface,
+  exit) is a WHOLE cell (or none, four VOID), N = E and S = W a TB split,
+  N = W and E = S an LR split, anything else stays QUARTERED. So a split
+  that changes nothing costs nothing, and a cell split one way by one room
+  and the other way by a later one is quartered (not refused: R4).
 - The heights are the room's height spec, evaluated at the cell, exactly as
   a whole tile's (`_room_tile`): a half is a plane, its ramp rules 128.10.3's,
   so a straight band can climb (`ramp s`).
@@ -271382,9 +271411,10 @@ Two additions to 128.10.3's grammar:
 - **A split cell has one SURFACE** for its floors: two FLOOR or GOAL halves
   of different surfaces are refused; a WALL half takes normal or bounce, as a
   whole wall does (128.11.6.1).
-- **A wall is above its floors**, the rule of 128.10.3, now across the
-  diagonal too: a WALL half's top is above the other half's floor along the
-  whole diagonal.
+- **A wall is above its floors**, the rule of 128.10.3, now across every
+  line inside a split cell too: a WALL half's (or quarter's) top is above the
+  floor beside it at both ends of the line they share (a quarter's lines end
+  at the centre, where a plane's height is `z0 + (sx + sy) / 2`).
 - **`surface` takes a `box` too** (BUILT, D1): it sets the surface of the
   half each box cell lays and no other, so a box whose edge halves are
   floors beside a floor of another surface is the two-surfaces refusal
@@ -271399,11 +271429,10 @@ Two additions to 128.10.3's grammar:
     wall  box  1  2 15 31 flat 3         # ... each rail's two end cells are quartered: REFUSED
     goal  tile 12 12 flat 0              # one whole goal tile spans the 32 px lane (128.24.8)
 
-The rails as written are refused (a 16 px box quarters its end cells); they
-are written instead as `wall box -3 -1 ...` and `wall box 1 3 ...` (32 px
-rails, `a` and `s` all odd), or the 16 px rails finished at their ends with a
-`wall half` or a `hole half`. The mock-up dropped the quartered cells to show
-the 16 px rail.
+The 16 px rails as written quarter their end cells: each rail ends in a
+45-degree chamfer (the one quarter inside the box) - R4's rounded end. 32 px
+rails (`wall box -3 -1 ...`, `a` and `s` all odd) end square. (Before R4 the
+quarter was refused and this paragraph said so.)
 
 #### 128.24.5 The grid
 
@@ -271411,20 +271440,23 @@ the 16 px rail.
 
 | byte | a split cell |
 |---|---|
-| +0, +1 | the WORD offset of its PAIR in the part (absolute, as a map word is: 128.10.4.2) |
-| +2 | low nibble the kind: **4 TB, 5 LR**; high nibble the cell's SURFACE: its floor halves' (128.24.4), 0 if it has none. 6 - 15 stay RESERVED for 128.10.4.3's non-planar floors |
+| +0, +1 | the WORD offset of its RECORDS in the part (absolute, as a map word is: 128.10.4.2) |
+| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 RESERVED for a CHANNEL** (128.24.13), 8 - 15 for 128.10.4.3's other non-planar floors |
 | +3 | the flags: SAFE never; OCC and OCCG as derived for a ball anywhere in the cell (128.10.4.4); OBS never; bits 4 - 7 zero |
 
 ##### 128.24.5.2 The pair and section `D`
 
-A pair is two cell records, **half A then half B** (left then right for TB,
-up then down for LR), each exactly 128.10.4.3's four bytes with these limits:
+A split cell's records are **two for a halved cell, half A then half B**
+(left then right for TB, up then down for LR), **four for a quartered one,
+N, E, S, W** - each exactly 128.10.4.3's four bytes with these limits:
 the kind 0 - 3 (a half is never split); a VOID half's `z0` its KILL height,
 computed by the NEAR rule (128.24.5.3) at its cell, its slopes and surface
 0; SAFE, OCC, OCCG and OBS
 clear; a GOAL half's exit in bits 4 - 7 as a goal cell's (128.19.4); the
 surface its own (a bounce WALL half is a bumper rail). The two halves differ
-(else the cell is whole) and at least one is not VOID.
+(else the cell is whole), a quartered cell's four do not pair up as a
+halved cell's (else it is halved), and at least one is not VOID. (The text
+says "pair" for a halved cell's records; a quartered cell's are a quad.)
 
 The pairs are a new section of the part, **tag `D`, form 0 PLAIN, placed
 after `C` and before `T`** in RAM order (128.15.4.2's table), present if and
@@ -271436,21 +271468,23 @@ are in place after the fetch, so the CELLS expander (before it in directory
 order) may read them; directory order is still the order the forms
 DEPEND on (128.15.4.5), and a PLAIN section depends on nothing.
 
-`read_part` adds: every split cell's offset is a pair inside `D` and every
-pair is named by exactly one cell; `D`'s length is 8 per split cell;
-`GF_SPLIT` set exactly when `D` is present; the halves' limits above;
-kinds 6 - 15 refused, as today.
+`read_part` adds: every split cell's offset names its 2 or 4 records inside
+`D` (4-byte aligned) and every record of `D` is named by exactly one cell;
+`D`'s length is 8 a halved cell and 16 a quartered one; `GF_SPLIT` set
+exactly when `D` is present; the records' limits above; kinds 7 - 15
+refused, as today. BUILT (D1): `tools/bbcourse.py` `read_part`.
 
 ##### 128.24.5.3 The rules the stored form derives (CELLS)
 
 - **NEAR** (`rule_z0`): the lowest corner is taken over every non-VOID
-  RECORD within two tiles - a whole cell, or a half - each by its own plane's
+  RECORD within two tiles - a whole cell, a half or a quarter - each by its own plane's
   four corners, `z0 + min(0, sx) + min(0, sy)`, as today. A split cell's own
   bytes +0 - +1 are an offset, so the rule never applies to it (only kind 0
   takes `rule_z0`), and a VOID half's `z0` is stored PLAIN in `D`.
 - **SAFE** (`rule_safe`): a FLOOR whole cell, flat, OBS clear, with **no VOID
-  across its four edges**: a split neighbour counts by the half that owns the
-  shared edge. A split cell's `rule_safe` is 0.
+  across its four edges**: a split neighbour counts by the record that owns
+  the shared edge (the owning half, or the quarter named for that edge). A
+  split cell's `rule_safe` is 0.
 - The guest's `bz_cxcel` and `bz_cxsafe` read a split cell's pair through
   its offset (PLAIN, already in place); both are launch-only. `--selfcheck`
   item 10's `expand == RAM` and `bonanzaexit`'s claim leg hold them to the
@@ -271493,23 +271527,33 @@ kinds 6 - 15 refused, as today.
   magenta (a per-tile override would be two bits of the half record's
   flags, which are free, and two compares in the renderer - nothing in the
   guest, which draws no face).
+- **A quartered cell** (R4) draws the same way, piece by piece: each quarter
+  its triangle (the centre's height `4 z0 + 2 (sx + sy)` px); S hangs `sw`,
+  E hangs `se`; the two lines that face the viewer hang FRONT faces - W's
+  `L - c` down to S, N's `c - R` down to E; the two edge-on halves of the TB
+  line, `T - c` (W against N) and `c - B` (S against E), each draw the edge
+  line on their higher side by the rule above. BUILT (D1).
 
 ##### 128.24.6.2 The order
 
-Back to front by `(2 s + d, wx)`, `d` 1 for an LR split's DOWN half and 0
-for everything else: a down half is drawn after its own row and before the
-next. Both halves of a TB split are side by side and keep the cell's place,
-A (left) before B. Each half draws its faces, then its top (then a TB
-half's edge line): an UP half's front face, a DOWN half's `sw` and `se`, a
-LEFT half's `sw`, a RIGHT half's `se`. On a course with no split cell the
-order is today's exactly (`2 s` sorts as `s`).
+Back to front by `(2 s + d, wx, piece)`, `d` 1 for a FRONT piece - an LR
+split's DOWN half, a quartered cell's E and S, the pieces whose ground lies
+in the front half of row `s` - and 0 for everything else: a front piece is
+drawn after its own row and before the next. Both halves of a TB split are
+side by side and keep the cell's place, A (left) before B; a quartered
+cell's N, W then (after the row) E, S. Each piece draws its faces, then its
+top (then its edge line): an UP half's front face, a DOWN half's `sw` and
+`se`, a LEFT half's `sw`, a RIGHT half's `se`, a W or N quarter's front
+face, an S quarter's `sw`, an E quarter's `se`. On a course with no split
+cell the order is today's exactly (`2 s` sorts as `s`).
 
 ##### 128.24.6.3 The occluders
 
 The per-pixel buffer keys each pixel with the row of the geometry that drew
 it (128.10.4.4). A whole cell and the halves of a TB split are keyed by their
 row `s`, as today: a TB half is beside its partner, never in front of it. An
-LR split's **DOWN half (and its faces) is keyed `s + 1`**: its ground lies
+LR split's **DOWN half (and its faces) is keyed `s + 1`** - and so are a
+quartered cell's E and S quarters, for the same reason: its ground lies
 entirely in the front half of row `s` (`gx + gy` from `16 s + 16` to
 `16 s + 32`), so a ball behind it in the UP half - in a void behind a raised
 down half, say - is in a row behind it, and the rule lays it. The guest's
@@ -271518,6 +271562,7 @@ are. **The one cost** (128.24.12 Q6): a ball in the front half of row `s`
 BESIDE a raised down half (another cell of the same row, its footprint over
 that half's pixels, lower than it) is now laid under it as if it were in
 front. It needs a raised down half next to a lower ball at the same depth.
+**Q6 ACCEPTED (R4**, the owner: "This should be a somewhat rare case").
 
 The bounds of 128.11.4.2 are unchanged and refused as today; a split cell can
 add a record to a block (two halves, two keys).
@@ -271528,11 +271573,13 @@ The in-cell position is 128.11.8.3's: `pu = gx & 0FFFh`, `pv = gy & 0FFFh`,
 1/256 gu, 0 - 4,095. **`DIAG` = 2,172** = `round(6 sqrt 2 x 256)`: the
 ball's radius measured along a diagonal's normal in the units below.
 
-##### 128.24.7.1 The half pick, and the floor
+##### 128.24.7.1 The pick, and the floor
 
 The **record** of a point in a split cell is half A when the point is
 strictly inside A - TB: `pu < pv`; LR: `pu + pv < 4,096` - and half B
-otherwise (a point ON the diagonal is B's). Wherever 128.11.8 reads "C" for
+otherwise (a point ON the diagonal is B's). In a QUARTERED cell (R4) both
+tests decide: (`pu >= pv`, `pu + pv >= 4,096`) is N (yes, no), E (yes,
+yes), S (no, yes), W (no, no). Wherever 128.11.8 reads "C" for
 the centre's cell - step 6's floor, the take-off, the landing (128.11.8.5),
 the Hop, the void kill (`z < 4 z0` of a VOID half), `bz_gh` and `bz_ghv`,
 the goal and its exit, the fallback's "C blocks" - it reads the centre's
@@ -271556,8 +271603,21 @@ With `σ` = +1 when the centre is in half B and -1 in half A (by the pick):
 | contact | `w < DIAG` | the same |
 | the push, `h = (DIAG - w + 1) >> 1` | `gx += σ h`, `gy -= σ h` | `gx += σ h`, `gy += σ h` |
 | the velocity INTO it, x `sqrt 2` | `wv = σ (gvx - gvy)` | `wv = σ (gvx + gvy)` |
-| only if `wv < 0`: `t` = 128.11.8.4's reflection of `|wv|` (`e` the blocking record's; 0 under `BZ_WMIN`), `k = (t + |wv|) >> 1` | `gvx += σ k`, `gvy -= σ k` | `gvx += σ k`, `gvy += σ k` |
-| then | `gvx`, `gvy` clamped to `+-BZ_VMAXG` (a reflection can turn speed onto one axis) | the same |
+| only if `wv < 0`: `t = (e |wv|) >> 8` (`e` the blocking record's `e_wall`), `t = 0` under **`BZ_DWMIN`** (16), `k = (t + |wv|) >> 1` | `gvx += σ k`, `gvy -= σ k` | `gvx += σ k`, `gvy += σ k` |
+| then | `bz_bgr = 0` (a wall closes the grace, as every contact does) | the same |
+
+BUILT (D2), and two findings against the PLANNED text: **no clamp.** Every
+restitution is at most 256 (230 a bumper, the materials' EW 96, 32, 64), so
+`t <= |wv|` and `k <= |wv|`, and each new component lies between the old
+`gvx` and `gvy` - already inside `+-BZ_VMAXG`. The clamp this table had is
+dropped (the guest saves it); `--selfcheck` asserts the bound on 4,000
+random states and that every `e` is at most 256. And the arithmetic is
+EXACT: after a contact `w` is `DIAG` or `DIAG + 1` (the push's odd unit),
+the new normal speed is `t` or `t - 1` (the halving's), and the
+TANGENTIAL speed (`gvx + gvy` for TB, `gvx - gvy` for LR) is exactly what
+it was - not "at most 1/256 lost", as the paragraph below first said.
+`bbcourse.Physics._dline`'s docstring is the arithmetic the guest copies,
+in 16-bit integers.
 
 **Why there is no square root.** The normal is `(1, -1) / sqrt 2` (or
 `(1, 1) / sqrt 2`); `w` and `wv` are the distance and the normal speed
@@ -271567,9 +271627,26 @@ scale-free, so the new normal component is `t` on the same scale and the
 change splits equally between the axes. The push and the change are halved
 with the odd unit rounded as written (the push up, the velocity down): the
 ball ends at most 1/256 gu further out and loses at most 1/256 gu a step of
-tangential speed, deterministically. `BZ_WMIN` applies to `|wv|` and `t`
-as they are, so the diagonal's dead band is `16 / sqrt 2` = 11.3 of normal
-speed against an edge's 16 (128.24.12 Q7).
+NORMAL speed (the tangential is exact), deterministically. The dead band is
+the named constant **`BZ_DWMIN` = 16** on `|wv|`'s scale, `16 / sqrt 2` =
+11.3 of normal speed against an edge's 16 (128.24.12 Q7, R3: "the tighter
+11.3, a NAMED constant to tune after the owner plays"); it is hashed into
+`BZ_PHYSV` with `DIAG`.
+
+**A QUARTERED cell** (R4): the quarter the centre is in has two lines of
+its own, half-diagonals that end at the cell's centre `c`. First its TB
+line (its partner the quarter across it, `σ` +1 on the `pu >= pv` side),
+then its LR line (`σ` +1 on the `pu + pv >= 4,096` side), each exactly as
+the table (its partner's test at the same nearest point, which always lies
+on the quarter's own half of the line). A push off one line moves along the
+other's direction, so the centre stays in its quarter. Then **the centre c
+as a corner**: the OPPOSITE quarter touches the centre's quarter at `c`
+alone, and when it blocks (sampled at `(8, 8)`) and NEITHER partner did, it
+is met RADIALLY - the corner table at `(|pu - 2,048| >> 8, |pv - 2,048| >>
+8)`, 128.10.7.3's push and reflection, `σ` the side of `c` the centre is
+on. (When a partner blocks, `c` is a point on a straight face - the
+partner's line and the opposite's continue each other - which the line
+meets exactly; the table's whole gu would meet it up to 1.4 gu early.)
 
 **Nothing tunnels.** The fastest move is `|gvx - gvy| <= 768`, 2.1 gu along
 the normal a step, against 6: the circle meets a diagonal at least twice
@@ -271582,7 +271659,8 @@ push (128.12.6.5).
 ##### 128.24.7.3 The edges
 
 Step 5's four edge tests stand. An edge neighbour that is SPLIT blocks when
-**the half that owns the shared edge** blocks, sampled at today's point:
+**the record that owns the shared edge** blocks - the half of this table,
+or the quarter named for that edge (R4) - sampled at today's point:
 
 | the neighbour | its edge | TB: owned by | LR: owned by |
 |---|---|---|---|
@@ -271613,12 +271691,22 @@ If the distance is under `DIAG`, that ray's neighbour is split as the table
 says, and its half BEYOND the line - half A at T and L, half B at R and B,
 the half that does not own the edge it shares with C - blocks (sampled at
 `K`), the circle is pushed off the line exactly as 128.24.7.2 (`σ` the side
-of the line the centre is on, the line's offset in `w`). **Otherwise** the
-corner is today's (128.10.7.3, 128.11.8.4): the radial test against `K`, the
-table, the reflection - with `K` BLOCKED when the corner neighbour's record
-at `K` blocks (a split corner neighbour: `K` is in one half, or in both when
-`K` ends its diagonal, and then either blocks) OR the other ray's beyond half
-blocks.
+of the line the centre is on, the line's offset in `w`). A QUARTERED ray
+neighbour (R4) is read the same way, its beyond piece the quarter at `K`
+across the half-diagonal from the quarter that owns the shared edge: at T
+north's W, west's N; at R east's N, north's E; at L south's W, west's S; at
+B east's S, south's E. **Otherwise** the corner is today's (128.10.7.3,
+128.11.8.4): the radial test against `K`, the table, the reflection - with
+`K` BLOCKED when the corner neighbour's record at `K` blocks (a split corner
+neighbour: `K` is in one half, or in both when `K` ends its diagonal, and
+then either blocks; a quartered one, the two quarters `K` is a corner of)
+OR the other ray's beyond piece blocks - **unless the facing ray's beyond
+piece blocks at all** (BUILT, D2: a finding). Then `K` is a point on a
+straight wall - the corner neighbour lies wholly behind the facing ray's
+line - which the line meets exactly at `DIAG`; the radial table, on whole
+gu, met it up to 1.4 gu EARLY and kicked the ball off the line (a ball
+rolled head-on into a rail at a cell corner showed it). The radial branch
+is for a wall's END, never its face.
 
 So a straight diagonal wall is a plane wherever the ball meets it - inside a
 split cell (128.24.7.2) and in the whole cells beside it at its corners (this
@@ -271629,19 +271717,29 @@ diagonal endpoint a radial corner - was considered and rejected: a ball
 glancing off a rail near a cell corner would rebound up to 45 degrees off
 the rail's normal, and leaves a rail's surface up to 1.76 gu inside the ball.)
 
+`bbcourse.RAYS` is this table as the guest reads it (kind, `σ`, offset,
+the facing test, the two rays, the beyond half, `K`, the two rays' beyond
+quarters); `OWNER` 128.24.7.3's and `K_RECS` the corner records'; all three
+are hashed into `BZ_PHYSV` (`split_tables`).
+
 ##### 128.24.7.5 The fallback, and what does not change
 
 The fallback (128.10.7.3, 128.11.8.4) judges "C blocks" on the centre's
 RECORD. A respawn, `bz_safe` and every start are whole cells. The forces
 (step 2) read the floor's slopes from the centre's record; the surface in use
 is the cell's (+2's high nibble, 128.24.5.1), so `bz_surfset` still runs only
-at a refill. The order of step 5 becomes: the diagonal inside C, the edges,
-the corner (ray or radial), the posts (128.12.6.3), the fallback.
+at a refill. The order of step 5 becomes: the lines inside C (a quartered
+C's two, then its centre), the edges, the corner (ray or radial), the posts
+(128.12.6.3), the fallback. A push inside C that moves the centre into
+another cell (near a tip) refills the window round it (`bz_fill`, which can
+run `bz_surfset`) before the edges, which then read the new centre's
+cell.
 
 ##### 128.24.7.6 The guest, and what it costs (PREDICTED)
 
-- **The window.** `bz_nbh` (72 bytes of bss): the pair of each split cell of
-  `bz_nbr`, at `8 x` its window index. `bz_fill` and `bz_win9i` fill it for
+- **The window.** `bz_nbh` (144 bytes of bss with quarters, R4; 72 for halves
+  alone): the records of each split cell of `bz_nbr`, at `16 x` its window
+  index (a quartered cell's four, a halved cell's two). `bz_fill` and `bz_win9i` fill it for
   every split cell of the new window when `GF_SPLIT` is set, and set
   **`bz_ps` bit 3 (8): a split cell is in the window**. The step enters its
   split work by the byte test that already routes the prop path at step 4
@@ -271659,14 +271757,19 @@ the corner (ray or radial), the posts (128.12.6.3), the fallback.
   |---|---|---|
   | a course with no split cell, a step / a refill | 0 - 20 / about 20 | under 30 |
   | the window holds a split cell, no contact: the pick, the diagonal's distance, the corner's quadrant and sum | 150 - 300 | 0.2 - 0.4k |
-  | a diagonal contact (inside the cell or through a corner): the blocking test, the push, one `MUL` in `bz_refl`, the velocity, the clamp | +450 - 600 | +0.6 - 0.8k |
+  | a diagonal contact (inside the cell or through a corner): the blocking test, the push, one `MUL` in `bz_refl`, the velocity (no clamp: BUILT D2 dropped it) | +400 - 550 | +0.5 - 0.7k |
   | the worst step: a diagonal contact inside C, an edge contact and a corner ray's | about 1.4k over today's | about 1.8k |
-  | a refill on a split course, a split cell in the new window | 150 - 450 | 0.2 - 0.6k |
+  | R4, the centre in a QUARTERED cell, no contact: the second test of the pick, a second line's distance, the centre's quadrant | +80 - 150 over a halved cell's | +0.1 - 0.2k |
+  | R4, the worst step in a quartered cell: two line contacts and the radial centre (the corner table's `MUL`s) | about 2.0k over today's | about 2.6k |
+  | a refill on a split course, a split cell in the new window (a quartered one: four records copied, not two) | 150 - 500 | 0.2 - 0.7k |
 
   Against a step's 5.0 - 6.6k priced (128.11.15), a straight-up lane costs
-  under 10% a step and a rail contact about 15%: no new frame-rate argument,
-  and the step's caps (128.10.7.2) are what the camera and the boxes rely on,
-  which the clamp keeps.
+  under 10% a step and a rail contact about 15%; the worst quartered step
+  (a ball wedged at a chamfered corner, both lines and the centre at once)
+  about 40%, and it lasts a step or two: no new frame-rate argument. The
+  step's caps (128.10.7.2), which the camera and the boxes rely on, hold
+  without a clamp (128.24.7.2). **R4's question, "unless it is going to
+  completely sink sizes": it does not** - 128.24.10's figures.
 
 #### 128.24.8 The pathway
 
@@ -271712,18 +271815,36 @@ crosses its middle; no GOAL half is needed for it.
   laid as halves. It carries no demo.
 - **A course that USES halves** moves its own identity the day it does, and
   its authored demo, if it has one, is written again (PLAYGROUND, story D5).
+- BUILT (D2.4): `PHYS_REV` 12, `DIAG` and `DWMIN` in `PHYS_CONSTS`,
+  `split_tables()` (OWNER, RAYS with their quarters, K_RECS) in
+  `phys_tables`; **`BZ_PHYSV` 21h -> B1h**, 21h appended to
+  `PHYSV_SHIPPED`. `moon.bzd`, `summit.bzd` and `playground.bzd` were written
+  again by `bbcourse.py author`: the same runs and steps (2,130, 2,172,
+  1,504); each diff is its `physics` line, B1. Their `ident` lines stay the
+  identities `CLOCK_RESTAMP` pins (5E25h, 0562h, 9D5Eh), which the build
+  re-stamps as before (R5: CLOCK_RESTAMP is not widened; the author run's
+  own `ident` line, the course's current identity, was put back, or the
+  clock rule's re-stamp check reads a file that needs no re-stamp).
 
-#### 128.24.10 Bytes (PREDICTED)
+#### 128.24.10 Bytes (PREDICTED for the guest; MEASURED for the courses)
 
-- **Resident image: about 0.5 - 0.7KB**: the half pick and the window's
+- **Resident image: about 0.5 - 0.7KB for halves, and R4's QUARTERS about
+  0.15 - 0.2KB more** (the pick's second test and a quarter table, about 25;
+  the second inner line and its partner's lookup, about 40; the centre's
+  radial, which reuses the corner's table code, about 60; the quartered
+  ray neighbours' beyond quarters and `K_RECS`, about 30; `bz_cxcel`'s and
+  `bz_cxsafe`'s fourth and third record, about 20, launch-only). The halves'
+  breakdown: the half pick and the window's
   pairs (about 100), `bz_blocks`' split dispatch and the owning-half table
   (about 50), the diagonal push and reflection, one routine for the cell's
   own diagonal and a corner's line (about 150), the corner's quadrant, sum
   and ray (about 110), the radial corner's "either half" (about 40), the
   clamp (about 25), `bz_cxcel`'s and `bz_cxsafe`'s halves (about 115,
   launch-only). Against BONANZA's image of about 35.7KB.
-- **bss: 72 bytes** (`bz_nbh`), and `bz_ps`'s spare bit.
-- **A course**: 8 bytes of `D` a split cell and 8 of directory; the pair's
+- **bss: 144 bytes** (`bz_nbh` with room for nine quartered cells; 72 with
+  halves alone), and `bz_ps`'s spare bit.
+- **A course**: 8 bytes of `D` a halved cell, **16 a quartered one** (R4),
+  and 8 of directory once; the
   offset in its cell is two bytes LZ cannot zero (about 2 - 4 bytes packed a
   split cell). A straight lane has about one split cell a cell ROW (two every
   other row), so a lane 100 rows long is about 0.8KB of RAM and 0.3KB
@@ -271732,15 +271853,24 @@ crosses its middle; no GOAL half is needed for it.
   line, if kept, adds a few); an LR edge and a front face add a few blocks a
   height. Every course still fits one part of 65,024
   bytes (128.14.6), which the tool refuses as today.
+- **MEASURED (D1, `bbcourse.py --sizes split:`)**: THE SPLIT COURSE (47
+  halved cells, 3 quartered, 27 whole; a 32 px lane with rails, a field with
+  a straight edge, a chamfered platform) is 9,684 bytes of RAM, D 424, and
+  packs to 1,8xx bytes LZ4; the same boxes with every piece rounded out to a
+  whole cell (zigzag bands) 9,358 RAM and 1,802 LZ4 before quarters (the
+  halves' figures: 9,478 against 9,358 RAM, +120, and 1,840 against 1,802
+  LZ4, +38 - fewer occluder records, 364 against 465, pay for most of D).
+  A quartered cell costs 16 bytes of RAM and, packed, about 3 - 6.
 - **The pathway**: fewer cells than the fat band (the outer halves go), so
   its part does not grow.
 
 #### 128.24.11 The rows
 
 - **`bonanzacourse`** (`--selfcheck`): a new item for halves - the grammar's
-  refusals (a quartered cell, a half on a centre-anchored statement, two
-  floor surfaces, a wall not above the floor across its diagonal, `half` on
-  a `box`); the normalisation (two equal halves stored whole); the grid
+  refusals (a half or a quarter on a centre-anchored statement, two floor
+  surfaces, a wall not above the floor across a line inside its cell,
+  `half` or `quarter` on a `box`); the normalisation (equal pieces stored
+  whole, or halved); the grid
   against the geometry at all 256 integer points of every split cell (the
   pick, each half's `h4`); NEAR and SAFE by halves; `expand == RAM` with
   `D`; the picture's composite (records against the per-pixel buffer) on a
@@ -271750,7 +271880,20 @@ crosses its middle; no GOAL half is needed for it.
   whole cell beside the rail, a landing on and a fall off a diagonal step, a
   fall into a VOID half and its kill height); negative controls: the
   reflection's `σ` flipped, the pick's sides swapped, the ray choice
-  inverted, the down half keyed `s`, a split cell made SAFE.
+  inverted, the down half keyed `s`, a split cell made SAFE. BUILT (D1,
+  D2): `_split_cases`, `_split_checks` and `_split_physics` in
+  `tools/bbcourse.py`, on THE SPLIT COURSE and THE RAIL COURSE (strings in the
+  tool): 15 refusals, the normalisation, items 3 - 6 and 10 on halves and
+  quarters, six reader refusals, the down half's key; the take-off at the
+  pick, the VOID half's kill, a goal half's exit, the diagonal's arithmetic
+  on 4,000 random states, the slide up a rail at DIAG or DIAG + 1 with no
+  kick, a head-on rebound, a wall's END met radially, the edges by their
+  owning half, a quartered cell's inner line and its centre; red arms: `σ`
+  flipped, the pick swapped, the owning halves swapped, the ray choice
+  inverted, every end radial, the down half keyed `s`, the CELLS rule
+  without halves; and story D2.5's tools on RAIL with a pad, a flag, a clock
+  and a goal half (exits, NO TRAP, the finish's reach per record, the clock
+  rule, OCCG).
 - **`bonanzaphys`**: the guest equals the model at every frame on
   PLAYGROUND's diagonal section (story D5), with a red arm that drops the
   corner ray.
@@ -271768,10 +271911,47 @@ crosses its middle; no GOAL half is needed for it.
 |---|---|---|
 | Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells |
 | Q2 | **The new art**: the front face's ink (the mock-ups' dotted magenta) and the 1 px black line down a screen-vertical diagonal, the only cue that a straight-up rail stands above the lane | try both in the mock-ups' form, decide on the glass (story D5's look) |
-| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch at a rail's end), or round it out to a half | **refuse**, and finish odd-width ends with `half` |
+| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch at a rail's end), or round it out to a half | ANSWERED (R4): **quarters** - a cell may be quartered, a box's corner is a chamfer (128.24.3) |
 | Q4 | **The pathway's bands**: a 32 px straight band up and down, a 16-line one across, in place of the 64 px zigzag | **yes**: no physics runs there, and the marble (16 px) rolls down the middle |
 | Q5 | **Diagonal STEPS** (two floor heights across one diagonal), which (a) gives for free | **yes**: the LR one is a straight ledge with a front face, the TB one a straight cliff seen from its end |
-| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it; revisit if a course shows it |
+| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | ACCEPTED (R4) |
 | Q7 | The diagonal's wall dead band: `BZ_WMIN` on the diagonal's scale (11.3 of normal speed, `bz_refl` unchanged) or exactly 16 (a constant and a compare more) | **11.3**, unless a ball held against a diagonal rail is seen to chatter |
-| Q8 | **Where halves first appear**: PLAYGROUND (the feel test bed, 128.16.8) gains a diagonal section - a straight-up lane with rails, a diagonal edge, a diagonal step - for the owner's play, before the 14 - 20 courses use them | **yes** |
+| Q8 | **Where halves first appear**: PLAYGROUND (the feel test bed, 128.16.8) gains a diagonal section - a straight-up lane with rails, a diagonal edge, a diagonal step - for the owner's play, before the 14 - 20 courses use them | ANSWERED (R3): **yes**, PLAYGROUND first, then MOON's coast (found below) |
 | Q9 | **When**: after wave 8R lands, before the course waves | the plan's waves D1 - D5 |
+
+**Q8's second course, found (D2):** the owner's "the course with a big
+straightway where the current demo bounces off all the jagged corners" is
+**MOON** (Moonlit Green): its COAST (`floor band 0 6 48 70`, the long flat
+straight DOWN the screen, between the zigzag rails `wall band -2 -1 48 70`
+and `wall band 7 8 48 66`). Run through the model, MOON's shipped demo
+makes 9 RADIAL CORNER contacts while moving diagonally, one at the corner of
+each stair of the coast's left rail - in cells (27, 26), (28, 27), (29, 28)
+twice, (30, 29) twice, (31, 30) twice, steps 1,027 - 1,188 - and its
+autopilot 8 (steps 942 - 1,103); every other shipped course's demo and
+autopilot make at most one such contact (PEAK's demo one, at (41, 37)) and
+none along a straight. As `box`es (`floor box -1 7 48 71`, `wall box -3 -1
+48 71`, `wall box 7 9 48 67`) the coast is a straight lane between straight
+rails, and the ball slides along them (128.24.7). Wave D5's second course;
+it is NOT changed in D1 - D2.
+
+#### 128.24.13 Channels: the next core tile type (RESERVED, not built)
+
+R4, the owner: a CHANNEL is "a tile, or two tiles together, that cradle the
+ball ... one of the other core things we are missing, to make a ball
+game". It slots into this section's scheme without reworking it: **every
+cell kind from 4 up is a cell whose bytes +0 - +1 point into section `D`**,
+the kind saying how many records are there and how the step reads them (2
+for a halved cell, 4 for a quartered one), and the window's `bz_nbh` slot,
+`read_part`'s D tiling, the CELLS rule's per-kind reader and `GF_SPLIT`'s
+gate are already per kind. **Kind 7 is RESERVED for the channel** (`BZ_KCHANNEL`
+in `bzcourse.inc`; `read_part` refuses it until it is built): its D entry
+would be one 4-byte CHANNEL record - the axis (u, v, or a diagonal, TB or
+LR), the profile (a concave cross-section's depth in half units at its
+middle, its floor `z0` at the lip and the surface), and for a channel two
+cells wide which side of the pair this cell is - so a channel along a
+diagonal is one more kind of line inside a cell, as a half's is. Its floor
+replaces `bz_h4`'s plane by the profile's height (a quadratic or a two-slope
+V in the cross direction, the slope term of 128.11.8.2's step 2 its
+derivative), and its lips are edges the ball rolls over. Kinds 8 - 15 stay
+reserved for 128.10.4.3's other non-planar floors. Not designed further
+here: the owner's next design question.
