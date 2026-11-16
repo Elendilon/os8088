@@ -2305,7 +2305,7 @@ REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [b
                  "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n.sqr:\n"
                  "    cmp word [bz_lvz], BZ_SQTHR ; own, .boost); the squash, but a shatter's\n")]
 # rule 4's slope test left out: a ramp's contact boosts
-REDS["rampboost"] = [("bzphys.inc", "    cmp byte [bz_nbr + BZN_C + 1], 1 ; CF = 1 when both slopes are 0\n",
+REDS["rampboost"] = [("bzphys.inc", "    cmp byte [si + 1], 1        ; CF = 1 when both slopes are 0\n",
                       "    stc                         ; RED rampboost: no slope test\n")]
 # the token cleared only by a boost, not at every contact
 REDS["tokbst"] = [("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n",

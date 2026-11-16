@@ -1,8 +1,8 @@
 # BOUNCE BONANZA: diagonal tiles (half tiles)
 
-*The contract is SPEC.md 128.24 (D1 - D2 BUILT); where this plan and it disagree, it
+*The contract is SPEC.md 128.24 (D1 - D3 BUILT); where this plan and it disagree, it
 wins. Item 8R.15 of [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md)'s wave 8R
-table points here. D1 and D2 are built (ticked below); D3 - D5 are not.*
+table points here. D1 - D3 are built (ticked below); D4 - D5 are not.*
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -22,8 +22,10 @@ is reserved for the owner's next core tile, the CHANNEL (SPEC.md 128.24.13).
 
 **D1 and D2 are BUILT** (branch `8r2/dtool`, SPEC.md 128.24's "Built so
 far"): the tool and the model, halves and quarters, every story below
-ticked with what verified it. D3 (the guest) is next; until it lands the
-tool refuses a half, a quarter or a box in a shipped course (`GUEST_SPLIT`).
+ticked with what verified it. **D3, the guest, is BUILT** (branch
+`8r2/dguest`): it steps split cells exactly as the model (unicorn,
+`tests/bonanza_dsplit.py`), and the tool's refusal of a half, a quarter or a
+box in a shipped course (`GUEST_SPLIT`) is gone.
 
 What was investigated, what a half is and why this shape, the grammar, the
 grid, the art, the physics and its cost, the pathway, and what it does and
@@ -81,10 +83,10 @@ The waves go on a branch of their own off the integration branch after wave
 
 | # | story | verified by |
 |---|---|---|
-| D3.1 | **The CELLS rules** (128.24.5.3): `bz_cxcel` and `bz_cxsafe` read a split cell's pair | the package's own `bz_cexp` under unicorn on the split course's stored form equals the RAM form (128.15.6's host check); red arm: the SAFE rule without halves, red at `bonanzaexit`'s claim leg |
-| D3.2 | **The window**: `bz_nbh`, `bz_fill` and `bz_win9i` fill it under `GF_SPLIT`, `bz_ps` bit 3; the step's split path entered by the existing test | a course with no split cell: the step's instructions unchanged (the listing's diff, and `bonanzaperf`'s step price within 128.24.7.6's 20 clk) |
-| D3.3 | **The step**: the pick, `bz_blocks`' split dispatch, the diagonal push, the corner ray, the fallback, the void half's kill | `bonanzaphys` on the split course (the guest equals the model at every frame); red arm: the corner ray dropped |
-| D3.4 | **The price**: bytes from the listing, clocks from the instructions (unicorn, 128.11.15's method) on the split course's runs, against 128.24.7.6 and 128.24.10 | the figures written into SPEC.md 128.24 as BUILT / PRICED |
+| D3.1 [x] | **The CELLS rules** (128.24.5.3): `bz_cxcel` and `bz_cxsafe` read a split cell's pair | the package's own `bz_cexp` under unicorn on the split course's stored form equals the RAM form (128.15.6's host check); red arm: the SAFE rule without halves, red at `bonanzaexit`'s claim leg - **DONE: `bz_cexp` under unicorn on SPLIT, RAIL, NOTCH and STEPS byte for byte (`bonanza_dsplit.py`); red arm `cellhalves` red there (the claim leg needs a shipped split course, D5); and a HOSTILE part's offsets bounded (`bz_dfind`, `bz_drec`, `bz_dval`; red arm `nobound`)** |
+| D3.2 [x] | **The window**: `bz_nbh`, `bz_fill` and `bz_win9i` fill it under `GF_SPLIT`, `bz_ps` bit 3; the step's split path entered by the existing test | a course with no split cell: the step's instructions unchanged (the listing's diff, and `bonanzaperf`'s step price within 128.24.7.6's 20 clk) - **DONE: `bz_wtail`'s one byte test (`bz_wfl`) feeds `bz_wsplit`; the executed instructions diffed against the pre-D3 guest on TRIAL, MILL and FIRST: wave 2's path and refills today's price, the prop path +20 clk, a prop course's refill +8 (SPEC.md 128.24.7.6 BUILT)** |
+| D3.3 [x] | **The step**: the pick, `bz_blocks`' split dispatch, the diagonal push, the corner ray, the fallback, the void half's kill | `bonanzaphys` on the split course (the guest equals the model at every frame); red arm: the corner ray dropped - **DONE under unicorn (bonanzaphys's host half, `bonanza_phys.py --check`): 17 scripted runs, R7's NOTCH sweep, 200 random runs, TRIAL - every STEP equal; red arms `noray`, `r7` red. The glass leg waits on D5's PLAYGROUND** |
+| D3.4 [x] | **The price**: bytes from the listing, clocks from the instructions (unicorn, 128.11.15's method) on the split course's runs, against 128.24.7.6 and 128.24.10 | the figures written into SPEC.md 128.24 as BUILT / PRICED - **DONE: +2,153 bytes resident (bss +181), over the 0.65 - 0.9KB predicted; a split window step +1.4k raw (whole centre) to +3.8 - 5.7k (a halved centre, a contact), over the prediction too (128.24.7.6 says where); `bonanza_dsplit.py --price`** |
 
 **D3's rows (named, not run)**: `bonanzaphys`, `bonanzaexit`, `bonanzaperf`, `bonanzaring`.
 
@@ -126,18 +128,28 @@ Wave 9 (mechanics as parts) is built by another session in the same two
 places, so the diagonal work stays local there, and this is every routine it
 touches (the owner passes it on):
 
-- **`apps/bonanza/bzphys.inc`**: `bz_step` (step 4's `bz_ps` mask at `.w4`;
-  `.walls`, which calls the two new routines round the edge tests; the
-  centre's RECORD pointer at `.floorh`, `.nfloor` and the fallback `.fb`;
-  `.pps`, where `bz_ps` is rebuilt, keeping bit 3); `bz_psync` (bit 3);
-  `bz_blocks` (`.other`'s kind dispatch to a split); `bz_corner` (`K`
-  blocked by either half, and by the other ray); `bz_refl` (a second entry
-  taking `BZ_DWMIN`); `bz_fill` and `bz_win9i` (`bz_nbh`, `GF_SPLIT`).
-  **New**: `bz_dpick` (the half pick), `bz_diag` (the push and reflection
-  off a diagonal, the cell's own or a corner's line), `bz_dray` (the
-  corner's quadrant, distance and ray); bss `bz_nbh`.
-- **`apps/bonanza/bonanza.asm`**: `bz_cxcel` and `bz_cxsafe` (the CELLS
-  rules by halves); `GF_SPLIT` read where the grid flags are read.
+- **`apps/bonanza/bzphys.inc`, AS BUILT (D3)**: `bz_pinit` (`bz_wfl` from
+  NPROP and `GF_SPLIT`, after the grid flags); `bz_step` - `.w4` (`and al,
+  0dh`, `test al, 8 / jnz .split`), `.pfpost` and the slab's `.psolid` (SI =
+  C for `bz_bok`), `.nfloor` (`jae .ngs`), `.pps` (`mov al, [bz_psp]`),
+  `.goal` (`jb .end / ja .sgoal`, SI = C) and the out-of-line `.split`,
+  `.swpl`, `.ngs`, `.sgoal`; `bz_bok` (C through SI); `bz_psync` (from
+  `bz_psp`); `bz_blocks` (`.other` / `.other2`, the split dispatch through
+  `bz_nbp`); `bz_corner` (a label `.k`, no instruction); `bz_wtail` (the
+  prop test as `bz_wfl`, `.split`). **New**: `bz_dpick`, `bz_srec` /
+  `bz_tslope`, `bz_wsplit`, `bz_sdoor`, `bz_swalls` (+ `bz_sedt`),
+  `bz_dinner`, `bz_dset` / `bz_dline`, `bz_dray`, `bz_dcorn`; tables
+  `bz_swin`, `bz_srays` (bzcourse.inc's `BZ_SPLIT_WIN`, `BZ_SPLIT_RAYS`);
+  bss `bz_nbh`, `bz_nbp`, `bz_psp`, `bz_wfl`, `bz_sor`, `bz_sfb`, `bz_sq`,
+  `bz_dhc`, `bz_dst`, `bz_srf`, `bz_srp`. `bz_refl` is untouched (128.24.7.2:
+  `BZ_DWMIN` = `BZ_WMIN`, an `%error` the day they differ). Wave 9's hook
+  table in `bz_step` meets this at `.w4` (the dispatch) and the split path's
+  join into `.nocorner` / `.pfb` / `.fb`.
+- **`apps/bonanza/bonanza.asm`, AS BUILT (D3)**: `bz_cexp` (calls
+  `bz_dfind` before the walk and `bz_dval` after it), `bz_cxcel` (`.ssp`,
+  `.v`: V by records), `bz_cxsafe` (`.vd`: an edge neighbour by its owning
+  record); **new** `bz_dfind`, `bz_drec`, `bz_dval` (128.24.5.3's hostile
+  bound); bss `bz_dlo`, `bz_dhi`, `bz_clo`, `bz_chi`.
 - **`tools/bbcourse.py`'s model, AS BUILT (D2)**: `Grid.cell` (a split
   cell reads `(0, 0, 0, kind, flags, surface)`), new `Grid.pair` and
   `Grid.rec`; `Physics.__init__` (the red-arm switches, `wsplit`),
@@ -155,9 +167,11 @@ touches (the owner passes it on):
   `PHYS_REV` 12. Wave 9's own changes to `bbcourse.py` (the Y0 search) meet
   the diagonal work only in `_cell_pieces` (the per-pixel keys) and the
   identities.
-- **The guest's names above** (`bz_dpick`, `bz_diag`, `bz_dray`) are D3's
-  plan, unbuilt; the model's routines they will copy are `prec`, `_dline`
-  plus `_inner`, and step 5's ray block.
+- **`tools/bbcourse.py`, D3**: `emit_inc` (+ `emit_split_tables`,
+  `split_win`, `split_rays`: the guest's shapes of OWNER, K_RECS and RAYS);
+  `compile_all` (the `GUEST_SPLIT` refusal deleted). The model's routines
+  the guest copies: `prec` (`bz_dpick`), `_inner` (`bz_dinner`), `_dline`
+  (`bz_dline`), step 5's ray block (`bz_dray`, `bz_dcorn`).
 - The tool's other consumers of a course are D1.1's list (host only).
 
 ## What is not in this plan

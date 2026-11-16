@@ -327,9 +327,9 @@ def hostile(binp, sym, c):
 # must find - (file, old, new) as bonanza_ring.patch_tree takes them
 REDS = {
     # D3.1: the SAFE rule without halves - a split edge neighbour read as a whole cell
-    "cellsafe": [("bonanza.asm", "    cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is\n"
+    "cellhalves": [("bonanza.asm", "    cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is\n"
                   "    jae .vs                     ; (128.24.5.3; BZ_SPLIT_WIN, the model's OWNER).\n",
-                  "    cmp ah, BZ_KTB              ; RED cellsafe: a split neighbour read whole\n")],
+                  "    cmp ah, BZ_KTB              ; RED cellhalves: a split neighbour read whole\n")],
     # D3.3: the corner ray dropped
     "noray": [("bzphys.inc", "    call bz_dray\n    cmp byte [bz_sfb], 0\n",
                "    mov byte [bz_sfb], 0        ; RED noray: no corner ray\n    mov word [bz_sor], 0\n"
