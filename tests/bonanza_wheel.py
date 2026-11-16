@@ -1252,8 +1252,8 @@ def corner_leg(g, ref):
                         parts = (c0_ - rise[-1], ts[0] - c0_, tr[0] - ts[0], tw[0] - tr[0])
         tws_seen.append(tw_after)
         step_cm = [d for d in got if d["lane"] == lane and d["step"] == STEP]
-        rep.append("(6) corner try %d: the step frame's bz_tw %s clk after the sync's rise (PREDICTED about "
-                   "57 - 60k on the CGA, admitted while about 58k or less, SPEC.md 128.13.7 item 5; its parts: "
+        rep.append("(6) corner try %d: the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k on "
+                   "the CGA under the script, a commit landing at about 51k or less, SPEC.md 128.13.14 item 9; its parts: "
                    "bz_t0 %s after the rise, sim+camera %s, box compose %s, rows %s); lane %d's commit on it: %s" % (
                        tries, "%d" % tw_after if tw_after is not None else "?",
                        *(("%d" % x for x in parts) if parts else ("?",) * 4), lane,
@@ -1273,7 +1273,7 @@ def corner_leg(g, ref):
             judged.append(d)
     if not judged:
         msg = ("(6) the corner leg's LIGHT step made no wheel commit of lane %d on a down-and-%s step in %d tries "
-               "- the step frame's bz_tw %s clk after the sync's rise (PREDICTED 57 - 60k): the scene is to be made "
+               "- the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k): the scene is to be made "
                "lighter, never the check weakened, SPEC.md 128.13.14 item 9" % (
                    lane, "left" if side < 0 else "right", tries, ", ".join("?" if x is None else "%d" % x
                                                                            for x in tws_seen)))
