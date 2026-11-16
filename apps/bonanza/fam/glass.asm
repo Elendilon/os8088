@@ -143,8 +143,6 @@ gl_step:
     jb .p
     cmp al, GL_BROKEN
     je .p
-    jne .cnt
-.cnt:
     dec ax
     cmp al, 1
     jne .keep
