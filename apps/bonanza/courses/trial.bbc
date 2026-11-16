@@ -81,5 +81,7 @@ clock 18 17
 
 # the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
-# are the same with it and without it, so the build re-stamps the demo's identity
-clock 9 17
+# are the same with it and without it, so the build re-stamps the demo's identity.  Wave 8R round 2 (R1): it
+# stood at (9, 17), SOLID in front of the goal column, and walled exit 0's goal cell off from the sand; it is
+# on the ice's far row now, both goal cells open to the sand and plainly visible (bbcourse's reach rule)
+clock 11 17

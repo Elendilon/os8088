@@ -270082,12 +270082,17 @@ refused on any other course (`view` is also the title's, 128.23.2):
   floor's exactly. **`gate`** puts the route's GATE on that cell of the
   line; by default the FIRST cell of the line after A's whose gate lane
   shares no block with another lane (refused when none has room). A gate is
-  a SIGN lane, **`GATE_POSES` = 6** (0 closed, 1 - 4 the bar sinking, 5
-  open), RENDERED by the tool: two posts (11 px, a black cap) either side
-  of the route across its direction at the cell, 6 ground px out (4 on a
-  screen up/down band, 2 across the screen, where it is seen edge-on) and a
-  3-line bar between their feet's line at 9, 7, 5, 3, 1 px and gone,
-  clipped by what is drawn in front of the cell; any gate fits 3 block rows.
+  a SIGN lane, **`GATE_POSES` = 6** (0 closed, 1 - 4 the frame sinking, 5
+  open), RENDERED by the tool as a GATE (round 2, 8R.9 - BUILT): two posts
+  (11 px, a cap) either side of the route at the cell, 6 ground px out (4 on
+  a screen up/down band, 2 across the screen) and a FRAME between them - a
+  top and a bottom rail 2 high and two vertical bars, the middle OPEN - all in
+  the brightest ink (WHT) with a black outline round every lit pixel, so it
+  stands off the crystal tiles on both CGA palettes and on the Hercules.  The
+  span is TILTED so it reads in 3D whichever way the route runs: a route that
+  would show it edge-on gets a 3/4 view (the ends 6 px either side), one that
+  would show it face-on a 2 px slope each way.  Poses 1 - 4 sink the frame 2,
+  4, 6 and 8 px into the floor, pose 5 leaves the posts alone, clipped by what is drawn in front of the cell; any gate fits 3 block rows.
   Every route that is not secret HAS a gate (the "unavailable" look); a
   secret one has none (`gate` refused). **`secret`** draws nothing of the
   route - nor of B's pad, icon and title when B is hidden - in the picture:
@@ -270626,9 +270631,19 @@ held, which is what `MEMP_AVAIL` then answers.
   the owner's art; previews (CGA palette 1, palette 0 and the Hercules, 4x,
   all frames) in the wave's logs, `art-icons*.png`, `art-pads.png`,
   `art-crystal.png`.
-- **The gates**: rendered by the tool (128.22.2): two crystal posts and a
-  bar between them across the route, the bar sinking into the floor over
-  poses 1 - 4.
+- **The gates**: rendered by the tool (128.22.2): two white posts and a
+  black-outlined frame (rails and bars, the middle open) across the route,
+  tilted, the frame sinking into the floor over poses 1 - 4 (round 2).
+
+- **The prototype map's testability and the finish-reach rule (round 2, 8R.9 -
+  BUILT)**: `path.bbc` gains `route 3 2 exit 0 path 25,18 25,17 18,17`, PLAY
+  back to MILL (up, then left), so a player who took TRIAL's exit 1 reaches
+  PLAY, then MILL, MOON (page 2) and PEAK.  And the tool proves every finish
+  cell stays REACHABLE with its clocks in place (`finish_reach_rule`: the
+  start's reach closure over the tiles less the clock posts and the other goal
+  cells, plus a free neighbour to roll in from); TRIAL's finish clock moved
+  from (9, 17), which walled exit 0's goal off, to (11, 17), and the
+  selfcheck's red control puts it back.
 
 #### 128.22.9 Sounds (BUILT, the owner's ear still to come)
 
