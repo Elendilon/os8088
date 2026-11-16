@@ -274759,11 +274759,15 @@ since a route passes 255 ground px and 8.8 cannot hold it, and its speed
 `v`, a WORD of 1/256 ground px a step (8.8)) or RESTING on a pad. Rolling,
 each step:
 
-- **the speed**: `v += FOL_ACC` up to `FOL_VMAX`, or down by `FOL_ACC` once
+- **the speed**: `v += FOL_ACC`, or down by `FOL_ACC` once
   the distance left (`256 L - s`, a dword) is at most `v² div (2 FOL_ACC)`
   (a `mul`, then a `div` by 384: at most 1,536), never below `FOL_VMIN`
-  until it arrives (PROVISIONAL: `FOL_VMAX` 3.0 ground px a step, `FOL_ACC`
-  0.75, `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second).
+  until it arrives; then at most the TOP SPEED of the segment holding `s`:
+  `FOL_VMAXD` on a segment whose two axes move OPPOSITE ways (screen-
+  horizontal: `px` moves 2 a ground px), else `FOL_VMAX` (PROVISIONAL:
+  `FOL_VMAX` 3.0 ground px a step, `FOL_VMAXD` 1.5, `FOL_ACC` 0.75,
+  `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second, and `px`
+  never more than 3 a step: the roll below).
   The test is made before each step, so the marble can brake a step early
   and speed up once more before it arrives (the selfcheck's hand-worked
   16 px route: `v` 768, 768, 576, 384, then 576 into the pad) - the model's
@@ -274805,47 +274809,78 @@ the guest's `bz_gx`, `bz_gy`, `bz_gz` equal `Follow`'s at every step of every
 shipped route both ways, of a private map's secret route, and of two
 synthetic ramps (signed heights, a segment of 300 ground px: `t` past 65,535).
 
-**The roll, FOLDED** (BUILT, wave 8R round 2, story 8R.10; the owner: *"When
-moving from bounce trial to playground, the ball doesn't roll"*). Not frame
-sync: ALIASING. The follower draws about one step a frame on both cards
-(MEASURED on MartyPC, 1 step on 18 or 19 of every 20 presented frames, a
-0-step frame on the CGA and a 2-step one on the Hercules for the rest), and at
-`FOL_VMAX` a route that steps both axes at once (TRIAL -> PLAY: `wx+ wy-`,
-screen-RIGHT) moves `px` 6 a frame with `G` still, so 128.11.9.2's
-horizontal phase `px & 7` ran 7, 5, 3, 1: the texture stepped BACK 2 while
-the ball went forward 6, which reads as a ball that does not turn. Up and
-down moved `G` 3 a frame and turned on the CGA; on the Hercules the vertical
-phase `(G & 6) | (py & 1)` stepped -1, -5 (read +3) - backward. A PHYSICS
-ball never gets there: its `VMAXG` (384 a step per axis) is at most 3 px a
-step on any screen axis, and in FIRST, poked screen-right at `VMAXG` on both
-axes, MEASURED `px & 7` 0, 3, 6, 1, 1, 3, 6: it rolls. So the fix is the
-pathway's alone, in `bz_sprite`, DISPLAY ONLY:
+**The roll** (BUILT, wave 8R round 2, story 8R.10, twice; the owner, after
+the first fix: *"the frames never show anything different, it just shows the
+same frame the whole way across, and ends on the same frame too. So the ball
+just slides across."*).
 
-- in `bz_mode` 4, a frame's move `d` in `px` (from `bz_opx`, last frame's)
-  and in `G` (`bz_fog`, last frame's) is FOLDED to `d'`, the one of 1 - 4
-  (with `d`'s sign) congruent to `d` mod 4: the phase's low two bits stay
-  `px`'s (the SHIFT a roll frame is stored at, 128.11.9.1), and its bit 2
-  flips by `(|d| - 1) AND 4`, kept in `bz_fox` (`G`'s in `bz_foy`): `f =
-  ((G + foy) & 7) * 8 + ((px + fox) & 7)`. `|d|` at most 4 is unchanged, so
-  6 a frame shows as +2 (`h` 1, 3, 5, 7), 5 as +1, 12 (a 2-step frame) as 4;
-- on the Hercules `G` is first rounded DOWN to `py`'s parity (`G - ((G XOR py)
-  AND 1)`), so the phase's low bit, `py`'s, never steps `G` back or on by
-  one at random (O16's wobble, on the pathway alone: a level route is then
-  -3 a frame, a ramp's height change one step of 1);
-- `bz_fold` holds no state anything else reads: no step reads `bz_frm`,
-  `bz_spr`, `bz_fox`, `bz_foy` or `bz_fog` (the idle test's `bz_spr` is the
-  display's own), a stale `bz_opx` or `bz_fog` at the play's first frame
-  costs one 4 px jump of the texture, never a wrong shift, and `bz_mode` 4 runs
-  no physics step (`bz_follow`), so every course, replay and demo, and
-  `bbcourse.sprite()`'s oracle of every course frame, are as before; the
-  follower's arithmetic (`bbcourse.Follow`) is untouched.
+*What the first fix got wrong.* It judged the roll by the frame INDEX
+(`bz_frm`), and the index did what it said: `h` 1, 3, 5, 7 a frame on
+`TRIAL -> PLAY`. Measured by the PIXELS (round 2's second pass: the card's
+VRAM read at every `bz_presented` on MartyPC, CGA and Hercules, a crop
+anchored on the ball's own `px`/`py`, and the texture on it identified
+against `bonanza_assets`' 64 frames, which agreed with `bz_frm` on every
+frame), the texture moved **+2 px relative to the ball while the ball moved
+6** - the ball's surface turning at a THIRD of its travel. That is a ball that
+SKIDS, and it is what the owner saw. 86Box's 5150 with the CGA (the owner's
+machine) draws the same one step a frame and the same `h`.
 
-MEASURED on MartyPC (round 2's log, `roll-fold2-{cga,herc}-{right,up}.png`
-the frames along each roll): TRIAL -> PLAY `h` 1, 3, 5, 7, 1, 3 ... (+2 a
-frame) on both cards, PLAY -> TRIAL -2, TRIAL -> MILL `PHY` -2 then -3 a frame
-and MILL -> TRIAL +2, +3 on both cards. **+83 bytes** (`bz_fold` 67, the Hercules'
-round 18 of them; `bz_sprite` +16), **bss +3**: 39,907 and 10,087 -> 39,990 and
-10,090.
+*Why no choice of frame can fix it.* The art's texture has a period of 8 px
+(`bonanza_assets.P`), and a frame's horizontal phase is locked to `px` mod 4
+(its low two bits are the SHIFT the frame is stored at, 128.11.9.1). A
+ball rolling 1:1 at 6 px a frame needs its texture to move 6 a frame, which
+on a period of 8 is indistinguishable from -2 (backwards); the lock leaves +2
+(the skid, the fold's choice) or -2. Even without the lock, a period of 8
+cannot show a forward roll of 4 or more a frame. Every other motion was
+already inside that limit and rolled 1:1 in the pixels: the up/down routes
+(`G` 3 lines a frame, the texture 3), a single-axis segment (`px` 3), and
+the physics ball, whose `VMAXG` caps it at 3 px a step (`FIRST`, poked
+screen-right at `VMAXG`: texture +3 or +2 with `px`, on both cards). Only a
+segment moving both axes OPPOSITE ways (`px` 2 a ground px: `TRIAL -> PLAY`,
+`wx+ wy-`) at the follower's 3.0 broke it.
+
+*The cure* is the follower's, not the sprite's: **`FOL_VMAXD` = 1.5** ground
+px a step on such a segment (the speed bullet above), so `px` moves at most
+3 a step there - a straight segment's screen speed, so the marble keeps its
+pace on the glass. `bz_pwroll` takes the cap from the segment holding `s`
+(`bz_pwp`, its two axis deltas opposite in sign and both non-zero);
+`bbcourse.Follow` the same (`Follow.seg()`), and bonanzapath's unicorn leg
+holds the two equal on every route both ways (green). Only `TRIAL -> PLAY`
+of the shipped routes has such a segment: 19 steps -> 33 (0.35 s -> 0.60 s).
+No physics step, course, demo or `bbcourse.sprite()` oracle reads the
+follower (`bz_mode` 4 alone runs it).
+
+*The fold* stays, for a frame that carries two steps (the Hercules, about one
+frame in ten: 6 px): in `bz_mode` 4 `bz_sprite`'s `bz_fold` turns a frame's
+move `d` in `px` (from `bz_opx`) and in `G` (`bz_fog`) into `d mod 4` (0 - 3,
+`d`'s sign) by flipping the phase's bit 2 by `|d| AND 4` (`bz_fox`, `bz_foy`:
+`f = ((G + foy) & 7) * 8 + ((px + fox) & 7)`). |d| at most 3 is unchanged; 6
+shows as +2 (one frame of skid, forward); **a multiple of 4 now HOLDS the
+texture** (the first fix showed it as 4, half a period, which has no
+direction). On the Hercules `G` is first rounded DOWN to `py`'s parity
+(`G - ((G XOR py) AND 1)`), as before. `bz_fold` holds no state anything
+else reads.
+
+MEASURED after (MartyPC, the pixels; `~/Repos/8r2-logs/roll2-*`): CGA
+`TRIAL -> PLAY` texture +3 a frame with `px` +3 on every moving frame (0 on
+the 0-step frames), back -3/-3; Hercules +3/+3 and +2 on its two-step frames
+(`px` 6), back the same, the one -4 move held. Up/down unchanged (texture
+3 lines with the ball's 3). **Bytes**: image 45,241 -> 45,276 (+35, by
+symbol span: `bz_pwroll` 238 -> 277, the cap +39; `bz_fold` 67 -> 63, the
+hold -4), bss unchanged (10,920).
+
+*The other way* (the owner's to choose; not built): keep 3.0 on the side
+routes and give the pathway marble a texture that can roll at 6 px a frame.
+That needs a horizontal period of at least 13, so 16: 16 horizontal phases
+(each still at shift `fx & 3`) by the 8 vertical ones, 128 frames of 80
+bytes (10,240) where the 64 cost 5,120 - **+5,120 bytes a material** in its
+ball part (+15,360 for the three, on the disk and in the claims while the
+parts are held), a 7-bit roll frame (`bz_spr`'s 0 - 63 roll range and its
+squash/shatter codes re-laid: a few dozen bytes of `bz_sprite`), and half as
+many spots across the ball, since the period is twice as wide. Every course
+would roll on the new texture too, unless the pathway carried a ball part of
+its own (+10,240 on the pathway part for one material, with the material
+swap on the pathway then limited to that one).
 
 ##### 128.22.4.3 The PAGED camera
 
