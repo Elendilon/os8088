@@ -21426,6 +21426,10 @@ BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps
 # wave 8b (SPEC.md 128.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
+# SPEC.md 128.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
+# start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
+BZ_TITLE := apps/bonanza/courses/title.bbc
+BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
 # The SHIPPED DEMOS (SPEC.md 128.14.7.4): one a tour course, BZD<K>.BIN for K
 # 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
@@ -21436,7 +21440,8 @@ BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
-BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
+           $(BZ_ART)/BZTDEMO.BIN
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -21473,8 +21478,9 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py $(BZ_COURSES) $(BZ_PATH) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) $(BZ_COURSES)
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
+                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
+	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
@@ -21518,7 +21524,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN
+BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):

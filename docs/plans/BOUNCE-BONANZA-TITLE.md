@@ -101,12 +101,15 @@ A box is ticked only for what was built AND checked as its line says.
 
 ### Wave T1: the tool - a title course on the host
 
-- [ ] **T1.1** `title`, `view SX SY`: the picture grown round both windows
+- [x] **T1.1** `title`, `view SX SY`: the picture grown round both windows
       and the drop margin; the four window values and the flag in the grid
       header. *Host: `--selfcheck` controls (a view off the picture, an odd
-      SX refused); the window drawn on the preview.*
-- [ ] **T1.2** `art FILE SX SY` and the `.bba` pixmap; refused off the
-      picture. *Host: a control; the preview.*
+      SX refused); the window drawn on the preview.* *Built; the window LOOKED
+      AT on host previews of both cards and on MartyPC's CGA (R0 64, c0 51
+      held for a whole demo). The selfcheck controls are T5.1's.*
+- [x] **T1.2** `art FILE X Y` and the `.bba` pixmap; refused off the
+      picture. *Host: a control; the preview.* *Built; a placeholder box
+      LOOKED AT on the host and the guest. The control is T5.1's.*
 - [ ] **T1.3** `label N COL ROW glyphs "..." [ink C]`: one block, the desktop
       font's glyphs, a `PK_CLOCK` of ndig 0 with no OBS cell. *Host: the
       lane's poses equal the font; no cell of the grid OBS for it.*
@@ -119,22 +122,34 @@ A box is ticked only for what was built AND checked as its line says.
 
 ### Wave T2: the guest - the fixed camera and the title loop
 
-- [ ] **T2.1** The title course as `BZ_CRS_TITLE`, its row last; the per-course
+- [x] **T2.1** The title course as `BZ_CRS_TITLE`, its row last; the per-course
       tables' entries.
-- [ ] **T2.2** The FIXED camera from the header (`bz_camera`'s first frame and
+- [x] **T2.2** The FIXED camera from the header (`bz_camera`'s first frame and
       `.modes`). *Looked at on both cards: the window still while the ball
-      moves; the ball leaving the glass and coming back.*
+      moves; the ball leaving the glass and coming back.* *CGA LOOKED AT on
+      MartyPC (a demo's frames, the window still); the Hercules still to
+      look at.*
 - [ ] **T2.3** The label lane posed by `bz_nst`, marked for the walk on a
       change.
-- [ ] **T2.4** `bz_title`: Enter on the face opens it; the keys (P, S, 1 2 3,
+- [x] **T2.4** `bz_title`: Enter on the face opens it; the keys (P, S, 1 2 3,
       Esc); the chain to a course demo and back; the game from P and back.
+      *Built (`bz_title8`, `bz_tround`). Seen on MartyPC's CGA: Enter opens
+      the title, a title demo plays its 832 steps, a course demo (TRIAL)
+      follows with its own camera. The keys and the game's return are
+      `bonanzatitle`'s to prove (T5.1).*
 
 ### Wave T3: the demos
 
-- [ ] **T3.1** The `.bzt` format, the part `BZTDEMO.BIN`, the model's start
+- [x] **T3.1** The `.bzt` format, the part `BZTDEMO.BIN`, the model's start
       state and respawn cell, the build's checks.
-- [ ] **T3.2** The guest's start block and `bz_rspo`.
-- [ ] **T3.3** The four demos, authored on the model to the brief.
+- [x] **T3.2** The guest's start block and `bz_rspo`.
+- [x] **T3.3** The four demos, authored on the model to the brief
+      (`TITLE_AUTHOR`, `bbcourse.py tauthor`). *Host: every expect met at
+      every build; their frames LOOKED AT as host GIFs. The guest's replay
+      against the model is `bonanzatitle`'s (T5.1). Where the course made
+      the brief bend: demo 2's steel is too slow to clear LL, so it lands at
+      the pit's edge stunned and rolls in; demo 4's ball rolls off the glass
+      to the right into the hidden tube rather than behind the ramp.*
 
 ### Wave T4: the song
 

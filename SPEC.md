@@ -270013,34 +270013,40 @@ the pathway's rework.)
 On a course with **`title`** (once, no clauses; refused beside `pathway`,
 `limit`, `medals`, `goal` and `cup`), and only there:
 
-- **`view SX SY`**: the CGA window's CENTRE in projection pixels - tile
+- **`view SX SY [drop N]`**: the CGA window's CENTRE in projection pixels - tile
   corner `(cx, cy)` at height `h` units is `(16 (cx - cy), 8 (cx + cy) - 8h)`
   before the origin - with **SX a multiple of 8 and SY of 4**. The CGA window
   is `SX - 160 .. SX + 159` across and `SY - 100 .. SY + 99` down; the
   Hercules window (45 words) is the CGA's with **two words more on the left
   and three on the right**, the same 200 lines. The tool grows the picture
-  (its `Y0`, its height) so that both windows, **32 lines above them** (the
-  DROP margin: a ball can start above the glass and fall in) and every reach
-  lie inside it, and chooses `Y0` so that the CGA window's top is a block
-  row (a multiple of 8). It writes the four values (CGA R0 and c0, Hercules
-  R0 and c0) into the grid header, and a `title` course's header flag.
-- **`art FILE SX SY`**: FILE (in `apps/bonanza/courses/`) is a TEXT PIXMAP,
+  (its `Y0`, its height) so that both windows, **N lines above them** (the
+  DROP margin, 16 - 240, default 32: a ball can start above the glass and
+  fall in; the title's is 128, about a second of fall before the ball is
+  seen) and every reach lie inside it, and chooses `Y0` so that the CGA
+  window's top is a block row (a multiple of 8). The grid header's FLAGS
+  (+28) gain **bit 2, `GF_VIEW`**, and its reserved word becomes the view:
+  **+30 the window's top line / 4, +31 the CGA's c0**; the guest derives
+  both cards' (R0, c0) from the two (`bz_crshdr`). **BUILT** (T1.1).
+- **`art FILE X Y`**: FILE (in `apps/bonanza/courses/`) is a TEXT PIXMAP,
   `.bba`: one line a pixel row, every row the same length, `.` transparent
   and `0 1 2 3` the CGA's four colours (`#` starts a comment line). Its
-  top-left pixel lands at projection `(SX, SY)`. It is painted over the
+  top-left pixel lands at pixel `(X, Y)` of the CGA window. It is painted over the
   finished picture - over every tile, wall, mark, clock and flag - before the
   picture is cut into blocks, so it is the topmost layer and has no depth:
   the ball is drawn over it. Refused if any opaque pixel falls outside the
   picture. The Hercules gets it through `htab()` like every other pixel
-  (128.11.3).
+  (128.11.3). **BUILT** (T1.2).
 - **`label N COL ROW glyphs "TEXT" [ink C]`**: a lane of ONE block at cell
   `(COL, ROW)` of the CGA window (0 - 39, 0 - 24), posed by `bz_nst[N]` (0 -
   15): pose 0 the bare picture, pose `1 + i` the `i`-th character of TEXT
-  (at most 15) in the DESKTOP font's 8 x 8 glyph (`kernel/font.inc`), set
-  pixels in ink C (default 3, white), clear pixels the bare picture's. Its
-  record is a `PK_CLOCK` of ndig 0 that marks NO cell OBS: physics never
-  meets it. The title's label 0 is the slot: `glyphs "123"`, pose `1 +
-  bz_slot`.
+  (at most 15) in the tree's own 8 x 8 face, **`fonts/tallx.f8`** (the
+  machine's ROM face is not in the tree, so a build cannot draw with it),
+  set pixels in ink C (default 3, white), clear pixels the bare picture's.
+  Its record is a `PK_CLOCK` of ndig 0 anchored at `(255, 224 + N)`, a cell
+  no course has, that marks NO cell OBS: physics and the owner index never
+  meet it. The title's label 0 is the slot: `glyphs "123"`, pose `1 +
+  bz_slot`; a change marks every CLOCK lane for the walk (128.19.10's
+  marks) and the next frame redraws the one block (`bz_tlabel`).
 
 #### 128.23.3 The title demos (PLANNED)
 
@@ -270060,11 +270066,12 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
 ```
 
 - **The part**: `+0 'BZT1'`, `+4` the count (4), `+6` `BZ_TSTEPS`, `+8` a
-  word offset a demo; a demo is a 16-byte START BLOCK - `+0` gx, `+3` gy (24.8
-  each, three bytes), `+6` gz (8.8 px), `+8` gvx, `+10` gvy, `+12` gvz (words),
-  `+14` the air flag, `+15` the respawn cell's index into the grid's cell list
-  or FFh - then its `BZR1` log (128.14.7.4), course `BZ_CRS_TITLE`, its
-  identity the title course's as BUILT.
+  word offset a demo; a demo is a 20-byte START BLOCK (`BZ_TSTART`) - `+0`
+  gx, `+3` gy, `+6` gz (24.8, three bytes each: a drop starts above 255 px),
+  `+9` gvx, `+11` gvy, `+13` gvz (words), `+15` the air flag, `+16` the
+  respawn cell (wx, wy; FFh FFh none), `+18` zero - then its `BZR1` log
+  (128.14.7.4), course `BZ_CRS_TITLE`, its identity the title course's as
+  BUILT. **BUILT** (T3.1): 1,278 bytes for the four.
 - **The build's checks** (the course run, every build): each demo replayed
   on the model from its start block is **exactly `BZ_TSTEPS` steps**, ends
   with the ball alive or in a shatter or fall the file `expect`s, and meets
@@ -270072,10 +270079,15 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   the step and the event. The identity is written by the build, never by
   hand, so redrawing the art never stales a demo; a change to the GEOMETRY
   re-runs the expects, which say whether the demo still does what it shows.
-- **The guest**: after `bz_pinit` (the course's `start`), the start block
-  overwrites the position, velocity and air flag and derives the rest as a
-  harness poke does; a respawn cell other than FFh wins over every flag and
-  SAFE cell for the play (`bz_rspo`). The replay is then mode 2's, unchanged.
+- **The guest**: inside `bz_pinit`, after the course's `start` is placed,
+  `bz_tapply` places the start block's cell (`bz_placeat`, as a respawn
+  does), then overwrites the position, velocity and air flag, sets the
+  flight's top to its height, and holds the respawn cell in `bz_safe`
+  (`bz_rspo`: no SAFE cell moves it); `bz_derive` follows as it does for any
+  start. The model is `bbcourse.title_start`, the same sequence. A respawn
+  cell may be OFF the glass: a ball that shatters or falls at a demo's end
+  is not seen again. The replay is then mode 2's, unchanged. **BUILT**
+  (T3.2).
 
 #### 128.23.4 The title's loop (PLANNED)
 
