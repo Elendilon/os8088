@@ -24,8 +24,11 @@ state6, bz_ps, the goal and its exit, the respawns): no tolerance.
      exit, a slide up the lane's rail (DIAG or DIAG + 1, no kick), a head-on
      hit, a wall's END met radially, the edges by their owning half, a
      quartered cell's line and its centre, R7's push out of a quartered cell
-     (THE NOTCH), a fall off a diagonal step, a landing on one.
-  3  FUZZ: N runs from random states near split cells (position, velocity,
+     (THE NOTCH), a fall off a diagonal step, a landing on one; a windmill's
+     doorway knock and capture with a split cell in the window (THE MILLS).
+  3  FUZZ: N runs from random states near split cells - on THE EDGE (split
+     cells on the grid's edges) and THE MILLS (MILL's props beside split
+     cells) as well as the four split courses - (position, velocity,
      airborne or grounded, material) under random held keys - every step.
   4  A COURSE WITH NO SPLIT CELL (TRIAL): the same comparison, and bz_ps bit
      3 never set (the split path never entered).
@@ -65,6 +68,25 @@ STEPS = ('course STEPS "Steps"\nwidth 128\nfloor rect 4 4 19 19 flat 0\n'
          'floor half left tile 13 9 ramp x 12 14 0 1\nfloor half up tile 9 12 ramp y 11 13 0 1\n'
          'floor box -1 2 26 31 flat 1\nwall quarter w tile 9 14 flat 1.5\nwall quarter n tile 10 14 flat 1.5\n'
          'hole half down tile 6 13\nhole quarter w tile 15 7\nstart 6 6\n')
+
+# THE EDGE (verify-dguest): split cells on the grid's own edges - the window's out-of-grid cells OPEN beside them
+EDGE = ('course EDGE "Edge"\nwidth 64\nfloor rect 3 3 9 9 flat 0\nfloor half up tile 3 3 flat 0.5\n'
+        'hole half left tile 3 6\nwall quarter n tile 6 3 flat 1\nwall quarter w tile 3 7 flat 1\n'
+        'floor half down tile 8 8 flat 0.5\nhole quarter e tile 8 5\nfloor half right tile 8 3 flat 0.5\n'
+        'hole half up tile 5 8\nstart 5 5\n')
+# THE MILLS (verify-dguest): MILL's props (both windmills, three bumpers, the tubes, the lift) with split cells
+# beside them and GOAL pieces inside the windmills' 3 x 3 (the doorway with a split cell in the window)
+MILLS_EXTRA = ("goal half right tile 8 10 flat 16\ngoal quarter e tile 10 10 flat 16\n"
+               "wall half left tile 13 20 flat 9\nfloor half down tile 15 21 flat 8.5\n"
+               "floor half up tile 17 19 flat 8.5\nfloor quarter n tile 15 18 flat 8.5\n"
+               "floor half right tile 28 19 flat -3.5\nhole half up tile 21 21\n"
+               "floor half right tile 11 10 flat 15.5\nfloor quarter e tile 10 12 flat 15.5\n"
+               "floor half down tile 22 21 flat 2.5\n")
+
+
+def mills():
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read().replace(
+        "\nstart 9 12", "\n" + MILLS_EXTRA + "start 9 12")
 
 
 class Guest:
@@ -233,12 +255,19 @@ def scripted():
         ("bumper half", "steps", stl, (11, 12, 8 << 8, 8 << 8, 250, 0), hold(Rt, 60), ()),
         ("slopes: a ramped half under step 2", "steps", rub, (13, 9, 4 << 8, 10 << 8, 0, 0), hold(Rt, 60), ()),
         ("chamfer: a box's quartered corners", "split", rub, (14, 7, 8 << 8, 8 << 8, 0, 0), hold(Rt | U, 80), ()),
+        ("undo: a line pushes the centre into a blocking cell, back to the START", "steps", rub,
+         (9, 14, 1024, 3072, 0, -200), hold(0, 30), ("undo",)),
+        ("doorway: a windmill's knock, a split cell in the window", "mills", rub, (9, 10, 2048, 2048, 0, -250),
+         hold(U, 60), ("knock",)),
+        ("doorway: a windmill's capture beside split cells", "mills", rub, (9, 9, 2048, 2048, 0, -250), hold(U, 60),
+         ("capture",)),
     ]
 
 
 def courses():
     return {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
-            for k, t in (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS))}
+            for k, t in (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS),
+                         ("edge", EDGE), ("mills", mills()))}
 
 
 def cells_check(binp, sym, cs):
@@ -651,8 +680,8 @@ def price_report(n, seed):
                         sum(1 for x in d if x))
             print("bonanza_dsplit PRICE %s (no split cell, %d steps): BASE %.0f clk a step; D3 %+.1f clk a step "
                   "mean, %+d .. %+d, %d steps differ" % ((crs,) + res[crs][:1] + res[crs][1:]))
-        # 2. split courses: each step's price by what it met
-        cs = courses()
+        # 2. split courses: each step's price by what it met (the four of 128.24.7.6's table)
+        cs = {k: v for k, v in courses().items() if k in ("split", "rail", "notch", "steps")}
         cat = {}
         rnd = random.Random(seed)
         names = sorted(cs)
