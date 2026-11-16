@@ -19034,7 +19034,8 @@ def selfcheck(paths=None):
     res.append(("4 `music trial` gives song %d (%s); `music title`, an unknown name and the fanfare %s; the courses' songs %s, "
                 "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
                 course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused", "refused"]
-                and rule == [1 if k == 0 else 1 + (k - 1) % (len([x for x in sn if x not in _non_course()]) - 1) for k in range(len(courses))]
+                and rule == [0 if k == 0 else (k - 1) % len([x for x in sn if x not in _non_course()])   # (128.26.5:
+                             for k in range(len(courses))]                    # song 0 gone, one lower)
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)
