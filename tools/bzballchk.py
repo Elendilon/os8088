@@ -16,11 +16,12 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import bonanza_assets as B
 
-CSEG, DSEG, ESEG = 0x1000, 0x3000, 0x5000
-BOX = 0x0400
+CSEG = DSEG = 0x1000                # one segment: the package's image (its
+ESEG = 0x5000                       # constants read through DS) and its bss
+BOX = 0x2000
 
 
-def assemble(patch=None):
+def assemble(patch=None, listing=False):
     """the routine assembled at org 0 behind a 3-instruction driver; patch =
     (old, new) breaks the source on purpose (the selfcheck's red arm)"""
     with tempfile.TemporaryDirectory() as td:
@@ -44,7 +45,8 @@ def assemble(patch=None):
         out = os.path.join(td, "t.bin")
         lst = os.path.join(td, "t.lst")
         subprocess.run(["nasm", "-w+error", "-f", "bin", "-I", art + "/", "-l", lst, "-o", out, src], check=True)
-        return open(out, "rb").read()
+        code = open(out, "rb").read()
+        return (code, _labels(lst)) if listing else code
 
 
 def run(code, stored, trace=None):
@@ -52,16 +54,16 @@ def run(code, stored, trace=None):
     from unicorn.x86_const import UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS, UC_X86_REG_SP
     mu = Uc(UC_ARCH_X86, UC_MODE_16)
     mu.mem_map(0, 0x100000)
+    assert len(code) <= BOX
     mu.mem_write(CSEG * 16, code)
     mu.mem_write(ESEG * 16, stored)
-    mu.mem_write(DSEG * 16, bytes(0x1000))
     mu.mem_write(DSEG * 16 + BOX, bytes([0xA5]) * 1024)      # scratch is never clean
     mu.reg_write(UC_X86_REG_DS, DSEG)
     mu.reg_write(UC_X86_REG_CS, CSEG)
     mu.reg_write(UC_X86_REG_SS, 0x4000)
     mu.reg_write(UC_X86_REG_SP, 0xFFF0)
     if trace is not None:
-        mu.hook_add(UC_HOOK_CODE, lambda uc, a, n, u: trace(a - CSEG * 16, n))
+        mu.hook_add(UC_HOOK_CODE, lambda uc, a, n, u: trace(uc, a - CSEG * 16, n))
     mu.emu_start(CSEG * 16, CSEG * 16 + 6, count=50000000)
     return bytes(mu.mem_read(ESEG * 16, len(stored)))
 
@@ -81,57 +83,181 @@ def check(verbose=True):
     return res
 
 
-def _price(text, size):
-    """8088 clocks of one instruction: the 8086 EU time, +4 a word memory
-    access (the 8-bit bus), floored at 4 a byte fetched.  A table for the
-    instructions bz_ballgen uses; branches are priced taken (the loop's case)"""
-    t = text.replace("es ", "").strip()
-    pre = 2 if text.startswith("es ") else 0
+# --- the PRICE: 8088 clocks of the executed instructions -------------------
+# The 8086's documented EU times (Intel's tables), +4 for every WORD memory
+# transfer (the 8088's 8-bit bus moves a word in two cycles), the EA cost,
+# +2 a segment prefix, a branch at its TAKEN or NOT-TAKEN time as it went,
+# a shift by CL and every REP iteration at the count it really ran; and the
+# BUS floor: an instruction takes at least 4.34 clocks a code byte (the
+# measured fetch rate, CLAUDE.md) plus 4 a data byte it moves, which bounds
+# the short instructions the EU time alone would under-price.
+_R8 = ("al", "ah", "bl", "bh", "cl", "ch", "dl", "dh")
+_ALU = ("add", "adc", "sub", "sbb", "and", "or", "xor")
+_JCC = ("jo", "jno", "jc", "jnc", "jb", "jnb", "jae", "jnae", "jz", "jnz", "je", "jne", "jbe", "jnbe",
+        "ja", "jna", "js", "jns", "jpe", "jpo", "jl", "jnl", "jge", "jnge", "jle", "jng", "jg", "jnle")
+
+
+def _ea(m):
+    inner = m[m.index("[") + 1:m.index("]")]
+    parts = [x for x in re.split(r"[+-]", inner) if x]
+    regs = sorted(x for x in parts if x in ("bx", "bp", "si", "di"))
+    disp = any(x not in ("bx", "bp", "si", "di") for x in parts)
+    if not regs:
+        return 6
+    if len(regs) == 1:
+        return 9 if disp else 5
+    base = 7 if regs in (["bp", "di"], ["bx", "si"]) else 8
+    return base + (4 if disp else 0)
+
+
+def price(text, size, taken, cl, cx, first):
+    """8088 clocks of ONE execution (a REP string op: one iteration, +9 on the first)"""
+    t = text
+    pre = 0
+    while True:
+        m = re.match(r"(es|cs|ss|ds) ", t)
+        if not m:
+            break
+        pre += 2
+        t = t[3:]
+    rep = t.startswith(("rep ", "repe ", "repne "))
+    if rep:
+        t = t.split(" ", 1)[1]
+        if cx == 0:             # the emulator's last look at a spent count: no iteration
+            return 0
     op, _, rest = t.partition(" ")
     a = [x.strip() for x in rest.split(",")] if rest else []
-    mem = [x for x in a if x.startswith(("[", "word [", "byte ["))]
-    word = any(x.startswith("word") for x in a) or (mem and not any(r in a for r in ("al", "ah", "bl", "bh", "cl", "ch", "dl", "dh")))
-    ea = 0
-    if mem:
-        m = mem[0]
-        ea = 6 if re.fullmatch(r"(word |byte )?\[0x[0-9a-f]+\]", m) else 5 if "+" not in m else 9
-        if "+" in m and re.search(r"0x[0-9a-f]+\]", m):
-            ea += 4
-    wa = 4 if (mem and word) else 0
-    imm = bool(a) and a[-1].startswith("0x") or (len(a) > 1 and a[-1].lstrip("-").isdigit())
+    mem = [i for i, x in enumerate(a) if "[" in x]
+    m = a[mem[0]] if mem else None
+    regs8 = any(x in _R8 for x in a)
+    word = (m is not None and m.startswith("word")) or (m is not None and not m.startswith("byte") and not regs8)
+    ea = (_ea(m) + pre) if m is not None else 0
+    imm = bool(a) and "[" not in a[-1] and (a[-1].startswith("0x") or a[-1].lstrip("-").isdigit())
+    dst_mem = bool(mem) and mem[0] == 0
+    xfer = 0            # data bytes moved
+    w = 2 if word else 1
     if op == "mov":
-        c = (8 + ea if mem and a[0] not in [m for m in mem] else 9 + ea) if mem else (4 if imm else 2)
-    elif op in ("add", "sub", "and", "or", "xor", "cmp"):
-        c = (9 + ea if mem and a[0] not in mem else (10 if op == "cmp" else 16) + ea) if mem else (4 if imm else 3)
-        if mem and imm and a[0] in mem:
-            c = (10 if op == "cmp" else 17) + ea
-    elif op in ("shl", "shr", "rcl", "rcr", "ror", "sar"):
-        c = 2 if a[-1] == "1" else 8
+        if not m:
+            c = 4 if imm else 2
+        elif imm:
+            c, xfer = 10 + ea, w
+        elif dst_mem:
+            c, xfer = 9 + ea, w
+        else:
+            c, xfer = 8 + ea, w
+    elif op in _ALU + ("cmp", "test"):
+        rmw = dst_mem and op not in ("cmp", "test")
+        if not m:
+            c = 4 if imm else 3
+        elif imm:
+            c = (17 if rmw else 10 if op == "cmp" else 11) + ea
+        elif rmw:
+            c = 16 + ea
+        else:
+            c = 9 + ea
+        xfer = (2 * w if rmw else w) if m else 0
+    elif op in ("shl", "sal", "shr", "sar", "rol", "ror", "rcl", "rcr"):
+        n = cl if a[-1] == "cl" else 1
+        if m:
+            c = (20 + 4 * n if a[-1] == "cl" else 15) + ea
+            xfer = 2 * w
+        else:
+            c = 8 + 4 * n if a[-1] == "cl" else 2
     elif op in ("inc", "dec"):
-        c = 15 + ea if mem else (3 if a[0][-1] in "lh" else 2)
+        if m:
+            c, xfer = 15 + ea, 2 * w
+        else:
+            c = 3 if a[0] in _R8 else 2
     elif op in ("not", "neg"):
+        if m:
+            c, xfer = 16 + ea, 2 * w
+        else:
+            c = 3
+    elif op in ("lodsb", "lodsw", "stosb", "stosw", "movsb", "movsw", "scasb", "scasw", "cmpsb", "cmpsw"):
+        ww = 2 if op.endswith("w") else 1
+        base = {"lods": (12, 13), "stos": (11, 10), "movs": (18, 17), "scas": (15, 15), "cmps": (22, 22)}[op[:4]]
+        moves = 2 if op[:4] in ("movs", "cmps") else 1
+        c = (base[1] if rep else base[0]) + (9 if rep and first else 0) + pre
+        xfer = moves * ww
+        pre = 0
+    elif op == "xlatb" or op == "xlat":
+        c, xfer = 11, 1
+    elif op == "lea":
+        c = 2 + ea - pre
+    elif op == "xchg":
+        if m:
+            c, xfer = 17 + ea, 2 * w
+        else:
+            c = 3 if "ax" in a else 4
+    elif op == "push":
+        c, xfer = (16 + ea if m else 10 if a[0] in ("es", "cs", "ss", "ds") else 11), 2 + (2 if m else 0)
+    elif op == "pop":
+        c, xfer = (17 + ea if m else 8), 2 + (2 if m else 0)
+    elif op in ("pushf",):
+        c, xfer = 10, 2
+    elif op in ("popf",):
+        c, xfer = 8, 2
+    elif op == "call":
+        c, xfer = 19, 2
+    elif op == "ret":
+        c, xfer = 16, 2           # 8 + the queue's refill, as the 8088 tables give 20 with the word
+    elif op == "jmp":
+        c = 15
+    elif op in _JCC:
+        c = 16 if taken else 4
+    elif op == "loop":
+        c = 17 if taken else 5
+    elif op in ("loope", "loopz", "loopne", "loopnz", "jcxz"):
+        c = 18 if taken else 6
+    elif op == "div":
+        c = (162 if not m and a[0] not in _R8 else 90) + ea
+        xfer = w if m else 0
+    elif op == "mul":
+        c = (133 if not m and a[0] not in _R8 else 77) + ea
+        xfer = w if m else 0
+    elif op in ("cbw", "clc", "stc", "cmc", "cld", "std", "cli", "sti", "hlt"):
+        c = 2
+    elif op == "cwd":
+        c = 5
+    elif op in ("sahf", "lahf"):
+        c = 4
+    elif op == "nop":
         c = 3
-    elif op in ("lodsb", "lodsw"): c = 12
-    elif op in ("stosb", "stosw"): c = 11
-    elif op == "movsw": c = 18
-    elif op == "loop": c = 17
-    elif op in ("jz", "jnz", "jc", "jnc", "jb", "jnb", "ja", "jna", "je", "jne", "jae"): c = 16
-    elif op in ("jmp",): c = 15
-    elif op == "call": c = 19
-    elif op == "ret": c = 16
-    elif op == "xchg": c = 4
-    elif op == "div": c = 85
-    elif op == "lea": c = 2 + ea
-    elif op == "push": c = 11
-    elif op == "pop": c = 8
-    elif op == "cld": c = 2
-    else: c = 4
-    return max(c + wa + pre, 4 * size)
+    else:
+        raise ValueError("bzballchk.price: no 8088 time for %r" % text)
+    c += 4 * (xfer // 2)          # the 8088: a word is two bus cycles
+    fetch = 0 if (rep and not first) else size
+    return max(c, 4.34 * fetch + 4 * xfer)
 
 
-def clocks():
-    """the executed instructions of one generation per material, priced"""
-    code = assemble()
+def _labels(lst):
+    """label -> address from a nasm listing (org 0); a local label is
+    reported as its owner's name and itself (bz_ballgen.fy)"""
+    out = {}
+    pend = []
+    owner = ""
+    for line in open(lst):
+        m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s+[0-9A-F]", line)
+        body = re.sub(r"^\s*\d+\s+(?:[0-9A-F]{8}\s+\S+\s+)?(?:<\d+>\s+)?", "", line)
+        lab = re.match(r"(\.?[A-Za-z_][\w.]*):", body)
+        if lab:
+            nm = lab.group(1)
+            if nm.startswith("."):
+                nm = owner + nm
+            else:
+                owner = nm
+            pend.append(nm)
+        if m and pend:
+            for p in pend:
+                out[p] = int(m.group(1), 16)
+            pend = []
+    return out
+
+
+def clocks(profile=False):
+    """the executed instructions of one generation per material, priced;
+    profile: also the clocks by PHASE (the routine's labels that start one)"""
+    code, labs = assemble(listing=True)
     dis = subprocess.run(["ndisasm", "-b", "16", "-"], input=code, capture_output=True, check=True).stdout.decode()
     info = {}
     rows = [l.split(None, 2) for l in dis.splitlines()]
@@ -140,21 +266,48 @@ def clocks():
         a = int(ad, 16)
         tx = re.sub(r"\b0x0*([0-9a-f]+)\b", lambda m: "0x" + m.group(1), tx.lower())
         info[a] = (tx, nxt - a)
+    sel = [n for n in labs if n.startswith("bgp_")] or [n for n in labs if not n.startswith(("start", "BG_"))]
+    phases = sorted((labs[n], n) for n in sel)
     out = []
     for mat in range(3):
-        cnt = {}
-        def tr(off, n):
-            cnt[off] = cnt.get(off, 0) + 1
+        ex = []
+        def tr(uc, off, n):
+            from unicorn.x86_const import UC_X86_REG_CX
+            ex.append((off, uc.reg_read(UC_X86_REG_CX)))
         run(code, B.build_ball3(mat), trace=tr)
-        tot = sum(_price(*info[a]) * n for a, n in cnt.items() if a in info)
-        out.append((mat, sum(cnt.values()), tot))
+        tot = 0.0
+        byph = {}
+        prev = None
+        for i, (off, cx) in enumerate(ex):
+            if off not in info:
+                continue
+            tx, sz = info[off]
+            nxt = ex[i + 1][0] if i + 1 < len(ex) else None
+            taken = nxt is not None and nxt != off + sz
+            first = prev != off
+            c = price(tx, sz, taken, cx & 0xFF, cx, first)
+            prev = off
+            tot += c
+            if profile:
+                ph = "?"
+                for a, nm in phases:
+                    if a <= off:
+                        ph = nm
+                byph[ph] = byph.get(ph, 0) + c
+        out.append((mat, len(ex), int(tot), byph))
     return out
 
 
 if __name__ == "__main__":
-    if "--clocks" in sys.argv:
-        for mat, n, c in clocks():
+    if "--clocks" in sys.argv or "--profile" in sys.argv:
+        prof = "--profile" in sys.argv
+        allc = 0
+        for mat, n, c, ph in clocks(prof):
+            allc += c
             print("  %-6s %8d instructions, %9d clocks = %6.1f ms at 4.77 MHz" % (B.MAT_NAMES[mat], n, c, c / 4772.727))
+            for nm, v in sorted(ph.items(), key=lambda kv: -kv[1]):
+                print("      %-14s %9d  %5.1f%%" % (nm, v, 100.0 * v / c))
+        print("  all three %9d clocks = %6.1f ms" % (allc, allc / 4772.727))
         sys.exit(0)
     r = check()
     if r is None:
