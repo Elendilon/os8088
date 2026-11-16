@@ -1934,7 +1934,10 @@ bz_fdis:
 .gone:                          ; bz_bseg may still be our copies' segment
     mov byte [bz_hidn], 1       ; GONE: the ball and its shadow
     mov byte [bz_shc], 0
-.r:
+.r:                             ; wave 9 (SPEC.md 128.25.19): every way out
+    mov al, [bz_cue]            ; takes the pickup CUE's look (bzvideo.inc
+    or al, [bz_clook]           ; bz_cuef) while a cue shows or the last
+    jnz bz_cuef                 ; frame's did - with neither, three tests
     ret
 .dith:
     test cl, 1                  ; (a new density is a new sprite to bz_mkboxes)
@@ -1980,7 +1983,7 @@ bz_fdis:
     call bz_fdor                ; the shadow's mask: OR
 .out:
     pop es
-    ret
+    jmp short .r
 .wd:                            ; DL an even line's dither byte, DH an odd
     test al, 1                  ; one's, AL a line: DX = AL's (both bytes),
     jz .w0                      ; BX the next line's
@@ -1990,6 +1993,112 @@ bz_fdis:
     mov bh, dh
     mov dh, dl
     ret
+
+; -----------------------------------------------------------------------------
+; bz_cuef - wave 9 (SPEC.md 128.25.9, 128.25.19): the pickup CUE's LOOK for the
+; frame, once a frame from bz_fdis's tail while [bz_cue] (a family's STEP
+; writes it; display only) or the last frame's look is set.  The look
+; (bz_clook): BZ_CL_SP + the sparkles' step n (frames / 4 mod 8, bits 0-2) and
+; the sprite's shift px & 3 (bits 3-4) while bit 0 of bz_cue is set; on a
+; FLASH frame under bit 1 (the last PU_WARN steps; which frames is the build's
+; BZ_CUEFLASH) BZ_CL_FL (a DITHER style: the checker folded into the ball's
+; blit, bz_chk its row 0's by card and py's parity) or BZ_CL_BL (a BLINK
+; style: the ball not drawn).  bz_boxc and bz_blit draw from it.  When the look
+; changes, the three sparkles' box offsets and masks are worked out (bz_csk)
+; and bz_ctog flips: XORed into bz_spr every frame here, it is the dissolve's
+; bit-7 trick (bz_fdis), so bz_mkboxes recomposes a RESTING ball on exactly the
+; frames its cue's look changed, and the frame the cue ends takes it off.
+; Clobbers AX, BX, CX, DX, SI, DI, BP.
+; -----------------------------------------------------------------------------
+bz_cuef:
+    mov ah, [bz_cue]
+    xor dx, dx                  ; DL = the look
+    test ah, 2
+    jz .sp
+%if BZ_CFP == 2
+    test byte [bz_frames], 1    ; every 2nd frame
+    jz .sp
+%else
+    test byte [bz_frames], 3    ; every 4th frame
+    jnz .sp
+%endif
+%if BZ_CFB
+    mov dl, BZ_CL_BL
+%else
+    mov dl, BZ_CL_FL
+    mov cx, 3333h               ; the checker's row 0: by card (a CGA pixel is
+    cmp byte [bz_herc], 0       ; two bits, a Hercules one a mono pair) and
+    je .c1                      ; by py's parity
+    mov cx, 5555h
+.c1:
+    test byte [bz_py], 1
+    jz .c2
+    not cx
+.c2:
+    mov [bz_chk], cx
+%endif
+.sp:
+    test ah, 1
+    jz .lk
+    mov al, [bz_px]
+    and al, 3
+    mov dh, al                  ; DH = s, the shift
+    shl al, 1
+    shl al, 1
+    shl al, 1
+    mov cl, [bz_frames]
+    shr cl, 1
+    shr cl, 1
+    and cl, 7
+    or al, cl
+    or al, BZ_CL_SP
+    or dl, al
+.lk:
+    cmp dl, [bz_clook]
+    je .tog
+    mov [bz_clook], dl
+    xor byte [bz_ctog], 80h
+    test dl, BZ_CL_SP           ; the three sparkles, entries n, n + 3, n + 5
+    jz .tog                     ; of bz_spk: each a 2 x 2 pixel pair at (dx,
+                                ; dy) from the sprite's own row 0 and pixel 0,
+                                ; as a byte offset from the sprite's first
+                                ; byte in the box (dy 8 + (s + dx) / 4) and a
+    mov si, bz_spo              ; word mask by pixel phase (s + dx) & 3
+    mov di, bz_csk
+    mov cx, 3
+.c:
+    lodsb
+    add al, dl
+    and ax, 7
+    shl ax, 1
+    xchg ax, bx
+    mov ax, [bz_spk + bx]       ; AL = dx, AH = 8 dy
+    add al, dh                  ; x = s + dx
+    mov bl, al
+    and bx, 3
+    shl bx, 1
+    mov bp, [bz_spw + bx]
+    shr al, 1
+    shr al, 1
+    add al, ah
+    mov [di], al
+    mov [di + 1], bp
+    add di, 3
+    loop .c
+.tog:
+    mov al, [bz_ctog]
+    xor [bz_spr], al
+    ret
+; (dx, 8 dy): dx 0 - 15 and dy 0 - 14, so a pair's two columns and two rows
+; stay inside the sprite's 5 bytes and 16 rows at every shift; each outside
+; the 16 px silhouette but (15, 6), whose left column is the rim's
+%define BZ_SPK(x, y) x, (y) * BZ_BOXW * 2
+bz_spk:     db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
+            db BZ_SPK(1, 14), BZ_SPK(15, 2), BZ_SPK(15, 12), BZ_SPK(0, 14)
+bz_spo:     db 0, 3, 5
+bz_spw:     dw 00F0h, 003Ch, 000Fh, 0C003h ; two pixels at phase 0 - 3, both
+                                ; bits each: the CGA ink XOR 3, the Hercules
+                                ; both dots of each mono pair (4 x 2 dots)
 
 ; bz_fdor / bz_fdand - CX rows of the ball part's BZ_BAL_RB bytes from BP:SI to
 ; ES:DI, each ORed (ANDed) with DX, BX the next row's: the two swapped a row.
