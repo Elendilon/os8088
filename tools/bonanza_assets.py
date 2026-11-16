@@ -1035,12 +1035,190 @@ def selfcheck():
     _check_ball2(MAT_RUBBER, bytes(rs), sub, "rubber, one stretch frame pixel flipped")
     results.append(("negative control: one stretch frame pixel flipped against its mask is caught (at the stretch "
                     "check)", [w for w, g in sub if not g] == [w for w, _ in sub if " stretch:" in w]))
+    # wave 8R (128.22.8): the crystal material and the pad overlay
+    c1 = crystal_tile_pixmap()
+    c2 = crystal_tile_pixmap()
+    ins = sum(1 for r in c1 for c in r if c is not None)
+    results.append(("crystal: tile top deterministic, ink 0 - 3 only, a 32 x 16 diamond (%d px), the lit colour on "
+                    "a quarter of it" % ins,
+                    c1 == c2 and all(c is None or 0 <= c <= 3 for r in c1 for c in r)
+                    and 200 < ins <= 256 and sum(c == 3 for r in c1 for c in r) * 4 >= ins))
+    results.append(("crystal: sides deterministic and dark (colour 3 never)",
+                    all(crystal_side_ink(f, k, j) in (0, 2) for f in ("sw", "se") for k in range(16) for j in range(12))))
+    pads = [pad_overlay(p) for p in range(PAD_POSES)]
+    results.append(("pad overlay: %d poses, deterministic, pairwise different, inside the tile, one ring each"
+                    % PAD_POSES,
+                    pads == [pad_overlay(p) for p in range(PAD_POSES)]
+                    and len({tuple(sorted(p.items())) for p in pads}) == PAD_POSES
+                    and all(crystal_inside(u, v) and 0 <= c <= 3 for p in pads for (u, v), c in p.items())
+                    and all(any(c == 3 for c in p.values()) for p in pads)))
+    f = crystal_ink(2, 1, 40, 12, 1)                # (2, 1) at 1 unit: centre (40 + 16, 12 + 24 + 8 - 8)
+    results.append(("crystal_ink: a tile's centre lands at (16 (wx - wy) + x0, 8 (wx + wy) + 8 - 8 z0 + y0)",
+                    f(56, 36) == crystal_top_ink(0, 0) and f(56 - 17, 36) is None and f(56 - 15, 36) is not None))
+    try:                                            # the committed icons and pads equal tools/bbicons.py's output
+        import bbicons
+        ic = bbicons.check() == 0
+    except ImportError:
+        ic = False
+    results.append(("icons and pads: apps/bonanza/courses/icons/*.bba and pads/*.bba are what tools/bbicons.py "
+                    "writes (its --check)", ic))
+    ht = htab()
+    mono = all(herc_pair(c, v, u) == 3 for v, r in enumerate(c1) for u, c in enumerate(r) if c == 3)
+    lit = sum(1 for r in c1 for c in r if c == 3)
+    results.append(("crystal on the Hercules: the lit table and the dark edge both survive htab() (lit %d px, "
+                    "black rim ring in the pad)" % lit, mono and lit > 40 and any(c == 0 for p in pads for c in p.values())
+                    and ht[255] == 0xFF))
     ok = True
     for what, good in results:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
         ok = ok and good
     print("bonanza_assets selfcheck: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
+
+
+# =============================================================================
+# wave 8R (SPEC.md 128.22.8): the pathway's LOOK - the CRYSTAL route material and
+# the GLOWING PAD overlay.  PROVISIONAL, the owner's to refine; pure functions of
+# tile-local coordinates, so a course tool paints them wherever a tile lands.
+#
+# TILE-LOCAL: a floor tile's top is the 32 x 16 diamond centred on (cx, cy) =
+# (16 (wx - wy) + x0, 8 (wx + wy) + 8 - 8 h); u = x - cx (-16 .. 15) and
+# v = y - cy (-8 .. 7) are a picture pixel's offsets from it, so every function
+# below takes (u, v) and needs no tile, origin or height.  Ink is a CGA colour
+# index: 0 black, 1 / 2 / 3 the palette's (palette 1: cyan, magenta, white;
+# palette 0: green, red, brown), or None (transparent, an overlay's).  The
+# Hercules gets them through htab() like every other pixel (128.11.3): 3 white,
+# 0 black, 1 and 2 the checker, so the LIT facets (3) and the dark edge (0) carry
+# the look there and the mid facets (1, 2) read as grey.
+# =============================================================================
+
+CRYSTAL = "crystal"
+PAD_POSES = 4                 # 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (SPEC.md 128.22.2)
+PAD_POSE_NAMES = ("open", "done", "silver", "gold")
+TILE_W, TILE_H = 32, 16
+
+
+def _diamond(u, v):
+    """0 at the centre .. 1 at the edge, for the pixel (u, v)'s centre"""
+    return abs(u + 0.5) / 16.0 + abs(v + 0.5) / 8.0
+
+
+def _edge_px(u, v):
+    """about how many pixels in from the diamond's edge (perpendicular; a
+    negative number is outside): the diamond's edge is 7.15 px a unit of d"""
+    return (1.0 - _diamond(u, v)) * 7.155
+
+
+def crystal_inside(u, v):
+    return _diamond(u, v) <= 1.0
+
+
+def crystal_top_ink(u, v):
+    """the crystal rail's TOP (None outside the diamond): a lit gem table
+    (colour 3) in the middle, four facets round it split on the diamond's axes
+    - the NW one lit, the NE and SW mid, the SE dark - and a lighter rim, with a
+    bevel step.  The renderer's own outline draws the black edge;
+    pixels on the very rim are the mid colour so it survives either way"""
+    d = _diamond(u, v)
+    if d > 1.0:
+        return None
+    x, y = u + 0.5, v + 0.5
+    e = _edge_px(u, v)
+    if e < 1.0:
+        return 1                                    # the rim
+    if d < 0.36:                                    # the table
+        return 3
+    nw, ne, sw = (x < 0 and y < 0), (x >= 0 and y < 0), (x < 0 and y >= 0)
+    if abs(x) < 0.6 or abs(y) < 0.6:                # the facet seams, on the axes
+        return 1
+    if d < 0.62:                                    # the bevel: a step lighter than the facet
+        return 3 if (nw or ne or sw) else 1
+    return 3 if nw else 1 if (ne or sw) else 2
+
+
+def crystal_side_ink(face, k, j):
+    """a raised rail's SIDE (a wall of the route over the void): face 'sw' or
+    'se', k the column across the face (0 at its left edge), j the line down
+    from the face's top edge at that column (0 the first).  Dark: black with
+    the facets' glints (colour 2) every fourth column on 'sw', and a black
+    'se' lit only at its seams, so on the Hercules the edge is a dark band"""
+    if face == "sw":
+        if j == 0:
+            return 2
+        return 2 if (k >> 2) & 1 == 0 and j & 1 == 0 else 0
+    if j == 0:
+        return 0
+    return 2 if k & 3 == 1 and j < 6 else 0
+
+
+def crystal_ink(wx, wy, x0, y0, z0=0):
+    """crystal_top_ink as a picture-pixel function for the flat tile (wx, wy)
+    at height z0 UNITS (8 px a unit, SPEC.md 128.10.2 - a bbcourse Tile's z0 is
+    HALF units, so pass t.z0 / 2), in a picture whose origin is x0 across and
+    Y0 = y0 down, bbcourse's convention (picture y = the Y0 = 0 line + y0, as
+    render() / _top_fn() / clock_face_geom() have it): ink(x, y) -> index or None"""
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - 8 * z0 + y0
+    return lambda x, y: crystal_top_ink(x - cx, y - cy)
+
+
+def crystal_tile_pixmap():
+    """the 32 x 16 top as rows of ink (None outside): the committed sample"""
+    return [[crystal_top_ink(u, v) for u in range(-16, 16)] for v in range(-8, 8)]
+
+
+def pad_overlay(pose):
+    """the glowing pad over a pad's cell: {(u, v): ink} in tile-local
+    coordinates, everything else transparent (the crystal shows through the
+    ring's inside).  A ring of the light colour round the cell:
+        0 OPEN    a bright ring (3), a black gap, a mid glow (1) inside it
+        1 DONE    a dim ring (2) one pixel wide on a black gap, the two end pips lit
+        2 SILVER  the ring a silver sparkle (3 / 1 alternating) on a black gap
+        3 GOLD    a thick ring (3), a mid ring (2), a black gap, the two end pips lit
+    (the black gap keeps the ring apart from the crystal's lit table on the Hercules)"""
+    if not 0 <= pose < PAD_POSES:
+        raise AssetError("pad pose %d outside 0 - %d" % (pose, PAD_POSES - 1))
+    out = {}
+    for v in range(-8, 8):
+        for u in range(-16, 16):
+            if _diamond(u, v) > 1.0:
+                continue
+            e = _edge_px(u, v)
+            ink = None
+            if pose == 0:
+                ink = 3 if e < 1.7 else 0 if e < 3.2 else 1 if e < 4.4 else None
+            elif pose == 1:
+                ink = 2 if e < 1.2 else 0 if e < 2.6 else None
+            elif pose == 2:
+                ink = (3 if (u + v) & 1 else 1) if e < 1.7 else 0 if e < 3.0 else None
+            else:
+                ink = 3 if e < 2.4 else 2 if e < 3.4 else 0 if e < 4.6 else None
+            if pose in (1, 3) and abs(u + 0.5) < 2.0 and v < 0 and e < 4.2 and v + 0.5 < -4.0:
+                ink = 3
+            if pose in (1, 3) and abs(u + 0.5) < 2.0 and v >= 0 and e < 4.2 and v + 0.5 > 3.0:
+                ink = 3
+            if ink is not None:
+                out[(u, v)] = ink
+    return out
+
+
+def pad_rows(pose):
+    """the overlay as a 16 x 32 grid of ink / None"""
+    p = pad_overlay(pose)
+    return [[p.get((u, v)) for u in range(-16, 16)] for v in range(-8, 8)]
+
+
+def bba_text(rows, frames=None, comment=None):
+    """rows of ink / None -> 128.23.2's text: '.' transparent, '0'..'3', one
+    line a pixel row, `#` comments; a `# frames K` line for an icon"""
+    out = []
+    if comment:
+        out.extend("# " + c for c in comment.split("\n"))
+    if frames is not None:
+        out.append("# frames %d" % frames)
+    for r in rows:
+        out.append("".join("." if c is None else str(c) for c in r))
+    return "\n".join(out) + "\n"
 
 
 # =============================================================================
