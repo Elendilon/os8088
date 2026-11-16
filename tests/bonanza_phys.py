@@ -38,9 +38,11 @@ the guest and the model part.
               model's at the contact
        rail   from (5, 4) at (-150, -250): into the rail at wy = 3, where gvy
               REBOUNDS now (128.11.8.4) and gvx is kept
-       goal   from (12, 6) at gvx 250: the play ENDS the frame after the
-              model's goal step (a finish line, grounded or in the air), and
-              the face's held-log line (6) reads `<NAME> <time> s goal` for the final nstep
+       goal   from (12, 6) at gvx 250: the play's comparison ENDS the frame
+              after the model's goal step (a finish line, grounded or in the
+              air; the finish sequence, 128.22.6, runs on to the play's end),
+              and the face's held-log line (6) reads `<NAME> <time> s goal`
+              for the model's goal step
   3  REPLAYS (SPEC.md 128.11.17.2): each scenario is a LOG the row builds on
      the host (bbcourse.encode_log), writes into bz_rlog and plays with R; at
      the replay's first frame's bz_t0 the ball is poked (or left at the
@@ -619,8 +621,9 @@ def scenario(g, crs, name):
             if last is None or not gs or not (gs[0] <= last[0]):
                 fails.append("goal: the play ended after step %s but the model's goal step is %s" % (
                     last[0] if last else None, gs))
-            n = last[0] if last else 0
-            face = goal_face(g, n)
+            n = gs[0] if gs else 0              # the FINISHING step's time: a play's finish
+            face = goal_face(g, n)              # sequence (128.22.6) runs steps on in that frame
+                                                # and bz_fend takes them back off bz_nstep
             want = " %s s goal " % ftext(n)    # line 6, the held log (SPEC.md 128.14.3.2)
             if face is None or want not in face:
                 fails.append("goal: the face reads %r, the model's time is %r" % (face, want))
