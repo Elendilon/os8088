@@ -15787,9 +15787,7 @@ def _path_checks(courses, res):
          "neither along one axis", False),
         ("a ramp between neighbouring cells", ptext.replace("13,12 10,12 8,12,1 7,12,1", "13,12 9,12 8,12,1 7,12,1"),
          "between two neighbouring cells", False),
-        ("two routes crossing", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
-                                              "route 1 3 exit 1  path 22,21 25,18\n"
-                                              "route 3 2 exit 0 path 25,18 20,18 20,17 18,17"),
+        ("two routes crossing", ptext.replace("path 25,18 25,17 18,17", "path 25,18 20,18 20,17 18,17"),
          "crosses the route", False),
         ("(A, E) keyed twice", ptext.replace("route 1 3 exit 1 ", "route 1 3 exit 0 "), "already opens", False),
         ("two diagonals sharing an arrow", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
@@ -15799,7 +15797,7 @@ def _path_checks(courses, res):
         ("a pad no route opens (unreachable)", ptext.replace("route 4 5 exit 0 ", "route 5 4 exit 0 ").replace(
             "path 13,12 10,12 8,12,1 7,12,1", "path 7,12,1 8,12,1 10,12 13,12"), "not reachable", False),
         ("a pad outside every page's window", ptext.replace("pad 3 PLAY   25 18", "pad 3 PLAY   26 16").replace(
-            "path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
+            "path 25,18 25,17 18,17", "path 26,16 26,17 18,17").replace("path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
                                                                          ""),
          "inside no page's CGA window", False),
         ("a page with no lives counter", ptext.replace("lives 11  4", ""), "has no `lives` counter", False),
