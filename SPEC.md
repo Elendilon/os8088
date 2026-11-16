@@ -278293,6 +278293,11 @@ the apron; `BENCH` at 11.
   statement is exercised and previewed. Without it the platform's sides
   would drop 13.5 units to the basin's ground and the picture would grow
   40 lines.
+- **And on the PATHWAY, everywhere** (the owner, 2026-11-16: *"for
+  pathway lets have that float ... the 'floating crystal with icicle'
+  look is part of what separates pathway"*): `path.bbc` carries
+  `float rect 0 0 64 64`, the whole map, so every route and pad it gains
+  later floats too. The title and every tour course stay grounded.
 
 #### 128.27.3 Everything else that draws down into the void
 
