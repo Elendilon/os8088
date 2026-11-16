@@ -920,9 +920,11 @@ def sweep_poke(g, lane, k0, k):
         a = g.a("bz_pkick") + 2 * lane
         n = struct.unpack("<H", g.m.read(a, 2))[0]
         g.m.write(a, struct.pack("<H", (n + 1) & 0xFFFF))     # a kick (128.13.14 item 10)
+        R.mark(g, lane)
         return ("kick", j)
     if r == 1:
         g.m.write(g.a("bz_lhold") + lane, b"\0")              # its lit frames out: DUE
+        R.mark(g, lane)
         g.putb("bz_hold", SWEEP_HOLD[j])                       # ...and the frame late by the sweep's value
         return ("due", j)
     return None
@@ -1155,6 +1157,7 @@ def corner_leg(g, ref):
                     if k == STEP:
                         pose = mm.read(g.a("bz_ldrw") + lane, 1)[0]
                         mm.write(g.a("bz_ldrw") + lane, bytes([(pose + 1) % recs[lane]["lane"]["poses"]]))
+                        R.mark(g, lane)
                 return {"t0": k}
             if a == A["bz_wcommit"]:
                 kind, ln = R.commit_kind(g, r)

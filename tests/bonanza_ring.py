@@ -546,6 +546,14 @@ class FaceLines:
             return ("line", m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip(), r)
 
 
+def mark(g, lane):
+    """MARK a lane (SPEC.md 128.19.10, bz_latt): a poke of display or kick
+    state is an event the walk would otherwise not see - the guest's own
+    writers (a kick, a flag touched, a second, a lane entering) mark it"""
+    if "bz_latt" in g.sym:
+        g.m.write(g.a("bz_latt") + lane, b"\1")
+
+
 def guest_propmax(art=None):
     """the guest's per-lane tables' size (SPEC.md 128.19.10): BZ_PROPMAX, the
     build's largest course's lanes - not the tool's ceiling, bbcourse.PROP_MAX"""
@@ -1662,6 +1670,7 @@ def low_poke(g, plan, k):
         return None
     if r == 0:
         g.m.write(g.a("bz_lhold") + lane, bytes([1]))
+        mark(g, lane)
         return "lit"
     if r == 1:
         if j % 2:
@@ -2002,9 +2011,11 @@ def defer_poke(g, plan, k):
     if k == DF_KICK:                            # the KICK (bz_pkick + 1, 128.13.14 item 10): drawn lit
         a = g.a("bz_pkick") + 2 * lane
         g.m.write(a, struct.pack("<H", (struct.unpack("<H", g.m.read(a, 2))[0] + 1) & 0xFFFF))
+        mark(g, lane)
         return "kick"
     if k == DF_KICK + 1:                        # true dark, drawn lit: DUE, on a two-box frame
         g.m.write(g.a("bz_lhold") + lane, b"\0")
+        mark(g, lane)
         return "due"
     return "alt" if DF_KICK < k <= DF_KICK + DF_ALT else None
 

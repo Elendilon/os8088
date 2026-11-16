@@ -258,6 +258,10 @@ VAR bz_lwake,2                  ; walk), until step bz_lwake (the rotors' first
 VAR bz_lkn,2                    ; the slice's kicks: bz_lkn words of bz_pkick
 VAR bz_lks,2                    ; from bz_lks (the range's, .rng), and its
 VAR bz_lkb,2                    ; lanes' bytes of bz_ldrw from bz_lkb
+VAR bz_latt,BZ_PROPMAX          ; 128.19.10: nonzero, the walk VISITS the lane: a rotor
+                                ; always; a SLOW lane when an event marked it (a kick,
+                                ; a first touch, a second, entering the range or the
+                                ; band, a full write) and while it is still pending
 VAR bz_lout,BZ_PROPMAX          ; wave 7 (SPEC.md 128.18.2): 1 while a lane in
                                 ; the row slice lay outside the column band at
                                 ; the last walk (not walked: its re-entry walks)
@@ -330,6 +334,9 @@ bz_pread:
     mov di, bz_ldrw             ; every lane unknown: bz_lfull syncs them all
     mov cx, BZ_PROPMAX / 2
     mov ax, 0ffffh
+    rep stosw
+    mov di, bz_latt             ; ...and every lane MARKED (128.19.10)
+    mov cx, BZ_PROPMAX / 2
     rep stosw
     mov di, bz_lhold            ; no post lit, every kick seen (bz_pinit's)
     mov cx, BZ_PROPMAX / 2
@@ -496,6 +503,10 @@ bz_lfull:
     mov di, bz_lage             ; every lane's age 0
     mov cx, BZ_PROPMAX / 2
     xor ax, ax
+    rep stosw
+    mov di, bz_latt             ; ...and every lane MARKED: the next walk
+    mov cx, BZ_PROPMAX / 2      ; reads each in its range once
+    dec ax
     rep stosw
     pop es
     mov ax, [bz_R0n]            ; THE NEW WINDOW'S block rows [AX, DX)
@@ -2585,11 +2596,57 @@ bz_props:
     shl bx, 1
     add bx, bz_pkick
     mov [bz_lks], bx
-    jmp short .walk
+    xor bx, bx                  ; 128.19.10: every lane of the new slice whose
+    mov bl, [bz_lr0]            ; rows did not meet the LAST range has ENTERED:
+.mk:                            ; marked
+    cmp bl, [bz_lr1]
+    jae .walk
+    mov si, bx
+    shl si, 1
+    mov ax, [bz_lrw + si]
+    cmp ax, [bz_orb]
+    jge .mk1
+    mov cl, [bz_lhh + bx]
+    xor ch, ch
+    add ax, cx
+    cmp ax, [bz_ora]
+    jg .mk2
+.mk1:
+    mov byte [bz_latt + bx], 1
+.mk2:
+    inc bx
+    jmp short .mk
 .walk0:
     mov byte [bz_lnsk], 0
 .walk:
     mov byte [bz_lqt], 1        ; (quiet until a lane is walked: .w0)
+    xor bx, bx                  ; 128.19.10: the band MOVED - every lane of the
+    mov bl, [bz_lr0]            ; slice that was OUT is marked (it may be back)
+    mov ax, [bz_c0]
+    cmp ax, [bz_pc0]
+    je .cm0
+.cm:
+    cmp bl, [bz_lr1]
+    jae .cm0
+    mov al, [bz_lout + bx]
+    or [bz_latt + bx], al
+    inc bx
+    jmp short .cm
+.cm0:
+    mov bl, [bz_lr0]            ; ...and a new SECOND marks the clocks' digits
+    mov ax, [bz_tsec]
+    cmp ax, [bz_lcsec]
+    je .ck0
+.ck:
+    cmp bl, [bz_lr1]
+    jae .ck0
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    jne .ckn
+    mov byte [bz_latt + bx], 1
+.ckn:
+    inc bx
+    jmp short .ck
+.ck0:
     mov ax, [bz_c0]             ; wave 7 (128.18.2): THE COLUMN BAND, this
     mov [bz_pc0], ax            ; walk's [c0 - BZ_LCM, c0 + W + BZ_LCM): the
     sub ax, BZ_LCM              ; camera moves at most a column a frame, so a
@@ -2601,8 +2658,22 @@ bz_props:
     xor bx, bx
     mov bl, [bz_lr0]
 .lane:
-    cmp bl, [bz_lr1]
-    jb .l1
+    cmp bl, [bz_lr1]            ; 128.19.10: the next MARKED lane - a byte
+    jae .ldone                  ; scan, about 15 clk a lane passed over, where
+    push es                     ; a skip cost about 800
+    push ds
+    pop es
+    mov cl, [bz_lr1]
+    sub cl, bl
+    xor ch, ch
+    lea di, [bz_latt + bx]
+    xor al, al
+    repe scasb
+    pop es
+    je .ldone                   ; (none left)
+    lea bx, [di - 1 - bz_latt]
+    jmp short .l1
+.ldone:
     add dx, [bz_nstep]          ; (the quiet walk's wake: read while bz_lqt
     mov [bz_lwake], dx          ; is 1)
     mov al, [bz_cksn]           ; (every flag in the slice has read the
@@ -2615,12 +2686,12 @@ bz_props:
     shl si, 1
     mov ax, [bz_lrw + si]
     cmp ax, [bz_prb]
-    jge .nx
+    jge .nxo
     mov cl, [bz_lhh + bx]
     xor ch, ch
     add ax, cx
     cmp ax, [bz_pra]
-    jle .nx
+    jle .nxo
     mov al, [bz_ltcl + bx]      ; wave 7 (128.18.2): a lane wholly OUTSIDE
     xor ah, ah                  ; the column band is not walked (marked OUT);
     cmp ax, [bz_pch]            ; one that was OUT and is back in it is
@@ -2635,7 +2706,7 @@ bz_props:
     jmp .w0
 .cout:
     mov byte [bz_lout + bx], 1
-    jmp .next
+    jmp .nxo
 .cin:
     cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 128.13.5.3): nothing about
     je .sk0                     ; the lane can change this frame - it is not
@@ -2763,8 +2834,18 @@ bz_props:
     mov [bz_wbage], al
     mov [bz_wbest], bl
 .next:
+    cmp byte [bz_lknd + bx], BZ_PK_WINDMILL
+    je .nn                      ; (a rotor stays marked: its own clock)
+    mov al, [bz_ldrw + bx]      ; 128.19.10: a SLOW lane stays marked while it
+    xor al, [bz_ltru + bx]      ; is pending - drawn not true (a candidate not
+    or al, [bz_lhold + bx]      ; yet committed) or lit
+    mov [bz_latt + bx], al
+.nn:
     inc bx
     jmp .lane
+.nxo:                           ; out of the range or the band: unmarked until
+    mov byte [bz_latt + bx], 0  ; entering one marks it again
+    jmp short .nn
 .plat:
     cmp byte [bz_pin], 0        ; THE PLATFORM: its whole rise outside the
     jne .pin                    ; range (bz_pin, .rng's), not on the card, and

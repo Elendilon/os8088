@@ -274026,13 +274026,45 @@ SKIP: one lit post makes the walk non-quiet, and every lane in the range
 then costs about 800 clk to be skipped (the range test, the column band,
 the skip's kinds, three taken jumps) - item 6 below.
 
-6. **(the owner, 2026-11-16: yes)** **A SLOW lane is walked only when
-   something happened to it**: a kick marks its post until the post is
-   dark, a touch marks its flag, a second marks the clocks' digits, a lane
-   entering the range or the column band is marked; FAST lanes (rotors) are
-   walked as today. The walk finds the next marked slow lane with a byte
-   scan (about 15 clk a lane) instead of skipping each in turn (about
-   800). Every new lane kind says what marks it and why.
+6. **(the owner, 2026-11-16: yes)** **A lane is walked only when
+   something happened to it** (*"We'll need to decide 'what needs checked
+   and why' for each new item we add"*). `bz_latt`, a byte a lane, is its
+   MARK; the walk finds the next marked lane in its slice with `repe scasb`
+   (about 15 clk a lane passed over, where a skip cost about 800) and walks
+   it exactly as before, skip included. After the walk a SLOW lane keeps its
+   mark only while it is PENDING - drawn not at its true pose (a wheel
+   candidate not yet committed) or lit (`bz_lhold`); a lane failing the
+   range test or outside the column band is unmarked. What marks a lane,
+   and why:
+
+   | lane | marked by | why |
+   |---|---|---|
+   | a windmill's rotor (FAST) | always: never unmarked while in range and band | its own clock (`bz_lnext`); its skip reads the step |
+   | a post's lit frames | its KICK (`bz_pkick`'s write, `bz_phys`) | lit by the kick; kept marked by `bz_lhold` until drawn dark |
+   | a flag | its first TOUCH (`bz_cksn`'s bit, `bz_phys`) | its pose is the touch |
+   | a clock's digit | a new SECOND (`bz_tsec` against `bz_lcsec`), at the walk's start, the clock lanes of the slice | every clock counts the same second |
+   | a node's sign | (none in play: drawn at the full write) | it changes between plays |
+   | any lane | ENTERING the range (rows that did not meet the last range, `bz_ora`/`bz_orb`) | a lane outside it may be stale (item 3) |
+   | any lane | the column band MOVING while it is OUT (`bz_lout`) | it may be back in the band |
+   | every lane | `bz_pread` and `bz_lfull` | a play's start, a full write |
+
+   A harness poke of display or kick state marks the lane too
+   (`bonanza_ring.mark`): the walk no longer sees what nothing marked.
+   A new lane kind adds its row here before it lands.
+
+   **MEASURED** (2026-11-16, MartyPC's CGA, the same runs as above):
+
+   | | MILL | STRESS |
+   |---|---|---|
+   | the walk a frame, at rest | mean 3,553, max 10,709 (was 3,784 / 10,285) | mean 3,326 (the max 39,617 is the play's first walk: every lane marked) |
+   | the walk a frame, rolling | mean 3,490, max 9,954 (was 3,780 / 9,813) | **mean 3,274, max 10,148; over 10k on 1 frame of 80** (was 17,000 - 25,000 on 22) |
+   | `bz_lfull` | 7,436 clk (+114: the marks' `rep stosw`) | 24,154 clk |
+
+The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
+their first run - the sweep poked a kick and marked nothing, the row
+seeing exactly what the mark exists for - and pass with the poke
+marked; every other BONANZA row as at 1 - 5 (`bonanzaring` now finds
+every MILL scene and its card = oracle, then stops at the probe).
 
 The rows at 1 - 5's commit: every BONANZA row passes but those already
 failing before it (`bonanzaring`'s probe and its three MILL features -
