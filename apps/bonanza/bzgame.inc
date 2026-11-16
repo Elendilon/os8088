@@ -174,6 +174,9 @@ BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 128.14.3.1)
 BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 128.14.4.7)
 BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (128.14.7.3)
 BZ_FIN_STEPS equ 110            ; wave 8R (128.22.6): the finish sequence's steps
+BZ_FDSTEPS  equ 5               ; 8R.11 (128.22.6): the DISSOLVE's steps a density -
+                                ; whole, 7 dithered, then gone at 8 x 5 = 40 steps
+BZ_FDMSK    equ BZ_BAL_ROWS * BZ_BAL_RB ; (its copies: a sprite's mask, bz_fdb)
 BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1)
 ; GLIDE's "faster than 4 px a FRAME" across is the ball's TRAVEL over the last
 ; FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low word of bz_bx: rate-proof,
@@ -920,7 +923,8 @@ bz_t0:
     or al, [bz_hid]             ; a tube, or holed out (SPEC.md 128.14.4.3:
     mov [bz_hidn], al           ; its capture frame restores its footprint)
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
-    call bz_props               ; state and new footprints, the props' walk
+    call bz_fdis                ; state and new footprints (8R.11: a finish's
+    call bz_props               ; DISSOLVE, bzphys.inc), the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera
     mov al, [bz_freq]           ; (wave 8c: a card was drawn over the last
     or [bz_full], al            ; frame - this one is WHOLE, 128.19.8)
