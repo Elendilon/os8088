@@ -43,6 +43,15 @@ checkpoint 14 11 ball rubber
 floor rect  13 15 17 19  ramp y 15 19 30 24
 floor rect  13 19 17 22  flat 24
 pad steel 14 20
+# 4 the coast (z 22), straight down the screen (SPEC.md 128.24, wave D5.3): `box a0 a1 s0 s1` a rectangle
+# ON THE SCREEN (16 a0 <= gx - gy <= 16 a1, 16 s0 <= gx + gy <= 16 s1), so the lane's sides and its two rails
+# are STRAIGHT: halves along them, where the zigzag bands it replaces stood a whole cell in and out (a ball
+# sliding down the left rail met a stair's corner every cell).  The rails' ends are square (the one quarter
+# inside a box's corner whose a and s differ in parity, 128.24.3).  Laid BEFORE the corridor, so the corridor
+# and the ramp keep their whole cells where the box's top edge (s 48) crosses them
+floor box -1 7 48 71 flat 22
+wall  box -3 -1 48 71 flat 23
+wall  box  7 9 48 67 flat 23
 # 3 the zig-zag corridor of stone rails (z 24); the optional drop to the lane (z 22)
 floor rect  17 18 25 22  flat 24
 wall  rect  17 17 26 18  flat 28
@@ -56,10 +65,6 @@ floor rect  19 22 20 24  flat 22
 wall  rect  20 23 23 24  flat 25
 floor rect  19 24 24 25  flat 22
 floor rect  23 22 25 24  ramp y 22 24 24 22
-# 4 the coast (z 22), straight down the screen, and the rubber pad
-floor band   0 6 48 70  flat 22
-wall  band  -2 -1 48 70  flat 23
-wall  band   7 8 48 66  flat 23
 # 5 H, the rubber pad, F six units down, the gap, G two units up
 floor rect  37 31 40 36  flat 22
 pad rubber 38 32

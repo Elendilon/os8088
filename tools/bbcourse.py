@@ -10688,13 +10688,15 @@ def check_demo(c, K, log, idents, where):
 
 # the identities of the authored demos' courses before wave 8R's finish clocks (SPEC.md 128.22.6): a
 # demo carrying one of these may be re-stamped by clock_restamp, and no other identity ever is
-CLOCK_RESTAMP = {"MOON": 0x5E25, "PEAK": 0x0562, "PLAY": 0x9D5E}
+# (MOON's 5E25h and PLAYGROUND's 9D5Eh left it in wave D5, SPEC.md 128.24.9: their demos were written again on
+# the courses with their diagonal sections, whose identities are their own)
+CLOCK_RESTAMP = {"PEAK": 0x0562}
 # ...and the course THAT identity was: its source today with its trailing finish clock(s) left out,
 # compiled with no occluders (occluders=False: the identity of the grid alone, a fraction of a second
 # where the shipped one's cut costs PEAK 13 s), must give this identity - so a course edited in any
 # other way is never re-stamped, however its demo replays (an edit, or a tool change that moves it,
 # fails the build as an earlier build's demo, naming `record it again`: the safe side)
-CLOCK_BARE = {"MOON": 0xEA00, "PEAK": 0x6814, "PLAY": 0xD8A8}
+CLOCK_BARE = {"PEAK": 0x6814}
 
 
 def clock_restamp(c, log):
@@ -17041,17 +17043,21 @@ def _path_checks(courses, res):
 
 def _clock_rule_checks(courses, res, paths=None):
     """SPEC.md 128.22.6: the clock-at-every-finish rule's verdicts, and its refusal provoked; the
-    demos' identity re-stamp it allows, and its red control (a clock ON the demo's route)"""
+    demos' identity re-stamp it allows, and its red control (a clock ON the demo's route).  The re-stamp is
+    proved on PEAK's demo, the one shipped demo still recorded on its pre-clock course: wave D5 wrote MOON's
+    and PLAYGROUND's again on the courses as they are now (SPEC.md 128.24.9), so their identities are their
+    courses' own and nothing re-stamps them"""
     paths = paths or default_paths()
     byk = {c.name: k for k, c in enumerate(courses)}
-    if "MOON" in byk and os.path.exists(demo_path(paths[byk["MOON"]])):
-        K = byk["MOON"]
+    RN = "PEAK"
+    if RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
+        K = byk[RN]
         c = courses[K]
         with open(demo_path(paths[K]), encoding="ascii") as f:
-            log = bzd_log(parse_bzd(f.read(), "<moon.bzd>"), K)
+            log = bzd_log(parse_bzd(f.read(), "<%s demo>" % RN), K)
         idents = [q.ident for q in courses]
-        out, warn, _p = check_demo(c, K, log, idents, "<moon.bzd>")
-        ok1 = struct.unpack_from("<H", log, 14)[0] == CLOCK_RESTAMP["MOON"] and warn and \
+        out, warn, _p = check_demo(c, K, log, idents, "<%s demo>" % RN)
+        ok1 = struct.unpack_from("<H", log, 14)[0] == CLOCK_RESTAMP[RN] and warn and \
             struct.unpack_from("<H", out, 14)[0] == c.ident
         # the red control: a clock where the demo's ball rolls - the replay moves, no re-stamp
         _K, mat, kt, _fl = decode_log_t(log)
@@ -17069,16 +17075,17 @@ def _clock_rule_checks(courses, res, paths=None):
         red = None
         for cl in cells[5:]:
             try:
-                c2 = compile_course(text + "\nclock %d %d\n" % cl, fname=c.fname, _hack={"no_bounds": 1})
+                c2 = compile_course(text + "\nclock %d %d\n" % cl, fname=c.fname, occluders=False,
+                                    _hack={"no_bounds": 1})
             except CourseError:
                 continue
             red = (cl, clock_restamp(c2, log))
             break
-        res.append(("8R the clock rule's re-stamp: moon.bzd (recorded at %04Xh, CLOCK_RESTAMP's) ships stamped %04Xh, "
+        res.append(("8R the clock rule's re-stamp: %s's demo (recorded at %04Xh, CLOCK_RESTAMP's) ships stamped %04Xh, "
                     "its replay the same with the finish clock and without; red control: a clock put on its route at "
-                    "%s moves the replay and is not re-stamped" % (CLOCK_RESTAMP["MOON"], c.ident, red and red[0]),
+                    "%s moves the replay and is not re-stamped" % (RN, CLOCK_RESTAMP[RN], c.ident, red and red[0]),
                     bool(ok1) and red is not None and red[1] is False))
-        # the second red control: MOON changed some OTHER way (a `way` added - the part, so the identity,
+        # the second red control: the course changed some OTHER way (a `way` added - the part, so the identity,
         # moves; a keyboard replay cannot see it), its demo's replay the same: never re-stamped, because the
         # course minus its finish clock is no longer the course the demo was recorded on (CLOCK_BARE)
         import tempfile
@@ -17103,12 +17110,12 @@ def _clock_rule_checks(courses, res, paths=None):
                     c3 = compile_course(tp, occluders=False, _hack={"no_bounds": 1})
                 except CourseError:
                     continue
-                if c3.name == "MOON" and trace(c3) == trace(c):
+                if c3.name == RN and trace(c3) == trace(c):
                     red2 = (cl, clock_restamp(c3, log))
                     break
-        res.append(("8R the clock rule's re-stamp, red control 2: MOON with a `way` added at %s (its demo's replay "
+        res.append(("8R the clock rule's re-stamp, red control 2: %s with a `way` added at %s (its demo's replay "
                     "unchanged, its no-occluder identity no longer CLOCK_BARE's %04Xh) is not re-stamped" % (
-                        red2 and red2[0], CLOCK_BARE["MOON"]), red2 is not None and red2[1] is False))
+                        RN, red2 and red2[0], CLOCK_BARE[RN]), red2 is not None and red2[1] is False))
     for c in courses:
         print("    the clock rule: %s" % finish_clock_rule(c))
     ok = True
