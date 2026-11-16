@@ -2840,3 +2840,32 @@ window refill ends in and the diagonal does not touch.
 **Measured for the contract** (`make bonanza`, `a5bd683c`): image 40,181,
 bss 10,660; the balls unpack to 31,168 bytes and pack to 5,974 with LZB.
 Nothing of wave 9 is built yet.
+
+## 2026-11-16 (wave 8R, round 2: the owner played it)
+
+The owner played the path screen and sent eight things back. Seven agents took
+one each; every branch but two small ones got an Opus verifier, and each
+verifier found something. Gates that read as gates (a frame with an open middle,
+tilted, a 3/4 view on the edge-on routes). TRIAL's new finish clock had walled
+off its second exit, which is why the owner never found it: the tool now
+proves every finish reachable with its clocks in place, and the verifier moved
+the clock again when the first new cell turned out to sit on the autopilot's
+route (the demo's finish moved from step 499 to 796 and nobody had checked).
+The marble not rolling right was temporal aliasing - 6 px a frame reads as 2
+backwards on an 8-phase texture - folded on the pathway only. The finish now
+DITHERS the ball out over 0.73 s while it rolls on (the owner asked whether the
+machine had the power: measured, 69.7k of a CGA's 79.5k-clock refresh at the
+worst fading frame, no refresh missed). The music under the info card ran at
+half tempo because the wait sampled the PIT once a frame against an 18.3 ms
+sub-tick. The save holds 23 courses (24 made the file a whole sector, and
+`od_write` then rewrites the FAT and the entry on every save: about 1.6 s
+against 0.4), and reads no older format (the owner: nothing is released).
+The four known-broken checks were all fixed, none removed; and a flaky sound
+row turned out to be the test racing FIRST's own 15-second clock.
+
+Diagonal tiles became a contract (SPEC.md 128.24) with pictures, and the owner
+chose HALF and QUARTER cells, with CHANNELS (a tile that cradles the ball) as
+the next core type the format reserves room for. Wave 9 started in another
+session the same afternoon; the two sessions trade file and routine lists
+through the owner.
+
