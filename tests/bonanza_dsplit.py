@@ -147,6 +147,8 @@ def start(binp, sym, c, mat):
     g = Guest(binp, sym, c.cga)
     g.w("bz_cseg", PS, 2)
     g.call("bz_crshdr")
+    p = BB.Physics(c, play=True, mat=mat)
+    fam_load(g, p)
     g.w("bz_mode", 0)
     g.w("bz_mat", mat)
     g.w("bz_crs", 0)
@@ -158,6 +160,26 @@ def start(binp, sym, c, mat):
     p = BB.Physics(c, play=True, mat=mat)
     p.tsec = 0
     return g, p
+
+
+FS = 0x6000                                     # story 9.8: the family parts, one a 100h paragraphs from here
+
+
+def fam_load(g, p):
+    """story 9.8 (SPEC.md 128.25.20): the course's FAMILY PARTS (the build's bzf-<name>.bin) in memory and
+    bz_frec / bz_fhk / bz_fnf as bz_ffetch leaves them (its own fetch is bonanza_phys's unicorn half's to
+    prove): the windmill's doorway and the tube are the ROTOR and TUBE families' code now"""
+    fhk, rec = 0, bytearray()
+    for j, (fid, fv) in enumerate(p.grid.fams):
+        f = BB.FAM_BY_ID[fid]
+        seg = FS + 0x100 * j
+        g.mu.mem_write(seg * 16, open(R.at("build/bzf-%s.bin" % f["name"]), "rb").read())
+        rec += struct.pack("<HHBB", seg, seg, fid, fv)
+        fhk |= f["hooks"]
+    if rec:
+        g.mu.mem_write(CS * 16 + g.sym["bz_frec"], bytes(rec))
+    g.w("bz_fhk", fhk)
+    g.w("bz_fnf", len(p.grid.fams))
 
 
 def gstate(g):
