@@ -430,7 +430,6 @@ VAR bz_clook,1                  ; wave 9 (SPEC.md 128.25.19): the pickup cue's
                                 ; (bz_boxc tests the two as one word)
 VAR bz_ctog,1                   ; ...flipped when the look changes, XORed into
                                 ; bz_spr (the idle test's change, R1)
-VAR bz_csk,9                    ; ...the three sparkles: offset byte, mask word
 %if bz_clook != bz_hidn + 1
  %error "bz_boxc tests bz_hidn and bz_clook as one word: keep them adjacent"
 %endif

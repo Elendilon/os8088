@@ -939,6 +939,17 @@ bz_boxc:
     or bh, 80h                  ; the CUE's blit (bz_blit's .cwhole)
     jmp short .bd
 
+; the cue's SPARKLES (bz_blit's .cwhole): (dx, 8 dy), dx 0 - 15 and dy 0 - 14, so a pair's two columns and two rows
+; stay inside the sprite's 5 bytes and 16 rows at every shift; each outside
+; the 16 px silhouette but (15, 6), whose left column is the rim's
+%define BZ_SPK(x, y) x, (y) * BZ_BOXW * 2
+bz_spk:     db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
+            db BZ_SPK(1, 14), BZ_SPK(15, 2), BZ_SPK(15, 12), BZ_SPK(0, 14)
+bz_spo:     db 0, 3, 5
+bz_spw:     dw 00F0h, 003Ch, 000Fh, 0C003h ; two pixels at phase 0 - 3, both
+                                ; bits each: the CGA ink XOR 3 (the Hercules
+                                ; keeps one dot of each pair, .sk)
+
 ; bz_frun - one run of bz_boxc's fill that is not a whole block: DX lines (0 ..
 ; 8) of CX word columns (at least 1) from the map entry BX, the lines from
 ; line word BP of each block, into the buffer at ES:DI.  DS = the course part.
@@ -1029,28 +1040,54 @@ bz_blit:
     jmp .wgo
     ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
     ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
-    ; SPARKLES first, three 2 x 2 pairs XORed at bz_csk's offsets from the
-    ; sprite's first byte (bz_cuef): outside the silhouette, so the ball's
-    ; mask keeps them; then on a FLASH frame the ball with its frame ANDed with
+    ; SPARKLES first, three 2 x 2 pairs XORed at entries n, n + 3, n + 5 of
+    ; bz_spk (n from bz_clook, bz_cuef's), each a byte offset from the
+    ; sprite's first byte (8 dy + (s + dx) / 4) and a word mask by phase
+    ; (s + dx) & 3 - no transform and no clip: outside the silhouette, so the
+    ; ball's mask keeps them; then on a FLASH frame the ball with its frame ANDed with
     ; the checker (bz_chk, NOT a row) - the ball's own pixels black on half of
     ; it, the box round it untouched: (box AND mask) OR (frame AND checker) is
     ; the old dither pass's result, frames being pre-ANDed (SPEC.md 128.3) -
     ; else the ordinary loop.  A clipped sprite (.gen) draws neither.
 .cwhole:
     and bh, 7Fh
-    test byte [bz_clook], BZ_CL_SP
+    mov al, [bz_clook]
+    test al, BZ_CL_SP
     jz .cf
     push si
-    mov si, bz_csk
+    push bx
+    push dx
+    mov dl, al                  ; DL = n (bits 0 - 2)
+    mov dh, [bz_px]
+    and dh, 3                   ; DH = s, the sprite's shift
+    mov si, bz_spo
     mov cx, 3
 .sk:
-    lodsb                       ; the pair's offset from the first byte
+    lodsb                       ; entry n + o of bz_spk
+    add al, dl
+    and ax, 7
+    shl ax, 1
+    xchg ax, bx
+    mov ax, [bz_spk + bx]       ; AL = dx, AH = 8 dy
+    add al, dh                  ; x = s + dx
+    mov bl, al
+    and bx, 3
+    shl bx, 1
+    mov bp, [bz_spw + bx]       ; the pair's word mask at phase x & 3
+    test byte [bz_herc], 0FFh   ; the Hercules: one dot of each mono pair, on
+    jz .sm                      ; both lines - over its checkered grounds a
+    and bp, 5555h               ; solid black-and-white bar, where all four
+.sm:                            ; dots XORed are the checker shifted (unseen)
+    shr al, 1
+    shr al, 1
+    add al, ah                  ; 8 dy + x / 4 (under 128)
     cbw
-    mov bp, ax
-    lodsw                       ; ...and its mask, on two lines
-    xor [ds:bp + di], ax
-    xor [ds:bp + di + BZ_BOXW * 2], ax
+    xchg ax, bx
+    xor [bx + di], bp
+    xor [bx + di + BZ_BOXW * 2], bp
     loop .sk
+    pop dx
+    pop bx
     pop si
 .cf:
     mov cx, dx                  ; CX = the rows
