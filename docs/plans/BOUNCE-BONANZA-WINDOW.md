@@ -14,8 +14,8 @@ The diary entries for this work are in
 
 - [x] **W1 The face.** The window shows the BOUNCE BONANZA lettering (the
   in-game style, smaller), a ledge with the rubber marble on it behind and to
-  the right of a **Play Game** button at the bottom centre; no key hints.
-  Resizing the window re-lays it; it never shrinks past the button.
+  the right, and a **Play Game** button in the space left of it (moved there
+  on the owner's mock-up); no key hints. The window is a fixed size.
   *Check*: a boot to look, CGA and Hercules (and VGA's greyed button and
   its reason).
 - [x] **W2 The Game menu.** Play Game, Save Replay (F5), Load Replay... (F6),
@@ -52,9 +52,29 @@ again; V -> FIRST's built-in demo, the pad again; Load Replay... through
 adapters (VGA greys Play Game and says why), the About card on CGA and
 Hercules.
 
-Not driven: a resize by the grow box (the layout reads the content box at
-every paint, and the minimum is the title's width and the two pictures'
-height); the AdLib leg.
+Not driven: the AdLib leg. (The window is FIXED since the owner's second
+look: Play Game moved into the space left of the ledge, no resizing.)
+
+## The final pass (2026-11-16, MartyPC and 86Box, scoped `-k 'bonanza*'`)
+
+Before merging wave 9's arena: **green** - bonanzaassets, bonanzamusic,
+bonanzacourse, bonanzamega, bonanzagame, bonanzaphys, bonanzareplay,
+bonanzademo, bonanzatitle, bonanzasound, bonanzawheel, bonanzaperf;
+bonanzaexit's CGA leg whole (its Hercules leg was cut by a source change
+under the run, mine). **Red**:
+- `bonanzapath` "TRIAL's hidden finish did not happen" - the SAME at the
+  base 19dd317, before any of this work: wave 9.0's alignment, not the
+  window's.
+- `bonanzaring` CGA "MILL: no checked frame with lead" (twice; once with
+  "wrapcommit" on the Hercules too) - every checked frame matched its
+  oracle, but the MILL demo no longer produced a frame with the feature the
+  row covers. It PASSES at the base 19dd317, so it is charged to this work:
+  a coverage check on frame timing, open.
+
+After the merge (e4f3c8db1) both `bonanzaring` (its first check, the
+resting ball's pixels) and `bonanzaexit` (29 part rows: wave 9's family
+rows) fail - and `bonanzaring` fails identically at wave 9's own tip
+62cdee325: wave 9's final pass owns them.
 
 ## Rows that cover it
 

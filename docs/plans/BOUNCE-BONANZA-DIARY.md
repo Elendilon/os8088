@@ -2935,3 +2935,17 @@ first partial column onto the end of each row (MartyPC's CGA): the B of the
 title lost its stem and a bar stood after the A. Every picture is put down
 at a byte's start now; the kernel's unaligned path is a finding for its own
 owner, not fixed here.
+
+**The owner's second look** (the same afternoon): the art "perfect", the
+button moved into the empty space left of the ledge - drawn by them in
+Paint "by feel, not math", which came out as the button centred left of the
+ledge with its middle on the ledge's top face - and the window made a fixed
+size, because the art does not scale. The About card lost its description
+line and gained "Contributed by Elendilon".
+
+**Lessons for whoever drives these rows next.** Never rebuild `build/` or
+merge into `apps/` while a soak reads them: one rebuild mid-run turned 13
+rows red at once (their symbol tables described another image), and one
+merge cut a row's second leg. And the attribution of a red is a run at the
+base, not an argument: `bonanzapath`'s red was already there, and
+`bonanzaring`'s MILL coverage was not.
