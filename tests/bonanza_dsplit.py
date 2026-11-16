@@ -338,6 +338,10 @@ REDS = {
     "r7": [("bzphys.inc", "    call bz_dset\n    jnc .lx\n    mov ax, [bz_gx + 1]         ; R7: out of the cell",
             "    call bz_dset\n    jmp short .lx               ; RED r7\n    mov ax, [bz_gx + 1]         ; R7: out of"
             " the cell")],
+    # the split centre's START (verify-dguest): bz_dinner's first push does not take it - a push that carries
+    # the centre into another cell then undoes to a stale START
+    "nostart": [("bzphys.inc", "    cmp byte [bz_dsn], 0        ; bz_dinner's first push: the step's START\n"
+                 "    je .h0 ", "    cmp byte [bz_dsn], 0        ; RED nostart\n    jmp short .h0 ")],
     # 128.24.5.2: the hostile bound dropped (bz_drec accepts every offset)
     "nobound": [("bonanza.asm", "    cmp ax, [bz_dhi]\n    ja .bad\n", "    cmp ax, [bz_dhi]  ; RED nobound\n")],
 }

@@ -271,6 +271,7 @@ VAR bz_sfb,1                    ; ray's blocks (no radial corner then), bz_sq th
 VAR bz_sq,1                     ; quadrant; bz_dinner's pick and its "straight"
 VAR bz_dhc,1
 VAR bz_dst,1
+VAR bz_dsn,1                    ; 1 while bz_dinner has not taken the step's START
 VAR bz_srf,1                    ; bz_swalls: 1 when its inner push refilled the window
 VAR bz_srp,2                    ; step 6's record of a split centre (step 8 reads it)
 VAR bz_nbp,18                   ; bz_wsplit: each split window cell's record(s) in
@@ -1472,12 +1473,9 @@ bz_step:
 .split:
     cmp byte [bz_wch], 0        ; the START for the fallback's undo, as the
     jne .sp0                    ; prop path keeps it: with a prop in the
-    test byte [bz_ps], 5        ; window, or a split centre (its lines can
-    jnz .sst                    ; push it into another cell)
-    test byte [bz_nbr + BZN_C + 2], 0ch
-    jz .sp0
-.sst:
-    BZ_START
+    test byte [bz_ps], 5        ; window here; a split centre's lines take
+    jz .sp0                     ; it at their first push (bz_dinner: they
+    call bz_sstart              ; can push it into another cell)
 .sp0:
     call bz_sdoor               ; bz_pdoor: 1, or a windmill's doorway
     mov ax, [bz_wcen]           ; the centre a plain tube's IN: its drain
@@ -3687,6 +3685,7 @@ bz_swalls:
     cmp al, BZ_KTB
     jb .edges
     call bz_dinner
+    mov byte [bz_dsn], 0
     mov ax, [bz_gx + 1]
     and al, 0f0h
     cmp ax, [bz_wgx]
@@ -3856,6 +3855,7 @@ bz_dinner:
     call bz_dpick
     mov [bz_dhc], al
     mov byte [bz_dst], 0
+    mov byte [bz_dsn], 1        ; (bz_dline: the START at the first push)
     pop cx                      ; CL = the kind
     cmp cl, BZ_KQ
     je .q
@@ -3977,6 +3977,12 @@ bz_dinner:
     stc
     ret
 
+; bz_sstart - BZ_START for the split path (its .split with a prop in the
+; window, bz_dinner's first push).  Clobbers AX, DX.
+bz_sstart:
+    BZ_START
+    ret
+
 ; bz_dset - bz_dline's line: AL = its kind (TB, LR), AH = sigma's mask (0 for
 ; +1, FFh for -1), CX = its offset (x 256), SI = the record beyond it.  The
 ; masks of sx = sigma and sy = -sigma (TB) or sigma (LR) in DI and BP - each
@@ -4030,6 +4036,13 @@ bz_dline:
     clc
     ret
 .hit:
+    cmp byte [bz_dsn], 0        ; bz_dinner's first push: the step's START
+    je .h0                      ; now, gx and gvx as step 4 left them - the
+    push ax                     ; value .split takes with a prop in the
+    call bz_sstart              ; window.  Only such a push can carry the
+    pop ax                      ; centre out of C (the centre's radial ends
+    mov byte [bz_dsn], 0        ; 6 gu from c), so a step without one needs
+.h0:                            ; none
     neg ax
     add ax, BZ_DIAG + 1
     shr ax, 1                   ; h >= 1
