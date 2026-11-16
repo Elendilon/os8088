@@ -276583,9 +276583,15 @@ the shell's.
   in DS and ES under the frame, bucket C as before (tests/pins.txt).
 - **`bz_arforce`** (bss, a word, byte 0): the harness's `OP_ARFORCE` byte -
   non-zero, `op_areserve` reserves nothing and the arena is claimed from the
-  ceiling, so the batch's next growth MOVES it (20.12.15). Assembled, NOT
-  driven by any row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be
-  written on it.
+  ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
+  row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
+  SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
+  `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
+  2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
+  still held 90A0h, and after `bz_arload` every package word (the three
+  balls, `bz_bseg`, `bzs_pseg`, `bzs_mseg`, `bzs_vseg`) equalled its row's
+  and every arena part's bytes equalled its RAM form; the play drew, and Esc
+  left the desktop's claims and rows as before.
 - **The rows** updated for the count: `bonanzaexit` (inside a play: the
   desktop's claims less the shell, plus the course, the desktop title's arena
   become the play's) and `bonanzamega`'s case 10 the same way.

@@ -2472,7 +2472,9 @@ op_drop:
 ;      the sum of their paras(len) plus one fetch's room (op_lazyp's slack)
 ; out: CF=0 the arena holds op_artop + AX, which is its floor until the next
 ;      drop: a fetch fits it back no lower. CF=1 refused, nothing changed -
-;      each fetch then grows it for itself, and refuses for itself
+;      each fetch then grows it for itself, and refuses for itself. Under
+;      OP_ARFORCE's byte (a harness) nothing is done, AX = 0 included, and
+;      CF=0: no caller reads CF, and the fetches grow the arena themselves
 ; clobbers: AX, flags
 ;
 ; AX = 0 fits the arena to its parts, which is how a batch gives back the last
