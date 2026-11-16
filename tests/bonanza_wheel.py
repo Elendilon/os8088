@@ -30,22 +30,27 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          frame made late by [bz_hold] 24 - 40 (x 256 counts), so the wheel
          decides with the beam crossing the post's lines; at least 15 of the 17
          due frames have the post a wheel candidate at bz_tw, ASSERTED.
-  CORNER play mode on MILL, a LIGHT diagonal step (SPEC.md 128.13.7 item 5):
-         [bz_cmode] 1 (TRICKLE, wave 0's camera), the ball poked so a CENTRED
-         full write puts the window's bottom edge through a lane's middle row
-         and its left edge one word inside it, held (the wheel never runs on
-         the frame after a full write); then poked onto the band's foot and
-         the dead zone's left edge exactly (two ball boxes, no camera step),
-         HELD there one frame (no box), then moved 2 px over both in its cell:
-         the step frame takes one row before its wait and the column after it,
-         and the lane is made due on it by its [bz_ldrw] poked one pose on.
-         The wheel's commit of it is read at bz_wcommit, the card's banks
-         before and after the pass (bz_wcore + 2, + 5) - every changed byte
-         must be a cell the commit may write - and the step frame's bz_tw
-         after the sync's rise is REPORTED each try (about 57 - 60k on the
-         CGA, PREDICTED).  The bottom-RIGHT corner where no window reaches the
-         left; on the Hercules no window reaches either (its 45 words hold
-         every MILL lane's columns): REPORTED there.
+  CORNER play mode on MILL, a LIGHT diagonal step (SPEC.md 128.13.7 item 5,
+         8R.13): the SCRIPTED camera ([bz_camscr] 1, 128.17.6.7, [bz_scnt]
+         poked at each bz_t0 to pick the frame's step); the ball RESTING
+         (re-poked each frame) inside a window whose bottom edge lies under a
+         POST's first row and whose left edge is one word inside it - the
+         plan with the fewest rotors and clocks shown (MILL's post 6); the
+         centred full write, steering frames to that window less a row, a D
+         frame (a row before its wait, no column), then the DL step - one row
+         before its wait and the column after it - with the lane made due on
+         it by its [bz_ldrw] poked one pose on.  The wheel's commit of it is
+         read at bz_wcommit, the card's banks before and after the pass
+         (bz_wcore + 2, + 5) - every changed byte must be a cell the commit
+         may write - and the step frame's bz_tw after the sync's rise and its
+         parts are REPORTED each try (44 - 54k on the CGA, MEASURED; a try
+         lands at about 51k or less, up to CORNER_TRIES 10).  Wave 3b's scene
+         drove TRICKLE by the ball's crossings; since wave 6 an airborne
+         ball's camera line is the GROUND line, so TRICKLE panned every frame
+         and the step took two rows (bz_tw 59 - 68k): never admitted.  The
+         bottom-RIGHT corner where no window reaches the left; on the
+         Hercules no window reaches either (its 45 words hold every MILL
+         lane's columns): REPORTED there.
   STALE  play mode on MILL, TRICKLE (SPEC.md 128.13.7 item 4): a centred full
          write puts a ROTOR wholly above the window's top (its last card row
          R0 - 1) with the ball held; after 16 steps, on a frame whose true pose
@@ -182,11 +187,14 @@ HOLD_VALS = tuple(range(72, 124, 4))        # x 256 PIT counts: 0.93 - 1.56 CGA 
 CAL_TOL = 0.15
 RATE_MIN = 0.90
 VRAM = {"cga": (0xB8000, 0x4000), "herc": (0xB0000, 0x8000)}
-CORNER_TRIES = 6                                # (SPEC.md 128.13.7 item 5, restated: admitted while bz_tw <= ~58k)
-CORNER_STEP = 4                                 # the corner leg's poke onto the edges: bz_first poked at the
-                                                # first bz_t0 makes the NEXT frame the full write, and the
-                                                # wheel skips the frame after a full write (bz_wvok: the final
-                                                # pass); then one frame held, then the step (CORNER_STEP + 2)
+CORNER_TRIES = 10                               # (SPEC.md 128.13.7 item 5; 8R.13: 6 -> 10, a try lands when its step
+                                                # frame ran no step or one, bz_tw about 44 - 51k)
+CORNER_STEP = 2                                 # the corner leg's spare steering frames: bz_first poked at the
+                                                # first bz_t0 makes the NEXT frame the full write, the wheel
+                                                # skips the frame after a full write (bz_wvok: the final pass);
+                                                # then scripted frames steering to the plan's window less a row
+                                                # (as many as the cut's distance from it, and these), D, then
+                                                # the step (8R.13)
 
 
 def writers(src=None, art=None, sym=None):
@@ -1054,17 +1062,88 @@ def low_leg(g, ref):
 
 
 # ---- the CORNER leg: a LIGHT down-and-left step across a lane at the bottom-left ---
+# bz_camscr's cycle (SPEC.md 128.17.6.7, BZ_SCR_CYCLE): bz_scnt = 8 x the entry picks a frame's (row, column)
+CORNER_CYC = ((0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1))
+CORNER_SCR = {-1: 24, 1: 8}     # the step's entry: DL (+1, -1), DR (+1, +1)
+CORNER_D = 16                   # D (+1, 0): the step's predecessor, a row before its wait and no column
+
+
+def corner_path(a, b, n, rmax, cmax):
+    """N scripted steps (CORNER_CYC's entries, none of them null) taking the
+    window from A to B (R0, c0), never past the course's clamp (a step it
+    cuts is lost) -> [entry] or None"""
+    layer = {a: []}
+    for _ in range(n):
+        nxt = {}
+        for (r, c), path in layer.items():
+            for e, (dr, dc) in enumerate(CORNER_CYC):
+                q = (r + dr, c + dc)
+                if 0 <= q[0] <= rmax and 0 <= q[1] <= cmax and abs(q[0] - b[0]) + abs(q[1] - b[1]) <= 2 * n:
+                    nxt.setdefault(q, path + [e])
+        layer = nxt
+    return layer.get(b)
+
+
+def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
+    """the corner leg's scene: a rotor first, then a POST (a 2-word lane made due
+    the same way: drawn lit over a true dark, due and not a lighting must-draw);
+    the bottom-LEFT corner first, else its mirror, the bottom-RIGHT, where the
+    step is down and right and the entering column on the right (rule 1's same
+    exclusion); the window's bottom edge under the lane's FIRST row (8R.13: the
+    beam reaches the lane's first shown line latest there, at window line 2H - 2,
+    the AHEAD bound the commit must beat; wave 3b's middle row put it 10 lines
+    earlier), its left
+    (right) edge one word inside the lane, so the diagonal step brings in the
+    lane's next row and its column; the cut's ball at that window's centre, a
+    floor cell with OCC and OCCG clear under it -> (lane, R0, c0, the ball, side)
+    or None"""
+    recs = {r["i"]: r for r in crs.part["props"]}
+    rects = R.lane_rects(crs)
+    grid = BB.Grid(crs.cga)
+    plans = []
+    for side in (-1, 1):
+        for i in sorted(rects, key=lambda j: (recs[j]["kind"] != BB.PK_WINDMILL, j)):
+            if recs[i]["kind"] not in (BB.PK_WINDMILL, BB.PK_BUMPER):
+                continue
+            q = lane_cells(rects, i, lsh)
+            c0 = q[2] + 1 if side < 0 else q[3] - 1 - Wc
+            R0 = q[0] + 1 - H                     # (8R.13: only its FIRST row shown, the latest AHEAD bound)
+            if not (1 <= R0 <= rmax - 1 and (1 <= c0 <= cmax if side < 0 else 0 <= c0 <= cmax - 1)):
+                continue
+            top, left = R0 << lsh, 8 * c0
+            # the cut's ball RESTING (grounded and still: the step's lightest sim) inside the plan's
+            # window, nearest its centre; the full write centres on it and the scripted steering frames
+            # take the window to the plan's (corner_path)
+            cen = R.rest_in_window(crs, grid, top, left, Wc, range(24, L - 30), flags=BB.FL_OCC | BB.FL_OCCG,
+                                   slopes=True, xzone=(left + 40, left + 8 * Wc - 40))
+            if cen:
+                busy = [j for j in rects if j != i and recs[j]["kind"] != BB.PK_BUMPER and any(
+                    (lambda qq: qq[0] < r0 + H and qq[1] > r0 and qq[2] < cc + Wc and qq[3] > cc)(
+                        lane_cells(rects, j, lsh)) for r0, cc in ((R0, c0), (R0 + 1, c0 + side)))]
+                plans.append((len(busy), len(plans), (i, R0, c0, cen, side)))
+    # (8R.13) the LIGHTEST first: the fewest OTHER lanes shown round the step that change by themselves
+    # (rotors, clocks) - each a wheel candidate on the step frame, prepared before the corner's lane
+    # in raster order; a post changes only when kicked.  MILL's post 4 shares its window with rotor 1
+    # and the course clock's digits, post 6 with post 5 alone
+    return min(plans)[2] if plans else None
+
+
 def corner_leg(g, ref):
     """the corner leg on a LIGHT diagonal step (SPEC.md 128.13.7 item 5, 128.13.14
-    item 9): TRICKLE ([bz_cmode] 1: wave 0's camera steps a row and a column on
-    the frame the ball crosses the band's foot and the dead zone's edge, and
-    nothing before); the centred full write, the ball HELD at the window's
-    centre; then poked to just inside the dead zone's left (right) edge and the
-    band's foot (that frame two ball boxes); HELD there one frame (no box: the
-    step frame's predecessor writes nothing after the rise); then moved 2 px
-    across both, in its cell (no refill) - so the step frame takes one row
-    before its wait and the column after it, with the lane made due on it (its
-    [bz_ldrw] poked one pose on).  -> (failures, reports)"""
+    item 9), since 8R.13 under the SCRIPTED camera ([bz_camscr] 1, 128.17.6.7:
+    a harness byte like bz_hvoff; [bz_scnt] poked at each bz_t0 picks the
+    frame's scripted step): the centred full write, the ball HELD at the
+    window's centre (poked there every frame); a frame stepping UP a row, a
+    frame stepping DOWN a row back (the step frame's predecessor: a row before
+    its wait and no column, so nothing after the rise but the flip), then THE
+    STEP, the script's DL (DR on the right) - one row before the wait, the
+    column after it - with the lane made due on it (its [bz_ldrw] poked one pose
+    on).  (Wave 3b's scene drove TRICKLE by the ball's crossings; since wave 6
+    an airborne ball's camera line is the GROUND line under it, so TRICKLE
+    panned a row every frame from the hold and the step frame took TWO rows
+    before its wait: bz_tw 59 - 68k after the rise, the commit never admitted.
+    The script takes the camera's policy out of the scene, as it does for
+    BENCH's eight directions.)  -> (failures, reports)"""
     m, tag, crs = g.m, g.tag, ref.c
     lsh, rl = LSH[tag], R.RL[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
@@ -1075,43 +1154,10 @@ def corner_leg(g, ref):
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
-    g.putb("bz_cmode", 1)                         # TRICKLE (it persists: put back at the leg's end)
     H, Wc, rmax, cmax = g.w("bz_H"), g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
     L = 200                                       # bzvideo.inc BZ_LINES
-    plan = None
-    # a rotor first, then a POST (a 2-word lane made due the same way: drawn lit over a true dark, due
-    # and not a lighting must-draw); the bottom-LEFT corner first, else its mirror, the bottom-RIGHT,
-    # where the step is down and right and the entering column on the right (rule 1's same exclusion)
-    for side in (-1, 1):
-        for i in sorted(rects, key=lambda j: (recs[j]["kind"] != BB.PK_WINDMILL, j)):
-            if recs[i]["kind"] not in (BB.PK_WINDMILL, BB.PK_BUMPER):
-                continue
-            q = lane_cells(rects, i, lsh)
-            # the window's bottom edge through the lane's middle row, its left (right) edge one word
-            # inside the lane: the down step brings in the lane's next row, the side step its column
-            c0 = q[2] + 1 if side < 0 else q[3] - 1 - Wc
-            R0 = q[0] + (q[1] - q[0]) // 2 - H
-            if not (0 <= R0 <= rmax - 1 and (1 <= c0 <= cmax if side < 0 else 0 <= c0 <= cmax - 1)):
-                continue
-            top, left = R0 << lsh, 8 * c0
-            cen = hold = None
-            for dy in range(rl):                  # the centred full write's window: R0, c0 exactly
-                for dx in range(8):
-                    cen = cen or R.probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
-                                                flags=BB.FL_OCC | BB.FL_OCCG)
-            # HELD on the band's foot and the dead zone's edge exactly: the ball's centre line 2L/3
-            # below the window's top (TRICKLE steps down past it), its centre px 2 W words in (6 W on
-            # the right: it steps past them), drifting the way the step goes (in its cell)
-            hx = left + 2 * Wc - 8 if side < 0 else left + 6 * Wc - 8
-            hold = R.probe_ground(crs, hx, top + 2 * L // 3 - 8, grid, side, clear=8,
-                                  flags=BB.FL_OCC | BB.FL_OCCG)
-            if cen and hold:
-                plan = (i, R0, c0, cen, hold, side)
-                break
-        if plan:
-            break
+    plan = corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L)
     if plan is None:
-        g.putb("bz_cmode", 0)
         m.run()
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0, "the corner leg's play ends on Esc", guest=60)
@@ -1121,22 +1167,24 @@ def corner_leg(g, ref):
         if tag == "herc":                         # the Hercules's 45-word window: cmax 19 against MILL's lanes in
             return [], [why + ": REPORTED - no window on this card can (SPEC.md 128.12.13.2)"]   # columns 21 - 35
         return [why], rep
-    lane, R0w, c0w, cen, hold, side = plan
-    # the step: 2 px down and 2 px across, gx - gy by 2 px and gz 2 px lower - the drift
-    # probe_ground left room for, so the poke stays in the cell (same_cell: no refill)
-    stp = (hold[0] + 256 * side, hold[1] - 256 * side, hold[2] - 512)
+    lane, R0w, c0w, cen, side = plan
+    g.putb("bz_camscr", 1)                        # the SCRIPTED camera (cleared at the leg's end: a cut)
     q = lane_cells(rects, lane, lsh)
     wc = g.a("bz_wcore")
     code = m.read(wc, 10)
     assert (code[0], code[1], code[2], code[5], code[8], code[9]) == (0x9C, 0xFA, 0xE8, 0xE8, 0x9D, 0xC3), \
         "bz_wcore is not PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET (SPEC.md 128.13.12): %s" % code.hex()
-    A = {n: g.a(n) for n in ("bz_t0", "bz_wcommit", "bz_tw", "bz_vr.rose")}
+    A = {n: g.a(n) for n in ("bz_t0", "bz_wcommit", "bz_tw", "bz_vr.rose", "bz_ts", "bz_tr")}
     vb, vn = VRAM[tag]
-    STEP = CORNER_STEP + 2                        # centred (1 - 3), the poke (4), held (5), the step (6)
+    # the cut (1, its full write 2), the steering frames (3 ..), D (STEP - 1), the step (STEP)
+    kx, ky = (grid.x0 - 8) << 8, (grid.y0 - 13) << 8
+    cpx, cpy = (cen[0] - cen[1] + kx) >> 8, (((cen[0] + cen[1]) >> 1) - cen[2] + ky) >> 8
+    cut = (max(0, min(rmax, max(0, cpy + 8 - L // 2) >> lsh)), max(0, min(cmax, max(0, cpx + 8 - 4 * Wc) >> 3)))
+    STEP = 4 + max(abs(R0w - 1 - cut[0]), abs(c0w - cut[1])) + CORNER_STEP
     judged, tries, tws_seen = [], 0, []
     while tries < CORNER_TRIES and not judged:
         tries += 1
-        fr = {"step": 0}
+        fr = {"step": 0, "win": None}
         got = []
 
         def on_hit(mm, rec):
@@ -1144,20 +1192,25 @@ def corner_leg(g, ref):
             if a == A["bz_t0"]:
                 fr["step"] += 1
                 k = fr["step"]
-                if k < CORNER_STEP:               # centred: a full write (its frame is the one after the
-                    R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)       # first poke), then held
-                    if k == 1:                    # (the frame after a full write has no wheel)
-                        g.putb("bz_first", 1)
-                elif k == CORNER_STEP:            # on the band's foot and the dead zone's edge: two ball
-                    R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1)     # boxes, no camera step
-                elif k == CORNER_STEP + 1:        # HELD: no box
-                    R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1, same_cell=True)
-                else:                             # THE STEP: 2 px over both edges, in the cell; the lane
-                    R.poke_ball(g, stp[0], stp[1], stp[2], 0, 0, 0, air=1, same_cell=True)  # due on it
-                    if k == STEP:
-                        pose = mm.read(g.a("bz_ldrw") + lane, 1)[0]
-                        mm.write(g.a("bz_ldrw") + lane, bytes([(pose + 1) % recs[lane]["lane"]["poses"]]))
-                        R.mark(g, lane)
+                # the ball held at the cut's centre: a full write (its frame is the one after the first
+                # poke), its frame without a wheel (bz_wvok), then the scripted frames round it
+                R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=0, same_cell=k > 1)
+                if k == 1:
+                    g.putb("bz_first", 1)
+                elif k == 3:                      # the steering frames, from the cut's window
+                    fr["seq"] = corner_path((g.w("bz_R0"), g.w("bz_c0")), (R0w - 1, c0w), STEP - 4, rmax, cmax)
+                if 3 <= k <= STEP - 2 and fr.get("seq"):
+                    g.putb("bz_scnt", 8 * fr["seq"][k - 3])
+                elif k == STEP - 1:
+                    g.putb("bz_scnt", CORNER_D)
+                elif k == STEP:                   # THE STEP: the window as planned, the lane due on it
+                    fr["win"] = (g.w("bz_R0"), g.w("bz_c0"))
+                    g.putb("bz_scnt", CORNER_SCR[side])
+                    pose = mm.read(g.a("bz_ldrw") + lane, 1)[0]
+                    mm.write(g.a("bz_ldrw") + lane, bytes([(pose + 1) % recs[lane]["lane"]["poses"]]))
+                    R.mark(g, lane)
+                elif k > STEP:                    # (after it: held, the script stepping back up)
+                    g.putb("bz_scnt", 48)
                 return {"t0": k}
             if a == A["bz_wcommit"]:
                 kind, ln = R.commit_kind(g, r)
@@ -1172,7 +1225,7 @@ def corner_leg(g, ref):
             if a in (wc + 2, wc + 5) and got and "after" not in got[-1]:
                 got[-1]["before" if a == wc + 2 else "after"] = mm.read(vb, vn)
             return None
-        logged = [A["bz_tw"], A["bz_vr.rose"]]
+        logged = [A["bz_tw"], A["bz_vr.rose"], A["bz_ts"], A["bz_tr"]]
         with M.bp_trace(m, A["bz_t0"], A["bz_wcommit"], wc + 2, wc + 5, *logged, log=logged, regs=True,
                         on_hit=on_hit, cap=8000) as tr:
             m.run()
@@ -1183,7 +1236,7 @@ def corner_leg(g, ref):
         t0s = [h["cycles"] for h in hits if h["addr"] == A["bz_t0"]]
         tws = [h["cycles"] for h in hits if h["addr"] == A["bz_tw"]]
         ros = [h["cycles"] for h in hits if h["addr"] == A["bz_vr.rose"]]
-        tw_after = None
+        tw_after, parts = None, None
         if len(t0s) >= STEP:
             c0_, c1_ = t0s[STEP - 1], t0s[STEP] if len(t0s) > STEP else None
             tw = [c for c in tws if c > c0_ and (c1_ is None or c < c1_)]
@@ -1191,14 +1244,25 @@ def corner_leg(g, ref):
                 rise = [c for c in ros if c <= tw[0]]
                 if rise:
                     tw_after = tw[0] - rise[-1]
+                    # the step frame's parts (SPEC.md 128.13.14 item 9: REPORTED): bz_t0 after the rise,
+                    # then sim+camera (to bz_ts), box compose (to bz_tr) and the rows (to bz_tw)
+                    ts = [h["cycles"] for h in hits if h["addr"] == A["bz_ts"] and c0_ < h["cycles"] < tw[0]]
+                    tr = [h["cycles"] for h in hits if h["addr"] == A["bz_tr"] and c0_ < h["cycles"] < tw[0]]
+                    if ts and tr:
+                        parts = (c0_ - rise[-1], ts[0] - c0_, tr[0] - ts[0], tw[0] - tr[0])
         tws_seen.append(tw_after)
         step_cm = [d for d in got if d["lane"] == lane and d["step"] == STEP]
-        rep.append("(6) corner try %d: the step frame's bz_tw %s clk after the sync's rise (PREDICTED about "
-                   "57 - 60k on the CGA, admitted while about 58k or less, SPEC.md 128.13.7 item 5); lane %d's "
-                   "commit on it: %s" % (
-                       tries, "%d" % tw_after if tw_after is not None else "?", lane,
+        rep.append("(6) corner try %d: the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k on "
+                   "the CGA under the script, a commit landing at about 51k or less, SPEC.md 128.13.14 item 9; its parts: "
+                   "bz_t0 %s after the rise, sim+camera %s, box compose %s, rows %s); lane %d's commit on it: %s" % (
+                       tries, "%d" % tw_after if tw_after is not None else "?",
+                       *(("%d" % x for x in parts) if parts else ("?",) * 4), lane,
                        "%s, the window stepping %+d,%+d" % (step_cm[0]["kind"], step_cm[0]["dr"], step_cm[0]["dc"])
                        if step_cm else "NONE"))
+        if fr["win"] != (R0w, c0w):
+            rep.append("(6) corner try %d: the window at the step was %s, not the plan's (%d, %d): not judged" % (
+                tries, fr["win"], R0w, c0w))
+            step_cm = []
         for d in step_cm:
             if judged:
                 break
@@ -1209,7 +1273,7 @@ def corner_leg(g, ref):
             judged.append(d)
     if not judged:
         msg = ("(6) the corner leg's LIGHT step made no wheel commit of lane %d on a down-and-%s step in %d tries "
-               "- the step frame's bz_tw %s clk after the sync's rise (PREDICTED 57 - 60k): the scene is to be made "
+               "- the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k): the scene is to be made "
                "lighter, never the check weakened, SPEC.md 128.13.14 item 9" % (
                    lane, "left" if side < 0 else "right", tries, ", ".join("?" if x is None else "%d" % x
                                                                            for x in tws_seen)))
@@ -1245,7 +1309,7 @@ def corner_leg(g, ref):
         if stray:
             fails.append("(6) corner: the pass changed %d card bytes outside its cells (bank offsets %s)" % (
                 len(stray), ["%04X" % k for k in stray[:6]]))
-    g.putb("bz_cmode", 0)
+    g.putb("bz_camscr", 0)                        # (its clearing is a cut)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the corner leg's play ends on Esc", guest=60)
@@ -1459,51 +1523,38 @@ def side_plan(g, ref):
                 rows = R0c <= q[0] and q[1] <= R0c + H
                 if not (out and rows):
                     continue
-                # the trickle's point: OUTSIDE the cut window's dead zone on the lane's side, so TRICKLE
-                # pans (a column a frame, toward the lane) and stops at the first window whose dead zone
-                # holds the ball - that window, not the one the point is centred in, must show the lane
-                # whole (until wave 8R gave TRIAL its finish clock no plan was ever found, and the point
-                # nearest the target window's centre lay inside the cut's dead zone: nothing panned)
+                # (8R.13) the pan: the SCRIPTED camera (bz_camscr, 128.17.6.7; bz_scnt poked R or L each
+                # frame) a column a frame toward the lane until a window shows it whole - its c0 the plan's
+                # last.  Wave 7's scene panned by TRICKLE from a second resting point outside the dead zone,
+                # which only TRIAL's finish clock at (9, 17) could give; the script needs only the cut, so
+                # the plan is the lanes' geometry on any course, and a lane moved by a course edit is found
+                # again, or another is
                 if q[3] <= c0c - BZ_LCM:                # the lane LEFT of the window: a pan left
-                    zone = (max(8 * c0c + 8, 8 * (q[3] - Wc) + 2 * Wc + 8), 8 * q[2] + 7 + 2 * Wc)
+                    c0s, d = q[2], -1
                 else:                                   # ...RIGHT of it: a pan right
-                    zone = (8 * (q[3] - Wc - 1) + 6 * Wc + 1, min(8 * (c0c + Wc) - 8, 8 * q[2] + 6 * Wc))
-                if zone[0] > zone[1]:
+                    c0s, d = q[3] - Wc, 1
+                if not (0 <= c0s <= cmax and c0s <= q[2] and q[3] <= c0s + Wc):
                     continue
-                go = R.rest_in_window(crs, grid, R0c << lsh, 0, Wc, lines, flags=BB.FL_OCC | BB.FL_OCCG,
-                                      slopes=True, xzone=zone)
-                if not go:
+                xw = px + 8 - 8 * c0s                   # the ball's centre in the last window: kept a
+                if not 24 + 12 <= xw <= 8 * Wc - 24 - 12:   # footprint inside BZ_SCR_MX of its edges
                     continue
-                c0s = trickle_stop(go, kx, c0c, Wc, cmax)
-                if c0s != c0c and c0s <= q[2] and q[3] <= c0s + Wc:
-                    return i, R0c, c0c, hold, hold, go, c0s
+                return i, R0c, c0c, hold, hold, None, c0s
     return None
-
-
-def trickle_stop(pt, kx, c0, Wc, cmax):
-    """the column TRICKLE's pan from window C0 comes to rest at with the ball held at PT: a column a frame
-    while the ball's centre lies left of the window's dead zone [2W, 6W] px (or right of it), clamped to
-    the course (bzgame.inc bz_camera's .trickle, SPEC.md 128.5)"""
-    X = ((pt[0] - pt[1] + kx) >> 8) + 8
-    while True:
-        x = X - 8 * c0
-        n = c0 - 1 if x < 2 * Wc else c0 + 1 if x > 6 * Wc else c0
-        n = max(0, min(n, cmax))
-        if n == c0:
-            return c0
-        c0 = n
 
 
 def side_leg(g, ref):
     """THE SIDE SCENE (SPEC.md 128.18.2, story 7.1): [bz_cmode] 1 (TRICKLE); a
-    centred full write puts a ROTOR in the window's rows but wholly OUTSIDE
-    the column band, the ball HELD; on every frame while the window holds,
-    the lane is marked OUT ([bz_lout] 1: the walk never computed its true
-    pose); after SIDE_STEPS steps, on a frame whose true pose differs from
-    the full write's, the ball is held at a point whose dead zone is a window
-    that shows the rotor, so TRICKLE pans to it a column a frame and the
-    entering columns bring the rotor in from the map: (9) judges them (the
-    TRUE pose on the card).  `nocol` (the band's margin 0) leaves the map
+    centred full write puts a ROTOR or a clock's digit in the window's rows
+    but wholly OUTSIDE the column band, the ball HELD resting in the dead
+    zone; on every frame while the window holds, the lane is marked OUT
+    ([bz_lout] 1: the walk never computed its true pose); after SIDE_STEPS
+    steps, on a frame whose true pose differs from the full write's, the
+    SCRIPTED camera ([bz_camscr] 1, [bz_scnt] poked R or L each frame,
+    SPEC.md 128.17.6.7; 8R.13 - it was a second resting point TRICKLE panned
+    to, which only TRIAL's finish clock at (9, 17) offered) pans a column a
+    frame to a window that shows the lane whole, and the entering columns
+    bring it in from the map: (9) judges them (the TRUE pose on the card).
+    The plan is the lanes' geometry on every course (side_plan), MILL first.  `nocol` (the band's margin 0) leaves the map
     stale.  Where no window puts a rotor so (the Hercules' 45 words hold
     MILL's every lane), the leg SKIPS naming the card.  -> (failures, reports)"""
     m, tag = g.m, g.tag
@@ -1514,7 +1565,8 @@ def side_leg(g, ref):
     # (since wave 8R TRIAL's FINISH clock, the first that can: SPEC.md 128.22.10) - planned on the host
     # before the play is launched
     plan = None
-    for cname in ("mill", "first", "trial"):
+    R.COURSES["mill"]                           # (8R.13: every course, MILL first - BZ_COURSES's names)
+    for cname in ["mill"] + [n for n in R.COURSES if n != "mill"]:
         cref = R.Ref(tag, R.course(cname)) if cname != "mill" else ref
 
         class _G:                               # (the plan reads only the card's window bounds)
@@ -1539,11 +1591,12 @@ def side_leg(g, ref):
         m.pause()
         g.putb("bz_cmode", 1)
     if plan is None:
-        rep.append("(9) the SIDE scene: SKIP - no window on this card puts a lane of MILL's, FIRST's or TRIAL's in "
-                   "its rows and wholly outside the column band with the ball centred on a floor (the `nocol` arm "
-                   "is UNJUDGED here)")
+        rep.append("(9) the SIDE scene: SKIP - no window on this card puts a lane of any course in its rows and "
+                   "wholly outside the column band with the ball centred on a floor (the `nocol` arm is UNJUDGED "
+                   "here)")
     else:
-        lane, R0w, c0w, cen, hold, go, c0g = plan
+        lane, R0w, c0w, cen, hold, _go, c0g = plan
+        dcol = 1 if c0g > c0w else -1
         rec = recs[lane]
         lout = g.a("bz_lout") + lane
         st = {"k": -1, "fw": None, "n0": None, "step": None, "pr": None, "enter": [], "out": [], "retry": 0,
@@ -1574,9 +1627,12 @@ def side_leg(g, ref):
                             moved = rotor_pose(rec, n) != st["fw"] and rotor_pose(rec, n + 1) != st["fw"]
                         if n - st["n0"] >= SIDE_STEPS and moved:
                             st["step"] = k
-                            R.poke_ball(g, go[0], go[1], go[2], 0, 0, 0, air=0)
-                else:
-                    R.poke_ball(g, go[0], go[1], go[2], 0, 0, 0, air=0, same_cell=True)
+                            g.putb("bz_camscr", 1)      # the SCRIPT: a column a frame toward the lane
+                if st["step"] is not None:
+                    R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=True)
+                    c0 = g.w("bz_c0")           # R (0, +1) or L (0, -1) to the lane's window, then a
+                    go = (c0g > c0) - (c0g < c0) or -dcol   # column away from it and back (the script
+                    g.putb("bz_scnt", 0 if go > 0 else 32)  # has no still entry)
                 return None
             out = pres_snap(g)
             out["k"] = st["k"]
@@ -1595,10 +1651,11 @@ def side_leg(g, ref):
                     or st["k"] >= SIDE_MAX, "the SIDE scene's frames", guest=90 + 10 * SIDE_RETRY)
             m.pause()
         ent = [e for e in st["enter"] if e[1] == lane]
-        rep.append("(9) the SIDE scene: rotor %d (cols %d - %d) outside the band of a centred window R0 %d c0 %d "
-                   "(the cut taken %d time(s) more); %d held frames, the lane OUT on all but %d; the trickle to c0 "
-                   "%d %s; the rotor brought in by the columns: %s" % (
-                       lane, lane_cells(rects, lane, lsh)[2], lane_cells(rects, lane, lsh)[3] - 1, R0w, c0w,
+        rep.append("(9) the SIDE scene on %s: lane %d (a %s, cols %d - %d) outside the band of a centred window R0 "
+                   "%d c0 %d (the cut taken %d time(s) more); %d held frames, the lane OUT on all but %d; the scripted "
+                   "pan to c0 %d %s; the lane brought in by the columns: %s" % (
+                       crs_name.upper(), lane, "clock's digit" if rec["kind"] == BB.PK_CLOCK else "rotor",
+                       lane_cells(rects, lane, lsh)[2], lane_cells(rects, lane, lsh)[3] - 1, R0w, c0w,
                        st["retry"], st["seen"], len(st["out"]), c0g,
                        "on frame %s" % st["step"] if st["step"] is not None else "NEVER (no pose the cut did not "
                        "draw)", ", ".join("true pose %d, its bz_ldrw %s, %d px wrong" % (e[2], e[3], e[4])
@@ -1617,6 +1674,7 @@ def side_leg(g, ref):
                              "are not its TRUE pose %d (its bz_ldrw %s): the map was left stale while it was "
                              "outside the band" % (e[0], e[1], e[4], e[2], e[3]))
     if plan is not None:
+        g.putb("bz_camscr", 0)                  # (its clearing is a cut)
         g.putb("bz_cmode", 0)
         m.run()
         g.key("Escape")

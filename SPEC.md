@@ -257452,6 +257452,30 @@ box's stretch made one box in about eleven really late. The guest's half
 of that is fixed (128.9 item 6); the probe moved to where play reaches the
 case.
 
+**Re-found (8R.13, 2026-11-16).** BENCH's grid moved: its world line 0 is
+25 lines higher above its floor since round 3b (`Grid.y0` 159 -> 184,
+`brows` 126 -> 129, MEASURED against e4da75ae8's compile). Two things follow:
+the start window settles at `R0` 3 on the CGA and 1 on the Hercules (the
+start ball's top on world line 99), not at the clamp, so the setup assertion
+aborted the row on every card since then; and at the right edge the probe's
+shadow falls off the 200-line window (shadow lines 189 at x 280, 209 at
+x 320). The probe now (a) LEADS IN: the ball's top is poked on world line
+0 at the window's CENTRE column, above the window, so the urgent edge pans
+up to the clamp without spending a column (`PROBE_LEAD`, at most 6 frames;
+2 on the CGA, 1 on the Hercules), and these frames are not judged; (b)
+from the first frame whose shadow would fall off at the edge (and, as
+before, from frame 6), ALTERNATES a BACK frame (the right-most x at least
+40 px back whose shadow box fits the window: the multi-box frame) and a
+SPLIT frame at the edge; and (c) judges a frame of two ball boxes and no
+shadow box like a multi-box frame (the verdict against the cycle counter,
+interrupts on before the second box), its later box being allowed to be
+late (128.11.10.3). The one-box lateness check now names a frame of ONE
+box: before round 3b every two-box frame of the probe had a shadow box, so
+the old "one box GROUP" wording never met a two-box, one-group frame.
+MEASURED: CGA 21 frames on item 6's path, 21 multi-box, 11 later boxes late
+by both verdicts; Hercules 18 and 18. Red: `row0` at the FIRST box, `late2`
+at the cycle counter, each run once.
+
 ##### 128.10.11.3 The rows
 
 | row | tier | asserts | red arm |
@@ -263236,6 +263260,29 @@ These amend the subsections they name and are binding.
    build's prices the commit is admitted only up to about 58k, 128.13.7
    item 5), the scene is made lighter - not the assertion weakened - and
    the frame's parts are reported.
+   **Made lighter (8R.13, 2026-11-16).** The frame's parts, now REPORTED
+   each try, showed why it never landed: wave 3b's scene drove TRICKLE by
+   the ball's crossings, but since wave 6 an airborne ball's camera line is
+   the GROUND line under it (128.16.7), so TRICKLE panned a row every frame
+   from the hold, the held frame wrote a box, and the step frame took TWO
+   rows before its wait (`bz_tw` 59 - 68k: `bz_t0` 8k after the rise,
+   sim+camera 21 - 26k, compose 16k, rows 14k). No ground-line hold exists
+   in MILL's two post windows with a cut that lands on them. The scene now
+   runs under the SCRIPTED camera (128.17.6.7: `bz_camscr` 1, `bz_scnt`
+   poked at each `bz_t0` to pick the frame's step): the ball RESTING
+   (re-poked), the centred full write, steering frames, a D frame (a row
+   before its wait, no column), then the DL step - one row before the
+   wait, the column after it. The plan takes the window with the fewest
+   rotors and clocks shown (each a candidate prepared before the post in
+   raster order: MILL's post 4 shares its window with rotor 1 and the
+   course clock, post 6 with post 5 alone) and shows only the lane's FIRST
+   row (the latest AHEAD bound). MEASURED: `bz_tw` 44 - 54k; a try lands at
+   about 51k or less (a step frame of no step or one), so `CORNER_TRIES`
+   is 10. `alias` and `corner` go red at the cells check. **The SIDE
+   scene** (128.18.2's (9)) pans by the same script: its plan needs only
+   the cut, and it searches every course's lanes by geometry (TRIAL's
+   finish clock today; PLAYGROUND's clock when TRIAL's moves, checked on
+   the host); `nocol` goes red at (9).
 10. **The DEFER and BEAM scenes poke `bz_pkick`**, a physics field that the
     guest itself writes only on a kick; poking it is equivalent to a kick
     the replay would also contain, so the scenes are "pokes of display
@@ -272342,6 +272389,22 @@ final pass to look at, not a new arm.
 **Rows the wave cannot reach**: every row outside BONANZA's; and within it
 `bonanzaassets` and `bonanzamusic`, host rows whose inputs (the ball parts,
 the bank) do not change.
+
+**`camhyst` re-found (8R.13, 2026-11-16).** With round 3b's reach no
+`RAMP_PATTERNS` pattern reverses with `Hr` 0 any more (128.17.17.4), so the
+arm's MODEL stayed green at the climb try and `--check-reds` failed.
+`bbcourse`'s own `nohyst` control moved to the dither map then, and so does
+this arm: its scenario `dither` (`bonanza_ring.DITHER_SCEN`) is one of the
+map's samples made a TILT log - PLAY's demo for 14 steps (the ball rolling
+left across (21, 16)), then the map's branch with taps of 60 (Grip 30,
+against, release 50, along, release 50, against, release 70). On the model
+the branch is clean (no fall, RETURN, goal or tube frame), the shipped
+camera never reverses on it and `Hr` 0 reverses on both cards at every
+pacing from 0.8x to 1.25x the nominal step rate. The arm runs on both
+cards (it was the Hercules' alone) and went red at the reversal check on
+each; the shipped camera's no-reversal check covers the new replay too.
+(A ramp search from `RAMP_POKE` found `Hr` 0 reversing only on runs that
+fell and respawned into the chute: no hysteresis scene.)
 
 #### 128.17.11 Bytes and clocks (PREDICTED)
 
