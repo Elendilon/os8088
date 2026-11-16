@@ -190,3 +190,18 @@ A box is ticked only for what was built AND checked as its line says.
       this work (SPEC.md 128.19.9); `bonanzasound`'s boost and w7 legs - the
       effects 8R reworked, passed to that session. A first run of the same
       scope was void: the tree was merged under it.*
+
+### Round 2: the owner's notes (2026-11-16)
+
+- [x] **R2.1** The letters lower, clear of the top (`TOP` 16). *Host:
+      `bbtitle.py --check`; 9 px to the nearest scene pixel.*
+- [x] **R2.2** No black flash: no respawn cut on a fixed window; black
+      between plays (SPEC.md 128.23.3). *MEASURED: `bonanzatitle` 4b, one
+      full write in a demo with a fall, both cards.*
+- [x] **R2.3** The course: the LL-LS step, LS off the glass to the left, the
+      spring at LL's pit edge (128.23.2's waiver), the hidden tube's mouth on
+      the south rail. *Host: the selfcheck.*
+- [x] **R2.4** The four demos re-authored to the notes (128.23.5). *Host:
+      every expect met; MEASURED on the guest: the demo `bonanzatitle` drew
+      on each card equals the model at its end. How they READ is the
+      owner's to judge.*

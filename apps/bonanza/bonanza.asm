@@ -1334,7 +1334,8 @@ bz_tround:
     call bzs_open
     call bz_play
     call bzs_close
-.swap:                          ; this round's parts and song given back
+    call bz_blank               ; (the owner: BLACK while the next is fetched -
+.swap:                          ; the next play's first frame lights it)                          ; this round's parts and song given back
     call bz_cdrop
     jmp bzs_gdrop0
 

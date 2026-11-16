@@ -52,7 +52,7 @@ OUTL = 1.6                      # the black keyline round the white, px
 RIM = 1.6                       # the magenta rim round that, px
 ADV = 21                        # px a letter (its skeleton 14.5 wide plus the strokes)
 SPACE = 10                      # the gap between the words, px
-TOP = 10                        # px: the letters' cell top, before the bob
+TOP = 16                        # px: the letters' cell top, before the bob (the owner, 2026-11-16: lower, clear of the top)
 SHADOW = 2                      # the cyan shadow's offset, px
 BOB = (0, -3, -5, -3, 1, -2, 0, -4, -6, -4, -1, -3, 0)   # each letter's bounce, px (a bit of a wave)
 

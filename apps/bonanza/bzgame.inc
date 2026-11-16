@@ -2071,6 +2071,10 @@ bz_camera:
 .ncs:
     cmp byte [bz_resp], 0       ; THE CUT (SPEC.md 128.10.8 item 3): a frame
     je .nocut                   ; whose steps respawned the ball where its
+%if BZ_TITLE
+    cmp byte [bz_fixed], 0      ; (SPEC.md 128.23.2: a FIXED window has nowhere
+    jne .nocut                  ; to cut to - no full write, no blank flash)
+%endif
     call bz_outwin              ; footprint is not wholly inside the window
     jnc .nocut                  ; is the first frame's centred full write
 .cut:
