@@ -161,3 +161,8 @@ way 52 51 branch SHORT
 # course budget reads it (12550 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 60
+
+# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
+# are the same with it and without it, so the build re-stamps the demo's identity
+clock 51 48

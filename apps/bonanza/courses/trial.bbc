@@ -78,3 +78,8 @@ target 30
 # seconds left of the limit; placed beside the route for the clock's measurement
 clock 4 10
 clock 18 17
+
+# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
+# are the same with it and without it, so the build re-stamps the demo's identity
+clock 9 17

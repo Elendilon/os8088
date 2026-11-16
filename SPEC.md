@@ -270013,84 +270013,154 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 | memory | **the pathway stays loaded** when the machine holds it and the largest course's claims together; otherwise it is dropped before a course and fetched again after (today's) | the owner's |
 | sounds | arriving at a pad, a gate opening, a life lost, game over, the victory tune; **no rolling sound** | the owner's |
 
-#### 128.22.2 The pathway's source (PLANNED)
+#### 128.22.2 The pathway's source (BUILT, story 8R.1; the guest's half is 8R.2/8R.3's)
 
 `apps/bonanza/courses/path.bbc` keeps `pathway` (128.19.5: no limit, no
-countdown, no goal or cup of its own) and loses `node`, `edge` and the
-prototype's ROLLED walk. Its statements, refused on any other course:
+countdown, no goal, cup, medals or `start` of its own - a new game rests on
+pad 0) and loses `node` and `edge` (refused, naming this section),
+`NODE_POSES`, `NODE_FONT` and the prototype's ROLLED walk. Its statements,
+refused on any other course (`view` is also the title's, 128.23.2):
 
-- **`view SX SY`** (128.23.2's statement, its windows' rules unchanged) is
-  PAGE 0's window, the bottom page, where a new game starts; **`pages N`**
-  (1 - 8) stacks N pages: page k's window is page 0's moved UP by `200 k`
-  lines, the same columns. The tool grows the picture to hold every page and
-  writes the grid header's camera byte **`cam` = 2 (PAGED)** (128.22.4.3)
-  and `npages`.
-- **`pad N COURSE WX WY`**: pad N (0 - 31; pad 0 is the start) plays COURSE;
-  its cell is a FLOOR tile of the route material, and the pad is a SIGN lane
-  over it (128.22.4.1) with **`PAD_POSES` = 4**: 0 OPEN (glowing), 1 DONE, 2
-  SILVER, 3 GOLD. Its page is the one whose window holds its cell; the tool
-  refuses a pad outside every page's CGA window, or within 24 lines of a
-  page's top or bottom edge (the marble must rest whole on the glass).
-- **`icon N FILE SX SY [fps F]`**: pad N's ICON: FILE is a `.bba` text
-  pixmap (128.23.2) holding FRAMES stacked top to bottom (the frame height is
-  the file's height over its frame count, a `# frames K` line), its top-left
-  at projection `(SX, SY)`, which must be on a block's corner (SX a multiple
-  of 8, the line a block row's first). Frame 0 is the rest pose; frames 1 -
-  K-1 play in a loop at F frames a second (default 6, at most 18) while the
-  marble rests on pad N. The tool cuts the icon's rectangle into lanes of at
-  most `LANE_WMAX` x `LANE_HMAX` blocks, all one SIGN, and writes the
-  course's TITLE (`BZ_CRS_TITLES`, upper case) in the desktop font's 8 x 8
-  glyphs centred above it in the picture (or in the reveal lanes of a secret
-  pad).
+- **`view SX SY [drop N]`** (128.23.2's statement and its windows' rules,
+  unchanged) is PAGE 0's window, the bottom page, where a new game starts;
+  **`pages N`** (1 - 8, default 1) stacks N pages: page k's window is page
+  0's moved UP by `200 k` lines, the same columns. The tool grows the
+  picture so the TOPMOST page and the DROP margin above it fit (the
+  title's code, with `200 (N - 1)` more lines), and marks the grid header
+  **PAGED: BZG1 +28 bit 3, `GF_PAGED` = 8** (beside the title's FIXED bit 2,
+  never both), its +30 view word page 0's window exactly as a FIXED one's
+  (top line / 4, the CGA's c0), and the part's header **+44 `NPAGES`**
+  (128.22.3). *As built*: the header's top line is a byte x 4, so page 0's
+  top line is at most 1,020 - about five pages with the default drop.
+- **`pad N COURSE WX WY`** (the material pad's `pad rubber|steel|glass WX
+  WY` is told apart by its integer N): pad N (0 - 31, numbered from 0; pad 0
+  is the start) plays COURSE, a course of `BZ_COURSES` but `BENCH`; its cell
+  is a FLAT FLOOR of the route material at the height its routes give it
+  (every route end there agrees), and the pad is a SIGN lane over it
+  (128.22.4.1) with **`PAD_POSES` = 4**: 0 OPEN (glowing), 1 DONE, 2
+  SILVER, 3 GOLD - tools/bonanza_assets.py's `pad_overlay` on the cell's
+  top, only where the cell itself is drawn. Its page is the lowest whose
+  window holds it; the tool refuses a pad whose cell centre is outside every
+  page's CGA window, within 24 lines of a page's top or bottom edge, or
+  within 8 px of its sides (the marble must rest whole on the glass). A pad
+  that is the VISIBLE end of a secret route has **8 poses**: 4 - 7 the same
+  four with that route drawn (its picture's pixels in the pad's lane), the
+  guest adding 4 once the route is TAKEN; a pad may be the visible end of
+  one secret route. A pad only a secret route reaches is HIDDEN: its sign
+  has **5 poses**, 0 the bare picture and `1 + p` pose p.
+- **`icon N FILE SX SY [fps F]`**: pad N's ICON: FILE (under
+  `apps/bonanza/courses/`, e.g. `icons/trial.bba`) is a `.bba` text pixmap
+  (128.23.2's reader) holding FRAMES stacked top to bottom (a `# frames K`
+  line, 1 - 16; the frame height the file's over K), its top-left at
+  projection `(SX, SY)`, which must land on a block's corner (refused with
+  the residue the view needs). Frame 0 is the rest pose; frames 1 - K-1 play
+  in a loop at F frames a second (default 6, at most 18) while the marble
+  rests on pad N. **The blocks no frame changes are painted into the
+  picture**; the blocks some frame changes are cut into lanes of at most
+  `LANE_WMAX` x `LANE_HMAX` blocks (greedy, row by row), all ONE sign, pose
+  f frame f. An icon of one frame is all picture and has no sign. The
+  course's TITLE (`BZ_CRS_TITLES`, upper case) is written in 128.23.2's 8 x 8
+  face (`fonts/tallx.f8`: the machine's ROM face is not in the tree) in
+  white, centred 10 lines above the icon (22 above the pad without one), in
+  the picture - or in the reveal of a hidden pad. Refused: a frame or title
+  pixel off the picture, two lanes sharing a block.
 - **`route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...`**: a route
   from pad A to pad B, OPENED by finishing A's course by exit E, travelled
-  both ways once open. `path` lists cell centres from A's cell to B's: each
-  step between two points runs along ONE axis (a screen diagonal) or along
-  BOTH by equal amounts with opposite signs or the same sign (screen across
-  or down); H is the floor's height there in units (default 0), and a step
-  between heights is a ramp. The tool lays FLOOR tiles of the route material
-  along it. **`gate`** (default: the route's first cell after A's) puts the
-  route's GATE there: a SIGN lane, **`GATE_POSES` = 6** (0 closed, 1 - 4 the
-  bars sinking, 5 open), RENDERED by the tool across the route's direction
-  at that cell, so a gate faces any of the eight ways with no hand art. A
-  route that is not secret MUST have a gate (the "unavailable" look);
-  **`secret`** draws nothing of the route, of B's pad, icon or title in the
-  picture: they are REVEAL lanes (SIGNs, pose 0 the bare picture, 1 the
-  route), one group per stretch of the route the tool chooses, revealed as
-  the marble's distance along the route passes each group's.
+  both ways once open. `path` lists cells from A's to B's; each step between
+  two points runs along ONE axis (a screen diagonal) or along BOTH by equal
+  amounts with the same or opposite signs (screen down/up or across); H is
+  the floor's height there in units (default 0, halves allowed). The tool
+  lays FLAT floor tiles of the route material on every cell of the line,
+  and **a step along both axes as a FAT band** (each unit step's two side
+  cells too), which must be level; **a step along one axis between two
+  heights is a RAMP** over the cells strictly between the two points (at
+  least one; a whole number of half units a cell, at most 4), the two
+  points' cells flat. Its follower POINTS are the cells' centres, and a
+  ramp's two ends on the cells' edges, so the follower's height is the
+  floor's exactly. **`gate`** puts the route's GATE on that cell of the
+  line; by default the FIRST cell of the line after A's whose gate lane
+  shares no block with another lane (refused when none has room). A gate is
+  a SIGN lane, **`GATE_POSES` = 6** (0 closed, 1 - 4 the bar sinking, 5
+  open), RENDERED by the tool: two posts (11 px, a black cap) either side
+  of the route across its direction at the cell, 6 ground px out (4 on a
+  screen up/down band, 2 across the screen, where it is seen edge-on) and a
+  3-line bar between their feet's line at 9, 7, 5, 3, 1 px and gone,
+  clipped by what is drawn in front of the cell; any gate fits 3 block rows.
+  Every route that is not secret HAS a gate (the "unavailable" look); a
+  secret one has none (`gate` refused). **`secret`** draws nothing of the
+  route - nor of B's pad, icon and title when B is hidden - in the picture:
+  the tool renders the picture with the route and without it, and cuts the
+  difference (outside the hidden pad's own lanes and the visible end's) into
+  REVEAL lanes of at most `LANE_WMAX` x `LANE_HMAX` blocks, greedy along the
+  route, **each a sign of its own** (pose 0 the bare picture, 1 the route),
+  revealed as the marble's distance along the route passes the group's: its
+  nearest point to the marble's line on the glass less 16 ground px (the
+  `REVEAL_LEAD`), strictly increasing. A secret route's difference meeting
+  another lane (a gate, an icon, a lives digit) is refused.
 - **`lives WX WY`**: a lives counter, a clock record of ONE digit (128.18.5)
-  showing `bz_lives`; **one on every page**, inside its CGA window.
-- **`rail MATERIAL`**: the route material (default the art set's crystal
-  rail, 128.22.8); the ground around the routes is the course's `void`.
-- **The tool proves** (`--selfcheck` items, refusing the build): every pad
-  reachable from pad 0 through opened routes; every (A, E) keyed by at most
-  one route, and E an exit A's course HAS (a secret route's E a HIDDEN
-  exit); B of a secret route either reaches the map's END (a pad with no
-  route out) in fewer pads than the shortest non-secret way (a SHORTCUT) or
-  leads nowhere (SIDE) - it prints which; a route's cells never cross another
-  route's except at a pad; every key map unambiguous (128.22.4.5); every
-  page's FAST lanes and pose changes within 128.19.10's bounds, an icon's
-  animation counted FAST while its pad is the marble's; the part within
-  65,024 bytes (128.14.6), its cost printed by kind (picture, icons, gates,
-  reveals).
+  showing `bz_lives`, on a one-tile plinth of the route material the tool
+  lays; **one on every page**, its digit inside that page's CGA window, and
+  none outside every window (each refused).
+- **`rail MATERIAL`**: the route material: `crystal` (the art set's,
+  128.22.8: `crystal_top_ink` on every top - a ramp's through its ground
+  point - and `crystal_side_ink` on the sides; the default) or a surface's
+  look (`normal`, `ice`, `sand`, `bounce`; ice stands in when the art set
+  has no crystal). The ground around the routes is the course's void.
+- **The tool proves** (refusing the build, each refusal provoked by
+  `--selfcheck`, 128.22.10): every pad reachable from pad 0 through the
+  routes its courses' exits open; every (A, E) keyed by at most one route,
+  and E an exit A's course HAS (a secret route's E a HIDDEN exit) - checked
+  against the compiled courses; a secret route's B either reaches the map's
+  END (a visible pad no route leaves) in fewer pads than the shortest open
+  way from A (a SHORTCUT) or reaches no end (a SIDE) - it prints which; a
+  route's cells never cross another route's except at a pad and at a pad's
+  APRON (a cell beside a pad two routes leaving it both lay, at one height:
+  two diagonal bands share it); no route over a third pad; every key map
+  unambiguous (128.22.4.5); every page's lanes within 128.19.10's bounds
+  over every window row on both cards (the PAGED camera's columns only), an
+  icon's lanes counted FAST at its pad's page window (the shipped map: at
+  most 3 in a window and a range, 5 changes on a step); the part within
+  65,024 bytes (128.14.6). **MEASURED** (the shipped map, 6 pads, 5 routes,
+  2 pages): the part **22,518 bytes** in RAM, LZ4 7,492: the picture
+  (header, map and 253 blocks) 11,776; the lanes' records, pose maps and
+  the blocks each adds - pads 6 lanes 1,344, icons 10 lanes 3,400, gates 5
+  lanes 1,208, lives 2 lanes 268, reveals none; the tables 222.
 
-#### 128.22.3 The tables (PLANNED)
+#### 128.22.3 The tables (BUILT)
 
 In the pathway's PART (not resident: they come and go with it), after the
-course's records, at an offset the grid header names (`pthoff`):
+records, pose maps, segments and sprites - the P section's tail - at
+**`PTHOFF`, the part header's +42** (a word; with **+44 `NPAGES`**, a byte,
+and +45 - +47 zero; all zero on every part that is not PAGED). Every offset
+in the tables is from the tables' start.
 
 | | |
 |---|---|
 | +0 | `npad`, `nroute`, `nsign` (bytes), 0 |
-| +4 | PADS, 8 bytes each: +0 the course K, +1 the pad's sign, +2 the icon's sign (FFh none), +3 the page, +4 the cell's `gx`, +6 `gy` (ground px, the cell's centre) |
-| then | ROUTES, 8 bytes each: +0 A, +1 B, +2 E, +3 flags (bit 0 secret), +4 the gate's sign (FFh none), +5 the first reveal group's sign, +6 the offset of its POINTS (word, from the table's start) |
+| +4 | PADS, **10 bytes** each: +0 the course K, +1 the pad's sign (= its number), +2 the icon's sign (FFh none), +3 the page (bits 0 - 5), bit 7 HIDDEN (its sign's and icon's poses one more, 0 the bare picture), bit 6 the VISIBLE END of a secret route (its sign's poses 4 - 7 that route's), +4 `gx`, +6 `gy` (ground px, the cell's centre), +8 the icon's frames (0 none), +9 its interval in steps (`round(54.62 / fps)`, 0 none) |
+| then | ROUTES, 8 bytes each: +0 A, +1 B, +2 E, +3 flags (bit 0 secret), +4 the gate's sign (FFh: a secret route), +5 the first reveal group's sign (FFh none; the groups' signs are consecutive), +6 the offset of its POINTS (word) |
 | then | KEYS, 4 bytes a pad (Up, Down, Left, Right): the route taken, bit 7 set when the route is travelled B to A, FFh none |
-| then | POINTS, a route's: a count, then (gx, gy, gz) words a point, ground px and 1/8 px of height as the ball's, A's cell first, B's last; and the reveal groups' distances (a word each, ground px along the route) |
+| then | POINTS, a route's: +0 the points' count, +1 the reveal groups' count (bytes), then (gx, gy, gz) words a point - ground px, and **whole px of height** (signed; the ball's `bz_gz` is that x 256) - A's cell first, B's last, then the reveal groups' distances (a word each, ground px along the route, strictly increasing: the guest reveals at most the next group a step) |
 
-Resident (`bzcourse.inc`): `BZ_PATH_NPAD`, `BZ_NSIGN` (the most signs any
-course has, 128.19.10 item 2's way), `BZ_PATH_CLAIM` (the pathway's claim in
-paragraphs) and `BZ_CRS_MAXCLAIM` (the largest course's claims, its balls'
-included).
+Signs are numbered pads first (pad N's sign N), then the icons (pad order),
+the gates (route order) and each secret route's reveal groups.
+`read_part` reads the tables back and checks them (every sign, pad, route,
+page and key in range, the points from A's cell to B's in legal steps, the
+distances increasing), and the selfcheck compares them with the tool's.
+
+Resident (`bzcourse.inc`): `BZ_PATH_NPAD`; **`BZ_NSIGN`**, the most signs any
+course has (the pathway's, or the title's labels' numbers; 17 today);
+**`BZ_PATH_CLAIM`**, the pathway part's RAM form in paragraphs (1,408);
+**`BZ_CRS_MAXCLAIM`**, the largest claims a pad's course fetches - its part's
+RAM form and every ball part it can need (its own ball, its pads' and its
+flags', `bz_cload`'s set), each in paragraphs, the song's not counted (it
+replaces the pathway's); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
+exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
+`BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
+`BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. Until the
+guest's 8R.2 reads the tables, the 8b prototype's `BZ_PATH_N`, `BZ_PATH_CRS`
+and `BZ_PATH_EDGES` are emitted DERIVED (the pads, each pad's course, an
+(A, E, B) a route), so the package assembles.
 
 #### 128.22.4 The guest (PLANNED)
 
@@ -270166,16 +270236,22 @@ FIXED (`cam` 1) is the title's (128.23.1).
    steer). A secret route's reveal groups get pose 1 as `s` passes each.
    Arriving: RESTING on B, its slot position written to memory (128.22.5).
 
-##### 128.22.4.5 The key map (the tool's)
+##### 128.22.4.5 The key map (the tool's; BUILT)
 
 At a pad, each route leaving it (both ways, opened or not) has the screen
-direction of its first step from the pad, one of eight. A **straight**
-direction (across or down the screen) claims its one arrow; a **diagonal**
-(a single axis) claims both of its arrows. An arrow claimed by one straight
-direction goes to it; one claimed only by diagonals goes to the single
-diagonal claiming it, or to none if two do (the tool prints it and the
-author moves a route). Two routes leaving one pad in one direction are
-refused. The guest only reads the table.
+direction of its first step from the pad, one of eight: a ground step `+x`
+down-right, `-x` up-left, `+y` down-left, `-y` up-right; both axes `(+, +)`
+down, `(-, -)` up, `(+, -)` right, `(-, +)` left. A **straight** direction
+(down, up, left, right) claims its one arrow; a **diagonal** (a single axis)
+claims both of its arrows. An arrow claimed by one straight direction goes
+to it; one claimed only by diagonals goes to the single diagonal claiming
+it. **Refused** (naming the pad and the route): two routes leaving a pad in
+one direction; an arrow two diagonals claim with no straight one (the author
+moves a route); a route left with no arrow (both of a diagonal's arrows
+straights'). The guest only reads the table (128.22.3's KEYS). The shipped
+map's, for one: at TRIAL Up is the route to MILL (straight up), Right the
+route to PLAY (straight right), Down and Left the way back to FIRST (its
+down-left diagonal's both).
 
 #### 128.22.5 The save (PLANNED)
 
@@ -270208,10 +270284,21 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
   ball holed out, not drawn). **Enter** ends the sequence at once; Space
   and the arrows do not. A TIMEOUT runs the same sequence with the clock at
   0 and the TIMEOUT effect in the tune's place.
-- **The tool's rule**: every finish of every course has a CLOCK whose digit
-  lanes all lie inside a CGA window (320 x 200 world px) centred on the
-  finish (a goal cell's centre, a cup's) - refused otherwise, naming the
-  finish.
+- **The tool's rule** (BUILT, `finish_clock_rule`): every finish of every
+  course with a time limit has a CLOCK whose digit lanes all lie inside a
+  CGA window (320 x 200 world px) centred on the finish - EVERY goal cell's
+  centre at its floor's height, the cup's - refused otherwise, naming the
+  finish. A course with no limit (`BENCH`, the benchmark) has no clock to
+  flash and is exempt. Every shipped course failed it as first written (a
+  course's clock stood by its start); the clocks added are listed in the
+  8R.1 report and the courses' files. A shipped demo recorded on its course
+  as it was BEFORE the finish clocks (its identity that one, listed in the
+  tool's `CLOCK_RESTAMP`: MOON 5E25h, PEAK 0562h, PLAY 9D5Eh) whose replay
+  never meets a clock - the ball's state every step and the events' kinds
+  and steps the same with the course's `clock` statements and without them
+  (`clock_restamp`) - ships with the BUILD's identity re-stamped (the build
+  prints it), never re-recorded; any other identity is still an earlier
+  build's demo, refused (`--selfcheck` item 9).
 - **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
