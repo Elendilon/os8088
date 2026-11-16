@@ -56,7 +56,7 @@ gl_reset:
     sub al, BZ_FK_CRACK
     cmp al, 1
     ja .n
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark)
 .n:
     add si, 32
     inc bx
@@ -113,8 +113,8 @@ gl_contact:
     mov [si], al
     inc byte [di]
 .mark:
-    mov byte [bz_latt + bx], 1
-.out:
+    call far [bz_fmkp]          ; its lane MARKED and the next walk made
+.out:                           ; (bz_fmark, 128.25.6.3)
     retf
 .glass:
     call gl_bit
@@ -149,11 +149,12 @@ gl_step:
     mov al, GL_BROKEN           ; its last step: broken
     dec byte [di]
     mov byte [bz_fref], 1
-    mov byte [bz_latt + bx], 1
+    jmp short .mk
 .keep:
     cmp al, BZ_CRACK_LATE + 1   ; (its last CRACK_LATE steps: pose 2)
     jne .st
-    mov byte [bz_latt + bx], 1
+.mk:
+    call far [bz_fmkp]          ; its lane marked, the next walk made
 .st:
     mov [si], al
 .p:
