@@ -481,6 +481,8 @@ VAR bz_fbp,2                    ; line, line word in a block, lines left
 VAR bz_flo,2
 VAR bz_fln,2
 VAR bz_kmin,2
+VAR bz_spp,3                    ; wave 9 (SPEC.md 128.25.19): the cue's three
+                                ; sparkles' PLACES, bytes into bz_spt (bz_cuef)
 VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): the cue's FLASH checker,
                                 ; the sprite's row 0's (bz_cuef; bz_blit's .cwhole)
 VAR bz_olo,2                    ; bz_occ (SPEC.md 128.10.8 item 1, 128.11.10.2):
