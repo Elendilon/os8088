@@ -33,14 +33,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MUSDIR = os.path.join(ROOT, "apps", "bonanza", "music")
 BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. 0 is the title, 1 - 5 the courses'
-# (SPEC.md 128.20.6: course K plays song K, BENCH song 1).
+# (SPEC.md 128.20.6: course K plays song K, BENCH song 1); 6 the TITLE
+# SCREEN's one-shot (SPEC.md 128.23.1: the title course's `music attract`).
 SONGS = ["title.bmu", "fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
-         "victory.bmu"]              # wave 8R (128.22.9): the finish's fanfare; APPEND, never insert
+         "victory.bmu",              # wave 8R (128.22.9): the finish's fanfare; APPEND, never insert
+         "attract.bmu"]              # SPEC.md 128.23.1: the title screen's
 
 # songs that are NOT a course's (the wrap in bbcourse.course_song skips them): the
 # finish's fanfare (128.22.9) and the title screen's attract demo (128.23)
 NON_COURSE = ("victory", "attract")
+
+# SPEC.md 128.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
+# demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play
+# exactly this many sub-ticks, and its loop row is silence
+ATTRACT = "attract"
+ATTRACT_STEPS = 832
 
 PIT_HZ = 1193182
 SUB = 21845
@@ -1615,6 +1623,17 @@ def selfcheck():
             else:
                 if any((r & 0xF0) == 0xB0 and (r & 0x0F) > 7 for regs in acts for r, v in regs):
                     bad("%s: a write to voice 8 (the tone tier's)" % s.id)
+    # 3b. the title screen's song (SPEC.md 128.23.1): one pass to its loop row of exactly ATTRACT_STEPS
+    # sub-ticks, and the loop row SILENT - a one-shot that ends with the demo
+    for s in songs:
+        if s.id != ATTRACT:
+            continue
+        per = sum(s.groove[r % len(s.groove)] for r in range(s.rows))
+        if per * s.loop != ATTRACT_STEPS:
+            bad("%s: its order before the loop row plays %d x %d = %d sub-ticks, not the title demo's %d"
+                % (s.id, s.loop, per, per * s.loop, ATTRACT_STEPS))
+        if s.loop >= len(s.order) or any(ph is not None and ph != "-" for ph in s.order[s.loop]):
+            bad("%s: its loop row (%d) is not silence: the song would play on past the demo" % (s.id, s.loop))
     # 4. every material has every impact, and the effects are well formed
     for m in MATS:
         for e in EVENTS[:5]:
