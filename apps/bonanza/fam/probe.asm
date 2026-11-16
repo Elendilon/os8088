@@ -51,7 +51,7 @@ pr_reset:
 .l:
     cmp byte [es:si], PR_KIND
     jne .n
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark)
 .n:
     add si, 32
     inc bx
@@ -69,7 +69,7 @@ pr_enter:
     test [si], al
     jnz .out
     or [si], al
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]
     mov byte [bz_fref], 1
 .out:
     retf
