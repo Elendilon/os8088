@@ -51588,6 +51588,86 @@ XTMP3 its conversion back to KB, 45,168 → 45,179. WireFleet, at
 `APP_MAX_SIZE` with 3 bytes of slack, is byte-for-byte the size it was. No
 kernel byte.
 
+##### 20.12.15 `OP_ARENA` — one claim for a package's SMALL lazy parts
+
+**A fetched lazy part is a claim of its own** (§20.12.4), and `MEM_OWNER_MAX`
+is 8 claims an owner word (§50): a package whose play holds a course, three
+balls, a sound part, a song and a fanfare is at seven before it has fetched
+anything else (BONANZA, §128.25.4). The arena is the standard's answer, and
+it is ARTFUL's undo arena (§46.6.3) written once: ONE claim, its parts at
+offsets inside it, grown with `MEMP_REGROW` as they arrive and shrunk as they
+go, so a package's small parts cost it one claim however many there are.
+
+**Opt-in, twice.** `%define OP_WANT_ARENA` before `os88parts.inc` gives the
+standard four bss words (`op_arena` the claim, `op_arsz` its paragraphs,
+`op_artop` the paragraph past its highest part, `op_arres` the floor a
+reservation set; `OP_BSS` grows by 8), and a row marked **`OP_ARENA` (bit 7,
+128)** is fetched into it. Only a LAZY row the standard fetches may carry the
+flag - an eager part is in the carve and an `OP_SELF` one is read by the
+package - and `OS88_PART` refuses it otherwise, or without the define;
+`os88pkg.py` refuses it off a lazy row. The code is gated on the ROWS
+(`OP_HAS_ARENA`, §20.12.9), so **a package that marks none assembles byte for
+byte as before**, the define or not.
+
+| verb | what it does |
+|---|---|
+| `op_fetch` on an `OP_ARENA` row | the row's claim is not made: `op_lazyp`'s figure (the read and the expand's room, §20.12.7.4) is asked of the arena past `op_artop`, which is regrown to take it when it does not - to the next `OP_ARQUANT` step (default 64 paragraphs, a power of two), and refused, to the exact need once more (ARTFUL's `at_agrow` rule). The slot is then "the claim" every later step reads - a segment on a real-mode kernel, an `op_at` window on kern_mega - so the read, the in-place expand onto the slot's base, a plain row's move down and every refusal run as they did. The part banks its SEGMENT: the arena plus `op_artop` on a real-mode kernel, and on kern_mega `OSAPI_SEG`'s `SEG_SUB` (`SEG_SUBC`'s pair for an `OP_SEG` row, so `op_cseg`'s code half is `DX - 8` as for any claim) reaching the part's own paragraphs. `op_artop` advances by `paras(len)` and the arena is FITTED (below) |
+| `op_drop` on an `OP_ARENA` row | the row is cleared as any lazy row is (`OP_FETCHED`, the shadow, §20.12.7.4.1); nothing is freed. Any reservation ends, `op_artop` is found again as the highest end of a part still fetched - each one's base through `SEG_REAL`, so the walk is the same arithmetic on every kernel - and the arena is fitted. **A hole stays** until the parts above it go: dropping in reverse order leaves none, and any order ends with the arena freed |
+| `op_areserve AX` | grows the arena AHEAD, to `op_artop + AX` exactly, and makes that its floor until the next drop, so a package that knows what it is about to fetch regrows once (the owner: the program batches). `AX` = 0 fits the arena to its parts, which is how a batch gives back its last fetch's room. CF = 1 refused and nothing changed: each fetch then grows it for itself |
+| `op_arquery` | `AX` = the arena's paragraphs, `BX` = `op_artop`; both 0 with no arena |
+
+**Fitted** means regrown down to `op_artop` rounded up to the next step,
+never under the floor - a shrink, which always succeeds in place (§50.3.1) -
+and **FREED** when that is nothing. So between batches an arena holds its
+parts and at most a step past them, and a package that has dropped every
+arena part has no arena.
+
+**Moves.** A regrow extends in place when it can and MOVES the block when it
+must, the kernel carrying the bytes. On a real-mode kernel the claim's base
+changes, and the standard adds the distance to every fetched arena row's
+banked word (`op_arshift`) the moment the regrow answers - the PART segments,
+which is what `op_seg` reads. On kern_mega the regrow answers the same
+selector and `mem_mpmove` rebases every SUB based in the old block (§50.6.11),
+so the distance is 0 and nothing is shifted; the shrink's `mega_mpgap` frees
+the SUBs of a slot the arena gave back. **A package that copies an arena
+part's segment into a variable of its own** re-reads it from `op_seg` after a
+batch of fetches (a drop and a fit never move the arena), or names it to its
+`OP_ONMOVE` hook.
+
+**Movable, when the package says so.** The arena is born PINNED like every
+claim (§66.2). A package that defines `OP_ONMOVE` (§20.12.12) has it declared
+movable at its claim with the standard's proc `op_armv`, which stores the new
+base, shifts every banked word and jumps to the package's hook with `BX`/`DX`
+intact; the arena is pinned across each fetch into it (a read lands through a
+sum or a window aimed at it) and declared again after. `op_movable` refuses an
+arena row - it has no claim of its own. On kern_mega no proc is called at all:
+its compactor tells nobody, every holder holding a selector it rebases.
+
+**kern_mega.** The arena is claimed `MEMP_CONV` - conventional on every
+kernel, as a code part a far call enters must be (§50.2.1) - so its slots are
+reached through `SEG_SUB`/`SEG_SUBC` exactly as the carve's are (`op_sub`). No
+`PKG_MEGA` arm: the selector path is the standard's own, assembled for every
+kernel. Each slot's SUB is asked with the part's own reach, so the same slot
+asked again answers the same selector, and the arena's free or a shrink past
+it takes it (`mega_mpfreef`, `mega_mpgap`).
+
+**What it does not do.** It is not a heap: a part is placed at the TOP and a
+hole is not reused, which is exactly right for a package that fetches a batch
+and drops it (a play), and wrong for one that fetches and drops at random -
+that package keeps a claim a part. `op_lazyok` answers an arena row as it
+answers any (a claim of `op_lazyp`), which is the conservative question. The
+claim is made without §20.12.4's ask-then-claim, as every regrow is: a refused
+step may shed a purgeable cache before the exact need is tried.
+
+**The harness's knob.** `%define OP_ARFORCE <byte>` names a package byte a
+row pokes: while it is non-zero `op_areserve` reserves nothing and the arena
+is claimed from the CEILING (`MEMP_CLAIM_HI`), under the claims stacked
+there, so the batch's next growth cannot extend it in place and MOVES it -
+the move the shifting above exists for, made on demand (BONANZA's
+`bz_arforce`, §128.25.13). Without the define it is not assembled.
+
+**What it costs**: PLANNED - measured at the commit that builds it.
+
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
 **The header, the icon and the association block are NOT compressed.** The
