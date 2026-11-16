@@ -273506,6 +273506,19 @@ rotor at the bundle's segment, spring +13 paragraphs, tube +29 (data and
 code equal: a real-mode kernel). A PEAK launch 5.58 s and a MILL launch 3.93 s
 to the bracket, inside story 9.8's spread (no family is fetched at a launch).
 
+**kern_mega's carry (wave 9's final pass, row `bonanzamega`).** On kern_mega
+the record's code segment is the new data selector plus the distance -8, and
+`bz_fbfind`'s `add` of FFF8h to a selector CARRIES: the CF it left reached
+`bz_ffetch`'s `jc`, so every course naming a resident family (MILL, MOON,
+SUMMIT) was refused there with no fault - SEEN in the row as R's MILL replay
+never reaching its bracket, `bz_fbfind` the refusal (a breadcrumb build:
+the record's pair right, CF set). A real-mode kernel's distance is 0 and
+never carries, which is why no MartyPC row could see it. The fix is a `clc`
+after the sum, in the shipped build (no `PKG_MEGA` arm: the routine is
+every kernel's): BONANZA's image **+1 byte** (47,096 -> 47,097), bss
+unchanged. SEEN after it: `bonanzamega` green, MILL's route and the ride
+replayed on the Hercules to the model's end.
+
 #### 128.25.7 Per-play state and resets (story 9.2)
 
 ##### 128.25.7.1 The reset classes
