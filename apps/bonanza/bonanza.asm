@@ -2361,8 +2361,9 @@ bz_crshdr:
     mov byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window - BZG1 +30
  %if BZ_PATH_NPAD
     mov byte [bz_paged], 0      ; (wave 8R, 128.22.4.3: or PAGED, bit 3, +30
-    test byte [es:di + BZG_FLAGS], BZ_GF_PAGED ; page 0's, BZC2 +44 the pages)
-    jz .npg
+    mov al, [es:di + BZG_FLAGS] ; page 0's, BZC2 +44 the pages; a register's
+    test al, BZ_GF_PAGED        ; test: tests/unit/t_bits.py cannot read the
+    jz .npg                     ; generated bzcourse.inc's values)
     inc byte [bz_paged]
     mov al, [es:BZC_NPAGES]
     mov [bz_paged + 1], al
