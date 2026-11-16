@@ -26,7 +26,7 @@
 ; DS = ours (the scratch is bz_boxbuf, 1024 bytes that nothing uses until the
 ; bracket), AX = the part's segment (ES, a selector on kern_mega: the part is
 ; read and written through it at offsets inside its length, nothing through
-; CS).  Preserves AX only.
+; CS).  Preserves AX and ES only.
 ; -----------------------------------------------------------------------------
 BG_SC       equ bz_boxbuf
 BG_RQLO     equ BZ_BG_PRE                   ; offsets from bz_boxbuf: frame 0's planes,
@@ -64,7 +64,8 @@ BG_GY       equ bz_boxbuf + BG_RGY
 
 bz_ballgen:
     push ax
-    cld
+    push es                     ; (ES back as op_fetch left it: the ball's
+    cld                         ; selector must not outlive the loop in ES)
     mov es, ax
     mov si, BZ_BG_BLK           ; the block's prefix to scratch (the phase
     mov di, BG_SC               ; table stays where it is, read through ES)
@@ -184,6 +185,7 @@ bz_ballgen:
     mov bx, BG_SC + BZ_BG_STR
     call bg_ent
 .out:
+    pop es
     pop ax
     ret
 
@@ -414,8 +416,8 @@ bg_gatq:
     mov cl, [si]
     inc si
     mov ax, bx
-    shl ax, cl
-    rcl dx, 1
+    rol ax, cl                  ; CF = old bit 16 - CL, SHL's carry, but DEFINED
+    rcl dx, 1                   ; at CL = 16 on a 286+ too (SHL's is not: kern_mega)
     dec ch
     jnz .g
     mov [ds:bp], dx

@@ -871,8 +871,19 @@ def emit_const():
 
 
 def compile_all(stored=False):
-    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 128.25.5); else BZB2, the RAM form"""
-    files = {BALL_FILES[m]: (build_ball3 if stored else build_ball2)(m) for m in range(3)}
+    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 128.25.5); else BZB2, the RAM form.
+    A material whose BZB3 the generator's model does not expand back to its BZB2 is REFUSED
+    (128.25.5: a texture V2 cannot reproduce), never shipped to be drawn wrong"""
+    files = {}
+    for m in range(3):
+        if stored:
+            st = build_ball3(m)
+            if model_ball3(st) != build_ball2(m):
+                raise SystemExit("bonanza_assets: %s: BZB3 does not expand back to BZB2 (SPEC.md 128.25.5: "
+                                 "V2 cannot reproduce this texture, and there is no V1)" % MAT_NAMES[m])
+            files[BALL_FILES[m]] = st
+        else:
+            files[BALL_FILES[m]] = build_ball2(m)
     texts = {"bzconst.inc": emit_const()}
     return files, texts
 
@@ -1248,6 +1259,10 @@ def selfcheck():
         code = bzballchk.assemble()
         results.append(("negative control: a stored ellipse row changed makes the generated part differ",
                         bzballchk.run(code, bytes(bad)) != a_files["BZBALS.BIN"]))
+        # ...and the ROUTINE broken: the frames' shift no longer wraps at 3
+        broke = bzballchk.assemble(patch=("    and byte [BG_S2], 6\n", ""))
+        results.append(("negative control: bz_ballgen with its frame shift's wrap removed differs, every material",
+                        all(bzballchk.run(broke, st3[m]) != a_files[BALL_FILES[m]] for m in range(3))))
     rs = bytearray(a_files["BZBALR.BIN"])              # one stretch frame pixel flipped
     e = B2_STROFF + ((2 * 2) + 1) * ENT                # against its mask: shift 2, parity 1,
     r = 0                                              # row 0's first KEPT slot gains a frame bit

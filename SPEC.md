@@ -272119,22 +272119,33 @@ with the cap, T 2; glass scale 16, T 21) and its base colour otherwise. The
 squash and stretch entries are an ellipse's rows (ring = pixels with a
 4-neighbour outside, glass's checker inside it) pressed from frame 0's planes;
 the shadow is its ellipse with the world checker. **Glass's shatter stays
-literal** (the owner's decision: nothing is moved to literal for size; the
-shatter is the one entry not generated, 1,100 of glass's 1,243 packed bytes).
+literal** (story 9.4's choice, NOT an owner decision: V1 above generates the
+cut with its 64-byte edge table; the shatter is the one entry not generated,
+1,100 of glass's 1,243 packed bytes, and the largest saving left). **V1 is
+not built**: in place of storing a material as V1, the tool REFUSES one whose
+`BZB3` the generator's host model (`model_ball3`) does not expand back to
+`BZB2` (`compile_all`, at every `make`). The routine preserves AX and ES (the
+ball's selector does not outlive the loop in ES: 128.14.26 item 2's #GP at
+`op_drop`'s `POP ES`) and
+takes rubber's stretch columns with `ROL` rather than `SHL` (a 16-bit `SHL`
+by 16 leaves CF undefined on a 286 or later: kern_mega).
 
 - **Proof** (`make bonanza-check`): `tools/bzballchk.py` assembles
   `bzballgen.inc` and runs it under unicorn (an emulated 8086) on the stored
   file, scratch pre-filled with junk: equal to `build_ball2`, every byte,
-  all three materials. The negative control changes one stored ellipse row
-  (the plan's edge table does not exist in this design: the ring is computed).
+  all three materials. Two negative controls: one stored ellipse row
+  changed, and the ROUTINE broken (its frame shift's wrap removed), each
+  must differ (the plan's edge-table red arm does not exist in this design:
+  the ring is computed).
 - **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 312, steel
   1,476 -> 147, glass 2,144 -> 1,243: **5,974 -> 1,702, -4,272 bytes**.
-- **Resident (MEASURED)**: `bonanza.bin` 40,207 -> 40,994 (+787: the routine
-  is 784 bytes, the call 3; bss 0 - the scratch is `bz_boxbuf`); BONANZA.O88
-  106,897 -> 103,297 (**-3,600** on the disk image, the packed balls' -4,272
-  less the code). 707 bytes was the owner's accepted figure for the
-  routine; the last 77 buy a spread table for the interleave (about -150
-  ms a ball, PRICED) and are revertible.
+- **Resident (MEASURED)**: `bonanza.bin` 40,207 -> 40,996 (+789: the routine
+  is 786 bytes, the call 3; bss 0 - the scratch is `bz_boxbuf`); BONANZA.O88
+  106,897 -> 103,313 (**-3,584** on the disk image, the packed balls' -4,272
+  less the code). 707 bytes was the figure the wave's lead accepted (the
+  +500 estimate was the lead's, not an owner limit); the 79 beyond it were
+  spent without a second decision - 77 a spread table for the interleave
+  (about -150 ms a ball, PRICED, revertible) and 2 the ES save.
 - **Seen**: MartyPC, CGA and Hercules machines, PLAYGROUND launched with
   each ball: the part in the guest after `bz_cload` equals `build_ball2`
   (Hercules: `herc_translate_ball` of it), every byte.
@@ -272144,7 +272155,11 @@ shatter is the one entry not generated, 1,100 of glass's 1,243 packed bytes).
   a ball, against the report's PREDICTED +150 ms for three (that figure was
   net of the shorter decode and disk read; the generator alone is the figure
   here). A three-ball launch is about 1.5 s of generation; a one-ball launch
-  about half a second.
+  about half a second. **OPEN (the owner, 2026-11-16): 1.5 s is too long.**
+  The target is a three-ball generation of about 0.75 s (about 1.8 M clocks,
+  priced the same way); if it is not reached the generator is kept OUT of the
+  shipped build (`BZB2` stored as before) and kept as a patch with written
+  instructions until the disk budget decides.
 #### 128.25.6 Families
 
 ##### 128.25.6.1 What a family is
