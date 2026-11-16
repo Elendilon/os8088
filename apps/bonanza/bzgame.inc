@@ -679,6 +679,12 @@ bz_latechk:
 bz_play:
     call bz_drain               ; what the launching key typed is not a command
     call bz_pinit               ; the ball at the course's start (bzphys.inc)
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; wave 8R (128.22.4.2): THE PATHWAY - the marble
+    jne .npw                    ; on its pad, the last course's event
+    call bz_pwinit              ; (bonanza.asm)
+.npw:
+%endif
     push ds
     pop es
     xor ax, ax
@@ -721,6 +727,10 @@ bz_play:
     cmp al, 1
     jb .rec
     je .play
+%if BZ_PATH_NPAD
+    cmp al, 4                   ; (the pathway's follower: no log, 128.22.4.2)
+    je .play
+%endif
     mov ax, [bz_rlog + BZR_NRUN] ; a replay (R, D): the log's runs, none read
     mov [bz_rruns], ax          ; yet, two bytes a run or three with TILT
     call bz_rwid
@@ -776,6 +786,10 @@ bz_t0:
 .live:
     cmp byte [bz_mode], 2       ; a replay's end (R, D): the frame after its
     jb .on                      ; last recorded step (SPEC.md 128.11.12.2)
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; (the pathway's play ends by its keys)
+    je .on
+%endif
     call bz_rleft
     jnz .on
 .end:
@@ -841,6 +855,13 @@ bz_t0:
 .step:
     cmp byte [bz_mode], 2       ; a replay (R, D) steps while its log lasts
     jb .stp
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; wave 8R (128.22.4.2): the PATHWAY's steps are
+    jne .rpl                    ; the FOLLOWER's (bonanza.asm), not physics
+    call bz_follow
+    jmp short .stl
+.rpl:
+%endif
     call bz_rleft
     jz .camera
 .stp:
@@ -1144,6 +1165,10 @@ bz_early:
     je .no
     cmp byte [bz_mode], 2
     jb .room
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; (the pathway's follower steps no early step)
+    je .no
+%endif
     call bz_rleft
     jz .no
 .room:
@@ -1387,6 +1412,14 @@ bz_exitchk:
     mov di, bz_kmap             ; Esc here, bz_input's six and bz_kedge's held
     call OSAPI_KEY_MAP          ; key are each one test of this copy, where
     pop di                      ; OSAPI_KEY_DOWN was a far call a key
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; wave 8R (128.22.4.4): THE PATHWAY's keys are
+    jne .npw                    ; TYPED ones too, those held from a course no
+    call bz_pwheld              ; press (bonanza.asm); CF: its play ends
+    jc .leave
+    jmp short .drain
+.npw:
+%endif
 %if BZ_TITLE
     cmp byte [bz_tmode], 0      ; (the title's keys are TYPED ones: an Esc
     jne .drain                  ; still held from a course demo is no leave)
@@ -1403,20 +1436,18 @@ bz_exitchk:
     cmp byte [bz_tmode], 0      ; SPEC.md 128.23.4: THE TITLE'S KEYS
     jne .title
 %endif
-    cmp al, 27
-    je .leave
-%if BZ_PATH_N
-    cmp al, ' '                 ; wave 8R (128.22.6): Space on the PATHWAY shows
-    jne .nsp                    ; the INFO card (the prototype's: node 0's course
-    cmp byte [bz_crs], BZ_CRS_PATH ; until the pad loop names the pad's) - not
-    jne .nsp                    ; over the pause card, whose wait reads keys
-    cmp byte [bz_inpause], 0    ; here too and would leave the info card up
-    jne .nsp                    ; as the pause went on
-    mov al, [bz_path_crs]
-    call bz_kinfow
-    jmp .drain
+%if BZ_PATH_NPAD
+    cmp byte [bz_mode], 4       ; wave 8R (128.22.4.4): at a pad the arrows, Enter,
+    jne .nsp                    ; Space (the INFO card, 128.22.6) and Esc
+    cmp byte [bz_inpause], 0    ; (bonanza.asm bz_pwkey) - not over the pause
+    jne .nsp                    ; card, whose wait reads keys here too
+    call bz_pwkey               ; (CF: the play ends; ZF: the key was its own)
+    jc .leave
+    je .drain
 .nsp:
 %endif
+    cmp al, 27
+    je .leave
     cmp ah, BZ_KSC_P            ; P and Backspace TYPED: their presses, for
     jne .bk                     ; bz_kedge (a byte, not an OSAPI_KEY_DOWN a
     mov byte [bz_ptyp], 1       ; frame: SPEC.md 128.14.12)
@@ -1488,7 +1519,7 @@ bz_exitchk:
 bz_gcourse:
     cmp byte [bz_ingame], 0
     je .no
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp byte [bz_crs], BZ_CRS_PATH
     je .no
 %endif

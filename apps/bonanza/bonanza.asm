@@ -282,7 +282,7 @@ bz_onkey:
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
     mov byte [bz_page], 0       ; MAIN and returns the face to it (SPEC.md
     mov [bz_pgo], cl            ; 128.14.3.2): repainted whole at .done
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp ax, KEY_ALTENTER
     je .game
     cmp al, 13
@@ -300,7 +300,7 @@ bz_onkey:
     je .play
     call bz_intour              ; A TOUR withholds every key that would replace
     jc .tour                    ; its state or its log (128.14.3.4)
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp al, '1'                 ; wave 8c (128.19.8.3): 1 2 3 the SLOT, E its
     jb .ns                      ; MODE, X twice ERASES it
     cmp al, '3'
@@ -404,7 +404,7 @@ bz_onkey:
     jnc .free                   ; course
     call bz_tgo
     jmp short .done
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
 .game:                          ; Enter, Alt+Enter: THE GAME (wave 8b,
     call bz_intour              ; 128.19.5) - in a tour, its next course
     jc .play
@@ -667,7 +667,7 @@ bz_launch:
 bz_cload:
     mov al, [bz_crs]            ; course K's row: BZ_P_CRS + K (bzcourse.inc)
     add al, BZ_P_CRS
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp byte [bz_crs], BZ_CRS_PATH ; ...the pathway's its own (128.19.5)
     jne .row
     mov al, BZ_P_PATH
@@ -680,7 +680,7 @@ bz_cload:
 .rowt:
 %endif
     mov [bz_pc], al
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     mov byte [bz_phre], 0       ; the pathway HELD (128.22.7): its part is here,
     cmp al, BZ_P_PATH           ; expanded and translated already - no fetch,
     jne .nh                     ; no expand, no translation of the part
@@ -694,7 +694,7 @@ bz_cload:
     mov al, [bz_pc]             ; (each fetch's segment stored before the next
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp byte [bz_phre], 0
     jne .exd
     cmp byte [bz_pc], BZ_P_PATH ; a pathway fetched now is HELD while it is
@@ -707,7 +707,7 @@ bz_cload:
     call bz_cexp                ; the STORED form expanded in place, ONCE: this
                                 ; fetch decoded, every exit below dropping the
                                 ; part (SPEC.md 128.15.4.5)
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
 .exd:
 %endif
     push es                     ; THE BALLS (wave 4, SPEC.md 128.14.4.4): the
@@ -782,7 +782,7 @@ bz_cload:
     stc
     ret
 
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
 ; the pathway's part, HELD (128.22.7): bz_phrel's test is the heap's largest
 ; claim against the largest course's, bzcourse.inc's BZ_CRS_MAXCLAIM (the
 ; tool's, 128.22.3): a pad's course's part, balls, song and sound part, each
@@ -849,7 +849,7 @@ bz_game8:
 
 ; bz_gslot - THE SLOT's game (save v3, 128.22.5) into memory: its game when
 ; it has lives, else a NEW one in it; the pad, the pads open and done, the
-; routes; its MODE and the goal gate.  Preserves all but AX and SI.
+; routes; its MODE; no event pending (bz_pwev).  Preserves all but AX and SI.
 bz_gslot:
     call bz_dslot               ; THE SLOT (save v3, 128.22.5): its game when
     mov al, [si]                ; it has lives ...
@@ -860,14 +860,10 @@ bz_gslot:
 .on:
     mov [bz_lives], al
     call bz_gload               ; the pad, the pads open and done, the routes
-    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE opens
-    and al, 1                   ; every node to the goal's gate
+    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE rests
+    and al, 1                   ; on any pad (bz_proute)
     mov [bz_xmode], al
-    mov ax, [bz_nopen]
-    jz .tm
-    mov ax, 0ffffh
-.tm:
-    mov [bz_gmask], ax
+    mov byte [bz_pwev], 0
     ret
 
 ; bz_gstore - the game's state into the slot played (128.22.5): AL lives
@@ -979,20 +975,34 @@ bz_dwtst:
     pop ax
     ret
 
-; bz_medal - node BX's DONE pose (8c.3, 128.19.8.3): DL = 4 GOLD (the slot's
-; best for its course at or under G), 3 SILVER (at or under S), 2 else.
-; Preserves all but DX.
+; =============================================================================
+; THE PATHWAY (wave 8R, SPEC.md 128.22.4): its tables (the part's, at BZC2
+; +42, 128.22.3, read through bz_ptho / bz_ptro / bz_ptko), the signs' poses,
+; the FOLLOWER (bz_mode 4, bz_follow) and the rounds (bz_grounds).
+; =============================================================================
+BZ_PW_REST  equ 0               ; bz_pwst: RESTING on bz_ppad
+BZ_PW_ROLL  equ 1               ; ...ROLLING route bz_pwrt (the follower)
+BZ_PW_GATE  equ 2               ; ...a GATE opening (poses 1 - 5), then the roll
+BZ_PW_OVER  equ 3               ; ...the GAME OVER effect sounding, then its card
+BZ_PE_FIN   equ 1               ; bz_pwev: the course FINISHED, by exit bz_pwex
+BZ_PE_LIFE  equ 2               ; ...a life lost (a timeout, an Esc, a retry)
+BZ_PE_OVER  equ 3               ; ...the last one
+BZ_PW_GSTEP equ 6               ; steps a gate pose: 1 - 5, the roll after 30 (0.55 s)
+BZ_PW_OSTEP equ 96              ; the GAME OVER effect's steps (82 sub-ticks) before its card
+
+; bz_medal - course BL's DONE pose (8c.3, 128.19.8.3; a pad's sign, 128.22.2):
+; DL = 3 GOLD (the slot's best for it at or under G), 2 SILVER (at or under
+; S), 1 else.  Preserves all but DX.
 bz_medal:
     push ax
     push bx
     push si
-    mov bl, [bz_path_crs + bx]  ; its course K
     xor bh, bh
     shl bx, 1
     call bz_dslot
     mov ax, [si + bx + BZD_SBEST]
     shl bx, 1
-    mov dl, 2
+    mov dl, 1
     or ax, ax
     jz .o
     cmp ax, [bz_cmedals + bx + 2] ; S
@@ -1007,32 +1017,921 @@ bz_medal:
     pop ax
     ret
 
-; the pathway made the course: its node signs' poses from the game's state,
-; its ball, a play - and fetched.  CF = 1 refused.
+; bz_gpath - the PATHWAY entered (128.22.4.4 item 1): fetched unless HELD
+; (bz_phfetch), the follower's mode, its tables read and every sign posed
+; from the slot (bz_ppose).  CF = 1 refused.  Preserves nothing.
 bz_gpath:
-    xor bx, bx                  ; bz_nst: 2 done (3 silver, 4 gold), 1 open,
-.n:                             ; 0 locked
-    mov cx, bx
-    mov ax, 1
-    shl ax, cl
-    test ax, [bz_ndone]
-    jz .nd
-    call bz_medal               ; DL = 2, 3 or 4 (8c.3)
-    jmp short .w
-.nd:
-    mov dl, 1
-    test ax, [bz_gmask]         ; (EXPLORE: every node open)
-    jnz .w
-    dec dx
-.w:
+    call bz_phfetch
+    jc .out
+    mov byte [bz_mode], 4
+    call bz_ppose
+    clc
+.out:
+    ret
+
+; bz_ppose - the pathway's tables' offsets (bz_ptho the tables, bz_ptro the
+; ROUTES, bz_ptko the KEYS) and every SIGN's pose from the slot, into bz_nst
+; directly (bz_play's bz_pread then marks every lane): a pad's and its icon's
+; (bz_ppad1), a gate's 5 if its route is open (bz_proute: EXPLORE's every route
+; that is not secret) else 0, a reveal group's 1 if its route was TAKEN else 0.
+; [bz_cseg] the pathway.  Preserves nothing.
+bz_ppose:
+    push es
+    mov es, [bz_cseg]
+    mov di, [es:BZC_PTHOFF]
+    mov [bz_ptho], di
+    mov al, [es:di]             ; npad PADS of 10 bytes from +4 ...
+    mov ah, BZ_PTH_PADREC
+    mul ah
+    add ax, di
+    add ax, 4
+    mov [bz_ptro], ax
+    mov si, ax
+    mov al, [es:di + 1]         ; ...then nroute ROUTES of 8, then the KEYS
+    mov ah, BZ_PTH_ROUTEREC
+    mul ah
+    add ax, si
+    mov [bz_ptko], ax
+    xor cx, cx                  ; CL = the pad
+.pad:
+    cmp cl, [es:di]
+    jae .rts
+    mov al, cl
+    call bz_ppad1               ; DL its sign's pose, DH its icon's, SI its record
+    mov bl, [es:si + 1]
+    xor bh, bh
     mov [bz_nst + bx], dl
+    mov bl, [es:si + 2]
+    cmp bl, 0ffh
+    je .ni
+    mov [bz_nst + bx], dh
+.ni:
+    inc cx
+    jmp short .pad
+.rts:
+    xor cx, cx                  ; CL = the route
+.rt:
+    cmp cl, [es:di + 1]
+    jae .out
+    mov al, cl
+    call bz_proute              ; SI = its record; ZF = 0 open
+    mov dl, 0
+    jz .g
+    mov dl, BZ_GATE_POSES - 1
+.g:
+    mov bl, [es:si + 4]         ; its gate (FFh: a secret route has none)
+    cmp bl, 0ffh
+    je .ng
+    xor bh, bh
+    mov [bz_nst + bx], dl
+.ng:
+    push si
+    mov si, bz_nrtk
+    call bz_dwtst               ; ZF = 0 TAKEN
+    pop si
+    mov dl, 0
+    jz .rv
+    inc dx
+.rv:
+    xor ah, ah
+    call bz_preveal             ; (direct)
+    inc cx
+    jmp short .rt
+.out:
+    pop es
+    ret
+
+; bz_ppadr - pad AL's record (ES = the pathway) -> SI.  Preserves all else.
+bz_ppadr:
+    push ax
+    mov ah, BZ_PTH_PADREC
+    mul ah
+    add ax, [bz_ptho]
+    add ax, 4
+    xchg ax, si
+    pop ax
+    ret
+
+; bz_ppad1 - pad AL's poses from the slot (ES = the pathway) -> SI its record,
+; DL its sign's: 0 OPEN, 1 + the medal once DONE (bz_medal); a HIDDEN pad's
+; 0 (the bare picture) until a secret route at it is TAKEN (bz_psecr), then
+; 1 + that; the VISIBLE END of a secret route's + 4 once it is taken (the
+; route drawn in its lane) - and DH its icon's rest pose: 0, or 1 on a hidden
+; pad shown (its icon's poses one more, 128.22.3).  Preserves all else.
+bz_ppad1:
+    push ax
+    push bx
+    call bz_ppadr
+    xor dx, dx
+    push si
+    mov si, bz_ndone
+    call bz_dwtst
+    pop si
+    jz .nd
+    mov bl, [es:si]             ; its course: the medal
+    call bz_medal
+.nd:
+    mov ah, [es:si + 3]
+    test ah, 0c0h               ; hidden, or the visible end of a secret route
+    jz .o
+    call bz_psecr               ; ZF = 0: a secret route at pad AL TAKEN
+    jz .nt
+    test ah, 80h
+    jz .ve
+    inc dx                      ; HIDDEN, shown: 1 + p, its icon 1 + its frame
+    inc dh
+    jmp short .o
+.ve:
+    add dl, 4                   ; the VISIBLE END: 4 + p
+    jmp short .o
+.nt:
+    test ah, 80h                ; hidden, not found: the bare picture
+    jz .o
+    xor dl, dl
+.o:
+    pop bx
+    pop ax
+    ret
+
+; bz_psecr - ZF = 0 when a SECRET route with pad AL at either end is TAKEN
+; (bz_nrtk).  ES = the pathway.  Preserves all.
+bz_psecr:
+    push bx
+    push cx
+    push si
+    mov bx, [bz_ptho]
+    mov si, [bz_ptro]
+    xor cx, cx
+.r:
+    cmp cl, [es:bx + 1]
+    jae .no
+    test byte [es:si + 3], 1
+    jz .n
+    cmp [es:si], al
+    je .y
+    cmp [es:si + 1], al
+    jne .n
+.y:
+    push ax
+    push si
+    mov al, cl
+    mov si, bz_nrtk
+    call bz_dwtst
+    pop si
+    pop ax
+    jnz .out
+.n:
+    add si, BZ_PTH_ROUTEREC
+    inc cx
+    jmp short .r
+.no:
+    cmp al, al                  ; ZF = 1
+.out:
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; bz_proute - route AL's record (ES = the pathway) -> SI, and ZF = 0 when it
+; is OPEN (bz_nrop) - or, in EXPLORE, not secret (exploration rests on any
+; pad: every gate is open but a secret one's, which only its exit opens).
+; Preserves all else.
+bz_proute:
+    push ax
+    push bx
+    mov bl, al
+    mov ah, BZ_PTH_ROUTEREC
+    mul ah
+    add ax, [bz_ptro]
+    xchg ax, si
+    mov al, bl
+    push si
+    mov si, bz_nrop
+    call bz_dwtst
+    pop si
+    jnz .out
+    cmp byte [bz_xmode], 0
+    je .out                     ; (ZF = 1: closed)
+    mov al, [es:si + 3]
+    and al, 1
+    xor al, 1                   ; ZF = 0: not secret
+.out:
+    pop bx
+    pop ax
+    ret
+
+; bz_preveal - route SI's REVEAL groups (ES = the pathway) all to pose DL: AH =
+; 0 into bz_nst directly, else through bz_nset (marked).  Preserves all.
+bz_preveal:
+    push ax
+    push bx
+    push cx
+    push di
+    mov bl, [es:si + 5]         ; the first group's sign (FFh none: the groups'
+    cmp bl, 0ffh                ; signs are consecutive)
+    je .out
+    xor bh, bh
+    mov di, [bz_ptho]
+    add di, [es:si + 6]
+    mov cl, [es:di + 1]         ; (POINTS +1: the groups)
+    xor ch, ch
+    jcxz .out
+.g:
+    mov al, dl
+    or ah, ah
+    jz .d
+    call bz_nset
+    jmp short .n
+.d:
+    mov [bz_nst + bx], al
+.n:
     inc bx
-    cmp bx, BZ_PATH_N
-    jb .n
-; bz_phfetch - the PATHWAY entered (128.22.7): its ball, a play, and its part
-; fetched unless it is HELD ([bz_phold]: bz_cload then does no fetch, no expand
-; and no translation of the part, only the balls and the song and the header).
-; CF = 1 refused.  Preserves nothing.
+    loop .g
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; bz_pnset - pad AL's sign and icon to their poses (bz_ppad1), marked
+; (bz_nset).  ES = the pathway.  Preserves all but DX.
+bz_pnset:
+    push ax
+    push bx
+    push si
+    call bz_ppad1
+    mov al, dl
+    mov bl, [es:si + 1]
+    call bz_nset
+    mov bl, [es:si + 2]
+    cmp bl, 0ffh
+    je .o
+    mov al, dh
+    call bz_nset
+.o:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_pwinit - the PATHWAY's play begins (bz_play, bz_mode 4, after bz_pinit):
+; the marble on bz_ppad's cell (bz_placeat: its centre on its floor,
+; grounded) and the event the last course left (bz_pwev, 128.22.4.4 item 1):
+; a LIFE lost - its sound; the GAME OVER - its sound, waited for (BZ_PW_OVER),
+; then the card; a FINISH by exit bz_pwex - route (pad, exit) OPENED if it was
+; closed (TIMED: EXPLORE unlocks nothing), its gate then playing 1 - 5 with
+; the GATE sound (BZ_PW_GATE), and the marble AUTO-ROLLS it; else it RESTS.
+; The arrows, Enter, Esc and Space held from the course are no press
+; (bz_pwek).  The lanes are not read yet (bz_pread follows): poses go into
+; bz_nst.  [bz_cseg] the pathway, bz_ppose run.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_pwinit:
+    xor ax, ax
+    mov [bz_pwq], al
+    mov [bz_pwng], al
+    mov byte [bz_pwek], 0ffh
+    mov byte [bz_pwis], 0ffh
+    mov es, [bz_cseg]
+    mov al, [bz_ppad]           ; (the slot's pad: bz_dslots judged it one of
+    mov si, [bz_ptho]           ; the pathway's; kept in range here all the same)
+    cmp al, [es:si]
+    jb .pad
+    xor al, al
+    mov [bz_ppad], al
+.pad:
+    call bz_ppadr
+    mov ax, [es:si + 4]         ; its cell: (gx >> 4, gy >> 4)
+    mov dx, [es:si + 6]
+    mov cl, 4
+    shr ax, cl
+    shr dx, cl
+    mov ah, dl
+    call bz_placeat
+    call bz_derive
+    call bz_derive              ; (twice: no velocity)
+    xor ax, ax
+    mov [bz_vx], ax
+    mov [bz_vy], ax
+    mov es, [bz_cseg]
+    xor al, al
+    xchg al, [bz_pwev]
+    cmp al, BZ_PE_LIFE
+    je .life
+    cmp al, BZ_PE_OVER
+    je .over
+    cmp al, BZ_PE_FIN
+    jne bz_pwrest
+    mov bx, [bz_ptho]           ; A FINISH: the route keyed by (pad, exit)
+    mov si, [bz_ptro]
+    xor cx, cx
+.f:
+    cmp cl, [es:bx + 1]
+    jae bz_pwrest               ; (none: the pad's course has no route there)
+    mov al, [es:si]
+    cmp al, [bz_ppad]
+    jne .fn
+    mov al, [es:si + 2]
+    cmp al, [bz_pwex]
+    je .fr
+.fn:
+    add si, BZ_PTH_ROUTEREC
+    inc cx
+    jmp short .f
+.fr:
+    mov al, cl
+    call bz_proute              ; ZF = 0 open already: it rolls
+    jnz .roll
+    cmp byte [bz_xmode], 0      ; (EXPLORE: a closed route stays closed)
+    jne bz_pwrest
+    push si
+    mov si, bz_nrop
+    call bz_dwset               ; OPENED (the slot's +12, 128.22.5)
+    pop si
+    mov bl, [es:si + 4]         ; its GATE opens first (a secret route has
+    cmp bl, 0ffh                ; none: it rolls at once)
+    je .roll
+    mov [bz_pwrt], cl
+    mov [bz_pwgs], bl
+    xor bh, bh
+    mov byte [bz_nst + bx], 1
+    mov byte [bz_pwst], BZ_PW_GATE
+    mov word [bz_pwcn], 0
+    mov al, BZS_EV_GATE
+    jmp bzs_ev
+.roll:
+    mov al, cl                  ; A to B (the pad is its A)
+    xor ah, ah
+    jmp bz_pwdep
+.over:
+    mov byte [bz_pwst], BZ_PW_OVER
+    mov word [bz_pwcn], BZ_PW_OSTEP
+    mov al, BZS_EV_OVER         ; (sound's: OVER while the sound is open, before
+    jmp bzs_ev                  ; bz_kover, whose wait steps none)
+.life:
+    mov al, BZS_EV_LIFE
+    call bzs_ev
+; bz_pwrest - RESTING on bz_ppad (128.22.4.4 item 2): its icon's animation's
+; state - the sign, its rest pose (bz_ppad1's DH), the frame 0, the interval
+; (PAD +9 steps; FFh in bz_pwis: none, under two frames).  ES = the pathway.
+; Preserves nothing.
+bz_pwrest:
+    mov byte [bz_pwst], BZ_PW_REST
+    mov byte [bz_pwis], 0ffh
+    mov al, [bz_ppad]
+    call bz_ppad1
+    mov al, [es:si + 2]
+    cmp al, 0ffh
+    je .out
+    cmp byte [es:si + 8], 2
+    jb .out
+    mov ah, [es:si + 9]
+    or ah, ah
+    jz .out
+    mov [bz_pwis], al
+    mov [bz_pwib], dh
+    mov byte [bz_pwic], 0
+    mov [bz_pwcn], ah
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_pwdep - the marble DEPARTS on route AL (AH = 1 travelled B to A; ES = the
+; pathway): the resting pad's icon back to its rest pose, the destination, its
+; POINTS walked from the end it leaves (bz_pwp, bz_pwpd), the route's length L
+; and the first segment's, s = 0 and v = 0 (128.22.4.2); a SECRET route's
+; reveal groups to come (A to B: as s passes each) or all shown at once
+; (B to A).  ROLLING, and the arrows must go up before the next press.
+; Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_pwdep:
+    push ax
+    mov bl, [bz_pwis]           ; the icon at its rest pose (frame 0)
+    cmp bl, 0ffh
+    je .ni
+    mov al, [bz_pwib]
+    call bz_nset
+    mov byte [bz_pwis], 0ffh
+.ni:
+    pop ax
+    mov [bz_pwrt], al
+    mov [bz_pwrv], ah
+    call bz_proute              ; SI = its record
+    mov bl, [es:si + 1]         ; to B, or to A backwards
+    or ah, ah
+    jz .b
+    mov bl, [es:si]
+.b:
+    mov [bz_pwdst], bl
+    mov di, [bz_ptho]
+    add di, [es:si + 6]         ; DI = its POINTS
+    mov cl, [es:di]             ; CX = their count
+    xor ch, ch
+    mov byte [bz_pwng], 0
+    test byte [es:si + 3], 1    ; a SECRET route's reveal groups
+    jz .nr
+    mov bl, [es:si + 5]
+    cmp bl, 0ffh
+    je .nr
+    or ah, ah
+    jz .fwd
+    mov dl, 1                   ; (B to A: all at once; AH = 1, marked)
+    call bz_preveal
+    jmp short .nr
+.fwd:
+    mov [bz_pwrs], bl           ; (A to B: each as s passes its distance)
+    mov al, [es:di + 1]
+    mov [bz_pwng], al
+    mov byte [bz_pwrg], 0
+    mov al, 6
+    mul cl
+    add ax, di
+    inc ax
+    inc ax
+    mov [bz_pwro], ax
+.nr:
+    mov al, 6
+    mul cl
+    lea bx, [di + 2]            ; BX = the first point walked, DX its step
+    mov dx, 6
+    cmp byte [bz_pwrv], 0
+    je .fw
+    add bx, ax
+    sub bx, dx
+    neg dx
+.fw:
+    mov [bz_pwp], bx
+    mov [bz_pwpd], dx
+    mov si, bx
+    dec cx                      ; CX = the segments (at least one)
+    mov al, cl
+    dec ax
+    mov [bz_pwnl], al           ; ...after the first
+    xor bx, bx                  ; BX = L
+.sum:
+    call bz_pwseg
+    add bx, ax
+    add si, [bz_pwpd]
+    loop .sum
+    mov [bz_pwL], bx
+    mov si, [bz_pwp]
+    call bz_pwseg
+    mov [bz_pwln], ax
+    xor ax, ax
+    mov [bz_pws], ax
+    mov [bz_pws + 2], ax
+    mov [bz_pwv], ax
+    mov [bz_pwdk], ax
+    mov byte [bz_pwst], BZ_PW_ROLL
+    mov byte [bz_pwek], 0ffh    ; (a press moves one route: up first)
+    ret
+
+; bz_pwseg - the segment from point SI (ES = the pathway) to the next walked
+; (SI + [bz_pwpd]) -> AX = its length, max(|dgx|, |dgy|) ground px.
+; Preserves all else.
+bz_pwseg:
+    push dx
+    push di
+    mov di, si
+    add di, [bz_pwpd]
+    mov ax, [es:di]
+    sub ax, [es:si]
+    jns .x
+    neg ax
+.x:
+    mov dx, [es:di + 2]
+    sub dx, [es:si + 2]
+    jns .y
+    neg dx
+.y:
+    cmp ax, dx
+    jae .o
+    xchg ax, dx
+.o:
+    pop di
+    pop dx
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_follow - a STEP of the pathway's play (wave 8R, SPEC.md 128.22.4.2: the
+; frame loop's in bz_step's place in bz_mode 4).  ROLLING, the FOLLOWER
+; (bz_pwroll); RESTING, the pad's icon to its next frame every interval steps
+; (frames 1 - K-1 in a loop, bz_nset); a GATE opening, its next pose every
+; BZ_PW_GSTEP steps and then the roll; the GAME OVER, its wait and the play's
+; end (bz_pwq 'o').  bz_nstep counts the steps.  Preserves CX and ES.
+; -----------------------------------------------------------------------------
+bz_follow:
+    push cx
+    push es
+    mov es, [bz_cseg]
+    add word [bz_nstep], 1
+    adc word [bz_nstep + 2], 0
+    mov al, [bz_pwst]
+    cmp al, BZ_PW_ROLL
+    je .roll
+    cmp al, BZ_PW_GATE
+    je .gate
+    cmp al, BZ_PW_OVER
+    je .over
+    mov bl, [bz_pwis]           ; RESTING: the icon
+    cmp bl, 0ffh
+    je .out
+    dec byte [bz_pwcn]
+    jnz .out
+    mov al, [bz_ppad]
+    call bz_ppadr
+    mov al, [es:si + 9]
+    mov [bz_pwcn], al
+    mov al, [bz_pwic]
+    inc ax
+    cmp al, [es:si + 8]
+    jb .if
+    mov al, 1
+.if:
+    mov [bz_pwic], al
+    add al, [bz_pwib]
+    call bz_nset
+    jmp short .out
+.over:
+    dec word [bz_pwcn]
+    jnz .out
+    mov byte [bz_pwq], 'o'
+    jmp short .out
+.gate:
+    inc word [bz_pwcn]
+    mov ax, [bz_pwcn]
+    mov bl, BZ_PW_GSTEP
+    div bl
+    or ah, ah
+    jnz .out
+    inc ax                      ; AL = the pose: 2 - 5, then the roll
+    cmp al, BZ_GATE_POSES - 1
+    ja .go
+    mov bl, [bz_pwgs]
+    call bz_nset
+    jmp short .out
+.go:
+    mov al, [bz_pwrt]
+    xor ah, ah
+    call bz_pwdep
+    jmp short .out
+.roll:
+    call bz_pwroll
+.out:
+    pop es
+    pop cx
+    ret
+
+; bz_pwroll - THE FOLLOWER's step, bbcourse.Follow's exactly: s a dword of
+; 1/256 ground px, v a word of 1/256 a step; left = 256 L - s, D = v v div
+; (2 FOL_ACC): BRAKING (v - FOL_ACC, not under FOL_VMIN) when left <= D, else
+; v + FOL_ACC up to FOL_VMAX; s += v, at 256 L ARRIVED; the segment holding s
+; (bz_pwdk its start, bz_pwln its length) and the position on it (bz_pwpos);
+; a secret route's next reveal group as s passes its distance; ARRIVING,
+; bz_pwarr.  ES = the pathway.  Preserves nothing.
+bz_pwroll:
+    mov ax, [bz_pwL]            ; DX:AX = 256 L
+    call bz_pw256
+    sub ax, [bz_pws]
+    sbb dx, [bz_pws + 2]
+    mov bx, ax
+    mov cx, dx                  ; CX:BX = left
+    mov ax, [bz_pwv]
+    mul ax
+    mov si, 2 * BZ_FOL_ACC
+    div si                      ; AX = D (at most 1,536)
+    mov dx, [bz_pwv]
+    jcxz .lo
+    jmp short .acc
+.lo:
+    cmp bx, ax
+    ja .acc
+    sub dx, BZ_FOL_ACC          ; braking
+    cmp dx, BZ_FOL_VMIN
+    jge .v
+    mov dx, BZ_FOL_VMIN
+    jmp short .v
+.acc:
+    add dx, BZ_FOL_ACC
+    cmp dx, BZ_FOL_VMAX
+    jle .v
+    mov dx, BZ_FOL_VMAX
+.v:
+    mov [bz_pwv], dx
+    add [bz_pws], dx
+    adc word [bz_pws + 2], 0
+    mov byte [bz_pwar], 0
+    mov ax, [bz_pwL]
+    call bz_pw256
+    cmp [bz_pws + 2], dx
+    jb .adv
+    ja .arr
+    cmp [bz_pws], ax
+    jb .adv
+.arr:
+    mov [bz_pws], ax            ; on B's cell exactly
+    mov [bz_pws + 2], dx
+    inc byte [bz_pwar]
+.adv:
+    cmp byte [bz_pwnl], 0       ; the segment holding s (the last at 256 L)
+    je .pos
+    mov ax, [bz_pwdk]
+    add ax, [bz_pwln]
+    call bz_pw256
+    cmp [bz_pws + 2], dx
+    jb .pos
+    ja .nx
+    cmp [bz_pws], ax
+    jb .pos
+.nx:
+    mov ax, [bz_pwln]
+    add [bz_pwdk], ax
+    mov si, [bz_pwp]
+    add si, [bz_pwpd]
+    mov [bz_pwp], si
+    call bz_pwseg
+    mov [bz_pwln], ax
+    dec byte [bz_pwnl]
+    jmp short .adv
+.pos:
+    call bz_pwpos
+    mov al, [bz_pwrg]           ; a secret route's next REVEAL group, as s
+    cmp al, [bz_pwng]           ; passes its distance (128.22.2)
+    jae .nrv
+    xor ah, ah
+    shl ax, 1
+    mov si, [bz_pwro]
+    add si, ax
+    mov ax, [es:si]
+    cmp ax, [bz_pws + 1]        ; (s's whole px: s < 2^24)
+    ja .nrv
+    mov bl, [bz_pwrs]
+    add bl, [bz_pwrg]
+    mov al, 1
+    call bz_nset
+    inc byte [bz_pwrg]
+.nrv:
+    cmp byte [bz_pwar], 0
+    jne bz_pwarr
+    ret
+
+; AX -> DX:AX = 256 AX (unsigned).  Preserves all else.
+bz_pw256:
+    mov dl, ah
+    xor dh, dh
+    mov ah, al
+    xor al, al
+    ret
+
+; bz_pwpos - the follower's POSITION at s (128.22.4.2): t = s - 256 D_k on the
+; segment from point P_k (bz_pwp) to the next walked, (sx, sy) its step's
+; signs: bz_gx = 256 gx_k + sx t, bz_gy = 256 gy_k + sy t, bz_gz = 256 gz_k +
+; ((gz_(k+1) - gz_k) t) idiv len_k, truncated toward zero; grounded, the
+; screen state derived (bz_derive).  ES = the pathway.  Preserves nothing.
+bz_pwpos:
+    mov ax, [bz_pwdk]
+    call bz_pw256
+    mov cx, [bz_pws]
+    mov bx, [bz_pws + 2]
+    sub cx, ax
+    sbb bx, dx                  ; BX:CX = t
+    mov si, [bz_pwp]
+    mov di, si
+    add di, [bz_pwpd]
+    mov ax, [es:si]
+    mov dx, [es:di]
+    call bz_pwax
+    mov [bz_gx], ax
+    mov [bz_gx + 2], dx
+    mov ax, [es:si + 2]
+    mov dx, [es:di + 2]
+    call bz_pwax
+    mov [bz_gy], ax
+    mov [bz_gy + 2], dx
+    mov ax, [es:si + 4]         ; gz_k, whole px (signed) ...
+    mov bp, [es:di + 4]
+    sub bp, ax                  ; ...BP = dz
+    push ax
+    xor ax, ax                  ; (a level segment: q = 0)
+    or bp, bp
+    jz .q
+    mov ax, bp
+    jns .zp
+    neg ax
+.zp:
+    push ax
+    mul cx                      ; |dz| t, t = BX:CX
+    xchg ax, si                 ; (SI the low word, DI the high)
+    mov di, dx
+    pop ax
+    mul bx
+    add ax, di
+    xchg ax, dx
+    xchg ax, si                 ; DX:AX = |dz| t
+    div word [bz_pwln]          ; AX = q
+.q:
+    xchg ax, cx                 ; CX = q
+    pop ax                      ; DX:AX = gz_k << 8, signed
+    mov dl, ah
+    mov ah, al
+    xor al, al
+    xchg ax, dx
+    cbw
+    xchg ax, dx
+    or bp, bp
+    js .zn
+    add ax, cx
+    adc dx, 0
+    jmp short .zw
+.zn:
+    sub ax, cx
+    sbb dx, 0
+.zw:
+    mov [bz_gz], ax
+    mov [bz_gz + 2], dx
+    jmp bz_derive
+
+; AX = a, DX = b (ground px), BX:CX = t -> DX:AX = 256 a + sgn(b - a) t.
+; Preserves all else.
+bz_pwax:
+    push bp
+    mov bp, dx
+    sub bp, ax
+    call bz_pw256
+    or bp, bp
+    jz .r
+    js .n
+    add ax, cx
+    adc dx, bx
+    jmp short .r
+.n:
+    sub ax, cx
+    sbb dx, bx
+.r:
+    pop bp
+    ret
+
+; bz_pwarr - the marble ARRIVES on bz_pwdst (128.22.4.2): the route TAKEN
+; (where it is opened: an EXPLORE roll on a route never opened takes none),
+; the pad its rest (bz_ppad: the slot's +2, written when the bracket ends) and,
+; TIMED, OPEN; a secret route's reveal groups all shown and its two ends
+; posed (the hidden pad shown, the visible end with the route); the PAD
+; sound; RESTING, its icon to start.  ES = the pathway.  Preserves nothing.
+bz_pwarr:
+    mov al, [bz_pwrt]
+    mov si, bz_nrop
+    call bz_dwtst
+    jz .nt
+    mov si, bz_nrtk
+    call bz_dwset
+.nt:
+    mov al, [bz_pwdst]
+    mov [bz_ppad], al
+    cmp byte [bz_xmode], 0
+    jne .x
+    mov si, bz_nopen
+    call bz_dwset
+.x:
+    mov al, [bz_pwrt]
+    call bz_proute
+    test byte [es:si + 3], 1
+    jz .ns
+    mov dl, 1
+    mov ah, 1
+    call bz_preveal
+    mov al, [es:si]
+    call bz_pnset
+    mov al, [es:si + 1]
+    call bz_pnset
+.ns:
+    mov al, BZS_EV_PAD
+    call bzs_ev
+    jmp bz_pwrest
+
+; -----------------------------------------------------------------------------
+; bz_pwheld - a frame of the pathway's play (bz_exitchk, after the key map):
+; CF = 1 its end (bz_pwq: Enter's course, the game over's card); the HELD
+; guard (bz_pwek) let go once Enter, Esc, Space and every arrow are up.
+; Preserves all but the flags.
+; -----------------------------------------------------------------------------
+bz_pwheld:
+    cmp byte [bz_pwq], 0
+    jne .lv
+    cmp byte [bz_pwek], 0
+    je .ok
+    KEYMAP_TEST bz_kmap, KSC_ENTER
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_ESC
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_SPACE
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_UP
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_DOWN
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_LEFT
+    jnz .ok
+    KEYMAP_TEST bz_kmap, KSC_RIGHT
+    jnz .ok
+    mov byte [bz_pwek], 0
+.ok:
+    clc
+    ret
+.lv:
+    stc
+    ret
+
+; bz_pwkey - a TYPED key on the pathway (bz_exitchk, bz_mode 4; AL its
+; character, AH its make code): ZF = 1 the pathway's own (taken), CF = 1 the
+; play ends.  Only RESTING, and none held from before (bz_pwek): an ARROW whose
+; route (the pad's KEYS, 128.22.4.5) is OPEN rolls it (bz_pwdep); Enter plays
+; the pad's course (bz_pwck, bz_pwq 13); Space shows its INFO card (bz_kinfow,
+; 128.22.6); Esc leaves (bz_pwq 27: the title).  Clobbers AX, BX, CX, DX, SI,
+; DI.
+bz_pwkey:
+    cmp al, 13
+    je .k
+    cmp al, 27
+    je .k
+    cmp al, ' '
+    je .k
+    xor bl, bl                  ; BL = the arrow: Up, Down, Left, Right
+    cmp ah, KSC_UP
+    je .k
+    inc bx
+    cmp ah, KSC_DOWN
+    je .k
+    inc bx
+    cmp ah, KSC_LEFT
+    je .k
+    inc bx
+    cmp ah, KSC_RIGHT
+    je .k
+    or sp, sp                   ; ZF = 0, CF = 0: not the pathway's
+    ret
+.k:
+    cmp byte [bz_pwek], 0
+    jne .eat
+    cmp byte [bz_pwst], BZ_PW_REST
+    jne .eat
+    push es
+    mov es, [bz_cseg]
+    cmp al, 27
+    je .esc
+    cmp al, 13
+    je .ent
+    cmp al, ' '
+    je .info
+    mov al, [bz_ppad]           ; an ARROW: the pad's KEYS, 4 bytes a pad
+    shl al, 1
+    shl al, 1
+    add al, bl
+    xor ah, ah
+    mov si, [bz_ptko]
+    add si, ax
+    mov al, [es:si]             ; the route, bit 7 B to A (FFh none)
+    cmp al, 0ffh
+    je .pe
+    mov ah, al
+    and al, 7fh
+    rol ah, 1
+    and ah, 1
+    call bz_proute              ; ZF = 0 OPEN
+    jz .pe
+    call bz_pwdep
+.pe:
+    pop es
+.eat:
+    cmp al, al                  ; ZF = 1, CF = 0
+    ret
+.esc:
+    pop es
+    mov byte [bz_pwq], 27
+    stc
+    ret
+.ent:
+    mov al, [bz_ppad]
+    call bz_ppadr
+    mov al, [es:si]
+    pop es
+    mov [bz_pwck], al
+    mov byte [bz_pwq], 13
+    stc
+    ret
+.info:
+    mov al, [bz_ppad]
+    call bz_ppadr
+    mov al, [es:si]
+    pop es
+    call bz_kinfow
+    cmp al, al
+    ret
+
+; bz_phfetch - the PATHWAY's part, its ball, a play (bz_gpath makes it the
+; follower's, bz_mode 4): fetched unless it is HELD ([bz_phold]: bz_cload
+; then does no fetch, no expand and no translation of the part, only the balls
+; and the song and the header).  CF = 1 refused.  Preserves nothing.
 bz_phfetch:
     mov byte [bz_crs], BZ_CRS_PATH
 ; course [bz_crs] made the play: its own ball (8b.9), mode 0, fetched
@@ -1045,51 +1944,61 @@ bz_gcrs:
     jmp bz_cload
 
 ; -----------------------------------------------------------------------------
-; bz_grounds - inside the bracket, the mode set: the game's ROUNDS.  The
-; pathway played; a roll onto an open node (bz_goal, its number bz_exit)
-; plays that node's course; a finish marks the node DONE and opens every node
-; an edge (node, exit) names; a timeout or an Esc costs a life, and the last
-; ends the game.  Esc on the pathway, a refused fetch, or no lives: the
-; bracket ends.  Each round's parts are given back before the next's are
-; fetched (one course in memory at a time), the palette and the song the
-; course's own (bz_vinit, bzs_open).
+; bz_grounds - inside the bracket, the mode set: the game's ROUNDS (128.22.4.4).
+; The PATHWAY played (bz_mode 4, bz_pwinit / bz_follow / bz_pwkey); Enter at a
+; pad plays its course - its LIFE taken on the disk first (TIMED), the
+; pathway's part given back unless it stays HELD (bz_phrel); after it, a
+; FINISH marks the pad DONE, its exit FOUND and its best, and the pathway is
+; entered with the finish's event (bz_pwev: the route (pad, exit) opened and
+; rolled); a TIMEOUT or an Esc costs a life (bz_pwev LIFE; a RETRY plays the
+; course again, nothing fetched), the last the GAME OVER (its sound on the
+; pathway, then bz_kover).  Esc on the pathway, a refused fetch or the game
+; over: the bracket's round ends (the title's bz_tround, or the desktop).  The
+; palette and the song are each play's own (bz_vinit, bzs_open).
 ; -----------------------------------------------------------------------------
 bz_grounds:
     call bz_vinit
     call bzs_open
     call bz_play
     call bzs_close
-    mov al, [bz_crs]
-    cmp al, BZ_CRS_PATH
-    jne .crs
-    cmp byte [bz_goal], 0       ; THE PATHWAY: left (Esc, F, Alt+Enter) -
-    je .out                     ; the game waits on the face
-    mov al, [bz_exit]
-    mov [bz_gnode], al
-    mov [bz_ppad], al           ; (the marble rests on its pad: the slot's +2)
-    call .swap                  ; ...or node bz_exit's course - its LIFE
-    cmp byte [bz_xmode], 0      ; TAKEN on the disk first (128.19.6: off
-    jne .nolife                 ; mid-course refunds nothing; a finish gives
-    mov al, [bz_lives]          ; it back at the bracket's end), quietly -
-    dec ax                      ; never in EXPLORE (8c)
+    mov al, [bz_pwq]
+    cmp al, 'o'
+    je .over
+    cmp al, 13
+    jne .out                    ; (Esc, F, Alt+Enter: the game waits)
+    call .swap                  ; ENTER: the pad's course - its LIFE TAKEN on
+    cmp byte [bz_xmode], 0      ; the disk first (128.19.6: off mid-course
+    jne .nolife                 ; refunds nothing; a finish gives it back at
+    mov al, [bz_lives]          ; the bracket's end), quietly - never in
+    dec ax                      ; EXPLORE (8c)
     call bz_gstorl
     call bz_dwrite
 .nolife:
-    mov bl, [bz_gnode]
-    xor bh, bh
-    mov al, [bz_path_crs + bx]
+    mov al, [bz_pwck]
     mov [bz_crs], al
     call bz_gcrs                ; (no INTRO card any more, 128.22.6)
     jc .out
-    jmp bz_grounds
-.crs:                           ; A COURSE: a finish ... (no RESULT card, 128.22.6)
-    cmp byte [bz_goal], 0
+.crs:
+    call bz_vinit
+    call bzs_open
+    xor al, al                  ; (a RETRY's life: its sound in its own play)
+    xchg al, [bz_pwev]
+    cmp al, BZ_PE_LIFE
+    jne .ncl
+    mov al, BZS_EV_LIFE
+    call bzs_ev
+.ncl:
+    call bz_play
+    call bzs_close
+    cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 128.22.6)
     je .life
     call bz_dslot               ; the exit FOUND (128.19.6), a word a course,
     mov bl, [bz_crs]            ; in either mode
     xor bh, bh
     shl bx, 1
     mov cl, [bz_exit]
+    mov [bz_pwex], cl
+    mov byte [bz_pwev], BZ_PE_FIN
     mov ax, 1
     shl ax, cl
     or [si + bx + BZD_SEXIT], ax
@@ -1105,44 +2014,17 @@ bz_grounds:
     mov [si + bx + BZD_SBEST], ax
 .nb:
     call bz_post                ; (its best, in memory: bz_dsave on the desktop)
-    mov cl, [bz_gnode]
-    mov ax, 1
-    shl ax, cl
-    or [bz_ndone], ax
-    mov si, bz_path_edges       ; every edge (node, exit, next) opens next
-    mov cx, BZ_PATH_NEDGE
-    jcxz .back
-.e:
-    lodsw
-    mov dl, al
-    lodsb
-    cmp dl, [bz_gnode]
-    jne .en
-    cmp ah, [bz_exit]
-    jne .en
-    push ax                     ; the route (edge) OPENED: its bit (128.22.5)
-    push si
-    mov al, BZ_PATH_NEDGE
-    sub al, cl
-    mov si, bz_nrop
+    mov al, [bz_ppad]           ; the pad DONE
+    mov si, bz_ndone
     call bz_dwset
-    pop si
-    pop ax
-    push cx
-    mov cl, al
-    mov ax, 1
-    shl ax, cl
-    or [bz_nopen], ax
-    or [bz_gmask], ax           ; (the gate follows the open set)
-    pop cx
-.en:
-    loop .e
     jmp short .back
 .life:                          ; ...or a timeout or an Esc: a life (none
     cmp byte [bz_xmode], 0      ; in EXPLORE, 8c.2)
     jne .back
+    mov byte [bz_pwev], BZ_PE_OVER
     dec byte [bz_lives]
-    jz .over
+    jz .back
+    mov byte [bz_pwev], BZ_PE_LIFE
     cmp byte [bz_retry], 0      ; wave 8c (128.19.8): a RETRY from the pause
     je .back                    ; card - the same course again, nothing
     mov byte [bz_retry], 0      ; re-fetched, the next life taken on the disk
@@ -1154,14 +2036,14 @@ bz_grounds:
     dec ax
     call bz_gstorl
     call bz_dwrite
-    jmp bz_grounds
+    jmp .crs
 .back:
     call .swap
     call bz_gpath
     jc .out
     jmp bz_grounds
-.over:                          ; THE GAME IS OVER: the next Enter is a new one
-    call bz_kover               ; (8c.4)
+.over:                          ; THE GAME IS OVER: the next game is a new one
+    call bz_kover               ; (8c.4; its sound played on the pathway)
 .out:
     ret
 .swap:                          ; this round's parts and song given back
@@ -1405,7 +2287,6 @@ bz_tlabel:
     jmp bz_nset
 %endif
 
-bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
 bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %ifnmacro BZ_CRS_NEXITS 0       ; the exits each course has (bzcourse.inc's, the tool's,
 %macro BZ_CRS_NEXITS 0          ; once it emits them; until then the sources':
@@ -1413,9 +2294,8 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %endmacro
 %endif
 bz_cnex:        BZ_CRS_NEXITS
-bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
- %if BZ_PATH_NEDGE > 32
-  %error "save v3 keeps a bit a route (edge) in a dword (SPEC.md 128.22.5)"
+ %if BZ_PATH_NPAD > 32
+  %error "save v3 keeps a bit a pad in a dword (SPEC.md 128.22.5)"
  %endif
 %endif
 
@@ -1436,7 +2316,7 @@ bz_cdrop:
     cmp al, BZ_P_BALR + BZ_NMAT
     jb .dball
     mov al, [bz_pc]
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp al, BZ_P_PATH           ; the HELD pathway's part stays (128.22.7)
     jne .dpc
     cmp byte [bz_phold], 0
@@ -1444,7 +2324,7 @@ bz_cdrop:
 .dpc:
 %endif
     call op_drop
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
 .held:
 %endif
     xor ax, ax
@@ -2144,7 +3024,7 @@ bz_hxlat:
     mov bx, bz_boxbuf           ; BX = table 0, BP = the toggle to table 1 and
     lea bp, [bx + 256]          ; back: table 0 ^ table 1, two byte bases 256
     xor bp, bx                  ; apart (any alignment)
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp byte [bz_phre], 0       ; a HELD pathway was translated when it was
     jne .noplat                 ; fetched: the balls alone (128.22.7)
 %endif
@@ -3661,7 +4541,7 @@ VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_ph
 VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
-VAR bz_gnode,1                  ; the node being played
+VAR bz_pwck,1                   ; wave 8R (128.22.4.4): the course Enter at a pad plays
 VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 128.22.4.1), even
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
 VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
@@ -3678,7 +4558,37 @@ VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
 VAR bz_tpad,1                   ; (the VARs stay even)
 %endif
 VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
-VAR bz_gmask,2                  ; ...the goal gate's nodes: the open ones, or all (EXPLORE)
+; the pathway's play (wave 8R, SPEC.md 128.22.4: bonanza.asm's THE PATHWAY)
+VAR bz_ptho,2                   ; the part's tables (BZC2 +42) ...
+VAR bz_ptro,2                   ; ...their ROUTES ...
+VAR bz_ptko,2                   ; ...and KEYS (bz_ppose's)
+VAR bz_pws,4                    ; the FOLLOWER: s, 1/256 ground px along the route (24.8)
+VAR bz_pwv,2                    ; ...v, 1/256 ground px a step (8.8)
+VAR bz_pwL,2                    ; ...the route's length L, ground px
+VAR bz_pwdk,2                   ; ...the segment holding s: its start D_k ...
+VAR bz_pwln,2                   ; ...its length ...
+VAR bz_pwp,2                    ; ...its first point (in the part) ...
+VAR bz_pwpd,2                   ; ...and the next's distance (+6, or -6 walked B to A)
+VAR bz_pwro,2                   ; ...a secret route's reveal distances (A to B)
+VAR bz_pwcn,2                   ; the steps counted: the icon's interval, a gate's, the game over's
+VAR bz_pwst,1                   ; BZ_PW_*: resting, rolling, a gate opening, the game over
+VAR bz_pwq,1                    ; the play's end: 13 Enter (bz_pwck), 27 Esc, 'o' the game over, 0 else
+VAR bz_pwev,1                   ; BZ_PE_*: what the last course left the pathway (0 none) ...
+VAR bz_pwex,1                   ; ...a finish's exit
+VAR bz_pwek,1                   ; FFh: Enter, Esc, Space or an arrow held since the course or the press
+VAR bz_pwrt,1                   ; the route rolled (or a gate's) ...
+VAR bz_pwrv,1                   ; ...1 travelled B to A
+VAR bz_pwdst,1                  ; ...the pad it goes to
+VAR bz_pwnl,1                   ; ...the segments after the one holding s
+VAR bz_pwar,1                   ; ...1: this step ARRIVED
+VAR bz_pwng,1                   ; ...the reveal groups to come (A to B), the next ...
+VAR bz_pwrg,1
+VAR bz_pwrs,1                   ; ...and the first one's sign
+VAR bz_pwgs,1                   ; the gate opening's sign
+VAR bz_pwis,1                   ; RESTING: the icon's sign (FFh none) ...
+VAR bz_pwib,1                   ; ...its rest pose (1 on a hidden pad shown, else 0) ...
+VAR bz_pwic,1                   ; ...its frame
+VAR bz_pwpad,1                  ; (the VARs stay even)
 VAR bz_inpause,1                ; ...1 while the pause card is up
 VAR bz_freq,1                   ; ...1: the next frame a full write (a card drawn)
 VAR bz_ff,2                     ; the kernel glyph table's first and last codes

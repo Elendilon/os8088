@@ -924,8 +924,8 @@ REDS = {
     "leak": [("bonanza.asm", "    jb .dball\n    mov al, [bz_pc]\n",
               "    jb .dball\n    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n"
               "    jne .redleak\n    mov al, [bz_pc]\n"),
-             ("bonanza.asm", "    call op_drop\n%if BZ_PATH_N\n.held:\n%endif\n",
-              "    call op_drop\n.redleak:\n%if BZ_PATH_N\n.held:\n%endif\n")],
+             ("bonanza.asm", "    call op_drop\n%if BZ_PATH_NPAD\n.held:\n%endif\n",
+              "    call op_drop\n.redleak:\n%if BZ_PATH_NPAD\n.held:\n%endif\n")],
     # the held-key guard taken out: every typed C, M or N acts
     "crepeat": [("bonanza.asm", "    call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed\n"
                  "    jc .done\n", "    ; RED crepeat: no guard\n")],

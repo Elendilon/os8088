@@ -106,7 +106,7 @@ bz_fullscreen:
     call OSAPI_FSX_MODE
     jc .refused
     mov byte [bz_fs], 1
-%if BZ_PATH_N
+%if BZ_PATH_NPAD
     cmp byte [bz_ingame], 0     ; wave 8b (128.19.5): THE GAME - the pathway
     je .one                     ; and its courses, round after round, in
  %if BZ_TITLE
