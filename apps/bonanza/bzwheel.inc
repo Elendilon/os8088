@@ -668,6 +668,8 @@ bz_ltrue:
     je .clock
     cmp byte [bz_lknd + bx], BZ_PK_SIGN
     je .sign
+    cmp byte [bz_lknd + bx], BZ_FK0 ; wave 9 (128.25.6.3): a FAMILY kind's POSE
+    jae .fam
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -690,6 +692,14 @@ bz_ltrue:
 .out:
     mov [bz_ltru + bx], al
     ret
+.fam:
+    push dx
+    mov dl, [bz_lknd + bx]      ; DL the kind, BX the element (a lane's index is
+    mov ah, dl                  ; its record's), AH the kind
+    mov al, BZ_HK_POSE
+    call bz_fone                ; -> AL the pose
+    pop dx
+    jmp short .out
 ; a FLAG (wave 4, SPEC.md 128.14.4.2): FLYING (1) from the step it is first
 ; touched - its bit of bz_cksn, physics state - and FURLED (0) before
 .flag:

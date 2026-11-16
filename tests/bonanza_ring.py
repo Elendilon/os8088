@@ -319,7 +319,8 @@ MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 W = {"cga": 320, "herc": 360}       # game pixels across the window
 RL = {"cga": 2, "herc": 4}          # lines a card row
 RB = {"cga": 80, "herc": 90}        # bytes a line
-FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc", "bzcard.inc")
+FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc", "bzcard.inc",
+         "bzfam.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
 # NASM local labels a row breakpoints (proc, local): resolved by the same
 # assembly when the source has them (a red tree, or an older wave, may not)

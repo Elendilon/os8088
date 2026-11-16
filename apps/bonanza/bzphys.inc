@@ -152,6 +152,8 @@ VAR bz_tout,1                   ; wave 7 (128.18.4): 1 when the limit's last ste
 VAR bz_resp,1
 VAR bz_pokd,1                   ; a harness sets it after POKING the ball (the
                                 ; next step refills the window, then clears it)
+VAR bz_fref,1                   ; wave 9 (128.25.6.3): a family hook's REFILL REQUEST -
+                                ; the step's head tests it with bz_pokd as one word
 VAR bz_lvl,4                    ; a RESPAWN zeroes bz_lvl .. bz_ghv, 10 bytes
 VAR bz_bgr,1                    ; (bz_step's .respawn writes them as five words,
 VAR bz_hopw,1                   ; step 1 counts bz_bgr and bz_hopw down as one,
@@ -215,6 +217,9 @@ VAR bz_fcnt,1                   ; wave 8R (128.22.6): a PLAY's FINISH SEQUENCE -
 VAR bz_ffl,1                    ; steps left + 1 (0: none ran; 1: run out), and the flash's
                                 ; steps left in its phase (bits 0 - 6) with the
                                 ; clock BLANK as bit 7 (bz_fstart, bz_fstep)
+VAR bz_fst,BZ_FSTB              ; wave 9 (SPEC.md 128.25.7.2): the per-play STATE bits
+VAR bz_fsl,BZ_FAMMAX * BZF_SLOT ; ...and each family's SLOT (both cleared by class:
+VAR bz_fpad,((BZ_FSTB + 1) & 1)  ; a play's start here, a respawn bz_frst's)
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_fdb,2 * BZ_FDMSK + BZ_BAL_SHDROWS * BZ_BAL_RB ; 8R.11 (128.22.6): THE DISSOLVE's
@@ -284,6 +289,9 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %if bz_tout != bz_goal + 1
  %error "bz_t0 and the step loop test bz_goal and bz_tout as one word"
 %endif
+%if bz_fref != bz_pokd + 1
+ %error "bz_step's head tests bz_pokd and bz_fref as one word (SPEC.md 128.25.6.3)"
+%endif
 %if bz_stf != bz_btok + 1 || bz_drx != bz_btok + 2 || bz_dry != bz_btok + 3
  %error "bz_step's .resp zeroes bz_btok .. bz_dry as two words, bz_land writes bz_btok and bz_stf as one, bz_surfset cuts bz_drx and bz_dry as one"
 %endif
@@ -349,6 +357,9 @@ bz_pinit:
     mov [bz_nprop], al
     call bz_obuild              ; (128.19.10: the owners' index, before the
                                 ; first refill)
+    mov ax, BZ_HK_RESET         ; wave 9 (128.25.6.3): the families' RESET, class
+    call bz_fall                ; 0 (bz_fst and the slots are zero), before the
+                                ; start's refill reads the state (none: no call)
     mov di, [bz_goff]
     mov al, [es:di + BZG_FLAGS] ; wave 4 (128.14.4.2): respawns go to the
     mov [bz_gfl], al            ; last flag on a CKPT course; and the ball a
@@ -511,10 +522,11 @@ bz_step:
     push cx
     push es
     mov es, [bz_cseg]
-    cmp byte [bz_pokd], 0       ; C: the centre's cell.  The window is centred
+    cmp word [bz_pokd], 0       ; C: the centre's cell.  The window is centred
     jne .poked                  ; on it already unless a harness POKED the ball
 .unpoked:                       ; and said so (bz_pokd: the hot path pays one
-                                ; byte test, not the cell compares)
+                                ; test, not the cell compares), or a family's
+                                ; hook asked for a refill (bz_fref, wave 9)
     ; ---- 1. the keys, whatever the ball's state: the key byte K ----
     mov al, [bz_mode]
     cmp al, 1
@@ -1231,6 +1243,9 @@ bz_step:
 .end:
     call bz_derive
 .count:
+    test byte [bz_fhk], BZ_FH_STEP ; wave 9 (128.25.6.3): the families' STEP
+    jnz .fstep
+.count2:
     inc word [bz_nstep]
     jnz .counted
     inc word [bz_nstep + 2]
@@ -1252,10 +1267,20 @@ bz_step:
     pop es
     pop cx
     ret
+.fstep:                         ; (out of line) every family's STEP hook
+    mov ax, BZ_HK_STEP
+    call bz_fall
+    jmp .count2
 .poked:                         ; (out of the hot path) a harness's POKE: the
-    mov byte [bz_pokd], 0       ; window round the ball's cell, whatever it was,
-    call bz_win9f               ; and the drag's remainders zeroed after it
-    mov word [bz_drx], 0        ; (bbcourse.Physics.poke, 128.16.3.1)
+    mov al, [bz_pokd]           ; window round the ball's cell, whatever it was,
+    mov word [bz_pokd], 0       ; and the drag's remainders zeroed after it
+    push ax                     ; (bbcourse.Physics.poke, 128.16.3.1) - or a
+    call bz_win9f               ; family's REFILL REQUEST (bz_fref, 128.25.6.3):
+    pop ax                      ; the refill alone
+    or al, al
+    jz .fref
+    mov word [bz_drx], 0
+.fref:
     jmp .unpoked
     ; ---- 7. RESPAWN, on the last SAFE cell; on a CKPT course on the last
     ; flag touched (the start before any) with the flag's ball (128.14.4.5) ----
@@ -1286,6 +1311,10 @@ bz_step:
     mov [bz_inmo], al
     mov [bz_btok], ax           ; wave 6 (128.16.4.3): the token, the stretch
     mov [bz_drx], ax            ; and both remainders; not bz_nboost
+    cmp byte [bz_fhk], 0        ; wave 9 (128.25.6.3): the RESPAWN class cleared,
+    je .rnf                     ; the families' lanes marked, RESET 1 - before
+    call bz_frst                ; the place, whose refill runs the CELL hook
+.rnf:
     test byte [bz_gfl], BZ_GF_CKPT
     jnz .rflag
     call bz_place
@@ -1993,10 +2022,21 @@ bz_prule:
     je .pad
     cmp ah, BZ_PK_CKPT
     je .flag
+    cmp ah, BZ_FK0              ; wave 9 (128.25.6.3): a FAMILY kind's CONTACT
+    jae .fam
 .out:
     ret
 .clr:
     mov byte [bz_inmo], 0
+    ret
+.fam:
+    push bx                     ; (BX, the floor's h4, is kept)
+    mov bl, al                  ; BX = the element, DL its kind, AH the argument
+    xor bh, bh                  ; (the kind)
+    mov dl, ah
+    mov al, BZ_HK_CONT
+    call bz_fone
+    pop bx
     ret
 .flag:                          ; A FLAG (128.14.4.5), grounded or airborne,
     cmp byte [bz_mst], BZ_ST_SHAT ; not shattering: the respawn point and its
@@ -3714,6 +3754,9 @@ bz_fill:
 ; bz_tsx and bz_tsy, the centre's surface, bz_wol and bz_ps.  -> AX = bz_nwin.
 ; Clobbers BX, CX, DX, SI, DI.
 bz_wtail:
+    test byte [bz_fhk], BZ_FH_CELL | BZ_FH_ENTER ; wave 9 (128.25.6.3): CELL first,
+    jnz .fam                    ; ENTER last (out of line)
+.go:
     xor ax, ax                  ; the centre's slopes, for step 2
     mov dx, ax
     mov si, bz_nbr + BZN_C
@@ -3751,6 +3794,28 @@ bz_wtail:
     call bz_wolf
 .nowol:
     mov ax, [bz_nwin]
+    ret
+.fam:                           ; a course with families: CELL (each family
+    mov ax, BZ_HK_CELL          ; with an entry rewrites its elements' cells in
+    call bz_fall                ; bz_nbr, never the grid, SPEC.md 128.25.7.2),
+    push word [bz_wcen]         ; the window's own work, then ENTER when the
+    call .go                    ; centre's owner changed to a family element
+    pop bx                      ; BL = the owner (index + 1) before
+    mov dx, [bz_wcen]           ; DL = it after, DH its kind (0: none)
+    cmp dl, bl
+    je .fx
+    cmp dh, BZ_FK0
+    jb .fx
+    push ax
+    mov bl, dl                  ; BX the element, DL its kind, AH bz_air
+    mov dl, dh
+    mov bh, 0
+    dec bx
+    mov ah, [bz_air]
+    mov al, BZ_HK_ENTER
+    call bz_fone
+    pop ax
+.fx:
     ret
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =

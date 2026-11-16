@@ -89,3 +89,10 @@ target 30
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 18 28
+
+# wave 9 (SPEC.md 128.25.15): the PROBE family, which proves the family hooks and the per-play state
+# with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
+# without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
+# flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
+uses probe
+prop probe 16 16 reset respawn

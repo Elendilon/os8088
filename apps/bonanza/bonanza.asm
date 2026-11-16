@@ -166,6 +166,8 @@ BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
 BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
+BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): family ID n's
+                                ; part BZF<n>.BIN at BZ_P_FAM + n - 1, after every other row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
@@ -766,6 +768,8 @@ bz_cload:
     call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
     pop es
     call bz_crshdr              ; the course's header, copied into our data
+    call bz_ffetch              ; wave 9 (SPEC.md 128.25.6.2): its FAMILIES' parts
+    jc .drop
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
     je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
@@ -2313,6 +2317,14 @@ bz_cdrop:
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
+    mov word [bz_fhk], 0        ; wave 9 (SPEC.md 128.25.6.2): no hook active
+    mov ax, BZ_P_FAM + BZ_NFAM  ; (and bz_fnf 0), the FAMILY parts first, the
+.dfam:                          ; reverse of the fetch's order (a row not here
+                                ; is a no-op)
+    dec ax
+    call op_drop                ; (it preserves AX)
+    cmp al, BZ_P_FAM
+    ja .dfam
     mov al, BZ_P_BALR
 .dball:
     call op_drop                ; (it preserves AX)
@@ -3155,7 +3167,7 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; width (the padding is the erase, SPEC.md 6.1), and only the 2px gaps between
 ; lines and the strip under the last one are filled: no pixel is written
 ; twice.  The lines are built in bz_lbuf.  MAIN's thirteen are a builder each
-; (bz_ftab), so a key redraws exactly the lines it changed (bz_redraw); the
+; (bz_frec), so a key redraws exactly the lines it changed (bz_redraw); the
 ; RESULTS page is drawn whole and left by the next key.  EVERY LINE FITS THE
 ; CGA's 42 CELLS (128.14.17 item 2): each builder's widest output - its
 ; strings, which BZS measures, and its fields at their widest - is asserted
@@ -3371,7 +3383,7 @@ bz_shdrop:
     pop ax
     ret
 
-TOASTSTR bz_t_shell, 'Bonanza: bad shell part'
+TOASTSTR bz_t_shell, 'Bonanza: bad part'   ; (the shell part's and a family part's, bz_ffetch)
 
 ; -----------------------------------------------------------------------------
 ; THE GAME'S BOOKS (SPEC.md 128.14.3.1, 128.14.3.3)
@@ -4452,6 +4464,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzgame.inc"
 %include "bzwheel.inc"
 %include "bzphys.inc"
+%include "bzfam.inc"            ; wave 9 (SPEC.md 128.25.6): the families' dispatch
 %include "bzsound.inc"
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
@@ -4463,7 +4476,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFAM
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
@@ -4479,6 +4492,7 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
 %endif
+    BZ_FAM_PARTS                            ; BZ_P_FAM + ID - 1: BZF<ID>.BIN, far-called (128.25.6.2)
 OS88_PARTS_END
 %if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
@@ -4653,6 +4667,7 @@ VAR bz_tay,BZT_SIZE             ; ...and its y axis
 ; the engine's (bzgame.inc's head documents the ones a harness reads)
 BZ_GAME_VARS
 BZ_PHYS_VARS
+BZ_FAM_VARS
 BZ_SND_VARS
 VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
 %if BZ_TITLE
