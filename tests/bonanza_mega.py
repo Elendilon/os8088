@@ -797,9 +797,13 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: pkg.byte("bz_fs") == 1, "the benchmark's bracket", 60000, 100)
         want(pkg.byte("bz_herc") == 1, "1. the bracket is the Hercules' ([bz_herc] %d)" % pkg.byte("bz_herc"))
         inside = claims(b, pkg, hs, eq)
-        want(len(inside) == len(base_claims) + SHELL_IN + 2, "1. inside: the two parts claimed, the shell gone (%d "
-             "claims against %d)"
-             % (len(inside), len(base_claims)))
+        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4, 128.25.6.9): the course a claim, the
+                                                    # ball, the sound part and the song in the ARENA - which since
+                                                    # the resident bundle is claimed at bz_entry, so the desktop's
+                                                    # arena (pkg.ar0) is the bracket's, not a second claim
+        want(len(inside) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "1. inside: the course "
+             "and the arena claimed, the shell gone (%d claims against %d, the arena %d on the desktop)"
+             % (len(inside), len(base_claims), pkg.ar0))
         b.until(lambda: pkg.byte("bz_fs") == 0, "the benchmark's 1,200 frames", 240000, 500)
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
         b.ui_done(limit_ms=30000)
