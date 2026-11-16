@@ -59,9 +59,10 @@ BOB = (0, -3, -5, -3, 1, -2, 0, -4, -6, -4, -1, -3, 0)   # each letter's bounce,
 # THE KEY HINTS: a plaque in the sky's left pocket (cells of the window), its
 # text in the tree's 8 x 8 face; the SLOT's digit is the course's label 0,
 # drawn by its lane (title.bbc's `label 0 LABEL_COL LABEL_ROW`)
-PLAQUE = (1, 6, 12, 10)         # cols 1 - 11, rows 6 - 9 (x 8 - 95, y 48 - 79)
-HINTS = ((7, "P  PLAY"), (8, "S  SLOT"))
-LABEL_COL, LABEL_ROW = 10, 8    # the slot's digit: "S  SLOT " then the label
+PLAQUE = (2, 7, 13, 11)         # cols 2 - 12, rows 7 - 10 (x 16 - 103, y 56 - 87): down a row and over a
+                                # column on the owner's word (2026-11-16), clear of the lettering
+HINTS = ((8, "P  PLAY"), (9, "S  SLOT"))
+LABEL_COL, LABEL_ROW = 11, 9    # the slot's digit: "S  SLOT " then the label
 
 
 def _pts(stroke):

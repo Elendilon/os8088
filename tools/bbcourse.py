@@ -9861,25 +9861,25 @@ TITLE_AUTHOR = {
         "script": [("wait", 110), ("until", "respawn", ((9, 15), (11, 15), (14, 15))), ("wait", 75),
                    ("until", "capture", ((10, 14), (10, 13), (10, 12))), ("wait", 10),
                    ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (18, 14))), ("to", ((18, 15),))]},
-    3: {"what": "the glass ball rolled in onto LL, over its edge, through the brown tube, to the ramp's edge, "
-                "round UR until it falls off the front and shatters",
+    3: {"what": "the glass ball rolled in onto LL, down the step, through the brown tube, to the ramp's edge, "
+                "round UR until it falls off the front and shatters, its shatter ending on the glass (the owner, "
+                "2026-11-16: LC's corner by the pit taken out, so it goes down the step)",
         "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
         "expects": (("capture", 1), ("shatter", 1)),
-        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (12, 13), (12, 12))),
+        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (11, 13))),
                    ("until", "capture", ((11, 12), (10, 12))), ("to", ((17, 7),)),
-                   ("wait", 70), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
+                   ("wait", 124), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
                    ("until", "shatter", ((15, 9), (15, 11)))]},
-    4: {"what": "the rubber ball in at speed onto LL, a Hop and its boost onto spring 1, over the pit, into the "
-                "hidden tube's mouth as it reaches the glass's bottom edge, out on UR, a lap of it, through the "
-                "windmill, and a Hop and boost clear over the brown tube's mouth, along LS and off the left (the "
-                "owner, 2026-11-16)",
-        "ball": "rubber", "at": (7.6, 15.0, 30), "vel": (260, 0, 0), "air": 1, "respawn": (23, 16),
-        "expects": (("boost", 2), ("spring", 1), ("capture", 2)),
-        "script": [("keys", 0, 18), ("hop", ((11, 15), (15, 15))), ("boost",),
-                   ("until", "spring", ((11, 15), (15, 15))), ("until", "capture", ((15, 16),)),
-                   ("to", ((17, 7),)), ("wait", 70), ("go", ((16, 6), (15, 7), (16, 8))), ("to", ((17, 7),)),
-                   ("go", ((16, 7), (15, 8))), ("press", "LU", "capture"), ("until", "exit", ((2, 12),)),
-                   ("hop", ((2, 12),)), ("boost",), ("off", ((2, 12),))]},
+    4: {"what": "the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto "
+                "LC, on along the front and off the bottom right into the hidden tube, out on UR, two circles of "
+                "it and straight into the windmill, out of its doorway in the pillar's +x face, a Hop and a boost "
+                "and bouncing off the bottom right again (the owner's red path, 2026-11-16)",
+        "ball": "rubber", "at": (5.5, 14.0, 70), "vel": (384, -60, 200), "air": 1, "respawn": (23, 16),
+        "expects": (("capture", 3), ("boost", 1)),
+        "script": [("keys", 0, 100), ("until", "capture", ((19, 11), (23, 11))), ("go", ((17, 7),)),
+                   ("go", ((16, 8), (15, 7), (16, 6), (17, 7), (16, 8), (15, 7), (16, 6), (17, 7), (16, 8))),
+                   ("press", "LU", "capture"), ("until", "exit", ((14, 11),)), ("hop", ((19, 11),)), ("boost",),
+                   ("off", ((20, 11),))]},
 }
 
 
