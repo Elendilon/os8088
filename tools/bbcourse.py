@@ -344,7 +344,6 @@ PK_SIGN = 10                  # wave 8R (SPEC.md 128.22.4.1): a LANE and nothing
 PK_NAMES[PK_SIGN] = "sign"
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
-LABEL_WX, LABEL_WY0 = 255, 224                # SPEC.md 128.23.2: a LABEL's anchor, (255, 224 + N) - past any grid
 LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
 GF_VIEW = 4                   # BZG1 +28: a FIXED window (SPEC.md 128.23.2), +30 its top / 4 and the CGA's c0
 VIEW_DROP = 32                # lines of picture above the windows: the DROP margin (128.23.2)
@@ -2555,16 +2554,14 @@ def build_props(src, tiles, fname):
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
-    for lb in src.labels:                           # SPEC.md 128.23.2: a LABEL - a sign of ndig 0 with no post,
-        # anchored at a cell no course has (its own row past every grid's), so no OBS cell is its and no owner
-        # lookup ever finds it: physics never meets a label
-        props.append({"kind": PK_CLOCK, "line": lb["line"], "at": (LABEL_WX, LABEL_WY0 + lb["num"]), "mask": 0,
-                      "shift": 0, "seed": 0, "num": lb["num"], "place": 0, "ndig": 0, "z4": 0, "K": 0, "KA": 0,
-                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": CLOCK_PH,
-                      "label": lb})
-    nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
+    for lb in src.labels:                           # SPEC.md 128.23.2: a LABEL - a SIGN (wave 8R, 128.22.4.1,
+        # the lead's D9), its number the label's N: a lane and nothing else, anchored at SIGN_AT, a cell no
+        # course has, so no OBS cell is its and physics never meets it
+        props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
+                      "num": lb["num"], "label": lb})
+    nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN))
     if nlane > PROP_MAX:
-        lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
+        lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -2614,9 +2611,9 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        elif not p.get("label"):                    # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
+        elif p["kind"] != PK_SIGN:                  # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
             out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first;
-                                                    # 128.23.2: a label has no cell)
+                                                    # a SIGN - a label, 128.23.2 - has no cell)
     return out
 
 
@@ -4391,14 +4388,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": PK_CHECKPOINT, "line": p["line"]})
-        elif p["kind"] == PK_CLOCK and p.get("label"):   # SPEC.md 128.23.2: a LABEL, one block of the window
+        elif p["kind"] == PK_SIGN and p.get("label"):    # SPEC.md 128.23.2: a LABEL, one block of the window
             lb = p["label"]
             bx, by = view[1] + lb["col"], view[0] // 8 + lb["row"]
             poses = {0: {}}
             for q, ch in enumerate(lb["glyphs"], 1):
                 poses[q] = label_glyph(ch, bx, by, lb["ink"])
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
-                          "kind": PK_CLOCK, "line": p["line"]})
+                          "kind": PK_SIGN, "line": p["line"]})
         elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): a clock's digit
             # the crystal ball and its stick are a MARK at the clock's depth (as a flag's pennant: what the
             # picture draws in front of the clock's cell hides them), painted once, by the units' record;
@@ -6046,14 +6043,10 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
         elif d["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5, 128.18.5.3)
             K, lit, ph, cx, cy, KA, place, ndig, num = struct.unpack_from("<HBBHHHBBB", p, r + 16)
             d.update(K=K, lit=lit, ph=ph, cx=cx, cy=cy, KA=KA)
-            label = ndig == 0                       # SPEC.md 128.23.2: a title's LABEL, no post
-            if K or lit or KA or ph != (0 if label else CLOCK_PH) or cx != 16 * d["at"][0] + 8 \
+            if K or lit or KA or ph != CLOCK_PH or cx != 16 * d["at"][0] + 8 \
                     or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a clock's post fields")
-            if (not label and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX
-                               or d["lane"]["poses"] != CLOCK_POSES)) \
-                    or (label and (place or num >= NODE_MAX or d["at"] != (LABEL_WX, LABEL_WY0 + num)
-                              or not 2 <= d["lane"]["poses"] <= LANE_PMAX)) \
+            if not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX or d["lane"]["poses"] != CLOCK_POSES \
                     or p[r + 29:r + 32] != bytes(3) or d["lane"]["w"] != 1 or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)
@@ -8116,8 +8109,6 @@ class Heavy:
         if r["kind"] == PK_CHECKPOINT:          # wave 4: FLYING from the step it is first touched
             return 1 if self.p.cksn & (1 << r["num"]) else 0
         if r["kind"] == PK_CLOCK:               # wave 7: its digit of the seconds left (bz_tdig)
-            if not r.get("ndig"):               # SPEC.md 128.23.2: a title's label - its pose (bz_nst)
-                return getattr(self.p, "nst", {}).get(r["num"], 0)
             return clock_pose(self.p.tsec, r["place"])
         if r["kind"] == PK_SIGN:                # wave 8R (128.22.4.1): its pose, bz_nst[num]
             return getattr(self.p, "nst", {}).get(r["num"], 0)

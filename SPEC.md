@@ -270152,10 +270152,12 @@ distances increasing), and the selfcheck compares them with the tool's.
 Resident (`bzcourse.inc`): `BZ_PATH_NPAD`; **`BZ_NSIGN`**, the most signs any
 course has (the pathway's, or the title's labels' numbers; 17 today);
 **`BZ_PATH_CLAIM`**, the pathway part's RAM form in paragraphs (1,408);
-**`BZ_CRS_MAXCLAIM`**, the largest claims a pad's course fetches - its part's
-RAM form and every ball part it can need (its own ball, its pads' and its
-flags', `bz_cload`'s set), each in paragraphs, the song's not counted (it
-replaces the pathway's); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
+**`BZ_CRS_MAXCLAIM`**, a bound on what a pad's course claims beside the held
+pathway - its part, every ball part it can need (its own ball, its pads' and
+its flags', `bz_cload`'s set), its song's part and the sound part, each its
+RAM form's paragraphs plus `CLAIM_SLACK` = 128 (op_lazyp's read of the packed
+bytes in whole clusters from the cluster below the part, 1 KB clusters at
+most on a shipped floppy; SPEC.md 20.12.2): 5,799 today, PEAK's; **`BZ_CRS_NEXITS`**, a byte a course, its distinct
 exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
 `BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
 `BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. Until the
@@ -270722,9 +270724,10 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   (at most 15) in the tree's own 8 x 8 face, **`fonts/tallx.f8`** (the
   machine's ROM face is not in the tree, so a build cannot draw with it),
   set pixels in ink C (default 3, white), clear pixels the bare picture's.
-  Its record is a `PK_CLOCK` of ndig 0 anchored at `(255, 224 + N)`, a cell
-  no course has, that marks NO cell OBS: physics and the owner index never
-  meet it. The title's label 0 is the slot: `glyphs "123"`, pose `1 +
+  Its record is a **`PK_SIGN`** (128.22.4.1; wave 8R, the lead's D9 - it
+  was a `PK_CLOCK` of ndig 0), its sign number N at +28, anchored at
+  `(255, 255)`, a cell no course has, that marks NO cell OBS: physics and
+  the owner index never meet it. The title's label 0 is the slot: `glyphs "123"`, pose `1 +
   bz_slot`; a change marks every CLOCK lane for the walk (128.19.10's
   marks) and the next frame redraws the one block (`bz_tlabel`).
 
