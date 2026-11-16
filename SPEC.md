@@ -270640,10 +270640,15 @@ held, which is what `MEMP_AVAIL` then answers.
   back to MILL (up, then left), so a player who took TRIAL's exit 1 reaches
   PLAY, then MILL, MOON (page 2) and PEAK.  And the tool proves every finish
   cell stays REACHABLE with its clocks in place (`finish_reach_rule`: the
-  start's reach closure over the tiles less the clock posts and the other goal
-  cells, plus a free neighbour to roll in from); TRIAL's finish clock moved
-  from (9, 17), which walled exit 0's goal off, to (11, 17), and the
-  selfcheck's red control puts it back.
+  start's reach closure over the tiles less the clock posts and the goal
+  cells of other exits, one closure an exit, plus a free neighbour to roll in
+  from) - every goal cell AND every cup.  TRIAL's finish clock moved from
+  (9, 17), which walled exit 0's goal off, to (14, 18) on the ice's front
+  row: (11, 17), tried first, is MET by the autopilot (its route demo 499 ->
+  796 steps, the limit 20 -> 30 s); at (14, 18) the replay is the same step for
+  step with the clock and without it.  The selfcheck's red controls: the clock
+  put back on (9, 17), posts round MOON's cup, and (11, 17) for the
+  autopilot.
 
 #### 128.22.9 Sounds (BUILT, the owner's ear still to come)
 
