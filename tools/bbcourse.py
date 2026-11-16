@@ -9243,7 +9243,7 @@ def emit_inc(courses, path=None, title=None):
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZD<K>.BIN",
               " %endrep",
               "%endmacro", ""]
-    lines += emit_path(path, courses)
+    lines += emit_path(path, courses, title)
     lines += emit_title(title, courses)
     return "\n".join(lines)
 
@@ -9273,7 +9273,12 @@ def table_max(courses, lanes):
     return n + (n & 1)
 
 
-def emit_path(path, courses):
+def _allc(courses, path, title):
+    """emit_inc's order: the courses, the pathway's entry, the title's"""
+    return courses + ([path] if path is not None else []) + ([title] if title is not None else [])
+
+
+def emit_path(path, courses, title=None):
     """wave 8R (SPEC.md 128.22.3): the pathway's resident constants -
     BZ_PATH_NPAD, BZ_PATH_CLAIM, BZ_CRS_MAXCLAIM, the follower's and the
     signs' constants.  The guest reads the pads, routes and keys out of the
@@ -9295,9 +9300,17 @@ def emit_path(path, courses):
            "%macro BZ_CRS_NEXITS 0",
            "    db " + ", ".join(str(len(course_exits(c))) for c in courses),
            "%endmacro",
-           "BZ_CRS_MAXCLAIM equ %d      ; paragraphs: the most a pad's course claims - part, balls, song, sound - "
-           "each with op_lazyp's cluster slack (SPEC.md 128.22.3)"
-           % crs_maxclaim(path, courses)]
+           "BZ_CRS_MAXCLAIM equ %d      ; paragraphs: the largest pad's course's OWN claim, op_lazyp's slack "
+           "and a granule in (SPEC.md 128.22.3, 128.25.4.2)" % crs_maxclaim(path, courses),
+           "BZ_CRS_ARMAX    equ %d      ; paragraphs: the largest of those courses' BZ_CRS_ARENA, a granule in "
+           "(bz_phrel: the largest free run takes both)" % crs_armax(path, courses),
+           "; SPEC.md 128.25.4.2: each course's ARENA RESERVE, paragraphs, a word a course (the",
+           "; pathway's and the title's last): bz_cload's op_areserve before its batch - every",
+           "; ball it can need, the sound part, its song and (a course) the fanfare, each its",
+           "; RAM form's paragraphs, and one fetch's room (CLAIM_SLACK)",
+           "%macro BZ_CRS_ARENA 0",
+           "    dw " + ", ".join(str(crs_arena(c, k, len(courses))) for k, c in enumerate(_allc(courses, path, title))),
+           "%endmacro"]
     if path is None:
         return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 128.22)", "BZ_PATH_CLAIM   equ 0", ""]
     pth = path.pth
@@ -9317,31 +9330,79 @@ CLAIM_SLACK = 159             # paragraphs a lazy part's claim may pass its RAM 
                               # len + 511 + (C - 16) + (C - 1) = len + 2,542, under ceil(len / 16) + 159 paragraphs
 
 
-def crs_maxclaim(path, courses):
-    """SPEC.md 128.22.3, 128.22.7: a bound on the claims a course the pathway
-    plays holds while the pathway part is HELD - its part, every ball part
-    it can need (its own ball, its pads' and its flags', bz_cload's set), its
-    song's part and the sound part, each its RAM form's paragraphs plus
-    CLAIM_SLACK (op_lazyp's cluster rounding)"""
+GRANULE_P = 32                # paragraphs: the heap's granule, 512 bytes (SPEC.md 50.2.1) - what a claim rounds up to
+
+
+def _granule(p):
+    return -(-p // GRANULE_P) * GRANULE_P
+
+
+def _para(n):
+    return (n + 15) // 16
+
+
+def crs_mats(c):
+    """bz_cload's ball set: the course's own ball, every one its pad mask
+    names and every flag's own ball (SPEC.md 128.14.4.4)"""
+    return {c.ball} | {m for m in range(3) if c.padmask & (1 << m)} \
+        | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT}
+
+
+@functools.lru_cache(maxsize=None)
+def _music():
+    """(the sound part, the songs' parts, the VICTORY song's index or None)"""
     import bbmusic
     try:
-        snd, songs, _bank, _src = bbmusic.load_parts()
+        snd, songs, _bank, src = bbmusic.load_parts()
     except Exception:                               # (a music build error is bbmusic's to report)
-        snd, songs = b"", []
+        return b"", [], None
+    vic = next((i for i, sg in enumerate(src) if getattr(sg, "id", None) == "victory"), None)
+    return snd, songs, vic
 
-    def para(n):
-        return (n + 15) // 16 + CLAIM_SLACK
-    ks = sorted({q["K"] for q in path.pth["pads"]}) if path is not None else range(1, len(courses))
-    best = 0
-    for k in ks:
-        c = courses[k]
-        mats = {c.ball} | {m for m in range(3) if c.padmask & (1 << m)} \
-            | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT}
-        sk = course_song(c, k)
-        n = para(len(c.cga)) + sum(para(BA.B2_SIZE[m]) for m in mats) + para(len(snd)) \
-            + (para(len(songs[sk])) if sk < len(songs) else 0)
-        best = max(best, n)
-    return best
+
+def crs_arena(c, k, ncrs):
+    """SPEC.md 128.25.4.2: course K's ARENA RESERVE, paragraphs - what bz_cload
+    fetches into the arena (20.12.15) for it, in its order: its balls
+    (crs_mats), the sound part, its song and, for a course (K < ncrs; not the
+    pathway, not the title), the victory fanfare bzs_gfetch fetches beside it
+    - each its RAM form's paragraphs, which is where the arena's top advances
+    to - plus ONE fetch's room past the last: op_lazyp claims at most
+    CLAIM_SLACK past a part's paragraphs, and the batch's peak is the last
+    part's fetch over everything before it.  A part of a play that wants less
+    (a replay, sound OFF) leaves the reserve unused and bz_arload fits it"""
+    snd, songs, vic = _music()
+    n = sum(_para(BA.B2_SIZE[m]) for m in crs_mats(c)) + _para(len(snd))
+    sk = course_song(c, k)
+    if sk < len(songs):
+        n += _para(len(songs[sk]))
+    if k < ncrs and vic is not None and vic < len(songs):
+        n += _para(len(songs[vic]))
+    return n + CLAIM_SLACK
+
+
+def _pad_courses(path, courses):
+    return sorted({q["K"] for q in path.pth["pads"]}) if path is not None else range(1, len(courses))
+
+
+def crs_maxclaim(path, courses):
+    """SPEC.md 128.22.7, 128.25.4.2: a bound on the course's OWN claim while
+    the pathway part is HELD - the largest course a pad plays, its RAM form's
+    paragraphs plus CLAIM_SLACK (op_lazyp's cluster rounding), to the granule.
+    It was the SUM of every claim the play made - course, balls, song, sound
+    part, and not the victory fanfare, a defect - compared against the
+    largest free run; the small parts are the ARENA's now (crs_armax)"""
+    return max([_granule(_para(len(courses[k].cga)) + CLAIM_SLACK) for k in _pad_courses(path, courses)]
+               + [0])
+
+
+def crs_armax(path, courses):
+    """SPEC.md 128.25.4.2: the largest arena a course a pad plays reserves
+    (crs_arena), to the granule - bz_phrel keeps the pathway when the largest
+    free run takes BZ_CRS_MAXCLAIM and this together, which is the one test
+    MEMP_AVAIL can answer soundly for two claims: the course lands in the
+    first run that fits, and the largest run still holds the arena"""
+    return max([_granule(crs_arena(courses[k], k, len(courses))) for k in _pad_courses(path, courses)]
+               + [0])
 
 
 def stamp(paths, rec=None):
