@@ -1998,21 +1998,28 @@ bz_fdis:
 ; bz_cuef - wave 9 (SPEC.md 128.25.9, 128.25.19): the pickup CUE's LOOK for the
 ; frame, once a frame from bz_fdis's tail while [bz_cue] (a family's STEP
 ; writes it; display only) or the last frame's look is set.  The look
-; (bz_clook): BZ_CL_SP + the sparkles' step n (frames / 4 mod 8, bits 0-2)
-; while bit 0 of bz_cue is set; on a FLASH frame under bit 1 (the last
-; PU_WARN steps; which frames is the build's BZ_CUEFLASH) BZ_CL_FL (a DITHER
-; style: the checker folded into the ball's blit, bz_chk its row 0's by card
-; and py's parity) or BZ_CL_BL (a BLINK style: the ball not drawn).  bz_boxc
-; and bz_blit draw from it.  When the look changes, bz_ospr (the sprite
-; bz_mkboxes's idle test compares against: last frame's) is made this frame's
-; bz_spr NOT, so that test recomposes a RESTING ball on exactly the frames
-; its cue's look changed - the first, and the one the cue ends on, included -
-; whatever the frames before it were and whatever the dissolve did to
-; bz_spr's bit 7 this frame (a ball that moves is recomposed for its move:
-; the sprite's shift is not in the look).  (The first build flipped a toggle
-; XORed into bz_spr - the dissolve's trick - and a cue that began with the
-; toggle left set by the last one changed nothing the idle test saw.)
-; Clobbers AX, CX, DX.
+; (bz_clook): while bit 0 of bz_cue is set, BZ_CL_SP + the sparkles' HOP
+; count mod 16: sparkle k holds a place for 8 frames, its epoch e_k =
+; (frames + 0, 5, 2) / 8 - the three hop on frames 0, 3 and 6 mod 8, never
+; together - so the hops so far are e_0 + e_1 + e_2 = 3 frames / 8, which
+; moves at each hop and at no other frame (bar 3 frames' 16-bit wrap: one
+; extra recompose in 6 minutes).  On
+; a FLASH frame under bit 1 (the last PU_WARN steps; which frames is the
+; build's BZ_CUEFLASH) BZ_CL_FL (a DITHER style: the checker folded into the
+; ball's blit, bz_chk its row 0's by card and py's parity) or BZ_CL_BL (a
+; BLINK style: the ball not drawn).  bz_boxc and bz_blit draw from it.  When
+; the look changes, bz_ospr (the sprite bz_mkboxes's idle test compares
+; against: last frame's) is made this frame's bz_spr NOT, so that test
+; recomposes a RESTING ball on exactly the frames its cue's look changed -
+; a hop, the first, and the one the cue ends on included - whatever the
+; frames before it were and whatever the dissolve did to bz_spr's bit 7 this
+; frame (a ball that moves is recomposed for its move: the sprite's shift is
+; not in the look).  And on that change, with the sparkles, each sparkle's
+; PLACE (bz_spp: 24 k + 8 p into bz_spt, p = e_k mod 4 as the steps a b c b)
+; - only then, since the places move only at a hop.  (The first build flipped
+; a toggle XORed into bz_spr - the dissolve's trick - and a cue that began
+; with the toggle left set by the last one changed nothing the idle test
+; saw.)  Clobbers AX, CX, DX.
 ; -----------------------------------------------------------------------------
 bz_cuef:
     mov ah, [bz_cue]
@@ -2044,19 +2051,55 @@ bz_cuef:
 .sp:
     test ah, 1
     jz .lk
-    mov al, [bz_frames]
-    shr al, 1
-    shr al, 1
-    and al, 7
+    mov ax, [bz_frames]
+    mov cx, ax
+    shl ax, 1
+    add ax, cx
+    mov cl, 3
+    shr ax, cl                  ; the HOPS: 3 frames / 8, one a hop
+    and al, 0Fh
     or al, BZ_CL_SP
     or dl, al
 .lk:
     cmp dl, [bz_clook]
     je .r
     mov [bz_clook], dl
-    mov al, [bz_spr]            ; a changed look: never an idle frame
-    not al
-    mov [bz_ospr], al
+    mov dh, [bz_spr]            ; a changed look: never an idle frame
+    not dh
+    mov [bz_ospr], dh
+    test dl, BZ_CL_SP
+    jz .r
+    push bx                     ; the places, sparkle 2 to 0, off the
+    mov al, [bz_frames]         ; epochs (frames + 0, 5, 2) / 8 (a byte's
+    mov cl, 3                   ; wrap is 32 epochs: 0 mod 4)
+    mov ah, al
+    add ah, 2
+    shr ah, cl                  ; AH = e_2
+    mov ch, al
+    add al, 5
+    shr al, cl                  ; AL = e_1
+    shr ch, cl
+    mov cl, ch                  ; CL = e_0
+    mov bx, bz_spp + 2
+    mov dh, 48
+.pl:
+    mov dl, ah
+    and dl, 3
+    cmp dl, 3
+    jne .p
+    mov dl, 1                   ; (steps a b c b)
+.p:
+    shl dl, 1
+    shl dl, 1
+    shl dl, 1
+    add dl, dh
+    mov [bx], dl
+    mov ah, al
+    mov al, cl
+    dec bx
+    sub dh, 24
+    jns .pl
+    pop bx
 .r:
     ret
 

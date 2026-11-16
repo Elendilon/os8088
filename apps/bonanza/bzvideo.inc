@@ -753,7 +753,8 @@ BZ_BOXL     equ 32              ; lines: the platform's union limit, and a buffe
 BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXL
 BZ_BOXD     equ 20
 ; wave 9 (SPEC.md 128.25.19): the pickup cue's LOOK, bz_clook (bz_cuef):
-; bits 0-2 the sparkles' step (the sprite's shift is not in it), and
+; bits 0-3 the sparkles' hop count mod 16 (it moves at each hop and at no
+; other frame; the sprite's shift is not in it), and
 BZ_CL_SP    equ 20h             ; the SPARKLES
 BZ_CL_FL    equ 40h             ; a FLASH frame of a DITHER style
 BZ_CL_BL    equ 80h             ; a FLASH frame of a BLINK style: no ball
@@ -762,7 +763,7 @@ BZ_CL_BL    equ 80h             ; a FLASH frame of a BLINK style: no ball
 ; reference), DITHER4 every 4th; BLINK2 the ball not drawn every 2nd frame,
 ; BLINK4 every 4th.  BZ_CFP the period, BZ_CFB 1 for a blink.
 %ifndef BZ_CUEFLASH
- %define BZ_CUEFLASH DITHER2
+ %define BZ_CUEFLASH BLINK4
 %endif
 %ifidni BZ_CUEFLASH, DITHER2
  %assign BZ_CFP 2
@@ -939,21 +940,66 @@ bz_boxc:
     or bh, 80h                  ; the CUE's blit (bz_blit's .cwhole)
     jmp short .bd
 
-; the cue's SPARKLES (bz_blit's .cwhole): (dx, 8 dy), dx 0 - 15 and dy 0 - 14, so a pair's two columns and two rows
-; stay inside the sprite's 5 bytes and 16 rows at every shift; each outside
-; the 16 px silhouette but (15, 6), whose left column is the rim's
-%define BZ_SPK(x, y) x, (y) * BZ_BOXW * 2
-; (the first six again after the eight: entries n, n + 3, n + 6 with no wrap)
-%macro BZ_SPKS 0
-            db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
-            db BZ_SPK(1, 14), BZ_SPK(15, 2)
+; the cue's SPARKLES (bz_blit's .cwhole; SPEC.md 128.25.19): three, each
+; HOPPING between three places round the ball (steps a b c b, bz_cuef's
+; bz_spp) - dx 0 - 15, dy 0 - 14, a 2 x 2 pair outside the 16 px silhouette
+; (round its four corners and the free columns at its right) - the table PER
+; SHIFT: for each place and the sprite's shift s, a word (8 dy + W, 4 j): the
+; byte W of the sprite's row whose WORD holds pixels x and x + 1 (x = s + dx)
+; at its pixels j and j + 1 (j 0 - 6).  W is at most 3, so the word XORed is
+; inside the sprite's 5 bytes at every shift (byte 5 never touched: a 32-line
+; buffer's last byte is its 4th's bottom-right ball's byte 4)
+%macro BZ_SPT 2                 ; dx, dy: the place's four shifts
+ %assign %%s 0
+ %rep 4
+  %assign %%x %%s + %1
+  %assign %%b %%x >> 2
+  %assign %%p %%x & 3
+  %if %%p == 3
+   %assign %%w %%b
+   %assign %%j 3
+  %elif %%b == 4
+   %assign %%w 3
+   %assign %%j 4 + %%p
+  %else
+   %assign %%w %%b
+   %assign %%j %%p
+  %endif
+  %if %1 > 15 || %2 > 14 || %%w > 3 || %%j > 6
+   %error "a sparkle's pair must stay inside the sprite's 5 bytes and 16 rows"
+  %endif
+            db (%2) * BZ_BOXW * 2 + %%w, 4 * %%j
+  %assign %%s %%s + 1
+ %endrep
 %endmacro
-bz_spk:     BZ_SPKS
-            db BZ_SPK(15, 12), BZ_SPK(0, 14)
-            BZ_SPKS
-bz_spw:     dw 00C0h, 0030h, 000Ch, 0003h, 0C000h ; ONE pixel at phase 0 - 4
-                                ; (4: the next byte's first), both bits: the
-                                ; CGA ink XOR 3, a Hercules mono pair
+bz_spt:     BZ_SPT 0, 0                 ; sparkle 0: the top left corner,
+            BZ_SPT 15, 2                ; the right's top, the foot's right
+            BZ_SPT 13, 14
+            BZ_SPT 13, 0                ; sparkle 1: the top's right, the
+            BZ_SPT 15, 12               ; right's foot, the bottom left corner
+            BZ_SPT 0, 14
+            BZ_SPT 15, 14               ; sparkle 2: the bottom right corner,
+            BZ_SPT 15, 0                ; the top right corner (b and a twice:
+            BZ_SPT 15, 14               ; two places, none shared with 0 or 1)
+; a pair's two lines' masks by card, for its pixels j and j + 1 of a
+; little-endian word (j 0 - 6; pixel j alone 0C0h >> 2 j, a byte on past 3):
+; the CGA both pixels on both lines (ink XOR 3, a pixel two bits); the
+; Hercules pixel j on the first and j + 1 on the second - its grounds are a
+; checker of whole pixels (mono pairs), where a 2 x 2 XORed is the checker
+; shifted, unseen, and the diagonal is a solid square
+%define BZ_SPX(j) ((0C0h >> (2 * ((j) & 3))) << (8 * ((j) >> 2)))
+bz_spm:
+%assign BZ_SPJ 0
+%rep 7
+            dw BZ_SPX(BZ_SPJ) | BZ_SPX(BZ_SPJ + 1), BZ_SPX(BZ_SPJ) | BZ_SPX(BZ_SPJ + 1)
+ %assign BZ_SPJ BZ_SPJ + 1
+%endrep
+BZ_SPMH     equ $ - bz_spm
+%assign BZ_SPJ 0
+%rep 7
+            dw BZ_SPX(BZ_SPJ), BZ_SPX(BZ_SPJ + 1)
+ %assign BZ_SPJ BZ_SPJ + 1
+%endrep
 
 ; bz_frun - one run of bz_boxc's fill that is not a whole block: DX lines (0 ..
 ; 8) of CX word columns (at least 1) from the map entry BX, the lines from
@@ -1045,54 +1091,48 @@ bz_blit:
     jmp .wgo
     ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
     ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
-    ; SPARKLES first, three 2 x 2 pairs XORed at entries n, n + 3, n + 6 of
-    ; bz_spk (n from bz_clook, bz_cuef's), each a byte offset from the
-    ; sprite's first byte (8 dy + (s + dx) / 4) and a word mask by phase
-    ; (s + dx) & 3 - no transform and no clip: outside the silhouette, so the
-    ; ball's mask keeps them; then on a FLASH frame the ball with its frame ANDed with
-    ; the checker (bz_chk, NOT a row) - the ball's own pixels black on half of
+    ; SPARKLES first, three 2 x 2 pairs XORed, each at its place's entry for
+    ; the sprite's shift s in bz_spt (bz_spp: the place, bz_cuef's): a byte
+    ; offset from the sprite's first byte and the masks of its pixels j and
+    ; j + 1 in the word there - no transform, no clip, no arithmetic on the
+    ; shift: outside the silhouette, so the ball's mask keeps them; then on a
+    ; FLASH frame (a DITHER style) the ball with its frame ANDed with the
+    ; checker (bz_chk, NOT a row) - the ball's own pixels black on half of
     ; it, the box round it untouched: (box AND mask) OR (frame AND checker) is
     ; the old dither pass's result, frames being pre-ANDed (SPEC.md 128.3) -
-    ; else the ordinary loop.  A clipped sprite (.gen) draws neither.
+    ; else the ordinary loop.  A clipped sprite (.gen) draws neither (a BLINK
+    ; style's flash frame is bz_boxc's, before any clip: it blinks there too).
 .cwhole:
     and bh, 7Fh
-    mov al, [bz_clook]
-    test al, BZ_CL_SP
+    test byte [bz_clook], BZ_CL_SP
     jz .cf
     push si
     push bx
     push dx
-    and ax, 7                   ; n (bits 0 - 2)
-    shl ax, 1
-    add ax, bz_spk
-    xchg ax, si                 ; SI = entry n
-    mov dh, [bz_px]
-    and dh, 3                   ; DH = s, the sprite's shift
-    mov ch, [bz_herc]
-    mov cl, 3
+    mov ch, [bz_px]
+    and ch, 3
+    shl ch, 1                   ; CH = 2 s, the shift's entry in a place's
+    mov si, bz_spm              ; SI = the card's pixel masks: the CGA's...
+    cmp byte [bz_herc], 0
+    je .sm
+    mov si, bz_spm + BZ_SPMH    ; ...or the Hercules'
+.sm:
+    xor bx, bx
+    mov bp, 2                   ; sparkle 2 to 0
 .sk:
-    lodsw                       ; AL = dx, AH = 8 dy: entries n, n + 3, n + 6
-    add si, 4
-    add al, dh                  ; x = s + dx
+    mov al, [ds:bp + bz_spp]    ; its place, a byte into bz_spt
+    add al, ch
     mov bl, al
-    and bx, 3
-    shl bx, 1
-    mov bp, [bz_spw + bx]       ; pixel x's mask (phase x & 3)...
-    mov bx, [bz_spw + bx + 2]   ; ...and pixel x + 1's
-    shr al, 1
-    shr al, 1
-    add al, ah                  ; 8 dy + x / 4 (under 128)
+    mov ax, [bz_spt + bx]       ; AL = 8 dy + W, AH = 4 j
+    mov bl, ah
+    mov dx, [bx + si + 2]       ; the second line's mask...
+    mov bx, [bx + si]           ; ...and the first's
     cbw
-    or ch, ch                   ; the Hercules: pixel x on the first line and
-    jnz .sh                     ; x + 1 on the second - its grounds are a
-    or bp, bx                   ; checker of whole pixels (mono pairs), where
-    mov bx, bp                  ; a 2 x 2 XORed is the checker shifted, unseen,
-.sh:                            ; and the diagonal is a solid square; the CGA
-    xchg ax, bx                 ; both pixels on both lines
-    xor [bx + di], bp
-    xor [bx + di + BZ_BOXW * 2], ax
-    dec cl
-    jnz .sk
+    xchg ax, bx                 ; BX = the byte (BH 0 for the next), AX the
+    xor [bx + di], ax           ; mask
+    xor [bx + di + BZ_BOXW * 2], dx
+    dec bp
+    jns .sk
     pop dx
     pop bx
     pop si

@@ -22069,13 +22069,14 @@ ifeq ($(filter $(BZPARTZ),lz4 lzb),)
 $(error BZPARTZ=$(BZPARTZ) is not one of lz4, lzb)
 endif
 BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),$(BZPARTZ))
-#> [Knobs] BZ_CUEFLASH=DITHER2|DITHER4|BLINK2|BLINK4 :: Bounce Bonanza's pickup cue's flash style, DITHER2 the default until the owner picks (SPEC.md 128.25.19)
+#> [Knobs] BZ_CUEFLASH=DITHER2|DITHER4|BLINK2|BLINK4 :: Bounce Bonanza's pickup cue's flash style, BLINK4 the default (the owner's pick, SPEC.md 128.25.19)
 # BZ_CUEFLASH is the FLASH a speed or jump pickup shows in its last PU_WARN
 # steps (SPEC.md 128.25.19): DITHER2 the ball's pixels black on half a checker
 # every 2nd frame (the reference), DITHER4 every 4th; BLINK2 the ball not drawn
-# every 2nd frame, BLINK4 every 4th. bzvideo.inc maps it; STAMPED, so a change
-# rebuilds the package (and the shell part's link, which re-assembles it).
-BZ_CUEFLASH ?= DITHER2
+# every 2nd frame, BLINK4 every 4th - the owner's pick and the default (BLINK2
+# reads as see-through on the CGA's 60 Hz). bzvideo.inc maps it; STAMPED, so a
+# change rebuilds the package (and the shell part's link, which re-assembles it).
+BZ_CUEFLASH ?= BLINK4
 ifeq ($(filter $(BZ_CUEFLASH),DITHER2 DITHER4 BLINK2 BLINK4),)
 $(error BZ_CUEFLASH=$(BZ_CUEFLASH) is not one of DITHER2, DITHER4, BLINK2, BLINK4)
 endif
