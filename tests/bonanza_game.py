@@ -256,7 +256,24 @@ def hostile_set():
     out.append(("zero3", dat_image({2: (499, 0)}, slots=slot(3, z3=1) + slot(3, tail=b"\0\0\0\0\0\0\0\0\0\1") +
                                     slot(3, exits={nc: 1})),
                 dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    # EXPLORE rests on any pad of the pathway's, none of them in the open set (128.19.8): KEPT (the verify of
+    # 8R.5: the reader emptied it, and with it the slot's exits found and bests); a pad past the pathway's
+    # emptied whatever its open bit says, in either mode
+    np_ = npad()
+    xkeep = slot(3, mode=1, pad=np_ - 1, exits={1: 1}, best={1: 300})
+    out.append(("explore", dat_image({2: (499, 0)}, slots=xkeep + slot(3, pad=np_, open_=0xFFFFFFFF) +
+                                      slot(3, mode=1, pad=np_)),
+                dat_image({2: (499, 0)}, slots=xkeep + bytes(2 * SLOTB)), {1: (t1, 0), 2: (499, 0)}))
     return out
+
+
+def npad():
+    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD once the tool emits
+    it (128.22.3), the prototype's BZ_PATH_N until then"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^BZ_PATH_NPAD\s+equ\s+(\d+)", inc, re.M) or re.search(r"^BZ_PATH_N\s+equ\s+(\d+)", inc, re.M)
+    return int(m.group(1))
 
 
 # ---- the guest's side -----------------------------------------------------------
@@ -724,15 +741,20 @@ REDS = {
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
+    # wave 8R (128.22.5, the verify of 8R.5): EXPLORE's pad held to the open set - the explore slot emptied
+    "explorepad": [("bonanza.asm", "    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays\n"
+                    "    jnz .n                      ; any pad, 128.19.8: none of them in the set)\n",
+                    "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
     # wave 6 (SPEC.md 128.16.14): +5 not checked - a file under other physics keeps its bests
     "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)\n    je .phys\n"
                  "    xor cl, cl\n.phys:\n",
                  "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
 }
 RED_LEGS = {"besttime": ("pause", "tour", "stop"), "datlen": ("hostile",), "replaybest": ("posts",),
-            "noappdata": ("tour",), "physdat": ("physdat",)}
+            "noappdata": ("tour",), "physdat": ("physdat",), "explorepad": ("hostile",)}
 RED_WANT = {"besttime": "stop: BONANZA.DAT", "datlen": "hostile short", "replaybest": "posts: after R",
-            "noappdata": "tour: BONANZA.DAT", "physdat": "every best and the tour CLEARED"}
+            "noappdata": "tour: BONANZA.DAT", "physdat": "every best and the tour CLEARED",
+            "explorepad": "hostile explore"}
 
 
 def check():
