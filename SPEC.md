@@ -50006,6 +50006,7 @@ are the packer's. Flags are §20.12.4's, and a part with no file bytes has
 | `OP_COMP` | the part is COMPRESSED on the disk and expanded into the carve at load (§20.12.7) |
 | `OP_ZFILL` | on an eager `OP_COMP` row: two streams and the zeros round them FILLED, not shipped or decoded (§20.12.7.5) |
 | `OP_SELF` | on an `OP_LAZY` row only, and **never in the file**: the package reads this part for itself, so the standard carries no fetch code for it (§20.12.9.1) |
+| `OP_ARENA` | on an `OP_LAZY` row the standard fetches: the part goes into the package's ONE arena claim instead of a claim of its own (§20.12.15) |
 
 **Every one of them is package code.** `OP_XMS` is `OSAPI_XMEM_ALLOC` with a
 fallback; `OP_LAZY` is a row `op_size` steps over; `OP_OPT` is a claim the stub
@@ -51587,6 +51588,97 @@ row pays its shift — `pxstein` 3,143 → 3,149, RealDMG 37,822 → 37,824 — 
 XTMP3 its conversion back to KB, 45,168 → 45,179. WireFleet, at
 `APP_MAX_SIZE` with 3 bytes of slack, is byte-for-byte the size it was. No
 kernel byte.
+
+##### 20.12.15 `OP_ARENA` — one claim for a package's SMALL lazy parts
+
+**A fetched lazy part is a claim of its own** (§20.12.4), and `MEM_OWNER_MAX`
+is 8 claims an owner word (§50): a package whose play holds a course, three
+balls, a sound part, a song and a fanfare is at seven before it has fetched
+anything else (BONANZA, §128.25.4). The arena is the standard's answer, and
+it is ARTFUL's undo arena (§46.6.3) written once: ONE claim, its parts at
+offsets inside it, grown with `MEMP_REGROW` as they arrive and shrunk as they
+go, so a package's small parts cost it one claim however many there are.
+
+**Opt-in, twice.** `%define OP_WANT_ARENA` before `os88parts.inc` gives the
+standard four bss words (`op_arena` the claim, `op_arsz` its paragraphs,
+`op_artop` the paragraph past its highest part, `op_arres` the floor a
+reservation set; `OP_BSS` grows by 8), and a row marked **`OP_ARENA` (bit 7,
+128)** is fetched into it. Only a LAZY row the standard fetches may carry the
+flag - an eager part is in the carve and an `OP_SELF` one is read by the
+package - and `OS88_PART` refuses it otherwise, or without the define;
+`os88pkg.py` refuses it off a lazy row. The code is gated on the ROWS
+(`OP_HAS_ARENA`, §20.12.9), so **a package that marks none assembles byte for
+byte as before**, the define or not.
+
+| verb | what it does |
+|---|---|
+| `op_fetch` on an `OP_ARENA` row | the row's claim is not made: `op_lazyp`'s figure (the read and the expand's room, §20.12.7.4) is asked of the arena past `op_artop`, which is regrown to take it when it does not - to the next `OP_ARQUANT` step (default 64 paragraphs, a power of two), and refused, to the exact need once more (ARTFUL's `at_agrow` rule). The slot is then "the claim" every later step reads - a segment on a real-mode kernel, an `op_at` window on kern_mega - so the read, the in-place expand onto the slot's base, a plain row's move down and every refusal run as they did. The part banks its SEGMENT: the arena plus `op_artop` on a real-mode kernel, and on kern_mega `OSAPI_SEG`'s `SEG_SUB` (`SEG_SUBC`'s pair for an `OP_SEG` row, so `op_cseg`'s code half is `DX - 8` as for any claim) reaching the part's own paragraphs. `op_artop` advances by `paras(len)` and the arena is FITTED (below) |
+| `op_drop` on an `OP_ARENA` row | the row is cleared as any lazy row is (`OP_FETCHED`, the shadow, §20.12.7.4.1); nothing is freed. Any reservation ends, `op_artop` is found again as the highest end of a part still fetched - each one's base through `SEG_REAL`, so the walk is the same arithmetic on every kernel - and the arena is fitted. **A hole stays** until the parts above it go: dropping in reverse order leaves none, and any order ends with the arena freed |
+| `op_areserve AX` | grows the arena AHEAD, to `op_artop + AX` exactly, and makes that its floor until the next drop, so a package that knows what it is about to fetch regrows once (the owner: the program batches). `AX` = 0 fits the arena to its parts, which is how a batch gives back its last fetch's room. CF = 1 refused and nothing changed: each fetch then grows it for itself |
+| `op_arquery` | `AX` = the arena's paragraphs, `BX` = `op_artop`; both 0 with no arena. Opt-in, `%define OP_WANT_ARQUERY` (a call no row sees, `OP_WANT_CSEG`'s reason) |
+
+**Fitted** means regrown down to `op_artop` rounded up to the next step,
+never under the floor - a shrink, which always succeeds in place (§50.3.1) -
+and **FREED** when that is nothing. So between batches an arena holds its
+parts and at most a step past them, and a package that has dropped every
+arena part has no arena.
+
+**Moves.** A regrow extends in place when it can and MOVES the block when it
+must, the kernel carrying the bytes. On a real-mode kernel the claim's base
+changes, and the standard adds the distance to every fetched arena row's
+banked word (`op_arshift`) the moment the regrow answers - the PART segments,
+which is what `op_seg` reads. On kern_mega the regrow answers the same
+selector and `mem_mpmove` rebases every SUB based in the old block (§50.6.11),
+so the distance is 0 and nothing is shifted; the shrink's `mega_mpgap` frees
+the SUBs of a slot the arena gave back. **A package that copies an arena
+part's segment into a variable of its own** re-reads it from `op_seg` after a
+batch of fetches (a drop and a fit never move the arena), or names it to its
+`OP_ONMOVE` hook.
+
+**Movable, when the package says so.** The arena is born PINNED like every
+claim (§66.2). A package that defines `OP_ONMOVE` (§20.12.12) has it declared
+movable at its claim with the standard's proc `op_armv`, which stores the new
+base, shifts every banked word and jumps to the package's hook with `BX`/`DX`
+intact; the arena is pinned across each fetch into it (a read lands through a
+sum or a window aimed at it) and declared again after. `op_movable` refuses an
+arena row - it has no claim of its own. On kern_mega no proc is called at all:
+its compactor tells nobody, every holder holding a selector it rebases.
+
+**kern_mega.** The arena is claimed `MEMP_CONV` - conventional on every
+kernel, as a code part a far call enters must be (§50.2.1) - so its slots are
+reached through `SEG_SUB`/`SEG_SUBC` exactly as the carve's are (`op_sub`). No
+`PKG_MEGA` arm: the selector path is the standard's own, assembled for every
+kernel. Each slot's SUB is asked with the part's own reach, so the same slot
+asked again answers the same selector, and the arena's free or a shrink past
+it takes it (`mega_mpfreef`, `mega_mpgap`).
+
+**What it does not do.** It is not a heap: a part is placed at the TOP and a
+hole is not reused, which is exactly right for a package that fetches a batch
+and drops it (a play), and wrong for one that fetches and drops at random -
+that package keeps a claim a part. `op_lazyok` answers an arena row as it
+answers any (a claim of `op_lazyp`), which is the conservative question. The
+claim is made without §20.12.4's ask-then-claim, as every regrow is: a refused
+step may shed a purgeable cache before the exact need is tried.
+
+**The harness's knob.** `%define OP_ARFORCE <byte>` names a package byte a
+row pokes: while it is non-zero `op_areserve` reserves nothing and the arena
+is claimed from the CEILING (`MEMP_CLAIM_HI`), under the claims stacked
+there, so the batch's next growth cannot extend it in place and MOVES it -
+the move the shifting above exists for, made on demand (BONANZA's
+`bz_arforce`, §128.25.13). Without the define it is not assembled.
+
+**What it costs** (MEASURED, BONANZA, the one table with `OP_ARENA` rows):
+**407 bytes** of the standard - `op_fetch` +99 (357 -> 456), `op_drop` +11
+(72 -> 83) and the arena's own routines 297 (`op_areserve`, `op_argrow`,
+`op_arset`, `op_arshift`, `op_unclaim`/`op_arback`/`op_arfit`, `op_ardrop`,
+`op_arreal`, `op_lenp`; `op_arquery` 8 more with `OP_WANT_ARQUERY`, the
+`OP_ONMOVE` arms not assembled) - and **8 bytes** of bss; BONANZA's own half
+is 97 more (§128.25.4). **Every other package is byte for byte what it
+was**: a full `make` and `make bonanza` with the standard changed and no row
+marked, 278 artefacts compared against the base tree, identical. No kernel
+byte and no ABI: the flag is in the package's own table (`os88pkg.py`
+accepts bit 7 on a lazy row and refuses it elsewhere; `os88parts.py`
+mirrors it).
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
@@ -270237,7 +270329,9 @@ cluster less a PARAGRAPH since parts are paragraph-aligned - 2,542 bytes
 past `len` at most with the 1 KB clusters of a shipped floppy; SPEC.md
 20.12.2, 20.12.7.4. A hard disk's larger clusters can need more): 5,985
 today, PEAK's (op_lazyp's exact claims at today's offsets on a 1 KB-cluster
-disk: 5,440); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
+disk: 5,440) - **since wave 9 (128.25.4.2) the course's OWN claim alone**,
+3,104 today, beside **`BZ_CRS_ARMAX`** (2,272) and **`BZ_CRS_ARENA`** (a word a
+course): the small parts are one arena claim; **`BZ_CRS_NEXITS`**, a byte a course, its distinct
 exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
 `BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
 `BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. The 8b
@@ -270809,7 +270903,12 @@ pathway where the course then cannot be had). The tool runs before the
 parts are packed, so its figure is a bound per claim of `len + 512 + 2
 clusters` (at most 2,560 bytes over the length on the shipped disks).
 `BZ_PATH_CLAIM` is not used: the comparison is made with the pathway's claim
-held, which is what `MEMP_AVAIL` then answers.
+held, which is what `MEMP_AVAIL` then answers. **Wave 9 (128.25.4.2)
+replaced the sum**: it omitted the victory fanfare's claim, and the play's
+small parts are one ARENA claim now, so `bz_phrel` holds the pathway when the
+largest run takes `BZ_CRS_MAXCLAIM` (the course's own claim) plus
+`BZ_CRS_ARMAX` (the largest arena a pad's course reserves) - 5,376 paragraphs
+today against the sum's 5,993.
 
 #### 128.22.8 The art (BUILT - generators, files and previews; not yet seen in the guest. PROVISIONAL: the owner's to refine)
 
@@ -271975,7 +272074,25 @@ what each now proves:
 Rows: `bonanzaring`'s camera leg (the guest's `BZL_PRE` equal to the model
 on every frame; the two arms) in wave 9's final pass; `bonanzacourse`.
 
-#### 128.25.4 The arena (story 9.3)
+#### 128.25.4 The arena (story 9.3) (BUILT)
+
+**BUILT (wave 9, story 9.3).** As below, with the standard's contract written
+out as SPEC.md 20.12.15 - where it differs from this section's draft, 20.12.15
+and 128.25.4.3 are the authority. MEASURED (`make bonanza`, against the base
+tree `19dd317`): BONANZA's image **40,207 -> 40,711 (+504)**, of which the
+standard's code **407** (`op_fetch` 357 -> 456, `op_drop` 72 -> 83, the arena's
+routines 297) - under the wave's +450 for it (the lead, 2026-11-16) - and
+BONANZA's own half **97** (`bz_arload`, the reserve and the drops, the 18-byte
+`bz_carena` table); bss **+10** (the standard's four words, 8; `bz_arforce`,
+2). Every other package and image of a full `make` and the base's `make
+bonanza` is byte-identical with the standard changed (278 artefacts compared).
+SEEN on MartyPC (CGA, one boot): the desktop holds 3 claims (the region, the
+shell part, the arena of 192 paragraphs: the sound part and the title's
+song); an F play of FIRST holds 3 (the region, the course's 640, the arena's
+768 - its ball, the sound part, the song and the fanfare, `op_artop` 747), so
+**a course play is 2 data claims, and 3 with the pathway held** (arithmetic
+for the held case: not driven in that boot); after the goal the desktop's 3
+again, the arena the title's alone.
 
 A play holds today: the course, up to three balls, the sound part, the song
 and the victory fanfare, seven of `MEM_OWNER_MAX`'s eight claims, and with
@@ -272059,6 +272176,61 @@ as `op_sub` is.
 **Claims, after** (PREDICTED): a course play 3 of 8 with the pathway held, 2
 without; the desktop's title (the sound part and song 0, in the arena) 1 plus
 the shell's.
+
+##### 128.25.4.3 As built
+
+- **The rows**: the three balls, `BZ_P_SND` and every song row (the title's,
+  the courses', the fanfare) carry `OP_ARENA`; the family rows get it at the
+  integration (agent `fam`'s rows are plain lazy rows until then).
+- **`bz_cload`**: `bzs_dstop` first (the title's sound part and song leave the
+  arena, which is freed when they were all of it), then `op_areserve` with the
+  course's `[bz_carena + 2K]`, the balls, `bzs_gfetch` (sound part, song,
+  fanfare), `bz_crshdr` and **`bz_arload`**: `op_areserve 0` (the arena fitted
+  to its parts) and `bz_bsegs`, `bz_bseg`, `bzs_pseg`, `bzs_vseg`, `bzs_mseg`
+  read again from `op_seg`. **The families' fetch (`bz_ffetch`, after
+  `bz_crshdr`) goes BEFORE `bz_arload`**, so their far pointers are rebuilt
+  after it too. The desktop's `bzs_dstart` calls `bz_arload` after its two
+  fetches (the song's may move the arena under the sound part's word). The
+  ball loop's own store into `bz_bsegs` stays (the ball generator, story 9.4,
+  uses the segment before the next fetch).
+- **The drops**: `bz_cdrop` drops the balls glass, steel, rubber, then
+  `op_areserve 0` (a reservation nothing was fetched into - a refused first
+  fetch - is given back: `op_drop` of a row never fetched is a no-op and ends
+  no reservation); `bzs_gdrop0` the fanfare, the song, the sound part. The
+  CALLERS still run `bz_cdrop` before `bzs_gdrop0`, so the balls go before
+  the sound group: the arena holds holes until the sound part goes, and is
+  then freed whole. Any order ends empty (`op_drop` finds the top again).
+- **The bounds** (`tools/bbcourse.py`): `BZ_CRS_ARENA` per course (the
+  pathway's and the title's last) is `crs_arena`: the paragraphs of every
+  ball `bz_cload` can fetch for it (`crs_mats`), the sound part, its song and,
+  for a course, the fanfare, plus one `CLAIM_SLACK` (159) - the batch's peak
+  is the last fetch's room over everything before it; today 892 - 2,271.
+  `BZ_CRS_MAXCLAIM` = the largest pad's course's own claim (`len` + 159, to
+  the granule): 3,104. `BZ_CRS_ARMAX` = the largest of those courses'
+  reserves, to the granule: 2,272. **`bz_phrel` keeps the pathway when the
+  largest run takes the two TOGETHER** (5,376): the "two runs, largest first"
+  of 128.25.4.2 needs the second-largest run, which `MEMP_AVAIL` does not
+  answer; one run holding both is the sound test (the course lands in the
+  first run that fits, and the largest still holds the arena).
+- **`op_arquery` is opt-in** (`OP_WANT_ARQUERY`): BONANZA does not call it,
+  and a harness reads `op_arena`, `op_arsz`, `op_artop` and `op_arres` by name
+  (`tests/bonanza_ring.py`'s `EXTRA_EQUS`).
+- **The arena is PINNED** in BONANZA (no `OP_ONMOVE`): its parts' segments sit
+  in DS and ES under the frame, bucket C as before (tests/pins.txt).
+- **`bz_arforce`** (bss, a word, byte 0): the harness's `OP_ARFORCE` byte -
+  non-zero, `op_areserve` reserves nothing and the arena is claimed from the
+  ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
+  row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
+  SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
+  `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
+  2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
+  still held 90A0h, and after `bz_arload` every package word (the three
+  balls, `bz_bseg`, `bzs_pseg`, `bzs_mseg`, `bzs_vseg`) equalled its row's
+  and every arena part's bytes equalled its RAM form; the play drew, and Esc
+  left the desktop's claims and rows as before.
+- **The rows** updated for the count: `bonanzaexit` (inside a play: the
+  desktop's claims less the shell, plus the course, the desktop title's arena
+  become the play's) and `bonanzamega`'s case 10 the same way.
 
 #### 128.25.5 The balls generated at fetch (story 9.4)
 
