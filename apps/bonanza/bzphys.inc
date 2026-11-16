@@ -1657,6 +1657,13 @@ bz_prule:
     jnz .out
     or [bz_cksn], al
     inc word [bz_nckpt]
+    mov ax, si                  ; (128.19.10: a first touch MARKS its flag's
+    sub ax, [bz_poff]           ; lane for the walk: the record's index)
+    mov cl, 5
+    shr ax, cl
+    xchg ax, bx
+    mov byte [bz_latt + bx], 1
+    xchg ax, bx
     ret
 .rec:                           ; SI = record AL's offset in the course
     push bx
@@ -2615,6 +2622,8 @@ bz_circle:
     mov ax, [bz_nstep]
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
+    shr bx, 1                   ; (128.19.10: a kick MARKS its post's lane for
+    mov byte [bz_latt + bx], 1  ; the walk, until it is dark again)
     mov byte [bz_bgr], 0        ; wave 6b: a kick closes the grace
     ret
 .out:

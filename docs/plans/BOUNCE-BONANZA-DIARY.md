@@ -2517,6 +2517,38 @@ at 1.5), and a node's sign turns silver or gold with the slot's best.
 Left for the front window proper, with the owner's art: the tour's removal
 and the artwork band.
 
+## 2026-11-16: lanes at scale, and wave 8 was a misreading
+
+The owner read wave 8's result and found two misreadings. The first was
+an engine limit: the window bound counted every lane the same, so the
+pathway held five nodes "because a screen can show at most six signs".
+The brief meant 2 - 6 ACTIVELY ANIMATING items a screen, with slow ones
+(a crystal that changes once a second) cheap enough to have many, and
+maps with many more than six. SPEC.md 128.19.10 is the rework, all six
+items approved: lanes bounded by RATE (rotors at most 6 a window, pose
+changes at most 6 a step); the tables sized by the largest course; a
+full write that syncs the shown window only; a binary-searched owner
+index; no clock cap; and every lane walked only when something MARKED it.
+
+A STRESS course in a private tree (85 posts, 2 clocks, 89 lanes) was the
+instrument, measured on MartyPC's CGA. Before the marks, rolling among
+the posts cost the walk 17 - 25k clk on 22 frames of 80, because one lit
+post made every other lane in the range pay about 800 clk to be skipped.
+After them, the most is 10.1k, on 1 frame of 80, and MILL is no worse
+(a mean of 3.5k against 3.8k). The marks' first run of the rows went red
+in exactly the place they should: `bonanzawheel`'s beam sweep KICKED a
+post by poking `bz_pkick` and marked nothing, so the walk never saw the
+kick. Every harness poke of lane state now marks the lane, as the guest's
+own writers do.
+
+The second misreading was the pathway. It is a Star Fox-style path
+screen, not a course you roll across: the exit taken picks the route,
+the marble auto-rolls along branch art between glowing pads, the camera
+pages vertically, and locked or secret routes are drawn that way. The
+cards also go, because they froze the screen; a flashing finish clock
+replaces them. The plan's "Wave 8 rework" holds the design and ten
+questions, and nothing in it is built until they are settled.
+
 ## 2026-11-16 (the title screen: the brief and the contract)
 
 The owner sketched the title screen in Paint and wrote four little films
