@@ -270167,10 +270167,10 @@ today, PEAK's (op_lazyp's exact claims at today's offsets on a 1 KB-cluster
 disk: 5,440); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
 exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
 `BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
-`BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. Until the
-guest's 8R.2 reads the tables, the 8b prototype's `BZ_PATH_N`, `BZ_PATH_CRS`
-and `BZ_PATH_EDGES` are emitted DERIVED (the pads, each pad's course, an
-(A, E, B) a route), so the package assembles.
+`BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. The 8b
+prototype's `BZ_PATH_N`, `BZ_PATH_CRS`, `BZ_PATH_NEDGE`, `BZ_PATH_EDGES`
+(emitted DERIVED while the prototype's guest read them) and `BZP_CNODE` are
+no longer emitted: the guest reads the tables (128.22.4, 8R.2's verify).
 
 #### 128.22.4 The guest (BUILT, wave 8R: stories 8R.2 and 8R.3)
 
@@ -270181,7 +270181,8 @@ lanes +53 / +2 (4.1), the PAGED camera +171 / +4 (4.3, its flags' test through A
 loop +1,742 / +42 (4.2, 4.4: about 2,100 bytes of new code - `bz_pwinit` 231,
 `bz_pwroll` 238, `bz_pwdep` 211, `bz_grounds` 258, `bz_pwkey` 160,
 `bz_follow` 141, `bz_ppose` 139, `bz_pwpos` 137, the rest under 80 each -
-less the prototype's loop, goal gate, node signs and tables). LOOKED AT on
+less the prototype's loop, goal gate, node signs and tables); its verify
+-134 (4.4's end): **39,897 and 10,087**. LOOKED AT on
 MartyPC, CGA and Hercules (the wave's logs, `guest-cga-*.png`,
 `guest-herc-*.png`): a new game resting on pad 0, the arrows on closed
 routes doing nothing, the INFO card, FIRST finished by the autopilot (the
@@ -270338,9 +270339,13 @@ was closed - its gate posed 1 at once, then 2 - 5 every 6 steps (0.55 s) with
 Keys are TYPED ones (`bz_exitchk`'s mode-4 arm, `bz_pwkey`), at REST only, and
 none of Enter, Esc, Space and the arrows counts while it is held since the
 course ended or the last departure (`bz_pwek`, let go by `bz_pwheld` once
-all seven are up): Enter held through a finish starts no course, a held arrow
-moves one route, a held Esc no leave (the held-Esc leave of a play is not
-read in mode 4). Arriving: the route TAKEN (`bz_nrtk`, only where it is opened,
+all seven are up; set again when the INFO card is taken down, so a held
+key that took it down - Space's repeat among them - is no press): Enter held
+through a finish starts no course, a held arrow moves one route, a held Esc
+no leave (the held-Esc leave of a play is not read in mode 4). R's RETRY
+(`bz_retry`) is taken at the course's end whatever follows, so EXPLORE's R
+or the last life's (which return to the pathway or the game over) cannot
+make a later course's Esc a retry. Arriving: the route TAKEN (`bz_nrtk`, only where it is opened,
 so the slot's "taken implies opened" holds), the pad OPEN (TIMED), a secret
 route's reveal groups and both its ends' poses (`bz_pnset`), `BZS_EV_PAD`,
 and the icon's animation (PAD +8 frames, +9 steps between them; `bz_nset`
@@ -270353,8 +270358,11 @@ exit has opened it; a finish there rolls the route keyed by its exit when it
 can be travelled and opens nothing. The prototype's goal gate (`bz_gmask`),
 node signs, `bz_gnode`, `bz_path_crs`, `bz_path_edges` and every use of
 `BZ_PATH_N`, `BZ_PATH_CRS`, `BZ_PATH_EDGES`, `BZ_PATH_NEDGE` are gone
-(`BZ_PATH_NPAD` gates the game): the tool may stop emitting them. MEASURED
-(with 4.2) +1,742 bytes, bss +42.
+(`BZ_PATH_NPAD` gates the game), and the tool no longer emits them. MEASURED
+(with 4.2) +1,742 bytes, bss +42. **The verify** (8R.2/8R.3's): the INFO
+card's held guard +5 bytes, the retry taken -2, and the face's `bz_game8`
+(the prototype's entry, which the TITLE's P replaced, 128.23.4) assembled
+only in a build with no title, -137: the image **39,897** bytes, bss 10,087.
 
 ##### 128.22.4.5 The key map (the tool's; BUILT)
 
@@ -270399,9 +270407,8 @@ reader (`bz_dslots`) judges each slot alone and EMPTIES it when: its lives are
 over `BZ_LIVES`; +1 has a bit but the mode's; +3 is not zero; a route is
 taken that is not opened; the exits found of a course that does not exist, or
 +70 - +79, are not zero; or, with lives, pad 0 is not open, the identity is
-not this build's pathway's, the pad is not one of the pathway's (`BZD_NPAD`:
-`BZ_PATH_NPAD` once the tool emits it, the prototype's `BZ_PATH_N` nodes
-until then - the loop indexes the part's tables by it), or, in TIMED mode,
+not this build's pathway's, the pad is not one of the pathway's (`BZD_NPAD`,
+`BZ_PATH_NPAD`: the loop indexes the part's tables by it), or, in TIMED mode,
 the pad is not open. An EXPLORE slot's pad need not be open: exploration
 rests on any pad and adds none to the open set (128.19.8), and the first
 build of this reader emptied such a slot - its exits found and bests with
@@ -270411,11 +270418,11 @@ from the text above:** a `BZS2` file's slots are always emptied rather than
 kept where the identity matches - a `BZS2` slot's identity is the wave 8b
 pathway's, which this build's can never equal, so converting the layout would
 be dead code; its bests are kept as ever. The 8 courses' best table stays
-(+54 - +69). The prototype pathway's loop (`bz_grounds`) stores the pad of
-the course it enters (`bz_gnode`) BEFORE the entry's write, so the slot the
-entry writes has the marble on the pad it played, and sets the bit of the
-route (edge) a finish opened in `bz_nrop`; nothing reads either until the
-pathway's loop (128.22.4) does.
+(+54 - +69). The pathway's loop (`bz_grounds`, 128.22.4.4) enters a course
+from the pad the marble rests on (`bz_ppad`), so the slot the entry writes
+has the marble on the pad it played; a finish's route is set in `bz_nrop`
+when the pathway is entered again (`bz_pwinit`) and a route TAKEN in
+`bz_nrtk` at the arrival, both written to the disk when the bracket ends.
 `tests/bonanza_game.py`'s hostile set carries `BZS3`'s cases (`magic`, `v1`,
 `v2`, `slot`, `pad`, `zero3`, `explore`; red arm `explorepad`).
 
@@ -270518,10 +270525,9 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   `bz_cnex`'s count - `BZ_CRS_NEXITS` of `bzcourse.inc` once the tool emits it,
   until then the course sources' (only TRIAL has two) - and `NOT SAVED` is
   `bz_dwf`, the LAST write's outcome (`bz_dwrite`'s, inside the bracket or
-  on the desktop; `bz_datw` is only the once-a-session toast's). **The hook
-  for now:** Space on the PROTOTYPE pathway (`bz_exitchk`, `bzgame.inc`: a
-  typed Space while `bz_crs` is the pathway and the pause card is not up)
-  shows node 0's course's card; the pad loop replaces the course.
+  on the desktop; `bz_datw` is only the once-a-session toast's). **The hook**
+  (8R.3): a typed Space RESTING at a pad (`bz_pwkey`, 128.22.4.4; not over
+  the pause card) shows that pad's course's card.
 - **Removed**: the INTRO card and the RESULT card (`bz_kintro`,
   `bz_kresult`). The GAME OVER card stays (`bz_kover`), and is followed by
   the title. **BUILT:** `bz_kintro`, `bz_kresult` and their strings are gone;

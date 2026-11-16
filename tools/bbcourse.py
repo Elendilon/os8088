@@ -9064,7 +9064,6 @@ def emit_inc(courses, path=None, title=None):
               "BZP_CNUM        equ 16       ; CHECKPOINT: its number 0 - 7",
               "BZP_CPLACE      equ 26       ; CLOCK: its digit's place (0 the units; +16 - +25 a post's)",
               "BZP_CNDIG       equ 27       ; ...its digits, 1 - 3",
-              "BZP_CNODE       equ 28       ; ...its clock's number (kept for the 8b prototype's guest)",
               "BZ_PK_SIGN      equ %d       ; wave 8R (SPEC.md 128.22.4.1): a SIGN, a lane and nothing else" % PK_SIGN,
               "BZP_SNUM        equ 28       ; SIGN: its number, the pose's index into bz_nst",
               "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
@@ -9162,9 +9161,9 @@ def table_max(courses, lanes):
 def emit_path(path, courses):
     """wave 8R (SPEC.md 128.22.3): the pathway's resident constants -
     BZ_PATH_NPAD, BZ_PATH_CLAIM, BZ_CRS_MAXCLAIM, the follower's and the
-    signs' constants, and (until the guest's 8R.2 rewrite reads the tables
-    instead) the 8b prototype's BZ_PATH_N, BZ_PATH_CRS and BZ_PATH_EDGES,
-    DERIVED: N = the pads, CRS each pad's course, EDGES (A, E, B) a route"""
+    signs' constants.  The guest reads the pads, routes and keys out of the
+    part's tables (128.22.4), so the 8b prototype's BZ_PATH_N, BZ_PATH_CRS,
+    BZ_PATH_NEDGE and BZ_PATH_EDGES are no longer emitted"""
     out = ["; wave 8R (SPEC.md 128.22.4.2): the follower, 8.8 ground px a step (PROVISIONAL)",
            "BZ_FOL_VMAX     equ %d" % FOL_VMAX, "BZ_FOL_ACC      equ %d" % FOL_ACC,
            "BZ_FOL_VMIN     equ %d" % FOL_VMIN,
@@ -9185,25 +9184,15 @@ def emit_path(path, courses):
            "each with op_lazyp's cluster slack (SPEC.md 128.22.3)"
            % crs_maxclaim(path, courses)]
     if path is None:
-        return out + ["BZ_PATH_N       equ 0        ; no pathway (SPEC.md 128.19.5)",
-                      "BZ_PATH_NPAD    equ 0", "BZ_PATH_CLAIM   equ 0", ""]
+        return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 128.22)", "BZ_PATH_CLAIM   equ 0", ""]
     pth = path.pth
-    edges = [(rt["a"], rt["exit"], rt["b"]) for rt in pth["routes"]]
     return out + [
         "; wave 8R (SPEC.md 128.22): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its entry",
         "; last in every BZ_CRS_ table), part BZPATH.BIN; its tables are the part's (PTHOFF)",
         "BZ_CRS_PATH     equ %d" % len(courses),
         "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PADS),
         "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
-        "; the 8b prototype's names, DERIVED from the pads and routes until the guest reads the tables",
-        "BZ_PATH_N       equ %d        ; = BZ_PATH_NPAD" % len(pth["pads"]),
-        "BZ_PATH_NEDGE   equ %d        ; the routes" % len(edges),
-        "%macro BZ_PATH_CRS 0",
-        "    db " + ", ".join(str(q["K"]) for q in pth["pads"]),
-        "%endmacro",
-        "%macro BZ_PATH_EDGES 0",
-        ("    db " + ", ".join("%d, %d, %d" % e for e in edges)) if edges else "",
-        "%endmacro", ""]
+        ""]
 
 
 CLAIM_SLACK = 159             # paragraphs a lazy part's claim may pass its RAM form by (SPEC.md 20.12.2, 20.12.7.4):
