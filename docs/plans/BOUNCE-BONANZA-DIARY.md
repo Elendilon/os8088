@@ -3060,3 +3060,35 @@ from **23 minutes to 5.5**. Every output matched line for line, and the built
 art and package were byte-identical. Nothing that ships is built from the
 cache. docs/TESTING.md now says which checks each kind of change owes: a
 guest-only change about 75 s, a merge of verified branches under a minute.
+
+### Wave 9: the final pass (story 9.9)
+
+**What one pass found that no wave did.** The BONANZA rows ran once, scoped,
+in the background: 18 rows in 32 minutes. Fourteen passed. Each of the four
+failures was a different kind of thing:
+- **A real bug on kern_mega.** The family lookup adds a segment distance to
+  the part's base. In real mode that distance is 0; on kern_mega it is the
+  selector pair's -8 (FFF8h), so the sum always carried. The leftover carry
+  read as "not found", and every course with a resident family - MILL,
+  MOON, SUMMIT - silently refused to start. No MartyPC row could see it,
+  and no wave had run families on kern_mega. One `clc`, one byte.
+- **A test that had been wrong since 9.4.** The ring's reference still read
+  the ball files raw, but since the ball generator they ship compressed. So
+  its expected frame drew every resting ball as a black hole. The glass leg
+  is the row's first check, which is why it showed now.
+- **A test disarmed by a layout change.** The camera hysteresis control's
+  PLAYGROUND scenario no longer reversed even without hysteresis. It was
+  re-anchored to a column at step 1028, now on both cards (the
+  self-check's version used to require only the CGA).
+- **A registry with no lines for wave 9's claims.** Three of the five claims
+  were older than the wave. The honest verdict on the arena is debt: it is
+  pinned for as long as the window is open.
+
+The four re-run green. `test-full` failed only `guidelock-full`, on
+WireArena's undescribed package - older than this wave and outside it - and
+`budget-check` was under on every kernel.
+
+**Tested:** the scoped soak and its re-run (MartyPC, 86Box for kern_mega),
+`test-full`, `budget-check`, and the host checks at every merge. **Not
+tested:** the owner's play of PLAYGROUND's new sections, and the pickups
+yard in its new place on real glass.
