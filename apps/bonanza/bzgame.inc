@@ -74,6 +74,7 @@
 ;                      +1 last, +2 fast, +3 since (across), +4 held (the heavy
 ;                      rule's withheld steps running), +6 tgt word, +12/+14 the
 ;                      band's bounds (words, the tracked point's px or lines)
+;                      +16 pre (a tube set its fast latch: pre-aimed)
 ;   bz_late     word   BOXES the beam overtook (SPEC.md 128.11.10.3, bz_latechk on
 ;                      every box of a TIMED frame - a benchmark's measured one, or
 ;                      a harness's bz_tpoke - never a full write): a box not
@@ -199,7 +200,9 @@ BZL_K       equ 10              ; word: its constants' row in bz_klat (the card'
 BZL_BLO     equ 12              ; word: the BAND at the window's position, in the
 BZL_BHI     equ 14              ; tracked point's px or lines: P u + lo, P u + hi
                                 ; (bz_lband, after every move and at rest's reset)
-BZL_SIZE    equ 16
+BZL_PRE     equ 16              ; byte: 1 the pan's fast latch was set in a TUBE: PRE-AIMED,
+                                ; never withheld by the heavy rule (SPEC.md 128.25.3)
+BZL_SIZE    equ 18
 ; ... and its CONSTANTS (bz_klat: across on the CGA, on the Hercules, down;
 ; bbcourse.lat_consts), in the axis's px or lines
 BZK_A       equ 0               ; the band margin A: lo = A - Hr after a pan +
@@ -2844,6 +2847,7 @@ bz_lat:
     js .cont
     mov [si + BZL_S], al
     mov word [si + BZL_FAST], 0900h ; fast clear, since 9
+    mov byte [si + BZL_PRE], 0  ; ...and not pre-aimed
     jmp short .tgt
 .ext:
     call bz_lcand
@@ -2884,7 +2888,11 @@ bz_lat:
     cmp bp, [di + BZK_WPE]
     jle .step
 .fast:
+    cmp byte [si + BZL_FAST], 0
+    jne .step                   ; (latched already: its cause stands)
     mov byte [si + BZL_FAST], 1
+    mov al, [bz_tube]           ; a TUBE set it: the pan is pre-aimed
+    mov [si + BZL_PRE], al      ; (128.25.3: the heavy rule leaves it)
 .step:
     mov al, [si + BZL_FAST]     ; 7. down: one row, two when fast
     cbw
@@ -2959,6 +2967,8 @@ bz_lhv:
     jz bz_lmove                 ; no step to take: held stays
     cmp byte [bz_heavy], 0
     je .go
+    cmp byte [si + BZL_PRE], 0  ; a PRE-AIMED pan is never withheld (guarantee
+    jne .go                     ; 5 by construction, SPEC.md 128.25.3)
     or bl, bl
     jnz .go
     cmp byte [bz_heavy], 2
@@ -3098,6 +3108,7 @@ bz_latrst:
 .one:
     mov word [si + BZL_S], 0    ; s, last
     mov word [si + BZL_FAST], 0900h ; fast, since 9
+    mov byte [si + BZL_PRE], 0
     xor al, al
     mov [si + BZL_HELD], ax     ; held, the unit's shift
     mov [si + BZL_MX], bx

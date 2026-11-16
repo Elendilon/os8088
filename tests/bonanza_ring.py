@@ -272,8 +272,14 @@ their own check:
              (SPEC.md 128.17.17.4), so the arm's model was green there
   camcap     (6b) no cap in bz_lhv: PEAK's CGA demo holds an axis past LAT_H2 (6b's final pass: MILL's does not on the guest's pacing)
              beside the lift - the lift stretch's held check
-  campreaim  (6b) no pre-aim (bz_lexit not called): PEAK's cannon exit on the
-             Hercules withholds the running row pan - guarantee 5
+  campreaim  (6b) no pre-aim (bz_lexit not called): PEAK's cannon run on the
+             Hercules leaves more pan for after its exits (41 steps against
+             15, the model's) - red at the window's parity with the shipped
+             model (until SPEC.md 128.25.3 it went red at guarantee 5,
+             through the heavy rule, which no longer withholds a pre-aimed pan)
+  camprex    (9.0) a pre-aimed pan withheld like any other (bz_lhv's BZL_PRE
+             test gone): PEAK's cannon run on the CGA withholds the running
+             row pan at its exit, frame 1350 - guarantee 5
   camring    (6b) the rows read the travel ring: its y half put back in the
              arm as bbcourse.Glide's `_ringy` keeps it - TRIAL's drop takes a
              two-row frame the model does not (the two-row check)
@@ -281,8 +287,10 @@ their own check:
              heading right with only the BOTTOM bit set - the side check
   latpad     (6b) bz_lattice padded by a ~5k-clock loop: the camera's span
   Each camera arm's guest was run under unicorn against the arm's model
-  (Glide's _nohyst, _nocap, _nopreaim, _ringy, _side0) on its scenario at
-  the nominal rate, equal on every frame, before the row was registered.
+  (Glide's _nohyst, _nocap, _nopreaim, _noprex, _ringy, _side0) on its scenario at
+  the nominal rate, equal on every frame, before the row was registered;
+  `camprex`'s (9.0) and `campreaim`'s new verdict were proved on the model
+  only (`--check-reds`), and the row's final pass is their first guest run.
 
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
 bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
@@ -3376,6 +3384,8 @@ CAM_RED = {"camhyst": {"only": ("dither",)},     # 8R.13: both cards (the climb 
            # stayed green there; PEAK's CGA demo holds at the cap, 3, on the glass, and its model uncapped 12)
            "camcap": {"only": ("peak-demo",), "tags": ("cga",)},
            "campreaim": {"only": ("peak-cannon",), "tags": ("herc",)},
+           # (SPEC.md 128.25.3: the Y0 search put a heavy frame on the cannon run's exit on the CGA, frame 1350)
+           "camprex": {"only": ("peak-cannon",), "tags": ("cga",)},
            "camring": {"only": ("trialdrop",)},
            "camside": {"only": ("side",)},
            "latpad": {"only": ("trialdrop",)}}
@@ -3393,8 +3403,9 @@ def _camera_check():
     the SHIPPED model holding each check its replay makes, and each arm's model
     going red AT ITS CHECK on its card: `camhyst` (Hr 0) reverses on the
     dither map's branch (DITHER_SCEN, 8R.13) on both cards, `camcap` (no cap) holds a step past
-    LAT_H2 on MILL's CGA demo, `campreaim` (no pre-aim) breaks guarantee 5 at
-    PEAK's cannon exit on the Hercules, `camring` (rows read the ring) takes two
+    LAT_H2 on MILL's CGA demo, `campreaim` (no pre-aim) leaves more pan after
+    PEAK's cannon run's exits on the Hercules, `camprex` (a pre-aimed pan
+    withheld) breaks guarantee 5 on its CGA run, `camring` (rows read the ring) takes two
     rows on TRIAL's drop where the model takes one, `camside` (level 1
     side-blind) withholds against its bit on the SIDE scenario.  -> (fails, lines)"""
     bad, say = [], []
@@ -3442,11 +3453,23 @@ def _camera_check():
                "the nominal rate, which the guest's pacing does not reach)" % (hm, BB.LAT_H2, hmm))
     if hm <= BB.LAT_H2:
         bad.append("CAMERA: `camcap`'s model never holds an axis past LAT_H2 on PEAK's CGA demo")
-    rows = [f for f in cam_model(S["peak-cannon"], 1, _nopreaim=True).rows if f["x"] is not None]
-    _n, ge = BB.cam_exits(rows, "peak-cannon Hercules (nopreaim)")
-    say.append("CAMERA `campreaim` (no pre-aim): %s" % (ge[:2] or "guarantee 5 holds"))
-    if not ge:
-        bad.append("CAMERA: `campreaim`'s model keeps guarantee 5 at PEAK's cannon exit on the Hercules")
+    # campreaim (SPEC.md 128.25.3): since a pre-aimed pan is never withheld, no pre-aim no longer breaks
+    # guarantee 5; what it breaks is the pre-aim's own work - the pan left for after the exits rises - and the
+    # guest's arm goes red at the window's parity with the shipped model
+    w0 = BB.cam_exit_work([f for f in cam_model(S["peak-cannon"], 1).rows if f["x"] is not None])
+    w1 = BB.cam_exit_work([f for f in cam_model(S["peak-cannon"], 1, _nopreaim=True).rows if f["x"] is not None])
+    say.append("CAMERA `campreaim` (no pre-aim): PEAK's cannon run on the Hercules leaves %d step(s) after its "
+               "exits, against the shipped camera's %d" % (w1, w0))
+    if w1 <= w0:
+        bad.append("CAMERA: `campreaim`'s model leaves no more pan after PEAK's exits on the Hercules")
+    for herc in (0, 1):                         # camprex: the exemption removed (128.25.3)
+        rows = [f for f in cam_model(S["peak-cannon"], herc, _noprex=True).rows if f["x"] is not None]
+        _n, ge = BB.cam_exits(rows, "peak-cannon %s (noprex)" % cn[herc])
+        say.append("CAMERA `camprex` (a pre-aimed pan withheld): %s" % (ge[:1] or "guarantee 5 holds"))
+        if ge:
+            break
+    else:
+        bad.append("CAMERA: `camprex`'s model keeps guarantee 5 on PEAK's cannon run on both cards")
     for herc in (0, 1):
         a, b = cam_model(S["trialdrop"], herc).rows, cam_model(S["trialdrop"], herc, _ringy=True).rows
         at = next((f["fr"] for f, h in zip(a, b) if abs(h["dr"]) >= 2 and abs(f["dr"]) < 2), None)
@@ -4357,6 +4380,9 @@ REDS["camcap"] = [("bzgame.inc", "    cmp byte [si + BZL_HELD], BZ_LAH2\n    jae
                   ("bzgame.inc", "    cmp byte [si + BZL_HELD], BZ_LAH1\n    jae .go", "    nop                         ; RED camcap: no cap\n    nop")]
 REDS["campreaim"] = [("bzgame.inc", "    call bz_lexit               ; a tube in transit: its exit (BX, BP)\n",
                       "                                ; RED campreaim: the ball's own point in a tube\n")]
+REDS["camprex"] = [("bzgame.inc", "    cmp byte [si + BZL_PRE], 0  ; a PRE-AIMED pan is never withheld (guarantee\n"
+                    "    jne .go                     ; 5 by construction, SPEC.md 128.25.3)\n",
+                    "                                ; RED camprex: a pre-aimed pan withheld like any other\n")]
 # camring: the rows read the travel ring - its y half, which wave 6b deleted, put back in the arm exactly as
 # bbcourse.Glide's `_ringy` keeps it (four words of bz_by's low word, the slot read four frames ago, 2 lines a
 # frame over four: GLIDE_FY), its verdict OR'd into the rows' rate as the x half's is into the columns'
@@ -4377,7 +4403,7 @@ REDS["camside"] = [("bzgame.inc", "    test [bz_pflag], ch\n    jz .go\n",
 REDS["latpad"] = [("bzgame.inc", "bz_lattice:\n    mov bx, [bz_px]\n",
                    "bz_lattice:\n    push cx                     ; RED latpad: bz_lattice padded past its bound (~5k clk)\n"
                    "    mov cx, 300\n.rpad:\n    loop .rpad\n    pop cx\n    mov bx, [bz_px]\n")]
-RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's held check", "campreaim": "guarantee 5",
+RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's held check", "campreaim": "off the same log", "camprex": "guarantee 5",
                 "camring": "two-row check", "camside": "the side check", "latpad": "the camera's span"}
 
 
