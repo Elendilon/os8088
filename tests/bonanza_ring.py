@@ -4106,7 +4106,9 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "%s%d.img" % (name, size)))
     assemble(src, art, binp)
     shell = shell_part(td, src, art, binp)      # wave 8a (128.19.2): LINKED against this tree's package
-    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art, src, shell)
+    fams = fam_parts(td, src, art)              # wave 9 (128.25.6.2): ...and so is every family part
+    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88]
+                   + part_args(art, src, shell, fams)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88] + list(extra)
                    + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
@@ -4184,7 +4186,25 @@ def after_shell(src=None):
     return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm)
 
 
-def part_args(art, src=None, shell=None):
+def fam_parts(td, src, art):
+    """wave 9 (SPEC.md 128.25.6.2): a tree's FAMILY PARTS, bbcourse.FAMILIES' order,
+    each assembled from the tree's fam/<name>.asm against the bzlink.inc
+    shell_part wrote for the tree's package (its stamp that package's).  -> the
+    paths, or None for a tree with no family rows (an earlier wave's)"""
+    inc = os.path.join(td, "bzlink-inc", "bzlink.inc")
+    if not os.path.exists(os.path.join(src, "bzfam.inc")) or not os.path.exists(inc):
+        return None
+    out = []
+    for f in BB.FAMILIES:
+        o = os.path.join(td, "bzf-%s.bin" % f["name"])
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                        "-I", os.path.dirname(inc) + "/", "-I", art + "/", "-o", o,
+                        os.path.join(src, "fam", f["name"] + ".asm")], cwd=ROOT, check=True)
+        out.append(o)
+    return out
+
+
+def part_args(art, src=None, shell=None, fams=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
     rows 0 - 2 the rubber, steel and glass balls, then course K's one part
     (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
@@ -4207,6 +4227,9 @@ def part_args(art, src=None, shell=None):
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
     if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
+    if "BZ_P_FAM" in asm:                       # wave 9 (128.25.6.2): the family parts, the last rows
+        for i, f in enumerate(BB.FAMILIES):
+            out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
     return out
 
 

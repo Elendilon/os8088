@@ -366,13 +366,15 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 # PHYS_REV does), the HOOKS it implements, its SLOT's bytes, and its KINDS: each a name (the `prop` word),
 # its kind number, its state BITS an element, its reset CLASS (None: the line states it, `reset ...`),
 # its ART ("pennant": the flag's two poses; None: no lane), its cell FORMS (128.25.7.3: "own" is the
-# cell as the grid has it) and whether it is a PICKUP (the reach never takes its effect).  Every
+# cell as the grid has it; any other form is GLASS's to build, story 9.5, and refused until then), the
+# STATES its bits can be left in (NO TRAP replays an ATTEMPT element in each) and whether it is a PICKUP
+# (the reach and NO TRAP never take its effect: every finish is proved with no pickup).  Every
 # family's row is OP_COMP: one plain lazy row would assemble the parts standard's plain-row path, 86
 # resident bytes (os88parts.inc), so a part too small to pack carries zeros until it packs (the probe).
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
-                           "forms": ("own",), "pickup": False},)},
+                           "forms": ("own",), "states": (0, 1), "pickup": False},)},
 )
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
@@ -382,6 +384,9 @@ for _k, (_f, _r) in FKIND.items():
     PK_NAMES[_k] = _r["name"]
 assert [f["id"] for f in FAMILIES] == list(range(1, len(FAMILIES) + 1)), "family IDs are 1 - n in order"
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
+assert all(k["forms"] == ("own",) for _f, k in FKIND_BY_NAME.values()), \
+    "a family kind's cell form other than its own: the reach's superset is story 9.5's (SPEC.md 128.25.7.3)"
+assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
 
 
 def famv(f):
@@ -5119,7 +5124,35 @@ TRAP_RUN = 128                            # steps a run holds its direction
 TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
 
 
-def trap_succ(c, cell, mat, cache, phases):
+def trap_presets(c):
+    """SPEC.md 128.25.7.3: the family state a respawn at a flag can find - every
+    RESPAWN element in its initial state (the respawn clears it) and every
+    ATTEMPT element in EACH state its row says it can be left in.  -> [bytes
+    of bz_fst], [b""] on a course with no family element of class ATTEMPT
+    (the product of the ATTEMPT elements' states, at most 64; past that each
+    element alone in each state, the others 0)"""
+    at = [pr for pr in c.props if is_fam(pr["kind"]) and pr["cls"] == CL_ATTEMPT]
+    if not at:
+        return [b""]
+    nfst = (sum(pr["bits"] for pr in c.props if is_fam(pr["kind"])) + 7) // 8
+    combos = [[]]
+    for pr in at:
+        combos = [cb + [(pr, v)] for cb in combos for v in pr["frow"]["states"]]
+        if len(combos) > 64:
+            combos = [[(q, v)] for q in at for v in q["frow"]["states"]]
+            break
+    out = []
+    for cb in combos:
+        b = bytearray(nfst)
+        for pr, v in cb:
+            for k in range(pr["bits"]):
+                if v >> k & 1:
+                    b[(pr["fsb"] + k) >> 3] |= 1 << ((pr["fsb"] + k) & 7)
+        out.append(bytes(b))
+    return out
+
+
+def trap_succ(c, cell, mat, cache, phases, preset=b""):
     """the (cell, material) states a ball put at rest on `cell`'s centre with
     `mat` reaches GROUNDED, holding each of the eight directions for TRAP_RUN
     steps (tubes, pads, springs, the lift and the windmills by the model; a
@@ -5132,7 +5165,11 @@ def trap_succ(c, cell, mat, cache, phases):
     cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
     for ph in phases:
         for k in TRAP_DIRS:
-            p = Physics(c, play=True, mat=mat).poke(*cell)
+            p = Physics(c, play=True, mat=mat)
+            if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
+                p.fst[:] = preset
+                p._fhook(H_RESET, 1)
+            p.poke(*cell)
             p.nstep = ph
             p.ckmat = mat
             for st_ in range(TRAP_RUN + 64):
@@ -5157,9 +5194,11 @@ def trap_succ(c, cell, mat, cache, phases):
     return cache[key]
 
 
-def trap_reach(c, cell, mat, cache=None, limit=None):
+def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     """from (cell, mat), is the goal or the cup reachable?  -> (bool, states explored)"""
     cache = {} if cache is None else cache
+    if preset:
+        cache = cache.setdefault(("preset", preset), {})
     phases = (0,)                       # a windmill's gate or the lift's slab: two phases half a
     if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
         phases = (0, 32)                # gate period apart (64 steps), so one of them finds it open
@@ -5168,7 +5207,7 @@ def trap_reach(c, cell, mat, cache=None, limit=None):
     while todo:
         nxt = []
         for cl, m in todo:
-            succ, hit = trap_succ(c, cl, m, cache, phases)
+            succ, hit = trap_succ(c, cl, m, cache, phases, preset)
             if hit:
                 return True, len(seen)
             for st in sorted(succ):
@@ -5192,11 +5231,12 @@ def trap_check(c, cache=None):
             continue
         pr = c.props[c.order[r["i"]]]
         m = r["ball"] if r["kind"] == PK_CHECKPOINT else r["mat"]
-        ok, n = trap_reach(c, r["at"], m, cache)
-        c.trap.append((PK_NAMES[r["kind"]], r["at"], m, ok, n))
-        if not ok:
-            return (pr["line"], "flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m],
-                    r["at"], m)
+        for preset in trap_presets(c):          # wave 9 (128.25.7.3): under the reset classes
+            ok, n = trap_reach(c, r["at"], m, cache, preset=preset)
+            c.trap.append((PK_NAMES[r["kind"]], r["at"], m, ok, n))
+            if not ok:
+                return (pr["line"], ("flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m])
+                        + (" with the ATTEMPT family state %s" % preset.hex() if preset else ""), r["at"], m)
     return None
 
 
@@ -15278,6 +15318,135 @@ def _w4_cases():
     ]
 
 
+# wave 9 (SPEC.md 128.25.6.4, 128.25.7.3): the family statements' refusals, and NO TRAP under the reset
+# classes.  _W9B: a start area, a ONE-TILE BRIDGE (9 - 11, 5) and the cup's area beyond it, a flag
+# before the bridge; the WALL probe (a test-only family, _TestWall) on the bridge
+_W9B = ('course B "b"\nwidth 64\norigin 224\nfloor rect 4 4 9 8 flat 4\nfloor rect 9 5 12 6 flat 4\n'
+        'floor rect 12 4 17 8 flat 4\nstart 5 6\ncup 14 6\ncheckpoint 7 6\n')
+
+
+class _TestWall(Family):
+    """a test-only family (--selfcheck's, never shipped): its element's one
+    state bit, set on ENTER, makes its cell a WALL in the window (CELL) - a
+    blocking form, so NO TRAP under the reset classes has a case"""
+    row = None
+
+    def enter(self, p, slot, i, air):
+        b = p.props[i]["fsb"]
+        if not p.fst[b >> 3] >> (b & 7) & 1:
+            p.fst[b >> 3] |= 1 << (b & 7)
+            p.fref = 1
+
+    def cell(self, p, slot, win):
+        for pr in p.props:
+            if pr["kind"] == self.row["kinds"][0]["kind"] and pr["at"] in win \
+                    and p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7) & 1:
+                c = win[pr["at"]]
+                c[3] = KIND_WALL
+
+
+class _famtest:
+    """registers _TestWall as family 254, kind 254 `wallprobe`, for the block"""
+    ROW = {"name": "wallprobe", "id": 254, "rev": 1, "hooks": H_ENTER | H_CELL, "slot": 0,
+           "kinds": ({"name": "wallprobe", "kind": 254, "bits": 1, "cls": None, "art": None, "forms": ("own",),
+                      "states": (0, 1), "pickup": False},)}
+
+    def __enter__(self):
+        r = self.ROW
+        _TestWall.row = r
+        FAM_BY_NAME[r["name"]], FAM_BY_ID[r["id"]] = r, r
+        FKIND[254], FKIND_BY_NAME["wallprobe"] = (r, r["kinds"][0]), (r, r["kinds"][0])
+        PK_NAMES[254] = "wallprobe"
+        FAM_MODEL["wallprobe"] = _TestWall()
+        return self
+
+    def __exit__(self, *a):
+        for d, k in ((FAM_BY_NAME, "wallprobe"), (FAM_BY_ID, 254), (FKIND, 254), (FKIND_BY_NAME, "wallprobe"),
+                     (PK_NAMES, 254), (FAM_MODEL, "wallprobe")):
+            d.pop(k, None)
+
+
+def _w9_cases():
+    """(what, text, the refusal's substring): 128.25.6.4's statements and rules"""
+    C = _W4C
+    return [
+        ("uses an unknown family", C + "uses glassy\n", "unknown family 'glassy'"),
+        ("uses with no family", C + "uses\n", "uses takes one or more family names"),
+        ("a family named twice", C + "uses probe probe\nprop probe 6 6 reset respawn\n", "named twice"),
+        ("a probe of a family not named", C + "prop probe 6 6 reset respawn\n", "does not name"),
+        ("a family named, none placed", C + "uses probe\n", "no element of it is placed"),
+        ("an element with no reset class", C + "uses probe\nprop probe 6 6\n", "needs its reset class"),
+        ("reset flag (written, not built)", C + "uses probe\nprop probe 6 6 reset flag\n", "written, not built"),
+        ("reset of no class", C + "uses probe\nprop probe 6 6 reset never\n", "reset takes attempt or respawn"),
+        ("a probe on a ramp", C + "uses probe\nprop probe 14 6 reset respawn\n", "not a FLAT FLOOR"),
+        ("a probe on the cup's cell", C + "uses probe\nprop probe 12 6 reset respawn\n", "already belongs"),
+        ("a probe in the void", C + "uses probe\nprop probe 30 30 reset respawn\n", "not a FLAT FLOOR"),
+    ]
+
+
+def _w9_checks(res):
+    """wave 9's selfcheck (SPEC.md 128.25.6, 128.25.7, 128.25.13 bonanzacourse)"""
+    for what, text, want in _w9_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (wave 9): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    with _famtest():                                # a fourth family (three test rows beside the probe)
+        extra = []
+        for k in range(3):
+            r = dict(_famtest.ROW, name="t%d" % k, id=250 + k, kinds=())
+            FAM_BY_NAME[r["name"]] = r
+            extra.append(r["name"])
+        try:
+            compile_course(_W4C + "uses probe %s\n" % " ".join(extra), fname="<4 families>", occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = "4th family" in str(e), str(e)
+        for n in extra:
+            FAM_BY_NAME.pop(n)
+        res.append(("2 refused (wave 9): a fourth family (uses probe and three test rows)%s" % (
+            "" if fired else " -- got: " + msg), fired))
+    # the list in the part and in the identity: a course naming the probe carries BZC2 +45 NFAM 1 and
+    # +46 FAMOFF -> (ID 1, FAMV), NFST 1, the RESPAWN mask; a probe's FAMV moved moves the identity
+    t = _W4C + "uses probe\nprop probe 6 6 reset respawn\nprop probe 8 6 reset attempt\n"
+    c = compile_course(t, fname="<probe>", occluders=False)
+    pt = c.cga
+    nfam, fo = struct.unpack_from("<BH", pt, 45)
+    ok = nfam == 1 and pt[fo:fo + 4] == bytes((1, famv(FAM_BY_NAME["probe"]), 1, 1))
+    recs = [r for r in c.part["props"] if is_fam(r["kind"])]
+    ok = ok and [(r["fsb"], r["cls"]) for r in recs] == [(0, CL_RESPAWN), (1, CL_ATTEMPT)]
+    fam0 = FAM_BY_NAME["probe"]["rev"]
+    FAM_BY_NAME["probe"]["rev"] = fam0 + 1
+    try:
+        c2 = compile_course(t, fname="<probe rev+1>", occluders=False)
+    finally:
+        FAM_BY_NAME["probe"]["rev"] = fam0
+    b0 = compile_course(_W4C, fname="<no family>", occluders=False)
+    res.append(("3 the family list (128.25.6.4): BZC2 +45 NFAM %d, +46 FAMOFF -> %s (ID, FAMV, NFST, the RESPAWN "
+                "mask), the records' FSB and class %s; the probe's FAMV moved moves the identity (%04Xh -> %04Xh), "
+                "and the same course with no family has +45 - +47 zero" % (
+                    nfam, pt[fo:fo + 4].hex(), [(r["fsb"], r["cls"]) for r in recs], c.ident, c2.ident),
+                ok and c.ident != c2.ident and b0.cga[45:48] == bytes(3)))
+    # NO TRAP under the reset classes (128.25.7.3): the WALL probe on the bridge past the flag - RESPAWN,
+    # cleared by the respawn, compiles; forced ATTEMPT, left WALL by an earlier pass, is refused (the red arm)
+    with _famtest():
+        ok_g, msg_g = True, "compiled"
+        try:
+            g = compile_course(_W9B + "uses wallprobe\nprop wallprobe 10 5 reset respawn\n", fname="<bridge>")
+            msg_g = "compiled, %d flag run(s)" % len(g.trap)
+        except CourseError as e:
+            ok_g, msg_g = False, str(e)
+        try:
+            compile_course(_W9B + "uses wallprobe\nprop wallprobe 10 5 reset attempt\n", fname="<bridge attempt>")
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
+    res.append(("7 NO TRAP under the reset classes (128.25.7.3): a WALL-making element on the only bridge past a "
+                "flag - RESPAWN (cleared at the respawn): %s; forced ATTEMPT: %s" % (msg_g, msg), ok_g and fired))
+
+
 def _w4_records(c, res):
     """item 3 (wave 4): the records of kinds 5 - 8 as the statements wrote them,
     the BZG1 flags and pad mask, and the reader's refusals"""
@@ -16671,6 +16840,7 @@ def selfcheck(paths=None):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    _w9_checks(res)
     # wave 6 (SPEC.md 128.16.6): the palette statement's refusals, and its byte
     ft = _first_text()
     for what, text, want in (("palette given twice", ft + "palette 1\npalette 0\n", "palette given twice"),
