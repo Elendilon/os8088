@@ -21,7 +21,7 @@ origin 512
 ball rubber
 title
 view 56 124 drop 128
-# the title screen's song (song 6): a ONE-SHOT exactly as long as a title demo (BZ_TSTEPS)
+# the title screen's song (song 7, by name): a ONE-SHOT exactly as long as a title demo (BZ_TSTEPS)
 music attract
 
 # LC, and the channel in front of UR's cliff; the pit beside LL
