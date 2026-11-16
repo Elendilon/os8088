@@ -162,17 +162,39 @@ def tourx():
     return x
 
 
-DAT_FILE = 64 + 3 * 48         # save v2 (wave 8b, SPEC.md 128.19.6): the bests, then three game slots
+SLOTB = 80                     # save v3 (wave 8R, SPEC.md 128.22.5): the bests, then three 80-byte game slots
+DAT_FILE = 64 + 3 * SLOTB
+DAT_FILE2 = 64 + 3 * 48        # `BZS2` (wave 8b, SPEC.md 128.19.6), still READ: its slots emptied
 
 
-def dat_image(best=None, tour=0, count=None, pv=None, v1=False, slots=None):
+def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exits=None, best=None, z3=0, tail=b""):
+    """one 80-byte BZS3 slot (SPEC.md 128.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
+    +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's identity, +22 the exits
+    found (a word a course, 16), +54 the best a course (8 words), +70 - +79 zero"""
+    ex = [0] * 16
+    for k, v in (exits or {}).items():
+        ex[k] = v
+    be = [0] * 8
+    for k, v in (best or {}).items():
+        be[k] = v
+    b = struct.pack("<BBBBIIIIH", lives, mode, pad, z3, open_, done, ropn, rtak,
+                    R.path_ident() if ident is None else ident)
+    b += struct.pack("<16H8H", *ex, *be) + bytes(10)
+    b = bytearray(b)
+    b[70:70 + len(tail)] = tail
+    assert len(b) == SLOTB
+    return bytes(b)
+
+
+def dat_image(best=None, tour=0, count=None, pv=None, v1=False, slots=None, v2=False):
     """the bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, +5
     BZ_PHYSV since wave 6, 128.16.9): BEST {K: (steps, falls)}, TOUR the total
     (0 none), PV +5 (this build's BZ_PHYSV by default) - since wave 8b
-    (128.19.6) `BZS2` and three 48-byte SLOTS after the 64 (SLOTS: bytes, or
-    empty); V1 the 64-byte `BZT1` file a wave 4 - 7 build wrote"""
+    (128.22.5) `BZS3` and three 80-byte SLOTS after the 64 (SLOTS: bytes, or
+    empty); V2 the 208-byte `BZS2` file a wave 8b - 8c build wrote; V1 the
+    64-byte `BZT1` file a wave 4 - 7 build wrote"""
     best = best or {}
-    b = bytearray((b"BZT1" if v1 else b"BZS2")
+    b = bytearray((b"BZT1" if v1 else b"BZS2" if v2 else b"BZS3")
                   + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
     idt = ids()
     for k in range(NENT):
@@ -181,8 +203,9 @@ def dat_image(best=None, tour=0, count=None, pv=None, v1=False, slots=None):
     b += struct.pack("<HIH", tourx(), tour, 0)
     assert len(b) == 64
     if not v1:
-        b += slots if slots is not None else bytes(3 * 48)
-        assert len(b) == DAT_FILE
+        n = 3 * (48 if v2 else SLOTB)
+        b += slots if slots is not None else bytes(n)
+        assert len(b) == 64 + n
     return bytes(b)
 
 
@@ -199,7 +222,7 @@ def hostile_set():
     short = bytes(dat_image({1: (99, 0)})[:32])
     out.append(("short", short, first, {1: (t1, 0)}))
     bad = bytearray(good)
-    bad[3] = ord("3")                                     # `BZS3`
+    bad[3] = ord("4")                                     # `BZS4`
     out.append(("magic", bytes(bad), first, {1: (t1, 0)}))
     bad = bytearray(good)
     struct.pack_into("<H", bad, 8 + 6 * 1, R.course_k(1).ident ^ 0x0101)   # FIRST's entry of another identity
@@ -216,13 +239,23 @@ def hostile_set():
     # wave 8b (SPEC.md 128.19.6): wave 4's `BZT1` file is still READ - its bests kept, its slots empty
     v1 = dat_image({1: (t1 + 99, 2), 2: (499, 0)}, v1=True)
     out.append(("v1", v1, dat_image({1: (t1 + 99, 2), 2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    # wave 8R (128.22.5): `BZS2` is read too - its bests kept, its slots (another pathway's) emptied
+    v2 = dat_image({1: (t1 + 99, 2), 2: (499, 0)}, v2=True, slots=struct.pack("<BBHHH", 3, 0, 3, 1, R.path_ident()) + bytes(40) + bytes(96))
+    out.append(("v2", v2, dat_image({1: (t1 + 99, 2), 2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
     # ...and a SLOT judged alone: one of another pathway emptied, one of this pathway's kept
-    pid = R.path_ident()
-    keep = struct.pack("<BBHHH", 3, 0, 3, 1, pid) + bytes(16) + bytes(24)
-    other = struct.pack("<BBHHH", 4, 0, 1, 0, pid ^ 0x5A5A) + bytes(40)
-    slots = keep + other + bytes(48)
-    out.append(("slot", dat_image({2: (499, 0)}, slots=slots),
-                dat_image({2: (499, 0)}, slots=keep + bytes(96)), {1: (t1, 0), 2: (499, 0)}))
+    nc = ncrs()
+    keep = slot(3, 1, 1, 0b11, 0b1, 0b101, 0b001, exits={1: 1, 2: 3}, best={1: 300})
+    other = slot(4, ident=R.path_ident() ^ 0x5A5A)
+    taken = slot(2, ropn=1, rtak=3)                       # a route TAKEN that was never opened
+    out.append(("slot", dat_image({2: (499, 0)}, slots=keep + other + taken),
+                dat_image({2: (499, 0)}, slots=keep + bytes(2 * SLOTB)), {1: (t1, 0), 2: (499, 0)}))
+    # the pad: not open / past 31; node 0's pad shut; +3, +70 - +79 and a course's exits past the courses
+    out.append(("pad", dat_image({2: (499, 0)}, slots=slot(3, pad=1) + slot(3, pad=32, open_=0xFFFFFFFF) +
+                                  slot(3, open_=2)),
+                dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    out.append(("zero3", dat_image({2: (499, 0)}, slots=slot(3, z3=1) + slot(3, tail=b"\0\0\0\0\0\0\0\0\0\1") +
+                                    slot(3, exits={nc: 1})),
+                dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
     return out
 
 
@@ -681,10 +714,12 @@ REDS = {
                  ("bonanza.asm", "    cmp ax, dx\n    jae .mn\n",
                   "    nop                         ; RED besttime: the merge keeps ours\n")],
     # the length check removed: a short file's bytes are checked as a whole one
-    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v2 (128.19.6): `BZS2` and its slots ...\n"
-                "    je .v2\n    cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone\n"
+    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v3 (128.22.5): `BZS3` and its slots ...\n"
+                "    je .v3\n    cmp ax, BZD_FILE2           ; ...`BZS2`'s (its pathway is another's: the\n"
+                "    je .v2                      ; slots emptied) ...\n"
+                "    cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone\n"
                 "    jne bz_dnorm\n",
-                "    jmp short .v2               ; RED datlen: no length check\n")],
+                "    jmp short .v3               ; RED datlen: no length check\n")],
     # a replay posts a best
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],

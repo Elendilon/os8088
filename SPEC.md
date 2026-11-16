@@ -274541,7 +274541,7 @@ diagonal claiming it, or to none if two do (the tool prints it and the
 author moves a route). Two routes leaving one pad in one direction are
 refused. The guest only reads the table.
 
-#### 128.22.5 The save (PLANNED)
+#### 128.22.5 The save (BUILT)
 
 The slot keeps 128.19.6's rules and grows the map: **`BZS3`** (`BZS2` is
 read: its slots kept where their pathway identity is this build's, which a
@@ -274556,7 +274556,37 @@ pathway's identity, +22 the exits found (a word a course K, 16 courses,
 a course's ENTRY as today, and at a pad's ARRIVAL only when the bracket
 ends (no `int 13h` on the pathway: a write is ~0.4 s).
 
-#### 128.22.6 The finish and the cards (PLANNED)
+**BUILT (wave 8R, shell).** The file is **304 bytes** (`BZD_FILE` = 64 + 3 x
+80), one sector, one `od_write`; `BZD_FILE2` (208) is `BZS2`'s and `BZD_SIZE`
+(64) `BZT1`'s, both still read. In memory the slot's 16 bytes +4 - +19 are
+`bz_nopen`, `bz_ndone`, `bz_nrop`, `bz_nrtk` (dwords, in that order, so
+`bz_gload` and `bz_gstore` are one `rep movsw` each) and +2 is `bz_ppad`;
+`bz_gnew` makes a new game's slot, `bz_dwbit` / `bz_dwset` / `bz_dwtst` are the
+bit accessors the pathway's loop calls (AL = bit 0 - 31, SI = the dword). The
+reader (`bz_dslots`) judges each slot alone and EMPTIES it when: its lives are
+over `BZ_LIVES`; +1 has a bit but the mode's; +3 is not zero; a route is
+taken that is not opened; the exits found of a course that does not exist, or
++70 - +79, are not zero; or, with lives, pad 0 is not open, the identity is
+not this build's pathway's, or the pad is past 31 or not open. **Deviation
+from the text above:** a `BZS2` file's slots are always emptied rather than
+kept where the identity matches - a `BZS2` slot's identity is the wave 8b
+pathway's, which this build's can never equal, so converting the layout would
+be dead code; its bests are kept as ever. The 8 courses' best table stays
+(+54 - +69). The prototype pathway's loop (`bz_grounds`) stores the pad it
+left from (`bz_gnode`) and sets the bit of the route (edge) a finish opened in
+`bz_nrop`; nothing reads either until the pathway's loop (128.22.4) does.
+`tests/bonanza_game.py`'s hostile set carries `BZS3`'s cases (`magic`, `v1`,
+`v2`, `slot`, `pad`, `zero3`).
+
+MEASURED (wave 8R, shell, whole story: slot v3, the cards, the hold): the
+package's image 36,184 -> 36,680 bytes (+496) and its bss 9,080 -> 9,324
+(+244: the file's image and merge copy each grew 96, the card buffer 32, the
+dword bits and the hold's bytes the rest); the INTRO and RESULT cards' code
+went out in that figure. Looked at on MartyPC (CGA and Hercules): the INFO
+card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
+its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
+
+#### 128.22.6 The finish and the cards (PLANNED; the cards' bullets BUILT)
 
 - **The FINISH SEQUENCE** (any course, a play or the game; not in a
   replay, a benchmark or a demo, whose ends are the log's): at the step
@@ -274580,11 +274610,24 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
   n OF m`; and `NOT SAVED` while the last write was refused.
+  **BUILT:** `bz_kinfo` (AL = the course K; `bzcard.inc`) builds the lines in
+  `bz_kbuf` and draws them with `bz_card`; `bz_kinfow` draws and then WAITS for
+  a key as `bz_pause` waits (`bz_clk_sample`, `bzs_frame`, the discarded
+  sub-ticks) and sets `bz_freq`. `LIMIT` is `bz_clims`, `GOLD` and `SILVER` the
+  medals' steps over `BZ_SECSTEPS`, `BEST` the played slot's best (steps x 2 /
+  11 tenths) with its medal, `EXITS` the bits of the slot's word for K and
+  `bz_cnex`'s count - `BZ_CRS_NEXITS` of `bzcourse.inc` once the tool emits it,
+  until then the course sources' (only TRIAL has two) - and `NOT SAVED` is
+  `bz_datw`. **The hook for now:** Space on the PROTOTYPE pathway
+  (`bz_exitchk`, `bzgame.inc`: a typed Space while `bz_crs` is the pathway)
+  shows node 0's course's card; the pad loop replaces the course.
 - **Removed**: the INTRO card and the RESULT card (`bz_kintro`,
   `bz_kresult`). The GAME OVER card stays (`bz_kover`), and is followed by
-  the title.
+  the title. **BUILT:** `bz_kintro`, `bz_kresult` and their strings are gone;
+  `bz_grounds` fetches a course straight from the pathway and goes straight
+  back to it.
 
-#### 128.22.7 Memory: the pathway HELD (PLANNED)
+#### 128.22.7 Memory: the pathway HELD (BUILT)
 
 At the game's entry the pathway's part is fetched and kept (`bz_phold`) if
 the heap's largest free block, the pathway's claim held, still takes
@@ -274593,6 +274636,22 @@ before every course fetch and fetched again after, as 128.19.5 does. A
 held pathway re-enters with no `int 13h`: the full write and its tables'
 pose pass only. Proved by `bonanzapath` both ways (the fallback forced by a
 harness byte, `bz_phforce`).
+
+**BUILT (wave 8R, shell).** What is held is the pathway's PART (its row's claim,
+fetched, expanded and, on the Hercules, translated once), `[bz_phold]` = 1: a
+held entry (`bz_phfetch` = `bz_cload` with `[bz_phre]` set) skips `op_fetch`,
+`bz_cexp` and the part's translation (`bz_hxlat` goes to the balls) and
+copies the header again; the ball rows and the song are given back and read
+again around a course as before (the ball rows are shared with the courses'
+and a held ball would be translated twice), so a held re-entry reads the ball
+and the song from the disk - the part's read and expand are what it saves.
+`bz_cdrop` leaves a held pathway's part, `bz_phrel` (after the pathway's
+balls and song are given back, before a course is fetched) drops it unless
+`MEMP_AVAIL` (paragraphs) still takes `BZ_CRS_MAXCLAIM`, `bz_phfree` drops it
+whatever (the game's end). `BZ_CRS_MAXCLAIM` is `bonanza.asm`'s estimate (5,000
+paragraphs, from the shipped parts) until the tool emits it. `BZ_PATH_CLAIM` is
+not used: the comparison is made with the pathway's claim held, which is what
+`MEMP_AVAIL` then answers.
 
 #### 128.22.8 The art (PLANNED, PROVISIONAL: the owner's to refine)
 
