@@ -29,23 +29,38 @@
 ; CS).  Preserves AX only.
 ; -----------------------------------------------------------------------------
 BG_SC       equ bz_boxbuf
-BG_QLO      equ BG_SC + BZ_BG_PRE           ; frame 0's planes, clear = the base colour
-BG_QHI      equ BG_QLO + 32
-BG_OP       equ BG_QHI + 32                 ; an entry's opaque, low and high planes
-BG_LO       equ BG_OP + 32
-BG_HI       equ BG_LO + 32
-BG_SS       equ BG_HI + 34                  ; the shape rows (one guard word either side)
-BG_S2       equ BG_SS + 34                  ; byte: the shift, 2 s
-BG_P        equ BG_S2 + 1                   ; byte: the shadow's parity copy
-BG_H        equ BG_P + 1                    ; byte: the squash's height (16: none)
-BG_CHK      equ BG_H + 1                    ; word: the checker's row pattern
-BG_BH       equ BG_CHK + 2                  ; word: FFFFh for rubber (its base colour is magenta)
-BG_GX       equ BG_BH + 2                   ; word: the frame's x row of the phase table
-BG_GY       equ BG_GX + 2                   ; word: ...and its y row
-BG_END      equ BG_GY + 2
-%if BG_END - BG_SC > 4 * BZ_BOXB
+BG_RQLO     equ BZ_BG_PRE                   ; offsets from bz_boxbuf: frame 0's planes,
+BG_RQHI     equ BG_RQLO + 32                ; clear = the base colour
+BG_ROP      equ BG_RQHI + 32                ; an entry's opaque, low and high planes
+BG_RLO      equ BG_ROP + 32
+BG_RHI      equ BG_RLO + 32
+BG_RSS      equ BG_RHI + 34                 ; the shape rows (one guard word either side)
+BG_RS2      equ BG_RSS + 34                 ; byte: the shift, 2 s
+BG_RP       equ BG_RS2 + 1                  ; byte: the shadow's parity copy
+BG_RH       equ BG_RP + 1                   ; byte: the squash's height (16: none)
+BG_RCHK     equ BG_RH + 1                   ; word: the checker's row pattern
+BG_RBH      equ BG_RCHK + 2                 ; word: FFFFh for rubber (its base colour is magenta)
+BG_RGX      equ BG_RBH + 2                  ; word: the frame's x row of the phase table
+BG_RGY      equ BG_RGX + 2                  ; word: ...and its y row
+BG_RTAB     equ BG_RGY + 2                  ; H[256]: a byte's bits spread to the odd bits
+BG_REND     equ BG_RTAB + 512
+%if BG_REND > 4 * BZ_BOXB
  %error "bz_ballgen: the scratch does not fit bz_boxbuf"
 %endif
+BG_TAB      equ bz_boxbuf + BG_RTAB
+BG_QLO      equ bz_boxbuf + BG_RQLO
+BG_QHI      equ bz_boxbuf + BG_RQHI
+BG_OP       equ bz_boxbuf + BG_ROP
+BG_LO       equ bz_boxbuf + BG_RLO
+BG_HI       equ bz_boxbuf + BG_RHI
+BG_SS       equ bz_boxbuf + BG_RSS
+BG_S2       equ bz_boxbuf + BG_RS2
+BG_P        equ bz_boxbuf + BG_RP
+BG_H        equ bz_boxbuf + BG_RH
+BG_CHK      equ bz_boxbuf + BG_RCHK
+BG_BH       equ bz_boxbuf + BG_RBH
+BG_GX       equ bz_boxbuf + BG_RGX
+BG_GY       equ bz_boxbuf + BG_RGY
 
 bz_ballgen:
     push ax
@@ -59,6 +74,22 @@ bz_ballgen:
     mov [di], al
     inc di
     loop .cp
+    mov bx, BG_TAB              ; H[b], the spread table
+    xor dx, dx
+.tb:
+    mov al, dl
+    mov cx, 8
+    xor si, si
+.tbl:
+    shl al, 1
+    rcl si, 1
+    shl si, 1
+    loop .tbl
+    mov [bx], si
+    inc bx
+    inc bx
+    inc dl
+    jnz .tb
     xor ax, ax                  ; the shape rows' guards
     mov [BG_SS - 2], ax
     mov [BG_SS + 32], ax
@@ -91,22 +122,26 @@ bz_ballgen:
 .fx:
     xor bp, bp
 .fr:
+    mov bx, [ds:bp + BG_SC + BZ_BG_CLO]
+    xor bx, [ds:bp + BG_SC + BZ_BG_CHI]
+    jz .ni                      ; no tex pixel in this row: no ink
     mov bx, [BG_GY]
     add bx, bp
-    mov dx, [es:bx]             ; the y term
+    mov dx, [BG_SC + BZ_BG_T]
+    sub dx, [es:bx]             ; T - the y term
     mov si, [BG_GX]
     mov cx, 16
 .ink:
     es lodsw                    ; the x term
-    add ax, dx
-    cmp ax, [BG_SC + BZ_BG_T]
-    rcl bx, 1                   ; CF = ink: the sum is under T
+    cmp ax, dx
+    rcl bx, 1                   ; CF = ink: the x term is under T - y term
     loop .ink
+    mov si, [ds:bp + BG_SC + BZ_BG_CLO]
+    xor si, [ds:bp + BG_SC + BZ_BG_CHI]
+    and bx, si                  ; the tex pixels: low xor high
+.ni:
     mov ax, [ds:bp + BG_SC + BZ_BG_CLO]
     mov dx, [ds:bp + BG_SC + BZ_BG_CHI]
-    mov si, ax
-    xor si, dx                  ; the tex pixels: low xor high
-    and bx, si
     or ax, bx                   ; AX = the low plane
     or dx, bx                   ; DX = the high plane
     cmp di, BZ_BAL_FRMOFF + BZ_BAL_FRMB
@@ -195,15 +230,27 @@ bg_p5:
 ; bg_ilv - BX the high plane, SI the low -> DX:AX, pixel x's field in bits
 ; 31 - 2 x .. 30 - 2 x (the 32 shifts leave nothing of what AX and DX held)
 bg_ilv:
-    mov cx, 16
-.l:
-    shl bx, 1
-    rcl ax, 1
-    rcl dx, 1
+    mov cx, si
+    mov al, bh
+    call .lk
+    mov dx, ax                  ; H[hi plane's high byte]
+    mov al, ch
+    call .lk
+    shr ax, 1
+    or dx, ax
+    mov al, bl
+    call .lk
+    mov bx, ax
+    mov al, cl
+    call .lk
+    shr ax, 1
+    or ax, bx
+    ret
+.lk:
+    xor ah, ah                  ; AX = H[AL]: the byte's bits spread to the odd
+    mov si, ax                  ; bits of a word
     shl si, 1
-    rcl ax, 1
-    rcl dx, 1
-    loop .l
+    mov ax, [si + BG_TAB]
     ret
 
 ; bg_shape - BX = a shape table (height, then 16 rows of n): the rows' words
