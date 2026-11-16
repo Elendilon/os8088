@@ -2959,6 +2959,12 @@ def main():
         bad += bonanza_dsplit.check(200)
         for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
             print(line)
+        # SPEC.md 128.27 (wave C3): the FIELD leg's host half, the same method (tests/bonanza_dfield.py; its
+        # red arms by hand, `--reds`)
+        import bonanza_dfield
+        bad += bonanza_dfield.check(150)
+        for line in R.check_reds(bonanza_dfield.REDS, "bonanza_dfield"):
+            print(line)
         assert not bad, "%d scenario(s) not proved on the model" % len(bad)
         return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
