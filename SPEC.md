@@ -278213,8 +278213,15 @@ piece of a bowl are the same kind of cell with a different table.
 
 **This section is a CONTRACT, built wave by wave** (the plan:
 [docs/plans/BOUNCE-BONANZA-SHAPED.md](docs/plans/BOUNCE-BONANZA-SHAPED.md),
-waves C0 - C4; each subsection says BUILT once it is). Every figure is
-PREDICTED unless it says MEASURED. It replaces 128.24.13's reservation: the
+waves C0 - C4). **Built so far: C0 - C4** - the tool (`tools/bbcourse.py`:
+`FieldTile`, `chute_cells`, `pit_cells`, `build_fields`, section `F`, the
+reader, the picture), the model (`Physics` on FIELD records, the lift, the
+field-to-field rule, `PHYS_REV` 13), the guest (`bzphys.inc`'s `bz_fhp` and
+`bz_fh4`, `bonanza.asm`'s launch rules) equal to the model under unicorn, and
+PLAYGROUND's shaped-floor section (a 2-wide and a 1-wide chute; the pit does
+not fit there, 128.27.8). Where building found this contract wrong it says so
+at the place ("BUILT ... a finding"). Every figure is PREDICTED unless it says
+MEASURED. It replaces 128.24.13's reservation: the
 channel there was sketched as a record in section `D` with a profile
 formula; building it as a table read is what keeps the step free of a
 multiply and lets one kind serve the corner and the pit too.
@@ -278342,9 +278349,11 @@ reads it the same way.
   on one cell; a pit radius outside 2 - 4 or a hole not under it; a FIELD
   cell outside 3 .. 252; and on a FIELD cell, as on a split one: `start`, a
   material `pad`, a pathway `pad`, `checkpoint`, `clock`, `cup`, `spring`, a
-  route's `gate`, every prop's cell; a split cell in a FIELD cell's 3 x 3. A
-  `way` of the route MAY stand on one (its centre is a floor). `surface` is
-  not applied to a FIELD cell (a later wave may let a chute name one).
+  route's `gate`, every prop's cell, and a `way` (BUILT, C1, a finding: the
+  guest's WAYS form reads a plane's slopes out of the cell's +1 to place the
+  route's point, so a way on a FIELD cell would put it wrong); a split cell
+  in a FIELD cell's 3 x 3. `surface` is not applied to a FIELD cell (a later
+  wave may let a chute name one).
 
 #### 128.27.4 The shapes the tool lays
 
@@ -278356,10 +278365,18 @@ symmetry that reproduce it exactly, adding a table when none does.
 
 - **The cross-section** `p(c)`, `c` the distance from the crease in ground
   units, `W` the half width (8 a 1-wide chute, 16 a 2-wide), `D` the depth in
-  quarter px, `p(0) = 0`, `p(W) = D`: `round` and `bank` are TUNED by wave C2
-  against the scripted runs and written here then. The lip must be a CREST
-  (the take-off), the profile must keep the slope bound, and the ball must
-  settle at the bottom without a dither.
+  quarter px, `p(0) = 0`, `p(W) = D`. BUILT (C2, `bbcourse.fprofile`): a
+  quadratic from `c0` to `c1 = W / 2`, then a STRAIGHT bank at the slope `s`
+  the curve reached, to the lip - `round` with `c0 = 0`, `bank` with a flat
+  bottom to `c0 = W / 4`; `s = D / (W - (c0 + c1) / 2)`. The bank meets the
+  lip at its steepest, so the lip is a CREST (128.27.5.4); the curved bottom
+  rounds to slope 0 over its middle units, where a ball comes to rest with no
+  dither (MEASURED: `rest`, 128.27.5.5). The slope bound binds at the radial
+  corner's 45-degree points, where `|sx| + |sy|` is `s sqrt 2`, and rounding
+  half up is not symmetric under a mirror, so a depth is accepted by
+  orientation; the deepest every orientation of a corner accepts (MEASURED,
+  a ring of four corners each way): **2-wide `round` 10 px, `bank` 8 px;
+  1-wide `round` 5 px, `bank` 4 px**.
 - **A straight** cell: the depth below the lip `D - p(c)` across the leg,
   the leg's slope along it.
 - **A taper** (an end): over the end cell the depth falls linearly to 0 at
@@ -278371,9 +278388,11 @@ symmetry that reproduce it exactly, adding a table when none does.
   inside of the turn (`c = abs(r - 16)`). Where `c > W` (the outer corner of
   the block) the floor is the lip.
 - **A pit**: `lip - P(r)`, `r` the distance from its centre, `P` the depth
-  `D` at the hole's edge (`r = 16 h`) falling to 0 at `r = 16 radius`, a curve
-  TUNED by C2 (steepest near the lip, so a fast ball is thrown up and over
-  and a slow one slides to the hole).
+  `D` at the hole's edge (`r = 16 h`) falling to 0 at `r = 16 radius`. BUILT
+  (C2, `bbcourse.pit_profile`): `P = D (1 - x^2)`, `x = (r - 16 h) / (16
+  (radius - h))` - steepest at the lip, so a fast ball is thrown up and over
+  and a slow one slides to the hole. Radius 3, hole 1: depth 16 px accepted,
+  20 refused (the bound at the 45-degree points).
 - **Lengths**: a 1-wide leg between two ways `n` cells apart has `n - 1`
   cells between them (the ways' own cells are the corners or the end
   tapers), so `n >= 1`; a 2-wide leg between crease points `n` apart has `n
@@ -278436,6 +278455,32 @@ steep bank; at the lip the floor flattens, `h < z + gvz - G - STICK` at step
 void beyond. A slow one rolls back down. Nothing in this is new; the tables
 are shaped so the crest is where the take-off happens.
 
+##### 128.27.5.5 The tuning (MEASURED, the model: wave C2's runs)
+
+A rubber ball entering a corner at speed `v` along the leg's crease, 8 units
+before the corner's block (`/tmp` scripts, not in the tree; the runs that
+stand as checks are `--selfcheck`'s FIELD runs and `tests/bonanza_dfield.py`):
+
+| chute | coasting, no key | the turn held (the outgoing leg's direction) from the block on |
+|---|---|---|
+| 2-wide `round` 10 px | turns at 340 and 384; under that the drag stops it in the corner (the ordinary floor's drag: a coast is about `v / 4` units) | turns at every entry speed 150 - 384 (100 stops before) |
+| 2-wide `bank` 8 px | turns at 384 | turns at 150 - 384 |
+| 1-wide `round` 5 px | turns at 340; at 384 rolls OUT over the outer lip | turns at 150 - 340; 384 OUT |
+| 1-wide `bank` 4 px | 384 OUT | turns at 150 - 300; 340 and 384 OUT |
+
+So the 2-wide carries a ball that is steered round at anything up to the
+speed cap, and the 1-wide throws it out at the top of the range - the
+owner's "too fast flies out". A ball pushed STRAIGHT ON (Right and Down
+held through a 1-wide corner at 384) leaves it. A ball dropped beside a
+2-wide crease with a cross speed settles to rest, every speed 0, with no
+dither (400 steps). **The pit** (radius 3, hole 1, 16 px): entered along its
+centre line it falls into the hole at every speed 150 - 384; entered 24
+units off the centre line with the arrows held it rides 145 degrees round
+the wall and flies out over the far lip at 250 and 384, and falls at 150.
+The investigation's prototype chutes were deeper (14 px) because they did
+not hold the slope bound at the corner's 45-degree points; 128.27.4's
+profile keeps it, which is what caps the depth.
+
 #### 128.27.6 The picture
 
 - **The top** of a FIELD cell is drawn as 4 x 4 ground-unit FACETS (16 a
@@ -278458,7 +278503,18 @@ are shaped so the crest is where the take-off happens.
   cell's row (`u + v >= 16` at its centre) is keyed `s + 1`, the rest `s`,
   as 128.24.6.3 keys a split cell's front pieces, so a ball in the back of a
   row (a channel's bottom) is laid under the near lip; its top is its LOWEST
-  corner, so a ball resting on a bank is never laid under the bank below it.
+  corner, so a ball resting on a bank is never laid under the bank below it,
+  rounded DOWN to a multiple of `FTOPQ` = 16 px (BUILT, C1/C4, a finding:
+  with whole px a facet's records broke 128.11.4.2's four a block, and each
+  coarser step cut the records and their masks - 8 px kept the bound on the
+  test courses, 16 px saved PLAYGROUND 190 records and 110 masks; the cost
+  is a ball up to 15 px under a facet's true lowest corner drawn over it).
+- **The ink, as built**: `field_shade` takes the facet's normal against the
+  light `(-1, -0.3, 1.5)` relative to a level facet's and bands it at 1.12,
+  1.04, 0.96, 0.86 and 0.74 into WHITE, white/cyan, the cell's own parity
+  ink, the parity ink/magenta, MAGENTA, and magenta/black. Four bands were
+  tried to save blocks and saved none: a chute's blocks come from where its
+  facets' edges fall on the 8 x 8 grid, not from how many inks there are.
 
 #### 128.27.7 The guest
 
@@ -278479,12 +278535,54 @@ are shaped so the crest is where the take-off happens.
   centre that is neither FLOOR nor GOAL test 7. A course with no FIELD cell
   runs today's instructions on every path a FLOOR, a VOID, a WALL or a GOAL
   takes, plus at most one compare on a refill whose centre is VOID or a WALL.
-- **The launch**: `bz_cxcel`'s `V` of kind 7, `bz_dval`'s bound,
-  `bz_pinit`'s `bz_fsb`.
+- **The launch**: `bz_cxcel`'s `V` of kind 7, `bz_dval`'s bound, and
+  `bz_fsb` filled by `bz_fsbset`, which `bz_crshdr` calls (BUILT: at the
+  course header's read rather than `bz_pinit`, so a harness that hands the
+  package a RAM form - unicorn, never `bz_cexp` - has it too).
+- **BUILT (C3)**: as above, and `bz_blocks` keeps DI (`bz_corner` holds its
+  table index there across the call), so `bz_fhp`'s callers inside it save
+  DI; `bz_wsplit` skips kind 7 (a FIELD cell is no split). The guest equals
+  the model step for step under unicorn (`tests/bonanza_dfield.py`: the
+  stored forms' CELLS, a HOSTILE part, eleven scripted runs and 300 fuzz runs
+  of 160 steps near field cells; red arms `nolift`, `ffblock`, `symswap`,
+  `cellfield`, `nofbound` each go red), and `tests/bonanza_dsplit.py` still
+  passes (split cells untouched).
 
 #### 128.27.8 What it costs
 
-- **Clocks, PREDICTED** (128.11.15's method, x 1.3): a step whose centre is a
+- **Clocks, MEASURED (C3, the one MartyPC measurement: a 5150 CGA machine,
+  logged breakpoints at `bz_step`'s entry and its `ret`, PLAYGROUND's
+  shaped-floor section, the ball poked at -300 up each chute's first leg and
+  coasting 70 steps into the corner)**: a step whose centre is a FIELD cell
+  costs **median 9,440 clk (mean 10,352) in the 2-wide chute and 8,504
+  (mean 9,237) in the 1-wide**, against **8,859 (mean 9,412)** coasting on
+  the apron's plane cells at 300 - so **about +0.4 - 0.9k clk a step on
+  the mean, +0.6k at the 2-wide's median**, the refill steps (a cell change,
+  with `bz_fh4` in `bz_wtail`) the largest (max 24.1k against the plane's
+  22.1k). Under the prediction below and the investigation's 2.6 - 3.5k: no
+  optimisation was needed. Instruction-priced under unicorn (128.11.15's
+  method, `bonanza_dsplit.price`) the same runs are median 4.2 - 6.6k against
+  TRIAL's plane 5.4k.
+- **Bytes, MEASURED (`make bonanzadisk`)**: BONANZA.O88's image **46,957 ->
+  47,637 (+680 resident)**, bss **10,974 -> 11,010 (+36**: `bz_fsb` 32, `bz_ffo`
+  and `bz_ffe`); the tables in the image (`BZ_FSYM` 128, the four walks 136,
+  `bz_fmap` 18) are 282 of the 680. Under the predicted 0.8 - 1.2KB.
+- **A course, MEASURED (`bbcourse.py`, RECB 4)**: a 2-wide chute set in the
+  ground, 10 cells of straight, about +282 occluder records (1.1KB of RAM, so
+  28 records a cell of run, as the investigation found) and +38 blocks; a
+  2-wide chute with one corner, +460 records and +84 blocks; the pit (radius 3,
+  hole 1) +288 records, +98 blocks, 5 tables (1,445 bytes of F). **A FIELD
+  section is dear on PLAYGROUND**: with a walkway behind the step ladder (4KB
+  of map and grid of its own, the picture's rows above it), the 2-wide chute
+  and the 1-wide one take it from 44,536 to 55,336 bytes of RAM (10 tables,
+  F 2,890; 518 blocks against 386; 2,338 records against 1,691) - and **its
+  RECB 8 layout, which the identity is taken over and which may not pass
+  65,024 bytes (128.15.7), to 64,564: 460 bytes short of the limit**. The
+  pit on top of it would be 73.7KB: it is not on PLAYGROUND (C4). And the
+  per-second budget (128.15.8) refuses PLAYGROUND at 30 s (13.9KB packed
+  against a 9,412-byte cap): its `target` is 60 until the branch reworking
+  that budget decides (the owner has ruled it wrong).
+- **Clocks, PREDICTED (C0)** (128.11.15's method, x 1.3): a step whose centre is a
   FIELD cell and touches nothing - `bz_fh4` (the symmetry's entry, two index
   reads, three table bytes, two subtractions) - about 250 - 350 raw; each
   edge or corner test against a FIELD neighbour, `bz_fhp`, about 150 - 200;

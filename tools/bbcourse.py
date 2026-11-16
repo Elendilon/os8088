@@ -172,9 +172,10 @@ NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
-            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
+            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
+             "F": "the FIELD cells' tables",
              "T": "ROWTAB",
              "W": "the route", "P": "the props"}
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
@@ -530,6 +531,7 @@ FALL_S = 8                    # ...plus one fall's allowance, seconds (a constan
 PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
 GF_SPLIT = 16                 # BZG1 +28 bit 4: the course has a SPLIT cell, its pairs in section D (SPEC.md 128.24.5.2)
+GF_FIELD = 32                 # BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F (SPEC.md 128.27.2)
 PAIR = 8                      # a split cell's PAIR: half A's four bytes, then half B's
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
 TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
@@ -632,6 +634,7 @@ class Source:
         self.labels = []            # [dict num col row glyphs ink line]
         self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
         self.uses = []              # wave 9 (SPEC.md 128.25.6.4): [(family row, line)], the families named
+        self.fields = []            # SPEC.md 128.27.3: [dict] chutes and pits, in file order
 
 
 def _int(tok, where, what):
@@ -1178,6 +1181,47 @@ def parse(text, fname="<course>"):
             if src.ball is not None:
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
+        elif st == "chute":                         # SPEC.md 128.27.3: a channel of FIELD cells
+            if len(toks) < 5 or toks[1][1] not in ("1", "2") or toks[2][1] not in F_PROFILES \
+                    or toks[3][1] != "depth":
+                raise CourseError("%s: chute takes <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> "
+                                  "[<z>] ..." % where)
+            dep = _int(toks[4], where, "depth")
+            if not 1 <= dep <= 60:
+                raise CourseError("%s: a chute's depth is 1 - 60 px, not %d" % (where, dep))
+            ways, i = [], 5
+            while i < len(toks):
+                if toks[i][1] != "way" or i + 2 >= len(toks):
+                    raise CourseError("%s: a chute's ways are `way <x> <y> [<z>]`, not %r" % (where, toks[i][1]))
+                pt = (_int(toks[i + 1], where, "x"), _int(toks[i + 2], where, "y"))
+                i += 3
+                z = None
+                if i < len(toks) and toks[i][1] != "way":
+                    z = _height2(toks[i], where)
+                    i += 1
+                ways.append((pt, z, ln))
+            if len(ways) < 2:
+                raise CourseError("%s: a chute takes at least two ways" % where)
+            if ways[0][1] is None:
+                raise CourseError("%s: a chute's first way gives the lip's height: way <x> <y> <z>" % where)
+            src.fields.append({"what": "chute", "wide": int(toks[1][1]), "prof": toks[2][1], "depth": dep,
+                               "ways": ways, "line": ln})
+        elif st == "pit":                           # SPEC.md 128.27.3: a bowl of FIELD cells round a hole
+            if len(toks) not in (8, 10) or toks[4][1] != "radius" or toks[6][1] != "depth" \
+                    or (len(toks) == 10 and toks[8][1] != "hole"):
+                raise CourseError("%s: pit takes <x> <y> <z> radius <r> depth <px> [hole <h>]" % where)
+            at = (_int(toks[1], where, "x"), _int(toks[2], where, "y"))
+            z = _height2(toks[3], where)
+            rad, dep = _int(toks[5], where, "radius"), _int(toks[7], where, "depth")
+            hole = _int(toks[9], where, "hole") if len(toks) == 10 else 1
+            if not 2 <= rad <= 4:
+                raise CourseError("%s: a pit's radius is 2 - 4 cells, not %d" % (where, rad))
+            if not 0 <= hole < rad:
+                raise CourseError("%s: a pit's hole is 0 - %d cells (under its radius), not %d" % (where, rad - 1, hole))
+            if not 1 <= dep <= 60:
+                raise CourseError("%s: a pit's depth is 1 - 60 px, not %d" % (where, dep))
+            src.fields.append({"what": "pit", "at": at, "z2": z, "radius": rad, "hole": hole, "depth": dep,
+                               "line": ln})
         elif st == "hole":
             tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
@@ -1401,7 +1445,7 @@ _KIND = {"floor": KIND_FLOOR, "wall": KIND_WALL, "goal": KIND_GOAL}
 # 8 - 15 for 128.10.4.3's other non-planar floors: every kind from 4 up is "a cell whose +0 - +1 point into
 # section D", the kind saying how many records are there and how they are read
 KIND_TB, KIND_LR, KIND_Q = 4, 5, 6
-KIND_CHANNEL = 7              # RESERVED (SPEC.md 128.24.13): not built
+KIND_FIELD = 7                # SPEC.md 128.27: a FIELD cell (128.24.13 reserved it as the CHANNEL)
 SPLIT_KINDS = (KIND_TB, KIND_LR, KIND_Q)
 NREC = {KIND_TB: 2, KIND_LR: 2, KIND_Q: 4}        # the records a split cell's offset names in D
 Q_N, Q_E, Q_S, Q_W = 0, 1, 2, 3
@@ -1489,6 +1533,323 @@ def pick(diag, pu, pv):
 
 def has_split(tiles):
     return any(isinstance(t, Split) for t in tiles.values())
+
+
+# --- SPEC.md 128.27: the FIELD cell (kind 7) - a 17 x 17 HEIGHTFIELD in section F read through one of the
+# square's eight symmetries.  A cell's +1 is the shape (bits 0 - 3) and the symmetry (bits 4 - 6): MU mirrors
+# u (u' = 16 - u), MV mirrors v, then SW swaps; the table index of the world point (u, v) is 17 V + U
+FSYM_MU, FSYM_MV, FSYM_SW = 1, 2, 4
+FTAB = 289                    # a table's bytes, 17 x 17
+FSHAPE_MAX = 16               # tables a course may have (the shape's four bits)
+FSLOPE_MAX = 7                # |sx| + |sy| at every point (the floor rate within 7 x 384 / 4 = 672)
+F_PROFILES = ("round", "bank")
+
+
+def fidx(sym, u, v):
+    """SPEC.md 128.27.2: the world point (u, v) of a FIELD cell (0 - 16 each) -> its table index 17 V + U"""
+    if sym & FSYM_MU:
+        u = 16 - u
+    if sym & FSYM_MV:
+        v = 16 - v
+    if sym & FSYM_SW:
+        u, v = v, u
+    return 17 * v + u
+
+
+def fsym_entry(sym):
+    """the guest's BZ_FSYM entry for a symmetry: (the index of (0, 0), DU, DV) - the index of (u, v) is
+    origin + u DU + v DV, each stride +-1 or +-17"""
+    o = fidx(sym, 0, 0)
+    return o, fidx(sym, 1, 0) - o, fidx(sym, 0, 1) - o
+
+
+def fworld(tab, sym):
+    """a stored table under a symmetry -> the world heights [v][u] (0 - 16 each), relative"""
+    return [[tab[fidx(sym, u, v)] for u in range(17)] for v in range(17)]
+
+
+def fslopes(h, u, v):
+    """SPEC.md 128.27.2's slopes at the integer point (u, v), 0 - 15: forward differences of the world
+    heights h[v][u] (anything that adds a constant to every point gives the same)"""
+    return h[v][u + 1] - h[v][u], h[v + 1][u] - h[v][u]
+
+
+class FieldTile:
+    """SPEC.md 128.27: a FIELD cell's tile - its world heights h[v][u] (0 - 16 each, ABSOLUTE quarter px),
+    its base z0 (the floor of its lowest point / 16, half units), and once build_fields has run its shape
+    (an index into the course's tables) and symmetry.  .piece names what laid it (the refusals' and the
+    picture's)."""
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "h", "shape", "sym", "piece",
+                 "hmin", "hmax")
+
+    def __init__(self, h, line, piece):
+        self.kind = KIND_FIELD
+        self.h = h
+        self.hmin = min(min(r) for r in h)
+        self.hmax = max(max(r) for r in h)
+        self.z0 = self.hmin // 16
+        self.sx = self.sy = 0           # (no plane: every reader of a plane's slopes asks the kind first)
+        self.line, self.piece = line, piece
+        self.surf, self.exit, self.rail = SURF_NORMAL, 0, False
+        self.shape = self.sym = None
+
+    def rel(self):
+        """the heights less 16 z0 - the table's bytes in world order"""
+        b = 16 * self.z0
+        return [[x - b for x in r] for r in self.h]
+
+    def h4(self, u, v):
+        return self.h[v][u]
+
+    def corner(self, dx, dy):
+        """the corner (wx + dx, wy + dy) in half units (a Fraction: the table is quarter px)"""
+        return Fraction(self.h[16 * dy][16 * dx], 16)
+
+    def corners(self):
+        """(top, right, bottom, left) in half units - as a plane's, for the readers that take the lowest
+        or the highest: the lowest point for each low corner, the highest for each high, so the range
+        is the cell's whole range (128.27.2's z0 is its floor)"""
+        lo, hi = self.z0, -((-self.hmax) // 16)
+        return (lo, hi, hi, lo)
+
+
+def _fround(x):
+    return int(math.floor(x + 0.5))
+
+
+def fprofile(name, c, W, D):
+    """SPEC.md 128.27.4's cross-section: the height above the channel's bottom at distance c from the
+    crease (ground units, 0 - W), in quarter px, 0 at the crease and D at the lip; a float"""
+    c = min(float(W), abs(c))
+    c0 = 0.0 if name == "round" else 0.25 * W   # round: curved from the crease; bank: a flat bottom first
+    c1 = 0.5 * W                                # ...curved to half the width, then a straight bank at the
+    s = D / (W - (c0 + c1) / 2.0)               # slope s to the lip, which is a crest (128.27.5.4)
+    if c <= c0:
+        return 0.0
+    if c <= c1:
+        return s * (c - c0) * (c - c0) / (2.0 * (c1 - c0))
+    return s * (c1 - c0) / 2.0 + s * (c - c1)
+
+
+def pit_profile(r, R, H, D):
+    """SPEC.md 128.27.4's pit: depth below the lip at distance r (gu) from the centre, R the radius and H
+    the hole's half side in gu: D at the hole's edge, 0 at the rim, steepest at the rim"""
+    if r >= R:
+        return 0.0
+    x = max(0.0, (r - H) / float(R - H))        # 0 at the hole's edge, 1 at the rim
+    return D * (1.0 - x * x)
+
+
+def _sgn(v):
+    return (v > 0) - (v < 0)
+
+
+def chute_cells(f, where):
+    """SPEC.md 128.27.3 - 128.27.4: a parsed `chute` -> ({(wx, wy): (piece name, world height function
+    (gx, gy) -> quarter px)}).  f: {"wide", "prof", "depth", "ways": [((x, y), z2 or None, line)], "line"}"""
+    wide, prof, D = f["wide"], f["prof"], 4 * f["depth"]
+    W = 8 * wide                                    # the half width, gu
+    ways = f["ways"]
+    pts = [w[0] for w in ways]
+    if len(pts) < 2:
+        raise CourseError("%s: a chute takes at least two ways" % where)
+    z2 = [ways[0][1]]
+    for (_p, z, _l) in ways[1:]:
+        z2.append(z2[-1] if z is None else z)
+    dirs = []
+    for i in range(len(pts) - 1):
+        dx, dy = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        if (dx != 0) == (dy != 0):
+            raise CourseError("%s: chute way %d (%d, %d) to way %d (%d, %d) is not along one axis"
+                              % (where, i + 1, pts[i][0], pts[i][1], i + 2, pts[i + 1][0], pts[i + 1][1]))
+        dirs.append((_sgn(dx), _sgn(dy)))
+    for i in range(1, len(dirs)):
+        if dirs[i] == dirs[i - 1] or dirs[i] == (-dirs[i - 1][0], -dirs[i - 1][1]):
+            raise CourseError("%s: chute way %d (%d, %d) %s: an inner way is a 90-degree corner"
+                              % (where, i + 1, pts[i][0], pts[i][1],
+                                 "goes straight on" if dirs[i] == dirs[i - 1] else "doubles back"))
+    out = {}
+
+    def put(cell, piece, fn):
+        if cell in out:
+            raise CourseError("%s: the chute crosses itself at cell (%d, %d)" % (where, cell[0], cell[1]))
+        out[cell] = (piece, fn)
+
+    def depth_at(c):
+        return D - fprofile(prof, c, W, D)          # below the lip
+
+    n = len(pts) - 1
+    for i in range(n):
+        (ax, ay), (bx, by) = pts[i], pts[i + 1]
+        d = dirs[i]
+        L = abs(bx - ax) + abs(by - ay)             # cells (1-wide) or crease units (2-wide)
+        za, zb = 16 * z2[i], 16 * z2[i + 1]         # the lips, quarter px
+        nstr = L - 1 if wide == 1 else L - 2
+        if nstr < 0:
+            raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, under the %d its "
+                              "corners and ends take (SPEC.md 128.27.4)" % (where, i + 1, ax, ay, bx, by, L,
+                                                                          "cells" if wide == 1 else "units",
+                                                                          1 if wide == 1 else 2))
+        if za != zb:
+            if nstr == 0 or (zb - za) % (16 * nstr):
+                raise CourseError("%s: chute leg %d rises %s units over %d straight cells: not a whole number "
+                                  "of half units a tile (corners and ends are level)"
+                                  % (where, i + 1, (z2[i + 1] - z2[i]) / 2.0, nstr))
+        rate = (zb - za) // (16 * nstr) if nstr else 0      # quarter px a gu = half units a tile
+        # the leg's straight cells: the run coordinate t (gu from way i along d) and the cross offset
+        if wide == 1:
+            ox, oy = 16 * ax + 8, 16 * ay + 8       # way i's centre: the crease
+            first, cnt = 1, nstr                    # cells 1 .. L - 1 from way i
+        else:
+            ox, oy = 16 * ax, 16 * ay
+            first, cnt = 1, nstr                    # cell pairs: run 16 .. L*16 - 16
+        for j in range(first, first + cnt):
+            for side in ((0,) if wide == 1 else (-1, 0)):
+                if wide == 1:
+                    cell = (ax + d[0] * j, ay + d[1] * j)
+                else:                               # the pair either side of the crease, run [16 j, 16 j + 16)
+                    rx, ry = ax + (d[0] * j if d[0] >= 0 else d[0] * (j + 1)), ay + (d[1] * j if d[1] >= 0
+                                                                                  else d[1] * (j + 1))
+                    cell = (rx + (side if d[0] == 0 else 0), ry + (side if d[1] == 0 else 0))
+                t0 = 8 if wide == 1 else 16             # the run at the straights' start
+
+                def fn(gx, gy, ox=ox, oy=oy, d=d, za=za, rate=rate, t0=t0):
+                    t = (gx - ox) * d[0] + (gy - oy) * d[1]
+                    c = (gy - oy) if d[0] else (gx - ox)
+                    return za + rate * (t - t0) - depth_at(c)
+                put(cell, "straight", fn)
+    # the ends: a taper over one cell, open at its outer edge
+    for end in (0, n):
+        (px_, py_) = pts[end]
+        d = dirs[0] if end == 0 else dirs[n - 1]
+        sgn = 1 if end == 0 else -1                 # the run from the open edge INTO the chute
+        dd = (d[0] * sgn, d[1] * sgn)
+        zl = 16 * z2[end]
+        if wide == 1:
+            ox, oy = 16 * px_ + 8, 16 * py_ + 8
+            e0 = (ox - 8 * dd[0], oy - 8 * dd[1])   # the open edge's middle
+            cells = [(px_, py_)]
+        else:
+            ox, oy = 16 * px_, 16 * py_
+            e0 = (ox, oy)
+            base = (px_ if dd[0] >= 0 else px_ - 1, py_ if dd[1] >= 0 else py_ - 1)
+            cells = [(base[0] + (s_ if dd[0] == 0 else 0), base[1] + (s_ if dd[1] == 0 else 0)) for s_ in (-1, 0)]
+
+        def tfn(gx, gy, e0=e0, dd=dd, zl=zl, ox=ox, oy=oy):
+            t = min(1.0, max(0.0, ((gx - e0[0]) * dd[0] + (gy - e0[1]) * dd[1]) / 16.0))
+            c = (gy - oy) if dd[0] else (gx - ox)
+            return zl - t * depth_at(c)
+        for cell in cells:
+            put(cell, "taper", tfn)
+    # the corners: radial round the far corner of the block (2-wide) or of the cell (1-wide) inside the turn
+    for k in range(1, n):
+        (px_, py_) = pts[k]
+        di, do = dirs[k - 1], dirs[k]
+        zl = 16 * z2[k]
+        if wide == 1:
+            cx, cy = 16 * px_ + 8 - 8 * di[0] + 8 * do[0], 16 * py_ + 8 - 8 * di[1] + 8 * do[1]
+            cells, R0 = [(px_, py_)], 8
+        else:
+            cx, cy = 16 * px_ - 16 * di[0] + 16 * do[0], 16 * py_ - 16 * di[1] + 16 * do[1]
+            cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0) for b in (-1, 0)], 16
+
+        def cfn(gx, gy, cx=cx, cy=cy, zl=zl, R0=R0):
+            c = math.hypot(gx - cx, gy - cy) - R0
+            return zl if abs(c) > W else zl - depth_at(c)
+        for cell in cells:
+            put(cell, "corner", cfn)
+    return out
+
+
+def pit_cells(f, where):
+    """SPEC.md 128.27.3 - 128.27.4: a parsed `pit` -> ({(wx, wy): (piece, fn)}, {hole cells})"""
+    (x, y), z2, R, H, D = f["at"], f["z2"], f["radius"], f["hole"], 4 * f["depth"]
+    cx, cy, zl = 16 * x, 16 * y, 16 * z2
+    out, hole = {}, set()
+
+    def fn(gx, gy):
+        return zl - pit_profile(math.hypot(gx - cx, gy - cy), 16 * R, 16 * H, D)
+    for wx in range(x - R, x + R):
+        for wy in range(y - R, y + R):
+            if x - H <= wx < x + H and y - H <= wy < y + H:
+                hole.add((wx, wy))
+            else:
+                out[(wx, wy)] = ("pit", fn)
+    return out, hole
+
+
+def field_tile(cell, piece, fn, line, where):
+    """a FIELD cell's tile: its 17 x 17 world heights sampled from the piece's function, rounded half up,
+    checked against the table's range and the slope bound under every symmetry"""
+    wx, wy = cell
+    h = [[_fround(fn(16 * wx + u, 16 * wy + v)) for u in range(17)] for v in range(17)]
+    t = FieldTile(h, line, piece)
+    if t.hmax - 16 * t.z0 > 255:
+        raise CourseError("%s: the %s cell (%d, %d) spans %d quarter px from its base, over a table byte's 255 "
+                          "(SPEC.md 128.27.2): a shallower depth" % (where, piece, wx, wy, t.hmax - 16 * t.z0))
+    for v in range(16):
+        for u in range(16):
+            sx, sy = fslopes(h, u, v)
+            if abs(sx) + abs(sy) > FSLOPE_MAX:
+                raise CourseError("%s: the %s cell (%d, %d) has slopes (%d, %d) at its point (%d, %d), over the "
+                                  "bound |sx| + |sy| <= %d (SPEC.md 128.27.2): a shallower depth"
+                                  % (where, piece, wx, wy, sx, sy, u, v, FSLOPE_MAX))
+    return t
+
+
+def build_fields(tiles):
+    """SPEC.md 128.27.4: every FIELD tile's shape and symmetry - a stored table and a symmetry that reproduce
+    its relative heights exactly, a new table when none does (in the order the cells sort) -> [tables, each
+    289 bytes].  Refuses more than FSHAPE_MAX."""
+    tabs = []
+    for cell in sorted(tiles):
+        t = tiles[cell]
+        if not isinstance(t, FieldTile):
+            continue
+        rel = t.rel()
+        found = None
+        for i, tab in enumerate(tabs):
+            for sym in range(8):
+                if all(tab[fidx(sym, u, v)] == rel[v][u] for v in range(17) for u in range(17)):
+                    found = (i, sym)
+                    break
+            if found:
+                break
+        if found is None:
+            if len(tabs) == FSHAPE_MAX:
+                raise CourseError("%s:%d: a %dth shape table (cell (%d, %d), a %s), over the %d a course may "
+                                  "have (SPEC.md 128.27.2)" % ("<course>", t.line, FSHAPE_MAX + 1, cell[0],
+                                                               cell[1], t.piece, FSHAPE_MAX))
+            tab = bytearray(FTAB)
+            for v in range(17):
+                for u in range(17):
+                    tab[17 * v + u] = rel[v][u]
+            tabs.append(bytes(tab))
+            found = (len(tabs) - 1, 0)
+        t.shape, t.sym = found
+    return tabs
+
+
+def has_field(tiles):
+    return any(isinstance(t, FieldTile) for t in tiles.values())
+
+
+def field_seams(tiles, fname):
+    """SPEC.md 128.27.2's SEAM rule: two FIELD cells sharing an edge are equal at all 17 of its points"""
+    for (wx, wy), t in sorted(tiles.items()):
+        if not isinstance(t, FieldTile):
+            continue
+        for dx, dy in ((1, 0), (0, 1)):
+            n = tiles.get((wx + dx, wy + dy))
+            if not isinstance(n, FieldTile):
+                continue
+            for k in range(17):
+                a = t.h[k][16] if dx else t.h[16][k]
+                b = n.h[k][0] if dx else n.h[0][k]
+                if a != b:
+                    raise CourseError("%s:%d: FIELD cells (%d, %d) and (%d, %d) differ at their shared edge's "
+                                      "point %d (%d against %d quarter px): the SEAM rule (SPEC.md 128.27.2)"
+                                      % (fname, t.line, wx, wy, wx + dx, wy + dy, k, a, b))
 
 
 def _tile_same(a, b):
@@ -1622,6 +1983,38 @@ def build_tiles(src):
                 del tiles[cell]
             else:
                 tiles[cell] = t
+    # SPEC.md 128.27.3: the chutes and pits LAY their FIELD cells after every room, surface and hole; a
+    # pit's hole is VOID whatever was there.  Two of them on one cell, or a split cell in a FIELD cell's 3 x 3,
+    # are refused
+    laid = {}
+    for fd in src.fields:
+        where = "%s:%d" % (f, fd["line"])
+        if fd["what"] == "chute":
+            cs, hole = chute_cells(fd, where), set()
+        else:
+            cs, hole = pit_cells(fd, where)
+        for cell in sorted(set(cs) | hole):
+            if cell in laid:
+                raise CourseError("%s: cell (%d, %d) is laid by this %s and by the %s on line %d" % (
+                    where, cell[0], cell[1], fd["what"], laid[cell][0], laid[cell][1]))
+            laid[cell] = (fd["what"], fd["line"])
+        for cell in sorted(hole):
+            tiles.pop(cell, None)
+        for cell in sorted(cs):
+            piece, fn = cs[cell]
+            tiles[cell] = field_tile(cell, piece, fn, fd["line"], where)
+    if laid:
+        for (wx, wy) in sorted(tiles):
+            t = tiles[(wx, wy)]
+            if not isinstance(t, FieldTile):
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    n = tiles.get((wx + dx, wy + dy))
+                    if isinstance(n, Split):
+                        raise CourseError("%s:%d: the split cell (%d, %d) is in the 3 x 3 of the FIELD cell (%d, %d) "
+                                          "(SPEC.md 128.27.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
+        field_seams(tiles, f)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
@@ -1699,9 +2092,14 @@ def build_cells(tiles):
             for dx in range(-2, 3):
                 if (wx + dx, wy + dy) not in tiles:
                     near.add((wx + dx, wy + dy))
+    if any(isinstance(t, FieldTile) and t.shape is None for t in tiles.values()):
+        build_fields(tiles)
     for (wx, wy), t in tiles.items():
         if isinstance(t, Split):
             cells[(wx, wy)] = [0, 0, t.diag | (t.surf << 4), 0]
+            continue
+        if isinstance(t, FieldTile):                # SPEC.md 128.27.2: the base, the shape and the symmetry
+            cells[(wx, wy)] = [t.z0, t.shape | (t.sym << 4), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
         if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
@@ -3097,6 +3495,10 @@ def split_anchors(src, tiles, f):
         if isinstance(tiles.get(tuple(cell)), Split):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is SPLIT: it stands on the cell's centre, which "
                               "is on the diagonal (SPEC.md 128.24.4)" % (f, ln, what, cell[0], cell[1]))
+        if isinstance(tiles.get(tuple(cell)), FieldTile):
+            raise CourseError("%s:%d: %s on cell (%d, %d), which is a FIELD cell (a %s): it stands on a flat "
+                              "cell's centre (SPEC.md 128.27.3)" % (f, ln, what, cell[0], cell[1],
+                                                                   tiles[tuple(cell)].piece))
 
 
 def build_props(src, tiles, fname):
@@ -3505,7 +3907,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     srcs = []
     for k in sorted(sol):
         for t in sol[k]:
-            U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
+            U = (FSLOPE_MAX if t.kind == KIND_FIELD else abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
             srcs.append((k, 4 * max(t.corners()) + UP(U), RADIUS(U), "launch"))
     bcells = set()
     if boost:
@@ -3811,6 +4213,117 @@ def _cell_pieces(tiles):
     return out
 
 
+def _fpt(gx, gy, h4, x0):
+    """SPEC.md 128.27.6: a world point (gu) at height h4 (quarter px) -> the quarter-pixel screen, Y0 = 0"""
+    return (4 * (gx - gy) + 4 * x0, 2 * (gx + gy) - h4)
+
+
+FTOPQ = 16                    # SPEC.md 128.27.6: a facet's occluder top, whole px rounded down to a multiple
+FACET = 4                     # SPEC.md 128.27.6: a FIELD top's facets, ground units a side
+_FLIGHT = (-1.0, -0.3, 1.5)   # ...the light: from the upper left (toward -gx), and above
+_FLAT_B = _FLIGHT[2] / math.sqrt(sum(c * c for c in _FLIGHT))
+
+
+def field_shade(dzx, dzy):
+    """a facet's shade level by its gradient (px a ground unit): -3 (darkest, facing the viewer's right)
+    .. 0 (level) .. 2 (lit, facing up and away)"""
+    n = (-dzx, -dzy, 1.0)
+    b = sum(a * l for a, l in zip(n, _FLIGHT)) / math.sqrt(sum(a * a for a in n)) / math.sqrt(
+        sum(c * c for c in _FLIGHT)) / _FLAT_B
+    for lim, lv in ((1.12, 2), (1.04, 1), (0.96, 0), (0.86, -1), (0.74, -2)):
+        if b >= lim:
+            return lv
+    return -3
+
+
+def field_ink(level, base):
+    """SPEC.md 128.27.6: a shade level's ink, world-fixed dithers (x + y) & 1 between the levels' colours;
+    base the cell's parity colour for a level facet"""
+    if level == 0:
+        return base
+    if level >= 2:
+        return WHT
+    if level == 1:
+        return WHT if base == WHT else (lambda x, y: WHT if (x + y) & 1 else CYN)
+    if level == -1:
+        return lambda x, y, b=base: MAG if (x + y) & 1 else b
+    if level == -2:
+        return MAG
+    return lambda x, y: MAG if (x + y) & 1 == 0 else BLK
+
+
+def _poly_top_fn(pts):
+    """the top edge of a face whose top is a polyline of quarter-pixel points (X4, h4): at a pixel column,
+    whole px (floor), interpolated between the polyline's points"""
+    xs = [p[0] for p in pts]
+
+    def top(x, y):
+        X = 4 * x + 2
+        for (xa, ha), (xb, hb) in zip(pts, pts[1:]):
+            lo, hi = min(xa, xb), max(xa, xb)
+            if lo <= X <= hi and xa != xb:
+                return int(math.floor((ha + (hb - ha) * (X - xa) / float(xb - xa)) / 4.0))
+        i = min(range(len(xs)), key=lambda k: abs(xs[k] - X))
+        return pts[i][1] // 4
+    return top
+
+
+def _field_ops(tiles, t, wx, wy, s, x0):
+    """SPEC.md 128.27.6: a FIELD cell's ops - its sw and se faces (their tops the table's heights along the
+    edge, down to the neighbour's heights there or FACE8 into the void, nothing against a FIELD neighbour),
+    then its top as FACET x FACET triangles back to front, each culled when it faces away, inked by its
+    shade and keyed s + 1 when its ground is in the front half of the row"""
+    ops = []
+    gx0, gy0 = 16 * wx, 16 * wy
+    h = t.h
+    for which, nb_cell, pts in (("sw", (wx, wy + 1), [(u, 16) for u in range(17)]),
+                                ("se", (wx + 1, wy), [(16, v) for v in range(16, -1, -1)])):
+        nb = tiles.get(nb_cell)
+        if isinstance(nb, FieldTile):
+            continue
+        tops = [h[v][u] for u, v in pts]
+        if nb is None or isinstance(nb, Split):     # (a split neighbour is refused in the 3 x 3)
+            bots = [q - 4 * FACE8 for q in tops]
+        else:
+            bots = []
+            for u, v in pts:
+                nu, nv = (u, 0) if which == "sw" else (0, v)
+                bots.append(min(16 * nb.z0 + nb.sx * nu + nb.sy * nv, h[v][u]))
+        if all(b >= q for b, q in zip(bots, tops)):
+            continue
+        top_pts = [_fpt(gx0 + u, gy0 + v, q, x0) for (u, v), q in zip(pts, tops)]
+        bot_pts = [_fpt(gx0 + u, gy0 + v, q, x0) for (u, v), q in zip(pts, bots)]
+        poly = top_pts + bot_pts[::-1]
+        line = [(p[0], q) for p, q in zip(top_pts, tops)]
+        mk = (lambda ln_: lambda y0: _poly_top_fn(ln_))(line)
+        ops.append((spans(poly), which, s, mk, True, t, (wx, wy)))
+    base = WHT if (wx + wy) & 1 else CYN
+    n = 16 // FACET
+    for k in range(2 * n - 1):                      # back to front: i + j, then i
+        for i in range(n):
+            j = k - i
+            if not 0 <= j < n:
+                continue
+            u0, v0, u1, v1 = FACET * i, FACET * j, FACET * (i + 1), FACET * (j + 1)
+            key = s + (1 if u0 + v0 + FACET >= 16 else 0)
+            for tri in (((u0, v0), (u1, v0), (u1, v1)), ((u0, v0), (u1, v1), (u0, v1))):
+                P = [_fpt(gx0 + u, gy0 + v, h[v][u], x0) for u, v in tri]
+                area = (P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])
+                if area <= 0:                       # facing away (or edge-on): what is behind it shows
+                    continue
+                (ua, va), (ub, vb), (uc, vc) = tri
+                ha, hb, hc = h[va][ua], h[vb][ub], h[vc][uc]
+                # the plane through the three: dz/du, dz/dv in px a ground unit
+                det = (ub - ua) * (vc - va) - (uc - ua) * (vb - va)
+                dzx = ((hb - ha) * (vc - va) - (hc - ha) * (vb - va)) / (4.0 * det)
+                dzy = ((ub - ua) * (hc - ha) - (uc - ua) * (hb - ha)) / (4.0 * det)
+                ink = field_ink(field_shade(dzx, dzy), base)
+                topv = (min(ha, hb, hc) // (4 * FTOPQ)) * FTOPQ   # (whole px, in steps of FTOPQ: fewer records)
+                mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
+                ops.append((spans(P), "facet", key, mk, ink, t, (wx, wy)))
+    return ops
+
+
 def draw_ops(tiles, x0, deep=()):
     """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
     to front: each tile's two front faces, then its top (128.3's order).
@@ -3830,6 +4343,9 @@ def draw_ops(tiles, x0, deep=()):
     ops = []
     for _key, (wx, wy), t, h, s in _cell_pieces(tiles):
         ent = tiles[(wx, wy)]
+        if isinstance(t, FieldTile):                # SPEC.md 128.27.6: a FIELD cell's faces and facets
+            ops += _field_ops(tiles, t, wx, wy, s, x0)
+            continue
         zt, zr, zb, zl = (4 * c for c in t.corners())
         T = (2 * wx, 2 * wy)
         R = (2 * wx + 2, 2 * wy)
@@ -3969,6 +4485,9 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
         if which == "post":                         # wave 3: a post, geometry
             ink, top = mk(y0)
             cv.fill(sp, ink, s, top, own)
+            continue
+        if which == "facet":                        # SPEC.md 128.27.6: a FIELD top's facet, its ink in `left`
+            cv.fill(sp, left, s, mk(y0), own)
             continue
         top = mk(y0)
         if t.rail and which in ("sw", "se", "front"):   # wave 8R: the crystal rail's dark side (128.22.8)
@@ -5206,9 +5725,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             if v:
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
+    ftabs = build_fields(tiles)                     # SPEC.md 128.27.4: the FIELD cells' tables (section F)
     cells = build_cells(tiles)
     pairs = build_pairs(tiles)                      # SPEC.md 128.24.5.2: the split cells' halves
     pcell = prop_cells(props)
+    for c_ in pcell:                                  # SPEC.md 128.27.3: no prop's cell is a FIELD cell
+        if isinstance(tiles.get(c_), FieldTile):
+            raise CourseError("%s:%d: cell (%d, %d) belongs to a prop and is a FIELD cell (a %s, SPEC.md 128.27.3)"
+                              % (fname, tiles[c_].line, c_[0], c_[1], tiles[c_].piece))
     for c_ in pcell:                                  # no prop's cell is SAFE (a respawn lands in no drain)
         if c_ in cells:
             cells[c_][3] &= ~FL_SAFE
@@ -5507,7 +6031,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     kw = ((max(aa) - amin) >> 1) + 1
     nrows = smax - smin + 1
     least = (HDR + 2 * cols * brows + 16 * len(blocks) + 2 * (brows + 1) + GHDR
-             + 4 * nrows * kw + PAIR * len(pairs) + 2 * nrows + 4 * len(src.ways))
+             + 4 * nrows * kw + PAIR * len(pairs) + FTAB * len(ftabs) + 2 * nrows + 4 * len(src.ways))
     if least > PARTMAX:
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
@@ -5621,7 +6145,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
         | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0) \
-        | (GF_SPLIT if pairs else 0)
+        | (GF_SPLIT if pairs else 0) | (GF_FIELD if ftabs else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
@@ -5743,7 +6267,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
                       "swy": swy, "gflags": gflags, "padmask": padmask,
                       "view": (view[0] // 4 | view[1] << 8) if view else 0},
-             "cells": bytes(cellb), "pairs": bytes(pairb), "route": list(route), "ways": [t for t, ln in src.ways],
+             "cells": bytes(cellb), "pairs": bytes(pairb), "ftabs": b"".join(ftabs),
+             "route": list(route), "ways": [t for t, ln in src.ways],
              "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ftab + ptab), "self": selfp,
                        "blk": blkp} if props else None,
              "pth": len(ptab), "npages": pth["npages"] if pth is not None else 0,
@@ -5791,6 +6316,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.pairs = pairs                                 # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
+    c.ftabs = ftabs                                 # SPEC.md 128.27.2: section F's tables
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
     c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
@@ -6340,8 +6866,8 @@ def part_layout(m, recb, bzc2=True):
             ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if bzc2 and recb == 4:
         lens.append(("O", 2 * len(m["masks"])))
-    lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")), ("T", 2 * g["nrows"]),
-             ("W", 4 * len(m["route"]))]
+    lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
+             ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
     if m["props"]:
         lens.append(("P", len(m["props"]["blob"])))
     off = HDR if bzc2 else HDR1
@@ -6420,6 +6946,8 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         for i in range(0, len(m["cells"]), 4):
             if m["cells"][i + 2] & 15 in SPLIT_KINDS:
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
+    if m.get("ftabs"):                              # SPEC.md 128.27.2: F after D, PLAIN
+        b[sec["F"][0]:sec["F"][0] + len(m["ftabs"])] = m["ftabs"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
     for i, (x, y) in enumerate(m["route"]):
@@ -6504,9 +7032,11 @@ def decode_part(p):
     nfam, famoff = struct.unpack_from("<BH", p, 45) if bzc2 else (0, 0)
     celloff = gridoff + GHDR
     cells = bytearray(p[celloff:celloff + 4 * kw * nrows])
-    pairs = b""
+    pairs = ftabs = b""
     for j in range(nsec):                           # SPEC.md 128.24.5.2: section D, if there is one
         tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
+        if tag == ord("F"):                         # SPEC.md 128.27.2: section F, the FIELD tables
+            ftabs = bytes(p[off:off + ln])
         if tag == ord("D"):
             pairs = bytes(p[off:off + ln])
             for i in range(0, len(cells), 4):
@@ -6516,7 +7046,7 @@ def decode_part(p):
          "recs": recs, "masks": masks,
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
                   "gflags": gflags, "padmask": padmask, "view": gview},
-         "cells": bytes(cells), "pairs": pairs,
+         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (diroff - pthoff) if pthoff else 0,
          "npages": npages, "fam": ((pthoff or diroff) - famoff) if famoff else 0, "nfam": nfam}
@@ -6627,6 +7157,8 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
         if kd & 15 == KIND_VOID:
             V.append(0xFF)
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.27.2: its base (its +1 is no slopes)
+            V.append(vrec(_s8(z0), 0))
         elif kd & 15 in SPLIT_KINDS and not _no_halves:
             hs = pair(cells[4 * i] | cells[4 * i + 1] << 8, NREC[kd & 15])
             H[i] = hs
@@ -6924,16 +7456,19 @@ def read_part(p, fname="<part>"):
     nway, routeoff = struct.unpack_from("<HH", p, gridoff + 24)
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
-    dlen = 0                                        # SPEC.md 128.24.5.2: section D's length, its entry's alone
-    for j in range(nsec):
+    dlen = flen = 0                                 # SPEC.md 128.24.5.2: section D's length, its entry's alone
+    for j in range(nsec):                           # (and 128.27.2: F's)
         if p[diroff + DIRENT * j] == ord("D"):
             dlen = struct.unpack_from("<H", p, diroff + DIRENT * j + 4)[0]
+        if p[diroff + DIRENT * j] == ord("F"):
+            flen = struct.unpack_from("<H", p, diroff + DIRENT * j + 4)[0]
     want = [("M", HDR, 2 * cols * brows), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, 2 * nmask))
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
-             ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
+             ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("F", gridoff + GHDR + 4 * kw * nrows + dlen, flen),
+             ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
     if nprop:
         want.append(("P", propoff, diroff - propoff))
     wantd = {t: (o, ln) for t, o, ln in want}
@@ -7018,7 +7553,7 @@ def read_part(p, fname="<part>"):
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
     gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
-    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT) or padmask & ~7
+    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) or padmask & ~7
             or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
             or (gflags & GF_CUP and not gflags & GF_CKPT)):
         bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
@@ -7033,8 +7568,14 @@ def read_part(p, fname="<part>"):
         bad("AMIN", "odd")
     celloff = g + GHDR
     cellend = doff = celloff + 4 * nrows * kw
-    if rowtab != cellend + dlen:
+    if rowtab != cellend + dlen + flen:
         bad("ROWTAB", "offset %d" % rowtab)
+    foff = cellend + dlen                           # SPEC.md 128.27.2: section F, after D
+    if flen % FTAB or flen > FTAB * FSHAPE_MAX or bool(gflags & GF_FIELD) != bool(flen):
+        bad("F", "%d bytes (tables of %d, at most %d), GF_FIELD %s" % (flen, FTAB, FSHAPE_MAX,
+                                                                        "set" if gflags & GF_FIELD else "clear"))
+    fnamed = set()
+    fcells = {}
     rt = struct.unpack_from("<%dH" % nrows, p, rowtab)
     for r, o in enumerate(rt):
         if o < celloff or o + 4 * kw > cellend:
@@ -7077,6 +7618,18 @@ def read_part(p, fname="<part>"):
             floors = {h[2] >> 4 for h in hs if h[2] & 15 in (KIND_FLOOR, KIND_GOAL)}
             if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
                 bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.27.2: a FIELD cell names a table of F
+            if (sl & 15) * FTAB >= flen or sl & 0x80 or kd >> 4 != SURF_NORMAL or fl & ~(FL_OCC | FL_OCCG) \
+                    or (fl & FL_OCCG and not fl & FL_OCC):
+                bad("cell %d" % i, "a FIELD cell's shape %d of %d, symmetry byte %02Xh, surface %d, flags %02Xh"
+                    % (sl & 15, flen // FTAB, sl, kd >> 4, fl))
+            fnamed.add(sl & 15)
+            r_, k_ = divmod(i, kw)
+            s_ = smin + r_
+            a_ = amin + 2 * k_ + (s_ & 1)
+            tab = p[foff + FTAB * (sl & 15):foff + FTAB * (sl & 15) + FTAB]
+            fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[16 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
+                                                        for v in range(17)]
         elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
                 or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
@@ -7091,6 +7644,20 @@ def read_part(p, fname="<part>"):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
+    if len(fnamed) * FTAB != flen:
+        bad("F", "%d tables, %d of them named by a cell (every table is)" % (flen // FTAB, len(fnamed)))
+    for (fx, fy), h in sorted(fcells.items()):      # SPEC.md 128.27.2: the slope bound and the SEAM rule
+        for v in range(16):
+            for u in range(16):
+                sx_, sy_ = fslopes(h, u, v)
+                if abs(sx_) + abs(sy_) > FSLOPE_MAX:
+                    bad("F", "FIELD cell (%d, %d)'s slopes (%d, %d) at (%d, %d)" % (fx, fy, sx_, sy_, u, v))
+        for dx, dy in ((1, 0), (0, 1)):
+            n_ = fcells.get((fx + dx, fy + dy))
+            if n_ is not None and any((h[k][16] if dx else h[16][k]) != (n_[k][0] if dx else n_[0][k])
+                                      for k in range(17)):
+                bad("F", "FIELD cells (%d, %d) and (%d, %d) differ along their shared edge (the SEAM rule)"
+                    % (fx, fy, fx + dx, fy + dy))
     if len(named) * 4 != dlen or bool(gflags & GF_SPLIT) != bool(dlen):
         bad("D", "%d bytes for %d split records, GF_SPLIT %s" % (dlen, len(named), "set" if gflags & GF_SPLIT
                                                                    else "clear"))
@@ -7134,7 +7701,7 @@ def read_part(p, fname="<part>"):
     for d in props:
         if d["kind"] == PK_PAD:
             want_m |= 1 << d["mat"]
-    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT) != want_f or padmask != want_m:
+    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) != want_f or padmask != want_m:
         bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
             % (gflags, padmask, want_f, want_m))
     for d in props:
@@ -7163,7 +7730,8 @@ def read_part(p, fname="<part>"):
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
                      "gflags": gflags, "padmask": padmask, "view": gz,
                      "cells_raw": bytes(p[celloff:cellend]), "celloff": celloff, "pairoff": doff,
-                     "pairs": bytes(p[doff:doff + dlen])}}
+                     "pairs": bytes(p[doff:doff + dlen]), "foff": foff,
+                     "ftabs": bytes(p[foff:foff + flen])}}
 
 
 def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
@@ -7326,6 +7894,8 @@ class Grid:
         self.gflags, self.padmask = g["gflags"], g["padmask"]
         self.props = info["props"]
         self.fams, self.nfst, self.rmask = info["fams"], info["nfst"], info["rmask"]   # wave 9 (128.25.6.4)
+        self.ftabs = g["ftabs"]                     # SPEC.md 128.27.2: section F
+        self._fw = {}                               # (shape, symmetry) -> its world table, relative
 
     def cell(self, wx, wy):
         """-> (z0, sx, sy, kind, flags, surface); OPEN outside the grid.  A SPLIT
@@ -7338,7 +7908,18 @@ class Grid:
         z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, self.rowtab[r] + 4 * k)
         if kd & 15 in SPLIT_KINDS:
             return (0, 0, 0, kd & 15, fl, kd >> 4)
+        if kd & 15 == KIND_FIELD:                   # SPEC.md 128.27.2: (z0, 0, 0, 7, flags, surface, h[v][u] the
+            return (z0, 0, 0, KIND_FIELD, fl, kd >> 4, self.fworld(z0, sl))     # ABSOLUTE heights, quarter px)
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
+
+    def fworld(self, z0, sl):
+        """a FIELD cell's world heights from its +0 and +1: 16 z0 + its table through its symmetry"""
+        key = (z0, sl)
+        w = self._fw.get(key)
+        if w is None:
+            o = FTAB * (sl & 15)
+            w = self._fw[key] = [[16 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
+        return w
 
     def pair(self, wx, wy):
         """a SPLIT cell's records (128.24.5.2): (half A's, half B's) or the quarters (N, E, S, W), each as
@@ -7671,7 +8252,8 @@ class Physics:
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
                  _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
-                 _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False):
+                 _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False, _nolift=False,
+                 _ffblock=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -7775,6 +8357,8 @@ class Physics:
         self._ray_inv, self._all_radial = _ray_inv, _all_radial
         self._inner_on = _inner_on                  # (a red arm: a quartered cell's second line after a push out)
         self.wsplit = False                         # bz_ps bit 3 (128.24.7.6)
+        self._fc = None                             # SPEC.md 128.27.5.3: step 5's FIELD centre (C, wx, wy)
+        self._nolift, self._ffblock = _nolift, _ffblock     # (red arms: no lift; field neighbours blocking)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -7808,6 +8392,8 @@ class Physics:
 
     @staticmethod
     def h4(c, u, v):
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.27.2: a FIELD record carries its world heights
+            return c[6][v][u]
         return 16 * c[0] + c[1] * u + c[2] * v
 
     def blocks(self, c, u, v, at=None):
@@ -7822,10 +8408,19 @@ class Physics:
         assert c[3] not in SPLIT_KINDS, "blocks() takes a RECORD, never a split cell (SPEC.md 128.24.7.3)"
         if c[3] == KIND_WALL:
             return True
-        if c[3] in (KIND_FLOOR, KIND_GOAL):
+        if c[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD):
             h = self.h4(c, u, v) << 6
             marg = 0 if (self.air and self._no_airclimb) else CLIMB << 8
-            return h > self.zs + marg
+            if not h > self.zs + marg:
+                return False
+            fc = self._fc                           # SPEC.md 128.27.5.3: a FIELD centre's edges and corner
+            if fc is not None and at is not None and not self._nolift:
+                C, cx, cy = fc
+                if c[3] == KIND_FIELD:              # field to field: never (the SEAM rule)
+                    return bool(self._ffblock)
+                hc = self.h4(C, u + 16 * (at[0] - cx), v + 16 * (at[1] - cy))   # the lift: C's own height
+                return self.h4(c, u, v) > hc + 4 * CLIMB                         # at the same point
+            return True
         return False
 
     # -- SPEC.md 128.24.7: split cells ---------------------------------------
@@ -7843,6 +8438,9 @@ class Physics:
     def prec(self, wx, wy):
         """the RECORD the centre (gx, gy) is in, its cell (wx, wy): the cell, or its PICKED half (128.24.7.1)"""
         c = self.cell(wx, wy)
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.27.5.1: a FIELD cell's slopes at the point
+            sx, sy = fslopes(c[6], (self.gx >> 8) & 15, (self.gy >> 8) & 15)
+            return (c[0], sx, sy, KIND_FIELD, c[4], c[5], c[6])
         if c[3] in SPLIT_KINDS:
             h = pick(c[3], self.gx & 0xFFF, self.gy & 0xFFF)
             if self._pick_swap:                     # (a red arm: the pick's sides swapped)
@@ -8168,7 +8766,7 @@ class Physics:
                     if depth > 16 * PRAD:
                         h4 += 4 * pr["ph"]
                 return C, h4, None
-        return C, (self.h4(C, u, v) if C[3] in (KIND_FLOOR, KIND_GOAL) else 0), None
+        return C, (self.h4(C, u, v) if C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD) else 0), None
 
     def _door(self, C, cwx, cwy):
         """the centre's cell a windmill's IN: (0 for a -x doorway, 1 for -y, the record)"""
@@ -8432,7 +9030,7 @@ class Physics:
                 fx, fy = self._forces(K, ftg_table(force))
                 self.gvx += fx
                 self.gvy += fy
-            sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL) else (0, 0)
+            sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD) else (0, 0)
             self.gvx -= self._slope_sign * GSL * sx
             self.gvy -= self._slope_sign * GSL * sy
             if self._ceil_drag:                     # (a red arm: wave 2's round-up)
@@ -8495,6 +9093,7 @@ class Physics:
                     cwx, cwy = self.gx >> 12, self.gy >> 12        # tip): the window refilled round it
                     self._fill(cwx, cwy)
                 C = self.cell(cwx, cwy)
+        self._fc = (C, cwx, cwy) if C[3] == KIND_FIELD else None    # SPEC.md 128.27.5.3: the lift's centre
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         u, v = pu >> 8, pv >> 8
         lo = RAD << 8
@@ -8619,7 +9218,8 @@ class Physics:
                 self._circle(pr, n)
         if self.wol and (self.gx >> 12, self.gy >> 12) != self.wcell:
             self._fill(self.gx >> 12, self.gy >> 12)
-        # the fallback
+        # the fallback (SPEC.md 128.27.5.3: never lifted)
+        self._fc = None
         cwx, cwy = self.gx >> 12, self.gy >> 12
         if (cwx, cwy) != scell:
             C = self.prec(cwx, cwy)                 # (128.24.7.5: the centre's RECORD)
@@ -8641,7 +9241,7 @@ class Physics:
         C = self.prec(cwx, cwy)
         Cv = C
         C, h4, slab = self._floor(C, (cwx, cwy), n)
-        solid = C[3] in (KIND_FLOOR, KIND_GOAL)
+        solid = C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD)
         h = h4 << 6
         onslab = False
         lifted = False
@@ -9064,6 +9664,8 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # the constants before it.
 PHYS_REV = 12                 # SPEC.md 128.24.7 (story D2.4): the step reads split cells (the half pick,
                               # the diagonal inside a cell, the edges by their owning half, the corner's rays)
+PHYS_REV = 13                 # SPEC.md 128.27.5 (story C2): the step reads FIELD cells (the table's floor and
+                              # slopes, the field-to-field edge, the lift)
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
                DIAG, DWMIN, PHYS_REV)
@@ -9076,7 +9678,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21, 0xB1)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -10688,7 +11290,10 @@ def emit_inc(courses, path=None, title=None):
               "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
               "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
               "BZ_KQ           equ %d        ; QUARTERED (R4): records N, E, S, W" % KIND_Q,
-              "BZ_KCHANNEL     equ %d        ; RESERVED: a CHANNEL (SPEC.md 128.24.13), not built" % KIND_CHANNEL,
+              "BZ_KFIELD       equ %d        ; a FIELD cell: a heightfield table in section F (SPEC.md 128.27)" % KIND_FIELD,
+              "BZ_GF_FIELD     equ %d       ; BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F" % GF_FIELD,
+              "BZ_FTAB         equ %d      ; a FIELD table: 17 x 17 heights (SPEC.md 128.27.2)" % FTAB,
+              "BZ_FSHAPE_MAX   equ %d       ; ...at most this many a course" % FSHAPE_MAX,
               "BZ_PAIR         equ %d        ; a pair: half A's cell record, then half B's" % PAIR,
               "BZ_QUAD         equ %d       ; a quartered cell's four records" % (2 * PAIR),
               "BZ_DIAG         equ %d     ; round(6 sqrt 2 x 256): the radius along a diagonal's normal" % DIAG,
@@ -16922,6 +17527,7 @@ def _w4_records(c, res):
     ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
     # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
     wf |= GF_SPLIT if any(isinstance(t_, Split) for t_ in c.tiles.values()) else 0
+    wf |= GF_FIELD if any(isinstance(t_, FieldTile) for t_ in c.tiles.values()) else 0     # (SPEC.md 128.27.2)
     ok = ok and pt["grid"]["gflags"] == wf
     res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
                 "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
@@ -18570,6 +19176,186 @@ def _split_physics(res):
     return cs, cr
 
 
+# SPEC.md 128.27's FIELD courses (stories C1 - C2): THE CHUTES - a 2-wide chute set in the ground (a straight,
+# two radial corners, its tapered ends), a 1-wide one with a sloped leg, a floor raised beside the 2-wide's
+# lip (the lift's wall); THE PIT - a bowl round a hole; THE BRIDGE - a chute over the void.  tests/
+# bonanza_dfield.py runs the guest on the same three
+_FCHUTE = """course CHUTE "Chutes"
+width 128
+origin 544
+floor rect 6 6 28 34 flat 2
+floor rect 12 10 14 11 flat 4
+chute 2 round depth 10 way 8 12 2 way 20 12 way 20 20 way 26 20
+chute 1 round depth 5 way 8 26 2 way 16 26 way 16 31 4
+start 7 7
+goal tile 26 32 flat 2
+"""
+_FPIT = """course PIT "Pit"
+width 128
+origin 544
+floor rect 6 6 28 34 flat 2
+pit 16 20 2 radius 3 depth 16
+start 7 7
+goal tile 26 32 flat 2
+"""
+_FBRIDGE = """course BRIDG "Bridge"
+width 128
+origin 544
+floor rect 6 6 12 30 flat 2
+floor rect 20 6 26 30 flat 2
+chute 2 bank depth 7 way 10 16 2 way 22 16
+start 7 7
+goal tile 24 28 flat 2
+"""
+
+
+def _field_cases():
+    """SPEC.md 128.27.3's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    S = _FCHUTE
+    return [
+        ("a leg off the axis", S + "chute 1 round depth 4 way 8 29 2 way 12 30\n", "not along one axis"),
+        ("an inner way that goes straight on", S + "chute 1 round depth 4 way 8 29 2 way 10 29 way 14 29\n",
+         "goes straight on"),
+        ("an inner way that doubles back", S + "chute 1 round depth 4 way 8 29 2 way 12 29 way 10 29\n",
+         "doubles back"),
+        ("a 2-wide leg too short", S + "chute 2 round depth 4 way 8 30 2 way 9 30\n", "too short"),
+        ("a slope not a whole number of half units a tile", S.replace("way 16 31 4", "way 16 31 3.5"),
+         "not a whole number"),
+        ("a depth past the slope bound", S.replace("depth 10", "depth 16"), "the bound |sx| + |sy|"),
+        ("a pit's radius 5", S + "pit 22 28 2 radius 5 depth 8\n", "radius is 2 - 4"),
+        ("a pit's hole not under its radius", S + "pit 22 28 2 radius 2 depth 8 hole 2\n", "under its radius"),
+        ("two chutes on one cell", S + "chute 1 round depth 4 way 9 10 2 way 9 16\n", "is laid by this chute"),
+        ("the start on a FIELD cell", S.replace("start 7 7", "start 14 12"), "which is a FIELD cell"),
+        ("a way on a FIELD cell", S + "way 14 12\n", "which is a FIELD cell"),
+        ("a pad on a FIELD cell", S + "pad steel 14 12\n", "which is a FIELD cell"),
+        ("a spring on a FIELD cell", S + "spring 14 12 400\n", "which is a FIELD cell"),
+        ("a split cell in a FIELD cell's 3 x 3", S + "floor half left tile 15 10 flat 3\n", "is in the 3 x 3"),
+        ("a first way with no height", S + "chute 1 round depth 4 way 8 29 way 12 29\n", "gives the lip's height"),
+    ]
+
+
+def _field_checks(res):
+    """SPEC.md 128.27's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
+    cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
+    seam broken, red); the reader's refusals; the stored form; the model's scripted runs and their red arms"""
+    for what, text, want in _field_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (128.27.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    cs = {k: compile_course(t, "<%s>" % k, _hack={"no_finish": True})
+          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE))}
+    for k, c in cs.items():
+        g = Grid(c.cga)
+        ft = {cell: t for cell, t in c.tiles.items() if isinstance(t, FieldTile)}
+        same = all(g.cell(*cell)[6] == t.h for cell, t in ft.items())
+        flip = sum(1 for cell, t in ft.items() if g.fworld(t.z0, t.shape | ((t.sym ^ FSYM_MU) << 4)) != t.h)
+        smax = max(abs(a) + abs(b) for t in ft.values() for v in range(16) for u in range(16)
+                   for a, b in (fslopes(t.h, u, v),))
+        pieces = {}
+        for t in ft.values():
+            pieces[t.piece] = pieces.get(t.piece, 0) + 1
+        print("    %s (SPEC.md 128.27): %d FIELD cells (%s), %d tables (F %d bytes), part %d, %d blocks, %d records"
+              % (k, len(ft), ", ".join("%s %d" % kv for kv in sorted(pieces.items())), len(c.ftabs),
+                 FTAB * len(c.ftabs), len(c.cga), len(c.blocks), len(c.records)))
+        res.append(("2 %s: every FIELD cell's heights read back through the grid (its table, its symmetry); red: "
+                    "MU flipped changes %d of %d" % (k, flip, len(ft)), same and flip > 0))
+        res.append(("2 %s: the slope bound holds, |sx| + |sy| at most %d (bound %d)" % (k, smax, FSLOPE_MAX),
+                    smax <= FSLOPE_MAX))
+        res.append(("10 %s: expand(stored) == RAM with section F" % k, expand(c.stored4, k) == bytes(c.cga)))
+    # the SEAM rule's red arm, and the reader's
+    c = cs["CHUTE"]
+    tl = dict(c.tiles)
+    cell = next(cl for cl, t in sorted(tl.items()) if isinstance(t, FieldTile) and isinstance(
+        tl.get((cl[0] + 1, cl[1])), FieldTile))
+    bad = FieldTile([r[:] for r in tl[cell].h], tl[cell].line, tl[cell].piece)
+    bad.h[8][16] += 1
+    tl[cell] = bad
+    try:
+        field_seams(tl, "<seam>")
+        fired = False
+    except CourseError as e:
+        fired = "SEAM rule" in str(e)
+    res.append(("2 red: a FIELD cell one quarter px off its neighbour at a shared edge is refused (the SEAM rule)",
+                fired))
+    p = bytearray(c.cga)
+    foff = c.part["grid"]["foff"]
+    p[foff + 8] ^= 0x40                             # a table byte made a cliff
+    try:
+        read_part(bytes(restamp(p)))
+        fired, msg = False, "read"
+    except CourseError as e:
+        fired, msg = "F" in str(e), str(e)
+    res.append(("10 red: read_part refuses a table with a cliff in it (the slope bound or the SEAM rule)%s" % (
+        "" if fired else " -- got: " + msg), fired))
+    # the model (story C2): the scripted runs, and the red arms that break them
+    for what, k, mat, at, keys, ok, arm in _field_runs():
+        p_ = Physics(cs[k], play=True, mat=mat)
+        p_.tsec = 0
+        _field_poke(p_, *at)
+        for kk in keys(p_) if callable(keys) else keys:
+            p_.step(kk)
+        good = ok(p_)
+        res.append(("7 FIELD run (128.27.5): %s" % what, good))
+        if arm:
+            q = Physics(cs[k], play=True, mat=mat, **{arm: True})
+            q.tsec = 0
+            _field_poke(q, *at)
+            for kk in keys(q) if callable(keys) else keys:
+                q.step(kk)
+            res.append(("7 FIELD red `%s` breaks it: %s" % (arm.strip("_"), what), not ok(q)))
+
+
+def _field_poke(p, wx, wy, pu, pv, gvx, gvy):
+    p.poke(wx, wy, gvx, gvy)
+    p.gx, p.gy = (16 * wx << 8) + pu, (16 * wy << 8) + pv
+    p.gz = Physics.h4(p.prec(wx, wy), pu >> 8, pv >> 8) << 6
+    p._fill(wx, wy)
+    p._ps()
+    p._derive(True)
+
+
+def _field_steer(turn_x, before, after, n):
+    def keys(p):
+        for _ in range(n):
+            yield after if (p.gx >> 8) >= turn_x else before
+    return keys
+
+
+def _field_runs():
+    """SPEC.md 128.27.5's scripted runs (story C2.3): (what, course, material, poke, keys, the outcome, a red
+    arm that must break it or None)"""
+    rub, stl = MAT_RUBBER, MAT_STEEL
+    U, D, L, Rt = K_U, K_D, K_L, K_R
+
+    def noev(*names):
+        return lambda p: not any(e[0] in names for e in p.events)
+    return [
+        ("a 2-wide corner carried round at 250, the turn held", "CHUTE", rub, (17, 12, 8 << 8, 0, 250, 0),
+         _field_steer(288, 0, D | L, 160), lambda p: p.gy >> 8 > 230 and 304 <= p.gx >> 8 < 336, None),
+        ("...and at 384, steel", "CHUTE", stl, (17, 12, 8 << 8, 0, 384, 0), _field_steer(288, 0, D | L, 160),
+         lambda p: p.gy >> 8 > 230, None),
+        ("a 1-wide corner left over its lip at 384, the arrows on", "CHUTE", rub, (14, 26, 0, 8 << 8, 384, 0),
+         [Rt | D] * 120, lambda p: p.cell(p.gx >> 12, p.gy >> 12)[3] != KIND_FIELD, None),
+        ("a ball rests at a chute's bottom, no dither", "CHUTE", rub, (12, 11, 8 << 8, 3 << 8, 0, 160), [0] * 400,
+         lambda p: p.gvx == 0 and p.gvy == 0, None),
+        ("the pit ridden round and out over the far lip at speed", "PIT", rub, (12, 21, 8 << 8, 8 << 8, 384, 0),
+         [Rt | D] * 140, lambda p: p.nfall == 0 and p.gx >> 8 > 300, None),
+        ("the pit fallen through when slow", "PIT", rub, (12, 19, 8 << 8, 15 << 8, 250, 0), [0] * 140,
+         lambda p: p.nfall == 1, None),
+        ("the lift: a floor above the lip is a wall", "CHUTE", rub, (13, 11, 8 << 8, 6 << 8, 0, -300),
+         [U | Rt] * 60, lambda p: any(e[0] == "wall" for e in p.events), None),
+        ("the lift: a floor at the lip's height is a lip", "CHUTE", rub, (17, 11, 8 << 8, 12 << 8, 0, -330),
+         [U | Rt] * 40, lambda p: p.gy >> 8 < 176, "_nolift"),
+        ("field to field: across the pit's bank, no wall", "PIT", rub, (14, 18, 1216, 1502, -137, -151), [Rt] * 20,
+         noev("wall", "corner", "undo"), "_ffblock"),
+        ("a chute on a bridge left over its lip into the void", "BRIDGE", rub, (16, 15, 8 << 8, 8 << 8, 0, -384),
+         [U | Rt] * 80, lambda p: p.nfall == 1, None),
+    ]
+
+
 def _split_checks(res, t):
     """SPEC.md 128.24.11's `bonanzacourse` items on THE SPLIT COURSE (stories D1.1 - D1.4): the refusals, the
     normalisation, items 3 - 6 on halves, the reader's refusals of a bad pair, the stored form with D, the
@@ -18655,8 +19441,8 @@ def _split_checks(res, t):
              "are cell"),
             ("a split VOID-VOID", _vv, "all VOID"),
             ("a SAFE split cell", lambda b: b.__setitem__(co + i0 + 3, b[co + i0 + 3] | FL_SAFE), "flags"),
-            ("the reserved kind 7 (a channel)", lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7),
-             "kind 7"),
+            ("a kind 7 (FIELD) cell with no section F (SPEC.md 128.27.2)",
+             lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7), "FIELD cell's shape"),
             ("GF_SPLIT clear", lambda b: b.__setitem__(c.part["gridoff"] + 28, b[c.part["gridoff"] + 28] & ~GF_SPLIT),
              "GF_SPLIT"))
     for what, f_, want in bads:
@@ -18802,6 +19588,10 @@ def _course_items(c, k, res, t):
                             okp = False
             continue
         tl = ent
+        if isinstance(tl, FieldTile):               # SPEC.md 128.27.2: its heights, all 17 x 17, the tile's
+            if cl[3] != KIND_FIELD or cl[6] != tl.h or cl[4] & FL_SAFE:
+                okp = False
+            continue
         zt, zr, zb, zl = (4 * v for v in tl.corners())
         if zb != zr + zl - zt:
             okp = False
@@ -19222,6 +20012,7 @@ def selfcheck(paths=None):
         _course_items(c, k, res, t)
     split = _split_checks(res, t)                   # SPEC.md 128.24.11: THE SPLIT COURSE (stories D1 - D2)
     _split_physics(res)                             # ...and the model's runs on its halves (story D2)
+    _field_checks(res)                              # SPEC.md 128.27: the FIELD courses (stories C1 - C2)
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()
