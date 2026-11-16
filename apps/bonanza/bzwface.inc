@@ -30,8 +30,7 @@ bzw_pics:
 %endif
 BZW_TTOP_S  equ 4               ; the title's top line, SHORT / TALL
 BZW_TTOP_T  equ 8
-BZW_LBOT_S  equ 1               ; the ledge's bottom margin
-BZW_LBOT_T  equ 2
+; (the ledge's bottom margin, BZW_LBOT_S / _T, is bzshell.inc's: the button sits by it)
 
 ; bz_wface - the whole content box, at a paint (the clip the kernel's).
 ; Preserves nothing.

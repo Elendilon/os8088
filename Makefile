@@ -22043,6 +22043,8 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
+BZ_FAMS := probe
+BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
            $(BZ_ART)/BZTDEMO.BIN
@@ -22118,7 +22120,7 @@ bonanza-music-check:
 	python3 tools/bbmusic.py --selfcheck
 
 $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzwheel.inc apps/bonanza/bzphys.inc \
-                      apps/bonanza/bzsound.inc drivers/sound/sndpkg.inc \
+                      apps/bonanza/bzsound.inc apps/bonanza/bzfam.inc apps/bonanza/bzballgen.inc drivers/sound/sndpkg.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
@@ -22131,7 +22133,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
 BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
-            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
+            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_FAMPARTS)
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -22147,6 +22149,12 @@ $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 	python3 tools/bzwinart.py -o $(BZ_ART)
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
                       apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
+# wave 9 (SPEC.md 128.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row IN ID ORDER (row
+# BZ_P_FAM + ID - 1; bzcourse.inc's BZ_FAM_PARTS has a row a family, so a family added there and not
+# here leaves the --part list a row short, which os88pkg refuses), each apps/bonanza/fam/<name>.asm
+# LINKED against the package as the shell part is (bzlink.inc: its bss and constants, never a code label)
+$(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) --part-compress $(BZPARTZF)

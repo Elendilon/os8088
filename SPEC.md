@@ -50878,6 +50878,7 @@ are the packer's. Flags are §20.12.4's, and a part with no file bytes has
 | `OP_COMP` | the part is COMPRESSED on the disk and expanded into the carve at load (§20.12.7) |
 | `OP_ZFILL` | on an eager `OP_COMP` row: two streams and the zeros round them FILLED, not shipped or decoded (§20.12.7.5) |
 | `OP_SELF` | on an `OP_LAZY` row only, and **never in the file**: the package reads this part for itself, so the standard carries no fetch code for it (§20.12.9.1) |
+| `OP_ARENA` | on an `OP_LAZY` row the standard fetches: the part goes into the package's ONE arena claim instead of a claim of its own (§20.12.15) |
 
 **Every one of them is package code.** `OP_XMS` is `OSAPI_XMEM_ALLOC` with a
 fallback; `OP_LAZY` is a row `op_size` steps over; `OP_OPT` is a claim the stub
@@ -52476,6 +52477,97 @@ row pays its shift — `pxstein` 3,143 → 3,149, RealDMG 37,822 → 37,824 — 
 XTMP3 its conversion back to KB, 45,168 → 45,179. WireFleet, at
 `APP_MAX_SIZE` with 3 bytes of slack, is byte-for-byte the size it was. No
 kernel byte.
+
+##### 20.12.15 `OP_ARENA` — one claim for a package's SMALL lazy parts
+
+**A fetched lazy part is a claim of its own** (§20.12.4), and `MEM_OWNER_MAX`
+is 8 claims an owner word (§50): a package whose play holds a course, three
+balls, a sound part, a song and a fanfare is at seven before it has fetched
+anything else (BONANZA, §128.25.4). The arena is the standard's answer, and
+it is ARTFUL's undo arena (§46.6.3) written once: ONE claim, its parts at
+offsets inside it, grown with `MEMP_REGROW` as they arrive and shrunk as they
+go, so a package's small parts cost it one claim however many there are.
+
+**Opt-in, twice.** `%define OP_WANT_ARENA` before `os88parts.inc` gives the
+standard four bss words (`op_arena` the claim, `op_arsz` its paragraphs,
+`op_artop` the paragraph past its highest part, `op_arres` the floor a
+reservation set; `OP_BSS` grows by 8), and a row marked **`OP_ARENA` (bit 7,
+128)** is fetched into it. Only a LAZY row the standard fetches may carry the
+flag - an eager part is in the carve and an `OP_SELF` one is read by the
+package - and `OS88_PART` refuses it otherwise, or without the define;
+`os88pkg.py` refuses it off a lazy row. The code is gated on the ROWS
+(`OP_HAS_ARENA`, §20.12.9), so **a package that marks none assembles byte for
+byte as before**, the define or not.
+
+| verb | what it does |
+|---|---|
+| `op_fetch` on an `OP_ARENA` row | the row's claim is not made: `op_lazyp`'s figure (the read and the expand's room, §20.12.7.4) is asked of the arena past `op_artop`, which is regrown to take it when it does not - to the next `OP_ARQUANT` step (default 64 paragraphs, a power of two), and refused, to the exact need once more (ARTFUL's `at_agrow` rule). The slot is then "the claim" every later step reads - a segment on a real-mode kernel, an `op_at` window on kern_mega - so the read, the in-place expand onto the slot's base, a plain row's move down and every refusal run as they did. The part banks its SEGMENT: the arena plus `op_artop` on a real-mode kernel, and on kern_mega `OSAPI_SEG`'s `SEG_SUB` (`SEG_SUBC`'s pair for an `OP_SEG` row, so `op_cseg`'s code half is `DX - 8` as for any claim) reaching the part's own paragraphs. `op_artop` advances by `paras(len)` and the arena is FITTED (below) |
+| `op_drop` on an `OP_ARENA` row | the row is cleared as any lazy row is (`OP_FETCHED`, the shadow, §20.12.7.4.1); nothing is freed. Any reservation ends, `op_artop` is found again as the highest end of a part still fetched - each one's base through `SEG_REAL`, so the walk is the same arithmetic on every kernel - and the arena is fitted. **A hole stays** until the parts above it go: dropping in reverse order leaves none, and any order ends with the arena freed |
+| `op_areserve AX` | grows the arena AHEAD, to `op_artop + AX` exactly, and makes that its floor until the next drop, so a package that knows what it is about to fetch regrows once (the owner: the program batches). `AX` = 0 fits the arena to its parts, which is how a batch gives back its last fetch's room. CF = 1 refused and nothing changed: each fetch then grows it for itself |
+| `op_arquery` | `AX` = the arena's paragraphs, `BX` = `op_artop`; both 0 with no arena. Opt-in, `%define OP_WANT_ARQUERY` (a call no row sees, `OP_WANT_CSEG`'s reason) |
+
+**Fitted** means regrown down to `op_artop` rounded up to the next step,
+never under the floor - a shrink, which always succeeds in place (§50.3.1) -
+and **FREED** when that is nothing. So between batches an arena holds its
+parts and at most a step past them, and a package that has dropped every
+arena part has no arena.
+
+**Moves.** A regrow extends in place when it can and MOVES the block when it
+must, the kernel carrying the bytes. On a real-mode kernel the claim's base
+changes, and the standard adds the distance to every fetched arena row's
+banked word (`op_arshift`) the moment the regrow answers - the PART segments,
+which is what `op_seg` reads. On kern_mega the regrow answers the same
+selector and `mem_mpmove` rebases every SUB based in the old block (§50.6.11),
+so the distance is 0 and nothing is shifted; the shrink's `mega_mpgap` frees
+the SUBs of a slot the arena gave back. **A package that copies an arena
+part's segment into a variable of its own** re-reads it from `op_seg` after a
+batch of fetches (a drop and a fit never move the arena), or names it to its
+`OP_ONMOVE` hook.
+
+**Movable, when the package says so.** The arena is born PINNED like every
+claim (§66.2). A package that defines `OP_ONMOVE` (§20.12.12) has it declared
+movable at its claim with the standard's proc `op_armv`, which stores the new
+base, shifts every banked word and jumps to the package's hook with `BX`/`DX`
+intact; the arena is pinned across each fetch into it (a read lands through a
+sum or a window aimed at it) and declared again after. `op_movable` refuses an
+arena row - it has no claim of its own. On kern_mega no proc is called at all:
+its compactor tells nobody, every holder holding a selector it rebases.
+
+**kern_mega.** The arena is claimed `MEMP_CONV` - conventional on every
+kernel, as a code part a far call enters must be (§50.2.1) - so its slots are
+reached through `SEG_SUB`/`SEG_SUBC` exactly as the carve's are (`op_sub`). No
+`PKG_MEGA` arm: the selector path is the standard's own, assembled for every
+kernel. Each slot's SUB is asked with the part's own reach, so the same slot
+asked again answers the same selector, and the arena's free or a shrink past
+it takes it (`mega_mpfreef`, `mega_mpgap`).
+
+**What it does not do.** It is not a heap: a part is placed at the TOP and a
+hole is not reused, which is exactly right for a package that fetches a batch
+and drops it (a play), and wrong for one that fetches and drops at random -
+that package keeps a claim a part. `op_lazyok` answers an arena row as it
+answers any (a claim of `op_lazyp`), which is the conservative question. The
+claim is made without §20.12.4's ask-then-claim, as every regrow is: a refused
+step may shed a purgeable cache before the exact need is tried.
+
+**The harness's knob.** `%define OP_ARFORCE <byte>` names a package byte a
+row pokes: while it is non-zero `op_areserve` reserves nothing and the arena
+is claimed from the CEILING (`MEMP_CLAIM_HI`), under the claims stacked
+there, so the batch's next growth cannot extend it in place and MOVES it -
+the move the shifting above exists for, made on demand (BONANZA's
+`bz_arforce`, §128.25.13). Without the define it is not assembled.
+
+**What it costs** (MEASURED, BONANZA, the one table with `OP_ARENA` rows):
+**407 bytes** of the standard - `op_fetch` +99 (357 -> 456), `op_drop` +11
+(72 -> 83) and the arena's own routines 297 (`op_areserve`, `op_argrow`,
+`op_arset`, `op_arshift`, `op_unclaim`/`op_arback`/`op_arfit`, `op_ardrop`,
+`op_arreal`, `op_lenp`; `op_arquery` 8 more with `OP_WANT_ARQUERY`, the
+`OP_ONMOVE` arms not assembled) - and **8 bytes** of bss; BONANZA's own half
+is 97 more (§128.25.4). **Every other package is byte for byte what it
+was**: a full `make` and `make bonanza` with the standard changed and no row
+marked, 278 artefacts compared against the base tree, identical. No kernel
+byte and no ABI: the flag is in the package's own table (`os88pkg.py`
+accepts bit 7 on a lazy row and refuses it elsewhere; `os88parts.py`
+mirrors it).
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
@@ -258396,9 +258488,11 @@ stunned, TAKE OFF as 128.10.7.3's take-off - airborne, `ztop = z`,
 | +336 | the ROLL frames: 64 x 16 rows x 5 bytes, frame `f` at shift `f & 3`, as `BZB1` |
 | +5,456 | the SQUASH frames: 2 x 4 shifts x 2 line parities x (mask 80 + frame 80) |
 | +8,016 | the SHADOW masks: 2 line parities x 4 shifts x 6 rows x 5 bytes (AND only) |
-| +8,256 | the SHATTER frames (glass): 4 x 4 shifts x 2 parities x (mask 80 + frame 80) |
+| +8,256 | the SHATTER frames (glass): 4 x 4 shifts x 2 parities x (mask 80 + frame 80); or rubber's STRETCH entry (+14 = 1, 128.16.4.4): 1 x 4 shifts x 2 parities x (mask 80 + frame 80), 1,280 bytes |
 
-Rubber and steel: **8,256 bytes**; glass: **13,376**. Every pixel is
+*(Wave 9 corrects this table: +14 is the stretch count, 1 for rubber, and rubber's stretch entry above was missing.)*
+Steel: **8,256 bytes**; rubber: **9,536**; glass: **13,376**.  The part on the DISK is
+`BZB3`, the stored form the guest expands to this one (128.25.5). Every pixel is
 generated by `tools/bonanza_assets.py` from the CGA's four colours; the part
 on the disk is the CGA's, and the Hercules one is made at the fetch
 (128.11.3). The two parity copies of a squash or shatter frame are the same
@@ -265596,7 +265690,7 @@ the course parts byte for byte as they were). Binding where it settles what
    on the desktop. **Falls** on the scorecard and on line 6 are `bz_nfall`:
    every respawn but a RETURN (a pit, a shatter, an OPEN cell), shown and
    filed to 9,999.
-2. **The face.** MAIN is thirteen builders in a table (`bz_ftab`), so a key
+2. **The face.** MAIN is thirteen builders in a table (`bz_frec`), so a key
    redraws exactly its lines (`bz_redraw`): `C` and `M` line 3, `S` line 4,
    `N` lines 1 and 3, Esc stopping a tour lines 1, 3, 5 and 12. RESULTS is
    drawn whole. A key on RESULTS clears `bz_page` and sets `bz_pgo`; every
@@ -270051,7 +270145,7 @@ build, unless marked):*
   (128.14.3.2, amended in place): a fourteenth line does not fit - the
   window sits above the dock, so the CGA's content holds thirteen, and the
   look boot showed a fourteenth clipped - and the title is the title bar's
-  already. `bz_ftab` begins with `bz_ltour`; `BZ_LTOUR` 0 names the line in
+  already. `bz_frec` begins with `bz_ltour`; `BZ_LTOUR` 0 names the line in
   the redraw lists; the build asserts `BZ_NLINE = 7 + BZ_NTOUR`. **+60 bytes
   of image** against the same source at six courses (the course tables'
   row 38 - a title is 25 bytes - the two part rows 20, the face 0, the save's
@@ -274601,7 +274695,9 @@ cluster less a PARAGRAPH since parts are paragraph-aligned - 2,542 bytes
 past `len` at most with the 1 KB clusters of a shipped floppy; SPEC.md
 20.12.2, 20.12.7.4. A hard disk's larger clusters can need more): 5,985
 today, PEAK's (op_lazyp's exact claims at today's offsets on a 1 KB-cluster
-disk: 5,440); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
+disk: 5,440) - **since wave 9 (128.25.4.2) the course's OWN claim alone**,
+3,104 today, beside **`BZ_CRS_ARMAX`** (2,272) and **`BZ_CRS_ARENA`** (a word a
+course): the small parts are one arena claim; **`BZ_CRS_NEXITS`**, a byte a course, its distinct
 exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
 `BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
 `BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. The 8b
@@ -275099,17 +275195,19 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   course's clock stood by its start); the clocks added are listed in the
   8R.1 report and the courses' files. A shipped demo recorded on its course
   as it was BEFORE the finish clocks (its identity that one, listed in the
-  tool's `CLOCK_RESTAMP`: MOON 5E25h, PEAK 0562h, PLAY 9D5Eh) whose replay
+  tool's `CLOCK_RESTAMP`: PEAK 0562h - MOON's 5E25h and PLAY's 9D5Eh left
+  it when wave D5 wrote their demos again on their diagonal courses,
+  128.24.9) whose replay
   never meets a clock ships with the BUILD's identity re-stamped (the build
   prints it), never re-recorded - when BOTH hold (`clock_restamp`): the
   course's source with its trailing `clock` statement(s) left out IS that
-  course (its no-occluder identity the tool's `CLOCK_BARE`: MOON EA00h,
-  PEAK 6814h, PLAY D8A8h - so a course edited any other way is never
+  course (its no-occluder identity the tool's `CLOCK_BARE`: PEAK 6814h
+  - so a course edited any other way is never
   re-stamped, however its demo replays), and the ball's state every step
   and the events' kinds and steps are the same on it and on the course with
   its finish clocks. Any other identity is still an earlier build's demo,
   refused (`--selfcheck` item 9; the re-stamp's two red controls: a clock on
-  MOON's route, and MOON with a `way` added).
+  PEAK's route, and PEAK with a `way` added - MOON's until wave D5).
 - **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
@@ -275173,7 +275271,12 @@ pathway where the course then cannot be had). The tool runs before the
 parts are packed, so its figure is a bound per claim of `len + 512 + 2
 clusters` (at most 2,560 bytes over the length on the shipped disks).
 `BZ_PATH_CLAIM` is not used: the comparison is made with the pathway's claim
-held, which is what `MEMP_AVAIL` then answers.
+held, which is what `MEMP_AVAIL` then answers. **Wave 9 (128.25.4.2)
+replaced the sum**: it omitted the victory fanfare's claim, and the play's
+small parts are one ARENA claim now, so `bz_phrel` holds the pathway when the
+largest run takes `BZ_CRS_MAXCLAIM` (the course's own claim) plus
+`BZ_CRS_ARMAX` (the largest arena a pad's course reserves) - 5,376 paragraphs
+today against the sum's 5,993.
 
 #### 128.22.8 The art (BUILT - generators, files and previews; not yet seen in the guest. PROVISIONAL: the owner's to refine)
 
@@ -275668,7 +275771,7 @@ the sketch, and the built course is a different shape):
   desktop with the claims as before the bracket. Red arm `--red view` (the
   fixed camera ignored) red at the window check.
 
-### 128.24 Diagonal tiles (PLANNED)
+### 128.24 Diagonal tiles (D1 - D5 BUILT; the owner's play, D5.4, open)
 
 The owner, 2026-11-16: *"The ability to do diagonal tiles; the straight path
 up having to add full tiles makes that apparent, and we've been hitting it on
@@ -275681,8 +275784,9 @@ grid, and with whole cells it is a zigzag: a route straight up the pathway is
 laid as a FAT staircase three cells a step (`bbcourse._route_lay`), and a
 course edge, a wall or a rail can follow only the two grid axes.
 
-**This section is a CONTRACT, nothing of it is built.** It is written for the
-owner and the lead to decide on (128.24.12) before a line of it is coded; the
+**This section is a CONTRACT, built wave by wave** (the paragraph "Built so
+far" below says which). It was written for the
+owner and the lead to decide on (128.24.12) before a line of it was coded; the
 stories are [docs/plans/BOUNCE-BONANZA-DIAGONAL.md](docs/plans/BOUNCE-BONANZA-DIAGONAL.md).
 Every figure here is PREDICTED unless it says MEASURED. The mock-ups the owner
 was shown were drawn by a throwaway host prototype (outside the tree) that
@@ -275696,6 +275800,36 @@ section of the part, so every rule that reads a cell (the floor, a wall, a
 landing, the goal and its exit, a bumper's restitution) reads a half
 unchanged; physics adds a half PICK and a WALL ALONG A DIAGONAL, whose
 45-degree rebound needs no square root.
+
+**Built so far** (the stories of the plan, each with its figures): **D1,
+the tool - BUILT** (`tools/bbcourse.py`: `Split`, `half`, `quarter` and
+`box`, section `D`, `GF_SPLIT`, the CELLS rule by pieces, the picture and
+the front pieces' key; `bzcourse.inc`'s `BZ_KTB`, `BZ_KLR`, `BZ_KQ`,
+`BZ_KCHANNEL` (reserved), `BZ_GF_SPLIT`, `BZ_PAIR`, `BZ_QUAD`; `--selfcheck`
+compiles THE SPLIT COURSE, a string in the tool, and runs items 2 - 6 and
+10 on it; `--png split:` draws it and the owner's mock-up scenes from text,
+`--sizes split:` prices it). **D2, the model - BUILT** (`bbcourse.Physics`:
+the pick, the lines inside a cell, the edges by their owning record, the
+corner's rays, a quartered cell's centre; `BZ_PHYSV` B1h; the reach tools
+per record; THE RAIL COURSE's scripted runs). **R4's QUARTERS** (the
+owner's Q3) are in both. **D3, the guest - BUILT** (`bzphys.inc`: the
+window's records `bz_nbh`, the split path entered at step 4 with a step 5
+of its own, the pick, the lines, the rays and the corner, the floor, the
+goal and step 2's slopes by the picked record; `bonanza.asm`: the CELLS
+rules by records and a hostile part's offsets bounded; the guest equals the
+model step for step under unicorn, `tests/bonanza_dsplit.py`; priced in
+128.24.7.6 and 128.24.10), and the tool's refusal of a split cell in a
+`BZ_COURSES` file (`GUEST_SPLIT`) is gone. **D5, the first courses - BUILT**
+(128.24.14): PLAYGROUND's DIAGONAL SECTION (a lane straight down the screen
+between straight rails, a ramp, a diagonal step with its front face, a
+chamfered platform with straight 45-degree edges) and MOON's COAST as
+`box`es, both demos written again, looked at on MartyPC's CGA and Hercules
+and their frames priced on the glass against the same geometry in whole
+cells. Before D5 no shipped course used a split cell and every shipped
+part was byte for byte what it was (identities unchanged). Where
+building found this contract wrong it says so at the place ("BUILT ... a
+finding"): no clamp in 128.24.7.2, the radial corner never on a straight
+wall's face in 128.24.7.4.
 
 The owner's ruling of 2026-11-16 (*"nothing has been released yet, nothing
 needs to stay compatible with any old format"*) frees this design from
@@ -275763,35 +275897,83 @@ cells of row `s - 1`, and the same holds across it. A band one diamond wide,
 `a1 - a0 = 2`, is 32 px on the screen, `32 / sqrt 2` = **22.6 gu** across
 the ground: a ball's centre has 22.6 gu to roam, 10.6 between two rails.
 
-**A quarter is refused.** Where a vertical and a horizontal edge of a shape
-meet inside one cell they would cut it in QUARTERS, which no split holds.
-For a screen rectangle that happens exactly when a corner's `a` and `s`
-differ in parity, so a `box` whose four lines are all even or all odd never
-quarters a cell; a box an ODD number of 16-px columns wide always quarters
-one cell at each end, and its ends are finished with `half` (128.24.4).
+**QUARTERS (R4, the owner's Q3: "Visually, 3 is obviously right; that
+gives us the most tools, and lets us build 'rounded' looking platforms").**
+A cell may be cut along BOTH diagonals into four triangles meeting at its
+centre `c` `(8, 8)`, a **QUARTERED** cell (kind 6), each quarter a record of
+its own and named by the ONE cell edge it owns:
+
+| quarter | its triangle | the tests (`u >= v`, `u + v >= 16`) | owns |
+|---|---|---|---|
+| **N** | T, R, c | yes, no | the north edge (T - R) |
+| **E** | R, B, c | yes, yes | the east edge (R - B) |
+| **S** | B, L, c | no, yes | the south edge (L - B) |
+| **W** | L, T, c | no, no | the west edge (T - L) |
+
+A halved cell is a quartered one whose quarters pair up (a TB split is S =
+W and N = E, an LR split N = W and E = S), and the tool stores the
+SIMPLEST form (128.24.4's normalisation). Where a vertical and a horizontal
+edge of a shape meet inside one cell - a screen rectangle's corner whose `a`
+and `s` differ in parity - the cell holds the one quarter inside the shape.
+That corner is the cell's CENTRE `c`, and the quarter is exactly the box's
+corner region, so **the box keeps its square corner**: it is not cut. (D2's
+verify, a finding: this paragraph first called it "a 45-degree CHAMFER, the
+'rounded' platform of the owner's panel 3", and it is not one - panel 3's
+look is the quarter DROPPED or a half laid, whose outer sides are cell edges.
+A rounded or cut corner is authored piece by piece, with `quarter`, `half`
+and `hole quarter` - or, for a whole box, with `chamfer`: 128.24.4.) A box
+whose four numbers are all even or all odd has no quartered cell.
+
+**A CHAMFERED box** (BUILT, the lead's story after D2's verify: panel 3's
+look, "lets us build 'rounded' looking platforms"): each corner is CUT along
+a line of CELL EDGES - `wx = c` (`a + s = 2 c`) at the top-left and
+bottom-right corners, `wy = c` (`s - a = 2 c`) at the top-right and
+bottom-left - so the cut runs at the iso angle and the platform reads as an
+octagon. No cell is ever cut by it: whole cells and the box's pieces beyond
+the line are dropped, nothing new is laid, so it needs no record, kind or
+model change (a halved or quartered cell left by the box is the box's own).
+`chamfer 1` drops the corner's own piece - at a corner whose `a` and `s`
+differ in parity its QUARTER (exactly panel 3's red outline: a notch 16 px
+along the top, 8 lines down the side), at a corner whose do not the two
+HALVES that meet there - and each `N` more cuts one cell deeper.
 
 #### 128.24.4 The text course
 
-Two additions to 128.10.3's grammar:
+Three additions to 128.10.3's grammar:
 
-    <style>  [half <side>] <shape> <height>       a ROOM, or the given HALF of each of its cells
-    hole     [half <side>] <shape>
+    <style>  [half <side> | quarter <edge>] <shape> <height>   a ROOM, or the given piece of each of its cells
+    hole     [half <side> | quarter <edge>] <shape>
     <side>   ::= up | down | left | right          left / right: a TB split; up / down: an LR split
-    <shape>  ::= ... | box <a0> <a1> <s0> <s1>     the screen rectangle 16 a0 <= gx - gy <= 16 a1,
+    <edge>   ::= n | e | s | w                      the quarter that owns that cell edge (128.24.3)
+    <shape>  ::= ... | box <a0> <a1> <s0> <s1> [chamfer [<N>]]   the screen rectangle 16 a0 <= gx - gy <= 16 a1,
                                                   16 s0 <= gx + gy <= 16 s1 (a0 < a1, s0 < s1)
 
 - **`box`** lays the ground between the four lines: whole cells inside,
-  halves along the sides, by 128.24.3. A cell it would quarter is refused,
-  naming the cell and which corner to move. `band` and `rect` keep their
-  meanings; `box a0 a1 s0 s1` with every half dropped is today's zigzag
+  halves along the sides, and at a corner whose `a` and `s` differ in
+  parity the one QUARTER inside (128.24.3). `band` and `rect` keep their
+  meanings; `box a0 a1 s0 s1` with every piece dropped is today's zigzag
   `band a0+1 a1-1 s0 s1-1`.
-- **`half <side>`** applies the room (or the hole) to that half only of
-  every cell of the shape. Without it a room lays both halves, as today.
-  `half` on a `box` is refused (the box already decides its halves).
-- **Later statements override per half**, as rooms override per cell today;
-  a cell whose two halves end up the same (style, plane, surface) is stored
-  WHOLE, so a split that changes nothing costs nothing. A cell split one way
-  by one room and the other way by a later one is refused (a quarter).
+- **`box a0 a1 s0 s1 chamfer [N]`** (`N` 1 if left out, 1 - 16) cuts its
+  four corners (128.24.3) along cell edges: the top-left drops `wx <
+  floor((a0 + s0) / 2) + N`, the top-right `wy < floor((s0 - a1) / 2) + N`,
+  the bottom-left `wy >= ceil((s1 - a0) / 2) - N`, the bottom-right `wx >=
+  ceil((a1 + s1) / 2) - N`. Without the clause the corners are SQUARE, as
+  before. Two cuts that would overlap on one side are refused, and so is a
+  chamfer of 0 (`--selfcheck`'s cases; `--png split:` draws square, chamfer
+  1 and chamfer 2 side by side, `chamfer0` - `chamfer2`). It is a property of
+  the box, so it works wherever a box does (`floor`, `wall`, `goal`, `hole`,
+  `surface`).
+- **`half <side>`** and **`quarter <edge>`** apply the room (or the hole) to
+  that piece only of every cell of the shape. Without them a room lays the
+  whole cell, as today. Either on a `box` is refused (the box already decides
+  its pieces).
+- **Later statements override per piece**, as rooms override per cell today:
+  the tool holds a cell laid by pieces as its four quarters and, once every
+  statement is in, NORMALISES it - four the same (style, plane, surface,
+  exit) is a WHOLE cell (or none, four VOID), N = E and S = W a TB split,
+  N = W and E = S an LR split, anything else stays QUARTERED. So a split
+  that changes nothing costs nothing, and a cell split one way by one room
+  and the other way by a later one is quartered (not refused: R4).
 - The heights are the room's height spec, evaluated at the cell, exactly as
   a whole tile's (`_room_tile`): a half is a plane, its ramp rules 128.10.3's,
   so a straight band can climb (`ramp s`).
@@ -275802,9 +275984,14 @@ Two additions to 128.10.3's grammar:
 - **A split cell has one SURFACE** for its floors: two FLOOR or GOAL halves
   of different surfaces are refused; a WALL half takes normal or bounce, as a
   whole wall does (128.11.6.1).
-- **A wall is above its floors**, the rule of 128.10.3, now across the
-  diagonal too: a WALL half's top is above the other half's floor along the
-  whole diagonal.
+- **A wall is above its floors**, the rule of 128.10.3, now across every
+  line inside a split cell too: a WALL half's (or quarter's) top is above the
+  floor beside it at both ends of the line they share (a quarter's lines end
+  at the centre, where a plane's height is `z0 + (sx + sy) / 2`).
+- **`surface` takes a `box` too** (BUILT, D1): it sets the surface of the
+  half each box cell lays and no other, so a box whose edge halves are
+  floors beside a floor of another surface is the two-surfaces refusal
+  above. `surface` has no `half` clause; a `hole half` makes a VOID half.
 
 **A worked example**, a route straight up the screen with rails and a step
 (the mock-up `diag-wall`):
@@ -275812,14 +275999,15 @@ Two additions to 128.10.3's grammar:
     floor box -1 1 15 31 flat 0          # the lane: 32 px wide, straight sides
     floor box -1 1 15 21 flat 1          # its far end one unit up: the step is the LR split of row 20
     wall  box -2 -1 15 31 flat 3         # the left rail, 16 px - an odd width, so ...
-    wall  box  1  2 15 31 flat 3         # ... each rail's two end cells are quartered: REFUSED
+    wall  box  1  2 15 31 flat 3         # ... two of each rail's end cells are quartered (R4)
     goal  tile 12 12 flat 0              # one whole goal tile spans the 32 px lane (128.24.8)
 
-The rails as written are refused (a 16 px box quarters its end cells); they
-are written instead as `wall box -3 -1 ...` and `wall box 1 3 ...` (32 px
-rails, `a` and `s` all odd), or the 16 px rails finished at their ends with a
-`wall half` or a `hole half`. The mock-up dropped the quartered cells to show
-the 16 px rail.
+The 16 px rails as written quarter two of their end cells: the one quarter
+inside the box, which ends the rail SQUARE all the same (128.24.3: the
+corner is the quartered cell's centre). 32 px rails (`wall box -3 -1 ...`,
+`a` and `s` all odd) need no quarter. (Before R4 the quarter was refused and
+this paragraph said so; after R4 it called the end a chamfer, which it is
+not - D2's verify.)
 
 #### 128.24.5 The grid
 
@@ -275827,19 +276015,23 @@ the 16 px rail.
 
 | byte | a split cell |
 |---|---|
-| +0, +1 | the WORD offset of its PAIR in the part (absolute, as a map word is: 128.10.4.2) |
-| +2 | low nibble the kind: **4 TB, 5 LR**; high nibble the cell's SURFACE: its floor halves' (128.24.4), 0 if it has none. 6 - 15 stay RESERVED for 128.10.4.3's non-planar floors |
+| +0, +1 | the WORD offset of its RECORDS in the part (absolute, as a map word is: 128.10.4.2) |
+| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 RESERVED for a CHANNEL** (128.24.13), 8 - 15 for 128.10.4.3's other non-planar floors |
 | +3 | the flags: SAFE never; OCC and OCCG as derived for a ball anywhere in the cell (128.10.4.4); OBS never; bits 4 - 7 zero |
 
 ##### 128.24.5.2 The pair and section `D`
 
-A pair is two cell records, **half A then half B** (left then right for TB,
-up then down for LR), each exactly 128.10.4.3's four bytes with these limits:
+A split cell's records are **two for a halved cell, half A then half B**
+(left then right for TB, up then down for LR), **four for a quartered one,
+N, E, S, W** - each exactly 128.10.4.3's four bytes with these limits:
 the kind 0 - 3 (a half is never split); a VOID half's `z0` its KILL height,
-computed by the NEAR rule (128.24.5.3) at its cell; SAFE, OCC, OCCG and OBS
+computed by the NEAR rule (128.24.5.3) at its cell, its slopes and surface
+0; SAFE, OCC, OCCG and OBS
 clear; a GOAL half's exit in bits 4 - 7 as a goal cell's (128.19.4); the
 surface its own (a bounce WALL half is a bumper rail). The two halves differ
-(else the cell is whole) and at least one is not VOID.
+(else the cell is whole), a quartered cell's four do not pair up as a
+halved cell's (else it is halved), and at least one is not VOID. (The text
+says "pair" for a halved cell's records; a quartered cell's are a quad.)
 
 The pairs are a new section of the part, **tag `D`, form 0 PLAIN, placed
 after `C` and before `T`** in RAM order (128.15.4.2's table), present if and
@@ -275851,26 +276043,47 @@ are in place after the fetch, so the CELLS expander (before it in directory
 order) may read them; directory order is still the order the forms
 DEPEND on (128.15.4.5), and a PLAIN section depends on nothing.
 
-`read_part` adds: every split cell's offset is a pair inside `D` and every
-pair is named by exactly one cell; `D`'s length is 8 per split cell;
-`GF_SPLIT` set exactly when `D` is present; the halves' limits above;
-kinds 6 - 15 refused, as today.
+`read_part` adds: every split cell's offset names its 2 or 4 records inside
+`D` (4-byte aligned) and every record of `D` is named by exactly one cell;
+`D`'s length is 8 a halved cell and 16 a quartered one; `GF_SPLIT` set
+exactly when `D` is present; the records' limits above; kinds 7 - 15
+refused, as today. BUILT (D1): `tools/bbcourse.py` `read_part`.
 
 ##### 128.24.5.3 The rules the stored form derives (CELLS)
 
 - **NEAR** (`rule_z0`): the lowest corner is taken over every non-VOID
-  RECORD within two tiles - a whole cell, or a half - each by its own plane's
+  RECORD within two tiles - a whole cell, a half or a quarter - each by its own plane's
   four corners, `z0 + min(0, sx) + min(0, sy)`, as today. A split cell's own
   bytes +0 - +1 are an offset, so the rule never applies to it (only kind 0
   takes `rule_z0`), and a VOID half's `z0` is stored PLAIN in `D`.
 - **SAFE** (`rule_safe`): a FLOOR whole cell, flat, OBS clear, with **no VOID
-  across its four edges**: a split neighbour counts by the half that owns the
-  shared edge. A split cell's `rule_safe` is 0.
+  across its four edges**: a split neighbour counts by the record that owns
+  the shared edge (the owning half, or the quarter named for that edge). A
+  split cell's `rule_safe` is 0.
 - The guest's `bz_cxcel` and `bz_cxsafe` read a split cell's pair through
   its offset (PLAIN, already in place); both are launch-only. `--selfcheck`
   item 10's `expand == RAM` and `bonanzaexit`'s claim leg hold them to the
   tool (a guest rule that ignores halves gives a different grid on a split
-  course).
+  course). BUILT (D3): `bz_cxcel`'s V of a split cell is the least of its
+  non-VOID records' (FFh none), `bz_cxsafe` reads an edge neighbour that is
+  split by its record that owns the shared edge (`BZ_SPLIT_WIN`, below);
+  the package's own `bz_cexp` under unicorn turns the stored form of four
+  split courses (SPLIT, RAIL, NOTCH, STEPS) into the tool's RAM form byte
+  for byte (`tests/bonanza_dsplit.py`; red arm `cellhalves`, a split
+  neighbour read whole).
+- **A part is HOSTILE** (D3, the verify of D2): a split cell's +0 - +1 is an
+  offset in the part the guest reads through, so `bz_cexp` bounds it first -
+  `bz_dfind` takes sections C and D off the directory, `bz_drec` accepts an
+  offset only inside D, on D's 4-byte grid, with its 2 or 4 records inside
+  D's length (a kind 7 - 15 never), and `bz_dval`, after the walk, makes
+  every cell it refuses OPEN (z0 -128, VOID) and every record of D a kind
+  0 - 3 (above: VOID), so the step's window and `bz_blocks` read only D and
+  only 128.24.5.2's kinds (kern_mega: nothing past the selector's limit).
+  The directory's own entries are trusted as the walk already trusts them.
+  A part the tool built has neither (`read_part`); the unicorn check's
+  HOSTILE part (an offset past the part, one off D's grid, a record of a
+  split's kind) reads and writes nothing outside the part, red arm
+  `nobound`.
 
 #### 128.24.6 The picture
 
@@ -275901,26 +276114,49 @@ kinds 6 - 15 refused, as today.
   its ends. Where its two sides differ (a height, a style, a void), the
   diagonal is drawn as a **1 px line** on the higher (or solid) side, in
   the outline ink of that half's pattern (black on today's tiles): the only
-  cue a straight-up rail stands above the lane.
+  cue a straight-up rail stands above the lane. BUILT (D1): the line is the
+  half's own column next to the diagonal on every line of its top; "higher"
+  is the larger sum of the plane's heights at T and B, then WALL over GOAL
+  over FLOOR, and a full tie (two planes that cross) draws it on B. The
+  front face follows the half's material as built: a crystal rail half's
+  takes the crystal's side ink as its `se` face does; every other half's is
+  the dotted magenta.
 - **What an ink costs.** The picture is the TOOL's: the guest blits pre-cut
   blocks and never chooses an ink. So a face's ink, and any per-tile
   override of it (a clause in the course text, if one is ever wanted), costs
   **no bit in the grid or the half record and no guest byte** - only the
   picture blocks a new ink pattern adds, a few per ink, in that course's
   part.
+- **A quartered cell** (R4) draws the same way, piece by piece: each quarter
+  its triangle (an S or E quarter's top draws no outline along its inner
+  line when the quarter behind that line, W or N, is the SAME record: no
+  edge is there - D2's verify; a box's odd corner on a flat field had shown
+  a 16 px black stub) (the centre's height `4 z0 + 2 (sx + sy)` px); S hangs `sw`,
+  E hangs `se`; the two lines that face the viewer hang FRONT faces - W's
+  `L - c` down to S, N's `c - R` down to E; the two edge-on halves of the TB
+  line, `T - c` (W against N) and `c - B` (S against E), each draw the edge
+  line on their higher side by the rule above. BUILT (D1).
 
 ##### 128.24.6.2 The order
 
-Back to front by `(2 s + d, wx)`, `d` 1 for an LR split's DOWN half and 0
-for everything else: a down half is drawn after its own row and before the
-next. Both halves of a TB split are side by side and keep the cell's place.
+Back to front by `(2 s + d, wx, piece)`, `d` 1 for a FRONT piece - an LR
+split's DOWN half, a quartered cell's E and S, the pieces whose ground lies
+in the front half of row `s` - and 0 for everything else: a front piece is
+drawn after its own row and before the next. Both halves of a TB split are
+side by side and keep the cell's place, A (left) before B; a quartered
+cell's N, W then (after the row) E, S. Each piece draws its faces, then its
+top (then its edge line): an UP half's front face, a DOWN half's `sw` and
+`se`, a LEFT half's `sw`, a RIGHT half's `se`, a W or N quarter's front
+face, an S quarter's `sw`, an E quarter's `se`. On a course with no split
+cell the order is today's exactly (`2 s` sorts as `s`).
 
 ##### 128.24.6.3 The occluders
 
 The per-pixel buffer keys each pixel with the row of the geometry that drew
 it (128.10.4.4). A whole cell and the halves of a TB split are keyed by their
 row `s`, as today: a TB half is beside its partner, never in front of it. An
-LR split's **DOWN half (and its faces) is keyed `s + 1`**: its ground lies
+LR split's **DOWN half (and its faces) is keyed `s + 1`** - and so are a
+quartered cell's E and S quarters, for the same reason: its ground lies
 entirely in the front half of row `s` (`gx + gy` from `16 s + 16` to
 `16 s + 32`), so a ball behind it in the UP half - in a void behind a raised
 down half, say - is in a row behind it, and the rule lays it. The guest's
@@ -275929,6 +276165,7 @@ are. **The one cost** (128.24.12 Q6): a ball in the front half of row `s`
 BESIDE a raised down half (another cell of the same row, its footprint over
 that half's pixels, lower than it) is now laid under it as if it were in
 front. It needs a raised down half next to a lower ball at the same depth.
+**Q6 ACCEPTED (R4**, the owner: "This should be a somewhat rare case").
 
 The bounds of 128.11.4.2 are unchanged and refused as today; a split cell can
 add a record to a block (two halves, two keys).
@@ -275939,11 +276176,13 @@ The in-cell position is 128.11.8.3's: `pu = gx & 0FFFh`, `pv = gy & 0FFFh`,
 1/256 gu, 0 - 4,095. **`DIAG` = 2,172** = `round(6 sqrt 2 x 256)`: the
 ball's radius measured along a diagonal's normal in the units below.
 
-##### 128.24.7.1 The half pick, and the floor
+##### 128.24.7.1 The pick, and the floor
 
 The **record** of a point in a split cell is half A when the point is
 strictly inside A - TB: `pu < pv`; LR: `pu + pv < 4,096` - and half B
-otherwise (a point ON the diagonal is B's). Wherever 128.11.8 reads "C" for
+otherwise (a point ON the diagonal is B's). In a QUARTERED cell (R4) both
+tests decide: (`pu >= pv`, `pu + pv >= 4,096`) is N (yes, no), E (yes,
+yes), S (no, yes), W (no, no). Wherever 128.11.8 reads "C" for
 the centre's cell - step 6's floor, the take-off, the landing (128.11.8.5),
 the Hop, the void kill (`z < 4 z0` of a VOID half), `bz_gh` and `bz_ghv`,
 the goal and its exit, the fallback's "C blocks" - it reads the centre's
@@ -275967,8 +276206,21 @@ With `σ` = +1 when the centre is in half B and -1 in half A (by the pick):
 | contact | `w < DIAG` | the same |
 | the push, `h = (DIAG - w + 1) >> 1` | `gx += σ h`, `gy -= σ h` | `gx += σ h`, `gy += σ h` |
 | the velocity INTO it, x `sqrt 2` | `wv = σ (gvx - gvy)` | `wv = σ (gvx + gvy)` |
-| only if `wv < 0`: `t` = 128.11.8.4's reflection of `|wv|` (`e` the blocking record's; 0 under `BZ_WMIN`), `k = (t + |wv|) >> 1` | `gvx += σ k`, `gvy -= σ k` | `gvx += σ k`, `gvy += σ k` |
-| then | `gvx`, `gvy` clamped to `+-BZ_VMAXG` (a reflection can turn speed onto one axis) | the same |
+| only if `wv < 0`: `t = (e |wv|) >> 8` (`e` the blocking record's `e_wall`), `t = 0` under **`BZ_DWMIN`** (16), `k = (t + |wv|) >> 1` | `gvx += σ k`, `gvy -= σ k` | `gvx += σ k`, `gvy += σ k` |
+| then | `bz_bgr = 0` (a wall closes the grace, as every contact does) | the same |
+
+BUILT (D2), and two findings against the PLANNED text: **no clamp.** Every
+restitution is at most 256 (230 a bumper, the materials' EW 96, 32, 64), so
+`t <= |wv|` and `k <= |wv|`, and each new component lies between the old
+`gvx` and `gvy` - already inside `+-BZ_VMAXG`. The clamp this table had is
+dropped (the guest saves it); `--selfcheck` asserts the bound on 4,000
+random states and that every `e` is at most 256. And the arithmetic is
+EXACT: after a contact `w` is `DIAG` or `DIAG + 1` (the push's odd unit),
+the new normal speed is `t` or `t - 1` (the halving's), and the
+TANGENTIAL speed (`gvx + gvy` for TB, `gvx - gvy` for LR) is exactly what
+it was - not "at most 1/256 lost", as the paragraph below first said.
+`bbcourse.Physics._dline`'s docstring is the arithmetic the guest copies,
+in 16-bit integers.
 
 **Why there is no square root.** The normal is `(1, -1) / sqrt 2` (or
 `(1, 1) / sqrt 2`); `w` and `wv` are the distance and the normal speed
@@ -275978,12 +276230,39 @@ scale-free, so the new normal component is `t` on the same scale and the
 change splits equally between the axes. The push and the change are halved
 with the odd unit rounded as written (the push up, the velocity down): the
 ball ends at most 1/256 gu further out and loses at most 1/256 gu a step of
-tangential speed, deterministically. **The dead band is its own NAMED
-constant, `BZ_DWMIN`** (the owner, 128.24.12 Q7), in `PHYS_CONSTS`: 16 on
-`|wv|`'s and `t`'s scale, which is `16 / sqrt 2` = **11.3** of normal speed
-against an edge's `BZ_WMIN` of 16, to be tuned alone once the owner has
-played it. `bz_refl` takes the threshold from its caller (a second entry,
-about 6 bytes).
+NORMAL speed (the tangential is exact), deterministically. **The dead band
+is its own NAMED constant, `BZ_DWMIN`** (the owner, 128.24.12 Q7), in
+`PHYS_CONSTS` with `DIAG`: 16 on `|wv|`'s and `t`'s scale, which is `16 /
+sqrt 2` = **11.3** of normal speed against an edge's `BZ_WMIN` of 16, to be
+tuned alone once the owner has played it. `bz_refl` takes the threshold
+from its caller (a second entry, about 6 bytes). BUILT (D3): with
+`BZ_DWMIN` equal to `BZ_WMIN` the diagonal reflects through `bz_wrefl`
+itself and no entry is built; `bzphys.inc` refuses to assemble the day the
+two differ (its `%error` names the second entry to write), so the tuning
+cannot be silently ignored.
+
+**A QUARTERED cell** (R4): the quarter the centre is in has two lines of
+its own, half-diagonals that end at the cell's centre `c`. First its TB
+line (its partner the quarter across it, `σ` +1 on the `pu >= pv` side),
+then its LR line (`σ` +1 on the `pu + pv >= 4,096` side), each exactly as
+the table (its partner's test at the same nearest point, which always lies
+on the quarter's own half of the line). A push off one line moves along the
+other's direction, so the centre stays in its quarter. Then **the centre c
+as a corner**: the OPPOSITE quarter touches the centre's quarter at `c`
+alone, and when it blocks (sampled at `(8, 8)`) and NEITHER partner did, it
+is met RADIALLY - the corner table at `(|pu - 2,048| >> 8, |pv - 2,048| >>
+8)`, 128.10.7.3's push and reflection, `σ` the side of `c` the centre is
+on. (When a partner blocks, `c` is a point on a straight face - the
+partner's line and the opposite's continue each other - which the line
+meets exactly; the table's whole gu would meet it up to 1.4 gu early.)
+**A push off the first line that carries the centre OUT of the cell** (the
+quarter's own edge is a cell edge: near T or B off the TB line, say) **ends
+the cell's lines for the step**: the second line and the centre are not
+tested, and the window is refilled round the new cell before the edges, as
+below (D2's verify, a finding: testing on, the model read the NEW cell's `pu`, `pv` as
+C's and pushed the ball up to 8.6 gu, reachable by rolling down a WALL
+quarter's line from the cell above; `--selfcheck`'s NOTCH item, with its
+red arm). The guest tests `gx >> 12`, `gy >> 12` after each inner push.
 
 **Nothing tunnels.** The fastest move is `|gvx - gvy| <= 768`, 2.1 gu along
 the normal a step, against 6: the circle meets a diagonal at least twice
@@ -275996,7 +276275,8 @@ push (128.12.6.5).
 ##### 128.24.7.3 The edges
 
 Step 5's four edge tests stand. An edge neighbour that is SPLIT blocks when
-**the half that owns the shared edge** blocks, sampled at today's point:
+**the record that owns the shared edge** blocks - the half of this table,
+or the quarter named for that edge (R4) - sampled at today's point:
 
 | the neighbour | its edge | TB: owned by | LR: owned by |
 |---|---|---|---|
@@ -276027,21 +276307,43 @@ If the distance is under `DIAG`, that ray's neighbour is split as the table
 says, and its half BEYOND the line - half A at T and L, half B at R and B,
 the half that does not own the edge it shares with C - blocks (sampled at
 `K`), the circle is pushed off the line exactly as 128.24.7.2 (`σ` the side
-of the line the centre is on, the line's offset in `w`). **Otherwise** the
-corner is today's (128.10.7.3, 128.11.8.4): the radial test against `K`, the
-table, the reflection - with `K` BLOCKED when the corner neighbour's record
-at `K` blocks (a split corner neighbour: `K` is in one half, or in both when
-`K` ends its diagonal, and then either blocks) OR the other ray's beyond half
-blocks.
+of the line the centre is on, the line's offset in `w`). A QUARTERED ray
+neighbour (R4) is read the same way, its beyond piece the quarter at `K`
+across the half-diagonal from the quarter that owns the shared edge: at T
+north's W, west's N; at R east's N, north's E; at L south's W, west's S; at
+B east's S, south's E. **Otherwise** the corner is today's (128.10.7.3,
+128.11.8.4): the radial test against `K`, the table, the reflection - with
+`K` BLOCKED when the corner neighbour's record at `K` blocks (a split corner
+neighbour: `K` is in one half, or in both when `K` ends its diagonal, and
+then either blocks; a quartered one, the two quarters `K` is a corner of)
+OR the other ray's beyond piece blocks - **unless the facing ray's beyond
+piece blocks at all** (BUILT, D2: a finding). Then `K` is a point on a
+straight wall - the corner neighbour lies wholly behind the facing ray's
+line - which the line meets exactly at `DIAG`; the radial table, on whole
+gu, met it up to 1.4 gu EARLY and kicked the ball off the line (a ball
+rolled head-on into a rail at a cell corner showed it). The radial branch
+is for a wall's END, never its face.
 
 So a straight diagonal wall is a plane wherever the ball meets it - inside a
 split cell (128.24.7.2) and in the whole cells beside it at its corners (this
-table) - and the tip at a wall's END is a point, met radially. Pushing off
+table) - with one bounded exception (D2's verify, a finding, not changed): a
+ray is tested only from its own QUADRANT, and a line through R (or L, T, B)
+passes within `8 / sqrt 2` = 5.66 gu of the middle of C's edges beside it,
+so a centre at the quadrant's boundary, still in C, can overlap a rail in
+the next cell by up to 0.34 gu (`w` 2,048 against `DIAG`) for the steps it
+stays there; it is pushed out to `DIAG` the step it crosses the quadrant
+boundary or enters the split cell. Nothing tunnels: from `w` 2,048 a step
+reaches at least 1,280 - and the tip at a wall's END is a point, met radially. Pushing off
 the whole line instead would hit an invisible extension of the wall past its
 end; the ray choice is what prevents it. (A simpler corner rule - every
 diagonal endpoint a radial corner - was considered and rejected: a ball
 glancing off a rail near a cell corner would rebound up to 45 degrees off
 the rail's normal, and leaves a rail's surface up to 1.76 gu inside the ball.)
+
+`bbcourse.RAYS` is this table as the guest reads it (kind, `σ`, offset,
+the facing test, the two rays, the beyond half, `K`, the two rays' beyond
+quarters); `OWNER` 128.24.7.3's and `K_RECS` the corner records'; all three
+are hashed into `BZ_PHYSV` (`split_tables`).
 
 ##### 128.24.7.5 The fallback, and what does not change
 
@@ -276049,13 +276351,18 @@ The fallback (128.10.7.3, 128.11.8.4) judges "C blocks" on the centre's
 RECORD. A respawn, `bz_safe` and every start are whole cells. The forces
 (step 2) read the floor's slopes from the centre's record; the surface in use
 is the cell's (+2's high nibble, 128.24.5.1), so `bz_surfset` still runs only
-at a refill. The order of step 5 becomes: the diagonal inside C, the edges,
-the corner (ray or radial), the posts (128.12.6.3), the fallback.
+at a refill. The order of step 5 becomes: the lines inside C (a quartered
+C's two, then its centre), the edges, the corner (ray or radial), the posts
+(128.12.6.3), the fallback. A push inside C that moves the centre into
+another cell (near a tip) refills the window round it (`bz_fill`, which can
+run `bz_surfset`) before the edges, which then read the new centre's
+cell.
 
 ##### 128.24.7.6 The guest, and what it costs (PREDICTED)
 
-- **The window.** `bz_nbh` (72 bytes of bss): the pair of each split cell of
-  `bz_nbr`, at `8 x` its window index. `bz_fill` and `bz_win9i` fill it for
+- **The window.** `bz_nbh` (144 bytes of bss with quarters, R4; 72 for halves
+  alone): the records of each split cell of `bz_nbr`, at `16 x` its window
+  index (a quartered cell's four, a halved cell's two). `bz_fill` and `bz_win9i` fill it for
   every split cell of the new window when `GF_SPLIT` is set, and set
   **`bz_ps` bit 3 (8): a split cell is in the window**. The step enters its
   split work by the byte test that already routes the prop path at step 4
@@ -276073,14 +276380,101 @@ the corner (ray or radial), the posts (128.12.6.3), the fallback.
   |---|---|---|
   | a course with no split cell, a step / a refill | 0 - 20 / about 20 | under 30 |
   | the window holds a split cell, no contact: the pick, the diagonal's distance, the corner's quadrant and sum | 150 - 300 | 0.2 - 0.4k |
-  | a diagonal contact (inside the cell or through a corner): the blocking test, the push, one `MUL` in `bz_refl`, the velocity, the clamp | +450 - 600 | +0.6 - 0.8k |
+  | a diagonal contact (inside the cell or through a corner): the blocking test, the push, one `MUL` in `bz_refl`, the velocity (no clamp: BUILT D2 dropped it) | +400 - 550 | +0.5 - 0.7k |
   | the worst step: a diagonal contact inside C, an edge contact and a corner ray's | about 1.4k over today's | about 1.8k |
-  | a refill on a split course, a split cell in the new window | 150 - 450 | 0.2 - 0.6k |
+  | R4, the centre in a QUARTERED cell, no contact: the second test of the pick, a second line's distance, the centre's quadrant | +80 - 150 over a halved cell's | +0.1 - 0.2k |
+  | R4, the worst step in a quartered cell: two line contacts and the radial centre (the corner table's `MUL`s) | about 2.0k over today's | about 2.6k |
+  | a refill on a split course, a split cell in the new window (a quartered one: four records copied, not two) | 150 - 500 | 0.2 - 0.7k |
 
   Against a step's 5.0 - 6.6k priced (128.11.15), a straight-up lane costs
-  under 10% a step and a rail contact about 15%: no new frame-rate argument,
-  and the step's caps (128.10.7.2) are what the camera and the boxes rely on,
-  which the clamp keeps.
+  under 10% a step and a rail contact about 15%; the worst quartered step
+  (a ball wedged in a quartered cell's corner, both lines and the centre at once)
+  about 40%, and it lasts a step or two: no new frame-rate argument. The
+  step's caps (128.10.7.2), which the camera and the boxes rely on, hold
+  without a clamp (128.24.7.2). **R4's question, "unless it is going to
+  completely sink sizes": it does not** - 128.24.10's figures.
+
+**BUILT and PRICED (D3).** The guest as built, its routines named for wave
+9 in the plan's *Footprint*:
+- **The window.** `bz_wtail`'s prop test became a byte `bz_wfl` (bit 0
+  props, bit 1 `GF_SPLIT`, `bz_pinit`'s) compared once: `cmp`, `jb` on a
+  course with neither - today's two instructions - and `ja` to
+  `bz_wsplit` on a split course, which copies each split cell's records to
+  `bz_nbh`, makes `bz_nbp` (each window cell's record(s) for `bz_blocks`),
+  sets `bz_psp` and `bz_ps` bit 3, and a split centre's slopes. `bz_psync`
+  and the step's `.pps` start from `bz_psp` (8 or 0) instead of 0.
+- **The step.** `and al, 5` became `and al, 0dh` and the prop path's first
+  instruction a `test al, 8 / jnz .split`. The SPLIT PATH has a step 5 of
+  its own, `bz_swalls`: the lines inside a split centre (`bz_dinner`, R7's
+  stop after a push out of the cell), the window refilled round a cell a
+  push carried the centre into, the four edges (`bz_blocks`' dispatch), the
+  windmill's doorway, then the rays (`bz_dray`) only where one can act -
+  the centre's distance to its quadrant's corner lines under `DIAG`, or the
+  corner zone - and the corner through K's records or the other ray's
+  (`bz_dcorn`, entering `bz_corner` at `.k`). A window with no prop leaves
+  for wave 2's tail after it. Step 6's floor: `.nfloor`'s `je` to a GOAL
+  became `jae`, a split centre's picked record (`bz_srec`) is C from there,
+  `bz_land`'s `bz_bok` reads C through SI; step 8's goal reads the same
+  record. Why a step 5 of its own: the corner's rays must run after the
+  edges and before today's inline corner, which every course reaches; a
+  test there would have cost every course's corner steps.
+- **A course with no split cell runs today's instructions**, PRICED from
+  the instructions unicorn executed against the guest before D3 (`8r2/dtool`
+  `0e0b0b5f3`), 1,500 played steps each on TRIAL, MILL and FIRST: wave 2's
+  path and every refill exactly today's price (`and al, 0dh`, `jb .end` for
+  `jne .end`, `bz_blocks`' VOID path one compare SHORTER: -16 clk on such a
+  step); the PROP path **+20 clk** a step (`test`, `jnz` +16, `.pps`'s
+  `mov al, [bz_psp]` +4) - at 128.24.7.6's allowance of 20, not over it; a
+  refill on a course with props +8 (`ja`). Mean +4.6 (MILL) to +11.7 (TRIAL)
+  clk a step, the range -16 .. +52 (a landing's `bz_bok` through SI and a
+  GOAL's extra jump among them).
+- **A split course**, PRICED (128.11.15's method, `--price`: 150 random
+  runs on four split courses, 13,600 steps, rubber), raw clocks a step:
+
+  | the step | steps | mean | max |
+  |---|---|---|---|
+  | no split cell in the window | 5,339 | 5,263 | - |
+  | a split cell in the window, the centre WHOLE, no contact | 6,427 | 6,690 (+1.4k) | 18,121 |
+  | the centre in a HALVED cell, no contact | 1,021 | 9,084 (+3.8k) | 18,977 |
+  | the centre in a QUARTERED cell, no contact | 37 | 9,823 (+4.6k) | 19,237 |
+  | a diagonal contact inside the cell (`diag:in`) | 134 | 10,841 (+5.6k) | 27,238 |
+  | a corner ray's contact (`diag:ray`) | 38 | 8,838 (+3.6k) | 20,147 |
+  | a line and a ray at once | 116 | 10,924 (+5.7k) | 11,742 |
+  | the radial corner | 35 | 10,230 | 18,627 |
+
+  (maxima are refills and landings). **Over the prediction**, about 3 to
+  10 times its 0.2 - 0.7k: the separate step 5's edge loop and the record
+  dispatch (`bz_blocks` 0.3 - 0.8k a step), the rays near a corner
+  (`bz_dray` + `bz_dcorn` about 0.6 - 1.2k), and a halved or quartered
+  centre's pick, its line and its record two to three times a step
+  (`bz_dinner`, `bz_srec`, the fallback; about 1.5k), each at the 8088's
+  memory-operand prices the prediction's sketch left out. x 1.3, a split
+  window step is +1.8k (whole centre) to +5k (a halved centre), about 6% of
+  a CGA frame (79.6k): no frame-rate argument yet, but **a long lane of
+  halved cells is the case to measure on the glass** (D5's PLAYGROUND,
+  `bonanzaperf`; MEASURED on the glass in 128.24.14, on the guest with
+  the verify's buys below).
+- **D3's verify bought back** (the same instructions priced, the same four
+  courses' no-contact steps; equal to the model under unicorn throughout,
+  red arm `nostart`): the START no longer taken on every step with a split
+  centre - only a push of `bz_dinner`'s lines can carry the centre into
+  another cell, so `bz_dline` takes it (`bz_sstart`) at that push, the same
+  value (-203 clk a halved or quartered centre's step); `bz_swalls`' edge
+  loop UNROLLED, its table cut to the contact paths' fields (-140 a split
+  window step, and 2 bytes FEWER); no doorway or drain test with no prop in
+  the window (`bz_pdoor` 1 in line, -144). **Whole centre 6,653 -> 6,342
+  (+1.1k over plain), halved 8,870 -> 8,388 (+3.2k), quartered 9,361 ->
+  8,874 (+3.7k)**, +27 bytes of image, +1 of bss; a contact step pays
+  about +0.1k for the START's call. Not bought, with estimates for the
+  owner: step 6's slopes not re-derived when the picked record is the last
+  step's (about -50 a split-centre step, +12 bytes); the corner zone's
+  distances shared between the ray gate and `.corn` (about -60, no bytes);
+  `bz_wtail`'s slopes through `bz_tslope` (-30 bytes, +40 clk a refill -
+  wave 9's overlay sits at that routine's start, so it is theirs to take);
+  the hostile bound (-198 bytes, 128.24.5.3) if a part's cell bytes are
+  trusted as its directory, G and header already are; one pick a step
+  held for step 6 is NOT available - an edge's clamp can carry the centre
+  across the diagonal after step 5's pick.
 
 #### 128.24.8 The pathway
 
@@ -276126,18 +276520,60 @@ crosses its middle; no GOAL half is needed for it.
   laid as halves. It carries no demo.
 - **A course that USES halves** moves its own identity the day it does, and
   its authored demo, if it has one, is written again (PLAYGROUND, story D5).
+  BUILT (D5, 128.24.14): PLAYGROUND (identity EBD8h) and MOON (ADADh) moved,
+  and `playground.bzd` and `moon.bzd` were written again by `bbcourse.py
+  author` on them - PLAYGROUND's the same runs and 1,504 steps (only its
+  `ident` line moved: its demo never reaches the section), MOON's 2,130 ->
+  1,983 steps (the coast no longer bounces it). Both now carry their
+  courses' own identities, so `CLOCK_RESTAMP` / `CLOCK_BARE` keep PEAK
+  alone and the clock rule's re-stamp check and its two red controls run on
+  PEAK's demo (128.22.6).
+- BUILT (D2.4): `PHYS_REV` 12, `DIAG` and `DWMIN` in `PHYS_CONSTS`,
+  `split_tables()` (OWNER, RAYS with their quarters, K_RECS) in
+  `phys_tables`; **`BZ_PHYSV` 21h -> B1h**, 21h appended to
+  `PHYSV_SHIPPED`. `moon.bzd`, `summit.bzd` and `playground.bzd` were written
+  again by `bbcourse.py author`: the same runs and steps (2,130, 2,172,
+  1,504); each diff is its `physics` line, B1. Their `ident` lines stay the
+  identities `CLOCK_RESTAMP` pins (5E25h, 0562h, 9D5Eh), which the build
+  re-stamps as before (R5: CLOCK_RESTAMP is not widened; the author run's
+  own `ident` line, the course's current identity, was put back, or the
+  clock rule's re-stamp check reads a file that needs no re-stamp).
 
-#### 128.24.10 Bytes (PREDICTED)
+#### 128.24.10 Bytes (MEASURED: the guest D3, the courses D1 - D2)
 
-- **Resident image: about 0.5 - 0.7KB**: the half pick and the window's
+- **MEASURED (D3, `make bonanza`): BONANZA.O88's image 40,181 -> 42,334
+  (+2,153 bytes resident), bss 10,660 -> 10,841 (+181).** Over the
+  prediction below (0.65 - 0.9KB) by about 1.3KB: the split path's own step
+  5 and its edge loop with the doorway (`bz_swalls` 369 + its table 28),
+  the lines (`bz_dinner` 268), the push (`bz_dset` 28, `bz_dline` 122), the
+  rays (`bz_dray` 168) and the corner's entry (`bz_dcorn` 94), the window
+  (`bz_wsplit` 155, `bz_sdoor` 37), the pick and the record (`bz_dpick` 59,
+  `bz_srec` 17, `bz_tslope` 50); `bz_step`'s split path and hooks +221,
+  `bz_blocks`' dispatch +68, `bz_pinit` +21, `bz_wtail` +14, the tables
+  (`BZ_SPLIT_WIN` 27, `BZ_SPLIT_RAYS` 64) +91; launch-only: the CELLS rules
+  by records +146 and **the hostile part's bound +198** (128.24.5.3, not
+  in the prediction). bss: `bz_nbh` 144, `bz_nbp` 18, the C and D bounds 8,
+  the split path's scratch 11. D3's verify (128.24.7.6's buys): **+27
+  bytes and +1 of bss**, on the R9 merge's 42,360 / 10,845: **42,387 /
+  10,846**.
+
+- **Resident image: about 0.5 - 0.7KB for halves, and R4's QUARTERS about
+  0.15 - 0.2KB more** (the pick's second test and a quarter table, about 25;
+  the second inner line and its partner's lookup, about 40; the centre's
+  radial, which reuses the corner's table code, about 60; the quartered
+  ray neighbours' beyond quarters and `K_RECS`, about 30; `bz_cxcel`'s and
+  `bz_cxsafe`'s fourth and third record, about 20, launch-only). The halves'
+  breakdown: the half pick and the window's
   pairs (about 100), `bz_blocks`' split dispatch and the owning-half table
   (about 50), the diagonal push and reflection, one routine for the cell's
   own diagonal and a corner's line (about 150), the corner's quadrant, sum
   and ray (about 110), the radial corner's "either half" (about 40), the
   clamp (about 25), `bz_cxcel`'s and `bz_cxsafe`'s halves (about 115,
   launch-only). Against BONANZA's image of about 35.7KB.
-- **bss: 72 bytes** (`bz_nbh`), and `bz_ps`'s spare bit.
-- **A course**: 8 bytes of `D` a split cell and 8 of directory; the pair's
+- **bss: 144 bytes** (`bz_nbh` with room for nine quartered cells; 72 with
+  halves alone), and `bz_ps`'s spare bit.
+- **A course**: 8 bytes of `D` a halved cell, **16 a quartered one** (R4),
+  and 8 of directory once; the
   offset in its cell is two bytes LZ cannot zero (about 2 - 4 bytes packed a
   split cell). A straight lane has about one split cell a cell ROW (two every
   other row), so a lane 100 rows long is about 0.8KB of RAM and 0.3KB
@@ -276146,15 +276582,27 @@ crosses its middle; no GOAL half is needed for it.
   line, if kept, adds a few); an LR edge and a front face add a few blocks a
   height. Every course still fits one part of 65,024
   bytes (128.14.6), which the tool refuses as today.
+- **MEASURED (D1 - D2, `bbcourse.py --sizes split:`)**: THE SPLIT COURSE
+  (48 halved cells, 3 quartered, a 32 px lane between straight rails, a
+  field with a straight course edge, a raised platform with quartered
+  corners and a wall quarter) is 9,832 bytes of RAM with D 432, and packs to 2,073 bytes LZ4
+  (1,652 LZB since D2's verify dropped the outline between equal quarters); the same boxes with every piece rounded out to a whole cell
+  (zigzag bands, no quarter clause) are 9,586 RAM and 1,943 LZ4: **+246 RAM
+  (2.6%) and +130 packed (6.7%)**, of which D is 432 and the picture's new
+  diagonal blocks (89 against 78) most of the packed rest; fewer occluder
+  records (375 against 517) pay part of it back. Before quarters (halves
+  alone, D1's first build) the same comparison was +120 RAM and +38 LZ4. A
+  halved cell is 8 bytes of RAM and a quartered one 16, packed about 2 - 6.
 - **The pathway**: fewer cells than the fat band (the outer halves go), so
   its part does not grow.
 
 #### 128.24.11 The rows
 
 - **`bonanzacourse`** (`--selfcheck`): a new item for halves - the grammar's
-  refusals (a quartered cell, a half on a centre-anchored statement, two
-  floor surfaces, a wall not above the floor across its diagonal, `half` on
-  a `box`); the normalisation (two equal halves stored whole); the grid
+  refusals (a half or a quarter on a centre-anchored statement, two floor
+  surfaces, a wall not above the floor across a line inside its cell,
+  `half` or `quarter` on a `box`); the normalisation (equal pieces stored
+  whole, or halved); the grid
   against the geometry at all 256 integer points of every split cell (the
   pick, each half's `h4`); NEAR and SAFE by halves; `expand == RAM` with
   `D`; the picture's composite (records against the per-pixel buffer) on a
@@ -276164,32 +276612,77 @@ crosses its middle; no GOAL half is needed for it.
   whole cell beside the rail, a landing on and a fall off a diagonal step, a
   fall into a VOID half and its kill height); negative controls: the
   reflection's `σ` flipped, the pick's sides swapped, the ray choice
-  inverted, the down half keyed `s`, a split cell made SAFE.
+  inverted, the down half keyed `s`, a split cell made SAFE. BUILT (D1,
+  D2): `_split_cases`, `_split_checks` and `_split_physics` in
+  `tools/bbcourse.py`, on THE SPLIT COURSE and THE RAIL COURSE (strings in the
+  tool): 15 refusals, the normalisation, items 3 - 6 and 10 on halves and
+  quarters, six reader refusals, the down half's key; the take-off at the
+  pick, the VOID half's kill, a goal half's exit, the diagonal's arithmetic
+  on 4,000 random states, the slide up a rail at DIAG or DIAG + 1 with no
+  kick, a head-on rebound, a wall's END met radially, the edges by their
+  owning half, a quartered cell's inner line and its centre; red arms: `σ`
+  flipped, the pick swapped, the owning halves swapped, the ray choice
+  inverted, every end radial, the down half keyed `s`, the CELLS rule
+  without halves; and story D2.5's tools on RAIL with a pad, a flag, a clock
+  and a goal half (exits, NO TRAP, the finish's reach per record, the clock
+  rule, OCCG).
 - **`bonanzaphys`**: the guest equals the model at every frame on
   PLAYGROUND's diagonal section (story D5), with a red arm that drops the
-  corner ray.
+  corner ray. BUILT (D3), its HOST half: `tests/bonanza_dsplit.py`, run by
+  `bonanza_phys.py --check` - the package's `bz_crshdr`, `bz_pinit` and
+  `bz_step` under unicorn on six split courses against the model, every
+  step's state, state2, state6, `bz_ps`, the goal, its exit, the respawns
+  and SAFE compared EXACTLY: 20 scripted runs (the take-off at the pick, a
+  VOID half's kill, a goal half's exit, slides up both rails, a head-on hit,
+  a wall's END, the edge by its owning half, a quarter's line and its
+  centre, a fall off and a Hop onto a diagonal step, glass shattered off a
+  ledge, a bumper half, a ramped half, a box's chamfers; D3's verify: a
+  line's push into a blocking cell undone to the START, a windmill's
+  doorway knock and capture with a split cell in the window), R7's NOTCH
+  sweep (192 runs, 10 of which R7 changes), 200 random runs from states
+  near split cells - D3's verify added THE EDGE (split cells on the grid's
+  own edges, the window's out-of-grid cells OPEN beside them) and THE MILLS
+  (MILL's windmills, bumpers, tubes and lift with split cells beside them)
+  to the four - the CELLS forms, the HOSTILE part, and TRIAL (no split
+  cell) 2,000 steps equal with `bz_psp` 0. Red arms by hand (`--reds`),
+  each red: `noray` (the corner ray dropped), `r7`, `cellhalves`,
+  `nobound`, `nostart` (a split centre's push takes no START). The
+  GLASS leg needs a shipped course with split cells - D5's PLAYGROUND - and
+  then only a scenario list: a replay up its lane along a rail, a fall off
+  its diagonal edge, its step, poked as the row's wave-3 replays are.
 - **`bonanzaexit`**: the claim leg on a split course (the CELLS rule by
-  halves).
+  halves). D3: the rule is the guest's and held to the tool under unicorn
+  (128.24.5.3); the claim leg reaches it once a shipped course has a split
+  cell (D5).
 - **`bonanzaring`**: the occluder oracle over the down half.
 - **`bonanzapath`**: the straight-up and across routes rolled (the follower
   unchanged, the picture's new blocks).
 - **`bonanzaperf`**: a split course's step priced against 128.24.7.6.
+  D3: PRICED from the instructions under unicorn (`bonanza_dsplit.py
+  --price`, 128.24.7.6's BUILT table); the glass measurement wants a
+  shipped split course (D5's PLAYGROUND lane) in the row's legs.
 - **`bonanzademo`**, **`bonanzagame`**: the re-authored demos replay.
+- D5 (128.24.14): the shipped split courses now exist - MOON's coast (its
+  demo crosses it) and PLAYGROUND's section (no demo reaches it). The rows'
+  glass legs that waited on them (`bonanzaphys`'s replay down the lane and
+  along a rail, `bonanzaexit`'s claim leg on a split course, `bonanzaperf`'s
+  lane frames) are NOT written: D5 measured the frames with scratch logs
+  (128.24.14's table) and names the rows; they are the final pass's.
 
 #### 128.24.12 Open questions for the owner, and the owner's answers (2026-11-16)
 
-The answers are the owner's (the lead's round R3) unless marked; Q3 and Q6
-wait on the pictures the owner asked for (`diag-q3`, `diag-q6`, made by the
-same throwaway prototype as the mock-ups).
+The answers are the owner's (the lead's rounds R3 and R4) unless marked; Q3
+and Q6 were answered on the pictures the owner asked for (`diag-q3`,
+`diag-q6`, made by the same throwaway prototype as the mock-ups).
 
 | # | question | recommended | ANSWERED |
 |---|---|---|---|
-| Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells | **(a)** (the lead, on the owner's goals: no speed lost, the game, the courses and the storage as small as possible, and EXTENDABLE for another core tile type; compatibility no concern): a course with no split cell pays nothing, a split cell 8 bytes, and kinds 6 - 15 stay reserved for the next core tile type |
+| Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells | **(a)** (the lead, on the owner's goals: no speed lost, the game, the courses and the storage as small as possible, and EXTENDABLE for another core tile type; compatibility no concern): a course with no split cell pays nothing, a split cell 8 bytes, and kinds 6 - 15 stay reserved for the next core tile type (R4: kind 6 became the QUARTERED cell, kind 7 is reserved for the CHANNEL, 128.24.13) |
 | Q2 | **The new art**: the front face's ink and the 1 px line down a screen-vertical diagonal | try both in the mock-ups' form, decide on the glass | **The ink follows the half's PATTERN**, as the tile's own side faces do (128.24.6.1). A per-tile override would cost no grid bit and no guest byte, only the picture blocks it adds |
-| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch), or round it out to a half (a bump) | **refuse**, naming the cell and the corner to move; finish an odd-width end with `half` | **OPEN: the owner asked for a picture first** (`diag-q3`: the quartered corners, the one-number fix, the guesses; allowing it would take a QUARTER cell type) |
+| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch), or round it out to a half (a bump) | **refuse**, naming the cell and the corner to move; finish an odd-width end with `half` | **QUARTERS** (R4, on `diag-q3`: "Visually, 3 is obviously right; that gives us the most tools, and lets us build 'rounded' looking platforms. Unless its going to completely sink sizes, lets do it"): the QUARTERED cell (kind 6) of 128.24.3, a box's odd corner the one quarter inside it (D2's verify: that corner stays SQUARE - panel 3's cut look is the quarter dropped or a half laid, authored by hand; the owner to look); BUILT in D1 - D2, priced in 128.24.7.6 and 128.24.10 (it does not sink sizes) |
 | Q4 | **The pathway's bands**: a 32 px straight band up and down, a 16-line one across, in place of the 64 px zigzag | **yes** | **yes** |
 | Q5 | **Diagonal STEPS** (two floor heights across one diagonal), which (a) gives for free | **yes** | **yes** |
-| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it | **OPEN: the owner asked for a picture first** (`diag-q6`: MEASURED by the prototype over every whole-gu position of the two cells beside a 1-unit down half, the ball grounded: keyed `s + 1`, 18 of 512 positions (3%) show a wrong pixel, at most 23 px; for scale, a WHOLE raised tile under today's rule, 44 (8%), at most 55 px, the error the other way) |
+| Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it | **ACCEPTED** (R4, on `diag-q6`: "This should be a somewhat rare case"; MEASURED by the prototype over every whole-gu position of the two cells beside a 1-unit down half, the ball grounded: keyed `s + 1`, 18 of 512 positions (3%) show a wrong pixel, at most 23 px; for scale, a WHOLE raised tile under today's rule, 44 (8%), at most 55 px, the error the other way) |
 | Q7 | The diagonal's wall dead band: 11.3 of normal speed or exactly 16 | **11.3** | **11.3, as a NAMED constant `BZ_DWMIN`** (128.24.7.2), tuned after the owner plays it |
 | Q8 | **Where halves first appear** | PLAYGROUND (128.16.8) | **PLAYGROUND first, then MOON's COAST**, "the course with a big straightway where the current demo bounces off all the jagged corners": MOON's coast is `floor band 0 6 48 70` between `wall band -2 -1 48 70` and `wall band 7 8 48 66`, and its authored demo meets the left rail's zigzag at a CORNER on every cell of the straight - cells (27, 26) to (31, 30), steps 1,027 - 1,186 (MEASURED, the model's replay: 40 corner contacts and 149 edge contacts over MOON's demo, against 2 and 31 on `PEAK`'s) |
 | Q9 | **When** | after wave 8R | **BUILD IT AS SOON AS POSSIBLE** |
@@ -276198,6 +276691,143 @@ same throwaway prototype as the mock-ups).
 another session in `bzphys.inc` and `bbcourse.Physics`, so the diagonal work
 stays as small and local there as the design allows; every routine it
 touches is listed in the plan's *Footprint*, docs/plans/BOUNCE-BONANZA-DIAGONAL.md).
+
+**Q8's second course, confirmed in the tool (D2):** the owner's "the course with a big
+straightway where the current demo bounces off all the jagged corners" is
+**MOON** (Moonlit Green): its COAST (`floor band 0 6 48 70`, the long flat
+straight DOWN the screen, between the zigzag rails `wall band -2 -1 48 70`
+and `wall band 7 8 48 66`). Run through the model, MOON's shipped demo
+makes 9 RADIAL CORNER contacts while moving diagonally, one at the corner of
+each stair of the coast's left rail - in cells (27, 26), (28, 27), (29, 28)
+twice, (30, 29) twice, (31, 30) twice, steps 1,027 - 1,188 - and its
+autopilot 8 (steps 942 - 1,103); every other shipped course's demo and
+autopilot make at most one such contact (PEAK's demo one, at (41, 37)) and
+none along a straight. As `box`es (`floor box -1 7 48 71`, `wall box -3 -1
+48 71`, `wall box 7 9 48 67`) the coast is a straight lane between straight
+rails, and the ball slides along them (128.24.7). Wave D5's second course;
+it is NOT changed in D1 - D2. **BUILT (D5.3, 128.24.14)**: exactly those
+three boxes, and the demo's radial corners on the coast are 0.
+
+#### 128.24.13 Channels: the next core tile type (RESERVED, not built)
+
+R4, the owner: a CHANNEL is "a tile, or two tiles together, that cradle the
+ball ... one of the other core things we are missing, to make a ball
+game". It slots into this section's scheme without reworking it: **every
+cell kind from 4 up is a cell whose bytes +0 - +1 point into section `D`**,
+the kind saying how many records are there and how the step reads them (2
+for a halved cell, 4 for a quartered one), and the window's `bz_nbh` slot,
+`read_part`'s D tiling, the CELLS rule's per-kind reader and `GF_SPLIT`'s
+gate are already per kind. **Kind 7 is RESERVED for the channel** (`BZ_KCHANNEL`
+in `bzcourse.inc`; `read_part` refuses it until it is built): its D entry
+would be one 4-byte CHANNEL record - the axis (u, v, or a diagonal, TB or
+LR), the profile (a concave cross-section's depth in half units at its
+middle, its floor `z0` at the lip and the surface), and for a channel two
+cells wide which side of the pair this cell is - so a channel along a
+diagonal is one more kind of line inside a cell, as a half's is. Its floor
+replaces `bz_h4`'s plane by the profile's height (a quadratic or a two-slope
+V in the cross direction, the slope term of 128.11.8.2's step 2 its
+derivative), and its lips are edges the ball rolls over. Kinds 8 - 15 stay
+reserved for 128.10.4.3's other non-planar floors. Not designed further
+here: the owner's next design question.
+
+#### 128.24.14 The first courses: PLAYGROUND's diagonal section and MOON's coast (D5, BUILT)
+
+**PLAYGROUND (D5.1, `apps/bonanza/courses/playground.bbc`).** The
+DIAGONAL SECTION hangs off the apron's right end, where nothing ran before
+(off every route and the demo; the step ladder's rungs, the brake strip
+and the basin untouched): a LANE straight DOWN the screen, `box 15 17`
+(32 px), between two 16 px straight RAILS (`box 13 15`, `box 17 19`, 1.5
+units over the lane beside them), stepping down as it goes - level at the
+apron's 4, a unit's RAMP (`ramp s 57 59 4 3`), level at 3, a half-unit
+diagonal STEP at s 67 whose FRONT face is a 4-line ledge - onto a
+CHAMFERED PLATFORM (`floor box 9 23 69 81 chamfer 2 flat 2.5`, 224 x 96
+px) whose four sides are straight 45-degree course EDGES over the void;
+the funnel from the apron (s 49 - 55) is open both sides. Every box number
+is odd, so no cell is quartered: 49 split cells (35 TB, 14 LR). A dead end
+on purpose: a half unit rolls up and the ramp's unit wants speed, so the
+way back is RETURN or the edge (NO TRAP is a flag's and a pad's, 128.14.4.1:
+unchanged). The demo's script and runs are unchanged (it never reaches the
+section); the course and its demo's `ident` line moved (EBD8h).
+
+**MOON (D5.3, `apps/bonanza/courses/moon.bbc`).** The coast is the three
+boxes of 128.24.12's Q8 paragraph - `floor box -1 7 48 71`, `wall box -3
+-1 48 71`, `wall box 7 9 48 67` - laid BEFORE the zig-zag corridor, so the
+corridor and the ramp keep their whole cells where the box's top edge (s
+48) crosses them (laid after, the ramp's cell (24, 23) was split under
+the route's way and refused). 50 split cells (41 TB, 6 LR, 3 quartered:
+the rails' square ends). The top edge gains two floor halves and the
+rails' square tops; the bottom-left edge is now straight (an LR edge with
+its front face) where the band stood a whole cell; between the right
+rail's end and H a floor half where there was a notch of void. The demo,
+written again with the same AUTHOR script: **2,130 -> 1,983 steps**
+(36.3 s), a fall, a RETURN and three pads as before; **the coast's radial
+corners 9 -> 0** and its edge contacts 1 -> 0 (one corner RAY at its top,
+step 952); over the whole demo 40 -> 25 corners. The autopilot's route
+2,031 -> 1,870 steps (its coast corners 8 -> 0). The limit stays 55 s
+(3,025 steps); the medals the tool derives moved with the route, G 2,365
+-> 2,200 and S 3,025 -> 2,805 steps; the clock rule (the cup's clock),
+NO TRAP from every flag and pad, every finish reachable with its clocks
+and the clock off the routes: `--selfcheck` green.
+
+**The tool** (`tools/bbcourse.py`, selfcheck only): item 3's BZG1 +28
+check expects `GF_SPLIT` exactly when a cell is split; item 1's chain to
+`503031d4`'s parts leaves out a course with a split cell (that tool has no
+`box`), as it leaves out the PLAYGROUND; the clock rule's re-stamp check
+runs on PEAK (128.24.9).
+
+**Bytes** (MEASURED, `make bonanza`): the package's image and bss are not
+changed by D5 (42,387 / 10,846 with the D3 verify's +27 / +1). The
+courses' parts, RAM and LZB-packed: MOON 42,282 -> 43,096 (+814) and
+7,886 -> 8,293 (+407); PLAYGROUND 35,636 -> 41,798 and 4,650 -> 6,215
+(the whole section is new). The same section with every piece rounded out
+to whole cells (the A/B's ZIGZAG twin below) is 42,180 RAM and 6,429
+packed: **the halves are 382 bytes of RAM and 214 packed SMALLER** than
+the zigzag they replace (a narrower lane, fewer cells and occluder
+records), D's 8 bytes a halved cell included. `moon.bzd` 624 -> 616.
+
+**The look** (MartyPC, `os8088_5150_cga_gla` and `_herc_gla`, the demo
+and two scratch logs through D, the glass at chosen steps): the lane's
+rails as straight white columns with the black EDGE LINE down each TB
+diagonal on the rail's side, the rails' ends and the step hanging their
+dotted FRONT faces, the ramp's checker, the platform's straight sides and
+chamfered corners; MOON's coast between straight rails. The inks follow
+the half's pattern (Q2); the owner judges them on the glass (D5.2).
+
+**The price on the glass (MEASURED, D5, PERFORMANCE.md Part 3's harness:
+`bonanza_perf.measure`'s logged breakpoints, D of a log, MartyPC's guest
+cycles; two runs a figure, the speaker OFF then at S's AUTO; on the guest
+with D3's verify buys, 40e3d57d7).** Each course is measured against the
+SAME geometry in whole cells: MOON's shipped course before D5 (its own
+demo, 10b0c0725's build), and for the lane a ZIGZAG twin built for the A/B
+only (`floor band 15 17`, rails `band 13 14` / `band 18 19`: the pieces
+rounded out, as MOON's coast was), rolled by the same autopilot route down
+the lane's middle. Frames whose steps the model puts on the section (busy =
+the frame less the retrace wait and the wheel; refresh CGA 79.6k clk,
+Hercules 93.9k):
+
+| | whole cells | halves | |
+|---|---|---|---|
+| MOON's coast, CGA, busy mean / p95 / max (OFF) | 36.6k / 54.0k / 63.8k | 40.3k / 56.4k / 68.9k | the halves' ball rolls straight and FASTER: pan rows 0.21 -> 0.29 a frame, most of the +3.7k; simulation + camera 15.7k -> 16.7k |
+| ... speaker ON | 39.7k, max 66.2k | 43.7k, max 71.1k | missed refreshes 0 and 0 |
+| MOON's coast, Hercules (OFF / ON) | 38.8k / 41.9k, max 71.1k / 69.9k | 42.9k / 46.3k, max 79.8k / 71.7k | 0 and 0 |
+| PLAYGROUND's lane, CGA (OFF) | 38.2k / 55.8k / 66.6k | 40.3k / 61.7k / 77.7k | the same path and pans (0.27 rows a frame); simulation + camera 16.0k -> 17.9k (+1.9k a frame, +2.1k a step); the centre in a halved cell 82 of 291 steps |
+| ... speaker ON | 41.6k, max 76.8k, 0 missed | 43.1k, max 86.4k, **1 missed** | the miss is one frame in each run, at the ramp's top (steps 371 - 372, a frame of two steps there: simulation + camera 50.8k; the zigzag's take-off at the same place 35.9k a step) |
+| PLAYGROUND's lane, Hercules (OFF / ON) | 39.0k / 42.9k, max 72.5k / 75.6k | 40.9k / 44.6k, max 82.8k / 91.4k | 0 and 0 |
+| down the LEFT RAIL (LD held), CGA (OFF / ON) | - | 44.3k / 47.7k, max 75.2k / 78.1k | 0 missed; simulation + camera 19.2k (+3.2k over the zigzag's middle run); 99 diagonal contacts, the centre at DIAG from the rail (a = 15.53) all the way; the zigzag twin's ball under the same keys sticks in the first notch (1,623 wall contacts) |
+| ... Hercules (OFF / ON) | - | 45.4k / 49.1k, max 96.6k / 97.0k | **1 missed** in one of the two runs each (0 in the other) |
+
+So the owner's price question, answered on the glass: **a lane of halves
+costs about +1.9k clk of simulation a frame (+2.1k busy, 5.5%) against the
+same lane in whole cells, and a rail slide about +3.2k**; the display holds
+the refresh on both cards with the speaker off down the lane's middle; with
+the speaker on the CGA loses one refresh at the lane's ramp top, and a slide
+down the rail lost one on the Hercules in one run of two. MOON's straight
+coast costs +3.7k busy a frame, most of it the camera panning a ball that no
+longer stalls on the stairs, at 0 misses on both cards. The frames are no
+frame-rate argument yet; the next buys are 128.24.7.6's list. The scripts
+are dcourse's scratch, not a row: the registered measurement is the rows'
+(128.24.11). (Measured once before the verify's buys too, on 0813fdaf0:
+the same shape within 0.2k.)
 
 ### 128.25 Wave 9: mechanics as parts (PLANNED)
 
@@ -276339,7 +276969,25 @@ what each now proves:
 Rows: `bonanzaring`'s camera leg (the guest's `BZL_PRE` equal to the model
 on every frame; the two arms) in wave 9's final pass; `bonanzacourse`.
 
-#### 128.25.4 The arena (story 9.3)
+#### 128.25.4 The arena (story 9.3) (BUILT)
+
+**BUILT (wave 9, story 9.3).** As below, with the standard's contract written
+out as SPEC.md 20.12.15 - where it differs from this section's draft, 20.12.15
+and 128.25.4.3 are the authority. MEASURED (`make bonanza`, against the base
+tree `19dd317`): BONANZA's image **40,207 -> 40,711 (+504)**, of which the
+standard's code **407** (`op_fetch` 357 -> 456, `op_drop` 72 -> 83, the arena's
+routines 297) - under the wave's +450 for it (the lead, 2026-11-16) - and
+BONANZA's own half **97** (`bz_arload`, the reserve and the drops, the 18-byte
+`bz_carena` table); bss **+10** (the standard's four words, 8; `bz_arforce`,
+2). Every other package and image of a full `make` and the base's `make
+bonanza` is byte-identical with the standard changed (278 artefacts compared).
+SEEN on MartyPC (CGA, one boot): the desktop holds 3 claims (the region, the
+shell part, the arena of 192 paragraphs: the sound part and the title's
+song); an F play of FIRST holds 3 (the region, the course's 640, the arena's
+768 - its ball, the sound part, the song and the fanfare, `op_artop` 747), so
+**a course play is 2 data claims, and 3 with the pathway held** (arithmetic
+for the held case: not driven in that boot); after the goal the desktop's 3
+again, the arena the title's alone.
 
 A play holds today: the course, up to three balls, the sound part, the song
 and the victory fanfare, seven of `MEM_OWNER_MAX`'s eight claims, and with
@@ -276424,6 +277072,66 @@ as `op_sub` is.
 without; the desktop's title (the sound part and song 0, in the arena) 1 plus
 the shell's.
 
+##### 128.25.4.3 As built
+
+- **The rows**: the three balls, `BZ_P_SND` and every song row (the title's,
+  the courses', the fanfare) carry `OP_ARENA`; so do the family rows
+  (128.25.6.2), since the integration of 9.1 - 9.2: CODE rows, banked through
+  `SEG_SUBC`, and `crs_arena` adds each family part a course names at its
+  `FAMILIES` `paras` ceiling (`BZ_FAMP_<NAME>`, which the part's own assembly
+  refuses to pass: the part is built after `bzcourse.inc`, so the tool cannot
+  read its size).
+- **`bz_cload`**: `bzs_dstop` first (the title's sound part and song leave the
+  arena, which is freed when they were all of it), then `op_areserve` with the
+  course's `[bz_carena + 2K]`, the balls, `bzs_gfetch` (sound part, song,
+  fanfare), `bz_crshdr` and **`bz_arload`**: `op_areserve 0` (the arena fitted
+  to its parts) and `bz_bsegs`, `bz_bseg`, `bzs_pseg`, `bzs_vseg`, `bzs_mseg`
+  read again from `op_seg`. **The families' fetch (`bz_ffetch`, after
+  `bz_crshdr`) goes BEFORE `bz_arload`, and `bz_ffetch` runs AGAIN after
+  it** (it fetches nothing then and re-takes every segment: a later family's
+  fetch can have moved the arena under an earlier one's far pointers). The desktop's `bzs_dstart` calls `bz_arload` after its two
+  fetches (the song's may move the arena under the sound part's word). The
+  ball loop's own store into `bz_bsegs` stays (the ball generator, story 9.4,
+  uses the segment before the next fetch).
+- **The drops**: `bz_cdrop` drops the balls glass, steel, rubber, then
+  `op_areserve 0` (a reservation nothing was fetched into - a refused first
+  fetch - is given back: `op_drop` of a row never fetched is a no-op and ends
+  no reservation); `bzs_gdrop0` the fanfare, the song, the sound part. The
+  CALLERS still run `bz_cdrop` before `bzs_gdrop0`, so the balls go before
+  the sound group: the arena holds holes until the sound part goes, and is
+  then freed whole. Any order ends empty (`op_drop` finds the top again).
+- **The bounds** (`tools/bbcourse.py`): `BZ_CRS_ARENA` per course (the
+  pathway's and the title's last) is `crs_arena`: the paragraphs of every
+  ball `bz_cload` can fetch for it (`crs_mats`), the sound part, its song and,
+  for a course, the fanfare, plus one `CLAIM_SLACK` (159) - the batch's peak
+  is the last fetch's room over everything before it; today 892 - 2,271.
+  `BZ_CRS_MAXCLAIM` = the largest pad's course's own claim (`len` + 159, to
+  the granule): 3,104. `BZ_CRS_ARMAX` = the largest of those courses'
+  reserves, to the granule: 2,272. **`bz_phrel` keeps the pathway when the
+  largest run takes the two TOGETHER** (5,376): the "two runs, largest first"
+  of 128.25.4.2 needs the second-largest run, which `MEMP_AVAIL` does not
+  answer; one run holding both is the sound test (the course lands in the
+  first run that fits, and the largest still holds the arena).
+- **`op_arquery` is opt-in** (`OP_WANT_ARQUERY`): BONANZA does not call it,
+  and a harness reads `op_arena`, `op_arsz`, `op_artop` and `op_arres` by name
+  (`tests/bonanza_ring.py`'s `EXTRA_EQUS`).
+- **The arena is PINNED** in BONANZA (no `OP_ONMOVE`): its parts' segments sit
+  in DS and ES under the frame, bucket C as before (tests/pins.txt).
+- **`bz_arforce`** (bss, a word, byte 0): the harness's `OP_ARFORCE` byte -
+  non-zero, `op_areserve` reserves nothing and the arena is claimed from the
+  ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
+  row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
+  SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
+  `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
+  2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
+  still held 90A0h, and after `bz_arload` every package word (the three
+  balls, `bz_bseg`, `bzs_pseg`, `bzs_mseg`, `bzs_vseg`) equalled its row's
+  and every arena part's bytes equalled its RAM form; the play drew, and Esc
+  left the desktop's claims and rows as before.
+- **The rows** updated for the count: `bonanzaexit` (inside a play: the
+  desktop's claims less the shell, plus the course, the desktop title's arena
+  become the play's) and `bonanzamega`'s case 10 the same way.
+
 #### 128.25.5 The balls generated at fetch (story 9.4)
 
 Today each ball is a `BZB2` part (128.11.9.1) stored whole: rubber 9,536,
@@ -276463,6 +277171,103 @@ is 0.00065 from the threshold).
   only for that material: the tool refuses a material V2 cannot reproduce and
   stores it as V1.
 
+##### 128.25.5.1 As built (story 9.4, MEASURED / PREDICTED marked)
+
+**BUILT, and SHIPPED** (the generator is in the shipped build; the owner's
+launch-cost target, below, is met). `BZB3` is BZB2's size: its 16-byte
+header, zeros, a 438-byte BLOCK at the head of the squash slot (`BZ_BG_BLK` =
+5,456: a byte `NP`, the template's low, high and opaque planes 96, the ellipse
+rows of squash 0, squash 1, rubber's stretch and the shadow, the stretch's
+column map, and the RANK TABLES, 256 bytes), and, for glass only, its shatter
+entries as they are. The zeros-ahead layout is the BZC2 course's
+(128.15.4.3): the claim is the RAM size and `bz_ballgen`
+(`apps/bonanza/bzballgen.inc`, called once after `op_seg` in `bz_cload`'s
+ball loop, AX kept) expands FORWARD in place - the block's prefix goes to
+`bz_boxbuf` first, the rank tables are read in place and are dead before the
+squash entries overwrite them.
+
+**V2, rank-coded.** The template is three 16-word bit planes (low, high,
+opaque); a texture pixel (low xor high) is white when the phase sum
+`G[fx][x] + G[fy][r] < T` (rubber scale 512, T 2,560; steel 0/1 bits with
+the cap, T 2; glass scale 16, T 21) and its base colour otherwise. The tool
+(`rank_tables`) stores that test as two byte tables: `XR[x][fx]` (column-major,
+33 bytes better packed) = `(R' + 1) 6` and `YE[j]` = `E' 6`, with ink exactly
+when `XR <= YE`: R the rank of G among its distinct values, E the count of
+distinct values under `T - G[j]`, cuts that split no rank merged, and a row
+whose ink is empty in every phase given E' 0. Classes: rubber 22, steel 2,
+glass 10 (`NP` = classes + 2, at most `BZ_BG_PMAX` 25: the tool refuses more).
+The guest then builds, once a phase (eight a ball), a MASK TABLE `P[k]` = the
+columns whose `XR <= 6 k`, already spread to 2-bit fields at the phase's
+shift (buckets and a running OR), and writes a roll frame's row as
+`BASE | (P[YE] & TEX)` - BASE and TEX the template's colours and texture
+pixels spread to that shift, built once and shifted a pixel per shift - or
+BASE alone, three `MOVS`, when YE is 0. Every other row (masks, squash,
+shadow, stretch) is two lookups in a 512-byte nibble-spread table and a 2-bit
+register shift for each next shift. The squash and stretch entries are an
+ellipse's rows (ring = pixels with a 4-neighbour outside, glass's checker
+inside it) pressed from the round frame 0 (rows: Q planes; columns, the
+stretch: a gather through 16 column masks); the shadow is its ellipse with
+the world checker. **Glass's shatter stays literal** (story 9.4's choice, NOT
+an owner decision: V1 above generates the cut with its 64-byte edge table;
+the shatter is the one entry not generated, about 1,100 of glass's 1,268
+packed bytes, and the largest saving left). **V1 is not built**: in place of
+storing a material as V1, the tool REFUSES one whose `BZB3` the generator's
+host model (`model_ball3`) does not expand back to `BZB2` (`compile_all`, at
+every `make`). The routine preserves AX and ES (the ball's selector does not
+outlive the loop in ES: 128.14.26 item 2's #GP at `op_drop`'s `POP ES`); its
+one constant table (`bg_nib`, 16 bytes) is read through DS, nothing through
+CS.
+
+- **Proof** (`make bonanza-check`): `tools/bzballchk.py` assembles
+  `bzballgen.inc` and runs it under unicorn (an emulated 8086) on the stored
+  file, the package's image and its scratch in one segment, the scratch
+  pre-filled with junk: equal to `build_ball2`, every byte, all three
+  materials, with AX, ES (the caller's, not the part's), DS, SP and DF kept
+  and no write outside the part, `bz_boxbuf` and the stack. Four negative
+  controls must go red: one stored ellipse row changed, one rank-coded
+  threshold raised a class, the ROUTINE broken (the mask table's field no
+  longer stepping to its next byte, every material), and the routine
+  returning the part's selector in ES.
+- **Cost, PRICED** (`bzballchk.py --clocks`, `--profile` by phase): the
+  executed instructions at 8088 clocks - the 8086's EU time, +4 a word
+  memory transfer, the EA, +2 a segment prefix, a branch taken or not as it
+  went, a shift by CL and a REP at the counts they ran, floored at 4.34
+  clocks a code byte plus 4 a data byte. Rubber **598,150**, steel
+  **532,181**, glass **461,830**: **1,592,161 clocks for all three, 334 ms**
+  at 4.77 MHz (the 9.4 build priced the same way: 2,784,700 + 2,577,172 +
+  2,577,184 = 7,939,056, 1.66 s; by the cruder first pricer, the one the
+  owner's 1.5 s came from, 7.16 M before and 1.45 M now). **MEASURED** on
+  MartyPC (CGA 5150, PLAYGROUND, whose pads fetch all three balls, cycles
+  from `bz_ballgen` to its return): rubber 625,823, steel 557,030, glass
+  482,630 = **1,665,483 cycles, 349 ms** (the timer's interrupts included);
+  the first 9.4 build measured the same way: 3,012,804 + 2,788,499 +
+  2,791,667 = 8,592,970 cycles, 1.80 s. The whole launch, `bz_launch` to
+  `fsx_run` (the fetches, the generation, the course's expansion): **5.32 s
+  -> 3.74 s**, against **3.34 s** before story 9.4 (19dd31780: BZB2 stored,
+  no generator) - the generator's NET launch cost on a three-ball course is
+  **+0.40 s** (it was +1.98 s). The owner's target (about 0.75 s, about 1.8 M clocks for
+  three) is met.
+- **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 327, steel
+  1,476 -> 177, glass 2,144 -> 1,268: **5,974 -> 1,772, -4,202 bytes** (the
+  rank tables pack 70 bytes worse than the word phase table of the first 9.4
+  build, 1,702).
+- **Resident (MEASURED)**: the routine is **1,229 bytes** (`bz_ballgen` 528,
+  `bg_ent` 198, `bg_shd` 128, `bg_pb` 85, `bg_gatq` 74, `bg_put4` 53,
+  `bg_il` 51, `bg_shape` 39, `bg_sp` 33, `bg_pz` 24, `bg_nib` 16), the call 3;
+  `bonanza.bin` 40,207 -> **41,439 (+1,232)**, bss 0 (the scratch is
+  `bz_boxbuf`'s 1,024 bytes, 1,022 used); BONANZA.O88 106,897 -> **103,777
+  (-3,120)** on the disk image. Against the first 9.4 build (786 bytes, 2.3 -
+  2.5 M clocks a ball) the speed costs **443 resident bytes for 6.35 M
+  clocks** (about 1.3 s a three-ball launch); the trades inside it: the mask
+  table and rank coding (the frames, 5.0 M -> 0.9 M), the stretch's column
+  gather (54 K -> 29 K clocks, rubber's, for +39 bytes), phase 0's ink by
+  buckets (17 K -> 9 K a ball for +30 bytes); a fully unrolled `bg_put4`
+  (about -7 K a ball for +64 bytes) and nibble gather tables (-17 K, rubber
+  only, for +89) were NOT taken.
+- **Seen**: MartyPC, CGA, PLAYGROUND launched: the rubber part in the guest
+  after `bz_cload` equals `build_ball2`, every byte (the first 9.4 build was
+  seen for all three balls on CGA and Hercules; the proof covers all three
+  every `make bonanza-check`).
 #### 128.25.6 Families
 
 ##### 128.25.6.1 What a family is
@@ -276506,6 +277311,45 @@ part's mask into `bz_fhk`, the ACTIVE HOOK byte. **A course that names no
 family has `bz_fhk` = 0 and pays one byte test at each hook site, and
 nothing else** (128.25.12).
 
+**BUILT (story 9.1).** The entries are a FIXED table, one word for each of
+bits 0 - 5 whatever the mask, so hook `b`'s entry is at `+12 + 2b` and the
+header is **24 bytes** (`BZF_HDR`; bits 6 and 7 have no entry). The part is
+`apps/bonanza/fam/<name>.asm`, linked against `bzlink.inc` as the shell part
+is, so it names the package's BSS and constants and never a code label: a
+`call` into the package cannot assemble, and a hook does all of its work
+itself. Its row is a lazy `OP_SEG` row, one a family in `bbcourse.FAMILIES`'
+order after every other row: family ID `n` is row `BZ_P_FAM + n - 1`
+(`bzcourse.inc`'s `BZ_FAM_PARTS`, `BZ_NFAM` rows; the Makefile's
+`BZ_FAMPARTS` in the same order, which `os88pkg` holds to the row count).
+**Every family row is `OP_COMP`**: one plain lazy row would assemble the
+parts standard's plain-row path, 86 resident bytes (MEASURED), so a part LZB
+cannot shrink carries zeros until it can (the probe's 48).
+
+The launch's fetch is **`bz_ffetch`** (bzfam.inc), called right after
+`bz_crshdr` in `bz_cload`: for each family of the course's list it fetches the
+row, takes its DATA and CODE segments (`op_seg`, `op_cseg`: on kern_mega the
+code selector the far call needs), checks `'BF'`, the ID and `FAMV` against
+the course's (a course compiled against other rules) and the image stamp
+against DS:8 / DS:10 (`cmpsw` twice), and on any mismatch refuses the launch
+with the toast `Bonanza: bad part` (the shell part's, now shared) before any
+call - said through `op_say`, so OP_SAYGATE (`bz_fs`) holds it quiet when the
+fetch is a game round's inside the bracket (SPEC.md 53.7), as op_fetch's own
+refusals are; then it ORs the mask into `bz_fhk` and counts `bz_fnf`. Its slot record
+(`bz_frec`, 6 bytes a slot) is the two segments and the listed ID / `FAMV`.
+**No kind table**: `bz_fone` finds an element's family by each fetched
+part's own run of kinds (+9, +10), three compares at most, so `BZ_FKMAX`
+went with it. **A part already here is not read again**, so calling
+`bz_ffetch` a second time after anything that may MOVE a part (the arena's
+batch, 128.25.4) re-takes every segment and fetches nothing: the segments
+are never held across a fetch. **As integrated with the arena**, `bz_cload`
+runs `bz_crshdr`, `bz_ffetch` (a refusal ends the load), `bz_arload` (the
+batch's end), then `bz_ffetch` again; the family rows are `OP_ARENA` code
+rows (128.25.4.3). `bz_cdrop` drops the family rows FIRST, the
+reverse of the fetch order, and zeroes `bz_fhk` and `bz_fnf` (one word); a
+row the course did not fetch is a no-op, and a build with no family
+(`BZ_NFAM` 0) assembles no loop, which would otherwise end at `BZ_P_FAM - 1`,
+the title demo's row.
+
 ##### 128.25.6.3 The hooks
 
 Each is called with the family's slot in AL, the element (its prop index)
@@ -276514,7 +277358,7 @@ are chosen OUTSIDE the routines 128.24's D3 changes (128.25.2).
 
 | bit | hook | when | its site (none of them D3's) | what it may do |
 |---|---|---|---|---|
-| 0 | `RESET` | play start (also a replay's and a retry's), a respawn, with the class in AH (128.25.7) | `bz_pinit` (play) and `.respawn` (`bz_step`'s, after `bz_place`) | clear its slot, its elements' state bits by class |
+| 0 | `RESET` | play start (also a replay's and a retry's), a respawn, with the class in AH (128.25.7) | `bz_pinit` (play) and `.resp` (`bz_step`'s, BEFORE the place: the sites table below) | clear its slot, its elements' state bits by class |
 | 1 | `ENTER` | the ball's centre enters an element's cell, grounded or airborne (AH bit 0 = airborne) | `bz_wtail`, after the window's refill, when the centre's owner changed | set state bits; start a timer in its slot |
 | 2 | `CONTACT` | the centre is in an element's cell this step (today's `bz_prule` site for kinds at or above `BZ_PK_CKPT`) | `bz_prule`'s kind dispatch: a family kind goes to the hook | as a prop rule today: forces, `gvz`, the material, an exit |
 | 3 | `STEP` | every physics step while the family is active | `.count` (the step's timer block) | count its timers down, wear a pickup off, crack a tile through |
@@ -276532,13 +277376,55 @@ where the step tests its own), so the next step's window reads the new state.
 lane kind: a family's ENTER, CONTACT and STEP hooks set the mark of each
 lane whose true pose they moved, as physics' kick and flag do today.
 
+**PINNED (story 9.1): the register contract.** A hook is entered by `call
+far` with DS = ES = the package, SS the task's, the direction flag clear,
+and:
+
+| reg | at every hook |
+|---|---|
+| AL | the family's SLOT, 0 - 2 (its place in the course's list) |
+| AH | the hook's ARGUMENT: RESET the class (0 a play's start, which clears every class; 1 a respawn, RESPAWN); ENTER bit 0 airborne; CONTACT and POSE the element's kind; STEP and CELL 0 |
+| BX | the ELEMENT's prop index (ENTER, CONTACT, POSE); its record is `[bz_poff] + 32 BX` in `[bz_cseg]` |
+
+Its slot's bytes are `bz_fsl + BZF_SLOT AL` (the part computes the address:
+handing it in DI cost 13 resident bytes). It returns by `retf`; POSE answers
+the pose in AL. It may clobber AX, BX, CX, DX, SI, DI, BP and ES, which the
+dispatcher keeps for the site (POSE's AX excepted), and preserves DS, SS and
+SP; it makes no OS call and uses at most 32 bytes of stack. The direction
+flag is clear by the package's convention (no `cld` is spent). The
+dispatcher is ONE routine with two entries (bzfam.inc): `bz_fall` (AL = the
+hook's bit NUMBER: every family of the course with an entry for it, in slot
+order) and `bz_fone` (DL = a kind: the family whose run holds it); both skip
+a hook whose entry is 0 (so a site need not test the hook's own bit), answer
+AX as the last hook left it (0 none), and call through `call far [bz_ffp]`,
+the entry and the slot's code segment written there first. **BUILT.**
+
+**PINNED (story 9.1): the sites, exactly.**
+
+| hook | its site | the test a course with no family pays |
+|---|---|---|
+| RESET (play) | `bz_pinit`, after `bz_obuild` and before `bz_place`, so the start's refill already reads the reset state | a call to `bz_fall` with no family (once a play: no test spent) |
+| RESET (respawn) | `bz_step`'s `.resp` (every respawn: a fall, a shatter, a RETURN), after the ball's state is zeroed and BEFORE the place (`bz_place` / `bz_rflag`), not after it as first written: the place's refill runs the CELL hook, which must already see the RESPAWN class cleared. The engine clears the class first (`bz_frst`: `bz_fst AND NOT` the course's RESPAWN MASK, 128.25.7.2), then calls the hooks with AH = 1; each family MARKS the lanes whose pose that moved (the probe marks every probe's). A RESET hook reads none of the ball's state | `cmp byte [bz_fhk], 0` (a respawn only) |
+| CELL | the first instruction of `bz_wtail`, once the nine cells are in `bz_nbr` and before its slopes, surface, `bz_wolf` | `test byte [bz_fhk], 32 + 2` (CELL or ENTER), once a refill |
+| ENTER | the end of `bz_wtail`, after `bz_wolf`: when `bz_wcen`'s prop byte differs from what it held before the refill and the new owner is a family kind (16 - 255). Every refill counts, a fallback's included (the model's `_fill` calls) | the same test |
+| CONTACT | `bz_prule`, after its four wave-4 kinds: `cmp ah, BZ_FK0` / `jae` | none beyond the kind compare the dispatch makes |
+| STEP | `bz_step`'s `.count`, before the step counter: every step of every path, a respawn's and a hidden ball's included | `test byte [bz_fhk], 8` |
+| POSE | `bz_ltrue`'s `.post`, after the flag's, clock's and sign's compares | one kind compare, on a post lane only |
+
+**BUILT: `bz_fref`.** The byte after `bz_pokd`, and the step's head tests
+the two as ONE word (the poke's byte test became a word test: the same
+bytes, 4 clk on the 8088's bus). Set by a hook that changed what its CELL
+overlay writes; the next step begins with a full refill (`bz_win9f`) round
+the ball's cell, with no other effect (a poke also zeroes the drag's
+remainders; a refill request does not). Both bytes are cleared there.
+
 ##### 128.25.6.4 Kinds, cells and the course
 
 - **Kinds.** Prop kinds 16 - 255 are FAMILY kinds; a family owns a run of
   them (`+9`). Kinds 11 - 15 stay free for resident props. A family kind is
-  dispatched by `bz_prule` and `bz_ltrue` to its family, through a 240-byte
-  table sized by the largest course rather than by 240 (`BZ_FKMAX`, the
-  tool's).
+  dispatched by `bz_prule` and `bz_ltrue` to its family ~~through a 240-byte
+  table sized by the largest course~~ (BUILT: through no table at all - each
+  fetched part's own run of kinds, 128.25.6.2).
 - **Cells.** An element's cell is marked OBS, and `bz_owner`'s binary search
   finds it, as today: no cell bit is spent (the cell's free bits are
   128.24's and `edge`'s). An element may be WALKABLE (a cracked tile, a glass
@@ -276554,6 +277440,48 @@ lane whose true pose they moved, as physics' kick and flag do today.
   the family list with each `FAMV`, so a family whose rules changed changes
   the identity of every course that names it, and its demos are refused until
   re-authored (`bz_err` 3), exactly as a course edit's are.
+
+**BUILT (story 9.1): the record, the list and the tables.**
+
+- **A family element's record** (32 bytes, 128.12.3.1's): +0 the kind, +1
+  its flags (`PF_LANE` when its family gives the kind art), +2 / +3 its cell,
+  +4 - +7 zero, +8 - +15 the lane as every lane's; **+16 `FSB`**, the first of
+  its state bits in `bz_fst`; **+17 its RESET CLASS** (0 `ATTEMPT`, 1
+  `RESPAWN`, 2 `FLAG`); +18 - +31 the family's own fields (zero unless its
+  `FAMILIES` row names them).
+- **The family list is NOT in BZG1**, as first written: BZG1's 32-byte header
+  is full (+28 - +31 are the flags, the pad mask and the view), and growing it
+  moves every course's cells and so its identity, which a course with no
+  family must keep. It follows the PATHWAY's tables' precedent (128.22.3):
+  **BZC2 +45 `NFAM`** (the count, 1 - 3; 0 none) and **+46 `FAMOFF`** (a word,
+  0 none), a table INSIDE the props, after the lanes' pose maps, the tube
+  segments and the lift's sprite, before the pathway's tables:
+
+  | at FAMOFF | what |
+  |---|---|
+  | +0 | `NFAM` pairs: the family's ID, its `FAMV` (the slot order) |
+  | +2 NFAM | `NFST`: the state bytes this course uses (0 - `BZ_FSTB`) |
+  | +2 NFAM + 1 | the RESPAWN MASK, `NFST` bytes: a bit set for every state bit of a `RESPAWN` element |
+
+  A course with no family has +45 - +47 zero and no table: every one of its
+  bytes, and so its identity and its demos, as before. The identity is over
+  the RAM form, which holds the list with each `FAMV`.
+- **`bzcourse.inc`** gives `BZ_FK0` (16), `BZ_FSTB` (the largest `NFST`, at
+  least 1), `BZ_NFAM`, `BZ_FAM_PARTS`, `BZ_FAMV_<NAME>` (each family's, which
+  its part's +3 assembles from), `BZF_SLOT` (8, the slot's bytes:
+  `bbcourse.FSLOT`, which every `FAMILIES` row's slot fits), `BZF_HDR`, the
+  `BZ_FH_*` bits, `BZC_NFAM` / `BZC_FAMOFF` and `BZP_FSB` / `BZP_FCLS`.
+- **The refusals** (`--selfcheck`'s string cases): `uses` naming an unknown
+  family, the same family twice, or a fourth; a family element of a family
+  the course does not name; a family named and no element of it placed; an
+  element with no reset class (a kind whose row has none takes `reset
+  attempt|respawn`, and only such a kind does); `reset flag` (written, not
+  built: 128.25.7.1); an element on a split cell (128.24.2), on a cell that is
+  not a flat FLOOR with OBS free, or on another prop's cell; a course over 256
+  state bits. Each is a `--selfcheck` case (item 2, "refused (wave 9)") but the
+  last two: no split cell exists until 128.24 lands, and 256 bits needs more
+  elements than a course may have props with a one-bit kind - their refusals
+  are in the code for the families that will reach them.
 
 ##### 128.25.6.5 The per-course limits (Q-91, restated)
 
@@ -276618,6 +277546,16 @@ behind the player would re-open a route the course wants closed, and is
 proved the same way. Wave 9 ships `ATTEMPT` and `RESPAWN`; `FLAG` is written
 here so the state's layout does not change when a course needs it.
 
+**BUILT (story 9.2: `ATTEMPT` and `RESPAWN`). `FLAG`'s layout, reserved.** A `FLAG` element will take
+one more byte, its EPOCH, in a table after the RESPAWN mask (`NFST` + 1 on,
+one a `FLAG` element in record order): `bz_nckpt`'s low byte + 1 when its
+state was first changed, 0 while it is untouched; and the engine will keep
+the epoch each flag was first touched at (8 bytes, `BZ_CKPTMAX`). A respawn at
+flag F restores a `FLAG` element whose epoch is at or after F's: it was
+changed after the flag was reached. Nothing of it is assembled or emitted in
+wave 9: the tool refuses `reset flag` (128.25.6.4), so `bz_fst`, the slots
+and the course's table keep the layout above when a course first needs it.
+
 ##### 128.25.7.2 The state and the grid
 
 - **The state** is a bit array, `bz_fst`, `BZ_FSTMAX` bits (the tool's, the
@@ -276635,6 +277573,35 @@ here so the state's layout does not change when a course needs it.
 - The model holds the same bits and applies the same overlay in `_fill`'s
   place; `bonanzaphys` compares `bz_fst` and the slots at every frame.
 
+**BUILT (story 9.2).**
+
+- `bz_fst` (`BZ_FSTB` bytes) and `bz_fsl` (`3 x BZF_SLOT` bytes) are the last
+  of the state `bz_pinit` zeroes (`bz_phs` - `bz_phe`), so a play's start,
+  a replay's and a retry's clear them with everything else and no code; bit
+  `b` of an element is `bz_fst[b >> 3]` bit `b AND 7`, its first one its
+  record's `FSB`. The tool lays each family element's bits in record order.
+- **A respawn's clear** (`bz_frst`) is `bz_fst[i] AND NOT mask[i]` for the
+  course's `NFST` bytes: the RESPAWN class is a MASK the tool computed, so the
+  engine walks no record and knows no family. `ATTEMPT` bits are in no mask.
+  The family's RESET hook then marks the lanes whose pose went back.
+- **The overlay's rule.** A CELL hook writes, into each `bz_nbr` cell that
+  holds one of its elements, the form that element's state gives it (the
+  window's centre is `bz_nwin`; cell (dx, dy) is at `bz_nbr + 4 (3 (dy + 1) +
+  dx + 1)`). It never needs to restore a cell: a state only goes back at a
+  RESET, and every RESET is followed by a FULL refill (`bz_place`'s), so a
+  cell that `bz_win9i` keeps from the last window is either unchanged or
+  already in its overlaid form. A hook that changes what the overlay writes
+  sets `bz_fref` (128.25.6.3), so the window is never read with a stale form
+  past the step that changed it.
+- **The model's window.** `Physics` reads cells through `cell()`, not a
+  copy, so a course with families gets an instance-level WRAPPER (none of
+  the step's text changes, and a course without families runs exactly the
+  code it ran): `_fill` takes the window's nine cells as the grid has them,
+  lets each family's `cell` rewrite them (the CELL hook), then runs the
+  original `_fill` and then ENTER; `cell()` answers a cell of that snapshot
+  as the snapshot holds it and any other from the grid. The guest reads no
+  cell outside its window, so the two agree everywhere physics looks.
+
 ##### 128.25.7.3 The proofs
 
 - **The reach** covers every state an element can be in: a breakable floor
@@ -276647,6 +277614,33 @@ here so the state's layout does not change when a course needs it.
   naming it.
 - **Every finish reachable with NO pickup** (Q-92): a pickup only shortens a
   route.
+
+**How each proof is built.** Every family kind declares in its `FAMILIES`
+row the CELL FORMS its element can take (`forms`) and the STATES its bits can
+be left in (`states`).
+
+- **NO TRAP under the classes: BUILT.** The model runs from each flag (and
+  pad) as a respawn there finds the world: every `RESPAWN` element cleared
+  (the respawn's own `bz_frst`, the model's `_respawn`), and every `ATTEMPT`
+  element in EACH state its row lists (`trap_presets`: their product, at most
+  64, else each alone), the CELL overlay applied through the model's window.
+  A course where some state leaves no finish reachable is refused, naming
+  the flag and the state. `--selfcheck` item 7 proves the pair with a
+  test-only family whose state makes its cell a WALL, on the only bridge past
+  a flag: under `RESPAWN` it compiles, forced `ATTEMPT` it is refused (the
+  red arm of 128.25.13).
+- **The reach over the superset: the field is BUILT, its first use is
+  GLASS's.** The reach and the occluder cut take a cell with more than one
+  form as each (a broken crack's VOID with its kill height). Wave 9 ships no
+  kind with a form other than its cell's own (the probe's is), and the tool
+  refuses one at import (`FAMILIES`' assertion) until story 9.5 teaches
+  `build_reach` the first other form, so no course can claim a superset the
+  reach did not take.
+- **Every finish with no pickup: BUILT, by construction.** A PICKUP kind is
+  marked `pickup` in its row. The reach takes no family's effect at all, and
+  NO TRAP's model runs with `Physics.nopick` set, under which a pickup
+  kind's ENTER and CONTACT never fire, so every finish they prove is proved
+  with no pickup taken. No pickup kind exists until 9.6.
 
 #### 128.25.8 GLASS, the first family (story 9.5)
 
@@ -276747,6 +277741,16 @@ first new course has landed by then (the owner's plan, 128.25.13).
 
 #### 128.25.11 kern_mega, kern_small, the Hercules
 
+**BUILT for 9.1 (by reading, not on 86Box):** a family part is far-called
+only through its slot's CODE segment, `op_cseg`'s answer taken by
+`bz_ffetch` after the part's fetch (a code selector on kern_mega, the shell
+part's door, 128.19.2), and read only through its DATA segment (`op_seg`):
+the head's kinds and entries are never read through CS. The part writes
+nothing through CS (its tables are the package's bss, through DS). ES is
+put back to the caller's by both the fetch and the dispatcher, so no part's
+selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
+`PKG_MEGA` arm. `bonanzamega` is the row that runs it on 86Box.
+
 - **kern_mega**: a family part is a CODE row; inside the arena it is reached
   through `SEG_SUBC`, whose code half moves with the claim (128.25.4.1), and
   far-called as the shell part is (8a.2's proof). `bonanzamega` plays
@@ -276772,6 +277776,27 @@ first new course has landed by then (the owner's plan, 128.25.13).
 **The image** is 40,181 bytes and the bss 10,660 (MEASURED, `a5bd683c`); the
 wave predicts a net of about -0.5 to +0.5KB once 9.8 lands, and each story
 reports its measured span.
+
+**MEASURED (stories 9.1 and 9.2, against 9.0's 40,207 / 10,664):** the image
+**40,656 (+449)**, the bss **10,714 (+50)**. The +449, as listing spans:
+bzfam.inc 287 (the dispatcher 106, `bz_frst` 54, `bz_ffetch` 127), the sites
+158 (`bz_wtail` 53, `bz_step` 36, `bz_ltrue` 22, `bz_prule` 19, `bz_cdrop` 17,
+`bz_pinit` 6, `bz_cload` 5), the parts table's row 10, and the shared toast's
+shorter text -6. Two choices bought most of the trim from the first build's
++801: the probe's row made `OP_COMP` (the parts standard's plain-row path,
+86) and no kind table and no copied entries (the dispatcher reads the part's
+own head). The bss: `bz_fst`
+1 (`BZ_FSTB`), the slots 24, `bz_fref` 1 and a pad 0 - 1 in the zeroed
+state, and `bz_fhk`, `bz_fnf`, `bz_ffp` (4) and `bz_frec` (18). **The step
+with no family** (MEASURED, unicorn, MOON's and PEAK's demos against 9.0's
+image, the trajectory equal at every step): **+2.0 instructions a step**,
+the STEP site's `test` and its untaken `jnz`; with the poke's byte test made
+a word test, about **+29 clk a step** priced from the listing (17 + 4 for
+the site, +8 for the word on the 8088's bus), and +21 clk a window refill
+(`bz_wtail`'s test): about 0.03k a step, against 128.25.13's 0.1k. On
+PLAYGROUND with the probe the step is +9.0 instructions (every hook a far
+call, the STEP hook every step). **The probe part**: 315 bytes (267 of code
+and header, 48 of zeros so LZB packs it: 255 packed).
 
 #### 128.25.13 The rows, and the old courses
 
@@ -276819,6 +277844,43 @@ that first new course replaces them.
 | Q4 | **The defaults** | as written | **fine to start, tuned in play**; a pickup's duration is a field of each placement (128.25.9) |
 | Q5 | **The glass path's hint** | the dithered outline | **the first tile's jagged edge, the rest invisible until rolled onto**; showing a tile just before it is reached is an option to try for slow exploration (128.25.8) |
 
+#### 128.25.15 The PROBE family (stories 9.1 and 9.2's proof)
+
+The family the framework is proved with, before GLASS: ID 1, `apps/bonanza/
+fam/probe.asm`, one kind, **`probe` (16)**, placed on PLAYGROUND. It changes
+NO physics: every hook is the smallest thing that makes its call visible, so
+the guest is held equal to the model through every hook, and a course that
+names it replays exactly as without it.
+
+| hook | what the probe does |
+|---|---|
+| RESET | counts it in its slot (+0), and MARKS every probe's lane (a respawn may have furled one) |
+| ENTER | counts it (+1), keeps AH (+6), and sets the element's one state bit, TOUCHED; when the bit was clear, marks the element's lane and sets `bz_fref` |
+| CONTACT | counts it (+2, a word) |
+| STEP | counts it (+4, a word) |
+| POSE | answers TOUCHED: the lane is the FLAG's art, furled (0) and flying (1) |
+| CELL | for each TOUCHED probe in the window, sets bit 7 of the cell's +3 in `bz_nbr`: a bit physics reads on a GOAL cell only, so it proves the overlay is written into the window after each refill and is never in the grid |
+
+Its element's class is stated on the line (`prop probe <wx> <wy> reset
+respawn|attempt`), so its row is the one with no class of its own and the
+refusal of an element without one has a case. PLAYGROUND's probe takes
+`respawn`: a fall clears it, which `bz_frst` and the lane's mark prove.
+
+**BUILT.** `bbcourse.ProbeFamily` is its model. PLAYGROUND names it (`uses
+probe`, `prop probe 16 16 reset respawn`): on the apron, where the shipped
+demo rolls grounded for 30 steps, so its replay calls every hook. The demo
+was re-authored and its RUNS are unchanged - only its identity moved
+(9D5Eh -> 06D2h): the probe changes no physics. Its lane is the flag's art,
+furled until the ball first enters the cell. PROVED on the host
+(`tests/bonanza_phys.py --check`, its unicorn half): the guest's `bz_step`
+under unicorn equals the model at every step of PLAYGROUND's demo (1,504
+steps) and of the `probe` scenario (an ENTER at 737, a RETURN 30 steps later
+that clears it, the probe entered again) - the ball, `bz_fst`, the slots,
+`bz_fref`, the window's 36 bytes and the lane's POSE - and on MOON's and
+PEAK's demos with no family; the red arms `famcell` (the CELL entry 0: the
+window parts at 737, the refill after the ENTER) and `famrsp` (`bz_frst` not
+called: `bz_fst` parts at the RETURN) go red there.
+
 ### 128.26 The window (the owner's brief, 2026-11-16)
 
 The owner, after wave 8R: *"bring the desktop window and its interactions up to
@@ -276834,8 +277896,8 @@ ESTIMATED as in 128.18. The plan's stories are
 
 | decision | chosen | why |
 |---|---|---|
-| the face | **pictures and one button, no text**: the title (128.26.2) centred near the top; a LEDGE with the rubber marble on it behind the button, to the right, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred at the bottom. One line of text appears only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief |
-| the size | **resizable** (`WF_SIZABLE`); the face lays itself out from `OSAPI_WM_CONTENT` at every paint, and the button is re-placed before every press (`OS88UI_BT_PLACE`); a minimum (`OSAPI_WM_MINSIZE`) that keeps the button whole | the old size was the text's, not a need |
+| the face | **pictures and one button, no text**: the title (128.26.2) centred near the top; a LEDGE with the rubber marble on it, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred in the space LEFT of the ledge, its middle on the ledge's top face (the owner's mock-up, 2026-11-16 - first it stood at the bottom centre, in front of the ledge). The space between the title and the ledge is kept for a line or two of text later; today one line appears there only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief, and the look once built |
+| the size | **fixed** (`OSAPI_WM_PREFER`'s three sizes, no `WF_SIZABLE`): the art does not scale (the owner, 2026-11-16, reversing the first build's resizable window). The face still lays itself out from `OSAPI_WM_CONTENT` at every paint, and the button is re-placed before every press (`OS88UI_BT_PLACE`), as a clamped size or a moved window needs | the old size was the text's; the new one is the art's |
 | what draws it | the pictures and the ground in the SHELL PART (128.19.2, `BZH_FACE`), each picture one `OSAPI_GFX_BLIT1` and every other pixel one fill, nothing twice; the button in the resident image (the library's gesture is data the part may not write) after the part returns | 128.19.2's part keeps the face out of a play's memory; the button's record and its press are the package's |
 | the keys on the window | **Enter, Alt+Enter and F** are Play Game; **nothing else**. Every instrument key of 128.14.3.2 (B, R, D, W, L, V, N, M, C, G) and the old settings keys (E, T, S, 1 2 3, X) answer only while the harness byte **`bz_dev`** is set (128.26.6) | the brief: the menus carry the settings; the instruments are the rows' |
 | the menus | **Game**: Play Game, Save Replay (F5), Load Replay... (F6), a rule, Explore, Use Mouse, Sound; **Saves**: Load Slot 1 / 2 / 3, a rule, Erase Slot 1 / 2 / 3 (128.26.3) | the brief |

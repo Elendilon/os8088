@@ -432,13 +432,14 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     if r_in[shell_row()][0] & OP_FETCHED:
         fails.append("%s: inside the bracket the SHELL part (row %d) is still fetched: it may never share memory "
                      "with a course (SPEC.md 128.19.2)" % (way, shell_row()))
-    fan = 1 if g.w("bzs_vseg") else 0          # 8R (SPEC.md 128.22.9): a play of a course with music holds the
-                                                # VICTORY fanfare beside its song (a benchmark and a replay do not)
-    snd = 2 if g.w("bzs_pseg") and g.w("bzs_mseg") else 0   # SPEC.md 128.26.5: the window is silent, so the
-                                                # sound part and the course's song are claims the bracket ADDS
-    if len(c_in) != len(base_claims) - 1 + 1 + len(nb) + fan + snd:
-        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + 1 + %d "
-                     "balls + %d fanfare + %d sound: %s" % (way, len(c_in), len(base_claims), len(nb), fan, snd, c_in))
+    # wave 9 (SPEC.md 128.25.4): the balls, the sound part, the song and the fanfare are ONE claim, the ARENA,
+    # so a play holds the course and the arena - the shell gone, the desktop title's arena (if it had one)
+    # become the play's: two claims however many balls, and no fanfare term
+    ar_in = 1 if g.w("op_arena") else 0
+    if len(c_in) != len(base_claims) - 1 + 1 - g.ar0 + ar_in or not ar_in:
+        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + the "
+                     "course + the arena (%d on the desktop, %d here): %s" % (way, len(c_in), len(base_claims),
+                                                                         g.ar0, ar_in, c_in))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
@@ -850,6 +851,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         m = g.m
         m.pause()
         base_rows, base_claims = rows(g), claims(g)
+        g.ar0 = 1 if g.w("op_arena") else 0     # the title's arena (128.25.4): one claim on the desktop
         m.run()
         nlazy = sum(1 for f, _ in base_rows if f & OP_LAZY)
         print("%s: %d part rows (%d lazy), none fetched on the desktop: %s; the instance's claims %s" % (
@@ -923,8 +925,9 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
 BALL_ROW0, CRS_ROW0 = 0, 3                  # SPEC.md 128.11.3.1: BZ_P_BALR, BZ_P_CRS
 REDS = {
     # the goal path does not drop the course's row: bz_fin is set only by a play that reached the goal
-    "leak": [("bonanza.asm", "    jb .dball\n    mov al, [bz_pc]\n",
-              "    jb .dball\n    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n"
+    "leak": [("bonanza.asm", "    call op_areserve            ; into given back (a refused first fetch)\n"
+              "    mov al, [bz_pc]\n",
+              "    call op_areserve\n    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n"
               "    jne .redleak\n    mov al, [bz_pc]\n"),
              ("bonanza.asm", "    call op_drop\n%if BZ_PATH_NPAD\n.held:\n%endif\n",
               "    call op_drop\n.redleak:\n%if BZ_PATH_NPAD\n.held:\n%endif\n")],
@@ -934,7 +937,7 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-REDS["padleak"] = [("bonanza.asm", ".dball:\n"
+REDS["padleak"] = [("bonanza.asm", ".dball:                         ; fetch order backwards (SPEC.md 128.25.4.2)\n"
                     "    call op_drop                ; (it preserves AX)\n",
                     ".dball:                         ; RED padleak: the glass ball kept at the cup\n"
                     "    cmp al, BZ_P_BALG\n    jne .rpl\n    cmp byte [bz_hid], 0\n    jne .rpl2\n.rpl:\n"

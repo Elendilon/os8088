@@ -9,39 +9,17 @@
 BZ_BW       equ 96              ; the Play Game button: its width ...
 BZ_BH_S     equ 14              ; ...its height, SHORT (a 640 x 200 desktop) ...
 BZ_BH_T     equ 20              ; ...and TALL
-BZ_BM_S     equ 4               ; ...its foot's margin, SHORT and TALL
-BZ_BM_T     equ 8
+BZ_BY_S     equ 17              ; ...its top below the ledge picture's, SHORT and
+BZ_BY_T     equ 38              ; TALL: centred on the ledge's top face (the owner's
+                                ; mock-up, 2026-11-16), left of the ledge
 BZ_SU_PATH  equ 1               ; [bz_susp]: the window was asked for from the
 BZ_SU_CRS   equ 2               ; pathway, or from inside a course (128.26.4)
 BZ_KSC_F5   equ 3fh             ; F5 and F6's make codes (128.26.3)
 BZ_KSC_F6   equ 40h
 
-; the window's size on VGA / Hercules / CGA, and the least the face needs: the
-; title across, and the title, the ledge and the button down (frame included)
+; the window's size on VGA / Hercules / CGA: FIXED (the art does not scale,
+; SPEC.md 128.26.1)
     OS88_PREFER bz_sizes, 440, 260,  440, 230,  440, 128
-BZW_MINW    equ BZW_TITLE_S_W + 32
-BZW_MINH_S  equ BZW_TITLE_S_H + BZW_LEDGE_S_H + 48
-BZW_MINH_T  equ BZW_TITLE_T_H + BZW_LEDGE_T_H + 48
-
-; bz_winmin - OSAPI_WM_MINSIZE for the display the window is on.  Preserves all
-; but the flags.
-bz_winmin:
-    call bz_bplace              ; ([bz_wtall])
-    push bx
-    push cx
-    push dx
-    mov bx, [bz_win]
-    mov cx, BZW_MINW
-    mov dx, BZW_MINH_S
-    cmp byte [bz_wtall], 0
-    je .s
-    mov dx, BZW_MINH_T
-.s:
-    call OSAPI_WM_MINSIZE
-    pop dx
-    pop cx
-    pop bx
-    ret
 
     OS88UI_BTNREC bz_btrec, bz_btr, bz_btlab, bz_btfl, 1, bz_bplace
 bz_btlab:   dw bz_s_play
@@ -192,33 +170,40 @@ bz_bplace:
     xor ax, ax
 .f:
     mov [bz_btfl], ax
-    mov bx, [bz_win]
-    call OSAPI_WM_GEOM          ; CX, DX = the content's size
-    push cx
-    push dx
-    call OSAPI_WM_CONTENT       ; AX, DX = its origin
+    mov bx, [bz_win]            ; THE PLACE (SPEC.md 128.26.1): centred in the
+    call OSAPI_WM_GEOM          ; space left of the ledge, its middle on the
+    push cx                     ; ledge's top face - the ledge's own place is
+    push dx                     ; bzwface.inc's, worked the same way
+    call OSAPI_WM_CONTENT       ; AX, DX = the content's origin
     pop bx                      ; BX = its height
     pop cx                      ; CX = its width
+    mov si, BZW_LEDGE_S_H + BZW_LBOT_S - BZ_BY_S
+    mov di, BZ_BH_S
+    cmp byte [bz_wtall], 0
+    je .s
+    mov si, BZW_LEDGE_T_H + BZW_LBOT_T - BZ_BY_T
+    mov di, BZ_BH_T
+.s:
+    add dx, bx
+    sub dx, si                  ; DX = y1: the ledge picture's top + BZ_BY
+    mov [bz_btr + 2], dx
+    add dx, di
+    dec dx
+    mov [bz_btr + 6], dx        ; y2
+    sub cx, BZW_LEDGE_S_W       ; CX = the ledge's left, content-relative (as
+    add cx, ax                  ; the face rounds it: up to a screen byte)
+    add cx, 7
+    and cx, 0fff8h
+    sub cx, ax
     sub cx, BZ_BW
     sar cx, 1
+    jns .x
+    xor cx, cx
+.x:
     add cx, ax
     mov [bz_btr], cx            ; x1
     add cx, BZ_BW - 1
     mov [bz_btr + 4], cx        ; x2
-    add dx, bx                  ; DX = the content's foot, exclusive
-    mov ax, BZ_BM_S
-    mov cx, BZ_BH_S
-    cmp byte [bz_wtall], 0
-    je .s
-    mov ax, BZ_BM_T
-    mov cx, BZ_BH_T
-.s:
-    sub dx, ax
-    dec dx
-    mov [bz_btr + 6], dx        ; y2
-    sub dx, cx
-    inc dx
-    mov [bz_btr + 2], dx        ; y1
     pop di
     pop si
     pop dx
