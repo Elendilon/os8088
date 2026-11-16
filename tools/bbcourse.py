@@ -11019,8 +11019,6 @@ def emit_inc(courses, path=None, title=None):
               "BZ_FH_PROP      equ %d       ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone only, entry +24" % H_PROP] + [
               "BZ_FK_%-9s equ %d       ; story 9.8: the %s's family KEY (bz_fone's DL; its record keeps kind %d)"
               % (PK_NAMES[k].upper(), v, PK_NAMES[k], k) for k, v in sorted(OWN_KEY.items())] + [
-              "BZ_FHMASK       equ %04Xh    ; the RESIDENT families (SPEC.md 128.25.6.9): bit ID - 1" % sum(
-                  1 << (f["id"] - 1) for f in FAMILIES if f["home"] == HOME_RESIDENT),
               "BZC_NFAM        equ 45       ; BZC2 +45: the course's families, 0 - 3",
               "BZC_FAMOFF      equ 46       ; BZC2 +46: its FAMILY LIST (ID, FAMV pairs; NFST; the RESPAWN mask)",
               "BZP_FSB         equ 16       ; a FAMILY ELEMENT: its first state bit in bz_fst",
