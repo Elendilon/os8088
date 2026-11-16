@@ -109,6 +109,13 @@ bz_fullscreen:
 %if BZ_PATH_N
     cmp byte [bz_ingame], 0     ; wave 8b (128.19.5): THE GAME - the pathway
     je .one                     ; and its courses, round after round, in
+ %if BZ_TITLE
+    cmp byte [bz_ingame], 2     ; (SPEC.md 128.23.4: THE TITLE's rounds, the
+    jne .g8                     ; game among them)
+    call bz_tround
+    jmp short .leave
+.g8:
+ %endif
     call bz_grounds             ; this one bracket (bonanza.asm)
     jmp short .leave
 .one:
