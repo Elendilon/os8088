@@ -274161,6 +274161,7 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | `+ 3` | *Windmill Lane* (C, a 3/4 street-organ waltz) | 898 | 581 |
 | `+ 4` | *Moonlit Green* (A minor, swung 102) | 972 | 684 |
 | `+ 5` | *Summit Rush* (E minor, 164) | 1,030 | 763 |
+| `+ 6` | *Victory*, the finish's fanfare (128.22.9) | 224 | 177 (zlib) |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
@@ -274541,7 +274542,7 @@ diagonal claiming it, or to none if two do (the tool prints it and the
 author moves a route). Two routes leaving one pad in one direction are
 refused. The guest only reads the table.
 
-#### 128.22.5 The save (PLANNED)
+#### 128.22.5 The save (BUILT)
 
 The slot keeps 128.19.6's rules and grows the map: **`BZS3`** (`BZS2` is
 read: its slots kept where their pathway identity is this build's, which a
@@ -274556,9 +274557,51 @@ pathway's identity, +22 the exits found (a word a course K, 16 courses,
 a course's ENTRY as today, and at a pad's ARRIVAL only when the bracket
 ends (no `int 13h` on the pathway: a write is ~0.4 s).
 
-#### 128.22.6 The finish and the cards (PLANNED)
+**BUILT (wave 8R, shell).** The file is **304 bytes** (`BZD_FILE` = 64 + 3 x
+80), one sector, one `od_write`; `BZD_FILE2` (208) is `BZS2`'s and `BZD_SIZE`
+(64) `BZT1`'s, both still read. In memory the slot's 16 bytes +4 - +19 are
+`bz_nopen`, `bz_ndone`, `bz_nrop`, `bz_nrtk` (dwords, in that order, so
+`bz_gload` and `bz_gstore` are one `rep movsw` each) and +2 is `bz_ppad`;
+`bz_gnew` makes a new game's slot, `bz_dwbit` / `bz_dwset` / `bz_dwtst` are the
+bit accessors the pathway's loop calls (AL = bit 0 - 31, SI = the dword). The
+reader (`bz_dslots`) judges each slot alone and EMPTIES it when: its lives are
+over `BZ_LIVES`; +1 has a bit but the mode's; +3 is not zero; a route is
+taken that is not opened; the exits found of a course that does not exist, or
++70 - +79, are not zero; or, with lives, pad 0 is not open, the identity is
+not this build's pathway's, the pad is not one of the pathway's (`BZD_NPAD`:
+`BZ_PATH_NPAD` once the tool emits it, the prototype's `BZ_PATH_N` nodes
+until then - the loop indexes the part's tables by it), or, in TIMED mode,
+the pad is not open. An EXPLORE slot's pad need not be open: exploration
+rests on any pad and adds none to the open set (128.19.8), and the first
+build of this reader emptied such a slot - its exits found and bests with
+it (found by the story's verify). The open, done and route bits past the
+pathway's pads and routes are not judged: nothing reads them. **Deviation
+from the text above:** a `BZS2` file's slots are always emptied rather than
+kept where the identity matches - a `BZS2` slot's identity is the wave 8b
+pathway's, which this build's can never equal, so converting the layout would
+be dead code; its bests are kept as ever. The 8 courses' best table stays
+(+54 - +69). The prototype pathway's loop (`bz_grounds`) stores the pad of
+the course it enters (`bz_gnode`) BEFORE the entry's write, so the slot the
+entry writes has the marble on the pad it played, and sets the bit of the
+route (edge) a finish opened in `bz_nrop`; nothing reads either until the
+pathway's loop (128.22.4) does.
+`tests/bonanza_game.py`'s hostile set carries `BZS3`'s cases (`magic`, `v1`,
+`v2`, `slot`, `pad`, `zero3`, `explore`; red arm `explorepad`).
 
-- **The FINISH SEQUENCE** (any course, a play or the game; not in a
+MEASURED (wave 8R, shell, whole story: slot v3, the cards, the hold, and
+its verify's fixes): the package's image 36,184 -> 36,697 bytes (+513; the
+verify's share +17: the EXPLORE pad, NOT SAVED's last-write byte, the info
+card kept off the pause card) and its bss 9,080 -> 9,324 (+244: the file's
+image and merge copy each grew 96, the card buffer 32, the dword bits and the
+hold's bytes the rest); the INTRO and RESULT cards' code went out in that
+figure. Looked at on MartyPC (CGA and Hercules): the INFO
+card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
+its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
+
+#### 128.22.6 The finish and the cards (PLANNED; the cards' bullets BUILT)
+
+- **The FINISH SEQUENCE (BUILT, wave 8R: `bz_fstart`, `bz_fstep`, `bz_fflash`, `bz_fend`
+  in bzphys.inc; the frame loop and `bz_camera` in bzgame.inc)** (any course, a play or the game; not in a
   replay, a benchmark or a demo, whose ends are the log's): at the step
   `bz_goal` is set, the input is IGNORED, the CLOCK stops (`bz_tsec`
   frozen) and the CAMERA holds (no step, no scroll, not even a pan already
@@ -274567,11 +274610,50 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
   marks the clock lanes, item 6), and the VICTORY tune plays (128.22.9).
   A **GOAL** (checkers) finish leaves the physics running: the ball rolls
   on, and a fall, a shatter or a kill plane in those steps neither kills
-  nor respawns it (the ball simply goes on, or is not drawn once below the
-  window's last line); a **CUP** finish keeps 128.14.4.4's capture (the
-  ball holed out, not drawn). **Enter** ends the sequence at once; Space
-  and the arrows do not. A TIMEOUT runs the same sequence with the clock at
-  0 and the TIMEOUT effect in the tune's place.
+  nor respawns it (the ball simply goes on, clipped to the window as it
+  leaves it, or lies shattered); a **CUP** finish keeps 128.14.4.4's capture (the
+  ball holed out, not drawn). **Enter** ends the sequence at once; Space,
+  the arrows and P do not (Esc, F and Alt+Enter leave as in any play, and
+  the play still FINISHED). A TIMEOUT runs the same sequence with the clock at
+  0 and the TIMEOUT effect in the tune's place. The SCENERY is not frozen:
+  rotors turn and lifts run on with the ball.
+  *As built:* `bz_fcnt` (the steps left PLUS ONE: 0 none ran, 1 run out,
+  which the camera still holds through to the play's last frame) and
+  `bz_ffl` (the flash phase's steps, bit 7 the clock BLANK) are the
+  sequence's whole state, set by `bz_fstart` at the three finish sites (a
+  goal cell, a cup's capture, the timeout) in `bz_mode` 0 only, so a replay,
+  benchmark or demo never runs it. From the step after the finishing step
+  the frame loop runs `bz_fstep` for `bz_step`: the key byte 0 (it enters
+  `bz_step` at `.key2`, so neither the keys, the tilt nor the log's recorder
+  are read - **the play's log is not extended**; a harness's poke is
+  honoured as `.poked`'s) and `bz_t55` held off the next second, so the
+  clock (`bz_tsec`) is frozen while `bz_nstep` RUNS (the scenery's clock).
+  `bz_fend`, on every way out of a play (`bz_t0`'s `.out`), takes the
+  sequence's steps (`FIN_STEPS + 1 - bz_fcnt`) back off `bz_nstep`, so the
+  log's, the face's and the best's time is the finishing step's, zeroes
+  `bz_fcnt` and sets `bz_fin` from `bz_goal` (an Esc in the sequence is a
+  finish too). The sequence is the finishing step plus `FIN_STEPS` = 110 of
+  these. `.respawn` with `bz_goal` or `bz_tout` set makes one gravity step of
+  a fall instead (a kill plane, an open or outside cell): no respawn, no
+  count; a shatter's end in the sequence keeps the ball SHATTERED on its last
+  frame (`bz_mct` held at 1); a cup met in the sequence holes the ball out
+  and changes neither `bz_goal`, `bz_exit` nor the sequence (a timeout stays
+  a timeout); a second goal cell changes nothing (`bz_step`'s goal test is
+  skipped while `bz_goal` is set). `bz_camera` returns the window unchanged
+  with zero `bz_dr`, `bz_dc`, `bz_full` while `bz_fcnt` is set (from the
+  finishing frame itself to the last); the ball is drawn CLIPPED to the
+  window (`bz_addbox`, `bz_blit`) and is gone once wholly outside it - the
+  held window never moves, so nothing outside it is written. `bz_t0` ends
+  the play when `bz_fcnt` is at most 1 or the Enter key is down; neither
+  `bz_input` nor the pause's P is read. The flash writes `bz_tdig` (zero or
+  `bz_tdset`), sets `bz_lcsec` unequal to `bz_tsec` (the walk's clock skip
+  would otherwise hold) and marks every clock lane of `bz_latt`. The
+  VICTORY tune is `bz_fvic`, assembled only under `%ifdef BZ_SONG_VICTORY`
+  (the sound story's): until that is defined the finish keeps `bzsound`'s
+  own goal effect and **this arm is unbuilt and untested**. MEASURED, `make
+  bonanza`: image 36,184 to 36,527 bytes (+343, the tune's arm excluded;
+  the first cut's +302 and the verify's +41), bss +2 (`bz_fcnt`, `bz_ffl`);
+  the pathway course is not excluded.
 - **The tool's rule**: every finish of every course has a CLOCK whose digit
   lanes all lie inside a CGA window (320 x 200 world px) centred on the
   finish (a goal cell's centre, a cup's) - refused otherwise, naming the
@@ -274580,11 +274662,26 @@ ends (no `int 13h` on the pathway: a write is ~0.4 s).
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
   n OF m`; and `NOT SAVED` while the last write was refused.
+  **BUILT:** `bz_kinfo` (AL = the course K; `bzcard.inc`) builds the lines in
+  `bz_kbuf` and draws them with `bz_card`; `bz_kinfow` draws and then WAITS for
+  a key as `bz_pause` waits (`bz_clk_sample`, `bzs_frame`, the discarded
+  sub-ticks) and sets `bz_freq`. `LIMIT` is `bz_clims`, `GOLD` and `SILVER` the
+  medals' steps over `BZ_SECSTEPS`, `BEST` the played slot's best (steps x 2 /
+  11 tenths) with its medal, `EXITS` the bits of the slot's word for K and
+  `bz_cnex`'s count - `BZ_CRS_NEXITS` of `bzcourse.inc` once the tool emits it,
+  until then the course sources' (only TRIAL has two) - and `NOT SAVED` is
+  `bz_dwf`, the LAST write's outcome (`bz_dwrite`'s, inside the bracket or
+  on the desktop; `bz_datw` is only the once-a-session toast's). **The hook
+  for now:** Space on the PROTOTYPE pathway (`bz_exitchk`, `bzgame.inc`: a
+  typed Space while `bz_crs` is the pathway and the pause card is not up)
+  shows node 0's course's card; the pad loop replaces the course.
 - **Removed**: the INTRO card and the RESULT card (`bz_kintro`,
   `bz_kresult`). The GAME OVER card stays (`bz_kover`), and is followed by
-  the title.
+  the title. **BUILT:** `bz_kintro`, `bz_kresult` and their strings are gone;
+  `bz_grounds` fetches a course straight from the pathway and goes straight
+  back to it.
 
-#### 128.22.7 Memory: the pathway HELD (PLANNED)
+#### 128.22.7 Memory: the pathway HELD (BUILT)
 
 At the game's entry the pathway's part is fetched and kept (`bz_phold`) if
 the heap's largest free block, the pathway's claim held, still takes
@@ -274593,6 +274690,33 @@ before every course fetch and fetched again after, as 128.19.5 does. A
 held pathway re-enters with no `int 13h`: the full write and its tables'
 pose pass only. Proved by `bonanzapath` both ways (the fallback forced by a
 harness byte, `bz_phforce`).
+
+**BUILT (wave 8R, shell).** What is held is the pathway's PART (its row's claim,
+fetched, expanded and, on the Hercules, translated once), `[bz_phold]` = 1: a
+held entry (`bz_phfetch` = `bz_cload` with `[bz_phre]` set) skips `op_fetch`,
+`bz_cexp` and the part's translation (`bz_hxlat` goes to the balls) and
+copies the header again; the ball rows and the song are given back and read
+again around a course as before (the ball rows are shared with the courses'
+and a held ball would be translated twice), so a held re-entry reads the ball
+and the song from the disk - the part's read and expand are what it saves.
+`bz_cdrop` leaves a held pathway's part, `bz_phrel` (after the pathway's
+balls, song and sound part are given back, before a course is fetched) drops
+it unless `MEMP_AVAIL` (paragraphs) still takes `BZ_CRS_MAXCLAIM`, `bz_phfree`
+drops it whatever (the game's end, every way out of `bz_game8`: Esc, the
+game over, a refused fetch, a refused mode set). The decision is remade at
+every course: a pathway fetched again is held again. `BZ_CRS_MAXCLAIM` is a
+sum of CLAIMS, `op_lazyp`'s and not the parts' lengths - a compressed row
+claims R and the read of its packed bytes in whole clusters - over the
+largest course, every ball, the largest song and the sound part, which
+come and go together; `bonanza.asm`'s bound until the tool emits it is
+**5,760** paragraphs (PEAK's 3,008 for its 46,584 bytes on a 1KB-cluster
+disk, the balls' 2,336, a song's 192, the sound part's 160: 5,696; the
+first build's 5,000 summed the lengths, and too low a figure keeps the
+pathway where the course then cannot be had). The tool runs before the
+parts are packed, so its figure is a bound per claim of `len + 512 + 2
+clusters` (at most 2,560 bytes over the length on the shipped disks).
+`BZ_PATH_CLAIM` is not used: the comparison is made with the pathway's claim
+held, which is what `MEMP_AVAIL` then answers.
 
 #### 128.22.8 The art (BUILT - generators, files and previews; not yet seen in the guest. PROVISIONAL: the owner's to refine)
 
@@ -274653,14 +274777,126 @@ harness byte, `bz_phforce`).
   bar between them across the route, the bar sinking into the floor over
   poses 1 - 4.
 
-#### 128.22.9 Sounds (PLANNED)
+#### 128.22.9 Sounds (BUILT, the owner's ear still to come)
 
-Five shell events through 128.20's bank and players (the speaker and the
-AdLib): **PAD** (a short chime, arriving), **GATE** (the gate opening,
-about 0.5 s), **LIFE** (a life lost), **OVER** (game over), and the
-**VICTORY** tune: a short song of at most `FIN_STEPS` sub-ticks
-(`apps/bonanza/music/victory.bmu`), played over the finish sequence in the
-course song's place. Rolling makes no sound.
+Four shell events through 128.20's bank and both players (the speaker and the
+AdLib) and the VICTORY tune. Nothing in the players changed: an event is an
+effect in `bank.bmb` and a column of the event map, the tune a song. Rolling
+makes no sound.
+
+| event (`BZS_EV_*` = the generated `BZS_E_*`) | effect | sub-ticks | shape | prio |
+|---|---|---|---|---|
+| `BZS_EV_PAD` = `BZS_E_ARRIVE` (the marble arrives on a pad) | `chime` | 12 (0.22 s) | a glockenspiel G6 then C7, a bright rising pair | 4 |
+| `BZS_EV_GATE` = `BZS_E_GATE` (a gate opens) | `gate` | 27 (0.49 s) | a glass slide from C4 up ~2 octaves (22/16 semitone a sub-tick, a shimmer of jitter), then a C7 ping and an E7 ring | 5 |
+| `BZS_EV_LIFE` = `BZS_E_LIFE` (a life lost) | `lifelost` | 22 (0.40 s) | rubber's E5, C5, G4, then E4 sagging | 6 |
+| `BZS_EV_OVER` = `BZS_E_OVER` (game over) | `gameover` | 82 (1.50 s) | the bell: A4, E4, C4, A3 (A minor falling), then a long A2 toll | 7 |
+
+All four are `all=` (one effect for the three balls), and none is the wave-7
+`PAD` (a pad's swap, `BZS_E_PAD`): the new name is `ARRIVE` because 128.18.6
+took `PAD`. **Calling one**: `mov al, BZS_EV_x` then `call bzs_ev` - the
+shared-effect trigger `bzs_events` uses for the clock, with the material
+column 0; it does nothing with no arm open (sound OFF, a part not had), works
+in the bracket and over the desktop's title, and preserves every register.
+LIFE outranks the FALL before it, OVER outranks LIFE, and one effect plays at
+a time as everywhere (128.20.5).
+
+**The tune.** `apps/bonanza/music/victory.bmu`, appended to the tool's
+`SONGS` and the Makefile's `BZ_SONGS` (song `BZ_SONG_VICTORY`, in the
+generated `bzsnd.inc`; part row `BZ_P_SONG + BZ_SONG_VICTORY`): C major at
+164 BPM (a row is five sub-ticks), two patterns of 11 rows = **exactly 110
+sub-ticks** (`BZ_FIN_STEPS`), a trumpet lead climbing a C triad and landing
+on C, then IV - V - I and the C held to sub-tick 109, over a plucked bass,
+off-beat chord stabs and a drum roll; a **third pattern of silence is the
+last order row and `loop` points at it**, so the song does not repeat. On
+the speaker the lead is the whole tune (the fold: effect, drum blip, lead,
+bass where the lead rests) - the selfcheck holds that the speaker plays
+every lead note's Hz in order. **`bzs_victory`** starts it with **no disk
+read** (the owner's finish must not stall): `bzs_gfetch` fetches the fanfare
+beside the course's song at the play's start (a second song claim,
+`bzs_vseg`: 224 bytes in one 512-byte heap granule, and one more part read
+at launch) - for a PLAY (`bz_mode` 0) of a COURSE (`bz_crs` < `BZ_NCRS`)
+with music (AUTO or SPEAKER) only, the one thing with a finish sequence: a
+replay, a benchmark, a title or course demo, the pathway and the title
+course fetch nothing more. `bzs_victory` points the sequencer at it and
+starts from its top; `bzs_gdrop0` gives both back on every way a play ends
+(`tests/pins.txt` keys the claim by `bzs_vseg`). Nothing on a TIMEOUT
+(`bz_goal` 0: its own effect plays), under EFFECTS ONLY or with no arm, and
+a fanfare not had leaves the course's song playing. The finish sequence
+calls it once at its start. **The fanfare replaces the GOAL effect**: with
+the fanfare had (`bzs_vseg` non-zero) `bzs_events` plays no GOAL effect in
+the bracket - the finish sequence runs on after the goal step, so the effect
+would otherwise cover the fanfare's first half-second on the speaker, and
+the goal step can end a frame before `bzs_victory` runs, so the test is the
+claim and not `bzs_vic` - and when the fanfare played (`bzs_vic`)
+`bzs_gdrop0` does not set the desktop's `bzs_goalp`, so the title after a
+finish comes back without a second fanfare; a play that ends to the desktop
+without the fanfare (a replay, a fetch refused, EFFECTS ONLY) still gets the
+GOAL effect there.
+
+**Claims.** A play holds the course, up to three balls, the sound part, the
+course's song and now the fanfare: SEVEN of `MEM_OWNER_MAX`'s eight data
+claims on a three-ball course (128.20.7's "two claims" of sound are three
+during a play). With 128.22.7's HELD pathway beside a course that is
+**eight of eight**: it fits, with nothing to spare, and the fanfare is the
+last fetch of a launch, so a claim refused there costs only the fanfare
+(op_fetch's toast, the course's song plays on). kern_mega allows twelve.
+
+**Calling the events, for the guest and the shell.** `bzs_ev` only puts the
+effect in its slot; it SOUNDS as `bzs_frame` (the bracket) or the desktop's
+timer steps it. So an event is called while a play's arm is open and its
+frames run after it - LIFE on the pathway's play, as 128.22.4.2 places it -
+and an event called after `bzs_close` (between two rounds, or under
+`bz_kwait`'s GAME OVER card, which steps no sound) is silent: OVER has to be
+called inside the pathway's play before the card, or the card's wait has to
+step the sound.
+
+`NON_COURSE` in `tools/bbmusic.py` (`victory`, and the title session's
+`attract`) keeps a course from wrapping onto either: `bbcourse.course_song`
+counts the songs that are not in it - which holds only while every
+`NON_COURSE` song comes AFTER the course songs in `SONGS`, so both are
+appended, never inserted (every course's song is unchanged: 1, 1, 2, 3, 4,
+5, 1 for BENCH to PLAYGROUND, before and after). A course's `music` may not
+name `victory` (the finish's, refused like `title`); it may name `attract`,
+which is how 128.23's title course picks its song. With `victory` song 6,
+128.23's `attract` is song **7** when it lands: `BZ_SONGS` and
+`BZ_SNDPARTS`' list (`0 1 2 3 4 5 6`) each gain it, and both indices come
+from the generated `bzsnd.inc` by name, never by number.
+
+**Found on the way, fixed**: `bbmusic.py` read `;` only as a comment, so
+every multi-segment effect in the bank kept ONE segment (a one-line effect
+its first; a continued one its segments' fields MERGED, the last written of
+each, legato and all) since 128.20 was built - against the bank's own
+grammar line (`sfx NAME ... : SEGMENT ; SEGMENT ...`) and 128.20.5's own
+words (steel's "two pitches a tritone apart, a sub-tick each, then the ring
+falling"; the goal's arpeggio). A `;` after content and followed by nothing
+or `t=` is now the segment separator, and `--selfcheck`'s `seg_problems`
+holds every effect to the number of `n=` its raw source writes (red on the
+old reading: 25 effects). The 21 existing effects that change, sub-ticks
+before -> after: `r_bounce` 9 -> 11, `r_bump` 6 -> 16, `r_knock` 4 -> 6,
+`s_land` 1 -> 6, `s_bounce` 1 -> 9, `s_wall` 5 -> 7, `s_bump` 10 -> 12,
+`s_knock` 2 -> 10, `s_stun` 2 -> 21, `g_land` 3 -> 4, `g_bounce` 3 -> 6,
+`g_wall` 3 -> 4, `g_bump` 4 -> 8, `g_knock` 3 -> 5, `g_shat` 4 -> 19,
+`boost` 14 -> 16, `goal` 4 -> 26, `flag` 4 -> 14, `pad` 6 -> 14, `spring`
+12 -> 15, `low` 4 -> 12 (the other nine, one segment each, are unchanged).
+**BZSND.BIN +264 bytes** from the fix alone. Longer effects are more frames
+with an effect sounding, so 128.20.7's EFFECTS figures are the final pass's
+`bonanzasound` to re-take. The owner's ear to confirm.
+
+**MEASURED** (the tool, the build): `BZSND.BIN` 972 -> 984 (the four event
+columns, 12 bytes) -> 1,248 (the fix) -> **1,356** (the four effects, +108:
+records of 15, 21, 27 and 33 bytes and their pointers); **the song 224
+bytes** (177 under zlib) in its own part; **the resident image +151
+bytes**, bss +3 (`bzs_vic`, `bzs_vseg`), on the tree with the title merged
+(`bonanza.bin` 37,032 to 37,183, bss 9,119): +116 for `bzs_ev`,
+`bzs_victory` and the fetch (+126 on the sound branch's own tree, 36,184 to
+36,310 - jump encodings), then +35 for the verify's gates (the fetch's three
+tests, the timeout test, the GOAL test). The per-sub-tick path is the existing effect segment's and
+the song's, unchanged, so a sub-tick with a new event costs what the same
+length of an existing effect does (128.20.7); **not measured on MartyPC
+here** (`bonanzasound` prices a frame and runs in the final pass).
+Host renders of each event and the tune, speaker and AdLib, are
+`tools/bbmusic.py wav --event NAME` (and `--song 6`). Nothing here has been
+HEARD.
 
 #### 128.22.10 The rows (PLANNED)
 
