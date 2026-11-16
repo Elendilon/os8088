@@ -25,6 +25,8 @@
 course MILL "Windmill Lane"
 width 64
 ball rubber
+# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9)
+uses rotor tube
 
 # A, the start tier, and the windmills' house behind it
 floor rect  6  9 11 14  flat 16

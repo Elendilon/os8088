@@ -272820,6 +272820,12 @@ the shell's.
   non-zero, `op_areserve` reserves nothing and the arena is claimed from the
   ceiling, so the batch's next growth MOVES it (20.12.15). NOT driven by any
   row yet: `bonanzamega`'s forced-move leg (128.25.13) is to be written on it.
+  **Since story 9.8 (128.25.6.9) the arena is claimed at `bz_entry`** by
+  the RESIDENT families' bundle's fetch, before any harness can set the
+  byte, so the ceiling claim no longer happens in a session: the forced-move
+  leg must arrange its move another way (a claim pressed against the
+  arena's top before the launch, or the byte honoured by `op_arset`'s
+  REGROW arm), or set the byte before the package starts.
   SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
   `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
   2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
@@ -273016,10 +273022,15 @@ header is **24 bytes** (`BZF_HDR`; bits 6 and 7 have no entry). The part is
 `apps/bonanza/fam/<name>.asm`, linked against `bzlink.inc` as the shell part
 is, so it names the package's BSS and constants and never a code label: a
 `call` into the package cannot assemble, and a hook does all of its work
-itself. Its row is a lazy `OP_SEG` row, one a family in `bbcourse.FAMILIES`'
-order after every other row: family ID `n` is row `BZ_P_FAM + n - 1`
-(`bzcourse.inc`'s `BZ_FAM_PARTS`, `BZ_NFAM` rows; the Makefile's
-`BZ_FAMPARTS` in the same order, which `os88pkg` holds to the row count).
+itself. Its row is a lazy `OP_SEG` row after every other row: one a
+home-`fetch` family, `bbcourse.FAMILIES`' order, from `BZ_P_FAM`, and then
+ONE row for every home-`resident` family together, the RESIDENT BUNDLE
+(`BZ_P_FBUN`, 128.25.6.9). `bzcourse.inc`'s `BZ_FTAB` maps an ID to its row
+(`bz_ftab`, one byte an ID, `xlat`), `BZ_FAM_PARTS` emits the rows
+(`BZ_NFROW` of them), and `tools/bbcourse.py famparts` prints the Makefile's
+`--part` list for them in the same order, which `os88pkg` holds to the row
+count. (Until the bundle, story 9.8's integration, family ID `n` was row
+`BZ_P_FAM + n - 1`, a row a family.)
 **Every family row is `OP_COMP`**: one plain lazy row would assemble the
 parts standard's plain-row path, 86 resident bytes (MEASURED), so a part LZB
 cannot shrink carries zeros until it can (the probe's 48).
@@ -273045,9 +273056,10 @@ runs `bz_crshdr`, `bz_ffetch` (a refusal ends the load), `bz_arload` (the
 batch's end), then `bz_ffetch` again; the family rows are `OP_ARENA` code
 rows (128.25.4.3). `bz_cdrop` drops the family rows FIRST, the
 reverse of the fetch order, and zeroes `bz_fhk` and `bz_fnf` (one word); a
-row the course did not fetch is a no-op, and a build with no family
-(`BZ_NFAM` 0) assembles no loop, which would otherwise end at `BZ_P_FAM - 1`,
-the title demo's row.
+row the course did not fetch is a no-op, and a build with no fetched family
+(`BZ_NFFETCH` 0) assembles no loop, which would otherwise end at
+`BZ_P_FAM - 1`, the title demo's row. The loop covers the fetch families'
+rows alone: the bundle, the last row, is never dropped.
 
 ##### 128.25.6.3 The hooks
 
@@ -273063,7 +273075,8 @@ are chosen OUTSIDE the routines 128.24's D3 changes (128.25.2).
 | 3 | `STEP` | every physics step while the family is active | `.count` (the step's timer block) | count its timers down, wear a pickup off, crack a tile through |
 | 4 | `POSE` | the lane walk asks an element lane's TRUE pose | `bz_ltrue`'s kind dispatch (bzwheel.inc) | answer the pose from the state bits and the step |
 | 5 | `CELL` | a refilled window holds an element whose state changes its CELL | the START of `bz_wtail`, which `bz_fill` and `bz_win9i` both end in, before it reads the centre's slopes and surface | rewrite that cell's 4 bytes in `bz_nbr` (the WINDOW, never the grid: 128.25.7.2) |
-| 6, 7 | reserved | | | |
+| 6 | `PROP` (story 9.8, 128.25.20) | a prop's physics QUESTION at a site the other hooks do not reach: AH the question (128.25.20.2) | through `bz_fone` ONLY, DL the owning kind (never `bz_fall`): the tube's drain at step 4 (`.w4`, the split path), a capture (a windmill's open door), step 1's transit (`.pst`), a windmill's doorway at step 5 (`.wdoor`, `.ndoor`, `bz_swalls`) | the TUBE's and the ROTOR's rules, answering AL (and AH) |
+| 7 | reserved | | | |
 
 A hook that changes a cell's state in the window asks for the refill step 5
 already makes when a push changes the cell (a new byte, `bz_fref`, tested
@@ -273225,6 +273238,115 @@ What story 9.6 proves by following it for PICKUPS after GLASS:
    scene on PLAYGROUND, its `bonanzaphys` frames, its red arms.
 6. Its `FAMV`, recorded by the tool, and the SPEC.md row in 128.25.8 -
    128.25.10's form.
+
+##### 128.25.6.9 A family's HOME: fetched, or resident (the owner, 2026-11-16)
+
+*"Both, per family"*: where a family's part lives is a build choice made in
+its `FAMILIES` row, `home`.
+
+| home | where the part is | fetched | dropped | the 3-a-course limit (128.25.6.5) | the course's arena reserve (`BZ_CRS_ARENA`) |
+|---|---|---|---|---|---|
+| `fetch` (the default; the probe, GLASS, PICKUPS) | an `OP_ARENA` code row, fetched by the launch of a course that names it (128.25.6.2) | every launch that names it | at every `bz_cdrop` | counted | counted |
+| `resident` (ROTOR, SPRING, TUBE: the owner's "common props always loaded") | inside the RESIDENT BUNDLE, ONE `OP_ARENA` code row for every resident family (below), fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_entry`: one read for them all) | never | NOT counted | NOT counted |
+
+Everything else is as for a fetched family: a course names it with `uses`,
+its `FAMV` is in the course's family list and so in the identity, `bz_ffetch`
+fills its slot record (its `op_fetch` is a no-op - the part is here - and it
+takes the segments again, which a regrow may have moved), and its hooks are
+called exactly as a fetched family's. A course's family list holds its
+fetched families (at most 3) and its resident ones; the slots (`bz_frec`,
+`bz_fsl`) are sized to the longest list the courses have
+(`BZ_FAMMAX`, the tool's, never under 3).
+
+**Why the arena's floor, and not the carve.** The owner's words were "an EAGER
+code part loaded with the package in the carve". MEASURED (`62cdee325`, the
+probe's row made eager): BONANZA's rows are all lazy today, and ONE eager row
+assembles the parts standard's carve path, **+933 image bytes** - more than
+story 9.8 takes out. A row fetched once into the arena at the start and never
+dropped has every property the owner asked for (no fetch at a course's
+launch, never dropped, outside the limit and the reserve, in RAM during
+every play) for about 30 resident bytes. The RAM it costs is the arena's
+floor, always held (128.25.10 measures it), and the package's start pays one
+read a resident family (128.25.10 measures it). If the start's fetch is
+refused (no memory; `op_fetch` toasts why, as any fetch does), a course that
+names the family fetches it then, and it stays (a hole the arena carries
+until the package ends).
+
+**BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FID_<NAME>`
+and `BZ_FAMMAX` (the courses' longest list, at least 3) - and, until the
+bundle, `BZ_FHMASK` (bit ID - 1 a resident family's), which the bundle left
+with no reader and the tool no longer emits; the tool's 3-a-course count and `crs_arena` count
+only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe and GLASS
+`fetch`. As story 9.8 built it each resident family was its own row, fetched
+by `bz_fhome` (a read each, MEASURED +0.9 - 1.1 s at the start, 128.25.10);
+the bundle below replaced that at integration.
+
+**THE RESIDENT BUNDLE (the owner, 2026-11-16: "all resident families in ONE
+bundled part loaded once at start"; BUILT at integration).** Every
+home-`resident` family's part rides ONE part row, `bzfbun.bin`
+(`BZ_P_FBUN`, the last family row), fetched by `bz_entry` right after
+`op_load` with one `op_fetch` - one read instead of one a family - and never
+dropped (`bz_cdrop`'s loop ends below it). The rule:
+
+- **The rows follow `FAMILIES` alone.** A home-`fetch` family has its own
+  row (ID order, from `BZ_P_FAM`); the resident ones share the bundle's.
+  `bbcourse.py` derives everything from the rows' `home`: `BZ_NFFETCH`,
+  `BZ_NFRES`, `BZ_NFROW`, the part rows (`BZ_FAM_PARTS`), the ID -> row table
+  (`BZ_FTAB`), the bundle's contents (`fbundle`, `fam_bundle`) and the
+  Makefile's `--part` list (`famparts`). Moving a family between `fetch` and
+  `resident` is its row's `home` and nothing else; every part is built
+  whatever its home (`BZ_FAMS`), so the bytes of a part are the same in
+  either place.
+- **The bundle is the parts back to back**, `FAMILIES`' order, each from a
+  paragraph (zeros to the next), each part byte for byte its own build but
+  its header's +11 (`BZF_HPARAS`: 0 in a part alone, its PARAGRAPHS in the
+  bundle, the step to the next header; the tool refuses a part whose +11 is
+  not 0 or that is 256 paragraphs or more).
+- **`bz_ffetch` finds a family by walking the headers.** Its row is
+  `bz_ftab`'s; for the bundle's row it takes the bundle's segments
+  (`op_seg`, `op_cseg`) and `bz_fbfind` walks from the bundle's first byte,
+  each header `'BF'` (anything else: CF, the launch refused as for a bad
+  head), stepping by +11 until +2 is the ID. The family's DATA segment is
+  then **`OSAPI_SEG`'s `SEG_SUBC` over the bundle's data segment at that
+  paragraph, its reach the family's paragraphs**: the bundle's segment plus
+  the paragraph on every real-mode kernel (the kernel's own sum), and on
+  kern_mega the DATA half of a code/data PAIR based there - the same pair
+  every time it is asked (the kernel matches base, limit and kind), so the
+  second `bz_ffetch` of a launch and every later launch make none; it is
+  rebased with the arena and goes with it. The family's CODE segment is the
+  same DISTANCE from its data segment as the bundle's code segment is from
+  the bundle's: 0 on a real-mode kernel, -8 for a pair on kern_mega
+  (`OSAPI_SEG`'s pair convention) - so no CPU test is made. Then the head is
+  checked exactly as a fetched family's (`'BF'`, ID, `FAMV`, the stamp).
+- **kern_mega: a pair per resident family (`SEG_SUBC`), chosen over far
+  entries at the bundle's own code selector plus an offset.** The offset
+  scheme would need every part assembled at its bundle offset (its org no
+  longer 0, so a part's bytes would depend on its neighbours and its home)
+  and `bz_fone`'s header reads and the slot record to carry the offset; the
+  pair costs one LDT pair a resident family (three), made once, and leaves
+  every part at org 0 and `bz_fone` as it was. The bundle row itself is an
+  `OP_ARENA` CODE row like any family row (its own `SEG_SUBC` pair, 20.12.15).
+- **Refused at the start** (no memory; `op_fetch` toasts why), the first
+  course that names a resident family fetches the bundle then, as before,
+  and it stays.
+
+**MEASURED at integration** (`make bonanza`, the merged tree's 46,405 before
+it): BONANZA's image **46,429 (+24)**: `bz_fbfind` 64 and `bz_ftab` 5 (one
+byte an ID) in; `bz_ffetch` 126 -> 137 (+11: the `xlat`, the row kept in DL,
+the bundle's test), `bz_fhome` 22 out, `bz_cdrop` 84 -> 68 (-16: no
+resident row to skip), `bz_entry` 126 -> 128, and two part rows fewer (-16);
+bss unchanged. The bundle **1,152 bytes RAM (72 paragraphs, the same floor:
+rotor 13, spring 16, tube 43), 827 packed - the three parts alone were 193 +
+241 + 590 = 1,024 packed, so the disk saves 197 bytes** (one LZB stream
+over three). **The open, MEASURED** (MartyPC, the CGA, guest seconds at 4.77
+MHz from the double-click to the window, one boot): **8.87 s, 6 reads and 85
+sectors** - against 8.71 s (5 / 81) with no resident family and 9.62 - 9.84 s
+(8 / 97) with three rows: the bundle takes back about 0.8 s of story 9.8's
+0.9 - 1.1, its cost now the one read (and its 4 sectors). The desktop's arena
+as before (`op_artop` 72 of `op_arsz` 128); the record SEEN on PEAK's launch:
+rotor at the bundle's segment, spring +13 paragraphs, tube +29 (data and
+code equal: a real-mode kernel). A PEAK launch 5.58 s and a MILL launch 3.93 s
+to the bracket, inside story 9.8's spread (no family is fetched at a launch).
 
 #### 128.25.7 Per-play state and resets (story 9.2)
 
@@ -273438,6 +273560,65 @@ cost when present (`bonanzaperf` on a course that has them). Moving a prop
 changes the identity of every course that has it (its `FAMV` joins the
 course): the old courses are re-stamped once more, or simply dropped if the
 first new course has landed by then (the owner's plan, 128.25.13).
+
+**BUILT (story 9.8, 2026-11-16; 128.25.20 is the design).** MEASURED
+(`make bonanza`, against `62cdee325`): BONANZA's image **46,924 -> 46,372
+(-552)**, its bss **10,970 -> 10,970 (0)**. The listing spans: out whole,
+`bz_capture` 135, `bz_transit` 263, `bz_ztouch` + `bz_ztouchp` 62, `bz_atok`
+15, `bz_gate` 40 (515); `bz_prule` 452 -> 331 (-121: the spring's rule, less
+the 7 bytes that hand a spring to its family), `bz_step` 2,602 -> 2,569 (-33:
+the drains' and the doors' sites), `bz_swalls` 390 -> 388; in, the thunks
+`bz_capture` 6, `bz_tdrain` 2, `bz_tprop` 12, `bz_transit` 11, `bz_door` 15
+(46), `bz_fhome` 22, `bz_cdrop` +16 (a resident row kept), `bz_entry` +5, and
+the three part rows 24. **The parts** (RAM / LZB-packed): ROTOR **203 / 193**,
+SPRING **256 / 242**, TUBE **680 / 596** bytes. **The RAM they cost every
+play** (home `resident`, 128.25.6.9): the arena's floor, **72 paragraphs =
+1,152 bytes**, held from the package's start (SEEN on MartyPC, the CGA: the
+desktop's arena `op_artop` 72 of `op_arsz` 128 - the claim rounds to
+`OP_ARQUANT` - where the base had none), so the desktop holds one claim more
+(the arena) and that claim is **128 paragraphs = 2,048 bytes**, PINNED (no
+`OP_ONMOVE`), on the desktop for the window's whole life: `op_arfit` rounds
+the 72 up to the next `OP_ARQUANT` step after every drop, so the 896 bytes
+above the parts are the standard's rounding, not the families' (the verifier,
+story 9.8). **What they cost in time** (MartyPC, guest seconds at 4.77 MHz,
+three boots of the branch, one of the base): opening BONANZA **9.62 - 9.84 s against 8.71 s (+0.9 - 1.1
+s)**, 8 floppy reads and 97 sectors against 5 and 81 - the three fetches at
+the start, each a seek to the file's END where the family rows are (the
+RESIDENT BUNDLE, 128.25.6.9, made them one read at integration: **8.87 s**,
+6 reads and 85 sectors, MEASURED); a PEAK
+launch (D of its shipped demo, to the bracket) **5.13 - 5.52 s against 5.25
+s** and MILL's 3.27 - 4.00 s against 3.95 s: no family is fetched at a
+launch, the difference noise. So a family at home `fetch` would cost a launch
+about a third of that start increment, ~0.3 s (PREDICTED from it, not taken
+alone). MILL packs 12 bytes larger once it names its families, 6 over its
+cap: waived for MILL alone (`bbcourse.CAP_WAIVE`, the lead's decision for
+the owner). Every course's identity that names them moved (MOON ADADh ->
+3A07h, PEAK 0562h -> EFF3h; MILL's route demo is the tool's), `moon.bzd` and
+`summit.bzd` re-authored with ONLY their `ident` line changed, `BZ_PHYSV` as
+it was. At integration the IDs follow MERGE order (probe 1, GLASS 2, rotor 3,
+spring 4, tube 5: a FAMV folds its ID, so the three FAMVs moved) and the two
+demos were re-authored again, `ident` alone: MOON 3A07h -> 2953h, PEAK EFF3h
+-> 1A3Ch. Two rows of the table above did not survive the inventory
+(MEASURED, `62cdee325`'s listing):
+
+- **The BUMPER stays resident.** A CLOCK's cell IS a post (128.18.5.3:
+  `bz_wolf` records a clock's kind as `BZ_PK_BUMPER`, and `bz_circle`,
+  `bz_ptop`, `bz_blocks`' OBS case and the octant table are its collision),
+  every play course has a clock, the owner keeps clocks resident, and a POST
+  family every clock course named would be PLAYGROUND's fourth (128.25.6.5).
+  The 709 bytes the table counted (762 with `bz_blocks`' OBS case) stay; the
+  POST slot carries the SPRING alone, as the family `spring` (kind 24; kind 23
+  stays unused).
+- **A windmill is a tube with a door**: its capture and its transit ARE the
+  tube's routines. So ROTOR holds only the DOOR (the touch test and the gate),
+  and with the tube a family a course that places a windmill names TUBE as
+  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`). All three
+  are home `resident` (128.25.6.9), so they cost no fetch at a launch and
+  none of the 3 a course.
+
+PREDICTED then: about -550 to -600 image bytes net of the dispatch (MEASURED
+-552), under the -1.0KB target, which assumed the post's 709; the owner
+withdrew the target.
 
 #### 128.25.11 kern_mega, kern_small, the Hercules
 
@@ -273721,6 +273902,98 @@ broken after the respawn), each parting at its own check. `--selfcheck`:
 GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
 red arm (item 7: a crack path as the only bridge past a flag compiles under
 its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
+
+#### 128.25.20 Today's props as families: the design (story 9.8)
+
+**BUILT** (128.25.10 has the measured bytes, RAM and time). Three families take the
+code 128.25.10 moves. Their IDs are the generated equates `BZ_FID_ROTOR`,
+`BZ_FID_SPRING`, `BZ_FID_TUBE` (bzcourse.inc, from `bbcourse.FAMILIES`' order:
+nothing in the guest or a part writes an ID), their kinds the reserved ones.
+
+| family | kinds | hooks | its part holds | the course names it when it places |
+|---|---|---|---|---|
+| `rotor` (home `resident`, 128.25.6.9) | 22 `windmill` | PROP (DOOR) | the doorway's touch test (`bz_ztouchp`, with a copy of `bz_h4`) and the gate (`bz_gate`) | a windmill (and, the tube a family, `tube` too) |
+| `spring` (`resident`) | 24 `spring` | CONTACT | the spring's rule, `bz_prule`'s `.spring` as it was | a spring |
+| `tube` (`resident`) | 25 `tube` | PROP (DRAIN, CAPTURE, TRANSIT) | `bz_capture`, `bz_transit`, `bz_ztouch(p)`, `bz_atok` | a tube, or a windmill |
+
+##### 128.25.20.1 What stays resident, and why
+
+| what | why |
+|---|---|
+| the bumper's post (`bz_circle`, `bz_posts`, `bz_ptop`, `bz_octe`, `bz_pdist`, `bz_otab`, `bz_blocks`' OBS case) | a clock's collision (128.25.10) |
+| the windmill's doorway SETUP (`.w4`'s `bz_pdoor` / `bz_pdi`, `bz_sdoor`) and the KNOCK (the clamp, `bz_refl`, `bz_nknock`) | 20 - 40 bytes each that read the record or reuse the edge's own clamp: a question to a part costs as much as the answer |
+| the rotor's LANES (`bz_ltrue`'s rotor, the walk's skip, `bz_lmust`) | lane machinery; a family draws through lanes, and the POSE hook answers a pose, not a FAST lane's next change (128.25.6.3) |
+| the camera's `bz_lexit` (62) and every read of `bz_tube` (the camera, the wheel, `.kret`, `.pps`, `bz_psync`, `bz_pinit`) | they READ the tube's resident state and record; its answer is two words, which no hook returns |
+| the tube's STATE (`bz_tube`, `bz_tseg`, `bz_tcnt`, `bz_tsin`, the counters) | physics state, compared as before; moving code moves no state, and no family slot or `bz_fst` bit is used (`NFST` 0 on a course that names only these) |
+| `bz_vmax` | the cup's |
+
+##### 128.25.20.2 The PROP hook (bit 6)
+
+Hook bit 6 is called ONLY through `bz_fone` with DL the owning kind, so only
+a part whose mask has bit 6 carries its entry, at +24 (`BZF_HDR` stays 24
+for every other part; a part with bit 6 has a 26-byte header). The
+contract is 128.25.6.3's (DS = ES = the package, `retf`, AL the slot), with:
+
+| AH | the question | DL | BX | the answer |
+|---|---|---|---|---|
+| 0 `DRAIN` | step 4: the centre is a plain tube's IN - captured if grounded, or airborne with z at most IN's floor + `BZ_CLIMB` at its point | `BZ_PK_TUBE` | the tube | AL bit 0: captured (the step ends) |
+| 1 `CAPTURE` | a windmill's open doorway swallowed the ball | `BZ_PK_TUBE` | the windmill | - |
+| 2 `TRANSIT` | step 1, a ball in a tube | `BZ_PK_TUBE` | - | AL bit 0: it EXITED, and the engine refills the window round OUT (`bz_win9f`), as the routine did itself |
+| 3 `DOOR` | step 5: the ball's circle meets a windmill's doorway (`[bz_pdi]`) | `BZ_PK_WINDMILL` | the point (BL u, BH v: the integer gu before the step's x push) | AL 0 not touching (a wall), 1 CLOSED (AH = its gate's eG: the knock), 2 OPEN (the engine captures) |
+
+The engine's thunks (fam/bzthunk.inc and fam/bzdoor.inc, included by
+bzphys.inc): `bz_capture` (BL the record) and `bz_tdrain` ask the TUBE
+family, `bz_transit` asks and refills, `bz_door` asks the ROTOR family (DL
+`BZ_FK_TUBE` / `BZ_FK_WINDMILL`); every one preserves what the routine it
+replaces preserved and more. ES is the course at every site; a part loads
+`[bz_cseg]` itself.
+
+##### 128.25.20.3 The tube's switch, superseded by the home
+
+The owner's Q2 asked for the tube "easy to move back" by a build switch
+(`BZ_TUBE_RESIDENT`). The owner's later decision (128.25.6.9) made where a
+family lives a per-family choice and put the TUBE at home `resident`, which
+supersedes the switch: no second arm is built. Moving the tube back into the
+image is still the small step it was designed as: its code is one source,
+`apps/bonanza/fam/bztube.inc` (with the touch test's `fam/bzztouch.inc`),
+written to be included by the package as it is by the part (its two exit
+macros, `BZT_GOING` and `BZT_EXITED`, default to the resident spelling).
+
+##### 128.25.20.4 The tool
+
+- The record keeps its wave-3/4 LAYOUT: these are **OWN-LAYOUT** family
+  kinds, with no state bits, no reset class and no `prop <kind>` line (the
+  `tube`, `prop windmill` and `spring` statements place them as before).
+  The tool, its model and the RECORD keep their kind numbers (`PK_TUBE` 1,
+  `PK_WINDMILL` 2, `PK_SPRING` 8): the family kinds 22, 24 and 25 are only
+  the KEYS the engine hands `bz_fone` (bzcourse.inc's `BZ_FK_WINDMILL`,
+  `BZ_FK_SPRING`, `BZ_FK_TUBE`; the part's +9 / +10 run). `bz_prule` hands a
+  spring to its family by that key (7 bytes); the drains, the doors and the
+  transit name theirs at the thunk. No course byte moves but its family list
+  (writing the family kind into the record packed MILL 2 bytes larger).
+- `uses`: a course that places one of them names its family, and a windmill
+  names `tube` too while the tube is a family; refused otherwise, naming the
+  line. Every family named still needs an element (128.25.6.4).
+- The physics is UNCHANGED, so `BZ_PHYSV` is; each course's identity moves
+  by its family list (the `FAMV`s), its demos are re-authored and must run
+  as before - the same steps, the same ends. **BUILT**: `moon.bzd` and
+  `summit.bzd` written again with only their `ident` line changed. PEAK's
+  was the last shipped demo recorded on a pre-clock course (128.22.6's
+  re-stamp, `CLOCK_RESTAMP` 0562h): written again, nothing is re-stamped
+  any more and `CLOCK_RESTAMP` / `CLOCK_BARE` are empty (`--selfcheck` item
+  8R says so). Item 1's cross-commit compile leaves `uses` out of the texts
+  (that grammar lacks it) and compiles them here with the family rule off.
+  MILL's packed cap is waived by its 6 bytes, by name (`CAP_WAIVE`, item 12
+  prints it).
+
+##### 128.25.20.5 What it costs (PREDICTED)
+
+| item | image | per step |
+|---|---|---|
+| out: `bz_capture` 135, `bz_transit` 263, `bz_ztouch(p)` 62, `bz_atok` 15, `bz_gate` 40, the spring's case 127 | about -640 | - |
+| in: the four thunks, the door's answer at three sites | about +60 | a far call (about 0.1k) where a resident call was, only on those events; none on a course without the props |
+| bss | 0 | |
+| a launch | one part fetch a family (MEASURED in 128.25.10 when built) | |
 
 ### 128.26 The window (the owner's brief, 2026-11-16)
 
