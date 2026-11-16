@@ -364,6 +364,36 @@ C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
                                          # every sub-tick as bzs_mseg once it
                                          # plays, dropped by bzs_gdrop0 on every
                                          # way the play ends (SPEC.md 128.22.9)
+C apps/bonanza/bonanza.asm @bz_tlog      # a shipped demo's part (BZD<K>), fetched, its log
+                                         # copied whole into bz_rlog and dropped
+                                         # inside bz_tlog's one call; ES holds the
+                                         # segment throughout (SPEC.md 128.14.7.4)
+C apps/bonanza/bonanza.asm op:BZ_P_TDEMO # BZTDEMO.BIN, the title's demos: fetched,
+                                         # one demo's start block and log copied
+                                         # out through ES and dropped inside
+                                         # bz_tdemo's one call (SPEC.md 128.23.3)
+X apps/bonanza/bonanza.asm op:BZ_P_SHELL # the shell part's CODE, far-called through
+                                         # bz_shfp (its op_cseg word cached) and held
+                                         # while the face is up, dropped before any
+                                         # course fetch (bz_shdrop, SPEC.md 128.19.2).
+                                         # Declaring it needs an OP_ONMOVE hook BONANZA
+                                         # does not assemble, and a CS on the stack
+                                         # across a call that can claim is a wrong
+                                         # return, so it stays pinned: bounded by the face
+C apps/bonanza/bzfam.inc @bz_ffetch      # a family part, fetched into the arena (an
+                                         # OP_ARENA row: the arena is the claim) for a
+                                         # course's play: BZF_RDSEG/BZF_RCSEG and the
+                                         # far pointers bz_ftab/bz_fmkp name its segment
+                                         # for the frame loop and the bracket, dropped
+                                         # by bz_cdrop (SPEC.md 128.25.6)
+N apps/bonanza/bonanza.asm bz_homedir    # bz_entry's resident-bundle fetch (BZ_P_FBUN,
+                                         # an OP_ARENA row): the arena stays claimed and
+                                         # PINNED from the window's open to its close,
+                                         # also between plays, because BONANZA defines no
+                                         # OP_ONMOVE so op_ardecl is not assembled; a
+                                         # move would need a hook re-deriving bz_bsegs,
+                                         # bz_cseg, the songs, the family records and far
+                                         # pointers, plus an op_pin round the bracket
 C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
                                          # copied whole into bz_rlog and dropped
                                          # inside V's one key call (SPEC.md
