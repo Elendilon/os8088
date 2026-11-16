@@ -7,14 +7,17 @@
 # Screen directions: +x is right-down, +y left-down, -x up-left, -y up-right.
 #  UR  the upper right platform, 4 units up: the brown tube's exit and the
 #      hidden tube's on its back row, the windmill's doorway on its -x edge
-#  the PILLAR, the windmill's house, between UR and LS; the RAIL behind UR
-#  LS  the strip under the lettering, half a unit up: the brown tube's ENTRY
+#  the PILLAR, the windmill's house, between UR and LS: the windmill's exit is
+#      an arch in its +x face at the channel's floor; the RAIL behind UR
+#  LS  the strip under the lettering, half a unit up: the brown tube's ENTRY;
+#      a step down to it from LL
 #  LL  the lower left platform, 1.5 units up, running off the glass to the
-#      left: spring 1 at its front, aimed over the PIT at LC
+#      left: spring 1 at its front edge over the PIT, aimed at LC
 #  LC  the lower centre, the front floor, running off the bottom; spring 2 in
 #      front of UR's cliff, its power set to land a ball on UR
-#  the RAMP from UR's +x edge down to the floor; LR, the row BEHIND it, holds
-#      the HIDDEN tube's mouth (a ball rolling there is behind the ramp)
+#  the RAMP from UR's +x edge down to the floor; LR, the row BEHIND it (a ball
+#      rolling there is behind the ramp); the HIDDEN tube's mouth past the
+#      glass's bottom right corner
 course TITLE "Bounce Bonanza"
 width 128
 origin 512
@@ -24,10 +27,11 @@ view 56 124 drop 128
 # the title screen's song (song 7, by name): a ONE-SHOT exactly as long as a title demo (BZ_TSTEPS)
 music attract
 
-# LC, and the channel in front of UR's cliff; the pit beside LL
-floor rect 12 12 17 17 flat 2
+# LC, and the channel in front of UR's cliff; the PIT beside LL, two wide from LS's step to the bottom
+# of the glass (the owner, 2026-11-16: a corner of LC beside it hid the gap)
+floor rect 12 12 14 13 flat 2
+floor rect 14 12 17 17 flat 2
 floor rect 14 9 18 12 flat 2
-hole rect 12 15 14 17
 # the pillar, its back, and the rail behind UR and LR
 wall rect 12 7 14 12 flat 9.5
 wall rect 12 6 14 7 flat 9
@@ -44,7 +48,7 @@ floor rect 21 6 24 11 flat 2
 floor rect 17 11 24 17 flat 2
 # LR's rails, off the glass: the east one holds the hidden tube
 wall rect 24 6 25 18 flat 3
-wall rect 12 17 24 18 flat 3
+wall rect 14 17 24 18 flat 3
 # LS and its back wall, running off the glass to the left (a ball boosted over the brown tube's mouth
 # goes on, and off the left side); a STEP down from LL to LS (half a unit each way, which every ball
 # rolls), so a ball on LL reaches the mouth (a ramp there laid 6 occluder records in a block, over 4)
@@ -56,17 +60,19 @@ floor rect 7 14 12 17 flat 3.5
 
 # the brown tube, LS to UR, through the back wall, the pillar and the rail
 tube keep 10 12 16 6 via 10 11 via 12 11 via 12 5 via 16 5
-# the windmill, UR through the pillar onto LS's end of LC
+# the windmill, UR down through the pillar, out of a doorway in its +x face onto the channel, rolling on
+# the way it went in (the owner, 2026-11-16: the exit seen, and no shooting back out to -x)
 prop windmill 14 8
-tube keep 14 8 13 12 via 13 8 out -x
-# the HIDDEN tube, off the glass: its mouth on the south rail just below the glass, its body along the
-# south rail, up the east rail and along the back rail to UR's back row
-tube keep 15 16 17 6 via 15 17 via 24 17 via 24 5 via 17 5 out +y
+tube keep 14 8 14 11 via 13 8 via 13 11 out +x
+# the HIDDEN tube, off the glass: its mouth beside the east rail just past the glass's bottom
+# right corner (the owner, 2026-11-16: nearer its exit), its body in the rail, up it and along
+# the back rail to UR's back row
+tube keep 23 11 17 6 via 24 11 via 24 5 via 17 5 out +y
 # spring 1 at LL's edge over the pit (the title's springs may stand beside VOID, SPEC.md 128.23.2)
 spring 11 15 512
 spring 15 9 768
 
 art title.bba 0 0
 # label 0, the SLOT: its digit after the plaque's "S  SLOT" (tools/bbtitle.py LABEL_COL, LABEL_ROW)
-label 0 10 8 glyphs "123"
+label 0 11 9 glyphs "123"
 start 15 13

@@ -2683,3 +2683,38 @@ leaves to the left.
 selfcheck (item 13 and its four controls), `bbtitle.py --check`. Not looked
 at by the session on the glass: the owner's eyes are the check of how
 the new films read.
+
+## 2026-11-16 (the title screen, round 3: a drawn path)
+
+The owner sent a screenshot with the changes drawn on it: the plaque moved
+down and over, two patches outlined in green, and a red line for demo 4.
+Mapping a 4x screenshot back onto the course is the projection run
+backwards: a screen point and a floor height give one cell. The green
+patches were a 2 x 2 corner of LC and two cells of the south rail, both
+beside the pit. They made the gap read as floor, so they are gone, and the
+pit now shows as a pit from LS's step to the bottom of the glass.
+
+**The windmill's exit came round to face the viewer.** It used to shoot
+the ball back out to -x, behind the pillar, which read as going backwards.
+The tool already draws an arch on a wall face for a windmill whose OUT is in
+front of its house along +x or +y, so the exit moved to (14, 11) on the
+pillar's +x face, and the ball comes out rolling the way it went in. The
+hidden tube's mouth moved to the bottom right, where the red line leaves
+the glass. Its first place was refused: a tube's body must run in walls, and
+(21 - 23, 10) are floor, so it went to (23, 11) against the east rail.
+
+**Demo 4 was found by search, not by hand.** The start state (position,
+height, velocity) was swept over 1,296 combinations on the model, each scored
+against the red line's three landings. The best lands on the step, on LC
+and on the front floor, within half a tile of each mark. The windmill's
+blades are periodic, so the entry was timed the same way: a set of waits and
+approaches, keeping the ones with no wall or knock event before the capture.
+Two circles of UR fill the time so the last bounce leaves the glass about a
+second before the demo ends. Removing LC's corner broke demo 3's route (it
+rolled over the corner), so it goes down the step instead, with a longer
+pause on UR that keeps its shatter near the end.
+
+**Tested**: the course selfcheck (item 13, its controls), `bbtitle.py
+--check`, and `bonanzatitle` PASS on CGA (it drew the new demo 4, the guest
+equal to the model at its end, one full write) and Hercules (demo 3). One
+boot to look: the plaque, the label and the arch on MartyPC's CGA.

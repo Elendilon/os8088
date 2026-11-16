@@ -205,3 +205,15 @@ A box is ticked only for what was built AND checked as its line says.
       every expect met; MEASURED on the guest: the demo `bonanzatitle` drew
       on each card equals the model at its end. How they READ is the
       owner's to judge.*
+
+### Round 3: the owner's drawn changes (2026-11-16)
+
+- [x] **R3.1** The plaque a row down and a column over (`label 0 11 9`).
+      *LOOKED AT on MartyPC's CGA; `bonanzatitle` check 3 both cards.*
+- [x] **R3.2** The pit cleared: LC's corner (12 - 13, 13 - 14) and the south
+      rail's (12 - 13, 17) taken out. *Host: the selfcheck; looked at.*
+- [x] **R3.3** The windmill's exit an arch in the pillar's +x face, out +x;
+      the hidden tube's mouth at (23, 11). *Host: the selfcheck; looked at.*
+- [x] **R3.4** Demo 4 on the owner's red line, a smooth windmill entry, off
+      the bottom right at the end; demo 3 down the step. *Host: every expect;
+      MEASURED: `bonanzatitle` replayed demo 4 on the CGA equal to the model.*
