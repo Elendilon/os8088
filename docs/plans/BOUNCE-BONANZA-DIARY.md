@@ -2585,3 +2585,44 @@ last pattern is silence. Enter on the desktop face opens the title, P plays
 and the game returns to the title.
 
 **Tested so far: nothing on a guest.** The contract passes `checkdocs`.
+
+## 2026-11-16 (the title screen: a course, four films and a song)
+
+**The layout took five tries, and the reason is worth keeping.** The sketch
+is drawn straight on: platforms in rows across the screen. An isometric
+course has no "across": a tile's x runs right-DOWN and its y left-down, so
+a low platform at the screen's lower left is one at a large y, not a small
+x - the first try put it top left, exactly where the lettering goes. The
+second lesson was size: a tile is 32 x 16 pixels and the CGA window 320 x
+200, so the screen is about ten tiles across, and every first draft filled
+it twice over. What survived: the pillar with the windmill in its face,
+the high platform up and to the right with two tube mouths on its back
+row, a strip under the sky with the brown tube's entry, the lower left
+platform with a spring aimed over a pit, and a short steep ramp with a low
+row behind it.
+
+**The four films, on the model.** Each is a start (where the ball is, how
+fast it goes) and a list of key presses, written by a script the model
+plays: "steer through these tiles until a spring fires", "hold left-up
+until the windmill takes you". Three of the owner's films came out as
+written. Two bent: the steel ball is too heavy to get a speed that clears
+the platform's last tile off a spring, so it is sprung, lands on the edge
+stunned, and rolls into the pit; and the rubber ball arriving at speed
+bounced clean off the course to the east, so the hidden tube went where it
+was going - its mouth in an off-screen rail on the right, which is the
+owner's own guess ("hidden tube offscreen?"). A ball that shatters at the
+end of a film respawns OFF the glass, so it is not seen again.
+
+**Measured on MartyPC's CGA**: the window held still for a whole film (R0
+64, c0 51); S, 1, 2, 3 change the slot and the label's digit with it (the
+first attempt changed the number and not the picture: a clock's lane is
+skipped while its second has not changed, and the title has no clock); P
+plays the game, its Esc comes back to the title, and Esc there leaves.
+
+**The song** is G major, 832 sub-ticks to the step, the last bar a ball
+bouncing to a stop; a fifth, silent pattern is where it loops, so it ends
+with the film. The session cannot hear it: the WAVs went to the owner.
+
+**Not yet**: the row that proves all of this (`bonanzatitle`), the
+Hercules on the guest, and the guest's replay checked step by step against
+the model.

@@ -35,6 +35,9 @@ width  128
 ball   rubber
 # the PLAYGROUND shows the CGA's other palette at gate 1 (SPEC.md 128.16.6): 10h
 palette 0
+# its song, named since SPEC.md 128.23 added a seventh (the title screen's): without one, course 6
+# would wrap onto it (course_song)
+music  fairway
 
 # the apron, and behind it the step ladder, left to right 1.5, 1, half and 2 units
 floor rect  10 14 34 20  flat 4

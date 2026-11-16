@@ -274769,6 +274769,17 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   bz_slot`; a change marks every CLOCK lane for the walk (128.19.10's
   marks) and the next frame redraws the one block (`bz_tlabel`).
 
+- **The title's art, as built** (T1.4): `tools/bbtitle.py` DRAWS it from
+  code - BOUNCE BONANZA in one line of fat rounded strokes (white, a black
+  keyline, a magenta rim, a cyan shadow), each letter bobbing on its own
+  baseline, across the window's top 40 lines, which the scene leaves black;
+  and the KEY HINTS on a plaque in the sky's left pocket (cells 1 - 11, rows
+  6 - 9: `P  PLAY`, `S  SLOT` and the label's digit) in `fonts/tallx.f8`.
+  The program is the source and `title.bba` its committed output;
+  `bbtitle.py --check` (in `make bonanza-course-check`) says whether they
+  still agree. One line rather than the sketch's two: the scene fills the
+  window below 40 lines everywhere but that pocket.
+
 #### 128.23.3 The title demos (PLANNED)
 
 A `.bzt` file (`apps/bonanza/demos/title1.bzt` .. `title4.bzt`, all four
@@ -274809,6 +274820,14 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   cell may be OFF the glass: a ball that shatters or falls at a demo's end
   is not seen again. The replay is then mode 2's, unchanged. **BUILT**
   (T3.2).
+
+- **The song, as built** (T4.1): `apps/bonanza/music/attract.bmu`, song 6
+  (the manifest's last; PLAY now names `music fairway`, which course 6 had
+  only by course_song's wrap). G major, `groove 6 7` (a 16th of 6.5
+  sub-ticks, about 126 BPM), four patterns of 32 rows = 832 sub-ticks, then
+  a silent fifth row that `loop` names. `bbmusic.py --selfcheck` checks the
+  length and the silence (`ATTRACT_STEPS`; red when the groove is 6 6).
+  PROVISIONAL until the owner has heard it (the sound plan's S9).
 
 #### 128.23.4 The title's loop (PLANNED)
 
