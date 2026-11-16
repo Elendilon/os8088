@@ -392,8 +392,8 @@ bz_kinfo:
     xor bx, bx
     call bz_knum
     call bz_kend
-    cmp byte [bz_datw], 0       ; the last write refused (bz_dsave's toast)
-    je .ns
+    cmp byte [bz_dwf], 0        ; the last write refused (bz_dwrite's: the
+    je .ns                      ; entry's in the bracket or the desktop's save)
     mov si, bz_ks_nosave
     call bz_kput
     call bz_kend

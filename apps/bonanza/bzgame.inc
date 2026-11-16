@@ -1345,7 +1345,8 @@ bz_rnext:
 
 ; -----------------------------------------------------------------------------
 ; the keys.  bz_exitchk: CF = 1 leave (Alt+Enter, Esc, F); every typed key is
-; drained so none leaks to the desktop (WireBall's rule).  Clobbers AX.
+; drained so none leaks to the desktop (WireBall's rule).  Clobbers AX - and,
+; on the pathway when Space shows the info card (bz_kinfow), BX - DI too.
 ; -----------------------------------------------------------------------------
 bz_exitchk:
     call os88alt_edge
@@ -1367,8 +1368,10 @@ bz_exitchk:
 %if BZ_PATH_N
     cmp al, ' '                 ; wave 8R (128.22.6): Space on the PATHWAY shows
     jne .nsp                    ; the INFO card (the prototype's: node 0's course
-    cmp byte [bz_crs], BZ_CRS_PATH ; until the pad loop names the pad's)
-    jne .nsp
+    cmp byte [bz_crs], BZ_CRS_PATH ; until the pad loop names the pad's) - not
+    jne .nsp                    ; over the pause card, whose wait reads keys
+    cmp byte [bz_inpause], 0    ; here too and would leave the info card up
+    jne .nsp                    ; as the pause went on
     mov al, [bz_path_crs]
     call bz_kinfow
     jmp .drain

@@ -194,6 +194,12 @@ BZD_SZERO   equ 70
 %if BZD_FILE > 512 || BZ_NCRS > 8
  %error "save v3 is one sector, its bests 8 courses' words (SPEC.md 128.22.5)"
 %endif
+BZD_NPAD    equ BZ_PATH_N       ; the pads a slot's +2 may name: the prototype's
+                                ; nodes (BZ_PATH_NPAD, 128.22.3, once the tool
+                                ; emits it - an equ, which %ifdef cannot see)
+%if BZD_NPAD > 32
+ %error "save v3 keeps a bit a pad in a dword (SPEC.md 128.22.5)"
+%endif
 %if BZD_ENT + BZD_NENT * BZD_ENTB != BZD_TOUR || BZD_TOUR + 8 != BZD_SIZE || BZ_NCRS > BZD_NENT
  %error "BONANZA.DAT's layout (SPEC.md 128.14.3.3) holds 8 courses"
 %endif
@@ -769,11 +775,13 @@ bz_cload:
 %if BZ_PATH_N
 ; the pathway's part, HELD (128.22.7): bz_phrel's test is the heap's largest
 ; claim against the largest course's.  bzcourse.inc's own BZ_CRS_MAXCLAIM
-; (the tool's, 128.22.3) wins when it is there; until it is, an estimate from
-; the shipped parts (the largest course 46,584 bytes and its three balls
-; 31,168, a song 1,234, rounded up, in paragraphs).
+; (the tool's, 128.22.3) replaces this once it is there; until it is, a bound
+; on the shipped parts' CLAIMS - op_lazyp's, not their lengths: a compressed
+; row claims R and the read of its packed bytes in whole clusters, so on a
+; 1KB-cluster disk PEAK's is 3,008 paragraphs for 46,584 bytes, the three
+; balls' 2,336, a song's 192 and the sound part's 160: 5,696, rounded up.
 %ifndef BZ_CRS_MAXCLAIM
-BZ_CRS_MAXCLAIM equ 5000
+BZ_CRS_MAXCLAIM equ 5760
 %endif
 ; -----------------------------------------------------------------------------
 ; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face.  Its
@@ -1046,6 +1054,7 @@ bz_grounds:
     je .out                     ; the game waits on the face
     mov al, [bz_exit]
     mov [bz_gnode], al
+    mov [bz_ppad], al           ; (the marble rests on its pad: the slot's +2)
     call .swap                  ; ...or node bz_exit's course - its LIFE
     cmp byte [bz_xmode], 0      ; TAKEN on the disk first (128.19.6: off
     jne .nolife                 ; mid-course refunds nothing; a finish gives
@@ -1135,8 +1144,6 @@ bz_grounds:
     call bz_dwrite
     jmp bz_grounds
 .back:
-    mov al, [bz_gnode]          ; the marble rests on the pad it left from
-    mov [bz_ppad], al
     call .swap
     call bz_gpath
     jc .out
@@ -1147,14 +1154,14 @@ bz_grounds:
     ret
 .swap:                          ; this round's parts and song given back
     call bz_cdrop               ; (the held pathway's part excepted)
+    call bzs_gdrop0
     cmp byte [bz_crs], BZ_CRS_PATH
-    jne .sg
-    call bz_phrel               ; ...which stays only if a course fits beside it
-.sg:
-    jmp bzs_gdrop0
+    je bz_phrel                 ; ...which stays only if a course fits beside it
+    ret
 
-; bz_phrel - before a course is fetched, the pathway's balls and song already
-; given back (bz_cdrop): the pathway's part STAYS if the heap's largest free
+; bz_phrel - before a course is fetched, the pathway's balls, song and sound
+; part already given back (bz_cdrop, bzs_gdrop0): the pathway's part STAYS if
+; the heap's largest free
 ; run, the part held, still takes the largest course (BZ_CRS_MAXCLAIM, in
 ; paragraphs, MEMP_AVAIL's unit); else it is dropped here and bz_phfetch reads
 ; it again afterwards.  Preserves nothing.
@@ -1185,6 +1192,9 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %endif
 bz_cnex:        BZ_CRS_NEXITS
 bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
+ %if BZ_PATH_NEDGE > 32
+  %error "save v3 keeps a bit a route (edge) in a dword (SPEC.md 128.22.5)"
+ %endif
 %endif
 
 ; bz_cdrop - every ball row and the course's given back (op_drop of a part that
@@ -2578,7 +2588,8 @@ bz_dsave:
 
 ; bz_dwrite - the image WHOLE to BONANZA.DAT, one od_write, no merge and no
 ; toast (the game's life at a course's entry, inside the bracket: SPEC.md
-; 128.19.6).  CF = 1 refused.  Preserves ES.
+; 128.19.6).  CF = 1 refused, and [bz_dwf] = 1 until a write is not (the info
+; card's NOT SAVED, 128.22.6).  Preserves ES.
 bz_dwrite:
     push es
     push ds
@@ -2589,6 +2600,10 @@ bz_dwrite:
     mov di, bz_datst
     call od_write
     pop es
+    mov al, 0                   ; (MOV keeps CF)
+    rcl al, 1                   ; AL = CF ...
+    mov [bz_dwf], al
+    shr al, 1                   ; ...and CF again
     ret
 
 ; bz_dslot - SI = the slot played's offset in [bz_dat].  Preserves all else.
@@ -2624,8 +2639,10 @@ bz_dslz:
 ; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found past the courses or +70 -
 ; +79 are not zero, or - it having lives - node 0's pad is not open, it is
-; not this build's pathway's, or its pad is past 31 or not open.  An empty
-; slot (lives 0) keeps its exits found.  Preserves all but the flags.
+; not this build's pathway's, its pad is not one of the pathway's
+; (BZD_NPAD), or - TIMED - its pad is not open (EXPLORE rests on any pad:
+; every one is open to it, none in the open set).  An empty slot (lives 0)
+; keeps its exits found.  Preserves all but the flags.
 bz_dslots:
     push ax
     push bx
@@ -2666,9 +2683,11 @@ bz_dslots:
     mov ax, [bz_cids + 2 * BZ_CRS_PATH] ; ...on this build's pathway ...
     cmp ax, [si + BZD_SID]
     jne .bad
-    mov al, [si + BZD_SPAD]     ; ...its pad one of 32, and an open one
-    cmp al, 32
+    mov al, [si + BZD_SPAD]     ; ...its pad one of the pathway's (the
+    cmp al, BZD_NPAD            ; loop indexes the part's tables by it) ...
     jae .bad
+    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays
+    jnz .n                      ; any pad, 128.19.8: none of them in the set)
     push bx
     call bz_dwbit               ; AL the mask, BX the byte
     test al, [si + bx + BZD_SOPEN]
@@ -3399,7 +3418,8 @@ VAR bz_freq,1                   ; ...1: the next frame a full write (a card draw
 VAR bz_ff,2                     ; the kernel glyph table's first and last codes
 VAR bz_font,8 * BZC_NGLYPH      ; the cards' glyphs, 32 - 95 (bzcard.inc)
 VAR bz_kbuf,96                  ; a card's lines, built (bzcard.inc)
-VAR bz_ikc,2                    ; the info card's course K (a byte, a word for the VARs' evenness) ...
+VAR bz_ikc,1                    ; the info card's course K ...
+VAR bz_dwf,1                    ; 1: the last write of BONANZA.DAT was refused (bz_dwrite; the info card)
 VAR bz_ibest,2                  ; ...and its best, steps
 VAR bz_crdls,2                   ; bz_card's list, lines, widest + 2, first cell,
 VAR bz_crdn,2                     ; height, first line, the row's bank and base,
