@@ -274336,6 +274336,322 @@ for a ~1 us ISA read where an XT's is ~2.5 us, is a driver-side saving.
 | `bonanzamusic` | soak | `tools/bbmusic.py --selfcheck`, host only: the tables against the equal-tempered pitches; every song's notes, gates, instruments and volumes as the model keys them against the source's; the speaker's tones and the chip's registers well formed; every ball's impacts present and different; packing deterministic |
 | `bonanzasound` | soak | the guest held to the model on MartyPC: the title on the desktop, S's four choices, FIRST's song in the bracket, every ball's bounce, wall and bumper poked into the counters, the cost, Esc; on the AdLib machine the chip's shadows equal the model's registers whenever nothing is dirty, the OPL's capture loud, and the window's close giving the chip back. Red arms `--red groove` (every row the groove's first count) and `--red mat` (every event the rubber ball's), each red at its own check |
 
+### 128.22 The pathway, reworked (wave 8R)
+
+Wave 8b's pathway (128.19.5) was a misreading of the plan: a course the ball
+ROLLED across, five nodes because a window could show six signs. The owner's
+design (2026-11-16, with a rough sketch of eight courses on two
+pages) replaces it: a **path screen**.
+The exit a course was finished by opens a route, a marble AUTO-ROLLS along
+the route art between glowing pads, the screen pages vertically, locked routes
+are gated and secret ones are not drawn until found. The 8c cards that froze
+the screen go with it; a finish now flashes the course's own clock and plays a
+tune. The plan's stories are "Wave 8R" in
+[docs/plans/BOUNCE-BONANZA-PLAN.md](docs/plans/BOUNCE-BONANZA-PLAN.md).
+Each item is PLANNED until the commit that builds it says BUILT; figures are
+MEASURED, PREDICTED or ESTIMATED as in 128.18. What wave 8 built and this
+keeps: the shell part (128.19.2), one bracket for the whole loop, several
+finishes and exits (128.19.4), lives (8b.5), the ball per course (8b.9),
+exploration and medals (128.19.8.3), the pause card (128.19.8.1) and the
+game-over card, and the lanes at scale (128.19.10), which the pathway needs.
+
+#### 128.22.1 The decisions, in one table
+
+| decision | chosen (the owner's, 2026-11-16, unless marked) | why |
+|---|---|---|
+| what opens a route | **the exit taken**: finishing course A by exit E opens the ONE route the map keys by (A, E) (the tool refuses two), and the marble auto-rolls along it | the owner: *"exactly this ... why I wanted multiple exits per map (and hidden exits)"* |
+| the map's shape | straight through two tutorial courses into a third with two exits; from there a route is one-way (forced) or one of a choice of two; any course played can be replayed; one or two SECRET courses from hidden exits, off to the side or a SHORTCUT (fewer courses to the end); **14 - 20 courses** in all, likely the low end | the owner's |
+| the engine | **reused**: the pathway is a course part, its picture blocks, its icons, pads and gates LANES, the marble the ball sprite and box; no physics runs on it | the owner: *"it lets us almost entirely use the built in renderer"* |
+| the camera | **PAGED**: vertical only; still while the marble is on the page, a whole page's scroll when its footprint leaves the window's top or bottom | the owner: vertical scrolling is smoother, and only on leaving the screen |
+| the width | **the CGA's window centred in the Hercules'**: everything interactive inside the CGA's 320 world px; the Hercules' 20 px a side beyond it is art only (the owner: *"640, centered I think; or ... 720, with the artwork sides hidden on CGA"* - the two are this same layout) | one map for both cards |
+| how the marble moves | **auto-rolled along the route's line** by a FOLLOWER, ramping very quickly to and from its top speed; the player only chooses | the owner's |
+| the keys | at a pad, each open route leaves in a screen direction and **every arrow on that direction's side takes it** (down-left: Down or Left); Enter plays the pad's course; Space shows its card; Esc leaves (to the title, 128.23) | the owner: *"path directions, so the user intuitively knows which does what"* |
+| where the marble stops | **at every pad it reaches**: a press moves one route, pad to pad (8 to 3 is 8 to 6, then 6 to 3) | the owner: *"you can only point it to the last course"* |
+| locked routes | **a GATE** across the route's mouth, closed; it plays its opening animation once when the route opens. Gates, like everything on this page, animate only when something happens to them, so the page can have many | the owner prefers gates, *"as long as the art and animation are good"* |
+| secret routes | **not drawn** until taken: the route, its pad, icon and title appear as the marble first rolls along it (REVEAL lanes) | the owner: *"once you find it and take it, is when the pathway and its icon appears"* |
+| course icons | the course's THEME, its TITLE written above it, several frames, animated only while the marble rests on its pad; recognisable, fitting the page; sizes may differ | the owner's |
+| lives | **a counter on the map** like a clock: a crystal ball holding the lives digit, one on every page | the owner: *"a life counter that goes on the map, similar to a clock"* |
+| the finish | **no card**: the course's own clock FLASHES the frozen finishing time for about 2 s and a short VICTORY tune plays; a CHECKERED goal lets the ball roll on (an edge rolled off after it neither kills nor respawns), a CUP swallows it; the camera stops at the finish; **Enter skips** (Space and the arrows do not); then the pathway | the owner, 2026-11-16 (and: *"if they roll off an edge after crossing a finish checkers, that should not kill them or respawn them. Finish the tune/clock flash at its now frozen time, without scrolling the screen"*) |
+| a clock at every finish | **a rule the tool proves**: every finish, hidden ones too, has a clock whose digits are inside a CGA window centred on the finish | the owner: *"a rule that one is visible on the screen of every goal. Doesn't have to be on top of it, which is handy for secret goals"* |
+| the cards | INTRO and RESULT **go**; a course's facts are an INFO card brought up by **Space** at its pad; PAUSE stays a full stop; GAME OVER keeps its card and returns to the title | the owner: *"we probably can't afford a status bar and scrolling ... keep a card, but only bring it up via some keypress"* |
+| memory | **the pathway stays loaded** when the machine holds it and the largest course's claims together; otherwise it is dropped before a course and fetched again after (today's) | the owner's |
+| sounds | arriving at a pad, a gate opening, a life lost, game over, the victory tune; **no rolling sound** | the owner's |
+
+#### 128.22.2 The pathway's source (PLANNED)
+
+`apps/bonanza/courses/path.bbc` keeps `pathway` (128.19.5: no limit, no
+countdown, no goal or cup of its own) and loses `node`, `edge` and the
+prototype's ROLLED walk. Its statements, refused on any other course:
+
+- **`view SX SY`** (128.23.2's statement, its windows' rules unchanged) is
+  PAGE 0's window, the bottom page, where a new game starts; **`pages N`**
+  (1 - 8) stacks N pages: page k's window is page 0's moved UP by `200 k`
+  lines, the same columns. The tool grows the picture to hold every page and
+  writes the grid header's camera byte **`cam` = 2 (PAGED)** (128.22.4.3)
+  and `npages`.
+- **`pad N COURSE WX WY`**: pad N (0 - 31; pad 0 is the start) plays COURSE;
+  its cell is a FLOOR tile of the route material, and the pad is a SIGN lane
+  over it (128.22.4.1) with **`PAD_POSES` = 4**: 0 OPEN (glowing), 1 DONE, 2
+  SILVER, 3 GOLD. Its page is the one whose window holds its cell; the tool
+  refuses a pad outside every page's CGA window, or within 24 lines of a
+  page's top or bottom edge (the marble must rest whole on the glass).
+- **`icon N FILE SX SY [fps F]`**: pad N's ICON: FILE is a `.bba` text
+  pixmap (128.23.2) holding FRAMES stacked top to bottom (the frame height is
+  the file's height over its frame count, a `# frames K` line), its top-left
+  at projection `(SX, SY)`, which must be on a block's corner (SX a multiple
+  of 8, the line a block row's first). Frame 0 is the rest pose; frames 1 -
+  K-1 play in a loop at F frames a second (default 6, at most 18) while the
+  marble rests on pad N. The tool cuts the icon's rectangle into lanes of at
+  most `LANE_WMAX` x `LANE_HMAX` blocks, all one SIGN, and writes the
+  course's TITLE (`BZ_CRS_TITLES`, upper case) in the desktop font's 8 x 8
+  glyphs centred above it in the picture (or in the reveal lanes of a secret
+  pad).
+- **`route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...`**: a route
+  from pad A to pad B, OPENED by finishing A's course by exit E, travelled
+  both ways once open. `path` lists cell centres from A's cell to B's: each
+  step between two points runs along ONE axis (a screen diagonal) or along
+  BOTH by equal amounts with opposite signs or the same sign (screen across
+  or down); H is the floor's height there in units (default 0), and a step
+  between heights is a ramp. The tool lays FLOOR tiles of the route material
+  along it. **`gate`** (default: the route's first cell after A's) puts the
+  route's GATE there: a SIGN lane, **`GATE_POSES` = 6** (0 closed, 1 - 4 the
+  bars sinking, 5 open), RENDERED by the tool across the route's direction
+  at that cell, so a gate faces any of the eight ways with no hand art. A
+  route that is not secret MUST have a gate (the "unavailable" look);
+  **`secret`** draws nothing of the route, of B's pad, icon or title in the
+  picture: they are REVEAL lanes (SIGNs, pose 0 the bare picture, 1 the
+  route), one group per stretch of the route the tool chooses, revealed as
+  the marble's distance along the route passes each group's.
+- **`lives WX WY`**: a lives counter, a clock record of ONE digit (128.18.5)
+  showing `bz_lives`; **one on every page**, inside its CGA window.
+- **`rail MATERIAL`**: the route material (default the art set's crystal
+  rail, 128.22.8); the ground around the routes is the course's `void`.
+- **The tool proves** (`--selfcheck` items, refusing the build): every pad
+  reachable from pad 0 through opened routes; every (A, E) keyed by at most
+  one route, and E an exit A's course HAS (a secret route's E a HIDDEN
+  exit); B of a secret route either reaches the map's END (a pad with no
+  route out) in fewer pads than the shortest non-secret way (a SHORTCUT) or
+  leads nowhere (SIDE) - it prints which; a route's cells never cross another
+  route's except at a pad; every key map unambiguous (128.22.4.5); every
+  page's FAST lanes and pose changes within 128.19.10's bounds, an icon's
+  animation counted FAST while its pad is the marble's; the part within
+  65,024 bytes (128.14.6), its cost printed by kind (picture, icons, gates,
+  reveals).
+
+#### 128.22.3 The tables (PLANNED)
+
+In the pathway's PART (not resident: they come and go with it), after the
+course's records, at an offset the grid header names (`pthoff`):
+
+| | |
+|---|---|
+| +0 | `npad`, `nroute`, `nsign` (bytes), 0 |
+| +4 | PADS, 8 bytes each: +0 the course K, +1 the pad's sign, +2 the icon's sign (FFh none), +3 the page, +4 the cell's `gx`, +6 `gy` (ground px, the cell's centre) |
+| then | ROUTES, 8 bytes each: +0 A, +1 B, +2 E, +3 flags (bit 0 secret), +4 the gate's sign (FFh none), +5 the first reveal group's sign, +6 the offset of its POINTS (word, from the table's start) |
+| then | KEYS, 4 bytes a pad (Up, Down, Left, Right): the route taken, bit 7 set when the route is travelled B to A, FFh none |
+| then | POINTS, a route's: a count, then (gx, gy, gz) words a point, ground px and 1/8 px of height as the ball's, A's cell first, B's last; and the reveal groups' distances (a word each, ground px along the route) |
+
+Resident (`bzcourse.inc`): `BZ_PATH_NPAD`, `BZ_NSIGN` (the most signs any
+course has, 128.19.10 item 2's way), `BZ_PATH_CLAIM` (the pathway's claim in
+paragraphs) and `BZ_CRS_MAXCLAIM` (the largest course's claims, its balls'
+included).
+
+#### 128.22.4 The guest (PLANNED)
+
+##### 128.22.4.1 Sign lanes
+
+**`PK_SIGN` = 10**: a record with a LANE and nothing else: no post, no cell
+marked OBS, never met by physics, posed by **`bz_nst[num]`** (record +28 the
+num). `bz_nst` becomes `BZ_NSIGN` bytes. **`bz_nset`** (AL the pose, BL the
+num) writes it and MARKS every lane of that num (128.19.10 item 6), so a
+pose change costs that lane's walk and nothing else; a lane that is not due
+costs its byte in the scan. The pathway's pads, icons, gates and reveal
+groups are signs, and so is the title's `label` (128.23.2, which this
+replaces as a `PK_CLOCK` of ndig 0). 128.19.10 item 6's table gains the row:
+*a SIGN - marked by `bz_nset` (its pose written) - its pose is the only
+state it has*. The prototype's node signs (`PK_CLOCK` ndig 0, `NODE_POSES`,
+`NODE_FONT`) go.
+
+##### 128.22.4.2 The follower
+
+The pathway runs **`bz_mode` 4**: a frame's steps call **`bz_follow`**
+instead of the physics step. The marble is on a ROUTE (its index, its
+direction, its distance `s` along it, ground px 8.8) or RESTING on a pad.
+Rolling, each step:
+
+- **the speed**: `v += FOL_ACC` up to `FOL_VMAX`, or down by `FOL_ACC` once
+  the distance left is at most `v² / (2 FOL_ACC)`, never below `FOL_VMIN`
+  until it arrives (PROVISIONAL: `FOL_VMAX` 3.0 ground px a step, `FOL_ACC`
+  0.75, `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second);
+- **the position**: `s += v`; the point is interpolated on the segment that
+  holds `s` (along one axis, or both at once on a diagonal step), `gz` with
+  it; written to `bz_gx`, `bz_gy`, `bz_gz` with the ball GROUNDED, so the
+  sprite, its roll frame (`bz_sprite`: the roll is the position's), the
+  shadow and the box are a course's;
+- **arrival**: `s` at the route's length puts the marble on the pad's cell
+  exactly, RESTING; the PAD sound plays and the pad's icon starts.
+
+`bbcourse.Follow` is the host's copy, step for step, in the same fixed point:
+a row compares the guest's position with it every frame (128.22.10).
+
+##### 128.22.4.3 The PAGED camera
+
+`cam` = 2 in the grid header. The window's columns are page 0's always;
+its rows are a page's. The first frame shows the page holding the marble.
+Then, each frame: the TARGET page is the current one unless the marble's
+footprint centre line has left the window above its top (the page above) or
+below its bottom (the page below); while the window is not at the target's
+rows it moves toward them at `BZ_MAXR` rows a frame (the ring's rate: about
+0.83 s a page on the CGA, 0.42 s on the Hercules, PREDICTED), and the
+footprint keeps the box path's clipping. GLIDE, TRICKLE and C do not apply.
+FIXED (`cam` 1) is the title's (128.23.1).
+
+##### 128.22.4.4 The pathway's loop
+
+`bz_pathway` (resident, inside the bracket, replacing 128.19.5's round):
+
+1. **Enter the pathway**: fetch it unless it is HELD (128.22.7); the
+   marble at the slot's pad (pad 0 for a new game), resting; every sign's
+   pose from the slot: a pad's from done and the medals, a gate's 5 if its
+   route is open else 0, a reveal group's 1 if its route has been taken else
+   0, an icon's 0. **After a course** the marble is on that course's pad
+   and: a FINISH by exit E opens route (A, E) if it was closed (its gate
+   plays 1 - 5, about 0.5 s, the GATE sound), then the marble AUTO-ROLLS it
+   to B; a TIMEOUT or an abandoned course (Esc, or R on the pause card)
+   takes a life on the lives counters (the LIFE sound); at no life left the
+   GAME OVER card, then the title.
+2. **RESTING on pad N**: N's icon animates (`bz_nset` on its sign each
+   frame interval, 128.22.2's `fps`); the keys: an arrow whose route (the
+   pad's KEYS) is open rolls it - the icon goes back to frame 0; **Enter**
+   plays N's course (Exploration: any pad); **Space** the INFO card
+   (128.22.6); **P** the pause card; **Esc** leaves the pathway (the title,
+   128.23.4; the desktop until the title lands). Every other key is ignored.
+3. **ROLLING**: no key is read (the follower's ramp is too short to
+   steer). A secret route's reveal groups get pose 1 as `s` passes each.
+   Arriving: RESTING on B, its slot position written to memory (128.22.5).
+
+##### 128.22.4.5 The key map (the tool's)
+
+At a pad, each route leaving it (both ways, opened or not) has the screen
+direction of its first step from the pad, one of eight. A **straight**
+direction (across or down the screen) claims its one arrow; a **diagonal**
+(a single axis) claims both of its arrows. An arrow claimed by one straight
+direction goes to it; one claimed only by diagonals goes to the single
+diagonal claiming it, or to none if two do (the tool prints it and the
+author moves a route). Two routes leaving one pad in one direction are
+refused. The guest only reads the table.
+
+#### 128.22.5 The save (PLANNED)
+
+The slot keeps 128.19.6's rules and grows the map: **`BZS3`** (`BZS2` is
+read: its slots kept where their pathway identity is this build's, which a
+reworked pathway's is not, so in practice emptied), three slots of
+**80 bytes** in the one sector: +0 lives, +1 the mode (EXPLORE bit 0), +2
+the **pad** the marble rests on, +3 zero, +4 the **open** pads, +8 the
+**done** pads (a dword each, a bit a pad), +12 the **routes opened** (a
+dword), +16 the **routes TAKEN** (a dword: a secret's reveal), +20 the
+pathway's identity, +22 the exits found (a word a course K, 16 courses,
++22 - +53), +54 the best a course (8 courses' words today, +54 - +69; the
+16-course table is a later wave's), +70 - +79 zero. The slot is written at
+a course's ENTRY as today, and at a pad's ARRIVAL only when the bracket
+ends (no `int 13h` on the pathway: a write is ~0.4 s).
+
+#### 128.22.6 The finish and the cards (PLANNED)
+
+- **The FINISH SEQUENCE** (any course, a play or the game; not in a
+  replay, a benchmark or a demo, whose ends are the log's): at the step
+  `bz_goal` is set, the input is IGNORED, the CLOCK stops (`bz_tsec`
+  frozen) and the CAMERA holds (no step, no scroll, not even a pan already
+  running); for **`FIN_STEPS` = 110 steps** (about 2.0 s) the course's clock
+  digits FLASH, the time and blank alternating every 7 steps (each change
+  marks the clock lanes, item 6), and the VICTORY tune plays (128.22.9).
+  A **GOAL** (checkers) finish leaves the physics running: the ball rolls
+  on, and a fall, a shatter or a kill plane in those steps neither kills
+  nor respawns it (the ball simply goes on, or is not drawn once below the
+  window's last line); a **CUP** finish keeps 128.14.4.4's capture (the
+  ball holed out, not drawn). **Enter** ends the sequence at once; Space
+  and the arrows do not. A TIMEOUT runs the same sequence with the clock at
+  0 and the TIMEOUT effect in the tune's place.
+- **The tool's rule**: every finish of every course has a CLOCK whose digit
+  lanes all lie inside a CGA window (320 x 200 world px) centred on the
+  finish (a goal cell's centre, a cup's) - refused otherwise, naming the
+  finish.
+- **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
+  frame's full write after any key): the course's NAME; its ball; `LIMIT
+  s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
+  n OF m`; and `NOT SAVED` while the last write was refused.
+- **Removed**: the INTRO card and the RESULT card (`bz_kintro`,
+  `bz_kresult`). The GAME OVER card stays (`bz_kover`), and is followed by
+  the title.
+
+#### 128.22.7 Memory: the pathway HELD (PLANNED)
+
+At the game's entry the pathway's part is fetched and kept (`bz_phold`) if
+the heap's largest free block, the pathway's claim held, still takes
+`BZ_CRS_MAXCLAIM` (`OSAPI_MEM_*`'s free query); otherwise it is dropped
+before every course fetch and fetched again after, as 128.19.5 does. A
+held pathway re-enters with no `int 13h`: the full write and its tables'
+pose pass only. Proved by `bonanzapath` both ways (the fallback forced by a
+harness byte, `bz_phforce`).
+
+#### 128.22.8 The art (PLANNED, PROVISIONAL: the owner's to refine)
+
+- **The look**: a **crystal** route material (a floor with a faceted, lit
+  top and a dark edge, so a route reads as a raised crystal rail over a dark
+  void), and pads that GLOW (a ring of the light colour round the cell).
+  Both are made by `tools/bonanza_assets.py`'s generators, deterministic,
+  committed beside the art (CLAUDE.md, waves step 5), with a mono form for
+  the Hercules through `htab()`.
+- **The icons**: one `.bba` a course (`apps/bonanza/courses/icons/`), its
+  theme (FIRST a first rolling ball; TRIAL a stopwatch; MILL a windmill
+  turning; MOON a crescent and stars; PEAK a mountain with a flag; PLAY a
+  spring and a ball), at most 4 words x 4 block rows (64 x 32 world px), 4
+  - 6 frames, made by a committed generator script
+  (`tools/bbicons.py`), PLACEHOLDERS for the owner's art.
+- **The gates**: rendered by the tool (128.22.2): two crystal posts and a
+  bar between them across the route, the bar sinking into the floor over
+  poses 1 - 4.
+
+#### 128.22.9 Sounds (PLANNED)
+
+Five shell events through 128.20's bank and players (the speaker and the
+AdLib): **PAD** (a short chime, arriving), **GATE** (the gate opening,
+about 0.5 s), **LIFE** (a life lost), **OVER** (game over), and the
+**VICTORY** tune: a short song of at most `FIN_STEPS` sub-ticks
+(`apps/bonanza/music/victory.bmu`), played over the finish sequence in the
+course song's place. Rolling makes no sound.
+
+#### 128.22.10 The rows (PLANNED)
+
+- **`bonanzacourse`** (`--selfcheck`): each statement's refusals; the
+  key map's rule (a straight claim beating a diagonal, two diagonals
+  sharing an arrow refused, a route with no gate refused); a secret route's
+  SIDE and SHORTCUT verdicts on a test map; the clock-at-every-finish rule
+  (a course with a finish and no clock in its window refused); the part's
+  budget; `bbcourse.Follow` against a hand-worked route.
+- **`bonanzapath`** (REWRITTEN, soak, MartyPC, both cards): a new game rests
+  on pad 0, no arrow moves it, Space shows the info card; Enter plays
+  FIRST, the autopilot finishes: the finish sequence (the clock's digit
+  lanes alternate, the camera still, Enter skips); back on the pathway pad
+  0 is DONE, the gate of (0, exit 0) steps 0 - 5, the marble rolls to pad 1
+  with its position equal to `bbcourse.Follow`'s every frame; Down (or
+  Left) at a down-left route takes it, the opposite arrows bring it back;
+  crossing a page's top moves `bz_R0` by `BZ_MAXR` a frame to the next
+  page's rows and stops, `bz_c0` never moves; an icon's lanes walked only
+  while its pad is the marble's (`bz_latt`); an Esc in a course costs a life
+  on the counters; the last life's GAME OVER card; the HELD pathway (its
+  claim kept across a course, no fetch on the return) and the forced
+  fallback; a secret route (a private tree's map and course) revealed group
+  by group. Red arms: `nopage` (the camera follows like GLIDE: R0 off the
+  page rows), `nogate` (the gate's sign not marked: its poses never drawn),
+  `nodiag` (a diagonal's second arrow ignored), `finfall` (a goal finish's
+  fall respawns the ball).
+- **`bonanzaexit`**, **`bonanzaphys`**, **`bonanzagame`**: the finish
+  sequence in a play, the replays unchanged (no sequence in a replay);
+  `bonanzasound` and `bonanzamusic`: the five events and the victory tune.
+- **`bonanzawheel`**, **`bonanzaring`**: unchanged in logic; the sign lanes
+  join item 6's marks.
+
 ### 128.23 The title screen
 
 The owner's brief (2026-11-16), with a sketch (kept as
