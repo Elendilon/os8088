@@ -2015,8 +2015,9 @@ bz_fdis:
 ; frames before it were and whatever the dissolve did to bz_spr's bit 7 this
 ; frame (a ball that moves is recomposed for its move: the sprite's shift is
 ; not in the look).  And on that change, with the sparkles, each sparkle's
-; PLACE (bz_spp: 24 k + 8 p into bz_spt, p = e_k mod 4 as the steps a b c b)
-; - only then, since the places move only at a hop.  (The first build flipped
+; PLACE (bz_spq: a pointer to its four entries in the card's table, the
+; place e_k mod 4 as the steps a b c b) - only at a hop or the sparkles'
+; start, not at a flash turning on or off.  (The first build flipped
 ; a toggle XORed into bz_spr - the dissolve's trick - and a cue that began
 ; with the toggle left set by the last one changed nothing the idle test
 ; saw.)  Clobbers AX, CX, DX.
@@ -2061,7 +2062,8 @@ bz_cuef:
     or al, BZ_CL_SP
     or dl, al
 .lk:
-    cmp dl, [bz_clook]
+    mov al, [bz_clook]
+    cmp dl, al
     je .r
     mov [bz_clook], dl
     mov dh, [bz_spr]            ; a changed look: never an idle frame
@@ -2069,36 +2071,32 @@ bz_cuef:
     mov [bz_ospr], dh
     test dl, BZ_CL_SP
     jz .r
-    push bx                     ; the places, sparkle 2 to 0, off the
-    mov al, [bz_frames]         ; epochs (frames + 0, 5, 2) / 8 (a byte's
-    mov cl, 3                   ; wrap is 32 epochs: 0 mod 4)
-    mov ah, al
-    add ah, 2
-    shr ah, cl                  ; AH = e_2
-    mov ch, al
-    add al, 5
-    shr al, cl                  ; AL = e_1
-    shr ch, cl
-    mov cl, ch                  ; CL = e_0
-    mov bx, bz_spp + 2
-    mov dh, 48
-.pl:
-    mov dl, ah
-    and dl, 3
-    cmp dl, 3
-    jne .p
-    mov dl, 1                   ; (steps a b c b)
-.p:
-    shl dl, 1
-    shl dl, 1
-    shl dl, 1
-    add dl, dh
-    mov [bx], dl
-    mov ah, al
-    mov al, cl
-    dec bx
-    sub dh, 24
-    jns .pl
+    xor al, dl                  ; the places only at a HOP (or the sparkles'
+    test al, BZ_CL_SP | 0Fh     ; start): a flash on or off moves none
+    jz .r
+    push bx                     ; each sparkle's place, a pointer into the
+    mov dx, bz_spr0             ; card's table, off the epochs
+    cmp byte [bz_herc], 0       ; (frames + 0, 5, 2) / 8 (a byte's wrap is
+    je .pc                      ; 32 epochs: 0 mod 4) - all three: at a hop
+    add dx, BZ_SPRC             ; one moves, but picking it costs the bytes
+.pc:                            ; it saves (MEASURED: 50 - 90 clk a hop
+    mov al, [bz_frames]         ; frame for 41 bytes)
+    mov cl, 3
+%assign BZ_SPK 0
+%rep 3
+    mov bl, al
+ %if BZ_SPK == 1
+    add bl, 5
+ %elif BZ_SPK == 2
+    add bl, 2
+ %endif
+    shr bl, cl
+    and bx, 3                   ; e_k mod 4, the step...
+    mov bl, [bx + bz_sps + 4 * BZ_SPK]  ; ...its place (a b c b)
+    add bx, dx
+    mov [bz_spq + 2 * BZ_SPK], bx
+ %assign BZ_SPK BZ_SPK + 1
+%endrep
     pop bx
 .r:
     ret
