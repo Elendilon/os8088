@@ -81,8 +81,8 @@ import bonanza_exit as X        # noqa: E402
 
 REDS = {
     # bz_crshdr: the PAGED bit read, never set - the pathway's camera is GLIDE's
-    "nopage": [("bonanza.asm", "    jz .npg\n    inc byte [bz_paged]\n",
-                "    jz .npg\n    nop                         ; RED nopage\n")],
+    "nopage": [("bonanza.asm", "    inc byte [bz_paged]\n    mov al, [es:BZC_NPAGES]\n",
+                "    nop                         ; RED nopage\n    mov al, [es:BZC_NPAGES]\n")],
     # bz_nset: the pose written, no lane MARKED
     "nogate": [("bzwheel.inc", "    cmp [es:si + BZP_SNUM], cl\n    jne .n\n    mov byte [bz_latt + bx], 1\n",
                 "    cmp [es:si + BZP_SNUM], cl\n    jne .n\n    nop                         ; RED nogate\n")],

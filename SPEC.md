@@ -270175,8 +270175,9 @@ and `BZ_PATH_EDGES` are emitted DERIVED (the pads, each pad's course, an
 #### 128.22.4 The guest (BUILT, wave 8R: stories 8R.2 and 8R.3)
 
 **MEASURED** (`make bonanza`, the package's image and bss): 38,065 and 10,039
-bytes before (8R.1's tree) -> **40,030 and 10,087 (+1,965, +48)**: the sign
-lanes +53 / +2 (4.1), the PAGED camera +170 / +4 (4.3), the follower and the
+bytes before (8R.1's tree) -> **40,031 and 10,087 (+1,966, +48)**: the sign
+lanes +53 / +2 (4.1), the PAGED camera +171 / +4 (4.3, its flags' test through AL for
+`tests/unit/t_bits.py`, which cannot read the generated values), the follower and the
 loop +1,742 / +42 (4.2, 4.4: about 2,100 bytes of new code - `bz_pwinit` 231,
 `bz_pwroll` 238, `bz_pwdep` 211, `bz_grounds` 258, `bz_pwkey` 160,
 `bz_follow` 141, `bz_ppose` 139, `bz_pwpos` 137, the rest under 80 each -
@@ -270293,7 +270294,7 @@ page is above) or at or below its bottom (and one is below): page k's R0 is
 `bz_fixr - k (200 >> bz_lsh)`; the first frame (or a cut) sets R0 there whole,
 every other frame `bz_camera.paged` steps it at most `BZ_MAXR` rows toward it
 and leaves through `.moved` (the clamp, the incremental scroll). MEASURED
-+170 bytes, bss +4. Seen: the scroll from page 0 to page 1 on both cards,
++171 bytes, bss +4. Seen: the scroll from page 0 to page 1 on both cards,
 the marble resting on MOON before the window has finished (the follower is
 faster than a page).
 
