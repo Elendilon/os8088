@@ -2515,15 +2515,14 @@ bz_pgtgt:
 ; -----------------------------------------------------------------------------
 ; bz_fold - the PATHWAY's roll phases FOLDED (wave 8R round 2, SPEC.md
 ; 128.22.4.2), bz_sprite's in bz_mode 4 alone: DISPLAY ONLY, no step reads
-; them.  The follower's top speed moves the marble 6 px a step along a
-; diagonal route (both axes at once: twice the physics' VMAXG a step), so px & 7
-; ran 7, 5, 3, 1 a frame - the roll's texture stepping BACK 2 while the ball
-; went forward 6, which reads as a ball that does not turn.  A frame's move d
-; in px (from bz_opx, last frame's) and in G (bz_fog) is folded to d' = the
-; one of 1 .. 4 (with d's sign) congruent to d mod 4: the phase's low two bits
-; stay px's (the shift a frame is stored at), its bit 2 flips by ((|d| - 1)
-; AND 4), kept in bz_fox (and bz_foy for G).  |d| <= 4 - every physics ball,
-; whose VMAXG is 3 px a step - is unchanged.  On the Hercules AL also comes back
+; them.  The follower moves at most 3 px a step (FOL_VMAXD), but a frame of
+; two steps moves 6, where px & 7 would step the texture BACK 2.  A frame's
+; move d in px (from bz_opx, last frame's) and in G (bz_fog) is folded to d' =
+; d mod 4, 0 - 3 with d's sign: the phase's low two bits stay px's (the shift a
+; frame is stored at), its bit 2 flips by (|d| AND 4), kept in bz_fox (and
+; bz_foy for G).  |d| <= 3 - a one-step frame, and every physics ball, whose
+; VMAXG is 3 px a step - is unchanged; a multiple of 4 HOLDS the texture.
+; On the Hercules AL also comes back
 ; as G less ((G XOR py) AND 1).  In: AL = G.  Out: AL, DL = bz_fox, DH =
 ; bz_foy.  Clobbers AH.
 ; -----------------------------------------------------------------------------
@@ -2546,15 +2545,12 @@ bz_fold:
     sub al, ah                  ; -1, -5: backward
 .x:
     ret
-.one:                           ; DL = d -> (|d| - 1) AND 4, 0 for no move
-    or dl, dl
-    jz .r
-    jns .p
+.one:                           ; DL = d -> |d| AND 4: the phase moves d
+    or dl, dl                   ; mod 4 (0 - 3, d's way), a multiple of 4
+    jns .p                      ; HELD (never half a period: no way)
     neg dl
 .p:
-    dec dl
     and dl, 4
-.r:
     ret
 
 ; -----------------------------------------------------------------------------

@@ -1768,6 +1768,10 @@ PADREC, ROUTEREC, KEYREC = 10, 8, 4             # the tables' records (SPEC.md 1
 SIGN_AT = (255, 255)          # a sign's anchor: no cell (record +2 / +3), never a prop's
 # the follower (SPEC.md 128.22.4.2): 8.8 ground px a step, PROVISIONAL
 FOL_VMAX, FOL_ACC, FOL_VMIN = 768, 192, 128     # 3.0, 0.75, 0.5
+FOL_VMAXD = 384                                # 1.5: the top speed on a segment whose two axes move OPPOSITE
+                                              # ways (screen-HORIZONTAL: px 2 a ground px), so px is at most 3 a
+                                              # step there as on a straight - the ball art's roll reads 1:1 only
+                                              # under 4 px a frame (its texture's period is 8; SPEC.md 128.22.4.2)
 FOL_SEGMAX, FOL_DZMAX = 127, 127              # a ramp's follower segment: ground px long, px high (the
                                               # guest's word imul/idiv, class Follow; tool-side only)
 # screen directions of a route's first step (128.22.4.5): (dx, dy) in ground cells -> its name and arrows
@@ -2810,7 +2814,9 @@ class Follow:
         left = 256 L - s                               (unsigned dword)
         D    = (v * v) div (2 FOL_ACC)                 (mul: dx:ax; div by 384 -> ax, at most 1536)
         if left <= D:  v = max(v - FOL_ACC, FOL_VMIN)  (braking)
-        else:          v = min(v + FOL_ACC, FOL_VMAX)
+        else:          v = v + FOL_ACC
+        v = min(v, FOL_VMAXD if the segment holding s moves its two axes
+                   OPPOSITE ways (screen-horizontal) else FOL_VMAX)
         s = s + v
         if s >= 256 L: s = 256 L, ARRIVED (the pad's cell exactly; RESTING)
 
@@ -2822,7 +2828,12 @@ class Follow:
         bz_gz = 256 gz_k + ((gz_(k+1) - gz_k) t) idiv len_k   (imul / idiv: TRUNCATED toward zero)
 
     with the ball GROUNDED.  FOL_VMAX 768 (3.0), FOL_ACC 192 (0.75),
-    FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps.
+    FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps.  FOL_VMAXD
+    384 (1.5) on a segment whose axes move opposite ways (wave 8R round 2,
+    8R.10): px moves 2 a ground px there, so 3.0 was 6 px a step - past the
+    ball art's roll, whose texture's period is 8 px (a 1:1 roll needs under
+    4 a frame) - and showed as a SKID; at 1.5 it is 3 px a step, a
+    straight's screen speed.
 
     SIGNED WORDS suffice for the height: a segment that changes height is a
     ramp's, which the tool keeps at most FOL_SEGMAX (127) ground px long and
@@ -2850,7 +2861,9 @@ class Follow:
             if left <= D:
                 self.v = max(self.v - FOL_ACC, FOL_VMIN)
             else:
-                self.v = min(self.v + FOL_ACC, FOL_VMAX)
+                self.v += FOL_ACC
+            (ax, ay, _), (bx, by, _) = self.pts[self.seg()], self.pts[self.seg() + 1]
+            self.v = min(self.v, FOL_VMAXD if (bx - ax) * (by - ay) < 0 else FOL_VMAX)
             self.s += self.v
             if self.s >= 256 * self.L:
                 self.s = 256 * self.L
@@ -2858,11 +2871,16 @@ class Follow:
             self.nstep += 1
         return self.pos()
 
+    def seg(self):
+        """k, the segment holding s: 256 D_k <= s < 256 D_(k+1), the last one at 256 L"""
+        k = 0
+        while k < len(self.pts) - 2 and self.s >= 256 * self.d[k + 1]:
+            k += 1
+        return k
+
     def pos(self):
         s = self.s
-        k = 0
-        while k < len(self.pts) - 2 and s >= 256 * self.d[k + 1]:
-            k += 1
+        k = self.seg()
         (ax, ay, az), (bx, by, bz) = self.pts[k], self.pts[k + 1]
         t = s - 256 * self.d[k]
         ln = self.d[k + 1] - self.d[k]
@@ -10681,6 +10699,8 @@ def emit_path(path, courses, title=None):
     out = ["; wave 8R (SPEC.md 128.22.4.2): the follower, 8.8 ground px a step (PROVISIONAL)",
            "BZ_FOL_VMAX     equ %d" % FOL_VMAX, "BZ_FOL_ACC      equ %d" % FOL_ACC,
            "BZ_FOL_VMIN     equ %d" % FOL_VMIN,
+           "BZ_FOL_VMAXD    equ %d        ; the top speed on a screen-HORIZONTAL segment (px 2 a ground px)"
+           % FOL_VMAXD,
            "BZ_PAD_POSES    equ %d        ; a pad's sign: 0 OPEN, 1 DONE, 2 SILVER, 3 GOLD" % PAD_POSES,
            "BZ_GATE_POSES   equ %d        ; a gate's: 0 closed, 1 - 4 sinking, 5 open" % GATE_POSES,
            "BZ_GF_PAGED     equ %d        ; BZG1 +28 bit 3: a PAGED window, +30 page 0's (as BZ_GF_VIEW's)"
@@ -17672,6 +17692,22 @@ def _path_checks(courses, res):
                     ss, mid[0], mid[1], mid[2], bmid[0], bmid[1], bmid[2]),
                 ss == want_s and mid == (20 * 256, 8 * 256, 512) and end == (40 * 256, 8 * 256, 8 * 256)
                 and bmid == (36 * 256, 8 * 256, 8 * 256)))
+    # 8R.10 (round 2): a screen-HORIZONTAL segment (its axes OPPOSITE ways) is held at FOL_VMAXD - px 3 a step,
+    # the ball art's 1:1 roll - and a straight before it at FOL_VMAX, the cap taken from the segment holding s
+    def _vs(pts):
+        f = Follow(pts)
+        out = []
+        while not f.arrived:
+            f.step()
+            out.append(f.v)
+        return out
+    vd, vsd = _vs([(8, 8, 0), (24, -8, 0)]), _vs([(8, 8, 0), (24, 8, 0), (40, -8, 0)])
+    res.append(("8R.10 bbcourse.Follow on a screen-horizontal diagonal (16 ground px each axis, opposite ways): v %s "
+                "(0.75, then FOL_VMAXD 1.5 a step - 3 px - braking to 0.75 into the pad on step 12); a 16 px straight "
+                "then the diagonal: v %s (3.0 on the straight, 1.5 from the step after s enters the diagonal)" % (
+                    vd, vsd),
+                vd == [192] + [384] * 10 + [192]
+                and vsd == [192, 384, 576, 768, 768, 768, 768] + [384] * 10 + [192]))
     # every shipped route walked both ways arrives on its pad's cell exactly
     arr = all(Follow(r["gpts"], rev).run()[-1] == (256 * (r["gpts"][-1 if not rev else 0][0]),
                                                   256 * (r["gpts"][-1 if not rev else 0][1]),
