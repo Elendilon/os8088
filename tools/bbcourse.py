@@ -2536,7 +2536,9 @@ def build_props(src, tiles, fname):
         t = tiles.get(at)
         if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
-        if not all((at[0] + dx, at[1] + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+        if not all((at[0] + dx, at[1] + dy) in tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))) \
+                and not (kind == PK_SPRING and src.title_ln is not None):   # (128.23.2: a title's spring
+            # may stand at a pit's edge - the title is never played, and its demos choose their respawns)
             raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad, the cup and a spring "
                               "stand where a SAFE cell could)" % (f, ln, what, at[0], at[1]))
         if kind in (PK_CHECKPOINT, PK_CUP) and t.surf != SURF_NORMAL:
@@ -9844,37 +9846,40 @@ def build_title_demos(tc, demo_dir=None):
 # Each starts from its START (at: tiles and px; vel; air; respawn) and is padded with
 # no key to TITLE_STEPS; a script past it is refused.
 TITLE_AUTHOR = {
-    1: {"what": "the rubber ball dropped onto UR, down the ramp off the front, back, sprung onto UR and off right",
+    1: {"what": "the rubber ball dropped onto UR, down the ramp just off the front, back, sprung onto UR and down "
+                "the ramp off the glass (the owner, 2026-11-16: no pause, less off the glass, end off it)",
         "ball": "rubber", "at": (16, 7.5, 250),
         "expects": (("spring", 1),),
-        "script": [("wait", 115), ("go", ((17, 8), (19, 8))), ("off", ((21, 10),)), ("wait", 12),
-                   ("go", ((18, 12),)), ("to", ((16, 11),)), ("wait", 20),
-                   ("until", "spring", ((15, 10), (15, 9), (16, 7))),
-                   ("go", ((16, 7),)), ("off", ((17, 7), (19, 8), (21, 8)))]},
-    2: {"what": "the steel ball stunned on LL, lost in the pit off spring 1, respawned on LC, through the brown "
-                "tube and down the ramp off the bottom",
-        "ball": "steel", "at": (10.6, 14.6, 200), "respawn": (14, 13),
+        "script": [("wait", 115), ("go", ((17, 8), (19, 8))), ("off", ((21, 10),)), ("go", ((18, 12),)),
+                   ("until", "spring", ((16, 11), (15, 10), (15, 9), (16, 7))), ("go", ((17, 7),)),
+                   ("off", ((19, 8), (22, 11))), ("keys", K_D, TITLE_STEPS)]},
+    2: {"what": "the steel ball stunned on LL, sprung from LL's edge short of the gap into the pit, respawned on LL "
+                "(the side it fell from), down the step into the brown tube and down the ramp off the bottom (the "
+                "owner, 2026-11-16)",
+        "ball": "steel", "at": (10.6, 14.6, 200), "respawn": (9, 14),
         "expects": (("stun",), ("spring", 1), ("respawn", 1), ("capture", 1)),
-        "script": [("wait", 110), ("until", "respawn", ((9, 14), (8, 15), (10, 15), (14, 15))), ("wait", 20),
-                   ("until", "capture", ((12, 13), (11, 12), (10, 12))), ("wait", 10),
-                   ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (20, 14)))]},
+        "script": [("wait", 110), ("until", "respawn", ((9, 15), (11, 15), (14, 15))), ("wait", 75),
+                   ("until", "capture", ((10, 14), (10, 13), (10, 12))), ("wait", 10),
+                   ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (18, 14))), ("to", ((18, 15),))]},
     3: {"what": "the glass ball rolled in onto LL, over its edge, through the brown tube, to the ramp's edge, "
                 "round UR until it falls off the front and shatters",
         "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
         "expects": (("capture", 1), ("shatter", 1)),
         "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (12, 13), (12, 12))),
                    ("until", "capture", ((11, 12), (10, 12))), ("to", ((17, 7),)),
-                   ("wait", 40), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
+                   ("wait", 70), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
                    ("until", "shatter", ((15, 9), (15, 11)))]},
-    4: {"what": "the rubber ball in at speed onto LL, a Hop and its boost onto spring 1, over the pit, off the "
-                "glass into the hidden tube, out on UR, through the windmill, and a Hop and boost over the brown "
-                "tube's mouth off LS's end",
-        "ball": "rubber", "at": (6.6, 15.0, 30), "vel": (260, 0, 0), "air": 1, "respawn": (23, 16),
+    4: {"what": "the rubber ball in at speed onto LL, a Hop and its boost onto spring 1, over the pit, into the "
+                "hidden tube's mouth as it reaches the glass's bottom edge, out on UR, a lap of it, through the "
+                "windmill, and a Hop and boost clear over the brown tube's mouth, along LS and off the left (the "
+                "owner, 2026-11-16)",
+        "ball": "rubber", "at": (7.6, 15.0, 30), "vel": (260, 0, 0), "air": 1, "respawn": (23, 16),
         "expects": (("boost", 2), ("spring", 1), ("capture", 2)),
-        "script": [("keys", 0, 18), ("hop", ((10, 15), (14, 15))), ("boost",),
-                   ("until", "spring", ((10, 15), (14, 15))), ("until", "capture", ((20, 14), (23, 13))),
-                   ("go", ((16, 7), (15, 8))), ("press", "LU", "capture"), ("go", ((12, 12),)),
-                   ("hop", ((7, 12),)), ("boost",), ("off", ((7, 12),))]},
+        "script": [("keys", 0, 18), ("hop", ((11, 15), (15, 15))), ("boost",),
+                   ("until", "spring", ((11, 15), (15, 15))), ("until", "capture", ((15, 16),)),
+                   ("to", ((17, 7),)), ("wait", 70), ("go", ((16, 6), (15, 7), (16, 8))), ("to", ((17, 7),)),
+                   ("go", ((16, 7), (15, 8))), ("press", "LU", "capture"), ("until", "exit", ((2, 12),)),
+                   ("hop", ((2, 12),)), ("boost",), ("off", ((2, 12),))]},
 }
 
 
