@@ -277723,10 +277723,14 @@ cap raised (`BZ_VMAXG` + `PU_SVUP`, a word `bz_vup` the step's clamp adds)
 and its acceleration every surface's force raised (`bz_wacc`, which
 `bz_ramp` adds); the jump's Hop is 400 for any ball (rubber's 252 raised);
 the sparkles are XORed, not ORed (SEEN: ORed ink 3 vanished on palette 0's
-yellow tiles); the ball's box is drawn on every frame a cue shows, a ball at
-rest included (the idle test, 128.11.10.4, learns `bz_cue`); and the cost
-is MEASURED at about 1.8k clk a call for the sparkles and 6.1k on a flash
-frame, not the 150 - 300 predicted below.
+yellow tiles), 2 x 2 pixel pairs drawn inside the ball's own blit; the flash
+is folded into that blit's loop, its STYLE a build knob (`BZ_CUEFLASH`:
+DITHER2 the default, DITHER4, BLINK2, BLINK4 - the owner picks from videos);
+a ball at rest is recomposed only on the frames the cue's LOOK changes (the
+dissolve's `bz_spr` bit-7 trick); and the cost is MEASURED at about 1.45k
+clk a frame for the sparkles and 2.3k on a flash frame (the first build's
+1.8k and 6.1k, the cue-report's rebuild, 128.25.19), not the 150 - 300
+predicted below.
 
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
@@ -277817,7 +277821,7 @@ selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
 | per-play state `bz_fst`, slots | about 60 (the class clears) | `BZ_FSTMAX` / 8 + 3 x `BZF_SLOT` (about 64) | 0 | 0 |
 | the arena in `os88parts.inc` | about 250 - 400 (assembled only with `OP_WANT_ARENA`) | about 10 | 0 | 0 |
 | the ball generator V1 + V2 | about 410 (the report's) | 0 | 0 | balls -3 to -4KB packed (LZB, MEASURED by the story) |
-| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 386 the whole story, 128.25.19) | 2 (BUILT: 11) | +0.15 - 0.3k while a pickup lasts (MEASURED: 1.8k a box a frame, 6.1k on a flash frame) | 0 |
+| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 385 the whole story, 128.25.19) | 2 (BUILT: 12) | +0.15 - 0.3k while a pickup lasts (MEASURED as first built: 1.8k a box a frame, 6.1k on a flash frame; REBUILT on the ball's blit: **about 1.45k a frame with the sparkles, 2.3k on a flash frame, a ball at rest composed only when the cue's look changes, about +0.03k a frame with no pickup**) | 0 |
 | GLASS, PICKUPS | 0 (parts) | 0 | a contact-box frame per crack, break or collection | about 0.3 - 0.5KB packed each |
 | props moved out (9.8) | about -1.3 to -1.6KB (WINDMILL, BUMPER, SPRING, TUBE) | 0 | +0.1k a far call per active hook | their parts |
 
@@ -277974,29 +277978,46 @@ the RESET restores them; none is in `bz_step`'s routines but the clamp):
 | `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
 | `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick), read only PAST `BZ_VMAXG` - the two immediate compares of the common path are as they were, so a velocity inside the table's cap (nearly every call, and every call with no speed running) costs not a clock more; past it, `.hi` takes the raised bound and `.lo` is `.hi` on the negated value (the verifier's: the first build read `bz_vup` on every call, about +25 clk a call, two to four calls a step) | +12 |
 | the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
-| the CUE | `bz_cued` (bzvideo.inc), from `bz_boxc` after the ball's sprite when `bz_cue` is not 0: on odd frames (`bz_frames` bit 0) under bit 1, the FLASH - `bz_blit`'s dither door (BX = -1): the box ANDed with the ball's mask ORed with a checker by line (`bz_chk`: the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), so the ball's own pixels go black on half the checker; under bit 0, three SPARKLES - entries n, n + 3, n + 5 of an 8-entry table of (dx, dy) outside the 16 px silhouette and inside the sprite's own rows and columns (n = frames / 4), each XORed into the box (the card's pixel masks), clipped to it | about 300 |
-| the idle test | `bz_mkboxes`: a frame is not idle while `bz_cue` is set or was last frame (`bz_ocue`), so the sparkles move and the flash alternates on a ball at rest, and the frame after the last takes them off | +8 |
+| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' step n (frames / 4 mod 8) under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. A changed look flips `bz_ctog`, which is XORed into `bz_spr` every frame the look is taken: the dissolve's bit-7 trick (128.22.6), so `bz_mkboxes`'s idle test, whose sprite compare is unchanged, recomposes a ball AT REST on exactly the frames its cue changed - 1 in 4 under the sparkles alone - and on the frame the cue ends. The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 70 |
+| the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a BLINK frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
+| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws neither, about 1 frame in 20 on a fast ball, never at rest): the SPARKLES first, three 2 x 2 pixel pairs XORed at entries n, n + 3, n + 6 of a wrap-free 14-entry table of (dx, 8 dy) - dx 0 - 15, dy 0 - 14, all outside the 16 px silhouette but (15, 6)'s left column - each a byte offset from the sprite's first byte (8 dy + (s + dx) / 4) and the masks of pixels x and x + 1 (x = s + dx; one 5-word table of single-pixel masks, both bits), no transform and no clip; the ball's mask then keeps them. The CGA XORs both pixels on both lines (ink XOR 3); the Hercules pixel x on the first line and x + 1 on the second: its grounds are a checker of whole pixels (mono pairs), where a 2 x 2 XORed is only the checker shifted (the first build's dots were lost there in its captures) and the diagonal turns two same-colour cells of it into a solid 2 x 2 square. Then on a FLASH frame the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop. The old dither door (`.dither`, `.dwhole`, `.dclip`) is gone | about 130 |
 | the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
 
-**The image 47,310 bytes (+386 on 46,924; 47,298 as first built, +12 for the clamp's zero-cost common path), the bss 10,981 (+11)**: `bz_vup`,
-`bz_nfev`, `bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2,
-`bz_ocue` 1, `bzs_lfev` 2. Budgets +400 / +24: met. **The part 485 bytes,
+**The image 47,309 bytes (+385 on 46,924; 47,298 as first built, 47,310
+with the clamp's zero-cost common path, 47,309 with the cue rebuilt below),
+the bss 10,982 (+12)**: `bz_vup`, `bz_nfev`, `bz_wacc`, `bz_cue` in the
+zeroed state (6), `bz_chk` 2, `bz_clook` 1, `bz_ctog` 1, `bzs_lfev` 2.
+Budgets +400 / +24: met. **The part 485 bytes,
 424 packed** (no zero padding: it packs).
 
-**The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and
-`_herc_gla`, PLAYGROUND, the ball rolled into the speed; `bz_cued` entry to
-its return off the cycle counter): **1,829 - 1,838 clk a call** with the
-sparkles (both cards), **6,077 - 6,086 on a flash frame** (the dither blit),
-1,876 on the flash's other frames; one call a box the ball's group draws,
-so about 1.8k a frame while an effect runs and about 4k a frame averaged
-over its last second - against 128.25.12's predicted 0.15 - 0.3k, which
-priced the pixels and not the clipping. On a ball AT REST a cue also costs
-the ball box's compose every frame (the idle test above). With no pickup
-the price is not 0: one byte test a box (`bz_cue`), an untaken `js` in each
-of `bz_blit`'s two doors, about 45 clk in the idle test, `add ax, [bz_nfev]`
-once a frame (about 17), and `bz_ramp`'s `add` once a table build (a
-surface change, a pad): PRICED about 0.1k a frame with two boxes, every
-course, and NOTHING a physics step (the clamp's common path is unchanged).
+**The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and `_herc_gla`,
+PLAYGROUND's yard, the speed on a ball ROLLING along row 26 and the jump on a
+ball AT REST at (6, 26); `~/Repos/w9-logs/cuefix-look.py measure`, breakpoints
+at `bz_fdis`, `bz_cuef`, `bz_props`, `bz_blit` and the ball's call's return,
+`bz_mkboxes` and its return, `bz_ts` and `bz_tw` off the cycle counter; the
+build the cue-report priced, 4870aa529, measured the same way). One ball box a
+frame, the CGA (the Hercules within 2%; `cuefix-measure-dither2-<card>.json`):
+
+| | as first built | the rebuild (default DITHER2) |
+|---|---|---|
+| the ball's blit, no cue | 4,364 - 4,368 | 4,407 - 4,413 |
+| a frame with SPARKLES | 1,829 - 1,838 (`bz_cued`) | **about 1.45k**: the blit 5,534 - 5,576 (+1.13 - 1.16k), `bz_cuef` 292 - 350 |
+| a FLASH frame (flash and sparkles) | 6,077 - 6,086, 1,876 between | **about 2.3k**: the blit 6,274 - 6,291 (+1.87k: the folded checker +0.73k), `bz_cuef` 294 - 524 |
+| a ball AT REST with the sparkles | the box composed EVERY frame: 15.0 - 18.0k, mean 15.4k | **composed 10 - 11 frames of 40** (the look's 1 in 4): mean 5.5k a frame |
+| ...in the DITHER2 flash | every frame, mean 16.3k | every frame (the look changes every frame), mean 14.0k |
+| NO PICKUP: `bz_fdis` | 93 - 103 | 155 - 165 (+62: the cue's three tests in its tail) |
+| NO PICKUP: `bz_mkboxes` idle | 1,490 - 1,495 | 1,419 - 1,424 (-71: `bz_ocue`'s `xchg` gone) |
+
+So with no pickup a frame pays about +62 - 71 + 45 a ball blit (the blit's
++43 - 45 is not an instruction: the plain path's are as they were bar the
+cue door's `js`, so the queue's alignment, PERFORMANCE.md Part 7) - about
+**+0.03k**, and an idle frame less than before. The sparkles came out at
+about 2.5x the cue-report's predicted 0.5k (each pair's offset and two masks
+are worked out in the blit, about 350 clk with the queue's stalls), the flash
+frame at 2.3k against its 1.6k; the resting ball as predicted. The other
+styles were not timed: DITHER4's flash frame is DITHER2's, one frame in four;
+a BLINK frame draws no ball blit (about -4.4k), and BLINK2 / DITHER2 at rest
+recompose every frame of the flash, BLINK4 / DITHER4 two frames in four.
 
 **The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
 each timed kind a course places, `build_reach` is taken again with its
@@ -278046,8 +278067,9 @@ COLLECTED test NOPed: an element taken again while its cell is held, 488),
 `purst` (RESET entry 0: the slot parts at the RETURN while both run, 1355),
 `puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in the sprint,
 543). Not on any host check: the FLASH's frame parity and the sparkles'
-pixels (`bz_cued` is display, never in the unicorn's `bz_step`) - the SEEN
-look below and `bonanzaperf` are their only witnesses; nor a jump and a
+pixels (`bz_cuef` and `bz_blit`'s `.cwhole` are display, never in the
+unicorn's `bz_step`) - the SEEN looks and videos below and `bonanzaperf` are
+their only witnesses; nor a jump and a
 speed of DIFFERENT durations on one course (the yard's are both 3 s, so a
 guest reading the wrong element's +18 would agree; `--selfcheck` item 2
 holds the records' fields).
