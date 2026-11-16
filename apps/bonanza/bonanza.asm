@@ -1723,8 +1723,8 @@ bz_pwroll:
 .cap:                           ; v = min(v, the segment's top speed):
     mov si, [bz_pwp]            ; FOL_VMAXD where its two axes move OPPOSITE
     mov di, si                  ; ways (screen-horizontal: px 2 a ground px,
-    add di, [bz_pwpd]           ; 3.0 would be 6 px a step, past the art's
-    mov ax, [es:di]             ; roll - a SKID), else FOL_VMAX
+    add di, [bz_pwpd]           ; 1.0 = 2 px a step, a quarter of the art's
+    mov ax, [es:di]             ; 8 px period: a roll), else FOL_VMAX
     sub ax, [es:si]
     mov bx, [es:di + 2]
     sub bx, [es:si + 2]

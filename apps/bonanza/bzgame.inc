@@ -2515,8 +2515,9 @@ bz_pgtgt:
 ; -----------------------------------------------------------------------------
 ; bz_fold - the PATHWAY's roll phases FOLDED (wave 8R round 2, SPEC.md
 ; 128.22.4.2), bz_sprite's in bz_mode 4 alone: DISPLAY ONLY, no step reads
-; them.  The follower moves at most 3 px a step (FOL_VMAXD), but a frame of
-; two steps moves 6, where px & 7 would step the texture BACK 2.  A frame's
+; them.  The follower moves at most 2 px a step sideways (FOL_VMAXD) and 3
+; on a straight, but a frame of two straight steps moves 6, where px & 7 would
+; step the texture BACK 2 (two sideways steps, 4 px, are HELD below).  A frame's
 ; move d in px (from bz_opx, last frame's) and in G (bz_fog) is folded to d' =
 ; d mod 4, 0 - 3 with d's sign: the phase's low two bits stay px's (the shift a
 ; frame is stored at), its bit 2 flips by (|d| AND 4), kept in bz_fox (and

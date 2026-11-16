@@ -1768,7 +1768,7 @@ PADREC, ROUTEREC, KEYREC = 10, 8, 4             # the tables' records (SPEC.md 1
 SIGN_AT = (255, 255)          # a sign's anchor: no cell (record +2 / +3), never a prop's
 # the follower (SPEC.md 128.22.4.2): 8.8 ground px a step, PROVISIONAL
 FOL_VMAX, FOL_ACC, FOL_VMIN = 768, 192, 128     # 3.0, 0.75, 0.5
-FOL_VMAXD = 384                                # 1.5: the top speed on a segment whose two axes move OPPOSITE
+FOL_VMAXD = 256                                # 1.0: the top speed on a segment whose two axes move OPPOSITE
                                               # ways (screen-HORIZONTAL: px 2 a ground px), so px is at most 3 a
                                               # step there as on a straight - the ball art's roll reads 1:1 only
                                               # under 4 px a frame (its texture's period is 8; SPEC.md 128.22.4.2)
@@ -2829,11 +2829,12 @@ class Follow:
 
     with the ball GROUNDED.  FOL_VMAX 768 (3.0), FOL_ACC 192 (0.75),
     FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps.  FOL_VMAXD
-    384 (1.5) on a segment whose axes move opposite ways (wave 8R round 2,
-    8R.10): px moves 2 a ground px there, so 3.0 was 6 px a step - past the
-    ball art's roll, whose texture's period is 8 px (a 1:1 roll needs under
-    4 a frame) - and showed as a SKID; at 1.5 it is 3 px a step, a
-    straight's screen speed.
+    256 (1.0) on a segment whose axes move opposite ways (wave 8R round 2,
+    8R.10, and round 3): px moves 2 a ground px there, so 3.0 was 6 px a step
+    and showed as a SKID, and 1.5 (3 px, 1:1) still read as a slide with a
+    flicker - the texture's period is 8 px, so a 3 px step lands the spots in
+    the gaps and every second frame 2 px BEHIND (6 = -2 mod 8); at 1.0 it is
+    2 px a step, a quarter period, which the eye reads as a roll.
 
     SIGNED WORDS suffice for the height: a segment that changes height is a
     ramp's, which the tool keeps at most FOL_SEGMAX (127) ground px long and
@@ -17692,8 +17693,8 @@ def _path_checks(courses, res):
                     ss, mid[0], mid[1], mid[2], bmid[0], bmid[1], bmid[2]),
                 ss == want_s and mid == (20 * 256, 8 * 256, 512) and end == (40 * 256, 8 * 256, 8 * 256)
                 and bmid == (36 * 256, 8 * 256, 8 * 256)))
-    # 8R.10 (round 2): a screen-HORIZONTAL segment (its axes OPPOSITE ways) is held at FOL_VMAXD - px 3 a step,
-    # the ball art's 1:1 roll - and a straight before it at FOL_VMAX, the cap taken from the segment holding s
+    # 8R.10 (round 2): a screen-HORIZONTAL segment (its axes OPPOSITE ways) is held at FOL_VMAXD - px 2 a step,
+    # a quarter of the ball art's 8 px period: the roll the eye reads (round 3) - and a straight before it at FOL_VMAX, the cap taken from the segment holding s
     def _vs(pts):
         f = Follow(pts)
         out = []
@@ -17703,11 +17704,11 @@ def _path_checks(courses, res):
         return out
     vd, vsd = _vs([(8, 8, 0), (24, -8, 0)]), _vs([(8, 8, 0), (24, 8, 0), (40, -8, 0)])
     res.append(("8R.10 bbcourse.Follow on a screen-horizontal diagonal (16 ground px each axis, opposite ways): v %s "
-                "(0.75, then FOL_VMAXD 1.5 a step - 3 px - braking to 0.75 into the pad on step 12); a 16 px straight "
-                "then the diagonal: v %s (3.0 on the straight, 1.5 from the step after s enters the diagonal)" % (
+                "(0.75, then FOL_VMAXD 1.0 a step - 2 px - braking to 0.5 into the pad on step 17); a 16 px straight "
+                "then the diagonal: v %s (3.0 on the straight, 1.0 from the step after s enters the diagonal)" % (
                     vd, vsd),
-                vd == [192] + [384] * 10 + [192]
-                and vsd == [192, 384, 576, 768, 768, 768, 768] + [384] * 10 + [192]))
+                vd == [192] + [256] * 15 + [128]
+                and vsd == [192, 384, 576, 768, 768, 768, 768] + [256] * 15 + [128]))
     # every shipped route walked both ways arrives on its pad's cell exactly
     arr = all(Follow(r["gpts"], rev).run()[-1] == (256 * (r["gpts"][-1 if not rev else 0][0]),
                                                   256 * (r["gpts"][-1 if not rev else 0][1]),
