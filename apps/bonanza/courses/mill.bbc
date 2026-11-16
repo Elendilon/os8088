@@ -99,3 +99,8 @@ target 30
 # wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
 # seconds left of the limit; placed beside the route for the clock's measurement
 clock 8 11
+
+# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
+# are the same with it and without it, so the build re-stamps the demo's identity
+clock 22 22

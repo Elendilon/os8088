@@ -1021,7 +1021,7 @@ final pass once at the end.
 
 | # | story | verified by |
 |---|---|---|
-| 8R.1 | **The tool** (SPEC.md 128.22.2, 128.22.3, 128.22.4.5): `pages`, `pad`, `icon`, `route` (gate, secret, path), `lives`, `rail`; `PK_SIGN` records and `BZ_NSIGN`; the part's tables and key map; the proofs; `bbcourse.Follow`; the clock-at-every-finish rule (128.22.6) on every shipped course; `path.bbc` rewritten as a two-page prototype map of today's courses | `bonanzacourse` (`--selfcheck`) |
+| 8R.1 | **The tool** (SPEC.md 128.22.2, 128.22.3, 128.22.4.5): `pages`, `pad`, `icon`, `route` (gate, secret, path), `lives`, `rail`; `PK_SIGN` records and `BZ_NSIGN`; the part's tables and key map; the proofs; `bbcourse.Follow`; the clock-at-every-finish rule (128.22.6) on every shipped course; `path.bbc` rewritten as a two-page prototype map of today's courses | `bonanzacourse` (`--selfcheck`). **BUILT (host: `--selfcheck`, `make`, a host preview of the map; nothing of it is SEEN in the guest until 8R.2 / 8R.3: the guest still runs 8b's prototype loop on the new part)** |
 | 8R.2 | **Signs and the PAGED camera** (128.22.4.1, 128.22.4.3): `PK_SIGN` in the walk, `bz_nst` sized `BZ_NSIGN`, `bz_nset` and its marks; `cam` 2 | `bonanzapath`; `bonanzawheel`, `bonanzaring` unchanged |
 | 8R.3 | **The pathway's loop** (128.22.4.2, 128.22.4.4): `bz_mode` 4 and `bz_follow`; rest, roll, the keys, the gates' and icons' animation, the reveals, the auto-roll after a finish, lives on the counters | `bonanzapath` (rewritten) |
 | 8R.4 | **The finish sequence** (128.22.6): input ignored, clock frozen and flashing, camera held, a goal's fall not killed, the cup's capture, Enter skips, `FIN_STEPS`; timeouts the same | `bonanzaexit`, `bonanzaphys`, `bonanzagame` |

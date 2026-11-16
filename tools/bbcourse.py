@@ -11,6 +11,13 @@
     python3 tools/bbcourse.py --tune HOP=r,s,g BOOST=b ... # a retune checked first, nothing written
                                                           # (SPEC.md 128.16.13)
 
+Wave 8R (SPEC.md 128.22): THE PATHWAY's `pages`, `pad N`, `icon`, `route`
+(gate, secret, path), `lives` and `rail`; PK_SIGN records (pads, icons,
+gates, reveals); the tables at PTHOFF (path_tables, read_path_tables); the
+key map; the graph and course proofs; `Follow`, the follower's host model;
+the clock-at-every-finish rule (finish_clock_rule) and the demos' identity
+re-stamp it allows (clock_restamp).
+
 Wave 6b (SPEC.md 128.17): GRIP 6, 3, 1 and ice's rounded brake; the boost
 ARMED by a second Space edge in flight (bz_btok 2) and the LATE GRACE
 (BGRACE, bgr/bgd in state6()); PHYS_REV 7; the ladders swept at
@@ -125,6 +132,10 @@ Host reference for the rows (import this module):
     ghost(x, y), CHK, dither(mask)  the ghost dither (SPEC.md 128.15.10.1)
     card_composite(course, ...)     the card's composite read out of the RAM
                                        part's dithered masks (item 11)
+    Follow(points, reverse=False)   SPEC.md 128.22.4.2: the follower, .step()
+                                       -> (bz_gx, bz_gy, bz_gz) 24.8, .s .v
+                                       .arrived; a course's .pth and
+                                       .part["path"] (the tables read back)
     visibility(course, k, demo)     the visibility audit, REPORT mode
                                        (SPEC.md 128.15.10.4)
 """
@@ -1843,6 +1854,23 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
             for k in range(PAD_POSES):
                 poses[k + 1] = dict(reg)
                 poses[k + 1].update(_pad_pose_pix(q, k, x0, y0, base))
+        q["sroute"] = None
+        sr = [rt for rt in routes if rt["secret"] and q["num"] in (rt["a"], rt["b"])] if base is None else []
+        if len(sr) > 1:
+            raise CourseError("%s:%d: pad %d is the visible end of %d secret routes: one a pad (its sign's poses "
+                              "4 - 7 are that route's, SPEC.md 128.22.3)" % (f, q["line"], q["num"], len(sr)))
+        if sr:                                      # a VISIBLE end of a secret route: poses 4 - 7 drawn with it
+            rc_ = rcv[sr[0]["i"]]
+            q["sroute"] = sr[0]["i"]
+            reg = {}
+            for (bx, by) in _rect_blocks(rect):
+                for y in range(8 * by, 8 * by + 8):
+                    for x in range(8 * bx, 8 * bx + 8):
+                        if rc_.rows[y][x] != cv.rows[y][x]:
+                            reg[(x, y)] = rc_.rows[y][x]
+            for k in range(PAD_POSES):
+                poses[PAD_POSES + k] = dict(reg)
+                poses[PAD_POSES + k].update(_pad_pose_pix(q, k, x0, y0, rc_))
         add({"num": q["num"], "kind": "pad", "rect": rect, "poses": poses, "line": q["line"],
              "what": "pad %d" % q["num"]})
     # the icons: the blocks a frame changes, cut into lanes of one sign
@@ -1920,8 +1948,9 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
         rc_ = rcv[rt["i"]]
         mine = set()
         for q in pads:
-            if q["hidden"] and canv.get(q["num"]) is rc_:
-                mine |= own.get("pad %d" % q["num"], set())
+            if (q["hidden"] and canv.get(q["num"]) is rc_) or q.get("sroute") == rt["i"]:
+                mine |= own.get("pad %d" % q["num"], set()) if q["hidden"] else \
+                    next(_rect_blocks(s_["rect"]) for s_ in specs if s_["kind"] == "pad" and s_["num"] == q["num"])
         diff = {}
         for y in range(cv.h):
             r0, r1 = cv.rows[y], rc_.rows[y]
@@ -2129,7 +2158,8 @@ def path_tables(pth):
         wx, wy = q["at"]
         ivl = int(round(STEP_HZ / q["ifps"])) if q["ifps"] else 0
         b += struct.pack("<BBBBHHBB", q["K"], q["sign"], 0xFF if q["isign"] is None else q["isign"],
-                         q["page"] | (0x80 if q["hidden"] else 0), 16 * wx + 8, 16 * wy + 8, q["iposes"], ivl)
+                         q["page"] | (0x80 if q["hidden"] else 0) | (0x40 if q.get("sroute") is not None else 0),
+                         16 * wx + 8, 16 * wy + 8, q["iposes"], ivl)
     for rt, po in zip(routes, poff):
         b += struct.pack("<BBBBBBH", rt["a"], rt["b"], rt["exit"], 1 if rt["secret"] else 0,
                          0xFF if rt["gsign"] is None else rt["gsign"], 0xFF if rt["rsign"] is None else rt["rsign"], po)
@@ -2154,11 +2184,12 @@ def read_path_tables(p, off, end, nsign, fname="<part>"):
     pads, routes, keys = [], [], []
     for i in range(npad):
         K, sg, isg, pg, gx, gy, ip, ivl = struct.unpack_from("<BBBBHHBB", p, o)
-        if sg >= ns or (isg != 0xFF and isg >= ns) or (pg & 0x7F) >= PATH_PAGES or bool(ip) != (isg != 0xFF) \
-                or bool(ivl) != bool(ip):
+        if sg >= ns or (isg != 0xFF and isg >= ns) or (pg & 0x3F) >= PATH_PAGES or bool(ip) != (isg != 0xFF) \
+                or bool(ivl) != bool(ip) or (pg & 0xC0) == 0xC0:
             bad("pad %d" % i)
-        pads.append({"K": K, "sign": sg, "isign": None if isg == 0xFF else isg, "page": pg & 0x7F,
-                     "hidden": bool(pg & 0x80), "gx": gx, "gy": gy, "iposes": ip, "ivl": ivl})
+        pads.append({"K": K, "sign": sg, "isign": None if isg == 0xFF else isg, "page": pg & 0x3F,
+                     "hidden": bool(pg & 0x80), "secret_end": bool(pg & 0x40), "gx": gx, "gy": gy, "iposes": ip,
+                     "ivl": ivl})
         o += PADREC
     for i in range(nroute):
         a, b_, e, fl, gs, rs, po = struct.unpack_from("<BBBBBBH", p, o)
@@ -4214,7 +4245,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     rtiles, rops = {}, {}
     if pth is not None:                             # each secret route's tiles, drawn by its reveal: inside too
         for ri in sorted(pth["secret_rooms"]):
-            rtiles[ri] = dict(tiles, **{k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
+            rtiles[ri] = dict(tiles)
+            rtiles[ri].update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
             rops[ri] = draw_ops(rtiles[ri], x0, set())
             if props:
                 rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
@@ -9173,7 +9205,7 @@ def stamp(paths, rec=None):
         h.update(name.encode() + b"\0")
         with open(path, "rb") as f:
             h.update(f.read())
-    extra = [DESKTOP_FONT]                       # wave 8R: the pathway's titles' face and its pixmaps
+    extra = [LABEL_FONT]                         # wave 8R: the pathway's titles' face and its pixmaps
     for p in paths:
         with open(p, "rb") as f:
             for m in re.finditer(rb"^\s*icon\s+\d+\s+(\S+)", f.read(), re.M):
@@ -9473,6 +9505,18 @@ def check_demo(c, K, log, idents, where):
     if log[4] != K:
         raise CourseError("%s: the demo names course %d, its place is %d" % (where, log[4], K))
     bad = check_log(bytes(log), len(idents), idents, physv=log[7])
+    restamp = []
+    if bad and bad[0] == 4 and CLOCK_RESTAMP.get(c.name) == struct.unpack_from("<H", log, 14)[0] \
+            and clock_restamp(c, bytes(log)):
+        # wave 8R (SPEC.md 128.22.6, the lead's D6): a demo recorded on the course as it was before wave 8R's
+        # finish clocks (its identity THAT one, CLOCK_RESTAMP), which the clocks never meet - the replay the
+        # same, step for step, with the course's clocks and without them - ships with the BUILD's identity
+        # re-stamped; anything else is still an earlier build's demo
+        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the course moved by clocks its "
+                       "replay never meets (SPEC.md 128.22.6)" % (where, struct.unpack_from("<H", log, 14)[0],
+                                                                  idents[K]))
+        struct.pack_into("<H", log, 14, idents[K])
+        bad = check_log(bytes(log), len(idents), idents, physv=log[7])
     if bad:
         raise CourseError("%s: check %d: %s%s" % (where, bad[0], bad[1], " - a demo of an earlier build of %s: "
                                                   "record it again" % c.name if bad[0] == 4 else ""))
@@ -9489,7 +9533,44 @@ def check_demo(c, K, log, idents, where):
                           "DEMOTED, and a demo is never shipped demoted (SPEC.md 128.16.9) - author it again" % (
                               where, "reaches the goal at step %d" % first if first else "never reaches the goal",
                               steps))
-    return bytes(log), [], p
+    return bytes(log), restamp, p
+
+
+# the identities of the authored demos' courses before wave 8R's finish clocks (SPEC.md 128.22.6): a
+# demo carrying one of these may be re-stamped by clock_restamp, and no other identity ever is
+CLOCK_RESTAMP = {"MOON": 0x5E25, "PEAK": 0x0562, "PLAY": 0x9D5E}
+
+
+def clock_restamp(c, log):
+    """True when the model's replay of LOG gives the same events, step for
+    step, on course c and on c with every `clock` statement left out: the
+    clocks (SOLID posts, 128.18.5.3) are never met, so they cannot have moved
+    the demo (the wave 8R clock rule's re-stamp, SPEC.md 128.22.6)"""
+    path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
+    try:
+        with open(path, encoding="ascii") as f:
+            text = f.read()
+    except OSError:
+        return False
+    bare = "\n".join(ln for ln in text.split("\n") if ln.split()[:1] != ["clock"])
+    if bare == text:
+        return False
+    try:
+        c0 = compile_course(bare, fname=c.fname + " (no clocks)", occluders=False, _hack={"no_finish": 1})
+    except CourseError:
+        return False
+    _K, mat, kt, _fl = decode_log_t(log)
+    runs = []
+    for cc in (c, c0):                      # the ball's state every step, and the events' kinds and steps
+        p = Physics(cc, play=True, mat=mat)
+        tr = []
+        for k, t in kt:
+            p.step(k, t)
+            tr.append((p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, p.air, p.goal))
+            if p.tout:
+                break
+        runs.append((tr, [(e[0], e[1]) for e in p.events]))
+    return runs[0] == runs[1]
 
 
 # The AUTHORED demos (SPEC.md 128.14.7.4: MOON's and PEAK's until the owner
@@ -15369,6 +15450,305 @@ def _w5_budget(courses, res):
             "over" if z > bg else "under", len(c.cga), PARTMAX), n <= budget_cap(c.target)))
 
 
+# =============================================================================
+# wave 8R (SPEC.md 128.22.10): the pathway's --selfcheck items
+# =============================================================================
+
+PATH_TEST_HID = ('course HID "Hidden Exit"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
+                 'goal rect 12 10 13 12 flat 0\ngoal rect 12 12 13 14 flat 0 exit 1 hidden\nclock 9 11\n'
+                 'way 11 12\nlimit 30\n')
+# a private map (the selfcheck's alone): FIRST -> HID; HID's exit 0 -> TRIAL (the END); HID's hidden exit 1
+# a SECRET route to SIDE (a pad that leads nowhere)
+PATH_TEST = """course PT "Test Path"
+width  64
+pathway
+view   0 340
+pad 0 FIRST 23 24
+pad 1 HID   20 21
+pad 2 TRIAL 16 17
+pad 3 MILL  14 21
+route 0 1 exit 0 path 23,24 20,21
+route 1 2 exit 0 path 20,21 16,17
+route 1 3 exit 1 secret path 20,21 14,21
+icon 3 icons/mill.bba -152 240
+lives 26 26
+"""
+# ...and the SHORTCUT: HID's hidden exit 1 straight to MOON, the END, where the open way passes TRIAL
+PATH_SHORT = """course PS "Test Shortcut"
+width  64
+pathway
+view   0 340
+pages  2
+pad 0 FIRST 23 24
+pad 1 HID   20 21
+pad 2 TRIAL 16 17
+pad 3 MOON  10 15
+route 0 1 exit 0 path 23,24 20,21
+route 1 2 exit 0 path 20,21 16,17
+route 2 3 exit 0 path 16,17 10,17 10,15
+route 1 3 exit 1 secret path 20,21 8,21 8,13 10,13 10,15
+lives 26 26
+lives 4 10
+"""
+
+
+def _path_compile(text, courses, what, extra=()):
+    info = [(c.name, c.title) for c in courses] + [(c.name, c.title) for c in extra]
+    return compile_course(text, fname="<%s>" % what, crsinfo=info)
+
+
+def _path_refused(text, courses, want, what, extra=(), proofs=False):
+    try:
+        pc = _path_compile(text, courses, what, extra)
+        if proofs:
+            path_proofs(pc, list(courses) + list(extra))
+        return False, "compiled"
+    except CourseError as e:
+        return want in str(e), str(e)
+
+
+def _path_checks(courses, res):
+    t0 = time.time()
+    shipped = os.path.join(COURSE_DIR, "path.bbc")
+    with open(shipped, encoding="ascii") as f:
+        ptext = f.read()
+    pc = compile_course(shipped, crsinfo=[(c.name, c.title) for c in courses])
+    proofs = path_proofs(pc, courses)
+    pth, part = pc.pth, pc.part
+    rt = part["path"]
+    print("    the pathway: %d pads, %d routes, %d signs, %d pages; part %d bytes in RAM (%d stored), LZ4 %d" % (
+        len(pth["pads"]), len(pth["routes"]), pth["nsign"], pth["npages"], len(pc.cga), len(pc.stored),
+        packed_len(pc.stored4, "lz4")))
+    for q in pth["pads"]:
+        print("      pad %d %-5s page %d, icon sign %s, keys %s" % (
+            q["num"], q["crs"], q["page"], q["isign"], ", ".join(
+                "%s %s" % (KEY_ARROWS[k], "-" if v is None else "%d%s" % (v[0], " back" if v[1] else ""))
+                for k, v in enumerate(q["keys"]))))
+    for line in proofs:
+        print("      route %s" % line)
+    pic, kinds = path_costs(pc)
+    print("      the part by kind: picture %d bytes (header, map and %d blocks); %s; tables %d" % (
+        pic, pc.nblk_pic, "; ".join("%s %d lanes %d bytes (%d blocks)" % (k, v[0], v[1], v[2])
+                                    for k, v in sorted(kinds.items())), pc.model["pth"]))
+    for line in getattr(pc, "path_bounds", []):
+        print("      %s" % line)
+    ok_t = (rt is not None and len(rt["pads"]) == len(pth["pads"]) and len(rt["routes"]) == len(pth["routes"])
+            and all(r["pts"] == [tuple(p) for p in pr["gpts"]] for r, pr in zip(rt["routes"], pth["routes"]))
+            and all(rt["keys"][i] == q["keys"] for i, q in enumerate(pth["pads"]))
+            and part["model"]["grid"]["gflags"] & GF_PAGED and part["npages"] == pth["npages"])
+    res.append(("8R the shipped pathway compiles: %d pads, %d routes, every pad reachable from pad 0, every key map "
+                "resolved, its tables read back as written (PTHOFF %d, NPAGES %d, BZG1 +28 bit 3), within %d bytes "
+                "(%d)" % (len(pth["pads"]), len(pth["routes"]), part["pthoff"], part["npages"], PARTMAX, len(pc.cga)),
+                ok_t and len(pc.cga) <= PARTMAX))
+    sec = [r for r in pth["routes"] if r["secret"]]
+    res.append(("8R the shipped map has no secret route (128.22.2's brief: the secret path is the selfcheck's)",
+                not sec))
+    # the map's layout rules: route 1's reverse first step, pad 0 first, PLAY a side pad; at least one route
+    # crossing from page 0 to page 1
+    cross = [r for r in pth["routes"] if pth["pads"][r["a"]]["page"] != pth["pads"][r["b"]]["page"]]
+    res.append(("8R the shipped map: pad 0 plays FIRST, pad 1 TRIAL with its exits 0 and 1 branching, %d route%s "
+                "crossing between pages" % (len(cross), "" if len(cross) == 1 else "s"),
+                pth["pads"][0]["crs"] == "FIRST" and pth["pads"][1]["crs"] == "TRIAL"
+                and sorted(r["exit"] for r in pth["routes"] if r["a"] == 1) == [0, 1] and cross))
+    # the refusals, each provoked on the shipped text or the private map
+    hid = compile_course(PATH_TEST_HID, fname="<HID>", occluders=False, _hack={"no_bounds": 1})
+    hid.title = "Hidden Exit"
+    ex = [hid]
+    tp = _path_compile(PATH_TEST, courses, "the private map", ex)
+    tproofs = path_proofs(tp, list(courses) + ex)
+    srt = [r for r in tp.pth["routes"] if r["secret"]][0]
+    hp = tp.pth["pads"][srt["b"]]
+    rv = [L for L in tp.lanes if tp.props[L["prop"]]["kind"] == PK_SIGN
+          and tp.props[L["prop"]]["spec"]["kind"] == "reveal"]
+    hl = [L for L in tp.lanes if tp.props[L["prop"]]["kind"] == PK_SIGN and tp.props[L["prop"]]["num"] in
+          (hp["sign"], hp["isign"])]
+    print("      the private map's secret route: %s; %d reveal groups at %s ground px; the hidden pad's lanes %s "
+          "poses" % (srt["verdict"], len(rv), srt["rdist"], sorted({len(L["poses"]) for L in hl})))
+    res.append(("8R a secret route on a private map: its verdict SIDE, its pad, icon and cells absent from the "
+                "picture and drawn by %d REVEAL lanes (one sign each, distances strictly increasing), its hidden "
+                "pad's lanes one pose more (0 the bare picture)" % len(rv),
+                srt["verdict"] == "SIDE" and rv and srt["rdist"] == sorted(set(srt["rdist"]))
+                and hp["hidden"] and hl
+                and all(len(L["poses"]) == (PAD_POSES + 1 if tp.props[L["prop"]]["num"] == hp["sign"]
+                                            else hp["iposes"] + 1) for L in hl)
+                and all(not L["poses"][0] for L in rv + hl)
+                and tp.part["path"]["routes"][srt["i"]]["rsign"] == srt["rsign"]))
+    short = PATH_SHORT
+    try:
+        ts = _path_compile(short, courses, "shortcut map", ex)
+        sv = [r["verdict"] for r in ts.pth["routes"] if r["secret"]]
+    except CourseError as e:
+        sv = [str(e)]
+    res.append(("8R a secret route that reaches the end in fewer pads is a SHORTCUT (%s)" % sv,
+                len(sv) == 1 and sv[0].startswith("SHORTCUT")))
+    cases = [
+        ("a pathway statement on a course", 'course X "x"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
+         'goal rect 12 10 13 14 flat 0\npages 2\n', "is the pathway's statement", False),
+        ("`node` (8b's prototype)", ptext.replace("pages  2", "pages  2\nnode 0 FIRST 6 6 sign 6 5"), "is gone",
+         False),
+        ("pads not numbered from 0", ptext.replace("pad 5 PEAK", "pad 6 PEAK").replace("route 4 5", "route 4 6"),
+         "not 0 - ", False),
+        ("a path that does not start on A's cell", ptext.replace("path 22,26 22,21", "path 22,25 22,21"),
+         "not from pad 0's cell", False),
+        ("a step along both axes that changes height", ptext.replace("path 22,21 18,17 ", "path 22,21 18,17,1 "),
+         "changes height", False),
+        ("a step neither along one axis nor both equally", ptext.replace("path 22,21 25,18", "path 22,21 25,19"),
+         "neither along one axis", False),
+        ("a ramp between neighbouring cells", ptext.replace("13,12 10,12 8,12,1 7,12,1", "13,12 9,12 8,12,1 7,12,1"),
+         "between two neighbouring cells", False),
+        ("two routes crossing", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
+                                              "route 1 3 exit 1  path 22,21 25,18\n"
+                                              "route 3 2 exit 0 path 25,18 20,18 20,17 18,17"),
+         "crosses the route", False),
+        ("(A, E) keyed twice", ptext.replace("route 1 3 exit 1 ", "route 1 3 exit 0 "), "already opens", False),
+        ("two diagonals sharing an arrow", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
+                                                         "route 1 3 exit 1  path 22,21 22,18 25,18")
+         .replace("route 0 1 exit 0  path 22,26 22,21", "route 0 1 exit 0  path 22,26 26,26 26,21 22,21"),
+         "claimed by two diagonals", False),
+        ("a pad no route opens (unreachable)", ptext.replace("route 4 5 exit 0 ", "route 5 4 exit 0 ").replace(
+            "path 13,12 10,12 8,12,1 7,12,1", "path 7,12,1 8,12,1 10,12 13,12"), "not reachable", False),
+        ("a pad outside every page's window", ptext.replace("pad 3 PLAY   25 18", "pad 3 PLAY   26 16").replace(
+            "path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
+                                                                         ""),
+         "inside no page's CGA window", False),
+        ("a page with no lives counter", ptext.replace("lives 11  4", ""), "has no `lives` counter", False),
+        ("an icon off a block's corner", ptext.replace("icon 0 icons/first.bba        -120 376",
+                                                      "icon 0 icons/first.bba        -116 376"),
+         "not a block's corner", False),
+        ("a gate on a secret route", PATH_TEST.replace("exit 1 secret path", "exit 1 secret gate 17 21 path"),
+         "has no gate", False),
+        ("a gate off its route", ptext.replace("route 0 1 exit 0  path", "route 0 1 exit 0  gate 21 21 path"),
+         "not a cell on the route", False),
+        ("a route opened by an exit its course has not", ptext.replace("route 4 5 exit 0 ", "route 4 5 exit 3 "),
+         "which it has not", True),
+        ("a secret route opened by an exit that is not hidden", PATH_TEST.replace("route 1 2 exit 0 ",
+                                                                                  "route 1 2 exit 1 ")
+         .replace("route 1 3 exit 1 secret", "route 1 3 exit 0 secret"), "is not HIDDEN", True),
+        ("a secret route neither SHORTCUT nor SIDE", PATH_TEST.replace("route 1 2 exit 0 path 20,21 16,17",
+                                                                       "route 1 2 exit 0 path 20,21 16,17\n"
+                                                                       "route 3 2 exit 0 path 14,21 13,20 13,17 "
+                                                                       "16,17"),
+         "neither a SHORTCUT", False),
+    ]
+    for what, text, want, prf in cases:
+        fired, msg = _path_refused(text, courses, want, what, ex, prf)
+        res.append(("8R refused: %s%s" % (what, "" if fired else " -- got: " + msg[:160]), fired))
+    # two routes leaving one pad one way (a synthetic map: the cells could not be laid that way)
+    syn = {"pads": [{"num": 0}, {"num": 1}, {"num": 2}],
+           "routes": [{"i": 0, "a": 0, "b": 1, "line": 1, "src": {"pts": [(5, 5, 0), (9, 5, 0)]}},
+                      {"i": 1, "a": 0, "b": 2, "line": 2, "src": {"pts": [(5, 5, 0), (7, 5, 0), (7, 9, 0)]}}]}
+    try:
+        path_keymap(syn, "<one way twice>")
+        why = "accepted"
+    except CourseError as e:
+        why = str(e)
+    res.append(("8R refused: two routes leaving a pad one way (%s)" % why[:80], "two routes leave pad 0" in why))
+    # the key map's rule: a straight claim beats a diagonal (TRIAL's Up and Right are straights' and its
+    # Left and Down the down-left route's alone)
+    k1 = pth["pads"][1]["keys"]
+    res.append(("8R the key map: at TRIAL a straight route takes its one arrow (Up %s, Right %s) and the down-left "
+                "diagonal both of its own (Down %s, Left %s)" % (k1[0], k1[3], k1[1], k1[2]),
+                k1[0] == (1, 0) and k1[3] == (2, 0) and k1[1] == (0, 1) and k1[2] == (0, 1)))
+    # the tables' reader refuses a corrupt table (a red control of read_path_tables)
+    bad = bytearray(pc.cga)
+    o = part["pthoff"] + 4 + PADREC * len(pth["pads"])
+    bad[o] = 0x40                                   # route 0's A: no such pad
+    try:
+        read_path_tables(bytes(bad), part["pthoff"], part["diroff"], pth["nsign"], "<corrupt>")
+        caught = False
+    except CourseError:
+        caught = True
+    res.append(("8R red control: a route naming no pad in the tables is refused by the reader", caught))
+    # bbcourse.Follow against a hand-worked route: 16 ground px along one axis, then the ramp's gz
+    f = Follow([(8, 8, 0), (24, 8, 0)])
+    ss = []
+    while not f.arrived:
+        f.step()
+        ss.append(f.s)
+    want_s = [192, 576, 1152, 1920, 2688, 3264, 3648, 4096]
+    g = Follow([(8, 8, 0), (16, 8, 0), (32, 8, 8), (40, 8, 8)])
+    g.s = 12 * 256
+    mid = g.pos()
+    g.s = 32 * 256
+    end = g.pos()
+    back = Follow([(8, 8, 0), (16, 8, 0), (32, 8, 8), (40, 8, 8)], reverse=True)
+    back.s = 4 * 256
+    bmid = back.pos()
+    res.append(("8R bbcourse.Follow against a hand-worked route: s %s (the ramp up to 3.0, braking from 3.0 at "
+                "1,408 left, arriving exactly at 4,096 on step 8); on a ramp at s 12.0 (%d, %d, %d) = (16.0, 8.0, "
+                "2.0 px), at its end the last point, walked back 4.0 from it (%d, %d, %d)" % (
+                    ss, mid[0], mid[1], mid[2], bmid[0], bmid[1], bmid[2]),
+                ss == want_s and mid == (20 * 256, 8 * 256, 512) and end == (40 * 256, 8 * 256, 8 * 256)
+                and bmid == (36 * 256, 8 * 256, 8 * 256)))
+    # every shipped route walked both ways arrives on its pad's cell exactly
+    arr = all(Follow(r["gpts"], rev).run()[-1] == (256 * (r["gpts"][-1 if not rev else 0][0]),
+                                                  256 * (r["gpts"][-1 if not rev else 0][1]),
+                                                  256 * (r["gpts"][-1 if not rev else 0][2]))
+              for r in pth["routes"] for rev in (False, True))
+    res.append(("8R every shipped route, followed both ways, arrives on its far pad's cell exactly (%s steps)" % (
+        ", ".join("%d" % len(Follow(r["gpts"]).run()) for r in pth["routes"])), arr))
+    print("    (the pathway's items: %.1f s)" % (time.time() - t0))
+
+
+def _clock_rule_checks(courses, res, paths=None):
+    """SPEC.md 128.22.6: the clock-at-every-finish rule's verdicts, and its refusal provoked; the
+    demos' identity re-stamp it allows, and its red control (a clock ON the demo's route)"""
+    paths = paths or default_paths()
+    byk = {c.name: k for k, c in enumerate(courses)}
+    if "MOON" in byk and os.path.exists(demo_path(paths[byk["MOON"]])):
+        K = byk["MOON"]
+        c = courses[K]
+        with open(demo_path(paths[K]), encoding="ascii") as f:
+            log = bzd_log(parse_bzd(f.read(), "<moon.bzd>"), K)
+        idents = [q.ident for q in courses]
+        out, warn, _p = check_demo(c, K, log, idents, "<moon.bzd>")
+        ok1 = struct.unpack_from("<H", log, 14)[0] == CLOCK_RESTAMP["MOON"] and warn and \
+            struct.unpack_from("<H", out, 14)[0] == c.ident
+        # the red control: a clock where the demo's ball rolls - the replay moves, no re-stamp
+        _K, mat, kt, _fl = decode_log_t(log)
+        pp = Physics(c, play=True, mat=mat)
+        cells = []
+        for k_, t_ in kt[:600]:
+            pp.step(k_, t_)
+            cl = (pp.gx >> 12, pp.gy >> 12)
+            t = c.tiles.get(cl)
+            if t is not None and t.kind == KIND_FLOOR and not t.sx and not t.sy and cl not in c.pcell \
+                    and cl not in cells:
+                cells.append(cl)
+        with open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname), encoding="ascii") as f:
+            text = f.read()
+        red = None
+        for cl in cells[5:]:
+            try:
+                c2 = compile_course(text + "\nclock %d %d\n" % cl, fname=c.fname, _hack={"no_bounds": 1})
+            except CourseError:
+                continue
+            red = (cl, clock_restamp(c2, log))
+            break
+        res.append(("8R the clock rule's re-stamp: moon.bzd (recorded at %04Xh, CLOCK_RESTAMP's) ships stamped %04Xh, "
+                    "its replay the same with the finish clock and without; red control: a clock put on its route at "
+                    "%s moves the replay and is not re-stamped" % (CLOCK_RESTAMP["MOON"], c.ident, red and red[0]),
+                    bool(ok1) and red is not None and red[1] is False))
+    for c in courses:
+        print("    the clock rule: %s" % finish_clock_rule(c))
+    ok = True
+    try:
+        for c in courses:
+            finish_clock_rule(c)
+    except CourseError:
+        ok = False
+    bad = ('course FAR "f"\nwidth 128\nfloor rect 4 10 30 14 flat 0\nstart 5 12\ngoal rect 30 10 31 14 flat 0\n'
+           'clock 6 11\nlimit 60\n')
+    try:
+        finish_clock_rule(compile_course(bad, fname="<far clock>", occluders=False, _hack={"no_bounds": 1}))
+        why = "accepted"
+    except CourseError as e:
+        why = str(e)
+    res.append(("8R the clock rule: every shipped course with a limit has a clock in the CGA window centred on each "
+                "of its finishes (BENCH, no limit, exempt); a finish with its clock too far is refused (%s)" % why[:90],
+                ok and "has no clock whose digits" in why))
+
+
 def selfcheck(paths=None):
     paths = paths or default_paths()
     res = []
@@ -16000,6 +16380,8 @@ def selfcheck(paths=None):
     _w5_compact(courses, res)
     _w5_dither(courses, res, getattr(compile_all, "demos", None))
     _w5_budget(courses, res)
+    _clock_rule_checks(courses, res, paths)         # wave 8R (SPEC.md 128.22.6, 128.22.10)
+    _path_checks(courses, res)
     ok = True
     for what, good in res:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
