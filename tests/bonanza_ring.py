@@ -454,6 +454,13 @@ def ball_part(mat, tag, art=None):
     if key not in _BALL:
         with open(os.path.join(ROOT, art, A.BALL_FILES[mat]), "rb") as f:
             part = f.read()
+        # wave 9 (SPEC.md 128.25.5): the file is the STORED form BZB3 - BZB2's header, zeros, a
+        # block - and the card holds what bz_ballgen expands it to at the fetch.  Read raw, the
+        # frames are zeros and every resting ball is drawn as a hole.  BZB3 is told by its mask
+        # rows (zeros there; BZB2's first mask row is never empty) and expanded through the
+        # tool's host model of the generator, which --selfcheck proves equal to build_ball2.
+        if not any(part[A.B2_MASKOFF:A.B2_MASKOFF + A.RB]):
+            part = A.model_ball3(part)
         _BALL[key] = A.herc_translate_ball(part, BB.htab()) if tag == "herc" else part
     return _BALL[key]
 
