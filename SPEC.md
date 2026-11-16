@@ -270507,13 +270507,13 @@ through the tube, round UR until it falls and shatters; the rubber rolling in
 at speed, boosting, sprung over the pit, behind the ramp, through the hidden
 tube, the windmill, and a boost over the brown tube's mouth.
 
-#### 128.23.6 The rows (PLANNED)
+#### 128.23.6 The rows (BUILT; the final pass's figures in the plan)
 
-- **`bonanzacourse`** (the tool's `--selfcheck`): `view`'s windows inside the
-  picture and the drop margin above them; an `art` pixel off the picture
-  refused; a label's glyph poses the font's; every title demo `BZ_TSTEPS`
-  steps and its expects met; red arms: a demo one step short, an expect not
-  met.
+- **`bonanzacourse`** (the tool's `--selfcheck`, item 13): the window FIXED
+  in the header, one label lane whose poses are the font's digits and no OBS
+  cell; every title demo `BZ_TSTEPS` steps and its expects met; and four
+  controls REFUSED - a view off the picture, an art pixel off it, a demo a
+  step short, an expect not met.
 - **`bonanzamusic`**: `attract`'s one pass is exactly `BZ_TSTEPS` sub-ticks
   and its loop row silent.
 - **`bonanzatitle`** (new, soak, MartyPC, both cards): Enter opens the title;
