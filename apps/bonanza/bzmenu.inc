@@ -528,7 +528,6 @@ bz_rsavedk:
 bz_rloaddlg:
     call bz_bigok
     jc .out
-    call bz_unsusp
     call od_enter               ; (no APPDATA: the dialog where we are)
     mov al, FDLG_OPEN
     xor si, si

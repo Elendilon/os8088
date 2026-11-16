@@ -1492,6 +1492,9 @@ bz_exitchk:
 .stay:
     clc
     ret
+.towin:
+    mov byte [bz_towin], 1      ; F and Alt+Enter ask for the WINDOW (128.26.4)
+    jmp short .leave
 %if BZ_TITLE
 .title:                         ; a course demo of the title's chain: any key
     add [bz_tlfsr], ax          ; (a key stirs the title's LFSR)
@@ -1527,8 +1530,6 @@ bz_exitchk:
 .tk:
     mov [bz_twhy], ah
 %endif
-.towin:
-    mov byte [bz_towin], 1      ; F and Alt+Enter ask for the WINDOW (128.26.4)
 .leave:
 %if BZ_TITLE
     cmp byte [bz_twhy], 0       ; (Alt+Enter, F: the title's Esc)
