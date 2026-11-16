@@ -122,5 +122,22 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe
+uses probe glass
 prop probe 16 16 reset respawn
+
+# wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
+# PLATFORM (a steel pad on it) joined to FF by two one-tile paths over the void - the CRACK PATH (four
+# cracked tiles, wy 24), which glass rolls across at leisure and steel and rubber only at speed, and the
+# GLASS PATH (four glass tiles, wy 27), invisible until rolled onto, its first tile's jagged edge at FF
+floor rect  3 23  6 29  flat 4
+floor rect  6 24 10 25  flat 4
+floor rect  6 27 10 28  flat 4
+prop crack 9 24
+prop crack 8 24
+prop crack 7 24
+prop crack 6 24
+prop glass 9 27
+prop glass 8 27
+prop glass 7 27
+prop glass 6 27
+pad steel 4 25

@@ -384,7 +384,21 @@ FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
                            "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20},
+    # GLASS (SPEC.md 128.25.8, 128.25.18): the CRACKED TILE (a byte an element: 0 whole, 1 cracked by one
+    # glass impact, 2 - T + 1 COUNTING to its break, FFh broken - a VOID in the window, its kill 3 units under
+    # the floor) and the GLASS PATH tile (a bit: REVEALED).  CONSTS fold into its FAMV: CRACK_TS, CRACK_TR,
+    # CRACK_LATE
+    {"name": "glass", "id": 2, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL,
+     "slot": 1, "consts": (14, 28, 6),
+     "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
+                "forms": ("own", "void"), "states": (0,), "pickup": False},
+               {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
+                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40},
 )
+CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
+                                                # steel's and rubber's steps to the break, the last poses'
+FK_CRACK, FK_GLASS = FAM_K0 + 1, FAM_K0 + 2
+CR_WHOLE, CR_IMPACT, CR_BROKEN = 0, 1, 0xFF     # a crack's byte; 2 - T + 1 counting (T + 1 - v steps gone)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -393,8 +407,10 @@ for _k, (_f, _r) in FKIND.items():
     PK_NAMES[_k] = _r["name"]
 assert [f["id"] for f in FAMILIES] == list(range(1, len(FAMILIES) + 1)), "family IDs are 1 - n in order"
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
-assert all(k["forms"] == ("own",) for _f, k in FKIND_BY_NAME.values()), \
-    "a family kind's cell form other than its own: the reach's superset is story 9.5's (SPEC.md 128.25.7.3)"
+assert all(k["forms"] in (("own",), ("own", "void")) for _f, k in FKIND_BY_NAME.values()), \
+    "a family kind's cell form the reach does not take: own, and (GLASS's crack, 128.25.18) its broken VOID"
+assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
+assert all(k["bits"] in (1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())
 assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
 
 
@@ -405,8 +421,9 @@ def famv(f):
     b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
-                    {None: 0, "pennant": 1}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                    {None: 0, "pennant": 1, "crack": 2, "glass": 3}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
+    b += bytes(f.get("consts", ()))             # (GLASS's constants; the probe has none: its FAMV as before)
     crc = 0xFFFF
     for x in b:
         crc ^= x << 8
@@ -884,6 +901,116 @@ def _parse_tube(toks, where, ln):
         raise CourseError("%s: a DROP's mouth faces %s: it must face +x or +y (a wall shows only those)"
                           % (where, DIR_NAMES[t["dir"]]))
     return t
+
+
+def _famart(p):
+    """GLASS's lanes (SPEC.md 128.25.18): a crack's or a glass tile's - a 2 x 2-block lane round its tile's
+    centre, which no other tile's can share (the rule that lets a path of them lie edge to edge)"""
+    return p.get("art") in ("crack", "glass")
+
+
+def _raster(a, b):
+    """the pixels of the segment a - b (integer tile-local points), Bresenham"""
+    (x, y), (x1, y1) = a, b
+    dx, dy = abs(x1 - x), -abs(y1 - y)
+    sx, sy = (1 if x1 > x else -1), (1 if y1 > y else -1)
+    err, out = dx + dy, []
+    while True:
+        out.append((x, y))
+        if (x, y) == (x1, y1):
+            return out
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x += sx
+        if e2 <= dx:
+            err += dx
+            y += sy
+
+
+# a crack's lines, tile-local (u, v) round its top's centre, inside the lane's 16 px band: pose 0's hairline
+# (the hint, in the picture), then what each later pose adds; broken also opens the HOLE
+CRACK_LINES = (
+    (((-7, -1), (-2, 1)), ((-2, 1), (3, -1)), ((3, -1), (7, 0))),
+    (((-2, 1), (0, 5)), ((3, -1), (4, -5)), ((-7, -1), (-6, -4))),
+    (((0, 5), (-4, 7)), ((4, -5), (1, -7)), ((-2, 2), (3, 0)), ((0, 4), (2, 6)), ((7, 0), (7, 3))),
+)
+CRACK_HOLE = 5.0              # the hole: |u| / 2 + |v| under this (and a ragged rim), black
+
+
+def crack_poses(cx, cy):
+    """a crack's four poses, {pose: {(x, y): ink}} round the top's centre (cx, cy), picture pixels: 0 whole
+    (a black hairline), 1 cracked, 2 cracking (its last CRACK_LATE steps), 3 broken (the hole drawn).
+    Only on its top (crystal_top_ink's diamond, the tile's top footprint) and inside |u| < 8"""
+    def on(u, v):
+        return -8 <= u < 8 and BA.crystal_top_ink(u, v) is not None
+    out, acc = {}, {}
+    for q in range(3):
+        for a, b in CRACK_LINES[q]:
+            for (u, v) in _raster(a, b):
+                if on(u, v):
+                    acc[(cx + u, cy + v)] = BLK
+        out[q] = dict(acc)
+    hole = dict(acc)
+    for v in range(-8, 8):
+        for u in range(-8, 8):
+            if on(u, v) and abs(u) / 2.0 + abs(v) < CRACK_HOLE + ((u * 7 + v * 3) % 5) / 4.0:
+                hole[(cx + u, cy + v)] = BLK
+    out[3] = hole
+    return out
+
+
+def glass_poses(cx, cy, jag):
+    """a glass tile's two poses round its top's centre: 0 INVISIBLE (the picture is drawn without the tile;
+    the path's FIRST tile shows a JAGGED EDGE, white teeth, along its edge `jag` = (dx, dy) toward the
+    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8"""
+    q0, q1 = {}, {}
+    for v in range(-8, 8):
+        for u in range(-8, 8):
+            ink = BA.crystal_top_ink(u, v)
+            if ink is None:
+                continue
+            q1[(cx + u, cy + v)] = ink
+            if jag is None:
+                continue
+            fx, fy = (u / 16.0 + v / 8.0 + 1) / 2.0, (v / 8.0 - u / 16.0 + 1) / 2.0
+            d, t = {(1, 0): (1 - fx, fy), (-1, 0): (fx, fy), (0, 1): (1 - fy, fx), (0, -1): (fy, fx)}[jag]
+            z = (t * 5.0) % 1.0
+            if d < 0.05 + 0.13 * (1 - abs(2 * z - 1)):
+                q0[(cx + u, cy + v)] = WHT
+    return {0: q0, 1: q1}
+
+
+def glass_first(tiles, props, start):
+    """the GLASS PATH's FIRST tiles (SPEC.md 128.25.8, the tool's): each 4-connected run of glass tiles
+    leaves the solid ground at the tile one of whose edge neighbours is a non-glass FLOOR or GOAL, that
+    neighbour nearest the start (Manhattan; ties by the file's order) -> {glass cell: (dx, dy)}, the edge"""
+    gl = {p["at"]: p for p in props if p.get("art") == "glass"}
+    out, seen = {}, set()
+    for at in sorted(gl, key=lambda a: gl[a]["line"]):
+        if at in seen:
+            continue
+        comp, todo = [], [at]
+        while todo:
+            c = todo.pop()
+            if c in seen or c not in gl:
+                continue
+            seen.add(c)
+            comp.append(c)
+            todo += [(c[0] + 1, c[1]), (c[0] - 1, c[1]), (c[0], c[1] + 1), (c[0], c[1] - 1)]
+        best = None
+        for c in sorted(comp, key=lambda a: gl[a]["line"]):
+            for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (c[0] + d[0], c[1] + d[1])
+                t = tiles.get(n)
+                if n in gl or t is None or getattr(t, "kind", None) not in (KIND_FLOOR, KIND_GOAL):
+                    continue
+                k = abs(n[0] - start[0]) + abs(n[1] - start[1])
+                if best is None or k < best[0]:
+                    best = (k, c, d)
+        if best is not None:
+            out[best[1]] = best[2]
+    return out
 
 
 def _pennant(p):
@@ -3206,9 +3333,11 @@ def build_props(src, tiles, fname):
         # course has, so no OBS cell is its and physics never meets it
         props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                       "num": lb["num"], "label": lb})
-    nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN) or _pennant(p)))
+    nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
+                                     or _pennant(p) or _famart(p)))
     if nlane > PROP_MAX:
-        lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN) or _pennant(p))]
+        lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
+                                   or _pennant(p) or _famart(p))]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -3465,6 +3594,35 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             zhi, src = best[(wx, wy)][0], best[(wx, wy)][1:]
         out.append(Reach(wx, wy, zlo, zhi, kind, src))
     return out, rounds, emax
+
+
+def reach_forms(reach, tiles, cells, fname, props, hack):
+    """SPEC.md 128.25.7.3, 128.25.18: the reach over the SUPERSET of the cell forms a family element can take.
+    A kind whose FORMS hold "void" (GLASS's crack) is taken a second time BROKEN - a NEAR VOID whose kill is
+    its floor less 3 units - and the two reaches are UNIONED cell by cell (the lower zlo, the higher zhi
+    and its source; a cell's kind its whole form's), so the occluders, the bounds and every proof over the
+    reach see both.  _hack 'noforms': the whole forms alone (--selfcheck's control)"""
+    brk = [p for p in props if "void" in p.get("frow", {}).get("forms", ())]
+    if not brk or hack.get("noforms"):
+        return reach
+    cells2 = dict(cells)
+    tiles2 = dict(tiles)
+    for p in brk:
+        c = cells[p["at"]]
+        cells2[p["at"]] = [c[0] - 6, 0, KIND_VOID, c[3] & ~FL_SAFE]
+        tiles2.pop(p["at"], None)
+    r2, _r, _e = build_reach(tiles2, cells2, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                             _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+    by = dict(((rc.wx, rc.wy), rc) for rc in reach)
+    for rc in r2:
+        o = by.get((rc.wx, rc.wy))
+        if o is None:
+            by[(rc.wx, rc.wy)] = rc
+            continue
+        if rc.zhi > o.zhi:
+            o.zhi, o.src = rc.zhi, rc.src
+        o.zlo = min(o.zlo, rc.zlo)
+    return list(by.values())
 
 
 def foot_x(rc, x0):
@@ -5063,6 +5221,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                 slabcells[t] = (p["hP"], p["hT"])
     reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                       _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+    reach = reach_forms(reach, tiles, cells, fname, props, hack)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -5084,7 +5243,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         if xl < 0 or xh >= width:
             raise CourseError("%s: cell (%d, %d)'s footprint (px %d .. %d) is past the %d px width"
                               % (fname, rc.wx, rc.wy, xl, xh, width))
-    ops = draw_ops(tiles, x0, {c for p in props if p["kind"] == PK_TUBE for c in p["body"]})
+    # GLASS (SPEC.md 128.25.18): a glass tile is SOLID and INVISIBLE - the picture is drawn as if it were not
+    # there (its neighbours' faces hang into the gap), and its lane draws it once revealed
+    gcells = {p["at"] for p in props if p.get("art") == "glass"}
+    if gcells:
+        for at, d in glass_first(tiles, props, src.start[0]).items():
+            next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+    ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
+                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]})
     if props:
         ops = prop_ops(tiles, ops, props, x0)
     gtop = min(min(sp) for sp, *_ in ops if sp)
@@ -5233,6 +5399,26 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": p["kind"], "line": p["line"]})
+        elif _famart(p):                            # GLASS (SPEC.md 128.25.18): a crack's or a glass tile's
+            # lane: 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
+            # blocks across or 2 block rows down, so a path of them shares no block); its poses MARKS at the
+            # tile's depth, clipped by what is drawn in front of it, as a pennant is
+            wx, wy = p["at"]
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+            if cx & 7:
+                raise CourseError("%s:%d: a %s at (%d, %d): its top's centre x %d is not on a block (the origin's "
+                                  "x must be a multiple of 8, SPEC.md 128.25.18)" % (fname, p["line"],
+                                                                                    p["frow"]["name"], wx, wy, cx))
+            sF = wx + wy
+            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
+            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            for q in poses:
+                poses[q] = {(x, y): c for (x, y), c in poses[q].items()
+                            if 8 * rect[0] <= x < 8 * rect[0] + 16 and 8 * rect[1] <= y < 8 * rect[1] + 16
+                            and 0 <= y < lines and cv.sbuf[y][x] <= sF}
+            p["fpix"] = poses
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                          "line": p["line"]})
         elif p["kind"] == PK_SIGN and p.get("label"):    # SPEC.md 128.23.2: a LABEL, one block of the window
             lb = p["label"]
             bx, by = view[1] + lb["col"], view[0] // 8 + lb["row"]
@@ -5460,6 +5646,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     selfp, blkp = [], []
     so = segoff
     fsb = 0                                         # wave 9 (SPEC.md 128.25.7.2): the next state bit
+    # GLASS (128.25.18): a BYTE element (8 bits: a crack's count) takes whole bytes, laid FIRST in record
+    # order, then every other element's bits in record order - no byte is split and none is wasted
+    fsbs = {}
+    for bytes_ in (True, False):
+        for i in order:
+            if is_fam(props[i]["kind"]) and (props[i]["bits"] == 8) == bytes_:
+                fsbs[i] = fsb
+                fsb += props[i]["bits"]
     spo = spoff
     pmo = pmoff
     slab_b = slab_bytes(slab) if slab else b""
@@ -5514,8 +5708,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): +28 the sign's number
             rec += struct.pack("<12xB3x", p["num"])
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
-            p["fsb"] = fsb
-            fsb += p["bits"]
+            p["fsb"] = fsbs[i]
             rec += struct.pack("<BB14x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"])
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
@@ -7076,7 +7269,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             fsb_, cls = p[r + 16], p[r + 17]
             if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 18:r + 32] != bytes(14) \
                     or bool(d["lane"]) != (kr["art"] is not None) \
-                    or (d["lane"] and kr["art"] == "pennant" and d["lane"]["poses"] != 2):
+                    or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2}[kr["art"]]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
             d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"])
     if sorted(nums) != list(range(len(nums))):
@@ -7373,7 +7566,93 @@ class ProbeFamily(Family):
                 win[pr["at"]][4] |= 0x80
 
 
-FAM_MODEL = {"probe": ProbeFamily()}
+def crack_pose(v):
+    """a crack's lane pose from its byte (SPEC.md 128.25.18): 0 whole, 1 cracked (glass's one impact, and a
+    count's first steps), 2 its last CRACK_LATE steps, 3 broken"""
+    if v == CR_BROKEN:
+        return 3
+    if v == CR_WHOLE:
+        return 0
+    return 2 if 2 <= v <= CRACK_LATE + 1 else 1
+
+
+class GlassFamily(Family):
+    """GLASS (SPEC.md 128.25.8, 128.25.18): the CRACKED TILE and the GLASS PATH.  A crack's state is a BYTE
+    of bz_fst (its FSB a multiple of 8): CR_WHOLE, CR_IMPACT (one glass landing), 2 - T + 1 counting down
+    to the break (T = CRACK_TS steel, CRACK_TR rubber; glass never counts), CR_BROKEN.  A glass tile's is
+    a bit, REVEALED.  The slot's +0 is the number of cracks counting (STEP walks nothing while it is 0).
+    A TOUCH is the centre in the element's cell having begun step 6 grounded (bz_fair 0) or a contact
+    this step (bz_nland moved from bz_fnl): an IMPACT is the latter"""
+    row = FAM_BY_NAME["glass"]
+
+    @staticmethod
+    def _byte(p, i):
+        return p.props[i]["fsb"] >> 3
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][0] = 0                  # (every crack is RESPAWN: cleared at either class; the lanes
+                                            # of both kinds marked, bz_latt: the display's)
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        impact = p.nland != p.fnl
+        if not impact and p.fair:
+            return
+        if pr["kind"] == FK_GLASS:
+            b = pr["fsb"]
+            p.fst[b >> 3] |= 1 << (b & 7)
+            return
+        k = self._byte(p, i)
+        v = p.fst[k]
+        if v == CR_BROKEN:
+            return
+        if impact:
+            if p.mat == MAT_GLASS and v == CR_WHOLE:
+                p.fst[k] = CR_IMPACT
+                return
+            if v >= 2:
+                p.fsl[slot][0] -= 1
+            p.fst[k] = CR_BROKEN
+            p.fref = 1
+        elif p.mat != MAT_GLASS and v < 2:
+            p.fst[k] = 1 + (CRACK_TS if p.mat == MAT_STEEL else CRACK_TR)
+            p.fsl[slot][0] += 1
+
+    def step(self, p, slot):
+        if not p.fsl[slot][0]:
+            return
+        for pr in p.props:
+            if pr["kind"] != FK_CRACK:
+                continue
+            k = pr["fsb"] >> 3
+            v = p.fst[k]
+            if v < 2 or v == CR_BROKEN:
+                continue
+            if v == 2:
+                p.fst[k] = CR_BROKEN
+                p.fsl[slot][0] -= 1
+                p.fref = 1
+            else:
+                p.fst[k] = v - 1
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        if pr["kind"] == FK_GLASS:
+            b = pr["fsb"]
+            return p.fst[b >> 3] >> (b & 7) & 1
+        return crack_pose(p.fst[pr["fsb"] >> 3])
+
+    def cell(self, p, slot, win):
+        for pr in p.props:
+            if pr["kind"] == FK_CRACK and pr["at"] in win and p.fst[pr["fsb"] >> 3] == CR_BROKEN:
+                c = win[pr["at"]]
+                if c[3] == KIND_FLOOR:              # (idempotent, as the guest's must be: a kept cell)
+                    c[0] -= 6
+                    c[3] = KIND_VOID
+                    c[5] = 0
+
+
+FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -8368,6 +8647,7 @@ class Physics:
         onslab = False
         lifted = False
         was_air = self.air
+        self.fair, self.fnl = was_air, self.nland   # (bz_fair, bz_fnl: what a family's CONTACT reads)
         contact = None
         if not self.air:
             self.bsp = 0                                # round 3b: on the ground, the boost is spent no more
@@ -10604,6 +10884,15 @@ def emit_inc(courses, path=None, title=None):
               "BZP_FCLS        equ 17       ; ...its reset class: 0 ATTEMPT, 1 RESPAWN",
               "; each family's FAMV (bbcourse.famv), its part's +3 and the courses' lists'"] + [
               "BZ_FAMV_%-8s equ %03Xh" % (f["name"].upper(), famv(f)) for f in FAMILIES] + [
+              "; each family's ID and each family kind (a part names these, never a literal: IDs are FAMILIES'"
+              " order)"] + [
+              "BZ_FID_%-9s equ %d" % (f["name"].upper(), f["id"]) for f in FAMILIES] + [
+              "BZ_FK_%-10s equ %d" % (k["name"].upper(), k["kind"]) for f in FAMILIES for k in f["kinds"]] + [
+              "; GLASS's constants (SPEC.md 128.25.18; its FAMV folds them)",
+              "BZ_CRACK_TS     equ %d" % CRACK_TS, "BZ_CRACK_TR     equ %d" % CRACK_TR,
+              "BZ_CRACK_LATE   equ %d" % CRACK_LATE,
+              "BZ_MAT_STEEL    equ %d        ; the materials' numbers (bz_mat), as a part reads them" % MAT_STEEL,
+              "BZ_MAT_GLASS    equ %d" % MAT_GLASS] + [
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
@@ -16493,6 +16782,15 @@ def _w9_cases():
         ("a probe in the void", C + "uses probe\nprop probe 30 30 reset respawn\n", "not a FLAT FLOOR"),
         ("a probe on a SPLIT cell (128.24.2)", C + "floor box 1 3 13 17 flat 3\nuses probe\n"
          "prop probe 7 5 reset respawn\n", "which is SPLIT"),
+        # GLASS (128.25.18): its kinds' classes are the family's; a crack or a glass tile where a floor is not
+        ("a crack given a reset class (its family's)", C + "uses glass\nprop crack 6 6 reset attempt\n",
+         "takes no `reset`"),
+        ("a glass tile on a ramp", C + "uses glass\nprop glass 14 6\n", "not a FLAT FLOOR"),
+        ("a crack on the cup's cell", C + "uses glass\nprop crack 12 6\n", "already belongs"),
+        ("a crack on a SPLIT cell (128.24.2)", C + "floor box 1 3 13 17 flat 3\nuses glass\nprop crack 7 5\n",
+         "which is SPLIT"),
+        ("a crack whose top is not on a block (origin 228)", C.replace("origin 224", "origin 228")
+         + "uses glass\nprop crack 6 6\n", "not on a block"),
     ]
 
 
@@ -16557,6 +16855,42 @@ def _w9_checks(res):
             fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
     res.append(("7 NO TRAP under the reset classes (128.25.7.3): a WALL-making element on the only bridge past a "
                 "flag - RESPAWN (cleared at the respawn): %s; forced ATTEMPT: %s" % (msg_g, msg), ok_g and fired))
+    # GLASS (128.25.18, 128.25.13): a CRACK PATH as that bridge - its own class RESPAWN compiles (the respawn
+    # restores every crack); the class forced ATTEMPT with BROKEN among the states a pass can leave it in is
+    # refused, naming the state (the red arm 128.25.13 names)
+    cb = _W9B + "uses glass\nprop crack 9 5\nprop crack 10 5\nprop crack 11 5\n"
+    ok_g, msg_g = True, "compiled"
+    try:
+        g = compile_course(cb, fname="<crack bridge>")
+        msg_g = "compiled, %d flag run(s)" % len(g.trap)
+    except CourseError as e:
+        ok_g, msg_g = False, str(e)
+    kr = FAM_BY_NAME["glass"]["kinds"][0]
+    keep = (kr["cls"], kr["states"])
+    kr["cls"], kr["states"] = CL_ATTEMPT, (CR_WHOLE, CR_BROKEN)
+    try:
+        compile_course(cb, fname="<crack bridge attempt>")
+        fired, msg = False, "compiled"
+    except CourseError as e:
+        fired, msg = "NO TRAP" in str(e) and "ATTEMPT family state" in str(e), str(e)
+    finally:
+        kr["cls"], kr["states"] = keep
+    res.append(("7 NO TRAP, GLASS's crack (128.25.18): a crack path as the only bridge past a flag - RESPAWN, its "
+                "class: %s; forced ATTEMPT (whole or broken): %s" % (msg_g, msg), ok_g and fired))
+    # the reach over the SUPERSET (128.25.7.3): each crack's cell takes its broken form's kill as its zlo -
+    # the floor less 3 units - so the occluders and the bounds see a ball falling through it; _hack noforms
+    # (the whole form alone) leaves it at the floor
+    g = compile_course(cb, fname="<crack bridge>")
+    g0 = compile_course(cb, fname="<crack bridge, no forms>", _hack={"noforms": True})
+    lo = dict(((r.wx, r.wy), r.zlo) for r in g.reach)
+    lo0 = dict(((r.wx, r.wy), r.zlo) for r in g0.reach)
+    cr = [(9, 5), (10, 5), (11, 5)]
+    want = [4 * (g.cells[c][0] - 6) for c in cr]
+    res.append(("6 the reach over a crack's superset (128.25.7.3, 128.25.18): the cracks' zlo %s px (their broken "
+                "kill, the floor less 3 units: %s), %s px with the whole form alone (_hack noforms); %d occluder "
+                "records against %d" % ([lo[c] for c in cr], want, [lo0[c] for c in cr], len(g.records),
+                                         len(g0.records)),
+                [lo[c] for c in cr] == want and all(lo0[c] > lo[c] for c in cr)))
 
 
 def _w4_records(c, res):
