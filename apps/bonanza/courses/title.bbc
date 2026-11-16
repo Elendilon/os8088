@@ -45,9 +45,12 @@ floor rect 17 11 24 17 flat 2
 # LR's rails, off the glass: the east one holds the hidden tube
 wall rect 24 6 25 18 flat 3
 wall rect 12 17 24 18 flat 3
-# LS and its back wall
-floor rect 9 12 12 13 flat 2.5
-wall rect 9 11 12 12 flat 3.5
+# LS and its back wall, running off the glass to the left (a ball boosted over the brown tube's mouth
+# goes on, and off the left side); a STEP down from LL to LS (half a unit each way, which every ball
+# rolls), so a ball on LL reaches the mouth (a ramp there laid 6 occluder records in a block, over 4)
+floor rect 5 12 12 13 flat 2.5
+wall rect 5 11 12 12 flat 3.5
+floor rect 9 13 12 14 flat 3
 # LL
 floor rect 7 14 12 17 flat 3.5
 
@@ -56,9 +59,11 @@ tube keep 10 12 16 6 via 10 11 via 12 11 via 12 5 via 16 5
 # the windmill, UR through the pillar onto LS's end of LC
 prop windmill 14 8
 tube keep 14 8 13 12 via 13 8 out -x
-# the HIDDEN tube, off the glass: LR's east rail up and along the back rail to UR's back row
-tube keep 23 13 17 6 via 24 13 via 24 5 via 17 5 out +y
-spring 10 15 512
+# the HIDDEN tube, off the glass: its mouth on the south rail just below the glass, its body along the
+# south rail, up the east rail and along the back rail to UR's back row
+tube keep 15 16 17 6 via 15 17 via 24 17 via 24 5 via 17 5 out +y
+# spring 1 at LL's edge over the pit (the title's springs may stand beside VOID, SPEC.md 128.23.2)
+spring 11 15 512
 spring 15 9 768
 
 art title.bba 0 0

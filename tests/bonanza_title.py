@@ -10,7 +10,9 @@ the bracket, and in that one bracket:
      each the fixed pair;
   3. the SLOT's label: 3 then 2 then S - bz_slot 2, 1, 2 and the label's lane
      drawn at pose 1 + slot within a few frames each time (bz_ldrw);
-  4. the title demo runs its BZ_TSTEPS steps to its end, and there - stopped
+  4. the title demo runs its BZ_TSTEPS steps to its end (4b: with ONE full
+     write, its first - a respawn on the fixed window is no cut, so no blank
+     flash; discriminating for demos 2 - 4, which fall), and there - stopped
      at bz_tlog, before the course demo's fetch - the guest's ball (gx, gy, gz)
      and its falls, tube rides and spring launches EQUAL the model's replay of
      the same demo (bbcourse.title_start and its runs, the .bzt the build
@@ -162,6 +164,8 @@ def run(tag, apps=None, src=None):
         n = g.b("bz_tsel") + 1
         gst = (g.d("bz_gx"), g.d("bz_gy"), g.d("bz_gz"), g.w("bz_nfall"), g.w("bz_ntube"), g.w("bz_nspr"),
                g.d("bz_nstep"))
+        nfull = g.w("bz_nfull")                 # (the owner, 2026-11-16: no black flash - a respawn on the
+                                                # FIXED window is no cut, so the play's one full write is its first)
         m.bp_exec()
         m.run()
         p = model_end(tc, n)
@@ -171,6 +175,11 @@ def run(tag, apps=None, src=None):
             tag, n, gst, mst, "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("4. title demo %d ended at %s on the guest, %s on the model" % (n, gst, mst))
+        ok = nfull == 1
+        print("%s 4b. title demo %d: %d full write(s), its %d fall(s) none (no blank flash): %s" % (
+            tag, n, nfull, gst[3], "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("4b. title demo %d made %d full writes - a respawn blanked the glass" % (n, nfull))
         # --- 5. a course demo, ended by a key ---------------------------------------------------
         M.until(m, lambda _: g.b("bz_tmode") == 2 and g.b("bz_crs") < title_k() - 1 and g.w("bz_cseg") != 0,
                 "a course demo", guest=60)
