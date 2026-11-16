@@ -270524,7 +270524,12 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   path, its last footprint restored and nothing composed after. The camera is
   held (above), the clock flash, the tune, the physics and `bz_lsend` are
   unchanged (the ball is NOT holed: a goal finish stays a goal). A ball
-  already hidden (a tube, a cup's capture) is left as it is.
+  hidden while it is still whole (a cup's capture) is left as it is; one
+  hidden once the fade has begun (a tube, or a cup the sequence rolls into,
+  bzphys.inc's `.hole`) takes GONE's path for that frame, shadow and all,
+  because `bz_bseg` may still name the copies while `bz_sprite`'s `bz_shm`
+  is an offset in the ball part (the verify's fix: a shadow candidate there
+  would have been ANDed in from our own data).
   *MEASURED* (MartyPC, `os8088_5150_cga_gla` / `_herc_gla`, FIRST finished by
   the autopilot, the sequence traced frame by frame at `bz_t0` .. `bz_presented`
   and replayed in place; the A/B against the tree before it, 37b614c65):

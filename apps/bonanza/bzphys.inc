@@ -1760,9 +1760,12 @@ bz_fflash:
 ; point there and bz_bseg is OUR segment until bz_fend puts the material's
 ; back.  A new density sets bz_spr's bit 7 on every other one, so bz_mkboxes
 ; never takes the frame for an idle one.  Nothing else changes: the physics,
-; the camera (held), the flash and the tune are the sequence's.  A hidden
-; ball (a tube, a cup's capture) is left as it is.  Clobbers AX, BX, CX, DX,
-; SI, DI, BP.
+; the camera (held), the flash and the tune are the sequence's.  A ball
+; hidden while it is still whole (a cup's capture) is left as it is; hidden
+; once the fade has begun (a tube, a cup the sequence rolls into) it takes
+; GONE's path for that frame - no shadow either - because bz_bseg may still
+; be OUR segment from the last fading frame while bz_sprite's bz_shm is an
+; offset in the ball part.  Clobbers AX, BX, CX, DX, SI, DI, BP.
 %if BZ_BAL_ROWS & 1
  %error "bz_fdis swaps a row's dither a row: the ball's rows must be even"
 %endif
@@ -1770,8 +1773,6 @@ bz_fdis:
     mov al, [bz_fcnt]
     or al, al
     jz .r                       ; (every frame but a finish sequence's)
-    cmp byte [bz_hidn], 0
-    jne .r
     mov ah, BZ_FIN_STEPS + 1
     sub ah, al                  ; AH = the sequence's steps run
     xor cx, cx
@@ -1783,7 +1784,10 @@ bz_fdis:
 .k:
     jcxz .r                     ; CX = the density k: 0 whole
     cmp cl, 8
-    jb .dith
+    jae .gone
+    cmp byte [bz_hidn], 0       ; HIDDEN in the fade (a tube, a cup the
+    je .dith                    ; sequence rolled into): GONE's path, as
+.gone:                          ; bz_bseg may still be our copies' segment
     mov byte [bz_hidn], 1       ; GONE: the ball and its shadow
     mov byte [bz_shc], 0
 .r:
