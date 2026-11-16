@@ -16,7 +16,8 @@ records in section `D`; a face's ink follows the half's pattern; the
 pathway's straight bands and diagonal steps, yes; the diagonal's dead band
 the named `BZ_DWMIN` (11.3); PLAYGROUND first, then MOON's coast. R4 (on
 the pictures `diag-q3`, `diag-q6`): **QUARTERED cells** are allowed (a
-box's corner is a chamfer), Q6's occluder over-lay is accepted, and kind 7
+box's odd corner is the one quarter inside it - a square corner, not
+the chamfer this line first said: D2's verify), Q6's occluder over-lay is accepted, and kind 7
 is reserved for the owner's next core tile, the CHANNEL (SPEC.md 128.24.13).
 
 **D1 and D2 are BUILT** (branch `8r2/dtool`, SPEC.md 128.24's "Built so
