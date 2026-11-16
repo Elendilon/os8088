@@ -2481,33 +2481,35 @@ op_drop:
 op_areserve:
   %ifdef OP_ARFORCE
     cmp byte [OP_ARFORCE], 0    ; HARNESS: no reservation, so the batch's
-    jne .out                    ; fetches grow the arena themselves - and the
+    jne .no                     ; fetches grow the arena themselves - and the
   %endif                        ; first claimed it at the ceiling (op_arset)
-    push bx
-    push cx
-    push dx
     add ax, [op_artop]
     jc .no
-    call op_argrow              ; (a reserve is exact, but op_argrow's step is
-    jc .no                      ; given back by op_arfit below)
+    cmp [op_arsz], ax
+    jae .fl                     ; held already
+    push ax
+    call op_arset               ; EXACT: what was asked is what is wanted
+    pop ax
+    jc .no
+.fl:
     mov [op_arres], ax
     call op_arfit
     clc
 .no:
-    pop dx
-    pop cx
-    pop bx
-.out:
     ret
 
+  %ifdef OP_WANT_ARQUERY
 ; -----------------------------------------------------------------------------
 ; op_arquery - AX = the arena's paragraphs, BX = [op_artop], the paragraph
-; past its highest part. Both 0 with no arena. Clobbers nothing else
+; past its highest part. Both 0 with no arena. Clobbers nothing else. Opt-in,
+; `%define OP_WANT_ARQUERY`, for OP_WANT_CSEG's reason: what decides it is a
+; call the package makes (a harness reads the two words by name instead)
 ; -----------------------------------------------------------------------------
 op_arquery:
     mov ax, [op_arsz]
     mov bx, [op_artop]
     ret
+  %endif
 
 ; op_argrow - the arena to hold AX paragraphs: grown to the next OP_ARQUANT
 ; step and, refused, to AX exactly (ARTFUL's at_agrow rule, SPEC.md 46.6.3).
@@ -2598,6 +2600,20 @@ op_arshift:
     pop ax
     ret
 
+; op_unclaim - a refused fetch's OP_UNCLAIM: row SI's own claim DX freed, or
+; for an arena row the arena fitted back to what it held. Clobbers AX, flags
+op_unclaim:
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jnz op_arback
+    call OSAPI_MEM_FREE         ; (a cell is CALLED, never jumped to: the
+    ret                         ; door is a `call` macro, os88api.inc)
+; op_arback - op_fetch is done with the arena: declared movable again (under
+; OP_ONMOVE) and fitted (op_arfit, below). Clobbers AX, flags
+op_arback:
+  %ifdef OP_ONMOVE
+    mov ax, op_armv
+    call op_ardecl
+  %endif
 ; op_arfit - the arena fitted to its parts: [op_artop] rounded up to the next
 ; OP_ARQUANT step, never under the floor [op_arres] - a SHRINK, in place - and
 ; FREED when that is nothing. Clobbers AX, flags
@@ -2625,22 +2641,6 @@ op_arfit:
 .none:
     pop dx
     ret
-
-; op_unclaim - a refused fetch's OP_UNCLAIM: row SI's own claim DX freed, or
-; for an arena row the arena fitted back to what it held. Clobbers AX, flags
-op_unclaim:
-    test byte [si+OP_R_FLAG], OP_ARENA
-    jnz op_arback
-    call OSAPI_MEM_FREE         ; (a cell is CALLED, never jumped to: the
-    ret                         ; door is a `call` macro, os88api.inc)
-; op_arback - op_fetch is done with the arena: declared movable again (under
-; OP_ONMOVE) and fitted. Clobbers AX, flags
-op_arback:
-  %ifdef OP_ONMOVE
-    mov ax, op_armv
-    call op_ardecl
-  %endif
-    jmp short op_arfit
 
 ; op_ardrop - op_drop's arena arm: any reservation ended, [op_artop] found
 ; again as the highest end of a part still fetched (op_arreal - a hole under

@@ -226,6 +226,8 @@ bzs_dstart:
     mov al, BZ_P_SONG           ; the title, song 0
     call bzs_fsong
     jc .out
+    call bz_arload              ; (the song's fetch may have MOVED the arena:
+                                ; the sound part's word read again, 128.25.4.2)
     call bzs_open
     call bzs_rstart
     cmp byte [bzs_goalp], 0     ; a finish: the fanfare over the title's start
@@ -363,16 +365,16 @@ bzs_gdrop:
 ; song follows inside the bracket).  Preserves AX.
 bzs_gdrop0:
     push ax
-    mov al, [bzs_song]
-    call bzs_dsong
-    cmp word [bzs_vseg], 0
-    je .nv
-    push ds
+    cmp word [bzs_vseg], 0      ; the arena's fetch order backwards: the
+    je .nv                      ; fanfare, the song, the sound part (SPEC.md
+    push ds                     ; 128.25.4.2)
     pop es
     mov al, BZ_P_SONG + BZ_SONG_VICTORY
     call op_drop
     mov word [bzs_vseg], 0
 .nv:
+    mov al, [bzs_song]
+    call bzs_dsong
     mov al, BZ_P_SND
     call op_drop
     mov word [bzs_pseg], 0
