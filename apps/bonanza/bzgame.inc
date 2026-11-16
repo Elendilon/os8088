@@ -1496,18 +1496,18 @@ bz_exitchk:
     mov byte [bz_towin], 1      ; F and Alt+Enter ask for the WINDOW (128.26.4)
     jmp short .leave
 %if BZ_TITLE
-.title:                         ; a course demo of the title's chain: any key
-    add [bz_tlfsr], ax          ; (a key stirs the title's LFSR)
-    or byte [bz_tlfsr], 1
-    mov ah, 1
-    cmp byte [bz_tmode], 2      ; is the title again
-    je .tk
-    mov ah, 27                  ; a title demo: Esc leaves the bracket, P
-    cmp al, ah                  ; plays, S and 1 2 3 the slot, the rest
-    je .tk                      ; nothing
+.title:                         ; THE TITLE'S CHAIN (title demo or course
+    add [bz_tlfsr], ax          ; demo alike): Esc leaves the bracket, F the
+    or byte [bz_tlfsr], 1       ; window (as Alt+Enter, above) - the owner,
+    mov ah, 27                  ; 2026-11-16: the course demo is the title's
+    cmp al, ah                  ; too, never a way back to it (SPEC.md
+    je .tk                      ; 128.23.4.1); (a key stirs the LFSR)
     or al, 20h
-    cmp al, 'f'                 ; (F: the window, SPEC.md 128.26.4)
+    cmp al, 'f'
     je .towin
+    mov ah, 1                   ; a course demo: any other key is the title
+    cmp byte [bz_tmode], 2      ; again; a title demo: P plays, S and 1 2 3
+    je .tk                      ; the slot, the rest nothing
     mov ah, al
     cmp al, 'p'
     je .tk
