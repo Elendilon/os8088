@@ -250,6 +250,23 @@ and PASSES only if the row FAILS - at its own check:
   The CARRIED arms (pump, tokbst, rampboost, slabcell, springtok: anchored in
   bz_land's boost block, which 6b rewrote) are re-anchored and re-proved on
   6b's model by --check.
+
+  9  WAVE 9's FAMILIES (SPEC.md 128.25.6, 128.25.7, 128.25.15): at every frame
+     also bz_fst and every family slot (Physics.statef: the per-play state
+     bits and the slots' bytes), on a course that names families; and the
+     replay `probe`, PLAYGROUND's demo through its PROBE element (ENTER,
+     CONTACT, the lane's POSE, the CELL overlay) and a RETURN 30 steps after
+     it, which the RESPAWN class clears and RESET counts.  Its red arms:
+       famrsp    the RESPAWN class ignored (bz_frst not called): TOUCHED
+                 stays set after the RETURN, bz_fst parts at the probe frame
+     and on the unicorn only (--check): famcell, the CELL hook never called
+     (its entry 0): the window holds no overlay - the glass's reader does not
+     read bz_nbr, so the host half is where it goes red
+     The HOST half (--check) also runs the guest's bz_step under unicorn
+     against the model, every step, on PLAYGROUND's demo and the RETURN
+     scenario (the ball, bz_fst, the slots, bz_fref, the window's 36 bytes
+     and each element's POSE through bz_ltrue), on MOON's and PEAK's demos
+     (no family: bz_fhk 0, the ball equal), and both red arms there too.
 """
 import argparse
 import os
@@ -340,7 +357,16 @@ class Reader:
         ext["s7"] = ((raw[o["bz_tout"]], struct.unpack_from("<H", raw, o["bz_tsec"])[0], raw[o["bz_t55"]])
                      if "bz_tout" in o else None)
         ext["s8"] = raw[o["bz_exit"]] if "bz_exit" in o else None   # wave 8b (128.19.4): the finish's exit
+        ext["sf"] = self.statef(raw) if "bz_fst" in self.g.sym else None
         return st, s2, ext
+
+    def statef(self, raw):
+        """wave 9's state (SPEC.md 128.25.6.6, 128.25.7.2): bz_fst's BZ_FSTB
+        bytes and the three slots' bytes (bz_fsl), as the guest holds them"""
+        s, lo = self.g.sym, self.lo
+        fst = raw[s["bz_fst"] - lo:s["bz_fsl"] - lo]
+        fsl = raw[s["bz_fsl"] - lo:s["bz_fsl"] - lo + BB.FAM_MAX * BB.FSLOT]
+        return (bytes(fst), bytes(fsl))
 
     def state6(self, raw):
         """wave 6's state (SPEC.md 128.16.4.3) in Physics.state6()'s shape: the
@@ -450,11 +476,26 @@ def compare(name, frames, st, s2, ext, p):
         return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
                                            for n, a, b in zip(names, ext["s6"], p.state6()) if a != b))
+    if ext.get("sf") is not None and p.nstep > getattr(p, "_poked_at", -1):
+        bad = statef_diff(ext["sf"], p)
+        if bad:
+            return "%s frame %d: wave 9's family state differs from the model's after %d steps: %s" % (
+                name, frames, st[0], bad)
     want = counts(p)
     got = {k: ext[k] for k in want}
     if got != want:
         return "%s frame %d: the counters %s against the model's %s" % (name, frames, got, want)
     return None
+
+
+def statef_diff(gf, p):
+    """the guest's (bz_fst, bz_fsl) against Physics.statef(): its NFST bytes and
+    its families' slots, every byte past them 0 -> a description, or None"""
+    fst, fsl = p.statef()
+    want = (fst + bytes(len(gf[0]) - len(fst)), b"".join(fsl) + bytes(len(gf[1]) - BB.FSLOT * len(fsl)))
+    if gf == want:
+        return None
+    return "bz_fst %s model %s; slots %s model %s" % (gf[0].hex(), want[0].hex(), gf[1].hex(), want[1].hex())
 
 
 def compare_tables(name, frames, tb, p):
@@ -911,7 +952,218 @@ def replays():
         p, ev = ev_of("trial", mat, pk, keys)
         add("ramphop-%s" % BB.MAT_NAMES[mat], "trial", mat, pk, keys, "a Hop down the steep ramp, unhurt",
             "hop" in ev and "stun" not in ev and "shatter" not in ev, red={"_abs_impact": True})
-    return S + mill_replays() + w4_replays() + w6_replays()
+    return S + mill_replays() + w4_replays() + w6_replays() + w9_replays()
+
+
+# ---- wave 9 (SPEC.md 128.25.6, 128.25.7, 128.25.15): the families -----------------
+def play_demo_keys():
+    """PLAYGROUND's shipped demo's key bytes (a keyboard log)"""
+    d = BB.parse_bzd(open(os.path.join(ROOT, "apps", "bonanza", "demos", "playground.bzd")).read())
+    return d["ball"], [k for k, n, _t in d["runs"] for _ in range(n)]
+
+
+def probe_keys():
+    """the `probe` scenario: PLAYGROUND's demo to 30 steps after the step its
+    PROBE element is first ENTERED (its TOUCHED bit set), one RETURN (back to
+    the start, the RESPAWN class cleared), then -wx held from the start until
+    the probe is entered again, and 30 steps with no key -> (material, keys,
+    the first ENTER's step)"""
+    mat, keys = play_demo_keys()
+    p = BB.Physics(R.course("play"), play=True, mat=mat)
+    for i, k in enumerate(keys):
+        p.step(k)
+        if p.fam and p.fst[0]:
+            break
+    else:
+        raise AssertionError("PLAYGROUND's demo never enters its probe")
+    out = keys[:i + 31] + [BB.K_RET]
+    for k in out[i + 1:]:
+        p.step(k)
+    assert p.nret == 1 and not p.fst[0], "the RETURN did not clear the probe"
+    for _ in range(400):
+        out.append(K.K_L | K.K_U)
+        p.step(K.K_L | K.K_U)
+        if p.fst[0]:
+            break
+    else:
+        raise AssertionError("-wx from the start never enters the probe")
+    return mat, out + [0] * 30, i
+
+
+def w9_replays():
+    S = []
+    mat, keys, ent = probe_keys()
+    p = run_keys("play", mat, None, keys)
+    sl = p.fsl[0] if p.fam else bytes(8)
+    S.append({"name": "probe", "crs": "play", "mat": mat, "poke": None, "keys": keys, "red": None,
+              "what": "PLAYGROUND's PROBE: entered at step %d, a RETURN 30 steps later clears its RESPAWN bit, "
+                      "-wx from the start enters it again (RESETs %d, ENTERs %d, CONTACTs %d, STEPs %d)" % (
+                          ent + 1, sl[0], sl[1], sl[2] | sl[3] << 8, sl[4] | sl[5] << 8),
+              "ok": bool(p.fam) and p.nret == 1 and sl[0] == 2 and sl[1] == 2 and p.fst[0] == 1 and not p.nfall})
+    return S
+
+
+# the unicorn half (--check): bz_step itself, on the host, against the model -------
+UCS, UPS, UFS, USS, USTUB = 0x1000, 0x3000, 0x6000, 0x8000, 0xFFF0
+
+
+def lst_syms(lst, names):
+    """labels out of a listing (the parts standard's op_*, which R.symbols does not read)"""
+    import re
+    out, pend = {}, []
+    for ln in open(lst):
+        m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s+[0-9A-F\[\]\(\)]+", ln)
+        lm = re.search(r"(?:^|\s)(%s):(?:\s|$)" % "|".join(names), ln.split(";", 1)[0])
+        if lm:
+            pend.append(lm.group(1))
+        if m:
+            for q in pend:
+                out.setdefault(q, int(m.group(1), 16))
+            pend = []
+    return out
+
+
+class UGuest:
+    """BONANZA's image under unicorn: the course part at UPS, the family part
+    at UFS, op_fetch a CF = 0 and op_seg / op_cseg answering UFS (the one
+    family part a course here names), bz_toast a HLT (never reached)"""
+
+    def __init__(self, binp, lst, sym, part, fam=None, patch=()):
+        from unicorn import Uc, UC_ARCH_X86, UC_MODE_16
+        self.sym = sym
+        mu = self.mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(UCS * 16, open(binp, "rb").read())
+        mu.mem_write(UPS * 16, bytes(part))
+        mu.mem_write(UCS * 16 + USTUB, b"\xf4")
+        if fam:
+            mu.mem_write(UFS * 16, fam)
+        op = lst_syms(lst, ("op_fetch", "op_seg", "op_cseg", "bz_toast"))
+        for n in ("op_seg", "op_cseg"):
+            if n in op:
+                mu.mem_write(UCS * 16 + op[n], b"\xb8" + struct.pack("<H", UFS) + b"\xc3")
+        if "op_fetch" in op:
+            mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
+        mu.mem_write(UCS * 16 + op["bz_toast"], b"\xf4")
+        for n, b in patch:
+            mu.mem_write(UCS * 16 + sym[n], b)
+
+    def w(self, n, v, sz, k=0):
+        self.mu.mem_write(UCS * 16 + self.sym[n] + k, (v & ((1 << (8 * sz)) - 1)).to_bytes(sz, "little"))
+
+    def r(self, n, sz, signed=True):
+        return int.from_bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz), "little", signed=signed)
+
+    def rb(self, n, sz):
+        return bytes(self.mu.mem_read(UCS * 16 + self.sym[n], sz))
+
+    def call(self, n, ax=0, bx=0):
+        from unicorn.x86_const import UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS, \
+            UC_X86_REG_SP, UC_X86_REG_AX, UC_X86_REG_BX, UC_X86_REG_IP, UC_X86_REG_FLAGS
+        mu = self.mu
+        for reg, v in ((UC_X86_REG_CS, UCS), (UC_X86_REG_DS, UCS), (UC_X86_REG_ES, UCS), (UC_X86_REG_SS, USS)):
+            mu.reg_write(reg, v)
+        mu.mem_write(USS * 16 + 0xFFEE, struct.pack("<H", USTUB))
+        mu.reg_write(UC_X86_REG_SP, 0xFFEE)
+        mu.reg_write(UC_X86_REG_AX, ax)
+        mu.reg_write(UC_X86_REG_BX, bx)
+        mu.emu_start(UCS * 16 + self.sym[n], UCS * 16 + USTUB, count=5000000)
+        assert mu.reg_read(UC_X86_REG_IP) + 16 * mu.reg_read(UC_X86_REG_CS) == UCS * 16 + USTUB, \
+            "%s did not return" % n
+        return mu.reg_read(UC_X86_REG_AX), mu.reg_read(UC_X86_REG_FLAGS) & 1
+
+
+def _cellb(c):
+    z0, sx, sy, kd, fl, sf = c
+    return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
+
+
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=()):
+    """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
+    bz_step under unicorn, the model stepped beside it and compared after
+    every step: the ball (Physics.state), and on a course with families
+    bz_fst, the slots, bz_fref, the window bz_nbr against the model's
+    snapshot and each element's POSE through bz_ltrue.  -> (model, failures)"""
+    c = R.course(crs)
+    g = UGuest(binp, lst, sym, c.cga, fam, patch)
+    g.w("bz_cseg", UPS, 2)
+    g.w("bz_crs", R.CRS_K[crs], 1)
+    g.w("bz_mat", mat, 1)
+    g.w("bz_mode", 0, 1)
+    g.call("bz_crshdr")
+    _ax, cf = g.call("bz_ffetch")
+    assert not cf, "bz_ffetch refused the family part"
+    g.call("bz_pinit")
+    p = BB.Physics(c, play=True, mat=mat)
+    bad = []
+    if (g.r("bz_fhk", 1, False), g.r("bz_fnf", 1, False)) != (p.fhk, len(p.fam)):
+        bad.append("bz_fhk %02Xh bz_fnf %d, the model's %02Xh, %d" % (g.r("bz_fhk", 1, False), g.r("bz_fnf", 1, False),
+                                                                     p.fhk, len(p.fam)))
+    elem = [pr for pr in p.props if BB.is_fam(pr["kind"])]
+    for i, k in enumerate(keys):
+        g.w("bz_keys", k, 1)
+        g.w("bz_tilt", BB.TILT_KEYS, 1)
+        g.call("bz_step")
+        p.step(k)
+        gs = (g.r("bz_nstep", 4), g.r("bz_gx", 4), g.r("bz_gy", 4), g.r("bz_gz", 4), g.r("bz_gvx", 2),
+              g.r("bz_gvy", 2), g.r("bz_gvz", 2), g.r("bz_air", 1))
+        if gs != p.state():
+            bad.append("step %d: the ball %s, the model's %s" % (i, gs, p.state()))
+        if p.fam:
+            d = statef_diff((g.rb("bz_fst", g.sym["bz_fsl"] - g.sym["bz_fst"]), g.rb("bz_fsl", BB.FAM_MAX * BB.FSLOT)), p)
+            if d:
+                bad.append("step %d: %s" % (i, d))
+            if g.r("bz_fref", 1, False) != p.fref:
+                bad.append("step %d: bz_fref %d, the model's %d" % (i, g.r("bz_fref", 1, False), p.fref))
+            nw = g.rb("bz_nwin", 2)
+            if (nw[0], nw[1]) == p.wcell:
+                gw = g.rb("bz_nbr", 36)
+                mw = b"".join(_cellb(p.cell(nw[0] + dx, nw[1] + dy)) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+                if gw != mw:
+                    bad.append("step %d: the window %s, the model's %s" % (i, gw.hex(), mw.hex()))
+            for pr in elem:
+                g.w("bz_lknd", pr["kind"], 1, pr["i"])
+                ax, _cf = g.call("bz_ltrue", bx=pr["i"])
+                if ax & 255 != p.fpose(pr):
+                    bad.append("step %d: element %d's POSE %d, the model's %d" % (i, pr["i"], ax & 255, p.fpose(pr)))
+        if len(bad) > 3:
+            break
+    return p, bad
+
+
+def fam_host():
+    """--check's unicorn half (SPEC.md 128.25.13 bonanzaphys) -> failure lines"""
+    sym = R.symbols()
+    binp, lst = R.at("build/bonanza.bin"), R.at("build/bonanza.lst")
+    fam = open(R.at("build/bzf-probe.bin"), "rb").read()
+    out, fails = [], []
+    mat, keys = play_demo_keys()
+    p, bad = urun(binp, lst, sym, "play", mat, keys, fam)
+    out.append("PLAYGROUND's demo, %d steps with its probe: %s (slot %s, bz_fst %s)" % (
+        len(keys), "; ".join(bad) or "the guest is the model at every step", bytes(p.fsl[0]).hex(), bytes(p.fst).hex()))
+    fails += bad
+    mat, k2, ent = probe_keys()
+    p, bad = urun(binp, lst, sym, "play", mat, k2, fam)
+    out.append("the probe scenario (entered at %d, a RETURN at %d): %s (slot %s)" % (
+        ent + 1, ent + 31, "; ".join(bad) or "equal at every step", bytes(p.fsl[0]).hex()))
+    fails += bad
+    for crs, f in (("moon", "moon.bzd"), ("peak", "summit.bzd")):
+        d = BB.parse_bzd(open(os.path.join(ROOT, "apps", "bonanza", "demos", f)).read())
+        kk = [k for k, n, _t in d["runs"] for _ in range(n)]
+        p, bad = urun(binp, lst, sym, crs, d["ball"], kk)
+        out.append("%s's demo, %d steps, no family: %s" % (crs.upper(), len(kk), "; ".join(bad) or "equal"))
+        fails += bad
+    # the red arms, on the unicorn: each must part from the model
+    nocell = bytearray(fam)
+    nocell[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
+    for name, ff, patch, want in (("famcell", bytes(nocell), (), "the window"),
+                                  ("famrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst")):
+        p, bad = urun(binp, lst, sym, "play", mat, k2, ff, patch)
+        ok = any(want in b for b in bad)
+        out.append("red %s: %s" % (name, "red at %s" % bad[0] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    return out, fails
 
 
 # ---- MILL (SPEC.md 128.12.6, 128.12.13.2): every obstacle, as replays ------------
@@ -2281,18 +2533,23 @@ REDS = {
     "tiltcap": [("bzphys.inc", "    sub al, 2                   ; above the cap: max(c, lvl - 2)\n",
                  "    mov al, ah                  ; RED tiltcap: to the cap at once\n    jmp short .tst\n")],
 }
+# wave 9 (SPEC.md 128.25.7.1): the RESPAWN class ignored - the respawn never calls bz_frst, so a RETURN
+# leaves the probe's TOUCHED bit set (the `probe` replay's bz_fst parts from the model's)
+REDS["famrsp"] = [("bzphys.inc", "    call bz_frst                ; the place, whose refill runs the CELL hook\n",
+                   "    nop                         ; RED famrsp: the RESPAWN class ignored\n    nop\n    nop\n")]
 RED_LEGS = {"slope": ("bench",), "respawn": ("scen",), "takeoff": ("scen",)}
 RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
             "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",),
             "gate": ("knock",), "kick": ("kick",), "carry": ("hop",), "carrys": ("ride",), "stick": ("hop",),
             "exit": ("keep",), "ckpt": ("flag",), "ckmat": ("flagmat",), "padftg": ("padswap",),
-            "cupv": ("cup",), "springsum": ("spring",), "tiltcap": ("tilt",)}
+            "cupv": ("cup",), "springsum": ("spring",), "tiltcap": ("tilt",), "famrsp": ("probe",)}
 RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", "bounce": "bounce frame",
             "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
             "absimpact": "ramphop-", "airwall": "stepup frame", "gate": "knock frame", "kick": "kick frame",
             "carry": "hop frame", "carrys": "ride frame", "stick": "hop frame", "exit": "keep frame",
             "ckpt": "flag frame", "ckmat": "flagmat-moon frame", "padftg": "padswap-",
-            "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame"}
+            "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame",
+            "famrsp": "probe frame"}
 
 # wave 6 (SPEC.md 128.16.14): the token set again by a contact Hop (a boost every other contact)
 REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    jmp short .leave\n",
@@ -2447,6 +2704,10 @@ def main():
         for line in say:
             print("bonanza_phys %s" % line)
         bad += b1
+        say9, b9 = fam_host()
+        for line in say9:
+            print("bonanza_phys wave 9 (unicorn): %s" % line)
+        bad += b9
         for b in bad:
             print("FAIL %s" % b)
         for line in R.check_reds(REDS, "bonanza_phys"):
