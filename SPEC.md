@@ -275144,7 +275144,17 @@ HEARD.
   sequence in a play, the replays unchanged (no sequence in a replay);
   `bonanzasound` and `bonanzamusic`: the five events and the victory tune.
 - **`bonanzawheel`**, **`bonanzaring`**: unchanged in logic; the sign lanes
-  join item 6's marks.
+  join item 6's marks. **The SIDE scene (9) is JUDGED for the first time**:
+  TRIAL's finish clock (9, 17) is the first shipped lane a centred window
+  can hold in its rows and wholly outside the column band (128.18.5.2's
+  SKIP ends), and its first run found the leg's own plan wrong - the
+  trickle's point was the rest nearest the TARGET window's centre, inside
+  the cut window's dead zone, so TRICKLE never panned. The plan now takes
+  a point outside that zone on the lane's side and models where TRICKLE's
+  pan comes to rest (`trickle_stop`; that window must show the lane).
+  MEASURED (MartyPC, the leg alone): CGA c0 22 -> 15 a column a frame,
+  the digit lane brought in 0 px wrong; Hercules 19 -> 14, 0 px wrong;
+  red arm `nocol` red at (9) (6 px of a stale pose).
 
 ### 128.23 The title screen
 
