@@ -209,6 +209,10 @@ VAR bz_exit,1                   ; wave 8b (128.19.4): the finish's EXIT, 0 - 15 
 VAR bz_tsec,2                   ; wave 7 (128.18.4): the whole seconds LEFT, as the
 VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
                                 ; the next one (BZ_SECSTEPS a second)
+VAR bz_fcnt,1                   ; wave 8R (128.22.6): a PLAY's FINISH SEQUENCE - the
+VAR bz_ffl,1                    ; steps left (0: none running), and the flash's
+                                ; steps left in its phase (bits 0 - 6) with the
+                                ; clock BLANK as bit 7 (bz_fstart, bz_fstep)
 VAR bz_phe,0
 ; the rest: written before they are read
 VAR bz_okey,2 * BZ_PROPALL      ; 128.19.10: the records' anchors, sorted (bz_obuild)
@@ -1147,6 +1151,8 @@ bz_step:
     jne .end
     cmp byte [bz_mode], 1       ; play or a replay: the benchmark ignores it
     je .end
+    cmp word [bz_goal], 0       ; (a finish sequence rolling on over a second
+    jne .end                    ; goal cell: the first one stands, 128.22.6)
     mov al, [bz_nbr + BZN_C + 3] ; wave 8b (128.19.4): the cell's EXIT, its
     mov cl, 4                   ; flags' bits 4 - 7
     shr al, cl
@@ -1163,6 +1169,7 @@ bz_step:
 %endif
     mov [bz_exit], al
     mov byte [bz_goal], 1
+    call bz_fstart              ; (a play's: the FINISH SEQUENCE, 128.22.6)
     ; ---- 9. the step counted, the screen state derived ----
 .end:
     call bz_derive
@@ -1183,6 +1190,7 @@ bz_step:
     cmp byte [bz_goal], 0
     jne .tdone
     mov byte [bz_tout], 1
+    call bz_fstart              ; (the same sequence, the clock at 0)
 .tdone:
     pop es
     pop cx
@@ -1195,6 +1203,21 @@ bz_step:
     ; ---- 7. RESPAWN, on the last SAFE cell; on a CKPT course on the last
     ; flag touched (the start before any) with the flag's ball (128.14.4.5) ----
 .respawn:
+    cmp word [bz_goal], 0       ; a FINISH SEQUENCE (128.22.6): a fall, a kill
+    je .rsp                     ; plane or a shatter neither kills nor
+    mov byte [bz_air], 1        ; respawns - the ball goes on falling (its
+    mov ax, [bz_gvz]            ; gravity, clamped) and is not drawn once it
+    sub ax, BZ_G                ; is out of the window
+    cmp ax, -BZ_VZMAX
+    jge .rf
+    mov ax, -BZ_VZMAX
+.rf:
+    mov [bz_gvz], ax
+    cwd
+    add [bz_gz], ax
+    adc [bz_gz + 2], dx
+    jmp .end
+.rsp:
     mov di, bz_nfall            ; a fall's (a RETURN counts bz_nret instead)
 .resp:
     xor ax, ax                  ; wave 2's state zeroed (128.11.8.1): the
@@ -1548,6 +1571,119 @@ bz_bok:
     clc
     ret
 
+;-----------------------------------------------------------------------------
+; THE FINISH SEQUENCE (wave 8R, SPEC.md 128.22.6), a PLAY's only (bz_mode 0: a
+; replay, a benchmark and a demo end at the finish as the log does).
+; bz_fstart - at the step that sets bz_goal or bz_tout: BZ_FIN_STEPS steps to
+; run, the flash's first phase (the time shown).  Preserves everything.
+bz_fstart:
+    cmp byte [bz_mode], 0
+    jne .r
+    mov word [bz_fcnt], BZ_FIN_STEPS | (7 << 8)
+.r:
+    ret
+
+; bz_fstep - one step of the sequence, the frame loop's in place of bz_step
+; once bz_goal / bz_tout is set: the keys ZEROED (bz_step's .key2 with BX 0 -
+; neither the keys nor the log's recorder are read), the course time FROZEN
+; (bz_nstep put back, bz_t55 held off the next second), the flash's clock.
+; Preserves CX and ES as bz_step does.
+bz_fstep:
+    cmp byte [bz_fcnt], 0
+    je .r
+%ifdef BZ_SONG_VICTORY
+    cmp byte [bz_fcnt], BZ_FIN_STEPS
+    jne .nv
+    call bz_fvic
+.nv:
+%endif
+    push word [bz_nstep]
+    push word [bz_nstep + 2]
+    call .in
+    pop word [bz_nstep + 2]
+    pop word [bz_nstep]
+    dec byte [bz_fcnt]
+    mov al, [bz_ffl]
+    dec al
+    test al, 7fh
+    jnz .st
+    xor al, 87h                 ; the phase over: the other one, 7 steps
+    mov [bz_ffl], al
+    jmp short bz_fflash
+.st:
+    mov [bz_ffl], al
+.r:
+    ret
+.in:
+    push cx
+    push es
+    mov es, [bz_cseg]
+    mov byte [bz_tby], BZ_TILT_KEYS
+    mov byte [bz_t55], BZ_SECSTEPS
+    xor bx, bx
+    jmp bz_step.key2
+
+; bz_fflash - the clock digits' new state - blank (bit 7 of bz_ffl) or the
+; frozen time - and EVERY clock lane MARKED (128.19.10 item 6 marks them only
+; on a new second); bz_lcsec is made unequal so the walk's clock skip does not
+; hold either.  Preserves CX.
+bz_fflash:
+    test byte [bz_ffl], 80h
+    jz .show
+    xor ax, ax
+    mov [bz_tdig], al
+    mov [bz_tdig + 1], ax
+    jmp short .mk
+.show:
+    call bz_tdset
+.mk:
+    mov ax, [bz_tsec]
+    not ax
+    mov [bz_lcsec], ax
+    xor bx, bx
+.l:
+    cmp bl, [bz_nlane]
+    jae .r
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    jne .n
+    mov byte [bz_latt + bx], 1
+.n:
+    inc bx
+    jmp short .l
+.r:
+    ret
+
+%ifdef BZ_SONG_VICTORY
+; bz_fvic - the VICTORY tune over the course's song (a goal's finish; the
+; timeout keeps its effect, a silent play stays silent).  Preserves CX, ES.
+bz_fvic:
+    cmp byte [bz_goal], 0
+    je .r
+    cmp byte [bzs_song], 0
+    je .r
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov al, [bzs_song]
+    call bzs_dsong
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY
+    call bzs_fsong
+    jc .o
+    call bzs_rstart
+.o:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+.r:
+    ret
+%endif
+
 ; bz_tdset - wave 7 (SPEC.md 128.18.5): bz_tdig from bz_tsec, the clocks'
 ; digit poses - units, tens, hundreds; 0 a blank (a leading zero), 1 + d the
 ; digit d; the units never blank (bbcourse.clock_pose).  Two DIVs, once a
@@ -1712,6 +1848,7 @@ bz_prule:
     inc ax
     mov [bz_hid], al
     mov [bz_goal], al
+    call bz_fstart              ; (a cup's finish: the same sequence)
     jmp short .inmo
 .lip:                           ; faster, on the step it ENTERS the mouth: it
     cmp byte [bz_inmo], 0       ; LIPS OUT, a pop of BZ_LIPZ the ground Hop's

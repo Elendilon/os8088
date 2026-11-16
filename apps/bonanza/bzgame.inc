@@ -173,6 +173,7 @@ BZ_KSC_R    equ 13h             ; ...and R's: the replay (SPEC.md 128.11.12.2)
 BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 128.14.3.1)
 BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 128.14.4.7)
 BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (128.14.7.3)
+BZ_FIN_STEPS equ 110            ; wave 8R (128.22.6): the finish sequence's steps
 BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 128.11.11.1)
 ; GLIDE's "faster than 4 px a FRAME" across is the ball's TRAVEL over the last
 ; FOUR frames (SPEC.md 128.11.11.1), in the 24.8 low word of bz_bx: rate-proof,
@@ -758,7 +759,13 @@ bz_t0:
 %endif                          ; ends the run, as the frame it was due in would
     cmp word [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
-    mov al, [bz_goal]           ; over (SPEC.md 128.10.6.2), and the face says
+    cmp byte [bz_fcnt], 0       ; over (SPEC.md 128.10.6.2) - but a PLAY runs
+    je .gend                    ; its FINISH SEQUENCE first (128.22.6), which
+    KEYMAP_TEST bz_kmap, KSC_ENTER ; Enter ends at once
+    jz .on
+    mov byte [bz_fcnt], 0
+.gend:
+    mov al, [bz_goal]           ; and the face says
     mov [bz_fin], al            ; how long it took; and (wave 7, 128.18.4) the
     jmp short .end              ; frame after a TIMEOUT, bz_fin 0
 .live:
@@ -787,6 +794,8 @@ bz_t0:
 .nop:
     cmp byte [bz_mode], 0
     jne .steps
+    cmp byte [bz_fcnt], 0       ; (the finish sequence ignores the keys)
+    jne .steps
     call bz_input               ; play: the keys, once a frame
 .steps:
     cmp byte [bz_hold], 0       ; a harness's late frame on demand (SPEC.md
@@ -813,7 +822,10 @@ bz_t0:
 %endif
 %ifdef BZ_EARLYSTEP
     cmp word [bz_goal], 0       ; the early step was the GOAL step: the last
-    jne .camera
+    je .nogl                    ; (a play's finish sequence runs its steps on,
+    cmp byte [bz_fcnt], 0       ; 128.22.6)
+    je .camera
+.nogl:
 %endif
     jcxz .camera
 .step:
@@ -822,10 +834,20 @@ bz_t0:
     call bz_rleft
     jz .camera
 .stp:
+    cmp word [bz_goal], 0       ; the finish sequence's steps (a play's)
+    jne .fst
     call bz_step
-    cmp word [bz_goal], 0       ; the GOAL step is a play's last: a replay of
-    jne .camera                 ; its log ends on the same step (128.11.12.2)
+    cmp word [bz_goal], 0       ; the GOAL step is a replay's last: its log
+    je .stl                     ; ends on the same step (128.11.12.2) - a
+    cmp byte [bz_fcnt], 0       ; play's sequence goes on (128.22.6)
+    je .camera
+.stl:
     loop .step
+    jmp short .camera
+.fst:
+    call bz_fstep
+    cmp byte [bz_fcnt], 0
+    jne .stl
 .camera:
 %ifdef BZS_SKIPTEST
 ; THE SKIP AUDITION (an experiment build's, nasm -DBZS_SKIPTEST; off, this
@@ -867,6 +889,12 @@ bz_t0:
     or al, [bz_hid]             ; a tube, or holed out (SPEC.md 128.14.4.3:
     mov [bz_hidn], al           ; its capture frame restores its footprint)
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
+    cmp byte [bz_fcnt], 0       ; (the finish sequence's camera HOLDS: a ball
+    je .nfin                    ; rolled or fallen out of the window is not
+    call bz_outwin              ; drawn, 128.22.6)
+    sbb al, al
+    or [bz_hidn], al
+.nfin:
     call bz_props               ; state and new footprints, the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera
     mov al, [bz_freq]           ; (wave 8c: a card was drawn over the last
@@ -1950,6 +1978,19 @@ bz_foot:
 ; nothing.
 ; -----------------------------------------------------------------------------
 bz_camera:
+    cmp byte [bz_fcnt], 0       ; THE FINISH SEQUENCE (128.22.6): the camera
+    je .nfs                     ; holds - no step, no scroll, no pan running
+    mov ax, [bz_R0]
+    mov [bz_R0n], ax
+    mov ax, [bz_c0]
+    mov [bz_c0n], ax
+    xor ax, ax
+    mov [bz_dr], ax
+    mov [bz_dc], ax
+    mov [bz_full], al
+    mov [bz_meas], al
+    ret
+.nfs:
     mov al, [bz_cmode]          ; the mode this frame: the benchmark's is GLIDE
     cmp byte [bz_mode], 1       ; whatever the player chose, so its route and
     jne .muse                   ; its numbers stay comparable (bz_cmode is
