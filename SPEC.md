@@ -263701,6 +263701,8 @@ before this wave, write-protected or full - toasts `Best times not saved`
 (a `TOASTSTR`) once a session, and the bests stay in memory for the
 session; a READ that fails is the first-run case, silent.
 
+*Since wave 8R round 2 (128.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour is at +146 with no trailing zeros. The table below is `BZT1`'s header, no longer read (128.22.5: no older layout is).*
+
 64 bytes:
 
 | at | |
@@ -274841,6 +274843,67 @@ hold's bytes the rest); the INTRO and RESULT cards' code went out in that
 figure. Looked at on MartyPC (CGA and Hercules): the INFO
 card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
 its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
+
+**BZS4 (wave 8R, round 2, item 8R.14: 14 - 20 courses, the owner's "Courses
+past 7: Plan is 14-20, so we would need that wider").** The owner's plan for
+the game is 14 - 20 courses, and `BZS3` held eight: a course K of 8 or more
+read past the slot's tables. **`BZ_CRS_MAX` = 23** (a constant of `tools/bbcourse.py`,
+emitted into `bzcourse.inc`; the tool REFUSES a build of more courses) is the
+width of every per-course table, and the save is **`BZS4`**: still ONE sector -
+**494 bytes**, one `od_write`, after the session's first save one `int 13h` -
+laid out for 23 courses and three slots:
+
+| at | |
+|---|---|
+| +0 | `BZS4` |
+| +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | as `BZS3`'s |
+| +8 | **23 entries** of 6 bytes (+8 - +145), K 0 - 22 (BENCH's and those past the courses all zero): +0 the course's IDENTITY, +2 its best in STEPS (0 none), +4 its best's falls - 128.14.3.3's, unchanged |
+| +146 | the TOUR, **6 bytes**: +0 the XOR of the tour's courses' identities, +2 its best total in steps, DWORD (*the two zero bytes `BZS3` kept after it are gone*) |
+| +152 | three SLOTS of **114 bytes** (+152, +266, +380) |
+
+A slot: +0 - +21 `BZS3`'s (+0 lives, +1 the mode, +2 the pad, +3 zero, +4 open,
++8 done, +12 routes opened, +16 routes TAKEN, +20 the pathway's identity),
+**+22 the exits found, a WORD a course K, 23 courses (+22 - +67)** - a word is a
+bitmask of the course's exits 0 - 15, so it is wide enough for any course -
+and **+68 the best a course, a word a course, 23 courses (+68 - +113)**
+(steps, 0 none). There is no zero tail. The file is 80 + 18 N bytes for N
+courses, and N = 23 is the largest that stays **UNDER** one sector with a word
+a course in both tables: N = 24 is 512, a WHOLE sector, and `os88data.inc`'s
+`od_write` takes its in-place arm (one sector: no cluster, no FAT, no entry,
+128.14.3.3's "every save after the session's first is one sector") only for a
+count that is not a multiple of 512 - at 512 every save, the life taken at a
+course's ENTRY inside the bracket among them, would be a full replace (both
+FAT copies, the entry and the data: about 4 calls, 1.6 s, against 0.4).
+*(The first build of this item was 24 courses and 512 bytes; its Opus verify
+found the whole-sector rule and took one course off - the owner's plan is
+14 - 20.)* `bonanza.asm` refuses to assemble a `BZD_FILE` of 512 or more.
+
+**HOSTILE**, exactly as 128.19.6 and the paragraphs above say, each field in
+its range: the length 494, the magic, the count
+1 - 23, +6 - +7 zero, an entry's identity, best and falls as 128.14.3.3, the
+tour's identity and total; a slot judged ALONE and emptied on any of: lives
+over `BZ_LIVES`; +1 a bit past the mode's; +3 not zero; a route taken that
+was not opened; **the exits found or the best of a course that does not exist
+(K at or past `BZ_NCRS`) not zero**; with lives, pad 0 not open, the identity
+not this build's pathway's, a pad that is not one of the pathway's, or, TIMED,
+a pad not open. A course K of 8 or more reads and writes its own words: the
+slot's `[+22 + 2K]` and `[+68 + 2K]`, `bz_medal` and the info card's reads
+among them.
+
+**No older layout is read** (the owner's decision, round 2: nothing has been
+released, so no format needs to stay compatible). A `BZS3`, `BZS2` or `BZT1`
+file has another length (304, 208, 64) and is treated as any unrecognised
+file is: refused whole, the first run's empty image, rewritten as `BZS4` at
+the next save. A file over 494 bytes is `FERR_BIG` at the read (`od_read`'s
+capacity is `BZD_FILE`), the same refusal.
+
+MEASURED (8R.14 with its verify): the package's image 39,907 -> 39,856
+bytes (-51: the older layouts' reader gone) and its bss 10,087 -> 10,467
+(+380: `bz_dat` and `bz_dmine`, the merge's copy of ours, each 304 -> 494).
+`tests/bonanza_game.py --check` prints the layout and fails a `BZD_FILE` of
+a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
+`count`, `count0`, `hdr67`, `entlast`, `old1`, `old3`, `slot`, `pad`,
+`zero3`, `wide`, `explore`; red arms `datlen`, `pastbest`, `explorepad`).
 
 #### 128.22.6 The finish and the cards (PLANNED; the cards' bullets BUILT)
 
