@@ -277550,7 +277550,7 @@ What story 9.6 proves by following it for PICKUPS after GLASS:
    pose 1 a 7 x 8 icon over the cell, no pole), riding the pennant's
    lane path; a third family with art will want a real table of art kinds.
 4. *The guest* missed the RESIDENT half: a family that changes physics or
-   draws a cue needs engine bytes (128.25.19: 374), and "a part may not call
+   draws a cue needs engine bytes (128.25.19: 386), and "a part may not call
    the package" means anything the engine already does (`bz_ramp`) is
    written again in the part. The unicorn harness (`UGuest`) fetched ONE
    family part; a course naming two needs `op_seg` to answer by row (built).
@@ -277817,7 +277817,7 @@ selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
 | per-play state `bz_fst`, slots | about 60 (the class clears) | `BZ_FSTMAX` / 8 + 3 x `BZF_SLOT` (about 64) | 0 | 0 |
 | the arena in `os88parts.inc` | about 250 - 400 (assembled only with `OP_WANT_ARENA`) | about 10 | 0 | 0 |
 | the ball generator V1 + V2 | about 410 (the report's) | 0 | 0 | balls -3 to -4KB packed (LZB, MEASURED by the story) |
-| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 374 the whole story, 128.25.19) | 2 (BUILT: 11) | +0.15 - 0.3k while a pickup lasts (MEASURED: 1.8k a box a frame, 6.1k on a flash frame) | 0 |
+| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 386 the whole story, 128.25.19) | 2 (BUILT: 11) | +0.15 - 0.3k while a pickup lasts (MEASURED: 1.8k a box a frame, 6.1k on a flash frame) | 0 |
 | GLASS, PICKUPS | 0 (parts) | 0 | a contact-box frame per crack, break or collection | about 0.3 - 0.5KB packed each |
 | props moved out (9.8) | about -1.3 to -1.6KB (WINDMILL, BUMPER, SPRING, TUBE) | 0 | +0.1k a far call per active hook | their parts |
 
@@ -277972,13 +277972,13 @@ the RESET restores them; none is in `bz_step`'s routines but the clamp):
 | | where | bytes |
 |---|---|---|
 | `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
-| `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick) | 0 (the same 19 bytes, one more instruction: about +25 clk a call, two to four a step) |
+| `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick), read only PAST `BZ_VMAXG` - the two immediate compares of the common path are as they were, so a velocity inside the table's cap (nearly every call, and every call with no speed running) costs not a clock more; past it, `.hi` takes the raised bound and `.lo` is `.hi` on the negated value (the verifier's: the first build read `bz_vup` on every call, about +25 clk a call, two to four calls a step) | +12 |
 | the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
 | the CUE | `bz_cued` (bzvideo.inc), from `bz_boxc` after the ball's sprite when `bz_cue` is not 0: on odd frames (`bz_frames` bit 0) under bit 1, the FLASH - `bz_blit`'s dither door (BX = -1): the box ANDed with the ball's mask ORed with a checker by line (`bz_chk`: the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), so the ball's own pixels go black on half the checker; under bit 0, three SPARKLES - entries n, n + 3, n + 5 of an 8-entry table of (dx, dy) outside the 16 px silhouette and inside the sprite's own rows and columns (n = frames / 4), each XORed into the box (the card's pixel masks), clipped to it | about 300 |
 | the idle test | `bz_mkboxes`: a frame is not idle while `bz_cue` is set or was last frame (`bz_ocue`), so the sparkles move and the flash alternates on a ball at rest, and the frame after the last takes them off | +8 |
 | the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
 
-**The image 47,298 bytes (+374 on 46,924), the bss 10,981 (+11)**: `bz_vup`,
+**The image 47,310 bytes (+386 on 46,924; 47,298 as first built, +12 for the clamp's zero-cost common path), the bss 10,981 (+11)**: `bz_vup`,
 `bz_nfev`, `bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2,
 `bz_ocue` 1, `bzs_lfev` 2. Budgets +400 / +24: met. **The part 485 bytes,
 424 packed** (no zero padding: it packs).
@@ -277993,9 +277993,10 @@ over its last second - against 128.25.12's predicted 0.15 - 0.3k, which
 priced the pixels and not the clipping. On a ball AT REST a cue also costs
 the ball box's compose every frame (the idle test above). With no pickup
 the price is not 0: one byte test a box (`bz_cue`), an untaken `js` in each
-of `bz_blit`'s two doors, about 20 clk in the idle test, `add ax, [bz_nfev]`
-once a frame, and the clamp's +25 clk a call: PRICED about 0.1 - 0.15k a
-frame, every course.
+of `bz_blit`'s two doors, about 45 clk in the idle test, `add ax, [bz_nfev]`
+once a frame (about 17), and `bz_ramp`'s `add` once a table build (a
+surface change, a pad): PRICED about 0.1k a frame with two boxes, every
+course, and NOTHING a physics step (the clamp's common path is unchanged).
 
 **The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
 each timed kind a course places, `build_reach` is taken again with its
@@ -278028,18 +278029,28 @@ trap: its edges are open. The demo's runs are unchanged; its identity moved
 **The proof** (`tests/bonanza_phys.py --check`, the unicorn half): the
 guest's `bz_step` with BOTH parts fetched (probe and pickups: `UGuest`'s
 `op_seg` answers by row) equals the model at every step of PLAYGROUND's
-demo, the probe scenario and the PICKUPS scenario, 1,504 steps steered on
+demo, the probe scenario and the PICKUPS scenario, 1,572 steps steered on
 the model from the start: the speed (488), a sprint past the cap to 389
 (544), the jump (651), a Hop with rubber's boost stacked onto the ridge
 (850), both worn off (1055), the hourglass (1112), a RETURN (the hourglass
-stays, the timed two come back), the speed again and the jump while it runs
-(99 steps of it left), a RETURN while both run, the jump a third time, worn
-off - the ball, `bz_fst`, the slots, `bz_fref`, the window, every element's
-POSE, and `bz_wacc`, `bz_vup`, the Hop, `bz_cue`, `bz_nfev`, `bz_fta`,
-`bz_tsec`. Red arms, each red there: `pustep` (STEP entry 0: the slot parts
-at 487), `purst` (RESET entry 0: the slot parts at the RETURN while both
-run, 1287), `puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in
-the sprint, 543).
+stays, the timed two come back), BACK INTO THE HOURGLASS'S CELL and held
+there (1168: not taken again - ONCE AN ATTEMPT on the guest, not only in the
+model's bits; added by the verifier, whose scratch part that re-takes an
+hourglass went red there and stayed green on the scenario without it), the
+speed again and the jump while it runs (99 steps of it left), a RETURN while
+both run, the jump a third time, worn off - the ball, `bz_fst`, the slots,
+`bz_fref`, the window, every element's POSE, and `bz_wacc`, `bz_vup`, the
+Hop, `bz_cue`, `bz_nfev`, `bz_fta`, `bz_tsec`. Red arms, each red there:
+`pustep` (STEP entry 0: the slot parts at 487), `puretake` (CONTACT's
+COLLECTED test NOPed: an element taken again while its cell is held, 488),
+`purst` (RESET entry 0: the slot parts at the RETURN while both run, 1355),
+`puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in the sprint,
+543). Not on any host check: the FLASH's frame parity and the sparkles'
+pixels (`bz_cued` is display, never in the unicorn's `bz_step`) - the SEEN
+look below and `bonanzaperf` are their only witnesses; nor a jump and a
+speed of DIFFERENT durations on one course (the yard's are both 3 s, so a
+guest reading the wrong element's +18 would agree; `--selfcheck` item 2
+holds the records' fields).
 
 **SEEN** (one look, `~/Repos/w9-logs/pickups-look.py`, CGA and Hercules):
 the icons on the yard; the speed taken (slot, `bz_wacc`, `bz_vup`, `bz_cue`

@@ -1056,7 +1056,8 @@ def pickup_keys():
     """THE PICKUPS SCENARIO on PLAYGROUND's yard (SPEC.md 128.25.19), steered on the model from the start:
     the SPEED taken, a sprint past BZ_VMAXG under it (the raised cap), the JUMP, a Hop with rubber's boost
     STACKED on its contact onto the 2-unit RIDGE, off it and both worn off, the HOURGLASS (+10 s), a RETURN
-    (the ATTEMPT hourglass stays taken, the RESPAWN two come back), the speed again and the jump while it
+    (the ATTEMPT hourglass stays taken, the RESPAWN two come back), back into the hourglass's cell (not taken
+    again: once an attempt), the speed again and the jump while it
     runs (both at once), a RETURN while both run, the jump a third time, worn off.  -> (keys, [(mark, step)])"""
     c = R.course("play")
     p = BB.Physics(c, play=True, mat=BB.MAT_RUBBER)
@@ -1097,6 +1098,11 @@ def pickup_keys():
     keys.append(BB.K_RET)
     p.step(BB.K_RET)
     marks.append(("RETURN", len(keys)))
+    tsec = p.tsec                                   # (pickups-v: the hourglass ONCE AN ATTEMPT, on the guest -
+    _pu_goto(p, keys, *hg["at"])                    # back into its cell after the RETURN, held there: no take)
+    if p.tsec > tsec or p.nfev != 3:
+        raise AssertionError("the hourglass was taken again after the RETURN")
+    marks.append(("hourglass again, kept", len(keys)))
     _pu_goto(p, keys, 7, 25, until=lambda q: _pu_t(q)[0])
     marks.append(("speed again", len(keys)))
     _pu_goto(p, keys, 8, 28, until=lambda q: _pu_t(q)[1])
@@ -1128,7 +1134,7 @@ def pickup_ok(p, marks):
 
     def bit(pr):
         return p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7) & 1
-    return (len(marks) == 12 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
+    return (len(marks) == 13 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
             and _pu_t(p) == (0, 0) and p.hop == BB.MATERIALS[BB.MAT_RUBBER]["HOP"] and not p.wacc and not p.vup
             and p.nfev == 6 and p.nboost >= 1)
 
@@ -1331,7 +1337,14 @@ def fam_host():
     img = open(binp, "rb").read()
     vup = img.find(b"\xba" + struct.pack("<H", BB.VMAXG) + b"\x03\x16" + struct.pack("<H", sym["bz_vup"]),
                    sym["bz_gax"])
+    # (pickups-v: `puretake` - CONTACT's COLLECTED test gone, `jnz .out` after the first `test [si], al`
+    # made NOPs: an element is taken again while its cell is held, the hourglass on its revisit after the
+    # RETURN among them - the working values part)
+    retake = bytearray(pick)
+    rt = retake.find(b"\x84\x04\x75")
+    retake[rt + 2:rt + 4] = b"\x90\x90"
     for name, ff, patch, want in (("pustep", [fam, _noentry(pick, BB.H_STEP)], (), "slots"),
+                                  ("puretake", [fam, bytes(retake)], (), "the working values"),
                                   ("purst", [fam, _noentry(pick, BB.H_RESET)], (), "slots"),
                                   ("puvup", fams, ((vup + 3, b"\x90" * 4),), "the ball")):
         p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, ff, patch)

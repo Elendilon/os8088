@@ -260,6 +260,9 @@ pu_joff:
     ret
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
+%if BZF_SLOT != 8
+ %error "pu_slot's three shifts are BZF_SLOT = 8 (bbcourse.FSLOT)"
+%endif
 pu_slot:
     push ax
     xor ah, ah

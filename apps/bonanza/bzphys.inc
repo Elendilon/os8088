@@ -3182,8 +3182,8 @@ bz_frate:
 ; and v moves d toward 0.  rem <= bz_dmask holds at every call (bz_surfset
 ; cuts it where the mask changes), so the read needs no mask; t < 700.  The
 ; airborne axis passes CX = 0: the clamp alone.  -> AX.  Preserves SI.
-; Clobbers DX (.clamp too: wave 9's cap is BZ_VMAXG + bz_vup), and BX when CL
-; is not 0.
+; Clobbers DX (.clamp too, past BZ_VMAXG: wave 9's cap is BZ_VMAXG + bz_vup),
+; and BX when CL is not 0.
 ; -----------------------------------------------------------------------------
 bz_gax:
     or cl, cl
@@ -3222,17 +3222,24 @@ bz_gax:
     add ax, dx                  ; v < -b: v + b; else 0
     jl .clamp
     xor ax, ax
-.clamp:                         ; wave 9 (SPEC.md 128.25.19): the cap is
-    mov dx, BZ_VMAXG            ; BZ_VMAXG + bz_vup, a family's raise (0
-    add dx, [bz_vup]            ; but under PICKUPS' speed)
-    cmp ax, dx                  ; (inside the clamp, nearly always: no jump
-    jg .hi                      ; taken)
-    neg dx
-    cmp ax, dx
-    jl .hi
+.clamp:
+    cmp ax, BZ_VMAXG            ; (inside the clamp, nearly always: no jump
+    jg .hi                      ; taken, and not a clock more than before
+    cmp ax, -BZ_VMAXG           ; wave 9 - the raise is read only past the
+    jl .lo                      ; table's cap)
     ret
-.hi:
-    xchg ax, dx                 ; (DX = the bound on either side)
+.lo:
+    neg ax                      ; (|v| < 2^15: no overflow)
+    call .hi
+    neg ax
+    ret
+.hi:                            ; wave 9 (SPEC.md 128.25.19): the cap is
+    mov dx, BZ_VMAXG            ; BZ_VMAXG + bz_vup, a family's raise (0 but
+    add dx, [bz_vup]            ; under PICKUPS' speed)
+    cmp ax, dx
+    jle .in
+    xchg ax, dx
+.in:
     ret
 
 ; -----------------------------------------------------------------------------
