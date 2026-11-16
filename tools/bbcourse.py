@@ -179,6 +179,8 @@ SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
 BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
 ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
+CRS_MAX = 24                  # BZ_CRS_MAX: the courses a build may have, the width of every per-course
+                              # table and of BONANZA.DAT's BZS4 (SPEC.md 128.22.5); more is refused
 KW_MAX = 33                   # CELLS' scratch rows, KW + 2 <= bz_cxcel's 36-byte stride (128.15.6)
 # the course budget (SPEC.md 128.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
@@ -8842,6 +8844,7 @@ def emit_inc(courses, path=None, title=None):
         "; Hercules translates them in place at the fetch (SPEC.md 128.11.3).",
         "",
         "BZ_NCRS         equ %d        ; courses, BZ_COURSES's order" % len(courses),
+        "BZ_CRS_MAX      equ %d       ; the most courses (SPEC.md 128.22.5): every per-course table's width" % CRS_MAX,
         "BZ_P_CRS        equ 3        ; course 0's row; course K's is BZ_P_CRS + K",
         "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
         "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
@@ -9358,6 +9361,9 @@ def finish_clock_rule(c, _hack=None):
 def compile_all(paths, demo_dir=None, path=None, title=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
+    if len(paths) > CRS_MAX:
+        raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
+                          "BONANZA.DAT's BZS4 (SPEC.md 128.22.5)" % (len(paths), CRS_MAX))
     courses = [compile_course(p) for p in paths]
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")

@@ -171,37 +171,31 @@ BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
 BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
                                 ; the 65,535-step clamp (128.14.3.3)
-; --- BONANZA.DAT (SPEC.md 128.14.3.3): SYSTEM\APPDATA, 64 bytes, in [bz_dat] ---
-BZD_SIZE    equ 64              ; `BZT1`, +4 the course count, +5 BZ_PHYSV
-                                ; (wave 6, SPEC.md 128.16.9), +6 two zeros
-BZD_ENT     equ 8               ; 8 entries, K 0 - 7 (BENCH's unused): +0 the
+; --- BONANZA.DAT (SPEC.md 128.14.3.3, 128.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
+; `BZS4` (wave 8R round 2, item 8R.14): 512 bytes laid out for BZ_CRS_MAX = 24 courses
+BZD_ENT     equ 8               ; 24 entries, K 0 - 23 (BENCH's unused): +0 the
 BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
-BZD_NENT    equ 8               ; none), +4 that best's falls
-BZD_TOUR    equ 56              ; the tour: +0 the XOR of its courses' identities,
-                                ; +2 its best total in steps, DWORD, +6 zero
-BZD_SLOT    equ 64              ; save v3 (wave 8R, SPEC.md 128.22.5): `BZS3`, then
-BZD_SLOTB   equ 80              ; three game SLOTS after the bests: +0 lives, +1
-BZD_NSLOT   equ 3               ; the MODE (bit 0), +2 the PAD, +3 zero, +4 the
-BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; OPEN pads and +8 the DONE ones
-BZD_FILE2   equ 64 + 3 * 48     ; (a dword each, a bit a pad), +12 the routes
+BZD_NENT    equ BZ_CRS_MAX      ; none), +4 that best's falls
+BZD_TOUR    equ BZD_ENT + BZD_NENT * BZD_ENTB ; the tour: +0 the XOR of its courses' identities,
+                                ; +2 its best total in steps, DWORD (6 bytes, no zeros)
+BZD_SLOT    equ BZD_TOUR + 6    ; three game SLOTS after the bests: +0 lives, +1
+BZD_SLOTB   equ 118             ; the MODE (bit 0), +2 the PAD, +3 zero, +4 the
+BZD_NSLOT   equ 3               ; OPEN pads and +8 the DONE ones
+BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; (a dword each, a bit a pad), +12 the routes
 BZD_SPAD    equ 2               ; OPENED and +16 TAKEN (a dword each), +20 the
 BZD_SOPEN   equ 4               ; pathway's identity, +22 the exits found (a
-BZD_SDONE   equ 8               ; word a course, 16 courses), +54 the best a
-BZD_SROPN   equ 12              ; course (steps; 8 courses' words today), +70
-BZD_SRTAK   equ 16              ; - +79 zero.  BZS2's file (BZD_FILE2) is read
-BZD_SID     equ 20              ; too, its slots emptied (bz_dload).
+BZD_SDONE   equ 8               ; word a course, 24 courses, +22 - +69), +70 the
+BZD_SROPN   equ 12              ; best a course (steps, a word a course, 24
+BZD_SRTAK   equ 16              ; courses, +70 - +117).
+BZD_SID     equ 20
 BZD_SEXIT   equ 22
-BZD_SBEST   equ 54
-BZD_SZERO   equ 70
-%if BZD_FILE > 512 || BZ_NCRS > 8
- %error "save v3 is one sector, its bests 8 courses' words (SPEC.md 128.22.5)"
+BZD_SBEST   equ 22 + 2 * BZ_CRS_MAX
+%if BZD_FILE != 512 || BZD_SBEST + 2 * BZ_CRS_MAX != BZD_SLOTB || BZ_NCRS > BZ_CRS_MAX
+ %error "save v4 is ONE sector exactly, a word a course in both tables (SPEC.md 128.22.5)"
 %endif
 BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (128.22.3)
 %if BZD_NPAD > 32
  %error "save v3 keeps a bit a pad in a dword (SPEC.md 128.22.5)"
-%endif
-%if BZD_ENT + BZD_NENT * BZD_ENTB != BZD_TOUR || BZD_TOUR + 8 != BZD_SIZE || BZ_NCRS > BZD_NENT
- %error "BONANZA.DAT's layout (SPEC.md 128.14.3.3) holds 8 courses"
 %endif
 
 bz_entry:
@@ -3510,23 +3504,9 @@ bz_dload:
     jc bz_dnorm
     or dx, dx
     jnz bz_dnorm
-    cmp ax, BZD_FILE            ; save v3 (128.22.5): `BZS3` and its slots ...
-    je .v3
-    cmp ax, BZD_FILE2           ; ...`BZS2`'s (its pathway is another's: the
-    je .v2                      ; slots emptied) ...
-    cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone
-    jne bz_dnorm
-    call bz_dslz                ; (no slots in it: emptied)
-    cmp word [bz_dat + 2], 'T1'
-    jne bz_dnorm
-    jmp short .chk
-.v2:
-    call bz_dslz
-    cmp word [bz_dat + 2], 'S2'
-    jne bz_dnorm
-    jmp short .chk
-.v3:
-    cmp word [bz_dat + 2], 'S3'
+    cmp ax, BZD_FILE            ; save v4 (128.22.5): `BZS4`, exactly one sector; any
+    jne bz_dnorm                ; other length (an older layout too) is unrecognised
+    cmp word [bz_dat + 2], 'S4'
     jne bz_dnorm
 .chk:
     call bz_dchk
@@ -3548,8 +3528,8 @@ bz_dnorm:
     je .phys
     xor cl, cl
 .phys:
-    mov word [bz_dat], 'BZ'     ; `BZS3`, the count and BZ_PHYSV, two zero bytes
-    mov word [bz_dat + 2], 'S3'
+    mov word [bz_dat], 'BZ'     ; `BZS4`, the count and BZ_PHYSV, two zero bytes
+    mov word [bz_dat + 2], 'S4'
     mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
     mov word [bz_dat + 6], 0
     mov si, bz_dat + BZD_ENT
@@ -3605,7 +3585,6 @@ bz_dnorm:
     mov [bz_dat + BZD_TOUR + 4], ax
 .tok:
     mov word [bz_dat + BZD_TOUR], BZ_CRS_TOURX
-    mov word [bz_dat + BZD_TOUR + 6], 0
     ret
 
 ; bz_dchk - BONANZA.DAT's 64 bytes in [bz_dat], checked IN FULL (SPEC.md
@@ -3645,8 +3624,6 @@ bz_dchk:
     inc bx
     cmp bl, BZD_NENT
     jb .e
-    cmp word [bz_dat + BZD_TOUR + 6], 0
-    jne .out
     inc cx
 .out:
     ret
@@ -3807,13 +3784,12 @@ bz_dslots:
     not ax
     test ax, [si + BZD_SRTAK + 2]
     jnz .bad
-    mov di, si                  ; the exits of courses that are not here, and
-    add di, BZD_SEXIT + 2 * BZ_NCRS ; the slot's tail, are zero
-    mov cx, BZ_NEXITPAD
+    lea di, [si + BZD_SEXIT + 2 * BZ_NCRS] ; the exits found and the bests of
+    mov cx, BZ_NEXITPAD         ; courses that are not here are zero
     call bz_dzero
     jnz .bad
-    lea di, [si + BZD_SZERO]
-    mov cx, (BZD_SLOTB - BZD_SZERO) / 2
+    lea di, [si + BZD_SBEST + 2 * BZ_NCRS]
+    mov cx, BZ_NEXITPAD
     call bz_dzero
     jnz .bad
     cmp byte [si], 0
@@ -3855,7 +3831,7 @@ bz_dslots:
 
 ; bz_dzero - ZF = 1 when the CX words at DS:DI are all zero (CX 0: they are).
 ; Preserves all but CX, DI.
-BZ_NEXITPAD equ 16 - BZ_NCRS    ; the exit words a slot holds past the courses
+BZ_NEXITPAD equ BZ_CRS_MAX - BZ_NCRS ; the words a slot's tables hold past the courses
 bz_dzero:
     push ax
     xor ax, ax                  ; (ZF = 1 for CX = 0)
