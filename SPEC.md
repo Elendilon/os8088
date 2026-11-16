@@ -274010,6 +274010,36 @@ a private tree (many slow lanes on one screen and in the range, many props
 off it), MEASURED on MartyPC's 8088: the walk's cost a frame with them,
 and the refill's.
 
+**MEASURED** (2026-11-16, MartyPC's CGA): a STRESS course in a private
+tree - 85 posts and 2 clocks, 20 posts and the clocks on the start's
+screen, 65 posts below it (89 lanes, the tables sized 90) - against MILL:
+
+| | MILL (7 lanes) | STRESS (89 lanes, ~24 in range) |
+|---|---|---|
+| `bz_lfull`, the first full write | 7,322 clk | 23,434 clk (the shown window's lanes only) |
+| the walk a frame, at rest | mean 3,784, max 10,285 | mean 3,341 |
+| the walk a frame, rolling among the posts | mean 3,780, max 9,813 | **17,000 - 25,000 clk on 22 of 80 frames** |
+| `bz_owner`, a lookup | 842 clk | 1,434 clk (binary; a scan of 89 was about 3,600) |
+
+The lanes off the range cost nothing. The rolling frames are the walk's
+SKIP: one lit post makes the walk non-quiet, and every lane in the range
+then costs about 800 clk to be skipped (the range test, the column band,
+the skip's kinds, three taken jumps) - item 6 below.
+
+6. **(the owner, 2026-11-16: yes)** **A SLOW lane is walked only when
+   something happened to it**: a kick marks its post until the post is
+   dark, a touch marks its flag, a second marks the clocks' digits, a lane
+   entering the range or the column band is marked; FAST lanes (rotors) are
+   walked as today. The walk finds the next marked slow lane with a byte
+   scan (about 15 clk a lane) instead of skipping each in turn (about
+   800). Every new lane kind says what marks it and why.
+
+The rows at 1 - 5's commit: every BONANZA row passes but those already
+failing before it (`bonanzaring`'s probe and its three MILL features -
+the defer, the lift's box and its clip - which fail at `314539a9` as well;
+`bonanzawheel`'s leg (6)); `bonanzaperf` found the lift's box never drawn,
+a range move clobbering CL before the lift's test - fixed.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second

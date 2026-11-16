@@ -546,6 +546,13 @@ class FaceLines:
             return ("line", m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip(), r)
 
 
+def guest_propmax(art=None):
+    """the guest's per-lane tables' size (SPEC.md 128.19.10): BZ_PROPMAX, the
+    build's largest course's lanes - not the tool's ceiling, bbcourse.PROP_MAX"""
+    t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_PROPMAX\s+equ\s+(\d+)", t, re.M).group(1))
+
+
 def medals(crs):
     """a course's (G, S) in STEPS (wave 8c, SPEC.md 128.19.8.3): BZ_CRS_MEDALS's pair,
     out of the generated bzcourse.inc"""
