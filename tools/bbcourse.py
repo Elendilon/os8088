@@ -14411,20 +14411,24 @@ def _cam_controls(courses, demos, by, res):
     mill = by["MILL"]
     # nohyst: the ramp bottom and the dither map (the CGA's)
     rb = [x for herc in (0, 1) for x in ramp_reversals(mill, herc, _nohyst=True) if x[1]]
-    dn = {}
-    for K, c in enumerate(courses):
-        d = cam_dither(c, 0, demos[K]["log"] if K in demos else None, _nohyst=True)
-        for t, v in d.items():
-            n = sum(1 for x in v if x[2] > x[3])
-            if n:
-                dn.setdefault(t, []).append("%s %d" % (c.name, n))
+    dn = {}                                     # tap -> ["COURSE card n", ...]; PLAY's tap 60 is the ring arm's scenario
+    for herc in (0, 1):
+        for K, c in enumerate(courses):
+            d = cam_dither(c, herc, demos[K]["log"] if K in demos else None, taps=(CAM_TAPS_P[-1],), _nohyst=True)
+            for t, v in d.items():
+                n = sum(1 for x in v if x[2] > x[3])
+                if n:
+                    dn.setdefault(t, []).append("%s %s %d" % (c.name, ("CGA", "Herc")[herc], n))
     # (round 3b, SPEC.md 128.17.17: the larger reach moved MILL's occluders and so the heavy rule's frames, and
     # with Hr 0 no ramp-bottom pattern reverses any more - about 50 searched on both cards - so the ramp
-    # bottom is PRINTED and the control is held red at the dither map)
+    # bottom is PRINTED and the control is held red at the dither map.  Wave 9 (the pickups yard, glass tiles,
+    # grounded faces) moved PLAY's demo again: taps of 8 - 25 reverse nowhere on the CGA now, so the control
+    # reads the 60-step taps, on BOTH cards, and is red only when each card has a reversing sample)
     print("    control `nohyst` at the ramp bottom: %s" % (
         ", ".join("%s reverses %d" % (x[0], x[1]) for x in rb) or "no reversal (round 3b's tree)"))
-    res.append(("8 control `nohyst` (Hr 0): red at the dither map (the CGA's reversing samples: %s)" % (
-        "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"), bool(dn)))
+    res.append(("8 control `nohyst` (Hr 0): red at the dither map on both cards (the reversing samples: %s)" % (
+        "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"),
+        bool(dn) and all(any(" %s " % cd in x for x in dn[t]) for t in dn for cd in ("CGA", "Herc"))))
 
     def every(**kw):
         return [("%s %s %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2]), k[1], rows)

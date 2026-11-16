@@ -3298,13 +3298,16 @@ def _ramp_keys(pname):
 # no RAMP_PATTERNS pattern from the green reverses any more (128.17.17.4: about 50 searched), so the arm's model
 # stayed green at the climb try and --check-reds failed.  bbcourse's own `nohyst` control moved to the DITHER MAP
 # then (cam_dither: a branch off the demo brakes, taps against the ball's travel, along it, against it), and
-# so does this arm: DITHER_SCEN is one of that map's samples, made a log - PLAY's demo for its first 14 steps
-# (the ball rolling left across (21, 16), gvx -74), then the map's branch with taps of 60 steps.  On the model
-# the branch is CLEAN (no fall, no RETURN, no goal, no tube frame), the shipped camera never reverses on it and
-# Hr 0 reverses on both cards at every pacing from 0.8x to 1.25x the nominal step rate (forks 10 - 19 all do at
-# taps of 60), so the arm does not ride on one frame's timing.  (A ramp search from RAMP_POKE found Hr 0
-# reversing only on runs that fell and respawned into the chute: not a hysteresis scene.)
-DITHER_SCEN = ("play", 14, 60)
+# so does this arm: DITHER_SCEN is one of that map's samples, made a log.  Re-anchored (wave 9: the pickups
+# yard, glass tiles and grounded faces moved PLAY's demo, and the old fork, step 14 at taps of 60, reversed
+# nowhere): PLAY's demo for its first 1028 steps (the ball grounded, rolling down the column at tile
+# (28, 19)), then the map's branch with taps of 60 steps.  On the model the branch is CLEAN (no fall, no
+# RETURN, no goal, no tube frame, never airborne), the shipped camera never reverses on it and Hr 0 reverses
+# 1 - 4 times on both cards at every pacing from 0.8x to 1.25x the nominal step rate (CGA 1, 3, 3, 4, 4;
+# Hercules 2, 2, 3, 3, 3 at 0.8, 0.9, 1.0, 1.1, 1.25), and forks 1010 - 1042 all reverse on both cards at the
+# nominal rate, so the arm does not ride on one frame's timing.  bbcourse's `nohyst` control reads the same
+# map (taps of 60, both cards).
+DITHER_SCEN = ("play", 1028, 60)
 
 
 def _dither_scen():
