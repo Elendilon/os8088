@@ -1098,6 +1098,10 @@ bz_blit:
     pop si
 .cf:
     mov cx, dx                  ; CX = the rows
+%if BZ_CFB                      ; (a BLINK style has no checker: its flash
+    mov ds, [bz_bseg]           ; frame draws no ball, bz_boxc's .bq)
+    jmp .wgo
+%else
     mov al, [bz_clook]
     mov bp, [bz_chk]
     mov ds, [bz_bseg]           ; DS = the ball part from here
@@ -1128,6 +1132,7 @@ bz_blit:
     not bp
     loop .fw
     jmp .ds
+%endif
 .gen:
     mov [bz_bly], ax
     mov [bz_blm], di
