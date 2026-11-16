@@ -84,6 +84,16 @@
 ; [op_base] or the row right, then jumps to my_hook (BX = was, DX = now), whose
 ; job is to ask op_seg again for every segment it banked. Without the define
 ; nothing below changes by a byte.
+
+; --- and the SMALL lazy parts may share ONE claim (SPEC.md 20.12.15) -------
+;
+; `%define OP_WANT_ARENA` before this include, and OP_ARENA on a lazy row:
+; op_fetch reads the part into the ARENA's top (grown with MEMP_REGROW) and
+; op_drop gives its room back, so a package's small parts cost it one claim
+; however many there are. op_areserve AX grows it ahead of a batch (AX = 0
+; fits it to its parts); OP_WANT_ARQUERY adds op_arquery. A fetch that grows
+; the arena may MOVE it: re-read every segment you copied from op_seg after
+; the batch. Without an OP_ARENA row nothing below changes by a byte.
 ;
 ; --- what it costs -----------------------------------------------------------
 ;
