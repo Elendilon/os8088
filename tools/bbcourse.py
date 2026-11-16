@@ -9397,31 +9397,40 @@ def finish_clock_rule(c, _hack=None):
     return "%s: %s" % (c.name, "; ".join(seen))
 
 
-def finish_reach_rule(c, _hack=None):
-    """R1 (the owner: a finish clock walled off TRIAL's exit 1): every goal
-    cell of a course stays REACHABLE with its clocks in place - the start's
-    reach closure over the tiles less the clocks' posts (solid, 128.18.5.3)
-    and less every goal cell of ANOTHER exit (a ball that rolls into one has
-    finished there) holds it.  -> the verdict; refused naming the cell"""
+def finish_reach_rule(c, _hack=None, _posts=()):
+    """R1 (the owner: a finish clock walled off TRIAL's exit 0): every FINISH
+    cell of a course - each goal cell, the cup's cell - stays REACHABLE with
+    its clocks in place: the start's reach closure over the tiles less the
+    clocks' posts (solid, 128.18.5.3) and less every goal cell of ANOTHER exit
+    (a ball that rolls into one has finished there) holds it, with a FREE
+    4-neighbour in the closure it rolls in from (the closure's launches fly
+    over a post).  One closure an exit, not one a cell.  _posts: extra posts
+    (the selfcheck's red controls).  -> the verdict; refused naming the cell"""
     goals = sorted(k for k, t in c.tiles.items() if t.kind == KIND_GOAL)
-    if not goals or c.src.start is None:
-        return "%s: no goal cell to reach" % c.name
-    posts = {p["at"] for p in c.props if p["kind"] == PK_CLOCK}
+    cups = sorted(p["at"] for p in c.props if p["kind"] == PK_CUP)
+    if not (goals or cups) or c.src.start is None:
+        return "%s: no finish cell to reach" % c.name
+    posts = {p["at"] for p in c.props if p["kind"] == PK_CLOCK} | set(_posts)
     if "clockreach" in (_hack or ()):
         posts = set()
+    byex = {}
     for g in goals:
-        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k == g or k not in goals
-                                                                         or c.tiles[k].exit == c.tiles[g].exit)}
-        R = reach_closure(t2, c.src.start[0])
-        # (the closure's launches fly over a post: the goal also needs a FREE neighbour a ball rolls in from)
-        if g not in R or not any((g[0] + dx, g[1] + dy) in R and (g[0] + dx, g[1] + dy) != g
-                                 and 4 * min(t2[g].corners()) <= 4 * max(t2[(g[0] + dx, g[1] + dy)].corners()) + CLIMB
-                                 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
-            raise CourseError("%s: the goal cell (%d, %d) cannot be reached with the course's clocks in place "
-                              "(a clock post at %s walls it off): move the clock (SPEC.md 128.22.6)"
-                              % (c.fname, g[0], g[1], sorted(posts)))
-    return "%s: all %d goal cell%s reachable past %d clock post%s" % (
-        c.name, len(goals), "s" * (len(goals) != 1), len(posts), "s" * (len(posts) != 1))
+        byex.setdefault(c.tiles[g].exit, []).append(g)
+    if cups:
+        byex[None] = cups
+    for e, fins in sorted(byex.items(), key=lambda kv: -1 if kv[0] is None else kv[0]):
+        t2 = {k: t for k, t in c.tiles.items() if k not in posts and (k not in goals or c.tiles[k].exit == e)}
+        R = reach_closure(t2, c.src.start[0]) if c.src.start[0] in t2 else set()
+        for g in fins:
+            if g not in R or not any((g[0] + dx, g[1] + dy) in R and 4 * min(t2[g].corners())
+                                     <= 4 * max(t2[(g[0] + dx, g[1] + dy)].corners()) + CLIMB
+                                     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                raise CourseError("%s: the %s (%d, %d) cannot be reached with the course's clocks in place "
+                                  "(clock posts at %s): move the clock (SPEC.md 128.22.6)"
+                                  % (c.fname, "cup" if e is None else "goal cell", g[0], g[1], sorted(posts)))
+    n = len(goals) + len(cups)
+    return "%s: all %d finish cell%s reachable past %d clock post%s" % (
+        c.name, n, "s" * (n != 1), len(posts), "s" * (len(posts) != 1))
 
 
 def compile_all(paths, demo_dir=None, path=None, title=None):
@@ -15990,25 +15999,66 @@ def _clock_rule_checks(courses, res, paths=None):
         why = "accepted"
     except CourseError as e:
         why = str(e)
-    # R1: every finish cell stays reachable with its clocks in place; red control: TRIAL's clock back at (9, 17)
-    okr = True
+    # R1: every finish cell stays reachable with its clocks in place; red controls: TRIAL's clock back at (9, 17)
+    # (a goal cell), and posts round MOON's cup on its four sides (a cup: the closure flies over a post, so the
+    # free neighbour is what refuses it)
+    okr, verd = True, []
     try:
         for c in courses:
-            finish_reach_rule(c)
-    except CourseError:
-        okr = False
-    redr = "accepted"
+            verd.append(finish_reach_rule(c))
+    except CourseError as e:
+        okr, verd = False, [str(e)]
+    redr = redc = "accepted"
     if "TRIAL" in byk:
         c = courses[byk["TRIAL"]]
         with open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname), encoding="ascii") as f:
             txt = f.read()
         try:
-            finish_reach_rule(compile_course(txt.replace("clock 11 17", "clock 9 17"), fname=c.fname))
+            finish_reach_rule(compile_course(txt.replace("clock 14 18", "clock 9 17"), fname=c.fname))
         except CourseError as e:
             redr = str(e)
-    res.append(("8R every finish cell is reachable with its clocks in place (a free neighbour to roll in from); red "
-                "control: TRIAL's clock put back on (9, 17) walls exit 0's goal off (%s)" % redr[-70:],
-                okr and "cannot be reached" in redr))
+    if "MOON" in byk:
+        c = courses[byk["MOON"]]
+        cup = next(p["at"] for p in c.props if p["kind"] == PK_CUP)
+        try:
+            finish_reach_rule(c, _posts=[(cup[0] + dx, cup[1] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))])
+        except CourseError as e:
+            redc = str(e)
+    res.append(("8R every finish cell (goal cells, the cups) is reachable with its clocks in place, a free neighbour "
+                "to roll in from (%s); red controls: TRIAL's clock put back on (9, 17) walls exit 0's goal (8, 17) "
+                "off, posts round MOON's cup wall it off" % ("%d courses, %d finish cells" % (
+                    len(verd), sum(int(v.split("all ")[1].split()[0]) for v in verd if "all " in v))
+                    if okr else verd[0][:120]),
+                okr and "goal cell (8, 17) cannot be reached" in redr and "the cup " in redc
+                and "cannot be reached" in redc))
+    # R1: TRIAL's finish clock is off the autopilot's route - the route demo's replay is the same, step for
+    # step, with it and without it, and so is the limit; red control: the clock on (11, 17), where the
+    # autopilot meets it (796 steps, a 30 s limit)
+    okt, wt = False, "no TRIAL"
+    if "TRIAL" in byk:
+        c = courses[byk["TRIAL"]]
+        with open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname), encoding="ascii") as f:
+            txt = f.read()
+        bare = compile_course(txt.replace("\nclock 14 18", "\n"), fname=c.fname)
+        moved = compile_course(txt.replace("\nclock 14 18", "\nclock 11 17"), fname=c.fname)
+        log = bytes(route_demo(bare, byk["TRIAL"]))
+        _k, mat, kt, _fl = decode_log_t(log)
+
+        def trace(cc):
+            p = Physics(cc, play=True, mat=mat)
+            tr = []
+            for k_, t_ in kt:
+                p.step(k_, t_)
+                tr.append((p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, p.air, p.goal))
+            return tr
+        t0 = trace(bare)
+        same, red = trace(c) == t0, trace(moved) == t0
+        okt = same and not red and c.limit == bare.limit and moved.limit != bare.limit \
+            and bytes(route_demo(c, byk["TRIAL"]))[16:] == log[16:]
+        wt = "limit %d s with it and without, %d steps; the red control's limit %d s" % (
+            c.limit, len(kt), moved.limit)
+    res.append(("8R TRIAL's finish clock is off the autopilot's route: the route demo replays the same step for "
+                "step with it and without it (%s)" % wt, okt))
     res.append(("8R the clock rule: every shipped course with a limit has a clock in the CGA window centred on each "
                 "of its finishes (BENCH, no limit, exempt); a finish with its clock too far is refused (%s)" % why[:90],
                 ok and "has no clock whose digits" in why))
