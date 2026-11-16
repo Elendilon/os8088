@@ -270997,7 +270997,9 @@ today against the sum's 5,993.
     units); `crystal_tile_pixmap()` the 32 x 16 sample.
   - `crystal_side_ink(face, k, j)` ('sw' or 'se', k across, j down from the
     top edge): a DARK wall (0, with glints of 2), so a route reads as a raised
-    rail over the void. The renderer's own black outline still draws the edge.
+    rail over the void. The renderer's own black outline still draws the edge.  The glints of BOTH faces stop at line 6 (the owner, 2026-11-16: the
+    'icicles' on the left (sw) ran the whole face, the right's (se) stopped
+    short; both are short now, a pure art rule: no physics, no layout).
   - `pad_overlay(pose)` -> `{(u, v): ink}` (transparent elsewhere) for the
     four `PAD_POSES` (`PAD_POSE_NAMES` open, done, silver, gold): a ring of
     the light colour round the cell and a black gap inside it so the ring
