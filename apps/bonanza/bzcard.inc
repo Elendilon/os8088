@@ -427,12 +427,10 @@ bz_kinfow:
     call bz_kinfo
 .w:
     call bz_clk_sample
-    call bzs_frame
-    mov al, FSXW_FRAME
-    call OSAPI_FSX_WAIT
-    mov ah, 1
-    int 16h
-    jz .w
+    call bzs_frame              ; (NOT once a retrace frame: a frame is 16.7-20 ms
+    mov ah, 1                   ; against a sub-tick's 18.3, and one sample per
+    int 16h                     ; frame misses reloads - the song ran at half
+    jz .w                       ; tempo; the pause's own polling loop, 8R.12)
     call bz_drain
     mov ax, [bz_subs]           ; (a pause adds no steps: the sub-ticks the
     mov [bz_lsubs], ax          ; wait took are discarded, as bz_pause's)
