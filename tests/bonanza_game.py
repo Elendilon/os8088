@@ -29,8 +29,8 @@ bonanzadisk builds it, and nothing else):
           each played by the autopilot with its own ball
           (bz_cballs): after each its time in bz_ttime (the model's steps), its
           falls in bz_tfall, bz_tour the next course; bz_tour 7 after the sixth
-          and the total their sum; BONANZA.DAT read back = the expected 64
-          bytes (`BZT1`, the count, each course's identity, best and falls,
+          and the total their sum; BONANZA.DAT read back = the expected BZS4
+          bytes (`BZS4`, the count, each course's identity, best and falls,
           the tour's XOR and total); every course's launch time to its
           bracket and floppy reads REPORTED - wave 5b (SPEC.md 128.15.13): on
           the BZC2 parts, stored compact and expanded at the fetch, in the
@@ -50,7 +50,7 @@ bonanzadisk builds it, and nothing else):
           tour of another XOR; a count of 9) - bz_dat after the entry proc is
           the image 128.14.3.3 and 128.14.17 item 6 say (the file refused
           whole, or the bad entry alone), and the next best (FIRST by the
-          autopilot) REWRITES THE FILE WHOLE as this build's 64 bytes
+          autopilot) REWRITES THE FILE WHOLE as this build's BZS4 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
   physdat wave 6 (SPEC.md 128.16.9, 128.16.14): BONANZA.DAT +5 is BZ_PHYSV.
@@ -91,7 +91,7 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
-NENT = 24                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 128.22.5: BZS4)
+NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 128.22.5: BZS4)
 LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "physdat")
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
 PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 128.17.7: its bests cleared once)
@@ -162,11 +162,11 @@ def tourx():
     return x
 
 
-SLOTB = 118                    # save v4 (wave 8R round 2, SPEC.md 128.22.5): 24 entries, the tour, three 118-byte slots
+SLOTB = 22 + 4 * NENT          # save v4 (wave 8R round 2, SPEC.md 128.22.5): 23 entries, the tour, three 114-byte slots
 SLOT_OFF = 8 + 6 * NENT + 6    # BZD_SLOT: the first slot
 TOUR_OFF = 8 + 6 * NENT        # BZD_TOUR
 DAT_FILE = SLOT_OFF + 3 * SLOTB
-assert DAT_FILE == 512, "BZS4 is exactly one sector"
+assert DAT_FILE == 494, "BZS4 is 494 bytes: under one sector, never a whole one (od_write's in-place arm)"
 
 
 def crs_max():
@@ -177,9 +177,9 @@ def crs_max():
 
 
 def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exits=None, best=None, z3=0, tail=b""):
-    """one 118-byte BZS4 slot (SPEC.md 128.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
+    """one 114-byte BZS4 slot (SPEC.md 128.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
     +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's identity, +22 the exits
-    found (a word a course, 24), +70 the best a course (24 words).  TAIL is poked over the last bytes"""
+    found (a word a course, 23), +68 the best a course (23 words).  TAIL is poked over the last bytes"""
     ex = [0] * NENT
     for k, v in (exits or {}).items():
         ex[k] = v
@@ -197,9 +197,9 @@ def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exit
 
 
 def dat_image(best=None, tour=0, count=None, pv=None, slots=None, old=0):
-    """the bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, 128.22.5): `BZS4`, 512 bytes, 24 entries
+    """the bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, 128.22.5): `BZS4`, 494 bytes, 23 entries
     (BEST {K: (steps, falls)}), the tour's 6 bytes (TOUR the total, 0 none), +5 PV (this build's BZ_PHYSV by
-    default) and three 118-byte SLOTS (bytes, or empty).  OLD = 64 / 304: an older layout's LENGTH, magic
+    default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304: an older layout's LENGTH, magic
     `BZT1` / `BZS3` (no longer read: the bytes only have to be of that length)"""
     best = best or {}
     b = bytearray((b"BZT1" if old == 64 else b"BZS3" if old else b"BZS4")
@@ -250,7 +250,7 @@ def hostile_set():
     bad[6] = 1                                                              # +6 - +7 not zero
     out.append(("hdr67", bytes(bad), first, {1: (t1, 0)}))
     bad = bytearray(good)
-    struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0x1234, 77, 3)        # the LAST entry (K 23): a course
+    struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0x1234, 77, 3)        # the LAST entry (K 22): a course
     out.append(("entlast", bytes(bad), first, {1: (t1, 0)}))                # that does not exist: refused whole
     # no older layout is read (128.22.5): `BZT1`, `BZS2` and `BZS3` are unrecognised - the first run's image
     out.append(("old1", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, old=64), first, {1: (t1, 0)}))
@@ -262,15 +262,15 @@ def hostile_set():
     taken = slot(2, ropn=1, rtak=3)                       # a route TAKEN that was never opened
     out.append(("slot", dat_image({2: (499, 0)}, slots=keep + other + taken),
                 dat_image({2: (499, 0)}, slots=keep + bytes(2 * SLOTB)), {1: (t1, 0), 2: (499, 0)}))
-    # the pad: not open / past 31; node 0's pad shut; +3, +70 - +79 and a course's exits past the courses
+    # the pad: not open / past 31; node 0's pad shut; +3, the last best word and a course's exits past the courses
     out.append(("pad", dat_image({2: (499, 0)}, slots=slot(3, pad=1) + slot(3, pad=32, open_=0xFFFFFFFF) +
                                   slot(3, open_=2)),
                 dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
     out.append(("zero3", dat_image({2: (499, 0)}, slots=slot(3, z3=1) + slot(3, best={NENT - 1: 1}) +
                                     slot(3, exits={nc: 1})),
                 dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    # BZS4 (128.22.5): the exits found and the best of a course past the courses - K = NCRS, 8 (past BZS3's tables)
-    # and 23 (the last word) - each EMPTIES its slot alone; the words of the courses that exist are kept
+    # BZS4 (128.22.5): the exits found and the best of a course past the courses - K = NCRS and NENT - 1 (the
+    # last word) - each EMPTIES its slot alone; the words of the courses that exist are kept
     out.append(("wide", dat_image({2: (499, 0)}, slots=slot(3, exits={NENT - 1: 0x8000}) + slot(3, best={nc: 7}) +
                                    slot(3, exits={1: 1, nc - 1: 0x8001}, best={1: 300, nc - 1: 450})),
                 dat_image({2: (499, 0)}, slots=bytes(2 * SLOTB) + slot(3, exits={1: 1, nc - 1: 0x8001},
@@ -516,12 +516,12 @@ def leg_tour(g, best):
     exp = dat_image(best, total)
     d = read_dat(g)
     if d != exp:
-        fails.append("tour: BONANZA.DAT read back off the floppy %s, the expected 64 bytes %s" % (
+        fails.append("tour: BONANZA.DAT read back off the floppy %s, the expected BZS4 bytes %s" % (
             d.hex() if d else "ABSENT", exp.hex()))
     if bytes(g.m.read(g.a("bz_dat"), DAT_FILE)) != exp:
         fails.append("tour: [bz_dat] is not the expected image")
     print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 128.15.13, the launch times "
-          "REPORTED): %s; total %d steps; BONANZA.DAT the expected 64 bytes: %s" % (
+          "REPORTED): %s; total %d steps; BONANZA.DAT the expected BZS4 bytes: %s" % (
               g.tag, R.part_fmt().upper(), "; ".join(rep), total, "yes" if not fails else "NO"), flush=True)
     return fails, best, total
 
@@ -762,7 +762,7 @@ REDS = {
                     "    jnz .n                      ; any pad, 128.19.8: none of them in the set)\n",
                     "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
     # BZS4 (128.22.5): the bests of courses past the courses not held to zero - the slot keeps a best for
-    # a course that does not exist; and BZS3's slots always emptied by the migration
+    # a course that does not exist
     "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST + 2 * BZ_NCRS]\n    mov cx, BZ_NEXITPAD\n    call bz_dzero\n    jnz .bad\n",
                   "    nop                         ; RED pastbest: the bests past the courses unchecked\n")],
     # wave 6 (SPEC.md 128.16.14): +5 not checked - a file under other physics keeps its bests
@@ -798,8 +798,10 @@ def check():
     if auto_steps(2, idle=60)[0] != auto_steps(2)[0] + 60:
         print("bonanza_game  (TRIAL from rest after idle steps is not its route + the idle steps: the row computes "
               "the expected time from the model, so this is reported only)")
-    print("bonanza_game BZ_CRS_MAX %d: BZS4 %d bytes (the slots at +%d, %d each; one sector)" % (
+    print("bonanza_game BZ_CRS_MAX %d: BZS4 %d bytes (the slots at +%d, %d each; under one sector)" % (
         crs_max(), DAT_FILE, SLOT_OFF, SLOTB))
+    if DAT_FILE >= 512 or DAT_FILE % 512 == 0:  # od_write's one-sector arm refuses a whole sector (os88data.inc)
+        bad.append("BZS4 is %d bytes: not under one sector, so every save is a full replace" % DAT_FILE)
     if crs_max() != NENT or ncrs() > NENT:
         bad.append("BZ_CRS_MAX %d is not the test's NENT %d (or %d courses exceed it)" % (crs_max(), NENT, ncrs()))
     try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 128.22.5)

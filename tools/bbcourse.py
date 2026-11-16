@@ -179,8 +179,10 @@ SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
 BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
 ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
-CRS_MAX = 24                  # BZ_CRS_MAX: the courses a build may have, the width of every per-course
-                              # table and of BONANZA.DAT's BZS4 (SPEC.md 128.22.5); more is refused
+CRS_MAX = 23                  # BZ_CRS_MAX: the courses a build may have, the width of every per-course
+                              # table and of BONANZA.DAT's BZS4 (SPEC.md 128.22.5: 80 + 18 x 23 = 494 bytes,
+                              # under one sector - 24 would be 512, a whole one, and os88data.inc's
+                              # od_write then never takes its one-sector arm); more is refused
 KW_MAX = 33                   # CELLS' scratch rows, KW + 2 <= bz_cxcel's 36-byte stride (128.15.6)
 # the course budget (SPEC.md 128.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
