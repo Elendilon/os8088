@@ -943,9 +943,14 @@ bz_boxc:
 ; stay inside the sprite's 5 bytes and 16 rows at every shift; each outside
 ; the 16 px silhouette but (15, 6), whose left column is the rim's
 %define BZ_SPK(x, y) x, (y) * BZ_BOXW * 2
-bz_spk:     db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
-            db BZ_SPK(1, 14), BZ_SPK(15, 2), BZ_SPK(15, 12), BZ_SPK(0, 14)
-bz_spo:     db 0, 3, 5
+; (the first six again after the eight: entries n, n + 3, n + 6 with no wrap)
+%macro BZ_SPKS 0
+            db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
+            db BZ_SPK(1, 14), BZ_SPK(15, 2)
+%endmacro
+bz_spk:     BZ_SPKS
+            db BZ_SPK(15, 12), BZ_SPK(0, 14)
+            BZ_SPKS
 bz_spw:     dw 00F0h, 003Ch, 000Fh, 0C003h ; two pixels at phase 0 - 3, both
                                 ; bits each: the CGA ink XOR 3 (the Hercules
                                 ; keeps one dot of each pair, .sk)
@@ -1040,7 +1045,7 @@ bz_blit:
     jmp .wgo
     ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
     ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
-    ; SPARKLES first, three 2 x 2 pairs XORed at entries n, n + 3, n + 5 of
+    ; SPARKLES first, three 2 x 2 pairs XORed at entries n, n + 3, n + 6 of
     ; bz_spk (n from bz_clook, bz_cuef's), each a byte offset from the
     ; sprite's first byte (8 dy + (s + dx) / 4) and a word mask by phase
     ; (s + dx) & 3 - no transform and no clip: outside the silhouette, so the
@@ -1057,24 +1062,23 @@ bz_blit:
     push si
     push bx
     push dx
-    mov dl, al                  ; DL = n (bits 0 - 2)
+    and ax, 7                   ; n (bits 0 - 2)
+    shl ax, 1
+    add ax, bz_spk
+    xchg ax, si                 ; SI = entry n
     mov dh, [bz_px]
     and dh, 3                   ; DH = s, the sprite's shift
-    mov si, bz_spo
-    mov cx, 3
+    mov ch, [bz_herc]
+    mov cl, 3
 .sk:
-    lodsb                       ; entry n + o of bz_spk
-    add al, dl
-    and ax, 7
-    shl ax, 1
-    xchg ax, bx
-    mov ax, [bz_spk + bx]       ; AL = dx, AH = 8 dy
+    lodsw                       ; AL = dx, AH = 8 dy: entries n, n + 3, n + 6
+    add si, 4
     add al, dh                  ; x = s + dx
     mov bl, al
     and bx, 3
     shl bx, 1
     mov bp, [bz_spw + bx]       ; the pair's word mask at phase x & 3
-    test byte [bz_herc], 0FFh   ; the Hercules: one dot of each mono pair, on
+    or ch, ch                   ; the Hercules: one dot of each mono pair, on
     jz .sm                      ; both lines - over its checkered grounds a
     and bp, 5555h               ; solid black-and-white bar, where all four
 .sm:                            ; dots XORed are the checker shifted (unseen)
@@ -1085,7 +1089,8 @@ bz_blit:
     xchg ax, bx
     xor [bx + di], bp
     xor [bx + di + BZ_BOXW * 2], bp
-    loop .sk
+    dec cl
+    jnz .sk
     pop dx
     pop bx
     pop si
