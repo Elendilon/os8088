@@ -397,7 +397,7 @@ FAMILIES = (
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
-K_CRACK, K_GLASS = FAM_K0 + 1, FAM_K0 + 2
+FK_CRACK, FK_GLASS = FAM_K0 + 1, FAM_K0 + 2
 CR_WHOLE, CR_IMPACT, CR_BROKEN = 0, 1, 0xFF     # a crack's byte; 2 - T + 1 counting (T + 1 - v steps gone)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
@@ -7579,7 +7579,7 @@ class GlassFamily(Family):
         impact = p.nland != p.fnl
         if not impact and p.fair:
             return
-        if pr["kind"] == K_GLASS:
+        if pr["kind"] == FK_GLASS:
             b = pr["fsb"]
             p.fst[b >> 3] |= 1 << (b & 7)
             return
@@ -7603,7 +7603,7 @@ class GlassFamily(Family):
         if not p.fsl[slot][0]:
             return
         for pr in p.props:
-            if pr["kind"] != K_CRACK:
+            if pr["kind"] != FK_CRACK:
                 continue
             k = pr["fsb"] >> 3
             v = p.fst[k]
@@ -7618,14 +7618,14 @@ class GlassFamily(Family):
 
     def pose(self, p, slot, i):
         pr = p.props[i]
-        if pr["kind"] == K_GLASS:
+        if pr["kind"] == FK_GLASS:
             b = pr["fsb"]
             return p.fst[b >> 3] >> (b & 7) & 1
         return crack_pose(p.fst[pr["fsb"] >> 3])
 
     def cell(self, p, slot, win):
         for pr in p.props:
-            if pr["kind"] == K_CRACK and pr["at"] in win and p.fst[pr["fsb"] >> 3] == CR_BROKEN:
+            if pr["kind"] == FK_CRACK and pr["at"] in win and p.fst[pr["fsb"] >> 3] == CR_BROKEN:
                 c = win[pr["at"]]
                 if c[3] == KIND_FLOOR:              # (idempotent, as the guest's must be: a kept cell)
                     c[0] -= 6
@@ -10871,7 +10871,9 @@ def emit_inc(courses, path=None, title=None):
               "BZ_FK_%-10s equ %d" % (k["name"].upper(), k["kind"]) for f in FAMILIES for k in f["kinds"]] + [
               "; GLASS's constants (SPEC.md 128.25.18; its FAMV folds them)",
               "BZ_CRACK_TS     equ %d" % CRACK_TS, "BZ_CRACK_TR     equ %d" % CRACK_TR,
-              "BZ_CRACK_LATE   equ %d" % CRACK_LATE] + [
+              "BZ_CRACK_LATE   equ %d" % CRACK_LATE,
+              "BZ_MAT_STEEL    equ %d        ; the materials' numbers (bz_mat), as a part reads them" % MAT_STEEL,
+              "BZ_MAT_GLASS    equ %d" % MAT_GLASS] + [
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
