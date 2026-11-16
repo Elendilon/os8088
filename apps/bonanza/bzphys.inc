@@ -210,7 +210,7 @@ VAR bz_tsec,2                   ; wave 7 (128.18.4): the whole seconds LEFT, as 
 VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
                                 ; the next one (BZ_SECSTEPS a second)
 VAR bz_fcnt,1                   ; wave 8R (128.22.6): a PLAY's FINISH SEQUENCE - the
-VAR bz_ffl,1                    ; steps left (0: none running), and the flash's
+VAR bz_ffl,1                    ; steps left + 1 (0: none ran; 1: run out), and the flash's
                                 ; steps left in its phase (bits 0 - 6) with the
                                 ; clock BLANK as bit 7 (bz_fstart, bz_fstep)
 VAR bz_phe,0
@@ -553,7 +553,12 @@ bz_step:
     mov byte [bz_mst], 0        ; its time is up: none (a stun's end) ...
     cmp al, BZ_ST_SHAT
     jne .forces
-    jmp .respawn                ; ...or the shattered ball's RESPAWN
+    cmp word [bz_goal], 0       ; ...or the shattered ball's RESPAWN - not in
+    jne .mkeep                  ; a FINISH SEQUENCE (128.22.6), where it
+    jmp .respawn                ; stays in pieces, on its last frame
+.mkeep:
+    mov [bz_mst], al
+    inc byte [bz_mct]
 .mlive:
     cmp al, BZ_ST_SHAT          ; a shattering ball does not move
     jne .forces
@@ -578,7 +583,7 @@ bz_step:
     inc word [bz_nboost]
     mov byte [bz_stf], BZ_STRS
     mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded
-    jmp short .st
+    jmp .st
     ; ---- 2. forces ----
 .forces:
     test byte [bz_ps], 6        ; wave 3 (SPEC.md 128.12.6.5 step 1): in a tube,
@@ -1204,10 +1209,10 @@ bz_step:
     ; flag touched (the start before any) with the flag's ball (128.14.4.5) ----
 .respawn:
     cmp word [bz_goal], 0       ; a FINISH SEQUENCE (128.22.6): a fall, a kill
-    je .rsp                     ; plane or a shatter neither kills nor
+    je .rsp                     ; plane or an open cell neither kills nor
     mov byte [bz_air], 1        ; respawns - the ball goes on falling (its
-    mov ax, [bz_gvz]            ; gravity, clamped) and is not drawn once it
-    sub ax, BZ_G                ; is out of the window
+    mov ax, [bz_gvz]            ; gravity, clamped), clipped to the window
+    sub ax, BZ_G                ; as it leaves it
     cmp ax, -BZ_VZMAX
     jge .rf
     mov ax, -BZ_VZMAX
@@ -1575,33 +1580,33 @@ bz_bok:
 ; THE FINISH SEQUENCE (wave 8R, SPEC.md 128.22.6), a PLAY's only (bz_mode 0: a
 ; replay, a benchmark and a demo end at the finish as the log does).
 ; bz_fstart - at the step that sets bz_goal or bz_tout: BZ_FIN_STEPS steps to
-; run, the flash's first phase (the time shown).  Preserves everything.
+; run (bz_fcnt is one more: 1 is a sequence run out, which the camera still
+; holds through), the flash's first phase (the time shown).  Preserves
+; everything.
 bz_fstart:
     cmp byte [bz_mode], 0
     jne .r
-    mov word [bz_fcnt], BZ_FIN_STEPS | (7 << 8)
+    mov word [bz_fcnt], (BZ_FIN_STEPS + 1) | (7 << 8)
 .r:
     ret
 
 ; bz_fstep - one step of the sequence, the frame loop's in place of bz_step
 ; once bz_goal / bz_tout is set: the keys ZEROED (bz_step's .key2 with BX 0 -
-; neither the keys nor the log's recorder are read), the course time FROZEN
-; (bz_nstep put back, bz_t55 held off the next second), the flash's clock.
-; Preserves CX and ES as bz_step does.
+; neither the keys nor the log's recorder are read), the course's CLOCK
+; frozen (bz_t55 held off the next second), the flash's clock.  bz_nstep RUNS,
+; so the scenery (rotors, lifts, gates) goes on as the ball does; bz_fend
+; takes the sequence's steps back off it at the play's end.  A harness's poke
+; is honoured as bz_step's is.  Preserves CX and ES as bz_step does.
 bz_fstep:
-    cmp byte [bz_fcnt], 0
-    je .r
+    cmp byte [bz_fcnt], 1
+    jbe .r
 %ifdef BZ_SONG_VICTORY
-    cmp byte [bz_fcnt], BZ_FIN_STEPS
+    cmp byte [bz_fcnt], BZ_FIN_STEPS + 1
     jne .nv
     call bz_fvic
 .nv:
 %endif
-    push word [bz_nstep]
-    push word [bz_nstep + 2]
     call .in
-    pop word [bz_nstep + 2]
-    pop word [bz_nstep]
     dec byte [bz_fcnt]
     mov al, [bz_ffl]
     dec al
@@ -1618,10 +1623,35 @@ bz_fstep:
     push cx
     push es
     mov es, [bz_cseg]
+    cmp byte [bz_pokd], 0       ; (a harness's POKE: bz_step's .poked)
+    je .k
+    mov byte [bz_pokd], 0
+    call bz_win9f
+    mov word [bz_drx], 0
+.k:
     mov byte [bz_tby], BZ_TILT_KEYS
     mov byte [bz_t55], BZ_SECSTEPS
     xor bx, bx
     jmp bz_step.key2
+
+; bz_fend - a PLAY's end, every way out (bz_t0): the steps a finish sequence
+; ran (BZ_FIN_STEPS + 1 - bz_fcnt) taken back off bz_nstep, so the log's, the
+; face's and the best's time is the finishing step's; bz_fcnt 0; and bz_fin
+; from bz_goal (an Esc or F in the sequence finished the play too).
+; Clobbers AX.
+bz_fend:
+    mov al, [bz_goal]
+    mov [bz_fin], al
+    xor ax, ax
+    xchg al, [bz_fcnt]
+    or al, al
+    jz .r
+    sub al, BZ_FIN_STEPS + 1
+    neg al                      ; AL = the sequence's steps, 0 - BZ_FIN_STEPS
+    sub [bz_nstep], ax
+    sbb word [bz_nstep + 2], 0
+.r:
+    ret
 
 ; bz_fflash - the clock digits' new state - blank (bit 7 of bz_ffl) or the
 ; frozen time - and EVERY clock lane MARKED (128.19.10 item 6 marks them only
@@ -1838,17 +1868,20 @@ bz_prule:
     ja .lip
     cmp byte [bz_mode], 1       ; ...in a play or a replay (the goal line's
     je .inmo                    ; rule: the benchmark rolls over it)
+    cmp word [bz_goal], 0       ; (in a FINISH SEQUENCE, a goal line's or a
+    jne .hole                   ; timeout's: holed, the finish unchanged)
     mov al, [es:si + BZP_UEXIT] ; wave 8b (128.19.4): the cup's EXIT (bit 7
     and al, 0fh                 ; hidden is the pathway's)
     mov [bz_exit], al
+    mov byte [bz_goal], 1
+    call bz_fstart              ; (a cup's finish: the same sequence)
+.hole:
     xor ax, ax
     mov [bz_gvx], ax
     mov [bz_gvy], ax
     mov [bz_gvz], ax
     inc ax
     mov [bz_hid], al
-    mov [bz_goal], al
-    call bz_fstart              ; (a cup's finish: the same sequence)
     jmp short .inmo
 .lip:                           ; faster, on the step it ENTERS the mouth: it
     cmp byte [bz_inmo], 0       ; LIPS OUT, a pop of BZ_LIPZ the ground Hop's

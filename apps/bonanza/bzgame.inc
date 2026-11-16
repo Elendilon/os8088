@@ -759,11 +759,10 @@ bz_t0:
 %endif                          ; ends the run, as the frame it was due in would
     cmp word [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
-    cmp byte [bz_fcnt], 0       ; over (SPEC.md 128.10.6.2) - but a PLAY runs
-    je .gend                    ; its FINISH SEQUENCE first (128.22.6), which
-    KEYMAP_TEST bz_kmap, KSC_ENTER ; Enter ends at once
-    jz .on
-    mov byte [bz_fcnt], 0
+    cmp byte [bz_fcnt], 1       ; over (SPEC.md 128.10.6.2) - but a PLAY runs
+    jbe .gend                   ; its FINISH SEQUENCE first (128.22.6: steps
+    KEYMAP_TEST bz_kmap, KSC_ENTER ; left while bz_fcnt > 1), which Enter
+    jz .on                      ; ends at once
 .gend:
     mov al, [bz_goal]           ; and the face says
     mov [bz_fin], al            ; how long it took; and (wave 7, 128.18.4) the
@@ -779,22 +778,23 @@ bz_t0:
     call bz_rcopy
 .out:
     cmp byte [bz_mode], 0       ; a play's log closed: its last run, its
-    jne .ret                    ; steps, COMPLETE
+    jne .ret                    ; steps, COMPLETE - the finishing step's
+    call bz_fend                ; time, a finish sequence's steps taken back
     call bz_rfin
 .ret:
     ret
 .on:
     test byte [bz_mode], 1      ; PAUSE (SPEC.md 128.14.4.7), in a play or a
     jnz .steps                  ; replay - B and D ignore P: P's down EDGE stops
-    call bz_pkedge              ; the steps until the next one
+    cmp byte [bz_fcnt], 0       ; the steps until the next one (the finish
+    jne .steps                  ; sequence reads neither P nor the keys)
+    call bz_pkedge
     jz .nop
     call bz_unblank             ; (a pause right after a cut: lit, not dark)
     call bz_pause
     jc .out                     ; (Esc, F or Alt+Enter while paused)
 .nop:
     cmp byte [bz_mode], 0
-    jne .steps
-    cmp byte [bz_fcnt], 0       ; (the finish sequence ignores the keys)
     jne .steps
     call bz_input               ; play: the keys, once a frame
 .steps:
@@ -846,8 +846,8 @@ bz_t0:
     jmp short .camera
 .fst:
     call bz_fstep
-    cmp byte [bz_fcnt], 0
-    jne .stl
+    cmp byte [bz_fcnt], 1
+    ja .stl
 .camera:
 %ifdef BZS_SKIPTEST
 ; THE SKIP AUDITION (an experiment build's, nasm -DBZS_SKIPTEST; off, this
@@ -889,12 +889,6 @@ bz_t0:
     or al, [bz_hid]             ; a tube, or holed out (SPEC.md 128.14.4.3:
     mov [bz_hidn], al           ; its capture frame restores its footprint)
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
-    cmp byte [bz_fcnt], 0       ; (the finish sequence's camera HOLDS: a ball
-    je .nfin                    ; rolled or fallen out of the window is not
-    call bz_outwin              ; drawn, 128.22.6)
-    sbb al, al
-    or [bz_hidn], al
-.nfin:
     call bz_props               ; state and new footprints, the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera
     mov al, [bz_freq]           ; (wave 8c: a card was drawn over the last
