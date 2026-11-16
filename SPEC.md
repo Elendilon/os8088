@@ -272142,6 +272142,30 @@ part's mask into `bz_fhk`, the ACTIVE HOOK byte. **A course that names no
 family has `bz_fhk` = 0 and pays one byte test at each hook site, and
 nothing else** (128.25.12).
 
+**PINNED (story 9.1).** The entries are a FIXED table, one word for each of
+bits 0 - 5 whatever the mask, so hook `b`'s entry is at `+12 + 2b` and the
+header is **24 bytes** (`BZF_HDR`; bits 6 and 7 have no entry). The part is
+`apps/bonanza/fam/<name>.asm`, linked against `bzlink.inc` as the shell part
+is, so it names the package's BSS and constants and never a code label: a
+`call` into the package cannot assemble, and a hook does all of its work
+itself. Its row is a lazy, compressed `OP_SEG` row (`OS88_PART OP_SEG, OP_LAZY
+| OP_COMP`), one a family in `bbcourse.FAMILIES`' order after every other row:
+family ID `n` is row `BZ_P_FAM + n - 1` (`bzcourse.inc`'s `BZ_FAM_PARTS`,
+`BZ_NFAM` rows; the Makefile's `BZ_FAMPARTS` in the same order). The launch's
+fetch is `bz_ffetch` (bonanza.asm), called right after `bz_crshdr` in
+`bz_cload`: for each family of the course's list it fetches the row, checks
+`'BF'`, the ID, the `FAMV` against the course's (a course compiled against
+other rules) and the image stamp against DS:8 / DS:10, and on any mismatch
+drops the row and refuses the launch with the toast `Bonanza: bad family
+part`, before any call; then it copies the six entries into the slot's record
+(`bz_ftab`, 14 bytes a slot: +0 the code segment, +2 the six entries) and the
+part's kinds into the kind table (`bz_fknd`, `BZ_FKMAX` bytes: kind `16 + k`
+-> its slot + 1, 0 none), ORs the mask into `bz_fhk` and counts `bz_fnf`. The
+code segments are taken by `bz_freseg` AFTER the whole batch (`op_cseg`, a code
+selector on kern_mega) and never held across a fetch: the arena (128.25.4)
+calls it again after any move. `bz_cdrop` drops the family rows FIRST, the
+reverse of the fetch order, and zeroes `bz_fhk` and `bz_fnf`.
+
 ##### 128.25.6.3 The hooks
 
 Each is called with the family's slot in AL, the element (its prop index)
@@ -272168,6 +272192,45 @@ where the step tests its own), so the next step's window reads the new state.
 lane kind: a family's ENTER, CONTACT and STEP hooks set the mark of each
 lane whose true pose they moved, as physics' kick and flag do today.
 
+**PINNED (story 9.1): the register contract.** A hook is entered by `call
+far` with DS = ES = the package, SS the task's, the direction flag clear,
+and:
+
+| reg | at every hook |
+|---|---|
+| AL | the family's SLOT, 0 - 2 (its place in the course's list) |
+| AH | the hook's ARGUMENT: RESET the class (0 a play's start, which clears every class; 1 a respawn, RESPAWN); ENTER bit 0 airborne; CONTACT and POSE the element's kind; STEP and CELL 0 |
+| BX | the ELEMENT's prop index (ENTER, CONTACT, POSE); its record is `[bz_poff] + 32 BX` in `[bz_cseg]` |
+| DI | the slot's bytes, `bz_fsl + BZF_SLOT AL` |
+
+It returns by `retf`; POSE answers the pose in AL. It may clobber AX, BX,
+CX, DX, SI, DI, BP and ES, which the dispatcher keeps for the site (POSE's
+AL excepted), and preserves DS, SS and SP; it makes no OS call and uses at
+most 32 bytes of stack. The dispatchers are `bz_fall` (AL = the hook's bit
+NUMBER: every family of the course that implements it, in slot order) and
+`bz_fone` (the element's family, by `bz_fknd`); both skip a hook whose entry
+is 0, and the call is `call far [bz_ffp]`, the entry and the slot's segment
+written there first.
+
+**PINNED (story 9.1): the sites, exactly.**
+
+| hook | its site | the test a course with no family pays |
+|---|---|---|
+| RESET (play) | `bz_pinit`, after `bz_obuild` and before `bz_place`, so the start's refill already reads the reset state | `test byte [bz_fhk], 1` |
+| RESET (respawn) | `bz_step`'s `.resp` (every respawn: a fall, a shatter, a RETURN), after the ball's state is zeroed and BEFORE the place (`bz_place` / `bz_rflag`), not after it as first written: the place's refill runs the CELL hook, which must already see the RESPAWN class cleared. The engine clears the class first (`bz_frst`: `bz_fst AND NOT` the course's RESPAWN MASK, 128.25.7.2), marks every lane of a family kind for the walk, then calls the hooks with AH = 1. A RESET hook reads none of the ball's state | `test byte [bz_fhk], 1` |
+| CELL | the first instruction of `bz_wtail`, once the nine cells are in `bz_nbr` and before its slopes, surface, `bz_wolf` | `test byte [bz_fhk], 32 + 2` (CELL or ENTER) |
+| ENTER | the end of `bz_wtail`, after `bz_wolf`: when `bz_wcen`'s prop byte differs from what it held before the refill and the new owner is a family kind (16 - 255). Every refill counts, a fallback's included (the model's `_fill` calls) | the same test |
+| CONTACT | `bz_prule`, after its four wave-4 kinds: `cmp ah, BZ_FK0` / `jae` | none beyond the kind compare the dispatch makes |
+| STEP | `bz_step`'s `.count`, before the step counter: every step of every path, a respawn's and a hidden ball's included | `test byte [bz_fhk], 8` |
+| POSE | `bz_ltrue`'s `.post`, after the flag's, clock's and sign's compares | one kind compare, on a post lane only |
+
+**PINNED: `bz_fref`.** The byte after `bz_pokd`, and the step's head tests
+the two as ONE word (the poke's byte test became a word test: the same
+bytes, 4 clk on the 8088's bus). Set by a hook that changed what its CELL
+overlay writes; the next step begins with a full refill (`bz_win9f`) round
+the ball's cell, with no other effect (a poke also zeroes the drag's
+remainders; a refill request does not). Both bytes are cleared there.
+
 ##### 128.25.6.4 Kinds, cells and the course
 
 - **Kinds.** Prop kinds 16 - 255 are FAMILY kinds; a family owns a run of
@@ -272190,6 +272253,44 @@ lane whose true pose they moved, as physics' kick and flag do today.
   the family list with each `FAMV`, so a family whose rules changed changes
   the identity of every course that names it, and its demos are refused until
   re-authored (`bz_err` 3), exactly as a course edit's are.
+
+**PINNED (story 9.1): the record, the list and the tables.**
+
+- **A family element's record** (32 bytes, 128.12.3.1's): +0 the kind, +1
+  its flags (`PF_LANE` when its family gives the kind art), +2 / +3 its cell,
+  +4 - +7 zero, +8 - +15 the lane as every lane's; **+16 `FSB`**, the first of
+  its state bits in `bz_fst`; **+17 its RESET CLASS** (0 `ATTEMPT`, 1
+  `RESPAWN`, 2 `FLAG`); +18 - +31 the family's own fields (zero unless its
+  `FAMILIES` row names them).
+- **The family list is NOT in BZG1**, as first written: BZG1's 32-byte header
+  is full (+28 - +31 are the flags, the pad mask and the view), and growing it
+  moves every course's cells and so its identity, which a course with no
+  family must keep. It follows the PATHWAY's tables' precedent (128.22.3):
+  **BZC2 +45 `NFAM`** (the count, 1 - 3; 0 none) and **+46 `FAMOFF`** (a word,
+  0 none), a table INSIDE the props, after the lanes' pose maps, the tube
+  segments and the lift's sprite, before the pathway's tables:
+
+  | at FAMOFF | what |
+  |---|---|
+  | +0 | `NFAM` pairs: the family's ID, its `FAMV` (the slot order) |
+  | +2 NFAM | `NFST`: the state bytes this course uses (0 - `BZ_FSTB`) |
+  | +2 NFAM + 1 | the RESPAWN MASK, `NFST` bytes: a bit set for every state bit of a `RESPAWN` element |
+
+  A course with no family has +45 - +47 zero and no table: every one of its
+  bytes, and so its identity and its demos, as before. The identity is over
+  the RAM form, which holds the list with each `FAMV`.
+- **`bzcourse.inc`** gives `BZ_FK0` (16), `BZ_FKMAX` (the largest family kind
+  of any compiled course less 15, at least 1), `BZ_FSTB` (the largest `NFST`,
+  at least 1), `BZ_NFAM`, `BZ_FAM_PARTS` and `BZF_SLOT` (8, the slot's bytes:
+  `bbcourse.FSLOT`, which every `FAMILIES` row's slot fits).
+- **The refusals** (`--selfcheck`'s string cases): `uses` naming an unknown
+  family, the same family twice, or a fourth; a family element of a family
+  the course does not name; a family named and no element of it placed; an
+  element with no reset class (a kind whose row has none takes `reset
+  attempt|respawn`, and only such a kind does); `reset flag` (written, not
+  built: 128.25.7.1); an element on a split cell (128.24.2), on a cell that is
+  not a flat FLOOR with OBS free, or on another prop's cell; a course over 256
+  state bits.
 
 ##### 128.25.6.5 The per-course limits (Q-91, restated)
 
@@ -272254,6 +272355,16 @@ behind the player would re-open a route the course wants closed, and is
 proved the same way. Wave 9 ships `ATTEMPT` and `RESPAWN`; `FLAG` is written
 here so the state's layout does not change when a course needs it.
 
+**PINNED (story 9.2): `FLAG`'s layout, reserved.** A `FLAG` element will take
+one more byte, its EPOCH, in a table after the RESPAWN mask (`NFST` + 1 on,
+one a `FLAG` element in record order): `bz_nckpt`'s low byte + 1 when its
+state was first changed, 0 while it is untouched; and the engine will keep
+the epoch each flag was first touched at (8 bytes, `BZ_CKPTMAX`). A respawn at
+flag F restores a `FLAG` element whose epoch is at or after F's: it was
+changed after the flag was reached. Nothing of it is assembled or emitted in
+wave 9: the tool refuses `reset flag` (128.25.6.4), so `bz_fst`, the slots
+and the course's table keep the layout above when a course first needs it.
+
 ##### 128.25.7.2 The state and the grid
 
 - **The state** is a bit array, `bz_fst`, `BZ_FSTMAX` bits (the tool's, the
@@ -272271,6 +272382,34 @@ here so the state's layout does not change when a course needs it.
 - The model holds the same bits and applies the same overlay in `_fill`'s
   place; `bonanzaphys` compares `bz_fst` and the slots at every frame.
 
+**PINNED (story 9.2).**
+
+- `bz_fst` (`BZ_FSTB` bytes) and `bz_fsl` (`3 x BZF_SLOT` bytes) are the last
+  of the state `bz_pinit` zeroes (`bz_phs` - `bz_phe`), so a play's start,
+  a replay's and a retry's clear them with everything else and no code; bit
+  `b` of an element is `bz_fst[b >> 3]` bit `b AND 7`, its first one its
+  record's `FSB`. The tool lays each family element's bits in record order.
+- **A respawn's clear** (`bz_frst`) is `bz_fst[i] AND NOT mask[i]` for the
+  course's `NFST` bytes: the RESPAWN class is a MASK the tool computed, so the
+  engine walks no record and knows no family. `ATTEMPT` bits are in no mask.
+- **The overlay's rule.** A CELL hook writes, into each `bz_nbr` cell that
+  holds one of its elements, the form that element's state gives it (the
+  window's centre is `bz_nwin`; cell (dx, dy) is at `bz_nbr + 4 (3 (dy + 1) +
+  dx + 1)`). It never needs to restore a cell: a state only goes back at a
+  RESET, and every RESET is followed by a FULL refill (`bz_place`'s), so a
+  cell that `bz_win9i` keeps from the last window is either unchanged or
+  already in its overlaid form. A hook that changes what the overlay writes
+  sets `bz_fref` (128.25.6.3), so the window is never read with a stale form
+  past the step that changed it.
+- **The model's window.** `Physics` reads cells through `cell()`, not a
+  copy, so a course with families gets an instance-level WRAPPER (none of
+  the step's text changes, and a course without families runs exactly the
+  code it ran): `_fill` takes the window's nine cells as the grid has them,
+  lets each family's `cell` rewrite them (the CELL hook), then runs the
+  original `_fill` and then ENTER; `cell()` answers a cell of that snapshot
+  as the snapshot holds it and any other from the grid. The guest reads no
+  cell outside its window, so the two agree everywhere physics looks.
+
 ##### 128.25.7.3 The proofs
 
 - **The reach** covers every state an element can be in: a breakable floor
@@ -272283,6 +272422,20 @@ here so the state's layout does not change when a course needs it.
   naming it.
 - **Every finish reachable with NO pickup** (Q-92): a pickup only shortens a
   route.
+
+**PINNED (story 9.2): how each proof is built.** Every family kind declares
+in its `FAMILIES` row the CELL FORMS its element can take (`forms`: the
+cell's own, and e.g. a broken crack's VOID with its kill height). The tool's
+reach, occluder cut and NO TRAP run over the SUPERSET: a cell with more than
+one form is reached as each. NO TRAP per flag replays each flag (and the
+start) with every `RESPAWN` element in its initial form and every `ATTEMPT`
+element in each of its forms, and refuses a course where an element of
+class `ATTEMPT` lies on every route from a flag to a finish in some form that
+blocks it (naming the element and the flag). A PICKUP kind is marked
+`pickup` in its row: the reach and NO TRAP never take a pickup's effect, so
+"every finish with no pickup" is what they prove already, and `--selfcheck`
+says so per course. A family whose forms are all its cell's own (the PROBE,
+128.25.15) changes no reach.
 
 #### 128.25.8 GLASS, the first family (story 9.5)
 
@@ -272454,3 +272607,26 @@ that first new course replaces them.
 | Q3 | **Steel, rubber and glass on a cracked tile** | steel at once | **ball-sorting**: steel breaks it soon (keep near top speed), rubber later, glass never by rolling; any landing breaks it for steel and rubber; glass takes one impact (128.25.8) |
 | Q4 | **The defaults** | as written | **fine to start, tuned in play**; a pickup's duration is a field of each placement (128.25.9) |
 | Q5 | **The glass path's hint** | the dithered outline | **the first tile's jagged edge, the rest invisible until rolled onto**; showing a tile just before it is reached is an option to try for slow exploration (128.25.8) |
+
+#### 128.25.15 The PROBE family (stories 9.1 and 9.2's proof)
+
+The family the framework is proved with, before GLASS: ID 1, `apps/bonanza/
+fam/probe.asm`, one kind, **`probe` (16)**, placed on PLAYGROUND. It changes
+NO physics: every hook is the smallest thing that makes its call visible, so
+the guest is held equal to the model through every hook, and a course that
+names it replays exactly as without it.
+
+| hook | what the probe does |
+|---|---|
+| RESET | counts it in its slot (+0) |
+| ENTER | counts it (+1), keeps AH (+6), and sets the element's one state bit, TOUCHED; when the bit was clear, marks the element's lane and sets `bz_fref` |
+| CONTACT | counts it (+2, a word) |
+| STEP | counts it (+4, a word) |
+| POSE | answers TOUCHED: the lane is the FLAG's art, furled (0) and flying (1) |
+| CELL | for each TOUCHED probe in the window, sets bit 7 of the cell's +3 in `bz_nbr`: a bit physics reads on a GOAL cell only, so it proves the overlay is written into the window after each refill and is never in the grid |
+
+Its element's class is stated on the line (`prop probe <wx> <wy> reset
+respawn|attempt`), so its row is the one with no class of its own and the
+refusal of an element without one has a case. PLAYGROUND's probe takes
+`respawn`: a fall clears it, which `bz_frst` and the lane's mark prove.
+
