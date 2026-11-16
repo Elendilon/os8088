@@ -271432,10 +271432,15 @@ A halved cell is a quartered one whose quarters pair up (a TB split is S =
 W and N = E, an LR split N = W and E = S), and the tool stores the
 SIMPLEST form (128.24.4's normalisation). Where a vertical and a horizontal
 edge of a shape meet inside one cell - a screen rectangle's corner whose `a`
-and `s` differ in parity - the cell holds the one quarter inside the shape:
-a `box` corner there is a 45-degree CHAMFER, the "rounded" platform of the
-owner's panel 3. A box whose four numbers are all even or all odd has no
-quartered cell.
+and `s` differ in parity - the cell holds the one quarter inside the shape.
+That corner is the cell's CENTRE `c`, and the quarter is exactly the box's
+corner region, so **the box keeps its square corner**: it is not cut. (D2's
+verify, a finding: this paragraph first called it "a 45-degree CHAMFER, the
+'rounded' platform of the owner's panel 3", and it is not one - panel 3's
+look is the quarter DROPPED or a half laid, whose outer sides are cell edges.
+A rounded or cut corner is authored piece by piece, with `quarter`, `half`
+and `hole quarter`; an owner's look, 128.24.12 Q3.) A box whose four numbers
+are all even or all odd has no quartered cell.
 
 #### 128.24.4 The text course
 
@@ -271489,13 +271494,15 @@ Three additions to 128.10.3's grammar:
     floor box -1 1 15 31 flat 0          # the lane: 32 px wide, straight sides
     floor box -1 1 15 21 flat 1          # its far end one unit up: the step is the LR split of row 20
     wall  box -2 -1 15 31 flat 3         # the left rail, 16 px - an odd width, so ...
-    wall  box  1  2 15 31 flat 3         # ... each rail's two end cells are quartered: REFUSED
+    wall  box  1  2 15 31 flat 3         # ... two of each rail's end cells are quartered (R4)
     goal  tile 12 12 flat 0              # one whole goal tile spans the 32 px lane (128.24.8)
 
-The 16 px rails as written quarter their end cells: each rail ends in a
-45-degree chamfer (the one quarter inside the box) - R4's rounded end. 32 px
-rails (`wall box -3 -1 ...`, `a` and `s` all odd) end square. (Before R4 the
-quarter was refused and this paragraph said so.)
+The 16 px rails as written quarter two of their end cells: the one quarter
+inside the box, which ends the rail SQUARE all the same (128.24.3: the
+corner is the quartered cell's centre). 32 px rails (`wall box -3 -1 ...`,
+`a` and `s` all odd) need no quarter. (Before R4 the quarter was refused and
+this paragraph said so; after R4 it called the end a chamfer, which it is
+not - D2's verify.)
 
 #### 128.24.5 The grid
 
@@ -271597,7 +271604,10 @@ refused, as today. BUILT (D1): `tools/bbcourse.py` `read_part`.
   picture blocks a new ink pattern adds, a few per ink, in that course's
   part.
 - **A quartered cell** (R4) draws the same way, piece by piece: each quarter
-  its triangle (the centre's height `4 z0 + 2 (sx + sy)` px); S hangs `sw`,
+  its triangle (an S or E quarter's top draws no outline along its inner
+  line when the quarter behind that line, W or N, is the SAME record: no
+  edge is there - D2's verify; a box's odd corner on a flat field had shown
+  a 16 px black stub) (the centre's height `4 z0 + 2 (sx + sy)` px); S hangs `sw`,
   E hangs `se`; the two lines that face the viewer hang FRONT faces - W's
   `L - c` down to S, N's `c - R` down to E; the two edge-on halves of the TB
   line, `T - c` (W against N) and `c - B` (S against E), each draw the edge
@@ -271717,6 +271727,14 @@ is met RADIALLY - the corner table at `(|pu - 2,048| >> 8, |pv - 2,048| >>
 on. (When a partner blocks, `c` is a point on a straight face - the
 partner's line and the opposite's continue each other - which the line
 meets exactly; the table's whole gu would meet it up to 1.4 gu early.)
+**A push off the first line that carries the centre OUT of the cell** (the
+quarter's own edge is a cell edge: near T or B off the TB line, say) **ends
+the cell's lines for the step**: the second line and the centre are not
+tested, and the window is refilled round the new cell before the edges, as
+below (D2's verify, a finding: testing on, the model read the NEW cell's `pu`, `pv` as
+C's and pushed the ball up to 8.6 gu, reachable by rolling down a WALL
+quarter's line from the cell above; `--selfcheck`'s NOTCH item, with its
+red arm). The guest tests `gx >> 12`, `gy >> 12` after each inner push.
 
 **Nothing tunnels.** The fastest move is `|gvx - gvy| <= 768`, 2.1 gu along
 the normal a step, against 6: the circle meets a diagonal at least twice
@@ -271780,7 +271798,14 @@ is for a wall's END, never its face.
 
 So a straight diagonal wall is a plane wherever the ball meets it - inside a
 split cell (128.24.7.2) and in the whole cells beside it at its corners (this
-table) - and the tip at a wall's END is a point, met radially. Pushing off
+table) - with one bounded exception (D2's verify, a finding, not changed): a
+ray is tested only from its own QUADRANT, and a line through R (or L, T, B)
+passes within `8 / sqrt 2` = 5.66 gu of the middle of C's edges beside it,
+so a centre at the quadrant's boundary, still in C, can overlap a rail in
+the next cell by up to 0.34 gu (`w` 2,048 against `DIAG`) for the steps it
+stays there; it is pushed out to `DIAG` the step it crosses the quadrant
+boundary or enters the split cell. Nothing tunnels: from `w` 2,048 a step
+reaches at least 1,280 - and the tip at a wall's END is a point, met radially. Pushing off
 the whole line instead would hit an invisible extension of the wall past its
 end; the ray choice is what prevents it. (A simpler corner rule - every
 diagonal endpoint a radial corner - was considered and rejected: a ball
@@ -271835,7 +271860,7 @@ cell.
 
   Against a step's 5.0 - 6.6k priced (128.11.15), a straight-up lane costs
   under 10% a step and a rail contact about 15%; the worst quartered step
-  (a ball wedged at a chamfered corner, both lines and the centre at once)
+  (a ball wedged in a quartered cell's corner, both lines and the centre at once)
   about 40%, and it lasts a step or two: no new frame-rate argument. The
   step's caps (128.10.7.2), which the camera and the boxes rely on, hold
   without a clamp (128.24.7.2). **R4's question, "unless it is going to
@@ -271925,9 +271950,9 @@ crosses its middle; no GOAL half is needed for it.
   bytes (128.14.6), which the tool refuses as today.
 - **MEASURED (D1 - D2, `bbcourse.py --sizes split:`)**: THE SPLIT COURSE
   (48 halved cells, 3 quartered, a 32 px lane between straight rails, a
-  field with a straight course edge, a chamfered platform with a wall
-  quarter) is 9,832 bytes of RAM with D 432, and packs to 2,073 bytes LZ4
-  (1,653 LZB); the same boxes with every piece rounded out to a whole cell
+  field with a straight course edge, a raised platform with quartered
+  corners and a wall quarter) is 9,832 bytes of RAM with D 432, and packs to 2,073 bytes LZ4
+  (1,652 LZB since D2's verify dropped the outline between equal quarters); the same boxes with every piece rounded out to a whole cell
   (zigzag bands, no quarter clause) are 9,586 RAM and 1,943 LZ4: **+246 RAM
   (2.6%) and +130 packed (6.7%)**, of which D is 432 and the picture's new
   diagonal blocks (89 against 78) most of the packed rest; fewer occluder
@@ -271988,7 +272013,7 @@ and Q6 were answered on the pictures the owner asked for (`diag-q3`,
 |---|---|---|---|
 | Q1 | **The format.** (a) half RECORDS in section `D`, a split cell pointing at its pair (this section); (b) every cell 8 bytes, two halves always (simplest addressing, but every grid and every window refill doubles and every course moves); (c) a split packed into today's 4 bytes (no section, but the second half only VOID, a WALL, or a flat floor up to 7 units lower, and more decoding on the hot path) | **(a)**: every half is a cell to the code that reads it, nothing is restricted, and a course pays only for its split cells | **(a)** (the lead, on the owner's goals: no speed lost, the game, the courses and the storage as small as possible, and EXTENDABLE for another core tile type; compatibility no concern): a course with no split cell pays nothing, a split cell 8 bytes, and kinds 6 - 15 stay reserved for the next core tile type (R4: kind 6 became the QUARTERED cell, kind 7 is reserved for the CHANNEL, 128.24.13) |
 | Q2 | **The new art**: the front face's ink and the 1 px line down a screen-vertical diagonal | try both in the mock-ups' form, decide on the glass | **The ink follows the half's PATTERN**, as the tile's own side faces do (128.24.6.1). A per-tile override would cost no grid bit and no guest byte, only the picture blocks it adds |
-| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch), or round it out to a half (a bump) | **refuse**, naming the cell and the corner to move; finish an odd-width end with `half` | **QUARTERS** (R4, on `diag-q3`: "Visually, 3 is obviously right; that gives us the most tools, and lets us build 'rounded' looking platforms. Unless its going to completely sink sizes, lets do it"): the QUARTERED cell (kind 6) of 128.24.3, a box's corner a chamfer; BUILT in D1 - D2, priced in 128.24.7.6 and 128.24.10 (it does not sink sizes) |
+| Q3 | **A `box` that quarters a cell**: refuse it (the course says exactly what is drawn), drop the quarter (a notch), or round it out to a half (a bump) | **refuse**, naming the cell and the corner to move; finish an odd-width end with `half` | **QUARTERS** (R4, on `diag-q3`: "Visually, 3 is obviously right; that gives us the most tools, and lets us build 'rounded' looking platforms. Unless its going to completely sink sizes, lets do it"): the QUARTERED cell (kind 6) of 128.24.3, a box's odd corner the one quarter inside it (D2's verify: that corner stays SQUARE - panel 3's cut look is the quarter dropped or a half laid, authored by hand; the owner to look); BUILT in D1 - D2, priced in 128.24.7.6 and 128.24.10 (it does not sink sizes) |
 | Q4 | **The pathway's bands**: a 32 px straight band up and down, a 16-line one across, in place of the 64 px zigzag | **yes** | **yes** |
 | Q5 | **Diagonal STEPS** (two floor heights across one diagonal), which (a) gives for free | **yes** | **yes** |
 | Q6 | The occluder cost of 128.24.6.3: a ball beside a raised down half at the same depth is laid under it | **accept** it | **ACCEPTED** (R4, on `diag-q6`: "This should be a somewhat rare case"; MEASURED by the prototype over every whole-gu position of the two cells beside a 1-unit down half, the ball grounded: keyed `s + 1`, 18 of 512 positions (3%) show a wrong pixel, at most 23 px; for scale, a WHOLE raised tile under today's rule, 44 (8%), at most 55 px, the error the other way) |
