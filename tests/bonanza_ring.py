@@ -1641,8 +1641,19 @@ LOW_HOLD = {"cga": 16, "herc": 24}  # x 256 PIT counts: the held dark frame past
 # came; grounded, the camera's line is the ball's own as in wave 2)
 
 
-def low_plan(g, crs):
-    """-> (the post's lane, R0, c0, the ball's contact point) for THE LOW SCENARIO, or None"""
+# a CROSSING post's window line may stand off LOW_F by up to LOW_NEAR px (nearest first) where none fits at
+# LOW_F itself: the Hercules' post 4 has no level floor in the rest band (window lines 70 - 112) with the post
+# at line 160 - so since the rest_in_window hold (wave 6's final pass) the LOW scenario had fallen to post 6,
+# which crosses nothing, and the `wrapcommit` the plan below orders first came only from the MILL benchmark's
+# one commit of post 4 a run or none - none since 7a644820e's pacing (SPEC.md 128.13.5.1).  Post 4 rests at
+# line 144.  bonanzawheel's LOW leg keeps LOW_F alone (near 0)
+LOW_NEAR = {"cga": 0, "herc": 24}
+
+
+def low_plan(g, crs, near=0):
+    """-> (the post's lane, R0, c0, the ball's contact point, the resting
+    point) for THE LOW SCENARIO, or None; low_plan.line the post's window
+    line (LOW_F, or for a post crossing the ring's end within NEAR px of it)"""
     tag = g.tag
     lsh, rl = (1 if tag == "cga" else 2), RL[tag]
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
@@ -1656,11 +1667,16 @@ def low_plan(g, crs):
     def crosses(i):
         q = lane_cells(rects[i], lsh)
         return BB.ring_cross(q[0], q[1], q[2], q[3], herc)
+    cands = []
     for i in sorted(rects, key=lambda j: (not crosses(j), j)):
         if crs.part["props"][i]["kind"] != BB.PK_BUMPER:
             continue
+        lines = sorted(range(LOW_F - near, LOW_F + near + 1, rl), key=lambda f: (abs(f - LOW_F), f)) \
+            if crosses(i) else [LOW_F]
+        cands += [(i, f) for f in lines]
+    for i, line in cands:
         col, brow, w = rects[i][:3]
-        top = 8 * brow - LOW_F
+        top = 8 * brow - line
         top -= top % rl
         R0 = top >> lsh
         if not 0 <= R0 <= rmax:
@@ -1678,8 +1694,12 @@ def low_plan(g, crs):
             # hold 186 px over its floor panned GLIDE 44 rows; grounded, it moves no camera)
             rest = pt and rest_in_window(crs, grid, top, left, Wc, range(70, 112), flags=BB.FL_OCC | BB.FL_OCCG)
             if pt and rest:
+                low_plan.line = line
                 return i, R0, c0, pt, rest
     return None
+
+
+low_plan.line = LOW_F
 
 
 def low_poke(g, plan, k):
@@ -2201,7 +2221,7 @@ def mill_play(g, ref):
             elif frames >= RIDE_FRAMES + OVER_FRAMES:
                 if phase != "low":
                     phase = "low"
-                    plan = low_plan(g, crs)
+                    plan = low_plan(g, crs, LOW_NEAR[tag])
                     if plan is None:
                         fails.append("MILL play: no post the LOW scenario can put low in a centred window")
                         break
@@ -2333,13 +2353,13 @@ def mill_play(g, ref):
     print("%s MILL play: the ball poked onto the slab and ridden %d frames, then under it %d: frames checked with "
           "the slab's layer in the riding ball's box %d, THE RIDE BOX %d, the slab OVER the ball %d; then THE LOW "
           "SCENARIO (post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, "
-          "a LEAD %d; THE DEFER SCENE (post %s): %d frames waiting drawn lit with cells outside every box; THE PWAIT "
+          "a LEAD %d, a commit across the ring's end (wrapcommit) %d; THE DEFER SCENE (post %s): %d frames waiting drawn lit with cells outside every box; THE PWAIT "
           "SCENE (the lift from step %s): %d lift steps, %d waited frames, %d with an entering row meeting the slab "
           "(%d tries), %d checked; THE RING'S-END SCENE: %d frames with a 3- or 4-word box's whole row across "
           "2000h checked; THE ENTERING-COLUMN SCENE (lane %s): %d frames bringing it in by a column checked; the tallest box %d lines, the tallest platform box %d; card = oracle: %s" % (
               tag, RIDE_FRAMES, OVER_FRAMES, cnt["ride"], cnt.get("ridebox", 0), cnt["pover"],
-              plan[0] if plan else None, LOW_F, LOW_FRAMES, cnt["ahead"], cnt["behind"], cnt["lead"],
-              sc["df"][0] if sc["df"] else None, sc["dframes"], sc["pwn0"], nlift, sc["waits"], sc["strip"],
+              plan[0] if plan else None, low_plan.line, LOW_FRAMES, cnt["ahead"], cnt["behind"], cnt["lead"],
+              cnt["wrapcommit"], sc["df"][0] if sc["df"] else None, sc["dframes"], sc["pwn0"], nlift, sc["waits"], sc["strip"],
               sc["tries"], cnt.get("pwait", 0), cnt.get("wrapbox", 0),
               sc["ec"][0] if sc.get("ec") else None, sc.get("ecn", 0), sc["tall"], sc["ptall"],
               "yes" if not fails else "NO"), flush=True)
