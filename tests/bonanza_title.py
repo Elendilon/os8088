@@ -65,11 +65,11 @@ def on_title(g):
 
 
 def label_lane(g):
-    """the title's label's lane index: its one CLOCK lane"""
+    """the title's label's lane index: its one SIGN lane (SPEC.md 128.22.4.1: a PK_SIGN since wave 8R)"""
     n = g.b("bz_nlane")
     knd = g.m.read(g.a("bz_lknd"), n)
-    ks = [i for i in range(n) if knd[i] == BB.PK_CLOCK]
-    assert len(ks) == 1, "the title has %d CLOCK lanes, not its one label" % len(ks)
+    ks = [i for i in range(n) if knd[i] == BB.PK_SIGN]
+    assert len(ks) == 1, "the title has %d SIGN lanes, not its one label" % len(ks)
     return ks[0]
 
 
