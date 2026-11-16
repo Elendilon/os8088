@@ -276535,7 +276535,9 @@ CS.
   the first 9.4 build measured the same way: 3,012,804 + 2,788,499 +
   2,791,667 = 8,592,970 cycles, 1.80 s. The whole launch, `bz_launch` to
   `fsx_run` (the fetches, the generation, the course's expansion): **5.32 s
-  -> 3.74 s**. The owner's target (about 0.75 s, about 1.8 M clocks for
+  -> 3.74 s**, against **3.34 s** before story 9.4 (19dd31780: BZB2 stored,
+  no generator) - the generator's NET launch cost on a three-ball course is
+  **+0.40 s** (it was +1.98 s). The owner's target (about 0.75 s, about 1.8 M clocks for
   three) is met.
 - **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 327, steel
   1,476 -> 177, glass 2,144 -> 1,268: **5,974 -> 1,772, -4,202 bytes** (the
