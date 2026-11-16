@@ -380,7 +380,7 @@ def title_rows(n):
     # wave 8a (SPEC.md 128.19.2): the SHELL part, the last row, is held on the desktop as the title is,
     # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
     # (wave 8b, 128.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
-    shell = n - 2 if "BZ_P_PATH" in open(os.path.join(R.ROOT, "apps", "bonanza", "bonanza.asm")).read() else n - 1
+    shell = n - 1 - R.after_shell()             # (SPEC.md 128.23: and the title's two rows after it)
     return {snd, snd + 1, shell} if snd >= 3 else set()
 
 

@@ -33,9 +33,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MUSDIR = os.path.join(ROOT, "apps", "bonanza", "music")
 BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. 0 is the title, 1 - 5 the courses'
-# (SPEC.md 128.20.6: course K plays song K, BENCH song 1).
+# (SPEC.md 128.20.6: course K plays song K, BENCH song 1); 6 the TITLE
+# SCREEN's one-shot (SPEC.md 128.23.1: the title course's `music attract`).
 SONGS = ["title.bmu", "fairway.bmu", "trial.bmu", "windmill.bmu",
-         "moonlit.bmu", "summit.bmu"]
+         "moonlit.bmu", "summit.bmu",
+         "victory.bmu",              # wave 8R (128.22.9): the finish's fanfare; APPEND, never insert
+         "attract.bmu"]              # SPEC.md 128.23.1: the title screen's
+
+# songs that are NOT a course's (the wrap in bbcourse.course_song skips them): the
+# finish's fanfare (128.22.9) and the title screen's attract demo (128.23)
+NON_COURSE = ("victory", "attract")
+
+# SPEC.md 128.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
+# demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play
+# exactly this many sub-ticks, and its loop row is silence
+ATTRACT = "attract"
+ATTRACT_STEPS = 832
 
 PIT_HZ = 1193182
 SUB = 21845
@@ -60,7 +73,8 @@ NOTE_PC = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
           "HOP", "FALL", "TUBE", "GOAL", "BOOST",      # BOOST: wave 6, rubber's (128.16.4.4)
           "FLAG", "PAD", "LIP", "SPRING", "RETURN",     # wave 7 (SPEC.md 128.18.6): wave 4's counters
-          "TICK", "LOW", "TIMEOUT"]                     # ...and the clock's seconds
+          "TICK", "LOW", "TIMEOUT",                     # ...and the clock's seconds
+          "ARRIVE", "GATE", "LIFE", "OVER"]             # wave 8R (128.22.9): the pathway's shell
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 
@@ -190,8 +204,19 @@ class Bank:
 
 
 def strip_comment(line):
+    """`;` starts a comment - EXCEPT as an effect's SEGMENT separator, which is
+       a `;` after content and followed by nothing (a continued line) or by
+       `t=`.  (Before wave 8R every `;` was a comment, so a multi-segment effect
+       kept ONE segment: the last of a continued line, the first of a one-line
+       one.)"""
     i = line.find(";")
-    return line if i < 0 else line[:i]
+    while i >= 0:
+        rest = line[i + 1:].strip()
+        if line[:i].strip() and (rest == "" or rest.startswith("t=")):
+            i = line.find(";", i + 1)
+            continue
+        return line[:i]
+    return line
 
 
 def logical_lines(path):
@@ -1317,6 +1342,16 @@ def wav_cmd(args):
     snd, parts, bank, songs = load_parts()
     os.makedirs(args.o, exist_ok=True)
     arms = [args.arm] if args.arm else ["spk", "fm"]
+    if args.event:
+        n0 = 20 + 90
+        for arm in arms:
+            for e in args.event:
+                ei = EVENTS.index(e)
+                y = render(snd, parts[-1], arm, n0, {5: [(0, ei, 0)]}, music=False)
+                path = os.path.join(args.o, "event-%s-%s.wav" % (e.lower(), arm))
+                write_wav(path, y)
+                print("%s: %.1f s" % (path, len(y) / RATE))
+        return
     if args.sfx:
         evs, n = fx_demo_events(bank)
         for arm in arms:
@@ -1361,6 +1396,9 @@ def emit(outdir):
     ]
     for i, e in enumerate(EVENTS):
         lines.append("BZS_E_%-9s equ %d" % (e, i))
+    for si, sg in enumerate(songs):     # a song's index, by its id (wave 8R: the finish's tune)
+        if sg.id == "victory":
+            lines.append("BZ_SONG_VICTORY  equ %d        ; the finish's fanfare (128.22.9)" % si)
     lines += [
         "BZS_NINST       equ %d" % len(bank.insts),
         "BZS_NFX         equ %d" % len(bank.sfx),
@@ -1438,6 +1476,94 @@ def boost_problems(bank):
     return out
 
 
+FIN_STEPS = 110                         # BZ_FIN_STEPS: the finish sequence's 2 s at 54.6 Hz
+# the shell events' length bounds in sub-ticks (SPEC.md 128.22.9)
+SHELL_FX = {"ARRIVE": (1, 16), "GATE": (24, 30), "LIFE": (12, 32), "OVER": (75, 90)}
+
+
+def fx_ticks(bank, name):
+    return sum(seg[0] for seg in bank.sfx[name].segs)
+
+
+def seg_problems(bank, path=BANK):
+    """8R.6's guard on strip_comment: every effect keeps EVERY segment its
+       source writes.  Read off the raw text, NOT through strip_comment: an
+       effect's lines (its `sfx` line and the indented ones under it, comment
+       lines left out) carry one `n=` a segment (the parser requires it), so a
+       separator read as a comment - every multi-segment effect cut to one, as
+       it was before wave 8R - is a count that differs."""
+    out, cur = [], None
+    want = {}
+    for raw in open(path, encoding="utf-8"):
+        st = raw.strip()
+        if not st or st.startswith(";"):
+            if not st:
+                cur = None
+            continue
+        t = st.split()
+        if raw[0] not in " \t":
+            cur = t[1] if t[0] == "sfx" else None
+        if cur is not None:
+            want[cur] = want.get(cur, 0) + len(re.findall(r"(?:^|[\s:;])n=", st))
+    for nm, n in want.items():
+        got = len(bank.sfx[nm].segs) if nm in bank.sfx else 0
+        if got != n:
+            out.append("effect %s keeps %d segment(s), its source writes %d" % (nm, got, n))
+    return out
+
+
+def shell_problems(snd, parts, bank, songs):
+    """the four events present for every ball, inside their lengths and each its
+       own effect; the VICTORY song at most FIN_STEPS of sound that ends and
+       does not loop, audible on the speaker as a melody"""
+    out = []
+    effs = []
+    for e, (lo, hi) in SHELL_FX.items():
+        for m in MATS:
+            n = bank.emap.get((m, e))
+            if n is None:
+                out.append("%s has no %s effect" % (m, e))
+                continue
+            t = fx_ticks(bank, n)
+            if not lo <= t <= hi:
+                out.append("%s is %d sub-ticks, %d..%d wanted" % (n, t, lo, hi))
+        effs.append(bank.emap.get(("rubber", e)))
+    if len(set(effs)) != len(effs) or "pad" in effs:
+        out.append("the shell events share an effect, or take the wave-7 PAD's")
+    ids = [s.id for s in songs]
+    if "victory" not in ids:
+        return out + ["no victory song"]
+    vi = ids.index("victory")
+    s, sp = songs[vi], parts[vi]
+    if any(nm != "-" for nm in s.order[-1]) or s.loop != len(s.order) - 1:
+        out.append("victory's last order row is not silent and the loop point")
+    want, n = source_notes(s, bank)
+    end = max(t + g for t, _, _, g, _, _ in want)
+    if end > FIN_STEPS:
+        out.append("victory sounds until sub-tick %d, past the finish's %d" % (end, FIN_STEPS))
+    if end < FIN_STEPS - 20:
+        out.append("victory ends at %d, long before the finish's %d" % (end, FIN_STEPS))
+    q = Seq(snd, sp)
+    q.keylog = []
+    for t in range(3 * FIN_STEPS):
+        q.t = t
+        q.step()
+    if max(k[0] for k in q.keylog) >= FIN_STEPS:
+        out.append("victory keys a note at or past sub-tick %d: it loops" % FIN_STEPS)
+    tones = run(snd, sp, "spk", 3 * FIN_STEPS)
+    hz = [a[0] for a in tones if a and a[0]]
+    if len(set(hz)) < 6:
+        out.append("victory is not a melody on the speaker: %d pitches" % len(set(hz)))
+    lead = [pitch_hz(nn << 8) for t, vv, nn, g, ii, vol in want if vv == 0]
+    got = [h for h in hz]
+    it = iter(got)
+    if not all(any(abs(h - l) <= 1 for h in it) for l in lead):
+        out.append("the speaker does not play victory's lead, in order")
+    if any(a and a[0] for a in tones[FIN_STEPS + 6:]):
+        out.append("victory still sounds on the speaker after the finish")
+    return out
+
+
 def selfcheck():
     problems = 0
     snd, parts, bank, songs = load_parts()
@@ -1497,6 +1623,17 @@ def selfcheck():
             else:
                 if any((r & 0xF0) == 0xB0 and (r & 0x0F) > 7 for regs in acts for r, v in regs):
                     bad("%s: a write to voice 8 (the tone tier's)" % s.id)
+    # 3b. the title screen's song (SPEC.md 128.23.1): one pass to its loop row of exactly ATTRACT_STEPS
+    # sub-ticks, and the loop row SILENT - a one-shot that ends with the demo
+    for s in songs:
+        if s.id != ATTRACT:
+            continue
+        per = sum(s.groove[r % len(s.groove)] for r in range(s.rows))
+        if per * s.loop != ATTRACT_STEPS:
+            bad("%s: its order before the loop row plays %d x %d = %d sub-ticks, not the title demo's %d"
+                % (s.id, s.loop, per, per * s.loop, ATTRACT_STEPS))
+        if s.loop >= len(s.order) or any(ph is not None and ph != "-" for ph in s.order[s.loop]):
+            bad("%s: its loop row (%d) is not silence: the song would play on past the demo" % (s.id, s.loop))
     # 4. every material has every impact, and the effects are well formed
     for m in MATS:
         for e in EVENTS[:5]:
@@ -1518,6 +1655,11 @@ def selfcheck():
         acts = run(snd, parts[-1], arm, nt, evs, music=False)
         if arm == "spk" and not any(a and a[0] for a in acts):
             bad("the effects never sound on the speaker")
+    # 4b. wave 8R (SPEC.md 128.22.9): the shell's four events and the VICTORY tune
+    for msg in shell_problems(snd, parts, bank, songs):
+        bad(msg)
+    for msg in seg_problems(bank):
+        bad(msg)
     # 5. the packing is deterministic
     if build_snd(bank) != snd or [build_song(s, bank) for s in songs] != parts:
         bad("packing twice gave different bytes")
@@ -1534,6 +1676,8 @@ def main():
     ap.add_argument("--arm", choices=["spk", "fm"])
     ap.add_argument("--song", type=int)
     ap.add_argument("--sfx", action="store_true")
+    ap.add_argument("--event", action="append", choices=EVENTS,
+                    help="render this event alone (wav), repeatable")
     ap.add_argument("--secs", type=float, default=0)
     ap.add_argument("--only", help="check, size or render this one .bmu alone")
     args = ap.parse_args()

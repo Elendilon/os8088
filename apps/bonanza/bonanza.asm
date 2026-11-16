@@ -179,15 +179,26 @@ BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
 BZD_NENT    equ 8               ; none), +4 that best's falls
 BZD_TOUR    equ 56              ; the tour: +0 the XOR of its courses' identities,
                                 ; +2 its best total in steps, DWORD, +6 zero
-BZD_SLOT    equ 64              ; save v2 (wave 8b, SPEC.md 128.19.6): `BZS2`, then
-BZD_SLOTB   equ 48              ; three game SLOTS after the bests: +0 lives, +2 the
-BZD_NSLOT   equ 3               ; open nodes, +4 the done ones, +6 the pathway's
-BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; identity, +8 the exits found
-BZD_SEXIT   equ 8               ; (a word a course), +24 - +39 the best a course
-BZD_SBEST   equ 24              ; (wave 8c, 128.19.8.3, steps), +40 - +47 zero;
-BZD_SZERO   equ 40              ; +1 bit 0 the MODE
+BZD_SLOT    equ 64              ; save v3 (wave 8R, SPEC.md 128.22.5): `BZS3`, then
+BZD_SLOTB   equ 80              ; three game SLOTS after the bests: +0 lives, +1
+BZD_NSLOT   equ 3               ; the MODE (bit 0), +2 the PAD, +3 zero, +4 the
+BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; OPEN pads and +8 the DONE ones
+BZD_FILE2   equ 64 + 3 * 48     ; (a dword each, a bit a pad), +12 the routes
+BZD_SPAD    equ 2               ; OPENED and +16 TAKEN (a dword each), +20 the
+BZD_SOPEN   equ 4               ; pathway's identity, +22 the exits found (a
+BZD_SDONE   equ 8               ; word a course, 16 courses), +54 the best a
+BZD_SROPN   equ 12              ; course (steps; 8 courses' words today), +70
+BZD_SRTAK   equ 16              ; - +79 zero.  BZS2's file (BZD_FILE2) is read
+BZD_SID     equ 20              ; too, its slots emptied (bz_dload).
+BZD_SEXIT   equ 22
+BZD_SBEST   equ 54
+BZD_SZERO   equ 70
 %if BZD_FILE > 512 || BZ_NCRS > 8
- %error "save v2 is one sector, its exits a word a course for 8 courses (SPEC.md 128.19.6)"
+ %error "save v3 is one sector, its bests 8 courses' words (SPEC.md 128.22.5)"
+%endif
+BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (128.22.3)
+%if BZD_NPAD > 32
+ %error "save v3 keeps a bit a pad in a dword (SPEC.md 128.22.5)"
 %endif
 %if BZD_ENT + BZD_NENT * BZD_ENTB != BZD_TOUR || BZD_TOUR + 8 != BZD_SIZE || BZ_NCRS > BZD_NENT
  %error "BONANZA.DAT's layout (SPEC.md 128.14.3.3) holds 8 courses"
@@ -669,14 +680,36 @@ bz_cload:
 .rowt:
 %endif
     mov [bz_pc], al
+%if BZ_PATH_N
+    mov byte [bz_phre], 0       ; the pathway HELD (128.22.7): its part is here,
+    cmp al, BZ_P_PATH           ; expanded and translated already - no fetch,
+    jne .nh                     ; no expand, no translation of the part
+    mov al, [bz_phold]
+    mov [bz_phre], al
+    mov al, BZ_P_PATH
+.nh:
+%endif
     call op_fetch               ; claim, read, expand - or a toast said why
-    jc .out
+    jc .out                     ; (a held row: nothing to do, CF = 0)
     mov al, [bz_pc]             ; (each fetch's segment stored before the next
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
+%if BZ_PATH_N
+    cmp byte [bz_phre], 0
+    jne .exd
+    cmp byte [bz_pc], BZ_P_PATH ; a pathway fetched now is HELD while it is
+    jne .ex                     ; here (bz_phrel, bz_phfree let it go) - unless
+    cmp byte [bz_phforce], 0    ; the harness forces the drop-and-refetch way
+    jne .ex
+    mov byte [bz_phold], 1
+.ex:
+%endif
     call bz_cexp                ; the STORED form expanded in place, ONCE: this
                                 ; fetch decoded, every exit below dropping the
                                 ; part (SPEC.md 128.15.4.5)
+%if BZ_PATH_N
+.exd:
+%endif
     push es                     ; THE BALLS (wave 4, SPEC.md 128.14.4.4): the
     mov es, [bz_cseg]           ; starting one and every one the course's
     mov di, [es:BZC_GRID]       ; PAD MASK names (BZG1 +29), up to three, each
@@ -750,6 +783,11 @@ bz_cload:
     ret
 
 %if BZ_PATH_N
+; the pathway's part, HELD (128.22.7): bz_phrel's test is the heap's largest
+; claim against the largest course's, bzcourse.inc's BZ_CRS_MAXCLAIM (the
+; tool's, 128.22.3): a pad's course's part, balls, song and sound part, each
+; its RAM form plus op_lazyp's cluster slack (a compressed row claims R and
+; the read of its packed bytes in whole clusters)
 ; -----------------------------------------------------------------------------
 ; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face.  Its
 ; refusals are bz_launch's (kern_small, the adapter); a game with no lives left
@@ -793,6 +831,7 @@ bz_game8:
 .ran:
     mov byte [bz_pgo], 0
 .drop:
+    call bz_phfree              ; (the held pathway goes with the game, 128.22.7)
     call bz_cdrop
     call bzs_gdrop              ; (the title back)
     call bz_back
@@ -808,23 +847,19 @@ bz_game8:
 .ret:
     ret
 
-; bz_gslot - THE SLOT's game (save v2, 128.19.6) into memory: its game when it
-; has lives, else a NEW one in it; its MODE and the goal gate.  Preserves all
-; but AX and SI.
+; bz_gslot - THE SLOT's game (save v3, 128.22.5) into memory: its game when
+; it has lives, else a NEW one in it; the pad, the pads open and done, the
+; routes; its MODE and the goal gate.  Preserves all but AX and SI.
 bz_gslot:
-    call bz_dslot               ; THE SLOT (save v2, 128.19.6): its game when
+    call bz_dslot               ; THE SLOT (save v3, 128.22.5): its game when
     mov al, [si]                ; it has lives ...
     or al, al
     jnz .on
     mov al, BZ_LIVES            ; ...else a NEW one in it
-    mov word [si + 2], 1
-    mov word [si + 4], 0
+    call bz_gnew
 .on:
     mov [bz_lives], al
-    mov ax, [si + 2]
-    mov [bz_nopen], ax
-    mov ax, [si + 4]
-    mov [bz_ndone], ax
+    call bz_gload               ; the pad, the pads open and done, the routes
     mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE opens
     and al, 1                   ; every node to the goal's gate
     mov [bz_xmode], al
@@ -835,20 +870,113 @@ bz_gslot:
     mov [bz_gmask], ax
     ret
 
-; bz_gstore - the game's state into the slot played (128.19.6): AL lives
-; (bz_gstorl: AL given), the open and done nodes, the pathway's identity.
+; bz_gstore - the game's state into the slot played (128.22.5): AL lives
+; (bz_gstorl: AL given), the pad, the open and done pads and the routes
+; (bz_nopen ... bz_nrtk, 16 bytes, the slot's order), the pathway's identity.
 ; Preserves all but AX and SI.
 bz_gstore:
     mov al, [bz_lives]
 bz_gstorl:
     call bz_dslot
     mov [si], al
-    mov ax, [bz_nopen]
-    mov [si + 2], ax
-    mov ax, [bz_ndone]
-    mov [si + 4], ax
+    mov al, [bz_ppad]
+    mov [si + BZD_SPAD], al
     mov ax, [bz_cids + 2 * BZ_CRS_PATH]
-    mov [si + 6], ax
+    mov [si + BZD_SID], ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    lea di, [si + BZD_SOPEN]
+    mov si, bz_nopen
+    mov cx, 8
+    rep movsw
+    pop es
+    pop di
+    pop cx
+    ret
+
+; bz_gload - the slot's pad and its 16 bytes of pads and routes into
+; bz_ppad, bz_nopen ... bz_nrtk.  SI = the slot on the way in (bz_dslot) and
+; on the way out.  Preserves all but AX.
+bz_gload:
+    mov al, [si + BZD_SPAD]
+    mov [bz_ppad], al
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    add si, BZD_SOPEN
+    mov di, bz_nopen
+    mov cx, 8
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; bz_gnew - a NEW game in the slot at SI: AL lives, pad 0 resting, pad 0
+; open, nothing done, no route opened or taken.  Its exits found and its bests
+; stay (an empty slot keeps them).  Preserves all but the flags.
+bz_gnew:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov [si], al
+    mov byte [si + BZD_SPAD], 0
+    lea di, [si + BZD_SOPEN]
+    xor ax, ax
+    mov cx, (BZD_SID - BZD_SOPEN) / 2
+    rep stosw
+    mov byte [si + BZD_SOPEN], 1
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; the pads and routes' DWORD BITS (a bit a pad or a route, 0 - 31): AL = the
+; bit, SI = the dword's address (DS).  bz_dwbit -> AL the mask, BX the byte
+; (clobbers CX); bz_dwset sets the bit, bz_dwtst tests it (ZF = 0 set).
+; Preserves all else.  The pathway's loop calls these on bz_nopen, bz_ndone,
+; bz_nrop and bz_nrtk.
+bz_dwbit:
+    mov cl, al
+    and cl, 7
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    xor ah, ah
+    mov bx, ax
+    mov al, 1
+    shl al, cl
+    ret
+bz_dwset:
+    push ax
+    push bx
+    push cx
+    call bz_dwbit
+    or [si + bx], al
+    pop cx
+    pop bx
+    pop ax
+    ret
+bz_dwtst:
+    push ax
+    push bx
+    push cx
+    call bz_dwbit
+    test [si + bx], al
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; bz_medal - node BX's DONE pose (8c.3, 128.19.8.3): DL = 4 GOLD (the slot's
@@ -901,6 +1029,11 @@ bz_gpath:
     inc bx
     cmp bx, BZ_PATH_N
     jb .n
+; bz_phfetch - the PATHWAY entered (128.22.7): its ball, a play, and its part
+; fetched unless it is HELD ([bz_phold]: bz_cload then does no fetch, no expand
+; and no translation of the part, only the balls and the song and the header).
+; CF = 1 refused.  Preserves nothing.
+bz_phfetch:
     mov byte [bz_crs], BZ_CRS_PATH
 ; course [bz_crs] made the play: its own ball (8b.9), mode 0, fetched
 bz_gcrs:
@@ -933,6 +1066,7 @@ bz_grounds:
     je .out                     ; the game waits on the face
     mov al, [bz_exit]
     mov [bz_gnode], al
+    mov [bz_ppad], al           ; (the marble rests on its pad: the slot's +2)
     call .swap                  ; ...or node bz_exit's course - its LIFE
     cmp byte [bz_xmode], 0      ; TAKEN on the disk first (128.19.6: off
     jne .nolife                 ; mid-course refunds nothing; a finish gives
@@ -945,23 +1079,10 @@ bz_grounds:
     xor bh, bh
     mov al, [bz_path_crs + bx]
     mov [bz_crs], al
-    call bz_kintro              ; (8c.4: the INTRO card over the pathway while
-    call bz_gcrs                ; the course is fetched)
+    call bz_gcrs                ; (no INTRO card any more, 128.22.6)
     jc .out
     jmp bz_grounds
-.crs:                           ; A COURSE: a finish ...
-    mov ax, word [bz_goal]      ; (8c.4: a finish or a timeout shows THE RESULT
-    or al, ah                   ; card first - an Esc or a retry was the
-    jz .nocard                  ; player's own)
-    cmp byte [bz_goal], 0       ; (the lives it shows are after a timeout's)
-    jne .card
-    dec byte [bz_lives]
-    call bz_kresult
-    inc byte [bz_lives]
-    jmp short .nocard
-.card:
-    call bz_kresult
-.nocard:
+.crs:                           ; A COURSE: a finish ... (no RESULT card, 128.22.6)
     cmp byte [bz_goal], 0
     je .life
     call bz_dslot               ; the exit FOUND (128.19.6), a word a course,
@@ -999,6 +1120,14 @@ bz_grounds:
     jne .en
     cmp ah, [bz_exit]
     jne .en
+    push ax                     ; the route (edge) OPENED: its bit (128.22.5)
+    push si
+    mov al, BZ_PATH_NEDGE
+    sub al, cl
+    mov si, bz_nrop
+    call bz_dwset
+    pop si
+    pop ax
     push cx
     mov cl, al
     mov ax, 1
@@ -1036,8 +1165,35 @@ bz_grounds:
 .out:
     ret
 .swap:                          ; this round's parts and song given back
-    call bz_cdrop
-    jmp bzs_gdrop0
+    call bz_cdrop               ; (the held pathway's part excepted)
+    call bzs_gdrop0
+    cmp byte [bz_crs], BZ_CRS_PATH
+    je bz_phrel                 ; ...which stays only if a course fits beside it
+    ret
+
+; bz_phrel - before a course is fetched, the pathway's balls, song and sound
+; part already given back (bz_cdrop, bzs_gdrop0): the pathway's part STAYS if
+; the heap's largest free
+; run, the part held, still takes the largest course (BZ_CRS_MAXCLAIM, in
+; paragraphs, MEMP_AVAIL's unit); else it is dropped here and bz_phfetch reads
+; it again afterwards.  Preserves nothing.
+bz_phrel:
+    cmp byte [bz_phold], 0
+    je .out
+    mov bl, MEMP_AVAIL
+    call OSAPI_MEM_P            ; AX = the largest claim there is
+    cmp ax, BZ_CRS_MAXCLAIM
+    jb bz_phfree
+.out:
+    ret
+; bz_phfree - the pathway's part let go whatever it holds (the game's end, or
+; bz_phrel's answer).  Preserves nothing.
+bz_phfree:
+    mov byte [bz_phold], 0
+    push ds                     ; (ES = ours: op_drop restores its caller's)
+    pop es
+    mov al, BZ_P_PATH
+    jmp op_drop
 
 %if BZ_TITLE
 ; -----------------------------------------------------------------------------
@@ -1152,7 +1308,8 @@ bz_tround:
     jc .gout
     call bz_grounds
 .gout:
-    call .swap
+    call bz_phfree              ; (the held pathway goes with the game, 128.22.7:
+    call .swap                  ; bz_cdrop keeps it)
     call bz_gstore              ; (the slot, in memory: bz_dsave on the desktop)
     mov byte [bz_xmode], 0
     jmp bz_tround
@@ -1239,8 +1396,9 @@ bz_trand:
     ret
 
 ; bz_tlabel - the slot changed on the title: its label's pose (bz_nst[0] =
-; 1 + slot) and every CLOCK lane MARKED, the next walk made (128.19.10), so
-; the one block redraws.  Preserves all but AX and BX.
+; 1 + slot) and every CLOCK lane MARKED, the next walk made and its clocks'
+; second unread (128.19.10, the skip's), so the one block redraws.  Preserves
+; all but AX and BX.
 bz_tlabel:
     mov al, [bz_slot]
     inc ax
@@ -1257,12 +1415,22 @@ bz_tlabel:
     jmp short .l
 .d:
     mov byte [bz_lqt], 0
-    ret
+    mov word [bz_lcsec], 0ffffh ; (a CLOCK lane's skip holds while the second
+    ret                         ; is the one the last walk read: none is now)
 %endif
 
 bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
 bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
+%ifnmacro BZ_CRS_NEXITS 0       ; the exits each course has (bzcourse.inc's, the tool's,
+%macro BZ_CRS_NEXITS 0          ; once it emits them; until then the sources':
+    db 1, 1, 2, 1, 1, 1, 1, 0   ; only TRIAL has two finishes) - for the info card
+%endmacro
+%endif
+bz_cnex:        BZ_CRS_NEXITS
 bz_path_edges:  BZ_PATH_EDGES   ; (node, exit, next), three bytes an edge
+ %if BZ_PATH_NEDGE > 32
+  %error "save v3 keeps a bit a route (edge) in a dword (SPEC.md 128.22.5)"
+ %endif
 %endif
 
 ; bz_cdrop - every ball row and the course's given back (op_drop of a part that
@@ -1282,7 +1450,17 @@ bz_cdrop:
     cmp al, BZ_P_BALR + BZ_NMAT
     jb .dball
     mov al, [bz_pc]
+%if BZ_PATH_N
+    cmp al, BZ_P_PATH           ; the HELD pathway's part stays (128.22.7)
+    jne .dpc
+    cmp byte [bz_phold], 0
+    jne .held
+.dpc:
+%endif
     call op_drop
+%if BZ_PATH_N
+.held:
+%endif
     xor ax, ax
     mov [bz_bsegs], ax
     mov [bz_bsegs + 2], ax
@@ -1969,6 +2147,10 @@ bz_hxlat:
     mov bx, bz_boxbuf           ; BX = table 0, BP = the toggle to table 1 and
     lea bp, [bx + 256]          ; back: table 0 ^ table 1, two byte bases 256
     xor bp, bx                  ; apart (any alignment)
+%if BZ_PATH_N
+    cmp byte [bz_phre], 0       ; a HELD pathway was translated when it was
+    jne .noplat                 ; fetched: the balls alone (128.22.7)
+%endif
     mov es, [bz_cseg]           ; the course: 8 N rows of 2 bytes
     mov si, [es:BZC_BLKOFF]
     mov cx, [es:BZC_NBLK]
@@ -2444,8 +2626,10 @@ bz_dload:
     jc bz_dnorm
     or dx, dx
     jnz bz_dnorm
-    cmp ax, BZD_FILE            ; save v2 (128.19.6): `BZS2` and its slots ...
-    je .v2
+    cmp ax, BZD_FILE            ; save v3 (128.22.5): `BZS3` and its slots ...
+    je .v3
+    cmp ax, BZD_FILE2           ; ...`BZS2`'s (its pathway is another's: the
+    je .v2                      ; slots emptied) ...
     cmp ax, BZD_SIZE            ; ...or wave 4's `BZT1`, its bests alone
     jne bz_dnorm
     call bz_dslz                ; (no slots in it: emptied)
@@ -2453,7 +2637,12 @@ bz_dload:
     jne bz_dnorm
     jmp short .chk
 .v2:
+    call bz_dslz
     cmp word [bz_dat + 2], 'S2'
+    jne bz_dnorm
+    jmp short .chk
+.v3:
+    cmp word [bz_dat + 2], 'S3'
     jne bz_dnorm
 .chk:
     call bz_dchk
@@ -2475,8 +2664,8 @@ bz_dnorm:
     je .phys
     xor cl, cl
 .phys:
-    mov word [bz_dat], 'BZ'     ; `BZS2`, the count and BZ_PHYSV, two zero bytes
-    mov word [bz_dat + 2], 'S2'
+    mov word [bz_dat], 'BZ'     ; `BZS3`, the count and BZ_PHYSV, two zero bytes
+    mov word [bz_dat + 2], 'S3'
     mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
     mov word [bz_dat + 6], 0
     mov si, bz_dat + BZD_ENT
@@ -2542,7 +2731,7 @@ bz_dnorm:
 ; 0 it is refused whole.  Clobbers AX, BX, SI.
 bz_dchk:
     xor cl, cl
-    cmp word [bz_dat], 'BZ'     ; (+2 `T1` or `S2`: bz_dload matched it to the
+    cmp word [bz_dat], 'BZ'     ; (+2 `T1`, `S2` or `S3`: bz_dload matched it to the
     jne .out                    ; length)
     mov al, [bz_dat + 4]
     dec al
@@ -2655,7 +2844,8 @@ bz_dsave:
 
 ; bz_dwrite - the image WHOLE to BONANZA.DAT, one od_write, no merge and no
 ; toast (the game's life at a course's entry, inside the bracket: SPEC.md
-; 128.19.6).  CF = 1 refused.  Preserves ES.
+; 128.19.6).  CF = 1 refused, and [bz_dwf] = 1 until a write is not (the info
+; card's NOT SAVED, 128.22.6).  Preserves ES.
 bz_dwrite:
     push es
     push ds
@@ -2666,6 +2856,10 @@ bz_dwrite:
     mov di, bz_datst
     call od_write
     pop es
+    mov al, 0                   ; (MOV keeps CF)
+    rcl al, 1                   ; AL = CF ...
+    mov [bz_dwf], al
+    shr al, 1                   ; ...and CF again
     ret
 
 ; bz_dslot - SI = the slot played's offset in [bz_dat].  Preserves all else.
@@ -2697,14 +2891,19 @@ bz_dslz:
     pop ax
     ret
 
-; bz_dslots - each SLOT judged alone (save v2, SPEC.md 128.19.6): EMPTIED when
-; it is not this build's pathway's, its lives are over BZ_LIVES, it has lives
-; and node 0 is not open, its +1 is not zero, or +24 - +47 are not.  An
-; empty slot (lives 0) keeps its exits found.  Preserves all but the flags.
+; bz_dslots - each SLOT judged alone (save v3, SPEC.md 128.22.5): EMPTIED when
+; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
+; a route TAKEN is not one OPENED, its exits found past the courses or +70 -
+; +79 are not zero, or - it having lives - node 0's pad is not open, it is
+; not this build's pathway's, its pad is not one of the pathway's
+; (BZD_NPAD), or - TIMED - its pad is not open (EXPLORE rests on any pad:
+; every one is open to it, none in the open set).  An empty slot (lives 0)
+; keeps its exits found.  Preserves all but the flags.
 bz_dslots:
     push ax
     push bx
     push cx
+    push di
     push si
     mov si, bz_dat + BZD_SLOT
     mov bl, BZD_NSLOT
@@ -2714,44 +2913,78 @@ bz_dslots:
     ja .bad
     test byte [si + 1], 0feh    ; (+1: bit 0 the MODE, 8c)
     jnz .bad
-    or al, al
-    jz .z
-    test byte [si + 2], 1       ; a game with lives has node 0 open
-    jz .bad
-    mov ax, [bz_cids + 2 * BZ_CRS_PATH] ; ...on this build's pathway
-    cmp ax, [si + 6]
+    cmp byte [si + 3], 0
     jne .bad
-.z:
-    push si
-    add si, BZD_SZERO           ; (+24 - +39 the bests a course, 8c)
+    mov ax, [si + BZD_SROPN]    ; a route taken was opened: TAKEN & ~OPENED
+    not ax
+    test ax, [si + BZD_SRTAK]
+    jnz .bad
+    mov ax, [si + BZD_SROPN + 2]
+    not ax
+    test ax, [si + BZD_SRTAK + 2]
+    jnz .bad
+    mov di, si                  ; the exits of courses that are not here, and
+    add di, BZD_SEXIT + 2 * BZ_NCRS ; the slot's tail, are zero
+    mov cx, BZ_NEXITPAD
+    call bz_dzero
+    jnz .bad
+    lea di, [si + BZD_SZERO]
     mov cx, (BZD_SLOTB - BZD_SZERO) / 2
-.zz:
-    lodsw
-    or ax, ax
-    jnz .zbad
-    loop .zz
-    pop si
-    jmp short .n
-.zbad:
-    pop si
+    call bz_dzero
+    jnz .bad
+    cmp byte [si], 0
+    je .n
+    test byte [si + BZD_SOPEN], 1 ; a game with lives has pad 0 open ...
+    jz .bad
+    mov ax, [bz_cids + 2 * BZ_CRS_PATH] ; ...on this build's pathway ...
+    cmp ax, [si + BZD_SID]
+    jne .bad
+    mov al, [si + BZD_SPAD]     ; ...its pad one of the pathway's (the
+    cmp al, BZD_NPAD            ; loop indexes the part's tables by it) ...
+    jae .bad
+    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays
+    jnz .n                      ; any pad, 128.19.8: none of them in the set)
+    push bx
+    call bz_dwbit               ; AL the mask, BX the byte
+    test al, [si + bx + BZD_SOPEN]
+    pop bx
+    jnz .n
 .bad:
-    push di
+    mov di, si
     push es
     push ds
     pop es
-    mov di, si
     mov cx, BZD_SLOTB / 2
     xor ax, ax
     rep stosw
     pop es
-    pop di
 .n:
     add si, BZD_SLOTB
     dec bl
     jnz .s
     pop si
+    pop di
     pop cx
     pop bx
+    pop ax
+    ret
+
+; bz_dzero - ZF = 1 when the CX words at DS:DI are all zero (CX 0: they are).
+; Preserves all but CX, DI.
+BZ_NEXITPAD equ 16 - BZ_NCRS    ; the exit words a slot holds past the courses
+bz_dzero:
+    push ax
+    xor ax, ax                  ; (ZF = 1 for CX = 0)
+.l:
+    jcxz .out
+    mov ax, [di]
+    inc di
+    inc di
+    or ax, ax
+    jnz .out
+    dec cx                      ; (ZF = 1 when it reaches 0)
+    jmp short .l
+.out:
     pop ax
     ret
 
@@ -3421,8 +3654,15 @@ VAR bz_lbuf,BZ_LMAX + 2
 VAR bz_shfp,4                   ; the shell part's far pointer (bz_shcall)
 VAR bz_shpend,2                 ; byte 1: a paint put off while a course was held (a word: the run stays even)
 ; the game (wave 8b, SPEC.md 128.19.5): the pathway's state, held in memory
-VAR bz_nopen,2                  ; a bit a node: OPEN (node 0 from a new game's start)
-VAR bz_ndone,2                  ; ...and DONE (a finish in time)
+VAR bz_nopen,4                  ; a bit a pad: OPEN (pad 0 from a new game's start; a dword,
+                                ; the low word the prototype loop's node bits)
+VAR bz_ndone,4                  ; ...and DONE (a finish in time)
+VAR bz_nrop,4                   ; ...the routes OPENED (a bit a route)
+VAR bz_nrtk,4                   ; ...and TAKEN (a secret's reveal; a subset)
+VAR bz_ppad,1                   ; the pad the marble rests on (the slot's +2)
+VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_phrel)
+VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
+VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
 VAR bz_gnode,1                  ; the node being played
 VAR bz_nst,16                   ; each node sign's pose (bzwheel.inc's CLOCK case): 0 locked, 1 open, 2 done
@@ -3446,7 +3686,10 @@ VAR bz_inpause,1                ; ...1 while the pause card is up
 VAR bz_freq,1                   ; ...1: the next frame a full write (a card drawn)
 VAR bz_ff,2                     ; the kernel glyph table's first and last codes
 VAR bz_font,8 * BZC_NGLYPH      ; the cards' glyphs, 32 - 95 (bzcard.inc)
-VAR bz_kbuf,64                  ; a card's lines, built (bzcard.inc)
+VAR bz_kbuf,96                  ; a card's lines, built (bzcard.inc)
+VAR bz_ikc,1                    ; the info card's course K ...
+VAR bz_dwf,1                    ; 1: the last write of BONANZA.DAT was refused (bz_dwrite; the info card)
+VAR bz_ibest,2                  ; ...and its best, steps
 VAR bz_crdls,2                   ; bz_card's list, lines, widest + 2, first cell,
 VAR bz_crdn,2                     ; height, first line, the row's bank and base,
 VAR bz_crdw,2                    ; the glyph row
