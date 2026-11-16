@@ -277528,6 +277528,38 @@ What story 9.6 proves by following it for PICKUPS after GLASS:
 6. Its `FAMV`, recorded by the tool, and the SPEC.md row in 128.25.8 -
    128.25.10's form.
 
+##### 128.25.6.9 A family's HOME: fetched, or resident (the owner, 2026-11-16)
+
+*"Both, per family"*: where a family's part lives is a build choice made in
+its `FAMILIES` row, `home`.
+
+| home | where the part is | fetched | dropped | the 3-a-course limit (128.25.6.5) | the course's arena reserve (`BZ_CRS_ARENA`) |
+|---|---|---|---|---|---|
+| `fetch` (the default; the probe, GLASS, PICKUPS) | an `OP_ARENA` code row, fetched by the launch of a course that names it (128.25.6.2) | every launch that names it | at every `bz_cdrop` | counted | counted |
+| `resident` (ROTOR, SPRING, TUBE: the owner's "common props always loaded") | the SAME kind of row, fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_fhome`, `bz_entry`) | never | NOT counted | NOT counted |
+
+Everything else is as for a fetched family: a course names it with `uses`,
+its `FAMV` is in the course's family list and so in the identity, `bz_ffetch`
+fills its slot record (its `op_fetch` is a no-op - the part is here - and it
+takes the segments again, which a regrow may have moved), and its hooks are
+called exactly as a fetched family's. A course's family list holds its
+fetched families (at most 3) and its resident ones; the slots (`bz_frec`,
+`bz_fsl`) are sized to the longest list the courses have
+(`BZ_FAMMAX`, the tool's, never under 3).
+
+**Why the arena's floor, and not the carve.** The owner's words were "an EAGER
+code part loaded with the package in the carve". MEASURED (`62cdee325`, the
+probe's row made eager): BONANZA's rows are all lazy today, and ONE eager row
+assembles the parts standard's carve path, **+933 image bytes** - more than
+story 9.8 takes out. A row fetched once into the arena at the start and never
+dropped has every property the owner asked for (no fetch at a course's
+launch, never dropped, outside the limit and the reserve, in RAM during
+every play) for about 30 resident bytes. The RAM it costs is the arena's
+floor, always held (128.25.10 measures it), and the package's start pays one
+read a resident family (128.25.10 measures it). If the start's fetch is
+refused (no memory), nothing is said: a course that names the family fetches
+it then, and it stays (a hole the arena carries until the package ends).
+
 #### 128.25.7 Per-play state and resets (story 9.2)
 
 ##### 128.25.7.1 The reset classes
@@ -277755,7 +277787,9 @@ do not survive the inventory (MEASURED, `62cdee325`'s listing):
 - **A windmill is a tube with a door**: its capture and its transit ARE the
   tube's routines. So ROTOR holds only the DOOR (the touch test and the gate),
   and with the tube a family a course that places a windmill names TUBE as
-  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`).
+  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`). All three
+  are home `resident` (128.25.6.9), so they cost no fetch at a launch and
+  none of the 3 a course.
 
 PREDICTED: about -550 to -600 image bytes net of the dispatch, under the
 -1.0KB target, which assumed the post's 709.
@@ -277911,9 +277945,9 @@ nothing in the guest or a part writes an ID), their kinds the reserved ones.
 
 | family | kinds | hooks | its part holds | the course names it when it places |
 |---|---|---|---|---|
-| `rotor` | 22 `windmill` | PROP (DOOR) | the doorway's touch test (`bz_ztouchp`, with a copy of `bz_h4`) and the gate (`bz_gate`) | a windmill (and, the tube a family, `tube` too) |
-| `spring` | 24 `spring` | CONTACT | the spring's rule, `bz_prule`'s `.spring` as it was | a spring |
-| `tube` | 25 `tube` | PROP (DRAIN, CAPTURE, TRANSIT) | `bz_capture`, `bz_transit`, `bz_ztouch(p)`, `bz_atok` | a tube, or a windmill |
+| `rotor` (home `resident`, 128.25.6.9) | 22 `windmill` | PROP (DOOR) | the doorway's touch test (`bz_ztouchp`, with a copy of `bz_h4`) and the gate (`bz_gate`) | a windmill (and, the tube a family, `tube` too) |
+| `spring` (`resident`) | 24 `spring` | CONTACT | the spring's rule, `bz_prule`'s `.spring` as it was | a spring |
+| `tube` (`resident`) | 25 `tube` | PROP (DRAIN, CAPTURE, TRANSIT) | `bz_capture`, `bz_transit`, `bz_ztouch(p)`, `bz_atok` | a tube, or a windmill |
 
 ##### 128.25.20.1 What stays resident, and why
 
@@ -277946,19 +277980,16 @@ record) and `bz_tdrain` ask the TUBE family, `bz_transit` asks and refills,
 replaces preserved and more. ES is the course at every site; a part loads
 `[bz_cseg]` itself.
 
-##### 128.25.20.3 The tube behind a switch (`BZ_TUBE_RESIDENT`)
+##### 128.25.20.3 The tube's switch, superseded by the home
 
-The owner's Q2: the tube a family "for now", moved back by a build switch.
-The tube's code is ONE source, `apps/bonanza/fam/bztube.inc` (and the touch
-test's `fam/bzztouch.inc`), included by the TUBE part or, with the switch,
-by `bzphys.inc` - never two copies. `make BZTUBE=resident` (the tool's
-`--tube-resident`, which writes `BZ_TUBE_RESIDENT equ 1` into bzcourse.inc):
-the tube is kind 1 again and no family, `bz_capture` / `bz_transit` /
-`bz_ztouch(p)` / `bz_atok` resident as before, no `uses tube` (a windmill
-needs `rotor` only), and the ROTOR part keeps its own touch test.
-`tests/bonanza_ring.py --check-reds` compiles the courses with the switch
-and assembles that arm's package and parts every time, so the arm cannot
-rot.
+The owner's Q2 asked for the tube "easy to move back" by a build switch
+(`BZ_TUBE_RESIDENT`). The owner's later decision (128.25.6.9) made where a
+family lives a per-family choice and put the TUBE at home `resident`, which
+supersedes the switch: no second arm is built. Moving the tube back into the
+image is still the small step it was designed as: its code is one source,
+`apps/bonanza/fam/bztube.inc` (with the touch test's `fam/bzztouch.inc`),
+written to be included by the package as it is by the part (its two exit
+macros, `BZT_GOING` and `BZT_EXITED`, default to the resident spelling).
 
 ##### 128.25.20.4 The tool
 
