@@ -1424,8 +1424,9 @@ def side_plan(g, ref):
     None: a resting point whose CENTRED window (the cut's: the guest's own centring, check_bounds's) has a
     lane - a rotor's or a clock's digit - in its rows but wholly OUTSIDE the column band (its columns end
     at least BZ_LCM before c0, or start at least BZ_LCM past c0 + W), the point inside that window's dead
-    zone; and a resting point whose dead zone is a window that shows the lane whole (TRICKLE pans to it a
-    column a frame).  The cut's point IS the hold point, grounded"""
+    zone; and a resting point OUTSIDE that dead zone from which TRICKLE's pan (a column a frame) comes to
+    rest at a window that shows the lane whole - its c0 the plan's last.  The cut's point IS the hold
+    point, grounded"""
     tag, crs = g.tag, ref.c
     lsh = LSH[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
@@ -1458,11 +1459,39 @@ def side_plan(g, ref):
                 rows = R0c <= q[0] and q[1] <= R0c + H
                 if not (out and rows):
                     continue
-                go = R.rest_in_window(crs, grid, R0c << lsh, 8 * c0g, Wc, lines, flags=BB.FL_OCC | BB.FL_OCCG,
-                                      slopes=True)
-                if go:
-                    return i, R0c, c0c, hold, hold, go, c0g
+                # the trickle's point: OUTSIDE the cut window's dead zone on the lane's side, so TRICKLE
+                # pans (a column a frame, toward the lane) and stops at the first window whose dead zone
+                # holds the ball - that window, not the one the point is centred in, must show the lane
+                # whole (until wave 8R gave TRIAL its finish clock no plan was ever found, and the point
+                # nearest the target window's centre lay inside the cut's dead zone: nothing panned)
+                if q[3] <= c0c - BZ_LCM:                # the lane LEFT of the window: a pan left
+                    zone = (max(8 * c0c + 8, 8 * (q[3] - Wc) + 2 * Wc + 8), 8 * q[2] + 7 + 2 * Wc)
+                else:                                   # ...RIGHT of it: a pan right
+                    zone = (8 * (q[3] - Wc - 1) + 6 * Wc + 1, min(8 * (c0c + Wc) - 8, 8 * q[2] + 6 * Wc))
+                if zone[0] > zone[1]:
+                    continue
+                go = R.rest_in_window(crs, grid, R0c << lsh, 0, Wc, lines, flags=BB.FL_OCC | BB.FL_OCCG,
+                                      slopes=True, xzone=zone)
+                if not go:
+                    continue
+                c0s = trickle_stop(go, kx, c0c, Wc, cmax)
+                if c0s != c0c and c0s <= q[2] and q[3] <= c0s + Wc:
+                    return i, R0c, c0c, hold, hold, go, c0s
     return None
+
+
+def trickle_stop(pt, kx, c0, Wc, cmax):
+    """the column TRICKLE's pan from window C0 comes to rest at with the ball held at PT: a column a frame
+    while the ball's centre lies left of the window's dead zone [2W, 6W] px (or right of it), clamped to
+    the course (bzgame.inc bz_camera's .trickle, SPEC.md 128.5)"""
+    X = ((pt[0] - pt[1] + kx) >> 8) + 8
+    while True:
+        x = X - 8 * c0
+        n = c0 - 1 if x < 2 * Wc else c0 + 1 if x > 6 * Wc else c0
+        n = max(0, min(n, cmax))
+        if n == c0:
+            return c0
+        c0 = n
 
 
 def side_leg(g, ref):
@@ -1482,7 +1511,8 @@ def side_leg(g, ref):
     fails, rep = [], []
     # wave 7 (SPEC.md 128.18.5): MILL's lanes sit in columns every CGA window holds, so the scene is
     # searched on each course with a lane that can lie outside the band - a clock's digit beside its route
-    # (TRIAL's first clock) - planned on the host before the play is launched
+    # (since wave 8R TRIAL's FINISH clock, the first that can: SPEC.md 128.22.10) - planned on the host
+    # before the play is launched
     plan = None
     for cname in ("mill", "first", "trial"):
         cref = R.Ref(tag, R.course(cname)) if cname != "mill" else ref
