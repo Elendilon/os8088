@@ -278,7 +278,9 @@ bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.i
 ; arena and going with it - and its code segment the same distance from it as
 ; the bundle's code segment is from the bundle's data: 0 on a real-mode
 ; kernel, a pair's -8 on kern_mega (128.25.6.9).  So a part runs at its own
-; org 0 bundled or alone.  CF = 1 no such header, or no selector.  DS = ours.
+; org 0 bundled or alone.  CF = 1 no such header, or no selector (the sum
+; of the distance and the selector carries on kern_mega: CF cleared after it).
+; DS = ours.
 ; Clobbers AX, BX, CX, DX, ES.
 ; -----------------------------------------------------------------------------
 bz_fbfind:
@@ -313,7 +315,8 @@ bz_fbfind:
     call OSAPI_SEG              ; DX = its data segment (the pair's data half)
     jc .x
     mov [si + BZF_RDSEG], dx
-    add [si + BZF_RCSEG], dx
-.x:
+    add [si + BZF_RCSEG], dx    ; (on kern_mega the distance is -8, FFF8h, and
+    clc                         ; the sum CARRIES: without this CF = 1 refused
+.x:                             ; every resident family there, 128.25.6.9)
     ret
 %endif
