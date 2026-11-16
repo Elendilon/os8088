@@ -1008,6 +1008,137 @@ flag ignored) must fail at `bonanzaexit`'s claim compare.
 **Inventory:** E1-E7, E9 (O4 replaced, O48 kept, O53 open), F1-F3, I12,
 A19, A20 (the cut's blank, revisited for the shell).
 
+#### Wave 8 rework: the pathway, the finish and the cards (the owner, 2026-11-16) - FOR DISCUSSION, nothing here is built
+
+Wave 8b's pathway was a misreading: a course of its own that the player ROLLED
+across, five nodes because a screen could show six signs. The owner's design
+replaces it, and the 8c cards that froze the screen go with it. What survives
+wave 8 unchanged: 8a's shell part, one FSX bracket for the whole loop, exits
+on finishes (8b.4), lives (8b.5), save v2 (8b.6), the ball per course (8b.9),
+exploration (8c.2), medals per course (8c.3), and the lanes at scale
+(SPEC.md 128.19.10), which the pathway needs anyway.
+
+**The owner's design** (2026-11-16, with a sketch of nodes 1 - 8):
+
+- **The exit taken picks the route.** The path runs straight through two
+  tutorial courses into a third with two exits; from there a branch is
+  either one-way (forced to the next course) or a choice of two. The player
+  presses a direction once to start a change of route.
+- **Replay and secrets.** The player can go back and replay any course
+  already played. One or two SECRET courses open from hidden exits: off to
+  the side (not on the way to the end) or a SHORTCUT (fewer courses to the
+  end). Neither the course nor its path is drawn, and the art of pages 2 - 3
+  must not give it away.
+- **The look.** The engine is reused. The camera scrolls VERTICALLY only,
+  and only when the marble leaves the top or bottom of the screen, a whole
+  page at a time. The marble ROLLS along the branch artwork: the player does
+  not steer it, it auto-rolls along the lines, ramping very quickly to and
+  from its top speed. The pathway is a static, visually interesting
+  background (a crystal look, a concave ramp). An unavailable path LOOKS
+  unavailable (dithered, or a gate that opens with an animation when it
+  unlocks). A GLOWING PAD in front of each course is where the marble stops
+  and rests. Course icons animate at a low frame rate on the wheel
+  (tithe-new's style).
+- **Keys.** At a branch, left / right; along the path, forward / back.
+- **The worked example.** Play 1, finish: the marble rolls to 2. Enter plays
+  2: it rolls to 3. Finish 3 by the exit that unlocks 6: it rolls to 6.
+  Finish 6 by the exit that unlocks 8; not liking 8, press down/right back to
+  6, take 6's other exit, which unlocks 7, and roll to 7. From 7, back to 6,
+  then left to 8. Finishing 7 or 8 rolls up off the screen and the camera
+  scrolls a whole page to the next set of courses.
+- **Size.** 14 - 20 courses in all, likely the low end.
+- **Memory.** When the largest course AND the pathway fit, the pathway stays
+  loaded; only a machine that holds one but not both drops it and reloads.
+- **The finish** (first thought, to be discussed): there is always a clock at
+  the finish line; it FLASHES the finishing time rapidly while the ball
+  keeps rolling (or plays a vanishing animation), then the player is back on
+  the pathway. No card freezes the screen.
+
+**How it could be built** (a proposal, for the discussion):
+
+1. **The pathway is a COURSE PART with no physics.** Its blocks are the
+   static background, drawn once by the full write and kept by the ring;
+   the marble is the ball sprite and box path the courses use. A FOLLOWER
+   replaces the physics step: the marble's world position is a distance
+   along the current EDGE, a polyline of world points (x, y, z: a concave
+   ramp is a z profile). The speed ramps to its top in a few steps and down
+   into the pad. A play's ~3.4k-clk physics step becomes a few hundred, so
+   the pathway frame is the cheapest the game draws.
+2. **The graph is source text, compiled by `bbcourse.py --path`.** Pads
+   (with their course and their screen page), edges as polylines with the
+   (course, exit) that unlocks each, `secret` on a hidden one, and `gate` on
+   one that opens with an animation. The tool proves every course reachable
+   and every secret off the main route or a true shortcut, and proves each
+   page's ANIMATED lanes within 128.19.10's bounds.
+3. **The camera is the vertical ring, paged.** It holds still while the
+   marble is on the page; when the marble crosses the top or bottom edge,
+   the camera scrolls a whole page at the ring's two lines a step (on the
+   CGA a 200-line page is 100 steps, about 1.7 s at 59.9 Hz; faster as a
+   TRANSITION, plan 6.4, if that is too slow). No horizontal scroll: a page
+   is the screen's width.
+4. **Icons, pads and gates are LANES.** A course icon is a SLOW lane with a
+   new MARK: a frame timer (every N ticks), so it costs a byte scan when it
+   is not due (128.19.10 item 6's rule: every lane kind says what marks
+   it). A pad has poses dark / glowing / done and medal; a gate has closed,
+   opening frames and open, marked once by an unlock. A LOCKED path is
+   drawn locked in the background art; its unlock can be a gate lane over
+   its mouth (cheap: a few cells) or the whole path as a two-pose lane
+   (dithered, solid: each pose costs its cells in the part). A SECRET path
+   is a lane whose pose 0 is the plain background, so nothing shows until
+   it is found.
+5. **Keys map to directions.** At a pad, each edge leaves in a screen
+   direction; the arrow nearest it takes that edge. A press starts the
+   roll; the marble runs to the next pad and stops. Enter plays the pad's
+   course. Leaving a course by exit E puts the marble on that course's pad
+   and auto-rolls it along E's edge.
+6. **Memory.** At launch, one claim for the largest course plus the
+   pathway part is tried; if it fails, the pathway is fetched per return
+   (today's prototype behaviour). The kept pathway means no fetch on any
+   return; the fetch is ~0.4 s per `int 13h` call, a few calls for a part.
+7. **The finish clock.** The tool requires a CLOCK near every finish. At a
+   finish the ball's input stops; the clock's digits freeze at the finishing
+   time and FLASH (pose blank / time, at ~4 Hz for ~2 s: two slow lanes
+   marked every flash); the ball rolls on under physics, or sinks into the
+   cup. Then the pathway. The result (medal, new best, "not saved") moves
+   to the pathway: the pad's pose changes as the marble arrives, and a HUD
+   band on the pathway shows the pad's course, its best and its medal.
+
+**Questions for the owner:**
+
+1. **Screen width.** The CGA is 640 px and the Hercules 720. Is a page
+   designed at 640 wide and centred on the Hercules (a 40 px margin each
+   side), or does each card get its own layout?
+2. **Stops.** Going back from 8 toward 3 passes 6: does the marble stop at
+   every pad it reaches (one press per course), or run on to the course you
+   point it at?
+3. **Diagonal keys.** Your example used "down/right" to go back. On an iso
+   picture, should the four arrows mean screen directions (the arrow nearest
+   the edge's direction), with forward / back always also on two fixed keys?
+4. **Locked paths.** Dithered until unlocked (a two-pose lane over the
+   whole path: more part bytes, the strongest picture) or a closed gate at
+   the path's mouth (a few cells, an opening animation)? Or both, by path?
+5. **A found secret.** Once a hidden exit is found, does its path and
+   course then APPEAR on the pathway (a reveal animation), or stay hidden
+   and play only from the exit?
+6. **The finish.** Which ending: the ball keeps rolling (and if it falls
+   off, nothing is lost?), or a vanishing animation (sinking into the cup,
+   dissolving)? Does the course's own clock flash, or a clock that only
+   appears at the finish? How long (2 s?), and can a key skip it?
+7. **What the cards said.** The intro card (name, ball, limit, medal times,
+   exits found n of m) and the result card (time, medal, new best, "not
+   saved"): is a HUD band on the pathway, showing the course at the pad the
+   marble rests on, the right home for all of it?
+8. **The pause overlay and game over.** P's overlay (Resume, Retry, Map,
+   time left) also stops the picture: keep it as it is (pausing should
+   stop), or rework it too? And game over: back to the front window, or a
+   pathway moment (the marble rolls back to the start)?
+9. **Icons.** What the course icons show (a miniature of the course, its
+   ball, a symbol), at what size, and how many frames: they are the
+   pathway's main art cost per course.
+10. **Sound** is ours now: the roll along the path, arriving on a pad, a
+    gate opening, the finish flash, a life lost, game over. Fine to hand to
+    agents once the pathway is settled?
+
 #### Wave 9: Mechanics as parts (L)
 
 **Goal:** the owner's decision 8 made concrete, with an unused mechanic
