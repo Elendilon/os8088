@@ -13476,11 +13476,11 @@ def _grammar_cases():
 
 
 # wave 3's malformed props (SPEC.md 128.12.13.1 item 2), every one a string here
-_W3W = ('course P "p"\nwidth 64\nfloor rect 6 9 11 14 flat 16\nwall rect 6 5 12 9 flat 22\n'
+_W3W = ('course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\nwall rect 6 5 12 9 flat 22\n'
         'floor rect 12 5 16 9 flat 20\ntube keep 9 9 12 6 via 9 6\nprop windmill 9 9\nstart 9 12\n')
 _W3P = ('course Q "q"\nwidth 64\nfloor rect 6 6 10 10 flat 4\nfloor rect 11 7 13 10 flat 1\nstart 7 7\n'
         'prop platform 10 8 3\n')
-_W3H = ('course H "h"\nwidth 64\nfloor rect 6 9 16 14 flat 16\nwall rect 6 5 16 9 flat 22\n'
+_W3H = ('course H "h"\nwidth 64\nuses rotor tube\nfloor rect 6 9 16 14 flat 16\nwall rect 6 5 16 9 flat 22\n'
         'floor rect 6 3 14 5 flat 20\nstart 9 12\ntube keep 7 9 7 4\ntube keep 10 9 10 4\n'
         'tube keep 13 9 13 4\nprop windmill 7 9 seed %d\nprop windmill 10 9 seed %d\nprop windmill 13 9 seed %d\n')
 _W3F = 'course F "f"\nwidth 64\nfloor band -10 10 26 %d flat 0\nstart %d %d\n'
@@ -14202,7 +14202,7 @@ def _boost_checks(res, mill=None):
     # taken on a spring's cell rides the spring, and Space at that flight's
     # first contact (a floor a unit above) is a contact Hop, never a boost
     spc = compile_course('course SPR "s"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\n'
-                         'floor rect 9 10 40 14 flat 5\nspring 6 12 300\nstart 5 12\n', "<a Hop on a spring>",
+                         'floor rect 9 10 40 14 flat 5\nuses spring\nspring 6 12 300\nstart 5 12\n', "<a Hop on a spring>",
                          occluders=False)
 
     def spring_hop(**kw):
@@ -16826,7 +16826,7 @@ def _w4_physics(byname, res):
     """item 7 (wave 4): each prop's rule and RETURN by the model, on the shipped
     courses and on the fixture course (SPEC.md 128.14.4.3 - 128.14.4.7), and
     the tilt's cap (128.14.8.2)"""
-    W = compile_course(_W4C + "spring 8 7 512\npad steel 6 7\ncheckpoint 9 5 ball glass\n", "<w4>")
+    W = compile_course(_W4C + "uses spring\nspring 8 7 512\npad steel 6 7\ncheckpoint 9 5 ball glass\n", "<w4>")
     cup = next(r for r in W.part["props"] if r["kind"] == PK_CUP)
     # the cup: 128 holes out, 256 lips out and pops, rolls on
     a = Physics(W, play=True).poke(11, 6, 128, 0)
@@ -19031,7 +19031,7 @@ def selfcheck(paths=None):
                 "units tall keeps %d pennant pixels under the wall with the clip taken out, 0 with it" % _pfront(raw),
                 hid and _pfront(half) == 0 and _pfront(raw) > 0))
     # item 6's control (128.14.17 item 5): a spring's launch left out of zhi fails item 6's spring test
-    fx = _W4C + "spring 8 7 512\n"
+    fx = _W4C + "uses spring\nspring 8 7 512\n"
     # (round 3b, SPEC.md 128.17.17: both without the boost's launch, whose added bounce now covers the
     # spring's flight on this small course by itself)
     cs = compile_course(fx, "<a spring, not in the reach>", _hack={"no_spring_reach": True, "boost": 0})
