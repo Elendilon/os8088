@@ -211,6 +211,8 @@ VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps 
                                 ; the next one (BZ_SECSTEPS a second)
 VAR bz_phe,0
 ; the rest: written before they are read
+VAR bz_okey,2 * BZ_PROPALL      ; 128.19.10: the records' anchors, sorted (bz_obuild)
+VAR bz_oidx,BZ_PROPALL          ; ...and each one's record (bz_owner's search)
 VAR bz_tdig,3                   ; wave 7 (128.18.5): the clocks' digit poses of
                                 ; bz_tsec - units, tens, hundreds (0 blank, 1 + d
                                 ; the digit d): bz_tdset's, at bz_pinit and once
@@ -336,6 +338,8 @@ bz_pinit:
     mov [bz_poff], ax           ; scans for its OBS cells' owners (bz_wolf;
     mov al, [es:BZC_NPROP]      ; bz_pread reads it again for the lanes)
     mov [bz_nprop], al
+    call bz_obuild              ; (128.19.10: the owners' index, before the
+                                ; first refill)
     mov di, [bz_goff]
     mov al, [es:di + BZG_FLAGS] ; wave 4 (128.14.4.2): respawns go to the
     mov [bz_gfl], al            ; last flag on a CKPT course; and the ball a
@@ -1964,28 +1968,101 @@ bz_wotab:
 ; CF = 1 none.
 ; Preserves all but AX and the flags.
 bz_owner:
-    push cx
-    push si
-    mov si, [bz_poff]
+    push bx                     ; SPEC.md 128.19.10: a BINARY search of
+    push cx                     ; bz_okey (the anchors, sorted, the first of
+    push si                     ; equal ones first) for its LOWER BOUND - about
+    xor bx, bx                  ; 7 compares for 100 props, not 100
     mov cl, [bz_nprop]
-.r:
-    cmp dx, [es:si + BZP_WX]    ; (wx, wy as one word: a record that is not
-    je .found                   ; the owner costs a compare, an ADD and a
-    add si, BZ_PROPREC          ; count)
-    dec cl
-    jnz .r
-    stc
-    jmp short .out
-.found:
-    mov ax, si                  ; AL = (SI - PROPOFF) / 32, the index
-    sub ax, [bz_poff]
+    xor ch, ch                  ; [BX, CX) holds it
+.bs:
+    cmp bx, cx
+    jae .lb
+    mov si, bx
+    add si, cx
+    shr si, 1                   ; the middle
+    push si
+    shl si, 1
+    cmp [bz_okey + si], dx
+    pop si
+    jb .up
+    mov cx, si
+    jmp short .bs
+.up:
+    lea bx, [si + 1]
+    jmp short .bs
+.lb:
+    cmp bl, [bz_nprop]
+    jae .none
+    mov si, bx
+    shl si, 1
+    cmp [bz_okey + si], dx
+    jne .none
+    mov al, [bz_oidx + bx]      ; AL the index, AH its kind
+    xor ah, ah
+    mov si, ax
     mov cl, 5
-    shr ax, cl
+    shl si, cl
+    add si, [bz_poff]
     mov ah, [es:si + BZP_KIND]
     clc
+    jmp short .out
+.none:
+    stc
 .out:
     pop si
     pop cx
+    pop bx
+    ret
+
+; bz_obuild - the owners' index (SPEC.md 128.19.10), at bz_pinit: every
+; record's anchor (wx | wy << 8) in bz_okey and its index in bz_oidx, sorted by
+; INSERTION, stable - an anchor equal to an earlier one goes after it, so the
+; lower bound names the FIRST record of a cell (a clock's units digit), as the
+; scan did.  ES = the course.  Preserves all but the flags.
+bz_obuild:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov si, [bz_poff]
+    xor bx, bx                  ; BX the record
+.i:
+    cmp bl, [bz_nprop]
+    jae .done
+    mov ax, [es:si + BZP_WX]
+    mov di, bx                  ; DI the slot it goes to
+.j:
+    or di, di
+    jz .put
+    push di
+    shl di, 1
+    cmp [bz_okey + di - 2], ax
+    jbe .putp                   ; (equal stays before: stable)
+    mov dx, [bz_okey + di - 2]
+    mov [bz_okey + di], dx
+    pop di
+    mov dl, [bz_oidx + di - 1]
+    mov [bz_oidx + di], dl
+    dec di
+    jmp short .j
+.putp:
+    pop di
+.put:
+    push di
+    shl di, 1
+    mov [bz_okey + di], ax
+    pop di
+    mov [bz_oidx + di], bl
+    add si, BZ_PROPREC
+    inc bx
+    jmp short .i
+.done:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
     ret
 %if BZP_WY != BZP_WX + 1 || BZ_PROPREC != 32
  %error "bz_owner compares a record's (wx, wy) as one word and scales by 32"

@@ -269592,6 +269592,60 @@ One scoped pass over the fourteen BONANZA rows (`os88soak.py -k 'bonanza*'`,
   8a's commit already), and `bonanzawheel`'s leg (6) on the CGA (the
   corner leg's light step, the scene to be made lighter).
 
+#### 128.19.10 Lanes at scale (the owner, 2026-11-15)
+
+*"The screen was planned to show 2-6 actively animating wheel items at once
+... There should not be some hard engine limit on that; things like
+crystals that update once a second we can afford more of. And we should
+certainly not limit maps to 6 items; maps will have much more than 6. That
+is why it has been so important that wheel items offscreen cost nothing or
+next to nothing."* 128.12.4.6's window bound counted every LANE the same, a
+sign that never changes beside a rotor that changes every few steps, and
+the engine's tables held 16 lanes and 32 props a course. Amended so:
+
+1. **Lanes by rate.** A **FAST** lane changes on its own clock: a
+   windmill's rotor. Every other lane is **SLOW**: a clock's digit (once a
+   second), and the EVENT lanes - a flag (when touched), a post's lit
+   frames (when kicked), a node's sign (between plays). The window bounds
+   become: **FAST lanes meeting any window at most 6** (the brief's 2 - 6,
+   unchanged for rotors); **the pose CHANGES that can land on one step
+   among the lanes meeting any window at most `WIN_CHG` = 6** - the
+   rotors' (at most 2, `ROTOR_CHG`, unchanged), every clock digit meeting
+   it (all clocks count the same second, so their digits change on the
+   same step) and 1 for the event lanes together (a ball touches one thing
+   at a time); and **FAST lanes in the walk's range at most 8**. SLOW lanes
+   are otherwise UNBOUNDED; the tool prints each course's most lanes in a
+   window and in a range. The wheel's candidate list holds `WIN_CHG`
+   (`bz_wcl`, already six; a seventh would wait a frame, never be lost).
+2. **The tables sized by the courses.** `BZ_PROPMAX` (lanes) and
+   `BZ_PROPALL` (props) are the LARGEST any course of the build has (even,
+   at least 2), written by the tool into `bzcourse.inc`; the guest's
+   per-lane tables (about 40 bytes of bss a lane) and per-prop ones follow
+   them, so a byte is spent only when a course needs it. Ceilings: 255
+   props and 255 lanes (the byte indexes, `bz_nprop`, `bz_nlane`); a
+   course's real limit is its part (65,024 bytes, 128.14.6; the owner:
+   *"we'll try 64k first, and see if it is enough"*).
+3. **A full write syncs the SHOWN window's lanes only** (`bz_lfull`): a lane
+   whose block rows do not meet the new window keeps its drawn pose, and
+   the walk brings it to its true one when it enters the range, two block
+   rows before it can be shown (128.12.5.2 step 2). Its skips are left
+   unread: `bz_lcks` and `bz_lcsec` are set to values no flag or clock
+   matches, so the next walk reads every flag and clock in its range.
+4. **A prop's cell finds its record without a scan** (`bz_owner`): at
+   `bz_pread` (once a play) the records' anchors are sorted into
+   `bz_okey` (a word key, wx | wy << 8) and `bz_oidx` (the record's index), three
+   bytes a prop), and the window's refill BINARY-searches it - about 7
+   compares for 100 props against 100.
+5. **No clock cap**: `CLOCK_MAX` goes (a clock's number is a byte).
+
+**Proved by**: `--selfcheck` (the bounds' new controls: a seventh FAST
+lane refused, a window of slow lanes accepted, the change bound's
+arithmetic); `bonanzawheel`, `bonanzaring` and `bonanzaphys` (the walk,
+the full write and the owners on today's courses); and a STRESS course in
+a private tree (many slow lanes on one screen and in the range, many props
+off it), MEASURED on MartyPC's 8088: the walk's cost a frame with them,
+and the refill's.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
