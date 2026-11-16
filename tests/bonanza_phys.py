@@ -963,6 +963,12 @@ def play_demo_keys():
     return d["ball"], [k for k, n, _t in d["runs"] for _ in range(n)]
 
 
+def probe_bit(p):
+    """the PROBE element's TOUCHED bit (its FSB: GLASS's crack bytes are laid first, SPEC.md 128.25.18)"""
+    b = next(pr["fsb"] for pr in p.props if pr["kind"] == BB.FAM_K0)
+    return p.fst[b >> 3] >> (b & 7) & 1
+
+
 def probe_keys():
     """the `probe` scenario: PLAYGROUND's demo to 30 steps after the step its
     PROBE element is first ENTERED (its TOUCHED bit set), one RETURN (back to
@@ -971,28 +977,201 @@ def probe_keys():
     the first ENTER's step)"""
     mat, keys = play_demo_keys()
     p = BB.Physics(R.course("play"), play=True, mat=mat)
+    touched = lambda p: probe_bit(p)
     for i, k in enumerate(keys):
         p.step(k)
-        if p.fam and p.fst[0]:
+        if p.fam and touched(p):
             break
     else:
         raise AssertionError("PLAYGROUND's demo never enters its probe")
     out = keys[:i + 31] + [BB.K_RET]
     for k in out[i + 1:]:
         p.step(k)
-    assert p.nret == 1 and not p.fst[0], "the RETURN did not clear the probe"
+    assert p.nret == 1 and not touched(p), "the RETURN did not clear the probe"
     for _ in range(400):
         out.append(K.K_L | K.K_U)
         p.step(K.K_L | K.K_U)
-        if p.fst[0]:
+        if touched(p):
             break
     else:
         raise AssertionError("-wx from the start never enters the probe")
     return mat, out + [0] * 30, i
 
 
+# GLASS (SPEC.md 128.25.8, 128.25.18): a DRIVER that writes a key log by steering the model, so the
+# scenario is the model's own and the guest is held to it.  Cells are PLAYGROUND's glass section's.
+KX = {(1, 0): K.K_R | K.K_D, (0, 1): K.K_L | K.K_D, (1, 1): K.K_D, (-1, -1): K.K_U, (1, -1): K.K_R,
+      (-1, 1): K.K_L, (-1, 0): K.K_L | K.K_U, (0, -1): K.K_R | K.K_U, (0, 0): 0}
+
+
+class _Drv:
+    def __init__(self, c, mat):
+        self.p = BB.Physics(c, play=True, mat=mat)
+        self.keys, self.rev = [], {}
+
+    def k(self, key, n=1):
+        for _ in range(n):
+            self.keys.append(key)
+            self.p.step(key)
+            p = self.p
+            if p.fam:                           # each glass tile's first REVEALED step
+                for pr in p.props:
+                    if pr["kind"] == BB.FK_GLASS and pr["at"] not in self.rev and p.fpose(pr):
+                        self.rev[pr["at"]] = len(self.keys)
+
+    def pos(self):
+        return self.p.gx / 4096.0, self.p.gy / 4096.0
+
+    def go(self, tx, ty, vcap=384, n=900, until=None):
+        """steer the centre to (tx, ty), cell units, at most vcap a step: each axis wants the speed it can
+        still stop from (a square root of the distance), Shift held when it is far over"""
+        nf0 = self.p.nfall
+        for _ in range(n):
+            x, y = self.pos()
+            if until is not None and until():
+                return
+            if abs(x - tx) < 0.12 and abs(y - ty) < 0.12 and abs(self.p.gvx) < 16 and abs(self.p.gvy) < 16:
+                return
+            a, grip = [], False
+            for d, v in ((tx - x, self.p.gvx), (ty - y, self.p.gvy)):
+                want = min(vcap, 130 * abs(d) ** 0.5, 400 * abs(d))
+                want = want if d > 0 else -want
+                a.append(1 if v < want - 12 else (-1 if v > want + 12 else 0))
+                grip = grip or abs(v) > abs(want) + 60
+            self.k(KX[tuple(a)] | (K.K_GRIP if grip else 0))
+            if self.p.nfall > nf0:
+                return
+
+    def line(self, dx, vcap, stopx, n=900):
+        """along the row the centre is on, toward dx, until the centre passes stopx or the ball falls"""
+        y, nf = int(self.pos()[1]) + 0.5, self.p.nfall
+        self.go(-20 if dx < 0 else 40, y, vcap, n,
+                until=lambda: self.p.nfall > nf or (self.pos()[0] <= stopx if dx < 0 else self.pos()[0] >= stopx))
+
+    def st(self):
+        p = self.p
+        return {"cell": (p.gx >> 12, p.gy >> 12), "fst": bytes(p.fst), "nfall": p.nfall, "mat": p.mat,
+                "n": len(self.keys)}
+
+
+GLASS_CRACKS = ((6, 24), (7, 24), (8, 24), (9, 24))
+GLASS_PATH = ((9, 27), (8, 27), (7, 27), (6, 27))
+
+
+def glass_keys():
+    """the `glass` scenario: PLAYGROUND's glass section, every ball on its cracks and its glass path ->
+    (material, keys, [(what, state)], {glass cell: its first revealed step})"""
+    d = _Drv(R.course("play"), BB.MAT_RUBBER)
+    ms = []
+
+    def mark(what):
+        ms.append((what, d.st()))
+    d.go(21.5, 24.5)
+    d.go(11.5, 24.5)
+    d.line(-1, 70, -99)
+    mark("rubber slow")                         # rolled on slowly: counted, broke, fell; the respawn restores
+    d.go(20.5, 24.5)
+    d.line(-1, 384, 5.6)
+    d.go(4.5, 24.5)
+    mark("rubber fast")                         # across all four at speed, each broken behind it
+    d.go(5.5, 24.5)
+    d.go(5.5, 27.5)
+    d.line(1, 90, 10.6)
+    d.go(11.5, 27.5)
+    mark("glass path")                          # back east by the glass path: revealed tile by tile
+    d.go(11.5, 24.5)
+    d.line(-1, 90, -99)
+    mark("rubber through")                      # into the broken crack: a fall, and the respawn restores
+    d.go(12.5, 24.5)
+    d.line(-1, 150, 10.9)
+    d.k(K.K_HOP)
+    d.k(0, 60)
+    mark("rubber hop")                          # a Hop's landing on a whole crack breaks it at once
+    for mat, pad in ((BB.MAT_STEEL, (22.5, 25.5)),):
+        d.k(0, 60)
+        d.go(14.5, 25.5)
+        d.go(*pad)
+        d.k(0, 2)
+        d.go(11.5, 24.5)
+        d.line(-1, 80, -99)
+        mark("steel slow")
+        d.go(22.5, 24.5)
+        d.line(-1, 384, 5.6)
+        d.go(4.5, 24.5)
+        mark("steel fast")
+        d.go(5.5, 24.5)
+        d.go(5.5, 27.5)
+        d.line(1, 120, 10.6)
+        d.go(11.5, 27.5)
+        d.go(11.5, 24.5)
+        d.line(-1, 90, -99)
+        mark("steel through")
+        d.go(12.5, 24.5)
+        d.line(-1, 150, 10.9)
+        d.k(K.K_HOP)
+        d.k(0, 60)
+        mark("steel hop")
+    d.k(0, 60)
+    d.go(14.5, 26.5)
+    d.go(22.5, 27.5)
+    d.k(0, 2)
+    d.go(11.5, 24.5)
+    mark("glass at")
+    for _r in range(2):                         # glass rolls across and back, twice: never broken
+        d.line(-1, 120, 5.2)
+        d.go(4.5, 24.5)
+        d.line(1, 120, 10.7)
+        d.go(11.5, 24.5)
+    mark("glass rolled")
+    for hop in range(2):                        # glass's landings: the first cracks it, the second breaks it
+        d.go(11.6, 24.5)
+        d.line(-1, 110, 10.45)
+        d.k(K.K_HOP)
+        d.k(0, 40)
+        mark("glass hop %d" % (hop + 1))
+        if hop == 0:
+            d.go(11.5, 24.5)
+    d.k(0, 30)
+    return BB.MAT_RUBBER, d.keys, ms, d.rev
+
+
+def glass_verdict(ms, rev, p):
+    """-> (ok, a line): every milestone as SPEC.md 128.25.8's table says"""
+    m = dict(ms)
+    k = [p.props[i]["fsb"] >> 3 for i in range(len(p.props)) if p.props[i]["kind"] == BB.FK_CRACK]
+    cr = lambda st: bytes(st["fst"][j] for j in sorted(k))
+    nine = next(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"] == (9, 24))
+    order = [rev.get(c) for c in GLASS_PATH]
+    checks = [
+        ("rubber slow: fell, restored", m["rubber slow"]["nfall"] == 1 and cr(m["rubber slow"]) == bytes(4)),
+        ("rubber fast: across, all four broken", m["rubber fast"]["nfall"] == 1 and m["rubber fast"]["cell"] == (4, 24)
+         and cr(m["rubber fast"]) == b"\xff" * 4),
+        ("the glass path revealed tile by tile, east from the far side",
+         None not in order and order == sorted(order, reverse=True) and len(set(order)) == 4),
+        ("rubber through: fell, restored", m["rubber through"]["nfall"] == 2 and cr(m["rubber through"]) == bytes(4)),
+        ("rubber hop: broken at the landing", m["rubber hop"]["fst"][nine] == 0xFF),
+        ("steel slow: fell, restored", m["steel slow"]["mat"] == BB.MAT_STEEL
+         and m["steel slow"]["nfall"] > m["rubber hop"]["nfall"] + 0 and cr(m["steel slow"]) == bytes(4)),
+        ("steel fast: across", m["steel fast"]["cell"] == (4, 24) and cr(m["steel fast"]) == b"\xff" * 4
+         and m["steel fast"]["nfall"] == m["steel slow"]["nfall"]),
+        ("steel hop: broken at the landing", m["steel hop"]["fst"][nine] == 0xFF),
+        ("glass rolled across twice: whole", m["glass rolled"]["mat"] == BB.MAT_GLASS
+         and m["glass rolled"]["nfall"] == m["glass at"]["nfall"] and cr(m["glass rolled"]) == bytes(4)),
+        ("glass's first landing cracks it", m["glass hop 1"]["fst"][nine] == 1),
+        ("glass's second breaks it: a fall", m["glass hop 2"]["nfall"] == m["glass hop 1"]["nfall"] + 1),
+    ]
+    bad = [w for w, ok in checks if not ok]
+    return not bad, ("every rule as 128.25.8 says (%d checks; revealed at steps %s)" % (len(checks), order)
+                     if not bad else "NOT: " + "; ".join(bad))
+
+
 def w9_replays():
     S = []
+    mat, keys, ms, rev = glass_keys()
+    p = run_keys("play", mat, None, keys)
+    ok, what = glass_verdict(ms, rev, p)
+    S.append({"name": "glass", "crs": "play", "mat": mat, "poke": None, "keys": keys, "red": None,
+              "what": "PLAYGROUND's GLASS section, every ball on its cracks and its glass path: " + what, "ok": ok})
     mat, keys, ent = probe_keys()
     p = run_keys("play", mat, None, keys)
     sl = p.fsl[0] if p.fam else bytes(8)
@@ -1000,7 +1179,7 @@ def w9_replays():
               "what": "PLAYGROUND's PROBE: entered at step %d, a RETURN 30 steps later clears its RESPAWN bit, "
                       "-wx from the start enters it again (RESETs %d, ENTERs %d, CONTACTs %d, STEPs %d)" % (
                           ent + 1, sl[0], sl[1], sl[2] | sl[3] << 8, sl[4] | sl[5] << 8),
-              "ok": bool(p.fam) and p.nret == 1 and sl[0] == 2 and sl[1] == 2 and p.fst[0] == 1 and not p.nfall})
+              "ok": bool(p.fam) and p.nret == 1 and sl[0] == 2 and sl[1] == 2 and probe_bit(p) and not p.nfall})
     return S
 
 
@@ -1037,12 +1216,19 @@ class UGuest:
         mu.mem_write(UCS * 16, open(binp, "rb").read())
         mu.mem_write(UPS * 16, bytes(part))
         mu.mem_write(UCS * 16 + USTUB, b"\xf4")
-        if fam:
-            mu.mem_write(UFS * 16, fam)
+        # FAM: one part (bytes: op_seg and op_cseg answer UFS whatever the row) or [(row, part), ...] (GLASS:
+        # PLAYGROUND names two; each at its own segment, op_seg and op_cseg answering AL's row's)
+        fams = [(None, fam)] if isinstance(fam, (bytes, bytearray)) else list(fam or ())
+        stub = b""
+        for j, (row, part) in enumerate(fams):
+            mu.mem_write((UFS + 0x200 * j) * 16, bytes(part))
+            if row is not None:                 # cmp al, row / jne +4 / mov ax, seg / ret
+                stub += b"\x3c" + bytes((row,)) + b"\x75\x04\xb8" + struct.pack("<H", UFS + 0x200 * j) + b"\xc3"
+        stub += b"\xb8" + struct.pack("<H", UFS) + b"\xc3"
         op = lst_syms(lst, ("op_fetch", "op_seg", "op_cseg", "bz_toast"))
         for n in ("op_seg", "op_cseg"):
             if n in op:
-                mu.mem_write(UCS * 16 + op[n], b"\xb8" + struct.pack("<H", UFS) + b"\xc3")
+                mu.mem_write(UCS * 16 + op[n], stub)
         if "op_fetch" in op:
             mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
         mu.mem_write(UCS * 16 + op["bz_toast"], b"\xf4")
@@ -1132,11 +1318,31 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=()):
     return p, bad
 
 
+def fam_parts(lst, nocell=()):
+    """PLAYGROUND's family parts as UGuest takes them: [(row, part)] in FAMILIES' order, each row BZ_P_FAM +
+    ID - 1 (BZ_P_FAM read off bz_cdrop's `cmp al, BZ_P_FAM` in the listing); NOCELL: the families whose CELL
+    entry is zeroed (the red arms)"""
+    import re
+    pfam = None
+    for ln in open(lst):
+        m = re.match(r"\s*\d+\s+[0-9A-F]{8}\s+3C([0-9A-F]{2})\s+cmp al, BZ_P_FAM\b", ln)
+        if m:
+            pfam = int(m.group(1), 16)
+    assert pfam is not None, "bz_cdrop's cmp al, BZ_P_FAM is not in the listing"
+    out = []
+    for f in BB.FAMILIES:
+        b = bytearray(open(R.at("build/bzf-%s.bin" % f["name"]), "rb").read())
+        if f["name"] in nocell:
+            b[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
+        out.append((pfam + f["id"] - 1, bytes(b)))
+    return out
+
+
 def fam_host():
     """--check's unicorn half (SPEC.md 128.25.13 bonanzaphys) -> failure lines"""
     sym = R.symbols()
     binp, lst = R.at("build/bonanza.bin"), R.at("build/bonanza.lst")
-    fam = open(R.at("build/bzf-probe.bin"), "rb").read()
+    fam = fam_parts(lst)
     out, fails = [], []
     mat, keys = play_demo_keys()
     p, bad = urun(binp, lst, sym, "play", mat, keys, fam)
@@ -1154,12 +1360,22 @@ def fam_host():
         p, bad = urun(binp, lst, sym, crs, d["ball"], kk)
         out.append("%s's demo, %d steps, no family: %s" % (crs.upper(), len(kk), "; ".join(bad) or "equal"))
         fails += bad
+    # GLASS (SPEC.md 128.25.8, 128.25.18): its scenario, every step
+    gm, gk, gms, grev = glass_keys()
+    p, bad = urun(binp, lst, sym, "play", gm, gk, fam)
+    gok, gwhat = glass_verdict(gms, grev, p)
+    out.append("the glass scenario, %d steps (%d respawns): %s; %s" % (
+        len(gk), p.nfall, "; ".join(bad) or "the guest is the model at every step", gwhat))
+    fails += bad + ([] if gok else ["the glass scenario: " + gwhat])
     # the red arms, on the unicorn: each must part from the model
-    nocell = bytearray(fam)
-    nocell[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
-    for name, ff, patch, want in (("famcell", bytes(nocell), (), "the window"),
-                                  ("famrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst")):
-        p, bad = urun(binp, lst, sym, "play", mat, k2, ff, patch)
+    for name, ff, patch, want, kk, gmat in (
+            ("famcell", fam_parts(lst, ("probe",)), (), "the window", k2, mat),
+            ("famrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst", k2, mat),
+            # GLASS's: the CELL hook skipped (a broken crack is never VOID in the window: the ball rolls on
+            # over it), the RESPAWN class ignored (the cracks stay broken after a respawn)
+            ("glscell", fam_parts(lst, ("glass",)), (), "the window", gk, gm),
+            ("glsrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst", gk, gm)):
+        p, bad = urun(binp, lst, sym, "play", gmat, kk, ff, patch)
         ok = any(want in b for b in bad)
         out.append("red %s: %s" % (name, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
