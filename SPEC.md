@@ -274161,6 +274161,7 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | `+ 3` | *Windmill Lane* (C, a 3/4 street-organ waltz) | 898 | 581 |
 | `+ 4` | *Moonlit Green* (A minor, swung 102) | 972 | 684 |
 | `+ 5` | *Summit Rush* (E minor, 164) | 1,030 | 763 |
+| `+ 6` | *Victory*, the finish's fanfare (128.22.9) | 224 | 177 (zlib) |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
@@ -274612,14 +274613,69 @@ harness byte, `bz_phforce`).
   bar between them across the route, the bar sinking into the floor over
   poses 1 - 4.
 
-#### 128.22.9 Sounds (PLANNED)
+#### 128.22.9 Sounds (BUILT, the owner's ear still to come)
 
-Five shell events through 128.20's bank and players (the speaker and the
-AdLib): **PAD** (a short chime, arriving), **GATE** (the gate opening,
-about 0.5 s), **LIFE** (a life lost), **OVER** (game over), and the
-**VICTORY** tune: a short song of at most `FIN_STEPS` sub-ticks
-(`apps/bonanza/music/victory.bmu`), played over the finish sequence in the
-course song's place. Rolling makes no sound.
+Four shell events through 128.20's bank and both players (the speaker and the
+AdLib) and the VICTORY tune. Nothing in the players changed: an event is an
+effect in `bank.bmb` and a column of the event map, the tune a song. Rolling
+makes no sound.
+
+| event (`BZS_EV_*` = the generated `BZS_E_*`) | effect | sub-ticks | shape | prio |
+|---|---|---|---|---|
+| `BZS_EV_PAD` = `BZS_E_ARRIVE` (the marble arrives on a pad) | `chime` | 12 (0.22 s) | a glockenspiel G6 then C7, a bright rising pair | 4 |
+| `BZS_EV_GATE` = `BZS_E_GATE` (a gate opens) | `gate` | 27 (0.49 s) | a glass slide from C4 up ~2 octaves (22/16 semitone a sub-tick, a shimmer of jitter), then a C7 ping and an E7 ring | 5 |
+| `BZS_EV_LIFE` = `BZS_E_LIFE` (a life lost) | `lifelost` | 22 (0.40 s) | rubber's E5, C5, G4, then E4 sagging | 6 |
+| `BZS_EV_OVER` = `BZS_E_OVER` (game over) | `gameover` | 82 (1.50 s) | the bell: A4, E4, C4, A3 (A minor falling), then a long A2 toll | 7 |
+
+All four are `all=` (one effect for the three balls), and none is the wave-7
+`PAD` (a pad's swap, `BZS_E_PAD`): the new name is `ARRIVE` because 128.18.6
+took `PAD`. **Calling one**: `mov al, BZS_EV_x` then `call bzs_ev` - the
+shared-effect trigger `bzs_events` uses for the clock, with the material
+column 0; it does nothing with no arm open (sound OFF, a part not had), works
+in the bracket and over the desktop's title, and preserves every register.
+LIFE outranks the FALL before it, OVER outranks LIFE, and one effect plays at
+a time as everywhere (128.20.5).
+
+**The tune.** `apps/bonanza/music/victory.bmu`, appended to the tool's
+`SONGS` and the Makefile's `BZ_SONGS` (song `BZ_SONG_VICTORY`, in the
+generated `bzsnd.inc`; part row `BZ_P_SONG + BZ_SONG_VICTORY`): C major at
+164 BPM (a row is five sub-ticks), two patterns of 11 rows = **exactly 110
+sub-ticks** (`BZ_FIN_STEPS`), a trumpet lead climbing a C triad and landing
+on C, then IV - V - I and the C held to sub-tick 109, over a plucked bass,
+off-beat chord stabs and a drum roll; a **third pattern of silence is the
+last order row and `loop` points at it**, so the song does not repeat. On
+the speaker the lead is the whole tune (the fold: effect, drum blip, lead,
+bass where the lead rests) - the selfcheck holds that the speaker plays
+every lead note's Hz in order. **`bzs_victory`** starts it: the course's
+song given back, the fanfare fetched into the same song claim and started
+from its top (`bzs_gfetch`'s own calls), so `bzs_gdrop0` gives it back
+unchanged; one part read inside the finish's hold; nothing under EFFECTS
+ONLY or with no arm; a part that cannot be had leaves the effects playing and
+the music silent. The finish sequence calls it once.
+
+`NON_COURSE` in `tools/bbmusic.py` (`victory`, and the title session's
+`attract`) keeps a course from wrapping onto either: `bbcourse.course_song`
+counts the songs that are not in it.
+
+**Found on the way, fixed**: `bbmusic.py` read `;` only as a comment, so
+every multi-segment effect in the bank kept ONE segment (the last of a
+continued line, the first of a one-line one): wave 2's clanks, the boost, the
+goal, the flag. A `;` after content and followed by nothing or `t=` is now
+the segment separator. That makes 21 effects longer than they have been
+(**BZSND.BIN +276 bytes** from the fix alone) and is the owner's ear to
+confirm.
+
+**MEASURED** (the tool, the build): the effects' records 15, 21, 27 and 33
+bytes, **BZSND.BIN +108 bytes for the four** (1,248 with the fix, 1,356
+with them; 972 before the fix); **the song 224 bytes** (177 under zlib) in its
+own part; **the resident image +80 bytes** (`bonanza.bin` 36,184 to 36,264:
+`bzs_ev`, `bzs_victory` and their names), bss +0; the package 87,790 to
+88,302 bytes. The per-sub-tick path is the existing effect segment's and
+the song's, unchanged, so a sub-tick with a new event costs what the same
+length of an existing effect does (128.20.7); **not measured on MartyPC
+here** (`bonanzasound` prices a frame and runs in the final pass).
+Host renders of each event and the tune, speaker and AdLib, are
+`~/Repos/8r-logs/sound-renders/`. Nothing here has been HEARD.
 
 #### 128.22.10 The rows (PLANNED)
 

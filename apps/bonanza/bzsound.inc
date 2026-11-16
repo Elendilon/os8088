@@ -361,6 +361,74 @@ bzs_gdrop0:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; WAVE 8R (SPEC.md 128.22.9): the shell's four events and the finish's tune
+; -----------------------------------------------------------------------------
+BZS_EV_PAD  equ BZS_E_ARRIVE    ; the marble arrives on a pad: a bright chime
+BZS_EV_GATE equ BZS_E_GATE      ; a gate opens: a rising crystal slide, 0.5 s
+BZS_EV_LIFE equ BZS_E_LIFE      ; a life lost: a short falling motif
+BZS_EV_OVER equ BZS_E_OVER      ; game over: a minor descent, 1.5 s
+
+; bzs_ev - event AL (BZS_EV_*, any BZS_E_*) played as a SHARED effect, the way
+; bzs_events plays the clock's: nothing when no arm is open (sound OFF, a part
+; not had).  Callable in the bracket and over the desktop's title.  Preserves
+; all.  (An event is `mov al, BZS_EV_x` / `call bzs_ev`: 5 bytes a site.)
+bzs_ev:
+    cmp byte [bzs_arm], BZS_A_NONE
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    xor ah, ah                  ; (these map one effect to all three balls)
+    call bzs_trig0
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; bzs_victory - THE FINISH'S TUNE: the course's song given back and the
+; VICTORY fanfare (BZ_SONG_VICTORY, at most 110 sub-ticks, it does not loop)
+; fetched and started from its top - bzs_gfetch's own two calls, so the song
+; part is still the one claim, and bzs_gdrop0 gives this one back.  One part
+; read (a disk call on the floppy) inside the finish's hold.  Nothing under
+; EFFECTS ONLY or with no arm; a part that cannot be had leaves the effects
+; playing and the music silent.  Preserves all.
+bzs_victory:
+    cmp byte [bzs_arm], BZS_A_NONE
+    je .r
+    cmp byte [bzs_mode], BZS_M_FX
+    jae .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov al, [bzs_song]
+    call bzs_dsong
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY
+    call bzs_fsong
+    call bzs_rstart             ; (no song part: live stays 0, silence)
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
 ; bzs_fsnd - the sound part fetched and its tables read.  CF = 1 it could not
 ; be had.  Clobbers AX, BX, CX, DX, SI, DI, ES.
 bzs_fsnd:
