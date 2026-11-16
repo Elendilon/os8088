@@ -624,6 +624,198 @@ def herc_translate_ball(part, table=None):
     return bytes(b)
 
 
+
+# =============================================================================
+# wave 9 (SPEC.md 128.25.5): BZB3, the ball part's STORED form.  BZB2's header,
+# zeros, and a BLOCK at the head of the squash slot (BG_BLK) which the guest's
+# bz_ballgen (apps/bonanza/bzballgen.inc) expands, in place and forwards, into
+# BZB2 byte for byte; glass's shatter entries stay as they are (literal).
+# =============================================================================
+
+BG_BLK = B2_SQOFF
+BG_T, BG_CLO, BG_CHI, BG_O = 0, 2, 34, 66
+BG_SQ0, BG_SQ1, BG_STR, BG_SHD, BG_SX = 98, 115, 132, 149, 166
+BG_PRE = 182                       # the prefix the guest copies to scratch
+BG_G = 182                         # the phase table: 8 x 16 words, f-major
+BG_LEN = BG_G + 256
+V2_CFG = ((2560, 512), (2, None), (21, 16))     # (T, scale) a material
+
+
+def _dd(p, f):
+    return (R_ * math.asin((p + 0.5 - R_) / R_) - f) % P - 3.5
+
+
+def _tex_classes(mat):
+    """(Clo, Chi, O) planes: the template over all 64 frames - O opaque; the
+    low/high planes the CONSTANT colour (white, or the base colour of a tex pixel)"""
+    clo, chi, op = [], [], []
+    for r in range(D):
+        lo = hi = o = 0
+        for x in range(D):
+            cols = {material_frame(mat, f & 7, f >> 3)[r][x] for f in range(NFRAMES)}
+            if cols in ({2, 3}, {1, 3}):
+                b = min(cols); l, h, q = b & 1, b >> 1, 1
+            elif cols == {3}:
+                l, h, q = 1, 1, 1
+            elif cols == {0}:
+                l, h, q = 0, 0, 1
+            else:
+                l, h, q = 0, 0, 0
+            lo, hi, o = lo << 1 | l, hi << 1 | h, o << 1 | q
+        clo.append(lo); chi.append(hi); op.append(o)
+    return clo, chi, op
+
+
+def phase_table(mat):
+    T, S = V2_CFG[mat]
+    out = []
+    for f in range(8):
+        for x in range(D):
+            if mat == MAT_STEEL:
+                out.append(0 if abs(_dd(x, f)) < 1.0 else 1)
+            else:
+                out.append(min(round(_dd(x, f) ** 2 * S), T))
+    return T, out
+
+
+def _nrows(shape, rows):
+    out = []
+    for y in range(rows):
+        xs = [x for x in range(D) if shape(x, y)]
+        assert xs == list(range(8 - len(xs) // 2, 8 + len(xs) // 2)), (y, xs)
+        out.append(len(xs) // 2)
+    return out
+
+
+def shape_tables():
+    sq = []
+    for k in range(NSQ):
+        ns = [0] * (D - SQ_ROWS[k]) + _nrows(lambda x, y, k=k, t=D - SQ_ROWS[k]: _squash_shape(k, x, y + t), SQ_ROWS[k])
+        sq.append(bytes([SQ_ROWS[k]] + ns))
+    st = bytes([D] + _nrows(_stretch_shape, D))
+    sh = bytes([D] + _nrows(_shadow_in, SHD_ROWS) + [0] * (D - SHD_ROWS))
+    x0 = (D - ST_W) // 2
+    sx = bytes((min(D - 1, int((x - x0 + 0.5) * D / ST_W)) if x >= x0 else 0) + 1 for x in range(D))
+    return sq[0], sq[1], st, sh, sx
+
+
+def build_ball3(mat):
+    """BZB3: BZB2's size, its header, zeros, the block, glass's shatter as is"""
+    ref = build_ball2(mat)
+    clo, chi, op = _tex_classes(mat)
+    T, tab = phase_table(mat)
+    sq0, sq1, st, sh, sx = shape_tables()
+    if mat != MAT_RUBBER:
+        st = bytes(17); sx = bytes(16)
+    blk = struct.pack("<H", T)
+    for pl in (clo, chi, op):
+        blk += struct.pack("<16H", *pl)
+    blk += sq0 + sq1 + st + sh + sx
+    assert len(blk) == BG_PRE
+    blk += struct.pack("<128H", *tab)
+    assert len(blk) == BG_LEN
+    out = bytearray(len(ref))
+    out[:HDR] = ref[:HDR]
+    out[BG_BLK:BG_BLK + BG_LEN] = blk
+    if mat == MAT_GLASS:
+        out[B2_SHAOFF:] = ref[B2_SHAOFF:]
+    return bytes(out)
+
+
+# the generator's HOST MODEL (the same planes and order as bzballgen.inc; the
+# emulated-8086 proof is tools/bzballchk.py)
+def _spread(w):
+    v = 0
+    for i in range(16):
+        v = v << 2 | (3 if (w >> (15 - i)) & 1 else 0)
+    return v
+
+
+def _inter(hi, lo):
+    v = 0
+    for i in range(16):
+        v = v << 2 | ((hi >> (15 - i)) & 1) << 1 | (lo >> (15 - i)) & 1
+    return v
+
+
+def _put5(v32, s, fill1):
+    v = (v32 << 8) | (0xFF if fill1 else 0)
+    top = ((1 << 2 * s) - 1 << 40 - 2 * s) if fill1 else 0
+    return (((v >> 2 * s) | top) & (1 << 40) - 1).to_bytes(5, "big")
+
+
+def model_ball3(stored):
+    """BZB3 -> BZB2 by the guest's algorithm"""
+    mat = stored[10]
+    b = stored[BG_BLK:BG_BLK + BG_LEN]
+    w = lambda o: struct.unpack_from("<H", b, o)[0]
+    T = w(0)
+    clo = [w(BG_CLO + 2 * i) for i in range(16)]
+    chi = [w(BG_CHI + 2 * i) for i in range(16)]
+    op = [w(BG_O + 2 * i) for i in range(16)]
+    G = [w(BG_G + 2 * i) for i in range(128)]
+    out = bytearray(stored)
+    bh = 0xFFFF if mat == MAT_RUBBER else 0
+    qlo = [0] * 16; qhi = [0] * 16
+    for s in range(SHIFTS):
+        for r in range(D):
+            o = B2_MASKOFF + (s * D + r) * RB
+            out[o:o + RB] = _put5(_spread(~op[r] & 0xFFFF), s, True)
+    for f in range(NFRAMES):
+        fx, fy = f & 7, f >> 3
+        for r in range(D):
+            ink = 0
+            for x in range(D):
+                ink = ink << 1 | (G[fx * 16 + x] + G[fy * 16 + r] < T)
+            ink &= clo[r] ^ chi[r]
+            lo, hi = clo[r] | ink, chi[r] | ink
+            if f == 0:
+                qlo[r] = lo | (~bh & ~op[r] & 0xFFFF)
+                qhi[r] = hi | (bh & ~op[r] & 0xFFFF)
+            o = B2_FRMOFF + (f * D + r) * RB
+            out[o:o + RB] = _put5(_inter(hi, lo), f & 3, False)
+    tabs = [b[BG_SQ0:BG_SQ0 + 17], b[BG_SQ1:BG_SQ1 + 17], b[BG_STR:BG_STR + 17]]
+    sxt = b[BG_SX:BG_SX + 16]
+    o = B2_SQOFF
+
+    def S_of(n):
+        return ((1 << 2 * n) - 1 << 8 - n) & 0xFFFF if n else 0
+
+    def entry(tab, o):
+        h = tab[0]
+        S = [0] + [S_of(n) for n in tab[1:]] + [0]
+        chk = 0xAAAA if mat == MAT_GLASS else 0
+        pl = []
+        for y in range(D):
+            s_ = S[y + 1]
+            i = s_ & (s_ << 1 & 0xFFFF) & (s_ >> 1) & S[y] & S[y + 2]
+            k = chk & i
+            chk = (chk >> 1 | chk << 15) & 0xFFFF
+            sy = 15 - (15 - y) * 16 // h
+            pl.append((s_ ^ k, qlo[sy] & (i ^ k), qhi[sy] & (i ^ k)))
+        for s in range(SHIFTS):
+            e = b"".join(_put5(_spread(~p[0] & 0xFFFF), s, True) for p in pl)
+            e += b"".join(_put5(_inter(p[2], p[1]), s, False) for p in pl)
+            out[o:o + 2 * len(e)] = e + e
+            o += 2 * len(e)
+        return o
+
+    o = entry(tabs[0], o)
+    o = entry(tabs[1], o)
+    S = [S_of(n) for n in b[BG_SHD + 1:BG_SHD + 17]]
+    for p in range(2):
+        for s in range(SHIFTS):
+            for r in range(SHD_ROWS):
+                chk = 0xAAAA if (s + p + r) % 2 == 0 else 0x5555
+                out[o:o + RB] = _put5(_spread(~(S[r] & chk) & 0xFFFF), s, True)
+                o += RB
+    if mat == MAT_RUBBER:
+        qlo = [sum(((q >> 15 - (sxt[x] - 1)) & 1) << 15 - x for x in range(16)) for q in qlo]
+        qhi = [sum(((q >> 15 - (sxt[x] - 1)) & 1) << 15 - x for x in range(16)) for q in qhi]
+        entry(tabs[2], B2_STROFF)
+    return bytes(out)
+
+
 def _paras(n):
     return (n + 15) // 16
 
@@ -660,6 +852,19 @@ def emit_const():
         "BZ_BAL_SIZER    equ %d      ; rubber" % B2_SIZE[0],
         "BZ_BAL_SIZE     equ %d      ; steel" % B2_SIZE[1],
         "BZ_BAL_SIZEG    equ %d     ; glass" % B2_SIZE[2],
+        "; BZB3's block (SPEC.md 128.25.5): at the head of the squash slot",
+        "BZ_BG_BLK       equ %d" % BG_BLK,
+        "BZ_BG_T         equ %d" % BG_T,
+        "BZ_BG_CLO       equ %d" % BG_CLO,
+        "BZ_BG_CHI       equ %d" % BG_CHI,
+        "BZ_BG_O         equ %d" % BG_O,
+        "BZ_BG_SQ0       equ %d" % BG_SQ0,
+        "BZ_BG_SQ1       equ %d" % BG_SQ1,
+        "BZ_BG_STR       equ %d" % BG_STR,
+        "BZ_BG_SHD       equ %d" % BG_SHD,
+        "BZ_BG_SX        equ %d" % BG_SX,
+        "BZ_BG_PRE       equ %d      ; the prefix copied to scratch" % BG_PRE,
+        "BZ_BG_G         equ %d      ; the phase table (read in place)" % (BG_BLK + BG_G),
         "",
     ]
     return "\n".join(lines)
