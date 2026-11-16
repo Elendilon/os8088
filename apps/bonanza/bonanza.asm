@@ -804,6 +804,7 @@ bz_cload:
     jc .drop
     mov al, [bz_pb]
     call op_seg
+    call bz_ballgen             ; BZB3 -> BZB2 in place (wave 9, SPEC.md 128.25.5): AX, ES kept
     mov bl, [bz_pb]
     sub bl, BZ_P_BALR
     xor bh, bh
@@ -4842,6 +4843,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzphys.inc"
 %include "bzsound.inc"
 %include "bzmenu.inc"           ; SPEC.md 128.26: the window's button, menus and replays
+%include "bzballgen.inc"        ; the balls generated at fetch (wave 9, 128.25.5)
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
 %endif

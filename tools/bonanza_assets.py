@@ -624,6 +624,243 @@ def herc_translate_ball(part, table=None):
     return bytes(b)
 
 
+
+# =============================================================================
+# wave 9 (SPEC.md 128.25.5): BZB3, the ball part's STORED form.  BZB2's header,
+# zeros, and a BLOCK at the head of the squash slot (BG_BLK) which the guest's
+# bz_ballgen (apps/bonanza/bzballgen.inc) expands, in place and forwards, into
+# BZB2 byte for byte; glass's shatter entries stay as they are (literal).
+# =============================================================================
+
+BG_BLK = B2_SQOFF
+BG_NP, BG_CLO, BG_CHI, BG_O = 0, 2, 34, 66
+BG_SQ0, BG_SQ1, BG_STR, BG_SHD, BG_SX = 98, 115, 132, 149, 166
+BG_PRE = 182                       # the prefix the guest copies to scratch
+BG_XR = 182                        # the x side's ranks, 16 x 8 bytes, COLUMN-major: (R' + 1) * BG_PSTR
+BG_YE = BG_XR + 128                # the y side's thresholds, 8 x 16 bytes, fy-major: E' * BG_PSTR
+BG_LEN = BG_YE + 128
+BG_PSTR = 6                        # the guest's mask table: an entry's bytes
+BG_PMAX = 25                       # ...and its entries at most (bz_boxbuf's room)
+V2_CFG = ((2560, 512), (2, None), (21, 16))     # (T, scale) a material
+
+
+def _dd(p, f):
+    return (R_ * math.asin((p + 0.5 - R_) / R_) - f) % P - 3.5
+
+
+def _tex_classes(mat):
+    """(Clo, Chi, O) planes: the template over all 64 frames - O opaque; the
+    low/high planes the CONSTANT colour (white, or the base colour of a tex pixel)"""
+    clo, chi, op = [], [], []
+    for r in range(D):
+        lo = hi = o = 0
+        for x in range(D):
+            cols = {material_frame(mat, f & 7, f >> 3)[r][x] for f in range(NFRAMES)}
+            if cols in ({2, 3}, {1, 3}):
+                b = min(cols); l, h, q = b & 1, b >> 1, 1
+            elif cols == {3}:
+                l, h, q = 1, 1, 1
+            elif cols == {0}:
+                l, h, q = 0, 0, 1
+            else:
+                l, h, q = 0, 0, 0
+            lo, hi, o = lo << 1 | l, hi << 1 | h, o << 1 | q
+        clo.append(lo); chi.append(hi); op.append(o)
+    return clo, chi, op
+
+
+def rank_tables(mat):
+    """the phase sum's test RANK-CODED (SPEC.md 128.25.5.1): ink at column x of
+    roll phase fx, row j = fy * 16 + r, is G[fx][x] + G[fy][r] < T, which is
+    R'[fx][x] < E'[j] for small integers: R the rank of G among its distinct
+    values, E the count of distinct values under T - G[j]; cuts that split no
+    rank merged; a row whose ink is empty for every fx given E' 0.  Returns
+    (NP, XR, YE): XR = (R' + 1) * BG_PSTR, YE = E' * BG_PSTR (the guest's mask
+    table offsets), NP = the table's entries (K + 2)"""
+    T, G = phase_table(mat)
+    clo, chi, op = _tex_classes(mat)
+    W = sorted(set(G))
+    R = [W.index(g) for g in G]
+    E = [sum(1 for w in W if w + g < T) for g in G]
+    for j in range(128):                           # a row with no ink in any phase
+        tex = clo[j & 15] ^ chi[j & 15]
+        if not any(R[fx * 16 + x] < E[j] and tex >> (15 - x) & 1 for fx in range(8) for x in range(D)):
+            E[j] = 0
+    cuts, prev = [], frozenset()
+    for c in sorted(set(E) - {0}):
+        st = frozenset(i for i in range(128) if R[i] < c)
+        if st and st != prev:
+            cuts.append(c)
+            prev = st
+    def cls(c):                                    # the kept cut equivalent to c
+        if c == 0:
+            return 0
+        st = frozenset(i for i in range(128) if R[i] < c)
+        for k, ck in enumerate(cuts):
+            if frozenset(i for i in range(128) if R[i] < ck) == st:
+                return k + 1
+        return 0
+    Ep = [cls(e) for e in E]
+    Rp = [sum(1 for c in cuts if c <= r) for r in R]
+    for fx in range(8):                            # the recoding is exact
+        for j in range(128):
+            assert all((R[fx * 16 + x] < E[j]) == (Rp[fx * 16 + x] < Ep[j]) for x in range(D)
+                       if (clo[j & 15] ^ chi[j & 15]) >> (15 - x) & 1)
+    np_ = len(cuts) + 2
+    if np_ > BG_PMAX:
+        raise AssetError("%s: %d mask entries, the generator holds %d" % (MAT_NAMES[mat], np_, BG_PMAX))
+    return np_, bytes((r + 1) * BG_PSTR for r in Rp), bytes(e * BG_PSTR for e in Ep)
+
+
+def phase_table(mat):
+    T, S = V2_CFG[mat]
+    out = []
+    for f in range(8):
+        for x in range(D):
+            if mat == MAT_STEEL:
+                out.append(0 if abs(_dd(x, f)) < 1.0 else 1)
+            else:
+                out.append(min(round(_dd(x, f) ** 2 * S), T))
+    return T, out
+
+
+def _nrows(shape, rows):
+    out = []
+    for y in range(rows):
+        xs = [x for x in range(D) if shape(x, y)]
+        assert xs == list(range(8 - len(xs) // 2, 8 + len(xs) // 2)), (y, xs)
+        out.append(len(xs) // 2)
+    return out
+
+
+def shape_tables():
+    sq = []
+    for k in range(NSQ):
+        ns = [0] * (D - SQ_ROWS[k]) + _nrows(lambda x, y, k=k, t=D - SQ_ROWS[k]: _squash_shape(k, x, y + t), SQ_ROWS[k])
+        sq.append(bytes([SQ_ROWS[k]] + ns))
+    st = bytes([D] + _nrows(_stretch_shape, D))
+    sh = bytes([D] + _nrows(_shadow_in, SHD_ROWS) + [0] * (D - SHD_ROWS))
+    x0 = (D - ST_W) // 2
+    sx = bytes((min(D - 1, int((x - x0 + 0.5) * D / ST_W)) if x >= x0 else 0) + 1 for x in range(D))
+    return sq[0], sq[1], st, sh, sx
+
+
+def build_ball3(mat):
+    """BZB3: BZB2's size, its header, zeros, the block, glass's shatter as is"""
+    ref = build_ball2(mat)
+    clo, chi, op = _tex_classes(mat)
+    np_, xr, ye = rank_tables(mat)
+    sq0, sq1, st, sh, sx = shape_tables()
+    if mat != MAT_RUBBER:
+        st = bytes(17); sx = bytes(16)
+    blk = struct.pack("<H", np_)
+    for pl in (clo, chi, op):
+        blk += struct.pack("<16H", *pl)
+    blk += sq0 + sq1 + st + sh + sx
+    assert len(blk) == BG_PRE
+    blk += bytes(xr[fx * 16 + x] for x in range(D) for fx in range(8)) + ye   # (packs 33 bytes better)
+    assert len(blk) == BG_LEN
+    out = bytearray(len(ref))
+    out[:HDR] = ref[:HDR]
+    out[BG_BLK:BG_BLK + BG_LEN] = blk
+    if mat == MAT_GLASS:
+        out[B2_SHAOFF:] = ref[B2_SHAOFF:]
+    return bytes(out)
+
+
+# the generator's HOST MODEL (the same planes and order as bzballgen.inc; the
+# emulated-8086 proof is tools/bzballchk.py)
+def _spread(w):
+    v = 0
+    for i in range(16):
+        v = v << 2 | (3 if (w >> (15 - i)) & 1 else 0)
+    return v
+
+
+def _inter(hi, lo):
+    v = 0
+    for i in range(16):
+        v = v << 2 | ((hi >> (15 - i)) & 1) << 1 | (lo >> (15 - i)) & 1
+    return v
+
+
+def _put5(v32, s, fill1):
+    v = (v32 << 8) | (0xFF if fill1 else 0)
+    top = ((1 << 2 * s) - 1 << 40 - 2 * s) if fill1 else 0
+    return (((v >> 2 * s) | top) & (1 << 40) - 1).to_bytes(5, "big")
+
+
+def model_ball3(stored):
+    """BZB3 -> BZB2 by the guest's algorithm"""
+    mat = stored[10]
+    b = stored[BG_BLK:BG_BLK + BG_LEN]
+    w = lambda o: struct.unpack_from("<H", b, o)[0]
+    clo = [w(BG_CLO + 2 * i) for i in range(16)]
+    chi = [w(BG_CHI + 2 * i) for i in range(16)]
+    op = [w(BG_O + 2 * i) for i in range(16)]
+    XR, YE = b[BG_XR:BG_XR + 128], b[BG_YE:BG_YE + 128]
+    out = bytearray(stored)
+    bh = 0xFFFF if mat == MAT_RUBBER else 0
+    qlo = [0] * 16; qhi = [0] * 16
+    for s in range(SHIFTS):
+        for r in range(D):
+            o = B2_MASKOFF + (s * D + r) * RB
+            out[o:o + RB] = _put5(_spread(~op[r] & 0xFFFF), s, True)
+    for f in range(NFRAMES):
+        fx, fy = f & 7, f >> 3
+        for r in range(D):
+            ink = 0
+            for x in range(D):
+                ink = ink << 1 | (XR[x * 8 + fx] <= YE[fy * 16 + r])
+            ink &= clo[r] ^ chi[r]
+            lo, hi = clo[r] | ink, chi[r] | ink
+            if f == 0:
+                qlo[r] = lo | (~bh & ~op[r] & 0xFFFF)
+                qhi[r] = hi | (bh & ~op[r] & 0xFFFF)
+            o = B2_FRMOFF + (f * D + r) * RB
+            out[o:o + RB] = _put5(_inter(hi, lo), f & 3, False)
+    tabs = [b[BG_SQ0:BG_SQ0 + 17], b[BG_SQ1:BG_SQ1 + 17], b[BG_STR:BG_STR + 17]]
+    sxt = b[BG_SX:BG_SX + 16]
+    o = B2_SQOFF
+
+    def S_of(n):
+        return ((1 << 2 * n) - 1 << 8 - n) & 0xFFFF if n else 0
+
+    def entry(tab, o):
+        h = tab[0]
+        S = [0] + [S_of(n) for n in tab[1:]] + [0]
+        chk = 0xAAAA if mat == MAT_GLASS else 0
+        pl = []
+        for y in range(D):
+            s_ = S[y + 1]
+            i = s_ & (s_ << 1 & 0xFFFF) & (s_ >> 1) & S[y] & S[y + 2]
+            k = chk & i
+            chk = (chk >> 1 | chk << 15) & 0xFFFF
+            sy = 15 - (15 - y) * 16 // h
+            pl.append((s_ ^ k, qlo[sy] & (i ^ k), qhi[sy] & (i ^ k)))
+        for s in range(SHIFTS):
+            e = b"".join(_put5(_spread(~p[0] & 0xFFFF), s, True) for p in pl)
+            e += b"".join(_put5(_inter(p[2], p[1]), s, False) for p in pl)
+            out[o:o + 2 * len(e)] = e + e
+            o += 2 * len(e)
+        return o
+
+    o = entry(tabs[0], o)
+    o = entry(tabs[1], o)
+    S = [S_of(n) for n in b[BG_SHD + 1:BG_SHD + 17]]
+    for p in range(2):
+        for s in range(SHIFTS):
+            for r in range(SHD_ROWS):
+                chk = 0xAAAA if (s + p + r) % 2 == 0 else 0x5555
+                out[o:o + RB] = _put5(_spread(~(S[r] & chk) & 0xFFFF), s, True)
+                o += RB
+    if mat == MAT_RUBBER:
+        qlo = [sum(((q >> 15 - (sxt[x] - 1)) & 1) << 15 - x for x in range(16)) for q in qlo]
+        qhi = [sum(((q >> 15 - (sxt[x] - 1)) & 1) << 15 - x for x in range(16)) for q in qhi]
+        entry(tabs[2], B2_STROFF)
+    return bytes(out)
+
+
 def _paras(n):
     return (n + 15) // 16
 
@@ -660,13 +897,41 @@ def emit_const():
         "BZ_BAL_SIZER    equ %d      ; rubber" % B2_SIZE[0],
         "BZ_BAL_SIZE     equ %d      ; steel" % B2_SIZE[1],
         "BZ_BAL_SIZEG    equ %d     ; glass" % B2_SIZE[2],
+        "; BZB3's block (SPEC.md 128.25.5): at the head of the squash slot",
+        "BZ_BG_BLK       equ %d" % BG_BLK,
+        "BZ_BG_NP        equ %d      ; byte: the mask table's entries" % BG_NP,
+        "BZ_BG_CLO       equ %d" % BG_CLO,
+        "BZ_BG_CHI       equ %d" % BG_CHI,
+        "BZ_BG_O         equ %d" % BG_O,
+        "BZ_BG_SQ0       equ %d" % BG_SQ0,
+        "BZ_BG_SQ1       equ %d" % BG_SQ1,
+        "BZ_BG_STR       equ %d" % BG_STR,
+        "BZ_BG_SHD       equ %d" % BG_SHD,
+        "BZ_BG_SX        equ %d" % BG_SX,
+        "BZ_BG_PRE       equ %d      ; the prefix copied to scratch" % BG_PRE,
+        "BZ_BG_XR        equ %d      ; the x side's ranks (read in place)" % (BG_BLK + BG_XR),
+        "BZ_BG_YE        equ %d      ; the y side's thresholds (read in place)" % (BG_BLK + BG_YE),
+        "BZ_BG_PSTR      equ %d" % BG_PSTR,
+        "BZ_BG_PMAX      equ %d" % BG_PMAX,
         "",
     ]
     return "\n".join(lines)
 
 
-def compile_all():
-    files = {BALL_FILES[m]: build_ball2(m) for m in range(3)}
+def compile_all(stored=False):
+    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 128.25.5); else BZB2, the RAM form.
+    A material whose BZB3 the generator's model does not expand back to its BZB2 is REFUSED
+    (128.25.5: a texture V2 cannot reproduce), never shipped to be drawn wrong"""
+    files = {}
+    for m in range(3):
+        if stored:
+            st = build_ball3(m)
+            if model_ball3(st) != build_ball2(m):
+                raise SystemExit("bonanza_assets: %s: BZB3 does not expand back to BZB2 (SPEC.md 128.25.5: "
+                                 "V2 cannot reproduce this texture, and there is no V1)" % MAT_NAMES[m])
+            files[BALL_FILES[m]] = st
+        else:
+            files[BALL_FILES[m]] = build_ball2(m)
     texts = {"bzconst.inc": emit_const()}
     return files, texts
 
@@ -686,7 +951,7 @@ def write_out(out):
     # fallback recipe turns back into a re-run that shows the error
     with open(os.path.join(out, ".bz-art"), "w") as f:
         f.write(stamp() + "\n")
-    files, texts = compile_all()
+    files, texts = compile_all(True)
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -1026,6 +1291,39 @@ def selfcheck():
                     hit is not None and [w for w, g in sub if not g] == [w for w, _ in sub if "outer ring" in w]))
     nz = all(a_files[BALL_FILES[m]][14] == 0 for m in (MAT_STEEL, MAT_GLASS)) and a_files["BZBALR.BIN"][14] == NST
     results.append(("BZB2 +14: rubber's stretch count %d, steel's and glass's 0" % NST, nz))
+    # wave 9 (128.25.5): the stored form BZB3 and the guest's generator
+    st3 = {m: build_ball3(m) for m in range(3)}
+    results.append(("BZB3: the host model of bz_ballgen expands every stored part to build_ball2's, every byte",
+                    all(model_ball3(st3[m]) == a_files[BALL_FILES[m]] for m in range(3))))
+    import bzballchk
+    emu = bzballchk.check()
+    if emu is None:
+        print("  SKIP bz_ballgen under an emulated 8086: unicorn is not importable here")
+    else:
+        results.append(("bz_ballgen, run under an emulated 8086 IN PLACE on the stored part, equals build_ball2 "
+                        "for rubber, steel and glass, every byte (scratch pre-filled with junk), AX ES DS SP DF kept, "
+                        "no write outside the part, bz_boxbuf and the stack", all(ok for _, ok, _ in emu)))
+        bad = bytearray(st3[MAT_STEEL])
+        bad[BG_BLK + BG_SQ0 + 5] += 1                   # one row of squash 0's ellipse widened
+        code = bzballchk.assemble()
+        results.append(("negative control: a stored ellipse row changed makes the generated part differ",
+                        bzballchk.run(code, bytes(bad)) != a_files["BZBALS.BIN"]))
+        # ...and the ROUTINE broken: the mask table's field no longer steps to its next byte
+        broke = bzballchk.assemble(patch=("    adc di, 0                   ; the field wrapped to the next byte\n", ""))
+        results.append(("negative control: bz_ballgen with its mask table's byte step removed differs, every material",
+                        all(bzballchk.run(broke, st3[m]) != a_files[BALL_FILES[m]] for m in range(3))))
+        # ...and the ROUTINE handing back the ball's selector in ES (9f73af482's fix: the
+        # ES a later POP takes must not be a part's, 128.14.26 item 2)
+        pr = {}
+        bzballchk.run(bzballchk.assemble(patch=("    pop es\n    pop ax\n    ret", "    pop ax\n    pop ax\n    ret")),
+                      st3[MAT_STEEL], probe=pr)
+        results.append(("negative control: bz_ballgen returning without the caller's ES is caught", not pr["kept"]))
+        # ...and the stored rank coding broken: one row's threshold one class higher
+        bad = bytearray(st3[MAT_RUBBER])
+        j = next(j for j in range(128) if 0 < bad[BG_BLK + BG_YE + j] < (bad[BG_BLK + BG_NP] - 2) * BG_PSTR)
+        bad[BG_BLK + BG_YE + j] += BG_PSTR
+        results.append(("negative control: one rank-coded threshold raised a class makes the generated part differ",
+                        bzballchk.run(code, bytes(bad)) != a_files["BZBALR.BIN"]))
     rs = bytearray(a_files["BZBALR.BIN"])              # one stretch frame pixel flipped
     e = B2_STROFF + ((2 * 2) + 1) * ENT                # against its mask: shift 2, parity 1,
     r = 0                                              # row 0's first KEPT slot gains a frame bit
