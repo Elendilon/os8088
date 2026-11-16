@@ -1428,7 +1428,8 @@ def build_props(src, tiles, fname):
         # lookup ever finds it: physics never meets a label
         props.append({"kind": PK_CLOCK, "line": lb["line"], "at": (LABEL_WX, LABEL_WY0 + lb["num"]), "mask": 0,
                       "shift": 0, "seed": 0, "num": lb["num"], "place": 0, "ndig": 0, "z4": 0, "K": 0, "KA": 0,
-                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": 0, "label": lb})
+                      "cx": 16 * LABEL_WX + 8, "cy": 16 * (LABEL_WY0 + lb["num"]) + 8, "ph": CLOCK_PH,
+                      "label": lb})
     nlane = sum(1 for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK))
     if nlane > PROP_MAX:
         lp = [p for p in props if p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK)]
@@ -4842,9 +4843,11 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
                     or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a clock's post fields")
             sign = ndig == 0                        # wave 8b (128.19.5): a node's sign
+            label = sign and d["at"][0] == LABEL_WX     # 128.23.2: a LABEL, its own anchor row
             if (not sign and (not 1 <= ndig <= 3 or place >= ndig or num >= CLOCK_MAX)) \
                     or (sign and (place or num >= NODE_MAX)) or p[r + 29:r + 32] != bytes(3) \
-                    or d["lane"]["poses"] != (NODE_POSES if sign else CLOCK_POSES) or d["lane"]["w"] != 1 \
+                    or not (2 <= d["lane"]["poses"] <= LANE_PMAX if label else
+                            d["lane"]["poses"] == (NODE_POSES if sign else CLOCK_POSES)) or d["lane"]["w"] != 1 \
                     or d["lane"]["h"] != 1:
                 bad("prop %d" % d["i"], "a clock's digit record (place %d of %d, clock %d)" % (place, ndig, num))
             d.update(place=place, ndig=ndig, num=num)

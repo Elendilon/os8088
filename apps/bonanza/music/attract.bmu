@@ -1,0 +1,52 @@
+; BOUNCE BONANZA - song 6, the TITLE SCREEN's: "Attract" (SPEC.md 128.23.1, 128.20)
+;
+; ONE SHOT, as long as a title demo EXACTLY: four patterns of 32 rows at a
+; groove of 6 then 7 sub-ticks (a 16th of 6.5 on the average, about 126 BPM
+; with a breath of swing) is 128 x 6.5 = 832 sub-ticks, BZ_TSTEPS - the song
+; starts with the demo at bzs_open and its last note dies with the demo's last
+; step. The fifth order row is SILENCE, and `loop` points at it, so a demo
+; that ran on would hear nothing more.
+;
+; G major. The hook is a BALL: an octave leap and back down the triad, twice,
+; then the answer climbs to A; the bridge runs up to a high B and comes down
+; like a ball losing height; the last bar BOUNCES TO A STOP - G, D, B, then
+; two quick Gs and the long low one. On the speaker the lead carries it all,
+; the bass filling the gaps (spkbass); on the AdLib a plucked bass on every
+; eighth and off-beat stabs (the title theme's ska "and").
+
+song attract "Attract"
+groove 6 7
+unit 16
+rows 32
+measure 16
+spkbass
+voice lead chip
+voice bass pluckbass
+voice chord stab
+
+; --- A: the hook ---------------------------------------------------------------
+lead LA1 = v13 o5 g8 o6 g8 o5 b8 o6 d8 g4 f+8 e8 | d8 o5 b8 g8 b8 o6 d4 c8 o5 b8 |
+lead LA2 = v13 o5 a8 o6 a8 c8 e8 a4 g8 f+8 | e8 c8 o5 a8 o6 c8 @chiparp d4 @chip r8 d8 |
+bass BA1 = o2 g8 o3 g8 o2 g8 o3 g8 o2 g8 o3 g8 o2 g8 o3 g8 | o2 g8 o3 g8 o2 g8 o3 g8 o2 d8 o3 d8 o2 d8 o3 d8 |
+bass BA2 = o2 a8 o3 a8 o2 a8 o3 a8 o2 a8 o3 a8 o2 a8 o3 a8 | o2 c8 o3 c8 o2 c8 o3 c8 o2 d8 o3 d8 o2 d8 o3 d8 |
+chord CA1 = o4 r8 [g b >d]8 r8 [g b >d]8 r8 [g b >d]8 r8 [g b >d]8 | r8 [g b >d]8 r8 [g b >d]8 r8 [f+ a >d]8 r8 [f+ a >d]8 |
+chord CA2 = o4 r8 [a >c e]8 r8 [a >c e]8 r8 [a >c e]8 r8 [a >c e]8 | r8 [g >c e]8 r8 [g >c e]8 r8 [f+ a >d]8 r8 [f+ a >d]8 |
+drum DA = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 k8 k8 s8 h8 |
+drum DA2 = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 s16 s16 s16 s16 T8 t8 |
+
+; --- B: up to the top, and the bounce to a stop ---------------------------------
+lead LB1 = v13 o5 b8 o6 d8 g4 f+8 g8 a4 | b4. a16 g16 f+8 e8 d4 |
+lead LB2 = v13 o6 c8 e8 g4 o5 b8 o6 d8 g4 | v14 g4 d8 o5 b8 g16 b16 g4 r8 |
+bass BB1 = o2 g8 o3 g8 o2 g8 o3 g8 o2 d8 o3 d8 o2 d8 o3 d8 | o2 e8 o3 e8 o2 e8 o3 e8 o2 c8 o3 c8 o2 c8 o3 c8 |
+bass BB2 = o2 c8 o3 c8 o2 c8 o3 c8 o2 d8 o3 d8 o2 d8 o3 d8 | o2 g4 d4 g4 r4 |
+chord CB1 = o4 r8 [g b >d]8 r8 [g b >d]8 r8 [f+ a >d]8 r8 [f+ a >d]8 | r8 [e g b]8 r8 [e g b]8 r8 [e g >c]8 r8 [e g >c]8 |
+chord CB2 = o4 r8 [e g >c]8 r8 [e g >c]8 r8 [f+ a >d]8 r8 [f+ a >d]8 | [g b >d]4 r4 [g b >d]4 r4 |
+drum DB = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 k8 h8 s8 h8 |
+drum DB2 = k8 h8 s8 h8 k8 h8 s8 h8 | k4 s4 k4 r4 |
+
+order LA1 BA1 CA1 DA
+order LA2 BA2 CA2 DA2
+order LB1 BB1 CB1 DB
+order LB2 BB2 CB2 DB2
+order - - - -                 ; 4: SILENCE - the loop comes back here, so the song is a one-shot
+loop 4
