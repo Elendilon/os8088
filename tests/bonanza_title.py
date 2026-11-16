@@ -22,8 +22,8 @@ the bracket, and in that one bracket:
   7. Esc on the title leaves the bracket; the instance's claims are as before
      Enter.
 
-Red arm `view`: bz_camera's fixed window taken out, so the camera follows the
-ball - red at check 2.
+Red arm `view`: bz_camera's first frame centred on the ball as a course's is
+(the fixed window's placement taken out) - red at check 2.
 
     python3 tests/bonanza_title.py [--tag cga|herc] [--red view] [--check]
 """
@@ -45,9 +45,10 @@ import bonanza_ring as R        # noqa: E402
 import bonanza_exit as X        # noqa: E402
 
 REDS = {
-    # SPEC.md 128.23.2: the fixed window's every-frame hold taken out - the modes run, the window follows
-    "view": [("bzgame.inc", "    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window never\n",
-              "    cmp byte [bz_fixed], 0ffh   ; RED view: never fixed after the first frame\n")],
+    # SPEC.md 128.23.2: the fixed window's FIRST frame taken out - the window is centred on the ball (the
+    # every-frame hold then keeps it there), never the header's
+    "view": [("bzgame.inc", "    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window is the\n",
+              "    cmp byte [bz_fixed], 1      ; RED view: the first frame centred as a course's\n")],
 }
 RED_WANT = {"view": "2. "}
 
@@ -196,8 +197,9 @@ def run(tag, apps=None, src=None):
         X.at_t0(g, lambda g_: None)
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
-        M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0,
-                "the face back", guest=30)
+        M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0
+                and g.b("bzs_desk") == 1, "the face back and the desktop's song again (bz_title8's tail: the "
+                "bracket's restore can paint the face first)", guest=30)
         m.pause()
         after = X.claims(g)
         m.run()
