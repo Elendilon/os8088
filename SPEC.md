@@ -270759,7 +270759,7 @@ HEARD.
   SIDE and SHORTCUT verdicts on a test map; the clock-at-every-finish rule
   (a course with a finish and no clock in its window refused); the part's
   budget; `bbcourse.Follow` against a hand-worked route.
-- **`bonanzapath`** (REWRITTEN, soak, MartyPC, both cards; WRITTEN in 8R.3 to this list - `tests/bonanza_path.py`, its `--check` green - and not yet run): a new game rests
+- **`bonanzapath`** (REWRITTEN, soak, MartyPC, both cards; WRITTEN in 8R.3 to this list - `tests/bonanza_path.py`, its `--check` green; MEASURED PASS on both cards and the secret leg, 115 s host, every red arm red at its item - the first run's failures were the TEST's, none the guest's: a poll on `bz_fcnt` let the whole finish sequence pass before its frames were read, and a breakpoint set on a guest already stopped at one re-stopped at the same CS:IP): a new game rests
   on pad 0, no arrow moves it, Space shows the info card; Enter plays
   FIRST, the autopilot finishes: the finish sequence (the clock's digit
   lanes alternate, the camera still, Enter skips); back on the pathway pad
