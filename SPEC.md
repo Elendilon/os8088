@@ -273613,9 +273613,18 @@ column `wx` 10) by the CRACK PATH (four cracks, 6 - 9 at `wy` 24) and the
 GLASS PATH (four glass tiles at `wy` 27, its first tile (9, 27), jagged
 toward FF). NO TRAP from the steel pad passes by the glass path.
 
+**The walk's skip, fixed (the one engine change).** `bzwheel.inc`'s walk SKIP
+(128.13.5.3) took any lane that was not a rotor, flag, clock or sign for a
+POST: drawn dark with no new kick, it was skipped - so a FAMILY lane marked by
+its hook and drawn at pose 0 was never walked while the range stood still,
+and a revealed glass tile stayed invisible (SEEN on MartyPC before the fix;
+the probe's flag was seen only because the camera's range moved). A family
+kind is now walked when marked, as a SIGN is (`cmp` / `jae .w0`, 7 bytes).
+
 **Bytes (MEASURED, against the phase-B base's 46,924 / 10,970).** The image
-46,934 (**+10**: the family's row in the part table), the bss 10,974 (**+4**:
-`BZ_FSTB` 1 -> 5); no engine routine changed. The part 561 bytes (513 of
+46,941 (**+17**: the family's row in the part table 10, the walk's family
+test 7), the bss 10,974 (**+4**: `BZ_FSTB` 1 -> 5); no physics routine
+changed. The part 561 bytes (513 of
 code and header, 48 of zeros so it packs: 454 packed).
 
 **Proved on the host.** `tests/bonanza_phys.py --check`: the guest's
@@ -273631,7 +273640,13 @@ path, revealed tile by tile; into a broken crack: a fall, all restored),
 `crack-glass` (the pad; across and back, never broken; a landing cracks it,
 the second breaks it: a fall). Each is a replay too (`glass-rubber`,
 `glass-path`, `glass-steel`, `glass-glass`), its milestones asserted on the
-model. Red arms on the unicorn: `glscell` (the CELL entry 0: the ball rolls
+model. **SEEN** once on MartyPC (CGA and Hercules twins, the ball poked on
+PLAYGROUND): the cracks' hairlines, a crack counting under a slow rubber ball,
+broken, the fall and the respawn restoring it; a fast ball leaving three holes
+behind it; the glass path invisible, then revealed shard by shard behind the
+ball; on the Hercules the holes black and the crystal dithered white. The
+first tile's teeth are there and SUBTLE (ink 3 is the floor's own colour on
+PLAYGROUND's palette 0): the owner's to tune. Red arms on the unicorn: `glscell` (the CELL entry 0: the ball rolls
 on over the broken crack) and `glsrsp` (`bz_frst` not called: the cracks stay
 broken after the respawn), each parting at its own check. `--selfcheck`:
 GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
