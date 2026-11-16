@@ -273362,8 +273362,8 @@ the sparkles are XORed, not ORed (SEEN: ORed ink 3 vanished on palette 0's
 yellow tiles), 2 x 2 pixel pairs drawn inside the ball's own blit; the flash
 is folded into that blit's loop, its STYLE a build knob (`BZ_CUEFLASH`:
 DITHER2 the default, DITHER4, BLINK2, BLINK4 - the owner picks from videos);
-a ball at rest is recomposed only on the frames the cue's LOOK changes (the
-dissolve's `bz_spr` bit-7 trick); and the cost is MEASURED at about 1.45k
+a ball at rest is recomposed only on the frames the cue's LOOK changes
+(`bz_ospr` set unlike `bz_spr` on those frames); and the cost is MEASURED at about 1.45k
 clk a frame for the sparkles and 2.3k on a flash frame (the first build's
 1.8k and 6.1k, the cue-report's rebuild, 128.25.19), not the 150 - 300
 predicted below.
@@ -273614,15 +273614,16 @@ the RESET restores them; none is in `bz_step`'s routines but the clamp):
 | `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
 | `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick), read only PAST `BZ_VMAXG` - the two immediate compares of the common path are as they were, so a velocity inside the table's cap (nearly every call, and every call with no speed running) costs not a clock more; past it, `.hi` takes the raised bound and `.lo` is `.hi` on the negated value (the verifier's: the first build read `bz_vup` on every call, about +25 clk a call, two to four calls a step) | +12 |
 | the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
-| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' step n (frames / 4 mod 8) under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. A changed look flips `bz_ctog`, which is XORed into `bz_spr` every frame the look is taken: the dissolve's bit-7 trick (128.22.6), so `bz_mkboxes`'s idle test, whose sprite compare is unchanged, recomposes a ball AT REST on exactly the frames its cue changed - 1 in 4 under the sparkles alone - and on the frame the cue ends. The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 70 |
+| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' step n (frames / 4 mod 8) under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. A changed look sets `bz_ospr` (the sprite `bz_mkboxes`'s idle test compares against, last frame's) to this frame's `bz_spr` NOT, so that test, unchanged, recomposes a ball AT REST on exactly the frames its cue changed - 1 in 4 under the sparkles alone - the cue's first frame and the frame it ends included. (Built first as a toggle `bz_ctog` XORed into `bz_spr` every frame, the dissolve's bit-7 trick of 128.22.6; the verifier found that a cue beginning with the toggle left set by the last one - half of them - changed nothing the idle test saw, so a ball at rest showed it up to 4 frames late, and that a dissolve density and a look changing on one frame cancelled. The `bz_ospr` form has no state across cues: 4 bytes and a byte of bss less.) The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 70 |
 | the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a BLINK frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
 | the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws neither, about 1 frame in 20 on a fast ball, never at rest): the SPARKLES first, three 2 x 2 pixel pairs XORed at entries n, n + 3, n + 6 of a wrap-free 14-entry table of (dx, 8 dy) - dx 0 - 15, dy 0 - 14, all outside the 16 px silhouette but (15, 6)'s left column - each a byte offset from the sprite's first byte (8 dy + (s + dx) / 4) and the masks of pixels x and x + 1 (x = s + dx; one 5-word table of single-pixel masks, both bits), no transform and no clip; the ball's mask then keeps them. The CGA XORs both pixels on both lines (ink XOR 3); the Hercules pixel x on the first line and x + 1 on the second (a diagonal of whole mono pairs, chosen against its dithered floors, where all four pixels XORed read as the dither shifted). SEEN in the Hercules videos: a handful of dots change - plain on the white tiles, still MARGINAL on the hatched floor, whose pattern is a diagonal hatch of dots rather than a checker of pixels; the owner's call whether that is enough. Then on a FLASH frame the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop. The old dither door (`.dither`, `.dwhole`, `.dclip`) is gone | about 130 |
 | the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
 
-**The image 47,309 bytes (+385 on 46,924; 47,298 as first built, 47,310
-with the clamp's zero-cost common path, 47,309 with the cue rebuilt below),
-the bss 10,982 (+12)**: `bz_vup`, `bz_nfev`, `bz_wacc`, `bz_cue` in the
-zeroed state (6), `bz_chk` 2, `bz_clook` 1, `bz_ctog` 1, `bzs_lfev` 2.
+**The image 47,305 bytes (+381 on 46,924; 47,298 as first built, 47,310
+with the clamp's zero-cost common path, 47,309 with the cue rebuilt below,
+47,305 with its idle signal on `bz_ospr`), the bss 10,981 (+11)**: `bz_vup`,
+`bz_nfev`, `bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2,
+`bz_clook` 1, `bzs_lfev` 2.
 Budgets +400 / +24: met. **The part 485 bytes,
 424 packed** (no zero padding: it packs).
 

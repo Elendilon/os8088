@@ -428,8 +428,6 @@ VAR bz_hidn,1                   ; the frame's HIDDEN ball: bz_tube OR bz_hid
 VAR bz_clook,1                  ; wave 9 (SPEC.md 128.25.19): the pickup cue's
                                 ; LOOK this frame (bz_cuef), RIGHT AFTER bz_hidn
                                 ; (bz_boxc tests the two as one word)
-VAR bz_ctog,1                   ; ...flipped when the look changes, XORed into
-                                ; bz_spr (the idle test's change, R1)
 %if bz_clook != bz_hidn + 1
  %error "bz_boxc tests bz_hidn and bz_clook as one word: keep them adjacent"
 %endif
@@ -3280,7 +3278,8 @@ bz_mkboxes:
     xchg al, [bz_oair]
     xor al, [bz_oair]
     mov ah, [bz_spr]            ; ...the same sprite (128.11.10.4; bit 7 the
-                                ; dissolve's density, the cue's look: R1)
+                                ; dissolve's density; bz_cuef sets bz_ospr
+                                ; unlike it when the cue's look changed: R1)
     xchg ah, [bz_ospr]
     xor ah, [bz_ospr]
     or bp, ax

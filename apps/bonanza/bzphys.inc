@@ -2003,11 +2003,15 @@ bz_fdis:
 ; PU_WARN steps; which frames is the build's BZ_CUEFLASH) BZ_CL_FL (a DITHER
 ; style: the checker folded into the ball's blit, bz_chk its row 0's by card
 ; and py's parity) or BZ_CL_BL (a BLINK style: the ball not drawn).  bz_boxc
-; and bz_blit draw from it.  When the look changes bz_ctog flips: XORed into
-; bz_spr every frame here, it is the dissolve's bit-7 trick (bz_fdis), so
-; bz_mkboxes recomposes a RESTING ball on exactly the frames its cue's look
-; changed, and the frame the cue ends takes it off (a ball that moves is
-; recomposed for its move: the sprite's shift is not in the look).
+; and bz_blit draw from it.  When the look changes, bz_ospr (the sprite
+; bz_mkboxes's idle test compares against: last frame's) is made this frame's
+; bz_spr NOT, so that test recomposes a RESTING ball on exactly the frames
+; its cue's look changed - the first, and the one the cue ends on, included -
+; whatever the frames before it were and whatever the dissolve did to
+; bz_spr's bit 7 this frame (a ball that moves is recomposed for its move:
+; the sprite's shift is not in the look).  (The first build flipped a toggle
+; XORed into bz_spr - the dissolve's trick - and a cue that began with the
+; toggle left set by the last one changed nothing the idle test saw.)
 ; Clobbers AX, CX, DX.
 ; -----------------------------------------------------------------------------
 bz_cuef:
@@ -2048,12 +2052,12 @@ bz_cuef:
     or dl, al
 .lk:
     cmp dl, [bz_clook]
-    je .tog
+    je .r
     mov [bz_clook], dl
-    xor byte [bz_ctog], 80h
-.tog:
-    mov al, [bz_ctog]
-    xor [bz_spr], al
+    mov al, [bz_spr]            ; a changed look: never an idle frame
+    not al
+    mov [bz_ospr], al
+.r:
     ret
 
 ; bz_fdor / bz_fdand - CX rows of the ball part's BZ_BAL_RB bytes from BP:SI to
