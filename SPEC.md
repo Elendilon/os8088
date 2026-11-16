@@ -274646,12 +274646,18 @@ off-beat chord stabs and a drum roll; a **third pattern of silence is the
 last order row and `loop` points at it**, so the song does not repeat. On
 the speaker the lead is the whole tune (the fold: effect, drum blip, lead,
 bass where the lead rests) - the selfcheck holds that the speaker plays
-every lead note's Hz in order. **`bzs_victory`** starts it: the course's
-song given back, the fanfare fetched into the same song claim and started
-from its top (`bzs_gfetch`'s own calls), so `bzs_gdrop0` gives it back
-unchanged; one part read inside the finish's hold; nothing under EFFECTS
-ONLY or with no arm; a part that cannot be had leaves the effects playing and
-the music silent. The finish sequence calls it once.
+every lead note's Hz in order. **`bzs_victory`** starts it with **no disk
+read** (the owner's finish must not stall): `bzs_gfetch` fetches the fanfare
+beside the course's song at the play's start (a second 224-byte claim,
+`bzs_vseg`, one more part read at launch), and `bzs_victory` points the
+sequencer at it and starts from its top; `bzs_gdrop0` gives both back. Nothing
+under EFFECTS ONLY or with no arm, and a fanfare not had leaves the course's
+song playing. The finish sequence calls it once at its start. **The fanfare
+replaces the GOAL effect**: the in-bracket sound plays no goal effect, and
+when the fanfare played (`bzs_vic`) `bzs_gdrop0` does not set the desktop's
+`bzs_goalp`, so the title after a finish comes back without a second
+fanfare; a play that ends to the desktop without the finish sequence (the
+replay, a failed fetch) still gets the GOAL effect there.
 
 `NON_COURSE` in `tools/bbmusic.py` (`victory`, and the title session's
 `attract`) keeps a course from wrapping onto either: `bbcourse.course_song`
@@ -274668,7 +274674,7 @@ confirm.
 **MEASURED** (the tool, the build): the effects' records 15, 21, 27 and 33
 bytes, **BZSND.BIN +108 bytes for the four** (1,248 with the fix, 1,356
 with them; 972 before the fix); **the song 224 bytes** (177 under zlib) in its
-own part; **the resident image +80 bytes** (`bonanza.bin` 36,184 to 36,264:
+own part; **the resident image +126 bytes**, bss +3 (`bonanza.bin` 36,184 to 36,310:
 `bzs_ev`, `bzs_victory` and their names), bss +0; the package 87,790 to
 88,302 bytes. The per-sub-tick path is the existing effect segment's and
 the song's, unchanged, so a sub-tick with a new event costs what the same

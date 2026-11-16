@@ -2853,17 +2853,22 @@ def song_names():
     return [os.path.splitext(n)[0] for n in bbmusic.SONGS]
 
 
+def _non_course():
+    """8R.6: the songs no course plays (the fanfare, the attract demo): bbmusic's list"""
+    sys.path.insert(0, os.path.dirname(TOOL))
+    try:
+        import bbmusic
+    finally:
+        sys.path.pop(0)
+    return bbmusic.NON_COURSE
+
+
 def course_song(c, k):
     """the song course K plays: its `music`, else K (BENCH 1), past the last
     course song wrapping to 1 (128.20.6's rule, now the tool's)"""
     if c.src.music is not None:
         return c.src.music[0]
-    sys.path.insert(0, os.path.dirname(TOOL))   # (8R.6: the fanfare and the attract demo are no course's)
-    try:
-        import bbmusic
-    finally:
-        sys.path.pop(0)
-    n = len([x for x in song_names() if x not in bbmusic.NON_COURSE])
+    n = len([x for x in song_names() if x not in _non_course()])
     return 1 if k == 0 else 1 + (k - 1) % (n - 1)
 
 
@@ -14154,7 +14159,7 @@ def selfcheck(paths=None):
     res.append(("4 `music trial` gives song %d (%s); `music title` and an unknown name %s; the courses' songs %s, "
                 "128.20.6's rule" % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule),
                 course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused"]
-                and rule == [1 if k == 0 else 1 + (k - 1) % (len(sn) - 1) for k in range(len(courses))]
+                and rule == [1 if k == 0 else 1 + (k - 1) % (len([x for x in sn if x not in _non_course()]) - 1) for k in range(len(courses))]
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)
