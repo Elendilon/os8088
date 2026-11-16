@@ -2788,3 +2788,55 @@ again against the windmill's blades, keeping only runs with no bump.
 **Tested**: the build's demo checks (every expect), and demo 4 on MartyPC's
 CGA, found on the seventh title round: the guest's end equal to the model's,
 one full write.
+
+## 2026-11-16 (wave 9: the contract)
+
+Wave 8 was rebuilt because its plan and the owner had drifted apart, so wave
+9 began with a review of the plan before any contract. The plan's wave 9 had
+been written two days and a whole rework earlier, and the review turned up
+places where it no longer described the tree: the "at most 6 lanes a window"
+limit that 128.19.10 had already replaced with rate bounds, a claim table
+already full, and a test course that was going to be thrown away.
+
+The owner's framing settled the scope: this is the wave that lets every
+prop, tile type and mechanic be built without overloading the renderer or
+bloating course size. Their answers made it bigger and more concrete: one
+real family end to end (the glass: a cracked tile and a path that appears
+when rolled onto), and PICKUPS as a second to prove the recipe works; every
+element declaring how it resets, so nothing can trap the player; a pickup is
+part of the course, so a best run may be a hard trick to grab one; the jump
+pickup STACKS with the boost, *"fun isn't always being strict"*; today's
+props moved into families before the courses start; PLAYGROUND as the only
+test course, since the current ones are to be dropped.
+
+**The 12 px question.** The owner asked why a jump could not go higher than
+12 px, when a fall plus a boost already does. It cannot be a height limit:
+the tool's occluder records are grouped in 8-line blocks from a top margin
+the tool never chose, and raising the Hop had only moved that margin. MOON at
+three Hop heights gave the same eight record counts, rotated
+([BONANZA-APEX-2026-11-16](../reports/BONANZA-APEX-2026-11-16.md)). The real
+ceiling is the vertical speed cap, about 47 px. The fix is the tool trying
+all eight alignments, and it goes first.
+
+**Claims.** A play already holds eight of the eight claims one program may
+have. The owner remembered a 16-claim limit: it had been 16 once, while
+regions came from a pool of their own, and is 8 (12 on kern_mega) now. The
+remedy is an ARENA in the shared parts standard, sized to what the launch
+needs and grown with `MEMP_REGROW` (which survives the KB doors' withdrawal
+as a verb of the paragraphs call, carrying the bytes when it must move the
+block). Only the small parts go in it: one block holding the course and the
+pathway too would need about 105KB in one run, where today the largest run a
+play needs is the course's 47KB. Reading the fetch code for this also found
+that `BZ_CRS_MAXCLAIM` leaves out the victory fanfare's claim.
+
+**Two sessions, one engine.** The diagonal tiles are being built at the same
+time, in the same physics and tool files. The two sessions agreed an order
+through the owner: the Y0 search lands first, the hook table before the
+diagonal's guest wave, every hook placed outside the routines the diagonal
+changes. The CELL overlay that lets a broken tile read as a hole without
+writing the grid sits at the start of `bz_wtail`, the one routine every
+window refill ends in and the diagonal does not touch.
+
+**Measured for the contract** (`make bonanza`, `a5bd683c`): image 40,181,
+bss 10,660; the balls unpack to 31,168 bytes and pack to 5,974 with LZB.
+Nothing of wave 9 is built yet.
