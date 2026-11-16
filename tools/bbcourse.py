@@ -646,9 +646,39 @@ def box_cells(a0, a1, s0, s1, where):
     return frozenset(out), half
 
 
+def box_chamfer(a0, a1, s0, s1, n, cells, half, where):
+    """SPEC.md 128.24.4's `box ... chamfer [N]`: each of the box's four corners CUT along a line of CELL EDGES
+    (the iso angle on the screen), so the platform reads as an octagon - every piece of a cell beyond the
+    cut dropped, and no cell is ever cut by it.  A cell edge is a line wx = c (gx = 16 c: a + s = 2 c) or
+    wy = c (s - a = 2 c).  The cuts:
+        the top-left corner (a0, s0)       drops wx <  floor((a0 + s0) / 2) + N
+        the top-right corner (a1, s0)      drops wy <  floor((s0 - a1) / 2) + N
+        the bottom-left corner (a0, s1)    drops wy >= ceil((s1 - a0) / 2) - N
+        the bottom-right corner (a1, s1)   drops wx >= ceil((a1 + s1) / 2) - N
+    N = 1 drops the corner's own piece - its quarter at a corner whose a and s differ in parity (panel 3 of
+    the owner's diag-q3), the two halves at it otherwise; each N more cuts one cell deeper (16 px along the top and
+    bottom, 8 lines down the sides).  Two cuts that would overlap on a side are refused.  -> (cells, half)"""
+    if not 1 <= n <= 16:
+        raise CourseError("%s: a chamfer is 1 - 16 cells deep, not %d" % (where, n))
+    c1 = (a0 + s0) // 2 + n
+    c2 = (s0 - a1) // 2 + n
+    c3 = -((a0 - s1) // 2) - n
+    c4 = -((-a1 - s1) // 2) - n
+    for side, lo, hi in (("top", 2 * c1 - s0, s0 - 2 * c2), ("left", 2 * c1 - a0, 2 * c3 + a0),
+                         ("right", 2 * c2 + a1, 2 * c4 - a1), ("bottom", s1 - 2 * c3, 2 * c4 - s1)):
+        if lo > hi:
+            raise CourseError("%s: box %d %d %d %d chamfer %d: the cuts at the two ends of its %s side overlap - "
+                              "a smaller chamfer, or a larger box (SPEC.md 128.24.4)" % (where, a0, a1, s0, s1, n,
+                                                                                          side))
+    keep = frozenset(c for c in cells if c1 <= c[0] < c4 and c2 <= c[1] < c3)
+    if not keep:
+        raise CourseError("%s: box %d %d %d %d chamfer %d leaves no cell" % (where, a0, a1, s0, s1, n))
+    return keep, {c: v for c, v in half.items() if c in keep}
+
+
 def _shape_h(toks, i, where, halves=True):
     """a shape that may lay PIECES (SPEC.md 128.24.4): `[half <side>] <shape>`, `[quarter n|e|s|w] <shape>`
-    or `box a0 a1 s0 s1`.  halves=False: no `half` or `quarter` clause (surface).  -> (frozenset of cells,
+    or `box a0 a1 s0 s1 [chamfer [N]]`.  halves=False: no `half` or `quarter` clause (surface).  -> (frozenset of cells,
     {cell: (kind, half or quarter)}, next index)"""
     side = None
     if halves and i < len(toks) and toks[i] == ('w', "half"):
@@ -669,7 +699,15 @@ def _shape_h(toks, i, where, halves=True):
             raise CourseError("%s: box needs <a0> <a1> <s0> <s1>" % where)
         a0, a1, s0, s1 = (_int(toks[i + k], where, "box") for k in range(1, 5))
         cells, half = box_cells(a0, a1, s0, s1, where)
-        return cells, half, i + 5
+        i += 5
+        if i < len(toks) and toks[i] == ('w', "chamfer"):     # SPEC.md 128.24.4: `chamfer [N]`, N 1 if none
+            n = 1
+            if i + 1 < len(toks) and toks[i + 1][0] == 'w' and _INT.match(toks[i + 1][1]):
+                n = _int(toks[i + 1], where, "chamfer")
+                i += 1
+            cells, half = box_chamfer(a0, a1, s0, s1, n, cells, half, where)
+            i += 1
+        return cells, half, i
     cells, i = _shape(toks, i, where)
     return cells, ({c: side for c in cells} if side is not None else {}), i
 
@@ -17177,6 +17215,8 @@ def _split_cases():
     return [
         ("`half` on a box", S + "floor half left box -1 1 15 31 flat 0\n", "the box already decides"),
         ("`quarter` on a box", S + "floor quarter n box -1 1 15 31 flat 0\n", "the box already decides"),
+        ("a chamfer of 0", S + "floor box 4 10 26 32 chamfer 0 flat 0\n", "1 - 16 cells deep"),
+        ("a chamfer whose cuts overlap", S + "floor box 4 8 26 30 chamfer 3 flat 0\n", "overlap"),
         ("half takes a side", S + "floor half middle tile 12 12 flat 0\n", "half takes up, down, left or right"),
         ("quarter takes an edge", S + "floor quarter up tile 12 12 flat 0\n", "quarter takes n, e, s or w"),
         ("a wall quarter not above the floor across its line", S + "floor quarter e tile 12 12 flat 1\n"
@@ -17195,6 +17235,13 @@ def _split_cases():
         ("a wall half not above the floor across its diagonal", S + "wall half left tile 12 6 flat 0.5\n",
          "across its diagonal"),
     ]
+
+
+# SPEC.md 128.24.4's `chamfer` scene: a box whose corners' a and s differ in parity (quartered, diag-q3's kind) and a box
+# whose corners do not (halves), each a unit up over the void; the scene's text takes the clause twice
+_CHAMFER = ("floor box -5 5 26 36%s flat 1\n"
+            "floor box 8 18 26 38%s flat 1\n"
+            "start 15 15\n")
 
 
 def _split_mockups():
@@ -17222,6 +17269,11 @@ def _split_mockups():
         "edge-halves": hd % ("EDGEH", "Edge halves") + "floor box -6 6 12 24 flat 0.5\nstart 9 9\n",
         "upband-halves": hd % ("BAND", "Up band") + "floor box -1 1 15 29 flat 0\nstart 11 11\n",
         "wall": hd % ("WALL", "Rails") + _SPLIT.split("\n", 2)[2].replace("start 12 12\n", "") + "start 12 12\n",
+        "chamfer0": (hd % ("CHAM0", "Square corners")).replace("width 64", "width 128") + _CHAMFER % ("", ""),
+        "chamfer1": (hd % ("CHAM1", "Chamfer 1")).replace("width 64", "width 128") + _CHAMFER % (" chamfer",
+                                                                                                " chamfer"),
+        "chamfer2": (hd % ("CHAM2", "Chamfer 2")).replace("width 64", "width 128") + _CHAMFER % (" chamfer 2",
+                                                                                                " chamfer 2"),
         "halves": (hd % ("HALF", "Halves")).replace("width 64", "width 128") + halves
                   + "floor rect 3 3 6 6 flat 0\nstart 4 4\n",
     }
@@ -17539,6 +17591,38 @@ def _split_checks(res, t):
                 "for byte", not isinstance(cn.tiles[(12, 12)], Split) and not isinstance(cn.tiles[(9, 9)], Split)
                 and cn.cga == c.cga))
     _course_items(c, -1, res, t)
+    # `box ... chamfer [N]` (SPEC.md 128.24.4): no clause, today's square corners; N cuts each corner along a
+    # line of cell edges - chamfer 1 on a box whose corners' a and s differ in parity drops exactly its four
+    # corner QUARTERS (panel 3 of diag-q3), on one whose corners do not the two HALVES at each corner; no piece of
+    # a chamfered box is a quarter, and what is dropped is exactly the four corner triangles' cells
+    chok, chwhy = True, []
+    for (a0, a1, s0, s1) in ((-3, 3, 22, 30), (-4, 4, 22, 30), (-5, 5, 26, 36), (8, 18, 26, 38)):
+        sq, sh = box_cells(a0, a1, s0, s1, "<chamfer>")
+        for n in (1, 2):
+            cc, ch = box_chamfer(a0, a1, s0, s1, n, sq, sh, "<chamfer>")
+            gone = sq - cc
+            want = {x for x in sq if x[0] < (a0 + s0) // 2 + n or x[1] < (s0 - a1) // 2 + n
+                    or x[1] >= -((a0 - s1) // 2) - n or x[0] >= -((-a1 - s1) // 2) - n}
+            if gone != want or any(v[0] == KIND_Q for v in ch.values()):
+                chok = False
+                chwhy.append("box %d %d %d %d chamfer %d" % (a0, a1, s0, s1, n))
+            if n == 1:
+                kinds = sorted({sh[x][0] for x in gone if x in sh})
+                odd = (a0 + s0) & 1
+                if len(gone) != (4 if odd else 8) or kinds != ([KIND_Q] if odd else [KIND_TB, KIND_LR]):
+                    chok = False
+                    chwhy.append("box %d %d %d %d chamfer 1 drops %d (%s)" % (a0, a1, s0, s1, len(gone), kinds))
+    t0 = compile_course(_split_mockups()["chamfer0"], "<chamfer0>", _hack={"no_finish": True})
+    plain = 'course CHAM0 "Square corners"\nwidth 128\n' + _CHAMFER.replace("%s", "")
+    t1 = compile_course(plain, "<chamfer0, plain>", _hack={"no_finish": True})
+    t2 = compile_course(_split_mockups()["chamfer1"], "<chamfer1>", _hack={"no_finish": True})
+    res.append(("2 `box ... chamfer [N]` (SPEC.md 128.24.4): no clause is today's square box (the same part); "
+                "chamfer 1 drops exactly the four corner quarters (corners of mixed parity) or the corner halves (same "
+                "parity, two a corner); chamfer 1 and 2 drop exactly the cells beyond four cuts along cell edges and leave no "
+                "quarter; the chamfered scene compiles (%d cells against %d)%s" % (
+                    len(t2.tiles), len(t0.tiles), "" if chok else " -- " + "; ".join(chwhy)),
+                chok and t0.cga == t1.cga and len(t2.tiles) < len(t0.tiles)
+                and not any(isinstance(v, Split) and v.diag == KIND_Q for v in t2.tiles.values())))
     # the reader: every bad pair refused (D1.3)
     g = c.part["grid"]
     co, po, dl = g["celloff"], g["pairoff"], len(g["pairs"])
