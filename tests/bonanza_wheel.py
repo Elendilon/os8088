@@ -335,7 +335,7 @@ def pres_snap(g):
     cnt = Snap(g, ("bz_frames", "bz_wcom", "bz_wover", "bz_wlate", "bz_wlead", "bz_wskip", "bz_wtmin"))
     ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube"))
     n = h.b("bz_nlane")
-    pn = BB.PROP_MAX
+    pn = R.guest_propmax()                      # (128.19.10: the guest's tables)
     out = {"frames": cnt.w("bz_frames"), "R0": w.w("bz_R0"), "c0": w.w("bz_c0"), "S": w.w("bz_S"),
            "full": w.b("bz_full"), "nstep": struct.unpack_from("<I", ph.bytes("bz_nstep", 4))[0],
            "pkick": [ph.w("bz_pkick", k) for k in range(pn)], "drawn": list(h.bytes("bz_ldrw", n)),

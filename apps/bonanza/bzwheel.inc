@@ -2508,10 +2508,10 @@ bz_props:
     je .walk0
 .rng:
     mov byte [bz_lnsk], 1       ; (moved: a lane that has just ENTERED it is
-    mov cx, [bz_pra]            ; walked whatever its skip says - one whose
-    mov [bz_ora], cx            ; rows met the last range keeps its skip:
-    mov cx, [bz_prb]            ; SPEC.md 128.19.10, the walk's cost a frame no
-    mov [bz_orb], cx            ; longer every slow lane in it)
+    mov si, [bz_pra]            ; walked whatever its skip says - one whose
+    mov [bz_ora], si            ; rows met the last range keeps its skip:
+    mov si, [bz_prb]            ; SPEC.md 128.19.10, the walk's cost a frame no
+    mov [bz_orb], si            ; longer every slow lane in it; CL is 3 below)
     mov [bz_pra], dx
     mov [bz_prb], ax
     mov byte [bz_pin], 0        ; THE LIFT's whole rise [pyt, pyb) against the

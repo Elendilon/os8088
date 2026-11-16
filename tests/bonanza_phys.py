@@ -390,7 +390,9 @@ class Reader:
         nw = b("bz_wol")
         wol = tuple((b("bz_wol", 1 + 2 * k), b("bz_wol", 2 + 2 * k)) for k in range(min(nw, 9)))
         return (b("bz_ps"), wol, b("bz_tube"), b("bz_tseg"), w("bz_tcnt"), w("bz_tsin"), b("bz_onp"),
-                tuple(w("bz_pkick", k) for k in range(BB.PROP_MAX)), w("bz_nkick"), w("bz_nknock"), w("bz_ntube"))
+                tuple([w("bz_pkick", k) for k in range(R.guest_propmax())]      # (128.19.10: the guest's
+                      + [0xFFFA] * (BB.PROP_MAX - R.guest_propmax())),         # tables, the model's pad)
+                w("bz_nkick"), w("bz_nknock"), w("bz_ntube"))
 
 
 def counts(p):
