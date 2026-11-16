@@ -4226,14 +4226,20 @@ def after_shell(src=None):
     8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
     one a family, where SRC's package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
+    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: a row a FETCH family, and the bundle's
+        nf = BB.fam_nrows()
+    else:
+        nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + nf
 
 
 def fam_parts(td, src, art):
     """wave 9 (SPEC.md 128.25.6.2): a tree's FAMILY PARTS, bbcourse.FAMILIES' order,
     each assembled from the tree's fam/<name>.asm against the bzlink.inc
     shell_part wrote for the tree's package (its stamp that package's).  -> the
-    paths, or None for a tree with no family rows (an earlier wave's)"""
+    paths, or None for a tree with no family rows (an earlier wave's); a tree
+    with the RESIDENT BUNDLE (SPEC.md 128.25.6.9) gets the ROWS' files instead,
+    the fetch families' parts and the bundle (bbcourse.fam_bundle)"""
     inc = os.path.join(td, "bzlink-inc", "bzlink.inc")
     if not os.path.exists(os.path.join(src, "bzfam.inc")) or not os.path.exists(inc):
         return None
@@ -4244,6 +4250,12 @@ def fam_parts(td, src, art):
                         "-I", os.path.dirname(inc) + "/", "-I", art + "/", "-o", o,
                         os.path.join(src, "fam", f["name"] + ".asm")], cwd=ROOT, check=True)
         out.append(o)
+    if "BZ_P_FBUN" in open(os.path.join(src, "bonanza.asm")).read():
+        byname = dict((f["name"], open(p, "rb").read()) for f, p in zip(BB.FAMILIES, out))
+        bun = os.path.join(td, BB.FBUN_FILE)
+        with open(bun, "wb") as fo:
+            fo.write(BB.fam_bundle(byname))
+        out = [p for f, p in zip(BB.FAMILIES, out) if f in BB.FAM_FETCH] + ([bun] if BB.FAM_RES else [])
     return out
 
 
@@ -4270,7 +4282,10 @@ def part_args(art, src=None, shell=None, fams=None):
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
     if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
-    if "BZ_P_FAM" in asm:                       # wave 9 (128.25.6.2): the family parts, the last rows
+    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: the family ROWS - the fetch families' and
+        for p in fams or BB.fam_partfiles(at("build")):     # the RESIDENT BUNDLE, the last
+            out += ["--part", p]
+    elif "BZ_P_FAM" in asm:                     # wave 9 (128.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
     return out

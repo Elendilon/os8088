@@ -370,8 +370,8 @@ HOOK_NAMES = ("RESET", "ENTER", "CONTACT", "STEP", "POSE", "CELL", "PROP")
 HOME_FETCH, HOME_RESIDENT = "fetch", "resident"   # a family's HOME (SPEC.md 128.25.6.9)
 CL_ATTEMPT, CL_RESPAWN, CL_FLAG = 0, 1, 2      # a family element's RESET CLASS (record +17, 128.25.7.1)
 CLASS_NAMES = ("attempt", "respawn", "flag")
-# Each row: its NAME (the `uses` word and the part's file), its ID (1 - 254: part row BZ_P_FAM + ID - 1,
-# in this order), REV (its rules' revision: a change to a rule that moves no constant bumps it, as
+# Each row: its NAME (the `uses` word and the part's file), its ID (1 - 254, in this order; its part ROW
+# follows its HOME, fam_row below), REV (its rules' revision: a change to a rule that moves no constant bumps it, as
 # PHYS_REV does), the HOOKS it implements, its SLOT's bytes, and its KINDS: each a name (the `prop` word),
 # its kind number, its state BITS an element, its reset CLASS (None: the line states it, `reset ...`),
 # its ART ("pennant": the flag's two poses; None: no lane), its cell FORMS (128.25.7.3: "own" is the
@@ -448,6 +448,65 @@ assert all(k["forms"] in (("own",), ("own", "void")) for _f, k in FKIND_BY_NAME.
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
 assert all(k["bits"] in (1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())
 assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
+
+# THE RESIDENT BUNDLE (the owner, 2026-11-16; SPEC.md 128.25.6.9): every home-`resident` family's part
+# rides ONE part row, BZFBUN.BIN, fetched once when the package starts (one read, not one a family) and
+# never dropped.  The family part ROWS are the `fetch` families' own, in ID order, from BZ_P_FAM, and
+# then the bundle's, the last (BZ_P_FBUN); BZ_FTAB maps an ID to its row.  Inside the bundle the parts
+# lie back to back, each from a paragraph, each byte for byte its own build but its header's +11 (0 in a
+# part of its own), which holds its PARAGRAPHS there: the step to the next header, so bz_ffetch finds a
+# family by walking the headers for its ID.  A family's home moves between the two by its row's `home`
+# alone: the rows, the table, the bundle and the --part list (`famparts`) all follow FAMILIES.
+FAM_FETCH = tuple(f for f in FAMILIES if f["home"] == HOME_FETCH)
+FAM_RES = tuple(f for f in FAMILIES if f["home"] == HOME_RESIDENT)
+FAM_HDR_PARAS = 11                  # a part's header byte: 0 alone, its paragraphs inside the bundle
+FBUN_FILE = "bzfbun.bin"
+
+
+def fam_row(f):
+    """a family's part row, past BZ_P_FAM: its own (the fetch families', ID order), or the bundle's"""
+    return FAM_FETCH.index(f) if f["home"] == HOME_FETCH else len(FAM_FETCH)
+
+
+def fam_nrows():
+    """the family part rows: one a fetch family, and the bundle's when any family is resident"""
+    return len(FAM_FETCH) + bool(FAM_RES)
+
+
+def fam_bundle(parts):
+    """the RESIDENT BUNDLE's bytes from PARTS ({name: the part's own bytes}): FAM_RES's parts in ID
+    order, each padded to a paragraph, its header's +11 its paragraphs (b"" with no resident family)"""
+    out = bytearray()
+    for f in FAM_RES:
+        b = bytearray(parts[f["name"]])
+        assert b[:2] == b"BF" and b[2] == f["id"] and b[FAM_HDR_PARAS] == 0, \
+            "%s: not a family part of this build ('BF', its ID, +11 zero)" % f["name"]
+        n = (len(b) + 15) >> 4
+        assert 0 < n < 256, "%s: %d paragraphs, the bundle's step is a byte" % (f["name"], n)
+        b[FAM_HDR_PARAS] = n
+        out += b + bytes(16 * n - len(b))
+    return bytes(out)
+
+
+def fam_partfiles(d):
+    """the family rows' files under build directory D, in row order (the Makefile's --part list's tail)"""
+    return [os.path.join(d, "bzf-%s.bin" % f["name"]) for f in FAM_FETCH] + \
+        ([os.path.join(d, FBUN_FILE)] if FAM_RES else [])
+
+
+def main_fbundle(argv):
+    """bbcourse.py fbundle DIR: DIR/bzfbun.bin out of DIR/bzf-<name>.bin (empty with no resident family);
+    bbcourse.py famparts DIR: the --part arguments of the family rows, in row order"""
+    if len(argv) != 2 or argv[0] not in ("fbundle", "famparts"):
+        raise CourseError("usage: bbcourse.py fbundle|famparts DIR")
+    d = argv[1]
+    if argv[0] == "famparts":
+        print(" ".join("--part %s" % p for p in fam_partfiles(d)))
+        return 0
+    b = fam_bundle(dict((f["name"], open(os.path.join(d, "bzf-%s.bin" % f["name"]), "rb").read()) for f in FAM_RES))
+    with open(os.path.join(d, FBUN_FILE), "wb") as fo:
+        fo.write(b)
+    return 0
 
 
 def famv(f):
@@ -10941,8 +11000,13 @@ def emit_inc(courses, path=None, title=None):
               "BZF_SLOT        equ %d        ; a family's slot, bytes (bz_fsl: three of them)" % FSLOT,
               "BZF_HDR         equ %d       ; the family part's header: 'BF', ID, FAMV, the stamp, the mask, the "
               "kinds, 0, six entries" % FAM_HDR,
-              "BZ_NFAM         equ %d        ; the families the build has: rows BZ_P_FAM .. + BZ_NFAM - 1, ID 1 - "
-              "BZ_NFAM" % len(FAMILIES),
+              "BZ_NFAM         equ %d        ; the families the build has: ID 1 - BZ_NFAM" % len(FAMILIES),
+              "BZ_NFFETCH      equ %d        ; ...home `fetch`: a part row each, BZ_P_FAM on, ID order" % len(FAM_FETCH),
+              "BZ_NFRES        equ %d        ; ...home `resident`: ONE row between them, the BUNDLE, after those "
+              "(SPEC.md 128.25.6.9)" % len(FAM_RES),
+              "BZ_NFROW        equ %d        ; the family part rows" % fam_nrows(),
+              "BZF_HPARAS      equ %d       ; a part's header byte: its paragraphs inside the bundle (0 alone)"
+              % FAM_HDR_PARAS,
               "BZ_FAMMAX       equ %d        ; families a course's list holds at most: FETCHED ones (3) and "
               "RESIDENT ones (SPEC.md 128.25.6.9), the courses' longest, never under 3" % max(
                   [len(getattr(getattr(c_, "src", None), "uses", ())) for c_ in allc] + [FAM_MAX]),
@@ -10976,9 +11040,16 @@ def emit_inc(courses, path=None, title=None):
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
-              "; the family part rows: one a family, ID order, after every other row",
-              "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; BZF%d.BIN, %s (ID %d, FAMV %02Xh)"
-                                         % (f["id"], f["name"], f["id"], famv(f)) for f in FAMILIES] + [
+              "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
+              "; RESIDENT BUNDLE's (SPEC.md 128.25.6.9)",
+              "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; bzf-%s.bin (ID %d, FAMV %02Xh)"
+                                         % (f["name"], f["id"], famv(f)) for f in FAM_FETCH] + [
+              "    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; %s: %s, held from the start"
+              % (FBUN_FILE, " + ".join(f["name"] for f in FAM_RES)) for _ in FAM_RES[:1]] + [
+              "%endmacro",
+              "; BZ_FTAB: a family ID's part row (bz_ftab - 1 + ID, bz_ffetch's XLAT)",
+              "%macro BZ_FTAB 0"] + ["    db BZ_P_FAM + %d      ; %d %s (%s)" % (fam_row(f), f["id"], f["name"], f["home"])
+                                     for f in FAMILIES] + [
               "%endmacro",
               "",
               "; BZ_MATTAB (SPEC.md 128.11.5.1), %d bytes a material, bbcourse.MATERIALS" % MATREC,
@@ -20100,6 +20171,12 @@ def main_author(argv):
 
 def main():
     global REC
+    if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
+        try:
+            return main_fbundle(sys.argv[1:])
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor"):
         try:
             return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor}[sys.argv[1]](sys.argv[2:])
