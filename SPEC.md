@@ -276052,7 +276052,7 @@ not - D2's verify.)
 | byte | a split cell |
 |---|---|
 | +0, +1 | the WORD offset of its RECORDS in the part (absolute, as a map word is: 128.10.4.2) |
-| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 RESERVED for a CHANNEL** (128.24.13), 8 - 15 for 128.10.4.3's other non-planar floors |
+| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 is the FIELD cell** (128.27; reserved here as the CHANNEL, 128.24.13), 8 - 15 RESERVED for 128.10.4.3's other non-planar floors |
 | +3 | the flags: SAFE never; OCC and OCCG as derived for a ball anywhere in the cell (128.10.4.4); OBS never; bits 4 - 7 zero |
 
 ##### 128.24.5.2 The pair and section `D`
@@ -276744,27 +276744,18 @@ rails, and the ball slides along them (128.24.7). Wave D5's second course;
 it is NOT changed in D1 - D2. **BUILT (D5.3, 128.24.14)**: exactly those
 three boxes, and the demo's radial corners on the coast are 0.
 
-#### 128.24.13 Channels: the next core tile type (RESERVED, not built)
+#### 128.24.13 Channels: the next core tile type (SUPERSEDED: 128.27)
 
 R4, the owner: a CHANNEL is "a tile, or two tiles together, that cradle the
 ball ... one of the other core things we are missing, to make a ball
-game". It slots into this section's scheme without reworking it: **every
-cell kind from 4 up is a cell whose bytes +0 - +1 point into section `D`**,
-the kind saying how many records are there and how the step reads them (2
-for a halved cell, 4 for a quartered one), and the window's `bz_nbh` slot,
-`read_part`'s D tiling, the CELLS rule's per-kind reader and `GF_SPLIT`'s
-gate are already per kind. **Kind 7 is RESERVED for the channel** (`BZ_KCHANNEL`
-in `bzcourse.inc`; `read_part` refuses it until it is built): its D entry
-would be one 4-byte CHANNEL record - the axis (u, v, or a diagonal, TB or
-LR), the profile (a concave cross-section's depth in half units at its
-middle, its floor `z0` at the lip and the surface), and for a channel two
-cells wide which side of the pair this cell is - so a channel along a
-diagonal is one more kind of line inside a cell, as a half's is. Its floor
-replaces `bz_h4`'s plane by the profile's height (a quadratic or a two-slope
-V in the cross direction, the slope term of 128.11.8.2's step 2 its
-derivative), and its lips are edges the ball rolls over. Kinds 8 - 15 stay
-reserved for 128.10.4.3's other non-planar floors. Not designed further
-here: the owner's next design question.
+game". **Kind 7 was reserved for it here, and 128.27 builds it** - not as
+this paragraph sketched it (one CHANNEL record in section `D`, a profile
+formula evaluated in the step), but as a **FIELD cell**: the cell's own four
+bytes name a shape table in a new section `F` and one of the square's eight
+symmetries, so the floor is a table read (no multiply), and the same kind
+serves a chute's straight, its tapered end, its radial corner and a pit's
+bowl. `BZ_KCHANNEL` became `BZ_KFIELD`. Kinds 8 - 15 stay reserved for
+128.10.4.3's other non-planar floors.
 
 #### 128.24.14 The first courses: PLAYGROUND's diagonal section and MOON's coast (D5, BUILT)
 
@@ -278208,3 +278199,300 @@ door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
 `F or Alt+Enter: window`, `Esc map or quit`, and last `Contributed by
 Elendilon` (the owner, 2026-11-16: the description line goes - launching
 the game says what it is).
+
+### 128.27 Shaped floors: chutes and the pit (kind 7, the FIELD cell)
+
+The owner, R4 (128.24.13): a CHANNEL is "a tile, or two tiles together, that
+cradle the ball ... one of the other core things we are missing, to make a
+ball game"; and, after it, "a pit made of curved sides that you have to
+enter with enough speed to make it around and over and fly up the other
+side, instead of falling through to the hole in the bottom". This section is
+both, as ONE mechanism: a cell whose floor is a small HEIGHTFIELD read from a
+table, so a chute's straight, its tapered end, its curved corner and every
+piece of a bowl are the same kind of cell with a different table.
+
+**This section is a CONTRACT, built wave by wave** (the plan:
+[docs/plans/BOUNCE-BONANZA-SHAPED.md](docs/plans/BOUNCE-BONANZA-SHAPED.md),
+waves C0 - C4; each subsection says BUILT once it is). Every figure is
+PREDICTED unless it says MEASURED. It replaces 128.24.13's reservation: the
+channel there was sketched as a record in section `D` with a profile
+formula; building it as a table read is what keeps the step free of a
+multiply and lets one kind serve the corner and the pit too.
+
+**What the investigation found** (a throwaway prototype outside the tree:
+courses of planar ramps and halves rolled through `bbcourse.Physics`, and a
+grounded-only corner model):
+
+- A MITRED corner (two planar ramps folded along the cell's diagonal) does
+  NOT guide: at 384 with no key held the ball reflects back up the run and
+  stalls at 200 - 300. Only a RADIAL corner (the cross-section swept round
+  the corner's inner point) carries a ball round.
+- A ball that is too fast SHOULD leave over the lip: the owner wants it. A
+  lip is a CREST, and 128.10.7.3 step 6's take-off already lets a ball whose
+  floor falls away faster than its own rate leave the ground.
+- A pure V cross-section never comes to rest (the cross speed flips +-7 a
+  step for ever): the profile is ROUNDED or flat-bottomed, which settles.
+- A dead-end cap (a wall across the channel's end) broke 128.11.4.2's four
+  records a block: a chute's ends TAPER to its lip.
+- Planar V chutes are already expressible with ramps and halves; that is not
+  the goal.
+
+#### 128.27.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| what a shaped tile is | a **FIELD cell**, kind 7: its floor is `16 z0 + F[shape][T(u, v)]`, a 17 x 17 table of heights read through one of the square's 8 symmetries | one mechanism for straights, tapers, corners and the bowl; a table is shared by every cell that is the same shape in another orientation |
+| where the cell's data is | the cell's own 4 bytes; the tables in a new section `F`; no record in `D` | the shape index and the symmetry fit the slopes byte (+1), as 128.10.4.3 always planned; nothing per cell beyond the grid |
+| the floor's slopes | forward differences of the table at the centre's integer point, re-derived every step | no `MUL` or `IMUL` in the floor path: two more table reads and a subtraction each |
+| how steep | `abs(sx) + abs(sy) <= 7` quarter px a ground unit at every point of every table under every symmetry, refused by the tool | the floor rate `(sx gvx + sy gvy) >> 2` stays within 672 < `BZ_VZMAX` 768, inside `bz_smul`'s -8 .. 8; past the plane ramp's 4, which a lip needs |
+| a neighbour's wall | a FIELD centre LIFTS its edge and corner tests to its own height at the shared point, and a FIELD neighbour of a FIELD centre never blocks (128.27.5.3) | a cell's edges are axis-aligned and a corner's profile is radial: without it the bank of a corner blocks as a wall halfway up |
+| the grammar | `chute` (1- or 2-wide, `round` or `bank`, axis-aligned legs, radial corners and tapered ends placed by the tool) and `pit` (a bowl round a hole) | the author names a route, not cells (128.27.3) |
+| where the code is | RESIDENT in `BONANZA.O88` (the owner: about 1.4KB is worth it if it serves the remaining tile-shaping needs) | a family part (128.25.6) is the fallback if the segment runs short; 128.27.8 says what it cost |
+| the physics' version | `PHYS_REV` 13 | the step reads a kind it did not; nothing shipped yet depends on a version (the owner) |
+
+#### 128.27.2 The cell, the tables and section `F`
+
+**The FIELD cell** (kind 7; `BZ_KFIELD`, which replaces 128.24.13's
+`BZ_KCHANNEL`):
+
+| byte | a FIELD cell |
+|---|---|
+| +0 `z0` | signed, half units: the cell's BASE. No point of the cell is below `16 z0` quarter px (every table byte is unsigned) |
+| +1 | bits 0 - 3 the SHAPE, an index into section `F`; bits 4 - 6 the SYMMETRY (below); bit 7 zero |
+| +2 | low nibble 7; high nibble the SURFACE (`normal` only, as built: 128.27.3) |
+| +3 | flags: SAFE never, OBS never; OCC and OCCG as derived for any cell (128.10.4.4, 128.11.4.3); bits 4 - 7 zero |
+
+**The height** at the cell's integer point `(u, v)`, `0 <= u, v <= 16` (the
+far edges included, as 128.10.4.3's plane), in quarter px:
+
+    h4(u, v) = 16 z0 + F[shape][17 V + U]
+
+where `(U, V)` is `(u, v)` through the SYMMETRY: bit 4 MU mirrors `u` (`u' =
+16 - u`, else `u' = u`), bit 5 MV mirrors `v` the same way, then bit 6 SW
+swaps (`(U, V) = (v', u')`, else `(u', v')`). The eight values are the eight
+symmetries of the square; the tool stores one table for every set of cells
+that are the same shape up to one of them.
+
+**The slopes** at `(u, v)`, `0 <= u, v <= 15` (the centre's integer point),
+quarter px a ground unit - the plane's `sx` and `sy` by another name:
+
+    sx = h4(u + 1, v) - h4(u, v)        sy = h4(u, v + 1) - h4(u, v)
+
+In table terms each is one more byte read, `F[i + DU] - F[i]`, `DU` = +-1 or
++-17 by the symmetry (`DV` likewise), so the guest keeps per symmetry an
+origin and two strides (`BZ_FSYM`, 128.27.7) and never multiplies.
+
+**Section `F`**: tag `F`, form 0 PLAIN, **after `D` and before `T`** in RAM
+order (`D` absent on a course with no split cell), `NSHAPE` tables of 289
+bytes, `1 <= NSHAPE <= 16`; present if and only if the course has a FIELD
+cell. `BZG1 +28` gains **`GF_FIELD` = 32 (bit 5)**, set exactly when `F` is
+present. `read_part` adds: `F`'s length a multiple of 289, at most 16
+tables, every one named by at least one cell; every FIELD cell's shape under
+`NSHAPE`, its bit 7 clear, its flags as above; the slope bound and the SEAM
+rule (below) on every cell - which the guest then trusts, as it trusts the
+rest of a part the tool built.
+
+**A part is HOSTILE** (128.24.5.3's rule): `bz_cexp`'s bound makes a FIELD
+cell whose shape is not under `NSHAPE`, or whose bit 7 is set, OPEN, so the
+step reads `F` only inside `F`. Any byte of a table is a height, so nothing
+else needs bounding: a hostile table can make a ball fast (a slope of 255
+loops `bz_smul` eight times), never read or write outside the part.
+
+**The SEAM rule** (the tool's, refused naming both cells): two FIELD cells
+that share an edge have EQUAL heights at all 17 of its points. A chute and a
+pit as the tool generates them hold it by construction (one height function
+per piece, sampled at the shared points); it is what 128.27.5.3's
+field-to-field rule stands on.
+
+**CELLS** (128.15.6, 128.24.5.3): a FIELD cell's `V` is `z0 + 79h` (its +1
+is not slopes), so NEAR reads its base; its `rule_safe` is 0 (it is not a
+FLOOR); a FIELD edge neighbour is not VOID for a FLOOR's SAFE. `bz_cxcel`
+reads it the same way.
+
+#### 128.27.3 The text course
+
+    chute <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> [<z>] ...
+    pit   <x> <y> <z> radius <r> depth <px> [hole <h>]
+
+- **`chute`**: a channel 1 or 2 cells wide, its cross-section `round`
+  (curved throughout) or `bank` (a flat bottom between banks that ease into
+  the lip), `depth` px from its LIP to its bottom. The `way`s are points ON
+  ITS CREASE: for a 1-wide chute the CELLS its crease runs through the
+  centre of; for a 2-wide chute the cell CORNERS its crease (a cell edge)
+  runs through. Consecutive ways differ in one coordinate only (an
+  axis-aligned leg); every inner way is a 90-degree corner, which the tool
+  lays RADIAL; the first and last ways are the chute's ends, each laid as a
+  TAPER (the channel rising to its lip over one cell). `<z>` is the lip's
+  height in units (128.10.3's heights); a later way's, when given, makes the
+  leg before it a SLOPE, which must be a whole number of half units a tile
+  over the leg's straight cells (corners and tapers are level).
+- **`pit`**: a bowl centred on the cell corner `(x, y)`, `radius` `r` cells
+  (2 - 4), its lip at `<z>` and its bottom `depth` px below, round a HOLE:
+  the central `2h x 2h` cells (`h` 1 if left out, 0 for none) are VOID, so a
+  ball that does not carry round the bowl falls through to the kill below
+  it. The bowl's cells beyond its radius are flat at the lip.
+- A chute or a pit LAYS its cells after every room, surface and hole (it
+  overrides them); a pit's hole cells are VOID whatever was there. What lies
+  outside its lips is the author's: a floor at the lip's height for a chute
+  set in the ground, nothing for one on a bridge.
+- **Refused**, each at its line: a way that leaves the leg's axis or
+  doubles back; a leg too short for its corners and tapers (128.27.4's
+  lengths); a slope that is not a whole number of half units a tile; a depth
+  whose table passes 255 quarter px or the slope bound; two chutes or pits
+  on one cell; a pit radius outside 2 - 4 or a hole not under it; a FIELD
+  cell outside 3 .. 252; and on a FIELD cell, as on a split one: `start`, a
+  material `pad`, a pathway `pad`, `checkpoint`, `clock`, `cup`, `spring`, a
+  route's `gate`, every prop's cell; a split cell in a FIELD cell's 3 x 3. A
+  `way` of the route MAY stand on one (its centre is a floor). `surface` is
+  not applied to a FIELD cell (a later wave may let a chute name one).
+
+#### 128.27.4 The shapes the tool lays
+
+All heights are generated in WORLD quarter px from one function per piece,
+sampled at each cell's 17 x 17 integer points and rounded half up; the tool
+then normalises each cell (`z0` = the floor of its lowest point / 16, the
+table its heights less `16 z0`) and finds, for each, a stored table and a
+symmetry that reproduce it exactly, adding a table when none does.
+
+- **The cross-section** `p(c)`, `c` the distance from the crease in ground
+  units, `W` the half width (8 a 1-wide chute, 16 a 2-wide), `D` the depth in
+  quarter px, `p(0) = 0`, `p(W) = D`: `round` and `bank` are TUNED by wave C2
+  against the scripted runs and written here then. The lip must be a CREST
+  (the take-off), the profile must keep the slope bound, and the ball must
+  settle at the bottom without a dither.
+- **A straight** cell: the depth below the lip `D - p(c)` across the leg,
+  the leg's slope along it.
+- **A taper** (an end): over the end cell the depth falls linearly to 0 at
+  the open edge.
+- **A radial corner**: a 1-wide chute's is its way's cell, the section swept
+  round the cell corner on the inside of the turn (`c = abs(r - 8)`, `r` the
+  distance from that point); a 2-wide chute's is the 2 x 2 cells round its
+  way's corner point, swept round the far corner of that block on the
+  inside of the turn (`c = abs(r - 16)`). Where `c > W` (the outer corner of
+  the block) the floor is the lip.
+- **A pit**: `lip - P(r)`, `r` the distance from its centre, `P` the depth
+  `D` at the hole's edge (`r = 16 h`) falling to 0 at `r = 16 radius`, a curve
+  TUNED by C2 (steepest near the lip, so a fast ball is thrown up and over
+  and a slow one slides to the hole).
+- **Lengths**: a 1-wide leg between two ways `n` cells apart has `n - 1`
+  cells between them (the ways' own cells are the corners or the end
+  tapers), so `n >= 1`; a 2-wide leg between crease points `n` apart has `n
+  - 2` straight cell pairs (a corner's block reaches one cell either side of
+  its point, an end's taper is the one pair after it), so `n >= 2`.
+
+#### 128.27.5 Physics (binding once built: the guest and `bbcourse.Physics` do exactly this)
+
+##### 128.27.5.1 The floor
+
+Wherever 128.11.8 reads the centre's record C's plane - step 6's floor
+`h4(u, v)` at the centre's integer point after the move, the landing's
+floor rate `fr = (sx gvx + sy gvy) >> 2` (128.11.8.5), `bz_gh` - a FIELD C
+reads its table at that point: the height, and the slopes 128.27.2 derives
+there. A FIELD cell is SOLID as a FLOOR is.
+
+**Step 2's slopes** are C's at the step's START point, as a plane's are: a
+FIELD C's at the integer point the ball is at when the step begins. The
+guest keeps them in `bz_tsx`, `bz_tsy`, written at step 6 (the point the
+step ends at, which the next one starts from) and at every refill.
+
+##### 128.27.5.2 What a FIELD cell is not
+
+Never SAFE (no respawn lands on one), never a GOAL, never FIRM LEVEL
+(128.16.4.1's rule 4 reads kind FLOOR or GOAL: no boost off a field, even at
+a flat bottom), never a prop's cell.
+
+##### 128.27.5.3 The edges and the corner
+
+Step 5's edge tests and its corner stand, sampled at today's points. A FIELD
+neighbour BLOCKS as a floor does, by its height at the point (`h4 > zs +
+BZ_CLIMB`), with two additions that apply when the CENTRE's cell C (the
+window's centre in step 5, after the move) is a FIELD:
+
+- **field to field**: a FIELD neighbour never blocks (the SEAM rule makes
+  the surface continuous across the edge; the ball's centre carries it);
+- **the lift**: a FLOOR or GOAL neighbour that would block blocks only if
+  its height at the point is also above C's own height at the SAME point (in
+  C's units: the neighbour's `(u, v)` plus 16 times its offset, 0 - 16) plus
+  `BZ_CLIMB` - so a floor laid at the lip's height is a lip, and a floor
+  standing above the lip is a wall. A WALL blocks and a VOID does not, as
+  ever.
+
+**The fallback is not lifted**: a centre that moved into a new cell is
+judged by that cell (a FIELD one by its height at the centre) against the
+step's start `z`, exactly as today, so a ball cannot roll from a low plane
+into a FIELD cell standing high above it.
+
+Why: a cell's edges are axis-aligned and a corner's profile is radial, so a
+ball 6 units inside a corner block meets a neighbour's height up to 6 units
+further up the bank - over `BZ_CLIMB` wherever the bank is steeper than 2.7
+quarter px a unit, which a guiding bank must be. Without the two rules the
+bank would be an invisible wall.
+
+##### 128.27.5.4 The lip, a crest
+
+A ball climbing a bank at speed has a floor rate step 2 derived from the
+steep bank; at the lip the floor flattens, `h < z + gvz - G - STICK` at step
+6, and it TAKES OFF (128.10.7.3) - over the lip, into the next cell or the
+void beyond. A slow one rolls back down. Nothing in this is new; the tables
+are shaped so the crest is where the take-off happens.
+
+#### 128.27.6 The picture
+
+- **The top** of a FIELD cell is drawn as 4 x 4 ground-unit FACETS (16 a
+  cell), back to front by `(i + j, i)` inside the cell, each a quad at its
+  four corners' heights. A facet that faces AWAY from the viewer (its screen
+  projection reversed: a bank rising toward the viewer more steeply than the
+  view, `sx + sy > 4` across it) is not drawn: what is behind it shows, as it
+  would, so the near bank of a deep channel is a lip with the channel's
+  floor seen over it.
+- **The ink** is the facet's shade by its gradient against a light from the
+  upper left: facing up and away is lit (white), level is the base (cyan),
+  facing the viewer is magenta, darker to the right (magenta and black),
+  with world-fixed 50% dithers between, so the blocks a chute makes repeat
+  along it. No outline is drawn between facets.
+- **The faces**: a FIELD cell hangs its `sw` and `se` faces as a whole cell
+  does, their top edges the table's 17 heights along that edge, down to the
+  neighbour's heights there (nothing against a FIELD neighbour, by the SEAM
+  rule) or 3 units into the void.
+- **The occluder key**: a facet whose ground lies in the FRONT half of its
+  cell's row (`u + v >= 16` at its centre) is keyed `s + 1`, the rest `s`,
+  as 128.24.6.3 keys a split cell's front pieces, so a ball in the back of a
+  row (a channel's bottom) is laid under the near lip; its top is its LOWEST
+  corner, so a ball resting on a bank is never laid under the bank below it.
+
+#### 128.27.7 The guest
+
+- **The tables** (`bzphys.inc`): `BZ_FSYM`, for each symmetry the origin
+  `17 V + U` of `(0, 0)`, the strides `DU`, `DV` (+-1, +-17), and which of
+  four 17-entry word tables (`k`, `-k`, `17 k`, `-17 k`) walks `u` and which
+  `v`, so the index is two table reads and two adds; `bz_fsb` (bss), each
+  shape's table's offset in the course, filled once by `bz_pinit` from
+  section `F`'s directory entry.
+- **`bz_fhp`**: SI a FIELD cell, DL, DH = `(u, v)` -> AX = `h4`. **`bz_fh4`**:
+  the centre's after the move - its `h4` (BX, for step 6) and `bz_tsx`,
+  `bz_tsy`.
+- **The hooks**, none on a path a course without FIELD cells takes: step 6's
+  `.ngs` (a kind above GOAL) tests 7 before the split pick; step 8's goal test
+  leaves a FIELD centre at once; `bz_blocks`' `.other2` (a kind above GOAL)
+  tests 7 before the split dispatch, and its `.high` (a floor that would
+  block) tests the centre's kind for the lift; `bz_wtail`'s slopes for a
+  centre that is neither FLOOR nor GOAL test 7. A course with no FIELD cell
+  runs today's instructions on every path a FLOOR, a VOID, a WALL or a GOAL
+  takes, plus at most one compare on a refill whose centre is VOID or a WALL.
+- **The launch**: `bz_cxcel`'s `V` of kind 7, `bz_dval`'s bound,
+  `bz_pinit`'s `bz_fsb`.
+
+#### 128.27.8 What it costs
+
+- **Clocks, PREDICTED** (128.11.15's method, x 1.3): a step whose centre is a
+  FIELD cell and touches nothing - `bz_fh4` (the symmetry's entry, two index
+  reads, three table bytes, two subtractions) - about 250 - 350 raw; each
+  edge or corner test against a FIELD neighbour, `bz_fhp`, about 150 - 200;
+  the worst step in a channel (the centre, two edges and a corner) about 0.9
+  - 1.1k raw, 1.2 - 1.5k x 1.3, on top of today's ground step. The ONE
+  measurement wave C3 takes (MartyPC) decides it.
+- **Bytes, PREDICTED**: resident code about 0.8 - 1.2KB with the tables;
+  bss about 40 bytes. A course: 289 bytes of RAM a table, 3 - 14 tables for
+  a showcase; the picture's shading blocks about 12 - 20 a direction and
+  profile and 30 - 40 a 2-wide corner; the near lip's occluders about 110
+  bytes of RAM a 2-wide cell of run (none on a run straight down the screen).

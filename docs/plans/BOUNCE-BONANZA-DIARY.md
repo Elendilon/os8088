@@ -2949,3 +2949,42 @@ rows red at once (their symbol tables described another image), and one
 merge cut a row's second leg. And the attribution of a red is a run at the
 base, not an argument: `bonanzapath`'s red was already there, and
 `bonanzaring`'s MILL coverage was not.
+
+## 2026-11-16 (shaped floors, C0: chutes and the pit as one table-driven cell)
+
+*Branch `bounce-shaped`; the contract SPEC.md 128.27, the plan
+[BOUNCE-BONANZA-SHAPED.md](BOUNCE-BONANZA-SHAPED.md).* The owner had
+reserved kind 7 for a CHANNEL (128.24.13) and asked next for a pit "made of
+curved sides that you have to enter with enough speed to make it around and
+over and fly up the other side". An investigation before this wave rolled
+prototype channels built from today's ramps and halves through the model.
+
+**Observed (the investigation, the model's runs).** A channel whose corner
+is two ramps folded along the cell's diagonal does not turn the ball: at
+384 with no key it bounced back up the run and stalled at 200 - 300. A
+grounded-only corner model with the cross-section swept RADIALLY round the
+corner's inner point carried the ball round at 190 - 384 in a 2-wide,
+14 px deep channel; a 1-wide, 7 px one threw it out from 252. A pure V
+never settles - the cross speed flips by 7 a step for ever. A wall capping a
+channel's end put five occluder records in one block. And the near lip's
+occluders, not the shading, are the biggest byte cost.
+
+**Decisions.**
+- One mechanism, not a channel and a pit: the FIELD cell, whose floor is a
+  17 x 17 table of heights read through one of the square's eight
+  symmetries. A straight, a taper, each corner cell and each piece of a bowl
+  is a table; a chute turning the other way is the same tables mirrored.
+- The cell's own four bytes carry it: the slopes byte became the shape and
+  the symmetry, as 128.10.4.3 had always planned for its reserved kinds; no
+  record in section `D`. The tables are a new section `F`.
+- The slopes are forward differences of the table - two more byte reads -
+  so no multiply enters the floor path, and the bound `|sx| + |sy| <= 7`
+  keeps the floor rate under `BZ_VZMAX`.
+- A rule the corners force: a cell's edge tests are axis-aligned and a
+  corner's bank is radial, so a ball six units inside a corner block meets
+  its neighbour's height six units further up the bank and would bounce off
+  an invisible wall halfway up. A FIELD centre therefore never blocks on a
+  FIELD neighbour (the tool guarantees the seam is exact), and lifts its
+  edge test to its own height at the shared point for a plane neighbour - a
+  floor at the lip is a lip, a floor above it a wall. The fallback is not
+  lifted, so nothing rolls up into a field from below.
