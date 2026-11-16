@@ -272,99 +272,173 @@ bz_knum:
     loop .o
     ret
 
-; bz_kintro - THE INTRO CARD over the pathway while course [bz_crs] is fetched:
-; its NAME, and the keys of the wait
-bz_kintro:
+; bz_kinfo - THE INFO CARD (128.22.6): AL = the pad's course K.  Its NAME; its
+; ball; LIMIT s; GOLD s and SILVER s; BEST s.t and the medal won, or NOT
+; PLAYED; EXITS n OF m (the exits found of those the course has); and NOT
+; SAVED while the last write of BONANZA.DAT was refused.  The slot is the one
+; played (bz_dslot).  Drawn over the frozen frame (bz_card); bz_kinfow waits
+; for a key and takes it away.  Preserves ES, nothing else.
+bz_kinfo:
+    mov [bz_ikc], al
     push es
     push ds
     pop es
     mov di, bz_kbuf
-    mov al, [bz_crs]
+    mov al, [bz_ikc]            ; NAME
     mov ah, BZ_CRS_NAMEB
     mul ah
     add ax, bz_cnames
     xchg ax, si
     call bz_kput
-    xor al, al
-    stosb                       ; (the line's NUL)
-    mov si, bz_ks_get
+    call bz_kend
+    call bz_kk                  ; BALL <name> (seven bytes a ball)
+    mov al, [bz_cballs + bx]
+    mov ah, 7
+    mul ah
+    add ax, bz_ks_mats
+    push ax
+    mov si, bz_ks_ball
     call bz_kput
-    stosb
-    stosb                       ; (the list's end)
-    pop es
-    mov si, bz_kbuf
-    jmp bz_card
-
-; bz_kresult - THE RESULT CARD after a game course: FINISHED and the time and
-; the exit, or TIME UP; the lives; then any key (or about four seconds)
-bz_kresult:
-    push es
-    push ds
-    pop es
-    mov di, bz_kbuf
-    mov si, bz_ks_fin
-    cmp byte [bz_goal], 0
-    jne .h
-    mov si, bz_ks_tup
-.h:
+    pop si
     call bz_kput
-    xor al, al
-    stosb
-    cmp byte [bz_goal], 0
-    je .lv
-    mov si, bz_ks_time          ; TIME s.t S  EXIT e
+    call bz_kend
+    call bz_kk                  ; LIMIT s
+    shl bx, 1
+    push word [bz_clims + bx]   ; (bz_kput spends AL)
+    mov si, bz_ks_limit
     call bz_kput
-    mov ax, [bz_nstep]          ; tenths = steps x 2 / 11 (a step is 1/55 s,
-    mov dx, [bz_nstep + 2]      ; the clock's second; under 360,000 steps the
-    shl ax, 1                   ; quotient is a word)
+    pop ax
+    xor bx, bx
+    call bz_knum
+    call bz_kend
+    call bz_kk                  ; GOLD s  SILVER s (the medals' steps)
+    shl bx, 1
+    shl bx, 1
+    push word [bz_cmedals + bx]
+    mov si, bz_ks_gold
+    call bz_kput
+    pop ax
+    call bz_ksec
+    call bz_kk
+    shl bx, 1
+    shl bx, 1
+    push word [bz_cmedals + bx + 2]
+    mov si, bz_ks_silver
+    call bz_kput
+    pop ax
+    call bz_ksec
+    call bz_kend
+    call bz_kk                  ; BEST s.t and its medal, or NOT PLAYED
+    shl bx, 1
+    call bz_dslot
+    mov ax, [si + bx + BZD_SBEST]
+    mov [bz_ibest], ax
+    mov si, bz_ks_notp
+    or ax, ax
+    jz .np
+    mov si, bz_ks_best
+    call bz_kput
+    mov ax, [bz_ibest]
+    xor dx, dx                  ; tenths = steps x 2 / 11 (a step is 1/55 s)
+    shl ax, 1
     rcl dx, 1
     mov cx, 11
     div cx
     mov bx, 10
     call bz_knum
-    mov si, bz_ks_exit
-    call bz_kput
-    mov al, [bz_exit]
-    xor ah, ah
-    xor bx, bx
-    call bz_knum
-    cmp byte [bz_xmode], 0      ; (8c.3: a timed finish's MEDAL)
-    jne .nomed
-    mov bl, [bz_crs]
-    xor bh, bh
+    call bz_kk
     shl bx, 1
     shl bx, 1
-    mov ax, [bz_nstep]
-    mov si, bz_ks_gold
+    cmp word [bz_cmedals + bx], 0 ; (a course with no medals)
+    je .nm
+    mov ax, [bz_ibest]
+    mov si, bz_ks_gold2
     cmp ax, [bz_cmedals + bx]
     jbe .med
-    mov si, bz_ks_silver
+    mov si, bz_ks_silver2
     cmp ax, [bz_cmedals + bx + 2]
-    ja .nomed
+    ja .nm
 .med:
-    cmp word [bz_cmedals + bx], 0 ; (a course with no medals)
-    je .nomed
     call bz_kput
-.nomed:
-    xor al, al
-    stosb
-.lv:
-    mov si, bz_ks_lives
+.nm:
+    jmp short .bl
+.np:
     call bz_kput
-    mov al, [bz_lives]
+.bl:
+    call bz_kend
+    call bz_kk                  ; EXITS n OF m
+    shl bx, 1
+    call bz_dslot
+    mov ax, [si + bx + BZD_SEXIT]
+    xor cx, cx
+.pc:
+    or ax, ax
+    jz .pd
+    shr ax, 1
+    adc cl, 0
+    jmp short .pc
+.pd:
+    mov si, bz_ks_exits
+    call bz_kput
+    mov al, cl
     xor ah, ah
     xor bx, bx
     call bz_knum
-    xor al, al
-    stosb
-    mov si, bz_ks_key
+    mov si, bz_ks_of
     call bz_kput
-    xor al, al
-    stosb
-    stosb
+    call bz_kk
+    mov al, [bz_cnex + bx]
+    xor ah, ah
+    xor bx, bx
+    call bz_knum
+    call bz_kend
+    cmp byte [bz_dwf], 0        ; the last write refused (bz_dwrite's: the
+    je .ns                      ; entry's in the bracket or the desktop's save)
+    mov si, bz_ks_nosave
+    call bz_kput
+    call bz_kend
+.ns:
+    stosb                       ; (the list's end: AL is 0)
     pop es
     mov si, bz_kbuf
-    call bz_card
+    jmp bz_card
+
+; the card builder's three small steps: a line's NUL; BX = K; AX steps
+; appended as whole seconds
+bz_kend:
+    xor al, al
+    stosb
+    ret
+bz_kk:
+    mov bl, [bz_ikc]
+    xor bh, bh
+    ret
+bz_ksec:
+    xor dx, dx
+    mov cx, BZ_SECSTEPS
+    div cx
+    xor bx, bx
+    jmp bz_knum
+
+; bz_kinfow - the info card of course AL, WAITING (the frozen frame under it,
+; the clock and the sound kept as bz_pause keeps them) for a key, which is
+; taken; the next frame is written whole.  Clobbers AX, BX, CX, DX, SI, DI.
+bz_kinfow:
+    call bz_kinfo
+.w:
+    call bz_clk_sample
+    call bzs_frame
+    mov al, FSXW_FRAME
+    call OSAPI_FSX_WAIT
+    mov ah, 1
+    int 16h
+    jz .w
+    call bz_drain
+    mov ax, [bz_subs]           ; (a pause adds no steps: the sub-ticks the
+    mov [bz_lsubs], ax          ; wait took are discarded, as bz_pause's)
+    mov byte [bz_freq], 1
+    ret
+
 ; bz_kwait - a card read: until a key is typed, or about four seconds of frames
 bz_kwait:
     mov cx, 30                  ; half a second of keys DRAINED first: the
@@ -391,13 +465,16 @@ bz_kover:
     call bz_card
     jmp short bz_kwait
 
-bz_ks_get:   db 'GET READY', 0
-bz_ks_fin:   db 'FINISHED', 0
-bz_ks_tup:   db 'TIME UP', 0
-bz_ks_time:  db 'TIME ', 0
-bz_ks_exit:  db ' S  EXIT ', 0
-bz_ks_lives: db 'LIVES ', 0
-bz_ks_gold:  db '  GOLD', 0
-bz_ks_silver: db '  SILVER', 0
-bz_ks_key:   db 'ANY KEY', 0
+bz_ks_ball:  db 'BALL ', 0
+bz_ks_mats:  db 'RUBBER', 0, 'STEEL', 0, 0, 'GLASS', 0, 0
+bz_ks_limit: db 'LIMIT ', 0
+bz_ks_gold:  db 'GOLD ', 0
+bz_ks_silver: db '  SILVER ', 0
+bz_ks_best:  db 'BEST ', 0
+bz_ks_gold2: db '  GOLD', 0
+bz_ks_silver2: db '  SILVER', 0
+bz_ks_notp:  db 'NOT PLAYED', 0
+bz_ks_exits: db 'EXITS ', 0
+bz_ks_of:    db ' OF ', 0
+bz_ks_nosave: db 'NOT SAVED', 0
 bz_kover_l:  db 'GAME OVER', 0, 'ANY KEY', 0, 0
