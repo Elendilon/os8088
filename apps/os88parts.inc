@@ -130,6 +130,18 @@ OP_ZFILL      equ 64            ; ...and on an EAGER OP_COMP row, the part is
                                 ; longest run of zeros and the trailing ones,
                                 ; so a bss or a reserved hole costs neither
                                 ; the disk nor a decoder writing it out
+OP_ARENA      equ 128           ; ...and on an OP_LAZY row the standard
+                                ; fetches, the part goes into the package's
+                                ; ONE ARENA claim at its top rather than a
+                                ; claim of its own, and op_drop gives its room
+                                ; back (SPEC.md 20.12.15). Opted into with
+                                ; `%define OP_WANT_ARENA` before this include,
+                                ; whose bss the arena's words are; a table
+                                ; with no such row assembles none of it
+%ifndef OP_ARQUANT
+ %define OP_ARQUANT 64          ; the arena GROWS in steps of this many
+%endif                          ; paragraphs (1KB) - a power of two - unless
+                                ; the package reserved ahead (op_areserve)
 OP_MARGIN     equ 0             ; what a compressed run needs ABOVE its
                                 ; unpacked bytes: NOTHING, since every stream
                                 ; ends in a raw tail (SPEC.md 20.13.7) - the
@@ -258,6 +270,9 @@ OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
                                     ; 20.12.7.4.4) - ZLAZY's other half
 %assign OP_HAS_ZFILL 0              ; ...an OP_ZFILL row, which is what earns
                                     ; op_unpack its zero fill (20.12.7.5)
+%assign OP_HAS_ARENA 0              ; ...an OP_ARENA row, which is what earns
+                                    ; op_areserve, op_arquery and the arena's
+                                    ; arms of op_fetch and op_drop (20.12.15)
 %assign OP_HAS_CARVE 0              ; ...and a row that is NOT lazy, which is
                                     ; what earns op_size, op_claim, op_unpack
                                     ; and op_load's whole body: a table of
@@ -332,6 +347,15 @@ op_t_n:
     %endif
     %if ((%2) & OP_ZFILL) && (!((%2) & OP_COMP) || ((%2) & OP_LAZY))
         %error "OP_ZFILL off an EAGER OP_COMP row: it is op_unpack's, and op_unpack expands the carve - a lazy row is op_fetch's, and a plain row has no stream to stop short"
+    %endif
+    %if ((%2) & OP_ARENA) && (!((%2) & OP_LAZY) || ((%2) & OP_SELF))
+        %error "OP_ARENA off a LAZY row the standard fetches: the arena holds what op_fetch reads, and an eager part is in the carve"
+    %endif
+    %if ((%2) & OP_ARENA)
+      %ifndef OP_WANT_ARENA
+        %error "OP_ARENA with no OP_WANT_ARENA defined before os88parts.inc: the arena's words are that define's bss (SPEC.md 20.12.15)"
+      %endif
+        %assign OP_HAS_ARENA 1
     %endif
     %if ((%2) & OP_ZFILL)
         %assign OP_HAS_ZFILL 1
@@ -636,5 +660,17 @@ op_subv     equ OP_BSS_AT + 104     ; byte: what op_seg answers for a part in
                                     ; there"), for arithmetic on the layout
 OP_SUBV_C   equ SEG_SUBC - SEG_SUB
 OP_SUBV_RAW equ 0x80
-OP_BSS      equ 105
+%ifdef OP_WANT_ARENA                ; THE ARENA (SPEC.md 20.12.15), for a package
+op_arena    equ OP_BSS_AT + 105     ; that asks: its claim, 0 = none...
+op_arsz     equ OP_BSS_AT + 107     ; ...its paragraphs, as the kernel granted
+op_artop    equ OP_BSS_AT + 109     ; ...the paragraph past its highest part,
+                                    ; where the next fetch lands
+op_arres    equ OP_BSS_AT + 111     ; ...and the floor op_areserve set: a
+                                    ; fetch's fit never takes it under that,
+                                    ; and a drop clears it
+OP_ARBSS    equ 8
+%else
+OP_ARBSS    equ 0                   ; (every other package: the chain ends
+%endif                              ; where it always did, byte for byte)
+OP_BSS      equ 105 + OP_ARBSS
 

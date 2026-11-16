@@ -1796,6 +1796,16 @@ op_clbget:
   %endif
 %endmacro
 
+; OP_UNCLAIM - a refused fetch gives back what it took: the claim at DX, or on
+; a table with an arena (SPEC.md 20.12.15) op_unclaim, which tells the two apart
+%macro OP_UNCLAIM 0
+  %if OP_HAS_ARENA
+    call op_unclaim
+  %else
+    call OSAPI_MEM_FREE
+  %endif
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; op_lazyp - what the row at SI would cost to fetch, in PARAGRAPHS
 ; in:  SI -> the row, [op_clb] filled (op_clbget)
@@ -1968,6 +1978,33 @@ op_fetch:
                                 ; the fetch disagreed - and neither covered
                                 ; R plus a whole cluster of read on a volume
                                 ; whose clusters are bigger than 1KB
+%if OP_HAS_ARENA
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jz .own
+    ; --- AN ARENA ROW (SPEC.md 20.12.15): no claim of its own. The read and
+    ; its expand's room - op_lazyp's figure, the same one - go at the arena's
+    ; TOP, the arena grown to take them when it does not (op_argrow: in
+    ; OP_ARQUANT steps, the exact need once more before a refusal). From
+    ; here on DX is "the claim" exactly as a claim of its own would be: the
+    ; part's slot as a segment (a window on kern_mega, op_at), so the read,
+    ; the expand, the move down and every refusal below run unchanged
+    add ax, [op_artop]
+    jc .toobig
+    call op_argrow
+    jc .nomem                   ; refused: the arena is as it was
+  %ifdef OP_ONMOVE
+    xor ax, ax                  ; PINNED while the read lands in it: a window
+    call op_ardecl              ; or a sum aimed at it would not move with it
+  %endif
+    mov ax, [op_artop]
+    mov dx, [op_arena]
+    mov bx, op_wb               ; (op_read and the expand use op_wa)
+    call op_at                  ; AX = the slot
+    xchg ax, dx
+    jnc .claimed
+    jmp .arnomem                ; (no window: op_at)
+.own:
+%endif
     push ax
     mov bl, MEMP_AVAIL          ; ASK, then claim - op_load's rule, for
     call OSAPI_MEM_P            ; op_lazyok's reason
@@ -1985,6 +2022,9 @@ op_fetch:
 %endif                          ; verb's bit 0 being only the direction
     call OSAPI_MEM_P
     jc .nomem
+%if OP_HAS_ARENA
+.claimed:
+%endif
     push dx                     ; ...banked across everything below
 
     mov ax, [si+OP_R_OFF]       ; --- where the read starts, and its slack ---
@@ -2161,6 +2201,10 @@ op_fetch:
     pop ds
 %endif
 .keep:
+%if OP_HAS_ARENA
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jnz .arkeep
+%endif
     ; --- AND KEEP THE PART AND NOTHING ELSE (SPEC.md 88.10.4.1, 20.12.7.4.4)
     ; The claim is op_lazyp's: the read rounded to whole clusters (and for a
     ; compressed row R under it, room for the stream to sit above its output)
@@ -2187,14 +2231,47 @@ op_fetch:
     mov [si+OP_R_ZKB], ax       ; THE ROW IS WHERE A FETCHED PART LIVES
     clc
     ret
+%if OP_HAS_ARENA
+%if SEG_SUBC - 2 != SEG_SUB || OP_SEG != 0 || OP_ASSET != 1
+  %error "op_fetch's arena arm takes SEG_SUBC - 2 x the row's kind"
+%endif
+.arkeep:
+    ; --- AN ARENA ROW KEEPS ITS PLACE AT THE TOP (SPEC.md 20.12.15) --------
+    ; Expanded or moved down onto its slot's base like any part, it banks the
+    ; slot as its segment: the arena plus its paragraphs on every real-mode
+    ; kernel, and on kern_mega a SUB selector based there (SEG_SUBC's pair
+    ; for an OP_SEG row, so op_cseg's code half is DX - 8 as for any claim),
+    ; reaching the part's own paragraphs - the same selector each time the
+    ; same slot is asked, rebased by the kernel when the arena moves and
+    ; freed by it when the arena gives the slot back (SPEC.md 50.6.11)
+    call op_lenp
+    xchg ax, cx                 ; CX = its paragraphs, the SUB's reach
+    mov ax, [op_artop]          ; AX = where it sits
+    mov dx, [op_arena]
+    mov bl, [si+OP_R_KIND]
+    add bl, bl
+    neg bl
+    add bl, SEG_SUBC            ; SEG_SUBC for code, SEG_SUB for data
+    call OSAPI_SEG              ; DX = the part's segment or selector
+    jc .arnomem                 ; (no LDT entry: kern_mega)
+    add [op_artop], cx
+    or byte [si+OP_R_FLAG], OP_FETCHED
+    mov [si+OP_R_ZKB], dx
+    call op_arback              ; the arena fitted to its parts again
+    clc
+    ret
+.arnomem:
+    call op_arback              ; ...and on a refusal, to what it held
+    jmp .nomem
+%endif
 
 .ioerr:
-    call OSAPI_MEM_FREE         ; DX is still the claim, and a fetch that
+    OP_UNCLAIM                  ; DX is still the claim, and a fetch that
     mov si, op_s_read           ; failed must leave nothing behind
     jmp op_say
 %if OP_HAS_ZLAZY
 .zbad:
-    call OSAPI_MEM_FREE         ; ...and the same for a stream that would not
+    OP_UNCLAIM                  ; ...and the same for a stream that would not
     mov si, op_s_zbad           ; expand, which leaves the row at 0 and so
     jmp op_say                  ; re-fetchable: nothing was banked in it
 .spent:
@@ -2355,6 +2432,13 @@ op_drop:
 %endif
     mov [si+OP_R_ZKB], ax       ; CLEARED FIRST: op_seg must never answer a
                                 ; segment that is on its way back to the heap
+%if OP_HAS_ARENA
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jz .free
+    call op_ardrop              ; its room back to the arena (20.12.15)
+    jmp short .out
+.free:
+%endif
     call OSAPI_MEM_FREE
 .out:
     pop es
@@ -2365,6 +2449,279 @@ op_drop:
 %endif
     pop ax
     ret
+
+%if OP_HAS_ARENA
+; =============================================================================
+; THE ARENA (SPEC.md 20.12.15) - one claim for a package's SMALL lazy parts.
+; Assembled for a table with an OP_ARENA row alone, so every other package is
+; byte for byte what it was. A fetched OP_ARENA row sits at [op_artop] inside
+; [op_arena] and banks the part's SEGMENT in its zkb word like any lazy row -
+; the arena plus its offset on a real-mode kernel, a SUB selector on kern_mega
+; - so op_seg, op_cseg and the package's own use of a part are unchanged. The
+; arena GROWS by MEMP_REGROW, which extends in place when it can and MOVES the
+; block when it must, the kernel copying the bytes: on a real-mode kernel every
+; banked word is then shifted by the distance (op_arshift); on kern_mega the
+; claim's selector stays and the kernel rebases each SUB with it, so the
+; distance is 0 and nothing is shifted. It SHRINKS the same way, which never
+; moves (SPEC.md 50.3.1), and is freed when nothing is left in it.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; op_areserve - grow the arena AHEAD (SPEC.md 20.12.15)
+; in:  AX = paragraphs past [op_artop] the package is about to fetch into -
+;      the sum of their paras(len) plus one fetch's room (op_lazyp's slack)
+; out: CF=0 the arena holds op_artop + AX, which is its floor until the next
+;      drop: a fetch fits it back no lower. CF=1 refused, nothing changed -
+;      each fetch then grows it for itself, and refuses for itself
+; clobbers: AX, flags
+;
+; AX = 0 fits the arena to its parts, which is how a batch gives back the last
+; fetch's room once it is done.
+; -----------------------------------------------------------------------------
+op_areserve:
+  %ifdef OP_ARFORCE
+    cmp byte [OP_ARFORCE], 0    ; HARNESS: no reservation, so the batch's
+    jne .out                    ; fetches grow the arena themselves - and the
+  %endif                        ; first claimed it at the ceiling (op_arset)
+    push bx
+    push cx
+    push dx
+    add ax, [op_artop]
+    jc .no
+    call op_argrow              ; (a reserve is exact, but op_argrow's step is
+    jc .no                      ; given back by op_arfit below)
+    mov [op_arres], ax
+    call op_arfit
+    clc
+.no:
+    pop dx
+    pop cx
+    pop bx
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; op_arquery - AX = the arena's paragraphs, BX = [op_artop], the paragraph
+; past its highest part. Both 0 with no arena. Clobbers nothing else
+; -----------------------------------------------------------------------------
+op_arquery:
+    mov ax, [op_arsz]
+    mov bx, [op_artop]
+    ret
+
+; op_argrow - the arena to hold AX paragraphs: grown to the next OP_ARQUANT
+; step and, refused, to AX exactly (ARTFUL's at_agrow rule, SPEC.md 46.6.3).
+; out: CF=0 it does; CF=1 refused and nothing changed. AX kept on CF=0
+op_argrow:
+    cmp [op_arsz], ax
+    jae .ok                     ; held already (CF=0)
+    push ax
+    add ax, OP_ARQUANT - 1
+    jc .x                       ; (a step past 64K: the exact need)
+    and ax, -OP_ARQUANT
+    call op_arset
+    jnc .y
+.x:
+    pop ax                      ; refused: the exact need, its CF the answer
+    push ax
+    call op_arset
+.y:
+    pop ax
+.ok:
+    ret
+
+; op_arset - the arena regrown to AX paragraphs, or claimed when there is none:
+; conventional on every kernel (MEMP_CONV), as a part a far call enters must be
+; (SPEC.md 50.2.1). A grow that MOVED the block shifts every banked word by the
+; distance (op_arshift) - on kern_mega the selector stays and the distance is
+; 0. out: CF=1 refused, nothing changed; AX = the paragraphs granted.
+; Preserves BX, CX, DX
+op_arset:
+    push bx
+    push cx
+    push dx
+    mov dx, [op_arena]
+    mov bl, MEMP_REGROW
+    or dx, dx
+    jnz .go
+    mov bx, MEMP_CONV           ; none: MEMP_CLAIM + MEMP_CONV, no head
+  %ifdef OP_ARFORCE
+    cmp byte [OP_ARFORCE], 0    ; HARNESS: from the CEILING (the verb's bit 0),
+    je .lo                      ; with a claim right above it, so the next
+    inc bx                      ; growth cannot extend it in place and MOVES
+.lo:                            ; it (SPEC.md 128.25.13, bz_arforce)
+  %endif
+    xor cx, cx
+.go:
+    call OSAPI_MEM_P            ; DX = its base NOW, AX = what was granted
+    jc .out
+    mov [op_arsz], ax
+    mov ax, dx
+    xchg ax, [op_arena]         ; AX = where it was, 0 for a new claim
+  %ifdef OP_ONMOVE
+    or ax, ax
+    jnz .was
+    mov ax, op_armv             ; a new arena is movable, through its proc
+    call op_ardecl
+    jmp short .ok
+.was:
+  %endif
+    sub dx, ax                  ; DX = how far it moved: 0 extended in place,
+    jz .out                     ; shrunk, or kern_mega's kept selector (CF=0)
+    call op_arshift
+.ok:
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; op_arshift - DX paragraphs added to every FETCHED arena row's banked word: the
+; arena moved by DX on a real-mode kernel. Preserves every register
+op_arshift:
+    push ax
+    push si
+    mov si, op_table + OP_T_ROWS
+    mov al, [op_t_n]
+.r:
+    mov ah, [si+OP_R_FLAG]
+    and ah, OP_FETCHED | OP_ARENA
+    cmp ah, OP_FETCHED | OP_ARENA
+    jne .n
+    add [si+OP_R_ZKB], dx
+.n:
+    add si, OP_ROW
+    dec al
+    jnz .r
+    pop si
+    pop ax
+    ret
+
+; op_arfit - the arena fitted to its parts: [op_artop] rounded up to the next
+; OP_ARQUANT step, never under the floor [op_arres] - a SHRINK, in place - and
+; FREED when that is nothing. Clobbers AX, flags
+op_arfit:
+    mov ax, [op_artop]
+    add ax, OP_ARQUANT - 1      ; (an arena is under 64KB: no carry)
+    and ax, -OP_ARQUANT
+    cmp ax, [op_arres]
+    jae .t
+    mov ax, [op_arres]
+.t:
+    or ax, ax
+    jz .free
+    cmp ax, [op_arsz]
+    jb op_arset                 ; less than it holds: shrunk
+    ret
+.free:
+    push dx
+    xor dx, dx
+    mov [op_arsz], dx
+    xchg dx, [op_arena]
+    or dx, dx
+    jz .none
+    call OSAPI_MEM_FREE
+.none:
+    pop dx
+    ret
+
+; op_unclaim - a refused fetch's OP_UNCLAIM: row SI's own claim DX freed, or
+; for an arena row the arena fitted back to what it held. Clobbers AX, flags
+op_unclaim:
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jnz op_arback
+    call OSAPI_MEM_FREE         ; (a cell is CALLED, never jumped to: the
+    ret                         ; door is a `call` macro, os88api.inc)
+; op_arback - op_fetch is done with the arena: declared movable again (under
+; OP_ONMOVE) and fitted. Clobbers AX, flags
+op_arback:
+  %ifdef OP_ONMOVE
+    mov ax, op_armv
+    call op_ardecl
+  %endif
+    jmp short op_arfit
+
+; op_ardrop - op_drop's arena arm: any reservation ended, [op_artop] found
+; again as the highest end of a part still fetched (op_arreal - a hole under
+; it stays until the parts above it go), and the arena fitted. Clobbers AX,
+; DX, SI, flags
+op_ardrop:
+    push bx
+    push cx
+    mov word [op_arres], 0
+    xor cx, cx                  ; CX = the highest end, a real-mode paragraph
+    mov si, op_table + OP_T_ROWS
+    mov bh, [op_t_n]
+.r:
+    mov al, [si+OP_R_FLAG]
+    and al, OP_FETCHED | OP_ARENA
+    cmp al, OP_FETCHED | OP_ARENA
+    jne .n
+    mov dx, [si+OP_R_ZKB]
+    call op_arreal              ; DX = where it starts...
+    call op_lenp
+    add ax, dx                  ; ...and AX where it ends
+    cmp ax, cx
+    jbe .n
+    xchg ax, cx
+.n:
+    add si, OP_ROW
+    dec bh
+    jnz .r
+    jcxz .z                     ; nothing: the arena goes
+    mov dx, [op_arena]
+    call op_arreal
+    sub cx, dx                  ; ...as paragraphs past the arena
+.z:
+    mov [op_artop], cx
+    call op_arfit
+    pop cx
+    pop bx
+    ret
+
+; op_arreal - DX = a segment or selector -> the real-mode paragraph at its base
+; (OSAPI_SEG's SEG_REAL: every real-mode kernel answers DX itself, kern_mega
+; the paragraph of a conventional base, which an arena always is). BL clobbered
+op_arreal:
+    mov bl, SEG_REAL
+    call OSAPI_SEG
+    ret
+
+; op_lenp - AX = row SI's `len` in paragraphs, rounded up (the RCR keeps a
+; part near 64KB its 17th bit). Clobbers flags
+op_lenp:
+    mov ax, [si+OP_R_LEN]
+    add ax, 15
+    rcr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    ret
+
+  %ifdef OP_ONMOVE
+; op_ardecl - OSAPI_MEM_MOVABLE on the arena with AX = the proc (0 pins it).
+; Preserves every register but flags
+op_ardecl:
+    push dx
+    mov dx, [op_arena]
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    ret
+; op_armv - the arena's relocation proc (SPEC.md 66.3): BX = was, DX = now. The
+; standard's half - the base, and every banked word shifted with it - and then
+; the package's OP_ONMOVE hook, BX and DX intact, which asks op_seg again for
+; whatever it banked. Called on a real-mode kernel alone: kern_mega's compactor
+; tells nobody (its holders hold selectors, which it rebases)
+op_armv:
+    mov [op_arena], dx
+    push dx
+    sub dx, bx
+    call op_arshift
+    pop dx
+    jmp OP_ONMOVE
+  %endif
+%endif                              ; OP_HAS_ARENA
 %endif                              ; OP_HAS_FETCH
 
 ; -----------------------------------------------------------------------------
@@ -2442,6 +2799,10 @@ op_decl:
     call op_row                 ; SI -> the row
     test byte [si+OP_R_FLAG], OP_FETCHED
     jz .no                      ; not here (or not lazy: never set there)
+%if OP_HAS_ARENA
+    test byte [si+OP_R_FLAG], OP_ARENA
+    jnz .no                     ; in the arena: no claim of its own, and the
+%endif                          ; arena declares itself (SPEC.md 20.12.15)
     mov dx, [si+OP_R_ZKB]       ; a fetched row's word IS its claim's base
 .have:
     or dx, dx
