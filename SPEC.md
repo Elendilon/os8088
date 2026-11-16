@@ -277665,7 +277665,52 @@ reachable states (a cracked tile both whole and broken, 128.25.7.3).
 
 ##### 128.25.6.8 Adding a family: the recipe
 
-What story 9.6 proves by following it for PICKUPS after GLASS:
+The recipe as story 9.7 corrected it, after GLASS (9.5) and PICKUPS (9.6)
+took it, and the crack bug (`w9/crackfix`) found its seventh step. The
+original six steps, and what PICKUPS found against each, follow it as the
+record.
+
+1. **The row** in `bbcourse.FAMILIES`: name, kinds, the hooks, the state
+   bits per element, each element's RESET class (128.25.7.1), lane kinds,
+   and its HOME (128.25.6.9: `resident` in the bundle, or `fetch`; moving a
+   family is that one field). The ID is NOT chosen: it is the row's place in
+   the table (1 - n, no gap), and the part reads it only as the generated
+   `BZ_FID_<NAME>`. CONSTANTS go in the row's `consts` (folded by `famv`).
+   An element with FIELDS (+18 - +31) needs its syntax in `_parse_fprop`,
+   its packing in the record and the reader's acceptance - three places.
+2. **The model**: a `Family` subclass, every hook it names. A family that
+   changes PHYSICS changes the step's WORKING values (`Physics.wacc`, `vup`,
+   `hop`), never the shared `MATERIALS[mat]`.
+3. **The reach**: if the family changes where a ball can go - a broken form
+   (GLASS's `reach_forms`) or a raised value (PICKUPS' `pickup_reach`) - a
+   pass after `build_reach`, unioned outside it, inside the compile's
+   `_reach()` (one reach shared by the Y0 probes, 128.25.3).
+4. **The art**: each kind's poses in a host generator, lanes in the course's
+   pool; an art kind the compile does not know yet is a new entry beside
+   `pennant`, `crack`, `glass` and `icon` (no generic table yet).
+5. **The guest**: `apps/bonanza/fam/<name>.asm`, assembled against the
+   image's symbol file, the hooks it names, its name in the Makefile's
+   `BZ_FAMS`. A part never calls the package: what the engine already does
+   is written again in the part, and what it cannot (a physics value, a cue
+   drawn every frame) is RESIDENT engine bytes, priced as such. A cue drawn
+   on a resting ball must reach the frame's idle test (`bz_mkboxes`).
+6. **The marks**: a hook that changes a pose marks its lane ONLY by
+   `call far [bz_fmkp]` (BX = the element), never by writing `bz_latt` -
+   the mark must also wake the walk (128.25.6.3), or a still camera never
+   draws it. `bonanza_phys --check`'s unicorn half fails a step that moves a
+   pose without both.
+7. **The proofs**: its `--selfcheck` cases (each refusal a string case, in
+   a `_sc_*` section, never inline in `selfcheck()`), its scene on
+   PLAYGROUND (re-authoring the demo with `bbcourse.py author`: the runs
+   unchanged, the identity moved; and the other families' scenes and the
+   camera's scenarios re-checked, since a layout change can disarm a red arm
+   that rides on PLAYGROUND - `camhyst` did), its `bonanzaphys` scenario
+   equal at every step, its red arms; then the host checks a change owes
+   (docs/TESTING.md, *BONANZA's host checks*).
+8. **Its `FAMV`**, recorded by the tool, and the SPEC.md row in 128.25.8 -
+   128.25.10's form.
+
+The original six steps, as story 9.6 took them:
 
 1. A row in `bbcourse.FAMILIES`: name, ID, kinds, the hooks, the state bits
    per element, each element's RESET class (128.25.7.1), lane kinds.
