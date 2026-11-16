@@ -207,7 +207,7 @@ def run(tag, apps=None, src=None):
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
         M.until(m, lambda _: X.rows(g)[X.shell_row()][0] & X.OP_FETCHED and g.b("bz_shpend") == 0
-                and g.b("bzs_desk") == 1, "the face back and the desktop's song again (bz_title8's tail: the "
+                , "the face back (bz_title8's tail: the "
                 "bracket's restore can paint the face first)", guest=30)
         m.pause()
         after = X.claims(g)

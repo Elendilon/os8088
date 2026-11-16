@@ -865,6 +865,8 @@ class Bz:
         self.win = ui.window("Bounce Bonanza")
         self.base = self.wseg() << 4
         assert self.base, "the window has no package segment"
+        if "bz_dev" in sym:                     # SPEC.md 128.26.6: the instruments' keys and face,
+            self.putb("bz_dev", 1)              # which every row drives (the window's own are a player's)
 
     def wseg(self):
         raw = self.m.read(self.m.sym("wm_wins"), G.MAX_WIN * G.WIN_SIZE)

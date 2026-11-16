@@ -58,6 +58,7 @@ OS88_DOCGLYPH8_END
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
 %include "bzsnd.inc"            ; the songs and the events (tools/bbmusic.py)
 %include "bzshell.inc"          ; the shell part's vectors (SPEC.md 128.19.2)
+%include "bzwin.inc"            ; the window's art: its sizes (the part draws it, 128.26.2)
 %include "drivers/sound/sndpkg.inc" ; SOUND.DRV's FM door (bzsound.inc), from the root
                                 ; as every bonanza row assembles it
 
@@ -226,9 +227,17 @@ bz_entry:
     mov [bz_matsel], al         ; 128.11.5.4)
     OS88_REGION_MOVABLE
     OS88_ALTENTER_ARM
-    call bzs_dstart             ; the title's music (SPEC.md 128.20.6)           ; (also the ask 128.11.11.2 owes at the open:
-                                ; asking arms SPEC.md 9.7's map, so the held-
-                                ; key guard sees every key pressed after it)
+    mov ax, [bz_win]            ; THE WINDOW (SPEC.md 128.26): the Play Game
+    mov bx, bz_btrec            ; button's gesture (the library takes the press
+    mov dx, bz_click            ; first and chains our own click work) ...
+    call os88ui_btninit
+    mov bx, [bz_win]            ; ...the menus ...
+    mov si, bz_menus
+    call OSAPI_MENU_SET
+    mov si, bz_sizes            ; ...its size on each display (it may be
+    call OSAPI_WM_PREFER        ; resized at will) ...
+    call bz_winmin                ; ...the least the face needs ...
+    call bz_mlabels
     mov bx, [bz_win]            ; (a double-clicked .BZR is READ in W_ONWAKE,
     clc                         ; once the window is up: SPEC.md 54.10)
 .out: ret
@@ -238,7 +247,16 @@ bz_entry:
 ; -----------------------------------------------------------------------------
 bz_paint:
     SAVE
+    call bz_mlabels             ; (a bracket may have moved the slot or the log)
+    call bz_bplace              ; the button's rect, before the face reads it
     call bz_face
+    jc .ab
+    cmp word [bz_wbn], 0        ; ...and the button, in front of the ledge
+    je .ab
+    mov bx, bz_btrec
+    mov al, 1
+    call os88ui_btn
+.ab:
     cmp byte [bz_abon], 0
     je .done
     mov bx, [bz_win]
@@ -275,6 +293,33 @@ bz_onkey:
     call bz_repaint
     jmp .done
 .key:
+    mov byte [bz_earm], 0       ; (an armed Erase holds to the next pick or key)
+    cmp byte [bz_dev], 0        ; THE WINDOW'S KEYS (SPEC.md 128.26.1): Enter,
+    jne .dev                    ; Alt+Enter and F are Play Game, F5 and F6 the
+    cmp ax, KEY_ALTENTER        ; replays; everything else is the harness's
+    je .pg                      ; (bz_dev, 128.26.6)
+    cmp al, 13
+    je .pg
+    mov bx, bz_rsavedk
+    cmp ax, BZ_KSC_F5 << 8
+    je .fk
+    mov bx, bz_rloaddlg
+    cmp ax, BZ_KSC_F6 << 8
+    je .fk
+    or al, 20h
+    cmp al, 'f'
+    jne .nk
+.pg:
+    call bz_playgame
+.nk:
+    jmp .out
+.fk:
+    call bz_dkey                ; (one press however long it is held)
+    jc .nk
+    call bx
+    call bz_mlabels
+    jmp .out
+.dev:
     mov ch, [bz_xarm]           ; (wave 8c: X's first press holds only until
     mov byte [bz_xarm], 0       ; the next key, 128.19.8.3)
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
@@ -407,8 +452,8 @@ bz_onkey:
     call bz_intour              ; 128.19.5) - in a tour, its next course
     jc .play
 %if BZ_TITLE
-    call bz_title8              ; (SPEC.md 128.23.4: the TITLE, P its game)
-%else
+    call bz_playgame            ; (SPEC.md 128.23.4: the TITLE, P its game;
+%else                           ; 128.26.4: or where the window was asked for)
     call bz_game8
 %endif
     jmp short .done
@@ -489,7 +534,6 @@ bz_dkey:
 ; Down, ask again in a tick; up, the next typed key of it is a press
 bz_ontimer:
     SAVE
-    call bzs_dtick              ; the title (re-arms the timer while it plays)
     mov al, [bz_dkk]
     or al, al
     jz .done
@@ -571,6 +615,9 @@ bz_adapter:
 ; SPEC.md 128.14.7.6), and the instance goes back where the user was after.
 ; -----------------------------------------------------------------------------
 bz_launch:
+    call bz_unsusp              ; (a suspended game's course given up first:
+                                ; this launch's parts take its place, 128.26.3)
+    mov byte [bz_towin], 0
     mov byte [bz_newb], 0       ; (only this launch's play may set a best)
     cmp byte [bz_small], 0
     je .big
@@ -1856,6 +1903,18 @@ bz_pwkey:
     je .k
     cmp al, ' '
     je .k
+    mov bh, 'r'                 ; F5, F6 and V (SPEC.md 128.26.3): the play
+    cmp ax, BZ_KSC_F5 << 8      ; ends with [bz_pwq] BH, the pad's course
+    je .kx                      ; in bz_pwck
+    mov bh, 'l'
+    cmp ax, BZ_KSC_F6 << 8
+    je .kx
+    mov bh, 'v'
+    push ax
+    or al, 20h
+    cmp al, bh
+    pop ax
+    je .kx
     xor bl, bl                  ; BL = the arrow: Up, Down, Left, Right
     cmp ah, KSC_UP
     je .k
@@ -1870,6 +1929,8 @@ bz_pwkey:
     je .k
     or sp, sp                   ; ZF = 0, CF = 0: not the pathway's
     ret
+.kx:
+    mov al, 1                   ; (AL 1: one of BH's)
 .k:
     cmp byte [bz_pwek], 0
     jne .eat
@@ -1877,6 +1938,8 @@ bz_pwkey:
     jne .eat
     push es
     mov es, [bz_cseg]
+    cmp al, 1
+    je .fx
     cmp al, 27
     je .esc
     cmp al, 13
@@ -1911,12 +1974,16 @@ bz_pwkey:
     stc
     ret
 .ent:
+    mov bh, 13
+.fx:
+    push bx
     mov al, [bz_ppad]
     call bz_ppadr
     mov al, [es:si]
+    pop bx
     pop es
     mov [bz_pwck], al
-    mov byte [bz_pwq], 13
+    mov [bz_pwq], bh
     stc
     ret
 .info:
@@ -1962,11 +2029,48 @@ bz_grounds:
     call bzs_open
     call bz_play
     call bzs_close
+    cmp byte [bz_towin], 0      ; F, Alt+Enter: the WINDOW, the game kept
+    jne .twp                    ; (SPEC.md 128.26.4)
     mov al, [bz_pwq]
     cmp al, 'o'
     je .over
     cmp al, 13
-    jne .out                    ; (Esc, F, Alt+Enter: the game waits)
+    je .enter
+    cmp al, 'r'                 ; F5, F6 and V at a pad (128.26.3)
+    je .fsave
+    cmp al, 'l'
+    je .fload
+    cmp al, 'v'
+    je .fload
+    jmp .out                    ; (Esc: the title)
+.twp:
+    mov byte [bz_susp], BZ_SU_PATH
+    jmp .out
+.fsave:
+    call bz_gfsave              ; F5: the held log saved, a card
+    jmp bz_grounds              ; (the pathway again, at the same pad)
+.fload:
+    call bz_gfload              ; F6 or V: the log (none: its card said so)
+    jc bz_grounds
+    call .swap                  ; ...replayed on its course, its ball and song
+    mov al, [bz_rlog + BZR_CRS]
+    mov [bz_crs], al
+    mov al, [bz_rlog + BZR_MAT]
+    mov [bz_mat], al
+    mov byte [bz_mode], 2
+    call bz_cload
+    jc .rback
+    call bz_vinit
+    call bzs_open
+    call bz_play
+    call bzs_close
+.rback:
+    mov byte [bz_retry], 0      ; (a replay's pause card offers no retry to keep)
+    cmp byte [bz_towin], 0      ; (F there: the window, from the pathway)
+    je .back
+    call .swap
+    jmp .twp
+.enter:
     call .swap                  ; ENTER: the pad's course - its LIFE TAKEN on
     cmp byte [bz_xmode], 0      ; the disk first (128.19.6: off mid-course
     jne .nolife                 ; refunds nothing; a finish gives it back at
@@ -1991,6 +2095,11 @@ bz_grounds:
 .ncl:
     call bz_play
     call bzs_close
+    cmp byte [bz_towin], 0      ; F, Alt+Enter in a course: the WINDOW, the
+    je .ntw                     ; play SUSPENDED whole - its parts, its clock,
+    mov byte [bz_susp], BZ_SU_CRS ; its log (SPEC.md 128.26.4)
+    ret
+.ntw:
     cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 128.22.6)
     je .life
     call bz_dslot               ; the exit FOUND (128.19.6), a word a course,
@@ -2107,6 +2216,7 @@ bz_title8:
     or ax, 1
     mov [bz_tlfsr], ax
     mov byte [bz_tlast], 0ffh
+    mov byte [bz_towin], 0
     call bz_shdrop              ; (never beside a course, 128.19.2)
     call bz_home
     jc .ret
@@ -2118,12 +2228,21 @@ bz_title8:
     call OSAPI_FSX_RUN
     mov byte [bz_ingame], 0
     mov byte [bz_tmode], 0
+    pushf
+    cmp byte [bz_susp], BZ_SU_CRS ; SUSPENDED in a course (128.26.4): its parts,
+    je .nx                      ; its song and its mode stay for Play Game
     mov byte [bz_xmode], 0
+.nx:
+    popf
     jnc .ran
     mov si, bz_t_nofs
     call bz_toast
 .ran:
     mov byte [bz_pgo], 0
+    cmp byte [bz_susp], BZ_SU_CRS
+    jne .drop
+    jmp bz_back                 ; (nothing written: the course's life is, 128.19.6)
+.drop:
     call bz_cdrop
     call bzs_gdrop              ; (the desktop's title song back)
     call bz_back
@@ -2149,6 +2268,18 @@ bz_title8:
 ; are given back before the next's are fetched.
 ; -----------------------------------------------------------------------------
 bz_tround:
+    mov al, [bz_susp]           ; PLAY GAME after the window (SPEC.md 128.26.4):
+    or al, al                   ; the pathway, or the course, where it was left
+    jz .title
+    mov byte [bz_susp], 0
+    cmp al, BZ_SU_CRS
+    jne .game
+    mov byte [bz_tmode], 0
+    mov byte [bz_tgame], 1
+    mov byte [bz_rsm], 1        ; (bz_play: no bz_pinit, no new log)
+    call bz_grounds.crs
+    jmp short .gout
+.title:
     mov byte [bz_tmode], 1
 .pick:
     call bz_trand               ; a title demo, never the last one shown
@@ -2193,11 +2324,17 @@ bz_tround:
     jc .gout
     call bz_grounds
 .gout:
+    cmp byte [bz_susp], BZ_SU_CRS ; (the window asked for in a course: every
+    je .gsus                    ; part held, nothing stored, 128.26.4)
     call bz_phfree              ; (the held pathway goes with the game, 128.22.7:
     call .swap                  ; bz_cdrop keeps it)
     call bz_gstore              ; (the slot, in memory: bz_dsave on the desktop)
+    cmp byte [bz_susp], 0       ; (...or at the pathway: the game stored, and
+    jne .gsus                   ; the bracket left)
     mov byte [bz_xmode], 0
     jmp bz_tround
+.gsus:
+    ret
 .out:
     mov byte [bz_tmode], 0
     jmp short .swap
@@ -2254,6 +2391,7 @@ bz_tlog:
     xor si, si
     mov di, bz_rlog
 bz_tcopy:                       ; CX bytes from the part (ES) at SI to DI
+    mov byte [bz_rown], 0       ; (bz_rlog is no longer a play the player made)
     cld
     push ds
     push ds
@@ -3137,12 +3275,15 @@ bz_hxrows:
 
 ; SI = a TOASTSTR in our segment
 bz_toast:
+    cmp byte [bz_fs], 0         ; (inside the bracket the framebuffer is ours:
+    jne .q                      ; a refusal there says nothing, 128.26.3)
     push es
     push ds
     pop es
     xor cx, cx
     call OSAPI_TOAST
     pop es
+.q:
     ret
 
 TOASTSTR bz_t_small, 'Bonanza: too little RAM'
@@ -3282,6 +3423,8 @@ bz_ttotal:
 bz_shcall:
     cmp word [bz_cseg], 0
     je .free
+    cmp byte [bz_susp], BZ_SU_CRS ; (a SUSPENDED course shares memory with the
+    je .free                    ; face: the brief's, SPEC.md 128.26.4)
     mov byte [bz_shpend], 1     ; a course is held: the paint is bz_launch's
     stc
     ret
@@ -3943,12 +4086,8 @@ bz_back:
 ; sound fetches: bzs_gfetch inside bz_launch's home, bzs_dstart here and in
 ; the entry proc, which runs at home)
 bz_skey:
-    call bz_home
-    jc .out
-    call bzs_skey
-    jmp bz_back
-.out:
-    ret
+    call bzs_toggle             ; (on or off since SPEC.md 128.26.5)
+    jmp bz_line4
 
 ; CF = 1 on kern_small, its refusal toasted (SPEC.md 128.1, 128.14.3.4).
 ; Clobbers what bz_toast does.
@@ -4186,6 +4325,7 @@ bz_lfile:
     pop ds
     call .free
     pop es
+    mov byte [bz_rown], 0       ; (a file's log is not the player's to save again)
     mov byte [bz_lsv], 2        ; the face's log line: the file's name
     mov si, bz_dname
     mov di, bz_lfn
@@ -4429,14 +4569,20 @@ TOASTSTR bz_t_nomem, 'Bonanza: no memory'
 ; --- the window -----------------------------------------------------------------
 bz_tpl: dw 40, 24, 344, 168, bz_title, bz_cls
 ; its CLASS (SPEC.md 11.104): every handler; WF_OWNBG, the face paints every pixel
-    OS88_CLASS bz_cls, WF_OWNBG, PAINT, bz_paint, ONKEY, bz_onkey, \
-               ONCLICK, bz_click, ABOUT, bz_about, ONTIMER, bz_ontimer, \
-               ONWAKE, bz_onwake
+    OS88_CLASS bz_cls, WF_OWNBG | WF_SIZABLE, PAINT, bz_paint, ONKEY, bz_onkey, \
+               ONCLICK, os88ui_btnclick, ONMOUSEUP, bz_onup, ONDRAG, bz_ondrag, \
+               ABOUT, bz_about, ONTIMER, bz_ontimer, ONWAKE, bz_onwake
 bz_title: db 'Bounce Bonanza',0
-bz_credits: dw bz_title,bz_credit1,bz_credit2,bz_credit3,0
+bz_credits: dw bz_title, bz_credit1, bz_ck1, bz_ck2, bz_ck3, bz_ck4, bz_ck5, bz_ck6, bz_ck7, bz_ck8, 0
 bz_credit1: db 'Isometric rolling-ball game',0
-bz_credit2: db 'Wave 4: a game',0
-bz_credit3: db 'Generated art, original design',0
+bz_ck1:     db 'Arrows roll, Space hop',0       ; the player's keys no menu carries
+bz_ck2:     db 'L.Shift grip, P pause',0        ; (SPEC.md 128.26.7)
+bz_ck3:     db 'Bksp back to the flag',0
+bz_ck4:     db 'Pad: Enter play, Space info',0
+bz_ck5:     db 'Pad: V demo, F6 replay',0
+bz_ck6:     db 'F5 save replay',0
+bz_ck7:     db 'F or Alt+Enter: window',0
+bz_ck8:     db 'Esc: map, or quit',0
 
 bz_cnames:  BZ_CRS_NAMES        ; ...their NAMEs, BZ_CRS_NAMEB bytes each
 bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
@@ -4453,6 +4599,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzwheel.inc"
 %include "bzphys.inc"
 %include "bzsound.inc"
+%include "bzmenu.inc"           ; SPEC.md 128.26: the window's button, menus and replays
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
 %endif
@@ -4485,7 +4632,8 @@ OS88_PARTS_END
 %endif
 
 %define OS88UI_ABOUT
-%define OS88UI_NOBTN
+%define OS88UI_NOGLYPH          ; (the Play Game button alone: no box, no dot)
+%define OS88UI_ABFIT            ; (the keys' card on a CGA content box, SPEC.md 128.26.7)
 %include "os88ui.inc"
 %include "os88alt.inc"
 
@@ -4547,6 +4695,38 @@ VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
 VAR bz_tpad,1                   ; (the VARs stay even)
 %endif
 VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
+; THE WINDOW (SPEC.md 128.26): the button, the face's layout, the menus, the
+; replays and the suspended bracket
+VAR bz_dev,1                    ; HARNESS: 1 the instruments' keys and face (128.26.6); never set by the package
+VAR bz_wtall,1                  ; 1: the TALL aspect (a display 300 lines or more)
+VAR bz_btr,8                    ; the Play Game button: its rect, screen, inclusive
+VAR bz_btfl,2                   ; ...its flags (OS88UI_DIS greyed)
+VAR bz_wbn,2                    ; ...1 it is shown (0 under the instruments' face)
+VAR bz_wty,2                    ; the face's layout (bzwface.inc): the title's top,
+VAR bz_wtx,2                    ; its left, the ledge's left and top, the button
+VAR bz_wlx,2                    ; content-relative, the band drawn (its first row
+VAR bz_wly,2                    ; and rows), a picture row's first byte, and the
+VAR bz_wbx0,2                   ; shifted slice's width, bytes, column, row and
+VAR bz_wbx1,2                   ; rows to go
+VAR bz_wby0,2
+VAR bz_wby1,2
+VAR bz_wy,2
+VAR bz_wh,2
+VAR bz_wsrc,2
+VAR bz_wsw,2
+VAR bz_wsb,2
+VAR bz_wsc,2
+VAR bz_wsr,2
+VAR bz_wsn,2
+VAR bz_earm,1                   ; the Erase armed, slot 1 - 3 (0 none)
+VAR bz_susp,1                   ; BZ_SU_*: the bracket left for the window from (128.26.4)
+VAR bz_towin,1                  ; 1: F or Alt+Enter asked for the window (bz_exitchk)
+VAR bz_rsm,1                    ; 1: the next bz_play RESUMES a course (no bz_pinit, no new log)
+VAR bz_rown,1                   ; 1: the held log is a play the player recorded (Save Replay's)
+VAR bz_wpad,1                   ; (the VARs stay even)
+VAR bz_rbest,2                  ; bz_rscan: the greatest number, its file's size,
+VAR bz_rbsz,4                   ; and the course's name's tail, `NAMES.BZR`
+VAR bz_rtail,10
 ; the pathway's play (wave 8R, SPEC.md 128.22.4: bonanza.asm's THE PATHWAY)
 VAR bz_ptho,2                   ; the part's tables (BZC2 +42) ...
 VAR bz_ptro,2                   ; ...their ROUTES ...

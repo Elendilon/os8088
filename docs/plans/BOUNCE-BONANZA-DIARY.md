@@ -2907,3 +2907,31 @@ alignment a later rule refuses falls back to the next best.
 assembled), `bonanza_phys.py --check`. **Not yet run**: `bonanzaring`'s
 camera leg on MartyPC, the guest's `BZL_PRE` against the model; it is in
 wave 9's final pass.
+
+## The window (SPEC.md 128.26; the plan BOUNCE-BONANZA-WINDOW.md)
+
+*2026-11-16, a session beside wave 9's.* The owner's brief: the desktop window
+"up to spec", and the development keys and decided experiments out of a
+player's way. What the window had been was a page of thirteen lines of key
+hints and instrument read-outs - the right face for the waves that built the
+engine, and the wrong one for somebody who has just double-clicked a game.
+
+**Decisions.**
+- The window's art is drawn from code (`tools/bzwinart.py`), as the title
+  screen's is: the in-game lettering's own strokes (imported from
+  `bbtitle.py`, not copied) at 0.62 of its size, re-sampled at the
+  desktop's resolution, and a ledge with the rubber marble from
+  `bonanza_assets.py`'s ball formula. Two aspects, because a 640 x 200 CGA
+  desktop's pixel is the game's pixel halved across and a VGA's is square.
+- The instruments stayed: their keys and their text face answer to a
+  harness byte, `bz_dev`, which every row pokes through `bonanza_ring.Bz`.
+  Deleting them would have deleted most of the suite's eyes.
+- A toggle's "check mark" is `* `: the kernel's pull-down has none and its
+  font has no tick (SPEC.md 12.2, 45.17.1's precedent).
+- The desktop's song and `title.bmu` are gone; every song moved down one.
+
+**Observed.** OSAPI_GFX_BLIT1 at an x off a screen byte wrapped the band's
+first partial column onto the end of each row (MartyPC's CGA): the B of the
+title lost its stem and a bar stood after the A. Every picture is put down
+at a byte's start now; the kernel's unaligned path is a finding for its own
+owner, not fixed here.

@@ -276818,3 +276818,141 @@ that first new course replaces them.
 | Q3 | **Steel, rubber and glass on a cracked tile** | steel at once | **ball-sorting**: steel breaks it soon (keep near top speed), rubber later, glass never by rolling; any landing breaks it for steel and rubber; glass takes one impact (128.25.8) |
 | Q4 | **The defaults** | as written | **fine to start, tuned in play**; a pickup's duration is a field of each placement (128.25.9) |
 | Q5 | **The glass path's hint** | the dithered outline | **the first tile's jagged edge, the rest invisible until rolled onto**; showing a tile just before it is reached is an option to try for slow exploration (128.25.8) |
+
+### 128.26 The window (the owner's brief, 2026-11-16)
+
+The owner, after wave 8R: *"bring the desktop window and its interactions up to
+spec ... and then remove or completely gate a bunch of the development/debug
+hotkeys and a/b experiments that have since been decided."* The desktop face
+built by waves 4 - 8 (128.14.3.2, 128.19.8.3) was a page of key hints and
+instrument lines; it becomes a window a player meets, and every instrument
+key leaves it. Binding where it adds; figures MEASURED, PREDICTED or
+ESTIMATED as in 128.18. The plan's stories are
+[docs/plans/BOUNCE-BONANZA-WINDOW.md](docs/plans/BOUNCE-BONANZA-WINDOW.md).
+
+#### 128.26.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| the face | **pictures and one button, no text**: the title (128.26.2) centred near the top; a LEDGE with the rubber marble on it behind the button, to the right, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred at the bottom. One line of text appears only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief |
+| the size | **resizable** (`WF_SIZABLE`); the face lays itself out from `OSAPI_WM_CONTENT` at every paint, and the button is re-placed before every press (`OS88UI_BT_PLACE`); a minimum (`OSAPI_WM_MINSIZE`) that keeps the button whole | the old size was the text's, not a need |
+| what draws it | the pictures and the ground in the SHELL PART (128.19.2, `BZH_FACE`), each picture one `OSAPI_GFX_BLIT1` and every other pixel one fill, nothing twice; the button in the resident image (the library's gesture is data the part may not write) after the part returns | 128.19.2's part keeps the face out of a play's memory; the button's record and its press are the package's |
+| the keys on the window | **Enter, Alt+Enter and F** are Play Game; **nothing else**. Every instrument key of 128.14.3.2 (B, R, D, W, L, V, N, M, C, G) and the old settings keys (E, T, S, 1 2 3, X) answer only while the harness byte **`bz_dev`** is set (128.26.6) | the brief: the menus carry the settings; the instruments are the rows' |
+| the menus | **Game**: Play Game, Save Replay (F5), Load Replay... (F6), a rule, Explore, Use Mouse, Sound; **Saves**: Load Slot 1 / 2 / 3, a rule, Erase Slot 1 / 2 / 3 (128.26.3) | the brief |
+| a toggle's mark | **`* ` before a chosen item, two spaces before the rest**: the kernel's pull-down has no check mark (12.2) and its font no tick glyph (6.1, 32 - 126), so the mark is Tracker's (45.17.1) - a star the ITEM carries, never `MENU_DIS`, which means unavailable | the brief asks for check marks; this is the system's nearest |
+| the desktop's song | **gone**, and its track, `title.bmu`, with it: the window is silent. The game's songs keep their names; their numbers close up (128.26.5) | the brief |
+| Play Game | **resumes** where the player left the bracket for the window (128.26.4); otherwise the title (128.23), as Enter was | the brief: *"go back to where they last were, not restart the game (so we can't clear the memory)"* |
+| replays | **SYSTEM\APPDATA**, one file a save, **`NNNCOURS.BZR`**: a three-digit number and the course's NAME truncated to five; F5 in the game and Save Replay write the held log; F6 at a pad replays the course's newest save; Load Replay... opens the Open dialog there and replays the pick at once, full screen (128.26.3) | the brief |
+| V | **at a pad, the course's shipped demo** (`BZD<K>`), played and the pathway again after it; on the window V is an instrument (`bz_dev`) | the brief |
+| the About card | the name, `Isometric rolling-ball game`, and the keys a player needs that no menu carries (128.26.7); the wave line and the art line go | the brief |
+
+#### 128.26.2 The art (`tools/bzwinart.py`, BUILT)
+
+Generated, never committed: the Makefile runs the tool into
+`build/bonanza-art/bzwin.inc` (`BZW_<NAME>_W`, `_H`, `_B` and a `_DATA`
+macro of rows), assembled into the shell part. Art is source: the program is
+it. Two pictures in two ASPECTS:
+
+| | SHORT (a 640 x 200 desktop: `[vid_h]` under 300) | TALL (VGA, EGA, Hercules) |
+|---|---|---|
+| a game pixel is | 2 x 1 desktop pixels | 2 x 2 |
+| the TITLE | 362 x 28 | 362 x 56 |
+| the LEDGE | 240 x 45 | 240 x 90 |
+
+- **The title** is the in-game lettering (128.23.2): `bbtitle.py`'s
+  LETTERS, WORD, bob and proportions imported, at 0.62 of the in-game size,
+  every desktop pixel sampling the strokes at its centre. The game's colours
+  become 1bpp: the white core white, the keyline black, the magenta rim a
+  checker, the cyan shadow solid black.
+- **The ledge** is an isometric slab like a course's floor (its top a light
+  dither with tile seams, its front face a half dither, its left end a dark
+  one), and on it the rubber marble: `bonanza_assets.py`'s ball - spots,
+  rim, terminator dither, highlight - at 24 game pixels (1.5x), magenta a
+  checker, with its dithered shadow.
+- **Placed**: the title centred at content line 4 (SHORT) or 8 (TALL); the
+  ledge's right edge on the content's right edge, its bottom on the
+  content's bottom less a margin, so it runs off the right whatever the
+  width; a window narrower than a picture clips it (the clip region, 11.3).
+  Every pixel the pictures and the button do not cover is one fill of the
+  ground.
+
+#### 128.26.3 The menus and the replays (BUILT)
+
+| menu | item | does |
+|---|---|---|
+| Game | `Play Game` | 128.26.4; greyed with the button |
+| | `Save Replay   F5` | the held log (the last play's) to APPDATA, `NNNCOURS.BZR`; greyed with no log |
+| | `Load Replay... F6` | the Open dialog, in APPDATA; a `.BZR` picked is read (128.14.7.2's checks) and **replayed at once**, full screen, then the window |
+| | (a rule) | |
+| | `Explore` | the slot's MODE (128.19.8.3's E), marked when EXPLORE |
+| | `Use Mouse` | the control (128.14.8's T), marked when MOUSE; **off** at every open |
+| | `Sound` | on (AUTO, 128.20.4) or OFF, marked when on |
+| Saves | `Load Slot n` (1 - 3) | the slot played (`bz_slot`), marked |
+| | (a rule) | |
+| | `Erase Slot n` (1 - 3) | the FIRST pick relabels the item `Erase Slot n?` and arms it; picking it again erases the slot (zeroed and written, 128.19.8.3's X); any other pick or key disarms it |
+
+- **A replay's name**: the number is one more than the greatest `NNN` among
+  APPDATA's `???<NAME>.BZR` for that course (001 the first, 999 the last: a
+  thousandth save is refused, `Replays full`); the name is the course's NAME
+  (`BZ_CRS_NAMES`, at most five characters today) cut to five. So the
+  alphabetically last save of a course is its newest.
+- **F5 inside the bracket** writes the held log the same way (a new file,
+  never inside a course: at a pad or on the title), and says so on a card
+  (`REPLAY SAVED`, the name; or why not). **F6 at a pad** finds the newest
+  save of the pad's course and replays it (mode 2, the course's camera and
+  song), then the pathway at the same pad; no save is a card saying so. A
+  log of other physics or another identity is refused as R refuses one
+  (128.12.8) - on a card.
+- **Load Replay's replay** is a bracket of its own (bz_launch, mode 2), not
+  the game's: Play Game afterwards resumes the game as before.
+- **Selecting a slot, erasing it or changing Explore** while a game is
+  suspended inside a COURSE (128.26.4) abandons that course first: its parts
+  are given back and the slot is read again from `bz_dat`, where the entry's
+  life was already written (128.19.6).
+
+#### 128.26.4 Play Game resumes (BUILT)
+
+F and Alt+Enter inside the bracket leave for the WINDOW (`bz_towin`); Esc
+keeps its meanings (the pathway's map, the title's leave). Leaving for the
+window SUSPENDS the bracket's state, `bz_susp`:
+
+| left from | `bz_susp` | held across the desktop | Play Game |
+|---|---|---|---|
+| the title (or its demos) | 0 | nothing | the title again |
+| the pathway | `BZ_SU_PATH` | the game in memory (the slot's state, the pad); the pathway's part as 128.22.7 holds it | the pathway, the marble on its pad, no event |
+| a course | `BZ_SU_CRS` | the course's part, its balls, its song's part and the whole play: physics, clock, flags, its log | **the same play**: the mode set, `bz_vinit`, the course's song from its top, and the frame loop entered with no `bz_pinit` and no new log (`bz_rsm`): the first frame a full write |
+
+- **Nothing is charged for leaving**: no life, no best, no write - the
+  course's life was written at its entry (128.19.6), so closing BONANZA
+  while suspended costs that life, as switching off did.
+- **The shell part shares memory with a suspended course** (the brief's
+  "we can't clear the memory"; 128.19.2's rule holds otherwise): `bz_shcall`
+  fetches it whenever no course is held OR the bracket is suspended.
+- A refused fetch at resume (the pathway's, after a long desktop) ends the
+  suspension: the slot is read again and the title is shown.
+
+#### 128.26.5 The desktop's song, removed (BUILT)
+
+`title.bmu` and the desktop's player (`bzs_dstart`, `bzs_dstop`,
+`bzs_dtick`, the timer's re-arm) are deleted; the window plays nothing. The
+manifest (`bbmusic.py` SONGS) loses song 0, so every song moves down one
+(`fairway` 0, ... `attract` 6) and `bbcourse.course_song`'s default is
+course K's `(K - 1) mod` the course songs (BENCH 0). Nothing in a course's
+identity moves (the song is not in it). `bonanzamusic` checks the manifest;
+`bonanzasound`'s desktop legs go.
+
+#### 128.26.6 The harness byte `bz_dev` (BUILT)
+
+A byte of bss the package NEVER sets: while it is 0 the window answers
+Enter, Alt+Enter and F alone; a row pokes it to 1 and the window answers
+128.14.3.2's keys as before - B, R, D, W, L, V, N, M, C, G, T, S, E, 1 2 3,
+X, and **F a free play** of the selected course (the rows' free plays).
+The instruments' code stays (the rows are what they are for); only their
+door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
+
+#### 128.26.7 The About card (BUILT)
+
+`Bounce Bonanza`, `Isometric rolling-ball game`, then the keys:
+`Arrows roll, Space hop`, `L.Shift grip, P pause`, `Bksp back to flag`,
+`At a pad: Enter play`, `Space info, V demo`, `F5 save, F6 replay`,
+`F or Alt+Enter: window`, `Esc map or quit`.

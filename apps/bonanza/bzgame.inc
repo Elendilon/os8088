@@ -688,6 +688,8 @@ bz_latechk:
 ; -----------------------------------------------------------------------------
 bz_play:
     call bz_drain               ; what the launching key typed is not a command
+    cmp byte [bz_rsm], 0        ; A RESUMED course (SPEC.md 128.26.4): the
+    jne .rs0                    ; ball, the clock and the log where they were
     call bz_pinit               ; the ball at the course's start (bzphys.inc)
 %if BZ_PATH_NPAD
     cmp byte [bz_mode], 4       ; wave 8R (128.22.4.2): THE PATHWAY - the marble
@@ -695,6 +697,7 @@ bz_play:
     call bz_pwinit              ; (bonanza.asm)
 .npw:
 %endif
+.rs0:
     push ds
     pop es
     xor ax, ax
@@ -706,12 +709,15 @@ bz_play:
     mov [bz_oldv], al
     mov [bz_meas], al
     mov [bz_fin], al            ; the face's "Finished" goes with a new play
+    cmp byte [bz_rsm], 0
+    jne .rs1
     mov [bz_rn], al             ; the log: no current run, from its first pair
 %ifdef BZ_EARLYSTEP
     mov [bz_estp], ax           ; (and bz_ersp)
     mov [bz_nearly], ax
 %endif
     mov word [bz_rptr], bz_rlog + BZR_RUNS
+.rs1:
     mov di, bz_frames
     mov cx, BZ_LIVE / 2
     rep stosw
@@ -729,6 +735,10 @@ bz_play:
     mov byte [bz_tilt], BZ_TILT_KEYS ; a keyboard step's tilt byte (128.14.8.2)
     mov byte [bz_tby], BZ_TILT_KEYS ; (B's steps never store it: bzphys .auto)
     mov byte [bz_tanc], 1       ; the mouse's anchor at the first frame
+    xor al, al
+    xchg al, [bz_rsm]           ; (resumed: the log goes on as it was)
+    or al, al
+    jnz .play
     mov al, [bz_mode]
     test al, 1                  ; a benchmark (B, D) replaces the last one's
     jz .nb                      ; results; B leaves the log alone
@@ -746,7 +756,8 @@ bz_play:
     call bz_rwid
     jmp short .play
 .rec:                           ; a play: a new log, `BZR1`, its course and
-    mov word [bz_rlog], 'BZ'    ; ball, no flags, steps or runs
+    mov byte [bz_rown], 1       ; ball, no flags, steps or runs - the player's
+    mov word [bz_rlog], 'BZ'    ; own (Save Replay, SPEC.md 128.26.3)
     mov word [bz_rlog + 2], 'R1'
     mov al, [bz_crs]
     mov ah, [bz_mat]
@@ -1418,7 +1429,7 @@ bz_rnext:
 ; -----------------------------------------------------------------------------
 bz_exitchk:
     call os88alt_edge
-    jc .leave
+    jc .towin
     push di                     ; THE FRAME'S KEYS, ONE CALL (SPEC.md 9.7.3):
     mov di, bz_kmap             ; Esc here, bz_input's six and bz_kedge's held
     call OSAPI_KEY_MAP          ; key are each one test of this copy, where
@@ -1469,7 +1480,7 @@ bz_exitchk:
 .f:
     or al, 20h
     cmp al, 'f'
-    je .leave
+    je .towin
     cmp al, 'r'                 ; wave 8c (128.19.8): R on a game course's
     jne .drain                  ; pause card - a RETRY (bz_grounds)
     cmp byte [bz_inpause], 0
@@ -1492,6 +1503,8 @@ bz_exitchk:
     cmp al, ah                  ; plays, S and 1 2 3 the slot, the rest
     je .tk                      ; nothing
     or al, 20h
+    cmp al, 'f'                 ; (F: the window, SPEC.md 128.26.4)
+    je .towin
     mov ah, al
     cmp al, 'p'
     je .tk
@@ -1514,6 +1527,8 @@ bz_exitchk:
 .tk:
     mov [bz_twhy], ah
 %endif
+.towin:
+    mov byte [bz_towin], 1      ; F and Alt+Enter ask for the WINDOW (128.26.4)
 .leave:
 %if BZ_TITLE
     cmp byte [bz_twhy], 0       ; (Alt+Enter, F: the title's Esc)

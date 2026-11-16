@@ -32,13 +32,23 @@ bzh_v2: jmp near bzh_line       ; BZH_LINE
     times BZH_VEC + BZH_VECB * BZH_NVEC - ($ - $$) db 0 ; (each vector BZH_VECB bytes)
     times ($ - $$) - BZH_VEC - BZH_VECB * BZH_NVEC db 0
 
-bzh_face:
+bzh_face:                       ; the PLAYER's face, or with the harness byte
+    cmp byte [bz_dev], 0        ; set the instruments' (SPEC.md 128.26.6)
+    jne .dev
+    call bz_wface
+    retf
+.dev:
     call bz_face
     retf
-bzh_redraw:
+bzh_redraw:                     ; (a line of the instruments' face: the player's
+    cmp byte [bz_dev], 0        ; has none)
+    je .out
     call bz_redraw
+.out:
     retf
 bzh_line:                       ; AH = the line
+    cmp byte [bz_dev], 0
+    je .out
     call bz_fclip
     jc .out
     mov al, ah
@@ -91,4 +101,6 @@ bz_adapter:
     pop bx
     ret
 
+%include "bzwin.inc"            ; the window's art (tools/bzwinart.py, SPEC.md 128.26.2)
 %include "bzface.inc"
+%include "bzwface.inc"

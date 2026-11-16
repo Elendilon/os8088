@@ -4,8 +4,8 @@
 ; tools/bbmusic.py's parts (BZSND.BIN, BZM<S>.BIN, 128.20.3); its Seq and Chip
 ; classes are this file's sequencer and AdLib arm in Python, step for step,
 ; and the rows hold the two to each other.  The clock is the physics
-; SUB-TICK, 54.6 Hz (BZ_SUB): the bracket steps once per elapsed sub-tick, the
-; desktop's title three a system tick (128.20.1).
+; SUB-TICK, 54.6 Hz (BZ_SUB): the bracket steps once per elapsed sub-tick
+; (the window plays nothing since SPEC.md 128.26.5).
 ;
 ; THE ARMS (128.20.4): the AdLib - SOUND.DRV's whole chip claimed
 ; (SND_FM_CLAIM) and at most ONE SNDV_OPLW batch a frame of only the
@@ -25,11 +25,9 @@
 ;
 ; Entry points, all with DS = ours; each preserves every register but the
 ; flags unless it says otherwise:
-;   bzs_dstart / bzs_dstop / bzs_dtick   the DESKTOP: the title, and the
-;                                        goal's fanfare after a finish
 ;   bzs_gfetch / bzs_gdrop               bz_launch's: the course's song
 ;   bzs_open / bzs_frame / bzs_close     the BRACKET's
-;   bzs_skey                             S: the player's choice
+;   bzs_toggle                           the Game menu's Sound (128.26.3)
 ; =============================================================================
 
 BZS_FMCAP   equ 8               ; OPL registers a frame, at most (128.20.4)
@@ -40,8 +38,6 @@ BZS_FMBUF   equ BZS_FMCAP       ; ...the batch: a patch is written a cap's
 %endif
 BZS_MAXT    equ 8               ; sub-ticks a call steps, at most (the rest of
                                 ; a long stall is dropped, not chased)
-BZS_STALL   equ 36              ; desktop: a gap past 2 s (36 ticks) restarts
-                                ; the title rather than chasing it
 BZS_LMIN    equ 48              ; a LANDING's bz_lvz under this is silent
 BZS_NCTR    equ 16              ; the counters bzs_events compares (bzs_ctab;
                                 ; DX holds a bit each, so at most 16)
@@ -142,8 +138,6 @@ BZ_P_SONG   equ BZ_P_SND + 1    ; song S's row: BZ_P_SONG + S
 VAR bzs_mode,1                  ; the player's choice (S): BZS_M_*
 VAR bzs_arm,1                   ; the arm open now: BZS_A_*
 VAR bzs_live,1                  ; 1: a song is playing
-VAR bzs_desk,1                  ; 1: the desktop's title is running (its timer)
-VAR bzs_goalp,1                 ; 1: the desktop plays the goal's fanfare first
 VAR bzs_song,1                  ; the song part's row, 0 none
 VAR bzs_pseg,2                  ; the sound part's segment, 0 none
 VAR bzs_mseg,2                  ; the song part's segment, 0 none
@@ -190,7 +184,6 @@ VAR bzs_last,2 * BZS_NCTR       ; the counters, the last frame's (bzs_ctr0..)
 VAR bzs_lgoal,1                 ; bz_goal, the last frame's
 VAR bzs_lsum,2                  ; ...and the counters' sum
 VAR bzs_ltsec,2                 ; wave 7: bz_tsec, the last frame's (the clock's events)
-VAR bzs_dtk,2                   ; the desktop: [ticks] at the last call
 VAR bz_nwall,2                  ; SOUND STATE the physics writes and never
 VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 128.20.5): wall
 VAR bz_lwb,1                    ; reflections, the last one's speed, 1 a bumper's
@@ -203,119 +196,16 @@ VAR bz_lwb,1                    ; reflections, the last one's speed, 1 a bumper'
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; THE DESKTOP: the title while the window is open (128.20.6)
+; THE WINDOW IS SILENT (SPEC.md 128.26.5): the desktop's title song, its
+; player and its timer are gone.  The player's choice is ON (AUTO) or OFF.
 ; -----------------------------------------------------------------------------
 
-; bzs_dstart - fetch the sound part and the title, open an arm, start the song
-; (or only the goal's fanfare's effects machinery), and run the window's timer.
-; kern_small has no timer and refuses the game: nothing.
-bzs_dstart:
-    cmp byte [bz_small], 0
-    jne .r
-    cmp byte [bzs_mode], BZS_M_OFF
-    je .r
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call bzs_fsnd               ; the sound part
-    jc .out
-    mov al, BZ_P_SONG           ; the title, song 0
-    call bzs_fsong
-    jc .out
-    call bzs_open
-    call bzs_rstart
-    cmp byte [bzs_goalp], 0     ; a finish: the fanfare over the title's start
-    je .arm
-    mov byte [bzs_goalp], 0
-    mov ax, BZS_E_GOAL          ; (a shared effect: any material's column)
-    xor dx, dx
-    call bzs_trig
-.arm:
-    call OSAPI_GET_TICKS
-    mov [bzs_dtk], ax
-    mov byte [bzs_desk], 1
-    mov bx, [bz_win]
-    mov ax, 1
-    call OSAPI_WM_TIMER
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.r:
-    ret
-
-; bzs_dstop - the title off: the arm closed, both parts given back
-bzs_dstop:
-    cmp byte [bzs_desk], 0
-    je .r
-    mov byte [bzs_desk], 0
-    call bzs_close
-    push ax
-    mov al, [bzs_song]
-    call bzs_dsong
-    mov al, BZ_P_SND
-    call op_drop
-    mov word [bzs_pseg], 0
-    pop ax
-.r:
-    ret
-
-; bzs_dtick - the window's timer (bz_ontimer): step the sub-ticks the system
-; ticks since the last call are worth, three a tick, sound them, ask again
-bzs_dtick:
-    cmp byte [bzs_desk], 0
-    je .r
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call OSAPI_GET_TICKS
-    mov cx, ax
-    xchg ax, [bzs_dtk]
-    sub cx, ax                  ; system ticks since
-    cmp cx, BZS_STALL
-    jbe .run
-    call bzs_rstart             ; a long stall: the title from its top
-    mov cx, 1
-.run:
-    mov ax, cx                  ; x 3 sub-ticks
-    shl cx, 1
-    add cx, ax
-    call bzs_run
-    mov bx, [bz_win]
-    mov ax, 1
-    call OSAPI_WM_TIMER
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.r:
-    ret
-
-; bzs_skey - S: AUTO, SPEAKER, EFFECTS, OFF.  The title stops and starts again
-; under the new choice, and the face's sound line says which
-bzs_skey:
-    call bzs_dstop
+; bzs_toggle - the Game menu's Sound: AUTO <-> OFF.  Preserves all but AX.
+bzs_toggle:
     mov al, [bzs_mode]
-    inc ax
-    and al, 3
+    xor al, BZS_M_OFF ^ BZS_M_AUTO
     mov [bzs_mode], al
-    call bzs_dstart
-    jmp bz_line4
+    ret
 
 ; -----------------------------------------------------------------------------
 ; bz_launch's: the course's song for the bracket, and back to the title
@@ -327,7 +217,6 @@ bzs_skey:
 ; part that cannot be had (its toast said why) leaves the play SILENT, never
 ; refused.  Preserves nothing.
 bzs_gfetch:
-    call bzs_dstop
     cmp byte [bzs_mode], BZS_M_OFF
     je .r
     call bzs_fsnd
@@ -353,14 +242,10 @@ bzs_gfetch:
 .r:
     ret
 
-; bzs_gdrop - after the bracket: the course's song given back, and the title
-; again - with the goal's fanfare when the play or the replay finished
+; bzs_gdrop, bzs_gdrop0 - the course's song and the sound part given back
+; (after the bracket, and between the game's rounds, wave 8b, SPEC.md
+; 128.19.5).  The window plays nothing after it (128.26.5).  Preserves AX.
 bzs_gdrop:
-    call bzs_gdrop0
-    jmp bzs_dstart
-; bzs_gdrop0 - the course's song and the sound part given back, the title NOT
-; started (the game's rounds, wave 8b, SPEC.md 128.19.5: the next course's
-; song follows inside the bracket).  Preserves AX.
 bzs_gdrop0:
     push ax
     mov al, [bzs_song]
@@ -376,15 +261,6 @@ bzs_gdrop0:
     mov al, BZ_P_SND
     call op_drop
     mov word [bzs_pseg], 0
-    cmp byte [bz_mode], 1       ; (a benchmark has no finish)
-    je .t
-    mov al, [bz_goal]
-    cmp byte [bzs_vic], 0       ; (8R.6: the finish sequence's own tune has
-    je .g                       ; played - the desktop's GOAL effect over the
-    xor al, al                  ; title would be a second fanfare)
-.g:
-    mov [bzs_goalp], al
-.t:
     mov byte [bzs_vic], 0
     pop ax
     ret

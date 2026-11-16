@@ -855,10 +855,10 @@ def parse(text, fname="<course>"):
             if src.music is not None:
                 raise CourseError("%s: music given twice" % where)
             names = song_names()
-            csongs = [x for x in names[1:] if x != "victory"]   # (8R.6: the fanfare is the finish's; a
+            csongs = [x for x in names if x != "victory"]   # (8R.6: the fanfare is the finish's; a
             # course may still NAME a non-course song - the title's `music attract`, 128.23)
             if len(toks) != 2 or toks[1][1] not in csongs:
-                raise CourseError("%s: music takes a course song's name: %s (the title, song 0, is the face's)"
+                raise CourseError("%s: music takes a course song's name: %s"
                                   % (where, ", ".join(csongs)))
             src.music = (names.index(toks[1][1]), ln)
         elif st == "limit":
@@ -4140,8 +4140,8 @@ def herc_translate_course(part):
 
 
 def song_names():
-    """wave 7 (SPEC.md 128.18.6): tools/bbmusic.py's SONGS, as names (song 0
-    the title) - the manifest is that tool's, read, never copied"""
+    """wave 7 (SPEC.md 128.18.6): tools/bbmusic.py's SONGS, as names (no
+    title since 128.26.5) - the manifest is that tool's, read, never copied"""
     sys.path.insert(0, os.path.dirname(TOOL))
     try:
         import bbmusic
@@ -4161,12 +4161,13 @@ def _non_course():
 
 
 def course_song(c, k):
-    """the song course K plays: its `music`, else K (BENCH 1), past the last
-    course song wrapping to 1 (128.20.6's rule, now the tool's)"""
+    """the song course K plays: its `music`, else K - 1 (BENCH 0), past the
+    last course song wrapping to 0 (128.20.6's rule, now the tool's; 128.26.5
+    took the desktop's song 0 away, so every course song is one lower)"""
     if c.src.music is not None:
         return c.src.music[0]
     n = len([x for x in song_names() if x not in _non_course()])
-    return 1 if k == 0 else 1 + (k - 1) % (n - 1)
+    return 0 if k == 0 else (k - 1) % n
 
 
 def limit_rule(route_steps, tutorial=False):
