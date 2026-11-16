@@ -279,6 +279,7 @@ bz_fbfind:
     mov ax, bx
     shr ax, cl                  ; AX = its paragraph in the bundle
     mov cl, [es:bx + BZF_HPARAS] ; CX = its paragraphs
+    jcxz .z                     ; (0: a malformed bundle - refused, never a loop)
     cmp dl, [es:bx + 2]
     je .hit
     add ax, cx                  ; the next header's paragraph...
@@ -286,6 +287,9 @@ bz_fbfind:
     shl ax, cl
     xchg ax, bx                 ; ...and byte
     jmp short .w
+.z:
+    stc
+    jmp short .x
 .hit:
     mov dx, [si + BZF_RDSEG]
     mov bl, SEG_SUBC
