@@ -1054,124 +1054,144 @@ class _Drv:
                 "n": len(self.keys)}
 
 
-GLASS_CRACKS = ((6, 24), (7, 24), (8, 24), (9, 24))
+SEC_LIMIT_PLAY = 40 * 546 // 10                 # PLAYGROUND's `limit 40` in steps: a scenario ends inside it
 GLASS_PATH = ((9, 27), (8, 27), (7, 27), (6, 27))
 
 
-def glass_keys():
-    """the `glass` scenario: PLAYGROUND's glass section, every ball on its cracks and its glass path ->
-    (material, keys, [(what, state)], {glass cell: its first revealed step})"""
+GLASS_LEGS = ("crack-rubber", "glass-path", "crack-steel", "crack-glass")
+
+
+def glass_keys(leg):
+    """a `glass-*` scenario (PLAYGROUND's glass section, from the start, inside the course's limit - a play
+    that times out runs the finish sequence, where a fall does not respawn) -> (material, keys,
+    {what: state}, {glass cell: its first revealed step}).  crack-rubber: slowly onto the cracks (counts,
+    breaks, falls; the respawn restores), then a Hop's landing on a whole one (broken at once);
+    glass-path: across the cracks at speed (each broken behind it), back by the glass path (revealed tile
+    by tile), into a broken crack (a fall: restored); crack-steel: the pad, slowly (falls), at speed
+    (across), a Hop's landing; crack-glass: the pad, across and back (twice across, never broken), a
+    landing (cracked), a second (broken: a fall)"""
     d = _Drv(R.course("play"), BB.MAT_RUBBER)
-    ms = []
+    ms = {}
 
     def mark(what):
-        ms.append((what, d.st()))
-    d.go(21.5, 24.5)
-    d.go(11.5, 24.5)
-    d.line(-1, 70, -99)
-    mark("rubber slow")                         # rolled on slowly: counted, broke, fell; the respawn restores
-    d.go(20.5, 24.5)
-    d.line(-1, 384, 5.6)
-    d.go(4.5, 24.5)
-    mark("rubber fast")                         # across all four at speed, each broken behind it
-    d.go(5.5, 24.5)
-    d.go(5.5, 27.5)
-    d.line(1, 90, 10.6)
-    d.go(11.5, 27.5)
-    mark("glass path")                          # back east by the glass path: revealed tile by tile
-    d.go(11.5, 24.5)
-    d.line(-1, 90, -99)
-    mark("rubber through")                      # into the broken crack: a fall, and the respawn restores
-    d.go(12.5, 24.5)
-    d.line(-1, 150, 10.9)
-    d.k(K.K_HOP)
-    d.k(0, 60)
-    mark("rubber hop")                          # a Hop's landing on a whole crack breaks it at once
-    for mat, pad in ((BB.MAT_STEEL, (22.5, 25.5)),):
-        d.k(0, 60)
-        d.go(14.5, 25.5)
-        d.go(*pad)
-        d.k(0, 2)
-        d.go(11.5, 24.5)
-        d.line(-1, 80, -99)
-        mark("steel slow")
-        d.go(22.5, 24.5)
-        d.line(-1, 384, 5.6)
+        ms[what] = d.st()
+
+    def hop(vcap, at, what):                    # (WHAT + "-land": the step of its first contact on the crack
+        d.go(at + 1.6, 24.5)                    # (9, 24) - a bounce off FF first does not count)
+        d.line(-1, vcap, at)
+        d.k(K.K_HOP)
+        for _ in range(90):
+            n0 = d.p.nland
+            d.k(0)
+            if d.p.nland != n0 and (d.p.gx >> 12, d.p.gy >> 12) == (9, 24) and what + "-land" not in ms:
+                mark(what + "-land")
+        d.k(0, 20)
+
+    def across(vcap):
+        d.line(-1, vcap, 5.6)
         d.go(4.5, 24.5)
-        mark("steel fast")
+
+    def back():                                 # (round the far pad, by the glass path)
         d.go(5.5, 24.5)
         d.go(5.5, 27.5)
-        d.line(1, 120, 10.6)
+        d.line(1, 110, 10.6)
         d.go(11.5, 27.5)
+
+    def pad(at):                                # (down FF's right side, clear of the notches)
+        d.go(21.5, 24.5)
+        d.go(21.5, at[1])
+        d.go(*at)
+        d.k(0, 2)
+    if leg == "crack-rubber":
+        d.go(21.5, 24.5)
+        d.go(11.5, 24.5)
+        d.line(-1, 70, -99)
+        mark("slow")
+        hop(150, 10.9, "hop")
+        mark("hop")
+    elif leg == "glass-path":
+        d.go(20.5, 24.5)
+        across(384)
+        mark("fast")
+        back()
+        mark("path")
         d.go(11.5, 24.5)
         d.line(-1, 90, -99)
-        mark("steel through")
-        d.go(12.5, 24.5)
-        d.line(-1, 150, 10.9)
-        d.k(K.K_HOP)
-        d.k(0, 60)
-        mark("steel hop")
-    d.k(0, 60)
-    d.go(14.5, 26.5)
-    d.go(22.5, 27.5)
-    d.k(0, 2)
-    d.go(11.5, 24.5)
-    mark("glass at")
-    for _r in range(2):                         # glass rolls across and back, twice: never broken
-        d.line(-1, 120, 5.2)
-        d.go(4.5, 24.5)
+        mark("through")
+    elif leg == "crack-steel":
+        pad((22.5, 25.5))
+        d.go(11.5, 24.5)
+        d.line(-1, 80, -99)
+        mark("slow")
+        hop(150, 10.3, "hop")
+        mark("hop")
+        d.go(22.5, 24.5)
+        across(384)
+        mark("fast")
+    else:
+        pad((22.5, 27.5))
+        d.go(11.5, 24.5)
+        mark("at")
+        across(120)
         d.line(1, 120, 10.7)
         d.go(11.5, 24.5)
-    mark("glass rolled")
-    for hop in range(2):                        # glass's landings: the first cracks it, the second breaks it
-        d.go(11.6, 24.5)
-        d.line(-1, 110, 10.45)
-        d.k(K.K_HOP)
-        d.k(0, 40)
-        mark("glass hop %d" % (hop + 1))
-        if hop == 0:
-            d.go(11.5, 24.5)
+        mark("rolled")
+        hop(110, 10.45, "hop1")
+        mark("hop1")
+        d.go(11.5, 24.5)
+        hop(110, 10.45, "hop2")
+        mark("hop2")
     d.k(0, 30)
     return BB.MAT_RUBBER, d.keys, ms, d.rev
 
 
-def glass_verdict(ms, rev, p):
-    """-> (ok, a line): every milestone as SPEC.md 128.25.8's table says"""
-    m = dict(ms)
-    k = [p.props[i]["fsb"] >> 3 for i in range(len(p.props)) if p.props[i]["kind"] == BB.FK_CRACK]
-    cr = lambda st: bytes(st["fst"][j] for j in sorted(k))
+def glass_verdict(leg, ms, rev, p):
+    """-> (ok, a line): the leg's milestones as SPEC.md 128.25.8's table says"""
+    k = sorted(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK)
+    cr = lambda w: bytes(ms[w]["fst"][j] for j in k)
     nine = next(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"] == (9, 24))
-    order = [rev.get(c) for c in GLASS_PATH]
-    checks = [
-        ("rubber slow: fell, restored", m["rubber slow"]["nfall"] == 1 and cr(m["rubber slow"]) == bytes(4)),
-        ("rubber fast: across, all four broken", m["rubber fast"]["nfall"] == 1 and m["rubber fast"]["cell"] == (4, 24)
-         and cr(m["rubber fast"]) == b"\xff" * 4),
-        ("the glass path revealed tile by tile, east from the far side",
-         None not in order and order == sorted(order, reverse=True) and len(set(order)) == 4),
-        ("rubber through: fell, restored", m["rubber through"]["nfall"] == 2 and cr(m["rubber through"]) == bytes(4)),
-        ("rubber hop: broken at the landing", m["rubber hop"]["fst"][nine] == 0xFF),
-        ("steel slow: fell, restored", m["steel slow"]["mat"] == BB.MAT_STEEL
-         and m["steel slow"]["nfall"] > m["rubber hop"]["nfall"] + 0 and cr(m["steel slow"]) == bytes(4)),
-        ("steel fast: across", m["steel fast"]["cell"] == (4, 24) and cr(m["steel fast"]) == b"\xff" * 4
-         and m["steel fast"]["nfall"] == m["steel slow"]["nfall"]),
-        ("steel hop: broken at the landing", m["steel hop"]["fst"][nine] == 0xFF),
-        ("glass rolled across twice: whole", m["glass rolled"]["mat"] == BB.MAT_GLASS
-         and m["glass rolled"]["nfall"] == m["glass at"]["nfall"] and cr(m["glass rolled"]) == bytes(4)),
-        ("glass's first landing cracks it", m["glass hop 1"]["fst"][nine] == 1),
-        ("glass's second breaks it: a fall", m["glass hop 2"]["nfall"] == m["glass hop 1"]["nfall"] + 1),
-    ]
+    at9 = lambda w: ms[w]["fst"][nine] if w in ms else None
+    lim = p.grid.limit if hasattr(p.grid, "limit") else None
+    if leg == "crack-rubber":
+        checks = [("slow: counted, broke, fell, restored", ms["slow"]["nfall"] == 1 and cr("slow") == bytes(4)),
+                  ("a Hop's landing: broken at once, a fall", at9("hop-land") == 0xFF and ms["hop-land"]["nfall"] == 1
+                   and ms["hop"]["nfall"] == 2 and cr("hop") == bytes(4))]
+    elif leg == "glass-path":
+        order = [rev.get(c) for c in GLASS_PATH]
+        checks = [("fast: across, all four broken behind it", ms["fast"]["nfall"] == 0
+                   and ms["fast"]["cell"] == (4, 24) and cr("fast") == b"\xff" * 4),
+                  ("the glass path revealed tile by tile (steps %s)" % order,
+                   None not in order and order == sorted(order, reverse=True) and len(set(order)) == 4
+                   and ms["path"]["nfall"] == 0),
+                  ("into a broken crack: a fall, every crack restored", ms["through"]["nfall"] == 1
+                   and cr("through") == bytes(4))]
+    elif leg == "crack-steel":
+        checks = [("steel slow: fell, restored", ms["slow"]["mat"] == BB.MAT_STEEL and ms["slow"]["nfall"] == 1
+                   and cr("slow") == bytes(4)),
+                  ("a Hop's landing: broken at once, a fall", at9("hop-land") == 0xFF and ms["hop"]["nfall"] == 2
+                   and cr("hop") == bytes(4)),
+                  ("steel fast: across, all four broken", ms["fast"]["nfall"] == 2 and ms["fast"]["cell"] == (4, 24)
+                   and cr("fast") == b"\xff" * 4)]
+    else:
+        checks = [("glass across and back: never broken", ms["rolled"]["mat"] == BB.MAT_GLASS
+                   and ms["rolled"]["nfall"] == ms["at"]["nfall"] and cr("rolled") == bytes(4)),
+                  ("its first landing cracks it", at9("hop1") == 1 and ms["hop1"]["nfall"] == ms["at"]["nfall"]),
+                  ("its second breaks it: a fall, restored", ms["hop2"]["nfall"] == ms["at"]["nfall"] + 1
+                   and cr("hop2") == bytes(4))]
     bad = [w for w, ok in checks if not ok]
-    return not bad, ("every rule as 128.25.8 says (%d checks; revealed at steps %s)" % (len(checks), order)
-                     if not bad else "NOT: " + "; ".join(bad))
+    return not bad, ("; ".join(w for w, _ok in checks) if not bad else "NOT: " + "; ".join(bad))
 
 
 def w9_replays():
     S = []
-    mat, keys, ms, rev = glass_keys()
-    p = run_keys("play", mat, None, keys)
-    ok, what = glass_verdict(ms, rev, p)
-    S.append({"name": "glass", "crs": "play", "mat": mat, "poke": None, "keys": keys, "red": None,
-              "what": "PLAYGROUND's GLASS section, every ball on its cracks and its glass path: " + what, "ok": ok})
+    for leg in GLASS_LEGS:                      # GLASS (SPEC.md 128.25.8): its section, each rule
+        mat, keys, ms, rev = glass_keys(leg)
+        p = run_keys("play", mat, None, keys)
+        ok, what = glass_verdict(leg, ms, rev, p)
+        S.append({"name": "glass-" + leg.split("-")[1] if leg != "glass-path" else leg, "crs": "play",
+                  "mat": mat, "poke": None, "keys": keys, "red": None,
+                  "what": "PLAYGROUND's GLASS section, %s: %s" % (leg, what),
+                  "ok": ok and len(keys) < SEC_LIMIT_PLAY})
     mat, keys, ent = probe_keys()
     p = run_keys("play", mat, None, keys)
     sl = p.fsl[0] if p.fam else bytes(8)
@@ -1360,20 +1380,23 @@ def fam_host():
         p, bad = urun(binp, lst, sym, crs, d["ball"], kk)
         out.append("%s's demo, %d steps, no family: %s" % (crs.upper(), len(kk), "; ".join(bad) or "equal"))
         fails += bad
-    # GLASS (SPEC.md 128.25.8, 128.25.18): its scenario, every step
-    gm, gk, gms, grev = glass_keys()
-    p, bad = urun(binp, lst, sym, "play", gm, gk, fam)
-    gok, gwhat = glass_verdict(gms, grev, p)
-    out.append("the glass scenario, %d steps (%d respawns): %s; %s" % (
-        len(gk), p.nfall, "; ".join(bad) or "the guest is the model at every step", gwhat))
-    fails += bad + ([] if gok else ["the glass scenario: " + gwhat])
+    # GLASS (SPEC.md 128.25.8, 128.25.18): its scenarios, every step
+    gl = {}
+    for leg in GLASS_LEGS:
+        gm, gk, gms, grev = gl[leg] = glass_keys(leg)
+        p, bad = urun(binp, lst, sym, "play", gm, gk, fam)
+        gok, gwhat = glass_verdict(leg, gms, grev, p)
+        out.append("the %s scenario, %d steps (%d respawns): %s; %s" % (
+            leg, len(gk), p.nfall, "; ".join(bad) or "the guest is the model at every step", gwhat))
+        fails += bad + ([] if gok else ["the %s scenario: %s" % (leg, gwhat)])
+    gm, gk = gl["crack-rubber"][0], gl["crack-rubber"][1]
     # the red arms, on the unicorn: each must part from the model
     for name, ff, patch, want, kk, gmat in (
             ("famcell", fam_parts(lst, ("probe",)), (), "the window", k2, mat),
             ("famrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst", k2, mat),
             # GLASS's: the CELL hook skipped (a broken crack is never VOID in the window: the ball rolls on
             # over it), the RESPAWN class ignored (the cracks stay broken after a respawn)
-            ("glscell", fam_parts(lst, ("glass",)), (), "the window", gk, gm),
+            ("glscell", fam_parts(lst, ("glass",)), (), "the ball", gk, gm),
             ("glsrsp", fam, (("bz_frst", b"\xc3"),), "bz_fst", gk, gm)):
         p, bad = urun(binp, lst, sym, "play", gmat, kk, ff, patch)
         ok = any(want in b for b in bad)
