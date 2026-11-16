@@ -410,8 +410,6 @@ WIN_CHG = 6                   # pose changes that can land on one step among the
 
 _FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST (compile_course's _hack "fast")
 _DOWN_S0 = False              # --selfcheck's control (SPEC.md 128.24.11): an LR down half keyed s, not s + 1
-GUEST_SPLIT = False           # SPEC.md 128.24, story D1.5: the guest steps split cells (wave D3 sets it, and
-                              # compile_all's refusal of a half in a shipped course goes)
 
 
 def lane_fast(rec):
@@ -8260,6 +8258,65 @@ def split_tables():
     return out
 
 
+# the window's nine cells (SPEC.md 128.10.7.1's bz_nbr, row-major by wy then wx) as (dx, dy), and for each edge
+# neighbour the edge it shares with the centre, for each corner neighbour the corner K in its own units
+_WIN_EDGE = {1: "S", 3: "E", 5: "W", 7: "N"}
+_WIN_K = {0: (16, 16), 2: (0, 16), 6: (16, 0), 8: (0, 0)}
+
+
+def split_win():
+    """wave D3's BZ_SPLIT_WIN (SPEC.md 128.24.7.3 - 128.24.7.4 as the guest reads them): for each split kind
+    (TB, LR, QUARTERED) and each window cell 0 - 8, the record(s) bz_blocks tests when that cell is split -
+    an edge neighbour the one that OWNS the edge it shares with the centre (OWNER), a corner neighbour the
+    one or two at K (K_RECS: first | second << 2 | 16 when two), the centre FFh (the pick, 128.24.7.1).
+    27 bytes, OWNER and K_RECS as split_tables() hashes them into BZ_PHYSV"""
+    out = []
+    for k in SPLIT_KINDS:
+        for i in range(9):
+            if i == 4:
+                out.append(0xFF)
+            elif i in _WIN_EDGE:
+                out.append(OWNER[k][_WIN_EDGE[i]])
+            else:
+                rs = K_RECS[k][_WIN_K[i]]
+                out.append(rs[0] | (rs[1] << 2 | 16 if len(rs) == 2 else 0))
+    return bytes(out)
+
+
+def split_rays():
+    """wave D3's BZ_SPLIT_RAYS: RAYS (SPEC.md 128.24.7.4) as the guest reads it, 16 bytes a quadrant q:
+    +0 the line's kind, +1 sigma as a mask (0 for +1, FFh for -1), +2 its offset (a word), +4 the facing
+    test (0 pu >= pv, 1 pu + pv >= 4096), +5 the beyond half, +6 the CORNER cell's offset in bz_nbr, +7 0;
+    +8 the ray taken when the test holds and +12 the one taken when not, each (its cell's offset in bz_nbr,
+    its beyond quarter, K's u, K's v in its own units)"""
+    out = bytearray()
+    for q, (kind, sig, off, test, yes, no, beyond, K, yq, nq) in enumerate(RAYS):
+        corner = 4 * (3 * (2 if q & 2 else 0) + (2 if q & 1 else 0))
+        out += struct.pack("<BBhBBBB", kind, 0 if sig > 0 else 0xFF, off, test, beyond, corner, 0)
+        for (dx, dy), qq in ((yes, yq), (no, nq)):
+            out += bytes((4 * (3 * (dy + 1) + dx + 1), qq, K[0] - 16 * dx, K[1] - 16 * dy))
+    return bytes(out)
+
+
+def emit_split_tables():
+    """bzcourse.inc's BZ_SPLIT_WIN and BZ_SPLIT_RAYS (wave D3, bzphys.inc's bz_blocks and bz_dray)"""
+    w, r = split_win(), split_rays()
+    lines = ["; SPEC.md 128.24.7.3 - 128.24.7.4 as the guest reads them (wave D3): for each split kind (TB, LR,",
+             "; QUARTERED) and window cell 0 - 8, the record bz_blocks tests - an edge neighbour's owning one, a",
+             "; corner neighbour's at K (first | second << 2 | 16 when two), the centre FFh (the pick)",
+             "%macro BZ_SPLIT_WIN 0"]
+    for i in range(0, 27, 9):
+        lines.append("    db " + ", ".join("%d" % b for b in w[i:i + 9]))
+    lines += ["%endmacro", "",
+              "; RAYS (SPEC.md 128.24.7.4), 16 bytes a quadrant q = (pu >= 2048) + 2 (pv >= 2048): kind, sigma's",
+              "; mask, the offset (a word), the facing test, the beyond half, the corner cell's offset, 0; then",
+              "; the ray when the test holds and when not: cell offset, beyond quarter, K's u, v",
+              "%macro BZ_SPLIT_RAYS 0"]
+    for i in range(0, 64, 16):
+        lines.append("    db " + ", ".join("%d" % b for b in r[i:i + 16]))
+    return lines + ["%endmacro", ""]
+
+
 def phys_ident(_mt=None, _consts=None, _tabs=None):
     """BZ_PHYSV: the CRC-16 (CCITT) of BZ_MATTAB's 48 bytes, PHYS_CONSTS as
     words, then phys_tables() (SPEC.md 128.14.25 item 4: every generated
@@ -9765,7 +9822,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_STICK        equ %d        ; px" % STICK,
               "",
               "; SPEC.md 128.24.5: a SPLIT cell's kinds, its pair in section D, and the course flag",
-              "; (story D1.5: nothing in the guest reads them until wave D3; no shipped course has one)",
+              "; (wave D3: bzphys.inc steps them, bonanza.asm's CELLS rules read them)",
               "BZ_KTB          equ %d        ; split along T - B (screen-vertical): half A left, B right" % KIND_TB,
               "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
               "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
@@ -9961,8 +10018,8 @@ def emit_inc(courses, path=None, title=None):
               "%macro BZ_CORNER_TABLE 0"]
     for i in range(0, 36, 6):
         lines.append("    db " + ", ".join("%d,%d,%d" % CORNER[i + k] for k in range(6)))
-    lines += ["%endmacro", "",
-              "; the bumpers' OCTANT table (SPEC.md 128.12.6.3): 78 entries (a, b),",
+    lines += ["%endmacro", ""] + emit_split_tables()
+    lines += ["; the bumpers' OCTANT table (SPEC.md 128.12.6.3): 78 entries (a, b),",
               "; 0 <= b <= a <= 11, at a (a + 1) / 2 + b: |n| along the larger, |n| along the",
               "; smaller (x 64) and the depth in 1/16 gu; zeros where a^2 + b^2 >= 144",
               "%macro BZ_OCTANT_TABLE 0"]
@@ -10260,10 +10317,6 @@ def compile_all(paths, demo_dir=None, path=None, title=None):
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
                           "BONANZA.DAT's BZS4 (SPEC.md 128.22.5)" % (len(paths), CRS_MAX))
     courses = [compile_course(p) for p in paths]
-    for c_ in courses:                              # SPEC.md 128.24 (story D1.5): the guest reads no half
-        if c_.src.halves is not None and not GUEST_SPLIT:   # until wave D3 - the one line D3 removes
-            raise CourseError("%s:%d: a half or a box in a shipped course: the guest steps no split cell until "
-                              "the diagonal plan's wave D3 (SPEC.md 128.24)" % (c_.fname, c_.src.halves))
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
