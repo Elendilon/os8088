@@ -274439,8 +274439,9 @@ refused on any other course (`view` is also the title's, 128.23.2):
   and **a step along both axes as a FAT band** (each unit step's two side
   cells too), which must be level; **a step along one axis between two
   heights is a RAMP** over the cells strictly between the two points (at
-  least one; a whole number of half units a cell, at most 4), the two
-  points' cells flat. Its follower POINTS are the cells' centres, and a
+  least one, at most 7 - the follower's words, 128.22.4.2; a whole number
+  of half units a cell, at most 4), the two points' cells flat. Its
+  follower POINTS are the cells' centres, and a
   ramp's two ends on the cells' edges, so the follower's height is the
   floor's exactly. **`gate`** puts the route's GATE on that cell of the
   line; by default the FIRST cell of the line after A's whose gate lane
@@ -274486,7 +274487,8 @@ refused on any other course (`view` is also the title's, 128.23.2):
   icon's lanes counted FAST at its pad's page window (the shipped map: at
   most 3 in a window and a range, 5 changes on a step); the part within
   65,024 bytes (128.14.6). **MEASURED** (the shipped map, 6 pads, 5 routes,
-  2 pages): the part **22,518 bytes** in RAM, LZ4 7,492: the picture
+  2 pages): the part **22,518 bytes** in RAM, LZ4 7,492 (the tool's figure; LZB
+  6,410 as `BONANZA.O88` ships it, `--part-compress lzb`): the picture
   (header, map and 253 blocks) 11,776; the lanes' records, pose maps and
   the blocks each adds - pads 6 lanes 1,344, icons 10 lanes 3,400, gates 5
   lanes 1,208, lives 2 lanes 268, reveals none; the tables 222.
@@ -274519,9 +274521,14 @@ course has (the pathway's, or the title's labels' numbers; 17 today);
 **`BZ_CRS_MAXCLAIM`**, a bound on what a pad's course claims beside the held
 pathway - its part, every ball part it can need (its own ball, its pads' and
 its flags', `bz_cload`'s set), its song's part and the sound part, each its
-RAM form's paragraphs plus `CLAIM_SLACK` = 128 (op_lazyp's read of the packed
-bytes in whole clusters from the cluster below the part, 1 KB clusters at
-most on a shipped floppy; SPEC.md 20.12.2): 5,799 today, PEAK's; **`BZ_CRS_NEXITS`**, a byte a course, its distinct
+RAM form's paragraphs plus `CLAIM_SLACK` = 159 (op_lazyp's claim: R, `len -
+packed` rounded up to a sector, and the read of the packed bytes in whole
+clusters from the cluster at or below the part, whose head slack is up to a
+cluster less a PARAGRAPH since parts are paragraph-aligned - 2,542 bytes
+past `len` at most with the 1 KB clusters of a shipped floppy; SPEC.md
+20.12.2, 20.12.7.4. A hard disk's larger clusters can need more): 5,985
+today, PEAK's (op_lazyp's exact claims at today's offsets on a 1 KB-cluster
+disk: 5,440); **`BZ_CRS_NEXITS`**, a byte a course, its distinct
 exits hidden ones included (the info card's `EXITS n OF m`); `BZ_PK_SIGN`,
 `BZP_SNUM`, `BZ_GF_PAGED`, `BZC_PTHOFF`, `BZC_NPAGES`, `BZ_PTH_*`,
 `BZ_PAD_POSES`, `BZ_GATE_POSES` and the follower's `BZ_FOL_*`. Until the
@@ -274549,18 +274556,33 @@ state it has*. The prototype's node signs (`PK_CLOCK` ndig 0, `NODE_POSES`,
 
 The pathway runs **`bz_mode` 4**: a frame's steps call **`bz_follow`**
 instead of the physics step. The marble is on a ROUTE (its index, its
-direction, its distance `s` along it, ground px 8.8) or RESTING on a pad.
-Rolling, each step:
+direction, its distance `s` along it, a **DWORD of 1/256 ground px (24.8)**,
+since a route passes 255 ground px and 8.8 cannot hold it, and its speed
+`v`, a WORD of 1/256 ground px a step (8.8)) or RESTING on a pad. Rolling,
+each step:
 
 - **the speed**: `v += FOL_ACC` up to `FOL_VMAX`, or down by `FOL_ACC` once
-  the distance left is at most `v² / (2 FOL_ACC)`, never below `FOL_VMIN`
+  the distance left (`256 L - s`, a dword) is at most `v² div (2 FOL_ACC)`
+  (a `mul`, then a `div` by 384: at most 1,536), never below `FOL_VMIN`
   until it arrives (PROVISIONAL: `FOL_VMAX` 3.0 ground px a step, `FOL_ACC`
-  0.75, `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second);
-- **the position**: `s += v`; the point is interpolated on the segment that
-  holds `s` (along one axis, or both at once on a diagonal step), `gz` with
-  it; written to `bz_gx`, `bz_gy`, `bz_gz` with the ball GROUNDED, so the
-  sprite, its roll frame (`bz_sprite`: the roll is the position's), the
-  shadow and the box are a course's;
+  0.75, `FOL_VMIN` 0.5 - full speed in 4 steps, 160 ground px a second).
+  The test is made before each step, so the marble can brake a step early
+  and speed up once more before it arrives (the selfcheck's hand-worked
+  16 px route: `v` 768, 768, 576, 384, then 576 into the pad) - the model's
+  truth, which the guest copies rather than smooths;
+- **the position**: `s += v`, clamped at `256 L` (arrival); the point is
+  interpolated on the segment that holds `s` (a segment's length is
+  `max(|dgx|, |dgy|)`: along one axis, or both at once on a diagonal step):
+  `bz_gx = 256 gx_k + sx t`, `bz_gy` alike, `t = s - 256 D_k`, and
+  `bz_gz = 256 gz_k + ((gz_k+1 - gz_k) t) idiv len_k` (`imul`/`idiv`,
+  TRUNCATED toward zero). Signed WORDS suffice there: only a ramp's segment
+  changes height and the tool keeps a ramp at most 127 ground px long and
+  127 px high (`FOL_SEGMAX`, `FOL_DZMAX`; refused naming this section), so
+  `t < 32,768` and the quotient fits; on a level segment the product is 0
+  whatever `t`'s high word. The point is written to `bz_gx`, `bz_gy`,
+  `bz_gz` with the ball GROUNDED, so the sprite, its roll frame
+  (`bz_sprite`: the roll is the position's), the shadow and the box are a
+  course's;
 - **arrival**: `s` at the route's length puts the marble on the pad's cell
   exactly, RESTING; the PAD sound plays and the pad's icon starts.
 
@@ -274742,11 +274764,16 @@ its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
   8R.1 report and the courses' files. A shipped demo recorded on its course
   as it was BEFORE the finish clocks (its identity that one, listed in the
   tool's `CLOCK_RESTAMP`: MOON 5E25h, PEAK 0562h, PLAY 9D5Eh) whose replay
-  never meets a clock - the ball's state every step and the events' kinds
-  and steps the same with the course's `clock` statements and without them
-  (`clock_restamp`) - ships with the BUILD's identity re-stamped (the build
-  prints it), never re-recorded; any other identity is still an earlier
-  build's demo, refused (`--selfcheck` item 9).
+  never meets a clock ships with the BUILD's identity re-stamped (the build
+  prints it), never re-recorded - when BOTH hold (`clock_restamp`): the
+  course's source with its trailing `clock` statement(s) left out IS that
+  course (its no-occluder identity the tool's `CLOCK_BARE`: MOON EA00h,
+  PEAK 6814h, PLAY D8A8h - so a course edited any other way is never
+  re-stamped, however its demo replays), and the ball's state every step
+  and the events' kinds and steps are the same on it and on the course with
+  its finish clocks. Any other identity is still an earlier build's demo,
+  refused (`--selfcheck` item 9; the re-stamp's two red controls: a clock on
+  MOON's route, and MOON with a `way` added).
 - **The INFO card** (Space at a pad, 128.19.8.1's writer, removed by the next
   frame's full write after any key): the course's NAME; its ball; `LIMIT
   s`; `GOLD s  SILVER s`; `BEST s.t` and the medal, or `NOT PLAYED`; `EXITS
