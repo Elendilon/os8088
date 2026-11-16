@@ -44,11 +44,9 @@ BUILDS_WITHOUT_MAKE = {
 
 # Not registered, and why. Keep the reason specific and true.
 UNREGISTERED = {
-    "boratype_badges.py": "run by boratypemenus, which imports its packaged badge checks",
-    "boratype_settings.py": "run by boratypemenus, which imports its settings mutation test",
-    "cpface.py": "not a test: the shared pin that puts a row's Control "
-                 "Panel on its compact face (SPEC.md 135.13) - imported by "
-                 "dispcp and the rows that click compact coordinates",
+    "bonanza_dsplit.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) "
+                         "imports and runs it - BONANZA's split cells under unicorn (SPEC.md 128.24, D3); "
+                         "its red arms by hand, --reds",
     "modkeep.py": "run by the `modcache` row (tests/modcache.py imports and "
                   "runs it): every on-demand module kept in RAM after its "
                   "drop, its tail zero in the file, its re-adoption free",
