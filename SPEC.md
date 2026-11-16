@@ -273302,7 +273302,9 @@ come back across at speed. The per-element state is two bits (whole,
 cracked by one impact, counting, broken) plus the count in the family's slot
 for the one tile counting at a time (the tool refuses two cracked tiles a
 ball can be counting on at once: one counter). `CRACK_TS`, `CRACK_TR` are
-the family's constants, tuned by play.
+the family's constants, tuned by play. **As built (128.25.18) the state is a
+BYTE an element, its own counter, and nothing is refused**: the one-counter
+limit would have refused the owner's own crack path.
 
 **Shown just before it is rolled onto** (the owner's alternative, for slow
 exploration): a glass tile could reveal when the ball's centre comes within
@@ -273312,7 +273314,7 @@ touch rule ships first.
 
 **Its cost** (PREDICTED): the part about 300 - 450 bytes; a crack's lane
 commit is a contact-box frame (128.12.4.2) at the crack and at the break;
-the STEP hook only while a crack is counting.
+the STEP hook only while a crack is counting. (MEASURED, 128.25.18: the part 559 bytes, 452 packed.)
 
 #### 128.25.9 PICKUPS, the second family (story 9.6)
 
@@ -273619,13 +273621,18 @@ POST: drawn dark with no new kick, it was skipped - so a FAMILY lane marked by
 its hook and drawn at pose 0 was never walked while the range stood still,
 and a revealed glass tile stayed invisible (SEEN on MartyPC before the fix;
 the probe's flag was seen only because the camera's range moved). A family
-kind is now walked when marked, as a SIGN is (`cmp` / `jae .w0`, 7 bytes).
+kind is now walked when marked, as a SIGN is (`cmp` / `jae .w0`, 7 bytes). It is
+the GENERAL fix, not GLASS's (verified independently): every lane whose
+kind is a family kind (`BZ_FK0` and up: the probe's, GLASS's, PICKUPS')
+takes it, and a lane is walked only while MARKED, so it costs a walk only
+when a hook marked one; a lane of a resident kind (below `BZ_FK0`, which
+today's props keep as families, 128.25.10) is not reached.
 
 **Bytes (MEASURED, against the phase-B base's 46,924 / 10,970).** The image
 46,941 (**+17**: the family's row in the part table 10, the walk's family
 test 7), the bss 10,974 (**+4**: `BZ_FSTB` 1 -> 5); no physics routine
-changed. The part 561 bytes (513 of
-code and header, 48 of zeros so it packs: 454 packed).
+changed. The part 559 bytes (511 of
+code and header, 48 of zeros so it packs: 452 packed).
 
 **Proved on the host.** `tests/bonanza_phys.py --check`: the guest's
 `bz_step` under unicorn equals the model at every step (the ball, `bz_fst`,
