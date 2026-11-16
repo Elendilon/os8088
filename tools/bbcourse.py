@@ -5166,6 +5166,7 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
     for ph in phases:
         for k in TRAP_DIRS:
             p = Physics(c, play=True, mat=mat)
+            p.nopick = True                     # (wave 9: every finish with no pickup, 128.25.7.3)
             if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
                 p.fst[:] = preset
                 p._fhook(H_RESET, 1)
@@ -6800,6 +6801,8 @@ class Physics:
         # RESET with class 0 before the start's place, as bz_pinit calls it
         self.fam = [(FAM_MODEL[FAM_BY_ID[fid]["name"]], fv) for fid, fv in self.grid.fams]
         self.fhk = 0
+        self.nopick = False                         # NO TRAP's runs: a PICKUP kind's ENTER and CONTACT
+                                                    # never fire (every finish proved with no pickup)
         if self.fam:
             self.__class__ = _FamPhysics
             self.fst = bytearray(self.grid.nfst)
@@ -7528,7 +7531,8 @@ class Physics:
                         self.events.append(("pad", self.nstep + 1, pr["mat"]))
                 elif is_fam(k_):                    # wave 9: CONTACT (bz_prule's dispatch)
                     j = self._fk.get(k_)
-                    if j is not None and self.fam[j][0].row["hooks"] & H_CONTACT:
+                    if j is not None and self.fam[j][0].row["hooks"] & H_CONTACT \
+                            and not (self.nopick and pr["frow"]["pickup"]):
                         self.fam[j][0].contact(self, j, pr["i"])
                 elif k_ == PK_CHECKPOINT:
                     if self.mst != ST_SHATTER:
@@ -7821,7 +7825,8 @@ class _FamPhysics(Physics):
         Physics._fill(self, wx, wy)
         if self.fhk & H_ENTER:                      # ENTER: its last, once bz_wolf has the new centre
             new = next((i for c, i in self.wol if c == 4), None)
-            if new is not None and new != old and is_fam(self.props[new]["kind"]):
+            if new is not None and new != old and is_fam(self.props[new]["kind"]) \
+                    and not (self.nopick and self.props[new]["frow"]["pickup"]):
                 j = self._fk.get(self.props[new]["kind"])
                 if j is not None and self.fam[j][0].row["hooks"] & H_ENTER:
                     self.fam[j][0].enter(self, j, new, self.air & 1)
