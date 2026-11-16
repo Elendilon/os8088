@@ -275155,6 +275155,21 @@ HEARD.
   MEASURED (MartyPC, the leg alone): CGA c0 22 -> 15 a column a frame,
   the digit lane brought in 0 px wrong; Hercules 19 -> 14, 0 px wrong;
   red arm `nocol` red at (9) (6 px of a stale pose).
+- **`bonanzaperf`: the Hercules' `PEAK` `D` with the sound ON, `bz_rwlate`
+  1, is NOT wave 8R's.** It failed the final pass, and it is 128.17.14's
+  open item (a due lane past `BZ_WLAG` while the contact slot goes to the
+  slab's box; the owner's wave 10, 128.17.15), not a regression: MEASURED
+  (MartyPC, `D` of `BZD5` alone, the sound ON, the lanes' `bz_lage` read at
+  every `bz_presented`) the contract commit `2c9a0314` - no 8R code -
+  reached it in 1 run of 6 (lane 5, a POST, aged 8 at frame 1459 under the
+  platform's box, `bz_cbage` 8), this build in 0 of 7 (that lane's oldest
+  5). Like for like, the six demos through `D` on the Hercules, sound ON
+  (this build against `2c9a0314`): busy mean `BZD5` 54,452 against 53,676
+  (+776 clk, +1.4%; two-box frames 223 against 221, misses 37 against
+  36), `BZD1` +2,054, `BZD2` +962, `BZD3` +586, `BZD4` +666, `BZD6`
+  +1,235 - REPORTED. The +4.1k a frame on `PEAK` against an earlier soak
+  is older than 8R. Left failing, as 128.17.15 decided; no assertion
+  weakened.
 
 ### 128.23 The title screen
 
