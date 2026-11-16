@@ -20337,9 +20337,13 @@ class _Sections:
             self.pool.kill()
 
 
-# --selfcheck's sections' seconds, measured on 2026-11-16's tree (4 cores, a loaded host): only the order
-# the parallel run starts them in, longest first - a section missing here is started as if 30 s
-SC_COST = {"camcheck": 80, "grammar": 70, "play": 94, "physics": 48, "crosscommit": 40, "clockrule": 35, "y0moon": 25, "split": 20, "w9": 19, "dither": 17, "splitphys": 12, "routes": 12, "budget": 11, "w4": 10, "path": 7, "compact": 7, "courses": 6, "gaps": 6, "inc": 6, "flags": 5}
+# --selfcheck's sections' seconds (BB_TIMES=1), measured 2026-11-16 on four cores: only the order the
+# parallel run starts them in, longest first - a section missing here is started as if 30 s
+SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
+           "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
+           "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
+           "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
+           "seeds": 1, "tables": 1, "title": 1}
 
 
 def _sc_cache(X, res):

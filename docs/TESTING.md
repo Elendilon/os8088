@@ -466,6 +466,78 @@ The whole tier is `tools/os88soak.py`, never `make test-soak` (above), and a
 run that long has two standing obligations: hold a waiting task for its whole
 life, and report while it is in flight.
 
+### BONANZA's host checks: what a change owes, and what each costs
+
+Bounce Bonanza (SPEC.md 128) has five HOST checks beside its soak rows, and
+for a while every merge and every fix ran all five in a row (the owner,
+2026-11-16: *"when every action invokes another action that takes this long
+it slows everything to a crawl"*). Two things changed, and neither weakened
+a proof.
+
+**They got faster** - each figure the same tree before (`6cffcf5e4`) and
+after, run back to back on this four-core host; the load average in
+brackets, because the other agents' work is the noise:
+
+| check | before | after |
+|---|---|---|
+| `make bonanza` after a course or `bbcourse.py` change (the courses' compile alone: 117 s, 44 s) | 137 s (1.1) | 60 s (1.9) |
+| `make bonanza` after a guest-only change | - | 16 s |
+| `make bonanza-check` | 1 s | 1 s |
+| `python3 tests/bonanza_phys.py --check` | 218 s (1.0) | 37 s (2.8); 31 s warm |
+| `python3 tests/bonanza_ring.py --check-reds` | 338 s (1.0) | 54 s after `make bonanza` (2.8); 25 s warm; 81 s with no cache at all |
+| `python3 tools/bbcourse.py --selfcheck` | 689 s (1.0) | 176 s (3.7) |
+| the five in a row, after a `bbcourse.py` change | 23 min | 5.5 min |
+
+The selfcheck's report, `bonanza_phys.py --check`'s and `bonanza_ring.py
+--check-reds`' outputs are the before ones line for line (a temporary
+directory's name and a printed timing aside; the selfcheck adds its `cache`
+section's two items), and the built art and `BONANZA.O88` are byte-identical.
+
+- **A compile CACHE**, `build/bbcache/` (`tools/bbcourse.py`'s
+  `cache_key`): a compile is pickled under a key that is a hash of
+  everything it reads - the course's bytes and name, every argument, the
+  source of `bbcourse.py` and of every `tools/` module it imports (hashed as
+  the process starts), the interpreter, every file under
+  `apps/bonanza/courses/` and `demos/`, the font, the Makefile, and the
+  module-level data as it stands at the call (a control that switches a
+  refusal off or tunes a material is a different key). A key that misnames
+  an input is a MISS, never a stale hit, and `--selfcheck`'s `cache`
+  section proves that each input moves the key by itself and that an entry
+  comes back as the compile it was. **What ships is never a cache's**: the
+  build's `compile_all` and `--selfcheck` item 1's two compiles compile
+  fresh and only WRITE it. The checks that read a shipped course
+  (`bonanza_ring.py`, `bonanza_phys.py`, `bonanza_dsplit.py`, and the soak
+  rows on the same host) read it instead of compiling it again - that is
+  where most of their minutes were. `BB_CACHE=0` turns it off.
+- **Independent work in FORKED children, a core each** (`BB_JOBS`, default
+  the cores up to 4; `--jobs 1` or `BB_JOBS=1` is the sequential run): the
+  courses' compiles inside `compile_all`, `--selfcheck`'s sections (the
+  courses compiled once, then each section a fork of that state, longest
+  first), `bonanza_phys.py --check`'s two unicorn halves beside its replay
+  proofs, and the red arms' assemblies (threads over nasm). A child sees
+  exactly the state the sequential run would have, and its items and output
+  are spliced back in at its place, so **the report is the sequential one,
+  line for line** - diffed, not assumed. Under a soak's own parallel lanes,
+  `BB_JOBS=1`.
+- **The Y0 search's eight probes share one reach** (`_reach_once`): the
+  reach is computed before Y0 exists, so each probe and the compile after
+  them take a deep copy of the first one's instead of building it again.
+
+**And what a change OWES is decided by what it touched** - the soak rule's
+reasoning (§"When to run which tier") applied to host checks: a check that
+reads nothing the change moved can only report yesterday's answer.
+
+| the change touched | it owes | about |
+|---|---|---|
+| the GUEST only: `apps/bonanza/*.asm`/`.inc`, a family part | `make bonanza`, `make bonanza-check`, `python3 tests/bonanza_phys.py --check` (the guest's `bz_step` under unicorn against the model; every red arm assembles), `python3 tests/bonanza_ring.py --check-reds` (its arms' anchors are in the guest's files). Not the selfcheck: it reads no guest file | 75 s |
+| a COURSE or a demo (`apps/bonanza/courses/`, `demos/`) | the above, and `python3 tools/bbcourse.py --selfcheck` | 5.5 min |
+| `tools/bbcourse.py` | `make bonanza`, then the selfcheck SECTIONS the change reaches - `--selfcheck --only physics,routes` (`--only list` names them: a change to the model reaches `physics`, `play`, `routes`, `camcheck`, `clockrule`; to the compile, `determinism`, `courses`, `grammar`; a new item, its own section) - and `bonanza_phys.py --check` when `Physics` or the part's layout moved, since that is what the guest is held to | the courses' compile plus the sections named |
+| a MERGE of branches each verified as above, with no conflict in code | `make bonanza` and `make bonanza-check`; the rest goes to the phase end | 20 s - 1 min |
+| the END OF A PHASE | the whole chain, once, **in the background** while the next phase goes on (fork rule 9's spirit, applied to host checks) | 5.5 min, and `make`'s |
+
+A full `make` (the fast tier) is owed as before (§`fast` above), and
+nothing here changes the soak rows or what a row proves.
+
 ### Why `full` is CURATED and not "all of them"
 
 A MartyPC boot to a settled desktop is ~7.5 seconds and an emulator row is
