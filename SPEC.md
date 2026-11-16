@@ -276467,63 +276467,94 @@ is 0.00065 from the threshold).
 
 ##### 128.25.5.1 As built (story 9.4, MEASURED / PREDICTED marked)
 
-**BUILT.** `BZB3` is BZB2's size: its 16-byte header, zeros, a 438-byte BLOCK at
-the head of the squash slot (`BZ_BG_BLK` = 5,456: the template's low, high and
-opaque planes 96, the ellipse rows of squash 0, squash 1, rubber's stretch
-and the shadow, the stretch's column map, and the phase table 128 words), and,
-for glass only, its shatter entries as they are. The zeros-ahead layout is
-the BZC2 course's (128.15.4.3): the claim is the RAM size and `bz_ballgen`
+**BUILT, and SHIPPED** (the generator is in the shipped build; the owner's
+launch-cost target, below, is met). `BZB3` is BZB2's size: its 16-byte
+header, zeros, a 438-byte BLOCK at the head of the squash slot (`BZ_BG_BLK` =
+5,456: a byte `NP`, the template's low, high and opaque planes 96, the ellipse
+rows of squash 0, squash 1, rubber's stretch and the shadow, the stretch's
+column map, and the RANK TABLES, 256 bytes), and, for glass only, its shatter
+entries as they are. The zeros-ahead layout is the BZC2 course's
+(128.15.4.3): the claim is the RAM size and `bz_ballgen`
 (`apps/bonanza/bzballgen.inc`, called once after `op_seg` in `bz_cload`'s
 ball loop, AX kept) expands FORWARD in place - the block's prefix goes to
-`bz_boxbuf` first, the phase table is dead before the squash entries overwrite
-it. V2 is exact for all three materials: the template is three 16-word bit
-planes (low, high, opaque), a tex pixel is white when the phase sum
-`G[fx][x] + G[fy][r] < T` (words; rubber scale 512, T 2,560; steel 0/1 bits
-with the cap, T 2; glass scale 16, T 21) and its base colour otherwise. The
-squash and stretch entries are an ellipse's rows (ring = pixels with a
-4-neighbour outside, glass's checker inside it) pressed from frame 0's planes;
-the shadow is its ellipse with the world checker. **Glass's shatter stays
-literal** (story 9.4's choice, NOT an owner decision: V1 above generates the
-cut with its 64-byte edge table; the shatter is the one entry not generated,
-1,100 of glass's 1,243 packed bytes, and the largest saving left). **V1 is
-not built**: in place of storing a material as V1, the tool REFUSES one whose
-`BZB3` the generator's host model (`model_ball3`) does not expand back to
-`BZB2` (`compile_all`, at every `make`). The routine preserves AX and ES (the
-ball's selector does not outlive the loop in ES: 128.14.26 item 2's #GP at
-`op_drop`'s `POP ES`) and
-takes rubber's stretch columns with `ROL` rather than `SHL` (a 16-bit `SHL`
-by 16 leaves CF undefined on a 286 or later: kern_mega).
+`bz_boxbuf` first, the rank tables are read in place and are dead before the
+squash entries overwrite them.
+
+**V2, rank-coded.** The template is three 16-word bit planes (low, high,
+opaque); a texture pixel (low xor high) is white when the phase sum
+`G[fx][x] + G[fy][r] < T` (rubber scale 512, T 2,560; steel 0/1 bits with
+the cap, T 2; glass scale 16, T 21) and its base colour otherwise. The tool
+(`rank_tables`) stores that test as two byte tables: `XR[x][fx]` (column-major,
+33 bytes better packed) = `(R' + 1) 6` and `YE[j]` = `E' 6`, with ink exactly
+when `XR <= YE`: R the rank of G among its distinct values, E the count of
+distinct values under `T - G[j]`, cuts that split no rank merged, and a row
+whose ink is empty in every phase given E' 0. Classes: rubber 22, steel 2,
+glass 10 (`NP` = classes + 2, at most `BZ_BG_PMAX` 25: the tool refuses more).
+The guest then builds, once a phase (eight a ball), a MASK TABLE `P[k]` = the
+columns whose `XR <= 6 k`, already spread to 2-bit fields at the phase's
+shift (buckets and a running OR), and writes a roll frame's row as
+`BASE | (P[YE] & TEX)` - BASE and TEX the template's colours and texture
+pixels spread to that shift, built once and shifted a pixel per shift - or
+BASE alone, three `MOVS`, when YE is 0. Every other row (masks, squash,
+shadow, stretch) is two lookups in a 512-byte nibble-spread table and a 2-bit
+register shift for each next shift. The squash and stretch entries are an
+ellipse's rows (ring = pixels with a 4-neighbour outside, glass's checker
+inside it) pressed from the round frame 0 (rows: Q planes; columns, the
+stretch: a gather through 16 column masks); the shadow is its ellipse with
+the world checker. **Glass's shatter stays literal** (story 9.4's choice, NOT
+an owner decision: V1 above generates the cut with its 64-byte edge table;
+the shatter is the one entry not generated, about 1,100 of glass's 1,268
+packed bytes, and the largest saving left). **V1 is not built**: in place of
+storing a material as V1, the tool REFUSES one whose `BZB3` the generator's
+host model (`model_ball3`) does not expand back to `BZB2` (`compile_all`, at
+every `make`). The routine preserves AX and ES (the ball's selector does not
+outlive the loop in ES: 128.14.26 item 2's #GP at `op_drop`'s `POP ES`); its
+one constant table (`bg_nib`, 16 bytes) is read through DS, nothing through
+CS.
 
 - **Proof** (`make bonanza-check`): `tools/bzballchk.py` assembles
   `bzballgen.inc` and runs it under unicorn (an emulated 8086) on the stored
-  file, scratch pre-filled with junk: equal to `build_ball2`, every byte,
-  all three materials. Two negative controls: one stored ellipse row
-  changed, and the ROUTINE broken (its frame shift's wrap removed), each
-  must differ (the plan's edge-table red arm does not exist in this design:
-  the ring is computed).
-- **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 312, steel
-  1,476 -> 147, glass 2,144 -> 1,243: **5,974 -> 1,702, -4,272 bytes**.
-- **Resident (MEASURED)**: `bonanza.bin` 40,207 -> 40,996 (+789: the routine
-  is 786 bytes, the call 3; bss 0 - the scratch is `bz_boxbuf`); BONANZA.O88
-  106,897 -> 103,313 (**-3,584** on the disk image, the packed balls' -4,272
-  less the code). 707 bytes was the figure the wave's lead accepted (the
-  +500 estimate was the lead's, not an owner limit); the 79 beyond it were
-  spent without a second decision - 77 a spread table for the interleave
-  (about -150 ms a ball, PRICED, revertible) and 2 the ES save.
-- **Seen**: MartyPC, CGA and Hercules machines, PLAYGROUND launched with
-  each ball: the part in the guest after `bz_cload` equals `build_ball2`
-  (Hercules: `herc_translate_ball` of it), every byte.
-- **Cost (PRICED from the executed instructions under unicorn, 8088
-  clocks with the 4-clock byte floor, `bzballchk.py --clocks`)**: rubber
-  2.50 M clocks = **524 ms**, steel and glass 2.33 M = **489 ms** at 4.77 MHz
-  a ball, against the report's PREDICTED +150 ms for three (that figure was
-  net of the shorter decode and disk read; the generator alone is the figure
-  here). A three-ball launch is about 1.5 s of generation; a one-ball launch
-  about half a second. **OPEN (the owner, 2026-11-16): 1.5 s is too long.**
-  The target is a three-ball generation of about 0.75 s (about 1.8 M clocks,
-  priced the same way); if it is not reached the generator is kept OUT of the
-  shipped build (`BZB2` stored as before) and kept as a patch with written
-  instructions until the disk budget decides.
+  file, the package's image and its scratch in one segment, the scratch
+  pre-filled with junk: equal to `build_ball2`, every byte, all three
+  materials. Three negative controls must differ: one stored ellipse row
+  changed, one rank-coded threshold raised a class, and the ROUTINE broken
+  (the mask table's field no longer stepping to its next byte, every
+  material).
+- **Cost, PRICED** (`bzballchk.py --clocks`, `--profile` by phase): the
+  executed instructions at 8088 clocks - the 8086's EU time, +4 a word
+  memory transfer, the EA, +2 a segment prefix, a branch taken or not as it
+  went, a shift by CL and a REP at the counts they ran, floored at 4.34
+  clocks a code byte plus 4 a data byte. Rubber **598,150**, steel
+  **532,181**, glass **461,830**: **1,592,161 clocks for all three, 334 ms**
+  at 4.77 MHz (the 9.4 build priced the same way: 2,784,700 + 2,577,172 +
+  2,577,184 = 7,939,056, 1.66 s; by the cruder first pricer, the one the
+  owner's 1.5 s came from, 7.16 M before and 1.45 M now). **MEASURED** on
+  MartyPC (CGA 5150, PLAYGROUND, whose pads fetch all three balls, cycles
+  from `bz_ballgen` to its return): rubber 625,823, steel 557,030, glass
+  482,630 = **1,665,483 cycles, 349 ms** (the timer's interrupts included);
+  BEFORE_MEASURED. The owner's target (about 0.75 s, about 1.8 M clocks for
+  three) is met.
+- **Packed (LZB, MEASURED, `make bonanza`)**: rubber 2,354 -> 327, steel
+  1,476 -> 177, glass 2,144 -> 1,268: **5,974 -> 1,772, -4,202 bytes** (the
+  rank tables pack 70 bytes worse than the word phase table of the first 9.4
+  build, 1,702).
+- **Resident (MEASURED)**: the routine is **1,229 bytes** (`bz_ballgen` 528,
+  `bg_ent` 198, `bg_shd` 128, `bg_pb` 85, `bg_gatq` 74, `bg_put4` 53,
+  `bg_il` 51, `bg_shape` 39, `bg_sp` 33, `bg_pz` 24, `bg_nib` 16), the call 3;
+  `bonanza.bin` 40,207 -> **41,439 (+1,232)**, bss 0 (the scratch is
+  `bz_boxbuf`'s 1,024 bytes, 1,022 used); BONANZA.O88 106,897 -> **103,777
+  (-3,120)** on the disk image. Against the first 9.4 build (786 bytes, 2.3 -
+  2.5 M clocks a ball) the speed costs **443 resident bytes for 6.35 M
+  clocks** (about 1.3 s a three-ball launch); the trades inside it: the mask
+  table and rank coding (the frames, 5.0 M -> 0.9 M), the stretch's column
+  gather (54 K -> 29 K clocks, rubber's, for +39 bytes), phase 0's ink by
+  buckets (17 K -> 9 K a ball for +30 bytes); a fully unrolled `bg_put4`
+  (about -7 K a ball for +64 bytes) and nibble gather tables (-17 K, rubber
+  only, for +89) were NOT taken.
+- **Seen**: MartyPC, CGA, PLAYGROUND launched: the rubber part in the guest
+  after `bz_cload` equals `build_ball2`, every byte (the first 9.4 build was
+  seen for all three balls on CGA and Hercules; the proof covers all three
+  every `make bonanza-check`).
 #### 128.25.6 Families
 
 ##### 128.25.6.1 What a family is
