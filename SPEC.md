@@ -270172,7 +270172,26 @@ guest's 8R.2 reads the tables, the 8b prototype's `BZ_PATH_N`, `BZ_PATH_CRS`
 and `BZ_PATH_EDGES` are emitted DERIVED (the pads, each pad's course, an
 (A, E, B) a route), so the package assembles.
 
-#### 128.22.4 The guest (PLANNED)
+#### 128.22.4 The guest (BUILT, wave 8R: stories 8R.2 and 8R.3)
+
+**MEASURED** (`make bonanza`, the package's image and bss): 38,065 and 10,039
+bytes before (8R.1's tree) -> **40,030 and 10,087 (+1,965, +48)**: the sign
+lanes +53 / +2 (4.1), the PAGED camera +170 / +4 (4.3), the follower and the
+loop +1,742 / +42 (4.2, 4.4: about 2,100 bytes of new code - `bz_pwinit` 231,
+`bz_pwroll` 238, `bz_pwdep` 211, `bz_grounds` 258, `bz_pwkey` 160,
+`bz_follow` 141, `bz_ppose` 139, `bz_pwpos` 137, the rest under 80 each -
+less the prototype's loop, goal gate, node signs and tables). LOOKED AT on
+MartyPC, CGA and Hercules (the wave's logs, `guest-cga-*.png`,
+`guest-herc-*.png`): a new game resting on pad 0, the arrows on closed
+routes doing nothing, the INFO card, FIRST finished by the autopilot (the
+finish sequence), the gate of (0, exit 0) sinking 1 - 5 and the auto-roll to
+TRIAL, its icon animating, Left (the diagonal's second arrow) back to FIRST,
+Up to MILL and to MOON with the page's scroll (R0 116 -> 16 on the CGA, 58
+-> 8 on the Hercules), Left up the ramp to PEAK (gz 8), Esc to the title.
+`bonanzapath` (rewritten, 128.22.10) is the row; its `--check` runs
+`bz_follow` under unicorn against `bbcourse.Follow` on every route of the
+shipped map and of a private map with a secret route, both ways: equal at
+every step.
 
 ##### 128.22.4.1 Sign lanes
 
@@ -270187,6 +270206,16 @@ replaces as a `PK_CLOCK` of ndig 0). 128.19.10 item 6's table gains the row:
 *a SIGN - marked by `bz_nset` (its pose written) - its pose is the only
 state it has*. The prototype's node signs (`PK_CLOCK` ndig 0, `NODE_POSES`,
 `NODE_FONT`) go.
+
+*As built* (8R.2): `bz_ltrue`'s SIGN case reads the record's +28 and
+`bz_nst` (`(BZ_NSIGN + 1) & ~1` bytes, the VARs even); `bz_nset` (bzwheel.inc)
+scans the play's lanes (`bz_nlane`, at most 24) for SIGN records of that
+number - no table - marks each, and clears `bz_lqt` (the next walk is made);
+before a play's `bz_pread` (which marks every lane) a pose goes into `bz_nst`
+directly. A marked SIGN is always WALKED (the skip's `drawn = true` test
+would read a stale true pose) and is never must-draw (`bz_lmust`: an
+ordinary due lane, a flag's way). The title's `bz_tlabel` is `bz_nset` of
+sign 0 (D9). MEASURED +53 bytes, bss +2.
 
 ##### 128.22.4.2 The follower
 
@@ -270225,9 +270254,28 @@ each step:
 `bbcourse.Follow` is the host's copy, step for step, in the same fixed point:
 a row compares the guest's position with it every frame (128.22.10).
 
+*As built* (8R.3, bonanza.asm `THE PATHWAY`): the frame loop's step calls
+`bz_follow` in `bz_mode` 4 (`bz_t0`'s `.step`; no early step, `bz_early`; no
+log and no replay end, `bz_play`, `.live`); `bz_play` calls `bz_pwinit` after
+`bz_pinit`, which puts the marble on its pad's cell with `bz_placeat` (the
+cell's centre on its floor, grounded: the floor's height is the route
+points'). `bz_follow` counts `bz_nstep` and, ROLLING, runs `bz_pwroll`: the
+speed exactly as above, `s` a dword, the segment holding `s` advanced from the
+last one (`bz_pwdk`, `bz_pwln`, the point `bz_pwp` walked by `bz_pwpd` = +6,
+or -6 B to A), and `bz_pwpos`: `t` a DWORD, `gx`/`gy` by `bz_pwax`, `gz` as
+`|dz| t` (two `mul`s, so a ramp longer than the tool's bound would still be
+exact) `div len_k`, its sign applied after - TRUNCATED toward zero, the
+model's `abs(n) // ln` - and `bz_derive` for the screen state. Departing
+(`bz_pwdep`): the route's length summed over its points, `s = v = 0`.
+Arriving (`bz_pwarr`): `s = 256 L` is the last point exactly. Under unicorn
+the guest's `bz_gx`, `bz_gy`, `bz_gz` equal `Follow`'s at every step of every
+shipped route both ways, of a private map's secret route, and of two
+synthetic ramps (signed heights, a segment of 300 ground px: `t` past 65,535).
+
 ##### 128.22.4.3 The PAGED camera
 
-`cam` = 2 in the grid header. The window's columns are page 0's always;
+**PAGED** in the grid header (BZG1 +28 bit 3, `GF_PAGED`, the tool's: the
+plan's `cam` 2). The window's columns are page 0's always;
 its rows are a page's. The first frame shows the page holding the marble.
 Then, each frame: the TARGET page is the current one unless the marble's
 footprint centre line has left the window above its top (the page above) or
@@ -270236,6 +270284,18 @@ rows it moves toward them at `BZ_MAXR` rows a frame (the ring's rate: about
 0.83 s a page on the CGA, 0.42 s on the Hercules, PREDICTED), and the
 footprint keeps the box path's clipping. GLIDE, TRICKLE and C do not apply.
 FIXED (`cam` 1) is the title's (128.23.1).
+
+*As built* (8R.2): `bz_crshdr` sets `bz_paged` (+1 the pages, BZC2 +44) and
+page 0's `bz_fixr` / `bz_fixc` from the view word exactly as a FIXED window's
+(the two flags exclusive). `bz_pgtgt` moves the target `bz_pgk` while the
+footprint's centre line (`py + 8`) is above the target window's top (and a
+page is above) or at or below its bottom (and one is below): page k's R0 is
+`bz_fixr - k (200 >> bz_lsh)`; the first frame (or a cut) sets R0 there whole,
+every other frame `bz_camera.paged` steps it at most `BZ_MAXR` rows toward it
+and leaves through `.moved` (the clamp, the incremental scroll). MEASURED
++170 bytes, bss +4. Seen: the scroll from page 0 to page 1 on both cards,
+the marble resting on MOON before the window has finished (the follower is
+faster than a page).
 
 ##### 128.22.4.4 The pathway's loop
 
@@ -270260,6 +270320,40 @@ FIXED (`cam` 1) is the title's (128.23.1).
 3. **ROLLING**: no key is read (the follower's ramp is too short to
    steer). A secret route's reveal groups get pose 1 as `s` passes each.
    Arriving: RESTING on B, its slot position written to memory (128.22.5).
+
+*As built* (8R.3): the loop is `bz_grounds` (the plan's `bz_pathway`): the
+pathway is a play of `bz_mode` 4 (`bz_gpath`: `bz_phfetch`, then `bz_ppose`
+reads the tables' offsets and poses every sign from the slot); the play ends
+by `bz_pwq` - 13 Enter (the pad's course `bz_pwck`), 27 Esc, `'o'` the game
+over's wait - and `bz_grounds` plays the course, then enters the pathway
+again with the course's event in `bz_pwev` (a FINISH and its exit, a LIFE,
+the GAME OVER), which `bz_pwinit` acts on: the LIFE's and the OVER's sounds
+are called there, inside the pathway's play (sound's note: an event after
+`bzs_close` is silent); the OVER state waits 96 steps (its 82 sub-ticks) and
+ends the play, and `bz_kover` follows; a RETRY's LIFE sounds in the retried
+course's own play. A finish's route (pad, exit) is OPENED (`bz_nrop`) when it
+was closed - its gate posed 1 at once, then 2 - 5 every 6 steps (0.55 s) with
+`BZS_EV_GATE` - and rolled from A; a secret one has no gate and rolls at once.
+Keys are TYPED ones (`bz_exitchk`'s mode-4 arm, `bz_pwkey`), at REST only, and
+none of Enter, Esc, Space and the arrows counts while it is held since the
+course ended or the last departure (`bz_pwek`, let go by `bz_pwheld` once
+all seven are up): Enter held through a finish starts no course, a held arrow
+moves one route, a held Esc no leave (the held-Esc leave of a play is not
+read in mode 4). Arriving: the route TAKEN (`bz_nrtk`, only where it is opened,
+so the slot's "taken implies opened" holds), the pad OPEN (TIMED), a secret
+route's reveal groups and both its ends' poses (`bz_pnset`), `BZS_EV_PAD`,
+and the icon's animation (PAD +8 frames, +9 steps between them; `bz_nset`
+of its sign, frames 1 - K-1 in a loop, back to its rest pose on leaving).
+**Deviations, decided here:** a HIDDEN pad is shown (and a visible end drawn
++ 4) once a secret route at it is TAKEN, not by the open set, so EXPLORE
+(which opens nothing) shows what a timed game found. **EXPLORE** travels every
+route that is not secret (its gate shown open) and a secret one only once its
+exit has opened it; a finish there rolls the route keyed by its exit when it
+can be travelled and opens nothing. The prototype's goal gate (`bz_gmask`),
+node signs, `bz_gnode`, `bz_path_crs`, `bz_path_edges` and every use of
+`BZ_PATH_N`, `BZ_PATH_CRS`, `BZ_PATH_EDGES`, `BZ_PATH_NEDGE` are gone
+(`BZ_PATH_NPAD` gates the game): the tool may stop emitting them. MEASURED
+(with 4.2) +1,742 bytes, bss +42.
 
 ##### 128.22.4.5 The key map (the tool's; BUILT)
 
@@ -270658,7 +270752,7 @@ HEARD.
   SIDE and SHORTCUT verdicts on a test map; the clock-at-every-finish rule
   (a course with a finish and no clock in its window refused); the part's
   budget; `bbcourse.Follow` against a hand-worked route.
-- **`bonanzapath`** (REWRITTEN, soak, MartyPC, both cards): a new game rests
+- **`bonanzapath`** (REWRITTEN, soak, MartyPC, both cards; WRITTEN in 8R.3 to this list - `tests/bonanza_path.py`, its `--check` green - and not yet run): a new game rests
   on pad 0, no arrow moves it, Space shows the info card; Enter plays
   FIRST, the autopilot finishes: the finish sequence (the clock's digit
   lanes alternate, the camera still, Enter skips); back on the pathway pad
