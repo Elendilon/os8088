@@ -2760,8 +2760,10 @@ gave it a lane to judge, and its plan put the ball in the camera's dead zone.
 The one perf failure was older than the wave: the same late frame appears on
 the commit before it, the open item wave 10 owns.
 
-What it cost: the resident image 36,184 -> 39,897 bytes (the finish +343, the
-cards and save +513, the sounds +161, the signs, camera, follower and loop
-+1,832 net), the bss +1,007, most of it the lane tables the pathway's 23
-lanes size; the pathway part 6,410 bytes packed.
+What it cost: the resident image 36,184 -> 39,897 bytes across the
+afternoon, the title screen's own code (128.23) included; wave 8R's share is
+the finish +343, the cards and save +513, the sounds +161 and the signs,
+camera, follower and loop +1,832 net (2,849). The bss 9,080 -> 10,087, most
+of 8R's part the lane tables the pathway's 23 lanes size. The pathway part
+is 6,410 bytes packed.
 
