@@ -92,7 +92,8 @@ bz_ballgen:
     xor bp, bp
 .fr:
     mov bx, [BG_GY]
-    mov dx, [es:bx + bp]        ; the y term
+    add bx, bp
+    mov dx, [es:bx]             ; the y term
     mov si, [BG_GX]
     mov cx, 16
 .ink:
