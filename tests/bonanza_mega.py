@@ -678,10 +678,12 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
          "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
-    fan = 1 if pkg.word("bzs_vseg") else 0      # 8R (SPEC.md 128.22.9): a play of a course with music holds
-                                                # the VICTORY fanfare beside its song
-    want(len(inside) == len(base_claims) + SHELL_IN + 1 + nballs + fan, "10. inside: the course and its %d ball rows "
-         "claimed (and %d fanfare), the shell gone (%d claims against %d)" % (nballs, fan, len(inside), len(base_claims)))
+    ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls, the sound part, the song
+                                                # and the fanfare are ONE claim, the arena - the desktop title's
+                                                # (pkg.ar0) become the play's
+    want(len(inside) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "10. inside: the course and "
+         "the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the arena %d on the "
+         "desktop)" % (nballs, len(inside), len(base_claims), pkg.ar0))
     steps(b, pkg, 5, "the PLAYGROUND's first steps")
     rd = _PkgS(b, pkg)
     boosted, tries = False, 0
@@ -775,6 +777,7 @@ def run(img_b, keep, tmp, cases=None):
         want(x + w // 2 >= vx1, "0. BONANZA's window dragged onto the Hercules: its centre at x %d, display 1 "
              "from %d" % (x + w // 2, vx1))
         base_rows, base_claims = pkg.rows(), claims(b, pkg, hs, eq)
+        pkg.ar0 = 1 if pkg.word("op_arena") else 0      # the title's arena (128.25.4)
         print("   desktop: %d part rows, none fetched: %s; the instance's claims %s" % (
             len(base_rows), all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
         if cases is not None:                           # (a red arm's run: its own case alone)
