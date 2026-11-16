@@ -276904,7 +276904,17 @@ it. Two pictures in two ASPECTS:
   log of other physics or another identity is refused as R refuses one
   (128.12.8) - on a card.
 - **Load Replay's replay** is a bracket of its own (bz_launch, mode 2), not
-  the game's: Play Game afterwards resumes the game as before.
+  the game's: Play Game afterwards resumes a suspended PATHWAY as before; a
+  suspended COURSE is given up by the launch (its parts are the launch's
+  room), as below.
+- **Where the Open dialog opens** is the system's rule, not BONANZA's
+  (38.x's seed): the folder the player last chose in this instance, else
+  `MEDIA` or the root of the drive. No slot lets a package aim it, so the
+  first Load Replay of a session starts there and the player goes to
+  `SYSTEM\APPDATA` once; `od_enter` before every later one makes the
+  instance's folder APPDATA, which is where the remembered choice then
+  opens. A slot to aim the chooser would be an ABI change (20.2.0.1), the
+  owner's to ask for.
 - **Selecting a slot, erasing it or changing Explore** while a game is
   suspended inside a COURSE (128.26.4) abandons that course first: its parts
   are given back and the slot is read again from `bz_dat`, where the entry's

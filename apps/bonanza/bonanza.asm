@@ -615,8 +615,9 @@ bz_adapter:
 ; SPEC.md 128.14.7.6), and the instance goes back where the user was after.
 ; -----------------------------------------------------------------------------
 bz_launch:
-    call bz_unsusp              ; (a suspended game's course given up first:
-                                ; this launch's parts take its place, 128.26.3)
+    call bz_unsuscrs            ; (a suspended COURSE given up first: this
+                                ; launch's parts take its place, 128.26.3; a
+                                ; suspended pathway is only memory, and stays)
     mov byte [bz_towin], 0
     mov byte [bz_newb], 0       ; (only this launch's play may set a best)
     cmp byte [bz_small], 0
