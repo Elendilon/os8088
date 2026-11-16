@@ -60,6 +60,9 @@ The prototype pictures referred to below are in
 [`bounce-bonanza/`](bounce-bonanza/). They were made by `ballproto.py`, a
 host-only script that `make` does not use and that ships nothing.
 
+**The title screen** (the owner, 2026-11-16) has a plan of its own:
+[BOUNCE-BONANZA-TITLE.md](BOUNCE-BONANZA-TITLE.md), contract SPEC.md 128.23.
+
 ---
 
 ## Toward a release
