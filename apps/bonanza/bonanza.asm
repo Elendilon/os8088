@@ -53,6 +53,11 @@ OS88_DOCGLYPH8_END
 %define OP_WANT_CSEG            ; op_cseg: the shell part is FAR-CALLED (SPEC.md 128.19.2)
 %define OP_SAYGATE bz_fs        ; a fetch refused inside the bracket, after its
                                 ; mode set, says nothing (SPEC.md 53.7, 128.19.5)
+%define OP_WANT_ARENA           ; a play's SMALL parts - the balls, the sound part,
+                                ; the songs - share ONE claim (SPEC.md 128.25.4)
+%define OP_ARFORCE bz_arforce   ; HARNESS: the arena claimed at the ceiling and
+                                ; the batch unreserved, so a growth MOVES it
+                                ; (SPEC.md 20.12.15, 128.25.13)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
@@ -781,6 +786,11 @@ bz_cload:
     shl al, cl
     or ah, al
     mov [bz_pbm], ah
+    mov bl, [bz_crs]            ; THE ARENA (SPEC.md 128.25.4.2): ONE regrow
+    xor bh, bh                  ; for the whole batch - balls, sound part, song,
+    shl bx, 1                   ; fanfare - by the course's own figure (the
+    mov ax, [bz_carena + bx]    ; tool's BZ_CRS_ARENA: their RAM forms and one
+    call op_areserve            ; fetch's room).  Refused, each fetch grows it
     mov byte [bz_pb], BZ_P_BALR
 .ball:
     mov cl, [bz_pb]
@@ -803,17 +813,15 @@ bz_cload:
     inc byte [bz_pb]
     cmp byte [bz_pb], BZ_P_BALR + BZ_NMAT
     jb .ball
-    mov bl, [bz_mat]            ; the sprite's: the starting ball's (a pad or
-    xor bh, bh                  ; a flag's respawn changes it, bz_setmat)
-    lea ax, [bx + BZ_P_BALR]
-    mov [bz_pb], al
-    shl bx, 1
-    mov ax, [bz_bsegs + bx]
-    mov [bz_bseg], ax
+    mov al, [bz_mat]            ; the sprite's: the starting ball's (a pad or
+    add al, BZ_P_BALR           ; a flag's respawn changes it, bz_setmat;
+    mov [bz_pb], al             ; bz_bseg is bz_arload's)
     push es                     ; the title off, the course's song fetched
     call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
     pop es
     call bz_crshdr              ; the course's header, copied into our data
+    call bz_arload              ; THE BATCH'S END (every arena fetch above it -
+                                ; the families' too): each word read again
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
     je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
@@ -826,6 +834,47 @@ bz_cload:
     ret
 .drop:
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_arload - THE ARENA BATCH'S END (SPEC.md 128.25.4.2, 20.12.15): the arena
+; fitted to its parts (the last fetch's room given back, op_areserve 0) and
+; every word BONANZA keeps of an arena part read again from op_seg - a fetch
+; that grew the arena may have MOVED it, which shifts the standard's words and
+; not ours.  A part not here answers 0, so each word says so too.  bz_cload's,
+; after its whole batch (the window has no title song since 128.26.5).  A drop never
+; moves the arena, so none follows one.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_arload:
+    xor ax, ax
+    call op_areserve
+    mov di, bz_bsegs            ; the balls, BZ_P_BALR + the material
+    mov al, BZ_P_BALR
+.b:
+    push ax
+    call op_seg
+    mov [di], ax
+    pop ax
+    inc di
+    inc di
+    inc ax
+    cmp al, BZ_P_BALR + BZ_NMAT
+    jb .b
+    mov al, [bz_pb]             ; the sprite's (bz_cload set the row)
+    call op_seg
+    mov [bz_bseg], ax
+    mov al, BZ_P_SND
+    call op_seg
+    mov [bzs_pseg], ax
+    mov al, BZ_P_SONG + BZ_SONG_VICTORY
+    call op_seg
+    mov [bzs_vseg], ax
+    mov al, [bzs_song]          ; the song (0 none: row 0 is a ball's)
+    or al, al
+    jz .r
+    call op_seg
+    mov [bzs_mseg], ax
+.r:
     ret
 
 %if BZ_PATH_NPAD
@@ -2176,8 +2225,8 @@ bz_phrel:
     cmp byte [bz_phold], 0
     je .out
     mov bl, MEMP_AVAIL
-    call OSAPI_MEM_P            ; AX = the largest claim there is
-    cmp ax, BZ_CRS_MAXCLAIM
+    call OSAPI_MEM_P            ; AX = the largest claim there is: it takes the
+    cmp ax, BZ_CRS_MAXCLAIM + BZ_CRS_ARMAX ; course's AND the arena's (128.25.4.2)
     jb bz_phfree
 .out:
     ret
@@ -2452,12 +2501,16 @@ bz_cdrop:
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
-    mov al, BZ_P_BALR
-.dball:
+    mov al, BZ_P_BALR + BZ_NMAT - 1 ; the balls, the highest first: the arena's
+.dball:                         ; fetch order backwards (SPEC.md 128.25.4.2)
     call op_drop                ; (it preserves AX)
-    inc ax
-    cmp al, BZ_P_BALR + BZ_NMAT
-    jb .dball
+    dec al
+    jns .dball                  ; (BZ_P_BALR is 0)
+%if BZ_P_BALR != 0
+ %error "bz_cdrop's ball loop ends at row 0"
+%endif
+    xor ax, ax                  ; ...and a reservation nothing was fetched
+    call op_areserve            ; into given back (a refused first fetch)
     mov al, [bz_pc]
 %if BZ_PATH_NPAD
     cmp al, BZ_P_PATH           ; the HELD pathway's part stays (128.22.7)
@@ -4591,6 +4644,8 @@ bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECS
                                 ; steps, a word each (0 none; wave 7, 128.18.3)
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
 bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 128.18.6)
+bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
+                                ; (the tool's, SPEC.md 128.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 128.16.6: bz_vinit)
 bz_s_dat:   db 'BONANZA.DAT', 0
@@ -4607,18 +4662,21 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 
 ; --- the part table (SPEC.md 128.11.3.1, 20.12) --------------------------------
 ; 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO rows, in the Makefile's BZ_PARTS
-; order, every one OP_LAZY | OP_COMP: the three balls, then each course
+; order, every one OP_LAZY | OP_COMP - and a play's SMALL ones, the balls, the
+; sound part and the songs (the fanfare is one), OP_ARENA: ONE claim between
+; them (SPEC.md 128.25.4), so a play holds three claims with the pathway held
+; and two without.  The three balls, then each course
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
 OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 0  BZBALR.BIN  rubber
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 1  BZBALS.BIN  steel
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 2  BZBALG.BIN  glass
     BZ_CRS_PARTS                            ; 3 + K: BZ<K>.BIN
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_SND: BZSND.BIN (128.20.3)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (128.20.3)
  %rep BZS_NSONG
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_SONG + S: BZM<S>.BIN
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SONG + S: BZM<S>.BIN
  %endrep
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (128.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (128.19.2)
@@ -4678,6 +4736,7 @@ VAR bz_ppad,1                   ; the pad the marble rests on (the slot's +2)
 VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_phrel)
 VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
+VAR bz_arforce,2                ; HARNESS, byte 0: nonzero forces the arena's next growth to MOVE it (OP_ARFORCE, 128.25.13); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
 VAR bz_pwck,1                   ; wave 8R (128.22.4.4): the course Enter at a pad plays
 VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 128.22.4.1), even

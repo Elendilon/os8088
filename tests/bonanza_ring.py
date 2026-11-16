@@ -322,6 +322,8 @@ RB = {"cga": 80, "herc": 90}        # bytes a line
 FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc", "bzcard.inc",
          "bzmenu.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
+EXTRA_EQUS = ("op_arena", "op_arsz", "op_artop", "op_arres")   # ...and the ARENA's words (SPEC.md
+                                    # 20.12.15, 128.25.4: bonanza_exit, bonanza_mega), equs of the bss
 # NASM local labels a row breakpoints (proc, local): resolved by the same
 # assembly when the source has them (a red tree, or an older wave, may not)
 LOCAL_SYMS = (("bz_shcall", "fc"), ("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr", "rose"),
@@ -474,6 +476,7 @@ def symbols(src=None, art=None):
         names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
     inc = os.path.join(ROOT, "apps", "os88parts.inc")
     names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, open(inc).read(), re.M)]
+    names += [n for n in EXTRA_EQUS if re.search(r"^%s\s+equ\b" % n, open(inc).read(), re.M)]
     names = sorted(set(names))
     apps = os.path.join(os.path.dirname(d), "") if os.path.exists(
         os.path.join(os.path.dirname(d), "os88api.inc")) else os.path.join(ROOT, "apps") + "/"

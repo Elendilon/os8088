@@ -75,6 +75,7 @@ PKG_MIRROR = {
     "OPF_OPT": "OP_OPT",
     "OPF_LAZY": "OP_LAZY",
     "OPF_ZFILL": "OP_ZFILL",
+    "OPF_ARENA": "OP_ARENA",
     "PK_SEG": "OP_SEG",
     "PK_ASSET": "OP_ASSET",
 }
