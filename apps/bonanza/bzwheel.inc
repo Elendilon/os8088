@@ -666,6 +666,8 @@ bz_ltrue:
     je .flag
     cmp byte [bz_lknd + bx], BZ_PK_CLOCK
     je .clock
+    cmp byte [bz_lknd + bx], BZ_PK_SIGN
+    je .sign
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -705,7 +707,9 @@ bz_ltrue:
     pop cx
     jmp short .out
 ; a CLOCK's digit (wave 7, SPEC.md 128.18.5): its PLACE's pose of the seconds
-; left, bz_tdig's (written once a second by the step, bz_tdset)
+; left, bz_tdig's (written once a second by the step, bz_tdset); a SIGN's
+; (wave 8R, SPEC.md 128.22.4.1): bz_nst's byte for its number (+28) - the pose
+; is the only state a sign has, written by bz_nset
 .clock:
     push bx
     push si
@@ -713,10 +717,16 @@ bz_ltrue:
     mov es, [bz_cseg]
     call bz_lrecsi
     mov bl, [es:si + BZP_CPLACE] ; (+26: the digit's place; +16 - +25 are its
-    xor bh, bh                  ; post's fields, 128.18.5.3) - or, ndig 0, a
-    cmp byte [es:si + BZP_CNDIG], 0 ; pathway node's SIGN (wave 8b, 128.19.5):
-    jne .cdig                   ; its node's state, bz_nst's byte
-    mov bl, [es:si + BZP_CNODE]
+    xor bh, bh                  ; post's fields, 128.18.5.3)
+    jmp short .cdig
+.sign:
+    push bx
+    push si
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    mov bl, [es:si + BZP_SNUM]
+    xor bh, bh
     add bx, bz_nst - bz_tdig
 .cdig:
     pop es
@@ -724,6 +734,43 @@ bz_ltrue:
     mov al, [bz_tdig + bx]
     pop bx
     jmp short .out
+
+; -----------------------------------------------------------------------------
+; bz_nset - SIGN BL's pose AL (wave 8R, SPEC.md 128.22.4.1): bz_nst[BL]
+; written and every lane of that sign MARKED (128.19.10 item 6), so the pose
+; change costs that lane's walk and nothing else; the next walk is made (not
+; quiet).  The lanes' kinds are bz_pread's: a play's (before one, bz_nst is
+; written directly - bz_pread marks every lane).  Preserves all.
+; -----------------------------------------------------------------------------
+bz_nset:
+    push bx
+    push cx
+    push si
+    push es
+    xor bh, bh
+    mov [bz_nst + bx], al
+    mov cl, bl
+    mov es, [bz_cseg]
+    xor bx, bx
+.l:
+    cmp bl, [bz_nlane]
+    jae .d
+    cmp byte [bz_lknd + bx], BZ_PK_SIGN
+    jne .n
+    call bz_lrecsi
+    cmp [es:si + BZP_SNUM], cl
+    jne .n
+    mov byte [bz_latt + bx], 1
+.n:
+    inc bx
+    jmp short .l
+.d:
+    mov byte [bz_lqt], 0
+    pop es
+    pop si
+    pop cx
+    pop bx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; bz_ldesc - lane BX's descriptor from the per-lane tables bz_pread filled (no
@@ -2735,6 +2782,8 @@ bz_props:
     je .skf
     cmp byte [bz_lknd + bx], BZ_PK_CLOCK
     je .skc
+    cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (a SIGN is marked only when its pose
+    je .w0                      ; was written, bz_nset: walked)
     or al, al                   ; ...or a POST is drawn dark, its lit frames
     jnz .w0                     ; none, every kick seen
     cmp [bz_lhold + bx], al
@@ -3128,6 +3177,8 @@ bz_lmust:
 .post:                          ; a POST LIGHTING: true lit over drawn dark
     cmp byte [bz_lknd + bx], BZ_PK_CKPT ; (a FLAG is never must-draw: an
     je .no                      ; ordinary due lane, SPEC.md 128.14.4.2)
+    cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (nor a SIGN, 128.22.4.1)
+    je .no
     mov al, [bz_ltru + bx]      ; (the owner's preview: a hit always shows)
     cmp al, [bz_ldrw + bx]
     mov al, 0ffh

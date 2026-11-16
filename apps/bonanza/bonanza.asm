@@ -1395,28 +1395,14 @@ bz_trand:
     mov [bz_tlfsr], ax
     ret
 
-; bz_tlabel - the slot changed on the title: its label's pose (bz_nst[0] =
-; 1 + slot) and every CLOCK lane MARKED, the next walk made and its clocks'
-; second unread (128.19.10, the skip's), so the one block redraws.  Preserves
-; all but AX and BX.
+; bz_tlabel - the slot changed on the title: its label's pose, sign 0's
+; 1 + slot (a PK_SIGN, 128.23.2; bz_nset marks its lane, 128.22.4.1), so the
+; one block redraws.  Preserves all but AX and BX.
 bz_tlabel:
     mov al, [bz_slot]
     inc ax
-    mov [bz_nst], al
-    xor bx, bx
-.l:
-    cmp bl, [bz_nlane]
-    jae .d
-    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
-    jne .n
-    mov byte [bz_latt + bx], 1
-.n:
-    inc bx
-    jmp short .l
-.d:
-    mov byte [bz_lqt], 0
-    mov word [bz_lcsec], 0ffffh ; (a CLOCK lane's skip holds while the second
-    ret                         ; is the one the last walk read: none is now)
+    xor bl, bl
+    jmp bz_nset
 %endif
 
 bz_path_crs:    BZ_PATH_CRS     ; the nodes' courses (bzcourse.inc)
@@ -3665,7 +3651,7 @@ VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the 
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
 VAR bz_gnode,1                  ; the node being played
-VAR bz_nst,16                   ; each node sign's pose (bzwheel.inc's CLOCK case): 0 locked, 1 open, 2 done
+VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 128.22.4.1), even
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
 VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
 VAR bz_gsave,1                  ; 1: the game's slot to be written (bz_dsave)

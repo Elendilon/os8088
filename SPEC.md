@@ -274043,7 +274043,7 @@ the skip's kinds, three taken jumps) - item 6 below.
    | a post's lit frames | its KICK (`bz_pkick`'s write, `bz_phys`) | lit by the kick; kept marked by `bz_lhold` until drawn dark |
    | a flag | its first TOUCH (`bz_cksn`'s bit, `bz_phys`) | its pose is the touch |
    | a clock's digit | a new SECOND (`bz_tsec` against `bz_lcsec`), at the walk's start, the clock lanes of the slice | every clock counts the same second |
-   | a node's sign | (none in play: drawn at the full write) | it changes between plays |
+   | a SIGN (wave 8R, 128.22.4.1: the pathway's pads, icons, gates and reveal groups, the title's label) | `bz_nset` (its pose written) | its pose is the only state it has; a marked sign is walked, never skipped |
    | any lane | ENTERING the range (rows that did not meet the last range, `bz_ora`/`bz_orb`) | a lane outside it may be stale (item 3) |
    | any lane | the column band MOVING while it is OUT (`bz_lout`) | it may be back in the band |
    | every lane | `bz_pread` and `bz_lfull` | a play's start, a full write |
