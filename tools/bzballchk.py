@@ -72,7 +72,81 @@ def check(verbose=True):
     return res
 
 
+def _price(text, size):
+    """8088 clocks of one instruction: the 8086 EU time, +4 a word memory
+    access (the 8-bit bus), floored at 4 a byte fetched.  A table for the
+    instructions bz_ballgen uses; branches are priced taken (the loop's case)"""
+    t = text.replace("es ", "").strip()
+    pre = 2 if text.startswith("es ") else 0
+    op, _, rest = t.partition(" ")
+    a = [x.strip() for x in rest.split(",")] if rest else []
+    mem = [x for x in a if x.startswith(("[", "word [", "byte ["))]
+    word = any(x.startswith("word") for x in a) or (mem and not any(r in a for r in ("al", "ah", "bl", "bh", "cl", "ch", "dl", "dh")))
+    ea = 0
+    if mem:
+        m = mem[0]
+        ea = 6 if re.fullmatch(r"(word |byte )?\[0x[0-9a-f]+\]", m) else 5 if "+" not in m else 9
+        if "+" in m and re.search(r"0x[0-9a-f]+\]", m):
+            ea += 4
+    wa = 4 if (mem and word) else 0
+    imm = bool(a) and a[-1].startswith("0x") or (len(a) > 1 and a[-1].lstrip("-").isdigit())
+    if op == "mov":
+        c = (8 + ea if mem and a[0] not in [m for m in mem] else 9 + ea) if mem else (4 if imm else 2)
+    elif op in ("add", "sub", "and", "or", "xor", "cmp"):
+        c = (9 + ea if mem and a[0] not in mem else (10 if op == "cmp" else 16) + ea) if mem else (4 if imm else 3)
+        if mem and imm and a[0] in mem:
+            c = (10 if op == "cmp" else 17) + ea
+    elif op in ("shl", "shr", "rcl", "rcr", "ror", "sar"):
+        c = 2 if a[-1] == "1" else 8
+    elif op in ("inc", "dec"):
+        c = 15 + ea if mem else (3 if a[0][-1] in "lh" else 2)
+    elif op in ("not", "neg"):
+        c = 3
+    elif op in ("lodsb", "lodsw"): c = 12
+    elif op in ("stosb", "stosw"): c = 11
+    elif op == "movsw": c = 18
+    elif op == "loop": c = 17
+    elif op in ("jz", "jnz", "jc", "jnc", "jb", "jnb", "ja", "jna", "je", "jne", "jae"): c = 16
+    elif op in ("jmp",): c = 15
+    elif op == "call": c = 19
+    elif op == "ret": c = 16
+    elif op == "xchg": c = 4
+    elif op == "div": c = 85
+    elif op == "lea": c = 2 + ea
+    elif op == "push": c = 11
+    elif op == "pop": c = 8
+    elif op == "cld": c = 2
+    else: c = 4
+    return max(c + wa + pre, 4 * size)
+
+
+def clocks():
+    """the executed instructions of one generation per material, priced"""
+    code = assemble()
+    dis = subprocess.run(["ndisasm", "-b", "16", "-"], input=code, capture_output=True, check=True).stdout.decode()
+    info = {}
+    rows = [l.split(None, 2) for l in dis.splitlines()]
+    for i, (ad, hx, tx) in enumerate(rows):
+        nxt = int(rows[i + 1][0], 16) if i + 1 < len(rows) else len(code)
+        a = int(ad, 16)
+        tx = re.sub(r"\b0x0*([0-9a-f]+)\b", lambda m: "0x" + m.group(1), tx.lower())
+        info[a] = (tx, nxt - a)
+    out = []
+    for mat in range(3):
+        cnt = {}
+        def tr(off, n):
+            cnt[off] = cnt.get(off, 0) + 1
+        run(code, B.build_ball3(mat), trace=tr)
+        tot = sum(_price(*info[a]) * n for a, n in cnt.items() if a in info)
+        out.append((mat, sum(cnt.values()), tot))
+    return out
+
+
 if __name__ == "__main__":
+    if "--clocks" in sys.argv:
+        for mat, n, c in clocks():
+            print("  %-6s %8d instructions, %9d clocks = %6.1f ms at 4.77 MHz" % (B.MAT_NAMES[mat], n, c, c / 4772.727))
+        sys.exit(0)
     r = check()
     if r is None:
         print("bzballchk: SKIP - unicorn is not importable here")

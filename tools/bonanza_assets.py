@@ -870,8 +870,9 @@ def emit_const():
     return "\n".join(lines)
 
 
-def compile_all():
-    files = {BALL_FILES[m]: build_ball2(m) for m in range(3)}
+def compile_all(stored=False):
+    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 128.25.5); else BZB2, the RAM form"""
+    files = {BALL_FILES[m]: (build_ball3 if stored else build_ball2)(m) for m in range(3)}
     texts = {"bzconst.inc": emit_const()}
     return files, texts
 
@@ -891,7 +892,7 @@ def write_out(out):
     # fallback recipe turns back into a re-run that shows the error
     with open(os.path.join(out, ".bz-art"), "w") as f:
         f.write(stamp() + "\n")
-    files, texts = compile_all()
+    files, texts = compile_all(True)
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -1231,6 +1232,22 @@ def selfcheck():
                     hit is not None and [w for w, g in sub if not g] == [w for w, _ in sub if "outer ring" in w]))
     nz = all(a_files[BALL_FILES[m]][14] == 0 for m in (MAT_STEEL, MAT_GLASS)) and a_files["BZBALR.BIN"][14] == NST
     results.append(("BZB2 +14: rubber's stretch count %d, steel's and glass's 0" % NST, nz))
+    # wave 9 (128.25.5): the stored form BZB3 and the guest's generator
+    st3 = {m: build_ball3(m) for m in range(3)}
+    results.append(("BZB3: the host model of bz_ballgen expands every stored part to build_ball2's, every byte",
+                    all(model_ball3(st3[m]) == a_files[BALL_FILES[m]] for m in range(3))))
+    import bzballchk
+    emu = bzballchk.check()
+    if emu is None:
+        print("  SKIP bz_ballgen under an emulated 8086: unicorn is not importable here")
+    else:
+        results.append(("bz_ballgen, run under an emulated 8086 IN PLACE on the stored part, equals build_ball2 "
+                        "for rubber, steel and glass, every byte (scratch pre-filled with junk)", all(ok for _, ok, _ in emu)))
+        bad = bytearray(st3[MAT_STEEL])
+        bad[BG_BLK + BG_SQ0 + 5] += 1                   # one row of squash 0's ellipse widened
+        code = bzballchk.assemble()
+        results.append(("negative control: a stored ellipse row changed makes the generated part differ",
+                        bzballchk.run(code, bytes(bad)) != a_files["BZBALS.BIN"]))
     rs = bytearray(a_files["BZBALR.BIN"])              # one stretch frame pixel flipped
     e = B2_STROFF + ((2 * 2) + 1) * ENT                # against its mask: shift 2, parity 1,
     r = 0                                              # row 0's first KEPT slot gains a frame bit
