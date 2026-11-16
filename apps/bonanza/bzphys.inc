@@ -2064,6 +2064,8 @@ bz_cuef:
                                 ; as a byte offset from the sprite's first
                                 ; byte in the box (dy 8 + (s + dx) / 4) and a
     mov si, bz_spo              ; word mask by pixel phase (s + dx) & 3
+    push ds
+    pop es
     mov di, bz_csk
     mov cx, 3
 .c:
@@ -2078,12 +2080,16 @@ bz_cuef:
     and bx, 3
     shl bx, 1
     mov bp, [bz_spw + bx]
+    test byte [bz_herc], 0FFh   ; the Hercules: one dot of each mono pair, on
+    jz .cm                      ; both lines - over its checkered grounds a
+    and bp, 5555h               ; solid black-and-white bar, where all four
+.cm:                            ; dots XORed are the checker shifted (unseen)
     shr al, 1
     shr al, 1
     add al, ah
-    mov [di], al
-    mov [di + 1], bp
-    add di, 3
+    stosb
+    xchg ax, bp
+    stosw
     loop .c
 .tog:
     mov al, [bz_ctog]
@@ -2097,8 +2103,8 @@ bz_spk:     db BZ_SPK(0, 1), BZ_SPK(15, 0), BZ_SPK(15, 6), BZ_SPK(14, 14)
             db BZ_SPK(1, 14), BZ_SPK(15, 2), BZ_SPK(15, 12), BZ_SPK(0, 14)
 bz_spo:     db 0, 3, 5
 bz_spw:     dw 00F0h, 003Ch, 000Fh, 0C003h ; two pixels at phase 0 - 3, both
-                                ; bits each: the CGA ink XOR 3, the Hercules
-                                ; both dots of each mono pair (4 x 2 dots)
+                                ; bits each: the CGA ink XOR 3 (the Hercules
+                                ; keeps one dot of each pair, above)
 
 ; bz_fdor / bz_fdand - CX rows of the ball part's BZ_BAL_RB bytes from BP:SI to
 ; ES:DI, each ORed (ANDed) with DX, BX the next row's: the two swapped a row.
