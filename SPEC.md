@@ -271816,7 +271816,10 @@ whole), and on the glass by `bonanzaring`'s CAMERA leg where named
    LAUNCH), in the 90 frames after it no pan is born fast and no pan's rate
    rises, and a pre-aimed pan still running at the exit takes its step on
    every frame its rate allows, with no withheld frame, until it ends
-   (MEASURED: holds on all 22 exits, 128.17.6.2).
+   (MEASURED: holds on all 22 exits, 128.17.6.2). *Since 128.25.3 it holds
+   BY CONSTRUCTION: a pan whose fast latch a tube set (`BZL_PRE`) is never
+   withheld by the heavy rule until it ends. It had held by measurement only,
+   and the Y0 search moved a heavy frame onto PEAK's cannon exit.*
 6. **Integer-exact parity.** `bbcourse.Glide` is the guest's camera on every
    frame of every leg `bonanzaring` runs, the respawn cut included (below).
 
@@ -276286,6 +276289,10 @@ of the bad alignments, not the height.
 the picture, the occluder cut, the block queries and the merge at `Y0 + k`
 for `k` = 0 - 7, and keeps the **smallest `k` whose records meet both
 bounds (128.11.4.2) with the fewest records**; ties go to the smaller `k`.
+If a later rule that also hangs on the block grid refuses that alignment
+(two lanes sharing blocks, a start window's calibration corner), the next
+best is compiled, and only when all are refused does the tool refuse, with
+the best one's reason.
 The reach, the trap check and everything that does not depend on `Y0` run
 once. A course with a `view` (the title, the pathway: 128.23.2, 128.22) keeps
 its alignment, which the view's block-row rule fixes.
@@ -276297,10 +276304,40 @@ its alignment, which the view's block-row rule fixes.
 - **Identities**: every play course's identity changes once; the demos are
   re-authored (128.25.2 item 3).
 - **`--selfcheck`**: item 6 prints each course's chosen `k` and the eight
-  counts; a red arm forces `k` = the worst alignment and must refuse (MOON at
-  Hop 366, +0). The deliberate refusal case `STEEP` (`_grammar_cases`) pins
-  its alignment with a `_hack` key, since it must refuse at every `k` it is
-  given and the search would otherwise find one that compiles.
+  counts and asserts the choice; a red arm compiles MOON at Hop 366 at +0,
+  which must refuse on the block bound, and searches it, which must find an
+  alignment that compiles (BUILT: +1, +5 and +6 do). Every deliberate refusal that hangs on the block grid pins
+  its alignment with the `_hack` key `y0add` (`STEEP` and `RIDGES`, the two
+  lanes sharing blocks, the start window with no calibration corner), and so
+  does item 1's byte comparison with `503031d4`, whose tool had no search:
+  the search would otherwise find an alignment where the case compiles.
+
+**BUILT (story 9.0)**: every play course takes +4 but BENCH, which takes +6
+(MEASURED: MOON 2,624 records to 2,529, PEAK 3,081 to 3,001, PLAYGROUND
+1,194 to 1,113, FIRST 296 to 290; PEAK's compile about 20 s to 26 s on the
+host). The demos re-stamp without re-authoring: `CLOCK_BARE`'s identity is
+taken with no occluders, which the search never reaches.
+
+**What it moved: guarantee 5 (128.17.6.5) was held by measurement, and is
+now held by construction.** The alignment moves the occluders, so it moves
+which frames the heavy rule (128.17.6.3) finds heavy, and one now fell 1
+frame after PEAK's cannon exit on the CGA (autopilot frame 1350): the pan the
+tube had pre-aimed was withheld a step, which guarantee 5 forbids. The rule
+it always meant is now the rule: **a pan whose fast latch was set while a
+tube carried the ball (PRE-AIMED) is never withheld by the heavy rule until
+it ends.** The guest's axis record grows by a byte, `BZL_PRE` (+16,
+`BZL_SIZE` 18): cleared when a pan begins and at `bz_latrst`, set from
+`bz_tube` when the fast latch is first taken, and tested at `bz_lhv`'s head;
+the model's `LatAxis.why == 'tube'` is the same fact. The controls follow
+what each now proves:
+
+| control | broken | red at |
+|---|---|---|
+| `noprex` (new; `bonanzaring`'s `camprex`) | the exemption removed | guarantee 5: PEAK's cannon run on the CGA, frame 1350 |
+| `nopreaim` (`campreaim`) | no pre-aim | the PAN WORK LEFT after the exits (`cam_exit_work`), which the pre-aim exists to remove: every demo and autopilot, and PEAK's cannon run on the Hercules 41 steps against 15; the guest's arm at the window's parity with the shipped model. Before 9.0 it went red at guarantee 5 only through the heavy rule's withholding, which the exemption now rules out |
+
+Rows: `bonanzaring`'s camera leg (the guest's `BZL_PRE` equal to the model
+on every frame; the two arms) in wave 9's final pass; `bonanzacourse`.
 
 #### 128.25.4 The arena (story 9.3)
 
@@ -276523,7 +276560,7 @@ lane whose true pose they moved, as physics' kick and flag do today.
 | limit | value | refused by |
 |---|---|---|
 | families | **3** | the tool |
-| timed pickup kinds | **1** (PROVISIONAL: 128.25.14 Q1) | the tool |
+| timed pickup kinds | **both may be used** (the owner, Q1): speed and jump together on one course, and at once on the ball; 128.25.9 says how they combine | the tool's proofs, not a count |
 | the lanes' RATE | 128.19.10's (rotors at most 6 a window; pose changes at most `WIN_CHG` 6 a step); a family's element lanes are SLOW lanes unless it declares them FAST | the tool, as today |
 | the family parts' bytes | summed into `BZ_CRS_ARENA` (128.25.4.2), so the held-pathway decision sees them | the tool |
 | the course part, the packed budget | 128.15.8's | the tool |
@@ -276617,13 +276654,31 @@ One family, two kinds, both on PLAYGROUND's new glass section.
 
 | kind | the element | physics | art | reset |
 |---|---|---|---|---|
-| `crack` | a CRACKED TILE: a floor cell that cracks when a ball is first GROUNDED on it and breaks `CRACK_T` steps later (default 36 steps, about 0.5 s: PROVISIONAL), whatever is on it then; broken it is a VOID whose kill height is the tile's floor less 3 units (as a hole's, 128.10.4.3) | the floor is the grid's until broken; the CELL hook makes it VOID in the window once broken | three poses, a SLOW lane: whole, cracked, broken (the hole drawn) | `RESPAWN` |
-| `glass` | a GLASS PATH tile: a floor that is SOLID from the start, drawn as a faint HINT until the ball first touches it (grounded or landing), then REVEALED for the rest of the attempt; the path's tiles reveal ONE BY ONE as they are touched | the grid's floor, unchanged (no CELL hook) | two poses, a SLOW lane: hint (the tile's outline dithered), revealed (the crystal material, 128.22.8) | `ATTEMPT` |
+| `crack` | a CRACKED TILE: a floor cell that breaks under a ball by the ball's rules below; broken it is a VOID whose kill height is the tile's floor less 3 units (as a hole's, 128.10.4.3) | the floor is the grid's until broken; the CELL hook makes it VOID in the window once broken | poses, a SLOW lane: whole, the cracking frames (glass's one impact plays the first one or two), broken (the hole drawn) | `RESPAWN` |
+| `glass` | a GLASS PATH tile: a floor that is SOLID from the start and INVISIBLE until the ball first touches it (grounded or landing), then REVEALED for the rest of the attempt, tile by tile as touched. The path's FIRST tile (the tool's: the one touching the solid ground it leaves from) shows a slight JAGGED EDGE where it meets that ground, the only hint | the grid's floor, unchanged (no CELL hook) | poses, a SLOW lane: invisible (the ground it covers, drawn as if no tile were there), the first tile's jagged edge, revealed (the crystal material, 128.22.8) | `ATTEMPT` |
 
-**Ball by ball** (R1: steel "immune to traps that shatter glass or fling
-rubber"): steel BREAKS a cracked tile at once (CRACK_T = 0 for steel) and is
-otherwise unchanged; glass and rubber crack it with the delay. This is
-PROVISIONAL (128.25.14 Q3).
+**Ball by ball** (the owner, 128.25.14 Q3): the cracked tile is a ball-SORTING
+element, a puzzle piece as much as a hazard.
+
+| ball | rolled onto it | landed on it (a Hop's, a boost's or a fall's landing) |
+|---|---|---|
+| **steel** | cracks at its first grounded step and breaks `CRACK_TS` steps later: SHORT, so only a ball near its top speed is across in time | breaks at once |
+| **rubber** | as steel, `CRACK_TR` steps: LONGER, more room | breaks at once |
+| **glass** | **never breaks**: it may roll across as often as it likes | ONE impact cracks it (the first one or two cracking frames); the second landing breaks it |
+
+So a course can lay a cracked-tile path that only glass crosses at leisure,
+put a steel or rubber pad and a gate on the far side, and make the player
+come back across at speed. The per-element state is two bits (whole,
+cracked by one impact, counting, broken) plus the count in the family's slot
+for the one tile counting at a time (the tool refuses two cracked tiles a
+ball can be counting on at once: one counter). `CRACK_TS`, `CRACK_TR` are
+the family's constants, tuned by play.
+
+**Shown just before it is rolled onto** (the owner's alternative, for slow
+exploration): a glass tile could reveal when the ball's centre comes within
+a distance of it rather than on touch, through the ENTER hook of its
+neighbours. Recorded as an option to try on PLAYGROUND (128.25.14 Q5); the
+touch rule ships first.
 
 **Its cost** (PREDICTED): the part about 300 - 450 bytes; a crack's lane
 commit is a contact-box frame (128.12.4.2) at the crack and at the break;
@@ -276634,8 +276689,17 @@ the STEP hook only while a crack is counting.
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
 | `hourglass` | +10 s on the limit (`bz_tsec`), the clocks' next second shows it | once per attempt | `ATTEMPT` | **hidden** (its lane's pose 0 and no CONTACT) |
-| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | `PU_T` steps (default 5 s: PROVISIONAL) | `RESPAWN` | shown |
-| `jump` | rubber's Hop for any ball, or rubber's raised; **stacks with the boost**; bounded only by `VZMAX` (128.25.1) | `PU_T` | `RESPAWN` | shown |
+| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s | `RESPAWN` | shown |
+| `jump` | rubber's Hop for any ball, or rubber's raised; **stacks with the boost**; bounded only by `VZMAX` (128.25.1) | the element's own, as speed's | `RESPAWN` | shown |
+
+**Speed and jump together** (the owner, Q1): each keeps its own timer, so a
+course may require both ("get the jump AND the speed to make it across").
+If the tool's proofs find a combination it cannot bound (a reach past
+`VZMAX`'s, a speed past what the window's lead allows), the course is
+refused and the author either separates them or marks the pair
+`overwrite`: the most recent pickup then replaces the other's effect. The
+duration is a field of the element (a byte, in steps / 4, up to about 14 s),
+so each placement is tuned on its own (the owner, Q4).
 
 - **Taking one**: the centre enters its cell (CONTACT); it is COLLECTED
   (its state bit), its lane goes to pose 0 (gone), the sound event `PICKUP`
@@ -276668,8 +276732,8 @@ What moves and what stays resident, MEASURED as nasm spans at waves 3 and 4
 | CHECKPOINT flag | `bz_rflag` 70, its rule | **resident** | respawn's own machinery |
 | CLOCK, SIGN | `bz_tdset` about 70, `bz_nset` about 60 | **resident** | every course has a clock (128.22.6) and the pathway signs |
 | CUP | in `bz_prule`'s 380 | **resident** (PROVISIONAL) | a finish kind, with GOAL; the finish sequence (128.22.6) owns it |
-| LIFT (platform) | physics 146; a DRAW LAYER 729 | **decided by measurement** (the owner); PROPOSED resident: its layer is a draw path, which a family may not have (128.25.6.1) | moving the layer is a renderer change |
-| TUBE | capture 151, transit 253, `bz_ztouch` 62: 466 | **decided by measurement** (the owner); PROPOSED a family: physics only, the ball hidden, no lane | |
+| LIFT (platform) | physics 146; a DRAW LAYER 729 | **RESIDENT** (the owner, Q2: "if lift doesn't work for some reason, then resident is fine; using it will be pretty common"): its slab is a draw layer, which a family may not have (128.25.6.1) | |
+| TUBE | capture 151, transit 253, `bz_ztouch` 62: 466 | **a family for now** (the owner, Q2), kept EASY TO MOVE BACK: its hooks are the same routines it calls resident today, so resident or family is a build switch (`BZ_TUBE_RESIDENT`), both arms assembled by `--check-reds` | the tube is how a course moves the ball and the screen without a long corridor (the cannon's toss): most courses may name it, and then the family costs a fetch every launch. Wave 10 measures what a family really costs (load time, the hooks' clocks) and whether to allow more families a course |
 | WINDMILL | `bz_gate` 40, the doorway about 120 | **family** `ROTOR` | |
 | BUMPER (post) | `bz_circle` 303, `bz_posts` 53, `bz_ptop` 52, `bz_octe` 37, `bz_pdist` 30, the octant table 234: 709 | **family** `POST` | the largest single saving |
 | SPRING | its `bz_prule` case (part of the 380) | **family**, with the bumper (`POST`'s second kind) or alone | |
@@ -276720,8 +276784,8 @@ that first new course replaces them.
 
 - **`bonanzacourse`** (`--selfcheck`): the Y0 search (item 6's eight counts,
   the red arm forcing the worst alignment); `uses` and its refusals (an
-  undeclared family, a fourth family, a second timed pickup kind, an element
-  with no reset class, an element on a split cell); the family list in the
+  undeclared family, a fourth family, a speed and jump pair the proofs
+  cannot bound unless marked `overwrite`, an element with no reset class, an element on a split cell); the family list in the
   identity; the reach over a cracked tile's superset; NO TRAP per flag under
   the classes, with a red arm (a cracked tile on the only route past a flag,
   class forced `ATTEMPT`, must refuse); every finish with no pickup.
@@ -276747,10 +276811,10 @@ that first new course replaces them.
 
 #### 128.25.14 Open questions for the owner
 
-| # | question | recommended |
-|---|---|---|
-| Q1 | **One timed pickup kind a course** (Q-91): keep, or allow speed and jump together? | keep for now; lift it per course when a design wants both, priced by the tool |
-| Q2 | **The lift and the tube**: resident or families (128.25.10) | measure in 9.8; recommended: the lift resident (its slab is a draw layer), the tube a family |
-| Q3 | **Steel on a cracked tile**: breaks it at once (128.25.8), or as the others? And glass: does a cracked tile hurt a glass ball? | steel breaks it at once; glass as rubber |
-| Q4 | **The defaults**: `CRACK_T` 0.5 s, `PU_T` 5 s, `PU_WARN` 1 s, the hourglass +10 s | as written; the owner tunes them on PLAYGROUND |
-| Q5 | **The glass path's hint**: the tile's outline dithered (visible on both cards), or fainter | the dithered outline: CD1 wants it visible enough to notice |
+| # | question | recommended | ANSWERED (the owner, 2026-11-16) |
+|---|---|---|---|
+| Q1 | **One timed pickup kind a course** (Q-91)? | keep for now | **both allowed**, perhaps on purpose ("must get jump and speed to make it across"); if together they cause trouble, the most recent overwrites (128.25.9) |
+| Q2 | **The lift and the tube** | the lift resident, the tube a family | **the lift resident** (common, and its layer); **the tube a family for now**, easy to move back, since most courses may use it to move the ball and the screen; family costs re-measured in wave 10, which may allow more families a course (128.25.10) |
+| Q3 | **Steel, rubber and glass on a cracked tile** | steel at once | **ball-sorting**: steel breaks it soon (keep near top speed), rubber later, glass never by rolling; any landing breaks it for steel and rubber; glass takes one impact (128.25.8) |
+| Q4 | **The defaults** | as written | **fine to start, tuned in play**; a pickup's duration is a field of each placement (128.25.9) |
+| Q5 | **The glass path's hint** | the dithered outline | **the first tile's jagged edge, the rest invisible until rolled onto**; showing a tile just before it is reached is an option to try for slow exploration (128.25.8) |

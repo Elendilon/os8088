@@ -2869,3 +2869,41 @@ the next core type the format reserves room for. Wave 9 started in another
 session the same afternoon; the two sessions trade file and routine lists
 through the owner.
 
+## 2026-11-16 (wave 9, story 9.0: the Y0 search, and a camera guarantee that was luck)
+
+The search itself was small: compile each of the eight alignments as far as
+the merged occluder records and no further, keep the one with the fewest
+records that meets the bounds, then compile it for real. The trap check,
+which is most of PEAK's compile time, runs once. Every play course but BENCH
+and TRIAL chose +4; PEAK's compile went from about 20 s to 26 s, and the
+demos re-stamped without being re-authored, because the identity they are
+checked against is taken with no occluders.
+
+Then the camera check failed, and only on PEAK. Inside a tube the camera
+pans straight to the exit's framing with the heavy rule switched off, so
+the exit has nothing left to do; the tube-exit guarantee says a pan still
+running at the exit is never held back afterwards. That had been MEASURED
+on 22 exits and never built: the heavy rule comes back on at the exit, and
+no heavy frame had ever happened to land in the 90 frames after one. The new
+alignment moved the occluders, so it moved which frames are heavy, and one
+landed one frame after PEAK's cannon exit. The fix makes the guarantee true
+by construction: a pan a tube made fast is never withheld until it ends. It
+costs one byte on each of the camera's two axis records and two instructions.
+
+The pre-aim's own control had been riding on the same luck: switching the
+pre-aim off only ever failed the guarantee through the heavy rule. Measured
+directly, what the pre-aim buys is the pan finished inside the tube: with
+it, 247 camera steps are left in the 90 frames after all the exits across
+every demo and autopilot; without it, 458 (MILL's chute 2 against 32). The
+control now asserts that, and a new one removes the exemption.
+
+Three of the tool's deliberate refusals also leaned on the alignment: two
+lanes sharing blocks, a start window with no calibration corner, and the
+wave 5b byte comparison. They now pin it, and a real course whose best
+alignment a later rule refuses falls back to the next best.
+
+**Tested** (host): `--selfcheck`, `make bonanza`, `bonanza_ring.py
+--check-reds` (both camera arms' models red at their checks, every arm
+assembled), `bonanza_phys.py --check`. **Not yet run**: `bonanzaring`'s
+camera leg on MartyPC, the guest's `BZL_PRE` against the model; it is in
+wave 9's final pass.
