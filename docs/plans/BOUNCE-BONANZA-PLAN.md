@@ -166,6 +166,9 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
     ramp that ends in a drop hole.
   - Each design sheet (wave 11's pipeline, step 1) names its place on
     this curve and the one new demand it makes.
+- *Amended 2026-11-16 (SPEC.md 128.27.5): the budget below was sized for
+  twenty courses on one 360KB disk, and that goal is no longer binding -
+  the owner: "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The budget is reported, never refused.*
 - **CD3. LONGER COURSES.** About **30 s** for the early courses, **60 s**
   for the middle ones and **90 s** for the last few. This is why the
   course format must shrink (wave 5b), and why RAM, not the disk, becomes
@@ -522,6 +525,10 @@ owner's choice after 5b.1 reports the real figures:
 (story 8b.11). The 239 KiB above was sized for twenty; at 18 courses each
 budget would be about 11% looser, and the pinned budgets are not changed
 for that (SPEC.md 128.15.8).*
+
+*Amended by the owner, 2026-11-16 (SPEC.md 128.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The 1.5 x
+refusal is now a reported figure; one disk is no longer the plan's
+requirement.*
 
 The 10.5KB-average and 16KB-maximum budget above was set for today's
 course lengths. 5b.3 re-derives it from the target times.
@@ -1075,6 +1082,7 @@ it, because the current courses are to be dropped as the new ones arrive
 | 9.7 | **The recipe written down**: SPEC.md 128.25.6.8 checked against what 9.5 and 9.6 actually took, corrected | the diary |
 | 9.8 | **BUILT** (2026-11-16, SPEC.md 128.25.10, 128.25.20, 128.25.6.9). **Today's props as families**: ROTOR (the windmill's doorway), SPRING (the POST slot: the bumper stays resident, a clock's collision) and TUBE (the drain, the capture, the transit), all home RESIDENT (the owner: fetched once at the start, the arena's floor, 72 paragraphs); the lift, pads, flags, clocks, signs and the cup resident. Image 46,924 -> 46,372 (-552), bss 0; BONANZA's open +0.9 - 1.1 s, a launch unchanged; MILL's cap waived by 6 bytes. PROVED on the host (unicorn: MILL/MOON/PEAK demos and 39 scenarios, the reds on the parts); SEEN on MartyPC's CGA (MILL's windmill, PEAK's cannon). **At integration (the owner's decision): the RESIDENT BUNDLE** - the three resident parts in ONE row fetched once at the start (SPEC.md 128.25.6.9): image +24 (46,405 -> 46,429), the same 72-paragraph floor, 197 bytes less on the disk, the open 8.87 s (6 reads) against 9.62 - 9.84 s (8) - SEEN on MartyPC's CGA, MILL's demo through its windmill and tubes from the bundle | `bonanzaphys`, `bonanzareplay`, `bonanzawheel`, `bonanzaring`, `bonanzaperf`, `bonanzamega`, `bonanzaexit`, `bonanzademo`, `bonanzagame`, `bonanzacourse` |
 | 9.9 | **The final pass**: the rows of 128.25.13 once, the disks; the owner plays PLAYGROUND's new sections | diary |
+| 9.10 | **Grounded faces** (SPEC.md 128.27; the owner, 2026-11-16, after the variants were priced: the diary's entry). Every face over the void hangs to ONE ground plane a course - its lowest floor less 3 units - instead of 3 units; `float <shape>` keeps today's 3-unit faces where a course means to float (the PLAYGROUND's chamfered platform); refusals for a half, trailing words and a float that floats nothing. Tool-only: no guest code, no grid byte but five PLAYGROUND cells' `OCCG`, `BZ_PHYSV` unchanged. The course budget's 1.5 x line becomes REPORTED, never refused (128.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The three authored demos written again by `bbcourse.py author` (their `ident` lines alone moved) | `--selfcheck` items 14 (the rule, the floating twin, every course; negative controls), 2 (`float`'s refusals), 1 (the cross-commit check with the rule off), 3 (the tube column both looks), 12 (the budget reported), 8R (the re-stamp retired); red arms run by hand on a patched copy; the previews looked at on CGA and Hercules. **BUILT, host-checked**; the rows of 128.27.9 in the final pass |
 
 **Open questions** (SPEC.md 128.25.14): one timed pickup kind a course; the
 lift and the tube; steel and glass on a cracked tile; the defaults; the glass
