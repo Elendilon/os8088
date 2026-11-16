@@ -434,9 +434,11 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     if r_in[shell_row()][0] & OP_FETCHED:
         fails.append("%s: inside the bracket the SHELL part (row %d) is still fetched: it may never share memory "
                      "with a course (SPEC.md 128.19.2)" % (way, shell_row()))
-    if len(c_in) != len(base_claims) - 1 + 1 + len(nb):
+    fan = 1 if g.w("bzs_vseg") else 0          # 8R (SPEC.md 128.22.9): a play of a course with music holds the
+                                                # VICTORY fanfare beside its song (a benchmark and a replay do not)
+    if len(c_in) != len(base_claims) - 1 + 1 + len(nb) + fan:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + 1 + %d "
-                     "balls: %s" % (way, len(c_in), len(base_claims), len(nb), c_in))
+                     "balls + %d fanfare: %s" % (way, len(c_in), len(base_claims), len(nb), fan, c_in))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
