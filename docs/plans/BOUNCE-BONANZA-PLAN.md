@@ -1026,7 +1026,7 @@ final pass once at the end.
 | 8R.3 | **The pathway's loop** (128.22.4.2, 128.22.4.4): `bz_mode` 4 and `bz_follow`; rest, roll, the keys, the gates' and icons' animation, the reveals, the auto-roll after a finish, lives on the counters | `bonanzapath` (rewritten) |
 | 8R.4 | **The finish sequence** (128.22.6): input ignored, clock frozen and flashing, camera held, a goal's fall not killed, the cup's capture, Enter skips, `FIN_STEPS`; timeouts the same | `bonanzaexit`, `bonanzaphys`, `bonanzagame` |
 | 8R.5 | **The cards and the save** (128.22.5, 128.22.6, 128.22.7): INTRO and RESULT removed, the INFO card on Space, `BZS3`'s 80-byte slots, the pathway HELD and its fallback | `bonanzagame`'s hostile set; `bonanzapath` |
-| 8R.6 | **Sounds** (128.22.9): PAD, GATE, LIFE, OVER and the VICTORY tune, speaker and AdLib | `bonanzasound`, `bonanzamusic` |
+| 8R.6 | **Sounds** (128.22.9): PAD, GATE, LIFE, OVER and the VICTORY tune, speaker and AdLib | `bonanzasound`, `bonanzamusic` - **BUILT** (host: the bank, the tune, `bzs_ev`, `bzs_victory`, the selfcheck's checks, renders; NOT heard, NOT yet called by the game or run on a guest) |
 | 8R.7 | **Art** (128.22.8): the crystal route material, the glowing pads, `tools/bbicons.py` and the six courses' icons (placeholders for the owner's) | look boots on the CGA and the Hercules |
 | 8R.8 | **The final pass**: the BONANZA rows once, the disks; the owner plays the path screen | diary |
 

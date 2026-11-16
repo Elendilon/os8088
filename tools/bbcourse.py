@@ -2858,7 +2858,12 @@ def course_song(c, k):
     course song wrapping to 1 (128.20.6's rule, now the tool's)"""
     if c.src.music is not None:
         return c.src.music[0]
-    n = len(song_names())
+    sys.path.insert(0, os.path.dirname(TOOL))   # (8R.6: the fanfare and the attract demo are no course's)
+    try:
+        import bbmusic
+    finally:
+        sys.path.pop(0)
+    n = len([x for x in song_names() if x not in bbmusic.NON_COURSE])
     return 1 if k == 0 else 1 + (k - 1) % (n - 1)
 
 

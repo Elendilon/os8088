@@ -495,6 +495,34 @@ RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boos
             "noflag": "w7: bz_nckpt poked keyed 0", "notick": "w7: 30 seconds left keyed 0"}
 
 
+def shell_static():
+    """wave 8R (SPEC.md 128.22.9), the host half: the shell's four events and the
+    VICTORY tune are wired the way the contract says - the callable routines
+    and the BZS_EV_* names exist, each names its own event, and the generated
+    include's song index is the manifest's"""
+    out = []
+    inc = open(os.path.join(ROOT, "apps", "bonanza", "bzsound.inc")).read()
+    for lab in ("bzs_ev", "bzs_victory"):
+        if not re.search(r"^%s:" % lab, inc, re.M):
+            out.append("bzsound.inc has no %s" % lab)
+    for nm, ev in (("PAD", "ARRIVE"), ("GATE", "GATE"), ("LIFE", "LIFE"), ("OVER", "OVER")):
+        if not re.search(r"^BZS_EV_%s\s+equ\s+BZS_E_%s\b" % (nm, ev), inc, re.M):
+            out.append("BZS_EV_%s is not BZS_E_%s" % (nm, ev))
+    art = R.at("build/bonanza-art")
+    g = os.path.join(art, "bzsnd.inc")
+    if os.path.exists(g):
+        t = open(g).read()
+        v = re.search(r"^BZ_SONG_VICTORY\s+equ\s+(\d+)", t, re.M)
+        ids = [x[:-4] for x in BM.SONGS]
+        if not v or int(v.group(1)) != ids.index("victory"):
+            out.append("bzsnd.inc's BZ_SONG_VICTORY is not victory's index")
+        for e in ("ARRIVE", "GATE", "LIFE", "OVER"):
+            m = re.search(r"^BZS_E_%s\s+equ\s+(\d+)" % e, t, re.M)
+            if not m or int(m.group(1)) != EV[e]:
+                out.append("bzsnd.inc's BZS_E_%s is not the tool's event %d" % (e, EV[e]))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--leg", choices=("spk", "fm", "both"), default="both")
@@ -506,6 +534,11 @@ def main():
             sys.exit(1)
         for line in R.check_reds(REDS, "bonanza_sound"):
             print(line)
+        bad = shell_static()
+        for b in bad:
+            print("bonanza_sound: FAIL - " + b)
+        if bad:
+            sys.exit(1)
         return
     if a.red:
         with tempfile.TemporaryDirectory() as td:
