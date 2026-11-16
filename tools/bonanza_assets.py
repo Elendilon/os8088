@@ -633,11 +633,14 @@ def herc_translate_ball(part, table=None):
 # =============================================================================
 
 BG_BLK = B2_SQOFF
-BG_T, BG_CLO, BG_CHI, BG_O = 0, 2, 34, 66
+BG_NP, BG_CLO, BG_CHI, BG_O = 0, 2, 34, 66
 BG_SQ0, BG_SQ1, BG_STR, BG_SHD, BG_SX = 98, 115, 132, 149, 166
 BG_PRE = 182                       # the prefix the guest copies to scratch
-BG_G = 182                         # the phase table: 8 x 16 words, f-major
-BG_LEN = BG_G + 256
+BG_XR = 182                        # the x side's ranks, 16 x 8 bytes, COLUMN-major: (R' + 1) * BG_PSTR
+BG_YE = BG_XR + 128                # the y side's thresholds, 8 x 16 bytes, fy-major: E' * BG_PSTR
+BG_LEN = BG_YE + 128
+BG_PSTR = 6                        # the guest's mask table: an entry's bytes
+BG_PMAX = 25                       # ...and its entries at most (bz_boxbuf's room)
 V2_CFG = ((2560, 512), (2, None), (21, 16))     # (T, scale) a material
 
 
@@ -664,6 +667,49 @@ def _tex_classes(mat):
             lo, hi, o = lo << 1 | l, hi << 1 | h, o << 1 | q
         clo.append(lo); chi.append(hi); op.append(o)
     return clo, chi, op
+
+
+def rank_tables(mat):
+    """the phase sum's test RANK-CODED (SPEC.md 128.25.5.1): ink at column x of
+    roll phase fx, row j = fy * 16 + r, is G[fx][x] + G[fy][r] < T, which is
+    R'[fx][x] < E'[j] for small integers: R the rank of G among its distinct
+    values, E the count of distinct values under T - G[j]; cuts that split no
+    rank merged; a row whose ink is empty for every fx given E' 0.  Returns
+    (NP, XR, YE): XR = (R' + 1) * BG_PSTR, YE = E' * BG_PSTR (the guest's mask
+    table offsets), NP = the table's entries (K + 2)"""
+    T, G = phase_table(mat)
+    clo, chi, op = _tex_classes(mat)
+    W = sorted(set(G))
+    R = [W.index(g) for g in G]
+    E = [sum(1 for w in W if w + g < T) for g in G]
+    for j in range(128):                           # a row with no ink in any phase
+        tex = clo[j & 15] ^ chi[j & 15]
+        if not any(R[fx * 16 + x] < E[j] and tex >> (15 - x) & 1 for fx in range(8) for x in range(D)):
+            E[j] = 0
+    cuts, prev = [], frozenset()
+    for c in sorted(set(E) - {0}):
+        st = frozenset(i for i in range(128) if R[i] < c)
+        if st and st != prev:
+            cuts.append(c)
+            prev = st
+    def cls(c):                                    # the kept cut equivalent to c
+        if c == 0:
+            return 0
+        st = frozenset(i for i in range(128) if R[i] < c)
+        for k, ck in enumerate(cuts):
+            if frozenset(i for i in range(128) if R[i] < ck) == st:
+                return k + 1
+        return 0
+    Ep = [cls(e) for e in E]
+    Rp = [sum(1 for c in cuts if c <= r) for r in R]
+    for fx in range(8):                            # the recoding is exact
+        for j in range(128):
+            assert all((R[fx * 16 + x] < E[j]) == (Rp[fx * 16 + x] < Ep[j]) for x in range(D)
+                       if (clo[j & 15] ^ chi[j & 15]) >> (15 - x) & 1)
+    np_ = len(cuts) + 2
+    if np_ > BG_PMAX:
+        raise AssetError("%s: %d mask entries, the generator holds %d" % (MAT_NAMES[mat], np_, BG_PMAX))
+    return np_, bytes((r + 1) * BG_PSTR for r in Rp), bytes(e * BG_PSTR for e in Ep)
 
 
 def phase_table(mat):
@@ -703,16 +749,16 @@ def build_ball3(mat):
     """BZB3: BZB2's size, its header, zeros, the block, glass's shatter as is"""
     ref = build_ball2(mat)
     clo, chi, op = _tex_classes(mat)
-    T, tab = phase_table(mat)
+    np_, xr, ye = rank_tables(mat)
     sq0, sq1, st, sh, sx = shape_tables()
     if mat != MAT_RUBBER:
         st = bytes(17); sx = bytes(16)
-    blk = struct.pack("<H", T)
+    blk = struct.pack("<H", np_)
     for pl in (clo, chi, op):
         blk += struct.pack("<16H", *pl)
     blk += sq0 + sq1 + st + sh + sx
     assert len(blk) == BG_PRE
-    blk += struct.pack("<128H", *tab)
+    blk += bytes(xr[fx * 16 + x] for x in range(D) for fx in range(8)) + ye   # (packs 33 bytes better)
     assert len(blk) == BG_LEN
     out = bytearray(len(ref))
     out[:HDR] = ref[:HDR]
@@ -749,11 +795,10 @@ def model_ball3(stored):
     mat = stored[10]
     b = stored[BG_BLK:BG_BLK + BG_LEN]
     w = lambda o: struct.unpack_from("<H", b, o)[0]
-    T = w(0)
     clo = [w(BG_CLO + 2 * i) for i in range(16)]
     chi = [w(BG_CHI + 2 * i) for i in range(16)]
     op = [w(BG_O + 2 * i) for i in range(16)]
-    G = [w(BG_G + 2 * i) for i in range(128)]
+    XR, YE = b[BG_XR:BG_XR + 128], b[BG_YE:BG_YE + 128]
     out = bytearray(stored)
     bh = 0xFFFF if mat == MAT_RUBBER else 0
     qlo = [0] * 16; qhi = [0] * 16
@@ -766,7 +811,7 @@ def model_ball3(stored):
         for r in range(D):
             ink = 0
             for x in range(D):
-                ink = ink << 1 | (G[fx * 16 + x] + G[fy * 16 + r] < T)
+                ink = ink << 1 | (XR[x * 8 + fx] <= YE[fy * 16 + r])
             ink &= clo[r] ^ chi[r]
             lo, hi = clo[r] | ink, chi[r] | ink
             if f == 0:
@@ -854,7 +899,7 @@ def emit_const():
         "BZ_BAL_SIZEG    equ %d     ; glass" % B2_SIZE[2],
         "; BZB3's block (SPEC.md 128.25.5): at the head of the squash slot",
         "BZ_BG_BLK       equ %d" % BG_BLK,
-        "BZ_BG_T         equ %d" % BG_T,
+        "BZ_BG_NP        equ %d      ; byte: the mask table's entries" % BG_NP,
         "BZ_BG_CLO       equ %d" % BG_CLO,
         "BZ_BG_CHI       equ %d" % BG_CHI,
         "BZ_BG_O         equ %d" % BG_O,
@@ -864,7 +909,10 @@ def emit_const():
         "BZ_BG_SHD       equ %d" % BG_SHD,
         "BZ_BG_SX        equ %d" % BG_SX,
         "BZ_BG_PRE       equ %d      ; the prefix copied to scratch" % BG_PRE,
-        "BZ_BG_G         equ %d      ; the phase table (read in place)" % (BG_BLK + BG_G),
+        "BZ_BG_XR        equ %d      ; the x side's ranks (read in place)" % (BG_BLK + BG_XR),
+        "BZ_BG_YE        equ %d      ; the y side's thresholds (read in place)" % (BG_BLK + BG_YE),
+        "BZ_BG_PSTR      equ %d" % BG_PSTR,
+        "BZ_BG_PMAX      equ %d" % BG_PMAX,
         "",
     ]
     return "\n".join(lines)
@@ -1259,10 +1307,16 @@ def selfcheck():
         code = bzballchk.assemble()
         results.append(("negative control: a stored ellipse row changed makes the generated part differ",
                         bzballchk.run(code, bytes(bad)) != a_files["BZBALS.BIN"]))
-        # ...and the ROUTINE broken: the frames' shift no longer wraps at 3
-        broke = bzballchk.assemble(patch=("    and byte [BG_S2], 6\n", ""))
-        results.append(("negative control: bz_ballgen with its frame shift's wrap removed differs, every material",
+        # ...and the ROUTINE broken: the mask table's field no longer steps to its next byte
+        broke = bzballchk.assemble(patch=("    adc di, 0                   ; the field wrapped to the next byte\n", ""))
+        results.append(("negative control: bz_ballgen with its mask table's byte step removed differs, every material",
                         all(bzballchk.run(broke, st3[m]) != a_files[BALL_FILES[m]] for m in range(3))))
+        # ...and the stored rank coding broken: one row's threshold one class higher
+        bad = bytearray(st3[MAT_RUBBER])
+        j = next(j for j in range(128) if 0 < bad[BG_BLK + BG_YE + j] < (bad[BG_BLK + BG_NP] - 2) * BG_PSTR)
+        bad[BG_BLK + BG_YE + j] += BG_PSTR
+        results.append(("negative control: one rank-coded threshold raised a class makes the generated part differ",
+                        bzballchk.run(code, bytes(bad)) != a_files["BZBALR.BIN"]))
     rs = bytearray(a_files["BZBALR.BIN"])              # one stretch frame pixel flipped
     e = B2_STROFF + ((2 * 2) + 1) * ENT                # against its mask: shift 2, parity 1,
     r = 0                                              # row 0's first KEPT slot gains a frame bit
