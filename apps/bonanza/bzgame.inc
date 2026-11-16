@@ -1364,6 +1364,16 @@ bz_exitchk:
     int 16h
     cmp al, 27
     je .leave
+%if BZ_PATH_N
+    cmp al, ' '                 ; wave 8R (128.22.6): Space on the PATHWAY shows
+    jne .nsp                    ; the INFO card (the prototype's: node 0's course
+    cmp byte [bz_crs], BZ_CRS_PATH ; until the pad loop names the pad's)
+    jne .nsp
+    mov al, [bz_path_crs]
+    call bz_kinfow
+    jmp .drain
+.nsp:
+%endif
     cmp ah, BZ_KSC_P            ; P and Backspace TYPED: their presses, for
     jne .bk                     ; bz_kedge (a byte, not an OSAPI_KEY_DOWN a
     mov byte [bz_ptyp], 1       ; frame: SPEC.md 128.14.12)
