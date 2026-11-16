@@ -270693,9 +270693,9 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   is not seen again. The replay is then mode 2's, unchanged. **BUILT**
   (T3.2).
 
-- **The song, as built** (T4.1): `apps/bonanza/music/attract.bmu`, song 6
-  (the manifest's last; PLAY now names `music fairway`, which course 6 had
-  only by course_song's wrap). G major, `groove 6 7` (a 16th of 6.5
+- **The song, as built** (T4.1): `apps/bonanza/music/attract.bmu`, song 7
+  (the manifest's last, after wave 8R's `victory`, 128.22.9; PLAY names
+  `music fairway`, which course 6 had only by course_song's wrap). G major, `groove 6 7` (a 16th of 6.5
   sub-ticks, about 126 BPM), four patterns of 32 rows = 832 sub-ticks, then
   a silent fifth row that `loop` names. `bbmusic.py --selfcheck` checks the
   length and the silence (`ATTRACT_STEPS`; red when the groove is 6 6).
