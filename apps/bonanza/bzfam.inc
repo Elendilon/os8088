@@ -26,7 +26,13 @@ BZ_HK_CONT  equ 2               ; entry is the part's word at 12 + 2b
 BZ_HK_STEP  equ 3
 BZ_HK_POSE  equ 4
 BZ_HK_CELL  equ 5
-%if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZF_HDR != 12 + 2 * 6
+BZ_HK_PROP  equ 6               ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone
+                                ; only, its entry at the part's +24
+BZ_PQ_DRAIN equ 0               ; ...its questions (AH): the TUBE family's step-4
+BZ_PQ_CAPTURE equ 1             ; drain, a capture, step 1's transit; the ROTOR
+BZ_PQ_TRANSIT equ 2             ; family's doorway at step 5
+BZ_PQ_DOOR  equ 3
+%if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZ_FH_PROP != 1 << BZ_HK_PROP || BZF_HDR != 12 + 2 * 6
  %error "bzfam.inc's shifts and the hooks' numbering are the tool's (bbcourse.FSLOT, H_*, FAM_HDR)"
 %endif
 
@@ -228,3 +234,30 @@ bz_ffetch:
 .out:                           ; game round's bracket (SPEC.md 53.7); CF = 1
     pop es
     ret
+
+%if BZ_FHMASK
+; -----------------------------------------------------------------------------
+; bz_fhome - the RESIDENT families' parts (SPEC.md 128.25.6.9), each a family
+; row whose BZ_FHMASK bit (ID - 1) is set, fetched ONCE, from bz_entry before
+; anything else enters the arena, so they are its floor for the package's life:
+; bz_ffetch's own op_fetch of them is then a no-op and bz_cdrop never drops
+; them.  A refused fetch (op_fetch said why) is left to the first course that
+; names the family, which fetches it then.  DS = ours.  Clobbers AX - DI, ES.
+; -----------------------------------------------------------------------------
+bz_fhome:
+    mov bx, BZ_FHMASK
+    mov al, BZ_P_FAM
+.f:
+    shr bx, 1
+    jnc .n
+    push ax
+    push bx
+    call op_fetch
+    pop bx
+    pop ax
+.n:
+    inc ax
+    or bx, bx
+    jnz .f
+    ret
+%endif

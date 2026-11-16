@@ -4223,10 +4223,10 @@ def shell_part(td, src, art, binp):
 
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
-    8b, 128.19.5) and the title's two (SPEC.md 128.23), where SRC's package
-    carries them"""
+    8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
+    one a family, where SRC's package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
 
 
 def fam_parts(td, src, art):
@@ -4290,8 +4290,19 @@ def check_reds(reds, label):
             except AssertionError as e:
                 raise AssertionError("%s --red %s: %s" % (label, name, e))
             assemble(src, art, os.path.join(td, "bonanza.bin"))
-            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes)" % (
-                label, name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
+            fp = sorted({f for f, _o, _n in patches if f.startswith("fam/")})
+            for f in fp:                        # story 9.8: an arm whose code is a FAMILY PART's - each
+                fams = [n["name"] for n in BB.FAMILIES]     # part that includes the patched file assembled,
+                for nm in fams:                 # against this build's bzlink.inc (the package is the same)
+                    pa = os.path.join(src, "fam", nm + ".asm")
+                    if f != "fam/%s.asm" % nm and '"%s"' % f not in open(pa).read():
+                        continue
+                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                                    src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
+                                   cwd=ROOT, check=True)
+            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
+                label, name, os.path.getsize(os.path.join(td, "bonanza.bin")),
+                ", and its family part" if fp else ""))
     return out
 
 
