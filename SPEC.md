@@ -276527,7 +276527,9 @@ code selector the far call needs), checks `'BF'`, the ID and `FAMV` against
 the course's (a course compiled against other rules) and the image stamp
 against DS:8 / DS:10 (`cmpsw` twice), and on any mismatch refuses the launch
 with the toast `Bonanza: bad part` (the shell part's, now shared) before any
-call; then it ORs the mask into `bz_fhk` and counts `bz_fnf`. Its slot record
+call - said through `op_say`, so OP_SAYGATE (`bz_fs`) holds it quiet when the
+fetch is a game round's inside the bracket (SPEC.md 53.7), as op_fetch's own
+refusals are; then it ORs the mask into `bz_fhk` and counts `bz_fnf`. Its slot record
 (`bz_frec`, 6 bytes a slot) is the two segments and the listed ID / `FAMV`.
 **No kind table**: `bz_fone` finds an element's family by each fetched
 part's own run of kinds (+9, +10), three compares at most, so `BZ_FKMAX`
@@ -276545,7 +276547,7 @@ are chosen OUTSIDE the routines 128.24's D3 changes (128.25.2).
 
 | bit | hook | when | its site (none of them D3's) | what it may do |
 |---|---|---|---|---|
-| 0 | `RESET` | play start (also a replay's and a retry's), a respawn, with the class in AH (128.25.7) | `bz_pinit` (play) and `.respawn` (`bz_step`'s, after `bz_place`) | clear its slot, its elements' state bits by class |
+| 0 | `RESET` | play start (also a replay's and a retry's), a respawn, with the class in AH (128.25.7) | `bz_pinit` (play) and `.resp` (`bz_step`'s, BEFORE the place: the sites table below) | clear its slot, its elements' state bits by class |
 | 1 | `ENTER` | the ball's centre enters an element's cell, grounded or airborne (AH bit 0 = airborne) | `bz_wtail`, after the window's refill, when the centre's owner changed | set state bits; start a timer in its slot |
 | 2 | `CONTACT` | the centre is in an element's cell this step (today's `bz_prule` site for kinds at or above `BZ_PK_CKPT`) | `bz_prule`'s kind dispatch: a family kind goes to the hook | as a prop rule today: forces, `gvz`, the material, an exit |
 | 3 | `STEP` | every physics step while the family is active | `.count` (the step's timer block) | count its timers down, wear a pickup off, crack a tile through |

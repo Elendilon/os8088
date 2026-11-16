@@ -3167,7 +3167,7 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; width (the padding is the erase, SPEC.md 6.1), and only the 2px gaps between
 ; lines and the strip under the last one are filled: no pixel is written
 ; twice.  The lines are built in bz_lbuf.  MAIN's thirteen are a builder each
-; (bz_frec), so a key redraws exactly the lines it changed (bz_redraw); the
+; (bz_ftab), so a key redraws exactly the lines it changed (bz_redraw); the
 ; RESULTS page is drawn whole and left by the next key.  EVERY LINE FITS THE
 ; CGA's 42 CELLS (128.14.17 item 2): each builder's widest output - its
 ; strings, which BZS measures, and its fields at their widest - is asserted
