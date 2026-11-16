@@ -9835,7 +9835,8 @@ def build_title_demos(tc, demo_dir=None):
 # The title demos' AUTHOR scripts (SPEC.md 128.23.3), the owner's four films
 # (docs/plans/BOUNCE-BONANZA-TITLE.md), played on the model by `tauthor`:
 #   ("wait", n)          n steps, no key
-#   ("to", cells)        the autopilot through the tiles' points, slowing to rest at the last
+#   ("to", cells)        the autopilot through the tiles' points, slowing to rest at the last (a
+#                        FRACTIONAL point, (16.3, 8.99), is that spot of its cell's floor: an edge to run on)
 #   ("go", cells)        the same, not slowing: on to the next verb at the last point's reach
 #   ("until", ev, cells) the autopilot through the points until the model's event EV
 #   ("off", cells)       the autopilot through the points until the ball leaves the glass
@@ -9871,15 +9872,18 @@ TITLE_AUTHOR = {
                    ("wait", 124), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
                    ("until", "shatter", ((15, 9), (15, 11)))]},
     4: {"what": "the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto "
-                "LC, on along the front and off the bottom right into the hidden tube, out on UR, two circles of "
-                "it and straight into the windmill, out of its doorway in the pillar's +x face, a Hop and a boost "
-                "and bouncing off the bottom right again (the owner's red path, 2026-11-16)",
+                "LC, on along the front and off the bottom right into the hidden tube; out on UR, a run at the "
+                "back rail and a Hop and boost - its highest bounce, well short of the rail's top - back off the "
+                "rail, round the right end, along UR's front edge as close as it dares and straight into the "
+                "windmill, out of its doorway in the pillar's +x face, a Hop and a boost and bouncing off the "
+                "bottom right again (the owner's red path and notes, 2026-11-16)",
         "ball": "rubber", "at": (5.5, 14.0, 70), "vel": (384, -60, 200), "air": 1, "respawn": (23, 16),
-        "expects": (("capture", 3), ("boost", 1)),
-        "script": [("keys", 0, 100), ("until", "capture", ((19, 11), (23, 11))), ("go", ((17, 7),)),
-                   ("go", ((16, 8), (15, 7), (16, 6), (17, 7), (16, 8), (15, 7), (16, 6), (17, 7), (16, 8))),
-                   ("press", "LU", "capture"), ("until", "exit", ((14, 11),)), ("hop", ((19, 11),)), ("boost",),
-                   ("off", ((20, 11),))]},
+        "expects": (("capture", 2), ("boost", 2)),
+        "script": [("keys", 0, 100), ("until", "capture", ((19, 11), (23, 11))), ("go", ((16.5, 8.4),)),
+                   ("go", ((16.3, 7.0),)), ("hop", ((16.2, 5.0),)), ("boost",), ("wait", 96),
+                   ("go", ((17.4, 6.7), (17.5, 8.4), (17.0, 8.99), (16.3, 8.99), (15.6, 8.99), (15.2, 8.6))),
+                   ("press", "LU", "capture"),
+                   ("until", "exit", ((14, 11),)), ("hop", ((19, 11),)), ("boost",), ("off", ((20, 11),))]},
 }
 
 
@@ -9924,10 +9928,16 @@ def title_author(c, spec):
         bx, by = p.bx >> 8, p.by >> 8
         return bx + 16 > x0 and bx < x1 and by + 16 > y0 and by < y1
 
+    def point(t):
+        cell = (int(t[0]), int(t[1]))
+        if cell in c.tiles:         # (a fractional point: its cell's floor, moved within the cell -
+            u, v = t[0] - cell[0] - 0.5, t[1] - cell[1] - 0.5   # an edge to run along)
+            x, y = _way_point(c, cell)
+            return (int(round(x + 16 * (u - v))), int(round(y + 8 * (u + v))))
+        return (16 * (t[0] - t[1]) + c.x0 - 8, 8 * (t[0] + t[1]) - 5 + c.y0)    # (a void tile: height 0)
+
     def aim(cells):
-        p.route = [_way_point(c, tuple(t)) if tuple(t) in c.tiles else           # (a void tile: its
-                   (16 * (t[0] - t[1]) + c.x0 - 8, 8 * (t[0] + t[1]) - 5 + c.y0)   # point at height 0)
-                   for t in cells]
+        p.route = [point(t) for t in cells]
         p.wp = 0
     try:
         _title_verbs(spec, d, p, c, keys, marks, step, onglass, aim)

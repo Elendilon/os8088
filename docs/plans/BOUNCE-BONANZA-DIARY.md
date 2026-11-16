@@ -2718,3 +2718,25 @@ pause on UR that keeps its shatter near the end.
 --check`, and `bonanzatitle` PASS on CGA (it drew the new demo 4, the guest
 equal to the model at its end, one full write) and Hercules (demo 3). One
 boot to look: the plaque, the label and the arch on MartyPC's CGA.
+
+## 2026-11-16 (the title screen, round 3b: something to do on UR)
+
+The owner liked demo 4 but found the two circles of UR dull, and asked
+for ideas. The one taken was theirs: the ball makes a run at the back rail
+and boosts, its HIGHEST bounce, and still falls short. A boosted bounce
+off UR rises 9 px; the rail's top is 24 px up, so the miss reads at once.
+Then it comes back round the right end and runs along UR's front edge,
+hanging over the drop, and goes smoothly into the windmill. The behind-the-
+ramp loop was turned down: the strip behind the ramp exists but cannot be
+seen from this view, and the spring back up is demo 1's.
+
+The edge run needed the authoring tool to aim at a point INSIDE a cell, not
+only at its centre: `(16.3, 8.99)` is that spot of the cell's floor. With
+the centre-only points the autopilot cut the corner and the ball never came
+closer than 0.6 tile to the edge. With points on the edge it runs with its
+centre 0.1 tile from it. The pause after the boost and the route were swept
+again against the windmill's blades, keeping only runs with no bump.
+
+**Tested**: the build's demo checks (every expect), and demo 4 on MartyPC's
+CGA, found on the seventh title round: the guest's end equal to the model's,
+one full write.
