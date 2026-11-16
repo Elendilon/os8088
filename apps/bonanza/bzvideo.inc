@@ -913,12 +913,14 @@ bz_boxc:
 ; only).  Bit 1, on ODD frames ([bz_frames] bit 0): the FLASH - the ball
 ; DITHERED, its mask ORed with a checker by line and ANDed into the box (bz_blit's
 ; dither door, BX = -1): the ball's own pixels go to black on half the checker,
-; the box round it untouched.  Bit 0: three SPARKLES, pixels ORed into the box
+; the box round it untouched.  Bit 0: three SPARKLES, pixels XORed into the box
+; (ORed was the plan: SEEN on the CGA's palette 0, ink 3 ORed onto a yellow tile
+; is the tile, so half the sparkles vanished; XOR changes every pixel it meets)
 ; at (px + dx, py + dy) for entries n, n + 3 and n + 5 of bz_spk (n = frames / 4
 ; mod 8) - each outside the 16 px silhouette and inside the sprite's own rows
 ; and columns (dx 0 - 16 is inside its 5 bytes at every shift), clipped to the
 ; box.  Inks and the checker per card: the CGA ink 3 and 33h / CCh (a pixel
-; is two bits), the Hercules one lit dot and 55h / AAh (a pixel is a mono pair).
+; is two bits), the Hercules one dot and 55h / AAh (a pixel is a mono pair).
 ; DS = ES = ours.  Clobbers AX, BX, CX, DX, DI, BP.
 ; -----------------------------------------------------------------------------
 bz_cued:
@@ -990,7 +992,7 @@ bz_cued:
     add ax, [si + 8]
     xchg ax, di
     pop ax
-    or [di], al
+    xor [di], al
     jmp short .n
 .np:
     pop ax

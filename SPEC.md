@@ -277527,6 +277527,43 @@ What story 9.6 proves by following it for PICKUPS after GLASS:
 6. Its `FAMV`, recorded by the tool, and the SPEC.md row in 128.25.8 -
    128.25.10's form.
 
+**What PICKUPS found following it (story 9.6, against each step):**
+
+1. *The row* was right, and not enough: (a) the **IDs must be 1 - n with
+   no gap** (the tool asserts it; the guest's row is `BZ_P_FAM + ID - 1`),
+   so a family built beside another one's reserved ID cannot build alone -
+   PICKUPS carried ID 2 on its branch and its part takes the ID from a
+   generated equate, `BZ_FID_<NAME>`, so the renumbering at integration is
+   one edit; (b) a family with CONSTANTS needs them in its `FAMV` (the row's
+   `consts`, folded by `famv`), or a retune moves no identity; (c) a family
+   whose elements carry FIELDS (+18 - +31) needs its own element syntax in
+   `_parse_fprop`, the record's packing, and the reader's acceptance - three
+   places the recipe did not name.
+2. *The model* was right; what it did not say is that a family that changes
+   PHYSICS needs WORKING values the step reads, and that the model reads the
+   material as a SHARED dict (`MATERIALS[mat]`), which a hook must never
+   write: PICKUPS added `Physics.wacc`, `vup` and `hop` beside `m`, and the
+   step's reads of them (step 2's forces and clamps, a post's kick clamp,
+   the two Hop reads).
+3. *The art* had no generic form: every lane kind was special-cased in the
+   compile (`_pennant`). PICKUPS added the art `"icon"` (pose 0 nothing,
+   pose 1 a 7 x 8 icon over the cell, no pole), riding the pennant's
+   lane path; a third family with art will want a real table of art kinds.
+4. *The guest* missed the RESIDENT half: a family that changes physics or
+   draws a cue needs engine bytes (128.25.19: 374), and "a part may not call
+   the package" means anything the engine already does (`bz_ramp`) is
+   written again in the part. The unicorn harness (`UGuest`) fetched ONE
+   family part; a course naming two needs `op_seg` to answer by row (built).
+5. *The proofs* missed two things: the REACH with the family's effect (no
+   step said where it goes: PICKUPS takes a second `build_reach` and unions
+   it outside, 128.25.19), and that a family on PLAYGROUND re-identifies its
+   demo (re-authored with `bbcourse.py author`; the runs were unchanged).
+6. *The FAMV* step was right.
+
+And one the recipe never reached: a DISPLAY effect (a cue drawn every frame)
+meets the frame's IDLE test (128.11.10.4): a ball at rest draws no box, so a
+cue on it froze until `bz_mkboxes` learned `bz_cue` (+8 bytes).
+
 #### 128.25.7 Per-play state and resets (story 9.2)
 
 ##### 128.25.7.1 The reset classes
@@ -277678,7 +277715,18 @@ touch rule ships first.
 commit is a contact-box frame (128.12.4.2) at the crack and at the break;
 the STEP hook only while a crack is counting.
 
-#### 128.25.9 PICKUPS, the second family (story 9.6)
+#### 128.25.9 PICKUPS, the second family (story 9.6) (BUILT)
+
+**BUILT (story 9.6)**, as below with the detail and the measurements in
+128.25.19. What the build changed in this contract: the speed's top is the
+cap raised (`BZ_VMAXG` + `PU_SVUP`, a word `bz_vup` the step's clamp adds)
+and its acceleration every surface's force raised (`bz_wacc`, which
+`bz_ramp` adds); the jump's Hop is 400 for any ball (rubber's 252 raised);
+the sparkles are XORed, not ORed (SEEN: ORed ink 3 vanished on palette 0's
+yellow tiles); the ball's box is drawn on every frame a cue shows, a ball at
+rest included (the idle test, 128.11.10.4, learns `bz_cue`); and the cost
+is MEASURED at about 1.8k clk a call for the sparkles and 6.1k on a flash
+frame, not the 150 - 300 predicted below.
 
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
@@ -277769,7 +277817,7 @@ selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
 | per-play state `bz_fst`, slots | about 60 (the class clears) | `BZ_FSTMAX` / 8 + 3 x `BZF_SLOT` (about 64) | 0 | 0 |
 | the arena in `os88parts.inc` | about 250 - 400 (assembled only with `OP_WANT_ARENA`) | about 10 | 0 | 0 |
 | the ball generator V1 + V2 | about 410 (the report's) | 0 | 0 | balls -3 to -4KB packed (LZB, MEASURED by the story) |
-| sparkles and the flash | about 120 - 200 | 2 | +0.15 - 0.3k while a pickup lasts | 0 |
+| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 374 the whole story, 128.25.19) | 2 (BUILT: 11) | +0.15 - 0.3k while a pickup lasts (MEASURED: 1.8k a box a frame, 6.1k on a flash frame) | 0 |
 | GLASS, PICKUPS | 0 (parts) | 0 | a contact-box frame per crack, break or collection | about 0.3 - 0.5KB packed each |
 | props moved out (9.8) | about -1.3 to -1.6KB (WINDMILL, BUMPER, SPRING, TUBE) | 0 | +0.1k a far call per active hook | their parts |
 
@@ -277880,6 +277928,134 @@ that clears it, the probe entered again) - the ball, `bz_fst`, the slots,
 PEAK's demos with no family; the red arms `famcell` (the CELL entry 0: the
 window parts at 737, the refill after the ENTER) and `famrsp` (`bz_frst` not
 called: `bz_fst` parts at the RETURN) go red there.
+
+#### 128.25.19 PICKUPS as built (story 9.6)
+
+The second family, built by the recipe (128.25.6.8, with what it found).
+`apps/bonanza/fam/pickups.asm` is the part, `bbcourse.PickupFamily` the
+model. Figures MEASURED unless marked.
+
+**The row.** ID **2 on its branch** (the lead renumbers it 3 at integration
+with GLASS: the part assembles its ID from `BZ_FID_PICKUPS`), kinds **19
+hourglass, 20 speed, 21 jump** (one run), hooks RESET, CONTACT, STEP and
+POSE, a 6-byte slot, one state bit an element (COLLECTED), the art `icon`,
+every kind `pickup`. Its constants are in its `FAMV`:
+
+| constant | value | what |
+|---|---|---|
+| `PU_HGSEC` | 10 | the hourglass's seconds on `bz_tsec` |
+| `PU_SACC` | 2 | speed: added to every force table's force (`bz_wacc`) |
+| `PU_SVUP` | 64 | speed: added to the cap (`bz_vup`): 384 to 448, 1.75 px a step |
+| `PU_JHOP` | 400 | jump: the Hop for any ball - apex 13.8 px alone, 18.0 with rubber's boost stacked on its contact |
+| `PU_WARN` | 55 | the FLASH's steps (`SEC_STEPS`, about 1 s) |
+| `PU_DUR` | 69 | the default duration, steps / 4 (5 s) |
+
+**The elements.** `prop hourglass <wx> <wy>`; `prop speed|jump <wx> <wy>
+[for <seconds>] [overwrite]`: +18 the duration (steps / 4, 1 - 255, 0.07 -
+18.5 s), +19 bit 0 OVERWRITE (taking this one ends the OTHER timed effect).
+The class is the kind's (hourglass ATTEMPT, the timed two RESPAWN), so no
+`reset`. Refused (`--selfcheck` item 2): an hourglass with `for`, a duration
+outside the byte, a `reset`, a word of no meaning, a pickup off a flat floor.
+
+**The hooks** (the part, step for step the model):
+
+| hook | what |
+|---|---|
+| CONTACT | an element whose bit is clear is TAKEN - bit set, lane marked, `bz_nfev` counted (the sound) - except an hourglass while `bz_tsec` is 0 (no limit: exploration, the benchmark), which is HIDDEN. Hourglass: `bz_tsec` += 10. Speed: its timer (slot +0) = 4 x +18, `bz_wacc` = 2, `bz_vup` = 64, both force tables rebuilt. Jump: its timer (+2); the Hop it replaces kept at +4 when no jump runs, `bz_mrec`'s HOP = 400. OVERWRITE ends the other first |
+| STEP | each running timer counted down, its effect ended at 0 (the speed: `bz_wacc`, `bz_vup` 0, tables rebuilt; the jump: the kept Hop back); a running jump's Hop written again after a pad's swap (`bz_setmat` copies the material's - the copy kept as the one to put back); then `bz_cue` = bit 0 while either runs, bit 1 while either has `PU_WARN` steps or fewer left |
+| RESET | both effects ended (only those running: a play's start finds the slot zero), `bz_cue` 0, every pickup's lane marked |
+| POSE | 1 the icon; 0 gone (COLLECTED, or an hourglass with no limit) |
+
+**The resident half** (the step reads WORKING values; a family sets them,
+the RESET restores them; none is in `bz_step`'s routines but the clamp):
+
+| | where | bytes |
+|---|---|---|
+| `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
+| `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick) | 0 (the same 19 bytes, one more instruction: about +25 clk a call, two to four a step) |
+| the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
+| the CUE | `bz_cued` (bzvideo.inc), from `bz_boxc` after the ball's sprite when `bz_cue` is not 0: on odd frames (`bz_frames` bit 0) under bit 1, the FLASH - `bz_blit`'s dither door (BX = -1): the box ANDed with the ball's mask ORed with a checker by line (`bz_chk`: the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), so the ball's own pixels go black on half the checker; under bit 0, three SPARKLES - entries n, n + 3, n + 5 of an 8-entry table of (dx, dy) outside the 16 px silhouette and inside the sprite's own rows and columns (n = frames / 4), each XORed into the box (the card's pixel masks), clipped to it | about 300 |
+| the idle test | `bz_mkboxes`: a frame is not idle while `bz_cue` is set or was last frame (`bz_ocue`), so the sparkles move and the flash alternates on a ball at rest, and the frame after the last takes them off | +8 |
+| the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
+
+**The image 47,298 bytes (+374 on 46,924), the bss 10,981 (+11)**: `bz_vup`,
+`bz_nfev`, `bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2,
+`bz_ocue` 1, `bzs_lfev` 2. Budgets +400 / +24: met. **The part 485 bytes,
+424 packed** (no zero padding: it packs).
+
+**The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and
+`_herc_gla`, PLAYGROUND, the ball rolled into the speed; `bz_cued` entry to
+its return off the cycle counter): **1,829 - 1,838 clk a call** with the
+sparkles (both cards), **6,077 - 6,086 on a flash frame** (the dither blit),
+1,876 on the flash's other frames; one call a box the ball's group draws,
+so about 1.8k a frame while an effect runs and about 4k a frame averaged
+over its last second - against 128.25.12's predicted 0.15 - 0.3k, which
+priced the pixels and not the clipping. On a ball AT REST a cue also costs
+the ball box's compose every frame (the idle test above). With no pickup
+the price is not 0: one byte test a box (`bz_cue`), an untaken `js` in each
+of `bz_blit`'s two doors, about 20 clk in the idle test, `add ax, [bz_nfev]`
+once a frame, and the clamp's +25 clk a call: PRICED about 0.1 - 0.15k a
+frame, every course.
+
+**The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
+each timed kind a course places, `build_reach` is taken again with its
+raised values - the jump at `_hopmax = PU_JHOP` (its contact's boost, round
+3b's add, stacks inside it up to `VZMAX`), the speed with the module's
+`VMAXG` raised by `PU_SVUP` round the call - and each cell inside the
+effect's REGION (Chebyshev, the duration's travel at 448 plus one, of an
+element of that kind) takes the higher `zhi`. A course placing both kinds,
+any of them not `overwrite`, takes ONE reach with both raised over both
+regions (the pair can be held at once); every one `overwrite`, each alone.
+A bound's refusal on a course whose pair was taken together says to
+separate them or mark them `overwrite` (`_pairnote`). On a firm level
+floor rubber's boosted bounce chain already reaches `VZMAX`'s cap in the
+reach, so a jump raises nothing there (the owner's "bounded only by
+`VZMAX`"); `--selfcheck` item 6 proves the union on a sand course, where it
+raises 148 cells, and its red arm `nopickreach` raises none. Every finish
+with no pickup: 128.25.7.3's `nopick`, unchanged.
+
+**PLAYGROUND's yard.** Off FF's left edge at FF's level (`floor rect 3 24 10
+30 flat 4`), with the hourglass (4, 28), a speed for 3 s (7, 25) and a jump
+for 3 s (8, 28) - short, so the regions stay off the step ladder's rungs -
+and behind it the RIDGE (`floor rect 3 19 7 24 flat 6`), 2 units up: over a
+Hop and over rubber's boost (the ladder's "nobody's" height), under the
+jump's Hop (13.8 px and the 4 px climb) and well under the jump with the
+boost stacked (18.0). The model's sweep from the yard (Hop points every 8
+gu, three speeds): no landing on it without the jump, four with it. No
+trap: its edges are open. The demo's runs are unchanged; its identity moved
+(6899h -> 222Ch, re-authored).
+
+**The proof** (`tests/bonanza_phys.py --check`, the unicorn half): the
+guest's `bz_step` with BOTH parts fetched (probe and pickups: `UGuest`'s
+`op_seg` answers by row) equals the model at every step of PLAYGROUND's
+demo, the probe scenario and the PICKUPS scenario, 1,504 steps steered on
+the model from the start: the speed (488), a sprint past the cap to 389
+(544), the jump (651), a Hop with rubber's boost stacked onto the ridge
+(850), both worn off (1055), the hourglass (1112), a RETURN (the hourglass
+stays, the timed two come back), the speed again and the jump while it runs
+(99 steps of it left), a RETURN while both run, the jump a third time, worn
+off - the ball, `bz_fst`, the slots, `bz_fref`, the window, every element's
+POSE, and `bz_wacc`, `bz_vup`, the Hop, `bz_cue`, `bz_nfev`, `bz_fta`,
+`bz_tsec`. Red arms, each red there: `pustep` (STEP entry 0: the slot parts
+at 487), `purst` (RESET entry 0: the slot parts at the RETURN while both
+run, 1287), `puvup` (the clamp's `add dx, [bz_vup]` NOPs: the ball parts in
+the sprint, 543).
+
+**SEEN** (one look, `~/Repos/w9-logs/pickups-look.py`, CGA and Hercules):
+the icons on the yard; the speed taken (slot, `bz_wacc`, `bz_vup`, `bz_cue`
+1); the sparkles on the CGA; the dithered ball on a flash frame on both
+cards; the cue off when the effect wore off. On the Hercules the single-dot
+sparkles are not distinguishable from the dithered ground in the captures.
+**Not covered by a scenario**: a pad's swap under a running jump (the STEP
+hook's re-write is code both sides carry, but nothing drives it); the
+PICKUP sound on the glass.
+
+**Rows**: `bonanzaphys` (the unicorn scenario and its red arms; a MartyPC
+`pickups` replay registered beside the probe's), `bonanzacourse`
+(`--selfcheck` items 2, 3, 6), `bonanzasound` and `bonanzamusic` (the
+`PICKUP` event), `bonanzaperf` (the cue's frames), `bonanzareplay`,
+`bonanzademo`, `bonanzagame` (PLAYGROUND's re-authored demo), `bonanzamega`
+(two family parts in the arena).
 
 ### 128.26 The window (the owner's brief, 2026-11-16)
 

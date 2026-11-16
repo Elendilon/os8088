@@ -457,6 +457,7 @@ VAR bz_ur,8                     ; bz_union's
 VAR bz_gr,32                    ; the frame's box rects, before the clip
 VAR bz_nbox,2
 VAR bz_opx,2                    ; the ball's px, py last frame (the idle test)
+VAR bz_ocue,1                   ; wave 9: bz_cue last frame (the idle test)
 VAR bz_opy,2
 VAR bz_boxp,2                   ; bz_addbox: the next box's record in bz_boxes
 VAR bz_sgr,2                    ; bz_mkboxes: the shadow group's first rect in bz_gr
@@ -3287,7 +3288,11 @@ bz_mkboxes:
 .s1:
     xor ax, dx
     or bp, ax
-    mov al, [bz_ctype]          ; ...and no contact group: a frame with one
+    mov al, [bz_cue]            ; ...and no CUE this frame or last (wave 9,
+    mov ah, al                  ; SPEC.md 128.25.19: the sparkles move and the
+    xchg ah, [bz_ocue]          ; flash alternates on a ball at rest, and the
+    or al, ah                   ; frame after the last takes them off)
+    or al, [bz_ctype]           ; ...and no contact group: a frame with one
     or al, [bz_hidn]            ; is never idle (SPEC.md 128.12.4.3), nor a
     cbw                         ; hidden ball's, whose capture frame restores
     or bp, ax                   ; the footprint it was drawn in (128.12.6.1)

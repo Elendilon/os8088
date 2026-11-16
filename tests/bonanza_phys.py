@@ -1054,10 +1054,10 @@ def _pu_t(p):
 
 def pickup_keys():
     """THE PICKUPS SCENARIO on PLAYGROUND's yard (SPEC.md 128.25.19), steered on the model from the start:
-    the SPEED taken, a sprint past BZ_VMAXG under it (the raised cap), the JUMP taken while the speed runs
-    (both at once), a Hop with rubber's boost STACKED on its contact onto the 2-unit RIDGE, off it and both
-    worn off, the HOURGLASS (+10 s), a RETURN (the ATTEMPT hourglass stays taken, the RESPAWN two come
-    back), the speed again and a RETURN while it runs, the jump again worn off.  -> (keys, [(mark, step)])"""
+    the SPEED taken, a sprint past BZ_VMAXG under it (the raised cap), the JUMP, a Hop with rubber's boost
+    STACKED on its contact onto the 2-unit RIDGE, off it and both worn off, the HOURGLASS (+10 s), a RETURN
+    (the ATTEMPT hourglass stays taken, the RESPAWN two come back), the speed again and the jump while it
+    runs (both at once), a RETURN while both run, the jump a third time, worn off.  -> (keys, [(mark, step)])"""
     c = R.course("play")
     p = BB.Physics(c, play=True, mat=BB.MAT_RUBBER)
     keys, marks = [], []
@@ -1069,7 +1069,7 @@ def pickup_keys():
     _pu_goto(p, keys, 21, 25, vmax=BB.VMAXG + BB.PU_SVUP, until=lambda q: abs(q.gvx) > BB.VMAXG)
     marks.append(("past the cap (%d)" % abs(p.gvx), len(keys)))
     _pu_goto(p, keys, 8, 28, vmax=BB.VMAXG, until=lambda q: _pu_t(q)[1])
-    marks.append(("jump with the speed (%d steps of it left)" % _pu_t(p)[0], len(keys)))
+    marks.append(("jump", len(keys)))
     _pu_goto(p, keys, 5, 28, vmax=200)
     hopped = armed = None
     for i in range(300):
@@ -1099,12 +1099,16 @@ def pickup_keys():
     marks.append(("RETURN", len(keys)))
     _pu_goto(p, keys, 7, 25, until=lambda q: _pu_t(q)[0])
     marks.append(("speed again", len(keys)))
-    for _ in range(40):
+    _pu_goto(p, keys, 8, 28, until=lambda q: _pu_t(q)[1])
+    if not _pu_t(p)[0]:
+        raise AssertionError("the speed ran out before the jump was taken: not both at once")
+    marks.append(("jump with the speed (%d steps of it left)" % _pu_t(p)[0], len(keys)))
+    for _ in range(20):
         keys.append(0)
         p.step(0)
     keys.append(BB.K_RET)
     p.step(BB.K_RET)
-    marks.append(("RETURN while it runs", len(keys)))
+    marks.append(("RETURN while both run", len(keys)))
     _pu_goto(p, keys, 8, 28, until=lambda q: _pu_t(q)[1])
     marks.append(("jump again", len(keys)))
     for _ in range(4 * 41 + 20):
@@ -1124,9 +1128,9 @@ def pickup_ok(p, marks):
 
     def bit(pr):
         return p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7) & 1
-    return (len(marks) == 11 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
+    return (len(marks) == 12 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
             and _pu_t(p) == (0, 0) and p.hop == BB.MATERIALS[BB.MAT_RUBBER]["HOP"] and not p.wacc and not p.vup
-            and p.nfev == 5 and p.nboost >= 1)
+            and p.nfev == 6 and p.nboost >= 1)
 
 
 # the unicorn half (--check): bz_step itself, on the host, against the model -------
