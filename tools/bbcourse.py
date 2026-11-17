@@ -12748,6 +12748,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_PK_BUMPER    equ %d" % PK_BUMPER,
               "BZ_PK_PLATFORM  equ %d" % PK_PLATFORM,
               "BZ_PF_LANE      equ %d        ; record +1: the record has a lane" % PF_LANE,
+              "BZ_PF_GRP       equ %d        ; ...a GROUP MEMBER: no lane, +8 - +15 its group lanes (SPEC.md 128.31.4)" % PF_GRP,
               "BZP_KIND        equ 0        ; record fields",
               "BZP_FLAGS       equ 1",
               "BZP_WX          equ 2        ; the anchor cell",
