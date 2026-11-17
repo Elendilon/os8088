@@ -308,7 +308,7 @@ def nshatter(mat):
 
 def pop_frame(k):
     """rubber's POP frame k (1 - 3; SPEC.md 128.38), {(x, y): index} in footprint slots x = -2 .. 17: 1 the BURST
-    (the skin torn into eight jagged shreds round a white flash), 2 the SHREDS flung out and falling, 3 the
+    (the skin torn into six jagged shreds round a white flash), 2 the SHREDS flung out and falling, 3 the
     SKIN, a crumpled magenta rag on the ground.  Every piece gets its black ring at the entry (_ring_slots)"""
     out = {}
     cx, cy = 7.5, 7.5
@@ -318,16 +318,16 @@ def pop_frame(k):
                 dx, dy = x - cx, y - cy
                 r = math.hypot(dx, dy)
                 a = math.atan2(dy, dx)
-                if 4.6 <= r <= 7.4 and math.cos(8 * a) > -0.2:
-                    out[(x, y)] = MAG if r > 5.4 else WHT
-                elif r < 2.6 and (abs(dx) < 0.8 or abs(dy) < 0.8):
+                if 3.6 <= r <= 7.9 and math.cos(6 * a) > -0.35:
+                    out[(x, y)] = WHT if r < 4.6 else MAG
+                elif r < 2.2 and (abs(dx) < 0.8 or abs(dy) < 0.8):
                     out[(x, y)] = WHT
         return out
     if k == 2:
-        for i in range(8):
-            a = math.pi * (i + 0.5) / 4
-            px, py = cx + 8.0 * math.cos(a), cy + 6.0 * math.sin(a) + 2
-            for ddx, ddy in ((0, 0), (1, 0), (0, 1), (1, 1)) if i % 2 == 0 else ((0, 0), (1, 0)):
+        for i in range(6):
+            a = math.pi * (i + 0.5) / 3
+            px, py = cx + 8.0 * math.cos(a) - 1, cy + 6.0 * math.sin(a) + 1
+            for ddx, ddy in [(u, v) for u in range(4) for v in range(3 if i % 2 == 0 else 2)]:
                 x, y = int(round(px)) + ddx, int(round(py)) + ddy
                 if 0 <= y < D:
                     out[(x, y)] = MAG

@@ -28,10 +28,10 @@ px, and at most 6 FAST lanes meet a window.
 | P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
 | P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
 | P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it |
-| P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5) |
+| P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5). **BUILT** on `bb-spike` with P8, SPEC.md 128.38 and the section below |
 | P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
 | P7 | **DRAWBRIDGE** | cells VOID <-> FLOOR on a timer or a switch, a lane a bridge cell | pairs with P6 |
-| P8 | **GLASS-ONLY: a crystal MEMBRANE** | a tile that is FLOOR for glass only (the CELL-per-ball trick) | the owner asked for a glass-only idea; the updraft (P3) is the other |
+| P8 | **GLASS-ONLY: a crystal MEMBRANE** | a tile that is FLOOR for glass only (the CELL-per-ball trick) | the owner asked for a glass-only idea; the updraft (P3) is the other. **BUILT** on `bb-spike`, the SPIKE family's third kind (SPEC.md 128.38) |
 
 ### Chosen - moderate
 
@@ -201,6 +201,41 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
         after (a FAST lane, counted against the window's 6 and its pose
         changes); the pennant only with `flag`.
 - [ ] **P3.10** A shipped course that uses it.
+
+## P5 SPIKES and P8 the MEMBRANE - as built (branch `bb-spike`, 2026-11-17)
+
+SPEC.md 128.38 is the contract and the record; the diary's 2026-11-17 entry
+"SPIKES and the crystal membrane" is how it went. One family (ID 11, kinds
+56 - 58, home `resident`, a 455-byte part, no resident code): `prop spikes
+<wx> <wy> [<x1> <y1>]`, `prop popspikes <wx> <wy> period P on N [seed S]`,
+`prop membrane <wx> <wy> [<x1> <y1>]`. CELL rewrites each cell per ball:
+steel rides the tips (a climb above the base), rubber and glass drop a half
+unit onto them and the hard landing's SHATTER kills them while the window's
+centre is a spike (rubber's new POP frames: three entries after its stretch
+in its ball part, +3,840 bytes of the resident bundle's RAM); the membrane is
+a floor for glass and a near void for the others. The knob build `BZSPIKE=1`
+puts the SPIKE test course on the pathway's pad 0.
+
+- [x] **S.1** SPEC.md 128.38: the contract.
+- [x] **S.2** The tool: the statements, refusals (a spiked cell beside a
+      lower floor or water, popspike timers, surfaces), records, `SpikeFamily`,
+      the `tip` reach form, the art (blades, slits, the film), the timed lanes'
+      one-change-a-step check shared with WIND's gusts; `--selfcheck` section
+      `spike` (ten refusals, records, reach, art, model scenes, two red arms).
+- [x] **S.3** The part `fam/spike.asm`, equal to the model (the unicorn half of
+      `bonanza_phys --check`: eleven scenes, six red arms, all MEASURED red).
+- [x] **S.4** Rubber's POP frames (`bonanza_assets.pop_frame`), held by `make
+      bonanza-check`.
+- [x] **S.5** The knob course SPIKE: the corridor, the popspike lane, the
+      membrane bridge, water over spikes (`uses spike water`); no shipped
+      course, demo or identity moved (MEASURED, `cmp`).
+- [x] **S.6** LOOKED AT once on MartyPC, CGA and Hercules (steel on the tips,
+      rubber's pop, glass's shatter, a popspike's pop, glass on the membrane,
+      steel in the water column).
+- [ ] **S.7** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` rows on a `BZSPIKE=1` build).
+- [ ] **S.8** The owner's answers (SPEC.md 128.38.9) and a shipped course that
+      uses spikes.
 
 ## Stories
 
