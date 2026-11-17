@@ -4,7 +4,7 @@
 shipped guest, the shipped course format and SPEC.md 128 are unchanged on this
 branch. The measurements, the pictures and how each figure was taken are in
 [the report](../reports/BONANZA-OCCLUSION-2026-11-17.md). The contract this
-would become is reserved as **SPEC.md 128.29**. The parallel two-segment-course
+would become is SPEC.md section **128.29**, reserved and not yet written. The parallel two-segment-course
 work adds 128.28. This plan does not touch it, and section 7 says what each
 option gives it.*
 
@@ -269,7 +269,7 @@ A/B:
 | # | story | verified by |
 |---|---|---|
 | A1.1 [ ] | **`bz_amodel`** in `bzvideo.inc`. At `.key`, on a part whose `BZG1` FLAGS has `GF_ANA` (bit 5, new): when the ball's cell is VOID, or on every cell when `GF_ANAALL` (bit 6) is set, it puts the front cells' coverage into `bz_omsk` for each covered word and block row. Each line's mask comes from two 8-entry edge tables, with the checker ORed in. Then today's walk over the part's records ANDs into the same mask, with one `bz_olay` a word | unicorn: `bz_occ` on every course's AV and A4R parts against `occ_model`, at 300 positions a course (as 128.15.5.2's D/C proof): the same box bytes and the same laid words. Red arm `amodel` (one edge-table entry wrong) is red there |
-| A1.2 [ ] | **The price, MEASURED**: the executed instructions of `bz_occ` per frame on the demos' positions (unicorn), today's part against AV's and A4R's; the package image and its bss; the launch-time front bitmap (section 4) priced with and without | written into SPEC.md 128.29 as MEASURED; **the owner sees A4R's figure before wave A3** |
+| A1.2 [ ] | **The price, MEASURED**: the executed instructions of `bz_occ` per frame on the demos' positions (unicorn), today's part against AV's and A4R's; the package image and its bss; the launch-time front bitmap (section 4) priced with and without | written into the new section 128.29 as MEASURED; **the owner sees A4R's figure before wave A3** |
 | A1.3 [ ] | **AV becomes the default**: `--occ void`. Every identity moves, because the RAM form changed. So `moon.bzd`, `summit.bzd` and `playground.bzd` are written again by `bbcourse.py author`; only their `ident` lines change, and physics does not move. The pathway and the title follow only if A0.4's error holds on them | the build's demo checks; `--selfcheck`; `make bonanzadisk`, with `BONANZA.O88` and the clusters of `bonanza360.img` before and after |
 | A1.4 [ ] | **kern_mega and the Hercules**: the model reads the part through `bz_cseg` as the walk does, and the masks do not depend on the card (two bits a game pixel). So nothing differs | the A1.1 unicorn run on the Hercules arm's box |
 | A1.5 [ ] | **The final pass for AV** | the rows below, once |
@@ -293,7 +293,7 @@ the ghost height in the VOID cell's flag nibble, draws the ghosted sprite and
 keeps no VOID record. `--selfcheck` holds every VOID cell's `H` to the rule:
 no record lays at or above it. Red arm: `H` one step low. Rows: as A1's.
 
-## 6. What SPEC.md 128.29 would say
+## 6. What section 128.29 of SPEC.md would say
 
 - 128.29.1 the decisions;
 - 128.29.2 the model: the front cells, the edges, the pass-over rule, the
