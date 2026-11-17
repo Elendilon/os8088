@@ -1114,6 +1114,110 @@ C8's state; the props' move (R1 decision 8).
 
 #### Wave 10: Performance (L)
 
+**THE RE-BASELINE (2026-11-17, MEASURED at `bc5747112`; the owner: *"wave
+10's goal is SPEED, not the T-list; the list is input, not scope"*).** Every
+figure is MartyPC's 5150 (`_gla` twins), the CGA unless said, the speaker at
+S's AUTO unless said. Two instruments: logged breakpoints on the frame marks
+over whole demos (pacing: a refresh MISSED when a period rounds past one
+refresh), and every second frame SINGLE-STEPPED from `bz_t0` to the next
+`bz_t0` with each instruction's cycles charged to its routine by linear
+address (the package's map, the kernel's through `os88sym`) - the whole
+frame: steps, sound, walk, camera, compose, rows, wheel, the wait, the flip,
+the box writes and every ISR. The scripts are the agent's
+(`~/Repos/w9-logs/w10-dbg/`: `pace.py`, `wprof.py`, `anal2.py`), not the
+tree's.
+
+**First finding: D is not what the player gets.** D (a benchmark) runs the
+marks' 32-bit sums, `bz_latechk`'s two clock reads a box and `bz_presented`'s
+period: about **+4.7k clk a frame** over a play (marks 3.9k against 1.4k,
+`bz_latechk` 1.0k, the period 0.45k). On the CGA that is the difference
+between a smooth course and a stuttering one, so **D overstates play's
+misses four to six times**: MILL's demo through D 47 - 52 missed refreshes,
+through R (a replay: a play's cost, nothing measured) 9. The figures below
+are R's unless marked D; wave 6's 108-run re-baseline (6.10, still the
+freeze's) should report R beside D.
+
+| demo (steps, seconds) | CGA ON | CGA OFF | Hercules ON | D, CGA ON |
+|---|---|---|---|---|
+| MILL (778, 14.2 s) | **9** (11.6 a 1,000 steps; 0.63/s; no run of 2) | 5 | 0 | 47 - 52 |
+| PEAK (2,172, 39.8 s) | **72 - 83** (33 - 38 a 1,000 steps; 1.8 - 2.1/s; runs of 2+ 12 - 17, longest 5 - 7) | 28 - 32 | 28 (12.9) | 147 - 152 |
+| PLAYGROUND (1,504, 27.5 s) | 3 (2.0) | - | 3 (2.0) | 8 |
+| MOON (1,983, 36.3 s) | 11 (5.5; but ONE RUN OF 9 half-rate frames, a row each, at frame 212) | - | - | 22 |
+| BENCH (B, 1,200 frames) | D: 2 (busy 38,327) | D, `bz_hvoff` 1: 0 (busy 35,747) | D: 0 / 0 (busy 40,219 / 37,005) | |
+| MILL (B, the autopilot) | D: 33 | D: 9 | D: 5 / 0 | |
+
+Run to run (the key's phase against the refresh) PEAK's R ON read 83, 72 and
+73: about +-6. A respawn on PEAK is a FULL WRITE of 700k clk, a blanked hold
+of 10 refreshes on the CGA (7 on the Hercules), counted above as 9.
+
+**Where a play frame goes** (R, CGA, ON; clk a frame, mean of every frame;
+single-stepped):
+
+| part | MILL | PEAK | what is in it |
+|---|---|---|---|
+| top: steps, sound, walk, camera | 21.4k | 21.3k | a STEP is about **10k** with its callees (`bz_step` itself 4.1 - 4.4k, flat over ~40 labels; t0..ts 14k with no step, 23.6k with one, 34 - 36k with two); the sound 3.5k (3.0k package, 0.5k the kernel's tone); `bz_props` 1.8 - 2.6k; `bz_camera` 1.8k; keys and `bz_exitchk` 1.3k; the kernel's tick 1.4k (`sch_isr`, `sch_switch` at 0.94 ticks a frame) |
+| compose | 15.2k | 18.1k | `bz_blit` 3.5k, `bz_mkboxes` 2.3 - 2.5k (every frame), `bz_boxc` 2.1 - 2.3k, the occluder pass 1.7k (MILL) / **5.4k (PEAK)** |
+| rows, wheel | 4.1k | 2.7k | `bz_row` ~6.3k a row |
+| the wait (idle; the early step in it on ~17% of frames) | 31.6k | 32.7k | `bz_vr`'s spin 26.6 - 27.5k |
+| flip, columns, box writes, tail | 9.2k | 8.4k | near the VRAM floor (MartyPC ~12 clk a VRAM byte) |
+| the clock samples, all parts | 3.3k | 3.3k | 14.4 - 14.7 `bz_clk_sample` a frame (the play marks are six of them) |
+
+**What a MISSED frame is made of** (R, the single-stepped misses against
+the rest): PEAK - **the occluder pass, +14.2k** (6.1 groups laid against
+1.3; `bz_olay` 10.2k, `bz_occ` 6.9k, `bz_oprep`, `bz_amodel`), the steps
++4.7k (1.85 a frame: a miss's catch-up), the second box +4.5k; 23 of 34
+misses are compose-bound, 9 compose and two steps. MILL - **the second
+box**: frames of 2+ boxes are 17% of MILL's frames, cost **+15 - 17k**
+(blit, compose, write; the platform's box on half of them), and carry 6 of
+MILL's 9 play misses (D: 25 of 33). The MISS ELASTICITY, from the sound's
+own A/B: on PEAK, 3.9k clk a frame of mean work is about 45 missed
+refreshes over the demo - **about 5 missed refreshes a 1,000 steps for
+each 1k clk a frame**; MILL about 1.5 (4 more over its demo for its
+3.5k); PLAYGROUND about 0.
+
+**The 2026-11-14 list against today** (the T-items below, unchanged as the
+record):
+
+| # | verdict | today (MEASURED unless said) |
+|---|---|---|
+| T1 | **retired: holds** | 8R.13 made the light corner scene lighter (SPEC.md 128.13.14 item 9: `bz_tw` 44 - 54k, ten tries); `bonanzawheel` passes (the int5 soak of 2026-11-17). A test scene's construction: nothing a player sees |
+| T2 | **retired as a target; kept as `bonanzaperf`'s guard** | BENCH D: CGA busy 35,747 (`bz_hvoff` 1, OFF, 0 misses) / 38,327 (ON, 2); Hercules 37,005 / 40,219 (0). Re-anchor the A/B on this tree, not 5b's `503031d4` |
+| T3 | **retired: met** | MILL B 9 / 33 against 47 / 151 (target 25 / 75); in play units MILL's demo 5 / 9 |
+| T4 | **holds: the worst course** | PEAK D 64 / 147 - 152 (was 205 / 293), Hercules D ON 53 (was 96); R 24 - 32 / 72 - 83, Hercules 12 / 28. Its lever is the occluder pass (O1 below); its easing at wave 13 meets T11 |
+| T5 | **retired as written** | the Hercules' MILL B never reaches the lift in its 1,200 frames (0 lift frames: the leg asserts nothing); the CGA's lift stretch is 102 frames, 22 missed ON / 113, 6 OFF; MILL's demo on the Hercules 0 missed. Kept only if `bonanzaperf` rides the lift (the RIDE leg does) |
+| T6 | held | done in 7.1 |
+| T7 | **closed by measurement** | the sound is 3.5k a frame (5.3 - 8.1k on a missed frame: sub-ticks caught up) and costs PEAK about 45 missed refreshes, MILL 4 - 8. Both its levers measured NULL on play: the sound moved after `bz_early` (0 bytes) PEAK 116 / MILL 11, WORSE (the same work before the same deadline, and it eats the early step's room; `perf-snd2`'s half did not help either, BONANZA-SPEED-2026-11-15); the skip rule (`BZS_SKIPTEST`, 255, +73 bytes when on) PEAK 76 and 76 (it skips the frame after a miss, not the one that misses). What is left is fixed-cost trimming (O5) |
+| T8 | **retired item by item** | box writes 5.4 - 6.1k a play frame, at the floor; the wheel 0.45 - 1.7k a frame, `bz_wover` / `bz_wlate` 0 (asserted by the rows, green); preparation and walk: `bz_props` 1.8 - 2.6k after F3; TRIAL on the Hercules: D ON 0 missed; the two-box rotor frame (A15, priced 88k): 65 - 76k busy, never missed |
+| T9 | **moved out** | a size budget, not speed: `bonanza.bin` 50,062 bytes |
+| T10 | done | in 5b |
+| T11 | **proposed, in R's units** | CGA speaker ON at most **15 missed refreshes a 1,000 steps and no run of 3 outside a cut**; Hercules 5. Today MILL 11.6 and PLAYGROUND 2.0 pass; MOON 5.5 passes the rate but fails the run (9 at one pan); PEAK 33 - 38 fails (wave 13 eases it). The agent building a course measures it once through R |
+| T12 | **answered: no on the CGA** | a second box costs +15 - 17k (measured on MILL's two-box frames, D), and MILL's two-box frames miss 19 - 22% against ~2%; a ghost is a second box EVERY frame. Q-L6 is the owner's |
+| T13 | held, folded into O1 | `bz_amodel` 1.0k on PEAK's missed frames (0.19k elsewhere); after O1, re-price |
+
+**The levers, RANKED by what the player gets per byte** (PREDICTED unless
+said; "a PEAK miss" = the elasticity above):
+
+| # | lever | bytes | clk | helps | risk | decision |
+|---|---|---|---|---|---|---|
+| **O1** | **The occluder lay's per-group overhead.** `bz_olay` spends ~1.0k of its 1.67k a laid group on set-up (entry, the box loop, the line clip `.l0`/`.l1`, the three shifts, the pushes) and ~0.7k on the lines; per box once a pass (x0, the first line's buffer offset, the clipped line range) is the same for every group of the pass. Then `bz_occ`'s per-record search (`.skip`, `.top`, `.prd`: ~2.3k on a missed frame) | ~+-50 | -0.5 to -0.7k a laid group: PEAK mean -0.8k, its missed frames -3 to -4k; about **-4 to -8 PEAK misses a 1,000 steps** | PEAK, MOON, MILL's buildings, every future course with occluders; both cards | medium (pixel-exact: the ring's and the wheel's occluder legs) | **worth doing** |
+| **O2** | **A play's clock samples.** In a play a mark is still a `bz_clk_sample` (~0.23k with its call); keep the ones the clock needs (one per sub-tick at most 87k clk apart: `bz_ts`, `bz_tv`, `bz_presented`) and drop the rest (`bz_tr`, `bz_tw`, `bz_tf`'s after `bz_vr`'s own, `bz_tb`, `bz_tc`) | ~0 to -10 | **-0.9 to -1.0k every play frame** (not seen by D, whose marks stay) | every course, both cards; PEAK about -5 a 1,000 steps | low-medium (a stretch over 87k clk without a sample loses a sub-tick: the longest is a two-step heavy frame's t0..ts, ~36k) | **worth doing** |
+| **O3** | **The second box.** Which group splits (the ball's from its shadow, the contact lane, the platform) on MILL's 17% two-box frames, then the cheapest merge: e.g. the OCC frames' rule (the shadow left out when it needs a box of its own) on every frame | ~+20 | -15k on each such frame: most of MILL's misses | MILL (the lift, rotors), PEAK's 12% | low (code); a VISIBLE change | **owner decision** (the shadow's look), after a one-hour split census |
+| O4 | The kernel's tick in an FSX bracket: `sch_isr` + `sch_switch` + `sch_resume` ~1.5k a frame at 0.94 ticks; a no-switch path while the bracket's task is the only one ready | kernel, ~+10 - 20 resident | ~-0.8k a frame, every FSX game | every game, every card | medium (the scheduler; three kernels) | owner (a kernel change) |
+| O5 | The sound's fixed costs: `bzs_events`' 17-add sum skipped on a no-step frame (12 - 16% of frames); the kernel's `OSAPI_SND_TONE` path ~2k a tone (0.25 a frame) | ~+10 | -0.2 to -0.5k a frame | every course with the speaker | low | small; with O4's kernel look |
+| O6 | The physics step (~10k with its callees; `bz_step` flat over ~40 labels) | ? | a 10% bit-exact pass: -1k a step | every course | medium-high (the model's equality, the diagonal and the families) | defer until a course needs it |
+| - | Rows, columns, box writes; the respawn's 700k full write | - | at the VRAM floor | | | no action |
+
+**Retired by measurement today** (prototypes in scratch trees, not
+shipped): the sound in the wait (0 bytes: worse, above); **a spin in the
+wait for a step about to fall due** (+5 bytes, the early step taken on
+the frames whose sub-tick arrives inside the wait's room: PEAK 83, MILL 9,
+D 142 - 147 - **no change**, so lowering `BZ_EROOM` is predicted to buy
+nothing either: the early step moves a step between frames, it does not
+remove one); the skip rule (above). A miss is TOTAL WORK in a heavy
+stretch; only less work buys smoothness now.
+
+**The 2026-11-14 list** (input, not scope; re-baselined above).
+
 **When:** after wave 9, because the frame's new consumers (clocks,
 families, pickups) then exist; before the worlds, so courses are built
 against the faster engine and a per-course miss budget. Every target is
