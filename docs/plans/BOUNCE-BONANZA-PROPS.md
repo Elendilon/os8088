@@ -25,8 +25,8 @@ px, and at most 6 FAST lanes meet a window.
 | | what | how | notes |
 |---|---|---|---|
 | P1 | **WATER** (the owner's design, below) | one family; the tool's depth key draws the ball behind the glass | its own section; the first to build |
-| P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops) |
-| P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (plan: 0.1 - 0.2k a step) | a GUST lane on the blower or a FLAG as the hint; across the crumbling bridge (cracked tiles) the owner's favourite; an UPDRAFT that lifts only glass to a ledge is a glass-only gate for free |
+| P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
+| P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
 | P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5) |
 | P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
@@ -45,7 +45,7 @@ px, and at most 6 FAST lanes meet a window.
 
 | | what | how |
 |---|---|---|
-| P13 | **THIN RAILS** (the owner, 2026-11-17: today's rails read as blocks) | a rail stays a one-cell WALL; the ball stops at that cell's near edge, so the tool draws a thin rail ON that edge and the rest of the cell as the open edge it is - the art matches the physics with no physics change (the reserved `edge` bits, thin walls BETWEEN cells, are not needed) |
+| P13 | **THIN RAILS** (the owner, 2026-11-17: today's rails read as blocks) | a rail stays a one-cell WALL; the ball stops at that cell's near edge, so the tool draws a thin rail ON that edge and the rest of the cell as the open edge it is - the art matches the physics with no physics change (the reserved `edge` bits, thin walls BETWEEN cells, are not needed). **BUILT as the see-through GUARD RAIL** (SPEC.md 128.35, branch `bb-rail`): `guard <shape> [height <units>]`, 2 units by default, posts and bars with the course seen through them, 0 resident bytes; its test course RAIL is the `BZRAIL=1` knob build. The shipped courses' block rails are unchanged (restyling them is the owner's call, 128.35.8 R3) |
 
 ### Possible
 
@@ -137,7 +137,15 @@ The water lets steel down; nothing yet stops rubber or glass dropping off
 the walkway to the lower path. Ideas:
 
 1. **Rails** along the walkway's edges (walls, or `bounce` bumper rails):
-   built today; the simplest, but they box the walkway in.
+   built today; the simplest, but they box the walkway in. **The owner's
+   choice (2026-11-17): a SEE-THROUGH GUARD RAIL** - thin, high enough that
+   rubber cannot boost over it from flat ground, and never hiding the ball's
+   path. BUILT (SPEC.md 128.35): a `guard` statement along the walkway's
+   edge beside the column; a WALL in physics (a column at every height, so
+   nothing crosses it - the jump pickup neither), drawn as posts and bars.
+   The water course itself (W.2) is where the two meet: a water cell is
+   laid as a flat FLOOR at the walkway's height, which is what a guard may
+   touch - to be checked when WATER and the rail merge.
 2. **A SPIKE PIT (P5) at the arch's mouth**: the exit corridor's first cells
    are spikes - steel rides over them, rubber pops and glass shatters if
    they drop there. Water and the material gate together.
@@ -156,16 +164,107 @@ The owner's reading: SPIKES gate only where they cover most of the floor
 steel-only mechanisms; WIND works if the lower path is THIN, as the sketch
 draws it, blowing hard to one side; the HEIGHT gates glass.
 
+## P3 WIND - as built (branch `bb-wind`, 2026-11-17)
+
+SPEC.md 128.34 is the contract and the record; the diary's 2026-11-17 entry
+"WIND: blowers, gusts and an updraft" is how it went. In short: one family
+(ID 9, kind 40 `blower`, home `resident`, a 326-byte part, no resident code);
+`prop blower X Y face +x|-x|+y|-y|up region X0 Y0 X1 Y1 [strength S] [gust ON
+OFF [seed N]] [top H]`; the push added to the working velocity at STEP, so
+the next step's clamps hold it to the caps; gusts a function of the step
+counter (no state); the hint a pennant on the blower's pole flying downwind
+over a black pinwheel fan; the updraft lifts an AIRBORNE ball below its top
+while gvz is under 128 - glass rises, rubber and steel do not. The knob build
+`BZWIND=1` puts the WIND test course on the pathway's pad 0.
+
+- [x] **P3.1** SPEC.md 128.34: the contract before the code.
+- [x] **P3.2** The tool: the statement and its refusals, the record, the
+      reader, `WindFamily`, the updraft's reach, the fan and the pennant,
+      `--selfcheck` section `wind` (red arm `nowindreach`).
+- [x] **P3.3** The guest part `fam/wind.asm`, equal to the model (the
+      unicorn half of `bonanza_phys --check`: eight scenes, red arms
+      `wdstep`, `wdglass`, `wdmark`, `wdlift`).
+- [x] **P3.4** The knob course WIND: the gust across the crumbling bridge,
+      the steady wind across the thin path (rubber and glass blown off,
+      steel through leaning into it), the updraft to a glass-only ledge.
+- [x] **P3.5** LOOKED AT on MartyPC, CGA and Hercules (both rounds).
+- [ ] **P3.5b** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` rows on a `BZWIND=1` build).
+- [x] **P3.6** The owner's answers (strength per blower, power-of-two gusts:
+      kept) and round 2, SPEC.md 128.34.11:
+  - [x] **P3.7** PIT WIND: `lift` launches a grounded ball the updraft
+        out-lifts (glass; rubber floats, steel not); a pit needs nothing new.
+  - [x] **P3.8** SQUIGGLES in the air over the region: static for a steady
+        blower, a WISP lane for a gusting one (there only while it blows),
+        the timed lanes of a window never turning on one step.
+  - [x] **P3.9** GROUND FANS spin while the ball is in their wind and 2.9 s
+        after (a FAST lane, counted against the window's 6 and its pose
+        changes); the pennant only with `flag`.
+- [ ] **P3.10** A shipped course that uses it.
+
 ## Stories
 
-- [ ] **W.1** SPEC.md: water's contract (statements, the family, the draw,
-      the refusals) before the code.
-- [ ] **W.2** The model and the tool: `WaterFamily`, the statements, the
-      `bed` form, the refusals, the depth key and the art; a test course.
-- [ ] **W.3** The guest family part (`fam/water.asm`), held equal to the
-      model.
-- [ ] **W.4** Rows: `bonanzaphys`'s water scene (steel sinks, no stun, out
+- [x] **W.1** SPEC.md: water's contract (statements, the family, the draw,
+      the refusals) before the code - SPEC.md 128.36 (family ID 7).
+- [x] **W.2** The model and the tool: `WaterFamily`, the statements, the
+      `bed` form, the refusals, the depth key and the art; a test course
+      (`BZWATER=1`, `courses/water.bbc`).
+- [x] **W.3** The guest family part (`fam/water.asm`, 341 bytes, resident),
+      held equal to the model.
+- [x] **W.4** Rows: `bonanzaphys`'s water scene (steel sinks, no stun, out
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
-      cards.
-- [ ] P2 - P12 as the owner orders them.
+      cards (one MartyPC boot of the knob tree; the soak rows not run).
+- [x] **W.5** The owner's second round (SPEC.md 128.36.9): ripples ANIMATED
+      while a ball is in the column (`ripple`) or always (`always`, a FAST
+      lane), marked on change only; the FLOAT LINE (rubber and glass ride a
+      half unit under the top, their lower half behind the water); steel's
+      WOBBLE while sinking (`WA_BOB`, 15 bytes, one constant - turned OFF after the owner saw it: the straight fall reads better); a 6-unit
+      DEEP column on the test course; unicorn scenes and red arms; LOOKED AT
+      on both cards.  The float line's own bob NOT built (a moving floor is
+      the lift's carry; a gvz kick lands every time).
+- [x] **P13 / the guard rail** (SPEC.md 128.35, branch `bb-rail`): the
+      contract; the tool's `guard` statement, its refusals, art, occluders and
+      `FL_FLOAT`; `--selfcheck` item 16 with four red arms (MEASURED red); the
+      `BZRAIL=1` test course RAIL; the knob-less build byte-identical
+      (MEASURED). Previewed on both cards (`--png`); not yet played on the
+      glass.
+
+
+## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
+
+Family ID 8, kind 32, home `resident` (the owner's rule; it was `fetch` on
+its branch, 128.33.9). A magnet on a post pulls STEEL along a FIELD of N cells out from
+it, `S >> (k - 1)` at the k-th cell toward the post; a HANGING magnet (`face
+down`) lifts an airborne steel ball, `gvz += S; gvz -= gvz >> 3`, so with S
+= 27 against G = 24 steel rolled off a level edge HOVERS at its height. The
+investigation: an airborne ball over a NEAR void dies only below the kill
+height (the near floors less 3 units), so nothing blocked hovering and
+there is no resident change.
+
+- [x] **M.1** SPEC.md 128.33, the contract, before the code.
+- [x] **M.2** The tool: the statement (`prop magnet ... face ... [range]
+      [strength]`), the record (+18 - +22), `MagnetFamily` (the force-field
+      core `mg_scan` / `mg_force` / `mg_apply`), the refusals, the art (a
+      magenta horseshoe, white tips, black outline: readable on the
+      Hercules) and the WIGGLE lane (3 poses).
+- [x] **M.3** The part `fam/magnet.asm` (376 bytes), STEP and POSE, equal to
+      the model at every step of seven scenes (MEASURED under unicorn).
+- [x] **M.4** The `BZMAGNET=1` knob's test course MAGS (the pathway's pad
+      0): the PULL, the RAIL, the HOVER; no shipped course, demo or identity
+      moved (MEASURED, `cmp`).
+- [x] **M.5** The proofs: `--selfcheck` section `magnet` (12 refusals, the
+      records, the scenes, three red arms on the model) and `bonanzaphys`'s
+      `mg_host` (seven scenes, five red arms on the part), all MEASURED.
+- [x] **M.6a** LOOKED AT once on MartyPC, CGA and Hercules: steel hovers
+      and rides the rail on the guest, the wiggle drawn (SPEC.md 128.33.10;
+      the hovering ball is hard to see against the posts' pillars on the
+      Hercules - open question 5).
+- [ ] **M.6b** The wiggle's frames and a step's clocks MEASURED on MartyPC
+      (`bonanzaperf`-style) - the final pass's.
+- [x] **M.7** The owner's answers (SPEC.md 128.33.13): the hover BOBBLES
+      (+20 bytes, about 1.7 px, no drift); one head an element (a hanging
+      magnet's range other than 1 refused); at most one wiggle pose change a
+      step (N hanging magnets: N SLOW lanes, no FAST one); the law judged by
+      the owner on the test course.
+- [ ] **M.8** A shipped course that uses magnets (home `resident` since the merge).

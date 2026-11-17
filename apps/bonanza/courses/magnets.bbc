@@ -1,0 +1,60 @@
+# Magnet Test - BONANZA's MAGNETS test course (SPEC.md 128.33), built only by the BZMAGNET=1 knob
+# (make BUILD=<tree> BZMAGNET=1 bonanzadisk).  Not shipped; not on the TOUR; the knob's pathway makes it pad 0,
+# so Play Game, Enter plays it.  Magnets pull STEEL only: try each section as steel, then as rubber.
+#
+# One level at 2 units:
+#  - the START plate at the back, a STEEL pad and a RUBBER pad on it;
+#  - the PULL: a 2-wide walkway down to the middle plate, past a magnet on a post across a gap that pulls
+#    steel toward the edge (roll past it fast, or be pulled off);
+#  - the RAIL: a 1-wide rail tilted toward its open side, a fence of magnets on posts along its high side
+#    holding steel on it (rubber slides off);
+#  - the HOVER: a 3-cell gap on the middle plate's row 22, a row of hanging magnets over it on posts at its
+#    back - steel rolls off the edge and HOVERS across to the goal's plate; rubber falls;
+#  - the plain way round: a corridor from the start plate to the goal's plate, so every section is a choice.
+course MAGS "Magnet Test"
+width  128
+origin 480
+ball   steel
+uses   magnet
+
+floor rect   4  3 30  9  flat 2                 # the start plate
+pad steel   6  6
+pad rubber  8  6
+start 5 4
+
+# THE PULL: the walkway (x 10 - 11), its post across a 2-cell gap; field (13 .. 10, 14), 48 >> (k - 1)
+floor rect  10  9 12 20  flat 2
+floor rect  14 14 15 15  flat 4
+prop magnet 14 14 face -x range 4 strength 48
+
+# THE RAIL: x 20, tilted down toward +x (half a unit across); posts on its -x side at y 11 - 17, range 1
+floor rect  20  9 21 20  ramp x 20 21 2 1.5
+floor rect  19 11 20 18  flat 4
+prop magnet 19 11 face +x strength 8
+prop magnet 19 12 face +x strength 8
+prop magnet 19 13 face +x strength 8
+prop magnet 19 14 face +x strength 8
+prop magnet 19 15 face +x strength 8
+prop magnet 19 16 face +x strength 8
+prop magnet 19 17 face +x strength 8
+
+# the middle plate, the HOVER's gap (x 18 - 20) on to the goal's plate; three hanging magnets over row 22
+floor rect   4 20 18 26  flat 2
+floor rect  18 21 21 22  flat 4
+prop magnet 18 21 face down +y
+prop magnet 19 21 face down +y
+prop magnet 20 21 face down +y
+floor rect  21 20 30 26  flat 2
+
+# the plain way round, the start plate to the goal's plate
+floor rect  26  9 30 20  flat 2
+goal  tile  28 24  flat 2
+goal  tile   5 25  flat 2 exit 1         # the middle plate's: the knob's pathway sends exit 1 to FIRST
+clock 26 24
+clock  7 25
+target 60
+way 5 4                                         # (the route demo's: a loop on the start plate, so its log
+way 28 6                                        # is long enough for LZB to shrink - os88pkg refuses a
+way 6 7                                         # compressed row it would grow)
+way 28 6
+way 28 24

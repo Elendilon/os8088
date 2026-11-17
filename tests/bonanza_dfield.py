@@ -180,7 +180,7 @@ def hostile(binp, sym, c):
     def watch(mu, access, addr, size, value, ud):
         if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
                 and not SS * 16 <= addr < SS * 16 + 0x10000 \
-                and not (access == UC_MEM_READ and DS.KS * 16 <= addr < DS.KS * 16 + 0x10000):    # (the kit, 128.33)
+                and not (access == UC_MEM_READ and DS.KS * 16 <= addr < DS.KS * 16 + 0x10000):    # (the kit, 128.37)
             bad.append("an access at %05Xh, outside the part" % addr)
     g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
     g.w("bz_cseg", PS, 2)

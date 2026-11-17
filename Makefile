@@ -22055,6 +22055,120 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
+#> [Knobs] BZMAGNET=1 :: Bounce Bonanza with its MAGNETS test course, MAGS (SPEC.md 128.33): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/magnet BZMAGNET=1 bonanzadisk)
+# BZMAGNET=1 (SPEC.md 128.33.10) adds apps/bonanza/courses/magnets.bbc to BZ_COURSES (after the shipped ones,
+# so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
+# apps/bonanza/courses/pathmagnet.sed applied: pad 0 becomes MAGS, its exit 1 goes to FIRST on a pad of its
+# own.  BZSHAPES's precedent; the two both claim pad 0, so they are refused together.  STAMPED.
+BZMAGNET ?=
+ifeq ($(filter $(BZMAGNET),1),)
+ifneq ($(BZMAGNET),)
+$(error BZMAGNET=$(BZMAGNET) is 1 or empty)
+endif
+endif
+ifeq ($(BZMAGNET),1)
+ifeq ($(BZSHAPES),1)
+$(error BZMAGNET=1 and BZSHAPES=1 both make their course the pathway's pad 0: one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/magnets.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathmagnet.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathmagnet.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathmagnet.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZMAGNETSTAMP := $(BUILD)/.bzmagnet-$(or $(BZMAGNET),0)
+$(BZMAGNETSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzmagnet-*
+	@touch $@
+#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 128.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
+# BZWIND=1 (SPEC.md 128.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
+# the shipped ones: every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
+# with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 6 (WIND's exit 1).
+# STAMPED; without it the build is byte for byte the knob-less one.  Not with BZSHAPES=1 (both take pad 0).
+BZWIND ?=
+ifeq ($(filter $(BZWIND),1),)
+ifneq ($(BZWIND),)
+$(error BZWIND=$(BZWIND) is 1 or empty)
+endif
+endif
+ifeq ($(BZWIND),1)
+ifeq ($(BZSHAPES),1)
+$(error BZWIND=1 and BZSHAPES=1 both make their course the pathway's pad 0: build one at a time)
+endif
+ifeq ($(BZMAGNET),1)
+$(error BZWIND=1 and BZMAGNET=1 both make their course the pathway's pad 0: build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/wind.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathwind.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathwind.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathwind.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
+$(BZWINDSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzwind-*
+	@touch $@
+#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 128.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
+# BZRAIL=1 adds apps/bonanza/courses/rails.bbc to BZ_COURSES (after the shipped ones, so every shipped course
+# keeps its K; not on the TOUR) and compiles the pathway through apps/bonanza/courses/pathrail.sed: pad 0
+# becomes RAIL, FIRST gets pad 6 beside it.  Pad 0 is one course, so BZRAIL and BZSHAPES are refused together.
+# STAMPED, so turning it on or off recompiles the courses; without it the build is byte for byte the knob-less one.
+BZRAIL ?=
+ifeq ($(filter $(BZRAIL),1),)
+ifneq ($(BZRAIL),)
+$(error BZRAIL=$(BZRAIL) is 1 or empty)
+endif
+endif
+ifeq ($(BZRAIL),1)
+ifeq ($(BZSHAPES),1)
+$(error BZRAIL=1 and BZSHAPES=1 both make their test course the pathway's pad 0: one at a time)
+endif
+ifneq ($(filter 1,$(BZMAGNET) $(BZWIND)),)
+$(error BZRAIL=1 with BZMAGNET=1 or BZWIND=1: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/rails.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathrail.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathrail.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathrail.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZRAILSTAMP := $(BUILD)/.bzrail-$(or $(BZRAIL),0)
+$(BZRAILSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzrail-*
+	@touch $@
+#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 128.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
+# BZWATER=1 (SPEC.md 128.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
+# the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
+# path.bbc with apps/bonanza/courses/pathwater.sed applied: pad 0 becomes WATER (a new game rests on it) and
+# FIRST gets a pad of its own beside it.  BZSHAPES's precedent, and not with it (both rewrite pad 0).
+# STAMPED; without it the build is byte for byte the knob-less one.
+BZWATER ?=
+ifeq ($(filter $(BZWATER),1),)
+ifneq ($(BZWATER),)
+$(error BZWATER=$(BZWATER) is 1 or empty)
+endif
+endif
+ifeq ($(BZWATER),1)
+ifeq ($(BZSHAPES),1)
+$(error BZWATER=1 and BZSHAPES=1 both make their course the pathway's pad 0: one at a time)
+endif
+ifneq ($(filter 1,$(BZMAGNET) $(BZWIND) $(BZRAIL)),)
+$(error BZWATER=1 with BZMAGNET=1, BZWIND=1 or BZRAIL=1: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/water.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathwater.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathwater.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathwater.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
+$(BZWATERSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzwater-*
+	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
 # it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
@@ -22085,7 +22199,7 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
-BZ_FAMS := probe glass rotor spring tube pickups
+BZ_FAMS := probe glass rotor spring tube pickups water magnet wind
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
@@ -22122,7 +22236,8 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) $(BZFSHOWSTAMP) \
+                   fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
+                   $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
@@ -22170,7 +22285,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
 # since SPEC.md 128.25.5.2), then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
-# SPEC.md 128.33: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
+# SPEC.md 128.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
 # apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`

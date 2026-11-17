@@ -1189,15 +1189,25 @@ def glass(g, ref):
     assert g.b("bz_mode") == 0, "Enter started the benchmark, not play"
     assert g.b("bz_crs") == CRS_K["first"], "F played course %d, not FIRST" % g.b("bz_crs")
     m.bp_exec(g.a("bz_presented"))
-    seen = None
-    for _ in range(4):                  # three presents with nothing moving: every refresh since
+    seen, same, ball = None, 0, None
+    for _ in range(200):                # four presents with nothing moving: every refresh since
         m.run()                         # the first of them scanned the one picture
         assert m.wait_stop(60) == "breakpoint", "play mode stopped presenting"
         st = g.state()
-        assert seen in (None, st), ("the ball moved with no key held", seen, st)
+        assert ball in (None, st), ("the ball moved with no key held", ball, st)
+        ball = st
+        # (FIRST's CLOCKS count in free play, wave 7: a digit lane redrawn on the last present is in card
+        # memory but not yet on the refresh already scanned - the glass a second's digit behind, 21 pairs on
+        # the Hercules.  So the LANES as drawn are part of "nothing moving", and the stop waits a change out)
+        nl = g.b("bz_nlane")
+        st = st + (bytes(g.m.read(g.a("bz_ldrw"), nl)) if nl else b"",)
+        same = same + 1 if st == seen else 1
         seen = st
+        if same == 4:
+            break
+    assert same == 4, "no four presents running with the picture still (the lanes as drawn: %r)" % (seen[5],)
     m.bp_exec()
-    S, R0, c0, px, py = seen
+    S, R0, c0, px, py = seen[:5]
     lk, why = g.look(ref.c)
     assert why is None, "play mode's resting frame: %s" % why
     # (wave 7, SPEC.md 128.18.5: FIRST has clocks - the lanes as the guest DREW them, its digits the seconds left)
@@ -3059,8 +3069,6 @@ CAM_PRICE = 527             # the ground-line block's as-built price at WORST, c
                             # contact while airborne and re-tripped on that frame, Hercules (the fetch floor, x 1.05:
                             # SPEC.md 128.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
                             # not a retunable
-RATE_LINES = 4              # the most a footprint may pass the window's bottom where the shipped camera at the
-                            # guest's pace loses it too: one row pan of two rows on the CGA (128.16.8)
 CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 128.16.14)
 MODES = ((0, "GLIDE"), (1, "TRICKLE"))
 
@@ -3165,6 +3173,19 @@ def ground_check():
     return bad, say
 
 
+GROUND_VIS = 15                 # the most a footprint may be outside on a missed retrace: one line short of the
+                                # ball's 16, so some of it is always on the glass (SPEC.md 128.16.8)
+
+
+def ground_margin(px, py, R0, c0, Wc, rl):
+    """bz_outwin's test as a MARGIN in pixels: the least distance from the footprint (128.4's 20 x 16 from
+    px & ~3) to a window edge; negative is how far outside it is (a column is 8 px)"""
+    first = px >> 3
+    last = ((px >> 2) + 4) >> 1
+    top = R0 * rl
+    return min((first - c0) * 8, (c0 + Wc - 1 - last) * 8, py - top, top + 200 - 16 - py)
+
+
 def ground_replay(g, s, mode, art=None):
     """one GROUND replay in MODE (0 GLIDE, 1 TRICKLE): every frame the guest's
     window equals Glide's off the same log (GLIDE), the footprint inside the
@@ -3185,21 +3206,13 @@ def ground_replay(g, s, mode, art=None):
     # lane promoted by the beam race, bz_wpro, which Heavy does not model - SPEC.md 128.17.10 - and under
     # LATTICE level 2 withholds every axis on the CGA, so Heavy's own levels can part the window spuriously)
     gl = BB.Glide(p, tag == "herc", c.brows, c.cols, heavy=GuestHeavy(p, g), **GROUND_ONLY.get("glide", {}))
-    # THE PACE (SPEC.md 128.16.8): the latched fallback keeps the footprint in at the card's NOMINAL rate,
-    # which is what the model proves; the CGA's void fall plays at about 1.3 steps a frame once the row
-    # pan runs, and there the SHIPPED camera itself falls behind the ball by a line or two in the last
-    # steps before the kill.  A footprint outside is a failure unless the shipped GLIDE, fed the guest's
-    # own steps a frame, is latched and loses it on that frame too - past the bottom edge alone, by at
-    # most RATE_LINES - so an arm with the fallback removed (`nosafe`, whose own Glide has none) still goes
-    # red where the shipped camera kept the ball in
-    sh = gl if mode == 0 and not GROUND_ONLY.get("glide") else BB.Glide(
-        p, tag == "herc", c.brows, c.cols, heavy=GuestHeavy(p, g))
     Wc, rl = g.w("bz_W"), RL[tag]
     # (the review's C2: an int 08h - sch_isr, 54.6 Hz under FSXF_FASTTICK - inside a span adds its whole cost,
     # bonanzaperf's lesson; such a span is counted apart and only the CLEAN spans are held to the price)
     lp = Loop(g, ("bz_t0", "bz_presented", "bz_camera.gline", "bz_camera.cyd"), kernel=("sch_isr",))
     lp.arm()
-    fails, tal = [], {"frames": 0, "stretch": 0, "spans": [], "ticked": 0, "rows": 0, "rev": False, "pace": []}
+    fails, tal = [], {"frames": 0, "stretch": 0, "spans": [], "ticked": 0, "rows": 0, "rev": False,
+                      "nprev": 0, "missed": 0, "debt": 0, "pstep": 0, "worst": None, "warn": 0, "ppx": None, "ppy": None}
     t0, dirs, R0p, dirty = None, set(), None, False
     while not fails:
         k = lp.next()
@@ -3233,17 +3246,40 @@ def ground_replay(g, s, mode, art=None):
                 fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
                              "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
                 break
-        if sh is not gl:
-            sh.camera()
         px, py = g.dpx()
-        bot = R0 * rl + 200 - 16                # (bz_outwin's last line a footprint may start on)
-        if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl) and s["fall"] and p.air and sh.clat is not None \
-                and sh.outwin() and not P.outwin(px, min(py, bot), R0, c0, Wc, rl) and py <= bot + RATE_LINES:
-            tal["pace"].append((fr, n, py - bot))
-        elif not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
-            fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
-                         "%d)" % (label, fr, n, px, py, R0, c0))
-            break
+        # (PACING: the window is Glide's every frame, so a ball outside it is the guest running k > 1 steps for
+        # one pan - a MISSED RETRACE, one frame with the work of two.  SPEC.md 128.17.6.7 guarantee 3 holds per
+        # pan at the nominal rate, so such a frame is allowed the ball's travel over its k-1 extra steps, and
+        # no more; a frame at the nominal rate, or outside by more, FAILS.  Every missed frame, the worst
+        # margin and each frame accepted only for it are REPORTED, so the pacing loss is seen every run.)
+        k = n - tal["nprev"]
+        tal["nprev"] = n
+        dpx_, dpy_ = (abs(px - tal["ppx"]), abs(py - tal["ppy"])) if tal["ppx"] is not None else (0, 0)
+        if k >= 1:
+            tal["pstep"] = max(tal["pstep"], (max(dpx_, dpy_) + k - 1) // k) if k >= 2 else max(dpx_, dpy_)
+        # (the DEBT: a 2-step frame pans once, so the camera stays a step behind until a 0-step frame - the
+        # CGA's refresh outruns the 54.6 Hz step - pays it back; the debt is the frames' extra steps still owed)
+        tal["debt"] = max(0, tal["debt"] + k - 1)
+        if k >= 2:
+            tal["missed"] += 1
+        if not p.nfall:
+            mg = ground_margin(px, py, R0, c0, Wc, rl)
+            tal["worst"] = mg if tal["worst"] is None else min(tal["worst"], mg)
+            if mg < 0:
+                # (capped at GROUND_VIS: missed retraces never excuse a ball wholly off the glass - the cap is
+                # what keeps `nosafe` red, whose footprint leaves by 23 - 47 px on the model at the CGA's misses
+                # where the shipped camera's is out by 0 - 9; the owed steps' allowance alone swallowed it)
+                allow = min(tal["debt"] * tal["pstep"], GROUND_VIS)
+                if -mg > allow:
+                    fails.append("%s frame %d (step %d, %d step(s) this frame, %d owed): the ball's footprint (%d, %d) "
+                                 "is not inside the window (R0 %d, c0 %d) by %d px, the missed-step allowance %d px" % (
+                                     label, fr, n, k, tal["debt"], px, py, R0, c0, -mg, allow))
+                    break
+                tal["warn"] += 1
+                print("WARNING %s frame %d (step %d): %d step(s) this frame, %d owed from missed retraces; the "
+                      "footprint is %d px outside the window, accepted within the missed-step allowance of %d px" % (
+                          label, fr, n, k, tal["debt"], -mg, allow), flush=True)
+        tal["ppx"], tal["ppy"] = px, py
         if R0p is not None and R0 != R0p:
             tal["rows"] += abs(R0 - R0p)
             if s["fall"] and p.air and not p.nfall:
@@ -3279,14 +3315,12 @@ def ground_replay(g, s, mode, art=None):
     if not fails and sp and max(sp) > bound:
         fails.append("%s: the ground-line block's span: the worst %d cycles, over its price %d + 25%% (%d; SPEC.md "
                      "128.16.7)" % (label, max(sp), CAM_PRICE, bound))
-    pc = tal["pace"]
-    print("%s: %d frames, the window %s, the footprint inside%s, %d row(s) panned, %d stretch frame(s) card = oracle; "
+    print("%s: PACING %d frame(s) with 2+ steps (missed retraces), %d accepted only for it, the footprint's worst "
+          "margin %s px (negative: outside)" % (label, tal["missed"], tal["warn"], tal["worst"]), flush=True)
+    print("%s: %d frames, the window %s, the footprint inside, %d row(s) panned, %d stretch frame(s) card = oracle; "
           "the ground line's span worst %s, mean %s cycles over %d clean frames (%d with a tick inside, left out; "
           "bound %d): %s" % (
-              label, tal["frames"], "bbcourse.Glide's every frame" if mode == 0 else "TRICKLE's",
-              (" (but %d frame(s), at steps %s, past the bottom edge by at most %d line(s) where the shipped GLIDE "
-               "at the guest's own pace loses it too: the camera's rate, 128.16.8)" % (
-                   len(pc), [x[1] for x in pc], max(x[2] for x in pc))) if pc else "", tal["rows"],
+              label, tal["frames"], "bbcourse.Glide's every frame" if mode == 0 else "TRICKLE's", tal["rows"],
               tal["stretch"], max(sp) if sp else None, "%.0f" % (sum(sp) / len(sp)) if sp else None, len(sp),
               tal["ticked"], bound,
               "yes" if not fails else "NO"), flush=True)
@@ -4327,7 +4361,7 @@ def after_shell(src=None):
         nf = BB.fam_nrows()
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf   # (128.33: the kit)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf   # (128.37: the kit)
 
 
 def fam_parts(td, src, art):
@@ -4385,7 +4419,7 @@ def part_args(art, src=None, shell=None, fams=None):
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
     if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
-    if "BZ_P_KIT" in asm:                       # SPEC.md 128.33: the kit, after the title's rows
+    if "BZ_P_KIT" in asm:                       # SPEC.md 128.37: the kit, after the title's rows
         out += ["--part", os.path.join(art, "BZKIT.BIN")]
     if "BZ_P_FBUN" in asm:                      # 128.25.6.9: the family ROWS - the fetch families' and
         for p in fams or BB.fam_partfiles(at("build")):     # the RESIDENT BUNDLE, the last

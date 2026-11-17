@@ -54,7 +54,7 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS, SS, STUB = 0x1000, 0x3000, 0x7000, 0xFFF0
-KS = 0x5000                                     # SPEC.md 128.33: THE KIT's part (BZKIT.BIN), held: bz_kseg
+KS = 0x5000                                     # SPEC.md 128.37: THE KIT's part (BZKIT.BIN), held: bz_kseg
 
 # THE NOTCH (R7, verify-dtool's): a floor N quarter between WALL W and E quarters; a ball rolled down the W
 # quarter's line from the cell above is pushed out of the cell by the FIRST line (nothing more of C's then)
@@ -105,7 +105,7 @@ class Guest:
         self.mu.mem_write(CS * 16 + STUB, b"\xf4")
         self.trace = None
         self.mu.hook_add(UC_HOOK_CODE, self._hook)
-        if "bz_kseg" in sym:                    # SPEC.md 128.33.5: the kit HELD, as bz_kget leaves it
+        if "bz_kseg" in sym:                    # SPEC.md 128.37.5: the kit HELD, as bz_kget leaves it
             self.mu.mem_write(KS * 16, BB.kit_part(BB.kit_load()))
             self.w("bz_kseg", KS, 2)
 
@@ -371,7 +371,7 @@ def hostile(binp, sym, c):
     def watch(mu, access, addr, size, value, ud):
         if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
                 and not SS * 16 <= addr < SS * 16 + 0x10000 \
-                and not (access == UC_MEM_READ and KS * 16 <= addr < KS * 16 + 0x10000):    # (the kit, 128.33)
+                and not (access == UC_MEM_READ and KS * 16 <= addr < KS * 16 + 0x10000):    # (the kit, 128.37)
             bad.append("an access at %05Xh, outside the part" % addr)
     g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
     g.w("bz_cseg", PS, 2)
