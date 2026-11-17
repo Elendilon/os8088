@@ -189,7 +189,7 @@ def title_rows():
     since SPEC.md 128.26.5 (the window is silent); story 9.8 (SPEC.md
     128.25.6.9): the RESIDENT BUNDLE, one row (BZ_P_FBUN), fetched once at
     the start and never dropped - the three balls at its head since 128.25.5.2,
-    so a row in every build - and (SPEC.md 128.33.5) THE KIT, BZ_P_KIT,
+    so a row in every build - and (SPEC.md 128.37.5) THE KIT, BZ_P_KIT,
     fetched quietly at the open before the bundle and held for the instance
     (kern_small gives it back at the open; none of these rows boots it)"""
     k = kit_row()
@@ -197,20 +197,20 @@ def title_rows():
 
 
 def kit_row():
-    """BZ_P_KIT, the standard kit's row (SPEC.md 128.33.5) as the package
-    assembled it - None for a tree older than 128.33"""
+    """BZ_P_KIT, the standard kit's row (SPEC.md 128.37.5) as the package
+    assembled it - None for a tree older than 128.37"""
     return link_row("BZ_P_KIT")
 
 
 def kit_held(g, rws):
     """-> failures: THE KIT held - its row FETCHED and bz_kseg its segment
-    (SPEC.md 128.33.5) - for a tree that has one"""
+    (SPEC.md 128.37.5) - for a tree that has one"""
     k = kit_row()
     if k is None:
         return []
     out = []
     if not rws[k][0] & OP_FETCHED:
-        out.append("the kit (row %d) is not held (SPEC.md 128.33.5: fetched at the open, held)" % k)
+        out.append("the kit (row %d) is not held (SPEC.md 128.37.5: fetched at the open, held)" % k)
     elif "bz_kseg" in g.sym and g.w("bz_kseg") == 0:
         out.append("the kit's row %d is fetched but [bz_kseg] is 0 (bz_kget did not keep its segment)" % k)
     return out
@@ -603,7 +603,7 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         if i in title:                      # the title's music, held on the desktop
             if (after[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
                 fails.append("%s: the held part row %d is %s after the launch, %s before (SPEC.md 128.20.6, "
-                             "128.33.5)"
+                             "128.37.5)"
                              % (way, i, "fetched" if after[0] & OP_FETCHED else "not fetched",
                                 "fetched" if before[0] & OP_FETCHED else "not fetched"))
             continue
@@ -1101,9 +1101,9 @@ for _r in RED_RUN:                              # (only the full run covers all 
     RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch; only the palette
     RED_RUN[_r].setdefault("trial", False)      # reds' the palette leg)
     RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
-# SPEC.md 128.33.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
+# SPEC.md 128.37.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
 # desktop's check sees it), and the kit dropped with each course (held no longer: re-read every launch)
-REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 128.33.5), HELD for the instance:\n"
+REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 128.37.5), HELD for the instance:\n"
                     "    call bz_kget0 ",
                     "    push es                     ; RED kitlate: no fetch at the open\n"
                     "    nop\n   ")]

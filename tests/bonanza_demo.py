@@ -411,7 +411,7 @@ def leg_hostile(g, ui):
         f = rows_fetched(base_rows, rows_now)
         if f:
             why.append("part row(s) %s fetched" % f)
-        why += X.kit_held(g, rows_now)          # (SPEC.md 128.33.5: the kit held through a refused L)
+        why += X.kit_held(g, rows_now)          # (SPEC.md 128.37.5: the kit held through a refused L)
         if claims_now != base_claims:
             why.append("the claims %s, before %s" % (claims_now, base_claims))
         if first and nl:
@@ -453,7 +453,7 @@ def leg_dclick(ui, tag, sym, g):
             except Exception:
                 txt = None
         rows, claims = fresh(g)
-        why = X.kit_held(g, rows)               # (SPEC.md 128.33.5: fetched at the open, whatever it was handed)
+        why = X.kit_held(g, rows)               # (SPEC.md 128.37.5: fetched at the open, whatever it was handed)
         if toast is None:
             if bytes(m.read(g.a("bz_rlog"), len(want))) != want or g.b("bz_lsv") != 2:
                 why.append("the log is not %s's (bz_lsv %d)" % (name, g.b("bz_lsv")))

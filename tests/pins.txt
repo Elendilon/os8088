@@ -384,7 +384,7 @@ N apps/bonanza/bonanza.asm op:BZ_P_FBUN # the RESIDENT BUNDLE (bz_bget: bz_entry
                                          # bz_bsegs, bz_cseg, the songs, the family
                                          # records and far pointers, plus an op_pin round
                                          # the bracket
-N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 128.33.5: bz_kget,
+N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 128.37.5: bz_kget,
                                          # bz_entry's quiet fetch before the bundle, again
                                          # by a play course's load if the open's was
                                          # refused): 14,612 bytes the courses' expansion

@@ -211,16 +211,11 @@ gl_cell:
 .r:
     cmp byte [es:si], BZ_FK_CRACK
     jne .n
-    push si
-    call gl_byte
-    cmp byte [si], GL_BROKEN
-    pop si
-    jne .n
-    mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2
-    sub al, [bz_nwin]
-    inc al
-    cmp al, 2
-    ja .n
+    mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2 (the
+    sub al, [bz_nwin]           ; window first: a crack out of it costs no
+    inc al                      ; gl_byte - every crack of the course is
+    cmp al, 2                   ; looked at on every refill, SPEC.md
+    ja .n                       ; 128.25.18)
     mov ah, [es:si + 3]
     sub ah, [bz_nwin + 1]
     inc ah
@@ -234,6 +229,11 @@ gl_cell:
     shl dx, 1
     shl dx, 1
     mov di, dx
+    push si
+    call gl_byte                ; (preserves DI)
+    cmp byte [si], GL_BROKEN
+    pop si
+    jne .n
     mov al, [bz_nbr + di + 2]
     and al, 15
     cmp al, 1                   ; (a FLOOR still: not yet overlaid)

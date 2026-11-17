@@ -253526,7 +253526,7 @@ author's cue to move the geometry, or the owner's to price a bound of 5
 A course that needs more in a row gets the second `OCCIDX` level, not a
 higher bound.
 
-**Since the kit (128.33.6) the alignment is fixed** - every play course at
+**Since the kit (128.37.6) the alignment is fixed** - every play course at
 `Y0` = 4 (mod 8) - so the tool no longer searches for an alignment that
 meets the 4-a-block bound: **respecting it is the author's** (the owner,
 2026-11-17). The bound stays as it is: it bounds the worst frame's occluder
@@ -262552,7 +262552,7 @@ the hole, `n = COLS BROWS` the cells and `C = COLS`.
     (`bonanzagame`'s tour, `bonanzaexit`), and the route costs about 200
     bytes packed over the six.
 - **7 CELLS**: the follow-up's form (128.15.6).
-- **8 KITREF** (128.33.4): sections `B`, `K` and `F` of a play course whose
+- **8 KITREF** (128.37.4): sections `B`, `K` and `F` of a play course whose
   head is THE KIT's pieces: stored as a bitmap of the kit's pieces and then
   the course's own; the bitmap is copied to scratch first, because the
   pieces copied in from the slot's start overtake it.
@@ -265833,19 +265833,16 @@ build, unless marked):*
   for; **`nolatch` reverses the row direction on the CGA's fall and not on
   the Hercules'** (its rows are 4 lines and the ball's own line stays
   inside the band there), so that arm's leg is the CGA's (128.16.14).
-  **That is at the card's NOMINAL rate** (2026-11-17, the kit's final
-  pass): the CGA plays the latched fall at about 1.3 steps a frame once
-  the two-row pans run, and at that pace the shipped camera itself is
-  one line behind the ball's bottom edge on the last two or three steps
-  before the kill (whether it is depends on the frame boundaries' phase:
-  `bbcourse.Glide` fed 1.3 steps a frame loses it at steps 204 - 206 from
-  one phase and not from the other). `bonanzaring` tolerates exactly that
-  - the footprint past the bottom edge alone, by at most `RATE_LINES` (4),
-  on a frame where the shipped GLIDE fed the guest's own steps is latched
-  and loses it too - and reports each such frame; `nosafe` still goes red
-  (its footprint leaves where the shipped camera keeps it, step 195 at
-  that pace). Keeping the ball in at any pace is a camera change (a
-  latched pan past its two rows), not made.
+  **That is at the card's NOMINAL rate**: on the CGA the fall misses
+  retraces (frames of two steps; 10 - 12 since 128.19.10 item 7's walk
+  fix), and there `bonanzaring` allows the footprint outside the window
+  by the ball's travel over the steps still owed from those frames and no
+  more, every mode, each such frame reported (its WARNING and PACING
+  lines) - **capped at `GROUND_VIS`, 15 lines**, so some of the ball is
+  always on the glass. The cap is what keeps `nosafe` red: on the model at
+  the CGA's 10 - 12 misses its footprint leaves by 23 - 47 lines, the
+  shipped camera's by 0 - 9, and the owed steps' allowance alone would
+  have excused the arm.
 - **The mat**: of the Hops from the apron whose first contact is on the
   mat, Space 2 steps before it, 32 take-off points, none boosts.
 - **The demo** (`BZD6`, `playground.bzd`): 1,489 steps, 27.26 s, rubber,
@@ -266354,7 +266351,7 @@ byte (128.16.11).
 | `bonanzacourse` | soak, host | item 7: the material table printed from `Physics` and asserted against `axis_feel()` (128.16.3), with the axis model under the round-up equal to wave 2's written row; the STEP LADDER and the GAP LADDER and their asserted shapes (no ball crosses three LEVEL tiles, the boost included, every window position; onto a lower floor steel never and no Hop alone down to 1.5 units, the boost's crossings and the deeper Hop crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed, `gap3_scan()`); a Hop on a spring's cell never boosts (the `springtok` control); no gain after a 1.5- or 2-unit drop, the 1-unit drop's boost with `sqf` 0, the threshold printed; one boost a chain; the token at the first contact only; the Grip chain; firm level floors only, `MILL`'s lift slab among them; the PLAYGROUND's rungs dead ends and its 2-unit top unreachable; `ledge_gaps()` for rubber (asserted unchanged) and glass; the up-ramp distance per ball; the reach with the BOOST launch on the grid cell; all seven courses under their bounds and budgets. Item 1 re-anchored on `503031d4` with the reach's 5b inputs (128.16.13; a SKIP is a failure). Item 4: `BZ_PHYSV` not 00h and not in `PHYSV_SHIPPED`. Item 8: `BENCH`'s eight directions with the ground-line `Glide`. Item 9: a stale or demoted shipped `.bzd` refused; `BZD6` boosts, reaches the ledge and ends at the goal; a course in `AUTHOR` without its `.bzd` refused. The palette statement's refusals (item 2). The row's registered text and identities re-taken from the final pass | host controls, each at its own item: `boost400` (`BOOST` 400, a contact apex of 12.25 px: the import assertion refuses "never 2"); `boost300` (`BOOST` 300, 6.75 px: the import assertion refuses "reaches 1.5"); `boostrise` (the boost added to a ramp's rate in the model: item 7's firm-level check); `slabboost` (rule 4 on `_floor`'s substituted cell: item 7's lift case boosts); `noclear` (the token cleared only by a boost: item 7's second-contact case boosts); `remwide` (the remainder left unmasked after the split: item 7's drag figures differ from `axis_feel()`); `gap3` (`BOOST` 366: item 7's 3-tile gap is crossed); `physv` (`PHYSV_SHIPPED` holding this build's value) and `physv0` (`BZ_PHYSV` forced to 00h): item 4; `stalebzd` (`moon.bzd`'s `physics` line left at A0h) and `noboostdemo` (`BZD6`'s log with its boost press removed): item 9 |
 | `bonanzaphys` | soak, MartyPC | 128.16.4.3's five state values compared at every frame; new replays, found and proved on the model first (`--check`), each on both cards: `boost` (rubber on the PLAYGROUND's apron: a Hop, Space before its contact; `nboost` 1, `gvz` = `BOOST`, `stf` = `BZ_STRS`); `boostclimb` (onto the 1.5-unit ledge); `boostdrop` (a Hop off a 1-unit drop, Space at the contact: a boost with `sqf` 0 although the impact passes 384); `boostfall` (a Hop off the 2-unit drop, Space at the contact: a contact Hop, `nboost` 0); `pumpchk` (Space at every contact of the chain: one boost, then contact Hops); `bouncefirst` (a Hop, no Space at its first contact, a bounce; Space at its second: a contact Hop, `nboost` 0); `gripchain` (a Hop and its boost, Grip held through the boost's landing, then Space: a land, a ground Hop and a second boost, `nboost` 2, no roll between); `rampnot`, `sandnot` and `matnot` (the PLAYGROUND's mat), `liftnot` (`MILL`'s lift: a Hop landing on the slab, Space at the contact: no boost); `steelglass` (steel and glass: contact Hops, never a boost); `drag` (one arrow from rest settles at the model's top; from a chord's cap falls back to it; the remainders every frame); `gripglass` (glass's Grip from the cap stops in the model's steps). **The drag's cost, ASSERTED**: on the `drag` replay a breakpoint at `bz_gax`'s entry and return gives every grounded call's span in MartyPC's cycles, and the worst is at most the as-built routine's price (from its instructions, the fetch floor, x 1.05) plus 25% | `pump` (the token set again by a contact Hop): red at `pumpchk`'s second boost. `rampboost` (rule 4's slope test left out): red at `rampnot`. `tokbst` (the token cleared only by a boost, not at every contact): red at `bouncefirst`'s boost. `slabcell` (rule 4 on the cell after the slab's substitution): red at `liftnot`'s boost. `ceildrag` (the guest keeps wave 2's round-up drag): red at `drag`, one arrow from rest settling at 189 against the model's top. `slowdrag` (the remainder's split done twice): red at the span assertion |
 | `bonanzareplay` | soak, MartyPC | a real-key play on the PLAYGROUND recorded on the CGA (Space twice: a Hop and its boost; Shift on the brake strip), the model off the log equal to the play every frame; replayed on the Hercules | none new: `hopbit` covers Space's bit |
-| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window (on the void fall, short of the shipped camera's own rate at the guest's pace, 128.16.8), and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a ~430-clk loop, past the worst path's bound): red at the span assertion. Both span assertions (this one and `bonanzaphys`'s drag) hold only the CLEAN spans to the price: a span with an entry to the kernel's `sch_isr` inside it is counted apart and left out, as `bonanzaperf`'s are (the review's C2) |
+| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window (short of the travel over steps owed from missed retraces, reported, 128.16.8), and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a ~430-clk loop, past the worst path's bound): red at the span assertion. Both span assertions (this one and `bonanzaphys`'s drag) hold only the CLEAN spans to the price: a span with an entry to the kernel's `sch_isr` inside it is counted apart and left out, as `bonanzaperf`'s are (the review's C2) |
 | `bonanzaexit` | soak, MartyPC | the PLAYGROUND's launches (its three ball rows fetched and dropped), every way out; the claim leg over seven courses; **the palette**: in the PLAYGROUND's bracket on the CGA, MartyPC's rendered pixel at the ball's body is the colour its `BZ_CRS_PALS` byte selects (palette 0's red as shipped), in `FIRST`'s its byte's (palette 1's magenta); after each bracket the desktop renders only the colours its capture before the bracket held, both of them (not the bitmap: BONANZA's own window is in the frame and its face is rewritten after every play, Esc included; the review's F1); on the Hercules a breakpoint on `bz_vinit.vpal`, the local label on `bz_vinit`'s `out` to 3D9h resolved through `os88sym`, is never hit | `nopal` (the `out` left out): red at the PLAYGROUND's rendered colour. `hercpal` (the `bz_herc` branch round the labelled `out` removed, so the arm's own write runs on the Hercules): red at the `bz_vinit.vpal` breakpoint |
 | `bonanzaperf` | soak, MartyPC | wave 6's final pass: every demo, six, through `D`, both cards, speaker ON, REPORTED against 5b's figures and 128.16.15's predictions (no end-to-end A/B: no like for like, 128.16.10): misses, missed refreshes a second, runs of two or more, the longest run, `MILL`'s mode, GLIDE's columns and rows panned a second of play against `--pans`' prediction, and the occluder pass's span a frame against 5b's (128.15.5.4); `TRIAL`'s bounce leg REPORTS the rows panned per bounce under the ground line against wave 2's 251 / 137; the `BENCH` A/B against 5b's commit REPORTED. **`--baseline`**, at the freeze commit only (128.16.10): the 108 runs with their spreads, keyed to each demo's log, written to the report | none new: its arms re-run |
 | `bonanzademo` | soak, MartyPC | `V`'s six demos, each `D`'d to the model's end on both cards (the PLAYGROUND's boosts among them); the hostile set's physics cases are all THIS build's log with only +7 changed, as `tests/bonanza_demo.py`'s H09 mutation is today (`BZ_PHYSV ^ 5Ah`): H09 kept, and two more with +7 = A0h (5b's value) and +7 = 00h, each refused at check 5 with `bz_t_phys` (a real 5b log of a course whose identity moved fails check 4 first, 128.16.9, so it cannot be this case) | none new |
@@ -269957,6 +269954,34 @@ the skip's kinds, three taken jumps) - item 6 below.
    | the walk a frame, rolling | mean 3,490, max 9,954 (was 3,780 / 9,813) | **mean 3,274, max 10,148; over 10k on 1 frame of 80** (was 17,000 - 25,000 on 22) |
    | `bz_lfull` | 7,436 clk (+114: the marks' `rep stosw`) | 24,154 clk |
 
+7. **(wave 9, 2026-11-17: the void fall's profile)** **A lane the walk
+   does not walk is no reason to make the next one.** A lane of the slice
+   that fails the exact range test or lies outside the column band is
+   unmarked (item 6) and, from this wave, has its TRUE pose set to its
+   DRAWN one (`bz_ltru` = `bz_ldrw`, 8 bytes at `.nxo`). Neither is read
+   until a walk walks the lane again, and that walk is always the
+   unconditional one (`.w0`: a range entry or a band return, `bz_ltrue`
+   first). Without it, a lane that is in the row slice but outside the
+   exact range or the band is never synced. It stays at `bz_pread`'s
+   UNKNOWN 0FFh against a true pose of 0, the quiet walk's `repe cmpsb`
+   over the slice fails on it every frame, and the walk is made on every
+   frame. PLAYGROUND's labs (the GROUP LAB's group lanes, the CRACK LAB's
+   cracks) put such lanes in the slice for the whole void fall.
+
+   **A column move marks only the OUT lanes that are back in the band**
+   (`.cm` runs `.l1`'s band test; the band's columns, `bz_pcl`/`bz_pch`,
+   are computed at `.walk`, before it, +32 bytes). It used to mark every
+   OUT lane of the slice, and the walk then took each one through the
+   lane scan, the range test and the band test only to unmark it again:
+   about 0.7k clk a lane, on every frame the camera moved a column. A lane
+   that is back is walked exactly as 128.18.2 item 3 says.
+
+   The same profile found the second cost in the families' CELL hooks
+   (128.25.6.3). Each runs over every prop of the course on every window
+   refill. `gl_cell` and `pr_cell` now test the window first and read an
+   element's state (`gl_byte`, `pr_bit`) only for an element in it. This
+   moves bytes in the parts only, never in the image.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
@@ -271091,7 +271116,7 @@ replaced the sum**: it omitted the victory fanfare's claim, and the play's
 small parts are one ARENA claim now, so `bz_phrel` holds the pathway when the
 largest run takes `BZ_CRS_MAXCLAIM` (the course's own claim) plus
 `BZ_CRS_ARMAX` (the largest arena a pad's course reserves) - 5,376 paragraphs
-today against the sum's 5,993. **128.33.5 adds THE KIT**: the run must also
+today against the sum's 5,993. **128.37.5 adds THE KIT**: the run must also
 take `BZ_KIT_CLAIM` while the kit is not here (only when the open's fetch of
 it was refused) - the pathway is the part dropped, never the kit or the
 course.
@@ -272755,7 +272780,7 @@ with it on 2026-11-16 (relayed by the owner):
 
 #### 128.25.3 The Y0 search (story 9.0)
 
-**Superseded by 128.33.6 (the owner, 2026-11-17)**: there is no search any
+**Superseded by 128.37.6 (the owner, 2026-11-17)**: there is no search any
 more. Every play course compiles at `Y0` = 4 (mod 8), the alignment THE KIT's
 pieces are drawn at, and a course that then meets a bound is edited.
 `y0_search` survives as a function, for item 6's MOON control below.
@@ -277476,8 +277501,1170 @@ along the group lab's three wide cracks - each cracked and broke on its own,
 the shared lanes through poses up to 15 of 16, solid rims and no specks,
 the drawn pose within one frame of the true one, and a fall restoring all
 three.
+### 128.33 MAGNETS, a family (the owner's design, 2026-11-17; BUILT on `bb-magnet`)
 
-### 128.33 The standard kit (the owner, 2026-11-17)
+The props plan's P2 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)).
+A family by 128.25.6.8's recipe: `apps/bonanza/fam/magnet.asm` the part,
+`bbcourse.MagnetFamily` the model. Written PLANNED before the code; the
+figures below are MEASURED where marked, the rest PREDICTED. Sections 128.32
+(WATER) and 128.34 (WIND) are other branches'.
+
+#### 128.33.1 The decisions
+
+| | the owner's | as built |
+|---|---|---|
+| who | STEEL only; rubber and glass unaffected | STEP tests `bz_mat` first |
+| what | a magnet with a facing and a range; pulls the ball OFF the course (a hazard) or keeps it ON (along a rail or an edge); the pull grows as the ball nears; a cheap integer law, no square root | a FIELD of N cells in a line from its post; `S >> (k - 1)` at the k-th cell (128.33.3) |
+| the wiggle | a 2 - 3 frame lane animation while it pulls, marked only on a change | poses 0 / 1 / 2, `MG_WIG` = 8 steps a pose (128.33.5) |
+| vertical | facing DOWN from a mount, pulling up at about the fall rate, so steel HOVERS across a gap under a row of them; check first that a ball over VOID is not killed early | it hovers (128.33.4: nothing blocks it) |
+| visibility | the mounts must not hide the ball's path | a thin arm high above, on a post at the side (128.33.6) |
+| determinism | a family's state is physics state | the slot is compared every step (128.33.10) |
+| the ID | the lead's: 8 (WATER 7, WIND 9) | `BZ_FID_MAGNET` 8; `BZ_FTAB` holds 0FFh for an ID a build lacks |
+
+#### 128.33.2 The statement and the record
+
+    uses magnet
+    prop magnet <wx> <wy> face +x|-x|+y|-y [range <1-8>] [strength <1-127>]
+    prop magnet <wx> <wy> face down <+x|-x|+y|-y> [range <1-8>] [strength <1-127>]
+
+The element stands on its POST cell, a flat FLOOR (128.25.6.4's rule; a
+post the ball must stop at is a cell higher than `BZ_CLIMB`, as the test
+course's are). A SIDE magnet's field runs from the post along `face`; a
+HANGING one (`face down`) carries an ARM out along the named way, and its
+field is the cells under the arm. Range 1 by default; strength `MG_SH` = 6
+(side) or `MG_SV` = 27 (hanging) by default. The class is the kind's,
+ATTEMPT (no `reset`). Kind **32**, one state bit an element (reserved, 0:
+the recipe's minimum).
+
+| record | what |
+|---|---|
+| +16, +17 | FSB, the class (128.25.6.4) |
+| +18 | the WAY: 0 +x, 1 -x, 2 +y, 3 -y (`DIR_NAMES`' codes: bit 1 the y axis, bit 0 the negative way) |
+| +19 | bit 0 DOWN (hanging: +18 is its arm's way) |
+| +20 | N, the range, 1 - 8 |
+| +21 | S, the strength, 1 - 127 |
+| +22 | a hanging magnet's CEILING, signed px: its post's floor + `MG_CEIL` (4); 0 for a side one |
+| +23 - +31 | 0 |
+
+#### 128.33.3 The field and the force law
+
+The field is a LINE: cell `post + k way` for k = 1 - N. Who is in range is
+the ball's CELL (`gx >> 12`, `gy >> 12`) against each magnet's line - two
+byte subtractions, an `xchg` for a y-axis field, a `neg` for the negative
+way, the across difference 0 and `k - 1` below N (unsigned): no multiply,
+no division, no distance. **The force is a cell's, not a point's**: a side
+magnet adds to the ball's velocity on its axis, toward its post,
+
+    pull = S >> (k - 1)           (k = 1 the cell beside the post)
+
+every step the ball's centre is in its field - halving a cell outward, so
+the pull grows as the ball nears (an exponential, steeper than 1/d and with
+no square root; one `shr al, cl`). The ball's own clamp (step 2's,
+`VMAXG + bz_vup`) bounds what it reaches, since the pull is added at STEP
+and the next step clamps before it moves. Steel's arrows give 2 a step on
+the ground and 1 in the air (`ftg_table` of ACC 2), so S = 8 at k = 1 is
+four times the player: a pull to respect, which speed beats (the time in a
+cell is what a pull acts for). **One field a cell** (the tool refuses two
+fields meeting, 128.33.7), so a cell has at most one magnet and the slot
+caches it (128.33.5).
+
+#### 128.33.4 The hanging magnet, and the hover (the investigation)
+
+**What the engine does with an airborne ball over VOID** (step 4 and step
+6, `bbcourse.Physics.step`, and `bzphys.inc` the same): an OPEN void
+(`Z_OPEN`, no floor near) kills at step 4 at once; a NEAR void (a gap
+between floors) carries a KILL height, the near floors' lowest less 3
+units, and step 6 kills only once `gz` is BELOW it. So a ball held up over
+a gap is never killed, and **nothing blocks hovering**: no resident change.
+(A hover's gap must be NEAR - between floors - which a gap is.)
+
+**The lift.** On an AIRBORNE ball (a grounded one's `gvz` is step 2's)
+below the magnet's ceiling, at STEP (the end of the step):
+
+    gvz += S;  gvz -= gvz >> 3        (the >> arithmetic, as sar)
+
+Without the damping, S = G (24) cancels gravity exactly but keeps whatever
+vertical speed the ball came in with (a hop rises for ever, a fall falls on
+at its speed); the damping takes 1/8 of it a step, so the ball settles. With
+S = 27 the integer rounding gives fixed points at `gvz` 24 - 28 after STEP:
+**a ball that rolls off a level edge hovers at its height, rising at most
+4/256 px a step** (MEASURED on the model: 47 steps over the test gap, z 16.0
+-> 16.6 px), and lands on the far floor with no stun. S below about 27
+sinks (S = 26 settles at 8/256 px a step down); above, it rises to the
+ceiling (the post's floor + 4 px), where the lift stops and gravity brings
+it back: steel pulled up toward the magnet. A hanging magnet cannot lift a
+ball off a floor (step 6's take-off reads step 2's `gvz`).
+
+#### 128.33.5 The hooks and the slot
+
+Hooks **STEP and POSE** only. The slot (`BZF_SLOT`, 8 bytes):
+
+| slot | what |
+|---|---|
+| +0 +1 | the cell the cache is of |
+| +2 +3 | the pull on `gvx`, `gvy` (signed bytes) |
+| +4 +5 | a hanging magnet's lift and ceiling |
+| +6 | the magnet: its element + 1, 0 none |
+| +7 | the WIGGLE's count: 0 idle; 1 - 2 `MG_WIG` while it pulls |
+
+**STEP**: not steel, in a tube or holed (`bz_tube`, `bz_hid`): the wiggle
+stopped, nothing else. Else the ball's cell against +0 +1; when it moved,
+the wiggle stopped, +2 - +6 zeroed and **`mg_scan`** walks the records for
+the one field holding the cell and caches its force; then, with a magnet,
+**`mg_apply`** (the pull, the lift) and the wiggle's count (1 .. 16, round
+again), marking the lane through `bz_fmkp` where the pose changes (counts 1
+and 9) and where it stops. **POSE**: 0, or 1 / 2 for the cached magnet
+while the count runs. **No RESET**: a play's start zeroes the slot - a TRUE
+cache of cell (0, 0) with no magnet, since no field can hold (0, 0) (the
+solid cells are 3 - 252, and the tool refuses it besides) - and a respawn
+moves the ball's cell, which the same step's STEP sees (its own `_end`).
+**THE FORCE-FIELD CORE** is `mg_scan` and `mg_apply` in the part,
+`MagnetFamily.mg_scan`, `mg_force` and `mg_apply` in the model:
+self-contained, so wind can share them (128.33.11). **kern_mega** needs
+nothing of its own: the part only LOADS `[bz_cseg]` (a selector there) and
+never adds to a segment, and marks through `bz_fmkp` - GLASS's precedent
+(128.25.18); a `fetch` row is an `OP_ARENA` code row as the probe's is.
+
+#### 128.33.6 The art
+
+A HORSESHOE (11 x 9 px; a hanging one's 9 x 8), two-pixel magenta arms
+with WHITE tips and a black outline, on a post white on its left and black
+on its right (the Hercules turns magenta into its grey checker, so the
+outline and the tips carry it there; a black post alone vanished against
+the void behind the hover's posts, SEEN in the tool's preview): a side
+magnet sits `MG_POST` (6) px up its post, open toward its field's side of
+the screen; a hanging one's post rises `MG_ARM` (32) px, its arm (a white
+line over a black one) runs out along its way over every cell of its
+field, a horseshoe open DOWN hanging under each. GEOMETRY keyed to the
+post's cell (a "post" op, as a flag's pole is). **Visibility**: the arm is
+32 px over the post's floor and the heads end 23 px up, above any ball
+under its ceiling; the test course stands the posts BEHIND the ball's row,
+so nothing of them is in front of its path. **The WIGGLE**: a
+lane of three poses, 0 nothing, 1 and 2 sparks off the open end (a hanging
+magnet's first head), white with a black edge; a MARK at the post's depth,
+clipped by what is drawn in front, refused when more than half of a pose
+is hidden (the pennant's rule).
+
+#### 128.33.7 The refusals
+
+The statement's words (no `face`, a face of no way, `face down` with no
+arm's way, a range outside 1 - 8, a strength outside 1 - 127, a `reset`, a
+word of no meaning), a post off a flat floor (128.25.6.4's), **two fields
+meeting** (one field a cell), a field over another magnet's post, a field
+cell off the grid's bytes (and (0, 0), 128.33.5), and a hanging magnet's
+ceiling outside the signed byte. Each a `--selfcheck` case (section
+`magnet`) but (0, 0), which no post can reach.
+
+#### 128.33.8 What it costs (MEASURED unless marked)
+
+| | |
+|---|---|
+| the part `bzf-magnet.bin` | **408 bytes** RAM (`paras` 26), an `OP_COMP` row of its own (376 as first built; +32 the bobble and the one-change-a-step rule, 128.33.13) |
+| BONANZA's image | **+12** (49,732 -> 49,744: the part row, `BZ_FTAB`'s IDs 7 and 8); bss **+0** (11,431) |
+| `BONANZA.O88` | +400 (118,615 -> 119,015; +368 as first built) |
+| the shipped courses, demos, identities | **unchanged**: every `BZ*.BIN` byte for byte (`cmp` against the base build) |
+| a step, the part's own (unicorn: instructions / their bytes) | not steel 17 / 38; steel, no field 28 / 65; in a side field 48 - 50 / 111 - 117; in a hanging field 63 - 65 / 150 - 156; a cell change (the scan, 11 magnets on the test course) about 200 / 530 |
+| a step, in clocks (PREDICTED: about 4.5 a byte on the 8088, plus the dispatch's 0.1k) | about 0.3k idle steel, **0.6k** in a side field, 0.8k under a hanging one, about 2.5k on the step the ball's cell changes (a record about 0.2k) - over the plan's 0.3 - 0.5k in a field; `mg_slot`'s call is 8 of the instructions |
+| a frame | 0 while idle; a SLOW lane's commit at a wiggle's pose change (every 8 steps while a magnet pulls) |
+
+#### 128.33.9 Its HOME: `fetch`
+
+By bytes: `resident` (the owner's default) puts its 376 bytes (24
+paragraphs, rounded into `OP_ARQUANT`) on the arena's floor and a part in
+the bundle every open reads, for every course - and no shipped course
+names it. `fetch` costs the image 12 bytes and a read at the launch of a
+course that names it (the test course alone), and counts in that course's
+3-a-course limit and arena reserve. **So `fetch` until a shipped course
+names magnets; then moving it is its `FAMILIES` row's `home`, one field
+(128.25.6.9).**
+
+#### 128.33.10 The test course, the knob and the proofs
+
+`make BUILD=<tree> BZMAGNET=1 bonanzadisk` (BZSHAPES's precedent, 128.28.9;
+refused together with it, since both claim pad 0) adds
+`apps/bonanza/courses/magnets.bbc`, MAGS "Magnet Test", after the shipped
+courses and makes it the pathway's pad 0 (`pathmagnet.sed`: Play Game,
+Enter plays it; its exit 1 goes to FIRST on pad 6). A steel ball at the
+start, a STEEL pad and a RUBBER pad; the PULL (a 2-wide walkway past a
+magnet on a post across a gap, strength 48 range 4: slow steel is pulled
+off, fast steel and rubber pass); the RAIL (a 1-wide rail tilted half a
+unit toward its open side, a fence of seven range-1 strength-8 magnets
+along its high side: steel rides it, rubber slides off); the HOVER (a
+3-cell gap, three hanging magnets over row 22 on posts behind it: steel
+rolls off the edge and hovers to the goal's plate, rubber falls); and a
+plain way round. Without the knob nothing changes.
+
+**The proofs.** `bbcourse.py --selfcheck` section `magnet`: the refusals,
+the records and lanes (3 poses each), the seven scenes on the model
+(`mg_scenes`: hover-steel crosses 47 steps airborne at z >= 16 px; rubber
+falls; slow steel is pulled off, fast steel and rubber are not; steel holds
+the rail and its magnets' poses cycle 0 / 1 / 2; rubber falls off), and
+three red arms ON THE MODEL - `nolift`, `anyball`, `sign` - each failing
+them (MEASURED). `tests/bonanza_phys.py --check`'s unicorn half (`mg_host`):
+the guest's `bz_step` with the magnet part equals the model at EVERY step
+of the seven scenes (the ball, `bz_fst`, the slots, `bz_fref`, the window,
+each element's POSE and the lanes' marks; a RETURN while a magnet wiggles),
+MEASURED equal; and five red arms on the PART, each a patched copy
+assembled and run, MEASURED red: `mgstep` (no STEP entry), `mgsteel` (the
+material's test inverted), `mgdamp` (no damping: parts at the hover's 36th
+step), `mgscan` (the across test gone), `mgmark` (a pose change unmarked:
+"never drawn").
+
+**SEEN** (one look on MartyPC, `os8088_5150_cga_gla` and `_herc_gla`, the
+knob build's disk, a launch with `bz_crs` poked to MAGS, the ball put on
+the steel pad and then poked at the gap and on the rail): steel hovers
+over cells 18 - 20 of row 22 at z 16 airborne, the slot caching each
+hanging magnet in turn, and rides the rail at (20, 12 - 13) with the fence
+magnet's wiggle drawn beside it, on both cards. Not measured there: a
+frame's cost. **Seen against it**: the hovering ball passes IN FRONT of the
+posts' pillar faces, which on the Hercules' checker it barely stands out
+from - a layout question (lower or thinner posts) for the owner, 128.33.12.
+
+#### 128.33.11 Folding MAGNETS and WIND into one family
+
+WIND (128.34) is the same mechanism with the sign reversed and a weight by
+the ball. Folded, ONE part keeps `mg_scan` (who is in range: a line of
+cells from a post, one field a cell) and `mg_apply` (the force), and the
+record's +19 grows a bit, BLOW: the pull's sign flipped (away from the
+post), and the STEEL-only test becomes a WEIGHT read by the material,
+`S x w(mat) >> 2` (glass x2, rubber x1, steel x1/4 - three shifts from a
+table, no `mul`), a magnet's weights steel 1 and the others 0. The cache,
+the wiggle and the lane are shared (a gust's poses are the same lane). The
+bytes saved are one part's header, slot routine, scan and walk (about 250
+of the 376) and one part row. The one difference to keep: a blower acts
+over a REGION, likely wider than a line; the line's `across` test grows to
+`|across| <= width`.
+
+#### 128.33.12 Open questions for the owner
+
+1. The law: `S >> (k - 1)` steps at each cell edge (a cell-granular pull),
+   chosen for the cache; a pull that varied INSIDE a cell would need the
+   point's distance every step (about +0.2k).
+2. The hover's damping holds a ball at the height it entered (a hop under
+   a magnet floats high): wanted, or should a hanging magnet pull toward
+   one HEIGHT (its ceiling) instead?
+3. The wiggle is at a hanging magnet's FIRST head only (a lane is at most
+   32 x 24 px); a long arm's other heads stay still.
+4. Home `fetch` until a shipped course uses it (128.33.9).
+5. The hover's posts: a post must be a raised cell (or the ball rolls onto
+   it), so the hovering ball is drawn against the posts' pillar faces; on
+   the Hercules it is hard to pick out there. Posts set back a cell (a
+   longer arm, `range` 2) or on the far side would clear it.
+
+#### 128.33.13 The owner's answers (2026-11-17), as built
+
+| | the answer | as built (MEASURED) |
+|---|---|---|
+| 1 the law | the owner plays the test course to judge | no change |
+| 2 the hover | holding the height it came in at is fine; a slight BOBBLE preferred if cheap and safe | built, **+20 bytes** of the part (below) |
+| 3 the wiggle | each head that pulls wiggles - the owner, playing the knob build: every hanging magnet of the test course already does, each its own element | **one head an element**: `face down` with a range other than 1 is REFUSED (a row of them is a magnet a cell); no multi-head lanes |
+| 4 the Hercules | the hovering ball reads fine | no change; open question 5 withdrawn |
+
+**The BOBBLE.** In the lift (128.33.4), on a step whose `bz_nstep` (the step
+being run: STEP runs before the count) has its low four bits 0, the lift
+gets a KICK, `+MG_BOB` (48) when bit 4 is set and `-MG_BOB` when it is clear,
+before the damping: `gvz += S +- 48; gvz -= gvz >> 3`. The damping turns
+each kick into a smooth rise or dip of about 0.8 px, so the hovering ball
+bobs about 1.7 px top to bottom with a period of 32 steps (MEASURED on the
+model over the test gap: z 16.0 - 17.7 px). Safe: the kicks are equal and
+opposite, so the bobble adds no drift (a 4,000-step hover on the model's
+arithmetic dips at most 1.1 px under its entry height, against a kill 24 px
+below; the rise stays under the ceiling, 128.33.4, and the heads 23 px up).
+`MG_BOB` and `MG_BOBP` (16) are in the `FAMV`. The part's code: six
+instructions, 20 bytes; nothing per step when the ball is not under a
+hanging magnet.
+
+**One pose change a step.** The tool's rate rule (128.19.10, `check_bounds`)
+counts every SLOW event lane of a window as ONE pose change a step. A
+magnet's wiggle first changed two on a cell change (the old magnet's stop
+and the new one's start). Now the step that refreshes the cache applies the
+force and does not count: the old stops on that step, the new starts on the
+next (`mg_one`, about 12 bytes). So a row of N hanging magnets costs **N
+SLOW lanes, no FAST lane, and at most one pose change a step** in any window
+(one field a cell: only the magnet over the ball's cell wiggles); SLOW lanes
+are unbounded in a window. `--selfcheck` checks the scenes' worst at 1.
+
+**The proofs added.** `--selfcheck` `magnet`: the refusal of a hanging
+magnet's range 2; the bobble's span (at least 1 px) and the one-change rule
+in the scenes. `mg_host`: two more red arms on the part, both MEASURED red -
+`mgbob` (the up kick gone: the ball parts at the hover's 48th step) and
+`mgfresh` (a cell change's step counting the wiggle: the slot parts at
+step 36). The seven scenes stay equal at every step.
+### 128.34 WIND: the blower family (the props round's P3, 2026-11-17)
+
+The owner (docs/plans/BOUNCE-BONANZA-PROPS.md, P3): a BLOWER pushes the ball
+inside its REGION, *"weighted glass x2, rubber x1, steel x1/4 ... the push
+amounts sound right"*; it blows steadily or in GUSTS on a cycle, so a bridge
+can be crossed between gusts; a hint - a small animated lane, or a FLAG that
+flies while the wind blows - shows it; and an UPDRAFT that lifts only glass to
+a ledge is *"a glass-only gate for free"*. Of the column-keeping ideas the
+owner chose a wind curtain across a THIN lower path, *"blowing hard to one
+side"*. The props round fixed this family's ID (9, beside water's 7 and the
+magnets' 8) and this section's number before the three were built in
+parallel. Figures are PREDICTED unless marked MEASURED.
+
+#### 128.34.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `wind`, ID 9 (`BZ_FID_WIND`), one kind `blower` (`WD_K` = 40, `BZ_FK_BLOWER`), home `resident` | the owner's default for a new family (128.25.6.9); by bytes the bundle packs the part with its neighbours and costs no part row (128.34.7) |
+| D2 | the push is applied by the STEP hook, at `.count`, to the WORKING velocity (`bz_gvx`, `bz_gvy`, `bz_gvz`) | no resident byte: the next step's force block clamps it as it clamps the arrows (`VMAXG + bz_vup` on the ground and in the air, `VZMAX` on z), so the wind can never carry a ball past the caps the reach is built on |
+| D3 | the weighting is SHIFTS of the strength S: glass `S << 1`, rubber S, steel `S >> 2` | the owner's x2 / x1 / x1/4, exact, two constants in `FAMV` (`WD_GSH`, `WD_SSH`) |
+| D4 | a gust is a function of the step counter: blowing on step n while `((n + SEED) AND MASK) < ON`, the period `MASK + 1` a power of two (32 - 1,024 steps) | a windmill's gate's rule (128.12.6.2): no state bit, nothing to reset, a respawn changes nothing, and the 16-bit n wraps cleanly; the price is a period that is a power of two |
+| D5 | the hint is a PENNANT on the blower's own pole (the checkpoint flag's two poses), flying DOWNWIND while it blows, furled while it does not, over a FAN drawn on the blower's tile | a lane that changes only when the gust does: one SLOW event lane a blower, marked on the step its state turns (128.34.6) - never a continuously animated lane, which would count against the window's FAST lanes (128.19.10) |
+| D6 | the ball's cell is the WINDOW's centre, `bz_nwin` (the model's `wcell`) | the cell the step's refills left - one word read, where working it out of `bz_gx` and `bz_gy` was about 0.15k a step |
+| D7 | an UPDRAFT (`face up`) pushes only an AIRBORNE ball, below its TOP, while `gvz < WD_LIFT` (128) | the grounded step rewrites gvz from the slopes every step, so a push on a grounded ball is lost: a Hop or a fall starts it. The LIFT cap makes a steady climb and a small hover band under the top, instead of a rocket that overshoots by tens of pixels; and it leaves rubber's fast rise as it was, so rubber's best apex in it stays low |
+
+#### 128.34.2 The statement
+
+    uses wind
+    prop blower <wx> <wy> face +x|-x|+y|-y|up region <x0> <y0> <x1> <y1>
+                [strength <S>] [gust <on> <off> [seed <n>]] [top <units>]
+
+- `face`: the way the wind BLOWS (world axes; `up` an updraft).
+- `region`: the cells, inclusive, whose ball it pushes (the window's
+  centre in it, D6). Inside 0 - 252 (a cell byte; 0FFh is the guest's "no
+  cell").
+- `strength`: rubber's push a step, 1 - 127 (glass's is twice it, a byte);
+  8 when not written. In 1/256 gu a step a step on +-x / +-y, in 1/256 px on
+  `up`.
+- `gust`: blowing `on` steps in every `on + off`, which must be a power of
+  two of 32 - 1,024 (0.58 - 18.6 s); `seed` steps into its cycle at n = 0.
+  Without `gust` the blower is steady.
+- `top`: an updraft's height, units above the blower's own floor (1 - 24);
+  required on `face up` and refused anywhere else.
+
+The blower's element is a family element (128.25.6.4): a FLAT FLOOR cell
+with OBS, which the ball rolls over (a fan grate). **Refused** (each a
+`--selfcheck` string case, item 2): a clause unknown or repeated, a face that
+is not one of five, a region outside 0 - 252 or inverted, a strength outside
+1 - 127, a gust whose period is not a power of two of 32 - 1,024, a `seed`
+without a gust or past its period, `top` on a horizontal blower or missing on
+an updraft, `reset` (its class is the kind's, ATTEMPT: it has no state), a
+blower that is neither on nor beside its region (the wind's source must be
+seen where it blows: the owner's visibility rule), and an eighth blower on
+one course (the slot's list, 128.34.3).
+
+#### 128.34.3 The record and the slot
+
+A blower's record is 128.25.6.4's family element with every field of +18 -
++31 its own:
+
+| at | what |
+|---|---|
+| +16, +17 | FSB (0: the kind has no state bit), the class 0 (ATTEMPT) |
+| +18 | the FACE: 0 +x, 1 -x, 2 +y, 3 -y, 4 up (`BZ_WD_UP`) |
+| +19 | S |
+| +20 - +23 | the region X0, Y0, X1, Y1 |
+| +24 | ON, a word (0: steady) |
+| +26 | MASK, a word (the period less 1; 0 steady) |
+| +28 | SEED, a word |
+| +30 | an updraft's TOP, a word, whole px (the floor's `4 z0` plus 8 a unit); 0 on any other face |
+
+The reader accepts exactly this (`read_props`): a class other than ATTEMPT,
+a face past 4, S out of 1 - 127, an inverted region, a gust whose period is
+not one of the six or whose ON or SEED is past it, a steady blower with a
+MASK or SEED, TOP on a horizontal blower or none on an updraft, or no
+two-pose lane is a bad part.
+
+**The SLOT** (`BZF_SLOT`'s 8 bytes): +0 the course's blower count, +1 - +7
+their element numbers in record order. RESET (either class) writes it,
+scanning `bz_nprop` records - not `bz_nlane`: a play's RESET runs from
+`bz_pinit`, before `bz_pread` counts the lanes - so STEP visits the blowers
+alone. Hence at most `WD_NMAX` = 7 blowers a course. RESET marks no lane: a
+pose is a function of n, which a respawn leaves as it was, and a play's
+start draws every lane at its true pose (`bz_lfull`).
+
+#### 128.34.4 The force law (binding: the guest and `bbcourse.WindFamily` do exactly this)
+
+At `.count` (the STEP hook, after the step and before the counter), with n
+the step's counter (`bz_nstep`'s low word):
+
+1. For each blower of the slot's list, in order: when it GUSTS (ON not 0),
+   its lane is MARKED (`bz_fmark`) if its state on step n + 1 differs from
+   its state on step n - the pose the walk will draw next (POSE answers the
+   state on `bz_nstep`, which is n + 1 once the step has counted).
+2. When it blows on step n, the ball is not in a tube (`bz_tube`), holed out
+   (`bz_hid`) or shattering (`bz_mst` = `BZ_ST_SHAT`), and the window's
+   centre (`bz_nwin`) is inside its region, its push A = S weighted by the
+   ball (`bz_mat`: glass `S << WD_GSH`, rubber S, steel `S >> WD_SSH`) is
+   added: to `bz_gvx` on +x, subtracted on -x, to `bz_gvy` on +y,
+   subtracted on -y; on `up` added to `bz_gvz` only while the ball is
+   AIRBORNE (`bz_air`), its whole-px height (`bz_gz` >> 8) is under TOP and
+   `bz_gvz` < `WD_LIFT`.
+
+The next step's force block clamps what the push left. Several blowers whose
+regions overlap add, in record order (an updraft's `gvz` test sees the ones
+before it). `wind_force` (the model) and `wd_field` (the part) are THE
+FORCE-FIELD CORE: one element's push given its record and the ball's cell,
+apart from the walk over the list and the marks (128.34.9).
+
+**What the weighting does with the arrows** (MEASURED on the model, the
+WIND course): an arrow pair on one world axis (Right with Down, say) gives
+TWICE the force table's entry on that axis - rubber 8, steel 4, glass 12 at
+the full ramp; one arrow gives one entry on each axis. So a wind of S across
+a path is a GATE for rubber exactly when S > 8 (it cannot stand against it
+even giving up all forward drive), for glass when 2S > 12, and steel feels S
+/ 4 against its 2 - 4. The thin path's strength 10 blows rubber and glass
+off whatever they do and lets steel through leaning into it (one arrow, R:
+its push on -y equal to the wind's); the bridge's gust of 8 blows rubber and
+glass off when they meet it on the bridge and lets them cross between gusts.
+
+#### 128.34.5 The reach
+
+A horizontal wind adds nothing to the reach: the clamps keep every speed
+inside the caps `build_reach` already takes. An UPDRAFT does: `build_reach`
+takes every cell of its region as a LAUNCH from its TOP at `WD_LIFT` plus
+the strongest push (glass's, `2S`) - the overshoot of the hover - its radius
+the steps of a fall from there to the course's lowest floor plus that
+flight's, at `VMAXG`. So the cells round the column (the ledge it serves)
+carry the height a ball rising in it can have, for the occluders and the
+bounds, through every `build_reach` a compile takes (the cracks' forms, the
+pickups' reach). NO TRAP needs nothing: its runs hold arrows and never Hop,
+so an updraft never carries one, and a finish that only an updraft reaches is
+not one NO TRAP can prove (the WIND course's ledge is a second exit, not the
+only finish).
+
+#### 128.34.6 The art
+
+- **The FAN**: a disc of radius 6.5 gu on the blower's top, its rim, hub
+  and four blades BLACK on WHITE (`_top_mark`), a pinwheel under the pole.
+  LOOKED AT in the tool's previews: black on white reads on both cards and on
+  either tile of the checker (white blades on magenta, the first try, were
+  white specks on the grey checker the Hercules makes of magenta).
+- **The PENNANT**: a pole on the fan's hub (two black columns, `WD_POLE` =
+  15 px: taller than a checkpoint's unit) and its two poses as a lane
+  (`_wind_flag`): 0 FURLED, a white roll 8 px down the pole; 1 FLYING, a
+  pennant 12 x 7 px out DOWNWIND - east of the pole for +x and -y (the
+  screen's right), mirrored west for -x and +y - and for an updraft a
+  streamer 5 px wide straight up off the pole's top. STRIPED like a
+  windsock, magenta and white bands 3 px wide, outlined black where it ends:
+  one of the two shows on any ground (a white tile, a magenta face, the black
+  void under a thin path). A SLOW event lane, marked only on a gust's turn;
+  a steady blower's lane never changes after the play's start draws it
+  (`bz_lfull`). A flag more than half hidden is refused as a checkpoint's is.
+- **LOOKED AT** on MartyPC (the `BZWIND=1` build, `os8088_5150_cga_gla` and
+  `_herc_gla`, WIND's start window): the bridge's gust pennant flying west in
+  a gust and furled between gusts, the thin path's steady pennant and the
+  updraft's streamer, on both cards. Two looks before it were changed: the
+  checkpoint's own pennant (7 x 5, white, on a 9 px pole) was not readable at
+  320 x 200 on a white tile, and a plain magenta one vanished against the
+  magenta face behind the thin path's blower.
+
+#### 128.34.7 Costs (PREDICTED; MEASURED where marked)
+
+| | |
+|---|---|
+| the part, `bzf-wind.bin` | MEASURED **326 bytes** (the header 24; RESET 46, STEP 88, POSE 25, `wd_field` 104, the gust test `wd_on` 24, the slot 15), 21 paragraphs in the bundle; packed with the bundle |
+| resident | **0 bytes of code**; the image MEASURED 49,732 -> **49,735 (+3)**: `BZ_FTAB`'s bytes for IDs 7, 8 and 9 (a build with water and magnets owns the first two, so WIND's own is +1); bss **+0** (the slot is `bz_fsl`'s, sized by `BZ_FAMMAX`) |
+| the bundle and the package | MEASURED `bzfbun.bin` 33,376 -> **33,712 (+336)**, the arena's floor 2,086 -> 2,107 paragraphs (the pinned claim, rounded to `OP_ARQUANT`, 2,112 either way); `BONANZA.O88` 118,615 -> **118,874 (+259)**; `bonanza360.img` 125 clusters either way |
+| a step, a course naming WIND | PREDICTED (counted from the part at the 8088's clocks and its fetch floor, not measured): about **0.23k** fixed (the dispatch's far call is 128.25.12's); each STEADY blower about **0.2k** with the ball outside its region, **0.45k** inside; a GUSTING one about **0.33k** more (two gust tests); the updraft's tests about the same as a push. WIND's window with its three blowers and the ball under one: about 1.3k a step. Against the plan's "0.1 - 0.2k a step in its region": that was the push alone; the walk over the list and the gusts' marks are the rest. MartyPC is the final pass's (`bonanzaperf` on a WIND build) |
+| a course without WIND | nothing (no `STEP` entry is called for a family the course does not name) |
+| the home | `resident`, the owner's default: the bundle packs the part with its neighbours (+259 on the package, where its own `OP_COMP` row would also add the row's 8 bytes and a stream of its own) and costs no read at a launch; its price is 336 bytes of the arena's floor in every play, a shipped course naming it or not. Moving it to `fetch` is its row's `home` (128.25.6.9) |
+
+#### 128.34.8 The knob build: WIND (`BZWIND=1`) and the checks
+
+`make BUILD=<tree> BZWIND=1 bonanzadisk` (a private tree; `make help` lists
+the knob; not with `BZSHAPES=1`, which takes the same pad) adds
+`apps/bonanza/courses/wind.bbc` after the shipped courses, so every shipped
+course keeps its K and none is on the TOUR, and compiles the pathway through
+`courses/pathwind.sed`: pad 0 becomes WIND (a new game rests on it - title,
+Play Game, Enter plays it), its exit 0 still goes to TRIAL, its exit 1 to
+FIRST at pad 6. Without the knob nothing changes but the family itself.
+
+**WIND "Wind Test"**: a start plate at 2 units with a pad for each ball, and
+east to the goal plate - the WALKWAY (wy 6, the route); the CRUMBLING BRIDGE
+(wy 9, five cracks, `uses glass`) under a GUSTING blower at (9, 8), +y,
+strength 8, 64 steps on in every 256; the THIN LOWER PATH (wy 12, down a ramp
+to 1 unit, three cells one wide, up again) under a STEADY blower on its first
+cell, +y, strength 10; and behind the start a LEDGE 2.5 units up with the
+second finish (exit 1), over an UPDRAFT at (5, 7), strength 16, top 4 units;
+a clock on the ledge (7, 4) besides the goal plate's (20, 12): every finish has a
+clock in its window (128.22.6). The course part: 21,838 bytes of RAM, LZ4
+4,230 (MEASURED, the knob build); the knob's image 49,776 and bss 11,521 -
+its per-course tables a row wider, as `BZSHAPES`' are.
+
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`
+(25 items): item 2's string cases for every refusal in 128.34.2 (22); item
+3, the records' fields and FAMV over the constants (`WD_LIFT` + 1 moves it),
+and the pennant's side for each face; item 6, the updraft's reach - 172 cells
+raised over the same course with a horizontal blower, the column's zhi 83 px
+against its 80 px top - and its red arm `nowindreach` (the updraft's sources
+off: 0 raised). `tests/bonanza_phys.py --check`'s unicorn half, `wind_host`:
+the WIND course compiled from its source and played on the default build's
+image and parts (as PLAYGROUND's K, its limit the model's), the guest's
+`bz_step` equal to the model at every step (the ball, the slots, every
+pennant's POSE and its marks) in eight scenes, what each is for asserted on
+the model:
+
+| scene | rubber | steel | glass |
+|---|---|---|---|
+| the thin path, leaning into the wind (R) | blown off (189) | crossed (263) | blown off (174) |
+| the bridge, met in a gust / between gusts | blown off / crossed (707 steps) | (steel from rest breaks the cracks: `CRACK_TS`) | blown off / crossed (705) |
+| the updraft: a Hop on the fan, then R + U | no ledge, apex 23 px | no ledge, 18 px | **the ledge's finish, exit 1**, apex 49 px |
+
+Red arms, each red at its own check: `wdstep` (STEP's entry 0: no push, no
+mark), `wdglass` (glass's `shl` NOPed: glass pushed as rubber - the ball
+parts at step 132), `wdmark` (the gust's `call far [bz_fmkp]` NOPed: "never
+drawn" at the gust's turn, step 63), `wdlift` (the updraft's `gvz` test
+NOPed: the ball parts at step 123).
+
+#### 128.34.9 Folding magnets and wind into one family
+
+Magnets (128.33) are the same mechanism pulling instead of pushing, steel
+only. Folded, the family keeps ONE kind run (`blower`, `magnet`) and one
+part:
+
+- the record's +18 FACE grows a value (5, TOWARD the element) and +19 the
+  strength, with the WEIGHTING read from the kind (wind: glass 2, rubber 1,
+  steel 1/4; a magnet: steel 1, the others 0), one byte of shifts a kind;
+- `wd_field` takes the push's direction from FACE (a pull: the sign of the
+  element's cell less the ball's, per axis) and its size from the kind's
+  shifts, so the region test, the gust and the marks are shared;
+- the slot's list holds both kinds' elements; a magnet's wiggle is the
+  pennant's lane path with its own poses.
+
+Its bytes: one header (24) and one copy of the walk, the gust test and the
+slot (about 90 MEASURED: RESET 46 less its kind test, STEP 88 less its field call, `wd_on` 24, the slot 15) saved against two parts, for perhaps 30 more in
+`wd_field`. Not done here: the magnets' contract is theirs.
+
+#### 128.34.10 Open questions for the owner
+
+1. The thin path's strength 10 needs steel to LEAN (one arrow, R): held
+   straight (R with D) from rest it drifts its 8 gu and drops at the far end.
+   The owner's "barely moves steel" at strength 6 lets steel through with no
+   lean, but rubber could then hold its line by giving up forward drive.
+2. The gust period is a power of two (32 - 1,024 steps). A free period costs
+   a DIVIDE a gusting blower a step (about 0.15k) or a byte of state.
+3. An updraft lifts only an airborne ball (D7): a grounded ball on the fan
+   rolls as on any floor, so the player Hops into it.
+4. Whether a region should be DRAWN (faint streaks on its tiles): today only
+   the fan and the pennant say where the wind is.
+
+**Answered (the owner, 2026-11-17, through the lead):** the strength is per
+blower already, no change; power-of-two gusts are fine; and three changes,
+128.34.11 - a PIT WIND that lifts with no jump, SQUIGGLES in the air as the
+wind's hint, and GROUND FANS that spin when the ball is in their wind, the
+pennant an option.
+
+#### 128.34.11 Round 2: pit wind, squiggles, spinning fans (BUILT)
+
+| | decision | why |
+|---|---|---|
+| R1 | `lift` (an updraft's): a GROUNDED ball in the region, below the top, whose push beats gravity (A > `BZ_G`, 24) is LAUNCHED - `bz_air` 1, `bz_gvz` = A, `bz_ztop` and `bz_zoff` its own z - in the STEP hook, as a take-off does; the next step's gravity leaves it A - G rising, and the airborne rule carries it on | the cheapest correct launch: the grounded step rewrites gvz from the slopes, so the launch is the take-off's three writes and no resident byte. A PIT (void cells in the region) needs nothing new: a ball rolling in is airborne and the updraft catches it. Without `lift` an updraft is the Hop-in one it was (D7) |
+| R2 | the weighting stays: at strength 16 glass (32) is LAUNCHED and rises; rubber (16) is not launched and in the air falls at a third of gravity (it floats, and drops into a pit slowly); steel (4) is all but unmoved | the owner's "glass rises, rubber partly, steel not" |
+| R3 | the hint is SQUIGGLES in the air over the region - two wavy white strokes over a black shade, along the wind's screen direction (an updraft's straight up), `WD_SQUP` (12) px over the floor under them, an updraft's halfway to its top. A STEADY blower paints a cluster over every other cell of its region (wx + wy even) into the PICTURE, as MARKS after that cell's top (over a void, the blower's): no key, so they never hide the ball or cut an occluder, and what stands in front covers them | static art costs no lane and no step |
+| R4 | a GUSTING blower without a flag gets a WISP: a second element of the family (kind 41, `wisp`) the TOOL makes at its region's centre - no cell of its own (never OBS, never an owner), a lane (pose 0 the picture, 1 the cluster) and +18 its blower's record. STEP marks it on its blower's gust's turns; POSE is its blower's state | one element is one lane, and the fan is the blower's: the squiggles need their own. A wisp more than half hidden is refused, as a flag is |
+| R5 | a ground FAN spins: the blower's state is a BYTE (its kind's `bits` 8), its SPIN counter - `WD_SPIN` (160 steps, 2.9 s) while it blows with the ball in its region, one less a step after - and its lane is the fan, 4 poses (the blades at 0, 22.5, 45 and 67.5 degrees), the frame `(n >> 2) AND 3` while the counter is not 0, 0 at rest. STEP marks the lane where the frame moves | a lane that runs while it is active and costs nothing (no mark, no walk) at rest |
+| R6 | a spinning fan's lane is FAST (`lane_fan`): counted against the window's 6 FAST lanes (`WIN_LANES`) and as ONE pose change a step in its `WIN_CHG` (6), beside the rotors', the clock digits' and the event lanes' 1 | a fan turns every 4 steps on its own while active. So at most 6 fans spin in one window, fewer with a clock (2 digits each) or an event lane in it: with one clock and one event lane, 3 |
+| R7 | the PENNANT is an option, `flag`: the blower's lane is then the pennant (a gust shows on it), its fan does not spin, and it has no wisp | the owner's weather-on-a-bridge use; a flag and a fan in one lane would pass 4 x 3 blocks |
+| R8 | the window's TIMED event lanes - every wisp and every flagged gusting blower meeting one window - may not turn on the same step: the tool checks every step of the 1,024 every period divides and refuses two, naming them (`_wind_turns`; give one a `seed`) | the window's event lanes are one pose change a step (128.19.10); the gusts are the one kind of event lane whose steps are known ahead |
+
+**The statement** grows two words: `[lift]` (an updraft's alone; refused on
+any other face) and `[flag]`. `prop wisp` is refused (the tool's). The 7 the
+slot lists are now WIND ELEMENTS: a gusting blower without a flag is two.
+**The record**: +16 a blower's FSB, a byte's (a multiple of 8, byte elements
+laid first, as cracks are); +18 the face in bits 0 - 2 with `BZ_WD_FLIFT`
+(8) and `BZ_WD_FFLAG` (16) over it; a wisp's +18 its blower's record, +19 -
++31 zero. The reader holds both (a fan lane 4 poses, a flag's 2; a wisp's
+blower a gusting one without a flag). The slot's list holds the wisps too.
+`FAMV` folds `WD_SPIN` (consts (1, 2, 128, 160)) and REV 2.
+
+**STEP, each element of the list** (the guest and `WindFamily` do exactly
+this): a WISP - its lane marked when its blower's state on n + 1 differs from
+n; a BLOWER - a flagged gusting one's lane marked the same way; when it blows
+on n, `wd_field` (CF: the cell in its region; the push, the updraft, the
+launch); without a flag its byte `v` becomes `WD_SPIN` if it blew with the
+cell in its region, else `v - 1` (0 stays 0), and its lane is marked when
+`frame(old, n) != frame(new, n + 1)`, `frame(v, n)` = `(n >> 2) AND 3` while
+`v`, else 0. POSE: a wisp 1 while its blower blows on `bz_nstep`; a flagged
+blower the same of its own; a fan `frame(byte, bz_nstep)`. RESET still marks
+nothing: a respawn leaves n, and the spin bytes are ATTEMPT (a play's start
+zeroes them).
+
+**The knob course WIND** (`BZWIND=1`) now shows: the bridge's GUSTING fan
+(no flag) with its WISP over the bridge - squiggles there only in a gust; the
+thin path's STEADY fan with two static squiggle clusters; the hop updraft at
+(5, 7) with `flag` (its streamer) and vertical squiggles; and the PIT WIND -
+a `lift` updraft at the goal plate's edge (22, 10), strength 16, top 5
+units, its region three of the plate's cells and a 2 x 3 pit, a PLATFORM 2.5
+units up behind it (23 - 26, 6 - 8), the blower flagged. The ledge's finish
+moved to the goal plate as exit 1 (22, 7), so one clock serves both
+finishes - two clocks put 4 digits in some windows, and with two fans and an
+event lane that was 7 pose changes a step, over `WIN_CHG`. The course part
+MEASURED 22,834 bytes of RAM, LZ4 4,818; the knob's image 49,776, bss 11,525.
+
+**MEASURED on the model** (`bonanza_phys`'s scenes, below): on the pit
+wind's plate cells glass is LAUNCHED with no Hop, rises to 56 px and lands
+on the platform; rubber and steel stay on the ground and, rolled on into the
+pit, fall (rubber slowly). A course's `lift` fan: glass airborne at 46 px
+after 40 steps at rest, rubber and steel at 32 (the floor).
+
+**Bytes (MEASURED)**: the part **525** (+199 on round 1's 326: the wisp, the
+fan's byte and frames, the launch), 33 paragraphs in the bundle; `bzfbun.bin`
+33,712 -> **33,904** (+192), `BONANZA.O88` 118,874 -> **119,031** (+157) -
+against the base before WIND, the bundle +528 and the package +416; the image
+**+3** as before, bss **+0** in the default build (`BZ_FSTB` is the shipped
+courses'). **A step** (PREDICTED, counted): a spinning-capable fan about
+0.15k more (its byte, two frames, a compare), a wisp about 0.3k (two gust
+tests), a launch about 0.1k on its one step.
+
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`, 32
+items: the new refusals (`lift` on a horizontal blower, `prop wisp`, a
+clause twice, the 7 elements); the records with the flags, the FSB and the
+wisp's blower, FAMV over `WD_SPIN`; two gusting blowers in one window
+turning on the same step refused and seeded apart compiled; the PIT WIND on
+the model with its red arm (without `lift` glass stays on the ground); seven
+fans in one window refused (FAST lanes) with the red arm `fanfast` (fans not
+counted) compiling them. `bonanza_phys --check`'s `wind_host` now plays the
+WIND course LESS ITS CRACKS (the default build's `bz_fst` is the shipped
+courses' 5 bytes, and five cracks and four blower bytes would not fit; the
+cracks are GLASS's own scenes'): eleven scenes equal at every step - the thin
+path for each ball (and its fan spinning, then stopped), the gust on and off
+for rubber and glass, the hop updraft for each ball, the PIT WIND for each
+ball - and red arms `wdstep`, `wdglass`, `wdfan` (the fan's mark NOPed:
+"never drawn" when it turns), `wdgust` (the wisp's mark NOPed), `wdspin` (the
+spin byte never set: `bz_fst`), `wdlift`, `wdpit` (the launch NOPed: the
+ball parts at its first step on the plate), each red.
+
+**SEEN on MartyPC** (`BZWIND=1`, CGA and Hercules twins): the bridge's
+squiggles there in a gust and gone between; the thin path's static
+squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
+fan turning frame by frame with the ball poked into its gust; the pit wind's
+plate, flag and squiggles over the pit.
+### 128.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
+
+The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,
+HIGH ENOUGH that rubber cannot boost over it from flat ground (the jump
+pickup may), and SEE-THROUGH, so it never hides the ball's path - posts and a
+thin top bar with the course visible through them (the visibility rule of
+`docs/plans/BOUNCE-BONANZA-PROPS.md`: the player must see everywhere the ball
+goes). Its first use: along a walkway's edge beside a water column (WATER,
+128.32), so only steel, sinking through the water, reaches the lower path.
+This is the props plan's P13 (*thin rails*) built as a statement of its own;
+the shipped courses' rails (`wall` cells half a unit proud, `surface bounce`
+for a bumper) are unchanged - restyling them is the owner's separate
+decision.
+
+**Status: BUILT, the tool alone.** No guest byte moves, no family, no
+`BZ_PHYSV`; every shipped course's part, demo and identity is byte for byte
+what it was (MEASURED: `make bonanzadisk` after the change, every
+`build/bonanza-art/*.BIN`, `bzcourse.inc`, `BONANZA.O88` and the four
+images `md5sum`-identical to the tree before it).
+
+#### 128.35.1 The decisions, the statement and its refusals
+
+| | decision |
+|---|---|
+| physics | a guard cell is a **WALL** (128.10.3): impassable from every side at every height, the ball stopping at the cell's near edge - so nothing crosses it however high it flies. No physics change, no grid format change |
+| why not the `edge` bits | the reserved thin-wall bits (128.12.3.2, flags bits 4 - 5) would put the wall ON a cell edge with no cell spent, but they are resident work in step 5 (a new blocking test at every edge crossing, its corner and its fallback), a `BZ_PHYSV` move that re-authors every demo, and a model change held to the guest by `bonanzaphys`. A one-cell WALL already stops the ball exactly at the edge the rail is drawn on; the cell it stands in is the open edge beside the walkway anyway |
+| the picture | the guard cell is NOT drawn as a wall: its rail is drawn on each edge it shares with the floor it guards, and the rest of the cell is drawn as the open edge it is - its neighbours' faces hang into it as into the void (the glass tile's rule, 128.25.18) |
+| height | over the floor it guards: **2 units (16 px) by default**, `height` 1.5 - 3 units (128.35.2) |
+| occluders | the rule (128.10.4.4), unchanged: the rail's pixels are geometry keyed at the guard cell's `s` with the rail's TOP, so they - and nothing else of the cell - are laid over a ball behind; a ball in front draws over them |
+| AV | `FL_FLOAT` (flags bit 6) on every guard cell, so 128.29's model passes over it and its residual records lay the rail's pixels alone (128.35.4) |
+| art | white posts and bars with a black shade, the course's palette, readable on both cards (128.35.3) |
+| cost | the tool's only: 0 resident bytes, no part format change (128.35.5) |
+
+    guard <shape> [height <units>]
+
+`<shape>` is any of 128.10.3's (`tile`, `rect`, `band`); `height` a
+multiple of 0.5 units. The statement is laid AFTER every room, hole and
+FIELD cell (128.28.3), in OPEN cells. A guard cell's **rail edges** are the
+edges it shares with a floor; the cell becomes a WALL whose top is that
+floor's height plus the rail's, flat. `guard` is a word no other statement
+uses (`rail` is the pathway's route material, 128.22.8). Refused at the line:
+
+- a guard on a solid cell ("a guard rail's cell is the OPEN edge beside the
+  floor it guards"), or laid twice;
+- a guard sharing no edge with a floor (it guards nothing);
+- a guard touching (at an edge or a corner) a cell that is not a whole FLAT
+  FLOOR or GOAL - a ramp, a split or a FIELD cell - other than a WALL or
+  another guard: a guard rail stands on the edge of a flat floor;
+- a guard touching floors at two heights: it guards ONE height;
+- a floor at a guard's CORNER with no rail edge through that corner: the
+  ball would meet a wall corner nobody can see;
+- a height under 1.5 or over 3 units, and any other clause (`side` is not
+  one: the rail edges follow from the floors).
+
+Every edge of a guard cell that is not a rail edge is drawn OPEN, so only
+the void, a WALL or another guard may be across it - which is what the
+refusals amount to. A guard strip's end therefore needs nothing (the void)
+or a corner (two rail edges on one cell, the cell beside two floors at one
+height). A guard is never a prop's cell.
+
+#### 128.35.2 The height
+
+The flights from flat ground the rail is measured against (128.16.4 and
+128.25.19; item 16 re-measures them against a guard, in whole px, from a
+walkway's middle into its rail with every Hop and every second press - a
+boost at its contact - in its sweep):
+
+| flight | apex | against the default 16 px |
+|---|---|---|
+| steel's Hop | 2.4 px (item 16: 2) | under |
+| glass's Hop | 4.5 px (4) | under |
+| rubber's Hop | 5.7 px | under |
+| rubber's boost | **9.3 px (9)** | under: the owner's line |
+| the jump pickup's Hop (`PU_JHOP`) | 13.8 px | under |
+| the jump with rubber's boost stacked | 18.0 px (item 16: 17) | about 2 px OVER the top bar - and stopped |
+
+**2 units** is the least height that keeps the jump pickup's own Hop under
+the drawn bar as well as rubber's boost; 1.5 units (12 px, the least the
+statement takes) still covers the boost. A rubber ball bouncing off a long
+fall onto the walkway right at the rail can rise past any height, and it too
+is stopped: **in physics a guard is a column at every height**, so nothing
+crosses it - not the jump, not a bounce. Only above the drawn bar is that
+stop "a wall nobody can see": 1 - 2 px for the jump with the boost. A taller
+rail (`height 2.5`, 20 px) closes that and covers more of the course behind
+it.
+
+#### 128.35.3 The picture
+
+On each rail edge, from the guarded floor's height (the edge's line on its
+top) up the rail's height `H` px, `guard_pix` draws:
+
+- a 2 px **POST** at each end of the edge and at its middle (8 px apart on
+  screen), WHITE then BLACK left to right, from 2 lines under the top to the
+  floor's line;
+- the **TOP BAR**, 2 lines: WHITE over BLACK, along the whole edge (and a
+  column past each end, so a strip reads as one rail);
+- the **MIDDLE BAR**, 1 line of WHITE at half the height.
+
+Back edges (`-y`, `-x`) first, so at a corner the front edge's rail is
+drawn over the back one's. Every pixel is a geometry pixel (the post op of
+128.12.6.3): key `s = wx + wy` of the guard cell, top the rail's top, put
+into the back-to-front order at the guard cell's place - so a cell in front
+covers it and the cells behind are under it. **Nothing else of the cell is
+drawn**: the floor's faces and the course behind show between the posts and
+bars. The black shade keeps the rail on a white tile, the white on a cyan or
+black one; on the Hercules (cyan and magenta one grey checker, 128.3) the
+rail is white and black over that checker and reads as it does on the CGA
+(`--png`'s `-herc` previews, LOOKED AT). A first try shaded the rail CYAN
+(a crystal tint): it vanished on the cyan tiles and into the Hercules
+checker. About a quarter of a ball behind the rail is covered by it.
+
+**Where a rail is in front of a ball.** A rail on a walkway's FRONT edge
+stands in front of a ball on that walkway: laid over it, the ball seen
+between the bars. A rail on a walkway's BACK edge stands in front of what is
+behind it - but a lower path behind is behind the rail ON SCREEN only when it
+is low enough: each cell row back lifts a ball 8 lines, each unit down lowers
+it 8. A lower path two rows behind a 4-unit walkway at 2 units is drawn
+ABOVE the rail (seen whole); one row behind at 0 units stands behind it
+(item 16's L).
+
+#### 128.35.4 Occluders and AV
+
+The rule of 128.10.4.4 is unchanged and needs nothing: an occluder pixel is
+one some reachable ball is behind and below; the rail's pixels are the only
+pixels the guard cell's key draws, so they are the only ones of the cell a
+record lays. **A ball shows through the gaps**: the mask keeps everything
+between the posts and bars. A ball in a cell in front (a greater `s`) is
+never laid over by the rail.
+
+**AV** (128.29) would otherwise get it wrong: its model counts a front WALL
+cell and hides everything under its top edge - the whole diamond of the
+guard cell, gaps included, down to the ground plane. So every guard cell
+carries `FL_FLOAT` (128.29.4: "the model passes over it"; no step of physics
+reads it), and the rail's pixels are the RESIDUAL's records over the VOID
+positions behind it, as a prop's drawing is. `_av_floats_want` counts guard
+cells, so item 15's flags check holds the part to it.
+
+**The bounds** (128.11.4.2: 4 records a block, 128 a block row) are the
+tool's as ever: a rail adds one key to the blocks it crosses, and a course
+that crosses the block bound is refused there, naming it. RAIL (128.35.7)
+reaches 4 in two blocks, where C's right-edge rail meets the faces under it
+(MEASURED; with its guards compiled as solid walls, 3).
+
+#### 128.35.5 What it costs
+
+- **Resident: 0 bytes.** No guest code, no family, no part format change;
+  the guest reads a guard cell as the WALL it is and lays its records as any
+  record. `BZ_PHYSV` and every demo are unchanged.
+- **A course's part**: a rail's picture and records against a solid wall of
+  the same height (MEASURED, RAIL compiled both ways, the walls with the
+  `guardsolid` switch): RAM 23,874 -> **24,538** (+664: 36 more distinct
+  blocks, the posts over every background; 104 FEWER records - the wall hid
+  more), LZ4 4,024 -> **4,456** (+432), 32 guard cells.
+- **The knob build's `BONANZA.O88`**: 122,855 bytes against the shipped
+  118,615 (the RAIL part, the pathway's two pads, the per-course tables a
+  row wider); its 360KB disk 128 of 354 clusters (the shipped 124).
+- **The tool**: the statement, `lay_guards`, `guard_pix`, `guard_ops`, the
+  undrawn cells beside the glass tile's, `FL_FLOAT`, item 16 and its cases.
+
+#### 128.35.6 `--selfcheck` item 16 and the red arms
+
+Item 2 carries the eight refusals of 128.35.1 (`_guard_cases`, each a string
+in the tool). The section `guard` (`--only guard`) compiles a course of its
+own - a walkway at 4 units with a rail on its back edge and one on its front,
+the gap and a lower path at 0 behind the back one - and asserts:
+
+1. 20 guard cells, each a WALL 16 px over the walkway with `FL_FLOAT`, on a
+   `GF_ANA` part;
+2. the picture holds every rail pixel and no other pixel at the guard key
+   and top - the rest of the cell is the open edge;
+3. a ball BEHIND a rail - on the lower path behind the back rail (grounded),
+   on the walkway behind the front rail (grounded), and over the gap behind
+   the back rail (airborne, through AV's model) - is laid over by the rail's
+   pixels ALONE and at most half of it: MEASURED 46, 46 and 54 of its 208
+   lit pixels;
+4. a ball IN FRONT of the back rail (on the walkway's back row, grounded and
+   at 44 px in the air) is laid over by nothing;
+5. the physics: from the walkway's middle into each rail, every Hop and
+   every second press 2 - 33 steps after it (the boost at its contact, a
+   contact Hop), for rubber, steel, glass and the jump pickup's Hop - no run
+   reaches the rail's row or falls, rubber boosted in the sweep, and
+   rubber's highest flight (9 px) is under the 16 px bar.
+
+**Red arms** (each MEASURED red, the section's own negative controls): the
+guard drawn as the solid wall it is (`guardsolid`: items 2 and 3 fail); the
+rail keyed 8 rows nearer (`guardfront`: item 4 fails); `FL_FLOAT` left off
+(`noguardfloat`: items 1 and 3 fail - the model hides the gaps); the physics
+reading each guard cell as a FLOOR at its top (`guardfloor`: item 5 fails -
+the jump's 13.8 px Hop and its 4 px climb get onto a 16 px floor and across:
+why a guard is a WALL and not a high floor).
+
+#### 128.35.7 The knob build: RAIL (`BZRAIL=1`)
+
+`make BUILD=<tree> BZRAIL=1 bonanzadisk` (a private tree; `make help` lists
+the knob) adds `apps/bonanza/courses/rails.bbc`, RAIL "Guard Rails", after
+the shipped courses (every shipped course keeps its K; not on the TOUR) and
+compiles the pathway through `apps/bonanza/courses/pathrail.sed`: pad 0
+becomes RAIL, so a new game rests on it (title, Play Game, Enter); RAIL's
+exit 0 goes on to TRIAL as FIRST's did, its exit 1 straight left to FIRST
+(pad 6, FIRST's icon moved with it). `BZRAIL=1` with `BZSHAPES=1` is refused
+by make (both make their course pad 0). Without the knob nothing changes
+(MEASURED, `md5sum`).
+
+| part of RAIL | what it is for |
+|---|---|
+| P, the start plate (4 units) | the start; a PAD for each ball (rubber, steel, glass) |
+| A, the back walkway (4 units, 2 wide) | its BACK edge guarded, the gap and L behind; the JUMP pickup at its left end: Hop, boost and jump into the rail |
+| B, the front walkway (4 units, 2 wide) | its FRONT edge guarded: rolling along B the ball is seen through the rail in front of it |
+| C, the platform joining them | its right edge guarded: the other slope's rail |
+| L, the lower path behind A (2 units) | down the ramp off C's back; finish exit 1 at its left end. Two rows behind A's rail it is drawn ABOVE the rail (128.35.3) |
+| F, the lower path in front of B (2 units) | down the ramp off C's front; finish exit 0 at its left end |
+
+MEASURED (the tool): RAM 24,538, LZ4 4,456, 549 records, 32 guard cells.
+
+#### 128.35.8 Open questions for the owner, and the rows
+
+| | question | as built |
+|---|---|---|
+| R1 | the rail's look: white posts and bars with a black shade, posts 8 px apart, two bars | as built; a cyan crystal tint was tried and vanished (128.35.3) |
+| R2 | the default height | 2 units (16 px): over the jump pickup's Hop; the jump with the boost rises about 2 px past the bar and is stopped |
+| R3 | the shipped courses' block rails (TRIAL's bumper rails, FIRST's back rail) | unchanged: restyling them moves their parts and identities, the owner's call |
+| R4 | a guard over a ramp or beside a sloped floor | refused (one flat height): a sloped rail is a later decision if a course wants one |
+
+**The rows** (the final pass's; none run here): `bonanzacourse` (the
+selfcheck: its `guard` section and the grammar's cases). No guest code moves,
+so no MartyPC row can see a change on the shipped disks; the knob build is
+LOOKED AT by hand.
+### 128.36 WATER, a family (the owner's design P1, 2026-11-17)
+
+The owner's sketch (`docs/plans/bounce-bonanza/water-sketch.png`) and answers
+W1 - W8 are [BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)'s
+"P1 WATER"; this is the contract they were built to. A walkway of floor cells
+with one cell of it WATER, flush with it, ripples drawn; below the water a
+glass-walled column; an ARCH at the foot of the column's FRONT face, onto a
+lower path. Rubber and glass roll across the water at the walkway's level;
+steel sinks down the column and rolls out of the front. A family by
+128.25.6.8's recipe: **no resident engine change, no surface added,
+`BZ_PHYSV` unmoved.** BUILT and MEASURED where marked; PREDICTED otherwise.
+
+#### 128.36.1 The statements (BUILT)
+
+    uses water
+    water <shape> top <H> bed <B> [ripple <wx> <wy> ...] [always <wx> <wy> ...]
+    arch <wx> <wy> +x|+y
+
+- **`water`** lays every cell of the shape (`tile`, `rect`, as a floor's)
+  AFTER every room, surface, hole and FIELD cell: a FLAT `sand` FLOOR at `H`
+  (units, halves allowed), its bed `B` kept on the tile (`Tile.wbed`), and one
+  `water` ELEMENT a cell (kind 26, `BZ_FK_WATER`) - OBS, and never SAFE (every
+  prop cell's rule), so no respawn, start or flag stands on water. Every
+  water top carries its ripples drawn; `ripple` names cells of the shape whose
+  ripples ANIMATE while a ball is in that column, `always` cells whose ripples
+  animate all the time (W7; the owner: "animate only as something is on it,
+  or, with an option, animate always if we use one column only"), 128.36.9.
+- **`arch`** names a water cell and the FRONT face (`+x` the se face, `+y`
+  the sw face; W3: the ball leaves out of the front) its opening is cut in. It
+  is the TOOL's alone: no element, no record, no grid byte (the plan made it
+  an element whose cell was a WALL for rubber and glass; nothing needs it -
+  from the exit at B the column is a floor at H for them, a wall). Its exit,
+  the cell across that face, is the lower path.
+- **The record** (128.25.6.4's): +16 FSB (no state bits: 0), +17 the class
+  (`ATTEMPT`: nothing to reset), **+18 the bed `B`, +19 the top `H`** (signed
+  half units), **+20 its ripple** (bit 0 `WR_RIPPLE`: it has a lane; bit 1
+  `WR_ALWAYS`), +21 - +31 zero. `read_part` refuses any other (a lane exactly
+  when +20 is not 0, of 2 poses), and a water cell whose grid cell is not a
+  sand flat FLOOR at +19 with OBS and not SAFE.
+
+#### 128.36.2 The family (BUILT)
+
+ID **7** (`BZ_FID_WATER`), one kind, hooks **RESET, STEP, POSE and CELL**
+(RESET and POSE since 128.36.9's ripples), home **`resident`** (128.36.7).
+RESET only counts the ALWAYS ripples: a play's start finds the slot zero and
+`bz_mrec` fresh, and a respawn's place refills the window (CELL), which puts
+back what CELL raised before any flag's material is copied (`.resp` places,
+then `bz_rflag` calls `bz_setmat`). No state bits. Its `FAMV` folds
+`WA_SINK`, `WA_HTHR`, `WA_ESH`, `WA_BOB`, `WA_RSH` and every material's water
+entry (`famv`'s "WA"). The slot, all 8 bytes of `BZF_SLOT`:
+
+| at | what |
+|---|---|
+| +0 | the material STEP last saw |
+| +1 | IN: the window's centre was a water cell at the last refill |
+| +2 | the HTHR it replaced (word), kept once, on the way in |
+| +4 | that centre's FLOAT LINE, its top less a half unit (half units; 128.36.9) |
+| +5 | the ACTIVE ripple's entry step (`bz_nstep`'s low byte) |
+| +6 | the course's ALWAYS ripples (RESET's count) |
+| +7 | the ACTIVE ripple: the centre's element + 1 when it has a ripple lane, else 0 |
+
+| constant | value | what |
+|---|---|---|
+| `WA_SINK` | 160 | below a water cell's top, gvz is at least -160 after STEP; with the next step's G a fall of 184 - **0.72 px a step, a 3-unit column in 37 steps, 0.67 s** (W6: faster than water, slow enough to read; MEASURED, `water-steel`) |
+| `WA_HTHR` | 7FFFh | `bz_mrec`'s HTHR while the centre is water: no landing's lvz reaches it, so glass never shatters and steel never stuns on water |
+| `WA_ESH` | 2 | the floor's restitution on water: sand's less a quarter, `e - (e >> 2)` - rubber 77 against sand's 102, steel 15, glass 39 (W1: less bounce than sand) |
+
+**CELL** (`bz_wtail`'s first act, every refill), **per ball**: for steel every
+water cell of the window takes z0 = its record's bed (+18); for rubber and
+glass its float line, +19 less one (128.36.9), one continuous floor. The rewrite keeps the cell's
+other three bytes and is IDEMPOTENT, as it must be (`bz_win9i` keeps cells of
+the last window, already rewritten). Then, by the window's CENTRE:
+
+- **the centre a water cell**: +4 = its float line; IN set (HTHR kept at +2
+  when IN was clear); HTHR = `WA_HTHR`; and `bz_surfset`'s work for the ball on
+  water, written again in the part (a part never calls the package): `bz_se` =
+  force max(2, ACC >> 1), sand's drag shift, GRIP, and (EF >> 1) less its
+  >> `WA_ESH` - read from `bz_mrec`, the numbers `bbcourse.water_entry`
+  derives from `MATERIALS` and asserts are sand's row - `bz_surf` = sand,
+  `bz_dmask` sand's with both drag remainders cut to it, `bz_ftg` rebuilt
+  (`bz_ramp`'s arithmetic, `bz_wacc` added, as PICKUPS' speed needs). The
+  window's own surface test that follows sees sand and makes no `bz_surfset`,
+  so the lowered e reaches step 6's landing - on the step the ball enters the
+  cell too, which a STEP-time override could not.
+- **the centre not water and IN set**: IN cleared, HTHR = +2, `bz_surf` =
+  0FFh, so that test makes a `bz_surfset` for the new centre.
+
+**STEP** (`.count`, every step): IN, airborne and z (`[bz_gz + 1]`) below
+4 x +4 (the float line, px): **gvx = gvy = 0** and gvz at least `-WA_SINK` (every 32 steps +`WA_BOB` instead, 128.36.9). The horizontal stop is NOT
+in the plan's design, and the code proved it needed: with the cap alone a
+steel ball entering at walkway speed drifted across the column as it sank,
+crossed into the arch's exit cell 12 px above its floor - out through the
+glass over the arch - and stunned landing on the yard (the model, before the
+fix). Stopped, it sinks straight down onto the bed, where the arrows roll it
+out. Then `bz_mat` against +0: changed (a pad's swap, a respawn's flag
+ball), +0 = it and **`bz_fref`** set, so the next step's head refills the
+window for the new ball (a swap refills nothing of its own). A material
+changes only off water (a pad and a flag are cells of their own), so IN is
+always clear when one does, and the HTHR kept at +2 is never a stale one.
+
+**Two families on `bz_mrec`.** PICKUPS' jump writes its HOP and WATER its
+HTHR: different words, never meeting. Both rebuild `bz_ftg` from the `bz_se`
+the centre left (PICKUPS' `pu_tab` reads WATER's force, the same as sand's).
+The rule for a later family that writes HTHR: it is WATER's while IN.
+
+#### 128.36.3 The model (BUILT)
+
+`bbcourse.WaterFamily`, step for step the part. `Physics` gains two working
+values (128.25.6.8 step 2): **`hthr`** (what step 6's hard landing compares,
+where `MATERIALS[mat]["HTHR"]` was read) and **`wef`** (the floor e CELL
+wrote, None for the surface's own), both reset by `_setmat` as `bz_setmat`'s
+copy and `bz_surfset` reset the guest's. A course without water runs exactly
+the code it ran (`hthr` the material's, `wef` None).
+
+#### 128.36.4 The tool's refusals and the reach (BUILT)
+
+Refused, naming the line (`--selfcheck`'s section `water`, item 2): a bed
+not more than a climb (4 px) under the top; a water cell not SEALED at its
+bed - every edge neighbour must be water, its arch's exit, a WALL, or a floor
+whose two corners on the shared edge are both more than a climb above the
+bed (never VOID, a FIELD cell, or a floor too low: steel at the bed would roll
+out through the glass); an arch on a cell that is not water, in a back face,
+twice in one face, or onto an exit that is not a flat non-water FLOOR exactly
+at the bed; `ripple`; water with no `uses water` (the family rule); water on
+a FIELD or split cell or laid twice. W2 needs no rule: from the exit the
+column is a wall to rubber and glass, which bump at its face as at the
+windmill's doorway. **The reach** takes a BED form (`reach_forms`, beside
+GLASS's void): every water cell a floor at B, unioned, so the occluders, OCC
+and the bounds see a ball in a column at every height; `_hack noforms` is
+its control (item 6: the water cells' zlo 0 px, 24 with it).
+
+#### 128.36.5 The art and the DEPTH KEY (BUILT; LOOKED AT on MartyPC, both cards)
+
+A water cell's top and its two front faces are drawn and KEYED **s + 1**
+(`draw_ops`): a ball INSIDE the cell (s_b = s) below its top is then behind
+its own column's art by 128.10.4.4's rule, the records cut there lay the
+glass over it, and the ghost checker every mask carries (128.15.10.1) shows
+it as a 50% ghost behind the glass, on both cards (W8). A ball ON the water
+(at H grounded, with the margin, or above it) is never covered. FLUSH (W5)
+means a column's side faces are walkway-high on every side but the front.
+**An arch** is GEOMETRY after its face (`water_ops`: `_arch` on the face, 18
+rows x 14 px, fewer rows on a shallower column), black, keyed the cell's
+TRUE s with the face's tops: steel passing it at the bed is drawn whole, and
+out on the exit (s + 1) it is in front of everything of the column. AV
+(128.29) runs only over VOID, so a ball in a column uses these records. The
+inks: the top cyan with two white RIPPLE rings round its centre (world gu 2.5
+- 3.5 and 5.5 - 6.5: every top the same blocks); the sw face cyan, the se
+face a cyan and black checker, each crossed by white 2:1 GLINTS every 12 px.
+`_WATER_S0` is the red arm (item 10: steel at the bed of the test course's
+first column under 110 laid footprint pixels with the key, 96 without it -
+the column's own glass the difference; the rest is the walkway's).
+
+**OCCG from the bed.** A water cell's grounded range runs from its BED
+(`_occg`), so it carries OCCG and a ball AT REST on the bed runs the
+occluder pass. Without it (the first MartyPC look, the CGA) steel was ghosted
+while it sank and then drawn whole over the glass once it rested on the bed:
+the grounded pass never ran there. Item 3 holds the flag. SEEN after it, on
+the `BZWATER=1` tree, CGA and Hercules twins: steel ghosted sinking, ghosted
+at the bed, whole in the arch's opening and out on the yard. On the Hercules
+the water's cyan and the floor's are the same dither, so the top reads by
+its rings and its outline alone: the owner's to judge.
+
+A nuance, not refused: a ball in a cell BESIDE a column in its own row
+(`(wx + 1, wy - 1)`), lower than the column's top - one falling past a
+walkway's end - is laid under the column's s + 1 art where the two overlap.
+
+#### 128.36.6 The test course: `BZWATER=1` (BUILT)
+
+`apps/bonanza/courses/water.bbc`, WATER "Water Test", on no shipped disk: the
+knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathwater.sed`; BZSHAPES's precedent, the two refused together), so Play
+Game, Enter plays it:
+
+    make BUILD=build/water BZWATER=1 bonanzadisk
+
+A walkway 3 units up over a yard at 0: the sketch's column at (8, 8), its
+arch +y; a ROW of four columns (11 - 14, 8) with one arch at the far end, a
+ledge a unit up sealing the other three (steel walks the bed under the row);
+a STEEL pad beside the first column (its window holds the water: the swap
+refills it), a RUBBER pad, and a GLASS pad on a tower 7 units up behind the
+row. The finish (exit 0) on the yard, exit 1 on the walkway's far end, to
+FIRST. No shipped course, demo or identity moves.
+
+#### 128.36.7 What it costs, and its home (MEASURED: `make bonanza`, against `3ba74532a`)
+
+**Home `resident`**, the owner's default (2026-11-17), kept although no
+shipped course names water yet: as `fetch` it would add a part row and a read
+at every water course's launch, for 352 bytes of the arena's floor that every
+play pays as `resident`. Moving it is its `FAMILIES` row's `home` alone.
+
+| | before | after | |
+|---|---|---|---|
+| the part `bzf-water.bin` | - | **616 bytes**, `paras` 39 (341 before 128.36.9) | spans: header 24, RESET 34, CELL 308, STEP 162, POSE 39, the three helpers 49 |
+| BONANZA's image | 49,732 | 49,733 | +1: `bz_ftab`'s byte for ID 7 |
+| its bss | 11,431 | 11,431 | 0 (the slot fits `BZF_SLOT`; no state bits) |
+| the RESIDENT BUNDLE, RAM | 33,376 | 34,000 | **+624, every play's RAM**; 2,086 -> 2,125 paragraphs, the pinned claim 2,112 -> 2,176 (`OP_ARQUANT`'s 64: one step) |
+| the bundle, packed (lzb) | 3,223 | 3,674 | +451 |
+| `BONANZA.O88` | 118,615 | 119,098 | +483 |
+| every shipped course part, demo and identity | | | unchanged, byte for byte |
+
+**Per step (PREDICTED, not measured on MartyPC):** a course without water
+pays nothing new (the hook-byte tests it already paid). With water, STEP is
+about 20 instructions and the dispatch, ~0.3k cycles a step; CELL runs only
+on a refill (the centre's cell changed): a walk of the course's records,
+about 30 cycles each, and about 0.5k more when the centre is water (`bz_se`,
+the ramp's nine bytes).
+
+#### 128.36.8 The proofs (BUILT)
+
+`tests/bonanza_phys.py --check`'s unicorn half (`water_host`): the guest's
+`bz_step`, with the build's bundle, against the model at EVERY step - the
+ball, the slots, `bz_fref`, the window and water's working values (HTHR,
+`bz_surf`, the floor's e) - on WATER compiled from the tree whatever the
+build (the part is in every build's bundle; `bz_crs` borrowed from
+PLAYGROUND's, as `bz_crshdr` reads the part alone). `water-steel` (off the
+walkway into the column: sinking from step 11 to its landing at step 48, lvz
+184, no stun, then out of the arch to (8, 9)); `water-rubber` (dropped 3
+units onto the water: lvz 552, rebound 166 where sand's is 219);
+`water-glass` (dropped 5 units: lvz 696, over the threshold 552, whole - the
+same drop onto the walkway shatters it, on the model); `water-pad` (rubber
+onto the steel pad: the swap's refill, then it sinks). Red arms, each the
+part assembled from a patched `water.asm`: `wacell` (CELL's entry 0: the
+window), `wahthr` (HTHR not put back: the working values once steel leaves),
+`warefill` (no refill on a changed material: `bz_fref`). `--selfcheck`'s
+section `water`: the refusals, the cells and records, the BED reach and its
+control, the depth key and its red arm.
+
+**Open, the owner's:** the art on both cards (the owner: "reads as water
+well enough"; for the teal and magenta palette courses); the wobble by eye
+(`WA_BOB` 0 takes it out); the float line's bob (128.36.9, not built). The
+column is kept steel's by a SEE-THROUGH GUARD RAIL, the owner's choice, built
+apart from this family; the test yard is left open.
+
+#### 128.36.9 The second round: ripples, the float line, the wobble, a deep column (the owner, 2026-11-17; BUILT)
+
+**ANIMATED RIPPLES (W7).** A `ripple` or `always` cell's element has a LANE
+(art `ripple`): the crack's 2 x 2 blocks round the top's centre (128.25.18),
+pose 0 the picture's rings, pose 1 the rings moved in (`WATER_RINGS1`, gu
+1 - 2 and 4 - 5), only the top's own pixels (keyed s + 1, its tops as drawn).
+POSE: an ALWAYS one `(step >> WA_RSH) & 1`; the ACTIVE one - the window
+centre's, set by CELL with its entry step - `((step - entry) >> WA_RSH) & 1`,
+so it starts at 0 when the ball comes in; any other 0, the picture's.
+`WA_RSH` 3: a flip every 8 steps, about 7 a second. **Marked on change only**
+(128.25.6.3's `bz_fmark`): STEP marks every ALWAYS ripple each 8 steps (it
+walks the records only while RESET's count is not 0) and the ACTIVE one each
+8 steps from its entry; CELL marks the one it replaces when it stood at pose 1
+(it goes back to 0). An idle column - no ball in it, not `always` - costs
+nothing a frame and nothing a step. **The lane rules:** a `ripple` lane is an
+EVENT lane (SLOW): only the column the ball is in animates, it starts at pose
+0, and the one it leaves goes back - so at most one of them changes on a step,
+the event lanes' one change of 128.19.10's count. An `always` lane changes on
+its own clock, so the tool counts it FAST (`lane_fast`): against the 6 a
+window and 8 in the walk's range, and every one meeting a window in its pose
+changes a step (they flip together) against `WIN_CHG`; seven in one window are
+refused (item 2). The owner's "one column only" is the intended use; the tool
+refuses only past the limits.
+
+**THE FLOAT LINE (the owner: "could that work by slightly sinking ... just
+never allowed to fully sink down like steel is?").** CELL writes a water cell
+for rubber and glass a HALF UNIT under its top (z0 - 1, 4 px: the grid's
+height step), so they ride IN the water; the tool draws the water top's
+pixels with their TOPS `WATER_FLOAT` 4 px above the floor, so a grounded ball
+on the float line (z + `BZ_CLIMB`'s margin = the top) is laid under the top's
+own pixels: on both cards its lower half shows as the ghost and its upper half
+whole (SEEN on MartyPC). The step on is a 4 px drop, ONE landing (`water-roll`:
+1 landing crossing the column, no chatter); the step off is a climb of 4 px,
+exactly `BZ_CLIMB`, rolled up. STEP's stop and cap now act below the float
+line, not the top, so a floating ball keeps its way across. The float line's
+own BOB is NOT built: a floor moving by a pixel needs the lift's carry (128.12.6.4),
+the grid's z0 moves in 4 px steps, and kicking gvz lands every time - the
+owner's own "must NOT produce repeated landing events" rules it out; future.
+Red arms: `wafloat` (the window at the top, unicorn) and item 10's
+`WATER_FLOAT` 0 (rubber at rest 4 px under the top: 107 footprint pixels
+laid under the water, 0 without the raised tops).
+
+**THE WOBBLE (the owner: "if magnets can vary physics, why can't water?").**
+Under the float line, every 32 steps (`[bz_nstep] & 31` 0) STEP sets gvz to
+**+`WA_BOB` 72** instead of capping it: steel rises about half a pixel and
+sinks on - deterministic, the model's and the guest's, never sideways (the
+stop holds gvx and gvy at 0, so it cannot leave by the glass) and never a
+stun (HTHR is raised). **15 bytes**; `WA_BOB` 0 is the ONE-CONSTANT SWITCH
+(the part assembles none, the model skips it). With it a 3-unit column sinks
+in 44 steps (0.8 s), the 6-unit one in 84 (1.5 s), MEASURED on the unicorn.
+**OFF since 2026-11-17** (the owner, having seen it: "I like the concept, but the
+straight fall looks better currently"): `WA_BOB` is 0, so the shipped part
+holds none of the 15 bytes and steel sinks straight down.
+
+**A DEEP COLUMN** on the test course: a deck 6 units up (a ramp from the
+walkway), its column (4, 8) 6 units to the bed, ripples `always`, a front arch
+onto the yard - steel sinks the whole way and leaves by the arch
+(`water-deep`). The sketch's column ripples while a ball is in it, and the
+row's (12, 8).
+
+**The bytes of this round:** the part 341 -> 616 (+275): the ripples about
+258 (RESET 34, POSE 39, CELL's active rule about 65, STEP's marks about 85,
+two helpers 32), the wobble 15, the float line 2. The bundle +272 RAM, which
+crosses one `OP_ARQUANT` step of the pinned claim (2,112 -> 2,176
+paragraphs). **Proofs:** `water-deep`, `water-roll` beside the four earlier
+scenes, the guest equal to the model at every step, every ripple lane's pose
+through `bz_ltrue` and its marks checked (`urun`'s never-drawn check); red
+arms `waact` (the ACTIVE ripple's flip unmarked) and `waalw` (an ALWAYS one's)
+go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
+cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
+their +20) and item 10's float line.
+
+### 128.37 The standard kit (the owner, 2026-11-17)
 
 The owner's idea, priced by `docs/reports/BONANZA-KIT-2026-11-17.md` (the
 report): standard picture blocks, occluder masks and FIELD shape tables held
@@ -277488,20 +278675,20 @@ today's. The disk is "a priority; one of many": real courses will be denser
 than today's testbeds, and the goal is 14 - 20 courses, possibly on one disk.
 The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
 
-#### 128.33.1 The decisions, in one table
+#### 128.37.1 The decisions, in one table
 
 | decision | chosen | why (the owner's, 2026-11-17, unless marked) |
 |---|---|---|
 | what the kit holds | every block and every mask at least **3** courses hold (`KIT_MIN`), and **every FIELD table** any course holds (the F library) | the report's small kit (its section 1.2: 3.4x on today's courses) plus the library its section 5 recommends |
 | how a course names a piece | a BITMAP of the kit's pieces, one a class (`B`, `K`, `F`), in a new stored form, 8 `KITREF` | the report's explicit variant (1.1): no change to the decoder, the parts standard or the claim layout |
 | where the pieces live in RAM | COPIED into the course's own part at its load, at the head of their section, in kit order; the course's own pieces after them | 0 clk a frame and a step: the RAM form's layout is today's. Referenced in place is refused (the report's 3.1: +40 - 55% on every writer's word) |
-| the kit in RAM | **HELD for the session**, never dropped after the copy | the high-water mark (128.33.5); fetched once, before the first course |
+| the kit in RAM | **HELD for the session**, never dropped after the copy | the high-water mark (128.37.5); fetched once, before the first course |
 | append-only | **no**: every ship rebuilds every course, so the kit may change freely | only loadable external courses would need care, and they can simply not use the kit |
 | the alignment | **ONE**: `Y0` = 4 (mod 8) for every play course; the Y0 search (128.25.3) is removed | all of today's courses but BENCH already ship there (the report's section 4), and 0 and 4 make the fewest blocks |
 | the 4-records-a-block bound (128.11.4.2) | unchanged | it bounds the worst frame's occluder tests, 9 x 4 = 36; with a fixed alignment, respecting it is the author's |
 | not now | relocatable occluder records, the LZ dictionary, kit-global numbering and map runs, in-place referencing | the report's sections 2, 1.4, 1.5 and 3.1 |
 
-#### 128.33.2 The kit: its source, its generator and its part
+#### 128.37.2 The kit: its source, its generator and its part
 
 - **The source** is `apps/bonanza/courses/kit.bzk`, TEXT: a line a piece, `B`,
   `K` or `F` and the piece's bytes in hex (a block's 16 CGA bytes, a mask's
@@ -277533,7 +278720,7 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
   PLAYGROUND's again).
 - **The kit's rules** (`kit_check`): no piece twice in a class; block 0 the
   black block; each class's bitmap at most 512 bytes (`KIT_BMMAX`: 4,096
-  pieces, the guest's scratch, 128.33.4); the part within one part's 65,024.
+  pieces, the guest's scratch, 128.37.4); the part within one part's 65,024.
 - **The part**, `BZKIT.BIN` (`BZK1`), its RAM form its stored form (nothing
   expands it; `os88pkg` packs it LZB as it packs every row):
 
@@ -277546,9 +278733,9 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
 | +32 | the classes' pieces, back to back, each in kit order |
 
 Its row, `BZ_P_KIT`, is the one after the title's demos and before the
-family rows (`OP_ASSET`, `OP_LAZY | OP_COMP`; NOT `OP_ARENA`, 128.33.5).
+family rows (`OP_ASSET`, `OP_LAZY | OP_COMP`; NOT `OP_ARENA`, 128.37.5).
 
-#### 128.33.3 How a course names the kit's pieces: kit order
+#### 128.37.3 How a course names the kit's pieces: kit order
 
 A PLAY course (no `view`: never the pathway or the title, whose alignment
 their windows fix, 128.23.2) is compiled exactly as before, and then each
@@ -277566,9 +278753,9 @@ A piece the kit holds is ALWAYS named, never carried: a `KITREF` section's
 own pieces are none of the kit's (`read_part` refuses one that is). The
 model records, per class, the kit indices it names (`m["kit"]`), and the
 RAM form is the kit-less compile's with the pieces reordered -
-`--selfcheck` item 16 proves that on every play course (128.33.7).
+`--selfcheck` item 17 proves that on every play course (128.37.7).
 
-#### 128.33.4 The form `KITREF` (8), and why it expands in place
+#### 128.37.4 The form `KITREF` (8), and why it expands in place
 
 A section `B`, `K` or `F` whose kit pieces outweigh their bitmap
 (`size x nk > ceil(NKIT / 8)`: the slot's hole is then at least one byte) is
@@ -277591,7 +278778,7 @@ x nk` - where the stored form already put them - so they never move.
 - **Why the bitmap is copied out first**: the pieces written from `S` reach
   the bitmap at `S + H` before the walk has read it whenever a course's last
   named piece comes early in the kit and its bitmap runs on past it. Read in
-  place, the writer passes unread bitmap bytes; `--selfcheck` item 16 keeps
+  place, the writer passes unread bitmap bytes; `--selfcheck` item 17 keeps
   that order as a negative control.
 - **Bounded**: the walk counts with the kit's own count of the class, the
   copy with the kit's piece size; the tool proves the pieces named fill the
@@ -277603,7 +278790,7 @@ x nk` - where the stored form already put them - so they never move.
 - **Two-part courses** (128.30): `B` and `K` are in the picture part, `F` in
   the world part; each part's `bz_cexp` expands its own.
 
-#### 128.33.5 The hold, and memory
+#### 128.37.5 The hold, and memory
 
 **The owner's rule**: hold the kit; do not drop it after the copy. *"If no
 claim is made after the course loads, the high-water mark is the same
@@ -277653,7 +278840,7 @@ pathway: 4 of `MEM_OWNER_MAX`'s 8 on the real-mode kernels; a two-part
 course and a suspended play's shell 6), and the open's one more fetch. The
 target machine is 640KB (128.7); 256KB is the end-of-project check.
 
-#### 128.33.6 The one alignment
+#### 128.37.6 The one alignment
 
 `compile_course` no longer searches `Y0`'s eight alignments (128.25.3): a
 play course's `Y0` is the least that holds its footprints plus `(KIT_Y0 -
@@ -277664,7 +278851,7 @@ A course that meets the 4-a-block or 128-a-row bound at the kit's alignment
 is REFUSED, and edited (128.11.4.2). PREDICTED (the report's section 4):
 every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
 
-#### 128.33.7 The tool
+#### 128.37.7 The tool
 
 - `kit_load`, `kit_check`, `kit_part`, `kit_order`, `kit_ref` and
   `kit_decode`; `sec_form` and `stored_len` take the model's `kit`;
@@ -277672,13 +278859,13 @@ every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
   `read_part(s)` know form 8. `read_part` checks a `KITREF` section: a
   bitmap and whole pieces, the kit's share larger than its bitmap, each head
   piece the kit's and in kit order, and no own piece the kit holds.
-- `bbcourse.py kit [-o FILE] [--min N]`: the generator (128.33.2).
+- `bbcourse.py kit [-o FILE] [--min N]`: the generator (128.37.2).
 - The build writes `BZKIT.BIN`; `bzcourse.inc` carries `BZ_FORMS` with bit
   8, `BZ_KIT_CLAIM` and `BZ_KIT_BMB`.
 - **`--sizes`**: per play course, the pieces it takes from the kit and its
   own (bytes of RAM each), and its LZB against its kit-less compile; then
   the kit's RAM and LZB, and the play courses' saving against it.
-- **`--selfcheck` item 16** (section `kit`):
+- **`--selfcheck` item 17** (section `kit`):
   - the kit's part names each class where it lies, block 0 black, and the
     build ships it;
   - every play course's `Y0` is 4 (mod 8);
@@ -277696,7 +278883,7 @@ every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
 - Item 1's cross-commit compile against `503031d4` takes `nokit` (that tool
   had no kit), as it takes `y0add` 0.
 
-#### 128.33.8 kern_mega, kern_small, the Hercules
+#### 128.37.8 kern_mega, kern_small, the Hercules
 
 - **kern_mega**: the kit is a claim like any other; `op_seg` answers its LDT
   selector, which `bz_kget` keeps in `bz_kseg` (the claim is pinned and
@@ -277708,7 +278895,7 @@ every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
   translates the course's blocks AFTER `bz_cexp`, the kit's pieces among
   them, as it always has (128.15.4.5).
 
-#### 128.33.9 Bytes and clocks (PREDICTED: the report's figures)
+#### 128.37.9 Bytes and clocks (PREDICTED: the report's figures)
 
 | | PREDICTED |
 |---|---|
@@ -277721,10 +278908,10 @@ every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
 | guest code | about 150 - 200 bytes of image, about 4 of bss, 0 kernel bytes |
 | RAM held | 3.8KB (the small kit) plus 10.4KB (the F library) |
 
-#### 128.33.10 The rows
+#### 128.37.10 The rows
 
 Named, run by the owner in the final pass (fork rule 9): `bonanzacourse`
-(item 16 among `--selfcheck`'s), `bonanzaexit` (the claim compare: the RAM
+(item 17 among `--selfcheck`'s), `bonanzaexit` (the claim compare: the RAM
 form after `bz_cexp`, the kit's pieces now copied in), `bonanzapath` (the
 held pathway both ways, beside a held kit), `bonanzagame`, `bonanzademo`
 (the re-stamped demos), `bonanzaring`, `bonanzaphys` (its field leg runs
@@ -277743,7 +278930,7 @@ check) and `kitdrop` (the kit dropped with each course: red at the held
 row's check after the first launch). kern_small's give-back is read, not
 run: no row boots BONANZA on kern_small.
 
-#### 128.33.11 As built: the tool (wave K1, 2026-11-17)
+#### 128.37.11 As built: the tool (wave K1, 2026-11-17)
 
 **The kit as cut** (`bbcourse.py kit`, the nine pool courses at this tree):
 **190 blocks, 71 masks, 36 tables**; `BZKIT.BIN` **14,612 bytes** of RAM,
@@ -277785,7 +278972,7 @@ are the ones its sections name):
   So on today's SHIPPED courses the F library costs more than it saves: 21
   of its 36 tables are the knob courses' (SHAPE's and PITS'). It pays for
   itself once standard chutes reach shipped courses (K3); until then it is
-  1.6KB of disk the shipped build carries for them (128.33.12: the owner keeps it whole for now).
+  1.6KB of disk the shipped build carries for them (128.37.12: the owner keeps it whole for now).
 - **The package** (`make bonanzadisk`): `BONANZA.O88` 120,937 -> **119,822**
   bytes (-1,115); `bonanza360.img` **127 -> 126** of 354 clusters. The
   `BZSHAPES` knob build: 133 of 354, its shipped courses' parts byte for
@@ -277794,17 +278981,17 @@ are the ones its sections name):
   pieces); the authored demos were written again by `bbcourse.py author`
   (MOON 06C6h -> E4C6h, PEAK 4FA4h -> CE41h, PLAYGROUND 50E0h -> 01A1h:
   their `ident` lines alone changed); the route demos re-stamped themselves.
-- **`--selfcheck`**: 775 items ok, item 16's five among them; the in-place
+- **`--selfcheck`**: 775 items ok, item 17's five among them; the in-place
   red arm writes over an unread bitmap byte on all 15 `KITREF` sections.
 - **Host time**: `bbcourse.py kit` about 32 s; `--selfcheck` about 4.5 min
   (four jobs); `--sizes` about 5 min (it compiles each play course twice).
 
-#### 128.33.12 The owner's answers (2026-11-17)
+#### 128.37.12 The owner's answers (2026-11-17)
 
 The three questions K1 left open, answered the same day:
 
 1. **The F library on the shipped build** (it costs the seven shipped
-   courses 3,082 LZB and saves them 1,479, 128.33.11): *"Whole is fine for
+   courses 3,082 LZB and saves them 1,479, 128.37.11): *"Whole is fine for
    now, we have to actually decide on, and make, standards. Which will
    probably be finished when we do real course design, though we could
    start today."* **The shipped kit keeps the whole F library**, the
@@ -277827,7 +279014,7 @@ The three questions K1 left open, answered the same day:
    +37 records): *"Yes that is fine."* `bonanzaperf`'s BENCH figures are
    against the re-aligned course from K1 on.
 
-#### 128.33.13 As built: the guest (wave K2, 2026-11-17)
+#### 128.37.13 As built: the guest (wave K2, 2026-11-17)
 
 - **The row**: `BZ_P_KIT` = `BZ_P_PATH + 1 + 2 BZ_TITLE` (after the title's
   demos), `BZ_P_FAM` = `BZ_P_KIT + 1`; the part table one row longer.

@@ -2721,16 +2721,32 @@ bz_props:
     mov byte [bz_lnsk], 0
 .walk:
     mov byte [bz_lqt], 1        ; (quiet until a lane is walked: .w0)
+    mov ax, [bz_c0]             ; wave 7 (128.18.2): THE COLUMN BAND, this
+    sub ax, BZ_LCM              ; walk's [c0 - BZ_LCM, c0 + W + BZ_LCM): the
+    mov [bz_pcl], ax            ; camera moves at most a column a frame, so a
+    add ax, [bz_W]              ; lane outside it is synced before its column
+    add ax, 2 * BZ_LCM          ; can enter
+    mov [bz_pch], ax
     xor bx, bx                  ; 128.19.10: the band MOVED - every lane of the
-    mov bl, [bz_lr0]            ; slice that was OUT is marked (it may be back)
-    mov ax, [bz_c0]
-    cmp ax, [bz_pc0]
-    je .cm0
+    mov bl, [bz_lr0]            ; slice that was OUT and is IN it now is marked
+    mov ax, [bz_c0]             ; (.l1's band test, here: one still out would
+    cmp ax, [bz_pc0]            ; be walked only to be unmarked again, about
+    je .cm0                     ; 0.7k clk a lane - 128.19.10 item 7)
 .cm:
     cmp bl, [bz_lr1]
     jae .cm0
-    mov al, [bz_lout + bx]
-    or [bz_latt + bx], al
+    cmp byte [bz_lout + bx], 0
+    je .cmn
+    mov al, [bz_ltcl + bx]
+    xor ah, ah
+    cmp ax, [bz_pch]
+    jge .cmn
+    add al, [bz_ltw + bx]
+    adc ah, 0
+    cmp ax, [bz_pcl]
+    jle .cmn
+    mov byte [bz_latt + bx], 1
+.cmn:
     inc bx
     jmp short .cm
 .cm0:
@@ -2748,13 +2764,8 @@ bz_props:
     inc bx
     jmp short .ck
 .ck0:
-    mov ax, [bz_c0]             ; wave 7 (128.18.2): THE COLUMN BAND, this
-    mov [bz_pc0], ax            ; walk's [c0 - BZ_LCM, c0 + W + BZ_LCM): the
-    sub ax, BZ_LCM              ; camera moves at most a column a frame, so a
-    mov [bz_pcl], ax            ; lane outside it is synced before its column
-    add ax, [bz_W]              ; can enter
-    add ax, 2 * BZ_LCM
-    mov [bz_pch], ax
+    mov ax, [bz_c0]             ; (the band's columns: .walk's)
+    mov [bz_pc0], ax
     mov dx, 7fffh               ; DX = the skipped rotors' nearest change, steps
     xor bx, bx
     mov bl, [bz_lr0]
@@ -2949,8 +2960,13 @@ bz_props:
     inc bx
     jmp .lane
 .nxo:                           ; out of the range or the band: unmarked until
-    mov byte [bz_latt + bx], 0  ; entering one marks it again
-    jmp short .nn
+    mov byte [bz_latt + bx], 0  ; entering one marks it again - and its TRUE
+    mov al, [bz_ldrw + bx]      ; pose its drawn one: neither is read until
+    mov [bz_ltru + bx], al      ; that entry walks it (.w0, bz_ltrue first),
+    jmp short .nn               ; and the QUIET WALK's compare over the slice
+                                ; must not wait on a lane no walk will sync
+                                ; (an unknown 0FFh, never true: SPEC.md
+                                ; 128.19.10 item 7)
 .plat:
     cmp byte [bz_pin], 0        ; THE PLATFORM: its whole rise outside the
     jne .pin                    ; range (bz_pin, .rng's), not on the card, and

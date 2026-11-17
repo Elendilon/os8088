@@ -116,16 +116,9 @@ pr_cell:
 .r:
     cmp byte [es:si], PR_KIND
     jne .n
-    push cx
-    push si
-    call pr_bit
-    test [si], al
-    pop si
-    pop cx
-    jz .n
-    mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2
-    sub al, [bz_nwin]
-    inc al
+    mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2 (the
+    sub al, [bz_nwin]           ; window first: a probe out of it costs no
+    inc al                      ; pr_bit)
     cmp al, 2
     ja .n
     mov ah, [es:si + 3]
@@ -141,6 +134,13 @@ pr_cell:
     shl dx, 1
     shl dx, 1
     mov di, dx
+    push cx
+    push si
+    call pr_bit                 ; (preserves DI)
+    test [si], al
+    pop si
+    pop cx
+    jz .n
     or byte [bz_nbr + di + 3], 80h
 .n:
     add si, 32
