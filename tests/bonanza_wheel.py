@@ -1099,7 +1099,7 @@ def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
     or None"""
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     plans = []
     for side in (-1, 1):
         for i in sorted(rects, key=lambda j: (recs[j]["kind"] != BB.PK_WINDMILL, j)):
@@ -1148,7 +1148,7 @@ def corner_leg(g, ref):
     lsh, rl = LSH[tag], R.RL[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     fails, rep = [], []
     launch_mill(g, "KeyF", 0)
     m.run()
@@ -1331,7 +1331,7 @@ def stale_plan(g, ref):
     lsh = LSH[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
     rl = R.RL[tag]
     L = 200
@@ -1495,7 +1495,7 @@ def side_plan(g, ref):
     lsh = LSH[tag]
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
     H = BB.CARDS[tag == "herc"][1]
     kx, ky = (grid.x0 - 8) << 8, (grid.y0 - 13) << 8

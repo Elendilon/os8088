@@ -1379,6 +1379,7 @@ def pickup_ok(p, marks):
 
 # the unicorn half (--check): bz_step itself, on the host, against the model -------
 UCS, UPS, UFS, USS, USTUB = 0x1000, 0x3000, 0x6000, 0x8000, 0xFFF0
+UMS = 0x9000                    # a TWO-PART course's PICTURE part (SPEC.md 128.30.5: [bz_mseg]; UPS its world part)
 
 
 _LST_SYMS = {}
@@ -1522,8 +1523,12 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
     bz_fst, the slots, bz_fref, the window bz_nbr against the model's
     snapshot and each element's POSE through bz_ltrue.  -> (model, failures)"""
     c = R.course(crs)
-    g = UGuest(binp, lst, sym, c.cga, fam, patch)
+    g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
     g.w("bz_cseg", UPS, 2)
+    if c.split:                                 # (a TWO-PART course, SPEC.md 128.30.5: the world part in
+        g.mu.mem_write(UMS * 16, bytes(c.cga))  # [bz_cseg], the picture part in [bz_mseg]; one part is in
+    if "bz_mseg" in sym:                        # both words, as bz_cload leaves them)
+        g.w("bz_mseg", UMS if c.split else UPS, 2)
     g.w("bz_crs", R.CRS_K[crs], 1)
     g.w("bz_mat", mat, 1)
     g.w("bz_mode", 0, 1)
@@ -1746,6 +1751,8 @@ def fam_host():
         for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
             g = UGuest(binp, lst, sym, R.course("peak").cga, parts)
             g.w("bz_cseg", UPS, 2)
+            if "bz_mseg" in sym:                # (one part: in both words, SPEC.md 128.30.5)
+                g.w("bz_mseg", UPS, 2)
             g.w("bz_crs", R.CRS_K["peak"], 1)
             g.w("bz_fs", 1, 1)                  # (OP_SAYGATE: the refusal quiet, as inside a bracket)
             g.call("bz_crshdr")
@@ -2097,7 +2104,7 @@ def w4_replays():
     for ux, uy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         for dist in (1, 2):
             c0 = R.course("peak")
-            if BB.Grid(c0.cga).cell(cx - ux * dist, cy - uy * dist)[3] != BB.KIND_FLOOR:
+            if BB.Grid(c0.cga, c0.wcga).cell(cx - ux * dist, cy - uy * dist)[3] != BB.KIND_FLOOR:
                 continue
             if cap is None:
                 pk = w4_poke("peak", cx - ux * dist, cy - uy * dist, mat=0, gvx=128 * ux, gvy=128 * uy)
@@ -2131,7 +2138,7 @@ def w4_replays():
     # lowered to 360 leaves at the max, not the sum; glass shattering on a spring is not launched
     SP = w4_rec("peak", BB.PK_SPRING)
     s1, s2 = SP[0], SP[-1]
-    grid = BB.Grid(R.course("peak").cga)
+    grid = BB.Grid(R.course("peak").cga, R.course("peak").wcga)
     h0 = grid.cell(*s1["at"])[0]
     tier = None
     for d in DIR8:
@@ -2285,7 +2292,7 @@ def w6_replays():
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red, "span": span, "nboost": nboost})
     pc = R.course("play")
-    start = BB.Grid(pc.cga).start
+    start = BB.Grid(pc.cga, pc.wcga).start
     rest = pl_poke("play", start, R_)
     # boost: a Hop from rest on the apron, Space 2 steps before its first contact
     base = [0] * 3 + [K.K_HOP] + [0] * 80
@@ -2375,7 +2382,7 @@ def w6_replays():
     # rampnot: a Hop whose first contact is on a RAMP (TRIAL's or FIRST's), Space before it: no boost
     found = None
     for crs in ("trial", "first"):
-        gr = BB.Grid(R.course(crs).cga)
+        gr = BB.Grid(R.course(crs).cga, R.course(crs).wcga)
         for y in range(64):
             for x in range(64):
                 cl = gr.cell(x, y)
@@ -2406,7 +2413,7 @@ def w6_replays():
     add("rampnot", crs, R_, pk, keys, "a Hop from %s's ramp cell %s, its first contact (step %s) on a ramp, Space "
         "before it: a contact Hop, no boost" % (crs.upper(), at, c), found, red={"_boost_rise": True})
     # sandnot, matnot: a Hop from rest on the PLAYGROUND's sand lane and on its mat, Space before the contact
-    gr = BB.Grid(pc.cga)
+    gr = BB.Grid(pc.cga, pc.wcga)
     for name, test in (("sandnot", lambda cl: cl[5] == BB.SURF_SAND),
                        ("matnot", lambda cl: cl[5] == BB.SURF_BOUNCE)):
         cells = [(x, y) for y in range(64) for x in range(64) if gr.cell(x, y)[3] == BB.KIND_FLOOR
@@ -2513,8 +2520,8 @@ def w6_replays():
                 q.step(K.K_R)
                 cl2 = q.cell(q.gx >> 12, q.gy >> 12)
                 if q.nfall or q.air or q.goal or any(e[0] != "corner" for e in q.events[n0:]) or cl2[1] \
-                        or cl2[2] or cl2[5] != BB.SURF_NORMAL:
-                    break
+                        or cl2[2] or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:   # (a FIELD cell,
+                    break                       # SPEC.md 128.28: its +1 is a shape, not slopes - not level)
                 n = i + 1
             if best is None or n > best[0]:
                 best = (n, (x, y))
@@ -2537,7 +2544,7 @@ def w6_replays():
         p.step(K.K_R)
         cl2 = p.cell(p.gx >> 12, p.gy >> 12)
         if p.nfall or p.air or any(e[0] != "corner" for e in p.events[n0:]) or cl2[1] or cl2[2] \
-                or cl2[5] != BB.SURF_NORMAL:
+                or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:
             break
         seq.append(abs(p.gvx))
     keys = [K.K_R] * len(seq)
@@ -2602,7 +2609,7 @@ def w6b_replays():
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red, "nboost": nboost})
     pc = R.course("play")
-    start = BB.Grid(pc.cga).start
+    start = BB.Grid(pc.cga, pc.wcga).start
     rest = pl_poke("play", start, R_)
     HOP = 3                                     # the Hop's one-step press, from rest on the apron
     base = [0] * HOP + [K.K_HOP] + [0] * 90
@@ -2923,7 +2930,7 @@ def prove_wave1():
                 break
         kinds = [e[0] for e in p.events if e[0] != "corner"]
         ok = {"pit": [e[2] for e in p.events if e[0] == "respawn"][:1] == [(6, 5)] and
-              (6, 5) != BB.Grid(first.cga).start, "lip": "takeoff" in kinds and "bounce" in kinds,
+              (6, 5) != BB.Grid(first.cga, first.wcga).start, "lip": "takeoff" in kinds and "bounce" in kinds,
               "rail": p._reb, "goal": p.goal}[name]
         say.append("wave 1's %s on the model: %s" % (name, ", ".join(kinds) or "none"))
         if not ok:
@@ -3336,6 +3343,7 @@ def main():
         # of each other: each a forked child of this process (BB.jobs_default() > 1), started first, its
         # output printed where the sequential run printed it; BB_JOBS=1 runs them here, in order)
         import bonanza_dsplit
+        import bonanza_dfield
         pool = BB._Pool(BB.jobs_default()) if BB.jobs_default() > 1 and hasattr(os, "fork") else None
 
         def kid(fn, *a_):
@@ -3354,6 +3362,7 @@ def main():
         try:
             k9 = kid(fam_host)
             kd = kid(bonanza_dsplit.check, 200)
+            kf = kid(bonanza_dfield.check, 150)
             S = replays()
             bad = prove(S)
             for s in S:
@@ -3377,6 +3386,11 @@ def main():
             # D5's PLAYGROUND gives this row a split course to replay on the glass
             bad += got(kd)
             for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
+                print(line)
+            # SPEC.md 128.28 (wave C3): the FIELD leg's host half, the same method (tests/bonanza_dfield.py;
+            # its red arms by hand, `--reds`)
+            bad += got(kf)
+            for line in R.check_reds(bonanza_dfield.REDS, "bonanza_dfield"):
                 print(line)
         finally:
             if pool is not None:

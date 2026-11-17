@@ -3143,3 +3143,234 @@ older than this change, not a course cap.
 the scratch builds. **Not run:** the emulator rows that walk the tour
 (`bonanzagame`, `bonanzaexit`), which were updated to read `BZ_TOUR`.
 
+## 2026-11-16 (shaped floors, C0: chutes and the pit as one table-driven cell)
+
+*Branch `bounce-shaped`; the contract SPEC.md 128.28, the plan
+[BOUNCE-BONANZA-SHAPED.md](BOUNCE-BONANZA-SHAPED.md).* The owner had
+reserved kind 7 for a CHANNEL (128.24.13) and asked next for a pit "made of
+curved sides that you have to enter with enough speed to make it around and
+over and fly up the other side". An investigation before this wave rolled
+prototype channels built from today's ramps and halves through the model.
+
+**Observed (the investigation, the model's runs).** A channel whose corner
+is two ramps folded along the cell's diagonal does not turn the ball: at
+384 with no key it bounced back up the run and stalled at 200 - 300. A
+grounded-only corner model with the cross-section swept RADIALLY round the
+corner's inner point carried the ball round at 190 - 384 in a 2-wide,
+14 px deep channel; a 1-wide, 7 px one threw it out from 252. A pure V
+never settles - the cross speed flips by 7 a step for ever. A wall capping a
+channel's end put five occluder records in one block. And the near lip's
+occluders, not the shading, are the biggest byte cost.
+
+**Decisions.**
+- One mechanism, not a channel and a pit: the FIELD cell, whose floor is a
+  17 x 17 table of heights read through one of the square's eight
+  symmetries. A straight, a taper, each corner cell and each piece of a bowl
+  is a table; a chute turning the other way is the same tables mirrored.
+- The cell's own four bytes carry it: the slopes byte became the shape and
+  the symmetry, as 128.10.4.3 had always planned for its reserved kinds; no
+  record in section `D`. The tables are a new section `F`.
+- The slopes are forward differences of the table - two more byte reads -
+  so no multiply enters the floor path, and the bound `|sx| + |sy| <= 7`
+  keeps the floor rate under `BZ_VZMAX`.
+- A rule the corners force: a cell's edge tests are axis-aligned and a
+  corner's bank is radial, so a ball six units inside a corner block meets
+  its neighbour's height six units further up the bank and would bounce off
+  an invisible wall halfway up. A FIELD centre therefore never blocks on a
+  FIELD neighbour (the tool guarantees the seam is exact), and lifts its
+  edge test to its own height at the shared point for a plane neighbour - a
+  floor at the lip is a lip, a floor above it a wall. The fallback is not
+  lifted, so nothing rolls up into a field from below.
+
+## 2026-11-16 (shaped floors, C1 - C4: the tool, the model, the guest and PLAYGROUND)
+
+**Built.** The tool lays a chute or a pit as FIELD cells from one height
+function per piece (a straight, a taper, a radial corner, the bowl),
+sampled at each cell's 17 x 17 points; each cell's relative heights are
+matched against the tables already stored under all eight symmetries
+before a new table is added. THE CHUTES test course (a 2-wide chute with
+two corners and a 1-wide one with a climbing leg) needs 9 tables for 66
+FIELD cells; the pit's 32 cells need 5. The picture draws a field's top as
+4 x 4-unit facets and drops every facet that faces away - the near bank of
+a channel - so the bottom is seen over the lip, as it would be. The first
+render looked right first time; the shading is the facet's normal against
+a light from the upper left, in the 4 colours, world-fixed dithers.
+
+**Discoveries.**
+- The slope bound bites at a radial corner's 45-degree points, where both
+  slopes are large at once: a profile that is fine on a straight is refused
+  in a corner. And rounding half up is not mirror-symmetric, so a depth
+  passes a corner turning one way and is refused turning the other. The
+  profile became a curved bottom and a STRAIGHT bank at the slope the curve
+  reached - steepest at the lip, which also makes the lip a crest - and the
+  deepest every orientation accepts is 10 px (2-wide) and 5 px (1-wide).
+- The model's first guided runs "stalled" at every speed: a coast on the
+  ordinary floor is about v / 4 units, so a ball started eight cells back
+  never reached the corner. Measured from just before the block, with the
+  turn held, the 2-wide carries a ball round at every speed to the cap; the
+  1-wide throws it out over the lip at 384.
+- The guest was wrong in exactly two places before it equalled the model on
+  48,000 fuzzed steps: the tables' offsets were filled by the expander,
+  which the unicorn harness (and nothing that hands the package a RAM form)
+  runs - so they moved to `bz_crshdr`; and `bz_blocks` must keep DI, which
+  `bz_corner` holds across the call and the new height read used.
+- Occluder records, not code, are the cost. A facet's top in whole px broke
+  the four-records-a-block bound; tops in steps of 8 px, then 16, fixed it.
+  A FIELD section on PLAYGROUND hits the RECB 8 layout's 65,024 bytes (the
+  identity is taken over it) before anything else: the 2-wide and 1-wide
+  chutes fit with 460 bytes to spare, the pit does not. A new course would
+  be a TOUR course, and MAIN's 13 lines are full. So the pit is the tool's
+  and the harness's only, for the owner to place.
+
+**Measured.** One MartyPC measurement (CGA 5150, logged breakpoints at
+`bz_step`): a step on a FIELD cell, median 9.4k clk in the 2-wide chute and
+8.5k in the 1-wide, against 8.9k coasting on the apron - about +0.4 - 0.9k a
+step on the mean, against 2.6 - 3.5k predicted; nothing to optimise.
+BONANZA.O88 +680 bytes resident, +36 bss.
+
+## 2026-11-17 (shaped floors, C5: grounded faces merged in, and a knob build to play)
+
+*SPEC.md 128.28 (renumbered from 128.27, which bounce-bonanza's GROUNDED FACES took first).* The
+owner asked for "a knob build with various shapes on a course to try ... a course I can easily
+launch". Merging bounce-bonanza first moved three things. A FIELD cell's faces over the void now follow
+the ground rule (and `float`) sample by sample along the profile, as `draw_ops` does for a plane. The
+per-second budget became report-only, so PLAYGROUND's `target` went back to 30. And PLAYGROUND, with
+the pickups yard and the ridge, no longer had room for the C4 chutes: its RECB 8 layout came to 69.7KB
+against 65,024, so the section came off and no shipped course has a FIELD cell now.
+
+**Decisions.** The knob (`BZSHAPES=1`) adds TWO courses, because a course holds 16 shape tables and
+the shapes the owner asked for need 21 - 27 (a climbing bank chute alone takes 7). SHAPE carries the
+2-wide chutes in both profiles and the 1-wide round one; PITS the 1-wide bank chute, a shallow 2-wide
+one and two pits, one round a hole and one a dish. Both are a level plate with the shapes set in, so a
+ball that leaves one lands on SAFE ground beside it. The pathway is the shipped one put through a sed
+script: SHAPE on pad 0, so Play Game then Enter plays it, PITS and FIRST on pads either side of it.
+Getting there took six tries against the pathway's own rules - a pad must sit inside a page's window,
+a route needs room for its gate's lane, and no two routes leaving one pad may share an arrow key - and
+the answer was routes leaving pad 0 straight left and straight right on the screen, both dead ends.
+
+
+## 2026-11-17 (two-segment courses: a course past 64KB, at no cost a frame)
+
+The owner's brief: unmerged work pushes even PLAYGROUND past the 65,024
+bytes one part may be, so a course needs a second segment - and *"this
+must not hurt frame performance. Be smart about it."* Plan story 11.9,
+SPEC.md 128.30.
+
+**The escape on file was the wrong one.** 128.15.8 had sketched the
+two-part course in wave 5b: the picture (map and blocks) in one part,
+everything else in the other, "a segment switch per laid group in the
+occluder lay, tens of clocks". It was an estimate nobody had built. So
+this round started by reading every place the guest touches the course
+part and writing down which sections each one reads, and through which
+segment register (128.30.2). Three hot loops each read two kinds of
+section at once:
+- the occluder lay's line loop reads a block line (the picture), the box,
+  and a mask (the occluders) - three segments in one loop;
+- the wheel's commit reads a lane's pose word (kept in the props), writes
+  it into the map and then reads that block's lines, per block;
+- physics holds ES on the course for the whole step and reads cells and
+  prop records in turn.
+
+Those three chain every section together, so the sketch's split cuts the
+first one. Priced from the instructions (PREDICTED), it costs about 400
+clk a laid occluder group - up to about 3,600 on a heavy frame - and about
+500 a committed lane, and since the code cannot tell a one-part course
+from a two-part one for free, every course would pay.
+
+**The split that costs nothing.** Keep the occluders WITH the picture, and
+move the one thing that crosses: the lanes' pose maps. They are block
+offsets, only the wheel's three map writers read them, and nothing in a
+step does. So the PICTURE part is `M B I R K O` plus `L` (the pose maps),
+and the WORLD part is `G C D T W P`. Every hot routine then reads one part,
+and each just loads a different segment word (`bz_mseg` for the picture,
+`bz_cseg` kept for the world, so physics, the families' parts and the
+wheel's record reads did not change at all). Both parts carry the same
+48-byte header, each offset field naming its section in the part that
+holds it, so no header read moved either. A build with no two-part course
+assembles `bz_mseg` as an alias of `bz_cseg` and none of the new code, so
+the shipped package is byte for byte today's.
+
+The price of choosing it: the picture part has less room than the
+sketch's would. PLAYGROUND's picture plus occluders are about 39KB of the
+65,024, so about 26KB of growth; past that the next lever is a third part
+for the occluders, at clocks (128.30.10, an open question for the owner).
+
+**What was measured.**
+- The shipped `bonanzadisk`, built before and after in private trees:
+  `bonanza.bin`, `BONANZA.O88`, every disk image and every part `cmp`
+  equal. Only `bzcourse.inc` and the shell's `bzlink.inc` text differ.
+- A test course, `TWOSG`: PLAYGROUND with its diagonal lane run on off
+  the platform's foot (`bbcourse.py twoseg`). One part would be 67,264
+  bytes; as two, a picture part of 51,956 and a world part of 15,364.
+  `make bonanzatwoseg` builds it as course 7 into a private tree.
+- The guest's code with a two-part course: 71 bytes, plus a part row and
+  a byte a course of table, plus 2 of bss.
+- The hot routines (the writers, the box fill and blit, the occluder
+  pass, the wheel's commit and map writers, the slab, the step and its
+  window fill) are the same length from the same lines with and without
+  the support - the two listings compared. No frame was timed: there is
+  no difference to time, and there is no one-part twin of TWOSG to time
+  against.
+- One look boot on each card (MartyPC, `_gla` machines): at the bracket's
+  start the two parts sit in two claims and equal the tool's RAM forms
+  byte for byte (the Hercules' after its translation), the identity is
+  the tool's 1551h, and the autopilot rolls to the goal in 235 steps on
+  both cards - exactly the model's 235 - with both parts dropped after.
+- `bbcourse.py --selfcheck` passes whole, with the new item 15 and its
+  five negative controls, all refused as they should be.
+
+**Predicted, not measured.** A two-part launch costs one more fetch and
+claim - about one more `int 13h` run, under 0.4 s - and nothing else
+worth timing.
+
+**Not run** (named for the final pass): the emulator rows. Because the
+shipped package is byte-identical, those rows would run yesterday's bytes;
+the ones that do read the changed tool or Makefile are `bonanzacourse` and
+`bonanzaassets` on the host and `bonanzaring` (its part list now reads
+`bzcrs2.lst`).
+
+## 2026-11-17 (PLAYGROUND ships as two parts: what it costs)
+
+The shaped floors and two-segment courses met in one tree: PLAYGROUND got
+wave C4's walkway and chutes back, and the radius-3 pit that never fit,
+which took it to 65,513 bytes as one part - so it became the first shipped
+two-part course (SPEC.md 128.30.11). The owner played it and asked one
+question: *what does it cost - the package, the image, any CPU?*
+
+**Three trees, not two.** Comparing the owner's branch (A) with the merged
+one (B) mixes two things: the mechanism and the bigger course. So a third
+tree (C) is B with PLAYGROUND's old text and demo put back. C turned out
+to be A byte for byte - package, shell, `BONANZA.O88` and every disk - so
+everything that differs between A and B is the course using the
+mechanism.
+
+**What was measured** (MartyPC, the CGA 5150, 640KB, one run each):
+- The package: +83 bytes of image, +2 of bss. `BONANZA.O88` +6,450 bytes,
+  nearly all PLAYGROUND's packed parts (7,715 bytes of LZB became 11,057 +
+  3,026). The 360KB floppy: 124 to 130 clusters of 354.
+- The frame: PLAYGROUND's demo through D, 1,649 frames, busy mean 40,455
+  clk on A and 40,224 on B, 3 misses each. The routines that run every
+  frame or step were checked to be the same instructions by comparing the
+  two assembler listings routine by routine. What did change is the
+  course's own work: the occluder pass costs 941 clk more on the 23 frames
+  it runs, because the course has more records.
+- The launch: 0.9 s slower the first time (3.90 to 4.80 s to the first
+  frame), 0.63 s the second. Timing each step with logged breakpoints
+  showed where it goes: reading and decoding 6.4KB more of packed data and
+  expanding 16KB more of RAM. The second part's own fetch is part of
+  that, not a fixed toll on top.
+- The heap: 16KB less free during PLAYGROUND's play (358 to 342KB on a
+  640KB machine) and one more claim (4 for BONANZA, 9 on the heap).
+
+**What making it merge-ready found.** The scratch merge's selfcheck did
+not just fail item 15 "by design" - it crashed: items 1, 3, 10 and 11 each
+assumed every shipped course is one part, and so did the compiler's own
+early refusal, which turned the two-part test course away once PLAYGROUND
+grew (its one-part least was 68,613 bytes although its two parts fit).
+Each now reads a two-part course whole. Several host checks behind the
+emulator rows had the same assumption (the unicorn guest of `bonanzaphys`
+loaded the picture part where the world part goes, and `bonanzaexit`
+compared the wrong claim); and two of `bonanzaphys`'s drag scenarios
+picked the new pit's plate as "the longest level run", because a FIELD
+cell's bytes look like a level floor to that search. All fixed; the
+emulator rows themselves are the final pass's.
