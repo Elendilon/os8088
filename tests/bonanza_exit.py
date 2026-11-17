@@ -266,24 +266,39 @@ def build_rec(art=None):
 _RAM = {}
 
 
-def ram_form(k, tag, art=None):
-    """course K's part as the card holds it between bz_cexp (and bz_hxlat on
+def ram_forms(k, tag, art=None):
+    """course K's part(s) as the card holds them between bz_cexp (and bz_hxlat on
     the Hercules) and OSAPI_FSX_RUN (SPEC.md 128.15.4.5): THE TOOL'S RAM FORM
     under the build's RECB (bbcourse's cga4 / cga8), or its htab() translation
-    (herc_translate_course).  The art's BZ<K>.BIN must be the same compile's
-    STORED form, or the comparison would be with another tree's courses."""
+    (herc_translate_course) -> (the part, None) - or for a TWO-PART course
+    (SPEC.md 128.30) (the picture part, the world part), herc_translate_parts'
+    on the Hercules.  The art's BZ<K>.BIN (and BZ<K>W.BIN) must be the same
+    compile's STORED forms, or the comparison would be with another tree's
+    courses."""
     art = art or R.at("build/bonanza-art")
     key = (k, tag, art)
     if key not in _RAM:
         c = R.course_k(k)
         rec = build_rec(art)
         ram, stored = (c.cga4, c.stored4) if rec == 4 else (c.cga8, c.stored8)
-        with open(os.path.join(ROOT, art, "BZ%d.BIN" % k), "rb") as f:
-            if f.read() != stored:
-                raise SystemExit("%s/BZ%d.BIN is not this tree's course %s as stored under RECB %d: the art is "
-                                 "stale (`make bonanzadisk`)" % (art, k, c.name, rec))
-        _RAM[key] = BB.herc_translate_course(ram) if tag == "herc" else bytes(ram)
+        wram, wstored = ((c.wcga4, c.wstored4) if rec == 4 else (c.wcga8, c.wstored8)) if c.split else (None, None)
+        for f_, want in (("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)):
+            if want is None:
+                continue
+            with open(os.path.join(ROOT, art, f_), "rb") as f:
+                if f.read() != want:
+                    raise SystemExit("%s/%s is not this tree's course %s as stored under RECB %d: the art is "
+                                     "stale (`make bonanzadisk`)" % (art, f_, c.name, rec))
+        if wram is not None:
+            _RAM[key] = BB.herc_translate_parts(ram, wram) if tag == "herc" else (bytes(ram), bytes(wram))
+        else:
+            _RAM[key] = (BB.herc_translate_course(ram) if tag == "herc" else bytes(ram), None)
     return _RAM[key]
+
+
+def ram_form(k, tag, art=None):
+    """course K's ONE part, or a two-part course's picture part (ram_forms)"""
+    return ram_forms(k, tag, art)[0]
 
 
 def section_at(ram, off):
@@ -308,24 +323,36 @@ def claim_check(g, what):
     k = g.b("bz_crs")
     R.CRS_K["bench"]                            # (fills the course table)
     name = [n for n in R.CRS_K if R.CRS_K[n] == k][0]
-    want = ram_form(k, g.tag)
-    seg = g.w("bz_cseg")
+    pic, world = ram_forms(k, g.tag)
+    cpic, cworld = ram_forms(k, "cga")
     mp = heapmap.Map(Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
-    cl = [c for c in mp.claims if c.seg == seg]
-    if not cl:
-        return ["%s: claim leg, %s: [bz_cseg] %04X is no claim of the heap map" % (what, name.upper(), seg)]
-    if cl[0].para * 16 < len(want):
-        return ["%s: claim leg, %s: the course claim at %04X is %d bytes, the RAM form %d" % (
-            what, name.upper(), seg, cl[0].para * 16, len(want))]
-    got = bytes(m.read(seg * 16, len(want)))
-    CLAIMED.setdefault(g.tag, set()).add(name)
-    if got == want:
-        return []
-    bad = [i for i in range(len(want)) if got[i] != want[i]]
-    return ["%s: claim leg, %s: the course claim differs from the tool's RAM form%s at %d byte(s), the first at "
-            "offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 128.15.13" % (
-                what, name.upper(), " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
-                section_at(want if g.tag == "cga" else ram_form(k, "cga"), bad[0]), got[bad[0]], want[bad[0]])]
+    # a TWO-PART course (SPEC.md 128.30.5): the picture part in [bz_mseg], the world part in [bz_cseg]
+    legs = [("bz_cseg", pic, cpic, "")] if world is None else [("bz_mseg", pic, cpic, "picture "),
+                                                               ("bz_cseg", world, cworld, "world ")]
+    out = []
+    for word, want, cwant, which in legs:
+        seg = g.w(word)
+        cl = [c for c in mp.claims if c.seg == seg]
+        if not cl:
+            out.append("%s: claim leg, %s: [%s] %04X is no claim of the heap map" % (what, name.upper(), word, seg))
+            continue
+        if cl[0].para * 16 < len(want):
+            out.append("%s: claim leg, %s: the course's %sclaim at %04X is %d bytes, the RAM form %d" % (
+                what, name.upper(), which, seg, cl[0].para * 16, len(want)))
+            continue
+        got = bytes(m.read(seg * 16, len(want)))
+        if got == want:
+            continue
+        bad = [i for i in range(len(want)) if got[i] != want[i]]
+        out.append("%s: claim leg, %s: the course's %sclaim differs from the tool's RAM form%s at %d byte(s), the "
+                   "first at offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 128.15.13" % (
+                       what, name.upper(), which, " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
+                       section_at(cwant, bad[0]), got[bad[0]], want[bad[0]]))
+    if world is not None and not out and g.w("bz_mseg") == g.w("bz_cseg"):
+        out.append("%s: claim leg, %s: a two-part course with [bz_mseg] = [bz_cseg]" % (what, name.upper()))
+    if not out:
+        CLAIMED.setdefault(g.tag, set()).add(name)
+    return out
 
 
 def at_fsx(g, what, fails):
@@ -393,7 +420,7 @@ def goal(g, crs="first"):
     elif cup:                                   # wave 4: the CUP, the ball at rest in its mouth
         (wx, wy), gvx, gvy = cup[0]["at"], 0, 0
     else:
-        grid = BB.Grid(R.course(crs).cga)
+        grid = BB.Grid(R.course(crs).cga, R.course(crs).wcga)
         wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] == BB.KIND_GOAL)
         gvx = gvy = 0
     p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
