@@ -284088,3 +284088,181 @@ the part.
 | AQ2 | the default underside, 2 units (the ball cannot leave the floor under it) | the gate's height; 3 units lets a Hop pass under |
 | AQ3 | a 2-unit arch two cells deep | refused by the visibility rule as the legs are drawn; posts would let it through |
 | AQ4 | a shipped course that uses an archway | none yet: the props round's courses are the owner's |
+### 128.40 BOOST PADS, a family (the props round's P4, 2026-11-17; BUILT on `bb-boost`)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P4): *"BOOST PADS
+(chevrons): before full courses are built, not post-release ... a family pad
+pushing in its record's direction"*, a FAMILY rather than a surface because a
+surface moves `BZ_PHYSV` and re-authors every demo, while a family moves only
+the `FAMV` of the courses that name it. The props round fixed this family's ID
+(10), its kinds (from `FAM_K0 + 32`, 48), its knob (`BZBOOST=1`) and this
+section's number before it was built beside SPIKES (ID 11, 128.38) and the
+ARCH (128.39). Figures are MEASURED unless marked PREDICTED.
+
+**Not rubber's BOOST.** SPEC.md 128.16.4's *boost* is a BALL's: rubber's Hop
+rebound turned into height in the air (`bz_btok`, `bz_bsp`, `bz_nboost`, the
+material record's `BZM_BOOST`). A BOOST PAD is a FLOOR's: a tile that pushes
+every ball along the ground. They share nothing - no variable, no constant,
+no code - and the pad's names carry `BP` (`BP_K`, `BZ_BP_FLASH`, `bp_contact`)
+so that a grep for the one never finds the other.
+
+#### 128.40.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `boost`, ID 10 (`BZ_FID_BOOST`), one kind `boost` (`BP_K` = 48, `BZ_FK_BOOST`), home `resident` | the owner's default for a new family (128.25.6.9); the props round's assignment |
+| D2 | the push is the CONTACT hook's: while the ball's centre is on the pad's cell (`bz_prule`'s family dispatch, step 6), GROUNDED (`bz_air` 0) and not shattering, S is added to `bz_gvx` (+x, -x) or `bz_gvy` (+y, -y) | CONTACT is the one site that already knows the ball is ON this element, so the part keeps no list and walks nothing (WIND's STEP walks its slot's list, 128.34.3); the next step's force block clamps what the push left to the caps (`VMAXG + bz_vup` per axis), exactly as WIND's push relies on (128.34.1 D2) - a pad never carries a ball past a speed the reach is not already built on |
+| D3 | ~~the push is the SAME for every ball~~ - **round 2 (the owner, 2026-11-17): WEIGHTED BY BALL, ON BY DEFAULT**, "to keep the game feeling consistent": rubber S, steel S - (S >> 2) (x3/4), glass S + (S >> 2) (x1.25); a pad's `flat` turns it off (S for every ball) | the owner's own weights, not WIND's x2 / x1/4: *"Steel at 3/4, else it's going to hardly help it, and glass at 1.25x please or it's an uncontrollable rocket. These are defaults; we can retune as we actually use them."* So they are named constants in the FAMV (`BP_GSH`, `BP_SSH`, both 2), and a retune is one constant (the part refuses to assemble against any other shift until its arithmetic is changed with it) |
+| D4 | GROUNDED ONLY: an airborne ball over a pad is not pushed | a pad is a floor's; a Hop over a chain of pads is a way NOT to take them (`bpair`'s scene) |
+| D5 | the art: a plate of CHEVRONS on the tile's top - a black rim, magenta plate, two white chevrons pointing the way it pushes; LIT, white plate and black chevrons | on the Hercules magenta is the grey checker and cyan the same grey, so the readable pair is white on grey, then black on white; LOOKED AT in the tool's previews (`--png`) and once on MartyPC, both cards (the `BZBOOST=1` tree: the chain's pads lit in turn under a rolling ball, the ramp pocket's pad lit) |
+| D6 | a FLASH lane: the chevrons LIT while the ball rolls on the pad and `BP_FLASH` (12) steps after, ONE pad lit at a time, marked on change only | the hint that a pad has the ball; one lit pad keeps a chain of pads to one pose change a step (the window's event lanes, 128.19.10) |
+
+#### 128.40.2 The statement
+
+    uses boost
+    prop boost <wx> <wy> face +x|-x|+y|-y [strength <S>] [flat]
+
+`face` is the way it pushes (world axes) and the way its chevrons point;
+`strength` is S, 1 - 127, in 1/256 gu a step a step (24 when not written:
+`BP_SDEF`, the arrows' force is 2 - 6 a level), WEIGHTED by the ball
+(128.40.4); `flat` pushes every ball S (round 2). The pad is a family element
+(128.25.6.4): a FLAT FLOOR cell with OBS, rolled over.
+
+#### 128.40.3 The record and the slot
+
+| at | what |
+|---|---|
+| +16, +17 | FSB 0 (no state bit), the class 0 (ATTEMPT) |
+| +18 | the FACE: 0 +x, 1 -x, 2 +y, 3 -y (bit 1 the y axis, bit 0 the minus sign), OR `BP_FFLAT` (4) for `flat` (round 2, as WIND's flags ride its face byte) |
+| +19 | S |
+| +20 - +31 | zero |
+
+The reader (`read_props`) refuses any other class, an FSB, a bit of +18 other
+than the face's two and `BP_FFLAT`, S out of 1 - 127, a byte of +20 - +31 not
+zero, or a lane that is not 2 poses.
+
+**The SLOT** (2 of `BZF_SLOT`'s 8 bytes): +0 the LIT pad (its element + 1, 0
+none), +1 its steps left. A play's start zeroes it; nothing else does (no
+RESET hook: a respawn lets a flash run out).
+
+#### 128.40.4 The rule (binding: the guest and `bbcourse.BoostFamily` do exactly this)
+
+CONTACT on pad `i`, the ball grounded and not shattering:
+
+1. the FLASH: pad `i` already lit, or none lit - `i` lit, its count
+   `BP_FLASH` (its lane MARKED, `bz_fmark`, when it was not lit); ANOTHER pad
+   lit - that one put OUT (+0 0, its lane MARKED; its count is left), and `i`
+   lights on its next step's contact;
+2. the PUSH, A = S WEIGHTED by the ball (`bz_mat`; round 2): rubber S, steel
+   S - (S >> `BP_SSH`), glass S + (S >> `BP_GSH`) (`bbcourse.bp_push`; the
+   part's byte arithmetic, S <= 127 so glass's 158 is a byte) - or S on a
+   `flat` pad - added to `bz_gvx` (+x), subtracted (-x), to `bz_gvy` (+y),
+   subtracted (-y).
+
+STEP (every step): a lit pad's count one less; at 0 it is put out (+0 0, its
+lane MARKED). POSE: 1 for the lit pad, else 0. So at most ONE pad's pose
+changes on any step (`--selfcheck`'s `twolit` arm counts it).
+
+#### 128.40.5 The art
+
+`_bp_mark` paints the plate on the top in ground units round the cell's
+centre, along the face (a) and across it (b): `max(|a|, |b|)` under 6.5 gu
+the plate, past 5.5 its black rim, the chevrons where `a + |b|` falls in
+`BP_CHEV`'s bands (-4.5 - -2, 1.5 - 4). Pose 0 is painted into the picture
+as a MARK on the top; the FLASH lane is a crack's 2 x 2 blocks round the
+top's centre (128.25.18), so the lanes of a chain of pads edge to edge share
+no block; pose 1 is the lit plate clipped to it (the plate's two side tips
+outside the lane stay unlit). A pad whose flash is more than half drawn over
+by what stands in front of it is REFUSED (the player must see where the ball
+goes). Its top's centre must be on a block, which every legal origin (a
+multiple of 16) gives: the check is a guard.
+
+#### 128.40.6 The knob build: BOOS (`BZBOOST=1`)
+
+`make BUILD=<tree> BZBOOST=1 bonanzadisk` (a private tree; refused with
+`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL` or `BZWATER`, each of which makes its
+course the pathway's pad 0) adds `apps/bonanza/courses/boost.bbc` after the
+shipped courses and compiles the pathway through `courses/pathboost.sed`: pad 0
+becomes BOOS (a new game rests on it - title, Play Game, Enter), its exit 0
+still to TRIAL, its exit 1 to FIRST at pad 6. Without the knob nothing changes
+but the family itself.
+
+**BOOS "Boost Test"**: a start plate at 2 units with a pad for each ball, and
+
+- THE CHAIN: a runway east with five +x pads in a row and two +y pads at its
+  end that turn the ball south onto the goal plate (exit 0) - from a slow
+  roll with no key held the pads carry every ball there;
+- THE RAMP: a corridor north off the runway into a POCKET against a wall,
+  its -x pad (strength 40) driving the ball up a 2-tile ramp (1 unit a tile,
+  the steepest a ball rolls up) to a LEDGE at 4 units and its goal (exit 1).
+  From the pocket's one tile of run-up rubber and steel cannot climb it
+  without the pad; glass's own push beats the slope;
+- THE GAP: a ramp south off the start plate up to a POCKET at 4 units
+  against a low wall, its two +x pads throwing the ball over a 2-cell gap
+  onto a LOW plate at 1.5 units (the drop under glass's shatter threshold);
+  without them every ball falls short. A ramp climbs back to the goal plate.
+
+#### 128.40.7 The refusals
+
+Each a `--selfcheck` string case (section `boost`, item 2): no `face`; a face
+that is not one of four; a strength outside 1 - 127, or written twice; `flat`
+written twice; a `reset` (the class is the kind's); a word of no meaning; a pad on a ramp (not
+a FLAT FLOOR); on another prop's cell; with no `uses boost`; `uses boost` and
+no pad; a pad hidden behind a wall in front of it.
+
+#### 128.40.8 The proofs
+
+**Round 2 (the weighting)**: `--selfcheck` adds `flat` twice to the
+refusals, the record's `BP_FFLAT` (BOOS's two `flat` pads) and FAMV moving
+with `BP_GSH` and `BP_SSH` to item 3, and item 6's WEIGHTING - one step at
+rest on a weighted pad pushes rubber, steel, glass (24, 18, 30), on a `flat`
+one (24, 24, 24) - with red arms `noweight` and `noflat`, each red;
+`bp_host` adds red arms `bpweight` (glass's x1.25 gone: the ramp's glass parts
+at step 0) and `bpflat` (`flat` ignored: the gap's steel parts at step 13).
+Every scene still shows its point for every ball with the course's chain
+turn at strength 32 (24 weighted left steel, x3/4, running off the plate past
+the bend) and the gap's pads `flat`.
+
+**`--selfcheck --only boost`** (round 1: 18 items, green): the twelve refusals; item 3,
+BOOS's ten records (+18, +19 the source's, 24 where none is written, a lane of
+2 poses, FSB 0, class ATTEMPT) and `FAMV` moving with `BP_FLASH` and
+`BP_SDEF`; item 6, the three scenes for every ball on the model against the
+same course LESS the scene's pads (the ramp: on the ledge with the pad, below
+it without for rubber and steel; the gap: met the low plate with the pads,
+fell short without; the chain: onto the goal plate with no key, stopped on the
+runway without), at most one pad pose change a step; and four red arms on the
+model, each of which breaks the scenes: `nopush`, `sign`, `air`, `twolit`.
+
+**`tests/bonanza_phys.py --check`'s unicorn half, `bp_host`**: BOOS compiled
+from its source and played on the default build's image and parts (the part
+is in every build's resident bundle), the guest's `bz_step` equal to the model
+at every step - the ball, the slot, every pad's POSE through `bz_ltrue` and its
+marks - in twelve scenes (ramp, gap, chain and a Hop over the chain, for each
+ball), what each is for asserted on the model; red arms, each red: `bpstep`
+(STEP's entry 0: a flash never goes out - the slots part at step 19),
+`bpsign` (the `neg` gone: a -x pad pushes +x - the ball parts at step 0),
+`bplit` (the lighting's mark gone - "never drawn" at step 12), `bpout` (the
+putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
+(the air test gone: the Hop over the chain pushed - the ball parts at step 6).
+
+#### 128.40.9 What it costs, and its home (MEASURED: `make bonanzadisk` against `250fd0933`)
+
+| | |
+|---|---|
+| the part, `bzf-boost.bin` | **192 bytes** after round 2's weighting (+26; round 1: 166 - the header 24, CONTACT 91, STEP 22, POSE 12, the slot 17), 12 paragraphs in the bundle |
+| resident | **0 bytes of code**; the image `bonanza.bin` 49,898 -> **49,899 (+1)**: `BZ_FTAB`'s byte for ID 10; bss **+0** (the slot is `bz_fsl`'s) |
+| the bundle and the package | `bzfbun.bin` 34,976 -> **35,168 (+192, the part's 12 paragraphs; round 1 +176)**: the RAM every play pays, a course naming it or not; `BONANZA.O88` 122,032 -> **122,239 (+207; round 1 +180)**; `bonanza360.img` 128 clusters either way |
+| a step, a course naming BOOST | PREDICTED (counted at the 8088's clocks and fetch floor, not measured): the STEP dispatch and its slot test about **0.2k** every step; on a pad, CONTACT about **0.4k** more (the tests, the flash, the record, the weighting and the push) |
+| a course without BOOST | nothing (no hook is called for a family the course does not name) |
+| the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway and the title byte for byte as before (MEASURED, `cmp`): no identity and no demo moved |
+
+#### 128.40.10 Open questions for the owner
+
+1. The default strength (24, a pad cell takes a ball from rest to the cap)
+   and the flash (12 steps after the ball leaves): the owner's to judge on
+   BOOS.
+2. ~~Weighting: none (D3).~~ ANSWERED (round 2): weighted by default, the
+   owner's x3/4 and x1.25, `flat` per pad; to retune as courses use them.
+3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
+   ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
+   one thing it cannot do today.
