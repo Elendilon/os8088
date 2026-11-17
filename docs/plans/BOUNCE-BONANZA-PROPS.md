@@ -26,7 +26,7 @@ px, and at most 6 FAST lanes meet a window.
 |---|---|---|---|
 | P1 | **WATER** (the owner's design, below) | one family; the tool's depth key draws the ball behind the glass | its own section; the first to build |
 | P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
-| P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (plan: 0.1 - 0.2k a step) | a GUST lane on the blower or a FLAG as the hint; across the crumbling bridge (cracked tiles) the owner's favourite; an UPDRAFT that lifts only glass to a ledge is a glass-only gate for free |
+| P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
 | P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5) |
 | P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
@@ -155,6 +155,44 @@ The owner's reading: SPIKES gate only where they cover most of the floor
 (rubber Hops one row) - worth one course that pairs them with water, two
 steel-only mechanisms; WIND works if the lower path is THIN, as the sketch
 draws it, blowing hard to one side; the HEIGHT gates glass.
+
+## P3 WIND - as built (branch `bb-wind`, 2026-11-17)
+
+SPEC.md 128.34 is the contract and the record; the diary's 2026-11-17 entry
+"WIND: blowers, gusts and an updraft" is how it went. In short: one family
+(ID 9, kind 40 `blower`, home `resident`, a 326-byte part, no resident code);
+`prop blower X Y face +x|-x|+y|-y|up region X0 Y0 X1 Y1 [strength S] [gust ON
+OFF [seed N]] [top H]`; the push added to the working velocity at STEP, so
+the next step's clamps hold it to the caps; gusts a function of the step
+counter (no state); the hint a pennant on the blower's pole flying downwind
+over a black pinwheel fan; the updraft lifts an AIRBORNE ball below its top
+while gvz is under 128 - glass rises, rubber and steel do not. The knob build
+`BZWIND=1` puts the WIND test course on the pathway's pad 0.
+
+- [x] **P3.1** SPEC.md 128.34: the contract before the code.
+- [x] **P3.2** The tool: the statement and its refusals, the record, the
+      reader, `WindFamily`, the updraft's reach, the fan and the pennant,
+      `--selfcheck` section `wind` (red arm `nowindreach`).
+- [x] **P3.3** The guest part `fam/wind.asm`, equal to the model (the
+      unicorn half of `bonanza_phys --check`: eight scenes, red arms
+      `wdstep`, `wdglass`, `wdmark`, `wdlift`).
+- [x] **P3.4** The knob course WIND: the gust across the crumbling bridge,
+      the steady wind across the thin path (rubber and glass blown off,
+      steel through leaning into it), the updraft to a glass-only ledge.
+- [x] **P3.5** LOOKED AT on MartyPC, CGA and Hercules (both rounds).
+- [ ] **P3.5b** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` rows on a `BZWIND=1` build).
+- [x] **P3.6** The owner's answers (strength per blower, power-of-two gusts:
+      kept) and round 2, SPEC.md 128.34.11:
+  - [x] **P3.7** PIT WIND: `lift` launches a grounded ball the updraft
+        out-lifts (glass; rubber floats, steel not); a pit needs nothing new.
+  - [x] **P3.8** SQUIGGLES in the air over the region: static for a steady
+        blower, a WISP lane for a gusting one (there only while it blows),
+        the timed lanes of a window never turning on one step.
+  - [x] **P3.9** GROUND FANS spin while the ball is in their wind and 2.9 s
+        after (a FAST lane, counted against the window's 6 and its pose
+        changes); the pennant only with `flag`.
+- [ ] **P3.10** A shipped course that uses it.
 
 ## Stories
 

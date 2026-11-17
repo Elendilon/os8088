@@ -282098,3 +282098,345 @@ in the scenes. `mg_host`: two more red arms on the part, both MEASURED red -
 `mgbob` (the up kick gone: the ball parts at the hover's 48th step) and
 `mgfresh` (a cell change's step counting the wiggle: the slot parts at
 step 36). The seven scenes stay equal at every step.
+### 128.34 WIND: the blower family (the props round's P3, 2026-11-17)
+
+The owner (docs/plans/BOUNCE-BONANZA-PROPS.md, P3): a BLOWER pushes the ball
+inside its REGION, *"weighted glass x2, rubber x1, steel x1/4 ... the push
+amounts sound right"*; it blows steadily or in GUSTS on a cycle, so a bridge
+can be crossed between gusts; a hint - a small animated lane, or a FLAG that
+flies while the wind blows - shows it; and an UPDRAFT that lifts only glass to
+a ledge is *"a glass-only gate for free"*. Of the column-keeping ideas the
+owner chose a wind curtain across a THIN lower path, *"blowing hard to one
+side"*. The props round fixed this family's ID (9, beside water's 7 and the
+magnets' 8) and this section's number before the three were built in
+parallel. Figures are PREDICTED unless marked MEASURED.
+
+#### 128.34.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `wind`, ID 9 (`BZ_FID_WIND`), one kind `blower` (`WD_K` = 40, `BZ_FK_BLOWER`), home `resident` | the owner's default for a new family (128.25.6.9); by bytes the bundle packs the part with its neighbours and costs no part row (128.34.7) |
+| D2 | the push is applied by the STEP hook, at `.count`, to the WORKING velocity (`bz_gvx`, `bz_gvy`, `bz_gvz`) | no resident byte: the next step's force block clamps it as it clamps the arrows (`VMAXG + bz_vup` on the ground and in the air, `VZMAX` on z), so the wind can never carry a ball past the caps the reach is built on |
+| D3 | the weighting is SHIFTS of the strength S: glass `S << 1`, rubber S, steel `S >> 2` | the owner's x2 / x1 / x1/4, exact, two constants in `FAMV` (`WD_GSH`, `WD_SSH`) |
+| D4 | a gust is a function of the step counter: blowing on step n while `((n + SEED) AND MASK) < ON`, the period `MASK + 1` a power of two (32 - 1,024 steps) | a windmill's gate's rule (128.12.6.2): no state bit, nothing to reset, a respawn changes nothing, and the 16-bit n wraps cleanly; the price is a period that is a power of two |
+| D5 | the hint is a PENNANT on the blower's own pole (the checkpoint flag's two poses), flying DOWNWIND while it blows, furled while it does not, over a FAN drawn on the blower's tile | a lane that changes only when the gust does: one SLOW event lane a blower, marked on the step its state turns (128.34.6) - never a continuously animated lane, which would count against the window's FAST lanes (128.19.10) |
+| D6 | the ball's cell is the WINDOW's centre, `bz_nwin` (the model's `wcell`) | the cell the step's refills left - one word read, where working it out of `bz_gx` and `bz_gy` was about 0.15k a step |
+| D7 | an UPDRAFT (`face up`) pushes only an AIRBORNE ball, below its TOP, while `gvz < WD_LIFT` (128) | the grounded step rewrites gvz from the slopes every step, so a push on a grounded ball is lost: a Hop or a fall starts it. The LIFT cap makes a steady climb and a small hover band under the top, instead of a rocket that overshoots by tens of pixels; and it leaves rubber's fast rise as it was, so rubber's best apex in it stays low |
+
+#### 128.34.2 The statement
+
+    uses wind
+    prop blower <wx> <wy> face +x|-x|+y|-y|up region <x0> <y0> <x1> <y1>
+                [strength <S>] [gust <on> <off> [seed <n>]] [top <units>]
+
+- `face`: the way the wind BLOWS (world axes; `up` an updraft).
+- `region`: the cells, inclusive, whose ball it pushes (the window's
+  centre in it, D6). Inside 0 - 252 (a cell byte; 0FFh is the guest's "no
+  cell").
+- `strength`: rubber's push a step, 1 - 127 (glass's is twice it, a byte);
+  8 when not written. In 1/256 gu a step a step on +-x / +-y, in 1/256 px on
+  `up`.
+- `gust`: blowing `on` steps in every `on + off`, which must be a power of
+  two of 32 - 1,024 (0.58 - 18.6 s); `seed` steps into its cycle at n = 0.
+  Without `gust` the blower is steady.
+- `top`: an updraft's height, units above the blower's own floor (1 - 24);
+  required on `face up` and refused anywhere else.
+
+The blower's element is a family element (128.25.6.4): a FLAT FLOOR cell
+with OBS, which the ball rolls over (a fan grate). **Refused** (each a
+`--selfcheck` string case, item 2): a clause unknown or repeated, a face that
+is not one of five, a region outside 0 - 252 or inverted, a strength outside
+1 - 127, a gust whose period is not a power of two of 32 - 1,024, a `seed`
+without a gust or past its period, `top` on a horizontal blower or missing on
+an updraft, `reset` (its class is the kind's, ATTEMPT: it has no state), a
+blower that is neither on nor beside its region (the wind's source must be
+seen where it blows: the owner's visibility rule), and an eighth blower on
+one course (the slot's list, 128.34.3).
+
+#### 128.34.3 The record and the slot
+
+A blower's record is 128.25.6.4's family element with every field of +18 -
++31 its own:
+
+| at | what |
+|---|---|
+| +16, +17 | FSB (0: the kind has no state bit), the class 0 (ATTEMPT) |
+| +18 | the FACE: 0 +x, 1 -x, 2 +y, 3 -y, 4 up (`BZ_WD_UP`) |
+| +19 | S |
+| +20 - +23 | the region X0, Y0, X1, Y1 |
+| +24 | ON, a word (0: steady) |
+| +26 | MASK, a word (the period less 1; 0 steady) |
+| +28 | SEED, a word |
+| +30 | an updraft's TOP, a word, whole px (the floor's `4 z0` plus 8 a unit); 0 on any other face |
+
+The reader accepts exactly this (`read_props`): a class other than ATTEMPT,
+a face past 4, S out of 1 - 127, an inverted region, a gust whose period is
+not one of the six or whose ON or SEED is past it, a steady blower with a
+MASK or SEED, TOP on a horizontal blower or none on an updraft, or no
+two-pose lane is a bad part.
+
+**The SLOT** (`BZF_SLOT`'s 8 bytes): +0 the course's blower count, +1 - +7
+their element numbers in record order. RESET (either class) writes it,
+scanning `bz_nprop` records - not `bz_nlane`: a play's RESET runs from
+`bz_pinit`, before `bz_pread` counts the lanes - so STEP visits the blowers
+alone. Hence at most `WD_NMAX` = 7 blowers a course. RESET marks no lane: a
+pose is a function of n, which a respawn leaves as it was, and a play's
+start draws every lane at its true pose (`bz_lfull`).
+
+#### 128.34.4 The force law (binding: the guest and `bbcourse.WindFamily` do exactly this)
+
+At `.count` (the STEP hook, after the step and before the counter), with n
+the step's counter (`bz_nstep`'s low word):
+
+1. For each blower of the slot's list, in order: when it GUSTS (ON not 0),
+   its lane is MARKED (`bz_fmark`) if its state on step n + 1 differs from
+   its state on step n - the pose the walk will draw next (POSE answers the
+   state on `bz_nstep`, which is n + 1 once the step has counted).
+2. When it blows on step n, the ball is not in a tube (`bz_tube`), holed out
+   (`bz_hid`) or shattering (`bz_mst` = `BZ_ST_SHAT`), and the window's
+   centre (`bz_nwin`) is inside its region, its push A = S weighted by the
+   ball (`bz_mat`: glass `S << WD_GSH`, rubber S, steel `S >> WD_SSH`) is
+   added: to `bz_gvx` on +x, subtracted on -x, to `bz_gvy` on +y,
+   subtracted on -y; on `up` added to `bz_gvz` only while the ball is
+   AIRBORNE (`bz_air`), its whole-px height (`bz_gz` >> 8) is under TOP and
+   `bz_gvz` < `WD_LIFT`.
+
+The next step's force block clamps what the push left. Several blowers whose
+regions overlap add, in record order (an updraft's `gvz` test sees the ones
+before it). `wind_force` (the model) and `wd_field` (the part) are THE
+FORCE-FIELD CORE: one element's push given its record and the ball's cell,
+apart from the walk over the list and the marks (128.34.9).
+
+**What the weighting does with the arrows** (MEASURED on the model, the
+WIND course): an arrow pair on one world axis (Right with Down, say) gives
+TWICE the force table's entry on that axis - rubber 8, steel 4, glass 12 at
+the full ramp; one arrow gives one entry on each axis. So a wind of S across
+a path is a GATE for rubber exactly when S > 8 (it cannot stand against it
+even giving up all forward drive), for glass when 2S > 12, and steel feels S
+/ 4 against its 2 - 4. The thin path's strength 10 blows rubber and glass
+off whatever they do and lets steel through leaning into it (one arrow, R:
+its push on -y equal to the wind's); the bridge's gust of 8 blows rubber and
+glass off when they meet it on the bridge and lets them cross between gusts.
+
+#### 128.34.5 The reach
+
+A horizontal wind adds nothing to the reach: the clamps keep every speed
+inside the caps `build_reach` already takes. An UPDRAFT does: `build_reach`
+takes every cell of its region as a LAUNCH from its TOP at `WD_LIFT` plus
+the strongest push (glass's, `2S`) - the overshoot of the hover - its radius
+the steps of a fall from there to the course's lowest floor plus that
+flight's, at `VMAXG`. So the cells round the column (the ledge it serves)
+carry the height a ball rising in it can have, for the occluders and the
+bounds, through every `build_reach` a compile takes (the cracks' forms, the
+pickups' reach). NO TRAP needs nothing: its runs hold arrows and never Hop,
+so an updraft never carries one, and a finish that only an updraft reaches is
+not one NO TRAP can prove (the WIND course's ledge is a second exit, not the
+only finish).
+
+#### 128.34.6 The art
+
+- **The FAN**: a disc of radius 6.5 gu on the blower's top, its rim, hub
+  and four blades BLACK on WHITE (`_top_mark`), a pinwheel under the pole.
+  LOOKED AT in the tool's previews: black on white reads on both cards and on
+  either tile of the checker (white blades on magenta, the first try, were
+  white specks on the grey checker the Hercules makes of magenta).
+- **The PENNANT**: a pole on the fan's hub (two black columns, `WD_POLE` =
+  15 px: taller than a checkpoint's unit) and its two poses as a lane
+  (`_wind_flag`): 0 FURLED, a white roll 8 px down the pole; 1 FLYING, a
+  pennant 12 x 7 px out DOWNWIND - east of the pole for +x and -y (the
+  screen's right), mirrored west for -x and +y - and for an updraft a
+  streamer 5 px wide straight up off the pole's top. STRIPED like a
+  windsock, magenta and white bands 3 px wide, outlined black where it ends:
+  one of the two shows on any ground (a white tile, a magenta face, the black
+  void under a thin path). A SLOW event lane, marked only on a gust's turn;
+  a steady blower's lane never changes after the play's start draws it
+  (`bz_lfull`). A flag more than half hidden is refused as a checkpoint's is.
+- **LOOKED AT** on MartyPC (the `BZWIND=1` build, `os8088_5150_cga_gla` and
+  `_herc_gla`, WIND's start window): the bridge's gust pennant flying west in
+  a gust and furled between gusts, the thin path's steady pennant and the
+  updraft's streamer, on both cards. Two looks before it were changed: the
+  checkpoint's own pennant (7 x 5, white, on a 9 px pole) was not readable at
+  320 x 200 on a white tile, and a plain magenta one vanished against the
+  magenta face behind the thin path's blower.
+
+#### 128.34.7 Costs (PREDICTED; MEASURED where marked)
+
+| | |
+|---|---|
+| the part, `bzf-wind.bin` | MEASURED **326 bytes** (the header 24; RESET 46, STEP 88, POSE 25, `wd_field` 104, the gust test `wd_on` 24, the slot 15), 21 paragraphs in the bundle; packed with the bundle |
+| resident | **0 bytes of code**; the image MEASURED 49,732 -> **49,735 (+3)**: `BZ_FTAB`'s bytes for IDs 7, 8 and 9 (a build with water and magnets owns the first two, so WIND's own is +1); bss **+0** (the slot is `bz_fsl`'s, sized by `BZ_FAMMAX`) |
+| the bundle and the package | MEASURED `bzfbun.bin` 33,376 -> **33,712 (+336)**, the arena's floor 2,086 -> 2,107 paragraphs (the pinned claim, rounded to `OP_ARQUANT`, 2,112 either way); `BONANZA.O88` 118,615 -> **118,874 (+259)**; `bonanza360.img` 125 clusters either way |
+| a step, a course naming WIND | PREDICTED (counted from the part at the 8088's clocks and its fetch floor, not measured): about **0.23k** fixed (the dispatch's far call is 128.25.12's); each STEADY blower about **0.2k** with the ball outside its region, **0.45k** inside; a GUSTING one about **0.33k** more (two gust tests); the updraft's tests about the same as a push. WIND's window with its three blowers and the ball under one: about 1.3k a step. Against the plan's "0.1 - 0.2k a step in its region": that was the push alone; the walk over the list and the gusts' marks are the rest. MartyPC is the final pass's (`bonanzaperf` on a WIND build) |
+| a course without WIND | nothing (no `STEP` entry is called for a family the course does not name) |
+| the home | `resident`, the owner's default: the bundle packs the part with its neighbours (+259 on the package, where its own `OP_COMP` row would also add the row's 8 bytes and a stream of its own) and costs no read at a launch; its price is 336 bytes of the arena's floor in every play, a shipped course naming it or not. Moving it to `fetch` is its row's `home` (128.25.6.9) |
+
+#### 128.34.8 The knob build: WIND (`BZWIND=1`) and the checks
+
+`make BUILD=<tree> BZWIND=1 bonanzadisk` (a private tree; `make help` lists
+the knob; not with `BZSHAPES=1`, which takes the same pad) adds
+`apps/bonanza/courses/wind.bbc` after the shipped courses, so every shipped
+course keeps its K and none is on the TOUR, and compiles the pathway through
+`courses/pathwind.sed`: pad 0 becomes WIND (a new game rests on it - title,
+Play Game, Enter plays it), its exit 0 still goes to TRIAL, its exit 1 to
+FIRST at pad 6. Without the knob nothing changes but the family itself.
+
+**WIND "Wind Test"**: a start plate at 2 units with a pad for each ball, and
+east to the goal plate - the WALKWAY (wy 6, the route); the CRUMBLING BRIDGE
+(wy 9, five cracks, `uses glass`) under a GUSTING blower at (9, 8), +y,
+strength 8, 64 steps on in every 256; the THIN LOWER PATH (wy 12, down a ramp
+to 1 unit, three cells one wide, up again) under a STEADY blower on its first
+cell, +y, strength 10; and behind the start a LEDGE 2.5 units up with the
+second finish (exit 1), over an UPDRAFT at (5, 7), strength 16, top 4 units;
+a clock on the ledge (7, 4) besides the goal plate's (20, 12): every finish has a
+clock in its window (128.22.6). The course part: 21,838 bytes of RAM, LZ4
+4,230 (MEASURED, the knob build); the knob's image 49,776 and bss 11,521 -
+its per-course tables a row wider, as `BZSHAPES`' are.
+
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`
+(25 items): item 2's string cases for every refusal in 128.34.2 (22); item
+3, the records' fields and FAMV over the constants (`WD_LIFT` + 1 moves it),
+and the pennant's side for each face; item 6, the updraft's reach - 172 cells
+raised over the same course with a horizontal blower, the column's zhi 83 px
+against its 80 px top - and its red arm `nowindreach` (the updraft's sources
+off: 0 raised). `tests/bonanza_phys.py --check`'s unicorn half, `wind_host`:
+the WIND course compiled from its source and played on the default build's
+image and parts (as PLAYGROUND's K, its limit the model's), the guest's
+`bz_step` equal to the model at every step (the ball, the slots, every
+pennant's POSE and its marks) in eight scenes, what each is for asserted on
+the model:
+
+| scene | rubber | steel | glass |
+|---|---|---|---|
+| the thin path, leaning into the wind (R) | blown off (189) | crossed (263) | blown off (174) |
+| the bridge, met in a gust / between gusts | blown off / crossed (707 steps) | (steel from rest breaks the cracks: `CRACK_TS`) | blown off / crossed (705) |
+| the updraft: a Hop on the fan, then R + U | no ledge, apex 23 px | no ledge, 18 px | **the ledge's finish, exit 1**, apex 49 px |
+
+Red arms, each red at its own check: `wdstep` (STEP's entry 0: no push, no
+mark), `wdglass` (glass's `shl` NOPed: glass pushed as rubber - the ball
+parts at step 132), `wdmark` (the gust's `call far [bz_fmkp]` NOPed: "never
+drawn" at the gust's turn, step 63), `wdlift` (the updraft's `gvz` test
+NOPed: the ball parts at step 123).
+
+#### 128.34.9 Folding magnets and wind into one family
+
+Magnets (128.33) are the same mechanism pulling instead of pushing, steel
+only. Folded, the family keeps ONE kind run (`blower`, `magnet`) and one
+part:
+
+- the record's +18 FACE grows a value (5, TOWARD the element) and +19 the
+  strength, with the WEIGHTING read from the kind (wind: glass 2, rubber 1,
+  steel 1/4; a magnet: steel 1, the others 0), one byte of shifts a kind;
+- `wd_field` takes the push's direction from FACE (a pull: the sign of the
+  element's cell less the ball's, per axis) and its size from the kind's
+  shifts, so the region test, the gust and the marks are shared;
+- the slot's list holds both kinds' elements; a magnet's wiggle is the
+  pennant's lane path with its own poses.
+
+Its bytes: one header (24) and one copy of the walk, the gust test and the
+slot (about 90 MEASURED: RESET 46 less its kind test, STEP 88 less its field call, `wd_on` 24, the slot 15) saved against two parts, for perhaps 30 more in
+`wd_field`. Not done here: the magnets' contract is theirs.
+
+#### 128.34.10 Open questions for the owner
+
+1. The thin path's strength 10 needs steel to LEAN (one arrow, R): held
+   straight (R with D) from rest it drifts its 8 gu and drops at the far end.
+   The owner's "barely moves steel" at strength 6 lets steel through with no
+   lean, but rubber could then hold its line by giving up forward drive.
+2. The gust period is a power of two (32 - 1,024 steps). A free period costs
+   a DIVIDE a gusting blower a step (about 0.15k) or a byte of state.
+3. An updraft lifts only an airborne ball (D7): a grounded ball on the fan
+   rolls as on any floor, so the player Hops into it.
+4. Whether a region should be DRAWN (faint streaks on its tiles): today only
+   the fan and the pennant say where the wind is.
+
+**Answered (the owner, 2026-11-17, through the lead):** the strength is per
+blower already, no change; power-of-two gusts are fine; and three changes,
+128.34.11 - a PIT WIND that lifts with no jump, SQUIGGLES in the air as the
+wind's hint, and GROUND FANS that spin when the ball is in their wind, the
+pennant an option.
+
+#### 128.34.11 Round 2: pit wind, squiggles, spinning fans (BUILT)
+
+| | decision | why |
+|---|---|---|
+| R1 | `lift` (an updraft's): a GROUNDED ball in the region, below the top, whose push beats gravity (A > `BZ_G`, 24) is LAUNCHED - `bz_air` 1, `bz_gvz` = A, `bz_ztop` and `bz_zoff` its own z - in the STEP hook, as a take-off does; the next step's gravity leaves it A - G rising, and the airborne rule carries it on | the cheapest correct launch: the grounded step rewrites gvz from the slopes, so the launch is the take-off's three writes and no resident byte. A PIT (void cells in the region) needs nothing new: a ball rolling in is airborne and the updraft catches it. Without `lift` an updraft is the Hop-in one it was (D7) |
+| R2 | the weighting stays: at strength 16 glass (32) is LAUNCHED and rises; rubber (16) is not launched and in the air falls at a third of gravity (it floats, and drops into a pit slowly); steel (4) is all but unmoved | the owner's "glass rises, rubber partly, steel not" |
+| R3 | the hint is SQUIGGLES in the air over the region - two wavy white strokes over a black shade, along the wind's screen direction (an updraft's straight up), `WD_SQUP` (12) px over the floor under them, an updraft's halfway to its top. A STEADY blower paints a cluster over every other cell of its region (wx + wy even) into the PICTURE, as MARKS after that cell's top (over a void, the blower's): no key, so they never hide the ball or cut an occluder, and what stands in front covers them | static art costs no lane and no step |
+| R4 | a GUSTING blower without a flag gets a WISP: a second element of the family (kind 41, `wisp`) the TOOL makes at its region's centre - no cell of its own (never OBS, never an owner), a lane (pose 0 the picture, 1 the cluster) and +18 its blower's record. STEP marks it on its blower's gust's turns; POSE is its blower's state | one element is one lane, and the fan is the blower's: the squiggles need their own. A wisp more than half hidden is refused, as a flag is |
+| R5 | a ground FAN spins: the blower's state is a BYTE (its kind's `bits` 8), its SPIN counter - `WD_SPIN` (160 steps, 2.9 s) while it blows with the ball in its region, one less a step after - and its lane is the fan, 4 poses (the blades at 0, 22.5, 45 and 67.5 degrees), the frame `(n >> 2) AND 3` while the counter is not 0, 0 at rest. STEP marks the lane where the frame moves | a lane that runs while it is active and costs nothing (no mark, no walk) at rest |
+| R6 | a spinning fan's lane is FAST (`lane_fan`): counted against the window's 6 FAST lanes (`WIN_LANES`) and as ONE pose change a step in its `WIN_CHG` (6), beside the rotors', the clock digits' and the event lanes' 1 | a fan turns every 4 steps on its own while active. So at most 6 fans spin in one window, fewer with a clock (2 digits each) or an event lane in it: with one clock and one event lane, 3 |
+| R7 | the PENNANT is an option, `flag`: the blower's lane is then the pennant (a gust shows on it), its fan does not spin, and it has no wisp | the owner's weather-on-a-bridge use; a flag and a fan in one lane would pass 4 x 3 blocks |
+| R8 | the window's TIMED event lanes - every wisp and every flagged gusting blower meeting one window - may not turn on the same step: the tool checks every step of the 1,024 every period divides and refuses two, naming them (`_wind_turns`; give one a `seed`) | the window's event lanes are one pose change a step (128.19.10); the gusts are the one kind of event lane whose steps are known ahead |
+
+**The statement** grows two words: `[lift]` (an updraft's alone; refused on
+any other face) and `[flag]`. `prop wisp` is refused (the tool's). The 7 the
+slot lists are now WIND ELEMENTS: a gusting blower without a flag is two.
+**The record**: +16 a blower's FSB, a byte's (a multiple of 8, byte elements
+laid first, as cracks are); +18 the face in bits 0 - 2 with `BZ_WD_FLIFT`
+(8) and `BZ_WD_FFLAG` (16) over it; a wisp's +18 its blower's record, +19 -
++31 zero. The reader holds both (a fan lane 4 poses, a flag's 2; a wisp's
+blower a gusting one without a flag). The slot's list holds the wisps too.
+`FAMV` folds `WD_SPIN` (consts (1, 2, 128, 160)) and REV 2.
+
+**STEP, each element of the list** (the guest and `WindFamily` do exactly
+this): a WISP - its lane marked when its blower's state on n + 1 differs from
+n; a BLOWER - a flagged gusting one's lane marked the same way; when it blows
+on n, `wd_field` (CF: the cell in its region; the push, the updraft, the
+launch); without a flag its byte `v` becomes `WD_SPIN` if it blew with the
+cell in its region, else `v - 1` (0 stays 0), and its lane is marked when
+`frame(old, n) != frame(new, n + 1)`, `frame(v, n)` = `(n >> 2) AND 3` while
+`v`, else 0. POSE: a wisp 1 while its blower blows on `bz_nstep`; a flagged
+blower the same of its own; a fan `frame(byte, bz_nstep)`. RESET still marks
+nothing: a respawn leaves n, and the spin bytes are ATTEMPT (a play's start
+zeroes them).
+
+**The knob course WIND** (`BZWIND=1`) now shows: the bridge's GUSTING fan
+(no flag) with its WISP over the bridge - squiggles there only in a gust; the
+thin path's STEADY fan with two static squiggle clusters; the hop updraft at
+(5, 7) with `flag` (its streamer) and vertical squiggles; and the PIT WIND -
+a `lift` updraft at the goal plate's edge (22, 10), strength 16, top 5
+units, its region three of the plate's cells and a 2 x 3 pit, a PLATFORM 2.5
+units up behind it (23 - 26, 6 - 8), the blower flagged. The ledge's finish
+moved to the goal plate as exit 1 (22, 7), so one clock serves both
+finishes - two clocks put 4 digits in some windows, and with two fans and an
+event lane that was 7 pose changes a step, over `WIN_CHG`. The course part
+MEASURED 22,834 bytes of RAM, LZ4 4,818; the knob's image 49,776, bss 11,525.
+
+**MEASURED on the model** (`bonanza_phys`'s scenes, below): on the pit
+wind's plate cells glass is LAUNCHED with no Hop, rises to 56 px and lands
+on the platform; rubber and steel stay on the ground and, rolled on into the
+pit, fall (rubber slowly). A course's `lift` fan: glass airborne at 46 px
+after 40 steps at rest, rubber and steel at 32 (the floor).
+
+**Bytes (MEASURED)**: the part **525** (+199 on round 1's 326: the wisp, the
+fan's byte and frames, the launch), 33 paragraphs in the bundle; `bzfbun.bin`
+33,712 -> **33,904** (+192), `BONANZA.O88` 118,874 -> **119,031** (+157) -
+against the base before WIND, the bundle +528 and the package +416; the image
+**+3** as before, bss **+0** in the default build (`BZ_FSTB` is the shipped
+courses'). **A step** (PREDICTED, counted): a spinning-capable fan about
+0.15k more (its byte, two frames, a compare), a wisp about 0.3k (two gust
+tests), a launch about 0.1k on its one step.
+
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`, 32
+items: the new refusals (`lift` on a horizontal blower, `prop wisp`, a
+clause twice, the 7 elements); the records with the flags, the FSB and the
+wisp's blower, FAMV over `WD_SPIN`; two gusting blowers in one window
+turning on the same step refused and seeded apart compiled; the PIT WIND on
+the model with its red arm (without `lift` glass stays on the ground); seven
+fans in one window refused (FAST lanes) with the red arm `fanfast` (fans not
+counted) compiling them. `bonanza_phys --check`'s `wind_host` now plays the
+WIND course LESS ITS CRACKS (the default build's `bz_fst` is the shipped
+courses' 5 bytes, and five cracks and four blower bytes would not fit; the
+cracks are GLASS's own scenes'): eleven scenes equal at every step - the thin
+path for each ball (and its fan spinning, then stopped), the gust on and off
+for rubber and glass, the hop updraft for each ball, the PIT WIND for each
+ball - and red arms `wdstep`, `wdglass`, `wdfan` (the fan's mark NOPed:
+"never drawn" when it turns), `wdgust` (the wisp's mark NOPed), `wdspin` (the
+spin byte never set: `bz_fst`), `wdlift`, `wdpit` (the launch NOPed: the
+ball parts at its first step on the plate), each red.
+
+**SEEN on MartyPC** (`BZWIND=1`, CGA and Hercules twins): the bridge's
+squiggles there in a gust and gone between; the thin path's static
+squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
+fan turning frame by frame with the ball poked into its gust; the pit wind's
+plate, flag and squiggles over the pit.
