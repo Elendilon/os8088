@@ -1,5 +1,6 @@
 ; =============================================================================
-; os8088 - apps/snddiag/sdtext.inc - the three pages, as text (SPEC.md 127.4)
+; os8088 - apps/snddiag/sdtext.inc - pages 1-3, as text (SPEC.md 127.4); the
+; lab's pages 4 and 5 are sdlab.inc's
 ;
 ; sd_build writes the current page into sd_txt, SD_ROWS rows of SD_COLS
 ; characters padded with spaces; sd_refresh draws the rows that differ from
@@ -158,9 +159,15 @@ sd_build:
     cmp al, SD_ROWS
     jb .blank
     call sd_header
-    cmp byte [sd_page], 1
+    mov al, [sd_page]
+    cmp al, 1
     je .p2
-    ja .p3
+    cmp al, 2
+    je .p3
+    cmp al, 3
+    je .p4
+    cmp al, 4
+    je .p5
     call sd_page1
     jmp .done
 .p2:
@@ -168,11 +175,15 @@ sd_build:
     jmp .done
 .p3:
     call sd_page3
+    jmp .done
+.p4:
+    call sd_page4
+    jmp .done
+.p5:
+    call sd_page5
 .done:
     ROW SD_ROWS - 1
-    PUTS 'Keys: 1 2 3 pages  P play test  R rate  V D8h on/off  Esc quit'
-    COL 64
-    PUTS 'Photograph me'
+    PUTS 'Keys: 1-5 pages  P play  A play+lab  L lab  S save  R rate  V D8h  Esc quit'
     pop es
     pop di
     pop si
@@ -187,18 +198,26 @@ sd_header:
     PUTS ' os8088 Sound Debug  build '
     mov ax, BUILD_NUM
     call sd_dec
-    COL 37
+    COL 32
     mov bl, 0
     call .tab
     PUTS '1 Detect'
     call .end
     inc bx
     call .tab
-    PUTS '2 Play test'
+    PUTS '2 Play'
     call .end
     inc bx
     call .tab
-    PUTS '3 Registers'
+    PUTS '3 Regs'
+    call .end
+    inc bx
+    call .tab
+    PUTS '4 Lab'
+    call .end
+    inc bx
+    call .tab
+    PUTS '5 More'
     call .end
     ret
 .tab:
@@ -715,7 +734,7 @@ sd_page2:
 
 .cols:
     ROW 3
-    PUTS 'sec  bytes/s  IRQs  D8h  mix22 mix04  60h 62h 64h  stream'
+    PUTS 'sec  bytes/s  IRQs  D8h  mix22 mix04  60h 62h 64h  8237  stream'
     xor bx, bx                      ; BX = the row
 .tr:
     cmp bl, [sd_prow]
@@ -784,6 +803,9 @@ sd_page2:
     jb .mxl
     pop bx
     COL 51
+    mov ax, [si+SR_CNT]
+    call sd_hex4
+    COL 57
     mov al, [si+SR_STATE]
     call sd_stname
     inc bx
@@ -850,6 +872,8 @@ sd_verdict2:
     push bx
     push cx
     push si
+    call sd_frozen                  ; the 8237 standing while IRQs ran on
+    jc .froze
     mov si, sd_rows + SD_ROWSZ      ; from second 2 (the first is the start)
     mov cx, 2
 .byt:
@@ -934,6 +958,14 @@ sd_verdict2:
     call sd_dec
     PUTS ' as DMA ran'
     jmp .out
+.froze:
+    PUTS 'DMA FROZE: 8237 count '
+    call sd_hex4
+    PUTS ' from '
+    mov ax, bx
+    call sd_tenths
+    PUTS 's, IRQs ran on. Page 4.'
+    jmp .out
 .mchg:
     PUTS 'mixer register '
     mov al, [sd_mxregs+bx]
@@ -945,6 +977,64 @@ sd_verdict2:
     pop si
     pop cx
     pop bx
+    ret
+
+; sd_frozen - the play log: three ticks in a row with channel 1's count
+; unchanged while the block IRQ count rose. CF = 1 found: AX = the count, BX
+; = the tick it stood from; CF = 0 none (or no log: not the debug driver)
+sd_frozen:
+    push cx
+    push dx
+    push si
+    mov cx, [sd_pln]
+    sub cx, 2
+    jbe .no
+    mov si, sd_plog
+    xor bx, bx
+.l:
+    mov ax, [si+2]
+    cmp ax, [si+SD_PLW+2]
+    jne .n
+    cmp ax, [si+2*SD_PLW+2]
+    jne .n
+    mov dx, [si+2*SD_PLW]           ; IRQs two ticks on...
+    cmp dx, [si]                    ; ...against IRQs here
+    jne .yes
+.n:
+    add si, SD_PLW
+    inc bx
+    loop .l
+.no:
+    clc
+    jmp short .r
+.yes:
+    inc bx                          ; (a sample is taken a tick after the open)
+    stc
+.r:
+    pop si
+    pop dx
+    pop cx
+    ret
+
+; sd_tenths - AX = ticks -> "s.t" seconds at DI
+sd_tenths:
+    push ax
+    push cx
+    push dx
+    mov cx, 100
+    mul cx
+    mov cx, 182
+    div cx                          ; tenths
+    xor dx, dx
+    mov cx, 10
+    div cx
+    call sd_dec
+    PUTS '.'
+    mov ax, dx
+    call sd_dec
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; --- page 3: REGISTERS ---------------------------------------------------------------

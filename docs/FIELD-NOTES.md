@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, 66, 68, 69, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, 66, 68, 69, 70, and one residual
 each in 33 and 37.
 
 ---
@@ -4399,4 +4399,49 @@ resident byte. **Held in reserve** (the owner): skipping the probe when
 every `INPUTnnA.TXT` should show keys stored before the check, port 64h idle,
 and no aux byte waiting - and a PS/2 mouse other than the special one should
 be tried through a splitter.
+
+## 70. STPC 486 SBC, ESS ES1868: Sound Blaster PCM plays one ring and goes quiet while its IRQs run on (OPEN - the debug disk's DMA lab is out; awaiting the reporter's run of it)
+
+**The machine.** Entry 69's STPC 486 board, with an ISA ESS AudioDrive
+ES1868F card (a Dream SAM2695 General MIDI daughterboard on it). Sound
+Debug: DSP 3.01 at 220h, IRQ 5 by the F2h probe, DMA 1, a CT1345-compatible
+mixer, mixer 40h = `18 68 08 00` (ES1868, config port 0800h), E7h = `68 8B`,
+OPL3. DOS games and Windows play digital sound on it normally; os8088 plays
+FM normally.
+
+**The symptom.** Tracker and the build-323 play test (22,050 Hz, a 16KB
+ring, `1Ch` auto-init, 2KB blocks) sound for about 0.7 s - one pass of the
+ring, 16,384 / 22,050 = 0.74 s, timed off the reporter's video - and go
+silent. The play test's ten rows show 10-11 block IRQs a second for all ten
+seconds (108, the right rate), no underrun, no watchdog stop, no spurious
+IRQ, no DSP timeout, `D8h` = FF and the mixer steady, and a verdict of
+"steady".
+
+**What the numbers say.** The bytes-per-second column reads only 16,384 or
+32,768 and the total is 229,375 = 14 x 16,384 - 1. Verb 9 is verb 3's
+IRQ-counted total plus the 8237's position in the ring (SPEC.md 34.5.1), and
+working it back, **channel 1's count read 0000 at every one-second sample**:
+the 8237 moved 16,383 bytes and stood one byte short of its terminal count,
+never wrapping, while the card went on raising block IRQs off its own clock.
+On a real-mode kernel the driver counts blocks by IRQ alone (SPEC.md
+34.5.2.2), so nothing in the driver could see it, and the play test's
+"DMA STOPPED" verdict, which waits for a zero row, could not either.
+
+**Ruled out by the photos:** the 8237 setup (mode 59h, page 08h, B400h,
+count 3FFFh - no 64KB crossing), the DSP command sequence (`40h D3`, `D1h`,
+`48h FF 07`, `1Ch`), the IRQ line and its ACK, the mixer.
+
+**What was sent** (SPEC.md 127.3.1, 127.4.1): record v2. The play test
+samples the 8237 every tick and its verdict names a frozen count; the DMA
+LAB drives the card sixteen ways - the driver's 8237 order against
+Creative's and a slowed one, 4/8/16KB cycles, 8/16KB blocks, demand mode,
+no auto-init as a control, `14h` re-armed per block, `90h`, 11 kHz, a buffer
+at the top of memory, the 8237 barely read, no ACK - and logs the 8237 at
+each block IRQ; the ESS controller registers are read in both modes. All of
+it saves itself as benchlib reports `SOUNDAn.TXT` / `SOUNDBn.TXT`.
+
+**To close:** the reporter boots the new sound debug disk once and sends the
+two TXT files and what they heard during the lab (run numbers show on the
+screen). Which runs run on and which freeze at the wrap names the mechanism;
+a run that plays through is the fix's shape.
 

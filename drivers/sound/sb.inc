@@ -942,7 +942,8 @@ sbl_isr:
     jmp .eoi                    ; back up: .eoi sits after .input
 
 .spur:
-    SDG_SPURHOOK
+    SDG_LABHOOK                 ; snddiag.inc: a lab run's IRQ (nothing in a
+    SDG_SPURHOOK                ; shipped build)
     cmp byte [sbl_irq], 7       ; line 7: real or spurious? only the 8259
     jne .prime                  ; knows - a REAL IRQ 7 (the SB's factory
     mov al, 0x0B                ; default line) sets ISR bit 7. OCW3: the

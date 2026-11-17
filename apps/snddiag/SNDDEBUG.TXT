@@ -7,31 +7,43 @@ found, or one that plays for a moment and then goes quiet.
 
 Its SOUND.DRV is built from the same source as the one on the system disk,
 with a record kept of everything it probes and everything a stream does.
-Sound Debug shows that record on three pages:
+Sound Debug shows that record on five pages:
 
   1  DETECT     where the card answered, its DSP version, how its IRQ was
                 found, the mixer, an ESS chip's own identity, OPL, MPU-401,
                 and a BLASTER= line
-  2  PLAY TEST  a tone for ten seconds through the same path music players
+  2  PLAY       a tone for ten seconds through the same path music players
                 use, one line a second: bytes played, block interrupts, the
-                DSP's own voice switch, the mixer, the stream's state
-  3  REGISTERS  the mixer's registers, the last bytes sent to the DSP, the
+                DSP's own voice switch, the mixer, the DMA controller's
+                count, the stream's state
+  3  REGS       the mixer's registers, the last bytes sent to the DSP, the
                 stream record and the interrupt controller
+  4  LAB        the DMA lab: sixteen short runs, each driving the card and
+  5  MORE       its DMA channel a different way for 2.4 seconds, and what
+                the DMA controller did in each
+
+It runs everything by itself and SAVES ITS OWN REPORT to this disk as text
+files. Leave the disk in the drive and not write-protected.
 
 WHAT TO SEND US
 ---------------
-1. Boot this disk. Page 1 comes up; after two seconds the play test starts
-   on page 2 and you should hear a steady tone for ten seconds.
-2. Note whether the tone played all ten seconds, and when it stopped.
-3. When the test says Done, photograph the screen. Press 1 and photograph
-   page 1, press 3 and photograph page 3.
-4. Send the three photographs, what you heard, and the card's name.
+1. Boot this disk and wait. It takes about a minute and a half:
+   page 1, then the ten-second tone (page 2), then the lab (page 4),
+   whose runs each play the tone again for 2.4 seconds.
+2. Listen. Note whether the ten-second tone played all the way through,
+   and which lab runs (the number shows at the top right of page 4)
+   played their whole 2.4 seconds and which went quiet early.
+3. When page 4 says Done, the reports are on the disk:
+   SOUNDA1.TXT (written after the tone) and SOUNDB1.TXT (after the lab).
+   A second boot writes SOUNDA2.TXT and SOUNDB2.TXT, and so on - nothing
+   is overwritten.
+4. Copy the SOUND*.TXT files off the disk on any PC (it is an ordinary
+   FAT floppy) and send them, with what you heard and the card's name.
 
-Keys: 1 2 3 pages, P runs the play test again, R changes its rate (22050,
-11025, 8000, 44100 Hz), V turns the D8h voice reading off and on, Esc quits.
-
-If the tone stops when D8h sampling is on and plays through when it is off,
-say so: that is a finding too.
+Keys: 1 to 5 pages, P runs the tone again, A the tone and then the lab,
+L the lab alone, S saves a report now (SOUNDS1.TXT), R changes the tone's
+rate (22050, 11025, 8000, 44100 Hz), V turns the D8h voice reading off and
+on, Esc quits.
 
 OTHER CHECKS ON THIS DISK
 -------------------------
