@@ -1159,7 +1159,16 @@ def glass_keys(leg):
         mark("bslow")
         d.go(26.5, 14.5)
         nf = d.p.nfall
-        d.go(90, 14.5, 384, until=lambda: d.p.nfall > nf or d.pos()[0] >= 40.3)
+        brk = set()                             # (each crack's first BROKEN step: the ball runs off the
+        crs = [pr for pr in d.p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 14]    # bridge's end
+
+        def seen():                             # and falls, the respawn restoring all five)
+            for pr in crs:
+                if d.p.fst[pr["fsb"] >> 3] == BB.CR_BROKEN and pr["at"] not in brk:
+                    brk.add(pr["at"])
+                    ms["b%d" % pr["at"][0]] = d.st()
+            return d.p.nfall > nf
+        d.go(90, 14.5, 384, until=seen)
         mark("bfast")
     else:
         pad((22.5, 27.5))
@@ -1219,8 +1228,11 @@ def glass_verdict(leg, ms, rev, p):
     elif leg == "crack-bridge":
         checks = [("rubber slow onto the bridge's first crack: a fall, restored", ms["bslow"]["nfall"] == 1
                    and brg("bslow") == bytes(5)),
-                  ("rubber fast across the bridge: all five vanished behind it, one by one",
-                   ms["bfast"]["nfall"] == 1 and ms["bfast"]["cell"][0] >= 40 and brg("bfast") == b"\xff" * 5)]
+                  ("rubber fast across the bridge: all five vanished behind it, one by one (steps %s), then off its "
+                   "end: a fall, all restored" % [ms["b%d" % x]["n"] if "b%d" % x in ms else None for x in range(35, 40)],
+                   all("b%d" % x in ms and ms["b%d" % x]["nfall"] == 1 for x in range(35, 40))
+                   and [ms["b%d" % x]["n"] for x in range(35, 40)] == sorted(ms["b%d" % x]["n"] for x in range(35, 40))
+                   and ms["bfast"]["nfall"] == 2 and brg("bfast") == bytes(5))]
     else:
         checks = [("glass across and back: never broken", ms["rolled"]["mat"] == BB.MAT_GLASS
                    and ms["rolled"]["nfall"] == ms["at"]["nfall"] and cr("rolled") == bytes(4)),
