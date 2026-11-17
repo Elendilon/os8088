@@ -984,7 +984,7 @@ class Bz:
         complaint or None)."""
         grid = getattr(crs, "_grid", None)
         if grid is None:
-            grid = crs._grid = BB.Grid(crs.cga)
+            grid = crs._grid = BB.Grid(crs.cga, crs.wcga)
         lo = self.sym["bz_phs"]
         raw = self.m.read(self.base + lo, self.sym["bz_phe"] - lo)
 
@@ -1710,7 +1710,7 @@ def low_plan(g, crs, near=0):
     tag = g.tag
     lsh, rl = (1 if tag == "cga" else 2), RL[tag]
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     # a post whose columns cross the ring's end first (the Hercules' post 4, MILL's only one on either
     # card): every LOW commit of it is then a `wrapcommit` (bz_wprect's row-at-a-time path, the
@@ -2074,7 +2074,7 @@ def defer_plan(g, crs):
     outside it) with the ball's centre clear of every post by 16 gu and over a
     floor by 16 px (no kick), Q2 the same 48 px across (its footprint clear of
     every lane)"""
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     recs = {r["i"]: r for r in crs.part["props"]}
     posts = [i for i in sorted(rects) if recs[i]["kind"] == BB.PK_BUMPER]
@@ -2150,7 +2150,7 @@ def pwait_plan(g, crs, n_now):
     c0 = max(0, min((x_l >> 3) + 2 - Wc // 2, cmax))
     if not (0 <= R0 <= rmax and c0 <= x_l >> 3 and (x_l >> 3) + 4 <= c0 + Wc):
         return None
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     top, left = R0 << lsh, 8 * c0
     cen = p1 = p2 = None
     for dy in range(rl):
@@ -2252,7 +2252,7 @@ def mill_play(g, ref):
                     sc["pw"] = pwait_plan(g, crs, n & 0xFFFF)
                     sc["crs"] = crs
                     if getattr(crs, "_grid", None) is None:
-                        crs._grid = BB.Grid(crs.cga)
+                        crs._grid = BB.Grid(crs.cga, crs.wcga)
                     if sc["pw"] is None:
                         fails.append("MILL play: no window puts the lift's slab across its bottom edge with the ball "
                                      "held in the band (the PWAIT scene)")
@@ -2612,7 +2612,7 @@ def tpoke(g, crs):
     tag = g.tag
     S, R0, c0, px, py = g.state()
     top, left = R0 * RL[tag], c0 * 8
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     for dx in (40, -40, 48, -48, 56, -56):
         tpx = px + dx
         if tpx < left + 8 or tpx + 24 > left + W[tag] - 8:
@@ -2658,7 +2658,7 @@ def entercol_plan(g, crs):
     tag = g.tag
     lsh, rl = (1 if tag == "cga" else 2), RL[tag]
     H, Wc, rmax, cmax = g.w("bz_H"), g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     for side in (-1, 1):
         for i in sorted(rects):
@@ -2717,7 +2717,7 @@ def ringend_plan(g, crs):
     lines, near alike, and the red stayed green)"""
     tag = g.tag
     rl, rb = RL[tag], RB[tag]
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     ylim, xlim = crs.brows * 8 - BB.FOOT_H - 8, crs.cols * 8 - BB.FOOT_W - 8
 
     def crosses(px, y):
@@ -2790,7 +2790,7 @@ def probe(g, ref):
     multi-box frame (the ball at window row 0, its shadow in a box below)."""
     m, tag = g.m, g.tag
     crs = ref.c
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     for nm, op in (("bz_tb.first", 0x9D), ("bz_wbox.wr", 0xE8)):
         got = m.read(g.a(nm), 1)[0]
         assert got == op, "%s is not the instruction the probe breakpoints after (%02X, not %02X)" % (nm, got, op)
@@ -4317,6 +4317,9 @@ def part_args(art, src=None, shell=None, fams=None):
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
                                                 # ride the bundle since SPEC.md 128.25.5.2)
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 128.30.4.4: the two-part courses' WORLD parts
+    if os.path.exists(lst):
+        files += open(lst).read().split()
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
@@ -4586,16 +4589,36 @@ def nodither_art(td):
         u, e = und[name]
         if e is not None:
             raise e
+        if u.split != c.split:
+            raise AssertionError("nodither: %s is %s undithered and %s shipped" % (
+                name, "two parts" if u.split else "one part", "two" if c.split else "one"))
+        # (a TWO-PART course, SPEC.md 128.30: the masks are its picture part's, the identity word its world
+        # part's, and both parts are written, BZ<K>.BIN and BZ<K>W.BIN)
         ram = bytearray(u.cga)
-        g = struct.unpack_from("<H", ram, 26)[0]
-        struct.pack_into("<H", ram, g + 18, c.ident)
-        st = BB.stored_form(u.model, rec, bytes(ram), u.fname)
-        if BB.expand(st) != bytes(ram):
-            raise AssertionError("nodither: %s's undithered stored form does not expand to its RAM form" % name)
-        if c.masks and BB.decode_part(bytes(ram))["masks"] == BB.decode_part(c.cga)["masks"]:
+        wram = bytearray(u.wcga) if u.split else None
+        idp = wram if u.split else ram
+        g = struct.unpack_from("<H", idp, 26)[0]
+        struct.pack_into("<H", idp, g + 18, c.ident)
+        out = [(f, ram)]
+        if u.split:
+            fw = os.path.join(art, "BZ%dW.BIN" % k)
+            if open(fw, "rb").read() != c.wstored:
+                raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (fw, name))
+            out.append((fw, wram))
+        sts = []
+        for fn, r in out:
+            st = BB.stored_form(u.model, rec, bytes(r), u.fname)
+            if BB.expand(st) != bytes(r):
+                raise AssertionError("nodither: %s's undithered stored form does not expand to its RAM form (%s)"
+                                     % (name, os.path.basename(fn)))
+            sts.append((fn, st))
+        und_m = BB.decode_parts(bytes(ram), bytes(wram)) if u.split else BB.decode_part(bytes(ram))
+        shp_m = BB.decode_parts(c.cga, c.wcga) if c.split else BB.decode_part(c.cga)
+        if c.masks and und_m["masks"] == shp_m["masks"]:
             raise AssertionError("nodither: %s's undithered masks are the shipped ones" % name)
-        with open(f, "wb") as fo:
-            fo.write(st)
+        for fn, st in sts:
+            with open(fn, "wb") as fo:
+                fo.write(st)
     return art
 
 

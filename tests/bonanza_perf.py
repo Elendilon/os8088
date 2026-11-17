@@ -1501,7 +1501,7 @@ def avfall_keys(name):
 def avfall_void(c, keys, mat=None):
     """the step counts n after which the ball is in a VOID cell the model runs in, airborne in an OCC cell (the
     gate open): the frames that pay for the model, on the model"""
-    ag = BB.AGrid(c.cga)
+    ag = BB.AGrid(BB.world_of(c))
     p = BB.Physics(c, play=True, mat=c.ball if mat is None else mat)
     out = set()
     for i, k in enumerate(keys):
