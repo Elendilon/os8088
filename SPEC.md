@@ -38813,6 +38813,126 @@ before. `fmv_ishere` leaves DL = the drive beside AX = the folder for it,
 at the same size. **3 bytes of `.cold`**, which is the whole of kern_big's
 cold rung. `tests/imgswap.py` is the gate.
 
+### 18.9.1.3 …and a WRITE re-reads the disk, a read does not
+
+Reported from the field on 86Box, then reproduced without it: BONANZA
+running on B:, the disk swapped for another build of BONANZA, Esc. The part
+fetches fail - correct - and then BONANZA's save (`BONANZA.DAT`, in APPDATA)
+corrupted the NEW disk.
+
+The motor test (§18.9.1) rests on two halves: the first transfer after a
+human pause re-validates, and the turning motor then vouches for the next two
+seconds. The first half was never true for a package. `inst_vol_enter`
+(§19.2.1) stands the machine in the instance's folder before every file
+cell, and its "already here" arm is a bare `(drive, folder)` compare, so a
+package standing where the machine stood reaches the platter with no media
+test at all - and so:
+
+1. the first call after the swap (a part fetch, `READ_SEQ`) was answered
+   through the OLD disk's FAT window and cursor, off the NEW disk's sectors,
+   and **spun the motor**;
+2. the save's `GOTO_QM` to APPDATA asked `dsk_media_ok` (§18.9.1.1) and was
+   told the medium could not have changed - the motor step 1 started was
+   turning;
+3. `OSAPI_FILE_WRITE` allocated off the old free map, wrote into a data
+   cluster of the new `BONANZA.O88` and flushed the old FAT over the new one.
+
+MEASURED on 86Box (an `int 13h` breakpoint across the Esc: two reads, then
+LBA 248 inside the new `BONANZA.O88`, LBAs 1 and 3 and APPDATA's 16, no
+LBA 0) and on MartyPC with a real `m.mount`: `os88disk.py --verify` *"chain
+has 115 cluster(s), size implies 121"*, README cut to one cluster, four lost
+clusters - on a 360KB floppy and an XT, so a real machine's failure too.
+
+**The check is on the WRITE side only, and that is a decision, not an
+economy.** A read of a swapped floppy returns bunk and the program refuses
+("Cannot read my parts" is a fine answer to a disk pulled out from under
+it); a write of one destroys the disk the user put in. Checking reads was
+built first (`inst_vol_enter` asking `dsk_here_ok`) and withdrawn on the
+owner's numbers: every file cell after a two-second pause became a seek to
+cylinder 0 and back - a drive-to-drive copy, a streaming player, a package
+going back for a part - and the field's slowest drive takes nearly 1.5 s to
+reach cylinder 0, so each was a 3-second operation. Reads keep the fast path.
+
+So `dskw_wck` is the door of every write body - create, replace, append,
+write-at, a `WRITE_SEQ` chunk, delete, rename, mkdir, rmdir and rmtree all
+pass `dskw_wrp` or `dskw_wrap7` - for the cells and the kernel's own writers
+alike. It re-reads the volume (a QUIET mount where the machine stands: LBA 0
+off the platter, the FAT window kept on a matching signature, §18.8.1) when
+the floppy's motor is stopped NOW, or when **`[dsk_mvok]`** says a transfer
+ran with it stopped since the last mount. That byte is what the motor test
+alone misses: `dsk_xfer`'s warm test (§12.8.3.1) already asks `dsk_media_ok`
+on every transfer, and clears it whenever the answer is "stopped"; a full or
+quiet mount sets it with `[dsk_mntok]`, in one word. A DIFFERENT signature
+REFUSES the write with `FERR_NODISK` and writes nothing, leaving the new disk
+mounted: the name and the folder this operation was handed are the old
+disk's, so the next operation resolves afresh. A fixed disk, a driver volume
+and a redirected one answer the motor test with no I/O and never clear the
+byte.
+
+**What it costs, per write**: when the motor is turning and nothing ran with
+it stopped, a near call and `dsk_media_ok`'s compares - no I/O. Otherwise one
+quiet mount, which is ONE `int 13h` (LBA 0; the FAT window is kept) and a
+seek to cylinder 0 - which a create, replace, delete, rename or mkdir on a
+floppy pays anyway for its FAT and directory, so the extra is a revolution;
+a write-at inside a file or a `WRITE_SEQ` chunk after a pause pays the seek
+as well. It bumps `[dsk_mgen]`, so a `READ_SEQ` cursor re-walks once. Inside
+a batch (§18.9.3) the mount takes the banked head and does no I/O.
+
+**Bytes**: `kern_big` `.cold` +80 and `.bss` +1 (`[dsk_mvok]`), `.text`
+unchanged, resident; `kern_mega` the same (its `.cold` above 1MB). The warm
+test's store is `mov [dsk_mvok], ch` (CH is 0 there, four bytes) and
+`.publish` carries a one-byte pad after its word store, so `dsk_runcap` and
+`dsk_next_clus_x` keep their measured parity (`hotpar`).
+
+**`kern_small` does NOT have it, and that is a gap, not a design.** Its heap
+rung is LOCKED (guard 1b) and had 14 bytes left when this landed; the check
+is 79. Every piece is behind `%ifndef KERN_SMALL`, so the 128KB machine
+assembles to the bytes it had and keeps the hole this section closes. Closing
+it there means finding those bytes, which is the owner's call.
+
+**`os88data.inc`'s banked APPDATA cluster** (§19.9) is covered by the same
+door rather than a fix of its own: a banked visit that names a cluster of the
+old disk reaches `FILE_WRITE`/`WRITE_AT`, is refused there, and `od_write`'s
+full arm re-walks root → SYSTEM → APPDATA before it writes again, now on the
+remounted disk.
+
+MEASURED with the fix, 86Box (IBM XT, 360KB) and the image rewritten under
+a running BONANZA, both directions: the Esc toasts BONANZA's own *"Best times
+not saved"*, the image is byte-identical to the build that was copied in
+(`--verify` OK), and every launch after - Refresh, a hard reset, a swap away
+and back - plays. Without it the same run ends with the new disk's
+`BONANZA.O88` cut short, and no reboot cures that.
+
+### 18.9.1.4 …and a Refresh after an IN-PLACE `.img` overwrite under 86Box: considered, not built
+
+A record, so the next session does not rediscover it. After a tester
+rewrote a mounted `.img` file in place on the host, 86Box's Refresh listed the
+OLD disk, and a launch after it said *"Cannot read my parts"*; a reboot, or a
+swap away and back through 86Box's media menu, cured it, and the image was
+undamaged. That is 86Box, not os8088: its `.img` driver
+(`src/floppy/fdd_img.c`) holds ONE CYLINDER of the image in RAM and re-reads
+it from the file only on a seek to a DIFFERENT cylinder (`fdd_seek` returns
+at `track_diff == 0`), and it holds the file open. Every save ends on the
+directory, so the head is usually parked on cylinder 0, and Refresh then reads
+the old boot sector, FAT and root: the signature matches, the old disk is
+listed honestly, and the new disk's data reads as bunk against the old FAT.
+Every os8088 cache is already dropped by a Refresh (§18.95's, the FAT window,
+the listing); the stale copy is below the BIOS. A file REPLACED rather than
+rewritten (a new inode) is invisible to 86Box until it is loaded again.
+
+**Remedy, for testers**: change a floppy image through 86Box's media menu
+(eject and load, or load another and back), or reboot - never by
+overwriting the file under a running machine. docs/86BOX.md carries the trap.
+
+**Considered and refused** (the owner, 2026-11-17): a Refresh of a floppy
+reading one sector of cylinder 1 before LBA 0, so that LBA 0 is reached by a
+seek. Built and measured: it cured the symptom at one `int 13h` and two
+single-cylinder steps per Refresh. Refused because every real machine would
+pay a read and a head jog on every Refresh for an emulator's behaviour under
+a file overwrite. A RECALIBRATE (clearing the drive's bit in `SEEK_STATUS`,
+0040:003E) would have been free and does not work: 86Box's controller steps a
+recalibrate on unit 1 only with `drv2en`.
+
 ### 18.9.2 …and a FIXED disk validates its BPB once, ever
 
 `disk_mount` re-read LBA 0 on every switch to a volume, to validate the BPB
@@ -45190,7 +45310,9 @@ Seven things hold it up:
   compares — when they agree, which on a machine with one app doing file
   work is every call. A mount is paid only when something really did move
   the volume underneath this app: exactly the case that used to lose the
-  file.
+  file. It asks no media question, deliberately: a READ of a swapped floppy
+  only fails, and the WRITE side is checked at every write body's door
+  (§18.9.1.3).
 - **It is a QUIET mount** (§18.9). A file operation reads no listing, so the
   scan, the sort and one icon-harvest read per file would all be bought for
   nothing. The `[dsk_lstale]` debt it leaves is deliberately never
