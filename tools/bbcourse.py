@@ -6289,7 +6289,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         for c_ in floats:
             t_ = tiles.get(c_)
             if t_ is not None and not isinstance(t_, Split) and t_.kind in (KIND_FLOOR, KIND_WALL) \
-                    and c_ not in gcells:
+                    and c_ not in gcells and not hack.get("nofloatflag"):
                 cells[c_][3] |= FL_FLOAT
         cells_v = {k_: list(v_) for k_, v_ in cells.items()}
         for c_ in pcell:
@@ -21314,7 +21314,7 @@ def _av_floats_want(c):
             and c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) and k not in gc}
 
 
-def _av_checks(c, res, tag, off=None):
+def _av_checks(c, res, tag, off=None, flags_only=False):
     """item 15 (SPEC.md 128.29.7) on one course: the flags, completeness, the model against the tiles,
     WRONG-HIDE, and the gate and the picture against --occ off's compile (OFF)"""
     g = AGrid(c.cga)
@@ -21326,7 +21326,7 @@ def _av_checks(c, res, tag, off=None):
                 "(SPEC.md 128.29.4)" % (tag, "set" if g.gflags & GF_ANA else "clear",
                                         " (a floating GOAL cell keeps it off)" if fgoal else "", len(want_f)),
                 flags_ok))
-    if not c.av:
+    if not c.av or flags_only:
         return
     rcs = av_positions(c.reach, g, c.slabcells)
     tried, miss = av_proof(c, g, rcs)
@@ -21405,16 +21405,13 @@ def _sc_av(X, res):
         res.append(("15 TRIAL negative control: the model reading every cell as flat is caught by the comparison "
                     "with the tiles on its ramp (%s)" % (bad[:1] if bad else "not caught"), bool(bad)))
     play = byname.get("PLAY")
-    if play is not None:
-        g = AGrid(play.cga)
-        b0 = g._b
-        g._b = lambda r, k: (lambda t: (t[0], t[1], t[2], t[3] & ~FL_FLOAT))(b0(r, k))
-        nb, nw, worst, _np = av_wrong(play, g)
-        _t, miss = av_proof(play, g)
-        caught = nw / float(nb or 1) > OCC_WRONG_MAX or bool(miss)
-        res.append(("15 PLAY negative control: the model with FL_FLOAT ignored (its floating platform counted) "
-                    "hides %.3f%% WRONG (bound %.2f%%)%s" % (100.0 * nw / (nb or 1), 100 * OCC_WRONG_MAX,
-                                                             "" if caught else " -- not caught"), caught))
+    if play is not None:                        # (counting the floating cells instead moves 0 - 4 ball pixels of
+        nf = compile_course(os.path.join(ROOT, play.fname) if not os.path.isabs(play.fname) else play.fname,
+                            _hack={"nofloatflag": True})            # today's lattices: the flag is the check)
+        r_ = []
+        _av_checks(nf, r_, "PLAY (no FL_FLOAT)", flags_only=True)
+        res.append(("15 PLAY negative control: the compile with FL_FLOAT never set is caught by the flags' check "
+                    "(its platform's %d floating cells)" % len(_av_floats_want(play)), not r_[0][1]))
     mill = byname.get("MILL")
     if mill is not None:
         pos = [q for q in getattr(mill, "_vis_pos", ()) if AGrid(mill.cga).runs(*q[5])]
