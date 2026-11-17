@@ -70,11 +70,17 @@ as in SPEC.md 128.18.
    demos, replays and saves need nothing new. The `bonanzareplay` row gains
    a VGA leg as proof.
 
-7. **The machine exists.** The owner's **5150 #2** has a stock 8088 at
-   4.77 MHz and a **PVGA1A with 256 KB** (docs/FIELD-MACHINES.md). It is the
-   one real VGA in this register, and a field run on it is the last wave.
-   MartyPC's `os8088_xt_vga` is the emulator: it is exact for correctness,
-   but its VGA timing is only a floor.
+7. **The machines.**
+   - The owner's **5150 #2** has a stock 8088 at 4.77 MHz and a **PVGA1A
+     with 256 KB** (docs/FIELD-MACHINES.md). It is the one real VGA in this
+     register, and a field run on it is the last wave.
+   - MartyPC's `os8088_xt_vga` is the 8088 emulator: exact for correctness,
+     but its VGA timing is only a floor.
+   - **86Box** runs period VGAs with their own BIOSes on AT-class machines:
+     a **PVGA1A**, the 5150 #2's chip, on `286-victory` and
+     `286-mega-multimon`, and an OTI067 on the 386 profiles. That is the
+     second opinion on the latch order and the wrap, and the
+     higher-spec machine the owner allows (section 10).
 
 **Recommendation:** build it in five waves, V0-V4 (section 9). **V0 is a
 probe and the go/no-go.** It checks on MartyPC, QEMU and 86Box three things
@@ -83,7 +89,9 @@ the design rests on:
 - the start-address/pel-pan latch order;
 - what a planar byte costs.
 
-Six decisions for the owner are in section 10.
+The owner decided all six questions on 2026-11-17 (section 10). This arm
+**is** H5's replacement. The VGA may target a faster machine than the 5150
+(a V20 or better); 4.77 MHz holding it is a bonus, not a requirement.
 
 ---
 
@@ -422,7 +430,36 @@ and 86Box, it shows:
 - (4) the rise-to-line-0 distance, `wb0`.
 
 QEMU and 86Box answer (1) and partly (2); only MartyPC answers (3) and (4).
-The field run (V4) is the only real answer to (2) and to the timing.
+86Box's **PVGA1A** (`286-victory`) is the same chip as the 5150 #2's, with
+its own BIOS, so it is the closest emulated answer to (2) on that card. It
+is not cycle-accurate (docs/86BOX.md, *What it is NOT*), so its frame rates
+are not quoted. The field run (V4) is the only real answer to (2) and to the
+timing.
+
+**86Box also carries the faster-machine leg (D7).** On a 286 the arm
+should hold N = 1 (70 Hz). A held pan is driven on `286-victory` through
+`tools/os88box.py` (screenshots at successive emulated times) to look for
+shear and judder, which is a behaviour check rather than a timing one.
+`bonanzamega` covers kern_mega on `286-mega-multimon`'s PVGA1A.
+
+**New 86Box profiles (the owner: "you can make any profile you need").**
+No 86Box profile has an XT with a VGA today, so V0 adds two, each an ISA
+**PVGA1A** (the 5150 #2's chip and BIOS), with a CGA-free XT board and a
+serial mouse on COM1, made the way docs/86BOX.md's existing `vm/`
+directories are:
+- **`vm/xt-vga`**: an 8088 at 4.77 MHz, the 5150 #2's shape. It is the
+  second opinion beside MartyPC on the latch order and the wrap, on the real
+  card's BIOS and an XT bus.
+- **`vm/xt-v20-vga`**: a turbo XT with a **V20** (8-10 MHz). It is D7's
+  "higher-spec" floor: the cheapest machine the arm is meant to hold 70 Hz
+  on.
+
+Whether 86Box offers its PVGA1A on an 8-bit XT board is checked first; if
+it does not, the profiles take an 8-bit ISA VGA it does offer, and say so.
+Neither is cycle-accurate, so neither is quoted for timing. They answer
+behaviour: shear, wrap, judder by timed screenshots, and the divisor the
+arm's own calibration picks. Each is checked to boot the desktop first, and
+listed in `make help` as the existing machines are.
 
 ---
 
@@ -443,6 +480,8 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 ### V0: the probe and the go/no-go (S)
 
 - [ ] `tests/vgapan/`: the probe package of section 8, and its row.
+- [ ] The two 86Box profiles, `vm/xt-vga` and `vm/xt-v20-vga` (section 8),
+      each booted to the desktop once.
 - [ ] Results written into this file:
   - [ ] the wrap, on each of the three emulators;
   - [ ] the latch order;
@@ -457,7 +496,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 
 ### V1: the arm, playable at today's steps (M-L)
 
-- [ ] SPEC.md 128.41 written: sections 2-7 of this file, as the contract.
+- [ ] The SPEC.md subsection written (the next free 128.N): sections 2-7 of this file, as the contract.
 - [ ] `bz_card` (0 CGA, 1 Hercules, 2 VGA); `bz_adapter` accepts
       `VID_VGA` + `FSXM_VGA0D` in both copies; the face's adapter line
       and Play Game ungreyed on VGA.
@@ -480,8 +519,10 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 - [ ] The pel pan at the edge.
 - [ ] Pacing rule 1 (camera from game time), and rule 2 if the owner takes
       it (D3).
-- *Check*: a boot to look, a held pan captured frame by frame (`pace`);
-  rows named: `bonanzaring` (pace), `bonanzareplay`.
+- *Check*: a boot to look on MartyPC and on 86Box `xt-v20-vga` and
+  `286-victory`, a held
+  pan captured frame by frame (`pace` on MartyPC, timed screenshots on
+  86Box); rows named: `bonanzaring` (pace), `bonanzareplay`.
 
 ### V3: the rows, kern_mega and the record (M)
 
@@ -496,7 +537,8 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 ### V4: the field run (owner's machine)
 
 - [ ] A request to the owner per docs/FIELD-MACHINES.md: the 5150 #2 with
-      its PVGA1A. Read off the window after a benchmark:
+      its PVGA1A, and any faster VGA machine the owner has to hand (D7).
+      Read off the window after a benchmark:
   - [ ] the display rate and N;
   - [ ] misses;
   - [ ] by eye, shear and judder on a held pan.
@@ -509,12 +551,28 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 
 | | question | recommended | why |
 |---|---|---|---|
-| **D1** | Mode 0Dh or Mode X? | **0Dh** | Two plane bytes against eight a block line; 200 lines (the CGA's window); 1-px pan; Lemmings and Excitebike as precedent. Mode X buys 256 colours the art doesn't use |
-| **D2** | The VGA camera | **LATTICE's framings, reached by pixel pans** | Same courses, same framings on every card; LATTICE's rules already hold in px. The alternative, a continuous follow camera, is a redesign and changes how courses read |
-| **D3** | Pacing | **camera on game time (always); hold the divisor N chosen at calibration** | A constant 35 Hz reads smoother than 70/35 alternating; a 286 still gets 70 |
-| **D4** | H5, "VGA runs the CGA arm" | **retire it** | The native arm replaces it, and the CGA arm on a VGA has two unproven questions (the mode-4 wrap, the palette) and no smooth scrolling |
-| **D5** | EGA | **stays refused** | 0Dh would work in principle, but there is no EGA to prove it on and a 64 KB EGA has a 16 KB plane |
-| **D6** | Colours | **the CGA's four** | 16 are available in 0Dh (planes 2 and 3), but every piece of art and every test's oracle is 4-colour. A later, separate idea |
+| **D1** | Mode 0Dh or Mode X? | **0Dh** - DECIDED | Two plane bytes against eight a block line; 200 lines (the CGA's window); 1-px pan; Lemmings and Excitebike as precedent. Mode X buys 256 colours the art doesn't use |
+| **D2** | The VGA camera | **LATTICE's framings, reached by pixel pans** - DECIDED | Same courses, same framings on every card; LATTICE's rules already hold in px. The alternative, a continuous follow camera, is a redesign and changes how courses read |
+| **D3** | Pacing | **camera on game time (always); hold the divisor N, 70 or 35 Hz, chosen by a short test at the bracket's start** - DECIDED (*"35 or 70 on a short test is fine"*) | A constant 35 Hz reads smoother than 70/35 alternating; a 286 still gets 70 |
+| **D4** | H5, "VGA runs the CGA arm" | **retire it: this arm is H5's replacement** - DECIDED | The native arm replaces it, and the CGA arm on a VGA has two unproven questions (the mode-4 wrap, the palette) and no smooth scrolling |
+| **D5** | EGA | **stays refused**; later or never - DECIDED | 0Dh would work in principle, but there is no EGA to prove it on and a 64 KB EGA has a 16 KB plane |
+| **D6** | Colours | **the CGA's four** - DECIDED (*"unless it's super cheap to redo the art"*). It is not cheap: see below | 16 are available in 0Dh (planes 2 and 3), but every piece of art and every test's oracle is 4-colour |
+| **D7** | The machine the VGA arm is for | **a V20 or better is allowed; 4.77 MHz is a bonus** - the owner's, 2026-11-17 | VGA machines are rarely 4.77 MHz XTs. MartyPC's 8088 and the 5150 #2 still measure it, and say which divisor they get, but a 35 Hz there is not a failure |
+
+**Why 16 colours is not cheap.** Everything that draws is 2 bits a pixel:
+- `tools/bbcourse.py`'s renderer emits four indices;
+- the blocks, the ball's frames and masks, the occluder masks and the box
+  compose (`bz_boxc`, `bz_blit`, `bz_occ`) all work in packed 2bpp bytes.
+
+16 colours means 4bpp art from every generator, a second compose path at
+twice the bytes, VGA-only parts at twice the size, and a second oracle in
+every test. That is a separate project on top of this one. What is
+genuinely cheap, and inside this plan, is **choosing the four colours
+freely**: the attribute controller takes any of 64 EGA colours (any of
+262,144 through the DAC) for each of the four indices. So a course's VGA
+palette need not be one of the CGA's two fixed sets. The tables are 4
+bytes a palette and are offered in V1 as an option, with the CGA's
+colours as the default.
 
 ---
 
@@ -523,7 +581,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 - **MartyPC's VGA timing is a floor.** An 8-bit VGA on a real XT bus has
   wait states MartyPC doesn't charge. The PVGA1A's real byte cost may make
   70 Hz out of reach where MartyPC says it fits. D3's held divisor is the
-  answer, and V4 is the measurement.
+  answer, D7 says a 35 Hz there is acceptable, and V4 is the measurement.
 - **Latch behaviour differs between cards.** The order of 2.4 is Abrash's,
   for IBM's VGA. The Paradise is a clone, and QEMU applies a frame's
   registers when it renders it. V0 asks every instrument; V4 is the truth.
