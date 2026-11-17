@@ -10,13 +10,15 @@ compared EXACTLY with the model's.
 
   1  CELLS: bz_cexp on each field course's STORED form equals its RAM form
      (bz_cxcel's V of a FIELD cell, bz_cxsafe's FIELD edge neighbour).
-  2  HOSTILE: a FIELD cell whose shape is past section F and one whose +1 has
-     bit 7 are made OPEN, and nothing outside the part is read or written.
+  2  HOSTILE: on MANY (17 tables), a FIELD cell whose shape is 31 and one whose
+     +1's bit 7 (the shape's fifth bit, SPEC.md 128.28.2) takes it past
+     section F are made OPEN, every good one - shape 16, bit 7 set, among
+     them - is untouched, and nothing outside the part is read or written.
   3  SCRIPTED runs: a 2-wide corner carried round, a 1-wide corner flown out
      of, a rest at a chute's bottom, a pit ridden round and out, a pit fallen
      through, the lift against a raised floor beside a lip (and none against
      one at the lip's height), a sloped leg, a chute on a bridge left over its
-     lip into the void.
+     lip into the void, and MANY's falling leg over its shape-16 cells.
   4  FUZZ: N runs from random states near field cells, every step.
 """
 import argparse
@@ -36,13 +38,14 @@ PS, CS, SS = DS.PS, DS.CS, DS.SS
 
 # the three FIELD courses are the tool's own (bbcourse --selfcheck's _field_checks steps the model on them):
 # THE CHUTES (a 2-wide chute set in the ground, a 1-wide one with a sloped leg, a floor raised beside a lip),
-# THE PIT (a bowl round a hole) and THE BRIDGE (a chute over the void)
-CHUTES, PIT, BRIDGE = BB._FCHUTE, BB._FPIT, BB._FBRIDGE
+# THE PIT (a bowl round a hole), THE BRIDGE (a chute over the void) and MANY (17 tables: shape 16's cells
+# carry the +1's bit 7, SPEC.md 128.28.2)
+CHUTES, PIT, BRIDGE, MANY = BB._FCHUTE, BB._FPIT, BB._FBRIDGE, BB._FMANY
 
 
 def courses():
     return {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
-            for k, t in (("chute", CHUTES), ("pit", PIT), ("bridge", BRIDGE))}
+            for k, t in (("chute", CHUTES), ("pit", PIT), ("bridge", BRIDGE), ("many", MANY))}
 
 
 def steer(n, before, after, turn_x):
@@ -82,6 +85,8 @@ def scripted():
          DS.hold(U | Rt, 80), (), lambda p: p.nfall == 1),
         ("bridge glass: a hop on a taper", "bridge", gls, (12, 16, 8 << 8, 8 << 8, 200, 0),
          DS.hold(Rt | D, 10) + [H] + DS.hold(Rt | D, 60), ("hop",), None),
+        ("many: down a falling leg over shape 16 (bit 7)", "many", rub, (25, 6, 15 << 8, 2 << 8, 0, 200),
+         DS.hold(D, 60), (), lambda p: p.gy >> 8 >= 8 * 16),
     ]
 
 
@@ -150,8 +155,9 @@ def fuzz(binp, sym, cs, n, seed):
 
 
 def hostile(binp, sym, c):
-    """128.28.2's bound: one FIELD cell's shape past F, one's +1 bit 7 set -> OPEN, nothing read or written
-    outside the part"""
+    """128.28.2's bound, on MANY (17 tables): one FIELD cell's shape 31, one's +1 bit 7 set taking a shape
+    of 1 - 15 to 17 - 31 -> OPEN; the good ones (shape 16, bit 7, among them) untouched; nothing read or
+    written outside the part"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
     st = bytearray(c.stored4)
     diroff, nsec = struct.unpack_from("<HH", st, 38)
@@ -161,9 +167,12 @@ def hostile(binp, sym, c):
         sec[chr(tag)] = (off, ln)
     co, cl = sec["C"]
     fields = [i for i in range(co, co + cl, 4) if st[i + 2] & 15 == BB.KIND_FIELD]
-    a, b = fields[0], fields[5]
-    st[a + 1] = (st[a + 1] & 0xF0) | 15                 # past F (a course with fewer than 16 tables)
-    st[b + 1] |= 0x80
+    hi = [i for i in fields if st[i + 1] & 0x80]
+    assert len(c.ftabs) > 16 and hi, "the hostile leg wants a course with shape 16 (MANY)"
+    a = fields[0]
+    b = next(i for i in fields if i != a and 1 <= st[i + 1] & 15 and not st[i + 1] & 0x80)
+    st[a + 1] |= 0x8F                                   # shape 31: past F
+    st[b + 1] |= 0x80                                   # shape 17 - 31: past F (17 tables)
     g = DS.Guest(binp, sym, st)
     lo, hi = PS * 16, PS * 16 + len(st)
     bad = []
@@ -195,6 +204,9 @@ REDS = {
     # 128.28.2: CELLS reads a FIELD edge neighbour as VOID
     "cellfield": [("bonanza.asm", "    cmp ah, BZ_KFIELD           ; SPEC.md 128.28.2: a FIELD neighbour is not VOID\n"
                    "    jne .vs2\n", "    jmp .vs2  ; RED cellfield\n")],
+    # 128.28.2: the shape's fifth bit (the +1's bit 7) not read - shape 16 reads table 0
+    "nofifth": [("bzphys.inc", "    or al, ah                   ; AL = the shape, 0 - 31 (SPEC.md 128.28.2)\n",
+                 "    ; RED nofifth\n")],
     # 128.28.2: the hostile bound dropped
     "nofbound": [("bonanza.asm", "    cmp ax, [bz_ffe]\n    ja .co\n", "    cmp ax, [bz_ffe]  ; RED nofbound\n")],
 }
@@ -209,7 +221,7 @@ def check(n=150, seed=1127, verbose=True, patches=()):
         print("bonanza_dfield CELLS: bz_cexp on %s's stored forms -> %s" % (
             ", ".join(sorted(cs)), "; ".join(b) or "each its RAM form, byte for byte"))
         out += b
-        b = hostile(binp, sym, cs["chute"])
+        b = hostile(binp, sym, cs["many"])
         print("bonanza_dfield HOSTILE: %s" % ("; ".join(b) or "the two bad FIELD cells OPEN, nothing outside the part"))
         out += b
         for label, ck, mat, pk, ks, want, ok in scripted():

@@ -1763,13 +1763,24 @@ def has_split(tiles):
 
 
 # --- SPEC.md 128.28: the FIELD cell (kind 7) - a 17 x 17 HEIGHTFIELD in section F read through one of the
-# square's eight symmetries.  A cell's +1 is the shape (bits 0 - 3) and the symmetry (bits 4 - 6): MU mirrors
-# u (u' = 16 - u), MV mirrors v, then SW swaps; the table index of the world point (u, v) is 17 V + U
+# square's eight symmetries.  A cell's +1 is the shape (bits 0 - 3, and bit 7 its fifth bit) and the
+# symmetry (bits 4 - 6): MU mirrors u (u' = 16 - u), MV mirrors v, then SW swaps; the table index of the world
+# point (u, v) is 17 V + U
 FSYM_MU, FSYM_MV, FSYM_SW = 1, 2, 4
 FTAB = 289                    # a table's bytes, 17 x 17
-FSHAPE_MAX = 16               # tables a course may have (the shape's four bits)
+FSHAPE_MAX = 32               # tables a course may have (the shape's five bits: +1's bits 0 - 3 and 7)
 FSLOPE_MAX = 7                # |sx| + |sy| at every point (the floor rate within 7 x 384 / 4 = 672)
 F_PROFILES = ("round", "bank")
+
+
+def fsl(shape, sym):
+    """SPEC.md 128.28.2: a FIELD cell's +1 from its shape (0 - 31) and symmetry (0 - 7)"""
+    return (shape & 15) | (sym << 4) | ((shape & 16) << 3)
+
+
+def fshape(sl):
+    """...and back: the shape a FIELD cell's +1 names (bits 0 - 3, bit 7 the fifth)"""
+    return (sl & 15) | ((sl >> 3) & 16)
 
 
 def fidx(sym, u, v):
@@ -2061,6 +2072,22 @@ def has_field(tiles):
     return any(isinstance(t, FieldTile) for t in tiles.values())
 
 
+def field_tables_by_statement(tiles):
+    """SPEC.md 128.28.4's standard profiles: -> [(line, what, tables it ADDED, tables it SHARES)] in source
+    order - a table is added by the statement whose cell build_fields stored it for (the cells' sort order),
+    and shared by every other statement with a cell that names it"""
+    first, use, what = {}, {}, {}
+    for cell in sorted(tiles):
+        t = tiles[cell]
+        if not isinstance(t, FieldTile) or t.shape is None:
+            continue
+        first.setdefault(t.shape, t.line)
+        use.setdefault(t.line, set()).add(t.shape)
+        what[t.line] = "pit" if t.piece == "pit" else "chute"
+    return [(ln, what[ln], sorted(i for i in use[ln] if first[i] == ln),
+             sorted(i for i in use[ln] if first[i] != ln)) for ln in sorted(use)]
+
+
 def field_seams(tiles, fname):
     """SPEC.md 128.28.2's SEAM rule: two FIELD cells sharing an edge are equal at all 17 of its points"""
     for (wx, wy), t in sorted(tiles.items()):
@@ -2326,7 +2353,7 @@ def build_cells(tiles):
             cells[(wx, wy)] = [0, 0, t.diag | (t.surf << 4), 0]
             continue
         if isinstance(t, FieldTile):                # SPEC.md 128.28.2: the base, the shape and the symmetry
-            cells[(wx, wy)] = [t.z0, t.shape | (t.sym << 4), KIND_FIELD | (t.surf << 4), 0]
+            cells[(wx, wy)] = [t.z0, fsl(t.shape, t.sym), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
         if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
@@ -5631,33 +5658,129 @@ def dither(mask):
     return bytes(b | CHK[(i >> 1) & 1] for i, b in enumerate(mask))
 
 
-def _occluders(cv, reach, x0, y0, cols, brows):
+FOCC = 4                      # SPEC.md 128.28.6: a FIELD cell's query squares, ground units a side
+
+
+def feet(reach, tiles, x0, sub=None):
+    """SPEC.md 128.10.4.4, 128.28.6: the footprints the merge's queries (and the cutter, but for a FIELD
+    cell's) take over the reach -> [(rc, zlo, zhi, xl, xh, yt0, yb0)]: a ball in reach cell rc at whole height
+    z, zlo <= z <= zhi, whose footprint is columns xl .. xh and lines yt0 - z .. yb0 - z (Y0 = 0).  A cell's
+    whole area is one (foot_x, foot_top: yt0 = 8 s - 13, yb0 = 8 s + 17) - except a FIELD cell's, SUB x SUB
+    squares of ground units (FOCC), each at the lowest floor of its integer points (field_zlo's rule).
+    sub 16: the whole cell, a FIELD cell's too (the cutter before 128.28.6's rule: --selfcheck's red arm)"""
+    sub = FOCC if sub is None else sub
+    out = []
+    for rc in reach:
+        t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+        if not isinstance(t, FieldTile) or sub >= 16:
+            xl, xh = foot_x(rc, x0)
+            out.append((rc, rc.zlo, rc.zhi, xl, xh, 8 * rc.s - 13, 8 * rc.s + 17))
+            continue
+        xc = 16 * rc.a + x0
+        for v0 in range(0, 16, sub):
+            for u0 in range(0, 16, sub):
+                zl = min(min(t.h[v][u] for v in range(v0, v0 + sub) for u in range(u0, u0 + sub)) >> 2, rc.zhi)
+                zl = max(zl, rc.zlo)
+                off = (u0 + v0) >> 1
+                out.append((rc, zl, rc.zhi, xc + u0 - v0 - sub - 8, xc + u0 - v0 + sub + 7,
+                            8 * rc.s + off - 13, 8 * rc.s + off + sub + 1))
+    return out
+
+
+def field_zlo(tiles, rc, gx, gy, _raise=0):
+    """SPEC.md 128.28.6: the lowest whole px a ball whose centre is at (gx, gy) (ground units, 8 fraction
+    bits) can be at in reach cell rc - on a FIELD cell its floor at its integer point (h4 >> 2: step 6
+    leaves gz >= h4 << 6 on a FIELD centre, 128.28.5.1), elsewhere rc.zlo.  _raise: the red arm's floor"""
+    t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+    if not isinstance(t, FieldTile):
+        return rc.zlo
+    u, v = (gx >> 8) - 16 * rc.wx, (gy >> 8) - 16 * rc.wy
+    return min(max((t.h[v][u] >> 2) + _raise, rc.zlo), rc.zhi)
+
+
+def _ball_cols():
+    """the ball's lit rows in each of its 16 columns, (first, last): ONE circle at every alignment (the
+    frames differ in ink only)"""
+    lit = [[c is not None for c in r] for r in BA.ball_frame_indices(0)]
+    return tuple((min(r for r in range(16) if lit[r][dx]), max(r for r in range(16) if lit[r][dx]))
+                 for dx in range(16))
+
+
+def _field_occ(cv, rc, t, x0, y0, occ, _raise=0):
+    """SPEC.md 128.28.6: the occluder pixels a ball in FIELD cell rc needs, at its REAL poses - its centre at
+    every integer point (u, v) with any fraction, so its footprint column (gx - gy) >> 8 is u - v or one
+    less and its line ((gx + gy) >> 1) >> 8 the floor or ceiling of (u + v) / 2, and every whole height z
+    from the floor there (field_zlo) to rc.zhi, its top line a line higher with a fraction - and its LIT
+    circle (_ball_cols), not the footprint's box.  A pixel joins occ when it lays over a lit pixel of one
+    such pose (keyed after the ball's row and above its z, the airborne rule: margin 0)"""
+    cols = _BALL_COLS
+    xc, s = 16 * rc.a + x0, rc.s
+    poses = {}                                      # (px, line of the top at z = 0) -> the lowest z
+    for v in range(16):
+        for u in range(16):
+            zl = min(max((t.h[v][u] >> 2) + _raise, rc.zlo), rc.zhi)
+            d, e = u - v, u + v
+            for X in (d - 1, d):
+                for g in {e >> 1, (e + 1) >> 1}:
+                    k = (xc + X - 8, 8 * s + g - 13 + y0)
+                    if poses.get(k, rc.zhi + 1) > zl:
+                        poses[k] = zl
+    w, h, zhi = cv.w, cv.h, rc.zhi
+    for (px, pyz), zl in poses.items():
+        for dx in range(16):
+            x = px + dx
+            if not 0 <= x < w:
+                continue
+            r0, r1 = cols[dx]
+            # the pose at z has its top at pyz - z (pyz - z - 1 with a fraction): line y is lit at some z of
+            # [pyz - y - 1 + r0, pyz - y + r1]
+            for y in range(max(pyz - zhi - 1 + r0, 0), min(pyz - zl + r1, h - 1) + 1):
+                sp = cv.sbuf[y][x]
+                if sp <= s:
+                    continue
+                tp = cv.tbuf[y][x]
+                if max(zl, pyz - y - 1 + r0) <= min(zhi, tp - 1, pyz - y + r1):
+                    occ[(x, y)] = (sp, tp)
+
+
+_BALL_COLS = _ball_cols()
+
+
+def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0):
     """-> (records, occ pixel set): SPEC.md 128.10.4.4.  A pixel is an occluder
     when SOME reachable position's footprint covers it and the rule lays it
     back there: the ball's cell row before the pixel's, and the ball lower
     than the pixel's top (airborne, so the margin is 0: the most it can lay).
-    Records: one per (block, cell, band of tops at most BAND px)."""
+    Records: one per (block, cell, band of tops at most BAND px).  tiles: a
+    FIELD cell's ball is taken at its real poses (_field_occ, SPEC.md 128.28.6)
+    unless sub is 16 (feet()'s whole cell: the red arm); _raise, the arm that
+    takes its floor too high"""
     occ = {}                                   # (x, y) -> (s, top)
     w, h = cv.w, cv.h
-    for rc in reach:
-        xl, xh = foot_x(rc, x0)
+    tiles = tiles or {}
+    for rc, zlo, zhi, xl, xh, yt0, yb0 in feet(reach, tiles, x0, 16):
+        t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+        if isinstance(t, FieldTile) and (FOCC if sub is None else sub) < 16:
+            _field_occ(cv, rc, t, x0, y0, occ, _raise)
+            continue
+        s = rc.s
         xl, xh = max(xl, 0), min(xh, w - 1)
-        ytop = foot_top(rc, rc.zhi) + y0
-        ybot = foot_top(rc, rc.zlo) + y0 + 15 + 15
+        ytop = yt0 - zhi + y0
+        ybot = yb0 - zlo + y0
         for y in range(max(ytop, 0), min(ybot, h - 1) + 1):
             sr, tr = cv.sbuf[y], cv.tbuf[y]
             for x in range(xl, xh + 1):
                 sp = sr[x]
-                if sp <= rc.s:
+                if sp <= s:
                     continue
                 tp = tr[x]
-                zmax = min(rc.zhi, tp - 1)       # the highest ball the pixel still hides
-                if zmax < rc.zlo:
+                zmax = min(zhi, tp - 1)          # the highest ball the pixel still hides
+                if zmax < zlo:
                     continue
                 # above every footprint low enough - a ball at whole height zmax
                 # with a FRACTION (any zmax below the apex) has its top a line
                 # higher than foot_top(zmax) at the cell row's first line
-                if y < foot_top(rc, zmax) + y0 - (1 if zmax < rc.zhi else 0):
+                if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
                     continue
                 occ[(x, y)] = (sp, tp)
     # group: block, cell row (one cell per row per block column is not
@@ -5729,20 +5852,23 @@ def _laid(reach, recs_by_block, x0, y0, rc_list=None, zr=None, margin=0, frac=No
     return best, worst
 
 
-def block_queries(reach, x0, y0, width):
+def block_queries(reach, x0, y0, width, ft=None):
     """-> {(block row, block column): {(s_b, z_b + m)}}: every verdict input a
     reachable position whose footprint meets the block can present (SPEC.md
     128.11.4.1) - every whole height of its cell's range, both margins, the
     footprint over the cell's area and the fractional line.  A superset of the
-    real set, so a merge over it is exact over the real one."""
+    real set, so a merge over it is exact over the real one.  ft: feet()'s
+    footprints, as _occluders takes them"""
     q = {}
-    for rc in reach:
-        xl, xh = foot_x(rc, x0)
+    if ft is None:
+        ft = feet(reach, {}, x0)
+    for rc, zlo, zhi, xl, xh, yt0, yb0 in ft:
+        s = rc.s
         cols = range(max(xl, 0) >> 3, (min(xh, width - 1) >> 3) + 1)
-        for z in range(rc.zlo, rc.zhi + 1):
-            t0 = foot_top(rc, z) + y0 - 1
-            t1 = foot_top(rc, z) + y0 + 30
-            pair = ((rc.s, z), (rc.s, z + CLIMB))
+        for z in range(zlo, zhi + 1):
+            t0 = yt0 - z + y0 - 1
+            t1 = yb0 - z + y0
+            pair = ((s, z), (s, z + CLIMB))
             for br in range(max(t0, 0) >> 3, (t1 >> 3) + 1):
                 for bc in cols:
                     st = q.get((br, bc))
@@ -6455,8 +6581,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
     # the occluders: cut (128.10.4.4) from pose 0's picture, merged (128.11.4.1), bounded (128.11.4.2)
-    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows) if occluders else ([], {})
-    q = block_queries(reach, x0, y0, width) if occluders else {}
+    # (SPEC.md 128.28.6: a FIELD cell's ball at its real poses; hack focc 16 the whole cell, fraise its floor
+    # raised - --selfcheck's red arms)
+    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows, tiles, hack.get("focc"), hack.get("fraise", 0)) \
+        if occluders else ([], {})
+    q = block_queries(reach, x0, y0, width, feet(reach, tiles, x0, hack.get("focc"))) if occluders else {}
     records = merge_records(raw, q)
     per_row, per_block = {}, {}
     for r in records:
@@ -8040,15 +8169,15 @@ def read_part(p, fname="<part>"):
             if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
                 bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
         elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.28.2: a FIELD cell names a table of F
-            if (sl & 15) * FTAB >= flen or sl & 0x80 or kd >> 4 != SURF_NORMAL or fl & ~(FL_OCC | FL_OCCG) \
+            if fshape(sl) * FTAB >= flen or kd >> 4 != SURF_NORMAL or fl & ~(FL_OCC | FL_OCCG) \
                     or (fl & FL_OCCG and not fl & FL_OCC):
                 bad("cell %d" % i, "a FIELD cell's shape %d of %d, symmetry byte %02Xh, surface %d, flags %02Xh"
-                    % (sl & 15, flen // FTAB, sl, kd >> 4, fl))
-            fnamed.add(sl & 15)
+                    % (fshape(sl), flen // FTAB, sl, kd >> 4, fl))
+            fnamed.add(fshape(sl))
             r_, k_ = divmod(i, kw)
             s_ = smin + r_
             a_ = amin + 2 * k_ + (s_ & 1)
-            tab = p[foff + FTAB * (sl & 15):foff + FTAB * (sl & 15) + FTAB]
+            tab = p[foff + FTAB * fshape(sl):foff + FTAB * fshape(sl) + FTAB]
             fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[16 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
                                                         for v in range(17)]
         elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
@@ -8346,7 +8475,7 @@ class Grid:
         key = (z0, sl)
         w = self._fw.get(key)
         if w is None:
-            o = FTAB * (sl & 15)
+            o = FTAB * fshape(sl)
             w = self._fw[key] = [[16 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
         return w
 
@@ -14260,6 +14389,12 @@ def report(c, k=None):
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
               len(c.reach)))
+    if c.ftabs:                                     # SPEC.md 128.28.4: the tables each shape statement costs
+        rows = field_tables_by_statement(c.tiles)
+        print("    section F: %d tables of %d (%d bytes); by statement: %s" % (
+            len(c.ftabs), FSHAPE_MAX, FTAB * len(c.ftabs), "; ".join(
+                "line %d %s adds %d%s" % (ln, w, len(add), " and shares %d (%s)" % (
+                    len(sh), ", ".join(str(i) for i in sh)) if sh else "") for ln, w, add, sh in rows)))
 
 
 def pans(c, log, herc, **gkw):
@@ -17270,7 +17405,7 @@ def _props_course_checks(c, res, tag):
             if not (xl <= rx[2] and rx[0] <= xh):
                 continue
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({rc.zlo, rc.zhi}):
+            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 if not _meet((px & ~3, py, (px & ~3) + FOOT_W, py + FOOT_H), *rx):
@@ -19355,7 +19490,7 @@ def _w5_dither(courses, res, demos=None):
         pos = []
         for rc in c.reach:
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({rc.zlo, rc.zhi}):
+            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
                 for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                     pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air))
         ph = Physics(c, play=True)
@@ -20406,6 +20541,19 @@ start 7 7
 goal tile 24 28 flat 2
 """
 
+# SPEC.md 128.28.2: MORE THAN 16 TABLES - two 2-wide chutes and a pit, 17 tables, so the pit's last is
+# shape 16 and its cells' +1 carry bit 7 (the shape's fifth bit)
+_FMANY = """course MANY "Many"
+width 128
+origin 480
+floor rect 4 3 31 22 flat 2
+chute 2 round depth 10 way 8 10 2 way 8 5 way 14 5 way 14 10
+chute 2 bank depth 8 way 20 9 2 way 20 5 way 26 5 4 way 26 9 2
+pit 11 17 2 radius 3 depth 16
+start 5 4
+goal tile 30 21 flat 2
+"""
+
 
 def _field_cases():
     """SPEC.md 128.28.3's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
@@ -20444,12 +20592,12 @@ def _field_checks(res):
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (128.28.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     cs = {k: compile_course(t, "<%s>" % k, _hack={"no_finish": True})
-          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE))}
+          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE), ("MANY", _FMANY))}
     for k, c in cs.items():
         g = Grid(c.cga)
         ft = {cell: t for cell, t in c.tiles.items() if isinstance(t, FieldTile)}
         same = all(g.cell(*cell)[6] == t.h for cell, t in ft.items())
-        flip = sum(1 for cell, t in ft.items() if g.fworld(t.z0, t.shape | ((t.sym ^ FSYM_MU) << 4)) != t.h)
+        flip = sum(1 for cell, t in ft.items() if g.fworld(t.z0, fsl(t.shape, t.sym ^ FSYM_MU)) != t.h)
         smax = max(abs(a) + abs(b) for t in ft.values() for v in range(16) for u in range(16)
                    for a, b in (fslopes(t.h, u, v),))
         pieces = {}
@@ -20463,6 +20611,17 @@ def _field_checks(res):
         res.append(("2 %s: the slope bound holds, |sx| + |sy| at most %d (bound %d)" % (k, smax, FSLOPE_MAX),
                     smax <= FSLOPE_MAX))
         res.append(("10 %s: expand(stored) == RAM with section F" % k, expand(c.stored4, k) == bytes(c.cga)))
+    # SPEC.md 128.28.2: 32 tables - MANY's 17th (shape 16) is named by cells whose +1 has bit 7, read back
+    # through the grid above; red: the fifth bit dropped reads table 0 for them
+    c = cs["MANY"]
+    g = Grid(c.cga)
+    hi = [(cell, t) for cell, t in sorted(c.tiles.items()) if isinstance(t, FieldTile) and t.shape >= 16]
+    drop = sum(1 for cell, t in hi if g.fworld(t.z0, fsl(t.shape, t.sym) & 0x7F) != t.h)
+    res.append(("2 MANY: %d tables, the %d cells of shape 16 - 31 carry the +1's bit 7 and read back their own "
+                "tables (SPEC.md 128.28.2: up to %d); red: the fifth bit dropped misreads %d of them" % (
+                    len(c.ftabs), len(hi), FSHAPE_MAX, drop),
+                len(c.ftabs) > 16 and hi and all(c.cells[cl][1] & 0x80 for cl, _t in hi) and drop == len(hi)))
+    _field_occ_checks(cs, res)
     # the SEAM rule's red arm, and the reader's
     c = cs["CHUTE"]
     tl = dict(c.tiles)
@@ -20504,6 +20663,126 @@ def _field_checks(res):
             for kk in keys(q) if callable(keys) else keys:
                 q.step(kk)
             res.append(("7 FIELD red `%s` breaks it: %s" % (arm.strip("_"), what), not ok(q)))
+
+
+def _field_real_poses(c, rc, step=7):
+    """SPEC.md 128.28.6: a SAMPLE of a FIELD reach cell's real poses for --selfcheck - the centre at every
+    integer point with (u + 3 v) % step == 0, each corner of its fraction, at its floor (grounded and in the
+    air) and one and two px above it, with and without a height fraction -> [(px, py, s, z, air)]"""
+    t = c.tiles[(rc.wx, rc.wy)]
+    out = []
+    for v in range(16):
+        for u in range(16):
+            if (u + 3 * v) % step:
+                continue
+            for fu, fv in ((0, 0), (255, 255), (255, 0), (0, 255)):
+                gx, gy = ((16 * rc.wx + u) << 8) + fu, ((16 * rc.wy + v) << 8) + fv
+                zf = field_zlo(c.tiles, rc, gx, gy)
+                for z in range(zf, min(zf + 2, rc.zhi) + 1):
+                    for f in (0, 200):
+                        gz = (z << 8) + f
+                        px = ((gx - gy) >> 8) + c.x0 - 8
+                        py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
+                        for air in ((0, 1) if z == zf and f == 0 else (1,)):
+                            out.append((px, py, rc.s, z, air))
+    return out
+
+
+def _poses_hidden(c, poses):
+    """-> (poses where the records and the per-pixel rule disagree on a LIT ball pixel, poses where the rule
+    hides any): records' pixels by a pixel -> record map, the rule by sbuf and tbuf (no record's top raised:
+    a pixel no record holds is exactly what a too-thin cut leaves out)"""
+    rec = {}
+    for r in c.records:
+        for p_ in r["pix"]:
+            rec[p_] = r
+    bad = hid = 0
+    for px, py, sb, z, air in poses:
+        m = 0 if air else CLIMB
+        any_ = diff = False
+        for (x, y) in ball_pixels(px, py):
+            rule = c.sbuf[y][x] > sb and c.tbuf[y][x] > z + m
+            r = rec.get((x, y))
+            laid = r is not None and r["s"] > sb and r["top"] > z + m
+            any_ |= rule
+            if rule and not laid:
+                diff = True
+        bad += diff
+        hid += any_
+    return bad, hid
+
+
+def _field_occ_checks(cs, res):
+    """SPEC.md 128.28.6's real-pose cut: (1) the records against the whole-cell cut (fewer); (2) a sample of
+    every FIELD cell's real poses, and the pit's hole at every height a ball falls through it, laid by the
+    records wherever the per-pixel rule hides a lit ball pixel - red arm: the cut's floor 3 px too high
+    misses some; (3) the model never puts a ball's centre in a FIELD cell under its floor there (what the
+    cut stands on) - red arm: that floor read 1 px higher is broken by a grounded ball"""
+    for k, text in (("CHUTE", _FCHUTE), ("PIT", _FPIT)):
+        c = cs[k]
+        cw = compile_course(text, "<%s>" % k, _hack={"no_finish": True, "focc": 16})
+        fr = [rc for rc in c.reach if rc.kind == KIND_FIELD]
+        poses = [q for rc in fr for q in _field_real_poses(c, rc)]
+        hole = [rc for rc in c.reach if rc.kind == KIND_VOID and any(
+            isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+            and all(isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) or (dx, dy) == (0, 0)
+                    or c.tiles.get((rc.wx + dx, rc.wy + dy)) is None for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+        hp = []
+        for rc in hole:
+            for u, v in ((8, 8), (2, 2), (14, 14), (2, 14), (14, 2)):
+                gx, gy = ((16 * rc.wx + u) << 8), ((16 * rc.wy + v) << 8)
+                for z in range(rc.zlo, rc.zhi + 1, 2):
+                    hp.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, 1))
+        bad, hid = _poses_hidden(c, poses)
+        hbad, hhid = _poses_hidden(c, hp)
+        cr = compile_course(text, "<%s, floor + 3>" % k, _hack={"no_finish": True, "fraise": 3})
+        rbad, _rh = _poses_hidden(cr, poses)
+        print("    %s (SPEC.md 128.28.6): %d records cut at the FIELD cells' real poses, %d at their whole cells (masks "
+              "%d against %d, blocks %d); %d sampled real poses, %d of them with lit pixels the rule hides; the "
+              "hole: %d poses, %d hidden" % (k, len(c.records), len(cw.records), len(c.masks), len(cw.masks),
+                                            len(c.blocks), len(poses), hid, len(hp), hhid))
+        res.append(("5 %s: the FIELD cells' records are cut at their REAL poses (128.28.6): %d records against %d "
+                    "cut at the whole cell" % (k, len(c.records), len(cw.records)),
+                    len(c.records) < len(cw.records) and c.cga != cw.cga))
+        res.append(("5 %s: at %d sampled real poses on FIELD cells (%d hidden in part) and %d in %s, every lit ball "
+                    "pixel the per-pixel rule hides is laid by a record (%d, %d differ); red: the cut's floor 3 px "
+                    "high leaves %d poses short" % (k, len(poses), hid, len(hp), "the pit's hole" if hole else
+                                                     "no hole", bad, hbad, rbad),
+                    bad == 0 and hbad == 0 and hid > 0 and rbad > 0 and (k != "PIT" or hhid > 0)))
+    # (3) the model: the centre in a FIELD cell is never under the floor at its integer point - the scripted
+    # runs, and 60 seeded runs from random poses on and beside FIELD cells, random keys
+    worst = {0: 0, 1: 0}
+    n = 0
+    fr = {k: {(r.wx, r.wy): r for r in c.reach if r.kind == KIND_FIELD} for k, c in cs.items()}
+    import random
+    rnd = random.Random(1117)
+    runs = [(k, mat, at, keys) for _w, k, mat, at, keys, _ok, _arm in _field_runs()]
+    for i in range(60):
+        k = ("CHUTE", "PIT", "MANY")[i % 3]
+        wx, wy = rnd.choice(sorted(fr[k]))
+        v = VMAXG
+        ks = []
+        while len(ks) < 120:
+            ks += [rnd.choice((0, K_U, K_D, K_L, K_R, K_U | K_L, K_D | K_R, K_HOP))] * rnd.randrange(1, 20)
+        runs.append((k, rnd.choice((MAT_RUBBER, MAT_STEEL)), (wx, wy, rnd.randrange(4096), rnd.randrange(4096),
+                                                              rnd.randrange(-v, v + 1), rnd.randrange(-v, v + 1)),
+                     ks[:120]))
+    for k, mat, at, keys in runs:
+        p_ = Physics(cs[k], play=True, mat=mat)
+        p_.tsec = 0
+        _field_poke(p_, *at)
+        for kk in keys(p_) if callable(keys) else keys:
+            p_.step(kk)
+            rc_ = fr[k].get((p_.gx >> 12, p_.gy >> 12))
+            if rc_ is None or p_.hid or p_.tube:
+                continue
+            n += 1
+            for rz in (0, 1):
+                if (p_.gz >> 8) < field_zlo(cs[k].tiles, rc_, p_.gx, p_.gy, rz):
+                    worst[rz] += 1
+    res.append(("7 FIELD runs (128.28.5.1, the cut's floor): over %d steps whose centre is a FIELD cell the ball "
+                "is never under the floor at its integer point (%d under); red: that floor 1 px high, %d steps "
+                "under it" % (n, worst[0], worst[1]), n > 0 and worst[0] == 0 and worst[1] > 0))
 
 
 def _field_poke(p, wx, wy, pu, pv, gvx, gvy):
@@ -20901,7 +21180,7 @@ def _course_items(c, k, res, t):
     first_laid = None
     for rc in c.reach:
         gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-        for z in sorted({rc.zlo, rc.zhi}):
+        for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
             for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
@@ -20923,7 +21202,7 @@ def _course_items(c, k, res, t):
     for rc in c.reach:
         if rc.zhi <= rc.zlo:
             continue
-        for z in sorted({rc.zlo, rc.zhi - 1}):
+        for z in sorted({field_zlo(c.tiles, rc, (16 * rc.wx) << 8, (16 * rc.wy) << 8), rc.zhi - 1}):
             gx, gy, gz = (16 * rc.wx) << 8, (16 * rc.wy) << 8, (z << 8) + 128
             px = ((gx - gy) >> 8) + c.x0 - 8
             py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
