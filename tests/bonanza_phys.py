@@ -271,6 +271,7 @@ and PASSES only if the row FAILS - at its own check:
 """
 import argparse
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -366,7 +367,7 @@ class Reader:
         bytes and the three slots' bytes (bz_fsl), as the guest holds them"""
         s, lo = self.g.sym, self.lo
         fst = raw[s["bz_fst"] - lo:s["bz_fsl"] - lo]
-        fsl = raw[s["bz_fsl"] - lo:s["bz_fsl"] - lo + BB.FAM_MAX * BB.FSLOT]
+        fsl = raw[s["bz_fsl"] - lo:s["bz_fsl"] - lo + guest_fsl_bytes()]
         return (bytes(fst), bytes(fsl))
 
     def state6(self, raw):
@@ -487,6 +488,14 @@ def compare(name, frames, st, s2, ext, p):
     if got != want:
         return "%s frame %d: the counters %s against the model's %s" % (name, frames, got, want)
     return None
+
+
+def guest_fsl_bytes(art=None):
+    """bz_fsl's bytes as the guest has them: BZ_FAMMAX slots (SPEC.md 128.25.6.9, the build's longest family
+    list, never under 3 - PLAYGROUND names four since its wind yard, 128.34.12), not bbcourse.FAM_MAX's three
+    (the FETCHED families' cap)"""
+    t = open(os.path.join(art or R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_FAMMAX\s+equ\s+(\d+)", t, re.M).group(1)) * BB.FSLOT
 
 
 def statef_diff(gf, p):
@@ -1880,7 +1889,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
         if gs != p.state():
             bad.append("step %d: the ball %s, the model's %s" % (i, gs, p.state()))
         if p.fam:
-            d = statef_diff((g.rb("bz_fst", g.sym["bz_fsl"] - g.sym["bz_fst"]), g.rb("bz_fsl", BB.FAM_MAX * BB.FSLOT)), p)
+            d = statef_diff((g.rb("bz_fst", g.sym["bz_fsl"] - g.sym["bz_fst"]), g.rb("bz_fsl", guest_fsl_bytes())), p)
             if d:
                 bad.append("step %d: %s" % (i, d))
             if g.r("bz_fref", 1, False) != p.fref:
