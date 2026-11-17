@@ -227,8 +227,9 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       contract; the tool's `guard` statement, its refusals, art, occluders and
       `FL_FLOAT`; `--selfcheck` item 16 with four red arms (MEASURED red); the
       `BZRAIL=1` test course RAIL; the knob-less build byte-identical
-      (MEASURED). Previewed on both cards (`--png`); not yet played on the
-      glass.
+      (MEASURED). Previewed on both cards (`--png`); PLAYED by the owner on
+      the `BZRAIL=1` disks, 2026-11-17: "Look great and meet their function"
+      (the 2-unit default kept).
 
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
