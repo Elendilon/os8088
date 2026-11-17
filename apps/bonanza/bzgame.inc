@@ -489,8 +489,6 @@ VAR bz_kmin,2
 VAR bz_spq,6                    ; wave 9 (SPEC.md 128.25.19): the cue's three
                                 ; sparkles' PLACES, each a pointer to its
                                 ; entries in the card's bz_spr0 (bz_cuef)
-VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): the cue's FLASH checker,
-                                ; the sprite's row 0's (bz_cuef; bz_blit's .cwhole)
 VAR bz_olo,2                    ; bz_occ (SPEC.md 128.10.8 item 1, 128.11.10.2):
 VAR bz_ohi,2                    ; the lines [lo, hi) of the footprint inside the
 VAR bz_ozk,2                    ; window, z_b + m, the block row's first line,

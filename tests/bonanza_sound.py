@@ -62,7 +62,7 @@ countdown's own state there) and fails if the clock still moved, and every
 wait for an idle slot FAILS when an effect never frees it.
 
 WAVE 5B (SPEC.md 128.15.9, 128.15.13): unchanged in logic.  The parts table's
-format byte is the whole table's, so with BZPARTZ=lzb the sound part and the
+format byte is the whole table's, so with LZB parts (shipped) the sound part and the
 songs are LZB parts like the courses: the title's fetch on the desktop and
 course 1's song in the bracket are decoded by OSAPI_DECOMP's LZB arm, and the
 model comparison holds the decoded bytes to bbmusic's.  The format is printed

@@ -680,7 +680,7 @@ LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
-PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball DITHER-FLASHED (about 1 s)
+PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball FLASHED (BLINK4; about 1 s)
 PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
@@ -13003,7 +13003,7 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
+    packed as LZ4 - whatever the parts' format is - against its budget.  The part read
     is the RECB 4 stored form whatever --rec is, which is the shipped form
     since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
     2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
