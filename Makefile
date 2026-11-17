@@ -22169,6 +22169,22 @@ BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
 $(BZWATERSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwater-*
 	@touch $@
+#> [Knobs] BZWATERBOB=b|e :: Bounce Bonanza's WATER: the floating ball's SURFACE BOB (SPEC.md 128.36.10) - b the float floor alternating (the default), e the HOVER (the ball kept airborne on the water, no Hop there); the owner's A/B (make BUILD=build/water-e BZWATER=1 BZWATERBOB=e bonanzadisk)
+# BZWATERBOB (the owner, 2026-11-17: "make an a/b for me to play with") passes --waterbob to bbcourse.py, which
+# writes BZ_WA_MODE into bzcourse.inc (the water part assembles its arm from it) and folds the arm into water's
+# FAMV, so a course's identity says which bob it was compiled for.  `c` (the lift's carry under the water) is
+# REFUSED: it needs a resident change (SPEC.md 128.36.10's price).  STAMPED: switching recompiles the courses.
+BZWATERBOB ?= b
+ifeq ($(filter $(BZWATERBOB),b e),)
+ifeq ($(BZWATERBOB),c)
+$(error BZWATERBOB=c, the lift's carry under the water, is not built: it needs a resident change (SPEC.md 128.36.10) - b or e)
+endif
+$(error BZWATERBOB=$(BZWATERBOB) is b or e)
+endif
+BZWBOBSTAMP := $(BUILD)/.bzwaterbob-$(BZWATERBOB)
+$(BZWBOBSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzwaterbob-*
+	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
 # it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
@@ -22237,9 +22253,9 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZMAGNETSTAMP) $(BZWINDSTAMP) \
-                   $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZFSHOWSTAMP) \
+                   $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZWBOBSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --waterbob $(BZWATERBOB) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
