@@ -23,6 +23,8 @@ org 0
 %include "bzlink.inc"
 
 GL_BROKEN   equ 0FFh
+GL_PARTNER  equ 18              ; EXPLORATORY (SPEC.md 128.25.18.1): a vanishing
+GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the companion
 
     db 'BF'
     db BZ_FID_GLASS
@@ -113,7 +115,7 @@ gl_contact:
     mov [si], al
     inc byte [di]
 .mark:
-    call far [bz_fmkp]          ; its lane MARKED and the next walk made
+    call gl_mark                ; its lane MARKED and the next walk made
 .out:                           ; (bz_fmark, 128.25.6.3)
     retf
 .glass:
@@ -136,6 +138,8 @@ gl_step:
 .l:
     cmp byte [es:si], BZ_FK_CRACK
     jne .n
+    cmp byte [es:si + GL_COMP], 0   ; (a companion's byte is its crack's)
+    jne .n
     push si
     call gl_byte
     mov al, [si]
@@ -154,7 +158,7 @@ gl_step:
     cmp al, BZ_CRACK_LATE + 1   ; (its last CRACK_LATE steps: pose 2)
     jne .st
 .mk:
-    call far [bz_fmkp]          ; its lane marked, the next walk made
+    call gl_mark                ; its lane marked, the next walk made
 .st:
     mov [si], al
 .p:
@@ -240,6 +244,31 @@ gl_cell:
     inc bx
     loop .r
     retf
+
+; BX = an element -> its lane MARKED (bz_fmark), and its PARTNER's: a
+; vanishing crack and its companion each name the other (record +18, the
+; index + 1; 0 none - every glass tile and every crack that keeps a hole).
+; Preserves all.
+gl_mark:
+    call far [bz_fmkp]
+    push bx
+    push cx
+    push es
+    mov es, [bz_cseg]
+    mov cl, 5
+    shl bx, cl
+    add bx, [bz_poff]
+    mov bl, [es:bx + GL_PARTNER]
+    pop es
+    pop cx
+    or bl, bl
+    jz .o
+    dec bx                      ; (BH is the partner's: 0 - 254 < 256)
+    xor bh, bh
+    call far [bz_fmkp]
+.o:
+    pop bx
+    ret
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 gl_slot:
