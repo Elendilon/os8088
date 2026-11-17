@@ -59,12 +59,14 @@ floor rect  31 11 34 14  flat 6
 floor rect   7 15 10 18  flat 4
 surface bounce rect 7 15 10 18
 # FF, the gap ladder's far floor, joined to the apron on its right; the three
-# notches, 1, 2 and 3 tiles; FF's rails and the goal
+# notches, 1, 2 and 3 tiles; FF's rails and the goal.  The front rail has a GAP at wx 17 (2026-11-17): the
+# WIND YARD's gust gate, below
 floor rect  10 20 23 29  flat 4
 hole  rect  10 20 19 21
 hole  rect  13 21 19 22
 hole  rect  16 22 19 23
-wall  rect  10 29 19 30  flat 4.5
+wall  rect  10 29 17 30  flat 4.5
+wall  rect  18 29 19 30  flat 4.5
 wall  rect  23 23 24 29  flat 4.5
 goal  rect  19 29 23 31  flat 4
 # the brake strip's run-up, ice | normal | sand, the side lanes' rails, the
@@ -126,7 +128,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass pickups
+uses probe glass pickups wind
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -217,3 +219,42 @@ chute 2 round depth 10 way 18 9 4 way 18 5 way 24 5 6 way 24 9 4
 chute 1 round depth 5 way 26 8 4 way 26 4 way 28 4 way 28 8
 floor rect   8  3 17 10  flat 4
 pit   12 6 4 radius 3 depth 16
+
+# 2026-11-17, the props round: the WIND YARD (SPEC.md 128.34) and the GUARD RAIL (128.35), in FRONT of FF, its
+# floor at FF's height and FLOATING (faces 3 units deep, not to the basin's ground: the picture's bytes).  Out
+# through the gap in FF's front rail (wx 17), one of the ball(s) it is for chosen on the HUB's pads:
+#  - the GUST GATE: the stub out of the gap, one wide, a GUSTING fan in the gap blowing +x off the stub's open
+#    side, 64 steps in every 256 (its WISP over the stub) - every ball crosses between gusts; glass, blown twice
+#    as hard, has the shortest window;
+#  - the HUB, a STEEL pad and a GLASS pad on it, so each gate is tried with the ball it is for;
+#  - the THIN PATH east (wy 36), a STEADY fan blowing +y off its front edge, strength 10 (two static squiggle
+#    clusters): rubber and glass go over whatever they do, steel leans into it and crosses to the END PLATE,
+#    its HOURGLASS steel's prize; a see-through GUARD RAIL on the plate's far and front edges stops a steel
+#    ball that arrives at speed without hiding it (MEASURED on the model: steel across at every speed tried,
+#    rubber and glass over the edge);
+#  - the PIT WIND west: a `lift` updraft over the hub's west column and a one-column pit, flagged (its
+#    streamer), and the LEDGE 2.5 units up beyond it: glass rolled onto it is launched with no Hop, held -x
+#    lands on the ledge by its HOURGLASS (glass's prize, apex 62 - 72 px); rubber and steel are not lifted and
+#    roll into the pit.  A fall off the hub, the thin path or into the pit respawns on the hub; off the stub,
+#    at the start.
+# Room is left beside the yard (wx 10 - 14, wy 30 - 33 and east of the end plate) for the props round's
+# next families; the FAMILY LIST is full, though (BZ_FAMMAX 4: see the diary's 2026-11-17 entry).
+floor rect  17 29 18 33  flat 4
+floor rect  15 33 22 38  flat 4
+floor rect  22 36 26 37  flat 4
+floor rect  26 35 29 38  flat 4
+floor rect  12 34 14 37  flat 6.5
+float rect  17 30 18 33
+float rect  15 33 22 38
+float rect  22 36 26 37
+float rect  26 35 29 38
+float rect  12 34 14 37
+guard rect  26 38 29 39
+guard rect  29 36 30 38
+prop blower 17 29  face +x  region 17 30 17 32  strength 8  gust 64 192
+prop blower 22 36  face +y  region 22 36 25 36  strength 10
+prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag
+prop hourglass 27 36
+prop hourglass 12 35
+pad steel  19 35
+pad glass  20 35
