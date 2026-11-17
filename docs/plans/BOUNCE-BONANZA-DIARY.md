@@ -3431,3 +3431,13 @@ Every section but the map, the blocks and the offsets into them is byte-identica
 grid and tables did not move. **Tested**: the tool's previews on CGA and Hercules (bowl, dish, chute
 corners, tapers, the S), `--selfcheck`, `tests/bonanza_dfield.py`, the shipped and knob builds; no
 emulator rows - the picture is the tool's, and no shipped course has a FIELD cell.
+
+
+## 2026-11-17 (the pathway drops its occluders)
+
+The owner: "For pathway: yes, drop the occlusion." The pathway's ball is the follower - always grounded,
+never a physics step - and none of its cells was OCCG, so its 452 occluder records were never laid. The
+tool now compiles a `pathway` course with no occluders (a rule, not a statement; no guest change). MEASURED:
+its part 24,150 -> 21,994 bytes of RAM, LZ4 8,390 -> 7,627, LZB 7,153 -> 6,551; identity C78Ah -> 98BAh,
+so a game in progress saved by an older build starts afresh (its slot names the old pathway). `--selfcheck` holds it at 0 records, with a negative control and a red arm (the rule
+removed: 452 records, red). The pathway's growth to 14 - 20 pads is parked. SPEC.md 128.31, plan 11.10.

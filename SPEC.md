@@ -270222,6 +270222,8 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 
 #### 128.22.2 The pathway's source (BUILT, story 8R.1; the guest's half is 8R.2/8R.3's)
 
+*Amended by 128.31 (2026-11-17): the pathway's part carries no occluders - no record, mask or OCC cell.*
+
 `apps/bonanza/courses/path.bbc` keeps `pathway` (128.19.5: no limit, no
 countdown, no goal, cup, medals or `start` of its own - a new game rests on
 pad 0) and loses `node` and `edge` (refused, naming this section),
@@ -275966,3 +275968,65 @@ controller's READ commands.
   paragraphs more heap than A's, as two claims (3,168 and 960) where A
   had one of 3,104 - the largest claim 64 paragraphs larger. Every other
   course is unchanged.
+
+### 128.31 The pathway carries no occluders (the owner, 2026-11-17)
+
+The owner: *"For pathway: yes, drop the occlusion."* (Sections 128.28 -
+128.30 are other branches': the shaped floors, the occlusion work and the
+two-segment courses.)
+
+**Why it was dead weight.** The occluder pass runs only when the ball's
+cell carries the flag for its state (`bz_mkboxes`, 128.11.10.2): OCC for an
+airborne ball, OCCG for a grounded one. On the pathway the ball is the
+FOLLOWER: `bz_follow` moves it along the routes and no physics step runs,
+so `bz_air` stays 0 and only OCCG could open the pass - and the pathway had
+**no OCCG cell**. Its 452 records (cut for the reach the tool takes from a
+course's physics: 202 of its 257 reach positions airborne over the void)
+held 2,156 bytes of RAM that no frame read: 315 against the floating
+islands' hanging faces, 94 against the diagonal halves, 40 against the
+clocks' cells, 3 against walls.
+
+**The rule** (`tools/bbcourse.py`, a rule of the tool, not a statement in
+`path.bbc`): a course with a `pathway` statement is compiled with no
+occluders cut. Its part then has `NOCC` and `NMASK` 0 - no `R`, `K` or `O`
+section, `OCCIDX` (`I`) all the first record's offset, as the format allows
+for any course (128.15.4.2) - and no cell OCC or OCCG, so the gate can never
+open. Every other check of the pathway (its bounds, its pages' lanes, its
+routes) runs as before. **No guest code changes**: `bz_osmake` summarises
+empty rows, `bz_occ` is never entered.
+
+**What moved** (MEASURED, `bbcourse.py` at this tree):
+
+| the pathway | before | after |
+|---|---|---|
+| RAM | 24,150 | **21,994** (-2,156) |
+| LZ4 | 8,390 | **7,627** (-763) |
+| LZB | 7,153 | **6,551** (-602) |
+| records, masks, OCC cells | 452, 18, 106 | 0, 0, 0 |
+| identity | C78Ah | 98BAh |
+| `BONANZA.O88` (LZB parts) | 117,392 | **116,784** (-608) |
+| `bonanza360.img` | 123 of 354 clusters | 123 (no cluster freed) |
+
+Its Y0, map and blocks are unchanged (the picture is the same). **The
+identity moving has one effect**: a game SLOT of `BONANZA.DAT` keeps the
+pathway's identity (`BZD_SID`, 128.22.5), so a game in progress saved by an
+earlier build reads as another pathway's and the slot starts afresh
+(`bz_dslots`), as after any change to the pathway; the courses' bests are
+filed under the courses' own identities and stay. No demo names the
+pathway (the title's `.bzt` demos carry no identity, 128.23.3).
+`BZ_PATH_CLAIM` (128.22.7) falls with the RAM form, 1,510 -> 1,375
+paragraphs, and `bz_cids` carries the new identity - the package's only two
+moved words; `BZ_CRS_MAXCLAIM` counts the pad courses' claims and does not
+move.
+
+**`--selfcheck`** (the `path` section, item 8R): the shipped pathway has 0
+records, 0 masks, no OCC or OCCG cell and no `R`, `K` or `O` section; its
+negative control compiles it with the records cut anyway (`_hack` `pathocc`)
+and finds them (452). **Red arm** (MEASURED red, a patched copy of the tool
+with the rule removed): the item fails, 452 records.
+
+**The rows** (the final pass's; none run here): `bonanzacourse` (the
+selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
+`bonanzaring` (its oracle reads every part, the pathway's included),
+`bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
+a game), `bonanzamega`.
