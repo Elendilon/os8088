@@ -22094,21 +22094,6 @@ ifeq ($(filter $(BZPARTZ),lz4 lzb),)
 $(error BZPARTZ=$(BZPARTZ) is not one of lz4, lzb)
 endif
 BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),$(BZPARTZ))
-#> [Knobs] BZ_CUEFLASH=DITHER2|DITHER4|BLINK2|BLINK4 :: Bounce Bonanza's pickup cue's flash style, BLINK4 the default (the owner's pick, SPEC.md 128.25.19)
-# BZ_CUEFLASH is the FLASH a speed or jump pickup shows in its last PU_WARN
-# steps (SPEC.md 128.25.19): DITHER2 the ball's pixels black on half a checker
-# every 2nd frame (the reference), DITHER4 every 4th; BLINK2 the ball not drawn
-# every 2nd frame, BLINK4 every 4th - the owner's pick and the default (BLINK2
-# reads as see-through on the CGA's 60 Hz). bzvideo.inc maps it; STAMPED, so a
-# change rebuilds the package (and the shell part's link, which re-assembles it).
-BZ_CUEFLASH ?= BLINK4
-ifeq ($(filter $(BZ_CUEFLASH),DITHER2 DITHER4 BLINK2 BLINK4),)
-$(error BZ_CUEFLASH=$(BZ_CUEFLASH) is not one of DITHER2, DITHER4, BLINK2, BLINK4)
-endif
-BZCUESTAMP := $(BUILD)/.bzcue-$(BZ_CUEFLASH)
-$(BZCUESTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzcue-*
-	@touch $@
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzpartz-*
@@ -22165,8 +22150,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
-                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZCUESTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error -DBZ_CUEFLASH=$(BZ_CUEFLASH) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
@@ -22191,7 +22176,7 @@ BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 # (never a code label) into bzlink.inc, which the part assembles against.
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
-		-I $(BZ_ART)/ --prefix BZL --consts BZ -D BZ_CUEFLASH=$(BZ_CUEFLASH) -o $@
+		-I $(BZ_ART)/ --prefix BZL --consts BZ -o $@
 # The window's art (SPEC.md 128.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
