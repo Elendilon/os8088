@@ -148,14 +148,8 @@ bz_fmark:
     mov byte [bz_lqt], 0
     push si                     ; (the COMMON path - a lone element - saves
     push es                     ; only these two and reads the flag first)
-    mov si, bx                  ; (bz_lrecsi inline: by the record's flag, never
-    shl si, 1                   ; by bz_nlane - a RESET at bz_pinit runs before
-    shl si, 1                   ; bz_pread sets it)
-    shl si, 1
-    shl si, 1
-    shl si, 1
-    add si, [bz_poff]
-    mov es, [bz_cseg]
+    mov es, [bz_cseg]           ; (by the record's flag, never by bz_nlane: a
+    call bz_lrecsi              ; RESET at bz_pinit runs before bz_pread sets it)
     test byte [es:si + BZP_FLAGS], BZ_PF_GRP
     jnz .grp
     mov byte [bz_latt + bx], 1
