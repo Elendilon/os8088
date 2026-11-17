@@ -3819,3 +3819,34 @@ bonanzadisk`; `bbcourse.py --selfcheck` (with its new `water` section);
 `tests/bonanza_phys.py --check` (its water scenarios equal on the unicorn at
 every step, the red arms `wacell`, `wahthr`, `warefill` red); one MartyPC look
 on CGA and Hercules. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (WATER, round two: ripples, the float line, the wobble)
+
+The owner looked at WATER ("reads as water well enough"; for the teal and
+magenta palette courses) and asked for four things; SPEC.md 128.32.9.
+
+- **Ripples.** `ripple` (animating while a ball is in that column) and
+  `always` (a lone column) are lanes the POSE hook answers from the step
+  count; they are MARKED only where a pose changes, so a quiet column costs
+  nothing. The interesting choice was the ACTIVE ripple's phase: counted
+  from the step the ball came in, so it starts at pose 0, and the one left
+  behind drops back - at most one event-lane change a step, inside 128.19.10's
+  rule. `always` lanes are counted FAST (they change on their own clock).
+- **The float line.** Asked for in physics, not as a draw offset. The grid's
+  z0 moves in half units, so the float line is 4 px under the top - exactly
+  a climb, so the ball rolls back out. The depth key alone did nothing for a
+  grounded ball there (the 4 px margin cancels the 4 px), so the tool draws
+  the water top's TOPS 4 px up: the floating ball's lower half is the ghost,
+  its upper half whole. SEEN on MartyPC, both cards. The float line's own
+  bob was not built: a pixel-scale moving floor is the lift's carry, and a
+  gvz kick lands (a sound, a squash) every time.
+- **The wobble.** A +72 gvz every 32 steps while steel sinks: 15 bytes, one
+  constant to take it out. The first try (+96 every 16) slowed the 3-unit
+  sink to 1 s, so it was halved; MEASURED now 0.8 s for 3 units, 1.5 s for 6.
+- **Bytes.** The part 341 -> 616; the bundle +272 RAM, which crosses one
+  64-paragraph step of the pinned claim (2,112 -> 2,176) - the ripples are
+  most of it (about 258 bytes).
+
+**Tested**: `make bonanza`, the knob tree's `bonanzadisk`, the selfcheck's
+`water` section, `bonanza_phys --check`'s water scenes (six) and red arms
+(six), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
