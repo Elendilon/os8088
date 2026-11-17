@@ -8436,6 +8436,23 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         ops = arch_ops(src.archways, ops, x0, 0 if hack.get("arkey") else 1)   # at its own row)
     if warch:                                       # SPEC.md 128.36: each water column's arches
         ops, _wpix = water_ops(tiles, ops, warch, x0)
+
+    def _reops(t_):
+        # the picture of `t_` (the tiles less a glass tile, a vanishing crack or a bridge's walkway) drawn by the
+        # SAME pipeline as `ops` above: guard cells drawn as their rails, not as walls, the archways' lintels and
+        # the water's arches after - a re-render that left them out differed from the picture wherever a course
+        # has one, and a vanishing crack's lane took that difference for its own (SPEC.md 128.25.18.1)
+        o_ = draw_ops({k: v for k, v in t_.items() if k not in undrawn and k not in gcells}, x0,
+                      {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
+        if props:
+            o_ = prop_ops(t_, o_, props, x0)
+        if rails and not hack.get("guardsolid"):
+            o_ = guard_ops(t_, o_, x0, 8 if hack.get("guardfront") else 0)
+        if src.archways:
+            o_ = arch_ops(src.archways, o_, x0, 0 if hack.get("arkey") else 1)
+        if warch:
+            o_, _w = water_ops(t_, o_, warch, x0)
+        return o_
     gtop = min(min(sp) for sp, *_ in ops if sp)
     gbot = max(max(sp) for sp, *_ in ops if sp)
     for p in props:                                   # the slab over its whole rise
@@ -8522,9 +8539,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if bkey not in _VANISH_MEMO:
             ocv = render(tiles, ops, x0, y0, width, lines, True)
             nt = {k: v for k, v in tiles.items() if k not in bwalk and k not in gcells}
-            nops = draw_ops(nt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
-            if props:
-                nops = prop_ops(nt, nops, props, x0)
+            nops = _reops(nt)
             ncv = render(nt, nops, x0, y0, width, lines)
             own_, alt_ = {}, {}
             for y in range(lines):
@@ -8763,10 +8778,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
                 if vkey not in _VANISH_MEMO:
                     vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}
-                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
-                                    ground, floats)
-                    if props:
-                        vops = prop_ops(vt, vops, props, x0)
+                    vops = _reops(vt)
                     vcv = render(vt, vops, x0, y0, width, lines, owners)
                     g_ = {}
                     for y in range(lines):
@@ -8799,10 +8811,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
                 if vkey not in _VANISH_MEMO:        # (the Y0 search compiles nine times: the picture's change
                     vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}  # is y0's shift)
-                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
-                                    ground, floats)
-                    if props:
-                        vops = prop_ops(vt, vops, props, x0)
+                    vops = _reops(vt)
                     vcv = render(vt, vops, x0, y0, width, lines, owners)
                     g_ = {}
                     for y in range(lines):
