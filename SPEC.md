@@ -275461,7 +275461,84 @@ profile keeps it, which is what caps the depth.
   px) and 4 px still put 5 records in a block (over 128.11.4.2's four) on
   both courses, and 8 px holds the bound but costs SHAPE 1,033 records and
   157 masks against 869 and 90 (PITS 962 and 150 against 891 and 85), so
-  the up-to-15-px show-through stays the price of the bound.
+  the up-to-15-px show-through stays the price of the bound. (What stays
+  ON the surface is no longer cut: the SHOW rule, next.)
+- **The SHOW rule: a ball ON a shape is drawn whole** (BUILT; the owner,
+  2026-11-17, with an `-occ` preview of SHAPE showing the records round
+  every chute: *"I cannot, in gameplay, get any part of the ball to occlude
+  in those areas, it's just always visible ... It looks just fine not
+  occluding, so not saying 'make it occlude', but if we're including data,
+  and then doing calculations on it we don't need to, we can save data and
+  calcs both."*). `_field_occ` takes a FIELD cell's real poses only from
+  `BZ_CLIMB` (4 px) above the floor at their point, airborne, and a pose
+  adds its pixels only when it would otherwise show MORE than `FSHOW` = 8
+  lit px the per-pixel rule hides, counting the pixels no other ball needs
+  (the rest of the reach is cut FIRST and as before: the pit's hole, every
+  ball behind the course's edge, every plate cell). So:
+  - **A grounded ball** on a FIELD cell is drawn whole, AS IT ALWAYS WAS:
+    the guest's gate for a grounded ball is the cell's `OCCG` (`bz_mkboxes`,
+    128.11.10.2) and a FIELD cell never carries one (128.11.4.3's `OCCG` is
+    derived over FLOOR, GOAL and split floors only), so every record the cut
+    made for a resting or rolling ball - the near lip over a ball on a
+    chute's crease, the climbing leg's 48 px - was data the guest held,
+    walked past for airborne balls, and never laid for the ball it was cut
+    for. **That is why the owner never saw one.**
+  - **An airborne ball under `BZ_CLIMB` over the floor** (a hop's first and
+    last frames, a landing) is drawn whole too: cut, its bottom lines blinked
+    out for a frame between rolling frames that show them.
+  - **Higher**, a pose that the rule would leave showing at most 8 px adds
+    nothing (MEASURED: from 4 px up no pose on the three courses hides more
+    than 6, 3 on the glass after the ghost dither).
+  - **Kept, untouched**: the ball dropping through the pit's HOLE (VOID
+    cells, cut with the rest - up to 208 px, the whole ball), and every
+    ball BEHIND the course's edge (that occlusion is its own work's).
+
+  MEASURED before the rule, over EVERY real pose of every FIELD cell of
+  SHAPE, PITS and PLAYGROUND (whole heights from the floor, the fraction's
+  corners, `--png`'s composite, the records only other balls do not also
+  need): a RESTING ball's records hid up to 44 lit px (median 13 - 18) -
+  0 on the glass, by the gate; an airborne one AT the floor up to 61, 96 and
+  141 (median 22, 18, 15), 1 - 3 px over it up to 33, 96, 106 (median 9, 9,
+  7), 4 px or more up to 6, 6 and 2. The ghost dither (128.15.10) halves
+  every one on the glass, and the ball is magenta over a magenta shape, so
+  the pixels whose ink changed were fewer again (at the floor, most 28, 48,
+  39, median 7, 6, 5). In play (the autopilot, PLAYGROUND's demo and 60
+  seeded runs of 160 steps from FIELD cells, the model's `Physics`) the pass
+  ran on 982 of SHAPE's 7,789 steps on FIELD cells (every one airborne), and
+  a record hid any of the ball on 126 (1.6%), most 35 px, 18 on the glass:
+  a frame here and there, at the bottom of the ball, in the ball's own ink.
+
+  | MEASURED | SHAPE | PITS | PLAYGROUND |
+  |---|---|---|---|
+  | records (in the part) | 870 (841) -> 653 (652) | 891 (870) -> 668 (667) | 2,789 (2,782) -> 2,761 (2,757) |
+  | masks | 90 -> 68 | 85 -> 38 | 171 -> 165 |
+  | RAM, every part | 38,121 -> 36,969 | 41,132 -> 39,474 | 65,049 -> 64,841 |
+  | the stored form packed, LZB / LZ4 | 5,596 / 7,000 -> 5,227 / 6,535 | 5,989 / 7,489 -> 5,468 / 6,827 | 13,454 / 16,709 -> 13,388 / 16,623 |
+  | FIELD cells with `OCC` (none has `OCCG`) | 80 -> 28 of 81 | 82 -> 20 of 94 | 61 -> 59 of 71 |
+  | the play sample: steps on FIELD cells the pass runs on | 982 -> 527 of 7,789 | 915 -> 165 of 4,181 | 908 -> 835 of 3,691 |
+  | ... records passed, laid | 6,515, 921 -> 5,057, 123 | 2,459, 456 -> 1,000, 58 | 8,794, 764 -> 8,234, 611 |
+  | ... PREDICTED clocks an AIRBORNE step on a FIELD cell, mean (55 a record passed, 1.4k a record laid, 128.10.9) | 1,651 -> 451 | 646 -> 114 | 1,448 -> 1,219 |
+  | ... steps a record hides any of the ball | 126 -> 13 | 48 -> 8 | 72 -> 55 |
+
+  PLAYGROUND moves least because its chutes stand at the back edge over the
+  void and its pit has a hole: those records are the edge's and the hole's,
+  and stay. What is left on the play sample is exactly those. Only the
+  FIELD cells' share of the cut moved: every other course's part is
+  byte-identical, and on these three every section but the records (`R`),
+  `OCCIDX` (`I`), the masks and their table (`K`, `O`), the cells' flags
+  (`C`), and the grid's header and the props (`G`, `P`: the offsets that
+  move with them) is byte-identical - the map, the blocks, `F`, `T`, `W`,
+  `L` and `D` are - and the identity moves (PLAYGROUND's 8803h -> 0BF2h, its
+  demo re-authored, the ident line alone).
+  `--selfcheck` (CHUTE and PIT): without the rule every lit pixel the rule
+  hides at a sample of the surface's real poses is laid (red: the floor 3 px
+  high); with it, at a sample of the airborne poses from `BZ_CLIMB` up and
+  in the pit's hole, every one is laid but at most 8 a pose (red: the rule
+  from the floor and unbounded leaves the surface's poses over 8); and the
+  rule saves records against the cut without it. The merge's own item (the
+  ball through the merged records against the per-pixel buffer, at every
+  reachable cell's centre) reads the buffer over the CUT's pixels only: what
+  the SHOW rule leaves out is no record's to merge.
 - **The ink, as built** (`FieldInk`, `field_tone`, `field_ms`; a FIELD
   tile's `lip` is its 17 x 17 lip heights, sampled beside `h`). The road to
   it (the diary, "shaped floors, the picture"): the first ink, a light from

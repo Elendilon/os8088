@@ -5817,13 +5817,23 @@ def _ball_cols():
                  for dx in range(16))
 
 
-def _field_occ(cv, rc, t, x0, y0, occ, _raise=0):
+FSHOW = 8                     # SPEC.md 128.28.6, the SHOW rule: the most lit ball px a FIELD cell's airborne pose may
+#                               show that the per-pixel rule hides, when nothing else needs those pixels
+
+
+def _field_occ(cv, rc, t, x0, y0, occ, _raise=0, other=None, show=FSHOW, lift=CLIMB):
     """SPEC.md 128.28.6: the occluder pixels a ball in FIELD cell rc needs, at its REAL poses - its centre at
     every integer point (u, v) with any fraction, so its footprint column (gx - gy) >> 8 is u - v or one
     less and its line ((gx + gy) >> 1) >> 8 the floor or ceiling of (u + v) / 2, and every whole height z
     from the floor there (field_zlo) to rc.zhi, its top line a line higher with a fraction - and its LIT
     circle (_ball_cols), not the footprint's box.  A pixel joins occ when it lays over a lit pixel of one
-    such pose (keyed after the ball's row and above its z, the airborne rule: margin 0)"""
+    such pose (keyed after the ball's row and above its z, the airborne rule: margin 0).  The SHOW rule
+    (SPEC.md 128.28.6): a ball ON the shape is drawn whole - a grounded one (a FIELD cell has no OCCG, so
+    the guest never runs the pass for it) and an airborne one under BZ_CLIMB px above the floor, so only
+    the heights from the floor + BZ_CLIMB are taken - and a pose adds its pixels only when it would
+    otherwise show MORE than `show` lit px the rule hides: the pixels no other ball needs (not in `other`,
+    the rest of the reach's cut) are counted pose by pose.  show None: every pose from the floor adds (the
+    cut before the SHOW rule); lift: the BZ_CLIMB (--selfcheck's red arm: 0)"""
     cols = _BALL_COLS
     xc, s = 16 * rc.a + x0, rc.s
     poses = {}                                      # (px, line of the top at z = 0) -> the lowest z
@@ -5837,7 +5847,13 @@ def _field_occ(cv, rc, t, x0, y0, occ, _raise=0):
                     if poses.get(k, rc.zhi + 1) > zl:
                         poses[k] = zl
     w, h, zhi = cv.w, cv.h, rc.zhi
+    other = other or ()
     for (px, pyz), zl in poses.items():
+        if show is not None:                        # the SHOW rule: a ball ON the shape is drawn whole
+            zl += lift
+            if zl > zhi:
+                continue
+        cand = []                                   # (x, y, z range with no fraction, with one)
         for dx in range(16):
             x = px + dx
             if not 0 <= x < w:
@@ -5850,14 +5866,37 @@ def _field_occ(cv, rc, t, x0, y0, occ, _raise=0):
                 if sp <= s:
                     continue
                 tp = cv.tbuf[y][x]
-                if max(zl, pyz - y - 1 + r0) <= min(zhi, tp - 1, pyz - y + r1):
-                    occ[(x, y)] = (sp, tp)
+                zt = min(zhi, tp - 1)
+                a0, b0 = max(zl, pyz - y + r0), min(zt, pyz - y + r1)
+                a1, b1 = max(zl, pyz - y + r0 - 1), min(zt, pyz - y + r1 - 1)
+                if a0 <= b0 or a1 <= b1:
+                    cand.append((x, y, sp, tp, a0, b0, a1, b1))
+        if not cand:
+            continue
+        if show is None:
+            keep0 = keep1 = None
+        else:                                       # the SHOW rule: the poses past `show`, f 0 and f 1
+            n0, n1 = {}, {}
+            for x, y, _sp, _tp, a0, b0, a1, b1 in cand:
+                if (x, y) in other:
+                    continue
+                for z in range(a0, b0 + 1):
+                    n0[z] = n0.get(z, 0) + 1
+                for z in range(a1, b1 + 1):
+                    n1[z] = n1.get(z, 0) + 1
+            keep0 = {z for z, n in n0.items() if n > show}
+            keep1 = {z for z, n in n1.items() if n > show}
+            if not keep0 and not keep1:
+                continue
+        for x, y, sp, tp, a0, b0, a1, b1 in cand:
+            if keep0 is None or any(a0 <= z <= b0 for z in keep0) or any(a1 <= z <= b1 for z in keep1):
+                occ[(x, y)] = (sp, tp)
 
 
 _BALL_COLS = _ball_cols()
 
 
-def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0):
+def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, show=FSHOW, lift=CLIMB):
     """-> (records, occ pixel set): SPEC.md 128.10.4.4.  A pixel is an occluder
     when SOME reachable position's footprint covers it and the rule lays it
     back there: the ball's cell row before the pixel's, and the ball lower
@@ -5865,14 +5904,16 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0):
     Records: one per (block, cell, band of tops at most BAND px).  tiles: a
     FIELD cell's ball is taken at its real poses (_field_occ, SPEC.md 128.28.6)
     unless sub is 16 (feet()'s whole cell: the red arm); _raise, the arm that
-    takes its floor too high"""
+    takes its floor too high; show, the SHOW rule's bound (None: off).  The FIELD cells are cut LAST, so
+    the SHOW rule knows every pixel the rest of the reach needs"""
     occ = {}                                   # (x, y) -> (s, top)
     w, h = cv.w, cv.h
     tiles = tiles or {}
+    fcells = []
     for rc, zlo, zhi, xl, xh, yt0, yb0 in feet(reach, tiles, x0, 16):
         t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
         if isinstance(t, FieldTile) and (FOCC if sub is None else sub) < 16:
-            _field_occ(cv, rc, t, x0, y0, occ, _raise)
+            fcells.append((rc, t))
             continue
         s = rc.s
         xl, xh = max(xl, 0), min(xh, w - 1)
@@ -5894,6 +5935,9 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0):
                 if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
                     continue
                 occ[(x, y)] = (sp, tp)
+    other = set(occ)
+    for rc, t in fcells:
+        _field_occ(cv, rc, t, x0, y0, occ, _raise, other, show, lift)
     # group: block, cell row (one cell per row per block column is not
     # guaranteed, so the key is the cell's row AND the drawing tile), band
     groups = {}
@@ -6703,12 +6747,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                                                               ln - PARTMAX))
     # the occluders: cut (128.10.4.4) from pose 0's picture, merged (128.11.4.1), bounded (128.11.4.2)
     # (SPEC.md 128.28.6: a FIELD cell's ball at its real poses; hack focc 16 the whole cell, fraise its floor
-    # raised - --selfcheck's red arms).
+    # raised, fshow the SHOW rule's bound - None, the cut before it - and flift its lift - --selfcheck's red
+    # arms).
     # SPEC.md 128.31: THE PATHWAY CARRIES NONE - its ball is the follower, always grounded, and no cell of it
     # is ever OCCG, so the guest's pass never runs there; _hack pathocc: --selfcheck's red arm, cut anyway
     cutocc = occluders and (pth is None or hack.get("pathocc"))
-    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows, tiles, hack.get("focc"), hack.get("fraise", 0)) \
-        if cutocc else ([], {})
+    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows, tiles, hack.get("focc"), hack.get("fraise", 0),
+                             hack.get("fshow", FSHOW), hack.get("flift", CLIMB)) if cutocc else ([], {})
     q = block_queries(reach, x0, y0, width, feet(reach, tiles, x0, hack.get("focc"))) if cutocc else {}
     records = merge_records(raw, q)
     per_row, per_block = {}, {}
@@ -12358,14 +12403,15 @@ def ball_pixels(px, py):
     return out
 
 
-def composite(course, px, py, sb, zb, air, via="records", ghost=False):
+def composite(course, px, py, sb, zb, air, via="records", ghost=False, cut=None):
     """the footprint (20 x 16 from px & ~3) with the ball drawn and 128.10.4.4's
     rule applied: via 'records' (what the guest does), 'pixels' (the per-pixel
     buffer, each pixel's top raised to its record's) or 'none' (the ball whole:
     what the guest draws when its OCC gate is off, 128.10.8 item 1).
     ghost: the CARD's model (SPEC.md 128.15.10.3) - a record lays its pixels
     LESS the checker's, (x, y) only where ghost(x, y) is false; without it the
-    RULE's (the undithered pixels, every verdict's model).  -> {(x, y): index}"""
+    RULE's (the undithered pixels, every verdict's model).  cut: 'pixels' over only these pixels (the
+    occluder cut's, c.occpix: what SPEC.md 128.28.6's SHOW rule leaves out is no record's).  -> {(x, y): index}"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     out = {}
@@ -12386,7 +12432,7 @@ def composite(course, px, py, sb, zb, air, via="records", ghost=False):
         raised = course._raised
         for (x, y) in list(out):
             s = course.sbuf[y][x]
-            if s == -32768:
+            if s == -32768 or (cut is not None and (x, y) not in cut):
                 continue
             top = raised.get((x, y), course.tbuf[y][x])
             if sb < s and zb + m < top:
@@ -21361,10 +21407,11 @@ def _field_checks(res):
             res.append(("7 FIELD red `%s` breaks it: %s" % (arm.strip("_"), what), not ok(q)))
 
 
-def _field_real_poses(c, rc, step=7):
+def _field_real_poses(c, rc, step=7, lift=0):
     """SPEC.md 128.28.6: a SAMPLE of a FIELD reach cell's real poses for --selfcheck - the centre at every
     integer point with (u + 3 v) % step == 0, each corner of its fraction, at its floor (grounded and in the
-    air) and one and two px above it, with and without a height fraction -> [(px, py, s, z, air)]"""
+    air) and one and two px above it, with and without a height fraction -> [(px, py, s, z, air)].  lift:
+    LIFT px higher, airborne (the SHOW rule's poses: lift BZ_CLIMB)"""
     t = c.tiles[(rc.wx, rc.wy)]
     out = []
     for v in range(16):
@@ -21373,46 +21420,50 @@ def _field_real_poses(c, rc, step=7):
                 continue
             for fu, fv in ((0, 0), (255, 255), (255, 0), (0, 255)):
                 gx, gy = ((16 * rc.wx + u) << 8) + fu, ((16 * rc.wy + v) << 8) + fv
-                zf = field_zlo(c.tiles, rc, gx, gy)
+                zf = field_zlo(c.tiles, rc, gx, gy) + lift
                 for z in range(zf, min(zf + 2, rc.zhi) + 1):
                     for f in (0, 200):
                         gz = (z << 8) + f
                         px = ((gx - gy) >> 8) + c.x0 - 8
                         py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
-                        for air in ((0, 1) if z == zf and f == 0 else (1,)):
+                        for air in ((0, 1) if z == zf and f == 0 and not lift else (1,)):
                             out.append((px, py, rc.s, z, air))
     return out
 
 
-def _poses_hidden(c, poses):
-    """-> (poses where the records and the per-pixel rule disagree on a LIT ball pixel, poses where the rule
-    hides any): records' pixels by a pixel -> record map, the rule by sbuf and tbuf (no record's top raised:
-    a pixel no record holds is exactly what a too-thin cut leaves out)"""
+def _poses_hidden(c, poses, show=0):
+    """-> (poses where the records leave MORE than `show` lit ball pixels the per-pixel rule hides unlaid,
+    poses where the rule hides any, poses it leaves 1 - `show` unlaid): records' pixels by a pixel -> record
+    map, the rule by sbuf and tbuf (no record's top raised: a pixel no record holds is exactly what a
+    too-thin cut leaves out).  show: SPEC.md 128.28.6's SHOW rule's bound (0: every hidden pixel laid)"""
     rec = {}
     for r in c.records:
         for p_ in r["pix"]:
             rec[p_] = r
-    bad = hid = 0
+    bad = hid = shown = 0
     for px, py, sb, z, air in poses:
         m = 0 if air else CLIMB
-        any_ = diff = False
+        any_ = False
+        n = 0
         for (x, y) in ball_pixels(px, py):
             rule = c.sbuf[y][x] > sb and c.tbuf[y][x] > z + m
             r = rec.get((x, y))
             laid = r is not None and r["s"] > sb and r["top"] > z + m
             any_ |= rule
             if rule and not laid:
-                diff = True
-        bad += diff
+                n += 1
+        bad += n > show
+        shown += 0 < n <= show
         hid += any_
-    return bad, hid
+    return bad, hid, shown
 
 
 def _field_occ_checks(cs, res):
     """SPEC.md 128.28.6's real-pose cut: (1) the records against the whole-cell cut (fewer); (2) a sample of
     every FIELD cell's real poses, and the pit's hole at every height a ball falls through it, laid by the
-    records wherever the per-pixel rule hides a lit ball pixel - red arm: the cut's floor 3 px too high
-    misses some; (3) the model never puts a ball's centre in a FIELD cell under its floor there (what the
+    records wherever the per-pixel rule hides a lit ball pixel without the SHOW rule - red arm: the cut's
+    floor 3 px too high misses some - and with it, at the airborne poses from BZ_CLIMB over the floor, all
+    but at most FSHOW a pose - red arm: the rule from the floor, unbounded, leaves poses over FSHOW; (3) the model never puts a ball's centre in a FIELD cell under its floor there (what the
     cut stands on) - red arm: that floor read 1 px higher is broken by a grounded ball"""
     for k, text in (("CHUTE", _FCHUTE), ("PIT", _FPIT)):
         c = cs[k]
@@ -21429,22 +21480,40 @@ def _field_occ_checks(cs, res):
                 gx, gy = ((16 * rc.wx + u) << 8), ((16 * rc.wy + v) << 8)
                 for z in range(rc.zlo, rc.zhi + 1, 2):
                     hp.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, 1))
-        bad, hid = _poses_hidden(c, poses)
-        hbad, hhid = _poses_hidden(c, hp)
-        cr = compile_course(text, "<%s, floor + 3>" % k, _hack={"no_finish": True, "fraise": 3})
-        rbad, _rh = _poses_hidden(cr, poses)
-        print("    %s (SPEC.md 128.28.6): %d records cut at the FIELD cells' real poses, %d at their whole cells (masks "
-              "%d against %d, blocks %d); %d sampled real poses, %d of them with lit pixels the rule hides; the "
-              "hole: %d poses, %d hidden" % (k, len(c.records), len(cw.records), len(c.masks), len(cw.masks),
-                                            len(c.blocks), len(poses), hid, len(hp), hhid))
+        # the SHOW rule's poses: airborne from BZ_CLIMB over the floor (lower, the ball is drawn whole)
+        hi = [q for rc in fr for q in _field_real_poses(c, rc, lift=CLIMB)]
+        bad, hid, shown = _poses_hidden(c, hi, FSHOW)
+        hbad, hhid, _hs = _poses_hidden(c, hp, FSHOW)
+        cn = compile_course(text, "<%s, no SHOW>" % k, _hack={"no_finish": True, "fshow": None})
+        nbad, nhid, _ns = _poses_hidden(cn, poses)
+        nhbad, _nhh, _nhs = _poses_hidden(cn, hp)
+        cr = compile_course(text, "<%s, floor + 3>" % k, _hack={"no_finish": True, "fraise": 3, "fshow": None})
+        rbad, _rh, _rs = _poses_hidden(cr, poses)
+        ca = compile_course(text, "<%s, SHOW from the floor>" % k, _hack={"no_finish": True, "fshow": 1 << 20,
+                                                                           "flift": 0})
+        abad, _ah, _as = _poses_hidden(ca, poses, FSHOW)
+        print("    %s (SPEC.md 128.28.6): %d records cut at the FIELD cells' real poses with the SHOW rule (%d px), %d "
+              "without it, %d at their whole cells (masks %d, %d, %d; blocks %d); %d sampled real poses on the "
+              "surface, %d of them with lit pixels the rule hides; %d airborne from BZ_CLIMB up, %d hidden, %d "
+              "showing 1 - %d px; the hole: %d poses, %d hidden" % (
+                  k, len(c.records), FSHOW, len(cn.records), len(cw.records), len(c.masks), len(cn.masks),
+                  len(cw.masks), len(c.blocks), len(poses), nhid, len(hi), hid, shown, FSHOW, len(hp), hhid))
         res.append(("5 %s: the FIELD cells' records are cut at their REAL poses (128.28.6): %d records against %d "
-                    "cut at the whole cell" % (k, len(c.records), len(cw.records)),
-                    len(c.records) < len(cw.records) and c.cga != cw.cga))
-        res.append(("5 %s: at %d sampled real poses on FIELD cells (%d hidden in part) and %d in %s, every lit ball "
-                    "pixel the per-pixel rule hides is laid by a record (%d, %d differ); red: the cut's floor 3 px "
-                    "high leaves %d poses short" % (k, len(poses), hid, len(hp), "the pit's hole" if hole else
-                                                     "no hole", bad, hbad, rbad),
-                    bad == 0 and hbad == 0 and hid > 0 and rbad > 0 and (k != "PIT" or hhid > 0)))
+                    "cut at the whole cell, and %d without the SHOW rule" % (
+                        k, len(c.records), len(cw.records), len(cn.records)),
+                    len(c.records) < len(cw.records) and c.cga != cw.cga and len(c.records) < len(cn.records)))
+        res.append(("5 %s: without the SHOW rule, at %d sampled real poses on FIELD cells (%d hidden in part) and %d in "
+                    "%s, every lit ball pixel the per-pixel rule hides is laid by a record (%d, %d differ); red: the "
+                    "cut's floor 3 px high leaves %d poses short" % (
+                        k, len(poses), nhid, len(hp), "the pit's hole" if hole else "no hole", nbad, nhbad, rbad),
+                    nbad == 0 and nhbad == 0 and nhid > 0 and rbad > 0 and (k != "PIT" or hhid > 0)))
+        res.append(("5 %s: the SHOW rule (128.28.6): at %d sampled airborne poses BZ_CLIMB or more over a FIELD floor "
+                    "(%d hidden in part) and the %d in %s, every lit ball pixel the per-pixel rule hides is laid but "
+                    "at most %d a pose (%d, %d over; %d poses show some); red: the rule taken from the floor, "
+                    "unbounded, leaves %d of the surface's poses over %d" % (
+                        k, len(hi), hid, len(hp), "the pit's hole" if hole else "no hole", FSHOW, bad, hbad, shown,
+                        abad, FSHOW),
+                    bad == 0 and hbad == 0 and abad > 0))
     # (3) the model: the centre in a FIELD cell is never under the floor at its integer point - the scripted
     # runs, and 60 seeded runs from random poses on and beside FIELD cells, random keys
     worst = {0: 0, 1: 0}
@@ -21882,7 +21951,7 @@ def _course_items(c, k, res, t):
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 tried += 1
                 A = composite(c, px, py, rc.s, z, air, "records")
-                Bp = composite(c, px, py, rc.s, z, air, "pixels")
+                Bp = composite(c, px, py, rc.s, z, air, "pixels", cut=c.occpix)
                 if A != Bp:
                     mism += 1
                 if first_laid is None:
@@ -21890,8 +21959,8 @@ def _course_items(c, k, res, t):
                         if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
                             first_laid = (r, px, py, rc.s, z, air)
                             break
-    res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's (tops raised to "
-                "the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
+    res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's over the cut's "
+                "pixels (tops raised to the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
                 "states (%d positions, %d differ)" % (tag, tried, mism), mism == 0))
     fmism = fgate = ftried = 0
     fneg = None
