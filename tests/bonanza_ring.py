@@ -4305,6 +4305,9 @@ def part_args(art, src=None, shell=None, fams=None):
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
                                                 # ride the bundle since SPEC.md 128.25.5.2)
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 128.30.4.4: the two-part courses' WORLD parts
+    if os.path.exists(lst):
+        files += open(lst).read().split()
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))

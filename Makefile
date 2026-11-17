@@ -21468,7 +21468,7 @@ BZ_FAMS := probe glass rotor spring tube pickups
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/bzcrs2.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -21572,8 +21572,17 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
+<<<<<<< HEAD
 BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+=======
+# SPEC.md 128.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
+# bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
+# halves, so a build with none packs exactly the arguments it always did.
+BZ_PARTS1 := $(BZ_BALLS) $(BZ_CRSPARTS)
+BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+>>>>>>> bounce-bonanza-twoseg
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
+BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -21604,7 +21613,8 @@ $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part-compress $(BZPARTZF)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
@@ -21632,6 +21642,17 @@ $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
+# SPEC.md 128.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
+# diagonal lane run on until one part refuses it) as course 7, a package and floppy of their own in a private
+# tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
+BZ_TWOSEG := $(BUILD)/bztwoseg
+$(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
+	@mkdir -p $(BZ_TWOSEG)
+	python3 tools/bbcourse.py twoseg -o $@
+.PHONY: bonanzatwoseg
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 128.30.7); not shipped
+bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
+	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 128.1, 128.14.3.3)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
 # SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
