@@ -274200,12 +274200,18 @@ bounds, the lanes' verdicts and the footprints all read the union.
 their kill, 8 px on a 4-unit floor, and 32 with the whole form alone). NO
 TRAP and the exits run the model, which breaks a crack as play does.
 
-**The art: 2 x 2-block lanes.** A crack's or glass tile's lane is the two
+**The art: 2 x 2-block lanes (a glass tile's 2 x 3).** A crack's or glass tile's lane is the two
 block columns round its top's centre (`|u| < 8` of the 32 px top) and the
 two block rows that hold most of it (`(cy - 4) >> 3` on): the lane of the
 tile beside it along `wx` or `wy` is two columns away, the one diagonally
 below two rows down, so A PATH OF THEM SHARES NO BLOCK (a full-tile lane, 4
-x 3, would: two lanes sharing blocks is refused, 128.19.10). The top's centre
+x 3, would: two lanes sharing blocks is refused, 128.19.10). A GLASS tile's
+lane is THREE rows, from `(cy - 8) >> 3` (`glass_lane_rect`, below): its
+neighbours along `wx` and `wy` are still two columns away, but the tile
+diagonally below, `(wx + 1, wy + 1)`, would share a row - so **two glass
+tiles touching at that corner are REFUSED** by name ("touch at a corner ...
+a glass path may not turn or run two wide; break it with a solid tile"), and
+a crack lane that would meet a glass one is the generic refusal. The top's centre
 must be on a block column (`x0` a multiple of 8, else refused). SLOW event
 lanes. Poses are MARKS clipped to what is drawn in front of the tile (as a
 pennant's), CGA inks (the Hercules translates them as every lane's):
@@ -274217,8 +274223,17 @@ pennant's), CGA inks (the Hercules translates them as every lane's):
   handed the tiles less them: the ground beyond shows, and the neighbours'
   faces hang into the gap as at any edge), 0 nothing - but the path's FIRST
   tile, which carries white JAGGED TEETH along its edge toward the ground it
-  leaves from - and 1 the CRYSTAL material (`bonanza_assets.crystal_top_ink`,
-  128.22.8) over the lane's band of the top (`glass_poses`). The FIRST tile is
+  leaves from, drawn only inside `|u| < 8` and the 16 lines from
+  `(cy - 4) >> 3`, as it always was - and 1 the CLEAR PANE (`glass_pane_ink`,
+  the owner's pick, 2026-11-17): the outer edge of the union of the tile's
+  top and its glass edge neighbours' tops in white, wherever it falls in the
+  lane (a neighbour's tip too), and one dashed white glint along the run's
+  axis (10 px in every 16, `GLASS_DASH`: a tile's period, so the lanes of a
+  straight run repeat and their blocks dedupe); every other pixel is the bare
+  picture showing through. A straight run's two outer edges sit 24 lines
+  apart in any 16-column slab, which is why the lane is 3 rows: each lane
+  carries its slab of BOTH edges, and a revealed run reads as ONE pane, its
+  hidden end open (no end cap) until the next tile is touched. The FIRST tile is
   the tool's (`glass_first`): in each 4-connected run of glass tiles, the
   tile one of whose edge neighbours is a non-glass FLOOR or GOAL nearest the
   start (Manhattan; ties by the file) - and since 2026-11-17 only a
@@ -274226,9 +274241,13 @@ pennant's), CGA inks (the Hercules translates them as every lane's):
   teeth are drawn to join a tile and must never hang over a drop; the
   title's bridge had them over a 1.5-unit drop). A run with no level
   neighbour has no hint.
+- History: the crystal (128.22.8) shipped first; eleven other looks were
+  built behind a temporary knob and filmed on CGA and Hercules, and the owner
+  picked this one ("look 11": look 2's outline and glints, in lanes tall
+  enough to join). Its cost, MEASURED on PLAYGROUND's four tiles against the crystal: the picture part +176 bytes in RAM (9 blocks more, 144; the taller lanes' pose words, 32), +86 packed (lzb, both parts); no resident byte (a tool change).
 - The revealed glass is not an occluder (the picture has no tile there), and
-  the band leaves the top's left and right tips undrawn; both are what a
-  2 x 2 lane buys a path of them.
+  the lane leaves the top's left and right tips to the neighbours' lanes (a
+  path's ends stay open).
 
 **Show just before it is reached** (128.25.14 Q5's option): not tried; the
 touch rule ships.
