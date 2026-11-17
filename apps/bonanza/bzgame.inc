@@ -2692,16 +2692,12 @@ bz_sprite:
     mov al, BZ_SPR_SQ
     add al, cl
     mov dx, BZ_BAL_SQOFF
-.ent:                           ; entry ((k 4 + s) 2 + p) of the table at DX
-    mov [bz_spr], al
+.ent:                           ; entry (k 4 + s) of the table at DX (ONE line
+    mov [bz_spr], al            ; parity copy, SPEC.md 128.38.10)
     and al, 3                   ; k
     shl al, 1
     shl al, 1
     add al, bl
-    mov ah, [bz_py]
-    and ah, 1
-    shl al, 1
-    or al, ah
     xor ah, ah                  ; x 160 = (i << 5) x 5, by shifts (128.9 item
     mov cl, 5                   ; 1's no-MUL rule; i <= 31)
     shl ax, cl

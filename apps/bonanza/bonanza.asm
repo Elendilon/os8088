@@ -3785,10 +3785,10 @@ bz_hxball:
     mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries or rubber's
     mov al, [es:BZB_NSHA]       ; stretch (wave 6), one table at the same
     add al, [es:BZB_NSTR]       ; offset: +12 and +14 count them, never both
-; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS x 2 parity copies,
-; every copy's frame half 16 rows from table p (copies alternate p = 0, 1)
+; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS entries, ONE line
+; parity copy each (SPEC.md 128.38.10), every frame half 16 rows from table 0
 bz_hxents:
-    mov ah, BZ_BAL_SHIFTS * 2
+    mov ah, BZ_BAL_SHIFTS       ; (one parity copy each, SPEC.md 128.38.10)
     mul ah
     or ax, ax
     jz .out
@@ -3798,7 +3798,6 @@ bz_hxents:
     add si, BZ_BAL_ENT / 2      ; past the mask half to the frame half
     mov cx, BZ_BAL_ROWS
     call bz_hxrows              ; (even: back on the copy's own table)
-    xor bx, bp                  ; the next copy is the other parity
     dec dh
     jnz .ent
 .out:
