@@ -5334,7 +5334,7 @@ SOAK = [
         "3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO; MOON and PEAK (their three ball rows fetched and "
         "dropped), every way out of a TOUR course (the cup, Esc, F, Alt+Enter) and a tour stopped on "
         "the face, D's end, V's fetch and drop, L, W and the double-click, each with the claims as "
-        "before. Red arm `--red padleak` (the third ball row kept at the cup). WAVE 5B (SPEC.md 128.15.4.5, "
+        "before. Red arm `--red padleak` (the sound part's row kept at the cup; the third ball row until SPEC.md 128.25.5.2, whose balls are held for the instance). WAVE 5B (SPEC.md 128.15.4.5, "
         "128.15.13): THE CLAIM LEG - every launch (FIRST, MILL, MOON, PEAK, BENCH by B, the tour's FIRST and "
         "MOON at the cup, D's FIRST demo, and one launch of TRIAL added for it, Enter then Esc) stops at the "
         "kernel's fsx_run (after bz_cexp and bz_hxlat, before the lanes' writer) and the course claim "
