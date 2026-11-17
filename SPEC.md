@@ -282999,3 +282999,93 @@ arms `waact` (the ACTIVE ripple's flip unmarked) and `waalw` (an ALWAYS one's)
 go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
+
+#### 128.36.10 The third round: the floating ball's SURFACE BOB, two arms (the owner, 2026-11-17; BUILT)
+
+The owner watched a host mock of four bobs on the sketch column (A none; B the
+float floor 4 px deeper for a while and back; C a 4 px dip the ball falls into
+and is lifted out of a pixel a step, the lift's carry; D a draw offset, ruled
+out) - *"B would work, at a slightly faster cadence. C is better, but we'll only
+do it if the cost isn't too high"* - and then, offered E, *"'No jump on water'
+probably would be fine. Build it, and make an a/b for me to play with."* The
+rule given: C only with NO resident change and at most about 100 part bytes.
+
+**C's price (NOT built: it needs a resident change).** The lift's carry is the
+engine's and is keyed to ONE `PK_PLATFORM` record a course: `bz_onp` names the
+platform, step 6's floor substitutes the slab's height from the platform's
+phase (`bz_ptop`, `plat_pos`), step 3 carries `gz` by the phase's delta
+(`bz_carry`), and the slab is drawn as a sprite layer of its own (`bz_pfull`,
+`bz_pstrip`). A family has only the window's cells, whose z0 moves in half
+units (4 px), so a floor rising a pixel a step under a resting ball is not
+reachable from a part: it needs a resident FLOOR OFFSET the floor function
+adds for the centre (a word in `bz_h4`'s centre path, read on every floor and
+wall test) and the carry taught that offset - PREDICTED 40 - 70 resident bytes
+in the hot floor path (about 10 - 20 cycles every `bz_h4` call), plus about
+60 - 80 part bytes; and a ball moving a pixel a step while "at rest" draws a
+box every frame of the bob (the idle test no longer quiet), as a lift's rider
+does. The occluder pass needs nothing new (the BED reach already spans it).
+
+**E's price and handling (BUILT as an arm).** No resident change; part +109
+bytes (below). What the owner will feel: rubber and glass are AIRBORNE on the
+water - no Hop there (Space does nothing; no contact Hop, no boost), no Grip
+brake, steering by the AIR force table (for rubber the same force as sand's
+ground table, 2 at full ramp; glass 3 against sand's 3), and the water's drag
+written by hand (gvx and gvy less themselves >> 4 every step, a little more
+than sand's 1/32 a step). Rolling onto the water is a takeoff, not a landing
+(no sound); leaving is a landing on the walkway at the hover's small vertical
+speed (silent under `BZS_LMIN` 48); a fall onto the water from height may
+touch the SAFETY floor once (a unit under the top: one landing, the splash),
+and is lifted off it with no event. At the bottom of a bob the walkway's edge
+(4 px above the float line) can be more than a climb above the ball, so the
+edge bumps it back for a few steps; at the top it rolls out.
+
+**THE KNOB.** `BZWATERBOB=b|e` (Makefile; `bbcourse.py --waterbob`; default
+`b`, the owner to pick): bbcourse writes `BZ_WA_MODE` into `bzcourse.inc` (the
+part assembles its arm from it) and folds the arm and every bob constant into
+water's `FAMV`, so a course's identity says which bob it was compiled for (a
+demo of one arm is refused on the other; `--selfcheck` item 3 holds the two
+FAMVs apart). `BZWATERBOB=c` is refused, naming the reason. Stamped.
+
+**B, the float floor (the default arm).** CELL writes rubber's and glass's
+water at the TOP and at the float line (a half unit under it) on alternate
+halves of a 2^`WA_FBSH` = 16-step period (32 steps a cycle, 1.7 a second -
+the owner's "slightly faster" than the mock's 24 each way). The dip is from
+the top to the float line, not from the float line a unit down as the mock
+had it: a floor 8 px under the walkway is more than a climb, and the ball
+could not roll out of the water for half of every cycle. STEP at each flip
+(the next count's low bits 0, a water cell in the window - slot +1 bit 1,
+CELL's - and not steel) asks for the refill (`bz_fref`), and into the dip
+moves a ball RESTING on the water down with its floor (`gz` less 4 px), so it
+never takes off: a 4 px drop is a 9-step fall and a landing at lvz about 216 (computed), a
+landing SOUND every cycle (`BZS_LMIN` 48), which the snap removes. Out of the
+dip the floor rises under the ball and step 6 sets it on it, as on any floor
+it is on. MEASURED (`water-float`, 110 steps at rest): heights 20 and 24 px
+only, no landing, no takeoff. Red arms: `wabsnap` (no snap: the ball) and
+`wabflip` (no refill at the flip: `bz_fref`). `WA_FBSH` 0 is the round-two
+float line, fixed.
+
+**E, the hover.** CELL writes rubber's and glass's water a UNIT under the top
+(the safety floor). STEP, the centre water and the ball not steel: off the
+safety floor with no event (air 1, ztop its z); gvz += `WE_LIFT` 48 under the
+float line (2 x `BZ_G`), then gvz less gvz >> `WE_DAMP` 3; the bob, gvz +
+`WE_KICK` 112 when the step's low 5 bits are 0 and - 112 when they are 16;
+the drag (>> `WE_DRAG` 4). MEASURED (`water-float`): heights 16 - 24 px,
+settling to about 17 - 22 px with a period near 32 steps; no landing; one
+takeoff (onto the water). `water-rubber` (dropped 3 units): no bounce, one
+landing on the safety floor. Red arm `wahover` (no lift: the ball).
+
+**Both:** steel's stop and cap now test the material first (only steel ever
+sinks under the float line; B's floating ball never did, E's does). The
+look, SEEN on MartyPC (CGA, frame sequences): B's ball whole at the top and
+the ghost in the dip; E's the ghost throughout its bob, below the top's tops
+(`WATER_FLOAT` up) the whole time.
+
+| | the part | the bundle, RAM | the pinned claim |
+|---|---|---|---|
+| before (`10aa359d1`, the wobble off) | 601 | 34,976 | 2,240 paragraphs |
+| **B** | **684 (+83)** | 35,056 (+80) | 2,240 (no step) |
+| **E** | **710 (+109)** | 35,088 (+112) | 2,240 (no step) |
+
+The bob arms are the only difference between the two trees' parts; image and
+bss unchanged; no shipped course, demo or identity moves (no shipped course
+names water).
