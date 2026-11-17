@@ -255903,6 +255903,20 @@ The instruments' "flip+columns" part is `bz_tf`..`bz_tb` plus
 `bz_tc`..`bz_presented`; "box write" is `bz_tb`..`bz_tc`, or
 `bz_tb`..`bz_presented` when no column rows follow the boxes.
 
+**The early step** (`bz_early`, at `bz_tv`: the wheel is done and the frame
+would now idle until the retrace): a physics step already due by the loop's
+own rule (a sub-tick sampled past `bz_lsubs`, never a predicted one) runs in
+the wait when at least `BZ_EROOM` PIT counts of it remain, and `bz_lsubs`
+takes it, so the next frame's top has one fewer to run: the same steps in the
+same order, only earlier. It never runs on a full-write frame, after the
+goal, a timeout or a wheel load, in `bz_mode` 4, or on a replay whose log is
+spent. The one difference from stepping at the frame's top: in live play it
+reads the keys as last sampled. It is unconditional. History: it shipped in
+the 2026-11-15 speed pass behind `BZ_NOEARLYSTEP` and a runtime `bz_noearly`
+byte, both retired 2026-11-17 once the shipped state was the only one under
+test (no row stated the two states as an equivalence; replays and
+demos end where they did by construction).
+
 **A retrace wait that times out** is counted (`bz_tos`) and the frame is
 finished anyway; it is not rolled back. A full-write frame skips the wait and
 is left out of the means.
@@ -274588,7 +274602,7 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 | locked routes | **a GATE** across the route's mouth, closed; it plays its opening animation once when the route opens. Gates, like everything on this page, animate only when something happens to them, so the page can have many | the owner prefers gates, *"as long as the art and animation are good"* |
 | secret routes | **not drawn** until taken: the route, its pad, icon and title appear as the marble first rolls along it (REVEAL lanes) | the owner: *"once you find it and take it, is when the pathway and its icon appears"* |
 | course icons | the course's THEME, its TITLE written above it, several frames, animated only while the marble rests on its pad; recognisable, fitting the page; sizes may differ | the owner's |
-| lives | **a counter on the map** like a clock: a crystal ball holding the lives digit, one on every page | the owner: *"a life counter that goes on the map, similar to a clock"* |
+| lives | **a counter on the map** like a clock, one on every page: since 2026-11-17 the word LIVES in the map's label face over the player's MARBLE on a plinth, an "x" and the digit (the `lives` frame; until then a crystal ball holding the digit, which read as a clock) | the owner: *"a life counter that goes on the map, similar to a clock"*; and (2026-11-17) the counter's purpose spelled out, the clocks' being obvious - option C of four, the rest in docs/plans/BOUNCE-BONANZA-LIVES.md |
 | the finish | **no card**: the course's own clock FLASHES the frozen finishing time for about 2 s and a short VICTORY tune plays; a CHECKERED goal lets the ball roll on (an edge rolled off after it neither kills nor respawns), a CUP swallows it; the camera stops at the finish; **Enter skips** (Space and the arrows do not); then the pathway | the owner, 2026-11-16 (and: *"if they roll off an edge after crossing a finish checkers, that should not kill them or respawn them. Finish the tune/clock flash at its now frozen time, without scrolling the screen"*) |
 | a clock at every finish | **a rule the tool proves**: every finish, hidden ones too, has a clock whose digits are inside a CGA window centred on the finish | the owner: *"a rule that one is visible on the screen of every goal. Doesn't have to be on top of it, which is handy for secret goals"* |
 | the cards | INTRO and RESULT **go**; a course's facts are an INFO card brought up by **Space** at its pad; PAUSE stays a full stop; GAME OVER keeps its card and returns to the title | the owner: *"we probably can't afford a status bar and scrolling ... keep a card, but only bring it up via some keypress"* |
@@ -274690,7 +274704,13 @@ refused on any other course (`view` is also the title's, 128.23.2):
 - **`lives WX WY`**: a lives counter, a clock record of ONE digit (128.18.5)
   showing `bz_lives`, on a one-tile plinth of the route material the tool
   lays; **one on every page**, its digit inside that page's CGA window, and
-  none outside every window (each refused).
+  none outside every window (each refused). Its frame is `lives`
+  (`lives_face_pix`): a dithered shadow on the tile, a small plinth with the
+  player's MARBLE on it, "x" in the block left of the digit's, and LIVES
+  above, both white in the map's label face (`label_glyph`, the course
+  names'); the digit's poses are that face's digits in white on the sky,
+  not the crystal ball's 5 x 7 black. The record and its lane are a
+  clock's as before, so the guest is unchanged.
 - **`rail MATERIAL`**: the route material: `crystal` (the art set's,
   128.22.8: `crystal_top_ink` on every top - a ramp's through its ground
   point - and `crystal_side_ink` on the sides; the default) or a surface's
@@ -275882,7 +275902,7 @@ Five tiers and four features, after the sketch:
 | LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit; it runs off the glass to the left, and a STEP (a half-unit tier, 9 - 11 x 13) takes a ball down to it from LL, so a ball on LL can reach the brown tube without jumping |
 | LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT (128.23.2's waiver) |
 | the PIT | two cells wide (x 12 - 13) from LS's back wall to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16), and the visible strip in front of the pillar that joined LS to LC went too (2026-11-17): the glass bridge is all that crosses it now |
-| the GLASS BRIDGE | LS carried over the pit at LS's height (x 12 - 13, y 12; floor 2.5), where the visible strip used to be, ending half a step above the channel: no row of the pit is level on both sides (LS 2.5, the step 3, LL 3.5 against the channel's 2), and this is the least drop. Two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, the first tile's jagged edge where it meets LS the only hint (a hint only joins level ground, 128.25.18). Demo 3's glass ball goes down the step and finds it; steel (demo 2) falls through the pit on row 15, and demo 4 flies over the bridge, so neither touches it. The family is home `fetch` in this tree (128.25.6.9) |
+| the GLASS BRIDGE | LS carried over the pit at LS's height (x 12 - 13, y 12; floor 2.5), where the visible strip used to be, ending half a step above the channel: no row of the pit is level on both sides (LS 2.5, the step 3, LL 3.5 against the channel's 2), and this is the least drop. Two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, the first tile's jagged edge where it meets LS the only hint (a hint only joins level ground, 128.25.18). Demo 3's glass ball goes down the step and finds it; steel (demo 2) falls through the pit on row 15, and demo 4 flies over the bridge, so neither touches it. The family is home `resident` since 2026-11-17 (it was `fetch`, the title's first fetched family; 128.25.6.9) |
 | LC, the lower centre | the key hints painted above it; joined to the ramp's foot on the right, and to LS only by the glass bridge |
 | the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
 | the hidden tube | its mouth at (23, 11), beside the east rail just past the glass's bottom right corner, its body up the rail and along the back one to UR, so a ball that bounces off the bottom right comes back on UR |
@@ -277860,8 +277880,8 @@ record.
 
 1. **The row** in `bbcourse.FAMILIES`: name, kinds, the hooks, the state
    bits per element, each element's RESET class (128.25.7.1), lane kinds,
-   and its HOME (128.25.6.9: `resident` in the bundle, or `fetch`; moving a
-   family is that one field). The ID is NOT chosen: it is the row's place in
+   and its HOME (128.25.6.9: `resident` in the bundle, the DEFAULT, or `fetch`
+   for a test-only family such as the probe; moving a family is that one field). The ID is NOT chosen: it is the row's place in
    the table (1 - n, no gap), and the part reads it only as the generated
    `BZ_FID_<NAME>`. CONSTANTS go in the row's `consts` (folded by `famv`).
    An element with FIELDS (+18 - +31) needs its syntax in `_parse_fprop`,
@@ -277956,8 +277976,8 @@ its `FAMILIES` row, `home`.
 
 | home | where the part is | fetched | dropped | the 3-a-course limit (128.25.6.5) | the course's arena reserve (`BZ_CRS_ARENA`) |
 |---|---|---|---|---|---|
-| `fetch` (the default; the probe, GLASS, PICKUPS) | an `OP_ARENA` code row, fetched by the launch of a course that names it (128.25.6.2) | every launch that names it | at every `bz_cdrop` | counted | counted |
-| `resident` (ROTOR, SPRING, TUBE: the owner's "common props always loaded") | inside the RESIDENT BUNDLE, ONE `OP_ARENA` code row for every resident family (below), fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_entry`: one read for them all) | never | NOT counted | NOT counted |
+| `fetch` (the probe only: it is test-only) | an `OP_ARENA` code row, fetched by the launch of a course that names it (128.25.6.2) | every launch that names it | at every `bz_cdrop` | counted | counted |
+| `resident` (the DEFAULT for a new family; ROTOR, SPRING, TUBE, GLASS, PICKUPS: the owner's "common props always loaded") | inside the RESIDENT BUNDLE, ONE `OP_ARENA` code row for every resident family (below), fetched ONCE when the package starts, before anything else enters the arena, so it is the arena's FLOOR for the package's life | once (`bz_entry`: one read for them all) | never | NOT counted | NOT counted |
 
 Everything else is as for a fetched family: a course names it with `uses`,
 its `FAMV` is in the course's family list and so in the identity, `bz_ffetch`
@@ -277986,8 +278006,8 @@ until the package ends).
 and `BZ_FAMMAX` (the courses' longest list, at least 3) - and, until the
 bundle, `BZ_FHMASK` (bit ID - 1 a resident family's), which the bundle left
 with no reader and the tool no longer emits; the tool's 3-a-course count and `crs_arena` count
-only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe and GLASS
-`fetch`. As story 9.8 built it each resident family was its own row, fetched
+only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe
+`fetch`. **Since the owner's decision of 2026-11-17 GLASS and PICKUPS are `resident` too** ("the other new ones we build will also go there, unless we find a reason to move them out"): only the probe stays `fetch`, and the DEFAULT for a family not yet built is `resident`. As story 9.8 built it each resident family was its own row, fetched
 by `bz_fhome` (a read each, MEASURED +0.9 - 1.1 s at the start, 128.25.10);
 the bundle below replaced that at integration.
 
@@ -277995,6 +278015,31 @@ the bundle below replaced that at integration.
 FIRST** - the three `BZB3` parts, 31,168 bytes, generated in place right
 after the fetch - and the families from `BZ_BALB` on; it is a row in every
 build, and the walk below starts at `BZ_BALB`.
+
+**GLASS and PICKUPS move into the bundle (2026-11-17), MEASURED** (`make
+bonanza`, the base `85b70c90a` against the one-field change in
+`bbcourse.FAMILIES`; nothing else moved: no source, no course, no demo).
+The bundle `bzfbun.bin` **32,320 -> 33,376 bytes RAM (+1,056: GLASS 553 and
+PICKUPS 483 less the alignment they no longer need to be their own rows)**,
+**2,478 -> 3,209 packed (+731)**; `BONANZA.O88` **123,262 -> 123,017 (-245)**
+(two part rows out: the rows are the ones every build has). The families
+are 2,208 bytes of the arena's floor (families 1,152 -> 2,208), **the
+floor = the bundle, 2,020 -> 2,086 paragraphs**, and the pinned claim, rounded
+up to `OP_ARQUANT` (64), **2,048 -> 2,112 paragraphs (+1 step, 1,024
+bytes)**. What leaves the courses' arena reserves: `BZ_CRS_ARMAX` **416 ->
+352** (PLAYGROUND's reserve 412 -> 332, the title's 339 -> 299), so a
+course's launch has 64 paragraphs more room above the floor. In time
+(MartyPC, CGA 5150, 360KB, guest ms, one run each): PLAYGROUND's first
+launch (`bz_launch` -> `fsx_run`) **4,971 -> 4,407 ms, 7 -> 6 FDC reads, 57
+-> 48 sectors** (the two families it names are no longer fetched); its
+second launch and every course that names no moved family unchanged (3.7 s,
+4 reads); opening BONANZA 9.4 - 9.9 s in both (the run-to-run spread is
+larger than the bundle's +731 packed bytes, 6 reads, 90 sectors both ways);
+the title (Enter -> its first `bz_tlog`) 17.7 s, 2 reads, 18 sectors both
+ways - the title's fetch of GLASS did not show as a read of its own in
+either build. Every shipped course's family list moves only where it names
+GLASS or PICKUPS (the lists name the family, not its home): `FAMV` fields
+and so identities moved for none, as the list does not carry the home.
 
 **THE RESIDENT BUNDLE (the owner, 2026-11-16: "all resident families in ONE
 bundled part loaded once at start"; BUILT at integration).** Every
