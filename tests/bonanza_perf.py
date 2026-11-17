@@ -206,19 +206,10 @@ host's 128.17.6.6:
     replay through R would end at the goal FIRST's autopilot crosses before
     its first fall): each fall's misses, missed refreshes and runs
     (128.17.6.6 risk 8).
---lattice-ab [COMMIT] (the final pass's by-hand run, like every A/B here: a
-row that could only fail once the commit has left the clone is no row; exits
-77 when it is not in this clone) is THE LIKE-FOR-LIKE A/B the decision rides
-on: MILL's route demo, whose keys hold neither Space nor Grip, runs the same
-path in wave 6's build (4d69985c, GLIDE) and this one (LATTICE) - the leg
-ASSERTS the two demos' key bytes carry no Space or Grip bit and are the same
-- through D, three runs a side, speaker ON, both cards; B beside it REPORTED
-only (its route pans a third of wave 6's work, 128.17.6.7: B's series breaks
-at 6b).  THE DECISION is computed and printed: LATTICE ships on round 2's
-disk if, on both cards, this build's missed refreshes a second and longest
-run of misses (each its three runs' mean) are no worse than 4d69985c's
-beyond the spread of its three runs (at most their maximum); otherwise the
-figures go to the owner with the disk held.  No red arm is new: `rideoff`
+--lattice-ab [COMMIT] was THE LIKE-FOR-LIKE A/B the LATTICE decision rode on
+(MILL's route demo against wave 6's 4d69985c, SPEC.md 128.17.10's figures);
+LATTICE shipped, and the leg was removed with --clock-ab (wave 7's clock
+form, 128.18.7: form (ii) shipped) - decided A/Bs are not kept.  No red arm is new: `rideoff`
 and `level1` re-run (level1's anchor is bz_hv1's text, which 6b left as it
 was: the near-edge bits went into bz_pnear); `halfcal` is retired here (its
 bz_wover never fires under LATTICE's MILL frames) and kept in bonanza_wheel.
@@ -1296,10 +1287,8 @@ def w6_ab_print(tag, res, ores):
             f(a, "occ", "%.0f"), f(b, "occ", "%.0f")))
 
 
-# ---- WAVE 6B (SPEC.md 128.17.10, story 6b.7): FIRST's falls, and the like-for-like A/B the decision rides on ----
+# ---- WAVE 6B (SPEC.md 128.17.10, story 6b.7): FIRST's falls ----
 FALL_STEPS = 1100              # FIRST's autopilot steps the host lists falls over (B's 1,200 frames run ~1,090)
-LAT_AB = "4d69985c49ead0f387858d7e8411aec102a964c9"   # wave 6's commit (the shipped GLIDE), the A/B's other side
-LAT_AB_RUNS = 3                # runs a side (6b.7: "no worse than 4d69985c's beyond the spread of its three")
 
 
 def fall_log(steps=None):
@@ -1352,172 +1341,6 @@ def fall_leg(g, tag):
               "%d, the longest %d" % (tag.upper(), len(allw), sm["misses"], sm["missed"], sm["per_s"], sm["runs2"],
                                       sm["longest"]), flush=True)
     return [], out
-
-
-def mill_runs(tag, apps, src, art, label, runs=LAT_AB_RUNS):
-    """MILL's route demo through D and B, LAT_AB_RUNS times each, speaker ON, on
-    one build: -> {"D": [smooth figures], "B": [...], "keys": the demo's key bytes}"""
-    sym = R.symbols(src, art)
-    out = {"D": [], "B": [], "two": []}
-    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps, machine=R.MACHINE[tag]) as ui:
-        ui.open_drive("B")
-        ui.open("BONANZA.O88")
-        g = R.Bz(ui, tag, sym)
-        ui.settle()
-        kd = R.CRS_K["mill"]
-        for i in range(runs):
-            demo = load_demo(g, kd, art)
-            set_snd(g, True)
-            fr, _pkg, refresh, _n = measure(g, key="KeyD", frames_cap=DEMO_CAP)
-            out["D"].append(smooth(fr, refresh))
-            out["two"].append(sum(1 for r in fr if not r["full"] and r["rows"] >= 2))
-            out["keys"] = [k for k, _t in BB.decode_log_t(demo)[2]]
-        for i in range(runs):
-            set_snd(g, True)
-            fr, _pkg, refresh, _n = measure(g, pokes={"bz_hvoff": 0})
-            out["B"].append(smooth(fr, refresh))
-    for what in ("D", "B"):
-        print("  %s %s, %s (sound ON): %s" % (tag.upper(), label, "MILL's route demo through D" if what == "D" else
-                                                "B, BENCH's benchmark", "; ".join(
-            "missed/s %.2f, misses %d, runs >= 2 %d, the longest %d" % (s["per_s"], s["misses"], s["runs2"],
-                                                                        s["longest"]) for s in out[what])),
-              flush=True)
-    return out
-
-
-def lattice_ab(tags, commit=LAT_AB):
-    """THE LIKE-FOR-LIKE A/B and the decision it carries (SPEC.md 128.17.10,
-    story 6b.7): MILL's route demo - its keys hold neither Space nor Grip, so
-    its path is the same in COMMIT (wave 6's GLIDE) and here (LATTICE); the
-    leg ASSERTS the two logs' key bytes carry no Space or Grip bit and are the
-    same - through D, LAT_AB_RUNS runs a side, speaker ON, both cards; B
-    beside it REPORTED only (its route pans a third of wave 6's work, 128.17.6.7:
-    B's series breaks at 6b).  THE DECISION, computed and printed: LATTICE
-    ships on round 2's disk if on BOTH cards this build's missed refreshes a
-    second and longest run of misses (each its runs' mean) are no worse than
-    COMMIT's beyond the spread of its runs (at most their maximum); otherwise
-    the figures go to the owner with the disk held.  -> failures"""
-    bad = []
-    skip = fetch(commit)
-    if skip:
-        print("bonanza_perf: SKIP the LATTICE A/B: %s" % skip, flush=True)
-        return None
-    td = tempfile.mkdtemp(prefix="bz6b")
-    verdict = {}
-    try:
-        old = ab_tree(td, commit)
-        for tag in tags:
-            print("\n%s THE LATTICE A/B (SPEC.md 128.17.10, story 6b.7): MILL's route demo, %s against this build, "
-                  "%d runs a side, speaker ON" % (tag.upper(), commit[:8], LAT_AB_RUNS), flush=True)
-            o = mill_runs(tag, *old, label=commit[:8])
-            n = mill_runs(tag, R.at("build/bonanza360.img"), None, None, label="this build (LATTICE)")
-            for side, s in ((commit[:8], o), ("this build", n)):
-                held = [k for k in s["keys"] if k & (BB.K_HOP | BB.K_GRIP)]
-                if held:
-                    bad.append("%s LATTICE A/B: %s's MILL demo holds Space or Grip on %d steps - not like for like "
-                               "(SPEC.md 128.17.10)" % (tag, side, len(held)))
-            if o["keys"] != n["keys"]:
-                bad.append("%s LATTICE A/B: the two builds' MILL demos are not the same key bytes (%d and %d steps)"
-                           % (tag, len(o["keys"]), len(n["keys"])))
-            ok = True
-            for k, what in (("per_s", "missed refreshes a second"), ("longest", "the longest run of misses")):
-                om, nm = [s[k] for s in o["D"]], [s[k] for s in n["D"]]
-                mean = sum(nm) / float(len(nm))
-                good = mean <= max(om)
-                ok = ok and good
-                print("  %s %s: this build %s (mean %.2f) against %s %s (spread %.2f - %.2f): %s" % (
-                    tag.upper(), what, ["%.2f" % x for x in nm], mean, commit[:8], ["%.2f" % x for x in om],
-                    min(om), max(om), "no worse" if good else "WORSE beyond the spread"), flush=True)
-            print("  %s two-row frames a run: this build %s, %s %s; B (REPORTED, its series breaks at 6b): missed/s "
-                  "this build %s, %s %s" % (tag.upper(), n["two"], commit[:8], o["two"],
-                                            ["%.2f" % s["per_s"] for s in n["B"]], commit[:8],
-                                            ["%.2f" % s["per_s"] for s in o["B"]]), flush=True)
-            verdict[tag] = ok
-    finally:
-        shutil.rmtree(td, ignore_errors=True)
-    ships = all(verdict.get(t, False) for t in tags) and not bad
-    print("\nTHE DECISION (story 6b.7, SPEC.md 128.17.10): %s" % (
-        "LATTICE SHIPS on round 2's disk - MILL's misses a second and longest run no worse than %s's beyond its "
-        "spread on %s" % (commit[:8], " and ".join(t.upper() for t in tags)) if ships else
-        "HOLD THE DISK - the figures above go to the owner (%s)" % ", ".join(
-            "%s %s" % (t.upper(), "no worse" if verdict.get(t) else "WORSE") for t in tags)), flush=True)
-    return bad
-
-
-CLOCK_AB = "19edec3c"            # wave 7: the last commit before the course clocks (7.2) and their sounds (7.6)
-CLOCK_AB_RUNS = 3
-CLOCK_RULE = 2.0                  # 128.18.7: no card's misses a second up by more than 2 on MILL or PEAK
-
-
-def demo_runs(tag, apps, src, art, label, crs, runs=CLOCK_AB_RUNS):
-    """course CRS's shipped demo through D, RUNS times, speaker ON, on one
-    build: -> {"D": [smooth figures], "keys": its key bytes}"""
-    sym = R.symbols(src, art)
-    out = {"D": []}
-    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps, machine=R.MACHINE[tag]) as ui:
-        ui.open_drive("B")
-        ui.open("BONANZA.O88")
-        g = R.Bz(ui, tag, sym)
-        ui.settle()
-        kd = R.CRS_K[crs]
-        for i in range(runs):
-            demo = load_demo(g, kd, art)
-            set_snd(g, True)
-            fr, _pkg, refresh, _n = measure(g, key="KeyD", frames_cap=DEMO_CAP)
-            out["D"].append(smooth(fr, refresh))
-            out["keys"] = [k for k, _t in BB.decode_log_t(demo)[2]]
-    print("  %s %s, %s's demo through D (sound ON): %s" % (tag.upper(), label, crs.upper(), "; ".join(
-        "missed/s %.2f, misses %d, runs >= 2 %d, the longest %d" % (s["per_s"], s["misses"], s["runs2"],
-                                                                    s["longest"]) for s in out["D"])), flush=True)
-    return out
-
-
-def clock_ab(tags, commit=CLOCK_AB):
-    """THE CLOCK'S MEASUREMENT (SPEC.md 128.18.7, story 7.7), which decides the
-    clock's form: MILL's and PEAK's demos (the same keys on both sides: the
-    clocks move no physics) through D, CLOCK_AB_RUNS runs a side, speaker ON,
-    both cards, this build (the clocks as digit lanes, form ii, and their
-    sounds) against COMMIT (none).  Form (ii) SHIPS if on every card and both
-    courses this build's mean missed refreshes a second is at most COMMIT's
-    largest plus CLOCK_RULE; otherwise the figures go to the owner and form
-    (i) is the next build.  -> failures"""
-    bad = []
-    skip = fetch(commit)
-    if skip:
-        print("bonanza_perf: SKIP the clock's A/B: %s" % skip, flush=True)
-        return None
-    td = tempfile.mkdtemp(prefix="bz7")
-    verdict = {}
-    try:
-        old = ab_tree(td, commit)
-        for tag in tags:
-            for crs in ("mill", "peak"):
-                print("\n%s THE CLOCK'S A/B (SPEC.md 128.18.7): %s's demo, %s against this build, %d runs a side, "
-                      "speaker ON" % (tag.upper(), crs.upper(), commit[:8], CLOCK_AB_RUNS), flush=True)
-                o = demo_runs(tag, *old, label=commit[:8], crs=crs)
-                n = demo_runs(tag, R.at("build/bonanza360.img"), None, None, label="this build (clocks)", crs=crs)
-                if o["keys"] != n["keys"]:
-                    bad.append("%s clock A/B: %s's demos are not the same key bytes in the two builds" % (tag, crs))
-                om, nm = [s["per_s"] for s in o["D"]], [s["per_s"] for s in n["D"]]
-                mean = sum(nm) / float(len(nm))
-                good = mean <= max(om) + CLOCK_RULE
-                lo, lm = [s["longest"] for s in o["D"]], [s["longest"] for s in n["D"]]
-                print("  %s %s missed refreshes a second: this build %s (mean %.2f) against %s %s (at most %.2f + %.1f)"
-                      ": %s; the longest run %s against %s" % (
-                          tag.upper(), crs.upper(), ["%.2f" % x for x in nm], mean, commit[:8],
-                          ["%.2f" % x for x in om], max(om), CLOCK_RULE, "within" if good else "OVER", lm, lo),
-                      flush=True)
-                verdict[(tag, crs)] = good
-    finally:
-        shutil.rmtree(td, ignore_errors=True)
-    ships = all(verdict.values()) and not bad
-    print("\nTHE CLOCK'S DECISION (story 7.7, SPEC.md 128.18.7): %s" % (
-        "FORM (ii) SHIPS - the digit lanes cost at most %.0f more missed refreshes a second on MILL and PEAK, on "
-        "%s" % (CLOCK_RULE, " and ".join(t.upper() for t in tags)) if ships else
-        "FORM (ii) REFUSED - the figures go to the owner, and form (i) is the next build (%s)" % ", ".join(
-            "%s %s %s" % (t.upper(), c.upper(), "within" if v else "OVER") for (t, c), v in verdict.items())),
-          flush=True)
-    return bad
 
 
 BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (128.16.10); 3 for the rest
@@ -1632,14 +1455,6 @@ def main():
     ap.add_argument("--no-adlib", action="store_true", help="no AdLib arm (the CGA's MILL and ride on %s)" % ADLIB)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
-    ap.add_argument("--lattice-ab", nargs="?", const=LAT_AB, metavar="COMMIT",
-                    help="wave 6b's like-for-like A/B (SPEC.md 128.17.10, story 6b.7): MILL's route demo through D, "
-                         "%d runs a side against COMMIT (default wave 6's, %s), B beside it, and THE DECISION "
-                         "printed; exits %d when COMMIT is not in this clone" % (LAT_AB_RUNS, LAT_AB[:8], SKIP_RC))
-    ap.add_argument("--clock-ab", nargs="?", const=CLOCK_AB, metavar="COMMIT",
-                    help="wave 7's clock measurement (SPEC.md 128.18.7, story 7.7): MILL's and PEAK's demos through D, "
-                         "%d runs a side against COMMIT (default %s, before the clocks), THE DECISION on the clock's "
-                         "form printed" % (CLOCK_AB_RUNS, CLOCK_AB))
     ap.add_argument("--baseline", action="store_true",
                     help="THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every demo through D and "
                          "B, both cards, speaker OFF and ON, its runs' spreads written to a new dated report")
@@ -1666,27 +1481,9 @@ def main():
               % (len(falls), n, falls))
         assert len(falls) >= 4, "FIRST's autopilot falls %d times in %d steps: the fall leg needs a loop" % (
             len(falls), n)
-        print("bonanza_perf --lattice-ab's commit %s: %s" % (LAT_AB[:8], fetch(LAT_AB) or "in this clone"))
         return
     if a.baseline:
         baseline(tags)
-        return
-    if a.clock_ab:
-        bad = clock_ab(tags, a.clock_ab)
-        if bad is None:
-            sys.exit(SKIP_RC)
-        for b in bad:
-            print("FAIL %s" % b)
-        assert not bad, "%d failure(s)" % len(bad)
-        return
-    if a.lattice_ab:
-        bad = lattice_ab(tags, a.lattice_ab)
-        if bad is None:
-            sys.exit(SKIP_RC)
-        for b in bad:
-            print("FAIL %s" % b)
-        assert not bad, "%d failure(s)" % len(bad)
-        print("\nbonanza_perf --lattice-ab (%s): the A/B measured, the decision printed" % ", ".join(tags))
         return
     if a.red:
         tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
