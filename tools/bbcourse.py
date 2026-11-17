@@ -402,7 +402,8 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 # no reset class and no `prop <kind>` line; the tool and its model keep the kind's own number (PK_TUBE,
 # PK_WINDMILL, PK_SPRING, "of"), in the record too: the family's kind is only the engine's bz_fone key.
 # HOME (SPEC.md 128.25.6.9): "fetch", a course's launch fetches the part, or "resident", fetched once when
-# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).
+# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).  The DEFAULT for a
+# new family is "resident" (the owner, 2026-11-17); the probe is test-only and stays "fetch".
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
@@ -418,7 +419,7 @@ FAMILIES = (
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
                 "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40,
-     "home": HOME_FETCH},
+     "home": HOME_RESIDENT},
     {"name": "rotor", "id": 3, "rev": 1, "hooks": H_PROP, "slot": 0,
      "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
                 "states": (0,), "pickup": False, "own": True, "of": PK_WINDMILL},), "paras": 16,
@@ -435,7 +436,7 @@ FAMILIES = (
     # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
     # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
     # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
-    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `fetch`; kinds 19 - 21
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21
     {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
      "consts": "PU",
      "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
@@ -444,7 +445,7 @@ FAMILIES = (
                 "forms": ("own",), "states": (0, 1), "pickup": True},
                {"name": "jump", "kind": FAM_K0 + 5, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
                 "forms": ("own",), "states": (0, 1), "pickup": True}), "paras": 40,
-     "home": HOME_FETCH},
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
