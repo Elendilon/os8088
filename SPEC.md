@@ -277068,7 +277068,7 @@ GLASS's void): every water cell a floor at B, unioned, so the occluders, OCC
 and the bounds see a ball in a column at every height; `_hack noforms` is
 its control (item 6: the water cells' zlo 0 px, 24 with it).
 
-#### 128.32.5 The art and the DEPTH KEY (BUILT; LOOKED AT on the host previews)
+#### 128.32.5 The art and the DEPTH KEY (BUILT; LOOKED AT on MartyPC, both cards)
 
 A water cell's top and its two front faces are drawn and KEYED **s + 1**
 (`draw_ops`): a ball INSIDE the cell (s_b = s) below its top is then behind
@@ -277088,6 +277088,16 @@ face a cyan and black checker, each crossed by white 2:1 GLINTS every 12 px.
 `_WATER_S0` is the red arm (item 10: steel at the bed of the test course's
 first column under 110 laid footprint pixels with the key, 96 without it -
 the column's own glass the difference; the rest is the walkway's).
+
+**OCCG from the bed.** A water cell's grounded range runs from its BED
+(`_occg`), so it carries OCCG and a ball AT REST on the bed runs the
+occluder pass. Without it (the first MartyPC look, the CGA) steel was ghosted
+while it sank and then drawn whole over the glass once it rested on the bed:
+the grounded pass never ran there. Item 3 holds the flag. SEEN after it, on
+the `BZWATER=1` tree, CGA and Hercules twins: steel ghosted sinking, ghosted
+at the bed, whole in the arch's opening and out on the yard. On the Hercules
+the water's cyan and the floor's are the same dither, so the top reads by
+its rings and its outline alone: the owner's to judge.
 
 A nuance, not refused: a ball in a cell BESIDE a column in its own row
 (`(wx + 1, wy - 1)`), lower than the column's top - one falling past a
@@ -277159,5 +277169,5 @@ none chosen; the test course leaves the yard open to every ball); ANIMATED
 ripples (W7: a lane posed by a POSE hook and marked by STEP, at most two a
 window - not built); the BOB of a floating ball (W1: not nearly free - a bob
 the physics does not have is the ball's drawn z leaving its physics z, a
-resident display change - future); the art on the glass of both cards (LOOKED
-AT on the host previews alone).
+resident display change - future); the art's look on both cards (one boot
+looked at; the Hercules' water and floor share a dither).
