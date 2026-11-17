@@ -219,6 +219,13 @@ FL_SAFE, FL_OCC, FL_OCCG = 1, 2, 4
 SURF_NORMAL, SURF_ICE, SURF_SAND, SURF_BOUNCE = 0, 1, 2, 3     # grid byte +2's high nibble
 SURFACES = ("normal", "ice", "sand", "bounce")
 Z_OPEN = -128                 # an OPEN cell's z0
+# SPEC.md 128.35: the see-through GUARD RAIL - a WALL cell drawn as a rail of posts and bars on each edge it shares
+# with the floor it guards, the rest of the cell drawn as the open edge it is.  Its height is over that floor, in
+# half units: 2 units (16 px) by default - over rubber's Hop (5.7 px), its boost (9.3 px) and the jump pickup's Hop
+# (13.8 px), so no flight from the floor it guards rises past the drawn top bar but the jump with rubber's boost
+# stacked (18.0 px); none of them crosses it, a WALL being a column at every height
+GUARD_H2, GUARD_H2MIN, GUARD_H2MAX = 4, 3, 6
+GUARD_POSTS = (0, 8, 16)      # px along the edge from its left corner: a post at each end and the middle
 
 # --- the world (SPEC.md 128.10.2) ---------------------------------------------
 TILE = 16                     # ground units a tile
@@ -796,6 +803,7 @@ class Source:
         self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
         self.uses = []              # wave 9 (SPEC.md 128.25.6.4): [(family row, line)], the families named
         self.fields = []            # SPEC.md 128.28.3: [dict] chutes and pits, in file order
+        self.guards = []            # SPEC.md 128.35: [dict tiles side h2 line], the see-through GUARD RAILS
 
 
 def _int(tok, where, what):
@@ -1499,6 +1507,16 @@ def parse(text, fname="<course>"):
             if i != len(toks):
                 raise CourseError("%s: float takes a shape and nothing else" % where)
             src.floats.append((tiles, ln))
+        elif st == "guard":                         # SPEC.md 128.35: guard <shape> [height <h>]
+            tiles, _half, i = _shape_h(toks, 1, where, halves=False)
+            rest = [t_[1] for t_ in toks[i:]]
+            if len(rest) not in (0, 2) or (rest and rest[0] != "height"):
+                raise CourseError("%s: guard takes a shape and [height <units>] (SPEC.md 128.35.1)" % where)
+            h2 = _height2(toks[i + 1], where) if rest else GUARD_H2
+            if not GUARD_H2MIN <= h2 <= GUARD_H2MAX:
+                raise CourseError("%s: a guard rail is %s - %s units over the floor it guards, not %s (SPEC.md "
+                                  "128.35.2)" % (where, GUARD_H2MIN / 2, GUARD_H2MAX / 2, h2 / 2))
+            src.guards.append({"tiles": tiles, "h2": h2, "line": ln})
         elif st == "hole":
             tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
@@ -1698,13 +1716,14 @@ def parse(text, fname="<course>"):
 # =============================================================================
 
 class Tile:
-    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail")
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "guard")
 
     def __init__(self, kind, z0, sx, sy, line, exit=0):
         self.kind, self.z0, self.sx, self.sy, self.line = kind, z0, sx, sy, line
         self.surf = SURF_NORMAL
         self.rail = False           # wave 8R (SPEC.md 128.22.8): the pathway's CRYSTAL route material
         self.exit = exit            # a GOAL tile's exit (128.19.4): its cell's flags bits 4 - 7
+        self.guard = None           # SPEC.md 128.35: a GUARD RAIL's WALL cell - (its rail's edge, the base z0)
 
     def corner(self, dx, dy):
         """corner (wx + dx, wy + dy), half units"""
@@ -2249,6 +2268,119 @@ def _wall_above(f, t, n, wx, wy, nx, ny, mine, theirs, what):
                           % (f, t.line, wx, wy, what, nx, ny))
 
 
+def lay_guards(src, tiles):
+    """SPEC.md 128.35.1: each `guard` cell becomes a WALL whose top is the guarded floor's plus the rail's height,
+    marked .guard = (its RAIL EDGES, the floor's z0).  Laid after every room, hole and FIELD cell, in an OPEN cell.
+    Its rail edges are the edges it shares with a floor; every floor it touches, at an edge or a corner, is a whole
+    flat FLOOR or GOAL at ONE height, and a floor at a corner has a rail edge through that corner.  Every other
+    edge is drawn OPEN: only the void, a WALL or another guard may be there.  Refused: a guard on a solid cell or
+    laid twice, one that guards no floor, a floor that is not whole and flat or at a second height, a corner
+    without a rail"""
+    f = src.fname
+    laid = {}
+    for g in src.guards:
+        ln = g["line"]
+        for (wx, wy) in sorted(g["tiles"]):
+            if (wx, wy) in laid:
+                raise CourseError("%s:%d: guard (%d, %d) is laid twice (line %d too)" % (f, ln, wx, wy, laid[(wx, wy)][0]))
+            if (wx, wy) in tiles:
+                raise CourseError("%s:%d: guard (%d, %d) stands on a solid cell: a guard rail's cell is the OPEN edge "
+                                  "beside the floor it guards (SPEC.md 128.35.1)" % (f, ln, wx, wy))
+            laid[(wx, wy)] = (ln, g["h2"])
+    for (wx, wy), (ln, h2) in sorted(laid.items()):
+        zs, edges = set(), []
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                n = tiles.get((wx + dx, wy + dy))
+                if (dx, dy) == (0, 0) or n is None or (wx + dx, wy + dy) in laid:
+                    continue
+                if type(n) is Tile and n.kind == KIND_WALL:
+                    continue
+                if type(n) is not Tile or n.kind not in (KIND_FLOOR, KIND_GOAL) or n.sx or n.sy:
+                    raise CourseError("%s:%d: guard (%d, %d) touches (%d, %d), which is not a whole FLAT floor or "
+                                      "goal: a guard rail stands on the edge of one (SPEC.md 128.35.1)"
+                                      % (f, ln, wx, wy, wx + dx, wy + dy))
+                zs.add(n.z0)
+                if dx == 0 or dy == 0:
+                    edges.append(next(e for e, d in EDGE_D.items() if d == (dx, dy)))
+        if len(zs) > 1:
+            raise CourseError("%s:%d: guard (%d, %d) touches floors at %s units: a guard rail guards ONE height "
+                              "(SPEC.md 128.35.1)" % (f, ln, wx, wy, " and ".join(str(z / 2) for z in sorted(zs))))
+        if not edges:
+            raise CourseError("%s:%d: guard (%d, %d) shares no edge with a floor: it guards nothing (SPEC.md "
+                              "128.35.1)" % (f, ln, wx, wy))
+        for dy in (-1, 1):
+            for dx in (-1, 1):
+                n = tiles.get((wx + dx, wy + dy))
+                if n is None or (wx + dx, wy + dy) in laid or n.kind == KIND_WALL:
+                    continue
+                k = (int(dx > 0), int(dy > 0))
+                if not any(k in EDGE_CORNERS[e] for e in edges):
+                    raise CourseError("%s:%d: guard (%d, %d) touches the floor (%d, %d) at a corner with no rail "
+                                      "through it - a wall nobody can see (SPEC.md 128.35.1)"
+                                      % (f, ln, wx, wy, wx + dx, wy + dy))
+        zb = zs.pop()
+        t = Tile(KIND_WALL, zb + h2, 0, 0, ln)
+        t.guard = (tuple(e for e in ("N", "W", "E", "S") if e in edges), zb)
+        tiles[(wx, wy)] = t
+
+
+def guard_cells(tiles):
+    """SPEC.md 128.35: {cell: Tile} of every GUARD RAIL cell"""
+    return {k: t for k, t in tiles.items() if type(t) is Tile and t.guard is not None}
+
+
+def guard_pix(t, wx, wy, x0):
+    """SPEC.md 128.35.3: a guard rail's pixels (Y0 = 0) -> {(x, y): ink}: on each rail edge, from the guarded
+    floor's height up the rail's, a 2 px POST at each end and the middle (WHITE left, BLACK right) and two BARS - the
+    top one 2 lines (WHITE over BLACK), the middle one 1 line (WHITE).  The back edges first, so a front edge's
+    rail is drawn over a back one's at a corner; everything else in the cell is not the rail's"""
+    edges, zb2 = t.guard
+    H = 4 * (t.z0 - zb2)
+    out = {}
+    for e in edges:
+        (ax, ay), (bx, by) = [(wx + c[0], wy + c[1]) for c in EDGE_CORNERS[e]]
+        (Xa, Ya), (Xb, Yb) = sorted(((16 * (ax - ay) + x0, 8 * (ax + ay) - 4 * zb2),
+                                     (16 * (bx - by) + x0, 8 * (bx + by) - 4 * zb2)))
+
+        def yb(x, Xa=Xa, Ya=Ya, Yb=Yb):             # the edge at column x: the guarded floor's line there
+            return Ya + ((Yb - Ya) * (2 * (x - Xa) + 1)) // 32
+        for d in GUARD_POSTS:
+            for k, x in enumerate((Xa + d - 1, Xa + d)):
+                for y in range(yb(x) - H + 2, yb(x)):
+                    out[(x, y)] = WHT if k == 0 else BLK
+        for x in range(Xa - 1, Xb + 1):
+            y = yb(x)
+            out[(x, y - H)] = WHT
+            out[(x, y - H + 1)] = BLK
+            out[(x, y - H // 2)] = WHT
+    return out
+
+
+
+def guard_ops(tiles, ops, x0, _key=0):
+    """SPEC.md 128.35.3: each guard rail's art as a 'post' op (geometry: its cell's s, every pixel's top the rail's
+    top), put into the back-to-front order at its cell's place, (s, wx)"""
+    gc = guard_cells(tiles)
+    if not gc:
+        return ops
+    rops = []
+    for (wx, wy), t in gc.items():
+        pix = guard_pix(t, wx, wy, x0)
+        mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, 4 * t.z0)
+        rops.append(((wx + wy, wx), (_spans_of(pix), "post", wx + wy + _key, mk, False, t, (wx, wy))))
+    rops.sort(key=lambda r: r[0])
+    out, i = [], 0
+    for op in ops:
+        k = (op[6][0] + op[6][1], op[6][0])
+        while i < len(rops) and rops[i][0] < k:
+            out.append(rops[i][1])
+            i += 1
+        out.append(op)
+    out += [r[1] for r in rops[i:]]
+    return out
+
+
 def build_tiles(src):
     """-> {(wx, wy): Tile, or a Split (SPEC.md 128.24.3) whose records are Tiles or None}, every cell that
     holds a solid record.  The rooms in order (a room's `half` or `quarter`, a `box` laying halves and, at
@@ -2327,6 +2459,7 @@ def build_tiles(src):
                         raise CourseError("%s:%d: the split cell (%d, %d) is in the 3 x 3 of the FIELD cell (%d, %d) "
                                           "(SPEC.md 128.28.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
         field_seams(tiles, f)
+    lay_guards(src, tiles)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
@@ -6961,6 +7094,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     # GLASS (SPEC.md 128.25.18): a glass tile is SOLID and INVISIBLE - the picture is drawn as if it were not
     # there (its neighbours' faces hang into the gap), and its lane draws it once revealed
     gcells = {p["at"] for p in props if p.get("art") == "glass"}
+    rails = guard_cells(tiles)                      # SPEC.md 128.35: a GUARD RAIL's cell is drawn as its rail
+    for c_ in rails:                                # alone: not drawn as a wall, its neighbours' faces hanging
+        if c_ in pcell:                             # into it as into the void
+            raise CourseError("%s:%d: guard (%d, %d) is a prop's cell (SPEC.md 128.35.1)"
+                              % (fname, rails[c_].line, c_[0], c_[1]))
+    undrawn = gcells | set(rails)
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
@@ -6984,17 +7123,21 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         gtiles.update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
     ground = None if hack.get("noground") else ground_z(gtiles)
     floats = set()
-    vface = void_face_cells({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles)
+    vface = void_face_cells({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles)
     for fcells, fln in src.floats:
         if not fcells & vface:
             raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
                               "(SPEC.md 128.27.2)" % (fname, fln))
         floats |= fcells
     floats = frozenset(floats)
-    ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
+    if hack.get("guardsolid"):                      # (a red arm's switch: the guard drawn as the wall it is)
+        undrawn = gcells
+    ops = draw_ops({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles, x0,
                    {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
         ops = prop_ops(tiles, ops, props, x0)
+    if rails and not hack.get("guardsolid"):        # (guardfront: a red arm's switch, the rail keyed 8 rows nearer)
+        ops = guard_ops(tiles, ops, x0, 8 if hack.get("guardfront") else 0)
     gtop = min(min(sp) for sp, *_ in ops if sp)
     gbot = max(max(sp) for sp, *_ in ops if sp)
     for p in props:                                   # the slab over its whole rise
@@ -7006,9 +7149,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         for ri in sorted(pth["secret_rooms"]):
             rtiles[ri] = dict(tiles)
             rtiles[ri].update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
-            rops[ri] = draw_ops(rtiles[ri], x0, set(), ground, floats)
+            rops[ri] = draw_ops({k: v for k, v in rtiles[ri].items() if k not in rails}, x0, set(), ground, floats)
             if props:
                 rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
+            rops[ri] = guard_ops(rtiles[ri], rops[ri], x0)
             gtop = min(gtop, min(min(sp) for sp, *_ in rops[ri] if sp))
             gbot = max(gbot, max(max(sp) for sp, *_ in rops[ri] if sp))
     ftop = min(foot_top(rc, rc.zhi) for rc in reach)
@@ -7318,6 +7462,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if t_ is not None and not isinstance(t_, Split) and t_.kind in (KIND_FLOOR, KIND_WALL) \
                     and c_ not in gcells and not hack.get("nofloatflag"):
                 cells[c_][3] |= FL_FLOAT
+        for c_ in rails:                            # SPEC.md 128.35.4: a GUARD RAIL's cell is passed over by the
+            if not hack.get("noguardfloat"):        # model (its rail is the residual's records, the gaps none)
+                cells[c_][3] |= FL_FLOAT
         cells_v = {k_: list(v_) for k_, v_ in cells.items()}
         for c_ in pcell:
             cells_v[c_][3] |= FL_OBS
@@ -7608,6 +7755,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.ground, c.floats = ground, floats             # SPEC.md 128.27: the ground plane (px), the FLOATING cells
+    c.rails = frozenset(rails)                      # SPEC.md 128.35: the GUARD RAIL cells
     c.pairs = pairs                                # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
     c.ftabs = ftabs                                 # SPEC.md 128.28.2: section F's tables
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
@@ -16673,7 +16821,7 @@ def _grammar_cases():
         # one that compiles, and these prove the refusal itself)
         ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX,
          {"y0add": 0, "occ": "off"}),        # (both on today's records, --occ off: AV's residual meets them)
-    ]
+    ] + _guard_cases()                      # SPEC.md 128.35.1: the GUARD RAIL's
 
 
 # wave 3's malformed props (SPEC.md 128.12.13.1 item 2), every one a string here
@@ -20825,8 +20973,8 @@ def _face_bottoms(c, ops):
     """SPEC.md 128.27.6: every whole cell's sw and se face over the VOID in `ops`, read off its spans:
     [(cell, which, the face's last line, the corners' heights (zp, zq) in px)] - the cells the picture draws
     (a glass tile's is not one, 128.25.18)"""
-    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
-    drawn = {k: v for k, v in c.tiles.items() if k not in gc}
+    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"} | set(getattr(c, "rails", ()))
+    drawn = {k: v for k, v in c.tiles.items() if k not in gc}       # (128.35: nor a guard rail's wall)
     out = []
     for _k, cell, _t, h, _s, _e, faces in _cell_faces(drawn):
         if h is not None or isinstance(_t, FieldTile):  # (a FIELD cell's faces follow its profile: 128.28.6)
@@ -23493,7 +23641,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1, "av": 40}
+           "seeds": 1, "tables": 1, "title": 1, "av": 40, "guard": 30}
 
 
 def _av_floats_want(c):
@@ -23503,7 +23651,7 @@ def _av_floats_want(c):
         return set()
     gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
     return {k for k in c.floats if k in c.tiles and not isinstance(c.tiles[k], Split)
-            and c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) and k not in gc}
+            and c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) and k not in gc} | set(getattr(c, "rails", ()))
 
 
 def _av_checks(c, res, tag, off=None, flags_only=False):
@@ -23548,6 +23696,163 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
                     "gate opens on today's frames), the picture, map and blocks the same; records %d -> %d, RAM "
                     "%d -> %d" % (tag, len(off.model["recs"]), len(c.model["recs"]), len(off.cga), len(c.cga)),
                     same_g and same_p))
+
+
+# =============================================================================
+# SPEC.md 128.35: the see-through GUARD RAIL - --selfcheck's section `guard` (item 16)
+# =============================================================================
+
+_GBASE = 'course G "g"\nwidth 64\nfloor rect 4 8 14 11 flat 4\nstart 6 9\n'
+# the check's course: a walkway W (wy 8 - 10) at 4 units, its BACK edge guarded (wy 7) and its FRONT edge (wy 11);
+# behind the back rail the gap (wy 6) and a lower path L at 0 units (wy 5): low enough to stand behind the rail on screen
+_GCRS = _GBASE + 'guard rect 4 7 14 8\nguard rect 4 11 14 12\nfloor rect 4 5 14 6 flat 0\n'
+
+
+def _guard_cases():
+    """SPEC.md 128.35.1's refusals, each a string here"""
+    G = _GBASE
+    return [
+        ("a guard on a solid cell", G + "guard rect 4 10 14 11\n", "stands on a solid cell"),
+        ("a guard that guards nothing", G + "guard tile 20 20\n", "shares no edge with a floor"),
+        ("a guard beside a ramp", G + "floor rect 4 5 14 7 ramp y 5 7 2 4\nguard rect 4 7 14 8\n",
+         "not a whole FLAT floor"),
+        ("a guard between two heights", G + "floor rect 4 6 14 7 flat 2\nguard rect 4 7 14 8\n", "touches floors at"),
+        ("a floor at a guard's corner with no rail through it", G + "floor tile 15 7 flat 4\nguard tile 14 8\n",
+         "at a corner with no rail"),
+        ("a guard rail 1 unit high (under rubber's boost)", G + "guard rect 4 7 14 8 height 1\n",
+         "a guard rail is 1.5 - 3.0 units"),
+        ("a guard with a side clause", G + "guard rect 4 7 14 8 side +y\n", "guard takes a shape and [height"),
+        ("a guard laid twice", G + "guard rect 4 7 14 8\nguard tile 5 7\n", "laid twice"),
+    ]
+
+
+def _guard_ball(c, wx, wy, z, air):
+    """a ball's top-left with its contact at the centre of tile (wx, wy), z px (SPEC.md 128.10.2)"""
+    gx, gy = 16 * wx + 8, 16 * wy + 8
+    return gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+
+
+def guard_seen(c, wx, wy, z, air, cell=None):
+    """a ball at the centre of (wx, wy), z px, composited as the guest does (the records, and SPEC.md 128.29's
+    model when CELL is its VOID centre cell): -> (its lit pixels, those laid over, those laid over that are no
+    GUARD RAIL's pixel)"""
+    px, py = _guard_ball(c, wx, wy, z, air)
+    sb = wx + wy
+    ball = ball_pixels(px, py)
+    out = composite(c, px, py, sb, z, air, via="records", cell=cell)
+    rail = set()
+    for (gx_, gy_), t in guard_cells(c.tiles).items():
+        rail |= {(x, y + c.y0) for (x, y) in guard_pix(t, gx_, gy_, c.x0)}
+    hid = {p for p, k in ball.items() if out[p] != k}
+    return len(ball), hid, {p for p in hid if p not in rail}
+
+
+def guard_flights(c, at, keys, rail_row, mat=MAT_RUBBER, hop=None, n=110, firsts=range(0, 24, 2), gaps=range(2, 34)):
+    """every Hop (Space at step i) and, after it, a second press j steps later (a boost at its contact, or a
+    contact Hop) by a ball poked at the centre of AT and driven by KEYS into a guard rail along cell row
+    RAIL_ROW (wy): -> (the highest contact point over AT's floor, px, over every run; the runs that reached the
+    rail's row or past it, or fell; the runs with a boost)"""
+    top, crossed, boosts = 0, 0, 0
+    z0 = None
+    sgn = 1 if rail_row > at[1] else -1
+    for i in firsts:
+        for d in gaps:
+            p = Physics(c, mat=mat).poke(*at)
+            if hop is not None:
+                p.hop = hop
+            if z0 is None:
+                z0 = p.gz >> 8
+            bad = False
+            for k in range(n):
+                p.step(keys | (K_HOP if k in (i, i + d) else 0))
+                top = max(top, (p.gz >> 8) - z0)
+                if sgn * ((p.gy >> 12) - rail_row) >= 0 or p.nfall:
+                    bad = True
+            crossed += bad
+            boosts += bool(p.nboost)
+    return top, crossed, boosts
+
+
+def _guard_checks(res, _hack=None):
+    """item 16 (SPEC.md 128.35.6): the grammar's refusals are item 2's; here the picture, the occluders, AV and the
+    physics on _GCRS, and their red arms"""
+    hk = dict(_hack or {}, no_finish=True)
+    floor_arm = hk.pop("guardfloor", False)
+    c = compile_course(_GCRS, fname="<guard rails>", _hack=hk)
+    if floor_arm:                                   # (a red arm: the physics reads each guard cell as a FLOOR at its
+        g = Grid(c.cga)                             # top - the part's grid patched, the picture's untouched)
+        g.p = bytearray(c.cga)
+        for (wx, wy) in guard_cells(c.tiles):
+            o = g.rowtab[wx + wy - g.smin] + 4 * ((wx - wy - g.amin) >> 1)
+            g.p[o + 2] = (g.p[o + 2] & 0xF0) | KIND_FLOOR
+        c._grid = g
+    H = 8 * GUARD_H2 // 2                           # the rail's height, px (16)
+    gc = guard_cells(c.tiles)
+    flo = all(c.cells[k][3] & FL_FLOAT for k in gc) and c.av
+    res.append(("16 guard: %d GUARD RAIL cells, each a WALL %d px over the walkway with FL_FLOAT set (AV passes "
+                "over it, SPEC.md 128.35.4)" % (len(gc), H), len(gc) == 20 and flo and all(
+                    c.cells[k][2] & 15 == KIND_WALL and 4 * (t.z0 - t.guard[1]) == H for k, t in gc.items())))
+    # the picture: no pixel of the guard cells but the rail's (its neighbours' faces hang into the open cell)
+    rail = {}
+    for (wx, wy), t in gc.items():
+        rail.update({(x, y + c.y0): k for (x, y), k in guard_pix(t, wx, wy, c.x0).items()})
+    own = sum(1 for y in range(c.lines) for x in range(c.width)
+              if c.sbuf[y][x] in {wx + wy for (wx, wy) in gc} and c.tbuf[y][x] == 48 and (x, y) not in rail)
+    drawn = all(c.pic[y][x] == k for (x, y), k in rail.items())
+    res.append(("16 guard: the picture holds every rail pixel (%d) and no other pixel at the rail's key and top - "
+                "posts and bars, the rest of the cell the open edge" % len(rail), drawn and not own))
+    # the occluders: a ball BEHIND each rail is laid over by the rail's own pixels ONLY and shows through the
+    # gaps; a ball in FRONT of the back rail is laid over by nothing
+    rows = []
+    for what, wx, wy, z, air, cell in (("on L, behind the back rail", 8, 5, 0, False, None),
+                                       ("on the walkway, behind the front rail", 8, 10, 32, False, None),
+                                       ("over the gap, behind the back rail (the AV model)", 8, 6,
+                                        min(12, max(r.zhi for r in c.reach if (r.wx, r.wy) == (8, 6))), True, (8, 6))):
+        n, hid, other = guard_seen(c, wx, wy, z, air, cell)
+        rows.append((what, len(hid), n, len(other)))
+    ok_b = all(h > 0 and not o and n - h >= n // 2 for _w, h, n, o in rows)
+    res.append(("16 guard: a ball behind a rail is laid over by the rail's pixels alone and is SEEN through its "
+                "gaps - %s" % "; ".join("%s: %d of %d lit px laid, %d not the rail's" % r for r in rows), ok_b))
+    n, hid, _o = guard_seen(c, 8, 8, 32, False)
+    n2, hid2, _o2 = guard_seen(c, 8, 8, 44, True)
+    res.append(("16 guard: a ball IN FRONT of the back rail (on the walkway's back row, grounded and in the air at "
+                "44 px) is laid over by nothing (%d and %d of %d px)" % (len(hid), len(hid2), n), not hid and not hid2))
+    # the physics: no Hop, contact Hop or boost carries a ball into a rail's row; rubber's highest flight from the
+    # walkway stays under the drawn top bar; the jump pickup's Hop (PU_JHOP) and the jump with the boost are
+    # reported against it (a WALL is a column at every height: they cannot cross either)
+    fl = []
+    for nm, mat, hop in (("rubber", MAT_RUBBER, None), ("steel", MAT_STEEL, None), ("glass", MAT_GLASS, None),
+                         ("the jump pickup (rubber)", MAT_RUBBER, PU_JHOP)):
+        for side, keys, row in (("back", K_U | K_R, 7), ("front", K_D | K_L, 11)):
+            top, crossed, nb = guard_flights(c, (8, 9), keys, row, mat, hop)
+            fl.append((nm, side, top, crossed, nb))
+    rub = [f for f in fl if f[0] == "rubber"]
+    res.append(("16 guard: no ball crosses a rail, any Hop and second press (a boost at its contact) - %s; rubber's "
+                "highest flight %d px, under the %d px bar%s" % (
+                    "; ".join("%s %s: apex %d px, %d runs boosted" % (f[0], f[1], f[2], f[4]) for f in fl),
+                    max(f[2] for f in rub), H,
+                    "" if not any(f[3] for f in fl) else " -- CROSSED: %s" % [f[:2] for f in fl if f[3]]),
+                not any(f[3] for f in fl) and max(f[2] for f in rub) < H and all(f[4] for f in rub)))
+    return c
+
+
+def _sc_guard(X, res):
+    """--selfcheck's section `guard`: item 16 (SPEC.md 128.35.6), the GUARD RAIL, and its red arms"""
+    _guard_checks(res)
+    for what, hack, want in (
+            ("the guard drawn as the solid wall it is", {"guardsolid": True}, "SEEN through its gaps"),
+            ("the rail keyed a row nearer (in front of the ball before it)", {"guardfront": True}, "IN FRONT"),
+            ("FL_FLOAT not set on the guard cells (AV hides the gaps)", {"noguardfloat": True}, "SEEN through"),
+            ("the guard a FLOOR in the grid, not a WALL (the jump climbs onto it)", {"guardfloor": True}, "CROSSED")):
+        r_ = []
+        try:
+            _guard_checks(r_, _hack=hack)
+        except CourseError as e:
+            r_.append(("compile: %s" % e, False))
+        caught = [w for w, g in r_ if not g]
+        res.append(("16 guard negative control: %s - caught (%s)" % (what, "; ".join(w[:60] for w in caught)
+                                                                     or "NOT CAUGHT"),
+                    any(want in w for w in caught)))
 
 
 def _sc_av(X, res):
@@ -23730,7 +24035,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palet
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
-             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_cache")
+             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_cache")
 
 
 def _selfcheck(paths, res, skipped, S):
