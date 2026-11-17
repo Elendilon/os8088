@@ -280330,3 +280330,190 @@ controller's READ commands.
   paragraphs more heap than A's, as two claims (3,168 and 960) where A
   had one of 3,104 - the largest claim 64 paragraphs larger. Every other
   course is unchanged.
+
+### 128.31 Group lanes (the owner, 2026-11-17)
+
+*"This is bigger levels again; but it bites the tiles that need them most
+... Not really looking to overlap too many props, but for tiles, it will be
+useful."* Until this section a lane was a rectangle of the block map of at
+most one box (128.12.4.1: 4 word columns x 3 block rows, 32 x 24 px), and
+two lanes might not share a block (128.19.10's refusal, *"two lanes share
+blocks"*). So a crack or a glass tile got only the 2 x 2-block centre of its
+top (128.25.18), a wider hole or a taller patch could not sit beside its
+neighbour, a floating tile with its faces needed a hand-built companion lane,
+and look-2 glass could not join into one pane (the exploratory branches'
+reports: `glassart2`, `crack2`). A **GROUP** is the elements whose lanes
+would share blocks; it is drawn by lanes that each depend on the members'
+COMBINED state.
+
+#### 128.31.1 The decisions, in one table
+
+| question | answer |
+|---|---|
+| what forms a group | the TOOL, automatically: elements whose lane rectangles overlap, transitively (a connected component). A course with no overlap has no group and compiles to the same bytes as before |
+| one lane a group? | **No - a group is a SET of box-sized lanes** (128.31.2: the union of two edge-adjacent tops is 48 x 24 px, past the box every lane path is built on). The union's blocks are cut by DEPENDENCY: each block belongs to the members whose art changes in it, and each such class is cut into lanes of at most one box |
+| a group's lane's pose | `sum over its members m of class_m(pose_m) x mult_m`: each member's pose reduced to its CLASS inside that lane (poses whose pixels there are equal are one class), mixed radix. The guest computes it in `bz_ltrue` from the record; nothing else in the walk, the wheel, the contact box or the lead changes |
+| who may be a member | a family element whose family is `group`-able (its part walks EVERY record, not only the lanes: 128.31.5): GLASS's crack and glass tile today. A resident prop's lane (a rotor, a post, a flag, a clock, a sign) still REFUSES to share blocks |
+| caps, refused at build time | members a lane **4**; a member's poses **4** (its class map is 2 bits a pose); a lane's poses (the product of its members' classes) **64**; lanes one element is in **8** |
+| larger than a box | yes: a group is any number of lanes. The price is that its lanes commit on their own frames (128.31.6) |
+| the art | **`full`**, a new clause: `prop crack|glass <wx> <wy> full` draws over the element's WHOLE top (128.31.8). Edge-adjacent `full` elements overlap and group. Without the clause the art is as built (2 x 2), so every shipped course is byte-identical |
+
+#### 128.31.2 Why not one lane: the box is structural
+
+A lane is drawn by one of four ways (128.12.4.2) and three of them are a
+box: the CONTACT group is composed in a `bz_boxbuf` buffer (`BZ_BOXW` 4
+words x `BZ_BOXL` 32 lines, four of them, 1,024 bytes) and merged with the
+ball's group only when the union fits `BZ_BOXW` x `BZ_BOXH`; the WHEEL's
+commit is priced and placed by the beam as one rectangle in the retrace
+wait (128.12.5.3); the LEAD writes one rectangle ahead of the beam. Two
+edge-adjacent tile tops are 16 px apart across and 8 down, so their union is
+**6 words x 3 - 4 block rows**, and a straight path of `n` tiles 2n + 2
+words. No union of two neighbours fits a box.
+
+Lifting the box was priced and not taken: `BZ_BOXW` 6 makes each buffer
+384 bytes (**+512 bss**), every compose and merge rule that tests the
+union against 4 words takes the new width, and a 6-word union is still
+past a straight path of three; the wait's commit of a 6 x 4 rectangle is
+about twice a 4 x 3's (128.12.5.4's 71 clk a word-line), so fewer fit a
+frame. The set of box-sized lanes costs no bss and no rule.
+
+#### 128.31.3 The rule (the tool, `bbcourse.py`)
+
+1. **Each lane is built as before** (128.12.4, 128.25.18, its kind's
+   rectangle and poses: MARKS over the picture). Lanes whose rectangles
+   share a block are joined, transitively: a COMPONENT. A component of one
+   lane is that lane, as before.
+2. **A component's members must be groupable** (128.31.1). Otherwise the
+   compile is refused as before, naming both lanes: *"two lanes share
+   blocks"*.
+3. **Dependency.** For every block of the union of the members'
+   rectangles, a member DEPENDS on it when its poses' pixels inside that
+   block (the marks as a set of (x, y, ink)) are not all equal. A block no
+   member depends on is the picture's (static: in no lane). Its
+   **dependency set** is the members that depend on it.
+4. **The lanes.** The blocks are grouped by dependency set, and each set's
+   blocks cut into rectangles of at most 4 x 3 holding no other set's
+   block (greedy, `cover_blocks`, the cutter the pathway's reveal groups use,
+   128.22.4.1); a static block may ride inside one. Each rectangle is a GROUP LANE.
+5. **Classes.** In a group lane, member `m`'s poses are partitioned by
+   their marks inside the lane's rectangle (equal marks, one class),
+   numbered in order of first appearance from pose 0; `class_m(p)` is the
+   CLASS MAP. A member with one class there is not a member of that lane.
+   The members are ordered by record, `mult` of the first is 1 and each
+   next is the product of the classes before it; the lane's poses are the
+   product of every member's classes.
+6. **The pictures.** The lane's pose `q` is the picture under it WITHOUT
+   any member's marks (the bare region, as every lane's) and over it every
+   member of the COMPONENT in painter's order - row `s = wx + wy`, then the
+   file's line - each at the pose `q` gives it (a member not in this lane
+   at its pose 0). Pose 0 (every member at 0) is what the picture holds.
+   Its blocks join the course's one pool, deduplicated (128.10.4.2).
+7. **Refused** (each naming the line): a member of more than 4 poses; a
+   lane of more than 4 members or more than 64 poses; an element in more
+   than 8 lanes.
+
+#### 128.31.4 The format
+
+- **The GROUP record**, kind **255** (`BZ_PK_GROUP`, never a family's: the
+  families own 16 - 254), flags `LANE`, its anchor `(255, 255)` (no cell,
+  as a SIGN's: `bz_owner` never finds it), no clock, its lane at +8 - +15
+  as any lane's, and at **+16, +20, +24, +28 four ENTRIES**:
+
+  | +0 | +1 | +2 | +3 |
+  |---|---|---|---|
+  | the member's record index | its kind (0: no more entries) | its CLASS MAP: pose `p`'s class at bits `2p`, `2p + 1` | its MULT |
+
+- **A MEMBER** is its family record as built (128.25.6.4: FSB, class) with
+  flags bit 2 **`GRP`** and NO lane: +8 - +15 hold the indices of the group
+  lanes that depend on it, `0FFh` after the last.
+- **The order.** The group lanes are lanes: they sort among the lanes by
+  first block row (128.12.3.1), then by their first member's line, then by
+  the cut's order. The members are non-lane records, in the file's order
+  with the rest. So a course with a group numbers its records differently
+  from the same course without one; a course with none is unchanged.
+
+#### 128.31.5 The guest
+
+- **`bz_fmark`** (the hooks' MARK, 128.25.6.3): an element at or past
+  `bz_nlane` - a member - marks every lane its record lists at +8 (the
+  list ends at `0FFh` or after eight). A lane element marks itself, as
+  before. The hooks are unchanged: they mark the element.
+- **`bz_ltrue`'s GROUP case**: for each entry, the member's POSE through
+  `bz_fone` (the family's hook, BX the member), its class from the map, x
+  MULT, summed. A family lane's case is unchanged.
+- **The walk** (128.12.5.2): a group lane's kind (255) is past `BZ_FK0`, so
+  it is walked when marked, as a family lane is (128.25.18's skip). The
+  wheel, the contact group, the lead, `bz_lsync`, `bz_lfull` and every
+  writer see a lane. No table grows: `BZ_PROPMAX` counts the course's
+  lanes (fewer elements' own, plus the group's) and `BZ_PROPALL` its
+  records.
+- **GLASS's part**: RESET marks every crack and glass tile of the RECORDS
+  (`bz_nprop`), not of the lanes (`bz_nlane`): a member is not a lane.
+  STEP, CONTACT, POSE and CELL already walk every record or take one.
+- **kern_mega**: everything is read through `[bz_cseg]` as every record
+  read; no segment word is added to.
+
+#### 128.31.6 What a group costs
+
+- **Resident**: `bz_fmark`'s member branch and `bz_ltrue`'s GROUP case
+  (PREDICTED about 70 bytes; MEASURED in 128.31.10). No bss.
+- **A step**: nothing. A family's hooks mark as before.
+- **A walk**: a marked group lane's `bz_ltrue` makes one `bz_fone` per
+  member (PREDICTED about 400 - 600 clk each at 4.77 MHz: the slot scan,
+  the far call, the family's POSE) - a lane's walk is otherwise the same.
+  It is walked only when a member marked it.
+- **On the glass**: a member's change marks every lane of its group that
+  depends on it, and each is committed as any lane: by the wheel when it
+  misses the ball's boxes, else one contact lane a frame (128.12.4.3). So
+  a tile under the ball whose art spans `k` lanes can take up to `k`
+  frames to be whole (the other lanes WAIT, display only; never a wrong
+  pixel - the card is always the map's). MEASURED in 128.31.10.
+- **The course**: per group lane a 32-byte record and its pose maps,
+  `2 x w x h x poses` bytes, and the blocks its poses add to the pool; per
+  member nothing (its record exists, its own lane is gone).
+- **The tool**: per group lane one overlay a pose over its rectangle (no
+  render).
+
+#### 128.31.7 The bounds (128.12.4.6, 128.19.10)
+
+The window's change bound counted the EVENT lanes as 1 together (*"a ball
+touches one thing at a time"*). One event now changes every lane its
+element is in: the term is the most window lanes any one element is in
+(1 for a course with no group). Every other bound counts lanes, and a
+group lane is a SLOW lane.
+
+#### 128.31.8 What uses it
+
+- **GLASS `full`.** The crystal over the whole top (`crystal_top_ink`'s
+  diamond, 32 x 16), so a run of revealed tiles is ONE pane with no gap at
+  any edge - along a path, at an L-turn and on a two-wide path alike: the
+  shared edge is in the two members' group lane. A hidden neighbour shows
+  the ground through its own gap.
+- **CRACK `full`.** The hole is the whole top less a ragged rim (the
+  hairlines as built, `|u| / 2 + |v|` under 7 for the hole), so two broken
+  neighbours are one opening with the rim between them.
+- **A floating crack that vanishes** (the exploratory `crack2`): its
+  broken pose takes the faces too, 32 x 40 px - past a box, so its own art
+  is cut into lanes of one member each; the companion record and its
+  partner byte are not needed. Not built here.
+- **Today's props**: none groups. A rotor, a post, a flag, a clock and a
+  sign keep their refusal; PICKUPS' icons and the probe's flag could be
+  members once their parts walk every record (their RESET walks the
+  lanes).
+
+#### 128.31.9 The proofs
+
+- `--selfcheck`: every shipped course byte-identical (their parts are the
+  same bytes); refusals: a component with a resident lane, a lane of five
+  members, a member of five poses, a lane past 64 poses, an element in nine
+  lanes; a group's poses equal to the overlay of its members' (every
+  combination re-rendered from the members' own art and compared).
+- `tests/bonanza_phys.py --check`: a GROUP leg on PLAYGROUND - the guest's
+  `bz_step` under unicorn equals the model at every step, every group
+  lane's `bz_ltrue` equals the model's combination, and every lane whose
+  combination changed was marked and its walk made; red `grpcomb` (the
+  classes summed without their MULT) goes red at the first step two
+  members are not both at pose 0.
+- `bonanzaring` (MartyPC, the final pass): its glass leg reads the group's
+  lanes and decodes the card against the oracle's map, whose drawn poses
+  the oracle takes from `bz_ldrw` as for any lane.
