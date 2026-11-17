@@ -304,7 +304,7 @@ def cells_check(binp, sym, cs):
     """D3.1: the package's bz_cexp on each split course's STORED form -> its RAM form"""
     bad = []
     for k, c in cs.items():
-        g = Guest(binp, sym, c.stored4)
+        g = Guest(binp, sym, c.stored)
         g.w("bz_cseg", PS, 2)
         g.call("bz_cexp")
         got = bytes(g.mu.mem_read(PS * 16, len(c.cga)))
@@ -345,7 +345,7 @@ def hostile(binp, sym, c):
     end, one aligned wrong and one record's kind made a split's; bz_cexp under unicorn with every read and write
     of the course's segment watched -> [complaints]"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
-    st = bytearray(c.stored4)
+    st = bytearray(c.stored)
     g0 = struct.unpack_from("<H", st, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", st, g0 + 4)
     diroff, nsec = struct.unpack_from("<HH", st, 38)

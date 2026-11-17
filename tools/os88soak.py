@@ -930,6 +930,53 @@ def _snapshot_src(tree):
     return dst
 
 
+# WHAT THE FROZEN TREE DOES NOT FREEZE.  It holds build/ and the kernel
+# source (_snapshot_src), but every row still runs its own script out of
+# tests/, imports tools/, and several read PACKAGE SOURCE at run time -
+# BONANZA's rows assemble the package with a table of `dw label` on the end
+# at EVERY boot to learn its addresses (tests/bonanza_ring.py `symbols()`).
+# So a merge or checkout in this tree while a run is in flight hands the rows
+# that boot after it the NEW source's addresses against the OLD images: on
+# 2026-11-17 a merge 24 minutes into a 40-minute run moved `bz_rlog` two
+# bytes and six BONANZA rows went red - every leg that booted after it
+# (the second adapter of each long row, and both short rows), every one
+# before it green - with failures that read as game bugs.  Copying apps/
+# (432MB) into every run is not the cure; SAYING SO is: the start records
+# the content of the tree the rows read, and `status` names it if it moved.
+_WATCHED = ("apps", "tests", "tools")
+
+
+def _content_tree():
+    """A git tree id of the TRACKED files under _WATCHED as they are on disk
+    now (a scratch index seeded from the real one, so only changed files are
+    hashed), or None outside git.  Content, not HEAD: a commit of what was
+    already on disk moves HEAD and not this."""
+    import tempfile
+    try:
+        idx = subprocess.run(["git", "rev-parse", "--git-path", "index"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        with tempfile.TemporaryDirectory() as td:
+            tmp = os.path.join(td, "index")
+            shutil.copy2(os.path.join(ROOT, idx), tmp)
+            env = dict(os.environ, GIT_INDEX_FILE=tmp)
+            subprocess.run(["git", "add", "-u", "--"] + list(_WATCHED), cwd=ROOT, env=env,
+                           capture_output=True, check=True)
+            return subprocess.run(["git", "write-tree"], cwd=ROOT, env=env, capture_output=True,
+                                  text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _moved_since(tree):
+    """The files under _WATCHED that differ on disk from TREE ([] when none)"""
+    try:
+        r = subprocess.run(["git", "diff", "--name-only", tree, "--"] + list(_WATCHED), cwd=ROOT,
+                           capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return r.stdout.split()
+
+
 def _frozen_targets(a):
     """What the run's own tree has to contain: the shipped set, plus every
     artefact the selected rows DECLARE.
@@ -1182,6 +1229,9 @@ def start(a):
         env["OS88_BUILDNUM"] = str(num)
         print("os88soak: the run reads %s, so build/ is yours while it runs"
               % os.path.relpath(frozen.dir, ROOT))
+        print("os88soak: the CHECKOUT is not: rows run tests/ and tools/ and "
+              "read package source from it (a merge or checkout here mid-run "
+              "is `status`'s warning; commit and edit elsewhere)")
     else:
         print("%sos88soak: --shared-build: the run reads build/, so a `make` "
               "while it runs will break rows%s" % (YELLOW, OFF))
@@ -1205,6 +1255,8 @@ def start(a):
             "marty_jobs": mj, "host_jobs": hj, "tier": a.tier,
             "bochs_per_core": bpc,
             "resumed": len(skip), "root": ROOT,
+            # what the rows read out of the checkout (_WATCHED), as it was
+            "content": _content_tree(),
             # The denominator, fixed at the first start and carried through
             # every resume - see _selected().
             "total": len(_selected(a))}
@@ -1383,6 +1435,14 @@ def status(a):
         print("  eta      ~%s at the rate so far" % _hms(rate * (total - len(seen))))
     if bad:
         print("  %sfailed:%s %s" % (RED, OFF, " ".join(bad)))
+    moved = _moved_since(meta["content"]) if meta.get("content") else []
+    if moved:
+        print("  %sTHE CHECKOUT MOVED UNDER THIS RUN%s: %d file(s) under %s differ from the "
+              "tree it started on (%s%s). A row that started or booted after the change read "
+              "the NEW scripts, tools or package source against the run's OLD images, so its "
+              "verdict is suspect - re-run the failures on a still tree before believing one."
+              % (RED, OFF, len(moved), "/".join(_WATCHED), " ".join(moved[:6]),
+                 " ..." if len(moved) > 6 else ""))
     if skp and a.verbose:
         print("  %sskipped:%s %s" % (YELLOW, OFF, " ".join(skp)))
 

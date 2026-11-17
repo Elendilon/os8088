@@ -62,7 +62,7 @@ countdown's own state there) and fails if the clock still moved, and every
 wait for an idle slot FAILS when an effect never frees it.
 
 WAVE 5B (SPEC.md 128.15.9, 128.15.13): unchanged in logic.  The parts table's
-format byte is the whole table's, so with BZPARTZ=lzb the sound part and the
+format byte is the whole table's, so with LZB parts (shipped) the sound part and the
 songs are LZB parts like the courses: the title's fetch on the desktop and
 course 1's song in the bracket are decoded by OSAPI_DECOMP's LZB arm, and the
 model comparison holds the decoded bytes to bbmusic's.  The format is printed
@@ -566,6 +566,18 @@ def shell_static():
     for nm, ev in (("PAD", "ARRIVE"), ("GATE", "GATE"), ("LIFE", "LIFE"), ("OVER", "OVER")):
         if not re.search(r"^BZS_EV_%s\s+equ\s+BZS_E_%s\b" % (nm, ev), inc, re.M):
             out.append("BZS_EV_%s is not BZS_E_%s" % (nm, ev))
+    # 2026-11-17: the finish's call was under an %ifdef of an EQU, so it was never assembled and the
+    # fanfare never played; the listing's ASSEMBLED call (an address and bytes) is the proof it is in
+    lst = R.at("build/bonanza.lst")
+    if os.path.exists(lst):
+        ln = open(lst).read().split("\n")
+        # `call` is the SDK's macro: the bytes are on its expansion (E8 rel16), a few lines under the source
+        # line; a call in a false conditional is listed with no expansion at all
+        ok = any(re.search(r"\scall bzs_victory\b", t) and
+                 any(re.match(r"^\s*\d+ [0-9A-F]{8} E8[0-9A-F]{4}\s", u) for u in ln[i + 1:i + 12])
+                 for i, t in enumerate(ln))
+        if not ok:
+            out.append("bonanza.lst has no ASSEMBLED call bzs_victory: the finish never plays the fanfare")
     art = R.at("build/bonanza-art")
     g = os.path.join(art, "bzsnd.inc")
     if os.path.exists(g):

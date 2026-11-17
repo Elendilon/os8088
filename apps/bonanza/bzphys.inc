@@ -1792,12 +1792,10 @@ bz_fstart:
 bz_fstep:
     cmp byte [bz_fcnt], 1
     jbe .r
-%ifdef BZ_SONG_VICTORY
-    cmp byte [bz_fcnt], BZ_FIN_STEPS + 1
-    jne .nv
-    call bz_fvic
-.nv:
-%endif
+    cmp byte [bz_fcnt], BZ_FIN_STEPS + 1 ; the finish's first step: the
+    jne .nv                     ; VICTORY fanfare over the course's song
+    call bzs_victory            ; (128.22.9; its own tests: a goal, an arm,
+.nv:                            ; music, the fanfare had)
     call .in
     dec byte [bz_fcnt]
     mov al, [bz_ffl]
@@ -2000,10 +1998,8 @@ bz_fdis:
 ; together - so the hops so far are e_0 + e_1 + e_2 = 3 frames / 8, which
 ; moves at each hop and at no other frame (bar 3 frames' 16-bit wrap: one
 ; extra recompose in 6 minutes).  On
-; a FLASH frame under bit 1 (the last PU_WARN steps; which frames is the
-; build's BZ_CUEFLASH) BZ_CL_FL (a DITHER style: the checker folded into the
-; ball's blit, bz_chk its row 0's by card and py's parity) or BZ_CL_BL (a
-; BLINK style: the ball not drawn).  bz_boxc and bz_blit draw from it.  When
+; a FLASH frame under bit 1 (the last PU_WARN steps: every 4th frame, BLINK4)
+; BZ_CL_BL, the ball not drawn.  bz_boxc and bz_blit draw from it.  When
 ; the look changes, bz_ospr (the sprite bz_mkboxes's idle test compares
 ; against: last frame's) is made this frame's bz_spr NOT, so that test
 ; recomposes a RESTING ball on exactly the frames its cue's look changed -
@@ -2023,28 +2019,9 @@ bz_cuef:
     xor dx, dx                  ; DL = the look
     test ah, 2
     jz .sp
-%if BZ_CFP == 2
-    test byte [bz_frames], 1    ; every 2nd frame
-    jz .sp
-%else
     test byte [bz_frames], 3    ; every 4th frame
     jnz .sp
-%endif
-%if BZ_CFB
     mov dl, BZ_CL_BL
-%else
-    mov dl, BZ_CL_FL
-    mov cx, 3333h               ; the checker's row 0: by card (a CGA pixel is
-    cmp byte [bz_herc], 0       ; two bits, a Hercules one a mono pair) and
-    je .c1                      ; by py's parity
-    mov cx, 5555h
-.c1:
-    test byte [bz_py], 1
-    jz .c2
-    not cx
-.c2:
-    mov [bz_chk], cx
-%endif
 .sp:
     test ah, 1
     jz .lk
@@ -2146,14 +2123,6 @@ bz_fdtab:
     db 0c0h, 000h, 0c0h, 030h, 0cch, 030h, 0cch, 033h
     db 0fch, 033h, 0fch, 0f3h, 0ffh, 0f3h
 
-%ifdef BZ_SONG_VICTORY
-; bz_fvic - the VICTORY tune over the course's song (a goal's finish: the
-; fanfare, fetched beside the song at the play's start, starts with no disk
-; read - bzs_victory, SPEC.md 128.22.9; a timeout keeps its effect, a silent
-; play stays silent: bzs_victory's own tests).  Preserves all.
-bz_fvic:
-    jmp bzs_victory
-%endif
 
 ; bz_tdset - wave 7 (SPEC.md 128.18.5): bz_tdig from bz_tsec, the clocks'
 ; digit poses - units, tens, hundreds; 0 a blank (a leading zero), 1 + d the
