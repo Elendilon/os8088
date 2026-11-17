@@ -528,7 +528,7 @@ WA_SINK = 160                 # a fall below a water cell's top: gvz capped at -
                               # the next step's G makes it 184 - 0.72 px a step, a 3-unit column in about 0.6 s
 WA_HTHR = 0x7FFF              # bz_mrec's HTHR while the centre is a water cell: no landing's lvz reaches it
 WA_ESH = 2                    # the floor's restitution on water: sand's less sand's >> WA_ESH (three quarters)
-WA_BOB = 72                   # the sink's WOBBLE: every 32 steps under the water gvz = +WA_BOB, a half-px bob (0: none,
+WA_BOB = 0                    # the sink's WOBBLE (OFF: the owner, 2026-11-17, "the straight fall looks better"; 72 its value): every 32 steps under the water gvz = +WA_BOB, a half-px bob (0: none,
                               # the one-constant switch: the part assembles no wobble then)
 WATER_FLOAT = 4               # px: a water top's TOPS (the canvas's tbuf) above its floor, so a ball riding the
                               # float line (a half unit, 4 px, under the top) is laid under the top while grounded

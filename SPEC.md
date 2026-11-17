@@ -278614,6 +278614,9 @@ stop holds gvx and gvy at 0, so it cannot leave by the glass) and never a
 stun (HTHR is raised). **15 bytes**; `WA_BOB` 0 is the ONE-CONSTANT SWITCH
 (the part assembles none, the model skips it). With it a 3-unit column sinks
 in 44 steps (0.8 s), the 6-unit one in 84 (1.5 s), MEASURED on the unicorn.
+**OFF since 2026-11-17** (the owner, having seen it: "I like the concept, but the
+straight fall looks better currently"): `WA_BOB` is 0, so the shipped part
+holds none of the 15 bytes and steel sinks straight down.
 
 **A DEEP COLUMN** on the test course: a deck 6 units up (a ramp from the
 walkway), its column (4, 8) 6 units to the bed, ripples `always`, a front arch
