@@ -254178,6 +254178,14 @@ bytes on the CGA and pack to almost nothing on the disk; the second copy
 costs the heap 1,280 bytes (rubber, steel) and 2,560 more for glass's
 shatter frames (2,560 and 5,120 bytes with both copies).
 
+**AMENDED (128.38.10, the owner's A and B, 2026-11-17):** the squash,
+shatter, stretch and pop entries are now ONE parity copy (B) of ONE shift
+(A), 160 bytes a frame where this table has 1,280: the guest shifts the entry
+at the draw into a 160-byte SCRATCH that follows the shadow masks
+(`BZ_BAL_SCROFF`), and every offset after the roll frames moves with it.
+128.38.10 is the layout and the record; this table is the layout as it was
+(`bonanza_assets.EPAR` 2 and `ESH` 4 build it again).
+
 **Every material has a BLACK OUTER RIM** - the silhouette's outermost ring of
 pixels is colour 0 in every roll, squash and shatter frame - because the
 course is drawn in the same three colours the balls are: flat tops white
@@ -278814,11 +278822,87 @@ records and cells (item 3), the reach and its control (item 6), the art and
 its control `nospikeart` (item 10), the scenes on the model and two model red
 arms (`nokill`, `allfloor`; item 11).
 
+#### 128.38.10 The death and squash frames made cheaper: B and A (the owner, 2026-11-17; BUILT, MEASURED)
+
+The brief: every squash, shatter, stretch and pop FRAME was 4 shifts x 2 line
+parities x (mask 80 + frame 80) = 1,280 bytes, all of it RAM in every play
+(the balls live in the resident bundle, 128.25.5.2). The owner: *"~90 for A
+and B, to save that much, seems great. If they don't end up that
+proportional, then we can redecide; but try both."* Both are built, as two
+SWITCHES in `tools/bonanza_assets.py` (`EPAR`, `ESH`; the guest reads
+`BZ_BAL_EPAR`, `BZ_BAL_ESH` from `bzconst.inc` and assembles the matching
+code), and as two commits.
+
+- **B, `EPAR = 1`: one line-parity copy.** On the CGA the two copies were
+  the same bytes; they differed only after `bz_hxlat`'s Hercules translation,
+  which ties a mid colour to its line's parity. Now there is one copy,
+  translated from table 0 (`bz_hxents` toggles nothing), and `bz_sprite`
+  no longer adds the line's parity: on the Hercules a squash, shatter,
+  stretch or pop drawn on an ODD line has its mid colours a checker phase
+  off, for the few frames it shows (the owner accepted that). `bz_ballgen`
+  writes no second copy.
+- **A, `ESH = 1` as well: one shift.** Each frame's entry is stored at shift
+  0 (160 bytes); at the draw, for a shift s of 1 - 3, `bz_eshift` (in
+  `bzgame.inc`, beside `bz_sprite`) moves its 32 rows s pixels right into a
+  160-byte SCRATCH in the same ball part (`BZ_BAL_SCROFF`, after the shadow
+  masks), the mask filling with kept pixels and the frame with 0, and
+  `bz_smsk` points there - so `bz_blit`, the finish's dissolve (which reads
+  `bz_bsegs[bz_mat]:bz_smsk`) and the boxes read it as a stored entry. At
+  shift 0 the entry is used where it lies. The cost of shift-0 storage: a
+  shard of glass's shatter (or a pop shred) that lay LEFT of the sprite's
+  first pixel (x -2, -1) is not drawn at shifts 1 - 3, and a piece the shift
+  pushes past the right edge is cut there without a black ring; both for a
+  frame or two of a burst. `bz_ballgen` writes the one shift (`bg_eput`).
+
+**The tool, the oracle and the proof follow the layout**: `ent_at` (where a
+frame's entry is stored for a shift and a parity) and `ent_rows` (the entry
+AS DRAWN: under A, shifted by `shift_row`, the guest's rule) are what
+`bonanzaassets`' checks, the composites and `bonanza_ring`'s draw oracle read;
+`make bonanza-check` still runs `bz_ballgen` under unicorn against
+`build_ball2`, every byte, all three balls. `tests/bonanza_phys.py --check`
+runs `bz_eshift` under unicorn on every frame of every ball at shifts 1 - 3
+against `ent_rows` (42 entries, equal, BX kept), with a red arm (`eshfill`:
+the mask's fill 0, the kept pixels shifted in as holes) that goes red.
+
+| MEASURED (`make bonanza`) | before (00af10f01) | B | B + A |
+|---|---|---|---|
+| BONANZA's image | 49,900 | 49,870 (**-30**) | 49,983 (**+83**; +113 over B) |
+| ...spans: `bz_sprite`, `bg_ent`, `bg_eput`, `bz_hxents`, `bz_eshift` | 372, 198, -, 29, - | 361, 175, 6, 27, - | 362, 175, 12, 27, 106 |
+| its bss | 11,915 | 11,915 | 11,915 |
+| rubber's part, RAM / packed | 13,376 / 773 | 9,536 / 752 | 6,816 / 446 |
+| steel's | 8,256 / 177 | 6,976 / 177 | 6,176 / 177 |
+| glass's | 13,376 / 1,268 | 9,536 / 1,225 | 6,816 / 531 |
+| the RESIDENT BUNDLE, RAM | 39,280 | 30,320 (**-8,960**) | 24,080 (**-15,200**; -6,240 over B: -6,720 of copies, +480 of scratch) |
+| ...packed (lzb) | 5,059 | 4,992 | 3,984 |
+| `BONANZA.O88` | 122,741 | 122,649 | 121,721 |
+
+B came in at 8,960 rather than the brief's 8,320: steel's squash is halved
+too (all fourteen frames of the three balls are). A came in at 113 resident
+bytes rather than 40 - 80: `bz_eshift` is 106 (a two-bit-a-pass shifter over
+32 five-byte rows, the part's segment from `bz_bsegs`, every register it uses
+kept but CX and DX).
+
+**What A costs a drawn frame (PRICED, not MARTYPC-measured):** `bz_eshift`
+traced under unicorn and priced at 8088 clocks (`bzballchk.price`): **10,943
+clocks at shift 1, 14,788 at shift 2, 18,633 at shift 3 - 2.3, 3.1 and 3.9
+ms** - once a frame, only while the ball squashes (six steps) or dies (24),
+and never at shift 0. A first version shifting a bit a pass cost 12,019 -
+21,844; the pixel-a-pass loop is +8 bytes. Not built: caching the last
+(entry, shift) so a shattering ball, which no longer moves, shifts once
+(about 20 bytes and 3 of bss), and a byte-table shifter (faster, larger).
+
+**LOOKED AT** on MartyPC, the `BZSPIKE=1` tree, CGA and Hercules, at each
+step: a rubber squash (shifts 0 and 1), rubber's pop (its four frames) and
+glass's shatter (its four), each caught at `bz_foot` by `bz_spr`. On the CGA
+B and A draw the same pictures as before; on the Hercules the frames read as
+before at this size (the pop and shatter over the spikes' dither are hard to
+read on either layout).
+
 #### 128.38.9 Open questions for the owner
 
-1. The POP's 3,840 bytes of RAM: the ball part's fixed shatter layout puts
-   the last frame at entry 3, so two frames cost the same RAM as three; a
-   cheaper pop needs a resident change (a frame table) - not taken.
+1. The POP's RAM: 3,840 bytes at first; with B and A (128.38.10) the three
+   frames are 480. Keep A (113 resident bytes, 2 - 4 ms a dying frame), B
+   alone (-30 bytes, 8,960 of RAM back), or both - the owner's call.
 2. The spikes' height is fixed at a half unit (a climb). Taller tips would
    need steel to arrive from a level approach; not built (no `up` clause).
 3. The art on both cards, and whether the membrane should differ more from

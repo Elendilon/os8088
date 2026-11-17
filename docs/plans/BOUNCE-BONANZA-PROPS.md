@@ -236,6 +236,11 @@ puts the SPIKE test course on the pathway's pad 0.
       `bonanzaperf` rows on a `BZSPIKE=1` build).
 - [ ] **S.8** The owner's answers (SPEC.md 128.38.9) and a shipped course that
       uses spikes.
+- [x] **S.9** The death and squash frames cheaper (the owner's A and B, SPEC.md
+      128.38.10): B one parity copy (the bundle -8,960 RAM, the image -30), A
+      one shift shifted at the draw (a further -6,240 RAM for +113 image bytes,
+      2.3 - 3.9 ms a dying frame, PRICED); both switches built, both LOOKED AT
+      on both cards. The owner keeps both, B alone, or neither.
 
 ## Stories
 
