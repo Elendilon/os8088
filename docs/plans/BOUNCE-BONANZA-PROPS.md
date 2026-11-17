@@ -37,7 +37,7 @@ px, and at most 6 FAST lanes meet a window.
 
 | | what | why moderate |
 |---|---|---|
-| P9 | **SEE-SAW / TILT PLATE** | the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a resting ball is the lift's carry adapted, not new physics |
+| P9 | **SEE-SAW / TILT PLATE** | the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a resting ball is the lift's carry adapted, not new physics - **BUILT** on `bb-tilt` (SPEC.md 128.42, below): no resident engine byte, the part 648 bytes |
 | P10 | **ARCH to roll under** (also: a ball forced under it cannot boost over a pad, so rubber must take a pad) | ~~the reserved UNDERSIDE flag: resident~~ - **BUILT as a family with no resident change** (the ARCHWAY, SPEC.md 128.39, branch `bb-arch`): CELL walls the arch above the ball's clearance, STEP caps the ball under it; below |
 | P11 | **TURNTABLE, quarter-turn**: half filled, a quarter turn every second or so, the cells switching; it does not carry the ball (a cell that turns to a gap drops you) | several SLOW lanes |
 
@@ -366,6 +366,43 @@ hidden at most a ball length; the pad seen) is a REFUSAL the tool measures.
       mark BELOW, 50% against 75%; posts at the corners would show it), the
       default height, 2-deep low arches.
 - [ ] **A.8** A shipped course that uses it.
+
+## P9 THE SEE-SAW - built (branch `bb-tilt`, SPEC.md 128.42)
+
+Family ID 14 (13 is the gates' on another branch: a gap here), kinds 80 (the
+PLATE) and 81 (a LANE of one, the tool's), home `resident`, a 648-byte part;
+no resident engine code (the image +2: `BZ_FTAB`'s rows), `BZ_PHYSV` and every
+shipped course, demo and identity unchanged (MEASURED, `cmp`). `seesaw <x0>
+<y0> <x1> <y1> along x|y pivot <units> [rest -|+]` lays a plate of 2, 4 or 6
+cells along its axis and 1 - 2 across, in three poses (rest, FLAT, the other
+end down), each a set of slope cells CELL writes into the window. The ball's
+WEIGHT tips it: grounded on a half for 2 steps (steel), 8 (rubber) or 28
+(glass) it moves toward that half down, then 4 more from FLAT; the step that
+moves it CARRIES the ball (z set on the new floor: never a fall). The lanes
+are the picture's change between the poses, cut by the tool; a white fulcrum
+under the pivot. The diary's 2026-11-17 entry "THE SEE-SAW" is how it went.
+
+- [x] **T.1** SPEC.md 128.42: the contract, written with the code (PLANNED
+      decisions in 128.42.1, then BUILT and MEASURED).
+- [x] **T.2** The tool: the statement and its nine refusals, the records and
+      the reader, `TiltFamily`, the `tilt` reach form, the lanes cut from the
+      poses' pictures, the fulcrum, the window bound's count of a plate's
+      lanes; `--selfcheck` section `tilt` (red arms `nocarry`, `wrong`) -
+      MEASURED green, every arm red.
+- [x] **T.3** The guest part `fam/seesaw.asm` (648 bytes), equal to the model
+      at every step of seven unicorn scenes (`tilt_host`); red arms `tlcell`,
+      `tlcarry`, `tlmark`, `tlfref`, `tlweight`, `tlrst`, each red.
+- [x] **T.4** The knob course TILT (`BZTILT=1`, pad 0): the LEDGE only glass
+      reaches (its light weight tips the plate too late), the GATE the ball's
+      weight lays down to the goal, the ROCKER.
+- [x] **T.5** No shipped course, demo or identity moved; the bundle +656
+      bytes of RAM, the package +406, the image +2.
+- [ ] **T.6** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` on a `BZTILT=1` tree; PREDICTED 0.1 - 0.9k a step, about
+      2k a refill on TILT).
+- [ ] **T.7** The owner's answers (SPEC.md 128.42.10): the weights, the look,
+      steel and slopes, the lanes, the occluders.
+- [ ] **T.8** A shipped course that uses it.
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
 
