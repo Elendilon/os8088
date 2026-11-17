@@ -3499,3 +3499,26 @@ pushed.
 identical step for step to the course before the change; 3's expects
 met), the course preview, a host GIF. **Not yet:** the guest
 (`bonanzatitle`), named for the phase's soak.
+
+**The owner's notes on the first bridge** (the same day). The bridge was
+laid on LL's back row at LL's height, so its far end stood 1.5 units over
+the channel - and the tool put its hint, the jagged teeth, on THAT end,
+because `glass_first` picked the edge nearest the course's start cell,
+which on the title is out on the front floor. The teeth hung in the air.
+Two changes: the hint now only ever joins ground LEVEL with the glass
+tile at their shared edge (the rule the art was drawn for), and the
+bridge moved to the strip's row (12 - 13, 12) at LS's height. No row of
+the pit is level on both sides - LS 2.5, the step 3, LL 3.5, against the
+channel's 2 - so this is the least drop, half a step, which every ball
+rolls. The owner asked for the half step first, with LS lowered to 2 (and
+demos 2 and 4 re-authored) as the next try if it does not look good
+enough. Demo 3 now goes down the step and across; the autopilot is slow
+with glass, so the run at the ramp is held keys, searched for the run
+that gets a third of the way up (3.25 units at step 469). The shatter is
+at 798 now, its shards done ten steps before the demo ends.
+
+The owner also expected every resident family in ONE part with the ball
+art, and a glass bridge with a 2 x 3 LEVEL mode replacing the teeth; neither
+is on any branch of the repository yet (another session's merge, still
+waiting on its soak). The bridge here is laid in the flat mode this tree
+has, and nothing in demo 3 depends on how it is drawn.
