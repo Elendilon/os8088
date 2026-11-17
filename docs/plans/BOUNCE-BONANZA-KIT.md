@@ -13,7 +13,7 @@ many": the goal is 14 - 20 courses, possibly on one disk.
 
 ## Where it stands
 
-**K0 written** (SPEC.md 128.33). **K1 BUILT** (128.33.11: the tool, the kit cut, the demos re-stamped; `make bonanza` assembles again at K2, whose expander the form needs). K2 below.
+**K0 written** (SPEC.md 128.33). **K1 BUILT** (128.33.11: the tool, the kit cut, the demos re-stamped; `make bonanza` assembles again at K2, whose expander the form needs). **K2 BUILT** (128.33.13: the guest; `bz_cexp` equals the tool's expand on every shipped part under unicorn). The final pass is the owner's.
 
 Branch `bounce-kit`, cut from `bounce-bonanza` at `03e864602`. Not merged
 into `bounce-bonanza`: the owner merges.
@@ -54,11 +54,11 @@ into `bounce-bonanza`: the owner merges.
 
 | # | story | verified by |
 |---|---|---|
-| K2.1 [ ] | the kit's row; fetched QUIET at the open before the bundle, held; again at a play course's load if refused; given back on kern_small | `make bonanza`; the rows `bonanzaexit`, `bonanzapath` |
-| K2.2 [ ] | `bz_cxkit`: the tag to the form, the bitmap to `bz_boxbuf`, the pieces from the kit | unicorn: `bz_cexp` on every shipped part equals the tool's expand; `tests/bonanza_dfield.py` |
-| K2.3 [ ] | `bz_phrel` counts `BZ_KIT_CLAIM` while the kit is not here | read; `bonanzapath` |
-| K2.4 [ ] | kern_mega: the kit's selector through `bz_kseg`, nothing through CS | `bonanzamega` |
-| K2.5 [ ] | the image and bss MEASURED; the copy's clocks PRICED | `make bonanza`; unicorn pricing |
+| K2.1 [x] | the kit's row; fetched QUIET at the open before the bundle, held; again at a play course's load if refused; given back on kern_small | `make bonanza`; the rows `bonanzaexit`, `bonanzapath` |
+| K2.2 [x] | `bz_cxkit`: the tag to the form, the bitmap to `bz_boxbuf`, the pieces from the kit | unicorn: `bz_cexp` on every shipped part equals the tool's expand; `tests/bonanza_dfield.py` |
+| K2.3 [x] | `bz_phrel` counts `BZ_KIT_CLAIM` while the kit is not here | read; `bonanzapath` |
+| K2.4 [x] | kern_mega: the kit's selector through `bz_kseg`, nothing through CS | `bonanzamega` |
+| K2.5 [x] | the image and bss MEASURED; the copy's clocks PRICED | `make bonanza`; unicorn pricing |
 
 ### The final pass (the owner's)
 

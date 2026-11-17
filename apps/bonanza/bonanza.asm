@@ -135,6 +135,9 @@ BZX_OFF     equ 2               ; its RAM offset
 BZX_LEN     equ 4               ; its RAM length
 BZX_DLEN    equ 6               ; its STORED length, at the end of its slot
 BZX_ENTB    equ 8               ; an entry's size (BZX_: not BONANZA.DAT's BZD_)
+BZK_ENT     equ 6               ; THE KIT's part, BZK1 (SPEC.md 128.33.2): +4 NCLS,
+BZK_ENTB    equ 8               ; +6 an entry a class: tag, 0, a piece's bytes,
+                                ; the pieces, their offset in the part
 BZG_NROWS   equ 4               ; (at GRIDOFF +) the rows
 BZG_SMIN    equ 6               ; row 0's s = wx + wy
 BZG_AMIN    equ 8               ; signed, even: the first cell's a = wx - wy
@@ -177,7 +180,8 @@ BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
 BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
-BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): the family part
+BZ_P_KIT    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; THE KIT, BZKIT.BIN (SPEC.md 128.33): HELD
+BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 128.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (128.25.6.9); bz_ftab maps an ID
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
@@ -225,6 +229,9 @@ bz_entry:
     call op_load                ; SI is still the kernel's name: FIRST. Every
     pop es                      ; row is lazy, so this copies the name and
     jc .out                     ; claims nothing
+    push es                     ; THE KIT (SPEC.md 128.33.5), HELD for the instance:
+    call bz_kget0               ; under the bundle, so the arena above it grows in
+    pop es                      ; place (quiet: a launch tries again and says why)
     push es                     ; story 9.8 (SPEC.md 128.25.6.9): the RESIDENT
     call bz_bget                ; BUNDLE, one read, the arena's floor before anything
     pop es                      ; else enters it - and THE BALLS in it generated, ONCE
@@ -239,6 +246,10 @@ bz_entry:
     sbb al, al                  ; refuses the bracket (SPEC.md 128.1)
     neg al
     mov [bz_small], al
+    jz .big                     ; kern_small plays nothing (SPEC.md 128.1): the
+    mov al, BZ_P_KIT            ; kit is given back (op_drop preserves every
+    call op_drop                ; register; ES is still the kernel's)
+.big:
     mov [bz_win], bx
     call OSAPI_FILE_HERE        ; where BONANZA.O88 was launched from (SPEC.md
     mov [bz_homedir], dx        ; 128.14.7.6): BONANZA.DAT's volume, whatever
@@ -750,6 +761,12 @@ bz_cload:
 .rowt:
 %endif
     mov [bz_pc], al
+    cmp byte [bz_crs], BZ_NCRS  ; a PLAY course names the KIT's pieces (128.33.5):
+    jae .nokit                  ; the kit first, if the open's fetch was refused
+    call bz_kget                ; (op_fetch said why: no course without it)
+    jc .out
+    mov al, [bz_pc]             ; (bz_kget spends AL)
+.nokit:
 %if BZ_PATH_NPAD
     mov byte [bz_phre], 0       ; the pathway HELD (128.22.7): its part is here,
     cmp al, BZ_P_PATH           ; expanded and translated already - no fetch,
@@ -2253,10 +2270,37 @@ bz_phrel:
     je .out
     mov bl, MEMP_AVAIL
     call OSAPI_MEM_P            ; AX = the largest claim there is: it takes the
-    cmp ax, BZ_CRS_MAXCLAIM + BZ_CRS_ARMAX ; course's AND the arena's (128.25.4.2)
+    sub ax, BZ_CRS_MAXCLAIM + BZ_CRS_ARMAX ; course's AND the arena's (128.25.4.2)
+    jb bz_phfree
+    xchg ax, bx                 ; ...and THE KIT's, when it is not here yet
+    mov al, BZ_P_KIT            ; (SPEC.md 128.33.5: the pathway is the part
+    call op_seg                 ; dropped, never the kit or the course)
+    or ax, ax
+    jnz .out
+    cmp bx, BZ_KIT_CLAIM
     jb bz_phfree
 .out:
     ret
+; bz_kget - THE KIT (SPEC.md 128.33.5): BZKIT.BIN fetched unless it is here
+; (op_fetch of a row already fetched does nothing, CF = 0) - and then HELD: no
+; way out of BONANZA but the close drops it.  CF = 1 refused (op_fetch said
+; why).  bz_kget0: the same with op_fetch QUIET (OP_SAYGATE), bz_entry's,
+; whose refusal the next launch's bz_kget repeats aloud.  Clobbers AX - DI, ES.
+bz_kget0:
+    mov byte [bz_fs], 1
+    call bz_kget
+    mov byte [bz_fs], 0
+    ret
+bz_kget:
+    mov al, BZ_P_KIT
+    call op_fetch
+    jc .r
+    mov al, BZ_P_KIT            ; (its segment: the claim is pinned and held, so
+    call op_seg                 ; the word stays good while the instance runs)
+    mov [bz_kseg], ax
+.r:
+    ret
+
 ; bz_phfree - the pathway's part let go whatever it holds (the game's end, or
 ; bz_phrel's answer).  Preserves nothing.
 bz_phfree:
@@ -2833,7 +2877,8 @@ bz_cexp:
     mov si, di
     add si, cx
     sub si, [es:bx + BZX_DLEN]  ; SI = S + H: its stored bytes
-    mov bl, [es:bx + BZX_FORM]
+    mov dx, [es:bx]             ; DL = the TAG, DH = the FORM (KITREF's class)
+    mov bl, dh
     xor bh, bh
     shl bx, 1
     push ds
@@ -3011,25 +3056,96 @@ bz_dval:
 .out:
     ret
 
-; THE FORMS: SI = the stored bytes, DI = the slot, CX = its RAM length, DS =
-; ours, ES = the part.  Each may change DS (bz_cexp restores it), and
-; clobbers AX, BX, CX, DX, SI, DI, BP.
+; THE FORMS: SI = the stored bytes, DI = the slot, CX = its RAM length, DL =
+; the section's tag, DS = ours, ES = the part.  Each may change DS (bz_cexp
+; restores it), and clobbers AX, BX, CX, DX, SI, DI, BP.
 bz_cxtab:
     dw bz_cxret                 ; 0 PLAIN: in place already
     dw bz_cxmap                 ; 1 ROWPLANES
     dw bz_cxcnt                 ; 2 COUNTS
     dw bz_cxdif                 ; 3 WDIFF
     dw bz_cxmtb                 ; 4 MASKTAB (the 4-byte record's, D)
-BZ_CXFORMS  equ 0FFh
+BZ_CXFORMS  equ 1FFh
     dw bz_cxrtb                 ; 5 ROWTAB
     dw bz_cxway                 ; 6 WAYS
     dw bz_cxcel                 ; 7 CELLS
+    dw bz_cxkit                 ; 8 KITREF (SPEC.md 128.33.4)
 %if BZ_FORMS & ~BZ_CXFORMS
  %error "bz_cexp: a course part uses a stored form its dispatch table does not hold"
 %endif
 %if BZ_REC != 4
  %error "bonanza: the occluder pass reads D's 4-byte records (SPEC.md 128.15.5.4); bzcourse.inc's BZ_REC is not 4"
 %endif
+
+; 8 KITREF (SPEC.md 128.33.4): the section's pieces at the head of its slot
+; are THE KIT's, named by a bitmap (bit i of byte i >> 3, low bit first: kit
+; piece i of the class), stored first and then the course's own pieces, which
+; are the slot's tail and in place already.  The kit's class is found by the
+; tag (its header's entries: tag, 0, a piece's bytes, the pieces, their
+; offset); the bitmap is copied to scratch (bz_boxbuf: the pieces written
+; from the slot's start overtake it) and each piece named is copied from the
+; kit, in order, from the slot's start.  The walk counts with the kit's own
+; count, the copy with its piece size: the tool proves the pieces named fill
+; exactly the slot's head.  The kit is read through its own segment (kern_mega:
+; its LDT selector, op_seg's, kept in bz_kseg by bz_kget), never through CS.
+bz_cxkit:
+    mov ds, [bz_kseg]           ; DS = the kit (bz_kget's: fetched before any
+                                ; play course, held)
+    mov bx, BZK_ENT
+.cls:
+    cmp [bx], dl                ; the class (the tool: it is there)
+    je .got
+    add bx, BZK_ENTB
+    jmp short .cls
+.got:
+    mov bp, [bx + 2]            ; BP = a piece's bytes
+    mov cx, [bx + 4]
+    mov dx, [bx + 6]            ; DX = kit piece 0 of the class
+    pop ax                      ; (the return address: our DS under it)
+    pop ds                      ; DS = ours, and kept on the stack for
+    push ds                     ; the walk's returns from the kit
+    push ax
+    add cx, 7                   ; CX = the bitmap's bytes
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    jcxz .out
+    mov bx, bz_boxbuf
+    push cx
+.cp:
+    es lodsb                    ; the bitmap to scratch
+    mov [bx], al
+    inc bx
+    loop .cp
+    pop cx
+    mov bx, bz_boxbuf
+.byte:
+    mov al, [bx]                ; DS = ours
+    inc bx
+    mov ah, 8
+.bit:
+    shr al, 1
+    jnc .next
+    push cx
+    mov si, dx
+    mov cx, bp
+    mov ds, [bz_kseg]           ; DS = the kit: one piece to ES:DI
+    shr cx, 1
+    rep movsw
+    adc cx, cx                  ; (an odd size: a table's 289)
+    rep movsb
+    pop cx
+    pop si                      ; DS = ours again, from under the
+    pop ds                      ; return address
+    push ds
+    push si
+.next:
+    add dx, bp
+    dec ah
+    jnz .bit
+    loop .byte
+.out:
+    ret
 
 ; 1 ROWPLANES: block row r stored as C/4 high bytes (cell j's two high bits at
 ; bits 2 (j AND 3) of byte j >> 2) and then C low bytes; map word j = BLKOFF +
@@ -5035,6 +5151,9 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzsound.inc"
 %include "bzmenu.inc"           ; SPEC.md 128.26: the window's button, menus and replays
 %include "bzballgen.inc"        ; the balls generated at fetch (wave 9, 128.25.5)
+%if BZ_KIT_BMB > 4 * BZ_BOXB
+ %error "bz_cxkit copies a kit class's bitmap to bz_boxbuf (SPEC.md 128.33.4)"
+%endif
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
 %endif
@@ -5049,7 +5168,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFROW
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 128.25.5.2), then the WORLD parts
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (128.20.3)
  %rep BZS_NSONG
@@ -5062,6 +5181,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITL
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
 %endif
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_KIT: BZKIT.BIN, the standard kit, HELD (128.33.5)
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (128.25.6.9)
 OS88_PARTS_END
 %if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
@@ -5119,6 +5239,7 @@ VAR bz_nrop,4                   ; ...the routes OPENED (a bit a route)
 VAR bz_nrtk,4                   ; ...and TAKEN (a secret's reveal; a subset)
 VAR bz_ppad,1                   ; the pad the marble rests on (the slot's +2)
 VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_phrel)
+VAR bz_kseg,2                   ; THE KIT's segment (bz_kget's, op_seg's; bz_cxkit reads it, SPEC.md 128.33.4)
 VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
 VAR bz_arforce,2                ; HARNESS, byte 0: nonzero forces the arena's next growth to MOVE it (OP_ARFORCE, 128.25.13); never set by the package

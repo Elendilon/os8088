@@ -277790,3 +277790,65 @@ are the ones its sections name):
    move each time)?
 3. **BENCH's benchmark figures** move with its alignment (+37 records):
    `bonanzaperf`'s BENCH rows are against a new course, not the old one.
+
+#### 128.33.13 As built: the guest (wave K2, 2026-11-17)
+
+- **The row**: `BZ_P_KIT` = `BZ_P_PATH + 1 + 2 BZ_TITLE` (after the title's
+  demos), `BZ_P_FAM` = `BZ_P_KIT + 1`; the part table one row longer.
+  `tests/bonanza_ring.py`'s part list (`after_shell`, `part_args`) follows.
+- **`bz_kget`** fetches `BZ_P_KIT` (a row already here does nothing) and
+  keeps its segment in `bz_kseg`; **`bz_kget0`** the same with `bz_fs` set
+  round it (`OP_SAYGATE`: quiet). `bz_entry` calls `bz_kget0` before
+  `bz_bget`; on kern_small (`bz_small`, after `OSAPI_WM_CREATE`) it drops
+  the row again. `bz_cload` calls `bz_kget` for a play course (`bz_crs` <
+  `BZ_NCRS`) before the course's fetch, a refusal refusing the load.
+- **`bz_phrel`**: `AX` - (`BZ_CRS_MAXCLAIM` + `BZ_CRS_ARMAX`), the pathway
+  dropped below 0, and the rest against `BZ_KIT_CLAIM` (1,088 paragraphs)
+  when `op_seg` says the kit is not here.
+- **`bz_cexp`** passes the entry's tag in DL (`mov dx, [es:bx]`: DL the tag,
+  DH the form); the table's ninth entry is **`bz_cxkit`**, and
+  `BZ_CXFORMS` is 1FFh.
+- **`tests/pins.txt`**: the kit's claim is keyed `bz_kseg`, an `N` line
+  like the bundle's (pinned because BONANZA defines no `OP_ONMOVE`; held
+  for the instance and fetched first, so it walls none of a launch's
+  claims).
+- **The unicorn harnesses** (`tests/bonanza_dsplit.py`'s `Guest`, which
+  `tests/bonanza_dfield.py` borrows) place the kit at 5000h and set
+  `bz_kseg`, as `bz_kget` leaves them; their hostile legs let the kit's
+  bytes be READ. `bonanza_dfield.py`'s four FIELD courses carry `KITREF` in
+  all three classes (their B, K and F); both harnesses PASS.
+
+**MEASURED** (`make bonanza`, against `bounce-bonanza` `03e864602`):
+
+| | |
+|---|---|
+| `bonanza.bin` image | 49,855 -> **50,039 (+184)**: `bz_cxkit` 95, `bz_kget0` and `bz_kget` 30, the rest the calls, the drop on kern_small, `bz_phrel`'s test, the tag in the dispatch and the table's entry (PREDICTED 150 - 200) |
+| bss | 11,915 -> **11,917 (+2)**: `bz_kseg` |
+| the kernel | 0 bytes |
+
+**`bz_cexp` on every shipped course part, under unicorn** (the package
+itself, `tests/bonanza_dsplit.py`'s `Guest`): each equals the tool's
+`expand`, byte for byte - BENCH, FIRST, TRIAL, MILL, MOON, PEAK and both of
+PLAYGROUND's parts. The instructions `bz_cxkit` executes, PRICED by
+`bonanza_dsplit`'s method (each at max(EU + EA, 4 a byte), the 8088's word
+operands):
+
+| part | `bz_cxkit` | at 4.77 MHz |
+|---|---|---|
+| BENCH | 54,373 clk | 11.4 ms |
+| FIRST | 55,492 | 11.6 ms |
+| TRIAL | 65,563 | 13.7 ms |
+| MILL | 80,856 | 17.0 ms |
+| MOON | 82,348 | 17.3 ms |
+| PEAK | 80,856 | 17.0 ms |
+| PLAYGROUND, picture / world | 98,014 / 61,885 | 20.5 / 13.0 ms |
+
+**The launch, PREDICTED** (`lzb_cost`'s decode and 128.15.4.6's 35.6 ms a
+sector, the parts as built against the base's): FIRST about -50 ms (read
+-32, decode -31, the copy +12), PEAK about -60 ms (-40, -39, +17),
+PLAYGROUND about -0.26 s (-156, -135, +34). **The open, once**: about
+**+0.6 s** (the kit's 4,509 packed bytes, about 9 sectors, about 0.31 s read
+and 0.31 s decoded). MEASURED in the final pass (`bonanzaperf`).
+
+**The frame and the step: 0 clk** - no per-frame or per-step routine
+changed; the RAM forms are the layout they were.
