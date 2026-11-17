@@ -4073,3 +4073,58 @@ magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 **Tested**: `make bonanza`, the knob tree's `bonanzadisk`, the selfcheck's
 `water` section, `bonanza_phys --check`'s water scenes (six) and red arms
 (six), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (the ARCHWAY: a ceiling, built as a family)
+
+The props plan's P10, the owner's design: an arch a ball ROLLS UNDER, whose
+underside a ball in the air hits, so it cannot Hop or boost over it - and so a
+gate that forces rubber to roll through a pad it would otherwise boost past.
+Built on `bb-arch` as SPEC.md 128.39: a family, ID 12, with no resident change.
+
+- **Decisions.** The plan had costed this as RESIDENT (the reserved UNDERSIDE
+  flag, a ceiling test in steps 5 and 6). The family hooks turned out to be
+  exactly the two halves of a ceiling: CELL writes each archway cell in the
+  window as a WALL while the ball is above its clearance - so the engine's own
+  wall test, corner and fallback stop a ball at the arch's FACE from either
+  end, at every height - and STEP caps the ball under the underside once it is
+  inside. The one subtlety is that the window is a snapshot: STEP keeps the
+  band of z the last refill's walls hold for (two words in the slot) and asks
+  for a refill (`bz_fref`) when z leaves it. No `BZ_PHYSV` move. UNDERSIDE
+  stays reserved.
+- **No OBS.** An archway cell's record anchors on the cell but is no owner
+  (no OBS, the LAST records of the table), so a PAD can stand under the arch -
+  the whole point of the gate.
+- **Found by measuring: the clearance.** The first clearance was the
+  underside less 14 px (the sprite's top over the contact, and a px). Under a
+  2-unit arch that left the contact 2 px to rise in, and the sweep (every Hop
+  and second press into the arch) found rubber's low bounces carrying it over
+  the pad AIRBORNE - a pad is taken only grounded - in 22 of 167 runs that got
+  past. At 16 px (the ball's height) the ball cannot leave the floor under a
+  2-unit arch: 0 of 43. A 3-unit arch still lets a Hop under it.
+- **The owner's clarification, mid-build**: partial occlusion is fine; the
+  ball may be WHOLLY hidden for at most a ball length; what the arch spans is
+  seen. Made a refusal the tool measures (a ball rolled through each lane,
+  composited by the records): ARCH's arches hide it wholly for at most 11 gu
+  (bound 16). The course's first draft had a 2-deep arch over the pad, and
+  the rule refused it at 27 gu - which is why A is one cell deep.
+- **Bytes.** The part 233 bytes (+240 of the bundle's RAM, every play); the
+  image +3 (`BZ_FTAB` to ID 12, two of them the gap IDs 10 and 11); bss 0;
+  `BONANZA.O88` +164. Every shipped `BZ*.BIN` byte for byte the same.
+- **LOOKED AT** once on MartyPC (the `BZARCH=1` tree, CGA and Hercules):
+  rubber rolled from the start through A's arch comes out steel; under it the
+  ball is ghosted where the front leg and the lintel cover it and whole in the
+  opening; under C's 3-unit arch it is mostly seen. Shots in
+  `build/arch/shots/` (kept out of git).
+- **Open, the owner's**: the look - block legs hide half of a pad under a
+  1-deep arch (the build's route audit marks it 50% against its 75%, reported
+  not refused); corner POSTS would show it, at the guard rail's price of a
+  wall drawn as open space. The per-step cost is PREDICTED (about 0.35k on a
+  course with the family), the final pass's to measure.
+
+**Tested**: `make`, `make bonanzadisk`, `make BUILD=build/arch BZARCH=1
+bonanzadisk`; `bbcourse.py --selfcheck --only arch` (15 refusals, the
+records, the sweeps, the lintel, the visibility rule; red arms `arnowall`,
+`arnocap`, `arkey`, `arvis` red); `bonanza_phys`'s `arch_host` under unicorn
+(five scenes equal at every step; red arms `arwall`, `arcap`, `arref`,
+`arcell` red); one MartyPC look on each card. **Not run**: soak rows,
+`test-full`.
