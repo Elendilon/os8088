@@ -1122,24 +1122,57 @@ def crack_poses(cx, cy):
     return out
 
 
-def glass_poses(cx, cy, jag):
+GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
+
+
+def glass_lane_rect(cx, cy):
+    """a glass tile's lane, blocks (SPEC.md 128.25.18): 2 across x 3 rows from (cy - 8) >> 3 - a straight
+    run's 16-column slab holds 24 lines of it, so BOTH of the run's outer edges cross every lane"""
+    return ((cx - 8) >> 3, (cy - 8) >> 3, 2, 3)
+
+
+def glass_pane_ink(u, v, cx, nb):
+    """the REVEALED glass (SPEC.md 128.25.18, the owner's pick), tile-local (u, v) round the top's centre,
+    anywhere in its lane: the path is ONE clear pane - the outer edge of the union of this tile's top and
+    its glass edge neighbours' (`nb`, (dx, dy, dz4) each) in white, wherever it falls in this lane (a
+    neighbour's tip too), and a dashed white glint along the run's axis that every lane continues; the
+    rest None, the bare picture behind showing through"""
+    cs = [(0, 0)] + [(16 * (dx - dy), 8 * (dx + dy) - dz) for dx, dy, dz in nb]
+
+    def inS(a, b):
+        return any(BA._diamond(a - ox, b - oy) <= 1.0 for ox, oy in cs)
+    if not inS(u, v):
+        return None
+    if any(not inS(u + du, v + dv) for du, dv in ((0, -1), (0, 1), (-1, 0), (1, 0))):
+        return WHT
+    xrun = any(dx for dx, _, _ in nb) or not nb
+    if v == ((u - 1) >> 1 if xrun else (-u - 1) >> 1) and (cx + u) % GLASS_DASH[0] < GLASS_DASH[1]:
+        return WHT
+    return None
+
+
+def glass_poses(cx, cy, jag, nb=()):
     """a glass tile's two poses round its top's centre: 0 INVISIBLE (the picture is drawn without the tile;
     the path's FIRST tile shows a JAGGED EDGE, white teeth, along its edge `jag` = (dx, dy) toward the
-    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8"""
+    ground it leaves from - inside |u| < 8 and the band of lines (cy - 4) >> 3 .. +16, where it has always
+    been drawn), 1 REVEALED (glass_pane_ink over the whole lane, glass_lane_rect)"""
     q0, q1 = {}, {}
+    v0 = 8 * ((cy - 4) >> 3) - cy
     for v in range(-8, 8):
         for u in range(-8, 8):
-            ink = BA.crystal_top_ink(u, v)
-            if ink is None:
-                continue
-            q1[(cx + u, cy + v)] = ink
-            if jag is None:
+            if jag is None or BA.crystal_top_ink(u, v) is None or not v0 <= v < v0 + 16:
                 continue
             fx, fy = (u / 16.0 + v / 8.0 + 1) / 2.0, (v / 8.0 - u / 16.0 + 1) / 2.0
             d, t = {(1, 0): (1 - fx, fy), (-1, 0): (fx, fy), (0, 1): (1 - fy, fx), (0, -1): (fy, fx)}[jag]
             z = (t * 5.0) % 1.0
             if d < 0.05 + 0.13 * (1 - abs(2 * z - 1)):
                 q0[(cx + u, cy + v)] = WHT
+    bx, by, w, h = glass_lane_rect(cx, cy)
+    for y in range(8 * by, 8 * (by + h)):
+        for x in range(8 * bx, 8 * (bx + w)):
+            ink = glass_pane_ink(x - cx, y - cy, cx, nb)
+            if ink is not None:
+                q1[(x, y)] = ink
     return {0: q0, 1: q1}
 
 
@@ -6425,6 +6458,19 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+        gat = {p["at"]: p for p in props if p.get("art") == "glass"}
+        for (wx, wy), p in sorted(gat.items(), key=lambda kv: kv[1]["line"]):
+            # its glass edge neighbours (the pane's outline), and the 2 x 3 lane's one refusal: two glass tiles
+            # touching at a CORNER on the screen's vertical ((wx + 1, wy + 1): 16 px straight below) would share
+            # a block row
+            p["gnb"] = tuple((dx, dy, gat[(wx + dx, wy + dy)]["z4"] - p["z4"])
+                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (wx + dx, wy + dy) in gat)
+            q = gat.get((wx + 1, wy + 1))
+            if q is not None:
+                raise CourseError("%s:%d: glass at (%d, %d) and (%d, %d) (line %d) touch at a corner, one above the "
+                                  "other on the screen: their 2 x 3-block lanes would share a block row (SPEC.md "
+                                  "128.25.18) - a glass path may not turn or run two wide; break it with a solid tile"
+                                  % (fname, p["line"], wx, wy, wx + 1, wy + 1, q["line"]))
     # SPEC.md 128.27: the GROUND plane, one a course - its lowest floor (a secret route's and a glass tile's
     # counted) less 3 units - and the FLOATING cells, whose faces over the void hang 3 units instead
     gtiles = dict(tiles)
@@ -6590,8 +6636,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": p["kind"], "line": p["line"]})
         elif _famart(p):                            # GLASS (SPEC.md 128.25.18): a crack's or a glass tile's
-            # lane: 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
-            # blocks across or 2 block rows down, so a path of them shares no block); its poses MARKS at the
+            # lane: a crack's 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
+            # blocks across or 2 block rows down, so a path of them shares no block), a glass tile's 2 x 3
+            # (glass_lane_rect: a path's corner-touching pair refused above); its poses MARKS at the
             # tile's depth, clipped by what is drawn in front of it, as a pennant is
             wx, wy = p["at"]
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
@@ -6600,11 +6647,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   "x must be a multiple of 8, SPEC.md 128.25.18)" % (fname, p["line"],
                                                                                     p["frow"]["name"], wx, wy, cx))
             sF = wx + wy
-            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
-            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2) if p["art"] == "crack" else glass_lane_rect(cx, cy)
+            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"), p["gnb"])
             for q in poses:
                 poses[q] = {(x, y): c for (x, y), c in poses[q].items()
-                            if 8 * rect[0] <= x < 8 * rect[0] + 16 and 8 * rect[1] <= y < 8 * rect[1] + 16
+                            if 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
                             and 0 <= y < lines and cv.sbuf[y][x] <= sF}
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
