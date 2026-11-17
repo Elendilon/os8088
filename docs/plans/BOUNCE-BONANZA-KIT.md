@@ -13,7 +13,7 @@ many": the goal is 14 - 20 courses, possibly on one disk.
 
 ## Where it stands
 
-**K0 written** (SPEC.md 128.33). K1 and K2 below.
+**K0 written** (SPEC.md 128.33). **K1 BUILT** (128.33.11: the tool, the kit cut, the demos re-stamped; `make bonanza` assembles again at K2, whose expander the form needs). K2 below.
 
 Branch `bounce-kit`, cut from `bounce-bonanza` at `03e864602`. Not merged
 into `bounce-bonanza`: the owner merges.
@@ -42,13 +42,13 @@ into `bounce-bonanza`: the owner merges.
 
 | # | story | verified by |
 |---|---|---|
-| K1.1 [ ] | `bbcourse.py kit` generates `apps/bonanza/courses/kit.bzk` from KIT_POOL's nine courses compiled without the kit: blocks and masks in 3+, every FIELD table | the file; `kit_check` |
-| K1.2 [ ] | a play course's blocks, masks and tables in kit order; nothing else moves | item 16: the RAM form is the kit-less compile's, piece order aside, on every play course |
-| K1.3 [ ] | form 8 `KITREF` in `stored_form`, `expand`, `decode_part(s)`, `read_part(s)` | item 16: expands in place; red arms (a bit cleared, a kit short, a piece changed, the bitmap in place) red |
-| K1.4 [ ] | the one alignment: no Y0 search, `Y0` = 4 (mod 8); what changed per course reported | item 16's alignment line; item 6 |
-| K1.5 [ ] | `BZKIT.BIN` written, `BZ_KIT_CLAIM` and `BZ_KIT_BMB` emitted, the Makefile's row and prerequisite | `make bonanzadisk` |
-| K1.6 [ ] | `--sizes`: per course the kit's pieces and its own, LZB against the kit-less compile; the kit's figures | `bbcourse.py --sizes` |
-| K1.7 [ ] | the identities and demos re-stamped once (`author` for MOON, PEAK, PLAYGROUND) | the build's demo checks; the `ident` lines alone changed |
+| K1.1 [x] | `bbcourse.py kit` generates `apps/bonanza/courses/kit.bzk` from KIT_POOL's nine courses compiled without the kit: blocks and masks in 3+, every FIELD table | the file; `kit_check` |
+| K1.2 [x] | a play course's blocks, masks and tables in kit order; nothing else moves | item 16: the RAM form is the kit-less compile's, piece order aside, on every play course |
+| K1.3 [x] | form 8 `KITREF` in `stored_form`, `expand`, `decode_part(s)`, `read_part(s)` | item 16: expands in place; red arms (a bit cleared, a kit short, a piece changed, the bitmap in place) red |
+| K1.4 [x] | the one alignment: no Y0 search, `Y0` = 4 (mod 8); what changed per course reported | item 16's alignment line; item 6 |
+| K1.5 [x] | `BZKIT.BIN` written, `BZ_KIT_CLAIM` and `BZ_KIT_BMB` emitted, the Makefile's row and prerequisite | `make bonanzadisk` |
+| K1.6 [x] | `--sizes`: per course the kit's pieces and its own, LZB against the kit-less compile; the kit's figures | `bbcourse.py --sizes` |
+| K1.7 [x] | the identities and demos re-stamped once (`author` for MOON, PEAK, PLAYGROUND) | the build's demo checks; the `ident` lines alone changed |
 
 ### Wave K2: the guest
 
