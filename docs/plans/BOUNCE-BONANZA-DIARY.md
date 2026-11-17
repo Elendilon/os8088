@@ -4001,3 +4001,75 @@ item 2; `make bonanzadisk` and the knob build `make BUILD=build/rail BZRAIL=1
 bonanzadisk`; make's refusal of `BZRAIL=1 BZSHAPES=1`; `checkdocs.py`. The
 course LOOKED AT in the tool's CGA and Hercules previews. **Not run**: the
 soak rows (the final pass's).
+## 2026-11-17 (WATER: the first prop of the round, built as a family)
+
+The owner's P1 (BOUNCE-BONANZA-PROPS.md, the sketch and W1 - W8), built on
+`bb-water` as SPEC.md 128.36: a family, ID 7, with no resident engine change.
+
+- **Decisions.** The plan's design held but for three points the code
+  decided. (1) The `arch` is the TOOL's alone - no element, no WALL cell for
+  rubber: from the exit at the bed the column is already a floor at its top
+  for every ball but steel, so W2's bump is free. (2) Steel under the water
+  has NO WAY ACROSS: STEP zeroes gvx and gvy as well as capping the fall.
+  With the cap alone the model's steel, entering at walkway speed, drifted
+  over the arch's exit while sinking, left the column 12 px up through the
+  glass and stunned on the yard. (3) The lowered restitution is written by
+  CELL into `bz_se` with `bz_surf` set to sand, `bz_surfset`'s work written
+  again in the part: a STEP-time override could not reach the landing on the
+  step the ball enters the cell. No surface added: `BZ_PHYSV` did not move.
+- **Home `resident`**, the owner's default: +352 bytes of every play's RAM
+  (the bundle 33,376 -> 33,728), the image +1 byte, bss 0, `BONANZA.O88`
+  +267; no shipped course, demo or identity moved (every `BZ<K>.BIN` compared
+  byte for byte against the base).
+- **Found by LOOKING.** The first MartyPC look (the `BZWATER=1` tree, CGA)
+  showed steel ghosted behind the glass while sinking and then drawn WHOLE
+  over the glass once at rest on the bed: the cell had no OCCG, because
+  `_occg` took a grounded ball's height from the tile's corners (the top),
+  and a grounded ball's occluder pass never ran. `_occg` now takes a water
+  cell from its bed; item 3 of the selfcheck's water section holds it. After
+  it, both cards: ghosted sinking, ghosted at the bed, whole in the arch's
+  opening and out on the yard (`build/water/shots/`, kept out of git).
+- **Measured vs predicted.** The part 341 bytes against the plan's 300 - 380;
+  the sink 0.67 s for 3 units (W6's "faster than water, slow enough to read",
+  the plan's 0.4 - 0.6 s for 2 units). Per-step cycles NOT measured (about
+  0.3k a step PREDICTED).
+- **Not built.** Animated ripples (W7: refused as written, not built), the
+  floating ball's bob (not nearly free: future), and the owner's open choice
+  of how to keep the column steel's.
+
+**Tested**: `make bonanzadisk`; `make BUILD=build/water BZWATER=1
+bonanzadisk`; `bbcourse.py --selfcheck` (with its new `water` section);
+`tests/bonanza_phys.py --check` (its water scenarios equal on the unicorn at
+every step, the red arms `wacell`, `wahthr`, `warefill` red); one MartyPC look
+on CGA and Hercules. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (WATER, round two: ripples, the float line, the wobble)
+
+The owner looked at WATER ("reads as water well enough"; for the teal and
+magenta palette courses) and asked for four things; SPEC.md 128.36.9.
+
+- **Ripples.** `ripple` (animating while a ball is in that column) and
+  `always` (a lone column) are lanes the POSE hook answers from the step
+  count; they are MARKED only where a pose changes, so a quiet column costs
+  nothing. The interesting choice was the ACTIVE ripple's phase: counted
+  from the step the ball came in, so it starts at pose 0, and the one left
+  behind drops back - at most one event-lane change a step, inside 128.19.10's
+  rule. `always` lanes are counted FAST (they change on their own clock).
+- **The float line.** Asked for in physics, not as a draw offset. The grid's
+  z0 moves in half units, so the float line is 4 px under the top - exactly
+  a climb, so the ball rolls back out. The depth key alone did nothing for a
+  grounded ball there (the 4 px margin cancels the 4 px), so the tool draws
+  the water top's TOPS 4 px up: the floating ball's lower half is the ghost,
+  its upper half whole. SEEN on MartyPC, both cards. The float line's own
+  bob was not built: a pixel-scale moving floor is the lift's carry, and a
+  gvz kick lands (a sound, a squash) every time.
+- **The wobble.** A +72 gvz every 32 steps while steel sinks: 15 bytes, one
+  constant to take it out. The first try (+96 every 16) slowed the 3-unit
+  sink to 1 s, so it was halved; MEASURED now 0.8 s for 3 units, 1.5 s for 6.
+- **Bytes.** The part 341 -> 616; the bundle +272 RAM, which crosses one
+  64-paragraph step of the pinned claim (2,112 -> 2,176) - the ripples are
+  most of it (about 258 bytes).
+
+**Tested**: `make bonanza`, the knob tree's `bonanzadisk`, the selfcheck's
+`water` section, `bonanza_phys --check`'s water scenes (six) and red arms
+(six), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
