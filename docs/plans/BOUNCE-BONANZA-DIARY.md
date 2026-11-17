@@ -4354,3 +4354,85 @@ records, the sweeps, the lintel, the visibility rule; red arms `arnowall`,
 (five scenes equal at every step; red arms `arwall`, `arcap`, `arref`,
 `arcell` red); one MartyPC look on each card. **Not run**: soak rows,
 `test-full`.
+## 2026-11-17 (SPIKES and the crystal membrane)
+
+The props round's P5 and P8 as ONE family (SPEC.md 128.38, branch
+`bb-spike`): a spike floor, pop-up spikes on a timer, and a membrane only
+glass can stand on. All three are WATER's trick - a flat floor in the grid,
+rewritten in the 9-cell window for whichever ball is rolling.
+
+- **Killing a ball with no new code.** The engine already has a death: the
+  hard landing's SHATTER, judged in `bz_land` from `bz_mrec`'s HARD, HSTEPS
+  and HTHR, the material record's working copy. So the family writes those
+  three (SHATTER, 24 steps, threshold 0) while the window's centre is a spike
+  and the ball is not steel, and puts them back after. A kill needs a
+  LANDING, though, and a ball rolling onto a floor at its own height never
+  lands - so rubber's and glass's spike floor is a half unit BELOW the base:
+  every ball that reaches the spikes drops 4 px onto them. Steel's is a half
+  unit above (the tips), exactly a climb, so it rolls up and on. Which gave
+  the one refusal that matters: a floor beside the spikes LOWER than their
+  base would reach that half-unit-down floor level, with no landing - so the
+  tool refuses it.
+- **Rubber's pop for free in code, not in bytes.** The sprite reads shatter
+  entry k of the ball's OWN part, and rubber's stretch already sits at entry
+  0 of that table; `bz_hxlat` already translates `+12 + +14` entries. So
+  three POP frames after the stretch (burst, shreds, the skin) need no
+  resident byte - but the table is fixed-layout, so they cost 3,840 bytes of
+  the bundle's RAM, and two frames would cost the same (the last is entry 3).
+  The first draft's shreds were 2 x 2 and came out all black once the black
+  ring went round them; they are 4 px wide now.
+- **Pop-up spikes** are a timed lane like WIND's gusts, so the window's
+  one-change-a-step check now covers both (`_wind_turns`); the rows on the
+  test course are a half period and three steps apart. A spike rising under a
+  resting rubber ball refills the window, its floor drops a half unit and the
+  landing pops it; under steel it lifts the ball 4 px.
+- **Two families on one record.** WATER keeps the HTHR it replaced exactly
+  the way SPIKES do, so a refill moving straight from one to the other would
+  keep the other's value. Rather than a protocol, the tool refuses a spiked
+  cell touching a water cell; the owner's pairing (water over spikes) puts
+  the arch's exit cell between them.
+- **Bytes.** The part 455; the image +2 (`BZ_FTAB`'s rows for 10 and 11); bss
+  0; the bundle +4,304 RAM (+620 packed), most of it the pop.
+
+**Tested**: `make bonanza`, `make bonanza-check`, the knob tree's
+`bonanzadisk`, `--selfcheck --only spike`, `bonanza_phys`'s spike scenes
+(eleven, the guest equal to the model at every step) and red arms (six, all
+red), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (the death frames, cheaper: B and A)
+
+Every squash, shatter, stretch and pop frame was 1,280 bytes of RAM: four
+shifts, each twice, once for each line parity. The two copies were the same
+bytes on the CGA - they differ only once the Hercules translation ties a mid
+colour to its line - so **B** keeps one (8,960 bytes of the bundle back, and
+the image 30 bytes SMALLER: `bz_sprite` stops adding the parity, `bz_ballgen`
+stops copying). **A** keeps one shift too and shifts it at the draw into a
+160-byte scratch in the ball part: a further 6,240 back for 113 bytes of
+image, nearly all of it `bz_eshift`, and 11 - 19k clocks (2.3 - 3.9 ms,
+priced under unicorn) on a frame where the ball squashes or dies at a shift
+other than 0. More than the brief's 40 - 80 bytes and "a few thousand
+clocks", so it is the owner's to keep or drop: both are switches
+(`EPAR`, `ESH` in `bonanza_assets.py`) and separate commits.
+
+The one trap was the scratch's home: the blit reads its sprite through
+`bz_bseg`, and the finish's dissolve copies it from `bz_bsegs[bz_mat]` - so
+the shifted entry lives in the ball part itself, after the shadow masks,
+where both find it with no new segment juggling. Storing shift 0 loses the
+two columns of shards left of the sprite at shifts 1 - 3, for a frame or two.
+
+**Tested**: `make bonanza`, `make bonanza-check` (`bz_ballgen` under unicorn
+equal to the tool, all three balls), `bz_eshift` under unicorn equal to the
+tool's `ent_rows` on all 42 entry-shifts with a red arm, the knob tree, `make
+mega small`, one MartyPC look per step per card. **Not run**: soak rows,
+`test-full`.
+
+## 2026-11-17 (B ships, A becomes a patch)
+
+The owner chose B alone for now: *"B+A might get us to a 256k system, barely,
+at the end, with only short courses and some other cuts."* So the source
+keeps B's layout with no switch left in it, and A lives as
+`docs/plans/bounce-bonanza/patches/death-frames-a-one-shift.patch`. That is
+the diff from the B-only commit to the A commit (code, tool and its unicorn
+proof), with a README table in the khp1 style: what it costs, what it saves,
+and when it is worth re-applying. The B-only build matches B's, byte for byte,
+in the ball parts and the image (49,870).

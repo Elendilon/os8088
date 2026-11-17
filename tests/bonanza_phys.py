@@ -1903,6 +1903,13 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                 if gv != mv:
                     bad.append("step %d: water's working values (HTHR, bz_surf, the floor's e) %s, the model's %s"
                                % (i, gv, mv))
+            if any(fm.row["name"] == "spike" for fm, _v in p.fam):       # SPIKES (SPEC.md 128.38): bz_mrec's
+                gv = (g.r("bz_mrec", 1, False, 8), g.r("bz_mrec", 1, False, 9), g.r("bz_mrec", 2, False, 10),
+                      g.r("bz_mst", 1, False), g.r("bz_mct", 1, False))      # HARD, HSTEPS, HTHR; the state
+                mv = (p.hard, p.hsteps, p.hthr, p.mst, p.mct)
+                if gv != mv:
+                    bad.append("step %d: spikes' working values (HARD, HSTEPS, HTHR, bz_mst, bz_mct) %s, the model's %s"
+                               % (i, gv, mv))
             if any(fm.row["name"] == "pickups" for fm, _v in p.fam):     # wave 9: the WORKING values
                 gv = (g.r("bz_wacc", 1, False), g.r("bz_vup", 2), g.r("bz_mrec", 2, False, 6), g.r("bz_cue", 1, False), g.r("bz_nfev", 2, False), g.rb("bz_fta", 9),
                       g.r("bz_tsec", 2, False))
@@ -2162,7 +2169,8 @@ def fam_host():
     o2, f2 = wind_host(binp, lst, sym, fam)
     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
     ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 128.39)
-    return out + o_ + o2 + wo + ao, fails + f_ + f2 + wf + af
+    so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
+    return out + o_ + o2 + wo + ao + so, fails + f_ + f2 + wf + af + sf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2595,6 +2603,123 @@ def arch_host(binp, lst, sym, fam):
         ok = any(want in b for b in bad)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    return out, fails
+
+
+# ---- SPIKES (SPEC.md 128.38): the BZSPIKE=1 test course's scenes, poked - each a tile, a ground velocity, the
+# keys, and what it is for, judged on the model's own trace; the part assembled from a patched spike.asm for
+# each red arm -----------------------------------------------------------------------------------------------
+SP_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "spike.bbc")
+
+
+def sp_scenes():
+    """[(name, material, (wx, wy, gvx, gvy), keys, what)] on SPIKE"""
+    D = BB.K_D
+    return [("spike-steel", BB.MAT_STEEL, (10, 6, 300, 0), [0] * 100, "steel pushed up onto the corridor's tips "
+             "rolls on, whole"),
+            ("spike-rubber", BB.MAT_RUBBER, (10, 6, 200, 0), [0] * 60, "rubber drops onto the spikes and POPS: the "
+             "shatter, then the respawn"),
+            ("spike-glass", BB.MAT_GLASS, (10, 6, 200, 0), [0] * 60, "glass SHATTERS on the spikes, then respawns"),
+            ("pop-down", BB.MAT_RUBBER, (6, 14, 0, 250), [D] * 60, "rubber crosses the far row while it is DOWN"),
+            ("pop-up", BB.MAT_RUBBER, (6, 11, 0, 200), [0] * 50, "rubber rolls into the near row while it is UP: "
+             "it pops"),
+            ("pop-steel", BB.MAT_STEEL, (6, 11, 0, 200), [D] * 50, "steel rides the near row UP"),
+            ("pop-rise", BB.MAT_RUBBER, (6, 15, 0, 0), [0] * 100, "rubber at rest on the far row DOWN: it rises "
+             "under the ball, which pops"),
+            ("pop-rise-steel", BB.MAT_STEEL, (6, 15, 0, 0), [0] * 140, "steel at rest on the far row: lifted as "
+             "it rises, dropped as it falls"),
+            ("mem-glass", BB.MAT_GLASS, (9, 9, 250, 0), [0] * 60, "glass rolls onto the membrane bridge"),
+            ("mem-rubber", BB.MAT_RUBBER, (9, 9, 250, 0), [0] * 60, "rubber falls through the membrane"),
+            ("water-spike", BB.MAT_STEEL, (22, 5, 0, 200), [0] * 60 + [D] * 190 + [0] * 30, "steel sinks down the "
+             "water column, rolls out of the arch and rides the spikes onto the yard")]
+
+
+def sp_verdict(name, p, zs):
+    """what a SPIKE scene is for, on the model at its end (ZS: the ball's (cell, z px, air) every step)"""
+    kinds = [e[0] for e in p.events]
+    on = [z for c_, z, a in zs if c_ in SP_CELLS and not a]
+    if name in ("spike-steel", "pop-steel", "water-spike"):
+        tip = [z for z in on]
+        ok = "shatter" not in kinds and "stun" not in kinds and p.nfall == 0 and tip and min(tip) == max(tip)
+        return ok, "%s on the spikes at z %s px for %d steps, no shatter, no fall, out at %s" % (
+            MAT_N[p.mat], sorted(set(tip)), len(tip), (p.gx >> 12, p.gy >> 12))
+    if name in ("spike-rubber", "spike-glass", "pop-up", "pop-rise"):
+        sh = next((e for e in p.events if e[0] == "shatter"), None)
+        ok = sh is not None and p.nfall >= 1 and p.mat == (BB.MAT_GLASS if name == "spike-glass" else BB.MAT_RUBBER)
+        return ok, "%s at step %s (lvz %s), %d respawn(s)" % ("popped" if p.mat == BB.MAT_RUBBER else "shattered",
+                                                            sh and sh[1], sh and sh[2], p.nfall)
+    if name == "pop-rise-steel":
+        zz = sorted(set(z for z in on))
+        ok = "shatter" not in kinds and p.nfall == 0 and len(zz) >= 2
+        return ok, "steel at rest on the row: its z %s px as the spikes rose and fell" % zz
+    if name == "pop-down":
+        ok = "shatter" not in kinds and p.nfall == 0 and (p.gy >> 12) >= 18
+        return ok, "rubber crossed the far row down, to %s" % ((p.gx >> 12, p.gy >> 12),)
+    if name == "mem-glass":
+        ok = p.nfall == 0 and any(c_ in MEM_CELLS for c_, _z, a in zs)
+        return ok, "glass on the membrane, no fall, at %s" % ((p.gx >> 12, p.gy >> 12),)
+    ok = p.nfall >= 1 and "shatter" not in kinds
+    return ok, "rubber fell through the membrane (%d respawn)" % p.nfall
+
+
+MAT_N = ("rubber", "steel", "glass")
+SP_CELLS, MEM_CELLS = set(), set()
+
+
+def sp_reds():
+    """SPIKES' red arms: (name, (old, new) in spike.asm, scene, what must part)"""
+    return (("spcell", ("    dw sp_reset, 0, 0, sp_step, sp_pose, sp_cell\n", "    dw sp_reset, 0, 0, sp_step, sp_pose, 0\n"),
+             "spike-steel", "the window"),
+            ("spkill", ("    jne .w\n    mov dl, 1\n", "    jne .w\n"), "spike-rubber", "working values"),
+            ("spput", ("    mov ax, [di + SP_HARD]\n    mov [bz_mrec + BZM_HARD], ax\n", ""), "spike-rubber",
+             "working values"),
+            ("spmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "pop-rise", "never drawn"),
+            ("spfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "pop-rise", None),
+            ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"))
+
+
+def spike_host(binp, lst, sym):
+    """SPIKES' unicorn half (SPEC.md 128.38): every scene on SPIKE equal at every step, what each is for, and the
+    red arms -> (lines, failures)"""
+    import shutil
+    import subprocess
+    out, fails = [], []
+    c = R.course("spike", src=SP_SRC)
+    SP_CELLS.update(pr["at"] for pr in c.part["props"] if pr["kind"] in (BB.SP_K, BB.SP_KP))
+    MEM_CELLS.update(pr["at"] for pr in c.part["props"] if pr["kind"] == BB.SP_KM)
+    fam = fam_parts()
+    sc = []
+    for name, mat, at, keys, what in sp_scenes():
+        poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
+        sc.append((name, mat, poke, keys))
+        p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=0)
+        q = model("spike", mat, poke, src=SP_SRC)
+        zs = []
+        for k_ in keys:
+            q.step(k_)
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+        ok, saw = sp_verdict(name, q, zs)
+        out.append("spike %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
+        fails += ["spike %s: %s" % (name, b) for b in bad] + ([] if ok else ["spike %s is not what it is for: %s"
+                                                                            % (name, saw)])
+    src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "spike.asm")).read()
+    for arm, (a_, b_), scn, want in sp_reds():
+        assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+            open(os.path.join(d, "fam", "spike.asm"), "w").write(src0.replace(a_, b_))
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "spike.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"spike": open(o, "rb").read()})
+        name, mat, poke, keys = next(s for s in sc if s[0] == scn)
+        _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     return out, fails
 

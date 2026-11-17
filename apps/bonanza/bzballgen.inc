@@ -425,8 +425,8 @@ bg_shape:
     ret
 
 ; bg_ent - an entry (squash 0 or 1, the stretch): SI = its shape table; ES:DI
-; gets its four shifts of two identical copies, each (16 mask rows, 16 frame
-; rows), and DI is left past it.  Row y of the shape: I = the interior (all
+; gets its four shifts, one line-parity copy each (SPEC.md 128.38.10), each
+; (16 mask rows, 16 frame rows), and DI is left past it.  Row y of the shape: I = the interior (all
 ; four neighbours in), the ring = S and not I is BLACK, glass's checker K = I
 ; and (x + y even) is see-through, so opaque = S xor K and coloured = I xor K;
 ; the colour of a coloured pixel is the Q pixel at row sy = 15 - ((15 - y) 16)
@@ -465,7 +465,7 @@ bg_ent:
     call bg_sp                  ; the mask row: the clear pixels kept
     mov cx, 0C0FFh
     mov di, [BG_EDI]
-    mov bp, 2 * BZ_BAL_ENT
+    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 128.38.10)
     call bg_put4
     pop bp
     mov ax, bp
@@ -491,7 +491,7 @@ bg_ent:
     mov di, [BG_EDI]
     add di, BZ_BAL_FRMB
     push bp
-    mov bp, 2 * BZ_BAL_ENT
+    mov bp, BZ_BAL_ENT
     call bg_put4
     pop bp
     add word [BG_EDI], BZ_BAL_RB
@@ -499,19 +499,8 @@ bg_ent:
     inc bp
     cmp bp, 32
     jb .y
-    pop di                      ; the second copies: each shift's, again
-    push ds
-    push es
-    pop ds
-    mov dx, BZ_BAL_SHIFTS
-.c:
-    mov si, di
-    add di, BZ_BAL_ENT
-    mov cx, BZ_BAL_ENT / 2
-    rep movsw
-    dec dx
-    jnz .c
-    pop ds
+    pop di
+    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 128.38.10)
     ret
 
 ; bg_shd - the shadow masks: parity p, shift s, row r (6): the ellipse's row
