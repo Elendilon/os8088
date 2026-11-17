@@ -67,8 +67,9 @@ the tour: bz_tour BZ_NTOUR + 2, 8) and the cup (a tour poked to stand at MOON) -
 stopped on the face, V's fetch and drop, D's end, W through the Save dialog, L
 through the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new
 instance): every row as before and the claims as before after each.
-  padleak      the glass ball's row not dropped at a cup: MOON's goal leaves
-               row 2 fetched
+  padleak      the sound part's row not dropped at a cup: MOON's goal leaves
+               BZ_P_SND fetched (it was the glass ball's row 2 until SPEC.md
+               128.25.5.2, whose balls are held for the instance: no ball row)
 
 WAVE 5B (SPEC.md 128.15.4.5, 128.15.13): THE CLAIM LEG.  A course part is
 fetched in its STORED form and expanded in place by bz_cexp; between that
@@ -183,23 +184,25 @@ def ndemo():
     return int(m_.group(1)) if m_ else 0
 
 
-def balls(crs, mat):
-    """the ball rows a launch of CRS fetches (SPEC.md 128.14.4.4): the starting
-    material's and every one its PAD MASK names"""
-    return sorted({mat} | {r["mat"] for r in R.course(crs).part["props"] if r["kind"] == BB.PK_PAD})
-
-
 def title_rows():
     """the rows held while the window is open: the desktop's song's held none
     since SPEC.md 128.26.5 (the window is silent); story 9.8 (SPEC.md
-    128.25.6.9): the RESIDENT families' BUNDLE, one row (BZ_P_FBUN), fetched
-    once at the start and never dropped"""
+    128.25.6.9): the RESIDENT BUNDLE, one row (BZ_P_FBUN), fetched once at
+    the start and never dropped - the three balls at its head since 128.25.5.2,
+    so a row in every build"""
+    return {fbun_row()}
+
+
+def fbun_row():
+    """BZ_P_FBUN, the resident bundle's row (the balls and the resident families, SPEC.md 128.25.5.2)"""
     import re
     link = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzlink.inc")).read()
-    nr = re.search(r"^BZ_NFRES\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M)
-    if not nr or not int(nr.group(1), 0):
-        return set()
-    return {int(re.search(r"^BZ_P_FBUN\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M).group(1), 0)}
+    return int(re.search(r"^BZ_P_FBUN\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M).group(1), 0)
+
+
+def bsegs(g):
+    """the three HELD balls' segments, bz_bsegs (SPEC.md 128.25.5.2)"""
+    return list(struct.unpack("<3H", bytes(g.m.read(g.a("bz_bsegs"), 6))))
 
 
 def shell_row():
@@ -423,19 +426,22 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     else:
         want_mat = mat                              # a play M's
     reads = launch(g, way, None if crs == "first" else crs, fails)
-    pc, pb = g.b("bz_pc"), g.b("bz_pb")
+    pc = g.b("bz_pc")
     r_in, c_in = rows(g), claims(g)
-    crs_b = "bench" if (way == "bench" and crs == "first") else crs
-    nb = balls(crs_b, want_mat)
-    for i in [pc] + [BALL_ROW0 + b_ for b_ in nb]:
+    # SPEC.md 128.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
+    # fetched since the open), so the control is the course's row and the bundle's FETCHED, the three
+    # ball segments (bz_bsegs) set, and the sprite's (bz_bseg) the material's
+    for i in [pc, fbun_row()]:
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
             fails.append("%s: inside the bracket row %d is not fetched (flags %02X zkb %04X): the control cannot "
                          "see a part that is there" % (way, i, f, z))
-    if g.b("bz_mat") != want_mat or pb != BALL_ROW0 + want_mat or pc != CRS_ROW0 + g.b("bz_crs"):
-        fails.append("%s: the launch rolls material %d from row %d with course row %d; want material %d, rows %d "
-                     "and %d (SPEC.md 128.11.3.1)" % (way, g.b("bz_mat"), pb, pc, want_mat, BALL_ROW0 + want_mat,
-                                                     CRS_ROW0 + g.b("bz_crs")))
+    bs = bsegs(g)
+    if g.b("bz_mat") != want_mat or not all(bs) or g.w("bz_bseg") != bs[want_mat] or pc != CRS_ROW0 + g.b("bz_crs"):
+        fails.append("%s: the launch rolls material %d (bz_bseg %04X, the held balls %s) with course row %d; want "
+                     "material %d and course row %d (SPEC.md 128.25.5.2)" % (
+                         way, g.b("bz_mat"), g.w("bz_bseg"), ["%04X" % b_ for b_ in bs], pc, want_mat,
+                         CRS_ROW0 + g.b("bz_crs")))
     if r_in[shell_row()][0] & OP_FETCHED:
         fails.append("%s: inside the bracket the SHELL part (row %d) is still fetched: it may never share memory "
                      "with a course (SPEC.md 128.19.2)" % (way, shell_row()))
@@ -516,7 +522,7 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         fails.append("%s: the instance's claims after the launch %s, before it %s" % (way, c_out, base_claims))
     m.run()
     line = "%s %s (%s): rows %d,%d fetched inside; %d floppy reads to the bracket; after it every row as before " \
-           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, pb, reads,
+           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, fbun_row(), reads,
                                              "yes" if not fails else "NO")
     return fails, line
 
@@ -932,7 +938,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
     return fails
 
 
-BALL_ROW0, CRS_ROW0 = 0, 3                  # SPEC.md 128.11.3.1: BZ_P_BALR, BZ_P_CRS
+CRS_ROW0 = 0                                # BZ_P_CRS: no ball rows since SPEC.md 128.25.5.2 (it was 3)
 REDS = {
     # the goal path does not drop the course's row: bz_fin is set only by a play that reached the goal
     "leak": [("bonanza.asm", "    call op_areserve            ; into given back (a refused first fetch)\n"
@@ -947,11 +953,11 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-REDS["padleak"] = [("bonanza.asm", ".dball:                         ; fetch order backwards (SPEC.md 128.25.4.2)\n"
-                    "    call op_drop                ; (it preserves AX)\n",
-                    ".dball:                         ; RED padleak: the glass ball kept at the cup\n"
-                    "    cmp al, BZ_P_BALG\n    jne .rpl\n    cmp byte [bz_hid], 0\n    jne .rpl2\n.rpl:\n"
-                    "    call op_drop\n.rpl2:\n")]
+# (SPEC.md 128.25.5.2: no ball row is dropped any more - the balls are held for the instance - so the cup's
+# leak is the SOUND PART's, the arena row a play of MOON fetches beside its song, kept at the cup)
+REDS["padleak"] = [("bzsound.inc", "    mov al, BZ_P_SND\n    call op_drop\n    mov word [bzs_pseg], 0\n",
+                    "    mov al, BZ_P_SND            ; RED padleak: the sound part kept at the cup\n"
+                    "    cmp byte [bz_hid], 0\n    jne .rpl\n    call op_drop\n.rpl:\n    mov word [bzs_pseg], 0\n")]
 # wave 5b (SPEC.md 128.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
 # WDIFF's count one record short (the last record left as differences), ROWTAB's last word never written,
 # and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: MILL's first)
@@ -987,7 +993,7 @@ for _r in RED_RUN:                              # (only the full run covers all 
     RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch; only the palette
     RED_RUN[_r].setdefault("trial", False)      # reds' the palette leg)
     RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
-RED_WANT = {"padleak": "part row 2 is still FETCHED", "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
+RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % (CRS_ROW0 + dict.__len__(R.CRS_K)),  # BZ_P_SND "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
             "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
             "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT"}
 RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card
@@ -1018,9 +1024,9 @@ def main():
                 for b in bad:
                     print("  red %s %s: %s" % (a.red, tag, b))
                 assert bad, "RED ARM %s on %s: the row stayed GREEN against a broken package" % (a.red, tag)
-                assert any(RED_WANT[a.red] in b for b in bad), \
-                    "RED ARM %s on %s went red, but not at its own check (%r): %s" % (a.red, tag, RED_WANT[a.red],
-                                                                                    bad)
+                want = RED_WANT[a.red]() if callable(RED_WANT[a.red]) else RED_WANT[a.red]
+                assert any(want in b for b in bad), \
+                    "RED ARM %s on %s went red, but not at its own check (%r): %s" % (a.red, tag, want, bad)
                 if a.red == "leak":
                     assert all(b.startswith("goal:") for b in bad), \
                         "RED ARM leak on %s went red somewhere other than the goal: %s" % (tag, bad)

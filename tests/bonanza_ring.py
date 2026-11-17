@@ -4288,20 +4288,23 @@ def fam_parts(td, src, art):
     if "BZ_P_FBUN" in open(os.path.join(src, "bonanza.asm")).read():
         byname = dict((f["name"], open(p, "rb").read()) for f, p in zip(BB.FAMILIES, out))
         bun = os.path.join(td, BB.FBUN_FILE)
-        with open(bun, "wb") as fo:
-            fo.write(BB.fam_bundle(byname))
-        out = [p for f, p in zip(BB.FAMILIES, out) if f in BB.FAM_FETCH] + ([bun] if BB.FAM_RES else [])
+        with open(bun, "wb") as fo:             # (the balls at its head, SPEC.md 128.25.5.2)
+            fo.write(BB.fam_bundle(byname, BB.fam_balls(art)) if "BZ_BALB" in open(os.path.join(src, "bonanza.asm")).read()
+                     else BB.fam_bundle(byname, None))
+        out = [p for f, p in zip(BB.FAMILIES, out) if f in BB.FAM_FETCH] + [bun]
     return out
 
 
 def part_args(art, src=None, shell=None, fams=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
-    rows 0 - 2 the rubber, steel and glass balls, then course K's one part
+    rows 0 - 2 the rubber, steel and glass balls (before SPEC.md 128.25.5.2:
+    the bundle carries them since), then course K's one part
     (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
     them - the sound part and one part a song (SPEC.md 128.20.3)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
-    files = list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
+    files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
+                                                # ride the bundle since SPEC.md 128.25.5.2)
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
