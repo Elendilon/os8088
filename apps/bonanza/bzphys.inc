@@ -2949,7 +2949,9 @@ bz_circle:
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
     shr bx, 1                   ; (128.19.10: a kick MARKS its post's lane for
-    mov byte [bz_latt + bx], 1  ; the walk, until it is dark again)
+    mov byte [bz_latt + bx], 1  ; the walk, until it is dark again - and makes
+    mov byte [bz_lqt], 0        ; the next walk, item 10: the quiet walk reads
+                                ; no kick)
     mov byte [bz_bgr], 0        ; wave 6b: a kick closes the grace
     ret
 .out:

@@ -254,10 +254,9 @@ VAR bz_lnsk,1                   ; 1: the walk's range moved, no lane skipped
 VAR bz_lcks,1                   ; bz_cksn as the last walk read it (a flag's skip)
 VAR bz_lqt,1                    ; 1: the last walk SKIPPED every lane (the quiet
 VAR bz_lwake,2                  ; walk), until step bz_lwake (the rotors' first
-                                ; bz_lnext), a kick or a flag
-VAR bz_lkn,2                    ; the slice's kicks: bz_lkn words of bz_pkick
-VAR bz_lks,2                    ; from bz_lks (the range's, .rng), and its
-VAR bz_lkb,2                    ; lanes' bytes of bz_ldrw from bz_lkb
+                                ; bz_lnext), a flag, or a writer outside the
+                                ; walk clears it (128.19.10 item 10: a kick,
+                                ; bz_fmark, bz_nset, bz_lfull, a harness's mark)
 VAR bz_latt,BZ_PROPMAX          ; 128.19.10: nonzero, the walk VISITS the lane: a rotor
                                 ; always; a SLOW lane when an event marked it (a kick,
                                 ; a first touch, a second, entering the range or the
@@ -2499,10 +2498,10 @@ bz_kmeet:
 ; lane is walked.  A walk that skipped EVERY lane is not made again (THE QUIET
 ; WALK, bz_lqt) while the window's rows stand (bz_pR0) and nothing a skip
 ; reads has moved: no rotor's next change reached (bz_lwake, the nearest), no
-; flag touched, no kick of the slice's lanes unseen, every one of them drawn
-; at its true pose with no lit frames (EVERY input of the skip below is one of
-; these terms, bz_lknd and the range apart, which a play fixes and a range
-; move rewalks).  For each lane walked:
+; flag touched, and bz_lqt still 1 - which EVERY writer outside the walk of
+; what a skip reads (a kick's bz_pkick, a hook's or a sign's mark, a full
+; write, a harness's poke of bz_ldrw or bz_lhold) clears (SPEC.md 128.19.10
+; item 10: the slice is never compared).  For each lane walked:
 ;   0. a POST's lit frames: one counted off when it begins the frame drawn
 ;      lit, all of them when it is wholly out of the shown window;
 ;   1. its TRUE pose (bz_ltrue);
@@ -2574,31 +2573,10 @@ bz_props:
     mov dx, [bz_lwake]          ; moved since - no rotor's next change is
     sub dx, [bz_nstep]          ; reached (bz_lwake, the first of them: a
     or dx, dx                   ; 16-bit difference, as the skip's), no flag
-    jle .walk0                  ; touched, no kick the slice's lanes have not
-    mov dl, [bz_cksn]           ; seen (bz_pkick against bz_lkick over the
-    cmp dl, [bz_lcks]           ; slice) - so this walk would skip every lane
-    jne .walk0                  ; again, and is not made
-    mov cx, [bz_lkn]
-    jcxz .plat0
-    mov si, [bz_lks]
-    lea di, [si + bz_lkick - bz_pkick]
-    push es
-    push ds
-    pop es
-    repe cmpsw
-    jne .walk1
-    mov si, [bz_lkb]            ; ...and the slice's lanes still drawn at
-    lea di, [si + bz_ltru - bz_ldrw] ; their true poses with no lit frames (a
-    mov cx, [bz_lkn]            ; harness pokes bz_ldrw and bz_lhold, display
-    repe cmpsb                  ; state the game changes only in a walk: the
-    jne .walk1                  ; skip reads both, so the quiet walk does)
-    lea di, [si + bz_lhold - bz_ldrw]
-    sub di, [bz_lkn]
-    mov cx, [bz_lkn]
-    repe scasb                  ; (AL = 0)
-.walk1:
-    pop es                      ; (ES as it came: the walk keeps it too)
-    jne .walk0
+    jle .walk0                  ; touched, and bz_lqt still 1: a kick, a mark
+    mov dl, [bz_cksn]           ; or a poke would have cleared it (128.19.10
+    cmp dl, [bz_lcks]           ; item 10) - so this walk would skip every
+    jne .walk0                  ; lane again, and is not made
 .plat0:
     jmp .plat
 .top:
@@ -2686,17 +2664,6 @@ bz_props:
     inc bx
 .b1d:
     mov [bz_lr1], bl
-    sub bl, [bz_lr0]            ; the slice's kicks, for the quiet walk
-    jae .ks
-    xor bl, bl
-.ks:
-    mov [bz_lkn], bx
-    mov bl, [bz_lr0]
-    lea si, [bx + bz_ldrw]
-    mov [bz_lkb], si
-    shl bx, 1
-    add bx, bz_pkick
-    mov [bz_lks], bx
     xor bx, bx                  ; 128.19.10: every lane of the new slice whose
     mov bl, [bz_lr0]            ; rows did not meet the LAST range has ENTERED:
 .mk:                            ; marked

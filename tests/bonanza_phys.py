@@ -1849,14 +1849,17 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     lanes += [pr for pr in p.props if pr["kind"] == BB.PK_GROUP]     # SPEC.md 128.32: the GROUP lanes too
     if lanes:                                   # (bz_pread's count, which a RESET's marks walk: the lane
         g.w("bz_nlane", sum(1 for pr in p.props if pr.get("lane")), 1)  # records are the first)
-    for i, k in enumerate(keys):
+    alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 128.19.10 item 10: EVERY lane's KICK and
+    for i, k in enumerate(keys):                            # HOLD too (bz_pkick, bz_lhold: a post's)
         g.w("bz_keys", k, 1)
         g.w("bz_tilt", BB.TILT_KEYS, 1)
         if lanes:                               # (the display's: every element lane unmarked, the walk
             pose0 = [p.fpose(pr) for pr in lanes]   # QUIET, as after a walk that skipped every lane)
-            for pr in lanes:
-                g.w("bz_latt", 0, 1, pr["i"])
+        if alll:
+            for j in alll:
+                g.w("bz_latt", 0, 1, j)
             g.w("bz_lqt", 1, 1)
+            kh0 = [(g.r("bz_pkick", 2, False, 2 * j), g.r("bz_lhold", 1, False, j)) for j in alll]
         g.call("bz_step")
         p.step(k)
         if lanes:                               # SPEC.md 128.25.6.3: a step that moves an element's
@@ -1865,6 +1868,13 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                 if q1 != q0 and (not g.r("bz_latt", 1, False, pr["i"]) or g.r("bz_lqt", 1, False)):
                     bad.append("step %d: element %d's pose %d -> %d, but bz_latt %d, bz_lqt %d (never drawn)" % (
                         i, pr["i"], q0, q1, g.r("bz_latt", 1, False, pr["i"]), g.r("bz_lqt", 1, False)))
+        if alll:                                # 128.19.10 item 10: the quiet walk compares no lane's
+            for j, (kk0, hh0) in zip(alll, kh0):    # state, so a step that writes a lane's KICK or HOLD
+                kk1, hh1 = g.r("bz_pkick", 2, False, 2 * j), g.r("bz_lhold", 1, False, j)   # marks it AND makes
+                if (kk1, hh1) != (kk0, hh0) and (not g.r("bz_latt", 1, False, j) or g.r("bz_lqt", 1, False)):
+                    bad.append("step %d: lane %d's kick %d -> %d, hold %d -> %d, but bz_latt %d, bz_lqt %d (never "
+                               "drawn)" % (i, j, kk0, kk1, hh0, hh1, g.r("bz_latt", 1, False, j),
+                                           g.r("bz_lqt", 1, False)))
         gs = (g.r("bz_nstep", 4), g.r("bz_gx", 4), g.r("bz_gy", 4), g.r("bz_gz", 4), g.r("bz_gvx", 2),
               g.r("bz_gvy", 2), g.r("bz_gvz", 2), g.r("bz_air", 1))
         if gs != p.state():
@@ -1981,6 +1991,20 @@ def fam_host():
             out.append("scenario %s (%s): %s" % (s["name"], s["crs"], "; ".join(bad)[:300]))
     out.append("%d MILL / MOON / PEAK scenarios, %d steps, with the ROTOR, SPRING and TUBE parts: %s" % (
         nsc, nst, "equal at every step" if not [f for f in fails if f.startswith("scenario")] else "FAILED"))
+    # red kickquiet (SPEC.md 128.19.10 item 10): the KICK's write of bz_pkick without its bz_lqt clear - the
+    # post marked but the walk left quiet, so a lit post is never drawn (MILL's `kick` scenario must go red
+    # with "never drawn"; the 39 above are its control)
+    lq = sym["bz_lqt"]
+    img = open(binp, "rb").read()
+    kq = img.find(bytes((0xC6, 0x06, lq & 255, lq >> 8, 0)), sym["bz_circle"])
+    assert 0 < kq - sym["bz_circle"] < 400 and img.find(bytes((0xC6, 0x06, lq & 255, lq >> 8, 0)), kq + 1,
+                                                         sym["bz_circle"] + 400) < 0, "red kickquiet: the clear not found"
+    s = [s_ for s_ in replays() if s_["name"] == "kick"][0]
+    _p, bad = urun(binp, lst, sym, s["crs"], s["mat"], s["keys"], fam, ((kq, b"\x90" * 5),), poke=s["poke"])
+    ok = any("never drawn" in b and "kick" in b for b in bad)
+    out.append("red kickquiet: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
+    if not ok:
+        fails.append("red kickquiet stayed green on the unicorn: %s" % bad[:1])
     # ...and story 9.8's red arms ON THE PARTS (each a REDS arm whose code moved into a family part):
     # the arm's part assembled from a patched copy against this build's bzlink.inc, its scenario on the
     # unicorn, which must part from the model

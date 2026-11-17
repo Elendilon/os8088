@@ -577,9 +577,14 @@ class FaceLines:
 def mark(g, lane):
     """MARK a lane (SPEC.md 128.19.10, bz_latt): a poke of display or kick
     state is an event the walk would otherwise not see - the guest's own
-    writers (a kick, a flag touched, a second, a lane entering) mark it"""
+    writers (a kick, a flag touched, a second, a lane entering) mark it -
+    and MAKE the next walk (bz_lqt 0, item 10: the quiet walk compares no
+    lane's state, so every writer outside the walk clears it, as a kick
+    and bz_fmark do)"""
     if "bz_latt" in g.sym:
         g.m.write(g.a("bz_latt") + lane, b"\1")
+    if "bz_lqt" in g.sym:
+        g.m.write(g.a("bz_lqt"), b"\0")
 
 
 def guest_propmax(art=None):
