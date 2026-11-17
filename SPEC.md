@@ -269982,6 +269982,85 @@ the skip's kinds, three taken jumps) - item 6 below.
    element's state (`gl_byte`, `pr_bit`) only for an element in it. This
    moves bytes in the parts only, never in the image.
 
+8. **(wave 9, 2026-11-17, the owner's F4) GLASS's CELL in O(1) while
+   nothing is broken.** Item 7 left `gl_cell` walking every prop of the
+   course on every window refill, about 110 clk a prop (4.9k a refill at
+   PLAYGROUND's 44 props) to find no broken crack on almost every refill
+   of a play. The glass slot's +1 now COUNTS the cracks BROKEN (128.25.18:
+   CONTACT's break and STEP's break add one, and RESET counts them again
+   over the records it already walks to mark them - 0 once the engine has
+   cleared the RESPAWN class, and right for a class that keeps a broken
+   crack, which `--selfcheck` item 7's forced-ATTEMPT NO TRAP arm presets:
+   a RESET that only zeroed it left that arm's broken bridge un-voided and
+   the arm green) and `gl_cell` returns at once while it is 0.
+   `bbcourse.GlassFamily` keeps the same byte (`Physics.statef` compares
+   every slot byte with the guest's at every step). The image is
+   unchanged; the glass part is 40 bytes longer (596 -> 636). The PROBE keeps its walk: its slot has one byte free and
+   its TOUCHED bit is cleared by the course's RESPAWN mask rather than by
+   the part, so a count there is not the trivial change (it is a test
+   family).
+
+9. **(wave 9, 2026-11-17, the owner's F6) The family dispatch walks a list
+   per hook** (128.25.6.3, THE HOOK LISTS): a family without the hook costs
+   a dispatch nothing, and one with it no head read, no entry copy and no
+   kind test through its data segment. MEASURED below, with item 10.
+
+10. **(wave 9, 2026-11-17, the owner's F3) The QUIET WALK's test is O(1).**
+   It compared, over the walk's whole row slice, every lane's kick with the
+   kick it last saw (`repe cmpsw`, `bz_pkick` against `bz_lkick`), its drawn
+   pose with its true one (`repe cmpsb`) and its lit frames with 0 (`repe
+   scasb`): about 60 clk a slice lane on EVERY quiet frame, 1.0k at
+   PLAYGROUND's 23. The compares are gone, with `bz_lkn`, `bz_lks` and
+   `bz_lkb` and their setup at a range move. In their place every writer
+   OUTSIDE the walk of something a lane's skip reads clears `bz_lqt` (makes
+   the next walk), as `bz_fmark` and `bz_nset` already did. **The hidden
+   cost is correctness, not cycles**: a writer that forgets the clear makes
+   a change that is never drawn - exactly the "steel falls through, the
+   hole never forms" defect of 128.25.6.3. So the write sites, every one:
+
+   | what a skip reads | written outside the walk by | how the next walk is made |
+   |---|---|---|
+   | `bz_pkick` (a post's kick) | `bz_phys`'s kick (bzphys.inc, `bz_circle`) | marks the lane and clears `bz_lqt` (+5 bytes, NEW) |
+   | | `bz_pinit` (every post dark, -6) | the play's start: `bz_pread` marks every lane, `bz_lfull` clears `bz_lqt` |
+   | | a harness poke (`bonanza_ring.defer_poke`, `bonanza_wheel.sweep_poke`) | `bonanza_ring.mark`, which now clears `bz_lqt` too |
+   | `bz_lhold` (lit frames) | `bz_pread` (0); `bz_ltrue` (a kick seen) | `bz_lfull`'s clear; `bz_ltrue` runs only in a walk that walks the lane (`.w0`) or in `bz_lfull` |
+   | | a harness poke (`bonanza_ring`'s LOW and DEFER scenes, `bonanza_wheel.sweep_poke`) | `bonanza_ring.mark` |
+   | `bz_ldrw` (the drawn pose) | `bz_pread` (0FFh), `bz_lfull`'s syncs | `bz_lfull`'s clear |
+   | | `bz_lsync` and `bz_wcommit` (the contact group's `bz_csync`, the wheel's commit), `bz_pyield` / `bz_pstrip` (a waiting lane's drawn pose put back) | the same frame as a walk that WALKED that lane (only a due lane is a candidate, and a due lane stays marked and is walked: `bz_lqt` is already 0) |
+   | | a harness poke (`bonanza_wheel`'s corner leg) | `bonanza_ring.mark` |
+   | `bz_ltru` (the true pose) | `bz_ltrue` (in a walk, `bz_lfull`), `.nxo` (an unwalked lane: = drawn) | inside the walk |
+   | `bz_lkick`, `bz_lnext` | `bz_ltrue` | inside the walk; a rotor's next change is `bz_lwake`, which the quiet test still reads |
+   | `bz_latt` (a mark) | a flag's first touch (`bz_cksn`) | the quiet test still compares `bz_cksn` with `bz_lcks` |
+   | | the finish sequence's clock flash (`bz_fflash`: every clock lane) | `bz_lcsec` set to NOT `bz_tsec`: the second's test is before the quiet one |
+   | | a family hook (`bz_fmark`), a sign (`bz_nset`) | each clears `bz_lqt` (128.25.6.3) |
+   | | a range move (`.mk`), a band move (`.cm`), a second (`.ck`) | those frames are never quiet (`.top`, `.walk0`) |
+   | | `bz_pread`, `bz_lfull` | `bz_lfull`'s clear |
+
+   `bonanzaphys`'s unicorn half holds the first row: every step of every
+   family scenario and of the 39 MILL / MOON / PEAK scenarios now starts
+   with EVERY lane unmarked and the walk quiet, and a step that writes a
+   lane's `bz_pkick` or `bz_lhold` must leave it marked and `bz_lqt` 0;
+   red `kickquiet` (the kick's clear NOPed) goes red on MILL's `kick`
+   scenario. MEASURED: image -84, bss -6.
+
+   **MEASURED, items 8 - 10** (MartyPC's CGA, PLAYGROUND's void fall as
+   `bonanza_ring --part ground` plays it, GLIDE; every frame single-stepped
+   from `bz_t0` to `bz_camera`, clk a frame; the pacing two untraced runs,
+   a refresh missed when `bz_t0` to presented is over 110k clk):
+
+   | | before (48b944a40) | item 8 (F4) | + item 9 (F6) | + item 10 (F3) |
+   |---|---|---|---|---|
+   | image / bss, bytes | 49,898 / 11,915 | 49,898 / 11,915 (glass part 596 -> 636) | 49,962 / 12,149 | 49,878 / 12,143 |
+   | t0 .. camera, mean of every frame | 19,042 | 18,966 | 18,854 | **17,350** |
+   | a QUIET frame (the quiet walk held), mean; its `bz_props` | 15,825; 2,926 | 15,592; 2,927 | 15,687; 2,912 | **13,581; 968** |
+   | a WINDOW-REFILL frame, mean; the families' CELL in it | 37,954; 8,673 | 32,230; **3,854** (the probe's alone) | 32,139; 3,854 | 30,255; 3,855 |
+   | the family dispatch a frame; a dispatch (3 families, STEP each step) | 1,441; 1,801 | 1,476; 1,800 | **1,160; 1,365** | 1,134; 1,366 |
+   | untraced: t0 .. camera mean; refreshes missed of the frames | 18.8k, 19.2k; 12 / 217, 13 / 217 | 19.0k, 19.0k; 9 / 221, 13 / 216 | 18.7k, 18.5k; 12 / 216, 10 / 217 | **17.5k, 17.4k; 8 / 219, 11 / 217** |
+
+   The pacing's missed count moves by a few between runs of one tree (the
+   camera's pans fall on different frames); the per-frame means are the
+   measure. The labs-free tree of item 7 (a428af6d0) was 17,604 a frame.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
@@ -273454,9 +273533,32 @@ flag is clear by the package's convention (no `cld` is spent). The
 dispatcher is ONE routine with two entries (bzfam.inc): `bz_fall` (AL = the
 hook's bit NUMBER: every family of the course with an entry for it, in slot
 order) and `bz_fone` (DL = a kind: the family whose run holds it); both skip
-a hook whose entry is 0 (so a site need not test the hook's own bit), answer
-AX as the last hook left it (0 none), and call through `call far [bz_ffp]`,
-the entry and the slot's code segment written there first. **BUILT.**
+a hook whose entry is 0 (so a site need not test the hook's own bit) and
+answer AX as the last hook left it (0 none). **BUILT.**
+
+**THE HOOK LISTS (the owner's F6, 2026-11-17: "everything has some family
+now").** The dispatch used to walk every slot of the course on every call:
+the slot's part head read through its data segment, its run of kinds
+tested, its entry fetched and copied into a far pointer, about 470 clk a
+family on each STEP. `bz_ffetch` now builds, as it takes each slot, ONE
+LIST PER HOOK (`bz_fhl`, `BZ_NHOOK` 7 lists of `BZ_FAMMAX` 8-byte entries;
+`bz_fhn` each list's length, a word): for every hook whose bit the part's
+mask (+8) has and whose entry (+12 + 2b) is not 0, an entry of +0 that
+entry and the slot's CODE segment (a far pointer, on kern_mega the code
+selector `op_cseg` gave), +4 the slot, +5 the part's kinds' count and +6
+its first kind (+9, +10). `bz_fall` walks the hook's list and calls `call
+far [si]` where the entry lies; `bz_fone` walks it with DL's kind against
+each entry's run and stops at the first family it calls (the runs are
+disjoint). A family without the hook costs a dispatch nothing; the site's
+register contract above, the slot order and `bz_fmkp`'s write per dispatch
+are as they were. The lists are rebuilt from nothing by every `bz_ffetch`
+(the second call after the arena's batch re-takes every segment, so no list
+holds a segment across a fetch), and `bz_fhz` empties them with `bz_fhk`
+and `bz_fnf` at `bz_ffetch`'s start and `bz_cdrop`. A harness that writes
+the slot records itself writes the lists too (`bonanza_dsplit.fam_load`).
+MEASURED: image +64 (the dispatch 17 shorter, `bz_ffetch`'s list build +70,
+`bz_fhz` 14, `bz_cdrop` -3), bss +234 (`bz_fhl` 224, `bz_fhn` 14, `bz_ffp`'s 4
+gone); the cycles are in 128.19.10 item 9.
 
 **PINNED (story 9.1): the sites, exactly.**
 
@@ -274285,7 +274387,8 @@ REVEALED. **The tool lays BYTE elements first** (whole bytes, in record order),
 then every other element's bits in record order, so no byte is split and
 none is wasted: on PLAYGROUND the four cracks are bytes 0 - 3, the probe bit
 32, the glass tiles 33 - 36 (`BZ_FSTB` 5). The slot's +0 counts the cracks
-COUNTING, so STEP walks the records only while one is.
+COUNTING, so STEP walks the records only while one is; its +1 counts the
+cracks BROKEN (128.19.10 item 8), so CELL walks them only while one is.
 
 **One counter an element, not one in the slot** (the brief's choice, made):
 the limit "one crack counting at a time" would refuse the owner's own
@@ -274306,12 +274409,12 @@ it ran.
 
 | hook | GLASS |
 |---|---|
-| RESET (either class) | the slot's count 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
-| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
+| RESET (either class) | the slot's +0 0 and its +1 the cracks BROKEN counted again (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1; the broken count +1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
-| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
+| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1, the broken count +1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
 | POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
-| CELL | every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
+| CELL | nothing while the broken count is 0; else every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
 
 **The reach (`reach_forms`).** For a course with an element whose `forms` hold
 `void`, the tool takes `build_reach` a second time over the grid with each
