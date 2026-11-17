@@ -22077,9 +22077,9 @@ BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPAT
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
 # (128.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
-# and the BZREC knob were deleted. bbcourse.py still writes both strides
-# (the stride is data, and the identity is over the 8-byte layout); its
-# default, 4, is the shipped one, and bzcourse.inc's BZ_REC says which.
+# and the BZREC knob were deleted, and bbcourse.py's `--rec` with them: records
+# are 4 bytes, and bzcourse.inc's BZ_REC says so. (The identity is still
+# taken over the 8-byte layout of the model, SPEC.md 128.15.7.)
 # BZPARTZF is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
 # balls, the sound, the songs and the demos go together): LZB, the owner's

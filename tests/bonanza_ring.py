@@ -250,8 +250,7 @@ their own check:
              - the W4 replays' blank check
   nodither   (5b.6) made at the DATA, not the source: a copy of
              build/bonanza-art whose every BZ<K>.BIN is the tool's
-             UNDITHERED compile of the course (_hack no_dither, the art's
-             RECB) with the shipped identity word stamped in, so the demos
+             UNDITHERED compile of the course (_hack no_dither) with the shipped identity word stamped in, so the demos
              still play, packed by build_tree: the shipped build less the
              dither and nothing else (SPEC.md 128.15.10.6).
              The card lays the records' checker pixels the oracle keeps for
@@ -404,36 +403,23 @@ def at(p):
     return os88build.at(p)
 
 
-def build_rec(art=None):
-    """the build's RECB: bzcourse.inc's BZ_REC (8 when the art predates it:
-    wave 4's BZC1 parts have 8-byte records too).  D shipped and C's arm was
-    deleted (SPEC.md 128.15.5.4), so every shipped build reads 4; the line
-    stays the one place a row learns the stride a compile is laid out in."""
-    inc = open(os.path.join(ROOT, art or at("build/bonanza-art"), "bzcourse.inc")).read()
-    m_ = re.search(r"^BZ_REC\s+equ\s+(\d+)", inc, re.M)
-    return int(m_.group(1)) if m_ else 8
-
-
 def prefetch(names):
     """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
-    rec = build_rec()
-    todo = [n for n in names if (os.path.join(ROOT, COURSES[n]), rec) not in _COURSE]
-    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _rec=rec),
-                                          todo)):
+    todo = [n for n in names if os.path.join(ROOT, COURSES[n]) not in _COURSE]
+    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n])), todo)):
         if e is None:
-            _COURSE[(os.path.join(ROOT, COURSES[n]), rec)] = c
+            _COURSE[os.path.join(ROOT, COURSES[n])] = c
 
 
 def course(name, src=None, art=None):
     """bbcourse's compile of a course, once a process (a few seconds each),
-    its RAM form (c.cga, c.part's offsets) under the ART's RECB (build_rec).
+    its RAM form (c.cga, c.part's offsets).
     SRC: a course file other than the shipped one (a red tree's)."""
     path = src or os.path.join(ROOT, COURSES[name])
-    rec = build_rec(art)
-    if (path, rec) not in _COURSE:
-        _COURSE[(path, rec)] = BB.compile_course(path, _rec=rec)
-    return _COURSE[(path, rec)]
+    if path not in _COURSE:
+        _COURSE[path] = BB.compile_course(path)
+    return _COURSE[path]
 
 
 def course_k(k):
@@ -4551,7 +4537,7 @@ RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's h
 def nodither_art(td):
     """`nodither`'s data (SPEC.md 128.15.13): build/bonanza-art copied into TD
     with every BZ<K>.BIN replaced by the TOOL'S UNDITHERED compile of the same
-    course (`_hack no_dither`, under the art's RECB), its identity word
+    course (`_hack no_dither`), its identity word
     stamped with the shipped part's so the demos and BONANZA.DAT still match.
     So the arm differs from the shipped build in exactly the dither: each
     record lays its undithered mask, and the records the dither leaves out of
@@ -4562,12 +4548,11 @@ def nodither_art(td):
     ones.  -> the copy's directory"""
     art = os.path.join(td, "art-nodither")
     shutil.copytree(at("build/bonanza-art"), art)
-    rec = build_rec()
     CRS_K["bench"]                              # (fills the table)
     order = sorted(CRS_K.items(), key=lambda kv: kv[1])
     # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
     und = dict(zip([n for n, _k in order], BB.par_map(
-        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}, _rec=rec),
+        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}),
         [n for n, _k in order])))
     for name, k in order:
         f = os.path.join(art, "BZ%d.BIN" % k)
@@ -4595,7 +4580,7 @@ def nodither_art(td):
             out.append((fw, wram))
         sts = []
         for fn, r in out:
-            st = BB.stored_form(u.model, rec, bytes(r), u.fname)
+            st = BB.stored_form(u.model, BB.REC, bytes(r), u.fname)
             if BB.expand(st) != bytes(r):
                 raise AssertionError("nodither: %s's undithered stored form does not expand to its RAM form (%s)"
                                      % (name, os.path.basename(fn)))

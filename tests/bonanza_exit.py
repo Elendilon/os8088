@@ -80,7 +80,7 @@ MILL, MOON, PEAK, BENCH (B), the tour's (FIRST, and MOON at the cup), D's
 stops at the kernel's fsx_run (a kernel address: the package's region may
 move while the launch claims), and there the course claim ([bz_cseg], found
 in the heap map, at least the part's length) must equal byte for byte the
-tool's RAM form under the build's RECB (bbcourse's cga4 / cga8; the art's
+tool's RAM form (bbcourse's cga; the art's
 BZ<K>.BIN checked to be the same compile's stored form) on the CGA, or its
 htab() translation on the Hercules; a difference names the first offset and
 its BZC2 section.  The full run must have compared all six shipped courses.
@@ -301,18 +301,13 @@ def leave(g, way):
 CLAIMED = {}                    # tag -> the courses whose claim was compared, by name
 
 
-def build_rec(art=None):
-    """the build's RECB (bonanza_ring.build_rec: one reader of bzcourse.inc)"""
-    return R.build_rec(art)
-
-
 _RAM = {}
 
 
 def ram_forms(k, tag, art=None):
     """course K's part(s) as the card holds them between bz_cexp (and bz_hxlat on
     the Hercules) and OSAPI_FSX_RUN (SPEC.md 128.15.4.5): THE TOOL'S RAM FORM
-    under the build's RECB (bbcourse's cga4 / cga8), or its htab() translation
+    (bbcourse's cga), or its htab() translation
     (herc_translate_course) -> (the part, None) - or for a TWO-PART course
     (SPEC.md 128.30) (the picture part, the world part), herc_translate_parts'
     on the Hercules.  The art's BZ<K>.BIN (and BZ<K>W.BIN) must be the same
@@ -322,16 +317,15 @@ def ram_forms(k, tag, art=None):
     key = (k, tag, art)
     if key not in _RAM:
         c = R.course_k(k)
-        rec = build_rec(art)
-        ram, stored = (c.cga4, c.stored4) if rec == 4 else (c.cga8, c.stored8)
-        wram, wstored = ((c.wcga4, c.wstored4) if rec == 4 else (c.wcga8, c.wstored8)) if c.split else (None, None)
+        ram, stored = c.cga, c.stored
+        wram, wstored = (c.wcga, c.wstored) if c.split else (None, None)
         for f_, want in (("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)):
             if want is None:
                 continue
             with open(os.path.join(ROOT, art, f_), "rb") as f:
                 if f.read() != want:
-                    raise SystemExit("%s/%s is not this tree's course %s as stored under RECB %d: the art is "
-                                     "stale (`make bonanzadisk`)" % (art, f_, c.name, rec))
+                    raise SystemExit("%s/%s is not this tree's course %s as stored: the art is "
+                                     "stale (`make bonanzadisk`)" % (art, f_, c.name))
         if wram is not None:
             _RAM[key] = BB.herc_translate_parts(ram, wram) if tag == "herc" else (bytes(ram), bytes(wram))
         else:
