@@ -4513,3 +4513,79 @@ hardly help it"), glass x1.25 ("or it's an uncontrollable rocket").
 bonanzadisk`, `--selfcheck` section `boost` (22 items, six model red arms
 red), `bp_host` (twelve scenes equal, seven red arms red). **Not run**: soak
 rows, `test-full`, a MartyPC look (the art did not change).
+
+## 2026-11-17 (PLAYGROUND takes the props: the WIND YARD)
+
+The owner: *"Playground is our stress test of the entire system."* The brief
+was every merged prop of the round that fits, each where it is USED - a gate
+for the ball it is for, with something behind it - and what does not fit
+reported with its number. Branch `bb-playground`; SPEC.md 128.34.12 is the
+record.
+
+- **One family fitted, and the number is a shift.** PLAYGROUND already named
+  probe, glass and pickups, and every one of them is held by a `bonanza_phys`
+  scenario. `bzfam.inc` walks a hook's list by `shl`: `BZF_HL` =
+  `BZ_FAMMAX` x 8 must be 32, so a course names at most FOUR families, and
+  TITLE already names four. So the course got one: WIND, the family with the
+  most kinds (a gust, a steady fan, a pit wind's lift, fans that spin). The
+  GUARD RAIL is the tool's alone and came free. Water, magnets, spikes, the
+  archway and boost pads all stop at the same `%error`, and so will gates,
+  the see-saw and the turntable when they are families.
+- **The space is the width's.** A first yard behind the crack lab (the empty
+  black up-right of the picture) was refused at once: a 128-wide course has a
+  footprint band of `wx - wy` from -30 to 30, the course already spans -27 to
+  26, and an UPDRAFT's reach (a fall from its top to the basin's ground) is a
+  circle several cells wide round it. The free room inside the band was in
+  FRONT of FF, between the glass section and the basin, so the yard went
+  there, out through a gap in FF's front rail - placed by the PNG preview,
+  not by a guess at the axes, after the first guess was wrong.
+- **Floating saves the faces.** The basin puts the course's ground 15 units
+  down; a yard at FF's height would hang 15-unit faces in front of
+  everything. `float` hangs them 3 units: the picture part +4,342 bytes
+  instead of more.
+- **The tool fault.** The first compile with the rail refused the crack
+  lab's vanishing cracks: a 66 x 33-block change. The crack's re-render drew
+  guard cells as walls and no rails, so every rail on the course was "the
+  crack's" difference. Fixed by drawing the re-render through the picture's
+  own pipeline; no shipped course had both, every other part `cmp`-equal.
+- **Each gate proved on the model** (scratch drives with `bonanza_phys`'s
+  driver, not rows): the gust gate from FF after 16 waits - rubber blown off
+  2 times, glass 6, steel never; the thin path at four speed caps - steel
+  across every time, rubber and glass over the edge every time; the pit wind
+  at three - glass to the ledge (apex 62 - 72 px, landing at 52), rubber and
+  steel not lifted and into the pit.
+- **What the stress costs.** `BZ_FAMMAX` 4 -> 4; bss +274 (`BZ_PROPMAX` 34 ->
+  40, `BZ_PROPALL` 44 -> 52, `BZ_FSTB` 19 -> 22); the image the same; the
+  picture part 54,088 (10,936 under the part's limit); `BONANZA.O88` +2,226;
+  the course's claim 4,736 paragraphs (+256). The windows: 2 FAST lanes of 6,
+  but pose changes on one step at **6 of 6** in the finish clock's window -
+  the room the next props have there is in lanes that never change.
+
+- **Room for the round's next four** (gates and the drawbridge, the
+  see-saw, the turntable, humps), inside the width's band: in FRONT of the
+  hub and the thin path (wx 15 - 27, wy 38 - 42; `wx - wy` -27 to -11), and
+  between FF's rail and the ledge (wx 10 - 14, wy 30 - 33), both off every
+  route and scenario line. A gate or drawbridge fits the stub (a second
+  way into the yard); a see-saw or turntable the front strip, where it hides
+  nothing behind it if it stays at the yard's height. Three of the four are
+  FAMILIES (13 - 15), so on PLAYGROUND each one waits on the four-family
+  cap above; a hump that is a FIELD shape (the tool's) does not.
+- **A harness assumption it found.** `bonanza_phys --check` read the
+  guest's family slots as `bbcourse.FAM_MAX` (3, the FETCHED families' cap)
+  x 8 bytes; the guest's `bz_fsl` is `BZ_FAMMAX` (4) slots, and PLAYGROUND
+  is the first replayed course to fill the fourth (`ValueError: negative
+  count`). It reads `BZ_FAMMAX` out of `bzcourse.inc` now, as `guest_propmax`
+  reads its own.
+
+**Tested**: `make`, `make bonanzadisk`, every other course's part, demo, the
+pathway and the title `cmp`-equal to the build before; the demo re-authored
+(`bbcourse.py author`, 1,504 steps, the same keys, 37BDh); `bbcourse.py
+--selfcheck` whole: ok, 921 items, **28 min 23 s** at `--jobs 3` on a loaded
+four-core box (load 16); `tests/bonanza_phys.py --check`: ok, 14 min 34 s;
+`checkdocs.py`; ONE MartyPC look on each card (`os8088_5150_cga_gla`,
+`_herc_gla`; free play poked onto PLAY as glass, the ball poked at the gate,
+the hub, the thin path, the pit wind and the ledge): the gate's gust and the
+thin path's wind blew the glass ball off (respawned at the start and on the
+hub), the pit wind lifted it to z 57 / 61, and it stood on the ledge at 52;
+fans, squiggles, pennant, pads, hourglasses and the rail all read on both
+cards. **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
