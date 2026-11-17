@@ -38858,12 +38858,11 @@ a write-at inside a file or a `WRITE_SEQ` chunk after a pause pays the seek
 as well. It bumps `[dsk_mgen]`, so a `READ_SEQ` cursor re-walks once. Inside
 a batch (§18.9.3) the mount takes the banked head and does no I/O.
 
-**Bytes, with §18.9.1.4's jog**: `kern_big` `.cold` +117 and `.bss` +2
-(`[dsk_mvok]`, `[dsk_jog]`), `.text` unchanged; `kern_small` `.cold` +116 and
-`.bss` +2. All resident - `.cold` is - and no rung crossed on either, which
-is not the point (§1). The warm test's store is `mov [dsk_mvok], ch` (CH is
-0 there) and the jog's `mov ax, 18`, chosen so `dsk_runcap` and
-`dsk_next_clus_x` keep their measured parity (`hotpar`).
+**Bytes**: `kern_big` `.cold` +80 and `.bss` +1 (`[dsk_mvok]`), `.text`
+unchanged; `kern_small` `.cold` +79 and `.bss` +1. All resident - `.cold` is. The warm test's store is
+`mov [dsk_mvok], ch` (CH is 0 there, four bytes) and `.publish` carries a
+one-byte pad after its word store, so `dsk_runcap` and `dsk_next_clus_x`
+keep their measured parity (`hotpar`).
 
 **`os88data.inc`'s banked APPDATA cluster** (§19.9) is covered by the same
 door rather than a fix of its own: a banked visit that names a cluster of the
@@ -38871,47 +38870,42 @@ old disk reaches `FILE_WRITE`/`WRITE_AT`, is refused there, and `od_write`'s
 full arm re-walks root → SYSTEM → APPDATA before it writes again, now on the
 remounted disk.
 
-MEASURED with the fix, 86Box and the swap under a running BONANZA, both
-directions: the Esc toasts BONANZA's own *"Best times not saved"*, the image
-is byte-identical to the build that was copied in (`--verify` OK), and every
-launch after - Refresh, a hard reset, a swap away and back - plays.
+MEASURED with the fix, 86Box (IBM XT, 360KB) and the image rewritten under
+a running BONANZA, both directions: the Esc toasts BONANZA's own *"Best times
+not saved"*, the image is byte-identical to the build that was copied in
+(`--verify` OK), and every launch after - Refresh, a hard reset, a swap away
+and back - plays. Without it the same run ends with the new disk's
+`BONANZA.O88` cut short, and no reboot cures that.
 
-### 18.9.1.4 …and a REFRESH of a floppy jogs the head off cylinder 0
+### 18.9.1.4 …and a Refresh after an IN-PLACE `.img` overwrite under 86Box: considered, not built
 
-The field's other symptom, and the one their disk showed: after the image was
-rewritten in place, Refresh listed the OLD disk - or a launch after it said
-*"Cannot read my parts"* - while a reboot, or a swap away and back in 86Box,
-cured it, and the image itself was undamaged (`--verify` clean, the package
-byte-identical to the build). That is 86Box's `.img` driver
-(`src/floppy/fdd_img.c`): it holds ONE CYLINDER of the image in RAM and
-re-reads it from the file only on a seek to a DIFFERENT cylinder (`fdd_seek`
-returns at `track_diff == 0`), and it holds the file open. A head parked on
-cylinder 0 - where every save ends, on the directory - serves the boot sector,
-FAT and root of the disk that WAS there; the signature matches, so Refresh
-honestly lists the old disk and its FAT, against which the new disk's data
-reads as bunk. The failing launch moves the head, which is why the field's
-second Refresh came right. Replacing the file (a new inode) is invisible to
-86Box for good - it goes on reading the deleted one - and a load from its
-media menu re-opens the file. Every kernel cache is already dropped by a
-Refresh (§18.95's, the FAT window, the listing), so dropping more buys nothing:
-the stale copy is below the BIOS.
+A record, so the next session does not rediscover it. After a tester
+rewrote a mounted `.img` file in place on the host, 86Box's Refresh listed the
+OLD disk, and a launch after it said *"Cannot read my parts"*; a reboot, or a
+swap away and back through 86Box's media menu, cured it, and the image was
+undamaged. That is 86Box, not os8088: its `.img` driver
+(`src/floppy/fdd_img.c`) holds ONE CYLINDER of the image in RAM and re-reads
+it from the file only on a seek to a DIFFERENT cylinder (`fdd_seek` returns
+at `track_diff == 0`), and it holds the file open. Every save ends on the
+directory, so the head is usually parked on cylinder 0, and Refresh then reads
+the old boot sector, FAT and root: the signature matches, the old disk is
+listed honestly, and the new disk's data reads as bunk against the old FAT.
+Every os8088 cache is already dropped by a Refresh (§18.95's, the FAT window,
+the listing); the stale copy is below the BIOS. A file REPLACED rather than
+rewritten (a new inode) is invisible to 86Box until it is loaded again.
 
-So a REFRESH of a floppy (`fm_reload` sets `[dsk_jog]`, the mount spends it)
-reads one sector of cylinder 1 - LBA 18, CHS 1/0/1 under the mount's 9/2
-fallback geometry on every floppy - before LBA 0, so LBA 0 is reached by a
-seek. Off the platter and not the cache; its answer and its carry are not
-read. **Its cost is one `int 13h` and two single-cylinder steps, on Refresh
-only**: not on a navigation, a window opening, a quiet mount, a read or a
-write, and never the full stroke to cylinder 0 the field's slowest drive
-spends 1.5 s on. A RECALIBRATE was tried first (clearing the drive's bit in
-`SEEK_STATUS`, 0040:003E) and does not do it: 86Box's controller steps a
-recalibrate on unit 1 only with `drv2en`, so B: never re-read (measured: the
-first Refresh still listed the old disk). `DSK_RAHINT` builds; kern_dos has no
-Refresh.
+**Remedy, for testers**: change a floppy image through 86Box's media menu
+(eject and load, or load another and back), or reboot - never by
+overwriting the file under a running machine. docs/86BOX.md carries the trap.
 
-MEASURED on 86Box (IBM XT, 360KB), the image rewritten in place under a head
-parked on cylinder 0, both directions and with a Refresh just before the
-swap: the first Refresh lists the new disk and every launch after plays.
+**Considered and refused** (the owner, 2026-11-17): a Refresh of a floppy
+reading one sector of cylinder 1 before LBA 0, so that LBA 0 is reached by a
+seek. Built and measured: it cured the symptom at one `int 13h` and two
+single-cylinder steps per Refresh. Refused because every real machine would
+pay a read and a head jog on every Refresh for an emulator's behaviour under
+a file overwrite. A RECALIBRATE (clearing the drive's bit in `SEEK_STATUS`,
+0040:003E) would have been free and does not work: 86Box's controller steps a
+recalibrate on unit 1 only with `drv2en`.
 
 ### 18.9.2 …and a FIXED disk validates its BPB once, ever
 
