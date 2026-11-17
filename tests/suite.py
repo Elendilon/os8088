@@ -5713,14 +5713,14 @@ SOAK = [
         "bz_wlate 0, ASSERTED; busy, misses, pads, springs, lip-outs REPORTED; D's OVERHEAD against "
         "R reported; --ab now 573eec83 (3b), BENCH's mean busy at most +0.5k on BOTH cards "
         "ASSERTED (the final pass's by-hand run). WAVE 5B (SPEC.md 128.15.5.4, 128.15.9, 128.15.13): the "
-        "occluder pass's span a frame logged (bz_occ.gate to bz_pover); two by-hand A/Bs, "
-        "`python3 tests/bonanza_perf.py --ab --fmt-ab`: --ab's default now ef59209a (the last "
+        "occluder pass's span a frame logged (bz_occ.gate to bz_pover); a by-hand A/B, "
+        "`python3 tests/bonanza_perf.py --ab`: --ab's default now ef59209a (the last "
         "BZC1 tree, 5a's package byte for byte, built with its own art and demos and packed in the shipped "
         "parts' format), BENCH's mean busy at most +0.5k over it on BOTH cards ASSERTED, the standing guard "
         "on the frame's cost; (5b's third, --rec-ab, the D/C acceptance, ran in its final pass and again "
         "under the owner's smoothness rule, 2026-11-14, and left with the losing arm: D ships, SPEC.md "
-        "128.15.5.4); --fmt-ab the other parts' format in a private tree: "
-        "the clusters and PEAK's and MOON's launch (bz_launch to fsx_run) on both cards REPORTED. "
+        "128.15.5.4; --fmt-ab, the parts' format A/B, left with the LZ4/LZB knob once LZB was decided, "
+        "128.15.9). "
         "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (627.6 s re-run alone beside three rows; SPEC.md 128.17.14).",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
@@ -5940,7 +5940,7 @@ SOAK = [
         "frame's sound over 120 frames (bzs_frame to .fend) and REPORT it. Red arms "
         "`--red groove|mat` (by hand; `--check` assembles them), each red at its own "
         "check. WAVE 5B (SPEC.md 128.15.9): the sound part and the songs are packed in the parts table's "
-        "format (LZB with BZPARTZ=lzb, printed) and decoded in it; the row is unchanged in logic and a red "
+        "format (LZB, shipped; printed) and decoded in it; the row is unchanged in logic and a red "
         "tree packs in the same format. secs MEASURED in 5b's final pass (32.3 s, both legs). secs MEASURED in 6b's final pass (60.0 s in the soak's lane; SPEC.md 128.17.14).",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
