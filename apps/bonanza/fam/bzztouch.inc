@@ -1,8 +1,7 @@
 ; =============================================================================
 ; apps/bonanza/fam/bzztouch.inc - the TOUCH TEST (SPEC.md 128.12.6.1 - 128.12.6.2),
 ; ONE source: the tube's drain and the windmill's doorway ask it.  Included by
-; bzphys.inc with BZ_TUBE_RESIDENT, by the TUBE family's part and by the ROTOR
-; family's (SPEC.md 128.25.20).  bz_h4 is the includer's (the package's, or a
+; the TUBE family's part and by the ROTOR family's (SPEC.md 128.25.20).  bz_h4 is the includer's (the package's, or a
 ; part's copy, fam/bzfcopy.inc).
 ; =============================================================================
 %ifnmacro BZ_Q64

@@ -164,9 +164,9 @@ COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 HDR = 48                      # BZC2's header: the map's offset, BZC_MAP (SPEC.md 128.15.4.1)
 HDR1 = 32                     # BZC1's (wave 4's parts; the item 1 comparison writes it back)
 GHDR = 32                     # BZG1's header
-REC = 4                       # RECB, the occluder record's RAM size: 4, D, SHIPS (128.15.5.4's verdict under the
-                              # owner's smoothness rule); `--rec 8` still writes C's form for the host checks
-                              # (the identity is over the RECB 8 layout either way, 128.15.7)
+REC = 4                       # RECB, the occluder record's RAM size: 4 (SPEC.md 128.15.5.4; C's 8 is gone).  The
+                              # IDENTITY is still taken over the 8-byte layout of the model (128.15.7): see
+                              # identity_form()
 DIRENT = 8                    # a directory entry (128.15.4.2)
 NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
@@ -680,7 +680,7 @@ LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
-PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball DITHER-FLASHED (about 1 s)
+PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball FLASHED (BLINK4; about 1 s)
 PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
@@ -1122,24 +1122,57 @@ def crack_poses(cx, cy):
     return out
 
 
-def glass_poses(cx, cy, jag):
+GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
+
+
+def glass_lane_rect(cx, cy):
+    """a glass tile's lane, blocks (SPEC.md 128.25.18): 2 across x 3 rows from (cy - 8) >> 3 - a straight
+    run's 16-column slab holds 24 lines of it, so BOTH of the run's outer edges cross every lane"""
+    return ((cx - 8) >> 3, (cy - 8) >> 3, 2, 3)
+
+
+def glass_pane_ink(u, v, cx, nb):
+    """the REVEALED glass (SPEC.md 128.25.18, the owner's pick), tile-local (u, v) round the top's centre,
+    anywhere in its lane: the path is ONE clear pane - the outer edge of the union of this tile's top and
+    its glass edge neighbours' (`nb`, (dx, dy, dz4) each) in white, wherever it falls in this lane (a
+    neighbour's tip too), and a dashed white glint along the run's axis that every lane continues; the
+    rest None, the bare picture behind showing through"""
+    cs = [(0, 0)] + [(16 * (dx - dy), 8 * (dx + dy) - dz) for dx, dy, dz in nb]
+
+    def inS(a, b):
+        return any(BA._diamond(a - ox, b - oy) <= 1.0 for ox, oy in cs)
+    if not inS(u, v):
+        return None
+    if any(not inS(u + du, v + dv) for du, dv in ((0, -1), (0, 1), (-1, 0), (1, 0))):
+        return WHT
+    xrun = any(dx for dx, _, _ in nb) or not nb
+    if v == ((u - 1) >> 1 if xrun else (-u - 1) >> 1) and (cx + u) % GLASS_DASH[0] < GLASS_DASH[1]:
+        return WHT
+    return None
+
+
+def glass_poses(cx, cy, jag, nb=()):
     """a glass tile's two poses round its top's centre: 0 INVISIBLE (the picture is drawn without the tile;
     the path's FIRST tile shows a JAGGED EDGE, white teeth, along its edge `jag` = (dx, dy) toward the
-    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8"""
+    ground it leaves from - inside |u| < 8 and the band of lines (cy - 4) >> 3 .. +16, where it has always
+    been drawn), 1 REVEALED (glass_pane_ink over the whole lane, glass_lane_rect)"""
     q0, q1 = {}, {}
+    v0 = 8 * ((cy - 4) >> 3) - cy
     for v in range(-8, 8):
         for u in range(-8, 8):
-            ink = BA.crystal_top_ink(u, v)
-            if ink is None:
-                continue
-            q1[(cx + u, cy + v)] = ink
-            if jag is None:
+            if jag is None or BA.crystal_top_ink(u, v) is None or not v0 <= v < v0 + 16:
                 continue
             fx, fy = (u / 16.0 + v / 8.0 + 1) / 2.0, (v / 8.0 - u / 16.0 + 1) / 2.0
             d, t = {(1, 0): (1 - fx, fy), (-1, 0): (fx, fy), (0, 1): (1 - fy, fx), (0, -1): (fy, fx)}[jag]
             z = (t * 5.0) % 1.0
             if d < 0.05 + 0.13 * (1 - abs(2 * z - 1)):
                 q0[(cx + u, cy + v)] = WHT
+    bx, by, w, h = glass_lane_rect(cx, cy)
+    for y in range(8 * by, 8 * (by + h)):
+        for x in range(8 * bx, 8 * (bx + w)):
+            ink = glass_pane_ink(x - cx, y - cy, cx, nb)
+            if ink is not None:
+                q1[(x, y)] = ink
     return {0: q0, 1: q1}
 
 
@@ -5810,7 +5843,7 @@ class Course:
     """everything one course compiles to; .cga and .herc are the parts (a TWO-PART course's picture part, and
     .wcga, .wstored and .wherc its world part's: SPEC.md 128.30)"""
     split = False
-    wcga = wstored = wherc = wcga4 = wcga8 = wstored4 = wstored8 = None
+    wcga = wstored = wherc = None
 
 
 def _blocks(pic, cols, brows):
@@ -6295,27 +6328,26 @@ def _course_limit(c, src, fname):
     return min(LIMIT_MAX, limit_rule(route_steps)), route_steps
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, crsinfo=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
     _hack: --selfcheck's negative controls' switches, and nothing else's.
-    _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
     crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
     courses; default the shipped list's, read off their `course` lines)
     Every compile is looked up in the compile cache (build/bbcache/, docs/TESTING.md *BONANZA's host
     checks*), and one of a course FILE or one that took a second or more is written to it: cache_key() is
     every input the compile reads, so a hit is the compile it stands for"""
-    key = cache_key(source, fname, occluders, _hack, _rec, crsinfo)
+    key = cache_key(source, fname, occluders, _hack, crsinfo)
     c = cache_get(key)
     if c is None:
         t0 = time.time()
-        c = _compile_y0(source, fname, occluders, _hack, _rec, crsinfo)
+        c = _compile_y0(source, fname, occluders, _hack, crsinfo)
         if fname is None or time.time() - t0 >= 1.0:
             cache_put(key, c)
     return c
 
 
-def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
+def _compile_y0(source, fname, occluders, _hack, crsinfo):
     global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
@@ -6324,14 +6356,14 @@ def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
     try:
         counts, order = None, [None]
         if occluders and "y0add" not in hack:        # SPEC.md 128.25.3: the Y0 search
-            counts = y0_search(source, fname, hack, _rec, crsinfo)
+            counts = y0_search(source, fname, hack, crsinfo)
             if counts is not None:
                 order = y0_order(counts)
         first = None
         for k in order:                             # the best alignment first; one that a later rule refuses (a
             h = hack if k is None else dict(hack, y0add=k)      # lane's blocks, a corner) gives way to the next,
             try:                                    # and if every one is refused, the first one's reason
-                c = _compile_course(source, fname, occluders, h, _rec, crsinfo)
+                c = _compile_course(source, fname, occluders, h, crsinfo)
             except CourseError as e:
                 first = first or e
                 continue
@@ -6370,7 +6402,7 @@ class _Y0Probe(Exception):
         self.counts = counts
 
 
-def y0_search(source, fname, hack, _rec, crsinfo):
+def y0_search(source, fname, hack, crsinfo):
     """SPEC.md 128.25.3: the occluder records at each of the picture's eight
     block alignments (Y0 + k, k = 0 - 7), each a compile that stops once its
     records are merged.  -> [(records, most a block, most a row) or None for an
@@ -6381,17 +6413,17 @@ def y0_search(source, fname, hack, _rec, crsinfo):
     if own:
         _REACH_MEMO = {}
     try:
-        return _y0_search(source, fname, hack, _rec, crsinfo)
+        return _y0_search(source, fname, hack, crsinfo)
     finally:
         if own:
             _REACH_MEMO = None
 
 
-def _y0_search(source, fname, hack, _rec, crsinfo):
+def _y0_search(source, fname, hack, crsinfo):
     counts = []
     for k in range(8):
         try:
-            _compile_course(source, fname, True, dict(hack, y0add=k, y0probe=True), _rec, crsinfo)
+            _compile_course(source, fname, True, dict(hack, y0add=k, y0probe=True), crsinfo)
         except _Y0Probe as p:
             if p.counts is None:
                 return None
@@ -6413,7 +6445,7 @@ def y0_order(counts):
     return [k for _n, k in ok] or [0]
 
 
-def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
+def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if fname is None:
         ab = os.path.abspath(source)
         fname = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
@@ -6471,7 +6503,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         return r_, n_, e_
     reach, rounds, emax = _reach_once((hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
         (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))), tuple(sorted(_CHECKS_OFF)),
-        _FAST_EXTRA, _DOWN_S0, _rec, repr(crsinfo)), _reach)
+        _FAST_EXTRA, _DOWN_S0, repr(crsinfo)), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -6499,6 +6531,19 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+        gat = {p["at"]: p for p in props if p.get("art") == "glass"}
+        for (wx, wy), p in sorted(gat.items(), key=lambda kv: kv[1]["line"]):
+            # its glass edge neighbours (the pane's outline), and the 2 x 3 lane's one refusal: two glass tiles
+            # touching at a CORNER on the screen's vertical ((wx + 1, wy + 1): 16 px straight below) would share
+            # a block row
+            p["gnb"] = tuple((dx, dy, gat[(wx + dx, wy + dy)]["z4"] - p["z4"])
+                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (wx + dx, wy + dy) in gat)
+            q = gat.get((wx + 1, wy + 1))
+            if q is not None:
+                raise CourseError("%s:%d: glass at (%d, %d) and (%d, %d) (line %d) touch at a corner, one above the "
+                                  "other on the screen: their 2 x 3-block lanes would share a block row (SPEC.md "
+                                  "128.25.18) - a glass path may not turn or run two wide; break it with a solid tile"
+                                  % (fname, p["line"], wx, wy, wx + 1, wy + 1, q["line"]))
     # SPEC.md 128.27: the GROUND plane, one a course - its lowest floor (a secret route's and a glass tile's
     # counted) less 3 units - and the FLOATING cells, whose faces over the void hang 3 units instead
     gtiles = dict(tiles)
@@ -6664,8 +6709,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": p["kind"], "line": p["line"]})
         elif _famart(p):                            # GLASS (SPEC.md 128.25.18): a crack's or a glass tile's
-            # lane: 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
-            # blocks across or 2 block rows down, so a path of them shares no block); its poses MARKS at the
+            # lane: a crack's 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
+            # blocks across or 2 block rows down, so a path of them shares no block), a glass tile's 2 x 3
+            # (glass_lane_rect: a path's corner-touching pair refused above); its poses MARKS at the
             # tile's depth, clipped by what is drawn in front of it, as a pennant is
             wx, wy = p["at"]
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
@@ -6674,11 +6720,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   "x must be a multiple of 8, SPEC.md 128.25.18)" % (fname, p["line"],
                                                                                     p["frow"]["name"], wx, wy, cx))
             sF = wx + wy
-            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
-            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2) if p["art"] == "crack" else glass_lane_rect(cx, cy)
+            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"), p["gnb"])
             for q in poses:
                 poses[q] = {(x, y): c for (x, y), c in poses[q].items()
-                            if 8 * rect[0] <= x < 8 * rect[0] + 16 and 8 * rect[1] <= y < 8 * rect[1] + 16
+                            if 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
                             and 0 <= y < lines and cv.sbuf[y][x] <= sF}
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
@@ -7054,19 +7100,12 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                               "%d - the guest's route (found through ROWTAB) would differ from the tool's"
                               % (fname, ln, wx, wy, cl and cl[0], cl and _nib(cl[1] & 15), cl and _nib(cl[1] >> 4),
                                  t.z0, t.sx, t.sy))
-    rec_ = REC if _rec is None else _rec
-    # SPEC.md 128.30.4.1: ONE part while its D and its C RAM forms each fit one (today's acceptance, so a course
-    # that builds as one part builds as it always did); past that TWO, a PICTURE part and a WORLD part
+    # SPEC.md 128.30.4.1: ONE part while its RAM form AND its identity form (128.15.7: the 8-byte layout the
+    # identity is taken over, which must lay out too) each fit one; past that TWO, a PICTURE part and a WORLD part
     split = one_part_len(model, 4) > PARTMAX or one_part_len(model, 8) > PARTMAX or hack.get("split")
-    wcga = wcga4 = wcga8 = None
+    wcga = None
     if not split:
-        cga8 = encode_part(model, 8, fname)
-        cga4 = encode_part(model, 4, fname)       # D's bounds are a course's under either knob
-        cga = bytearray(cga4 if rec_ == 4 else cga8)
-        end = len(cga)
-        if end > PARTMAX or len(cga8) > PARTMAX:
-            raise CourseError("%s: the course part is %d bytes, over the %d one part may be, by %d"
-                              % (fname, max(end, len(cga8)), PARTMAX, max(end, len(cga8)) - PARTMAX))
+        cga = bytearray(encode_part(model, 4, fname))
         cw = cga
     else:
         if (pth is not None or src.title_ln is not None) and not hack.get("twopath"):
@@ -7074,22 +7113,18 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                               "the title are always ONE part (SPEC.md 128.30.4.1)" % (
                                   fname, "pathway" if pth is not None else "title", one_part_len(model, 4),
                                   PARTMAX, one_part_len(model, 4) - PARTMAX))
-        for rb in ((4, 8) if rec_ == 8 else (4,)):
-            for nm, ln in zip(("picture", "world"), two_part_lens(model, rb)):
-                if ln > PARTMAX:
-                    raise CourseError("%s: the course's %s part is %d bytes%s, over the %d one part may be, by %d "
-                                      "(SPEC.md 128.30.4.1)" % (fname, nm, ln, " under RECB 8" if rb == 8 else "",
-                                                               PARTMAX, ln - PARTMAX))
-        cga4, wcga4 = encode_parts(model, 4, fname, _hack=hack)
-        cga8, wcga8 = encode_parts(model, 8, fname, _hack=hack) if max(two_part_lens(model, 8)) <= 0xFFFF \
-            else (None, None)                     # (C's parts need not lay out: 128.30.4.3)
-        cga, wcga = (bytearray(cga4), wcga4) if rec_ == 4 else (bytearray(cga8), wcga8)
+        for nm, ln in zip(("picture", "world"), two_part_lens(model, REC)):
+            if ln > PARTMAX:
+                raise CourseError("%s: the course's %s part is %d bytes, over the %d one part may be, by %d "
+                                  "(SPEC.md 128.30.4.1)" % (fname, nm, ln, PARTMAX, ln - PARTMAX))
+        cga, wcga = encode_parts(model, REC, fname, _hack=hack)
+        cga = bytearray(cga)
         cw = wcga
     gridoff = struct.unpack_from("<H", cw, 26)[0]
     propoff = struct.unpack_from("<H", cw, 28)[0]
     ident = struct.unpack_from("<H", cw, gridoff + 18)[0]
     rl_, pm_ = _props_runs(model)
-    loff_ = part_layout2(model, rec_)[0][1]["L"][0] if split else 0
+    loff_ = part_layout2(model, REC)[0][1]["L"][0] if split else 0
     for p in props:                           # the props' offsets, absolute in THIS build's RAM form (a two-part
         if p.get("lane"):                     # course's pose maps in its picture part, SPEC.md 128.30.4.2)
             p["lane"]["off"] += (loff_ - rl_) if split else propoff
@@ -7136,10 +7171,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (128.16.6)
     c.nflags = len(src.ckpts)
     c.branches = src.branches
-    # the forms (SPEC.md 128.15.12.1): .cga the RAM form under this build's RECB (the bytes the guest
+    # the forms (SPEC.md 128.15.12.1): .cga the RAM form (the bytes the guest
     # holds after bz_cexp and before bz_hxlat), .stored BZ<K>.BIN's, .herc the RAM form through htab();
-    # .cga8/.cga4 and .stored8/.stored4 both RECBs', .model what they all serialise
-    c.rec = rec_
+    # .model what they all serialise
     c.model = model
     # the model as it was before the dither (5b.6): item 1's comparison with the last BZC1 tree, which
     # proves that 5b moved the container and that the dither moved the masks and nothing else
@@ -7150,21 +7184,15 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             umasks.append(r["mask"])
     c.model_u = dict(model, masks=umasks,
                      recs=[(r["brow"], r["col"], r["s"], r["top"], uidx[r["mask"]]) for r in records])
-    c.cga8, c.cga4 = cga8, cga4
-    c.stored8 = stored_form(model, 8, cga8, fname) if cga8 is not None else None
-    c.stored4 = stored_form(model, 4, cga4, fname)
     c.cga = bytes(cga)
-    c.stored = c.stored4 if rec_ == 4 else c.stored8
+    c.stored = stored_form(model, REC, c.cga, fname)
     if expand(c.stored, fname) != c.cga:        # the build's own check; --selfcheck item 10 does both and more
         raise CourseError("%s: the stored form does not expand to the RAM form" % fname)
     # SPEC.md 128.30: a TWO-PART course - .cga and .stored its PICTURE part's, .wcga and .wstored its WORLD
     # part's (None for one part), each stored and expanded on its own
     c.split = bool(split)
-    c.wcga8, c.wcga4 = wcga8, wcga4
-    c.wstored8 = stored_form(model, 8, wcga8, fname) if wcga8 is not None else None
-    c.wstored4 = stored_form(model, 4, wcga4, fname) if wcga4 is not None else None
     c.wcga = bytes(wcga) if wcga is not None else None
-    c.wstored = (c.wstored4 if rec_ == 4 else c.wstored8) if split else None
+    c.wstored = stored_form(model, REC, c.wcga, fname) if split else None
     if split and expand(c.wstored, fname) != c.wcga:
         raise CourseError("%s: the world part's stored form does not expand to its RAM form" % fname)
     c.part_bytes = c.stored             # the ONE part, BZ<K>.BIN (SPEC.md 128.11.3), as STORED (128.15.4.3)
@@ -7604,13 +7632,13 @@ def lane_pose_verdicts(L, reach, x0, y0, cv):
 
 
 # =============================================================================
-# BZC2 (SPEC.md 128.15.4): the part's MODEL, its RAM forms (RECB 8 and 4), its
-# stored form, the host's model of the guest's expander, and the identity
+# BZC2 (SPEC.md 128.15.4): the part's MODEL, its RAM form (RECB 4; the 8-byte form is
+# the identity's only), its stored form, the host's model of the guest's expander, and the identity
 # =============================================================================
 #
 # A course compiles to a MODEL - what the part says, with no offset in it - and
-# every form is a serialisation of the model: the RAM form under either record
-# size (`encode_part`), wave 4's BZC1 (the item 1 comparison), and the stored
+# every form is a serialisation of the model: the RAM form (`encode_part`) and the
+# identity's 8-byte form (`identity_form`), wave 4's BZC1 (the item 1 comparison), and the stored
 # form BZ<K>.BIN carries (`stored_form`).  `decode_part` reads any of the RAM
 # forms back into the model, so read_part can take the identity over C's RAM
 # form whatever the part's RECB, and can require a part to be exactly its own
@@ -7794,6 +7822,13 @@ def encode_part(m, recb, fname="<course>"):
     """the model's RAM form under RECB `recb`, its identity stamped (128.15.7)"""
     ident = _fletcher(_ident_bytes(_encode(m, 8, fname=fname)))
     return bytes(_encode(m, recb, ident=ident, fname=fname))
+
+
+def identity_form(c):
+    """SPEC.md 128.15.7: the 8-byte-record layout of a ONE-part course's model, the form its identity is
+    Fletcher'd over (the guest's records are 4 bytes; this is the identity's own bytes, derived from the
+    model, never a RAM form that ships)"""
+    return encode_part(c.model, 8, c.name)
 
 
 def encode_bzc1(m):
@@ -12534,7 +12569,7 @@ def emit_inc(courses, path=None, title=None):
         "BZ_CRS_MAX      equ %d       ; the most courses (SPEC.md 128.22.5): every per-course table's width" % CRS_MAX,
         "BZ_P_CRS        equ 0        ; course 0's row; course K's is BZ_P_CRS + K (no ball rows: 128.25.5.2)",
         "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
-        "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
+        "not shipped; SPEC.md 128.15.5.4)" % REC,
         "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 128.15.4.5)"
         % part_forms(courses),
         "BZ_KWMAX        equ %d       ; the most cells a grid row has (CELLS' scratch rows, SPEC.md 128.15.6)" % KW_MAX,
@@ -13101,9 +13136,8 @@ def crs_armax(path, courses):
                + [0])
 
 
-def stamp(paths, rec=None):
+def stamp(paths):
     h = hashlib.sha256()
-    h.update(b"BZREC %d\0" % (REC if rec is None else rec))   # the course stamp carries the RECB (128.15.5.3)
     for name, path in (("tools/bbcourse.py", TOOL),
                        ("tools/bonanza_assets.py", os.path.abspath(BA.__file__)),
                        ("tools/bbmusic.py", os.path.join(os.path.dirname(TOOL), "bbmusic.py"))):
@@ -13183,9 +13217,8 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
-    is the RECB 4 stored form whatever --rec is, which is the shipped form
-    since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
+    packed as LZ4 - whatever the parts' format is - against its budget.  The part read
+    is the RECB 4 stored form, the shipped form since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
     2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
     "that limit is the thing wrong; we'll end up with less courses, or two
     disks".  What protects correctness stays refused where it always was (one
@@ -13196,7 +13229,7 @@ def check_budget(c, k):
             raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
-    return packed_len(c.stored4, "lz4") + (packed_len(c.wstored4, "lz4") if c.split else 0)   # (both parts, 128.30)
+    return packed_len(c.stored, "lz4") + (packed_len(c.wstored, "lz4") if c.split else 0)   # (both parts, 128.30)
 
 
 def finish_points(c):
@@ -13451,7 +13484,7 @@ def _cache_on():
     return "rw" if os.environ.get("BB_CACHE", "1") != "0" else None
 
 
-def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _inputs=None, _state=None):
+def cache_key(source, fname, occluders, _hack, crsinfo, _tool=None, _inputs=None, _state=None):
     """the compile's key (None when the cache is off).  _tool, _inputs, _state: --selfcheck's proof that
     each of them moves the key"""
     if not _cache_on():
@@ -13469,7 +13502,7 @@ def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _input
     h = hashlib.sha256()
     for part in (_tool or tool_hash(), _inputs or _inputs_hash(), _state or _state_fp(), name,
                  hashlib.sha256(text).hexdigest(), repr(bool(occluders)), _fp(_hack or {}),
-                 repr(REC if _rec is None else _rec), _fp(crsinfo)):
+                 _fp(crsinfo)):
         h.update(part.encode() + b"\0")
     return (_tool or tool_hash(), h.hexdigest())
 
@@ -15053,9 +15086,9 @@ def report(c, k=None):
     print("    part %d bytes in RAM (BZC2, RECB %d): header %d, map %d, blocks %d x 16 = %d, OCCIDX %d, records "
           "%d x %d = %d, masks %d x 16 = %d%s, grid %d (%d rows x %d cells x 4 + %d header, ROWTAB %d, route %d)%s, "
           "directory %d x %d; stored %d bytes, %d of them zero holes%s" % (
-              len(c.cga), c.rec, HDR, 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
-              len(c.model["recs"]), c.rec, c.rec * len(c.model["recs"]), len(c.masks), 16 * len(c.masks),
-              ", MTAB %d" % (2 * len(c.masks)) if c.rec == 4 else "",
+              len(c.cga), REC, HDR, 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
+              len(c.model["recs"]), REC, REC * len(c.model["recs"]), len(c.masks), 16 * len(c.masks),
+              ", MTAB %d" % (2 * len(c.masks)),
               (pt["propoff"] or pt["wdiroff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR,
               2 * g["nrows"], 4 * len(c.route),
               ", props %d" % ((pt["wdiroff"] or pt["diroff"]) - pt["propoff"]) if pt["nprop"] else "",
@@ -16001,8 +16034,7 @@ def write_out(out, paths, path=None, title=None):
     # the stamp before the files: a run that dies writing leaves a stamp and a
     # missing file, which make's fallback turns back into a re-run
     with open(st, "w") as f:
-        f.write(stamp(paths + ([path] if path else []) + ([title] if title else []),
-                      courses[0].rec if courses else None) + "\n")
+        f.write(stamp(paths + ([path] if path else []) + ([title] if title else [])) + "\n")
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -19984,23 +20016,22 @@ def _w5_compact(courses, res):
             _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
             continue
         why = []
-        for rec, ram, st in ((8, c.cga8, c.stored8), (4, c.cga4, c.stored4)):
-            try:
-                if expand(st, c.name, sim=True) != ram:
-                    why.append("RECB %d: expand(stored) != RAM" % rec)
-                pt = read_part(ram, c.name)
-            except CourseError as e:
-                why.append("RECB %d: %s" % (rec, e))
-                continue
-            if rec == 4 and [struct.unpack_from("<H", ram, pt["mtab"] + 2 * i)[0] for i in range(pt["nmask"])] \
+        try:
+            if expand(c.stored, c.name, sim=True) != c.cga:
+                why.append("expand(stored) != RAM")
+            pt = read_part(c.cga, c.name)
+        except CourseError as e:
+            why.append(str(e))
+        else:
+            if [struct.unpack_from("<H", c.cga, pt["mtab"] + 2 * i)[0] for i in range(pt["nmask"])] \
                     != [pt["maskoff"] + 16 * i for i in range(pt["nmask"])]:
                 why.append("MTAB")
         holes = sum(e["len"] - e["dlen"] for e in c.part["dir"])
-        res.append(("10 %s: expand(stored) == RAM byte for byte under RECB 8 and 4 (%d and %d bytes), the IN-PLACE "
+        res.append(("10 %s: expand(stored) == RAM byte for byte (%d bytes), the IN-PLACE "
                     "simulation clean (every stored byte read before anything is written over it), the directory's "
                     "rules (%d entries, each in its header fields' place and size), the records' s' and t' bounds "
                     "and MTAB (%d words); %d bytes of holes%s" % (
-                        c.name, len(c.cga8), len(c.cga4), c.part["nsec"], len(c.masks), holes,
+                        c.name, len(c.cga), c.part["nsec"], len(c.masks), holes,
                         "" if not why else " -- " + "; ".join(why)), not why))
         n, bad = rec4_verdicts(c)
         SB, TB = rec_biases(c.model["recs"], c.name)
@@ -20012,17 +20043,17 @@ def _w5_compact(courses, res):
             ctl["sb"].append(rec4_verdicts(c, sb_delta=-1)[1] is not None)
             ctl["wrap"].append(rec4_verdicts(c, wrap=True)[1] is not None)
         # the identity, three ways (128.15.7)
-        b8 = bytearray(c.cga8)
+        b8 = bytearray(identity_form(c))
         diroff = struct.unpack_from("<H", b8, 38)[0]
         b8[diroff + 1] ^= 5
         struct.pack_into("<H", b8, diroff + 6, struct.unpack_from("<H", b8, diroff + 6)[0] ^ 0x0101)
-        moved = bytearray(c.cga8)
+        moved = bytearray(identity_form(c))
         cell = struct.unpack_from("<H", moved, 26)[0] + GHDR
         moved[cell] ^= 1
         id3 = (ram_identity(bytes(b8)) == c.ident, ram_identity(bytes(moved)) != c.ident,
-               ram_identity(c.cga4) == ram_identity(c.cga8) == c.ident)
+               ram_identity(c.cga) == ram_identity(identity_form(c)) == c.ident)
         res.append(("10 %s: the identity %04Xh three ways - a directory entry's form byte and stored length changed "
-                    "leave it, one changed RAM byte moves it, and RECB 4's and 8's RAM forms give the same one%s"
+                    "leave it, one changed RAM byte moves it, and the RAM form and its 8-byte identity form give the same one%s"
                     % (c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
         # CELLS (128.15.6): the exceptions, the cells whose stored difference from the rule is not 0, every
         # one a lift's shaft cell; and the control, the rule without SAFE's OBS clause (red arm cellsafe's)
@@ -20044,17 +20075,17 @@ def _w5_compact(courses, res):
             ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
         # the controls
         try:
-            expand(stored_form(c.model, 4, c.cga4, c.name, _hack={"low_first": True}), c.name, sim=True,
+            expand(stored_form(c.model, 4, c.cga, c.name, _hack={"low_first": True}), c.name, sim=True,
                    _hack={"low_first": True})
             ctl["low_first"].append(False)
         except CourseError as e:
             ctl["low_first"].append("section M" in str(e))
         if len(c.model["recs"]) > 1:
-            ctl["wdiff"].append(expand(c.stored4, c.name, _hack={"wdiff_short": True}) != c.cga4)
+            ctl["wdiff"].append(expand(c.stored, c.name, _hack={"wdiff_short": True}) != c.cga)
         if c.masks:
-            ctl["mtab"].append(expand(c.stored4, c.name, _hack={"mtab_short": True}) != c.cga4)
-        bb = bytearray(c.cga4)
-        pt = c.part if c.rec == 4 else read_part(c.cga4)
+            ctl["mtab"].append(expand(c.stored, c.name, _hack={"mtab_short": True}) != c.cga)
+        bb = bytearray(c.cga)
+        pt = c.part
         ji = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "I")
         jr = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "R") if any(
             e["tag"] == "R" for e in pt["dir"]) else None
@@ -20083,36 +20114,30 @@ def _w5_compact(courses, res):
 
 
 def _w5_compact2(c, res):
-    """item 10 for a TWO-PART course (SPEC.md 128.30.4): each part's stored form expands IN PLACE to its RAM form
-    under RECB 4 and 8 (the C parts when they lay out), read_parts takes both, the 4-byte records' compares, and
-    the identity three ways over the pair; CELLS' exceptions as a one-part course's"""
+    """item 10 for a TWO-PART course (SPEC.md 128.30.4): each part's stored form expands IN PLACE to its RAM form,
+    read_parts takes both, the 4-byte records' compares, and the identity three ways over the pair; CELLS'
+    exceptions as a one-part course's"""
     why = []
-    for rec, a, b, sa, sb in ((8, c.cga8, c.wcga8, c.stored8, c.wstored8), (4, c.cga4, c.wcga4, c.stored4,
-                                                                           c.wstored4)):
-        if a is None:
-            continue
-        try:
-            if expand(sa, c.name, sim=True) != a or expand(sb, c.name, sim=True) != b:
-                why.append("RECB %d: expand(stored) != RAM" % rec)
-            read_parts(a, b, c.name)
-        except CourseError as e:
-            why.append("RECB %d: %s" % (rec, e))
-    res.append(("10 %s (TWO parts, SPEC.md 128.30): each part's expand(stored) == RAM byte for byte under RECB 4%s "
+    try:
+        if expand(c.stored, c.name, sim=True) != c.cga or expand(c.wstored, c.name, sim=True) != c.wcga:
+            why.append("expand(stored) != RAM")
+        read_parts(c.cga, c.wcga, c.name)
+    except CourseError as e:
+        why.append(str(e))
+    res.append(("10 %s (TWO parts, SPEC.md 128.30): each part's expand(stored) == RAM byte for byte "
                 "(%d + %d bytes), the IN-PLACE simulation clean per part, read_parts takes both%s" % (
-                    c.name, " and 8" if c.cga8 is not None else " (its C parts do not lay out: 128.30.4.3)",
-                    len(c.cga4), len(c.wcga4), "" if not why else " -- " + "; ".join(why)), not why))
+                    c.name, len(c.cga), len(c.wcga), "" if not why else " -- " + "; ".join(why)), not why))
     n, bad = rec4_verdicts(c)
     res.append(("10 %s: the 4-byte records' byte compares give the rule's verdict on all %d (record, query) pairs%s"
                 % (c.name, n, "" if bad is None else " -- differs at %s" % (bad,)), bad is None))
-    moved = bytearray(c.wcga4)
+    moved = bytearray(c.wcga)
     moved[struct.unpack_from("<H", moved, 26)[0] + GHDR] ^= 1
-    pic = bytearray(c.cga4)
+    pic = bytearray(c.cga)
     pic[HDR] ^= 1
-    id3 = (ram_identity2(c.cga4, bytes(moved)) != c.ident, ram_identity2(bytes(pic), c.wcga4) != c.ident,
-           ram_identity2(c.cga4, c.wcga4) == c.ident
-           and (c.cga8 is None or ram_identity2(c.cga8, c.wcga8) == c.ident))
+    id3 = (ram_identity2(c.cga, bytes(moved)) != c.ident, ram_identity2(bytes(pic), c.wcga) != c.ident,
+           ram_identity2(c.cga, c.wcga) == c.ident)
     res.append(("10 %s: the identity %04Xh three ways - one changed world RAM byte moves it, one changed picture "
-                "RAM byte moves it, and the RECB 4 and 8 parts give the same one%s" % (
+                "RAM byte moves it, and the two parts give the shipped one%s" % (
                     c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
     exc = cells_exceptions(c.wcga)
     shaft = set(c.slabcells)
@@ -20132,18 +20157,14 @@ def _w5_dither(courses, res, demos=None):
     # every K mask holds the checker, in both RAM forms' bytes; deduplicated again after the dither
     bad, figs = [], []
     for c in courses:
-        forms = ((c.cga4, c.wcga4), (c.cga8, c.wcga8)) if c.split else ((c.cga4, None), (c.cga8, None))
-        for form, wform in forms:
-            if form is None:                        # (a two-part course's C parts need not lay out: 128.30.4.3)
-                continue
-            ms = (decode_parts(form, wform) if wform is not None else decode_part(form))["masks"]
-            if any(dither(mk) != mk for mk in ms) or len(set(ms)) != len(ms):
-                bad.append(c.name)
+        ms = (decode_parts(c.cga, c.wcga) if c.split else decode_part(c.cga))["masks"]
+        if any(dither(mk) != mk for mk in ms) or len(set(ms)) != len(ms):
+            bad.append(c.name)
         if any(r["kmask"] != dither(r["mask"]) for r in c.records) or len(c.masks) > c.umasks:
             bad.append(c.name)
         figs.append("%s %d -> %d" % (c.name, c.umasks, len(c.masks)))
     res.append(("11 every K mask has the checker set (mask OR CHK = mask, 3333h on an even line and CCCCh on an odd "
-                "one: the kept lattice x + y odd, the shadow's dark pixels' complement) in both RAM forms, each "
+                "one: the kept lattice x + y odd, the shadow's dark pixels' complement) in the RAM form, each "
                 "record's mask its merged mask ORed with it, and the masks deduplicated again (%s)%s" % (
                     ", ".join(figs), "" if not bad else " -- %s" % sorted(set(bad))), not bad))
     # no record in the part lays nothing: an all-keep kmask is left out with its record (S1), and every record
@@ -20179,16 +20200,14 @@ def _w5_dither(courses, res, demos=None):
         for p in c.props:
             if p["kind"] == PK_PLATFORM:
                 nslab += 1
-                for form in ((c.wcga4, c.wcga8) if c.split else (c.cga4, c.cga8)):
-                    if form is None:
-                        continue
-                    po = struct.unpack_from("<H", form, 28)[0]
-                    so = p["spoff"] - struct.unpack_from("<H", world_of(c), 28)[0] + po
-                    if form[so:so + PL_SPR] != slab_bytes(slab_pixels()):
-                        sbad.append(c.name)
+                form = c.wcga if c.split else c.cga
+                po = struct.unpack_from("<H", form, 28)[0]
+                so = p["spoff"] - struct.unpack_from("<H", world_of(c), 28)[0] + po
+                if form[so:so + PL_SPR] != slab_bytes(slab_pixels()):
+                    sbad.append(c.name)
     res.append(("11 not dithered: the three balls' masks are their silhouettes' at every shift (bonanza_assets' "
                 "generator's bytes, no checker added), and the lift's slab sprite in every part with one (%d) is "
-                "slab_bytes() of its pixels, both RAM forms%s" % (
+                "slab_bytes() of its pixels%s" % (
                     nslab, "" if not (bbad or sbad) else " -- %s" % sorted(set(bbad + sbad))),
                 not bbad and not sbad and nslab))
     # the merge's exactness, re-run on the UNDITHERED masks: each merged record's mask the AND of its members',
@@ -20384,7 +20403,7 @@ def _w5_budget(courses, res):
         except CourseError as e:
             got, ok_ = "refused: %s" % e, False
         res.append(("12 reported, not refused (128.27.5): PEAK as a 30 s course (its %d LZ4 bytes over the 1.5x "
-                    "line of %d) - %s" % (packed_len(peak.stored4), budget_cap(30), got), ok_))
+                    "line of %d) - %s" % (packed_len(peak.stored), budget_cap(30), got), ok_))
     first = _first_text()
     for what, text, want in (("target 45", _swap(first, "target 30", "target 45"), "target takes 30, 60 or 90"),
                              ("target given twice", first + "target 60\n", "target given twice")):
@@ -20404,7 +20423,7 @@ def _w5_budget(courses, res):
         if c.target is None:
             res.append(("12 %s (course %d): no target, the benchmark's: no budget" % (c.name, k), k == 0))
             continue
-        n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
+        n, z = packed_len(c.stored, "lz4"), packed_len(c.stored, "lzb")
         bg = budget(c.target)
         res.append(("12 %s: target %d s, budget %d, 1.5x %d (REPORTED, 128.27.5): RECB 4's stored form LZ4 %d (%s), "
                     "LZB %d (%s); RAM %d of %d" % (
@@ -20492,7 +20511,7 @@ def _path_checks(courses, res):
                 and red.part["nocc"] > 0 and len(red.cga) > len(pc.cga)))
     print("    the pathway: %d pads, %d routes, %d signs, %d pages; part %d bytes in RAM (%d stored), LZ4 %d" % (
         len(pth["pads"]), len(pth["routes"]), pth["nsign"], pth["npages"], len(pc.cga), len(pc.stored),
-        packed_len(pc.stored4, "lz4")))
+        packed_len(pc.stored, "lz4")))
     for q in pth["pads"]:
         print("      pad %d %-5s page %d, icon sign %s, keys %s" % (
             q["num"], q["crs"], q["page"], q["isign"], ", ".join(
@@ -21399,7 +21418,7 @@ def _field_checks(res):
                     "MU flipped changes %d of %d" % (k, flip, len(ft)), same and flip > 0))
         res.append(("2 %s: the slope bound holds, |sx| + |sy| at most %d (bound %d)" % (k, smax, FSLOPE_MAX),
                     smax <= FSLOPE_MAX))
-        res.append(("10 %s: expand(stored) == RAM with section F" % k, expand(c.stored4, k) == bytes(c.cga)))
+        res.append(("10 %s: expand(stored) == RAM with section F" % k, expand(c.stored, k) == bytes(c.cga)))
     # SPEC.md 128.28.2: 32 tables - MANY's 17th (shape 16) is named by cells whose +1 has bit 7, read back
     # through the grid above; red: the fifth bit dropped reads table 0 for them
     c = cs["MANY"]
@@ -21723,14 +21742,14 @@ def _split_checks(res, t):
             fired, msg = want in str(e), str(e)
         res.append(("10 SPLIT: read_part refuses %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     # the stored form (item 10): CELLS reads the halves through D, PLAIN and in place before C expands
-    sim = all(expand(st, "<SPLIT>", sim=True) == ram for st, ram in ((c.stored4, c.cga4), (c.stored8, c.cga8)))
+    sim = expand(c.stored, "<SPLIT>", sim=True) == c.cga
     exc = cells_exceptions(c.cga)
     try:
-        wrong = stored_form(c.model, 4, c.cga4, "<SPLIT>", _hack={"no_halves": True})
-        red = expand(wrong, "<SPLIT>") != c.cga4
+        wrong = stored_form(c.model, 4, c.cga, "<SPLIT>", _hack={"no_halves": True})
+        red = expand(wrong, "<SPLIT>") != c.cga
     except (CourseError, struct.error, IndexError):
         red = True
-    res.append(("10 SPLIT: both stored forms expand IN PLACE to their RAM forms with section D (the in-place "
+    res.append(("10 SPLIT: the stored form expands IN PLACE to its RAM form with section D (the in-place "
                 "simulation: every byte read before it is written), and the CELLS rule BY HALVES reproduces every "
                 "cell (%d exceptions); negative control: the rule without halves (a split cell's offset read as a "
                 "z0) gives another grid" % len(exc), sim and not exc and red))
@@ -22485,7 +22504,7 @@ def _sc_y0moon(X, res):
         forced = "compiled"
     except CourseError as e:
         forced = str(e)
-    mc = y0_search(mtxt, None, {"hopmax": 366}, None, None)
+    mc = y0_search(mtxt, None, {"hopmax": 366}, None)
     mok = [k for k, n in enumerate(mc or []) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
     res.append(("6 negative control: MOON with every Hop at 366 refuses at +0 (%s) and the Y0 search finds %d "
                 "alignment(s) that meet the bounds (%s)" % (
@@ -22681,7 +22700,7 @@ def _twoseg_checks(courses, res, paths):
                 c.split and one > PARTMAX and la <= PARTMAX and 0 < lb <= PARTMAX
                 and c.cga[:4] == MAGIC_PIC and c.wcga[:4] == MAGIC_WORLD))
     ok_exp = True
-    for st, ram in ((c.stored, c.cga), (c.wstored, c.wcga), (c.stored8, c.cga8), (c.wstored8, c.wcga8)):
+    for st, ram in ((c.stored, c.cga), (c.wstored, c.wcga)):
         if st is None:
             continue
         try:
@@ -22689,7 +22708,7 @@ def _twoseg_checks(courses, res, paths):
         except CourseError:
             ok_exp = False
     res.append(("15 TWOSEG: each part's STORED form expands IN PLACE to its RAM form (the simulation of 128.15.4.4, "
-                "each part alone: no form reads across them), RECB 4%s" % (" and 8" if c.cga8 else ""), ok_exp))
+                "each part alone: no form reads across them)", ok_exp))
     pt = c.part
     tags = ["".join(e["tag"] for e in pt["dir"] if e["part"] == k) for k in (0, 1)]
     lanes = [d for d in pt["props"] if d["lane"]]
@@ -22704,10 +22723,9 @@ def _twoseg_checks(courses, res, paths):
     res.append(("15 TWOSEG: decode_parts gives back the model the compile serialised (the pose maps back in the "
                 "props blob after the records)", models_equal(decode_parts(c.cga, c.wcga), m)))
     idw = struct.unpack_from("<H", c.wcga, pt["gridoff"] + 18)[0]
-    id8 = ram_identity2(c.cga8, c.wcga8) if c.cga8 else idw
     res.append(("15 TWOSEG: its identity %04Xh is 128.30.4.3's - Fletcher's pair over the picture part's D RAM form "
-                "and then the world part's - at the world part's BZG1 +18, and the same from its RECB 8 parts "
-                "(%04Xh)" % (c.ident, id8), idw == c.ident == ram_identity2(c.cga, c.wcga) == id8))
+                "and then the world part's - at the world part's BZG1 +18" % c.ident,
+                idw == c.ident == ram_identity2(c.cga, c.wcga)))
     p_ = Physics(c, play=True)
     n = 0
     while n < DEMO_STEPS and not p_.goal and not p_.tout:
@@ -22724,7 +22742,7 @@ def _twoseg_checks(courses, res, paths):
     b = bytearray(c.wcga)                           # the world header with a picture offset (GRIDOFF as MASKOFF)
     struct.pack_into("<H", b, 26, pt["maskoff"])
     ctl.append(("the world header's GRIDOFF a picture offset", c.cga, bytes(b)))
-    ctl.append(("the identity over the world part alone",) + encode_parts(m, c.rec, "<TWOSEG>", _hack={"ident1": 1}))
+    ctl.append(("the identity over the world part alone",) + encode_parts(m, REC, "<TWOSEG>", _hack={"ident1": 1}))
     a = bytearray(c.cga)                            # a picture part with no L: its directory's last entry gone
     da, na = struct.unpack_from("<HH", a, 38)
     struct.pack_into("<H", a, 40, na - 1)
@@ -22745,7 +22763,7 @@ def _twoseg_checks(courses, res, paths):
     ks = min((k for k, x in enumerate(courses) if not x.split), key=lambda k: len(courses[k].cga))
     small = courses[ks]                             # (the red arm of the first line: a course that fits one
     try:                                            # part, forced into two)
-        f2 = compile_course(paths[ks], _hack={"split": True}, _rec=small.rec)
+        f2 = compile_course(paths[ks], _hack={"split": True})
         out.append(("%s (one part) forced into two" % small.name, f2.split and not _two_earned(f2)))
     except CourseError:
         out.append(("%s (one part) forced into two" % small.name, False))
@@ -22892,7 +22910,7 @@ def _sc_cache(X, res):
     p = os.path.join(COURSE_DIR, "first.bbc")
     mode, _CACHE["mode"] = _CACHE["mode"], "rw"     # (on, whatever BB_CACHE says: this is the key's proof)
     try:
-        k0 = cache_key(p, None, True, None, None, None)
+        k0 = cache_key(p, None, True, None, None)
         moved = {}
         with tempfile.TemporaryDirectory() as td:
             q = os.path.join(td, "first.bbc")
@@ -22900,34 +22918,33 @@ def _sc_cache(X, res):
                 txt = f.read()
             with open(q, "wb") as f:
                 f.write(txt)
-            kq = cache_key(q, None, True, None, None, None)
+            kq = cache_key(q, None, True, None, None)
             with open(q, "wb") as f:                # one byte of the course
                 f.write(txt.replace(b"course ", b"course  ", 1))
-            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None, None) != kq
+            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None) != kq
         moved["the course's name"] = kq != k0
-        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None, None,
+        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None,
                                                            _tool="0" * 20) != k0
         moved["a file under courses/ or demos/, the font or the Makefile"] = cache_key(
-            p, None, True, None, None, None, _inputs="0") != k0
-        moved["occluders"] = cache_key(p, None, False, None, None, None) != k0
-        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None, None) != k0
-        moved["RECB"] = cache_key(p, None, True, None, 8, None) != k0
-        moved["crsinfo"] = cache_key(p, None, True, None, None, [("X", "x")]) != k0
-        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None, None) != k0
+            p, None, True, None, None, _inputs="0") != k0
+        moved["occluders"] = cache_key(p, None, False, None, None) != k0
+        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None) != k0
+        moved["crsinfo"] = cache_key(p, None, True, None, [("X", "x")]) != k0
+        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None) != k0
         _CHECKS_OFF.add("flat")
         try:
-            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None) != k0
         finally:
             _CHECKS_OFF.discard("flat")
         keep = copy.deepcopy(MATERIALS[MAT_RUBBER])
         MATERIALS[MAT_RUBBER]["HOP"] += 1
         try:
-            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None) != k0
         finally:
             MATERIALS[MAT_RUBBER].update(keep)
-        back = cache_key(p, None, True, None, None, None) == k0
+        back = cache_key(p, None, True, None, None) == k0
         with _famtest():                            # (last: its class attribute stays set, a later key's miss)
-            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None) != k0
         imp = {"bbcourse", "bonanza_assets", "os88lz", "os88font", "bbmusic"} <= set(TOOL_MODULES)
         res.append(("1 the compile cache's key moves with each input by itself (%s), comes back when they do, and "
                     "TOOL_HASH covers %s" % ("; ".join("%s %s" % (w, "moves" if v else "DOES NOT MOVE")
@@ -22940,7 +22957,7 @@ def _sc_cache(X, res):
         with tempfile.TemporaryDirectory() as td:
             CACHE_DIR = td
             try:
-                c = _compile_y0(p, None, True, None, None, None)
+                c = _compile_y0(p, None, True, None, None)
                 cache_put(k0, c)
                 h = cache_get(k0)
                 same = h is not None and (h.cga, h.stored, h.ident, h.pic, [r["mask"] for r in h.records]) == (
@@ -23006,9 +23023,9 @@ def _selfcheck(paths, res, skipped, S):
     def _idok(c):                                   # (a TWO-PART course's is 128.30.4.3's, at its world part's
         if c.split:                                 # BZG1 +18: item 15 holds TWOSEG to the same)
             return struct.unpack_from("<H", c.wcga, c.part["gridoff"] + 18)[0] == ram_identity2(c.cga, c.wcga) \
-                == c.ident and (c.cga8 is None or ram_identity2(c.cga8, c.wcga8) == c.ident)
+                == c.ident
         return struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident \
-            and _fletcher(_ident_bytes(c.cga8)) == c.ident
+            and _fletcher(_ident_bytes(identity_form(c))) == c.ident
     idok = all(_idok(c) for c in courses)
     res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
                 "them out, that word and the directory's form bytes and stored lengths taken as 0 - a two-part "
@@ -23481,7 +23498,7 @@ def main_tune(assigns, paths):
             c.packed4 = check_budget(c, k)
             was = W6_SIZES.get(c.name)
             print("  %-5s compiles: %d records, RAM %d, LZ4 %d, LZB %d%s" % (
-                c.name, len(c.records), len(c.cga), packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb"),
+                c.name, len(c.records), len(c.cga), packed_len(c.stored, "lz4"), packed_len(c.stored, "lzb"),
                 "" if was is None else " (128.16.5.4: %d, %d, %d, %d)" % was))
             courses.append(c)
         except CourseError as e:
@@ -23627,7 +23644,6 @@ def main_author(argv):
 
 
 def main():
-    global REC
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -23657,9 +23673,6 @@ def main():
                     help="processes at once: the courses' compiles and --selfcheck's sections (default BB_JOBS, "
                          "else the cores, at most 4); 1 is the sequential run")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
-    ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
-                    help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
-                         "(C, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
     ap.add_argument("--tune", nargs="+", metavar="NAME=VALUE",
                     help="compile every course under trial values of MATERIALS (HOP=r,s,g BOOST=b ...), write "
                          "nothing, and print each course's verdict, the step and gap ladders, every route proof and "
@@ -23677,7 +23690,6 @@ def main():
     a = ap.parse_args()
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
-    REC = a.rec
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
     only = None

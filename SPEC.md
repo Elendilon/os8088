@@ -266502,7 +266502,7 @@ where the zeros go and the map's stored form (128.15.4.3).
 | the identity | over the RAM form **as `RECB` = 8 lays it out**, whatever the build's `RECB`, with the directory's disk-only fields taken as 0 | a stored form, or the record's stride, can change without moving it, so C and D share every identity and every demo (128.15.7) |
 | `BZ_PHYSV` | **unchanged**, A0h | physics reads the same values (128.15.7) |
 | the course budget | a `target 30|60|90` statement; a packed budget of about 209 bytes a target second, refused past 1.5 times it; RAM refused past 65,024 as now | CD3 (128.15.8) |
-| the parts' format | **LZB**, decided by the owner on 2026-11-14 (`BZPARTZ=lzb|lz4`, `lzb` the default); measured both ways; the course budget is read in LZ4 whatever the knob | the table's format byte covers every part; `PEAK`'s launch cost is an upper bound the final pass measures (128.15.9) |
+| the parts' format | **LZB**, decided by the owner on 2026-11-14; measured both ways (the `BZPARTZ=lzb|lz4` knob that did it is removed, 128.15.9); the course budget is read in LZ4 whatever the parts' format | the table's format byte covers every part; `PEAK`'s launch cost is an upper bound the final pass measures (128.15.9) |
 | the image's format | LZ4; LZB **offered** through the existing `LZBPKGS`, not taken | 128.15.9 |
 | a "Worlds" disk | not built: the target is 18 - 20 courses on ONE disk, and a second disk (story 8b.11) is a last resort, only if one disk cannot hold the final set (the owner, 2026-11-14) | 128.15.9 |
 | a course past one part | the **two-part course**, documented and not built: the picture in one part, everything else in another | 128.15.8 |
@@ -267197,9 +267197,11 @@ knob and carrying a `#> [Knobs]` line for `make help`. *(Deleted with D's
 arm at the first verdict, 128.15.5.4, and RESTORED on 2026-11-14 when the
 owner re-opened the decision under the smoothness rule, with the default
 `BZREC ?= 8` until the re-measurement decided. It decided D, and the knob
-was deleted with C's arm: `bbcourse.py`'s `--rec` defaults to 4, D, and
-`--rec 8` remains for the host checks. The paragraphs below describe the
-knob while it stood.)*
+was deleted with C's arm, and the tool's `--rec 4|8` choice with it
+(2026-11-17): the compiler writes 4-byte records only, `bzcourse.inc`'s
+`BZ_REC` is 4, and the identity is still taken over the 8-byte layout
+derived from the model (`identity_form`, 128.15.7). The paragraphs below
+describe the knob while it stood.)*
 - It reaches the tool as `--rec $(BZREC)`, and the tool writes `BZ_REC
   equ 4` or `8` into `bzcourse.inc`. The course stamp (`.bz-crs`) carries
   `BZREC`, so changing it recompiles the courses.
@@ -267765,12 +267767,12 @@ seconds (CD3).
 - a course whose packed part (*as built*: its `RECB` 4 stored form, which
   is the shipped form since 128.15.5.4 shipped D - C's 8-byte records pack
   larger, and `MILL`'s C form, 9,439 bytes before the follow-up, was over
-  its 9,412 cap), **packed as LZ4** whatever `BZPARTZ` is, is
+  its 9,412 cap), **packed as LZ4** whatever the parts' format is, is
   over **1.5 x** its budget (`floor`, so 9,412 for 30 s). That is R4's
   ratio of 16KB to 10.5KB. LZ4 is the larger of the two formats, so a
   course that passes fits under either, and whether the tree builds never
   depends on a knob: the tool takes no format flag, and neither
-  `bzcourse.inc` nor the course stamp depends on `BZPARTZ`;
+  `bzcourse.inc` nor the course stamp depends on the parts' format;
 - as now, a RAM form over 65,024 bytes (§20.12.11's `OP_PARTMAX`).
 
 **Printed against each course's budget** ("over" is printed, not refused),
@@ -267857,16 +267859,18 @@ the planned courses still to come at their budgets, against `ROOM`.
 
 #### 128.15.9 The disk plan (story 5b.5)
 
-**The parts' format is one switch**, `BZPARTZ ?= lzb`, a `#> [Knobs]`
-line in the Makefile, stamp-tracked.
+**The parts' format is LZB**, the Makefile's `BZPARTZF`, stamp-tracked.
+(It was a `BZPARTZ=lzb|lz4` knob while the format was measured both ways;
+the decision made, the knob was removed, 2026-11-17: A/Bs decided against
+are not kept.)
 - `BONANZA.O88`'s rule passes `--part-compress` (os88pkg's existing flag,
   §20.12.7) with the EFFECTIVE format, `BZPARTZF`, and the stamp names
   that.
 - `BZPARTZF` follows the kernel when the kernel reads one format only
   (§20.13.6): `lz4` on a `COMPRESS=lz4` build and `lzb` on a
-  `COMPRESS=lzb` one, whatever `BZPARTZ` says, as `$(OS88PKGB)` falls back
-  for the image (§20.13.5). Otherwise it is `BZPARTZ`. So no build ships a
-  part its own kernel refuses.
+  `COMPRESS=lzb` one, as `$(OS88PKGB)` falls back for the image
+  (§20.13.5). Otherwise it is `lzb`. So no build ships a part its own
+  kernel refuses.
 - The courses' compile does not read it (128.15.8), so changing it re-packs
   `BONANZA.O88` and recompiles nothing.
 - **The rows' private trees pack with the shipped build's format.** Every
@@ -267880,7 +267884,7 @@ line in the Makefile, stamp-tracked.
   sound part, the songs and the demos.
 - **LZB is decided** (the owner, 2026-11-14): "'a stronger compression
   mode for the courses': lzb I assume? That would be fine." So
-  `BZPARTZ=lzb` is the default and the shipped format. **The owner was
+  LZB is the shipped format. **The owner was
   quoted +0.9 s** on a long course's launch (the report's figure, the
   course alone), and this contract's finding is higher: `PEAK`'s LZB launch
   is an UPPER BOUND of about +1.6 s over LZ4 (about 5.2 s against about
@@ -267943,7 +267947,7 @@ streams (128.15.12.2), and the final pass MEASURES it.
   and it is not proposed here.
 
 **MEASURED both ways in the final pass**, at one commit, the second arm in a
-private tree (`make BUILD=<dir> BZPARTZ=lz4`):
+private tree (`make BUILD=<dir> BZPARTZ=lz4`, a knob since removed):
 - `bonanza360.img`'s clusters;
 - `PEAK`'s and `MOON`'s launch to the bracket on MartyPC's CGA and
   Hercules (`bonanzaperf`, 128.15.13).
@@ -268346,14 +268350,15 @@ lattice, identities, mask counts and `nodither` where they differ.*
     `RECB` 8 from its model (`ram_identity`).
 - **`--rec 4|8`** comes from `BZREC`, and `bzcourse.inc` gains `BZ_REC`
   and `BZ_FORMS`. The tool takes no format flag (128.15.8). *(After
-  128.15.5.4's second verdict the knob is gone: `--rec` defaults to 4, D,
-  the shipped stride, and `--rec 8` remains for the host checks.)*
+  128.15.5.4's second verdict the knob is gone, and `--rec` with it
+  (2026-11-17): records are 4 bytes.)*
 - *As built*: the tool compiles each course to a MODEL with no offset in it
-  (`c.model`), and every form is a serialisation of it - `encode_part(m, 4|8)`
-  the RAM forms (`c.cga4`, `c.cga8`), `stored_form` the stored ones
-  (`c.stored4`, `c.stored8`), and `encode_bzc1` wave 4's `BZC1`, which item 1
-  compares with the last `BZC1` tree's parts (128.15.12.3). `c.cga` and
-  `c.stored` are the build's `RECB`'s. `compile_course` itself checks
+  (`c.model`), and every form is a serialisation of it - `encode_part(m, 4)`
+  the RAM form (`c.cga`), `stored_form` the stored one (`c.stored`),
+  `identity_form(c)` the 8-byte layout the identity is taken over (never a
+  shipped form), and `encode_bzc1` wave 4's `BZC1`, which item 1
+  compares with the last `BZC1` tree's parts (128.15.12.3).
+  `compile_course` itself checks
   `expand(c.stored) == c.cga` on every compile.
 - **The packed size** of each shipped course, packed as LZ4, is computed
   when the courses are compiled, for 128.15.8's refusal: about 3 s a
@@ -272462,7 +272467,7 @@ rate, `latpad` the shipped camera. Where the rows differ from the table:
   `LAT_PRICE` 5,760 clocks, its worst (a frame in a tube), + 25%.
 - **`level1`** is not re-pointed: its anchor is `bz_hv1`'s text, which 6b
   left as it was (the near-edge bits went into `bz_pnear`).
-- **`bonanzaperf`'s A/B** is `--lattice-ab`, the final pass's by-hand run as
+- **`bonanzaperf`'s A/B** is `--lattice-ab` (removed once LATTICE shipped, as `--clock-ab` once 128.18.7's form did), the final pass's by-hand run as
   every earlier A/B of this row is (exit 77 when `4d69985c` is not in the
   clone): its tree builds from git with its own art and demos, and the two
   `MILL` route demos' key bytes are identical (MEASURED), `BZ_PHYSV` 25h
@@ -278232,27 +278237,26 @@ and its acceleration every surface's force raised (`bz_wacc`, which
 `bz_ramp` adds); the jump's Hop is 400 for any ball (rubber's 252 raised);
 the sparkles are XORed, not ORed (SEEN: ORed ink 3 vanished on palette 0's
 yellow tiles), 2 x 2 pixel pairs drawn inside the ball's own blit; the flash
-is folded into that blit's loop, its STYLE a build knob (`BZ_CUEFLASH`:
-DITHER2, DITHER4, BLINK2, **BLINK4 the shipped default** - the owner's pick
-from the videos: BLINK2 reads as partly TRANSPARENT on the CGA, whose 60 Hz
-alternate frames the eye averages, where the Hercules' 50 Hz visibly
-flashes; DITHER4 was as acceptable, BLINK4 the cheapest); the sparkles HOP
+is a BLINK: every 4th frame of the warning the ball is not drawn
+(`bz_boxc`'s `.bq`, no dither pass at all) - BLINK4, the owner's pick of
+four styles filmed on MartyPC (dither every 2nd or 4th frame, blink every
+2nd or 4th; the build knob that selected them is removed, A/Bs decided
+against are not kept); the sparkles HOP
 (the owner's): each holds one of its places round the ball for 8 frames,
 then moves on, the three on offset clocks; a ball at rest is recomposed only
 on the frames the cue's LOOK changes (`bz_ospr` set unlike `bz_spr` on those
 frames); and the cost is MEASURED at about 0.65k clk in the blit and 0.29k
 in `bz_cuef` a frame with the sparkles (128.25.19: FULLY RESOLVED tables, the
 owner's ~360 bytes, 0.92k in the blit before them), not the 150 - 300
-predicted below. **A future pickup, noted**: the "ghost" - drawing the ball
-on alternate frames reads as see-through at 60 Hz, so BLINK2's look is a
-free GHOST effect (the ball half-there) for a pickup that wants one. **The places are
+predicted below. **A future pickup, noted**: the "ghost" - BLINK2, the ball
+drawn on alternate frames, read as see-through on the CGA's 60 Hz (the eye
+averages it), a free GHOST effect for a pickup that wants one. **The places are
 BALANCED** (the owner, after playing it: "the right side is a bit over
 represented/busy compared to the left"; MEASURED, the first set put 6 of its
 8 places right of the ball's centre and every sparkle's double-time step
 there, 83% of the sparkles' pixel-time on the right on both cards): eight
 places mirrored left and right, two of them ON the ball's face, the sparkles
-drawn after the ball in a BLINK style (128.25.19, the owner's pick of four
-options, "OVER").
+drawn after the ball (128.25.19, the owner's pick of four options, "OVER").
 
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
@@ -278278,9 +278282,9 @@ so each placement is tuned on its own (the owner, Q4).
   silhouette, 128.11.9.1), at
   positions from an 8-entry table stepped by `n`, ORed into the box after
   the sprite; no second box, no lane. **The warning**: in its last
-  `PU_WARN` steps (default 1 s) the ball is drawn DITHERED on alternate
-  frames (the frame's bytes ANDed with a 55h / AAh checker by line), the
-  same box. Both in the resident sprite path, since every family's timed
+  `PU_WARN` steps (default 1 s) the ball FLASHES (as built: not drawn every
+  4th frame, BLINK4; the contract first proposed a checker dither on
+  alternate frames), the same box. Both in the resident sprite path, since every family's timed
   effect can use them: `bz_sparks` and the flash bit in `bz_sprite`.
   Cost PREDICTED: about +150 - 300 clk a frame while active, 0 otherwise.
 - **Bests and the log**: nothing records a pickup (128.25.1). A replay
@@ -278301,7 +278305,7 @@ What moves and what stays resident, MEASURED as nasm spans at waves 3 and 4
 | CLOCK, SIGN | `bz_tdset` about 70, `bz_nset` about 60 | **resident** | every course has a clock (128.22.6) and the pathway signs |
 | CUP | in `bz_prule`'s 380 | **resident** (PROVISIONAL) | a finish kind, with GOAL; the finish sequence (128.22.6) owns it |
 | LIFT (platform) | physics 146; a DRAW LAYER 729 | **RESIDENT** (the owner, Q2: "if lift doesn't work for some reason, then resident is fine; using it will be pretty common"): its slab is a draw layer, which a family may not have (128.25.6.1) | |
-| TUBE | capture 151, transit 253, `bz_ztouch` 62: 466 | **a family for now** (the owner, Q2), kept EASY TO MOVE BACK: its hooks are the same routines it calls resident today, so resident or family is a build switch (`BZ_TUBE_RESIDENT`), both arms assembled by `--check-reds` | the tube is how a course moves the ball and the screen without a long corridor (the cannon's toss): most courses may name it, and then the family costs a fetch every launch. Wave 10 measures what a family really costs (load time, the hooks' clocks) and whether to allow more families a course |
+| TUBE | capture 151, transit 253, `bz_ztouch` 62: 466 | **a family for now** (the owner, Q2), kept EASY TO MOVE BACK: its hooks are the same routines it calls resident today, so resident or family is a build switch (`BZ_TUBE_RESIDENT`), both arms assembled by `--check-reds` (*as built: superseded by the family's home, 128.25.20.3 - no switch was built*) | the tube is how a course moves the ball and the screen without a long corridor (the cannon's toss): most courses may name it, and then the family costs a fetch every launch. Wave 10 measures what a family really costs (load time, the hooks' clocks) and whether to allow more families a course |
 | WINDMILL | `bz_gate` 40, the doorway about 120 | **family** `ROTOR` | |
 | BUMPER (post) | `bz_circle` 303, `bz_posts` 53, `bz_ptop` 52, `bz_octe` 37, `bz_pdist` 30, the octant table 234: 709 | **family** `POST` | the largest single saving |
 | SPRING | its `bz_prule` case (part of the 380) | **family**, with the bumper (`POST`'s second kind) or alone | |
@@ -278403,7 +278407,7 @@ selector is left in ES for `op_drop` (bz_cdrop's #GP of wave 1). No
 | per-play state `bz_fst`, slots | about 60 (the class clears) | `BZ_FSTMAX` / 8 + 3 x `BZF_SLOT` (about 64) | 0 | 0 |
 | the arena in `os88parts.inc` | about 250 - 400 (assembled only with `OP_WANT_ARENA`) | about 10 | 0 | 0 |
 | the ball generator V1 + V2 | about 410 (the report's) | 0 | 0 | balls -3 to -4KB packed (LZB, MEASURED by the story) |
-| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 385 the whole story, 128.25.19) | 2 (BUILT: 12) | +0.15 - 0.3k while a pickup lasts (MEASURED as first built: 1.8k a box a frame, 6.1k on a flash frame; REBUILT on the ball's blit: about 1.45k a frame with the sparkles, 2.3k on a DITHER2 flash frame; BLINK4 with the per-shift table and hopping sparkles: about 1.2k a frame with the sparkles (the blit +0.92k); AS SHIPPED, the tables FULLY RESOLVED (the owner's ~360 bytes): **about 0.95k a frame with the sparkles (the blit +0.65k CGA, +0.68k Hercules, `bz_cuef` 0.29k; 0.82k in `bz_cuef` on a hop frame, 3 in 8), a flash frame drawing no ball (about -4.4k; `bz_cuef` 0.44k when the flash turns on or off, was 1.0k), a ball at rest composed only when its look changes (a hop: 15 frames of 40), about +0.03k a frame with no pickup**) | 0 |
+| sparkles and the flash | about 120 - 200 (BUILT: about 350 with the working values, 385 the whole story, 128.25.19) | 2 (BUILT: 12) | +0.15 - 0.3k while a pickup lasts (MEASURED as first built: 1.8k a box a frame, 6.1k on a flash frame; REBUILT on the ball's blit: about 1.45k a frame with the sparkles, 2.3k on a DITHER2 flash frame (a style since removed); BLINK4 with the per-shift table and hopping sparkles: about 1.2k a frame with the sparkles (the blit +0.92k); AS SHIPPED, the tables FULLY RESOLVED (the owner's ~360 bytes): **about 0.95k a frame with the sparkles (the blit +0.65k CGA, +0.68k Hercules, `bz_cuef` 0.29k; 0.82k in `bz_cuef` on a hop frame, 3 in 8), a flash frame drawing no ball (about -4.4k; `bz_cuef` 0.44k when the flash turns on or off, was 1.0k), a ball at rest composed only when its look changes (a hop: 15 frames of 40), about +0.03k a frame with no pickup**) | 0 |
 | GLASS, PICKUPS | 0 (parts) | 0 | a contact-box frame per crack, break or collection | about 0.3 - 0.5KB packed each |
 | props moved out (9.8) | about -1.3 to -1.6KB (WINDMILL, BUMPER, SPRING, TUBE) | 0 | +0.1k a far call per active hook | their parts |
 
@@ -278575,12 +278579,18 @@ bounds, the lanes' verdicts and the footprints all read the union.
 their kill, 8 px on a 4-unit floor, and 32 with the whole form alone). NO
 TRAP and the exits run the model, which breaks a crack as play does.
 
-**The art: 2 x 2-block lanes.** A crack's or glass tile's lane is the two
+**The art: 2 x 2-block lanes (a glass tile's 2 x 3).** A crack's or glass tile's lane is the two
 block columns round its top's centre (`|u| < 8` of the 32 px top) and the
 two block rows that hold most of it (`(cy - 4) >> 3` on): the lane of the
 tile beside it along `wx` or `wy` is two columns away, the one diagonally
 below two rows down, so A PATH OF THEM SHARES NO BLOCK (a full-tile lane, 4
-x 3, would: two lanes sharing blocks is refused, 128.19.10). The top's centre
+x 3, would: two lanes sharing blocks is refused, 128.19.10). A GLASS tile's
+lane is THREE rows, from `(cy - 8) >> 3` (`glass_lane_rect`, below): its
+neighbours along `wx` and `wy` are still two columns away, but the tile
+diagonally below, `(wx + 1, wy + 1)`, would share a row - so **two glass
+tiles touching at that corner are REFUSED** by name ("touch at a corner ...
+a glass path may not turn or run two wide; break it with a solid tile"), and
+a crack lane that would meet a glass one is the generic refusal. The top's centre
 must be on a block column (`x0` a multiple of 8, else refused). SLOW event
 lanes. Poses are MARKS clipped to what is drawn in front of the tile (as a
 pennant's), CGA inks (the Hercules translates them as every lane's):
@@ -278592,8 +278602,17 @@ pennant's), CGA inks (the Hercules translates them as every lane's):
   handed the tiles less them: the ground beyond shows, and the neighbours'
   faces hang into the gap as at any edge), 0 nothing - but the path's FIRST
   tile, which carries white JAGGED TEETH along its edge toward the ground it
-  leaves from - and 1 the CRYSTAL material (`bonanza_assets.crystal_top_ink`,
-  128.22.8) over the lane's band of the top (`glass_poses`). The FIRST tile is
+  leaves from, drawn only inside `|u| < 8` and the 16 lines from
+  `(cy - 4) >> 3`, as it always was - and 1 the CLEAR PANE (`glass_pane_ink`,
+  the owner's pick, 2026-11-17): the outer edge of the union of the tile's
+  top and its glass edge neighbours' tops in white, wherever it falls in the
+  lane (a neighbour's tip too), and one dashed white glint along the run's
+  axis (10 px in every 16, `GLASS_DASH`: a tile's period, so the lanes of a
+  straight run repeat and their blocks dedupe); every other pixel is the bare
+  picture showing through. A straight run's two outer edges sit 24 lines
+  apart in any 16-column slab, which is why the lane is 3 rows: each lane
+  carries its slab of BOTH edges, and a revealed run reads as ONE pane, its
+  hidden end open (no end cap) until the next tile is touched. The FIRST tile is
   the tool's (`glass_first`): in each 4-connected run of glass tiles, the
   tile one of whose edge neighbours is a non-glass FLOOR or GOAL nearest the
   start (Manhattan; ties by the file) - and since 2026-11-17 only a
@@ -278601,9 +278620,13 @@ pennant's), CGA inks (the Hercules translates them as every lane's):
   teeth are drawn to join a tile and must never hang over a drop; the
   title's bridge had them over a 1.5-unit drop). A run with no level
   neighbour has no hint.
+- History: the crystal (128.22.8) shipped first; eleven other looks were
+  built behind a temporary knob and filmed on CGA and Hercules, and the owner
+  picked this one ("look 11": look 2's outline and glints, in lanes tall
+  enough to join). Its cost, MEASURED on PLAYGROUND's four tiles against the crystal: the picture part +176 bytes in RAM (9 blocks more, 144; the taller lanes' pose words, 32), +86 packed (lzb, both parts); no resident byte (a tool change).
 - The revealed glass is not an occluder (the picture has no tile there), and
-  the band leaves the top's left and right tips undrawn; both are what a
-  2 x 2 lane buys a path of them.
+  the lane leaves the top's left and right tips to the neighbours' lanes (a
+  path's ends stay open).
 
 **Show just before it is reached** (128.25.14 Q5's option): not tried; the
 touch rule ships.
@@ -278705,9 +278728,9 @@ the RESET restores them; none is in `bz_step`'s routines but the clamp):
 | `bz_wacc` | `bz_ramp` adds it to AL: so a pad's swap (`bz_setmat`) or a change of surface (`bz_surfset`) under a speed keeps it | +4 |
 | `bz_vup` | `bz_gax.clamp`: the cap is `BZ_VMAXG + bz_vup` (the ground's, the air's and a post's kick), read only PAST `BZ_VMAXG` - the two immediate compares of the common path are as they were, so a velocity inside the table's cap (nearly every call, and every call with no speed running) costs not a clock more; past it, `.hi` takes the raised bound and `.lo` is `.hi` on the negated value (the verifier's: the first build read `bz_vup` on every call, about +25 clk a call, two to four calls a step) | +12 |
 | the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
-| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' HOP count mod 16 under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. **The hops** (the owner's: "sparkling AROUND the ball, not glittering in place"): sparkle k holds a place for 8 frames, its epoch e_k = (frames + 0, 5, 2) / 8, so the three hop on frames 0, 3 and 6 mod 8, never together, and the hops so far are 3 frames / 8 - the look's count, which moves at each hop and at no other frame (bar one extra at the word's wrap). Its place is e_k mod 4 as the steps a b c b over its three (`bz_spq`, a pointer each to the place's four entries in the card's resolved table, `bz_sps` the steps' offsets), written only when the HOP count or the sparkles' start changes the look - not when a flash turns on or off, which moves no place (the cheap fix, about 0.6k off 2 frames in 4 of the flash; all three are rewritten, since picking the one that hopped MEASURED 50 - 90 clk a hop frame for 41 bytes). A changed look sets `bz_ospr` (the sprite `bz_mkboxes`'s idle test compares against, last frame's) to this frame's `bz_spr` NOT, so that test, unchanged, recomposes a ball AT REST on exactly the frames its cue changed - a hop (3 in 8 under the sparkles alone), the cue's first frame and the frame it ends included; MEASURED on both cards, a resting ball over 40 frames of sparkles: composed on every frame its look changed and on no other (14 - 15 of 40, 0 missed). (Built first as a toggle `bz_ctog` XORed into `bz_spr` every frame, the dissolve's bit-7 trick of 128.22.6; the verifier found that a cue beginning with the toggle left set by the last one - half of them - changed nothing the idle test saw, so a ball at rest showed it up to 4 frames late, and that a dissolve density and a look changing on one frame cancelled. The `bz_ospr` form has no state across cues.) The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 110 |
-| the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a BLINK frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
-| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws no sparkles and no dither checker, about 1 frame in 20 on a fast ball, never at rest; a BLINK style's flash is `bz_boxc`'s, before any clip, so a clipped ball BLINKS too): the SPARKLES first, three 2 x 2 pixel pairs XORed, each at its place's entry for the sprite's shift s in **the FULLY RESOLVED table `bz_spr0`** (the owner's, spending about 360 bytes for about 0.5k: 2 cards x 8 places x 4 shifts x 3 bytes, 192, and `bz_sps` 12; an entry is the byte off = 8 dy + W from the sprite's first byte and the first line's word mask - W the byte whose WORD holds pixels x and x + 1, x = s + dx, at its pixels j and j + 1, W at most 3, so the word XORed is inside the sprite's 5 bytes at every shift and byte 5, which a 32-line buffer's bottom-right ball once read one past the buffer, is never touched; an `%error` holds it). The second line's mask is the first's on the CGA and the first's rotated right 2 on the Hercules (an `%error` proves it for every j), so each card has its own copy of the three pairs' code, chosen once a blit: a pair is `mov si, [bz_spq + 2k]` / `add si, cx` (CX = 3 s, the one piece of arithmetic, once) / `lodsb` / `mov bl, al` / `lodsw` / two `xor [bx + di (+ 8)], ax` (the Hercules two `ror ax, 1` between); no push, no clip - the mask's row, the frame's distance and the rows are kept in BP and DX and the rows reloaded as `BZ_BAL_ROWS` (`bz_boxc`'s `.bd` is the one way in). The ball's mask then keeps them. (The 5-byte form with both masks stored, 320 bytes, MEASURED the same to 10 clk; the 3-byte form keeps 128 of them. Before: `bz_spt` 9 places x 4 shifts of (8 dy + W, 4 j) and `bz_spm` the card's pair masks by j, 128 bytes, +0.92k.) **The places, BALANCED** (the owner's pick, "OVER", of four options built under a knob since removed - MIRROR, CORNERS, SIZED and OVER, `~/Repos/w9-logs/sparkbal-report.md`; "the mirror carries most of the work. The over helps herc more than cga ... probably worth 33 bytes"): (dx, dy) of the pair's top-left pixel from the ball's, the silhouette 16 px, its centre at 7.5. Sparkle 0 (0, 0) the top left corner, (15, 2) the right's top, (4, 10) ON the face's lower left; sparkle 1 (14, 0) the top right corner, (-1, 12) the left's foot, (9, 4) ON the face's upper right; sparkle 2 (-1, 2) the left's top and (15, 12) the right's foot - none shared, and no two sparkles ever XOR one pixel at once (checked on every frame phase, shift and card). The side places are ±8 from the centre: x = 16 the sprite's spare right column, x = -1 its spare LEFT one, which a shift s >= 1 has; at s = 0 the two left side places come one in to dx 0, where the ball hides one pixel of the CGA's four (one of the Hercules' two). Left against right the pixel-time is 50/50 at s 1 - 3 and 55/45 at s = 0 (was 17/83). (The first set, which put 6 of 8 right of the centre and every double-time step b there - 83% of the sparkles' pixel-time, the average sparkle 5.2 px right of the centre, top and bottom even: sparkle 0 (0, 0), (15, 2), (13, 14); sparkle 1 (13, 0), (15, 12), (0, 14); sparkle 2 (15, 14) and (15, 0).) **The drawing order**: in a BLINK style (BLINK4 the default) `.cwhole` runs the ordinary loop FIRST, its own copy (DI kept), then XORs the three pairs - off the ball the result is the one before the ball would have given (the mask keeps the box there and the frame is 0), and a face place XORs the ball's own pixels. In a DITHER style the pairs come before the ball, as before, and the two face places are the bottom corners (0, 14) and (14, 14) instead - MIRROR's set, at no cost: the table is chosen by `BZ_CFB` at assembly. The CGA XORs both pixels on both lines with 3 off the ball (the ground's ink) and with **1 on the face** - the ball's base to its ink, a GLINT (SEEN: XOR 3 there punched a black hole into a spot; the glint often blends back into the ball, the owner's note); the Hercules pixel x on the first line and x + 1 on the second, XOR whole mono pairs, on the face as off it (a diagonal of whole mono pairs, chosen against its dithered floors; KEPT, the owner, who read the zoomed clips as visible) - the face places help the Hercules more than the CGA. Then on a FLASH frame of a DITHER style the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop | about 300 (the tables 204 of it; 190 and 128 before they were resolved) |
+| the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' HOP count mod 16 under bit 0; on a FLASH frame under bit 1 (every 4th `bz_frames`, BLINK4) `BZ_CL_BL`. **The hops** (the owner's: "sparkling AROUND the ball, not glittering in place"): sparkle k holds a place for 8 frames, its epoch e_k = (frames + 0, 5, 2) / 8, so the three hop on frames 0, 3 and 6 mod 8, never together, and the hops so far are 3 frames / 8 - the look's count, which moves at each hop and at no other frame (bar one extra at the word's wrap). Its place is e_k mod 4 as the steps a b c b over its three (`bz_spq`, a pointer each to the place's four entries in the card's resolved table, `bz_sps` the steps' offsets), written only when the HOP count or the sparkles' start changes the look - not when a flash turns on or off, which moves no place (the cheap fix, about 0.6k off 2 frames in 4 of the flash; all three are rewritten, since picking the one that hopped MEASURED 50 - 90 clk a hop frame for 41 bytes). A changed look sets `bz_ospr` (the sprite `bz_mkboxes`'s idle test compares against, last frame's) to this frame's `bz_spr` NOT, so that test, unchanged, recomposes a ball AT REST on exactly the frames its cue changed - a hop (3 in 8 under the sparkles alone), the cue's first frame and the frame it ends included; MEASURED on both cards, a resting ball over 40 frames of sparkles: composed on every frame its look changed and on no other (14 - 15 of 40, 0 missed). (Built first as a toggle `bz_ctog` XORed into `bz_spr` every frame, the dissolve's bit-7 trick of 128.22.6; the verifier found that a cue beginning with the toggle left set by the last one - half of them - changed nothing the idle test saw, so a ball at rest showed it up to 4 frames late, and that a dissolve density and a look changing on one frame cancelled. The `bz_ospr` form has no state across cues.) The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 110 |
+| the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a FLASH frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
+| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws no sparkles, about 1 frame in 20 on a fast ball, never at rest; the flash is `bz_boxc`'s, before any clip, so a clipped ball BLINKS too): the ball first, then the SPARKLES, three 2 x 2 pixel pairs XORed, each at its place's entry for the sprite's shift s in **the FULLY RESOLVED table `bz_spr0`** (the owner's, spending about 360 bytes for about 0.5k: 2 cards x 8 places x 4 shifts x 3 bytes, 192, and `bz_sps` 12; an entry is the byte off = 8 dy + W from the sprite's first byte and the first line's word mask - W the byte whose WORD holds pixels x and x + 1, x = s + dx, at its pixels j and j + 1, W at most 3, so the word XORed is inside the sprite's 5 bytes at every shift and byte 5, which a 32-line buffer's bottom-right ball once read one past the buffer, is never touched; an `%error` holds it). The second line's mask is the first's on the CGA and the first's rotated right 2 on the Hercules (an `%error` proves it for every j), so each card has its own copy of the three pairs' code, chosen once a blit: a pair is `mov si, [bz_spq + 2k]` / `add si, cx` (CX = 3 s, the one piece of arithmetic, once) / `lodsb` / `mov bl, al` / `lodsw` / two `xor [bx + di (+ 8)], ax` (the Hercules two `ror ax, 1` between); no clip. (The 5-byte form with both masks stored, 320 bytes, MEASURED the same to 10 clk; the 3-byte form keeps 128 of them. Before: `bz_spt` 9 places x 4 shifts of (8 dy + W, 4 j) and `bz_spm` the card's pair masks by j, 128 bytes, +0.92k.) **The places, BALANCED** (the owner's pick, "OVER", of four options built under a knob since removed - MIRROR, CORNERS, SIZED and OVER, `~/Repos/w9-logs/sparkbal-report.md`; "the mirror carries most of the work. The over helps herc more than cga ... probably worth 33 bytes"): (dx, dy) of the pair's top-left pixel from the ball's, the silhouette 16 px, its centre at 7.5. Sparkle 0 (0, 0) the top left corner, (15, 2) the right's top, (4, 10) ON the face's lower left; sparkle 1 (14, 0) the top right corner, (-1, 12) the left's foot, (9, 4) ON the face's upper right; sparkle 2 (-1, 2) the left's top and (15, 12) the right's foot - none shared, and no two sparkles ever XOR one pixel at once (checked on every frame phase, shift and card). The side places are ±8 from the centre: x = 16 the sprite's spare right column, x = -1 its spare LEFT one, which a shift s >= 1 has; at s = 0 the two left side places come one in to dx 0, where the ball hides one pixel of the CGA's four (one of the Hercules' two). Left against right the pixel-time is 50/50 at s 1 - 3 and 55/45 at s = 0 (was 17/83). (The first set, which put 6 of 8 right of the centre and every double-time step b there - 83% of the sparkles' pixel-time, the average sparkle 5.2 px right of the centre, top and bottom even: sparkle 0 (0, 0), (15, 2), (13, 14); sparkle 1 (13, 0), (15, 12), (0, 14); sparkle 2 (15, 14) and (15, 0).) **The drawing order**: `.cwhole` runs the ordinary loop FIRST, its own copy (DI kept), then XORs the three pairs - off the ball the result is the one before the ball would have given (the mask keeps the box there and the frame is 0), and a face place XORs the ball's own pixels. (The sparkles were drawn before the ball, its mask keeping them, while the dither flash styles existed: a dither folded into the ball's loop needed them under it.) The CGA XORs both pixels on both lines with 3 off the ball (the ground's ink) and with **1 on the face** - the ball's base to its ink, a GLINT (SEEN: XOR 3 there punched a black hole into a spot; the glint often blends back into the ball, the owner's note); the Hercules pixel x on the first line and x + 1 on the second, XOR whole mono pairs, on the face as off it (a diagonal of whole mono pairs, chosen against its dithered floors; KEPT, the owner, who read the zoomed clips as visible) - the face places help the Hercules more than the CGA. Without the sparkles, the ordinary loop | about 300 (the tables 204 of it; 190 and 128 before they were resolved) |
 | the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
 
 **The image 47,551 bytes (+627 on 46,924; 47,298 as first built, 47,310
@@ -278718,14 +278741,13 @@ the same tree built BLINK4, 47,219 - the tables +104 over the 24 bytes they
 replace, the code +46; 47,551 the tables FULLY RESOLVED: +182 on 47,369, the
 tables 204 against 128, +76, the two cards' pair code and the places'
 pointers +106), the bss 10,987 (+17)**: `bz_vup`, `bz_nfev`,
-`bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2, `bz_clook` 1,
+`bz_wacc`, `bz_cue` in the zeroed state (6), `bz_chk` 2 (the dither styles' checker, removed with them: -2), `bz_clook` 1,
 `bz_spq` 6, `bzs_lfev` 2. Budgets +400 / +24: the bss met; the image 227
 over, the sparkles' bytes approved by the owner (the per-shift table: about
 57 + 20 asked, 104 + 46 taken; the resolved tables: about 360 approved, 182
 taken). **The balanced places
 (OVER) cost +33 bytes** (47,066 on 47,033, MEASURED: the table's bytes are
-the same, the ball loop's copy in the cue path is the 33; bss +0); a DITHER
-build is its old size. **The part 485 bytes,
+the same, the ball loop's copy in the cue path is the 33; bss +0). **The part 485 bytes,
 424 packed** (no zero padding: it packs).
 
 **The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and `_herc_gla`,
@@ -278784,13 +278806,11 @@ against the first set built in the same tree): the ball's blit on a sparkle
 frame **+627 on the CGA, +660 on the Hercules** (the first set +656 / +671:
 the loop's own copy saves the jumps back), `bz_cuef` 283 - 289 plain and 818 -
 834 on a hop, as before - about 0.93k a sparkle frame; a resting ball composed
-on 15 of 40 sparkle frames, 0 missed, both cards. The other
-styles were not timed: DITHER4's flash frame is DITHER2's, one frame in four;
-a BLINK frame draws no ball blit (about -4.4k), and BLINK2 / DITHER2 at rest
-recompose every frame of the flash, BLINK4 / DITHER4 two frames in four. A
-BLINK build assembles neither the checker's look nor the folded loop: its
-image is 47,219 bytes (86 under a DITHER build's), MEASURED off the four
-assemblies.
+on 15 of 40 sparkle frames, 0 missed, both cards. A flash frame draws no
+ball blit (about -4.4k), and a ball at rest recomposes two frames in four of
+the flash. (The four flash styles' build knob, `BZ_CUEFLASH`, is removed: a
+BLINK build was 86 bytes under a DITHER one, and the shipped source is
+BLINK4 alone.)
 
 **The reach** (128.25.7.3's third proof, built here). `pickup_reach`: for
 each timed kind a course places, `build_reach` is taken again with its
@@ -280087,8 +280107,8 @@ above; the owner's constraint decides it.
   today changes.
 - **Otherwise two parts**, each D part at most 65,024 (refused past it,
   naming the part: *"the course's picture part is N bytes, over the 65,024
-  one part may be"*). Under `--rec 8` (C, 128.15.5.3) each C part is held to
-  65,024 as well; a D build does not require the C parts to fit.
+  one part may be"*). The identity of a two-part course is over its D parts
+  (128.30.4.3), so no 8-byte layout of them is made.
 - **The pathway and the title are always one part** (`--path`,
   `--title`): refused as two.
 
