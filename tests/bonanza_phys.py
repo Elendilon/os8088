@@ -1598,7 +1598,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
                         gw[4 * q:4 * q + 2] = mw[4 * q:4 * q + 2]   # (0, 0) - its records are bz_nbh's)
                 if gw != mw:
                     bad.append("step %d: the window %s, the model's %s" % (i, gw.hex(), mw.hex()))
-            if any(fm.row["name"] == "water" for fm, _v in p.fam):       # SPEC.md 128.32: WATER's working values
+            if any(fm.row["name"] == "water" for fm, _v in p.fam):       # SPEC.md 128.36: WATER's working values
                 gv = (g.r("bz_mrec", 2, False, 10), g.r("bz_surf", 1, False),
                       g.r("bz_se", 1, False, 3) if p.surf != 0xFF else None)
                 mv = (p.hthr, p.surf, (p.wef if p.wef is not None else BB.surf_entry(p.mat, p.surf)[3])
@@ -1808,11 +1808,11 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
-    wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.32)
+    wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
     return out + wo, fails + wf
 
 
-# WATER (SPEC.md 128.32): its scenarios on the WATER test course (apps/bonanza/courses/water.bbc, the BZWATER=1
+# WATER (SPEC.md 128.36): its scenarios on the WATER test course (apps/bonanza/courses/water.bbc, the BZWATER=1
 # knob's course), compiled here from the tree whatever the build: the family's part is in every build's
 # resident bundle, and the course part is handed to the guest as any course's is (bz_crs borrowed from
 # PLAYGROUND's: bz_crshdr reads the part alone)

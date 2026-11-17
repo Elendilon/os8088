@@ -146,7 +146,7 @@ the walkway to the lower path. Ideas:
 ## Stories
 
 - [x] **W.1** SPEC.md: water's contract (statements, the family, the draw,
-      the refusals) before the code - SPEC.md 128.32 (family ID 7).
+      the refusals) before the code - SPEC.md 128.36 (family ID 7).
 - [x] **W.2** The model and the tool: `WaterFamily`, the statements, the
       `bed` form, the refusals, the depth key and the art; a test course
       (`BZWATER=1`, `courses/water.bbc`).
@@ -156,7 +156,7 @@ the walkway to the lower path. Ideas:
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
       cards (one MartyPC boot of the knob tree; the soak rows not run).
-- [x] **W.5** The owner's second round (SPEC.md 128.32.9): ripples ANIMATED
+- [x] **W.5** The owner's second round (SPEC.md 128.36.9): ripples ANIMATED
       while a ball is in the column (`ripple`) or always (`always`, a FAST
       lane), marked on change only; the FLOAT LINE (rubber and glass ride a
       half unit under the top, their lower half behind the water); steel's
