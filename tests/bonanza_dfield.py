@@ -106,7 +106,7 @@ def keys_of(c, ks, pk, mat):
 
 
 def near_field(c, rnd):
-    grid = BB.Grid(c.cga)
+    grid = BB.Grid(c.cga, c.wcga)
     cells = [(wx, wy) for wx in range(48) for wy in range(48) if grid.cell(wx, wy)[3] == BB.KIND_FIELD]
     wx, wy = rnd.choice(cells)
     return wx + rnd.randint(-1, 1), wy + rnd.randint(-1, 1), rnd.randrange(4096), rnd.randrange(4096)

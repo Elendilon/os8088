@@ -279752,6 +279752,9 @@ profile keeps it, which is what caps the depth.
   merge with 128.27 and the pickups yard** the same two chutes take
   PLAYGROUND's RECB 8 layout to 69.7KB, over the limit, so the section was
   taken off again: the shapes live in the knob's own courses (128.28.9).
+  **Since 128.30.11 it is back**, with the radius-3 pit beside it: as one
+  part PLAYGROUND would be 65,513 bytes under D and 76,507 under C, so it
+  ships as a TWO-PART course (128.30), 15 of its 16 shape tables used.
   (The per-second budget, 128.15.8, is REPORT-only since that merge, so
   PLAYGROUND's `target` stayed 30.)
 - **Clocks, PREDICTED (C0)** (128.11.15's method, x 1.3): a step whose centre is a
@@ -279815,8 +279818,8 @@ from the estimate - and it does NOT take the split 128.15.8 sketched
 
 | question | decision |
 |---|---|
-| which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 128.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (128.30.6) |
-| the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D T W P`): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (128.30.2) |
+| which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 128.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (128.30.6). The first shipped one is `PLAYGROUND` with its shaped-floor section (128.30.11) |
+| the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D F T W P`; `F`, the FIELD tables, 128.28.2): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (128.30.2) |
 | what it costs a frame or a step | **0 clk, on a two-part course and on a one-part one**: no routine reads both parts at once, and each site loads one segment word where it loads `bz_cseg` today (128.30.5) |
 | what it costs a launch | one more fetch and claim, one more directory walk, and the world part's 48-byte header and its directory (128.30.8) |
 | the guest's code | assembled only into a build that HAS a two-part course (`BZ_NCRS2` > 0): a build with none is today's package, byte for byte |
@@ -279839,7 +279842,7 @@ register it reads through. "Frame" is per frame, "step" per physics step,
 | `bz_lsync`, `bz_lmap` | frame | a pose map (in `P`) copied into `M` (`rep movsw`) | DS -> ES |
 | `bz_pblit` (the lift's slab) | frame | the lift's sprite (in `P`) into a box | DS (ES = ours) |
 | the wheel's lane state (`bz_ltrue`, `bz_nset`, the gate test) | frame | prop records (`P`) | ES |
-| `bz_step` and what it calls (`bz_win9i`, `bz_fill`, `bz_blocks`, `bz_wsplit`, `bz_prule`, `bz_circle`, `bz_ppos`, `bz_owner`, ...) | step | `G`, `C`, `T`, `D` (cells, ROWTAB, the split pairs) and `P` (records, tube segments), interleaved | ES |
+| `bz_step` and what it calls (`bz_win9i`, `bz_fill`, `bz_blocks`, `bz_wsplit`, `bz_prule`, `bz_circle`, `bz_ppos`, `bz_owner`, ...) | step | `G`, `C`, `T`, `D`, `F` (cells, ROWTAB, the split pairs, the FIELD tables) and `P` (records, tube segments), interleaved | ES |
 | the families' parts (`fam/*.asm`, `bzfam.inc`) | step | `P` (records, the family list) | ES |
 | `bz_auto`, `bz_lexit` | step | `W`, `P` | ES |
 | the pathway (`bz_ppose`, `bz_follow`, `bz_pwkey`, ...) | step | `P` (the pathway's tables) | ES |
@@ -279908,7 +279911,7 @@ stored (128.15.4.3), and its directory last.
 | | the PICTURE part, `BZ<K>.BIN` | the WORLD part, `BZ<K>W.BIN` |
 |---|---|---|
 | +0 | `BZP2` | `BZW2` |
-| its sections, RAM order | `M` (at +48: `BZC_MAP` as ever), `B`, `I`, `R`, `K`, `O`, `L` | `G` (at +48), `C`, `D`, `T`, `W`, `P` |
+| its sections, RAM order | `M` (at +48: `BZC_MAP` as ever), `B`, `I`, `R`, `K`, `O`, `L` | `G` (at +48), `C`, `D`, `F`, `T`, `W`, `P` |
 | +38 `DIROFF`, +40 `NSEC` | its own directory | its own directory |
 
 - **Every other header field (+4 - +37, +42 - +47) is the SAME in both
@@ -279996,9 +279999,10 @@ nothing below is assembled.
 
 #### 128.30.6 What stays exactly as it is
 
-For every course that is one part (all the shipped ones at this tree): its
-part's bytes, its identity, its demos and `BZ_PHYSV`; the package's bytes
-(`BZ_NCRS2` = 0); every frame's and step's instructions. The proof is a
+For every course that is one part (every shipped course but `PLAYGROUND`,
+128.30.11): its part's bytes, its identity, its demos and `BZ_PHYSV`; in a
+build with no two-part course, the package's bytes (`BZ_NCRS2` = 0); in
+every build, every frame's and step's instructions. The proof is a
 `cmp` of the build's parts and `BONANZA.O88` against the base's (128.30.9).
 
 #### 128.30.7 The tool
@@ -280019,12 +280023,21 @@ part's bytes, its identity, its demos and `BZ_PHYSV`; the package's bytes
   form expands in place to its RAM form (the in-place simulation,
   128.15.4.4); `read_parts` takes them and `decode_parts` gives the model
   back; the identity is the two-part rule's; the model's autopilot reaches
-  the goal through the world part; every shipped course is still one part.
-  Its negative controls run inside the item, each a pair of parts (or a
-  compile) that must be REFUSED and is (MEASURED): a lane's pose map
-  pointed back into `P`, the world header's `GRIDOFF` a picture offset,
-  the identity taken over the world part alone, a picture part with no
-  `L`, and a two-part pathway.
+  the goal through the world part; **a shipped course is two parts only
+  when its one-part form is refused** (128.30.4.1: `PLAYGROUND` since
+  128.30.11, every other shipped course one part). Its negative controls
+  run inside the item, each a pair of parts (or a compile) that must be
+  REFUSED and is (MEASURED): a lane's pose map pointed back into `P`, the
+  world header's `GRIDOFF` a picture offset, the identity taken over the
+  world part alone, a picture part with no `L`, a two-part pathway - and
+  the shipped courses' rule's own red arm, the smallest shipped course
+  compiled with the split forced, which the rule must CATCH.
+- **The other items read a two-part course whole** (128.30.11): item 1's
+  identity is 128.30.4.3's and its stored-form check covers `BZ<K>W.BIN`;
+  item 3's reader controls change the world part and re-read the pair;
+  item 10 checks each part's in-place expansion, `read_parts`, the
+  records' compares, the identity (a picture byte and a world byte each
+  move it) and `CELLS`; item 11 decodes the pair.
 - **The test course is not shipped**: `bbcourse.py twoseg` writes its
   text, and `make bonanzatwoseg` builds a private package and floppy with
   it added as course 7 (`$(BUILD)/bztwoseg/`), on no shipped disk and not
@@ -280061,7 +280074,10 @@ Everything here is MEASURED unless it says otherwise.
   world part **15,364** (`G` 32, `C` 13,688, `D` 712, `T` 236, `W` 12, `P`
   588; 49,660 of room). Packed: the picture part 8,145 LZ4 / 6,636 LZB, the
   world part 1,801 / 1,433. Its C parts lay out (60,412 and 15,364), so its
-  identity is the same from either (1551h).
+  identity is the same from either (1551h). (TWOSG is PLAYGROUND's text and
+  its extension, so it grew with 128.30.11: 83,515 bytes as one part, the
+  picture part 63,392 and the world part 20,179, identity 1337h, its C
+  parts no longer laid out.)
 - **The guest's code with a two-part course**: the package grows 87 bytes
   against the same course set assembled with `BZ_NCRS2` 0 - one part row
   (8), `BZ_CRS_WROW` (a byte a course, 8), and 71 of code: `bz_cload2`,
@@ -280090,7 +280106,8 @@ Everything here is MEASURED unless it says otherwise.
 #### 128.30.10 Open questions for the owner
 
 1. **The picture part's own cap.** (d) puts the picture and its occluders
-   in one 65,024-byte part, and `PLAYGROUND` fills about 39KB of it. If the
+   in one 65,024-byte part, and `PLAYGROUND` fills about 39KB of it (50,590
+   bytes since 128.30.11: 14,434 of room). If the
    owner's growth is mostly picture and occluders past that, the next
    lever is (e), a third part for the occluders, at (b)'s clocks - or a
    split inside the picture (the map apart from the blocks, a DS switch a
@@ -280098,3 +280115,86 @@ Everything here is MEASURED unless it says otherwise.
 2. **A two-part pathway** is refused: the held pathway (128.22.7) would
    need both its parts held. Say if the pathway is expected to grow past
    one part.
+
+#### 128.30.11 PLAYGROUND, the first shipped two-part course (2026-11-17)
+
+PLAYGROUND takes back wave C4's shaped-floor section (128.28.8: the
+walkway behind the step ladder, the 2-wide climbing `round` chute and the
+1-wide one) and adds the radius-3 pit on a plate at the apron's height.
+As one part it would be **65,513 bytes under D and 76,507 under C**, so it
+is two (128.30.4.1): the picture part **50,590** (`M` 25,856, `B` 9,872 -
+617 blocks, `I` 204, `R` 11,328 - 2,832 records, `K` 2,608, `O` 326, `L`
+292; 14,434 of room) and the world part **14,979** (`G` 32, `C` 9,360, `D`
+392, `F` 4,335 - 15 of the 16 shape tables, `T` 156, `W` 12, `P` 588;
+50,045 of room). Its C parts lay out (61,584 and 14,979); its identity is
+8E1Bh, and its authored demo's `ident` line was re-stamped to it (the
+same keys, 1,504 steps to the cup).
+
+**What it costs, MEASURED** - three private trees at one build number:
+**A** the owner's shaped-floor branch (PLAYGROUND one part, no two-part
+support), **B** this one, and **C** this one with PLAYGROUND's text and
+demo put back to A's (two-part support present, no course using it).
+MartyPC `os8088_5150_cga_gla`, 640KB, guest cycles; reads are the floppy
+controller's READ commands.
+
+| | A | C | B |
+|---|---|---|---|
+| `bonanza.bin` image / bss | 47,713 / 11,031 | **= A, `cmp`-equal** | 47,796 / 11,033 (+83 / +2) |
+| `bzshell.bin` | 12,072 | = A | 12,072 (its bytes link `bz_mseg`) |
+| `BONANZA.O88` | 117,933 | = A | 124,383 (+6,450) |
+| PLAYGROUND RAM | 49,422 | = A | 50,590 + 14,979 = 65,569 (+16,147) |
+| PLAYGROUND LZ4 / LZB | 9,483 / 7,715 | = A | 13,383 + 3,888 / 11,057 + 3,026 = 14,083 LZB (+6,368) |
+| `bonanza360.img` clusters | 124 of 354 | = A | 130 of 354 (224 free) |
+| 720KB, 1.2MB, 1.44MB | 124 of 713, 243 of 2,371, 243 of 2,847 | = A | 130, 255, 255 |
+| PLAYGROUND's launch, `bz_launch` to the first `bz_t0`: the first / the second | 3.90 s / 3.12 s, 6 / 3 reads | = A (the same package) | **4.80 s / 3.75 s (+0.90 / +0.63)**, 6 / 3 reads |
+| ...the course's own share (the second launch): fetch, expand | 1.37 s, 0.85 s | = A | picture 1.83 s, 0.51 s; world 0.38 s, 0.43 s (+0.93 s) |
+| PLAYGROUND's demo through D, sound off, 1,649 frames: busy mean / p95 | 40,455 / 60,507 clk | = A | 40,224 / 61,188 clk |
+| ...misses (missed refreshes a second), runs of two | 3 (0.11), 0 | = A | 3 (0.11), 0 |
+| ...the occluder pass, a frame it runs (23 frames) | 4,142 clk | = A | 5,083 clk (+941: the course's own records) |
+| free heap in PLAYGROUND's play | 22,912 paragraphs (358.0KB) | = A | 21,888 (342.0KB, -16KB) |
+| claims in the play: BONANZA's / the heap's | 3 / 8 | = A | 4 / 9 (region, arena, picture, world) |
+
+- **The mechanism costs nothing until a course uses it**: C is A byte for
+  byte - `bonanza.bin`, `bzshell.bin`, `BONANZA.O88` and every disk image.
+- **A frame and a step: the same instructions.** The listings of A and B
+  compared routine by routine (762 routines): 653 identical in source,
+  length and unrelocated bytes; every routine a frame or a step runs
+  (`bz_row`, `bz_col`, `bz_boxc`, `bz_occ`, `bz_wprect`, `bz_lsync`,
+  `bz_lmap`) differs only in which word a `mov sreg, [word]` names, at the
+  same length, and the rest only in near-call displacements and one bss
+  difference (`bz_nst - bz_tdig`, 2 less) - the code after `bz_cload`
+  moved 73 bytes and the bss after `bz_cseg` 2. Only `bz_cload` (+8),
+  `bz_cdrop` (+13), `bz_crshdr` (+4), `bz_hxlat` (+4) and the new
+  `bz_cload2` (37) and `bz_cwrow` (7) grow. The demo's figures above agree:
+  the busy mean is within 0.6% and the misses the same in number (on
+  other frames: the larger course moves the camera's limits, 301 rows
+  panned against 321).
+- **The launch** pays for the course's bytes more than for the second
+  part: 6.4KB more LZB read and decoded and 16KB more RAM expanded.
+  The floppy controller's READ commands were the same count in both (6 at
+  the first launch, 3 at the second); why the extra fetch adds none was
+  not traced.
+- **kern_small** refuses every launch before any fetch (`bz_small`, from
+  `OSAPI_WM_CREATE`'s class slots), the same code in A and B; the window's
+  region is 3,680 paragraphs in both (image and bss round to the same
+  claim). Checked in the source and the listings, not booted.
+- **kern_mega**: both parts are claims named by `op_seg`'s selectors and
+  nothing adds to either word (128.30.5); `bonanzamega`'s PLAYGROUND leg
+  (its item 10) is the check, not run here.
+- **The tool's early refusal is per part now.** Before the occluders are
+  cut, a compile refused a course whose least size (map, blocks, grid,
+  tables, route) passed 65,024 bytes - a one-part rule, which refused
+  TWOSG once PLAYGROUND grew (68,613) although its two parts fit. It now
+  refuses only when the picture part's least or the world part's passes
+  65,024 (naming the part), and keeps the one-part sum for the pathway and
+  the title.
+- **The emulator rows read a two-part course whole**: every row's
+  `Grid(c.cga)` became `Grid(c.cga, c.wcga)` (the same for a one-part
+  course), and `bonanzaexit`'s claim leg compares the picture part at
+  `[bz_mseg]` and the world part at `[bz_cseg]` with the tool's RAM forms
+  (`herc_translate_parts`' on the Hercules). Not run here: the final
+  pass's.
+- **A 256KB machine** (PREDICTED): PLAYGROUND's play needs 1,024
+  paragraphs more heap than A's, as two claims (3,168 and 960) where A
+  had one of 3,104 - the largest claim 64 paragraphs larger. Every other
+  course is unchanged.
