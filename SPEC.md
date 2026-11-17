@@ -275004,3 +275004,289 @@ and occluders), `bonanzaphys` and `bonanzareplay` (the demos and the
 model, identities included), `bonanzaperf` (the frame cost: PEAK's picture
 grew 56 lines), `bonanzawheel` (MILL), `bonanzapath` and `bonanzamega`
 (kern_mega's Hercules) - named, run in the final pass.
+
+### 128.29 Occlusion computed in the VOID cells: AV (the owner's decision, 2026-11-17)
+
+The owner, 2026-11-17: *"Course size is too big, and most of it seems to be
+occlusion ... It does not need to be pixel-perfect or the same as today.
+Can we just store less?"*, and on the deep-dive's answer
+(`docs/plans/BOUNCE-BONANZA-OCCLUSION.md`, the measurements in
+`docs/reports/BONANZA-OCCLUSION-2026-11-17.md`): *"Let's try AV so I can
+play with it ... and see how much those fall-frame costs are."*
+
+**AV**: when the ball is in a VOID cell - falling off an edge, or in the
+air over a gap - the occluder pass COMPUTES the mask of what hides it from
+the cells in front of it, out of the grid's own bytes, because every face
+over the void now reaches the course's ground plane (128.27) and so
+everything under a front cell's top edge is that cell or a nearer one. The
+part then stores only the RESIDUAL records for the VOID positions: what
+the computation cannot see (a prop's drawing, a split cell, a floating
+face, a cell past its depth). Every other position keeps today's records,
+laid by today's walk. The guest lays at least what the rule (128.10.4.4)
+lays at every reachable position: **exact or over-hidden, never drawn
+over**. The prototype measured -5,154 bytes LZB and -25,552 bytes of RAM
+over the seven `BZ_COURSES` (the report's section 3); 128.29.6 is the
+binding model's figure, MEASURED.
+
+This section is the contract. *As built* notes are added under each
+subsection when the work lands; until then every figure not marked
+MEASURED is PREDICTED.
+
+#### 128.29.1 The decisions, in one table
+
+| | decision |
+|---|---|
+| where the model runs | in the occluder pass (`bz_occ`), after the walk, on a frame whose gate is open (128.11.10.2, unchanged), on a part whose `BZG1` FLAGS has `GF_ANA`, when the ball's centre cell in the PART's grid is VOID and not `OBS` (128.29.2). Every other frame is today's pass |
+| what it reads | the part's own grid: `ROWTAB`, `NROWS`, `SMIN`, `AMIN`, `KW`, `X0`, `Y0` and the front cells' four bytes. Nothing new is stored for it |
+| what it lays | the block words of the footprint the walk covers, each under a mask built from the model, ORed with the checker (128.15.10.1), laid by `bz_olay` exactly as a group is |
+| the records | the RESIDUAL in the VOID cells (128.29.3); today's records over every other position; the record, its 4-byte form, the merge, the dither and the bounds unchanged (128.15.5, 128.11.4.1, 128.11.4.2) |
+| the gate | unchanged: `OCC`, `OCCG` and every grid byte physics reads are computed from the RULE's records over the whole reach, as today, so the pass runs on exactly today's frames |
+| the error | exact or OVER-HIDDEN. Over-hidden pixels (WRONG-HIDE) are bounded by `--selfcheck` item 15 at **0.25% of the ball's pixels** over each course's VOID lattice, and refused past it |
+| the depth | 4: the 14 front cells `(wx + i, wy + j)`, `i, j >= 0`, `0 < i + j <= 4` |
+| floating cells | marked in the grid, `FL_FLOAT` (flags bit 6) on a floating whole FLOOR or WALL cell, and passed over by the model. A course with a floating GOAL cell (its bits 4 - 7 are the exit) gets no `GF_ANA`: it ships today's records |
+| the default | `--occ void` (AV) on every course, the pathway and the title, unless that course is refused `GF_ANA` above; `--occ off` builds today's records for the A/B |
+| A4R, A4R-V, V, X | not built (the plan's waves A3 and V). The guest's routine does not depend on which positions the tool chose to compute, so A4R would be a tool change and a second flag bit |
+
+It amends:
+- **128.10.4.4**: in a VOID cell a record is the RESIDUAL of the model; the
+  rule, the record and its order are unchanged.
+- **128.11.4.2**: the bounds are refused on the records the part ships, as
+  before - which are now the residual ones in the VOID cells.
+- **128.10.4.3 and 128.12.3.2**: flags bit 6 is `FL_FLOAT` on a FLOOR or
+  WALL cell (bits 4 and 5 stay RESERVED for `edge`; a GOAL's bits 4 - 7
+  stay its exit).
+- **128.10.5.2**: `BZG1` +28 FLAGS bit 5 is `GF_ANA`.
+
+#### 128.29.2 The model (binding: the guest and `bbcourse.amodel` do exactly this)
+
+The ball's centre is in grid cell `V = (wx, wy)`, `wx = gx >> 12`,
+`wy = gy >> 12` (the cell whose `OCC` / `OCCG` opened the gate), `s = wx +
+wy`, `a = wx - wy`. Its KEY is the walk's own, unbiased:
+`K = z_b + m` (128.10.4.4: `z_b` the integer px of `bz_gz`, `m` 0 airborne
+and `BZ_CLIMB` grounded).
+
+**The model runs** when the part's `BZG1` FLAGS has `GF_ANA` and V, read
+from the PART's grid (`ROWTAB[s - SMIN] + 4 ((a - AMIN) >> 1)`, never the
+window's copy), is inside the grid, its kind nibble is 0 (VOID) and its
+`OBS` flag is clear. (A lift's shaft is `OBS`; a GLASS tile's cell stays a
+FLOOR in the part, broken or not: both keep today's records.)
+
+**The front cells** are `N = (wx + i, wy + d - i)` for `d = 1 .. 4` and
+`i = 0 .. d`: in the grid, row `s - SMIN + d` and cells `k0(d) .. k0(d) +
+d` with `k0(d) = (a - d - AMIN) >> 1` (arithmetic). A row outside `0 ..
+NROWS - 1` or a `k` outside `0 .. KW - 1` is skipped.
+
+**A front cell COUNTS** when all of these hold:
+- its kind nibble is 1, 2 or 3 (FLOOR, WALL, GOAL): a VOID and a SPLIT cell
+  (4 - 6) are passed over;
+- its `OBS` flag (bit 3) is clear: a prop's cell is passed over, its
+  drawing being the residual's;
+- it is a GOAL, or its `FL_FLOAT` flag (bit 6) is clear;
+- its HEIGHT `H = 4 (z0 + max(sx, 0) + max(sy, 0))` px, its highest corner,
+  is greater than `K`.
+
+**Its top edge.** With `z0`, `sx`, `sy` its bytes (128.10.4.3: half units,
+slopes signed nibbles), `X = 16 (wx_N - wy_N) + X0` and
+`Y = 8 (wx_N + wy_N) + Y0 - 4 z0`, the edge in picture column `x` is
+
+    E(x) = Y + F(2 - sx, x - X)        for X <= x <= X + 15
+    E(x) = Y + F(2 - sy, X - 1 - x)    for X - 16 <= x <= X - 1
+    F(k, d) = floor((k (2 d + 1) + 3) / 8)
+
+and nothing outside those 32 columns. `E` is the first line whose pixel
+centre is inside the cell's top polygon as the renderer fills it
+(`spans`), in every column but the two end ones, where the polygon has no
+pixel and `E` is the line under its corner (MEASURED: the formula against
+the renderer's spans on every whole cell of FIRST and TRIAL, 0 columns
+differ but those two).
+
+**The model hides** picture pixel `(x, y)` when some counting front cell has
+`E(x) <= y`. Below its top edge a column is the cell's top, then its face
+down to the ground plane (128.27.1), then the cells in front of it - every
+one of them in front of the ball. What the model can get wrong is
+therefore only a pixel the rule does not lay: a nearer cell LOWER than the
+ball under a counting cell's face, a sloped cell's pixel below `H` (the
+model takes the cell's highest corner), or a picture pixel below the
+ground plane. Those are WRONG-HIDE, over-hidden, and bounded (128.29.7).
+A pixel the model misses is never wrong, because the residual records
+(128.29.3) are cut from exactly those.
+
+**The mask.** For each block word of the walk's footprint (its lines
+`[olo, ohi)` and word columns `[DL, DH]`, both clipped to the window, as
+`bz_occ` computes them), line `y` of the word clears the two bits of every
+pixel the model hides and sets the others; the line is then ORed with the
+checker `CHK(y)` (128.15.10.1), exactly as a record's mask is dithered. A
+word whose mask keeps every pixel is not laid.
+
+#### 128.29.3 The residual records (the tool)
+
+- **The VOID positions** are the reach (128.11.4.4) cells whose kind is
+  VOID and whose part-grid cell is VOID, not `OBS`, inside the grid: the
+  model runs at every one of them.
+- **The occluder pixels** are `_occluders`' over every OTHER reach cell
+  (today's, unchanged) and, over the VOID positions, the RESIDUAL: each
+  pixel `(x, y)` of a VOID cell's footprint (128.10.4.4's superset over the
+  cell's area, its whole height range) that the rule lays at some height
+  `z` of the cell at which the model does not hide it - `z` from
+  `max(zlo, 8 s + Y0 - 14 - y, Z)` to `min(zhi, 8 s + Y0 + 17 - y,
+  top - 1)`, `Z` the greatest `H` of the counting front cells whose edge is
+  at or above `y` in that column (the model hides the pixel exactly for
+  `z < Z`), the range non-empty. Airborne, `m = 0` (a VOID cell opens the
+  gate only airborne: its `OCCG` is never set).
+- **Then today's pipeline, unchanged**: grouping by (block, cell row, band
+  of tops), `merge_records` over `block_queries` of the WHOLE reach, the
+  bounds (128.11.4.2) refused on what the part ships, the dither, the
+  all-keep drop, the mask deduplication, the 4-byte record.
+- **The flags are the rule's**: `OCC` and `OCCG` come from the rule's full
+  records (today's), computed before the residual replaces them, so no
+  grid byte that physics or the gate reads moves.
+- **Completeness** (proved by item 15, 128.29.7): at every VOID position,
+  every pixel the rule lays is hidden by the model or laid by a shipped
+  record, and at every other position by a shipped record, at every height
+  and in both air states the reach gives.
+
+#### 128.29.4 The bytes a part holds
+
+- `BZG1` +28 FLAGS **bit 5 `GF_ANA`** (20h): the part's records are AV's
+  and the pass runs the model in its VOID cells. Clear: today's pass,
+  records only.
+- Grid flags **bit 6 `FL_FLOAT`** (40h): set on every FLOOR or WALL whole
+  cell named by a `float` statement (128.27.2) that the picture draws. Never
+  on a GOAL (bits 4 - 7 its exit), a split cell (the model passes over every
+  split cell anyway) or a VOID cell. It is the picture's, and no step of
+  physics reads it. A course with a floating GOAL cell is built without
+  `GF_ANA`.
+- Nothing else is added. The part is smaller by the records the model
+  replaces; the RAM form moves, so every identity moves (128.29.8).
+- The tool's reader (`read_part`, the HOSTILE pass's twin) accepts bit 5
+  of FLAGS and bit 6 of a FLOOR or WALL cell's flags, and refuses bit 6
+  anywhere else.
+
+#### 128.29.5 The guest: `bz_amodel`
+
+- **Where**: `apps/bonanza/bzvideo.inc`, called by `bz_occ` once its walk
+  has laid every group (DS = the course part, ES = ours, as the walk). It
+  lays its own words with `bz_olay` (BX = -1, the mask in `bz_omsk`, after
+  `bz_oprep` for each block row): laying a word under mask `M1` and again
+  under `M2` lays it under `M1 AND M2`, because both lays copy the same
+  block, so the model and a residual group that share a word compose
+  exactly without the walk's groups being touched.
+- **The test**: `GF_ANA` in `bz_gfl` (bz_pinit's copy of FLAGS), then V's
+  bytes in the part.
+- **The edges**: for each counting front cell whose 32 columns meet the
+  footprint's and whose highest edge line is above `ohi`, `E(x)` for each
+  footprint column it covers, by the formula's own increments (`F`'s
+  numerator steps by `2k` a column), its least kept per column in a small
+  bss table (one word a footprint column, at most 24).
+- **The masks**: per block row and word, each column's first hidden line
+  in the word (0 - 8) puts its bit pair into an 8-entry table, the table is
+  ORed down the lines, inverted and ORed with `CHK`: one pass of 8
+  columns and 8 lines a word, no per-pixel compare.
+- **Bytes, PREDICTED**: 450 - 700 of resident code and 70 of bss (the
+  column table, the frame's state, `bz_namod`, a count of the frames the
+  model ran, for the rows).
+- **Clocks, PREDICTED** (128.15.5.2's method: each instruction at max(EU +
+  EA, 4.34 a byte), the sum x 1.05; the guest's routine is priced again
+  from its listing as built and MEASURED on MartyPC, 128.29.9):
+  - the test and the set-up: about 0.4k;
+  - each of the 14 front cells read and rejected: 60 - 90, about 1.1k;
+  - each counting cell whose edge reaches the footprint: 0.3k plus about
+    30 a column, about 1k at 24 columns;
+  - each word built: about 0.4k; each word laid, `bz_olay`'s own: 0.43k
+    plus 0.1k a line;
+  - so a fall frame behind a plain edge (2 - 4 counting cells, 4 - 6 words
+    laid) about **+5k to +9k** for the model, against which today's pass
+    saves the residual's absent records' tests, `bz_oand`s and lays: a
+    NET of about **+1k to +4k clk a fall frame, at worst +8k**, which is
+    1 - 5% of the CGA's 79.6k-clk refresh, at worst 10%. Fall frames are
+    3 - 4% of the long demos' open-gate frames (the report's section 4), so
+    the smoothness rule (128.15.5.4) is at risk only on a fall that misses a
+    refresh it would otherwise have made; 128.29.9 measures it.
+
+#### 128.29.6 The bytes (PREDICTED from the prototype; MEASURED as built)
+
+The prototype (`occproto.py`'s `avoidR4`, the owner-render edge, the report's
+section 3): records 12,403 -> 6,267 over the seven courses, LZB 46,147 ->
+40,993 (-5,154), LZ4 56,796 -> 50,413 (-6,383), RAM 237,789 -> 212,237
+(-25,552). The binding model differs from the prototype's only in the two end
+columns of each cell and in passing over the PLAYGROUND's floating platform,
+so the figure is expected within a few percent; `--sizes` measures it, per
+course, both formats, the pathway and the title included, with `--occ off`
+beside it.
+
+#### 128.29.7 `--selfcheck` item 15 and the red arms
+
+**Item 15** (new), on every shipped course, the pathway and the title:
+- **COMPLETENESS**: at every VOID position (every cell, every whole height
+  of its range, airborne) and every pixel of its superset footprint, a
+  pixel the rule lays is hidden by `amodel` or laid by a SHIPPED (merged,
+  4-byte, undithered) record whose verdict holds there; and at every other
+  reach position, as item 5 already proves of the merged records, the
+  records alone.
+- **The model read from the PART**: `amodel` takes the RAM form's own bytes
+  (`read_part`'s grid), never the compile's `cells` or `tiles`, and item 15
+  compares it with an independent evaluation from the tiles (the top
+  polygon's spans, the end columns apart) at every counting cell.
+- **WRONG-HIDE**: over each course's VOID lattice (every cell, `z` in 2 px
+  steps, the ball's top-left on a 4 px lattice over the cell's area, as
+  `occproto.analytic_cells`), the share of the ball's lit pixels the model
+  hides that the rule does not, REPORTED with the worst position, and
+  REFUSED past `OCC_WRONG_MAX` (0.25%).
+- **`GF_ANA` and `FL_FLOAT`**: set exactly where 128.29.4 says, on every
+  course; the PLAYGROUND's platform floats.
+- **The gate unchanged**: every course's `OCC` / `OCCG` flags equal
+  `--occ off`'s.
+- **Red arms**, each on a patched copy of the tool and each red at item 15:
+  the residual dropped (completeness); the depth 3 (completeness, BENCH's
+  void positions); a sloped cell read as flat (`sx = sy = 0` in `amodel`:
+  the comparison with the tiles, TRIAL's ramp); the `FL_FLOAT` test removed
+  (WRONG-HIDE on the PLAYGROUND's platform, or the comparison); and the
+  dither left off the model's masks (the guest check below and item 11's
+  composite).
+
+**The guest against the host** (A1, not a row): `bz_occ` built from this
+tree, under unicorn, on every course's RAM form, at 300 VOID positions a
+course and 100 others (half placed where a counting cell's edge crosses the
+footprint, some with the window clipping it): the box bytes after the pass
+(buffers pre-filled with the same random bytes) equal the host's lay of the
+model's masks and the records, and the laid record count equals `laid_at`'s.
+Its red arm `amodel` (one entry of `F` off by one) is red there.
+
+#### 128.29.8 The demos and the identities
+
+The RAM form changes, so every identity moves (128.15.7). The AUTHORED
+demos (`moon.bzd`, `summit.bzd`, `playground.bzd`) are written again by
+`bbcourse.py author <course>`, and only their `ident` lines change (128.27.8
+is the precedent); the route demos are made by every build; physics does
+not move (`BZ_PHYSV` unchanged).
+
+#### 128.29.9 The fall-frame cost (the owner's question) and the rows
+
+**The measurement** (taken once, by the agent building AV, a design-deciding
+number): the occluder pass's span on MartyPC (`bz_occ.gate` to
+`bz_pover`, `tests/bonanza_perf.py`'s instrument), CGA and Hercules, a
+scripted fall off an edge on `MILL` and `PEAK` replayed through the same
+key log on the AV build and on the build at its base (today's records,
+today's guest): the fall frames' span, typical and worst, AV against
+today, as clocks and as a fraction of the 79.6k-clk refresh, beside the
+price from the instructions.
+
+**The rows** (the final pass's, named, not run here): `bonanzacourse` (item
+15 and every item the records reach), `bonanzaassets`, `bonanzaring` (its
+oracle lays the model in VOID cells, `bbcourse.amodel_pix`), `bonanzaphys`
+and `bonanzareplay` (the identities and the re-authored demos),
+`bonanzaperf` (the pass's span; the fall frames), `bonanzawheel` (MILL),
+`bonanzapath`, `bonanzatitle`, `bonanzaexit` (the claim leg's RAM form) and
+`bonanzamega`.
+
+#### 128.29.10 kern_mega, kern_small, the Hercules
+
+- **kern_mega**: the model reads the part only through DS = `bz_cseg`, the
+  segment the walk reads (a selector there), at offsets inside the part;
+  it writes only its own bss and the boxes, through ES = ours, and `bz_olay`
+  as today. No segment arithmetic, nothing through CS: **no `PKG_MEGA`
+  arm**. `bonanzamega` runs it on 86Box.
+- **kern_small**: refuses on the desktop as before (128.1).
+- **The Hercules**: the pass works on the boxes' CGA-format bytes before
+  `bz_boxw` translates them (128.11.3), so the model, its masks and the
+  checker are the same bytes on both cards.
