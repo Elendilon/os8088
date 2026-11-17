@@ -253523,7 +253523,13 @@ higher bound.
 
 Grid flags bit 2, **`OCCG`**: some GROUNDED ball in this cell - at the
 cell's floor, margin `BZ_CLIMB`, anywhere in its area - meets a record the
-rule lays. `OCCG` implies `OCC`. The shadow (128.11.9.4) is drawn only where
+rule lays. `OCCG` implies `OCC`. A FIELD cell (128.28) is `OCCG` the same
+way, its ball at its REAL grounded poses - each integer point at the floor
+there (128.28.6, *A grounded ball on a FIELD cell*) - unless the SHOW rule,
+128.28.6's toggle, is on, which draws a grounded ball on a shape whole and
+gives no FIELD cell `OCCG`. (Until 2026-11-17 this was derived over FLOOR,
+GOAL and split floors only, and a FIELD cell's grounded ball was never
+occluded: the gap was found by play.) The shadow (128.11.9.4) is drawn only where
 `OCCG` is clear: a shadow's footprint is inside the footprint of a grounded
 ball at the same ground point (its lines `sy - 3 .. sy + 2` of that ball's
 `sy - 13 .. sy + 2`, the same columns), and its verdicts are that ball's, so
@@ -275241,6 +275247,7 @@ reads it the same way.
 
     chute <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> [<z>] ...
     pit   <x> <y> <z> radius <r> depth <px> [hole <h>]
+    fshow
 
 - **`chute`**: a channel 1 or 2 cells wide, its cross-section `round`
   (curved throughout) or `bank` (a flat bottom between banks that ease into
@@ -275259,6 +275266,9 @@ reads it the same way.
   the central `2h x 2h` cells (`h` 1 if left out, 0 for none) are VOID, so a
   ball that does not carry round the bowl falls through to the kill below
   it. The bowl's cells beyond its radius are flat at the lip.
+- **`fshow`** (no arguments, once): 128.28.6's SHOW rule on this course's
+  FIELD cells - the toggle `make BZFSHOW=1` turns on for every course. On a
+  course with no FIELD cell it changes nothing.
 - A chute or a pit LAYS its cells after every room, surface and hole (it
   overrides them); a pit's hole cells are VOID whatever was there. What lies
   outside its lips is the author's: a floor at the lip's height for a chute
@@ -275545,7 +275555,145 @@ profile keeps it, which is what caps the depth.
   px) and 4 px still put 5 records in a block (over 128.11.4.2's four) on
   both courses, and 8 px holds the bound but costs SHAPE 1,033 records and
   157 masks against 869 and 90 (PITS 962 and 150 against 891 and 85), so
-  the up-to-15-px show-through stays the price of the bound.
+  the up-to-15-px show-through stays the price of the bound. (The SHOW
+  rule, two bullets down, cuts less and is a TOGGLE, off by default.)
+- **A grounded ball on a FIELD cell: `OCCG`** (BUILT, THE DEFAULT; a gap
+  found by PLAY, 2026-11-17). The cut above was made for a resting or
+  rolling ball, and the guest never laid it: the guest gates the occluder
+  pass for a GROUNDED ball on its cell's `OCCG` (`bz_mkboxes`, 128.11.10.2),
+  and 128.11.4.3's `OCCG` was derived over FLOOR, GOAL and split floors
+  only, so no FIELD cell carried one and every record cut for a ball ON a
+  chute or a pit (the near lip over a ball on the crease, a climbing leg in
+  front of it) was held, walked past for airborne balls and never laid for
+  the ball it was cut for. The owner played the two ways out - A, these
+  occluders with `OCCG` on the FIELD cells, and B, the SHOW rule below -
+  and chose A: *"A is actually better, having now played with occlusion
+  happening at all. B is still cheaper, in every way; so can we keep it
+  around as a toggle we can turn on at will? That way we continue with A
+  (actually working, now) and have B if we end up needing it."* So a FIELD
+  cell is `OCCG` when a grounded ball at one of its REAL grounded poses
+  meets a record the rule lays (`bbcourse._occg_field`): its centre at each
+  integer point `(u, v)` with any fraction (the cut's columns and lines),
+  at the floor THERE (`h4 >> 2`, a line higher when `h4` carries a quarter),
+  margin `BZ_CLIMB`, over the blocks the pass walks for that footprint -
+  not the conservative whole cell over its whole height range, which A's
+  first disk used (SHAPE 80 of 81 reachable FIELD cells, PITS 56 of 94,
+  PLAYGROUND 58 of 71; the real poses: 80, 50 and 55, the same coverage,
+  since every pose the whole-cell form adds is one no grounded ball holds).
+  No guest code moves: only the cells' flags (`C`) and the identity.
+  MEASURED, the stored forms (records, masks and RAM are the cut's,
+  unchanged): SHAPE LZB / LZ4 5,596 / 7,000 -> 5,597 / 7,000, PITS 5,989 /
+  7,489 -> 6,003 / 7,505, PLAYGROUND 13,454 / 16,709 -> 13,461 / 16,716
+  (identity 8803h -> D427h, its demo re-authored, the ident line alone);
+  every course without FIELD cells is byte-identical. `--selfcheck`: at
+  every grounded step of the model on a FIELD cell (the scripted runs and
+  60 seeded ones) where a record hides a lit ball pixel the cell is `OCCG`
+  (457 of 2,712 on CHUTE and PIT, none ungated; red: `OCCG` without the
+  FIELD cells leaves all 457 ungated).
+  **What it costs, PREDICTED** (128.10.9's 55 clk a record passed over and
+  1.4k a record laid, on the model: 60 seeded runs of 160 steps from each
+  course's FIELD cells, the grounded steps on them): the pass now runs on
+  every grounded FIELD step of SHAPE (3,650), 1,983 of PITS's 3,247 and
+  2,510 of PLAYGROUND's 3,188, at a mean of 4.7, 3.2 and 9.7 records passed
+  and 1.40, 0.97 and 1.36 laid - **about 2.2k, 1.5k and 2.4k clk a
+  grounded step on a shape (median 1.4k, 0.4k, 1.5k; worst 12.9k, under
+  128.10.9's 15.2k bound)**, against none under the SHOW rule; a record
+  hides some of the ball on 602, 165 and 395 of those steps. PREDICTED, not
+  measured on the 5150: the one MartyPC measurement 128.28.8 took was of
+  physics.
+- **The SHOW rule: a ball ON a shape is drawn whole** (BUILT as a TOGGLE,
+  OFF by default - the owner's choice above, 2026-11-17: B is kept to be
+  turned on at will. It is on for every course with `make BZFSHOW=1`
+  (`bbcourse.py --fshow`; stamped, into a private tree like `BZSHAPES=1`)
+  and for one course with its own `fshow` statement (128.28.3); off, the
+  parts are the default's, byte for byte, and on, exactly the rule below.
+  A course with no FIELD cell is the same either way. The rule as built
+  first, the owner,
+  2026-11-17, with an `-occ` preview of SHAPE showing the records round
+  every chute: *"I cannot, in gameplay, get any part of the ball to occlude
+  in those areas, it's just always visible ... It looks just fine not
+  occluding, so not saying 'make it occlude', but if we're including data,
+  and then doing calculations on it we don't need to, we can save data and
+  calcs both."*). `_field_occ` takes a FIELD cell's real poses only from
+  `BZ_CLIMB` (4 px) above the floor at their point, airborne, and a pose
+  adds its pixels only when it would otherwise show MORE than `FSHOW` = 8
+  lit px the per-pixel rule hides, counting the pixels no other ball needs
+  (the rest of the reach is cut FIRST and as before: the pit's hole, every
+  ball behind the course's edge, every plate cell). So:
+  - **A grounded ball** on a FIELD cell is drawn whole: under the rule no
+    FIELD cell carries `OCCG` (128.11.4.3), so the guest's gate for a
+    grounded ball (`bz_mkboxes`, 128.11.10.2) never runs the pass there, and
+    no pose of a resting or rolling ball is cut - the near lip over a ball on
+    a chute's crease, the climbing leg's 48 px. (Before the default above,
+    no FIELD cell carried one either way: those records were data the guest
+    held, walked past for airborne balls and never laid for the ball they
+    were cut for. **That is why the owner never saw one** - and why, once
+    `OCCG` laid them, A played better.)
+  - **An airborne ball under `BZ_CLIMB` over the floor** (a hop's first and
+    last frames, a landing) is drawn whole too: cut, its bottom lines blinked
+    out for a frame between rolling frames that show them.
+  - **Higher**, a pose that the rule would leave showing at most 8 px adds
+    nothing (MEASURED: from 4 px up no pose on the three courses hides more
+    than 6, 3 on the glass after the ghost dither).
+  - **Kept, untouched**: the ball dropping through the pit's HOLE (VOID
+    cells, cut with the rest - up to 208 px, the whole ball), and every
+    ball BEHIND the course's edge (that occlusion is its own work's).
+
+  MEASURED before the rule (and before the default's `OCCG`), over EVERY real pose of every FIELD cell of
+  SHAPE, PITS and PLAYGROUND (whole heights from the floor, the fraction's
+  corners, `--png`'s composite, the records only other balls do not also
+  need): a RESTING ball's records hid up to 44 lit px (median 13 - 18) -
+  0 on the glass, by the gate; an airborne one AT the floor up to 61, 96 and
+  141 (median 22, 18, 15), 1 - 3 px over it up to 33, 96, 106 (median 9, 9,
+  7), 4 px or more up to 6, 6 and 2. The ghost dither (128.15.10) halves
+  every one on the glass, and the ball is magenta over a magenta shape, so
+  the pixels whose ink changed were fewer again (at the floor, most 28, 48,
+  39, median 7, 6, 5). In play (the autopilot, PLAYGROUND's demo and 60
+  seeded runs of 160 steps from FIELD cells, the model's `Physics`) the pass
+  ran on 982 of SHAPE's 7,789 steps on FIELD cells (every one airborne), and
+  a record hid any of the ball on 126 (1.6%), most 35 px, 18 on the glass:
+  a frame here and there, at the bottom of the ball, in the ball's own ink.
+
+  | MEASURED | SHAPE | PITS | PLAYGROUND |
+  |---|---|---|---|
+  | records (in the part) | 870 (841) -> 653 (652) | 891 (870) -> 668 (667) | 2,789 (2,782) -> 2,761 (2,757) |
+  | masks | 90 -> 68 | 85 -> 38 | 171 -> 165 |
+  | RAM, every part | 38,121 -> 36,969 | 41,132 -> 39,474 | 65,049 -> 64,841 |
+  | the stored form packed, LZB / LZ4 | 5,596 / 7,000 -> 5,227 / 6,535 | 5,989 / 7,489 -> 5,468 / 6,827 | 13,454 / 16,709 -> 13,388 / 16,623 |
+  | FIELD cells with `OCC` | 80 -> 28 of 81 | 82 -> 20 of 94 | 61 -> 59 of 71 |
+  | ... with `OCCG`: the default (A) -> the rule | 80 -> 0 | 50 -> 0 | 55 -> 0 |
+  | the play sample: steps on FIELD cells the pass runs on | 982 -> 527 of 7,789 | 915 -> 165 of 4,181 | 908 -> 835 of 3,691 |
+  | ... records passed, laid | 6,515, 921 -> 5,057, 123 | 2,459, 456 -> 1,000, 58 | 8,794, 764 -> 8,234, 611 |
+  | ... PREDICTED clocks an AIRBORNE step on a FIELD cell, mean (55 a record passed, 1.4k a record laid, 128.10.9) | 1,651 -> 451 | 646 -> 114 | 1,448 -> 1,219 |
+  | ... steps a record hides any of the ball | 126 -> 13 | 48 -> 8 | 72 -> 55 |
+
+  PLAYGROUND moves least because its chutes stand at the back edge over the
+  void and its pit has a hole: those records are the edge's and the hole's,
+  and stay. What is left on the play sample is exactly those. Only the
+  FIELD cells' share of the cut moved: every other course's part is
+  byte-identical, and on these three every section but the records (`R`),
+  `OCCIDX` (`I`), the masks and their table (`K`, `O`), the cells' flags
+  (`C`), and the grid's header and the props (`G`, `P`: the offsets that
+  move with them) is byte-identical - the map, the blocks, `F`, `T`, `W`,
+  `L` and `D` are - and the identity moves (PLAYGROUND's 8803h -> 0BF2h
+  when the rule was the shipped cut; as the toggle, PLAYGROUND is D427h by
+  default and 0BF2h with `BZFSHOW=1`; its committed demo is the default's,
+  and a build with the rule on RE-STAMPS it with the build's identity, as
+  128.22.6 re-stamps a demo the clocks never meet - only when the demo's
+  identity is the course's compiled with the rule off, since the rule moves
+  the picture and never the physics, and the model's replay still checks
+  it step for step). The
+  table's left column is the tree before the default's `OCCG`; that adds
+  only the flags: its packed sizes are the default bullet's above.
+  `--selfcheck` (CHUTE and PIT): without the rule every lit pixel the rule
+  hides at a sample of the surface's real poses is laid (red: the floor 3 px
+  high); with it, at a sample of the airborne poses from `BZ_CLIMB` up and
+  in the pit's hole, every one is laid but at most 8 a pose (red: the rule
+  from the floor and unbounded leaves the surface's poses over 8); and the
+  rule saves records against the cut without it. The merge's own item (the
+  ball through the merged records against the per-pixel buffer, at every
+  reachable cell's centre) reads the buffer over the CUT's pixels only: what
+  the SHOW rule leaves out is no record's to merge.
 - **The ink, as built** (`FieldInk`, `field_tone`, `field_ms`; a FIELD
   tile's `lip` is its 17 x 17 lip heights, sampled beside `h`). The road to
   it (the diary, "shaped floors, the picture"): the first ink, a light from
@@ -275686,7 +275834,9 @@ so a new game rests on it - title, Play Game, Enter plays it; SHAPE's exit
 are dead ends there, as PEAK is: a route into TRIAL from either would share
 an arrow at a pad (128.22.4.5). Without the knob nothing changes: the knob
 is make variables and two course files, and the knob-less build is byte for
-byte what it was (MEASURED, `cmp`).
+byte what it was (MEASURED, `cmp`). **`BZFSHOW=1` beside it** (`make
+BUILD=<tree> BZSHAPES=1 BZFSHOW=1 bonanzadisk`) builds the same disk with
+128.28.6's SHOW rule on: the owner's B, kept as a toggle.
 
 ### 128.29 Occlusion computed in the VOID cells: AV (the owner's decision, 2026-11-17)
 
@@ -276297,6 +276447,17 @@ purpose:
   runs only where records are cut (`cutocc`), the pathway's `GF_ANA` and
   `FL_FLOAT` are clear, and item 15 expects exactly that. (Its pass never
   runs: no cell is `OCC` or `OCCG`.)
+- **FIELD cells' OCCG by default and the SHOW toggle (128.11.4.3, 128.28.6)**:
+  the gate's flags are the RULE's, computed before AV replaces the records,
+  so a FIELD cell's new default `OCCG` is untouched by AV and only opens the
+  pass for a GROUNDED ball on a shape - where the model never runs (it runs
+  only in a VOID cell, and a VOID cell is never a FIELD cell). The model
+  passes over a FIELD cell in front (kind 7, as a split cell), so the shape's
+  picture is the residual's at every height, whichever way the toggle is.
+  The one coupling is the cut itself: `av_records` cuts the records over the
+  non-VOID reach with the compile's own SHOW bound and lift (`--fshow`,
+  `BZFSHOW=1`, a course's `fshow`, or none - the default), so with the
+  toggle on or off AV ships exactly today's records outside the void.
 - **Two checks met AV for the first time**, and both now read the model
   where it runs: item 5's PIT check (128.28.6: the pit's HOLE is a VOID cell,
   so its poses are hidden by the model and the residual together, `amodel_pix`

@@ -114,6 +114,22 @@ colors ... mchkgrid2 is the winner of them".*
 | C7.4 [x] | picture only: every section but `M`, `B` and the offsets into them byte-identical to the first ink's | the sections' hashes, both test courses |
 | C7.5 [x] | the JOIN rule (the owner, 2026-11-17: a raised corner "looks 'see-through' ... only join into the corner if another tile at the same elevation exists", per touching side): a lip-level triangle takes the floor's ink only when joined, edge by edge, to plain floor at its own height; a raised corner or a corner over the void is wholly magenta | before/after crops of SHAPE's raised and upper-left corners, the chute ends, the pit rims, PLAYGROUND's back corners, CGA and Hercules; `--selfcheck` (red: every lip-level triangle joined); every section but `M`, `B`, the offsets into them and the identity byte-identical (SHAPE, PITS, PLAYGROUND), PLAYGROUND's demo re-authored (its `ident` line only) |
 
+### Wave C8: occlusion that happens, and the SHOW rule as a toggle (the owner, 2026-11-17)
+
+*Play found the gap: a GROUNDED ball on a chute or a pit was never occluded, because the guest gates
+the pass for a grounded ball on the cell's `OCCG` and no FIELD cell carried one. The owner played two
+builds - A, the real-pose cut with `OCCG` on the FIELD cells, and B, the SHOW rule (branch
+`bounce-shapeocc`, 154aee730) - and chose: "A is actually better, having now played with occlusion
+happening at all. B is still cheaper, in every way; so can we keep it around as a toggle we can turn on
+at will?"*
+
+| # | story | verified by |
+|---|---|---|
+| C8.1 [x] | A, THE DEFAULT: a FIELD cell is `OCCG` where a grounded ball at one of its REAL grounded poses (each integer point at its floor, margin `BZ_CLIMB`) meets a laid record - SHAPE 80 of 81 reachable FIELD cells, PITS 50 of 94, PLAYGROUND 55 of 71 (the whole-cell form: 80, 56, 58) | SPEC.md 128.11.4.3, 128.28.6; `--selfcheck`: every grounded model step on a FIELD cell a record hides is on an `OCCG` cell (red: no FIELD `OCCG`, all ungated) |
+| C8.2 [x] | B, THE TOGGLE, off by default: 154aee730's SHOW rule brought in whole, on with `make BZFSHOW=1` (`bbcourse --fshow`) for every course or a course's `fshow` statement; off, A's parts; on, exactly 154aee730's (the same records, masks, sizes and identities) | `--selfcheck`: the SHOW items on the toggle's arm with their red arms; `fshow` and `--fshow` give the arm's part, `fshow` twice refused; the knob build `build/shapesb` |
+| C8.3 [x] | every course without FIELD cells byte-identical; PLAYGROUND's demo re-authored (ident line only, 8803h -> D427h), and a `BZFSHOW=1` build re-stamps it (the rule moves the picture alone; the replay still checks it) | `cmp` of every part against the base tree; the four builds |
+| C8.4 [ ] | A's grounded pass on a chute, PREDICTED about 2.2k clk a grounded step (SHAPE, median 1.4k, worst 12.9k): to be MEASURED on MartyPC in the final pass | `bonanzaperf`, a chute's grounded run |
+
 ## The rows (named, run once in the final pass)
 
 - `bonanzacourse` (`--selfcheck`): the field items.
