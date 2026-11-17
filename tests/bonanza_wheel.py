@@ -1799,8 +1799,8 @@ def gate_leg(g, scen):
         while True:
             k = wk.next()
             if k == "t0":
-                if g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns")):
-                    break
+                if (g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))) and not g.b("bz_estp"):
+                    break                       # (an early step's frame is presented first)
                 continue
             if k != "pr":
                 continue
