@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 128.32, the
+; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 128.36, the
 ; owner's design P1), held equal to bbcourse.WaterFamily at every step.
 ;
 ; A water cell is FLOOR at its top H in the grid (flat, sand, OBS); its element

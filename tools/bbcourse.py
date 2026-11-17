@@ -305,7 +305,7 @@ def surf_entry(mat, surf, _iceplain=False):
 
 
 def water_entry(mat):
-    """WATER (SPEC.md 128.32): a material's BZ_SURFTAB entry on a water cell - sand's force, drag and
+    """WATER (SPEC.md 128.36): a material's BZ_SURFTAB entry on a water cell - sand's force, drag and
     brake (the owner's W1: "sand's DRAG is fine"), and its floor restitution LESS a quarter (W1: "LESS bounce
     than sand"), e - (e >> WA_ESH).  The family's CELL hook writes it into bz_se: no surface is added, so
     BZ_SURFTAB and BZ_PHYSV do not move.  The guest computes it from bz_mrec (ACC, GRIP, EF): the sand row is
@@ -458,7 +458,7 @@ FAMILIES = (
                {"name": "jump", "kind": FAM_K0 + 5, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
                 "forms": ("own",), "states": (0, 1), "pickup": True}), "paras": 40,
      "home": HOME_RESIDENT},
-    # WATER (SPEC.md 128.32, the owner's design P1): a `water` statement's cells - FLOOR at the top H, flat,
+    # WATER (SPEC.md 128.36, the owner's design P1): a `water` statement's cells - FLOOR at the top H, flat,
     # sand, OBS - each an element whose record holds +18 the BED B and +19 the top H (half units).  CELL, per
     # ball: steel's window holds every water cell at B (it sinks down the column and rolls out of the arch),
     # every other ball's at H (one continuous top); the centre a water cell, the floor's restitution lowered
@@ -483,7 +483,7 @@ PU_JHOP = 400                 # jump: the Hop for ANY ball (rubber's 252 raised;
                               # rubber's boost stacked on its contact)
 K_HOURGLASS, K_SPEED, K_JUMP = FAM_K0 + 3, FAM_K0 + 4, FAM_K0 + 5
 PU_OVERWRITE = 1              # record +19 bit 0: taking it ENDS the other timed effect (SPEC.md 128.25.9)
-# WATER's constants (SPEC.md 128.32): every one in its FAMV (famv's "consts" "WA")
+# WATER's constants (SPEC.md 128.36): every one in its FAMV (famv's "consts" "WA")
 FK_WATER = FAM_K0 + 10        # its kind (22 - 25 are story 9.8's keys)
 WA_SINK = 160                 # a fall below a water cell's top: gvz capped at -WA_SINK (1/256 px a step) by STEP;
                               # the next step's G makes it 184 - 0.72 px a step, a 3-unit column in about 0.6 s
@@ -518,7 +518,7 @@ assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
 assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
 assert all(k["forms"] in (("own",), ("own", "void"), ("own", "bed")) for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form the reach does not take: own, (GLASS's crack, 128.25.18) its broken VOID and " \
-    "(WATER's, 128.32) its BED"
+    "(WATER's, 128.36) its BED"
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
 assert all(k["bits"] in (1, 2, 3, 4, 5, 6, 7, 8) or (k.get("water") and k["bits"] == 0)
            for _f, k in FKIND_BY_NAME.values()), "a family kind's state bits: 1 - 8 (WATER's none)"
@@ -611,7 +611,7 @@ def famv(f):
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
-    elif f.get("consts") == "WA":               # WATER's (128.32): the sink, the raised HTHR, the restitution's
+    elif f.get("consts") == "WA":               # WATER's (128.36): the sink, the raised HTHR, the restitution's
         b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)  # shift, the bob, the ripple's phase,
         b += bytes(x for mt in range(len(MATERIALS)) for x in water_entry(mt))     # every ball's entry on water
     else:
@@ -691,7 +691,7 @@ WIN_CHG = 6                   # pose changes that can land on one step among the
 
 _FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST (compile_course's _hack "fast")
 _DOWN_S0 = False              # --selfcheck's control (SPEC.md 128.24.11): an LR down half keyed s, not s + 1
-_WATER_S0 = False             # --selfcheck's red arm (SPEC.md 128.32): a water cell keyed s, the depth key not applied
+_WATER_S0 = False             # --selfcheck's red arm (SPEC.md 128.36): a water cell keyed s, the depth key not applied
 
 
 def lane_fast(rec):
@@ -838,7 +838,7 @@ class Source:
         self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
         self.uses = []              # wave 9 (SPEC.md 128.25.6.4): [(family row, line)], the families named
         self.fields = []            # SPEC.md 128.28.3: [dict] chutes and pits, in file order
-        self.waters = []            # SPEC.md 128.32: [dict] `water` statements, in file order
+        self.waters = []            # SPEC.md 128.36: [dict] `water` statements, in file order
         self.arches = []            # ...and `arch` statements: [dict at side line]
 
 
@@ -1360,7 +1360,7 @@ def _parse_pickup(toks, where, ln, fam, kr):
 
 
 def _parse_water(toks, where, ln):
-    """SPEC.md 128.32: water <shape> top <H> bed <B> [ripple <wx> <wy> ...] [always <wx> <wy> ...] - every cell of
+    """SPEC.md 128.36: water <shape> top <H> bed <B> [ripple <wx> <wy> ...] [always <wx> <wy> ...] - every cell of
     the shape (`tile`, `rect` as a floor's) a WATER cell, a flat sand FLOOR at H (units, halves allowed) with its
     bed at B.  `ripple` names cells whose ripples ANIMATE while the ball is in them; `always` cells whose ripples
     animate all the time (the owner's W7: "animate only as something is on it, or, with an option, animate
@@ -1374,7 +1374,7 @@ def _parse_water(toks, where, ln):
     top, bed = _height2(toks[i + 1], where), _height2(toks[i + 3], where)
     if 4 * (top - bed) <= CLIMB:
         raise CourseError("%s: water's bed (%s units) is not more than a climb (%d px) under its top (%s): steel "
-                          "would climb out through the glass, and rubber in at the bed (SPEC.md 128.32)"
+                          "would climb out through the glass, and rubber in at the bed (SPEC.md 128.36)"
                           % (where, bed / 2.0, CLIMB, top / 2.0))
     i += 4
     rip = {}
@@ -1571,7 +1571,7 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: a pit's depth is 1 - 60 px, not %d" % (where, dep))
             src.fields.append({"what": "pit", "at": at, "z2": z, "radius": rad, "hole": hole, "depth": dep,
                                "line": ln})
-        elif st == "water":                         # SPEC.md 128.32: water rect X0 Y0 X1 Y1 top H bed B [ripple ..]
+        elif st == "water":                         # SPEC.md 128.36: water rect X0 Y0 X1 Y1 top H bed B [ripple ..]
             src.waters.append(_parse_water(toks, where, ln))
         elif st == "arch":                          # ...and its exit: arch X Y +x|+y (the column's front face)
             if len(toks) != 4 or toks[3][1] not in ("+x", "+y", "-x", "-y"):
@@ -1579,7 +1579,7 @@ def parse(text, fname="<course>"):
                                   "arch opens in)" % where)
             if toks[3][1][0] == "-":
                 raise CourseError("%s: arch %s: the %s face is a BACK face, never drawn - an arch opens in a FRONT "
-                                  "face, +x or +y (SPEC.md 128.32; the owner's W3: the ball leaves out the front)"
+                                  "face, +x or +y (SPEC.md 128.36; the owner's W3: the ball leaves out the front)"
                                   % (where, toks[3][1], toks[3][1]))
             src.arches.append({"at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
                                "side": DIR_NAMES.index(toks[3][1]), "line": ln})
@@ -1799,7 +1799,7 @@ class Tile:
         self.surf = SURF_NORMAL
         self.rail = False           # wave 8R (SPEC.md 128.22.8): the pathway's CRYSTAL route material
         self.exit = exit            # a GOAL tile's exit (128.19.4): its cell's flags bits 4 - 7
-        self.wbed = None            # SPEC.md 128.32: a WATER cell's bed, half units (None: not water)
+        self.wbed = None            # SPEC.md 128.36: a WATER cell's bed, half units (None: not water)
 
     def corner(self, dx, dy):
         """corner (wx + dx, wy + dy), half units"""
@@ -2410,7 +2410,7 @@ def build_tiles(src):
         for cell in sorted(cs):
             piece, fn = cs[cell]
             tiles[cell] = field_tile(cell, piece, fn, fd["line"], where)
-    # SPEC.md 128.32: the WATER cells, laid after everything else - each a FLAT sand FLOOR at its top, its bed
+    # SPEC.md 128.36: the WATER cells, laid after everything else - each a FLAT sand FLOOR at its top, its bed
     # kept on the tile (wbed) for the art, the reach's BED form and the element's record; never over a FIELD
     # cell, a split cell or another water statement's cell
     wlaid = {}
@@ -4124,7 +4124,7 @@ def build_props(src, tiles, fname):
     welem = [{"line": wd["line"], "kind": FK_WATER, "at": c, "cls": CL_ATTEMPT, "seed": None, "bed": wd["bed"],
               "top": wd["top"], "rip": wd["rip"].get(c, 0)} for wd in getattr(src, "waters", ())
              for c in sorted(wd["cells"])]
-    for sp in src.props + welem:                    # (SPEC.md 128.32: a water statement's cells, an element each)
+    for sp in src.props + welem:                    # (SPEC.md 128.36: a water statement's cells, an element each)
         if not is_fam(sp["kind"]):
             continue
         ln, at = sp["line"], sp["at"]
@@ -4142,7 +4142,7 @@ def build_props(src, tiles, fname):
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                       "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
                       "dur": sp.get("dur", 0), "ow": sp.get("ow", 0)})
-        if sp["kind"] == FK_WATER:                  # (SPEC.md 128.32: a ripple's lane, `ripple` or `always`)
+        if sp["kind"] == FK_WATER:                  # (SPEC.md 128.36: a ripple's lane, `ripple` or `always`)
             props[-1].update(bed=sp["bed"], top=sp["top"], rip=sp["rip"], always=bool(sp["rip"] & WR_ALWAYS),
                              art="ripple" if sp["rip"] else None)
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
@@ -4500,7 +4500,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
 
 
 def water_checks(src, tiles, props, fname):
-    """SPEC.md 128.32's refusals, naming the line: every edge neighbour of a water cell SEALS its column at
+    """SPEC.md 128.36's refusals, naming the line: every edge neighbour of a water cell SEALS its column at
     the bed - another water cell, its ARCH's exit, a WALL, or a floor whose two corners on the shared edge are
     both more than a climb above the bed (steel at the bed cannot roll out through the glass, and nothing
     rolls in) - never VOID, a FIELD cell or a split cell's piece that is not such a floor; an `arch` on a water
@@ -4511,7 +4511,7 @@ def water_checks(src, tiles, props, fname):
     for a in getattr(src, "arches", ()):
         at, side, ln = a["at"], a["side"], a["line"]
         if at not in wat:
-            raise CourseError("%s:%d: arch on (%d, %d), which is not a water cell (SPEC.md 128.32)"
+            raise CourseError("%s:%d: arch on (%d, %d), which is not a water cell (SPEC.md 128.36)"
                               % (fname, ln, at[0], at[1]))
         if side in arch.get(at, ()):
             raise CourseError("%s:%d: a second arch in (%d, %d)'s %s face" % (fname, ln, at[0], at[1],
@@ -4521,7 +4521,7 @@ def water_checks(src, tiles, props, fname):
         if ex in wat or not isinstance(t, Tile) or t.kind != KIND_FLOOR or t.sx or t.sy or t.z0 != wat[at]["bed"]:
             raise CourseError("%s:%d: arch on (%d, %d) %s: its exit (%d, %d) must be a FLAT FLOOR at the bed (%s "
                               "units) that is not water - the lower path the ball rolls out onto (SPEC.md "
-                              "128.32)" % (fname, ln, at[0], at[1], DIR_NAMES[side], ex[0], ex[1],
+                              "128.36)" % (fname, ln, at[0], at[1], DIR_NAMES[side], ex[0], ex[1],
                                               wat[at]["bed"] / 2.0))
         arch.setdefault(at, []).append(side)
     for at, p in sorted(wat.items()):
@@ -4543,7 +4543,7 @@ def water_checks(src, tiles, props, fname):
             raise CourseError("%s:%d: the water cell (%d, %d) is not SEALED at its bed on its %s edge: (%d, %d) is %s "
                               "- a water cell's neighbours are water, its arch's exit, a WALL or a floor more than a "
                               "climb (%d px) above the bed (%s units), so steel cannot roll out through the glass "
-                              "(SPEC.md 128.32)" % (fname, p["line"], at[0], at[1], e, nb[0], nb[1],
+                              "(SPEC.md 128.36)" % (fname, p["line"], at[0], at[1], e, nb[0], nb[1],
                                                        "VOID" if n is None else "a FIELD cell" if isinstance(
                                                            n, FieldTile) else "a floor too low" if r is not None
                                                        else "a VOID piece", CLIMB, p["bed"] / 2.0))
@@ -4555,7 +4555,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
     A kind whose FORMS hold "void" (GLASS's crack) is taken a second time BROKEN - a NEAR VOID whose kill is
     its floor less 3 units - and the two reaches are UNIONED cell by cell (the lower zlo, the higher zhi
     and its source; a cell's kind its whole form's), so the occluders, the bounds and every proof over the
-    reach see both.  A kind whose FORMS hold "bed" (WATER's, SPEC.md 128.32) is taken again with each element's
+    reach see both.  A kind whose FORMS hold "bed" (WATER's, SPEC.md 128.36) is taken again with each element's
     cell a floor at its BED, as steel's window has it, unioned the same way.  _hack 'noforms': the whole forms
     alone (--selfcheck's control)"""
     by = dict(((rc.wx, rc.wy), rc) for rc in reach)
@@ -4572,7 +4572,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
             if form == "void":
                 cells2[p["at"]] = [c[0] - 6, 0, KIND_VOID, c[3] & ~FL_SAFE]
                 tiles2.pop(p["at"], None)
-            else:                                   # SPEC.md 128.32: WATER's BED - the cell a floor at B, as
+            else:                                   # SPEC.md 128.36: WATER's BED - the cell a floor at B, as
                 cells2[p["at"]] = [p["bed"]] + list(c[1:])      # steel's window has it
                 t2 = _tile_copy(tiles[p["at"]])
                 t2.z0 = p["bed"]
@@ -5073,7 +5073,7 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
         B = (2 * wx + 2, 2 * wy + 2)
         L = (2 * wx, 2 * wy + 2)
         if h is None and t.wbed is not None and not _WATER_S0:
-            s += 1                                  # SPEC.md 128.32: a WATER cell's top and faces keyed s + 1,
+            s += 1                                  # SPEC.md 128.36: a WATER cell's top and faces keyed s + 1,
                                                     # so they lay over a ball INSIDE it below its top (ghosted)
         bots = []
         floating = ground is None or (wx, wy) in floats
@@ -5176,7 +5176,7 @@ def _surface_ink(surf, x0, y0):
 
 
 def water_face_ink(which):
-    """SPEC.md 128.32: a water column's GLASS face - water seen through glass: the sw face cyan, the se face
+    """SPEC.md 128.36: a water column's GLASS face - water seen through glass: the sw face cyan, the se face
     a cyan and black checker (the shade a stone se face has), each crossed by white GLINTS on a 2:1 diagonal
     every 12 px (the glass)"""
     if which == "sw":
@@ -5184,7 +5184,7 @@ def water_face_ink(which):
     return lambda x, y: WHT if (x - 2 * y) % 12 == 0 else (CYN if (x + y) & 1 == 0 else BLK)
 
 
-WATER_RINGS = ((2.5, 3.5), (5.5, 6.5))      # SPEC.md 128.32: a water top's ripples, gu from its centre
+WATER_RINGS = ((2.5, 3.5), (5.5, 6.5))      # SPEC.md 128.36: a water top's ripples, gu from its centre
 WATER_RINGS1 = ((1.0, 2.0), (4.0, 5.0))     # ...and an animated ripple's other pose: the rings moved in
 
 
@@ -5205,7 +5205,7 @@ WATER_ARCH = (18, 7)                # an ARCH's rows and half width (14 px: a 16
 
 
 def water_ops(tiles, ops, arch, x0):
-    """SPEC.md 128.32: each ARCH (water_checks' {cell: [sides]}) as GEOMETRY after its face's op - the
+    """SPEC.md 128.36: each ARCH (water_checks' {cell: [sides]}) as GEOMETRY after its face's op - the
     opening black, keyed the cell's TRUE row s (the face's s + 1 less one), its tops the face's: a ball inside
     the column passing it is drawn whole, steel rolling out of the front.  Rows: WATER_ARCH's, or the face's
     height less 4 when that is less.  -> ops, and {cell, side: the opening's pixels}"""
@@ -5280,7 +5280,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                 return 1 if c is None else c
             cv.fill(sp, ink, s, top, own)
             cv.outline(sp, also=_shift(left, y0) if left else None)
-        elif getattr(t, "wbed", None) is not None and which in ("sw", "se"):   # 128.32: a water GLASS face
+        elif getattr(t, "wbed", None) is not None and which in ("sw", "se"):   # 128.36: a water GLASS face
             cv.fill(sp, water_face_ink(which), s, top, own)
             cv.outline(sp, left=True)
         elif getattr(t, "wbed", None) is not None:  # ...and its water top, ripples drawn
@@ -6866,7 +6866,7 @@ def _occg(reach, by_block, x0, y0, tiles, slab=None, field=True):
             return slab[(rc.wx, rc.wy)]
         rs = flo(rc)
         return (4 * min(min(t.wbed if getattr(t, "wbed", None) is not None else t.z0, min(t.corners())) for t in rs),
-                4 * max(max(t.corners()) for t in rs))     # (SPEC.md 128.32: a WATER cell from its BED: steel's)
+                4 * max(max(t.corners()) for t in rs))     # (SPEC.md 128.36: a WATER cell from its BED: steel's)
 
     def frac(rc, z):                    # a plane's height carries a fraction
         if (rc.wx, rc.wy) in slab:
@@ -7151,7 +7151,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if v:
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
-    warch = water_checks(src, tiles, props, fname)  # SPEC.md 128.32: the columns sealed, the arches' exits
+    warch = water_checks(src, tiles, props, fname)  # SPEC.md 128.36: the columns sealed, the arches' exits
     ftabs = build_fields(tiles)                     # SPEC.md 128.28.4: the FIELD cells' tables (section F)
     cells = build_cells(tiles)
     pairs = build_pairs(tiles)                      # SPEC.md 128.24.5.2: the split cells' halves
@@ -7237,7 +7237,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                    {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
         ops = prop_ops(tiles, ops, props, x0)
-    if warch:                                       # SPEC.md 128.32: each water column's arches
+    if warch:                                       # SPEC.md 128.36: each water column's arches
         ops, _wpix = water_ops(tiles, ops, warch, x0)
     gtop = min(min(sp) for sp, *_ in ops if sp)
     gbot = max(max(sp) for sp, *_ in ops if sp)
@@ -7385,12 +7385,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": p["kind"], "line": p["line"]})
-        elif p.get("art") == "ripple":              # SPEC.md 128.32: a water column's RIPPLE lane - the crack's 2 x 2
+        elif p.get("art") == "ripple":              # SPEC.md 128.36: a water column's RIPPLE lane - the crack's 2 x 2
             wx, wy = p["at"]                        # blocks round the top's centre; pose 0 the picture's rings,
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0     # pose 1 the other rings (only the
             if cx & 7:                              # top's own pixels: keyed s + 1, as drawn)
                 raise CourseError("%s:%d: a ripple at (%d, %d): its top's centre x %d is not on a block (the origin's "
-                                  "x must be a multiple of 8, SPEC.md 128.32)" % (fname, p["line"], wx, wy, cx))
+                                  "x must be a multiple of 8, SPEC.md 128.36)" % (fname, p["line"], wx, wy, cx))
             rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
             i0, i1 = water_top_ink(tiles[p["at"]], wx, wy, x0, y0), \
                 water_top_ink(tiles[p["at"]], wx, wy, x0, y0, WATER_RINGS1)
@@ -7771,7 +7771,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             rec += struct.pack("<12xB3x", p["num"])
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             p["fsb"] = fsbs[i]
-            if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 128.32)
+            if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 128.36)
                 rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["bed"], p["top"],
                                    p["rip"])               # (+20: WR_RIPPLE, WR_ALWAYS)
             else:
@@ -9660,7 +9660,7 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
                 bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
-        elif d["kind"] == FK_WATER:                 # SPEC.md 128.32: a sand FLAT FLOOR with OBS, at its top
+        elif d["kind"] == FK_WATER:                 # SPEC.md 128.36: a sand FLAT FLOOR with OBS, at its top
             z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
                 if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
@@ -9814,7 +9814,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             fsb_, cls = p[r + 16], p[r + 17]
             dur_, ow_ = p[r + 18], p[r + 19]
             pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 128.25.19)
-            if d["kind"] == FK_WATER:               # (WATER's +18 bed, +19 top, signed half units: 128.32)
+            if d["kind"] == FK_WATER:               # (WATER's +18 bed, +19 top, signed half units: 128.36)
                 bed_, top_ = struct.unpack_from("<bb", p, r + 18)
                 rip_ = p[r + 20]
                 if cls != CL_ATTEMPT or p[r + 21:r + 32] != bytes(11) or 4 * (top_ - bed_) <= CLIMB \
@@ -10311,7 +10311,7 @@ class PickupFamily(Family):
 
 
 class WaterFamily(Family):
-    """WATER (SPEC.md 128.32).  An element is a water cell, FLOOR at its top H in the grid; its record's +18
+    """WATER (SPEC.md 128.36).  An element is a water cell, FLOOR at its top H in the grid; its record's +18
     is its BED B, +19 its top H (half units), +20 its ripple (WR_RIPPLE: a lane; WR_ALWAYS: animated always,
     else while the ball is in it).  Slot: +0 the material STEP last saw, +1 IN (the window's centre was a water
     cell at the last refill), +2 the HTHR it replaced (word), +4 that centre's FLOAT LINE (its top less a half
@@ -10461,7 +10461,7 @@ class Physics:
         # material's copy the step reads) - and PICKUPS' sound counter and cue byte (bz_nfev, bz_cue)
         self.wacc = self.vup = self.nfev = self.cue = 0
         self.hop = self.m["HOP"]
-        # WATER (SPEC.md 128.32): bz_mrec's HTHR as the step reads it (the family raises it while the centre is
+        # WATER (SPEC.md 128.36): bz_mrec's HTHR as the step reads it (the family raises it while the centre is
         # a water cell), and the floor restitution its CELL hook wrote into bz_se (None: the surface's own)
         self.hthr, self.wef = self.m["HTHR"], None
         self.fta = fta_table(self.m["ACC"])
@@ -11539,7 +11539,7 @@ class Physics:
         fr = (C[1] * self.gvx + C[2] * self.gvy) >> 2
         lvz = max(0, fr - self.gvz) if not self._abs_impact else -self.gvz
         e = (surf_entry(self.mat, surf, self._iceplain)[3] if self.wef is None else self.wef) \
-            if not self._ef_zero else 0             # (WATER's CELL wrote bz_se's e: self.wef, 128.32)
+            if not self._ef_zero else 0             # (WATER's CELL wrote bz_se's e: self.wef, 128.36)
         bmin = BMIN_MAT if surf == SURF_BOUNCE else m["BMIN"]
         r = (e * max(0, min(lvz, -self.gvz))) >> 8
         self.lvz = lvz
@@ -13730,7 +13730,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_PU_WARN      equ %d" % PU_WARN, "BZ_PU_OVER      equ %d" % PU_OVERWRITE,
               "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
               "BZ_K_JUMP       equ %d" % K_JUMP] + [
-              "; WATER's constants (SPEC.md 128.32; bbcourse WA_*)",
+              "; WATER's constants (SPEC.md 128.36; bbcourse WA_*)",
               "BZ_WA_SINK      equ %d       ; below a water cell's top, gvz capped at -WA_SINK by STEP" % WA_SINK,
               "BZ_WA_HTHR      equ %d     ; bz_mrec's HTHR while the centre is a water cell" % WA_HTHR,
               "BZ_WA_ESH       equ %d        ; water's floor restitution: sand's less sand's >> WA_ESH" % WA_ESH,
@@ -23198,14 +23198,14 @@ def _sc_w9(X, res):
     _w9_checks(res)
 
 
-# SPEC.md 128.32: WATER's refusals, each a string case - a walkway at 3 units over a yard at 0, the water cell
+# SPEC.md 128.36: WATER's refusals, each a string case - a walkway at 3 units over a yard at 0, the water cell
 # (6, 6) on its front row, its arch +y onto the yard
 _WAT = ('course W "w"\nwidth 64\norigin 224\nuses water\nfloor rect 4 4 10 7 flat 3\nfloor rect 4 7 10 10 flat 0\n'
         'start 5 5\n')
 
 
 def _water_cases():
-    """(what, text, the refusal's words): SPEC.md 128.32's refusals"""
+    """(what, text, the refusal's words): SPEC.md 128.36's refusals"""
     return (("a bed within a climb of the top", _WAT + "water tile 6 6 top 3 bed 2.5\narch 6 6 +y\n",
              "not more than a climb"),
             ("a column open on its +y face (no arch: steel would roll out at the bed)", _WAT + "water tile 6 6 top 3 "
@@ -23232,7 +23232,7 @@ def _water_cases():
 
 
 def _water_checks(res):
-    """SPEC.md 128.32's selfcheck: the refusals; the cells, records and reach of the WATER test course; the DEPTH
+    """SPEC.md 128.36's selfcheck: the refusals; the cells, records and reach of the WATER test course; the DEPTH
     KEY (its water cells' pixels keyed s + 1, an arch's opening s; steel at the bed under the records that ghost
     it, and in the opening drawn whole) and its red arm (_WATER_S0: keyed s, the records gone); the BED form
     (the water cells' zlo the bed, the top with `noforms`)"""
@@ -23243,7 +23243,7 @@ def _water_checks(res):
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
-        res.append(("2 refused (water, 128.32): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+        res.append(("2 refused (water, 128.36): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     wbbc = os.path.join(COURSE_DIR, "water.bbc")
     c = compile_course(wbbc)
     wat = [r for r in c.part["props"] if r["kind"] == FK_WATER]
@@ -23254,7 +23254,7 @@ def _water_checks(res):
     lanes = [(r["at"], r["rip"]) for r in wat if r["lane"]]
     cok = cok and lanes == [((4, 8), WR_RIPPLE | WR_ALWAYS), ((8, 8), WR_RIPPLE), ((12, 8), WR_RIPPLE)] \
         and all(r["lane"]["poses"] == 2 for r in wat if r["lane"])
-    res.append(("3 water (128.32): WATER's six water cells are sand FLAT FLOORs at the top with OBS, OCCG (a "
+    res.append(("3 water (128.36): WATER's six water cells are sand FLAT FLOORs at the top with OBS, OCCG (a "
                 "grounded ball at the BED is behind the glass: _occg from the bed) and not SAFE, three with a "
                 "ripple LANE of 2 poses (%s; +20 1 while a ball is in it, 3 always), "
                 "their records +18 the bed and +19 the top (%s)" % (lanes, ", ".join("(%d, %d)" % r["at"]
@@ -23263,7 +23263,7 @@ def _water_checks(res):
     by = dict(((q.wx, q.wy), q) for q in c.reach)
     c0 = compile_course(open(wbbc).read(), fname=wbbc + " (noforms)", _hack={"noforms": True})
     by0 = dict(((q.wx, q.wy), q) for q in c0.reach)
-    res.append(("6 water (128.32): the reach takes the BED form - the water cells' zlo the bed (%s px), and their "
+    res.append(("6 water (128.36): the reach takes the BED form - the water cells' zlo the bed (%s px), and their "
                 "top (%s px) with `noforms`" % (sorted({by[r["at"]].zlo for r in wat}), sorted({by0[r["at"]].zlo
                                                                                             for r in wat})),
                 all(by[r["at"]].zlo == 0 and by0[r["at"]].zlo == 4 * r["top"] for r in wat)))
@@ -23281,7 +23281,7 @@ def _water_checks(res):
     finally:
         _WATER_S0 = False
     deep0 = steel_at(cr, (16 * 8 + 8) << 8, (16 * 8 + 8) << 8)
-    res.append(("10 water (128.32): the DEPTH KEY - steel at the bed of (8, 8): %d footprint pixels laid over it (its "
+    res.append(("10 water (128.36): the DEPTH KEY - steel at the bed of (8, 8): %d footprint pixels laid over it (its "
                 "own column's glass keyed s + 1 among them, the rest the walkway's), %d in its arch; the red arm "
                 "(the water keyed s, _WATER_S0): %d - the column's own art drawn under the ball" % (
                     len(deep), len(door), len(deep0)), len(deep) > len(deep0)))
@@ -23296,13 +23296,13 @@ def _water_checks(res):
     finally:
         WATER_FLOAT = wf
     fl0 = steel_at(cf, (16 * 8 + 8) << 8, (16 * 8 + 8) << 8, MAT_RUBBER, 20)
-    res.append(("10 water (128.32): the FLOAT LINE - rubber at rest in the sketch's column, 4 px under its top: %d "
+    res.append(("10 water (128.36): the FLOAT LINE - rubber at rest in the sketch's column, 4 px under its top: %d "
                 "footprint pixels of it laid under the water (the top's tops WATER_FLOAT %d px up); the red arm "
                 "(WATER_FLOAT 0): %d" % (len(fl), wf, len(fl0)), len(fl) > len(fl0)))
 
 
 def _sc_water(X, res):
-    """--selfcheck's section `water` (SPEC.md 128.32)"""
+    """--selfcheck's section `water` (SPEC.md 128.36)"""
     _water_checks(res)
 
 

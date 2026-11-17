@@ -3781,7 +3781,7 @@ both cards. **Not run**: the soak rows (the final pass's).
 ## 2026-11-17 (WATER: the first prop of the round, built as a family)
 
 The owner's P1 (BOUNCE-BONANZA-PROPS.md, the sketch and W1 - W8), built on
-`bb-water` as SPEC.md 128.32: a family, ID 7, with no resident engine change.
+`bb-water` as SPEC.md 128.36: a family, ID 7, with no resident engine change.
 
 - **Decisions.** The plan's design held but for three points the code
   decided. (1) The `arch` is the TOOL's alone - no element, no WALL cell for
@@ -3823,7 +3823,7 @@ on CGA and Hercules. **Not run**: soak rows, `test-full`.
 ## 2026-11-17 (WATER, round two: ripples, the float line, the wobble)
 
 The owner looked at WATER ("reads as water well enough"; for the teal and
-magenta palette courses) and asked for four things; SPEC.md 128.32.9.
+magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 
 - **Ripples.** `ripple` (animating while a ball is in that column) and
   `always` (a lone column) are lanes the POSE hook answers from the step

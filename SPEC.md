@@ -276945,7 +276945,7 @@ selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
 `bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
 a game), `bonanzamega`.
 
-### 128.32 WATER, a family (the owner's design P1, 2026-11-17)
+### 128.36 WATER, a family (the owner's design P1, 2026-11-17)
 
 The owner's sketch (`docs/plans/bounce-bonanza/water-sketch.png`) and answers
 W1 - W8 are [BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)'s
@@ -276957,7 +276957,7 @@ steel sinks down the column and rolls out of the front. A family by
 128.25.6.8's recipe: **no resident engine change, no surface added,
 `BZ_PHYSV` unmoved.** BUILT and MEASURED where marked; PREDICTED otherwise.
 
-#### 128.32.1 The statements (BUILT)
+#### 128.36.1 The statements (BUILT)
 
     uses water
     water <shape> top <H> bed <B> [ripple <wx> <wy> ...] [always <wx> <wy> ...]
@@ -276971,7 +276971,7 @@ steel sinks down the column and rolls out of the front. A family by
   water top carries its ripples drawn; `ripple` names cells of the shape whose
   ripples ANIMATE while a ball is in that column, `always` cells whose ripples
   animate all the time (W7; the owner: "animate only as something is on it,
-  or, with an option, animate always if we use one column only"), 128.32.9.
+  or, with an option, animate always if we use one column only"), 128.36.9.
 - **`arch`** names a water cell and the FRONT face (`+x` the se face, `+y`
   the sw face; W3: the ball leaves out of the front) its opening is cut in. It
   is the TOOL's alone: no element, no record, no grid byte (the plan made it
@@ -276985,10 +276985,10 @@ steel sinks down the column and rolls out of the front. A family by
   when +20 is not 0, of 2 poses), and a water cell whose grid cell is not a
   sand flat FLOOR at +19 with OBS and not SAFE.
 
-#### 128.32.2 The family (BUILT)
+#### 128.36.2 The family (BUILT)
 
 ID **7** (`BZ_FID_WATER`), one kind, hooks **RESET, STEP, POSE and CELL**
-(RESET and POSE since 128.32.9's ripples), home **`resident`** (128.32.7).
+(RESET and POSE since 128.36.9's ripples), home **`resident`** (128.36.7).
 RESET only counts the ALWAYS ripples: a play's start finds the slot zero and
 `bz_mrec` fresh, and a respawn's place refills the window (CELL), which puts
 back what CELL raised before any flag's material is copied (`.resp` places,
@@ -277001,7 +277001,7 @@ entry (`famv`'s "WA"). The slot, all 8 bytes of `BZF_SLOT`:
 | +0 | the material STEP last saw |
 | +1 | IN: the window's centre was a water cell at the last refill |
 | +2 | the HTHR it replaced (word), kept once, on the way in |
-| +4 | that centre's FLOAT LINE, its top less a half unit (half units; 128.32.9) |
+| +4 | that centre's FLOAT LINE, its top less a half unit (half units; 128.36.9) |
 | +5 | the ACTIVE ripple's entry step (`bz_nstep`'s low byte) |
 | +6 | the course's ALWAYS ripples (RESET's count) |
 | +7 | the ACTIVE ripple: the centre's element + 1 when it has a ripple lane, else 0 |
@@ -277014,7 +277014,7 @@ entry (`famv`'s "WA"). The slot, all 8 bytes of `BZF_SLOT`:
 
 **CELL** (`bz_wtail`'s first act, every refill), **per ball**: for steel every
 water cell of the window takes z0 = its record's bed (+18); for rubber and
-glass its float line, +19 less one (128.32.9), one continuous floor. The rewrite keeps the cell's
+glass its float line, +19 less one (128.36.9), one continuous floor. The rewrite keeps the cell's
 other three bytes and is IDEMPOTENT, as it must be (`bz_win9i` keeps cells of
 the last window, already rewritten). Then, by the window's CENTRE:
 
@@ -277033,7 +277033,7 @@ the last window, already rewritten). Then, by the window's CENTRE:
   0FFh, so that test makes a `bz_surfset` for the new centre.
 
 **STEP** (`.count`, every step): IN, airborne and z (`[bz_gz + 1]`) below
-4 x +4 (the float line, px): **gvx = gvy = 0** and gvz at least `-WA_SINK` (every 32 steps +`WA_BOB` instead, 128.32.9). The horizontal stop is NOT
+4 x +4 (the float line, px): **gvx = gvy = 0** and gvz at least `-WA_SINK` (every 32 steps +`WA_BOB` instead, 128.36.9). The horizontal stop is NOT
 in the plan's design, and the code proved it needed: with the cap alone a
 steel ball entering at walkway speed drifted across the column as it sank,
 crossed into the arch's exit cell 12 px above its floor - out through the
@@ -277050,7 +277050,7 @@ HTHR: different words, never meeting. Both rebuild `bz_ftg` from the `bz_se`
 the centre left (PICKUPS' `pu_tab` reads WATER's force, the same as sand's).
 The rule for a later family that writes HTHR: it is WATER's while IN.
 
-#### 128.32.3 The model (BUILT)
+#### 128.36.3 The model (BUILT)
 
 `bbcourse.WaterFamily`, step for step the part. `Physics` gains two working
 values (128.25.6.8 step 2): **`hthr`** (what step 6's hard landing compares,
@@ -277059,7 +277059,7 @@ wrote, None for the surface's own), both reset by `_setmat` as `bz_setmat`'s
 copy and `bz_surfset` reset the guest's. A course without water runs exactly
 the code it ran (`hthr` the material's, `wef` None).
 
-#### 128.32.4 The tool's refusals and the reach (BUILT)
+#### 128.36.4 The tool's refusals and the reach (BUILT)
 
 Refused, naming the line (`--selfcheck`'s section `water`, item 2): a bed
 not more than a climb (4 px) under the top; a water cell not SEALED at its
@@ -277076,7 +277076,7 @@ GLASS's void): every water cell a floor at B, unioned, so the occluders, OCC
 and the bounds see a ball in a column at every height; `_hack noforms` is
 its control (item 6: the water cells' zlo 0 px, 24 with it).
 
-#### 128.32.5 The art and the DEPTH KEY (BUILT; LOOKED AT on MartyPC, both cards)
+#### 128.36.5 The art and the DEPTH KEY (BUILT; LOOKED AT on MartyPC, both cards)
 
 A water cell's top and its two front faces are drawn and KEYED **s + 1**
 (`draw_ops`): a ball INSIDE the cell (s_b = s) below its top is then behind
@@ -277111,7 +277111,7 @@ A nuance, not refused: a ball in a cell BESIDE a column in its own row
 (`(wx + 1, wy - 1)`), lower than the column's top - one falling past a
 walkway's end - is laid under the column's s + 1 art where the two overlap.
 
-#### 128.32.6 The test course: `BZWATER=1` (BUILT)
+#### 128.36.6 The test course: `BZWATER=1` (BUILT)
 
 `apps/bonanza/courses/water.bbc`, WATER "Water Test", on no shipped disk: the
 knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
@@ -277128,7 +277128,7 @@ refills it), a RUBBER pad, and a GLASS pad on a tower 7 units up behind the
 row. The finish (exit 0) on the yard, exit 1 on the walkway's far end, to
 FIRST. No shipped course, demo or identity moves.
 
-#### 128.32.7 What it costs, and its home (MEASURED: `make bonanza`, against `3ba74532a`)
+#### 128.36.7 What it costs, and its home (MEASURED: `make bonanza`, against `3ba74532a`)
 
 **Home `resident`**, the owner's default (2026-11-17), kept although no
 shipped course names water yet: as `fetch` it would add a part row and a read
@@ -277137,7 +277137,7 @@ play pays as `resident`. Moving it is its `FAMILIES` row's `home` alone.
 
 | | before | after | |
 |---|---|---|---|
-| the part `bzf-water.bin` | - | **616 bytes**, `paras` 39 (341 before 128.32.9) | spans: header 24, RESET 34, CELL 308, STEP 162, POSE 39, the three helpers 49 |
+| the part `bzf-water.bin` | - | **616 bytes**, `paras` 39 (341 before 128.36.9) | spans: header 24, RESET 34, CELL 308, STEP 162, POSE 39, the three helpers 49 |
 | BONANZA's image | 49,732 | 49,733 | +1: `bz_ftab`'s byte for ID 7 |
 | its bss | 11,431 | 11,431 | 0 (the slot fits `BZF_SLOT`; no state bits) |
 | the RESIDENT BUNDLE, RAM | 33,376 | 34,000 | **+624, every play's RAM**; 2,086 -> 2,125 paragraphs, the pinned claim 2,112 -> 2,176 (`OP_ARQUANT`'s 64: one step) |
@@ -277152,7 +277152,7 @@ on a refill (the centre's cell changed): a walk of the course's records,
 about 30 cycles each, and about 0.5k more when the centre is water (`bz_se`,
 the ramp's nine bytes).
 
-#### 128.32.8 The proofs (BUILT)
+#### 128.36.8 The proofs (BUILT)
 
 `tests/bonanza_phys.py --check`'s unicorn half (`water_host`): the guest's
 `bz_step`, with the build's bundle, against the model at EVERY step - the
@@ -277174,11 +277174,11 @@ control, the depth key and its red arm.
 
 **Open, the owner's:** the art on both cards (the owner: "reads as water
 well enough"; for the teal and magenta palette courses); the wobble by eye
-(`WA_BOB` 0 takes it out); the float line's bob (128.32.9, not built). The
+(`WA_BOB` 0 takes it out); the float line's bob (128.36.9, not built). The
 column is kept steel's by a SEE-THROUGH GUARD RAIL, the owner's choice, built
 apart from this family; the test yard is left open.
 
-#### 128.32.9 The second round: ripples, the float line, the wobble, a deep column (the owner, 2026-11-17; BUILT)
+#### 128.36.9 The second round: ripples, the float line, the wobble, a deep column (the owner, 2026-11-17; BUILT)
 
 **ANIMATED RIPPLES (W7).** A `ripple` or `always` cell's element has a LANE
 (art `ripple`): the crack's 2 x 2 blocks round the top's centre (128.25.18),

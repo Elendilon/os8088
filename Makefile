@@ -21451,8 +21451,8 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
-#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 128.32): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
-# BZWATER=1 (SPEC.md 128.32, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
+#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 128.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
+# BZWATER=1 (SPEC.md 128.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
 # path.bbc with apps/bonanza/courses/pathwater.sed applied: pad 0 becomes WATER (a new game rests on it) and
 # FIRST gets a pad of its own beside it.  BZSHAPES's precedent, and not with it (both rewrite pad 0).
