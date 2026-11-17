@@ -41,6 +41,12 @@ px, and at most 6 FAST lanes meet a window.
 | P10 | **ARCH to roll under** (also: a ball forced under it cannot boost over a pad, so rubber must take a pad) | the reserved UNDERSIDE flag (SPEC.md 128.12.3.1): a CEILING in physics (an airborne ball at its height hits the arch's top) and the arch's top drawn over a ball under it - both resident, bounded |
 | P11 | **TURNTABLE, quarter-turn**: half filled, a quarter turn every second or so, the cells switching; it does not carry the ball (a cell that turns to a gap drops you) | several SLOW lanes |
 
+### Chosen - art only
+
+| | what | how |
+|---|---|---|
+| P13 | **THIN RAILS** (the owner, 2026-11-17: today's rails read as blocks) | a rail stays a one-cell WALL; the ball stops at that cell's near edge, so the tool draws a thin rail ON that edge and the rest of the cell as the open edge it is - the art matches the physics with no physics change (the reserved `edge` bits, thin walls BETWEEN cells, are not needed) |
+
 ### Possible
 
 | | what | why |
@@ -137,11 +143,18 @@ the walkway to the lower path. Ideas:
    they drop there. Water and the material gate together.
 3. **A WIND curtain (P3)** across the lower path: it pushes glass and rubber
    back off it and barely moves steel.
-4. **An overhang**: the walkway overhangs the lower path, which runs back
-   UNDER it into the arch, so nothing above can drop onto it - needs the
-   ARCH's underside work (P10).
+4. ~~**An overhang**~~ - REJECTED (the owner, 2026-11-17): a floor carried
+   over the path hides it, and **the player must be able to see everywhere
+   the ball goes**, with only a few hidden-path or short-tunnel exceptions
+   (SUMMIT RUSH already shows the cost: a good part of it is hidden behind
+   what stands in front). A design rule for every prop, not only this one.
 5. **Height**: the lower path far enough below that a fall onto it shatters
-   glass (rubber still survives) - partial.
+   glass (rubber still survives) - gates glass for free; partial.
+
+The owner's reading: SPIKES gate only where they cover most of the floor
+(rubber Hops one row) - worth one course that pairs them with water, two
+steel-only mechanisms; WIND works if the lower path is THIN, as the sketch
+draws it, blowing hard to one side; the HEIGHT gates glass.
 
 ## Stories
 
