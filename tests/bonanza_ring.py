@@ -968,7 +968,14 @@ class Bz:
         """at bz_tv (the loop's marks): the ball as the frame's boxes drew it, before bz_early's step"""
         lo = self.sym["bz_phs"]
         self.pre = (self.m.read(self.base + lo, self.sym["bz_phe"] - lo), self.w("bz_px"), self.w("bz_py"),
-                    self.b("bz_mat"))
+                    self.b("bz_mat"), self.b("bz_hidn") if "bz_hidn" in self.sym else None)
+
+    def drawn(self, n, k=0):
+        """a byte of the ball's state (bz_phs .. bz_phe) as the frame DREW it: the bank at bz_tv when a loop made
+        one, else the live byte"""
+        if self.pre is None:
+            return self.m.read(self.a(n) + k, 1)[0]
+        return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
 
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
@@ -983,8 +990,9 @@ class Bz:
         lo = self.sym["bz_phs"]
         # THE EARLY STEP (SPEC.md 128.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
         # a step ahead of the picture on such a frame.  A Walker stopped at bz_tv banks the state as drawn.
-        raw, px, py, mat = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
-                                        self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"))
+        raw, px, py, mat, hidn = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
+                                              self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"),
+                                              self.b("bz_hidn") if "bz_hidn" in self.sym else None)
 
         def f(n, fmt):
             return struct.unpack_from(fmt, raw, self.sym[n] - lo)[0]
@@ -996,7 +1004,7 @@ class Bz:
         lk.zb = lk.gz >> 8
         # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
-        lk.tube = self.b("bz_hidn") if "bz_hidn" in self.sym else f("bz_tube", "B") if "bz_tube" in self.sym else 0
+        lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
@@ -3223,7 +3231,7 @@ def ground_replay(g, s, mode, art=None):
                                  "void (SPEC.md 128.16.7's latch)" % (label, fr, n))
                     break
         R0p = R0
-        if s["stretch"] and g.b("bz_stf"):
+        if s["stretch"] and g.drawn("bz_stf"):
             S_, R0_, c0_ = g.state()[:3]
             lk, why = g.look(ref.c)
             if why:
@@ -3233,7 +3241,7 @@ def ground_replay(g, s, mode, art=None):
             tal["stretch"] += 1
             if lk.spr != ("stretch", 0):
                 fails.append("%s frame %d: bz_stf %d with the model's sprite %s, not the stretch" % (
-                    label, fr, g.b("bz_stf"), lk.spr))
+                    label, fr, g.drawn("bz_stf"), lk.spr))
             elif nd:
                 fails.append("%s frame %d (the stretch) at bz_presented: card != oracle: %d px, lines %d-%d, x %d-%d"
                              % (label, fr, nd, *box))
@@ -4064,11 +4072,11 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             fails.append("%s frame %d: the frame after a full write presented still DARK (bz_unblank, SPEC.md "
                          "128.14.5.6)" % (label, fr))
         lastfull, fullfr, infull = fullfr, False, False
-        hid = g.b("bz_hid") if "bz_hid" in g.sym else 0
+        hid = g.drawn("bz_hid") if "bz_hid" in g.sym else 0
         if hid and not hid0:
             why.append("capture")
         hid0 = hid
-        nlip = g.w("bz_nlip") if "bz_nlip" in g.sym else 0
+        nlip = g.drawn("bz_nlip") + 256 * g.drawn("bz_nlip", 1) if "bz_nlip" in g.sym else 0
         if nlip != nlip0:
             why.append("lip")
         nlip0 = nlip
@@ -4077,9 +4085,10 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
         if flags0 is not None and fl != flags0:
             why.append("flag")
         flags0 = fl
-        if g.b("bz_mat") != mat0:
+        matd = g.pre[3] if g.pre else g.b("bz_mat")      # (as drawn: the early step may have swapped it since)
+        if matd != mat0:
             why.append("pad")
-        mat0 = g.b("bz_mat")
+        mat0 = matd
         if windows:
             n_ = g.d("bz_nstep")
             if any(a_ <= n_ <= b_ for a_, b_ in windows):
