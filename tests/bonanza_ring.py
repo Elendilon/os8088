@@ -3059,6 +3059,8 @@ CAM_PRICE = 527             # the ground-line block's as-built price at WORST, c
                             # contact while airborne and re-tripped on that frame, Hercules (the fetch floor, x 1.05:
                             # SPEC.md 128.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
                             # not a retunable
+RATE_LINES = 4              # the most a footprint may pass the window's bottom where the shipped camera at the
+                            # guest's pace loses it too: one row pan of two rows on the CGA (128.16.8)
 CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 128.16.14)
 MODES = ((0, "GLIDE"), (1, "TRICKLE"))
 
@@ -3183,12 +3185,21 @@ def ground_replay(g, s, mode, art=None):
     # lane promoted by the beam race, bz_wpro, which Heavy does not model - SPEC.md 128.17.10 - and under
     # LATTICE level 2 withholds every axis on the CGA, so Heavy's own levels can part the window spuriously)
     gl = BB.Glide(p, tag == "herc", c.brows, c.cols, heavy=GuestHeavy(p, g), **GROUND_ONLY.get("glide", {}))
+    # THE PACE (SPEC.md 128.16.8): the latched fallback keeps the footprint in at the card's NOMINAL rate,
+    # which is what the model proves; the CGA's void fall plays at about 1.3 steps a frame once the row
+    # pan runs, and there the SHIPPED camera itself falls behind the ball by a line or two in the last
+    # steps before the kill.  A footprint outside is a failure unless the shipped GLIDE, fed the guest's
+    # own steps a frame, is latched and loses it on that frame too - past the bottom edge alone, by at
+    # most RATE_LINES - so an arm with the fallback removed (`nosafe`, whose own Glide has none) still goes
+    # red where the shipped camera kept the ball in
+    sh = gl if mode == 0 and not GROUND_ONLY.get("glide") else BB.Glide(
+        p, tag == "herc", c.brows, c.cols, heavy=GuestHeavy(p, g))
     Wc, rl = g.w("bz_W"), RL[tag]
     # (the review's C2: an int 08h - sch_isr, 54.6 Hz under FSXF_FASTTICK - inside a span adds its whole cost,
     # bonanzaperf's lesson; such a span is counted apart and only the CLEAN spans are held to the price)
     lp = Loop(g, ("bz_t0", "bz_presented", "bz_camera.gline", "bz_camera.cyd"), kernel=("sch_isr",))
     lp.arm()
-    fails, tal = [], {"frames": 0, "stretch": 0, "spans": [], "ticked": 0, "rows": 0, "rev": False}
+    fails, tal = [], {"frames": 0, "stretch": 0, "spans": [], "ticked": 0, "rows": 0, "rev": False, "pace": []}
     t0, dirs, R0p, dirty = None, set(), None, False
     while not fails:
         k = lp.next()
@@ -3222,8 +3233,14 @@ def ground_replay(g, s, mode, art=None):
                 fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
                              "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
                 break
+        if sh is not gl:
+            sh.camera()
         px, py = g.dpx()
-        if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
+        bot = R0 * rl + 200 - 16                # (bz_outwin's last line a footprint may start on)
+        if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl) and s["fall"] and p.air and sh.clat is not None \
+                and sh.outwin() and not P.outwin(px, min(py, bot), R0, c0, Wc, rl) and py <= bot + RATE_LINES:
+            tal["pace"].append((fr, n, py - bot))
+        elif not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
                          "%d)" % (label, fr, n, px, py, R0, c0))
             break
@@ -3262,10 +3279,14 @@ def ground_replay(g, s, mode, art=None):
     if not fails and sp and max(sp) > bound:
         fails.append("%s: the ground-line block's span: the worst %d cycles, over its price %d + 25%% (%d; SPEC.md "
                      "128.16.7)" % (label, max(sp), CAM_PRICE, bound))
-    print("%s: %d frames, the window %s, the footprint inside, %d row(s) panned, %d stretch frame(s) card = oracle; "
+    pc = tal["pace"]
+    print("%s: %d frames, the window %s, the footprint inside%s, %d row(s) panned, %d stretch frame(s) card = oracle; "
           "the ground line's span worst %s, mean %s cycles over %d clean frames (%d with a tick inside, left out; "
           "bound %d): %s" % (
-              label, tal["frames"], "bbcourse.Glide's every frame" if mode == 0 else "TRICKLE's", tal["rows"],
+              label, tal["frames"], "bbcourse.Glide's every frame" if mode == 0 else "TRICKLE's",
+              (" (but %d frame(s), at steps %s, past the bottom edge by at most %d line(s) where the shipped GLIDE "
+               "at the guest's own pace loses it too: the camera's rate, 128.16.8)" % (
+                   len(pc), [x[1] for x in pc], max(x[2] for x in pc))) if pc else "", tal["rows"],
               tal["stretch"], max(sp) if sp else None, "%.0f" % (sum(sp) / len(sp)) if sp else None, len(sp),
               tal["ticked"], bound,
               "yes" if not fails else "NO"), flush=True)

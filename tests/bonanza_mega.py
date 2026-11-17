@@ -834,6 +834,10 @@ def run(img_b, keep, tmp, cases=None):
         print("   desktop: %d part rows, fetched: %s (held: %s); the instance's claims %s" % (
             len(base_rows), [i for i, (f, _) in enumerate(base_rows) if f & OP_FETCHED],
             sorted(title_rows(len(base_rows))), base_claims), flush=True)
+        import bonanza_exit as X
+        k = X.kit_row()                                 # SPEC.md 128.33.5: the kit fetched at the open, HELD
+        want(k is None or base_rows[k][0] & OP_FETCHED,
+             "0. the kit (row %s) held on the desktop after the open" % k)
         if cases is not None:                           # (a red arm's run: its own case alone)
             if "play" in cases:
                 play_case(b, pkg, base_rows, base_claims, hs, eq)

@@ -270197,6 +270197,19 @@ build, unless marked):*
   for; **`nolatch` reverses the row direction on the CGA's fall and not on
   the Hercules'** (its rows are 4 lines and the ball's own line stays
   inside the band there), so that arm's leg is the CGA's (128.16.14).
+  **That is at the card's NOMINAL rate** (2026-11-17, the kit's final
+  pass): the CGA plays the latched fall at about 1.3 steps a frame once
+  the two-row pans run, and at that pace the shipped camera itself is
+  one line behind the ball's bottom edge on the last two or three steps
+  before the kill (whether it is depends on the frame boundaries' phase:
+  `bbcourse.Glide` fed 1.3 steps a frame loses it at steps 204 - 206 from
+  one phase and not from the other). `bonanzaring` tolerates exactly that
+  - the footprint past the bottom edge alone, by at most `RATE_LINES` (4),
+  on a frame where the shipped GLIDE fed the guest's own steps is latched
+  and loses it too - and reports each such frame; `nosafe` still goes red
+  (its footprint leaves where the shipped camera keeps it, step 195 at
+  that pace). Keeping the ball in at any pace is a camera change (a
+  latched pan past its two rows), not made.
 - **The mat**: of the Hops from the apron whose first contact is on the
   mat, Space 2 steps before it, 32 take-off points, none boosts.
 - **The demo** (`BZD6`, `playground.bzd`): 1,489 steps, 27.26 s, rubber,
@@ -270705,7 +270718,7 @@ byte (128.16.11).
 | `bonanzacourse` | soak, host | item 7: the material table printed from `Physics` and asserted against `axis_feel()` (128.16.3), with the axis model under the round-up equal to wave 2's written row; the STEP LADDER and the GAP LADDER and their asserted shapes (no ball crosses three LEVEL tiles, the boost included, every window position; onto a lower floor steel never and no Hop alone down to 1.5 units, the boost's crossings and the deeper Hop crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed, `gap3_scan()`); a Hop on a spring's cell never boosts (the `springtok` control); no gain after a 1.5- or 2-unit drop, the 1-unit drop's boost with `sqf` 0, the threshold printed; one boost a chain; the token at the first contact only; the Grip chain; firm level floors only, `MILL`'s lift slab among them; the PLAYGROUND's rungs dead ends and its 2-unit top unreachable; `ledge_gaps()` for rubber (asserted unchanged) and glass; the up-ramp distance per ball; the reach with the BOOST launch on the grid cell; all seven courses under their bounds and budgets. Item 1 re-anchored on `503031d4` with the reach's 5b inputs (128.16.13; a SKIP is a failure). Item 4: `BZ_PHYSV` not 00h and not in `PHYSV_SHIPPED`. Item 8: `BENCH`'s eight directions with the ground-line `Glide`. Item 9: a stale or demoted shipped `.bzd` refused; `BZD6` boosts, reaches the ledge and ends at the goal; a course in `AUTHOR` without its `.bzd` refused. The palette statement's refusals (item 2). The row's registered text and identities re-taken from the final pass | host controls, each at its own item: `boost400` (`BOOST` 400, a contact apex of 12.25 px: the import assertion refuses "never 2"); `boost300` (`BOOST` 300, 6.75 px: the import assertion refuses "reaches 1.5"); `boostrise` (the boost added to a ramp's rate in the model: item 7's firm-level check); `slabboost` (rule 4 on `_floor`'s substituted cell: item 7's lift case boosts); `noclear` (the token cleared only by a boost: item 7's second-contact case boosts); `remwide` (the remainder left unmasked after the split: item 7's drag figures differ from `axis_feel()`); `gap3` (`BOOST` 366: item 7's 3-tile gap is crossed); `physv` (`PHYSV_SHIPPED` holding this build's value) and `physv0` (`BZ_PHYSV` forced to 00h): item 4; `stalebzd` (`moon.bzd`'s `physics` line left at A0h) and `noboostdemo` (`BZD6`'s log with its boost press removed): item 9 |
 | `bonanzaphys` | soak, MartyPC | 128.16.4.3's five state values compared at every frame; new replays, found and proved on the model first (`--check`), each on both cards: `boost` (rubber on the PLAYGROUND's apron: a Hop, Space before its contact; `nboost` 1, `gvz` = `BOOST`, `stf` = `BZ_STRS`); `boostclimb` (onto the 1.5-unit ledge); `boostdrop` (a Hop off a 1-unit drop, Space at the contact: a boost with `sqf` 0 although the impact passes 384); `boostfall` (a Hop off the 2-unit drop, Space at the contact: a contact Hop, `nboost` 0); `pumpchk` (Space at every contact of the chain: one boost, then contact Hops); `bouncefirst` (a Hop, no Space at its first contact, a bounce; Space at its second: a contact Hop, `nboost` 0); `gripchain` (a Hop and its boost, Grip held through the boost's landing, then Space: a land, a ground Hop and a second boost, `nboost` 2, no roll between); `rampnot`, `sandnot` and `matnot` (the PLAYGROUND's mat), `liftnot` (`MILL`'s lift: a Hop landing on the slab, Space at the contact: no boost); `steelglass` (steel and glass: contact Hops, never a boost); `drag` (one arrow from rest settles at the model's top; from a chord's cap falls back to it; the remainders every frame); `gripglass` (glass's Grip from the cap stops in the model's steps). **The drag's cost, ASSERTED**: on the `drag` replay a breakpoint at `bz_gax`'s entry and return gives every grounded call's span in MartyPC's cycles, and the worst is at most the as-built routine's price (from its instructions, the fetch floor, x 1.05) plus 25% | `pump` (the token set again by a contact Hop): red at `pumpchk`'s second boost. `rampboost` (rule 4's slope test left out): red at `rampnot`. `tokbst` (the token cleared only by a boost, not at every contact): red at `bouncefirst`'s boost. `slabcell` (rule 4 on the cell after the slab's substitution): red at `liftnot`'s boost. `ceildrag` (the guest keeps wave 2's round-up drag): red at `drag`, one arrow from rest settling at 189 against the model's top. `slowdrag` (the remainder's split done twice): red at the span assertion |
 | `bonanzareplay` | soak, MartyPC | a real-key play on the PLAYGROUND recorded on the CGA (Space twice: a Hop and its boost; Shift on the brake strip), the model off the log equal to the play every frame; replayed on the Hercules | none new: `hopbit` covers Space's bit |
-| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window, and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a ~430-clk loop, past the worst path's bound): red at the span assertion. Both span assertions (this one and `bonanzaphys`'s drag) hold only the CLEAN spans to the price: a span with an entry to the kernel's `sch_isr` inside it is counted apart and left out, as `bonanzaperf`'s are (the review's C2) |
+| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window (on the void fall, short of the shipped camera's own rate at the guest's pace, 128.16.8), and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a ~430-clk loop, past the worst path's bound): red at the span assertion. Both span assertions (this one and `bonanzaphys`'s drag) hold only the CLEAN spans to the price: a span with an entry to the kernel's `sch_isr` inside it is counted apart and left out, as `bonanzaperf`'s are (the review's C2) |
 | `bonanzaexit` | soak, MartyPC | the PLAYGROUND's launches (its three ball rows fetched and dropped), every way out; the claim leg over seven courses; **the palette**: in the PLAYGROUND's bracket on the CGA, MartyPC's rendered pixel at the ball's body is the colour its `BZ_CRS_PALS` byte selects (palette 0's red as shipped), in `FIRST`'s its byte's (palette 1's magenta); after each bracket the desktop renders only the colours its capture before the bracket held, both of them (not the bitmap: BONANZA's own window is in the frame and its face is rewritten after every play, Esc included; the review's F1); on the Hercules a breakpoint on `bz_vinit.vpal`, the local label on `bz_vinit`'s `out` to 3D9h resolved through `os88sym`, is never hit | `nopal` (the `out` left out): red at the PLAYGROUND's rendered colour. `hercpal` (the `bz_herc` branch round the labelled `out` removed, so the arm's own write runs on the Hercules): red at the `bz_vinit.vpal` breakpoint |
 | `bonanzaperf` | soak, MartyPC | wave 6's final pass: every demo, six, through `D`, both cards, speaker ON, REPORTED against 5b's figures and 128.16.15's predictions (no end-to-end A/B: no like for like, 128.16.10): misses, missed refreshes a second, runs of two or more, the longest run, `MILL`'s mode, GLIDE's columns and rows panned a second of play against `--pans`' prediction, and the occluder pass's span a frame against 5b's (128.15.5.4); `TRIAL`'s bounce leg REPORTS the rows panned per bounce under the ground line against wave 2's 251 / 137; the `BENCH` A/B against 5b's commit REPORTED. **`--baseline`**, at the freeze commit only (128.16.10): the 108 runs with their spreads, keyed to each demo's log, written to the report | none new: its arms re-run |
 | `bonanzademo` | soak, MartyPC | `V`'s six demos, each `D`'d to the model's end on both cards (the PLAYGROUND's boosts among them); the hostile set's physics cases are all THIS build's log with only +7 changed, as `tests/bonanza_demo.py`'s H09 mutation is today (`BZ_PHYSV ^ 5Ah`): H09 kept, and two more with +7 = A0h (5b's value) and +7 = 00h, each refused at check 5 with `bz_t_phys` (a real 5b log of a course whose identity moved fails check 4 first, 128.16.9, so it cannot be this case) | none new |
@@ -282082,6 +282095,18 @@ held pathway both ways, beside a held kit), `bonanzagame`, `bonanzademo`
 `bz_cexp` under unicorn), `bonanzamega` (the kit's selector), and
 `bonanzaperf` for the launch.
 
+**The held rows** (the final pass's first run, 2026-11-17): `bonanzaexit`,
+`bonanzademo` and `bonanzamega` count the kit's row, `BZ_P_KIT` read out
+of the build's `bzlink.inc`, among the rows held on the desktop, beside the
+resident bundle's (`bonanza_exit.title_rows`). Each asserts the kit HELD
+after the open (its row FETCHED and, where the row reads it, `bz_kseg`
+non-zero) and after every launch, play, refused `L` and double-click as
+before it; any other row left fetched is still a failure. Two red arms
+(`bonanzaexit`): `kitlate` (no fetch at the open: red at the desktop's
+check) and `kitdrop` (the kit dropped with each course: red at the held
+row's check after the first launch). kern_small's give-back is read, not
+run: no row boots BONANZA on kern_small.
+
 #### 128.33.11 As built: the tool (wave K1, 2026-11-17)
 
 **The kit as cut** (`bbcourse.py kit`, the nine pool courses at this tree):
@@ -282124,7 +282149,7 @@ are the ones its sections name):
   So on today's SHIPPED courses the F library costs more than it saves: 21
   of its 36 tables are the knob courses' (SHAPE's and PITS'). It pays for
   itself once standard chutes reach shipped courses (K3); until then it is
-  1.6KB of disk the shipped build carries for them (128.33.12's question 1).
+  1.6KB of disk the shipped build carries for them (128.33.12: the owner keeps it whole for now).
 - **The package** (`make bonanzadisk`): `BONANZA.O88` 120,937 -> **119,822**
   bytes (-1,115); `bonanza360.img` **127 -> 126** of 354 clusters. The
   `BZSHAPES` knob build: 133 of 354, its shipped courses' parts byte for
@@ -282138,22 +282163,33 @@ are the ones its sections name):
 - **Host time**: `bbcourse.py kit` about 32 s; `--selfcheck` about 4.5 min
   (four jobs); `--sizes` about 5 min (it compiles each play course twice).
 
-#### 128.33.12 Open questions for the owner
+#### 128.33.12 The owner's answers (2026-11-17)
 
-1. **The F library on the shipped build.** 21 of its 36 tables are the
-   `BZSHAPES` knob's courses' (SHAPE, PITS), so on the seven shipped courses
-   it costs 3,082 LZB and saves 1,479 (128.33.11). Keep it whole (the
-   library for the standard chutes to come, K3), or cut the shipped kit's
-   tables to the shipped courses' own until those chutes ship? The latter is
-   a pool rule (the F library from the shipped courses only), about 1.6KB
-   of disk, and makes the knob's two courses carry their own tables again.
-2. **When the kit is re-cut.** It is generated text the build reads, so a
-   course edit that changes which pieces are shared leaves it stale (bytes,
-   never correctness). Re-cut at every ship (the plan here), or at every
-   course edit (every play course's identity and the authored demos then
-   move each time)?
-3. **BENCH's benchmark figures** move with its alignment (+37 records):
-   `bonanzaperf`'s BENCH rows are against a new course, not the old one.
+The three questions K1 left open, answered the same day:
+
+1. **The F library on the shipped build** (it costs the seven shipped
+   courses 3,082 LZB and saves them 1,479, 128.33.11): *"Whole is fine for
+   now, we have to actually decide on, and make, standards. Which will
+   probably be finished when we do real course design, though we could
+   start today."* **The shipped kit keeps the whole F library**, the
+   `BZSHAPES` knob's tables included, until the standards (K3) replace it.
+2. **When the kit is re-cut**: *"As un-often as possible because that
+   takes a long time to run; once we have the standards set, this should
+   only happen when we do a major change anyway. So for now probably when
+   I ask for it only, and later, when shipping."* **`bbcourse.py kit` is
+   run on the owner's request (and, once the standards are set, at a ship),
+   never otherwise**; `apps/bonanza/courses/kit.bzk` stays as committed
+   between. Nothing in `make` re-cuts it: the build READS the file (a
+   prerequisite of the art rule) and never runs the generator. A course
+   edit between cuts costs bytes, never correctness, and is never
+   refused: `kit_order` matches a course's pieces to the kit's BY CONTENT,
+   so a piece the edit no longer uses is simply not named in that course's
+   bitmap (the kit keeps it, unused by that course), and a new piece the
+   kit lacks is the course's own. The cut is a decision on the bytes, made
+   when asked for.
+3. **BENCH's benchmark figures** moving with its alignment (Y0 190 -> 188,
+   +37 records): *"Yes that is fine."* `bonanzaperf`'s BENCH figures are
+   against the re-aligned course from K1 on.
 
 #### 128.33.13 As built: the guest (wave K2, 2026-11-17)
 
