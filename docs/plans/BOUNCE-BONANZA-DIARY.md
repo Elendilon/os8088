@@ -3232,3 +3232,5 @@ MartyPC's fall-frame A/B on both cards, one look-boot. **Not run**: the soak
 rows (the final pass's: `bonanzacourse`, `bonanzaassets`, `bonanzaring`,
 `bonanzaphys`, `bonanzareplay`, `bonanzaperf`, `bonanzawheel`,
 `bonanzapath`, `bonanzatitle`, `bonanzaexit`, `bonanzamega`).
+
+**Later the same day: the cell's top test.** The owner pointed out that a ball jumping high over a gap is above every front tile, so one test against the tile tops should end the model. It skipped a cell whose top was not above the ball but read all 14 cells every frame anyway. It now remembers the last cell and the highest top in front of it: the same cell with the ball at or over that top costs one compare. TRIAL's gap jump went from +10.6k a frame to +713 after the frame that enters each cell (PRICED). MEASURED on MartyPC, the median fall frame on MILL and PEAK's demo dropped from +12k to under +2k on the CGA; PEAK's scripted falls, which really go behind its terrain, still cost about +21k in the median.
