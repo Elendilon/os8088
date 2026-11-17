@@ -275375,6 +275375,39 @@ median and up to two thirds at worst, so a fall can drop to the next refresh
 where today's did not. The rule's own A/B (missed refreshes a second, six runs
 a build) has not been run; whether falls count is the owner's call.
 
+*The cell's top test (the owner's, 2026-11-17: "one test on the ball vs the
+tile's top; if we're above it, no more checks vs that tile").* The routine
+above already skipped a front cell whose top is not above K, but read all 14
+every frame and then walked the words, so a ball jumping high over a gap paid
+about +10.6k a frame for nothing (TRIAL's gap: no front cell counting, the
+pass 12.7k - 13.9k against today's 2.0k, PRICED). Now `bz_amodel` remembers
+the cell it last read the front of (`bz_acptr`, its offset in the part;
+`bz_crshdr` empties it) and the highest `H / 4` among that cell's readable
+front cells (`bz_amaxq`): **the same cell and `floor(K / 4)` at or over it is
+one compare and out**. The column table is filled only when a cell counts,
+and a frame where none counts returns before the words. No part byte; +98
+bytes of code, +7 of bss (a per-cell top byte in the part, the other option,
+would cost a byte a grid cell - 1,680 on PEAK - for the one read a cell the
+remembered cell already avoids). TRIAL's gap jump (the route, "Bounce Trial",
+its rubber ball's bounce over the two-tile gap), PRICED: the frame entering a
+cell +8.0k - +9.4k, every later frame in it **+713**.
+
+MEASURED again (MartyPC, the same legs, once):
+
+| card, run | AV - today: mean / median / worst |
+|---|---|
+| CGA, MILL falls (207 paired) | +11.2k / **+0.9k** / +57.2k |
+| CGA, PEAK falls (41) | +22.8k / +20.7k / +41.2k |
+| CGA, PEAK's demo (38) | +9.0k / **+0.9k** / +35.1k |
+| Hercules, MILL falls (189) | +11.7k / **+1.7k** / +70.9k |
+| Hercules, PEAK falls (38) | +23.8k / +20.8k / +49.4k |
+| Hercules, PEAK's demo (43) | +8.7k / +6.4k / +34.9k |
+
+What is left is the cost of a ball really going behind something: PEAK's
+scripted falls drop behind its terrain, where front cells count and the model
+lays, and the worst frames are those. A fall in front of an edge, or a flight
+high over a gap, is now within about 1k of today's pass.
+
 **The rows** (the final pass's, named, not run here): `bonanzacourse` (item
 15 and every item the records reach), `bonanzaassets`, `bonanzaring` (its
 oracle lays the model in VOID cells, `bbcourse.amodel_pix`), `bonanzaphys`
