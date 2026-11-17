@@ -21451,6 +21451,23 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
+#> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
+# BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
+# it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
+# (a FIELD cell's poses only from BZ_CLIMB up, airborne, a pose's pixels only past FSHOW = 8 lit px, and no
+# OCCG on a FIELD cell) on every course. Off, a FIELD cell's ball is cut at every real pose and its cell
+# carries OCCG. A course without FIELD cells is byte for byte the same either way; a course's own `fshow`
+# statement turns the rule on for that course alone. STAMPED, so turning it on or off recompiles the courses.
+BZFSHOW ?=
+ifeq ($(filter $(BZFSHOW),1),)
+ifneq ($(BZFSHOW),)
+$(error BZFSHOW=$(BZFSHOW) is 1 or empty)
+endif
+endif
+BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
+$(BZFSHOWSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzfshow-*
+	@touch $@
 # SPEC.md 128.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
@@ -21521,9 +21538,9 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) \
-                   $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZFSHOWSTAMP) \
+                   $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
