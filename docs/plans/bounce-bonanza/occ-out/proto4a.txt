@@ -1,0 +1,25 @@
+
+BENCH (bench.bbc): 64 cols x 130 block rows; RAM 40156, LZ4 7607, LZB 6011; with NO occluders RAM 27872, LZ4 4442, LZB 3504  [74s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3097   2662   2660    90    4   77   40156   12522   7607   6011      +0      +0
+  res4+V           0      0      0     0    0    0   27872     262   4442   3504   -3165   -2507
+
+FIRST (first.bbc): 64 cols x 37 block rows; RAM 10140, LZ4 2693, LZB 2194; with NO occluders RAM 8340, LZ4 1883, LZB 1570  [9s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base           335    291    291    34    3   19   10140    1852   2693   2194      +0      +0
+  res4+V           0      0      0     0    0    0    8340      76   1883   1570    -810    -624
+
+TRIAL (trial.bbc): 64 cols x 56 block rows; RAM 16880, LZ4 4636, LZB 3798; with NO occluders RAM 13326, LZ4 3379, LZB 2806  [24s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base           919    707    707    39    4   45   16880    3644   4636   3798      +0      +0
+  res4+V           0      0      0     0    0    0   13326     114   3379   2806   -1257    -992
+
+MILL (mill.bbc): 64 cols x 81 block rows; RAM 29975, LZ4 9520, LZB 7786; with NO occluders RAM 23629, LZ4 7355, LZB 6032  [37s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          1649   1290   1279    67    4   41   29975    6486   9520   7786      +0      +0
+  res4+V          22     22     22    10    2    5   23921     432   7521   6177   -1999   -1609
+
+ALL: variant, part records, RAM, occluder RAM (I R K O), LZ4, LZB
+  base           4937    97151    24504    24456    19789
+  res4+V           22    73459      884    17225    14057
+  (none)            0    73167        0    17059    13912

@@ -1,5 +1,10 @@
 per PLAYED STEP of each course's demo, the pass PREDICTED (one box; see the constants)
 course demo                      steps  gated  void   today lineclp  vghost     A4R  worst w.clip    w.V  w.A4R  groups, lines laid -> active; A: front cells, occluding a frame
-BENCH  route demo                 3600   2685     0    7129    7048    7129    8204   7490   7480   7490  10490  12613, 77785 -> 71192 (92%); 5.5, 1.05
+BENCH  route demo                 3600   2685     0    7129    7048    7129    7862   7490   7480   7490   8860  12613, 77785 -> 71192 (92%); 5.5, 0.97
 FIRST  route demo                  154     21    21    1587    1587       0    1630   1690   1690      0   1750  0, 0 -> 0 (0%); 3.0, 0.00
-TRIAL  route demo                  499    128    22    1718    1661    1511    2707   3020   2185   3020   4640  12, 26 -> 0 (0%); 10.4, 0.85
+TRIAL  route demo                  499    128    22    1718    1661    1511    2102   3020   2185   3020   2510  12, 26 -> 0 (0%); 10.4, 0.00
+MILL   route demo                  778    263     0    3161    2892    3161    4018   7345   6810   7345   9520  340, 1806 -> 1137 (63%); 9.5, 0.57
+MOON   authored moon.bzd          1983   1580    50    3373    3106    3216    4874  11350  11545  11350  23840  2706, 14364 -> 10108 (70%); 11.5, 0.55
+PEAK   authored summit.bzd        2172   1393    58    4820    4672    4763    7914  13045  13405  13045  24750  4116, 22980 -> 20160 (88%); 10.2, 0.92
+PLAY   authored playground.bzd    1504     31     0    2011    1800    2011    2855   3800   3145   3800   4400  20, 116 -> 46 (40%); 13.0, 0.00
+PLAY   authored playground.bzd    1504     31     0    2011    1800    2011    2855   3800   3145   3800   4400  20, 116 -> 46 (40%); 13.0, 0.00
