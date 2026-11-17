@@ -1067,7 +1067,7 @@ SEC_LIMIT_PLAY = 40 * 546 // 10                 # PLAYGROUND's `limit 40` in ste
 GLASS_PATH = ((9, 27), (8, 27), (7, 27), (6, 27))
 
 
-GLASS_LEGS = ("crack-rubber", "glass-path", "crack-steel", "crack-glass")
+GLASS_LEGS = ("crack-rubber", "glass-path", "crack-steel", "crack-glass", "crack-lab")
 
 
 def glass_keys(leg):
@@ -1137,6 +1137,19 @@ def glass_keys(leg):
         d.go(22.5, 24.5)
         across(384)
         mark("fast")
+    elif leg == "crack-lab":                    # EXPLORATORY (SPEC.md 128.25.18.1): the CRACK LAB
+        d.go(31.5, 19.5)                        # (steel from the lab's pad; the floating bridge wy 16, its
+        d.go(32.5, 19.5)                        # cracks 35, 37, 39 VANISH; the wide holes at 38, 40 wy 19)
+        d.k(0, 2)
+        d.go(33.5, 16.5)
+        d.line(1, 80, 99)
+        mark("vslow")
+        d.go(33.5, 16.5)
+        d.line(1, 384, 40.8)
+        mark("vfast")
+        d.go(41.5, 19.5)
+        d.line(-1, 80, -99)
+        mark("wslow")
     else:
         pad((22.5, 27.5))
         d.go(11.5, 24.5)
@@ -1156,7 +1169,9 @@ def glass_keys(leg):
 
 def glass_verdict(leg, ms, rev, p):
     """-> (ok, a line): the leg's milestones as SPEC.md 128.25.8's table says"""
-    k = sorted(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK)
+    k = sorted(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 24)
+    lab = sorted({pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 16})
+    lab = lambda w, lab=lab: bytes(ms[w]["fst"][j] for j in lab)
     cr = lambda w: bytes(ms[w]["fst"][j] for j in k)
     nine = next(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"] == (9, 24))
     at9 = lambda w: ms[w]["fst"][nine] if w in ms else None
@@ -1181,6 +1196,13 @@ def glass_verdict(leg, ms, rev, p):
                    and cr("hop") == bytes(4)),
                   ("steel fast: across, all four broken", ms["fast"]["nfall"] == 2 and ms["fast"]["cell"] == (4, 24)
                    and cr("fast") == b"\xff" * 4)]
+    elif leg == "crack-lab":
+        checks = [("steel slow onto a vanishing crack: a fall, restored", ms["vslow"]["mat"] == BB.MAT_STEEL
+                   and ms["vslow"]["nfall"] == 1 and lab("vslow") == bytes(3)),
+                  ("steel fast across the floating bridge: all three vanished behind it", ms["vfast"]["nfall"] == 1
+                   and ms["vfast"]["cell"][0] >= 40 and lab("vfast") == b"\xff" * 3),
+                  ("steel slow onto a wide hole: a fall, all restored", ms["wslow"]["nfall"] == 2
+                   and lab("wslow") == bytes(3))]
     else:
         checks = [("glass across and back: never broken", ms["rolled"]["mat"] == BB.MAT_GLASS
                    and ms["rolled"]["nfall"] == ms["at"]["nfall"] and cr("rolled") == bytes(4)),
@@ -1712,7 +1734,7 @@ def fam_host():
     sk, sm = gl["crack-steel"][1], gl["crack-steel"][0]
     gsrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "glass.asm")).read()
     old = re.sub(r"(?m)^    call far \[bz_fmkp\][^\n]*\n", "    mov byte [bz_latt + bx], 1\n", gsrc)
-    one = gsrc.replace("    call far [bz_fmkp]          ; its lane marked, the next walk made\n", "")
+    one = gsrc.replace("    call gl_mark                ; its lane marked, the next walk made\n", "")
     la = sym["bz_latt"]
     for arm, txt, patch in (("glsquiet", old, ()), ("glsmark", one, ()),
                             ("fmkquiet", None, (("bz_fmark", bytes((0xC6, 0x87, la & 255, la >> 8, 1, 0xCB))),))):
@@ -1733,6 +1755,24 @@ def fam_host():
         out.append("red %s: %s" % (arm, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    # EXPLORATORY (SPEC.md 128.25.18.1): red glspart - gl_mark marks the crack's lane and not its
+    # COMPANION's, so a vanishing crack's lower lane is never drawn (crack-lab must go red: "never drawn")
+    txt = gsrc.replace("    xor bh, bh\n    call far [bz_fmkp]\n.o:", "    xor bh, bh\n.o:")
+    assert txt != gsrc, "red glspart: its patch did not apply"
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "bonanza")
+        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+        open(os.path.join(src, "fam", "glass.asm"), "w").write(txt)
+        o = os.path.join(td, "part.bin")
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                        src + "/", "-I", R.at("build/bonanza-art") + "/", "-o", o,
+                        os.path.join(src, "fam", "glass.asm")], cwd=ROOT, check=True)
+        ff = fam_parts({"glass": open(o, "rb").read()})
+    _p, bad = urun(binp, lst, sym, "play", gl["crack-lab"][0], gl["crack-lab"][1], ff, ())
+    ok = any("never drawn" in b for b in bad)
+    out.append("red glspart: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
+    if not ok:
+        fails.append("red glspart stayed green on the unicorn: %s" % bad[:1])
     # the RESIDENT BUNDLE (SPEC.md 128.25.6.9): the demos above found rotor, spring and tube by walking its
     # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and PEAK, which names
     # all three, is refused by bz_ffetch (the next header is not where the step lands)

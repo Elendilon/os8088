@@ -17934,11 +17934,30 @@ def _w9_cases():
         ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
         ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
         ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
+        # EXPLORATORY (SPEC.md 128.25.18.1): a crack's hole size; wide cracks edge to edge; a vanishing (floating)
+        # crack whose grounded neighbours' faces would show past its two lanes
+        ("a crack's hole of no size", _W9B + "uses glass\nprop crack 10 5 hole huge\n", "hole takes small|band|wide"),
+        ("two wide cracks edge to edge", _W9B + "uses glass\nprop crack 10 5 hole wide\nprop crack 11 5 hole wide\n",
+         "two lanes share blocks"),
+        ("a vanishing crack on a grounded corner", _W9B + "floor rect 4 10 6 12 flat -4\nfloat rect 8 7 9 8\n"
+         "uses glass\nprop crack 8 7\n", "a vanishing crack at (8, 7)"),
     ]
 
 
 def _w9_checks(res):
     """wave 9's selfcheck (SPEC.md 128.25.6, 128.25.7, 128.25.13 bonanzacourse)"""
+    # EXPLORATORY (SPEC.md 128.25.18.1): a floating crack VANISHES over two lanes, the companion's record
+    # naming the crack (+18) and sharing its byte; its control (_hack novanish) keeps the one holed lane
+    vt = _W9B + "float rect 4 4 9 8\nuses glass\nprop crack 8 7\n"
+    got = []
+    for hk in ({}, {"novanish": True}):
+        c = compile_course(vt, fname="<vanish>", occluders=False, _hack=hk)
+        rs = [d for d in c.part["props"] if d["kind"] == FK_CRACK]
+        got.append(sorted((d["comp"], d["partner"] is not None, d["fsb"], d["lane"]["h"] if not d["comp"] else
+                           min(d["lane"]["h"], 2)) for d in rs))   # (the companion's 2 - 3 rows: the alignment)
+    res.append(("2 a floating crack vanishes over two lanes, one byte (128.25.18.1): %s; its control %s"
+                % (got[0], got[1]), got[0] == [(False, True, 0, 3), (True, True, 0, 2)]
+                and got[1] == [(False, False, 0, 2)]))
     for what, text, want in _w9_cases():
         try:
             compile_course(text, fname="<%s>" % what, occluders=False)
