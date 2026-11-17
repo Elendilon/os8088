@@ -1067,7 +1067,7 @@ SEC_LIMIT_PLAY = 40 * 546 // 10                 # PLAYGROUND's `limit 40` in ste
 GLASS_PATH = ((9, 27), (8, 27), (7, 27), (6, 27))
 
 
-GLASS_LEGS = ("crack-rubber", "glass-path", "crack-steel", "crack-glass", "crack-lab")
+GLASS_LEGS = ("crack-rubber", "glass-path", "crack-steel", "crack-glass", "crack-lab", "crack-bridge")
 
 
 def glass_keys(leg):
@@ -1153,6 +1153,14 @@ def glass_keys(leg):
         nf = d.p.nfall                          # (line() aims at x 40, so it would brake for the platform)
         d.go(90, 16.5, 384, until=lambda: d.p.nfall > nf or d.pos()[0] >= 40.8)
         mark("vfast")
+    elif leg == "crack-bridge":                 # EXPLORATORY (SPEC.md 128.27.2.1): the THIN BRIDGE, wy 14,
+        d.go(33.5, 14.5)                        # its five cracks 35 - 39 edge to edge (rubber): slowly onto
+        d.line(1, 70, 99)                       # the first (a fall, restored), then at speed across all five
+        mark("bslow")
+        d.go(26.5, 14.5)
+        nf = d.p.nfall
+        d.go(90, 14.5, 384, until=lambda: d.p.nfall > nf or d.pos()[0] >= 40.3)
+        mark("bfast")
     else:
         pad((22.5, 27.5))
         d.go(11.5, 24.5)
@@ -1175,6 +1183,8 @@ def glass_verdict(leg, ms, rev, p):
     k = sorted(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 24)
     lab = sorted({pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 16})
     lab = lambda w, lab=lab: bytes(ms[w]["fst"][j] for j in lab)
+    brg = sorted({pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 14})
+    brg = lambda w, brg=brg: bytes(ms[w]["fst"][j] for j in brg)
     cr = lambda w: bytes(ms[w]["fst"][j] for j in k)
     nine = next(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"] == (9, 24))
     at9 = lambda w: ms[w]["fst"][nine] if w in ms else None
@@ -1206,6 +1216,11 @@ def glass_verdict(leg, ms, rev, p):
                    and lab("wslow") == bytes(3)),
                   ("steel fast across the floating bridge: all three vanished behind it", ms["vfast"]["nfall"] == 2
                    and ms["vfast"]["cell"][0] >= 40 and lab("vfast") == b"\xff" * 3)]
+    elif leg == "crack-bridge":
+        checks = [("rubber slow onto the bridge's first crack: a fall, restored", ms["bslow"]["nfall"] == 1
+                   and brg("bslow") == bytes(5)),
+                  ("rubber fast across the bridge: all five vanished behind it, one by one",
+                   ms["bfast"]["nfall"] == 1 and ms["bfast"]["cell"][0] >= 40 and brg("bfast") == b"\xff" * 5)]
     else:
         checks = [("glass across and back: never broken", ms["rolled"]["mat"] == BB.MAT_GLASS
                    and ms["rolled"]["nfall"] == ms["at"]["nfall"] and cr("rolled") == bytes(4)),

@@ -278685,8 +278685,9 @@ over ...`: float its neighbours too, or keep a hole).
   and is refused: one cell apart, or a crack among plain floating tiles.
 
 **Round 2 (a thin bridge)**: `float <shape> thick <units>` (128.27.2.1)
-makes a floating slab thinner than 3 units; a crack on it vanishes as a
-bridge tile rather than a column, and in one lane.
+makes a floating slab thinner than 3 units, a BRIDGE; a crack on it
+vanishes inside a 2 x 3-block lane of its own, its side corners left as
+jagged leftovers, so bridge cracks may lie edge to edge.
 
 **Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge,
 in the start's rows (roll +x from the start): a FLOATING bridge at `wy` 16
@@ -279316,23 +279317,37 @@ merges until the owner likes it.
   physics, no route), exactly as `float`.
 - **Refused**: a `thick` that is not a multiple of 0.25 or is outside 0.25 -
   3 (`float's thick takes units ...`).
-- **With GLASS's vanishing crack** (128.25.18.1): a crack on a thin bridge
-  vanishes as a bridge TILE falling away, not a column. A tile's top is 16
-  lines and a half-unit slab's faces 4 more, so its broken picture usually
-  fits ONE lane (3 block rows): no companion record and no one-frame
-  stagger. The tool still lays a companion when the block alignment or a
-  neighbour's exposed face takes it to a fourth row. MEASURED on
-  PLAYGROUND: all three thin-bridge cracks (two at 0.5, one at 1 unit) are
-  one lane each; the 3-unit bridge's two of three need companions.
-- **Adjacency**: vanishing cracks edge to edge still share lane blocks and are
-  refused, one cell apart is the rule for now. GROUP LANES (overlapping lanes
-  merged, every pose combination drawn; another agent's work) are the
-  general fix, and a thin bridge is their cheapest case: with one lane a
-  tile, a run of n vanishing bridge tiles is one group of 2^n pre-drawn
-  poses, so a whole bridge could drop away tile by tile behind a fast ball.
+- **A crack on a BRIDGE** (a cell a `thick` names; the owner, 2026-11-17:
+  *"it could do the same 2x3 thing glass did and just leave the 'spare
+  corners' drawn (little jagged leftovers on the two connecting sides). No
+  columns going down, smaller visible area to go across"*) VANISHES inside a
+  lane of its own of **2 x 3 blocks** (glass look 11's, `w9/glassart`): the
+  two block columns round its top's centre and the three block rows from
+  the multiple of 8 nearest `cy - 12`, so the whole of its middle - the top's
+  band and the thin face under it - goes. Its pose 3 is the picture drawn
+  without the tile (128.25.18.1's render) CLIPPED to that lane; what of the
+  tile lies outside it, the top's left and right corners and their faces,
+  stays drawn: small jagged leftovers on the connecting sides. ONE lane,
+  so no companion record and no one-frame stagger; no refusal by size (the
+  clip is the look).
+- **Adjacent bridge cracks** each have their own lane, because a tile's
+  edge neighbours' 2-wide lanes are two block columns away: a run of them
+  edge to edge is accepted and each vanishes on its own (a neighbour's
+  corner left in the other's lane is drawn from a picture with that
+  neighbour whole - which is the leftover). What is still REFUSED: two
+  bridge cracks touching at a corner DOWN the screen (`wx + 1, wy + 1`: the
+  same columns, 16 lines lower, one block row shared - "two lanes share
+  blocks"); corner neighbours ACROSS the screen (`wx + 1, wy - 1`) are four
+  columns apart and fine. No GROUP LANES are needed (another agent's
+  experimental work).
+- A 3-unit float (no `thick`) keeps round 1's whole-column vanish
+  (128.25.18.1: two lanes, a companion) for comparison.
 - **Shipped on**: PLAYGROUND's crack lab, a thin bridge at `wy` 14 (wx 34 -
   37 at half a unit, 38 - 40 at one unit, stepping down at (40, 15) onto
-  the 3-unit bridge), its cracks 35, 37, 39 vanishing.
+  the 3-unit bridge), its five cracks 35 - 39 EDGE TO EDGE.
+  `tests/bonanza_phys.py --check`'s `crack-bridge` leg: rubber slowly onto
+  the first (a fall, restored), then at speed across all five (every one
+  vanished behind it), guest = model at every step and every pose drawn.
 
 #### 128.27.3 Everything else that draws down into the void
 

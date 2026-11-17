@@ -5689,12 +5689,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         gtiles.update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
     ground = None if hack.get("noground") else ground_z(gtiles)
     floats = {}                                     # (a cell -> its faces' depth over the void, px)
+    bridges = set()                                 # (cells a `float ... thick` names: a BRIDGE, 128.27.2.1)
     vface = void_face_cells({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles)
     for fcells, fln, fdep in src.floats:
         if not fcells & vface:
             raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
                               "(SPEC.md 128.27.2)" % (fname, fln))
         floats.update((c_, fdep) for c_ in fcells)     # (a later statement's depth wins)
+        bridges = (bridges | fcells) if fdep != FACE8 else (bridges - fcells)
     ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
                    {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
@@ -5860,6 +5862,39 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                                                                     p["frow"]["name"], wx, wy, cx))
             sF = wx + wy
             hole = p.get("hole", "small") if p["art"] == "crack" else "small"
+            if p["art"] == "crack" and p["at"] in bridges and not hack.get("novanish"):
+                # EXPLORATORY (SPEC.md 128.27.2.1, the owner's): a crack on a THIN BRIDGE vanishes inside a
+                # 2 x 3-block lane (glass look 11's) - the picture without the tile, clipped to the lane, so
+                # what of its top and thin face lies outside (its two side corners) stays drawn as small
+                # jagged leftovers on the connecting sides, and the next tile's lane is 2 columns away
+                vkey = (hashlib.sha256(text.encode()).digest(), fname, p["at"], repr(sorted(
+                    (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
+                if vkey not in _VANISH_MEMO:
+                    vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}
+                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
+                                    ground, floats)
+                    if props:
+                        vops = prop_ops(vt, vops, props, x0)
+                    vcv = render(vt, vops, x0, y0, width, lines, owners)
+                    g_ = {}
+                    for y in range(lines):
+                        r0_, r1_ = cv_rows0[y], vcv.rows[y]
+                        if r0_ != bytes(r1_):
+                            for x in range(width):
+                                if r0_[x] != r1_[x]:
+                                    g_[(x, y - y0)] = r1_[x]
+                    _VANISH_MEMO[vkey] = g_
+                gone = {(x, y + y0): c for (x, y), c in _VANISH_MEMO[vkey].items()}
+                rect = ((cx - 8) >> 3, ((cy - 12 + 4) >> 3), 2, LANE_HMAX)   # (its first line the multiple
+                inr = lambda xy, r=rect: 8 * r[0] <= xy[0] < 8 * (r[0] + 2) and 8 * r[1] <= xy[1] < 8 * (r[1] + 3)
+                marks = crack_poses(cx, cy, "small")                        # of 8 nearest cy - 12)
+                poses = {q: {xy: c_ for xy, c_ in marks[q].items() if inr(xy) and 0 <= xy[1] < lines
+                             and cv.sbuf[xy[1]][xy[0]] <= sF} for q in range(3)}
+                poses[3] = {xy: c_ for xy, c_ in gone.items() if inr(xy)}
+                p["fpix"], p["vanish"] = poses, "bridge"
+                lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                              "line": p["line"]})
+                continue
             if p["art"] == "crack" and p["at"] in floats and not hack.get("novanish"):
                 # EXPLORATORY (SPEC.md 128.25.18.1): a FLOATING crack VANISHES - its pose 3 the picture drawn
                 # without the tile (its top and faces gone, a neighbour's face it hid hanging into the gap),
@@ -17951,6 +17986,8 @@ def _w9_cases():
         ("a crack's hole of no size", _W9B + "uses glass\nprop crack 10 5 hole huge\n", "hole takes small|band|wide"),
         ("two wide cracks edge to edge", _W9B + "uses glass\nprop crack 10 5 hole wide\nprop crack 11 5 hole wide\n",
          "two lanes share blocks"),
+        ("two bridge cracks touching at a corner (128.27.2.1)", _W9B + "float rect 4 4 9 8 thick 0.5\nuses glass\n"
+         "prop crack 5 5\nprop crack 6 6\n", "two lanes share blocks"),
         ("a float thick 4 units", _W9B + "float rect 9 5 12 6 thick 4\n", "float's thick takes units"),
         ("a float thick 0.3 units", _W9B + "float rect 9 5 12 6 thick 0.3\n", "float's thick takes units"),
         ("a vanishing crack on a grounded corner", _W9B + "floor rect 4 10 6 12 flat -4\nfloat rect 8 7 9 8\n"
@@ -17973,11 +18010,11 @@ def _w9_checks(res):
                 % (got[0], got[1]), got[0] == [(False, True, 0, 3), (True, True, 0, 2)]
                 and got[1] == [(False, False, 0, 2)]))
     # ...and on a THIN bridge (`float ... thick`, 128.27.2.1) the tile and its faces fit ONE lane: no companion
-    c = compile_course(_W9B + "float rect 4 4 9 8 thick 0.5\nuses glass\nprop crack 8 7\n", fname="<bridge>",
-                       occluders=False)
-    rs = [(d["comp"], d["partner"], d["lane"]["h"]) for d in c.part["props"] if d["kind"] == FK_CRACK]
-    res.append(("2 a crack on a thin bridge (thick 0.5) vanishes in one lane, no companion (128.27.2.1): %s" % rs,
-                len(rs) == 1 and rs[0][1] is None and not rs[0][0]))
+    c = compile_course(_W9B + "float rect 9 5 12 6 thick 0.5\nuses glass\nprop crack 10 5\nprop crack 11 5\n",
+                       fname="<bridge>", occluders=False)
+    rs = [(d["comp"], d["partner"], d["lane"]["w"], d["lane"]["h"]) for d in c.part["props"] if d["kind"] == FK_CRACK]
+    res.append(("2 two ADJACENT cracks on a thin bridge (thick 0.5) each vanish in their own 2 x 3 lane, no companion "
+                "(128.27.2.1): %s" % rs, rs == [(False, None, 2, 3)] * 2))
     for what, text, want in _w9_cases():
         try:
             compile_course(text, fname="<%s>" % what, occluders=False)
