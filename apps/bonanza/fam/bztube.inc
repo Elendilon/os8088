@@ -1,8 +1,9 @@
 ; =============================================================================
 ; apps/bonanza/fam/bztube.inc - THE TUBE's rules (SPEC.md 128.12.6.1, 128.17.17),
-; ONE source (SPEC.md 128.25.20.3): included by bzphys.inc when the package is
-; built with BZ_TUBE_RESIDENT (the tube resident, as before story 9.8), else by
-; the TUBE family's part, fam/tube.asm.  Either way the helpers it calls -
+; ONE source (SPEC.md 128.25.20.3): included by the TUBE family's part,
+; fam/tube.asm, and written so the package could include it as it is to make
+; the tube resident again (as before story 9.8; no switch for that is built,
+; the family's home superseded it).  Either way the helpers it calls -
 ; bz_lrecsi, bz_vmax, bz_h4, bz_setz, bz_psync - are the includer's: the
 ; package's own, or the part's copies (fam/bzfcopy.inc), which answer the same.
 ; The one difference is how a step in the tube ENDS, the includer's two macros:
