@@ -327,15 +327,6 @@ C apps/bonanza/bonanza.asm bz_cseg       # the course part (one a course, its gr
                                          # and dropped as it returns, all inside
                                          # bz_launch's one call (SPEC.md 128.7,
                                          # 128.10.6.3)
-C apps/bonanza/bonanza.asm bz_bsegs+bx   # the ball parts (rows BZ_P_BALR + the
-                                         # material: the starting ball's and every
-                                         # one the course's PAD MASK names, up to
-                                         # three, one fetch site in a loop, each
-                                         # segment in its own word of bz_bsegs):
-                                         # the same call, the same bracket - a
-                                         # pad's swap points the sprite at another
-                                         # in mid-play - dropped beside the course
-                                         # (SPEC.md 128.11.3.1, 128.14.4.4)
 C apps/bonanza/bonanza.asm bz_lseg       # a demo file's STAGING claim (L's dialog
                                          # or a double-clicked .BZR): claimed at
                                          # exactly the file's size, read into as
@@ -386,14 +377,21 @@ C apps/bonanza/bzfam.inc @bz_ffetch      # a family part, fetched into the arena
                                          # far pointers bz_ftab/bz_fmkp name its segment
                                          # for the frame loop and the bracket, dropped
                                          # by bz_cdrop (SPEC.md 128.25.6)
-N apps/bonanza/bonanza.asm bz_homedir    # bz_entry's resident-bundle fetch (BZ_P_FBUN,
-                                         # an OP_ARENA row): the arena stays claimed and
-                                         # PINNED from the window's open to its close,
-                                         # also between plays, because BONANZA defines no
-                                         # OP_ONMOVE so op_ardecl is not assembled; a
-                                         # move would need a hook re-deriving bz_bsegs,
-                                         # bz_cseg, the songs, the family records and far
-                                         # pointers, plus an op_pin round the bracket
+N apps/bonanza/bonanza.asm op:BZ_P_FBUN # the RESIDENT BUNDLE (bz_bget: bz_entry's fetch,
+                                         # again by a launch if the open's was refused):
+                                         # an OP_ARENA row, the arena's floor - and since
+                                         # SPEC.md 128.25.5.2 THE THREE BALLS at its head,
+                                         # 31,168 bytes, generated once and held with the
+                                         # families for the instance's life, the window
+                                         # included (the owner, 2026-11-17: RAM to be
+                                         # reviewed at the game's end). The arena stays
+                                         # claimed and PINNED from the window's open to
+                                         # its close, also between plays, because BONANZA
+                                         # defines no OP_ONMOVE so op_ardecl is not
+                                         # assembled; a move would need a hook re-deriving
+                                         # bz_bsegs, bz_cseg, the songs, the family
+                                         # records and far pointers, plus an op_pin round
+                                         # the bracket
 C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
                                          # copied whole into bz_rlog and dropped
                                          # inside V's one key call (SPEC.md
