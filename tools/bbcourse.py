@@ -367,6 +367,8 @@ PK_NAMES = {PK_TUBE: "tube", PK_WINDMILL: "windmill", PK_BUMPER: "bumper", PK_PL
             PK_CHECKPOINT: "checkpoint", PK_PAD: "pad", PK_CUP: "cup", PK_SPRING: "spring", PK_CLOCK: "clock"}
 PK_SIGN = 10                  # wave 8R (SPEC.md 128.22.4.1): a LANE and nothing else, posed by bz_nst[+28]
 PK_NAMES[PK_SIGN] = "sign"
+PK_GROUP = 255                # SPEC.md 128.31.4: a GROUP LANE's record, posed by its members' combined classes
+PK_NAMES[PK_GROUP] = "group"
 
 # --- wave 9 (SPEC.md 128.25.6, 128.25.7): FAMILIES - a mechanic as a code part ------------------------
 # Prop kinds FAM_K0 - 255 are FAMILY kinds; a family owns a run of them.  A course names the families it
@@ -413,7 +415,7 @@ FAMILIES = (
     # the floor) and the GLASS PATH tile (a bit: REVEALED).  CONSTS fold into its FAMV: CRACK_TS, CRACK_TR,
     # CRACK_LATE
     {"name": "glass", "id": 2, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL,
-     "slot": 1, "consts": (14, 28, 6),
+     "slot": 1, "consts": (14, 28, 6), "group": True,     # (SPEC.md 128.31: its RESET walks every record)
      "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
@@ -585,8 +587,8 @@ def famv(f):
 
 def is_fam(kind):
     """a family ELEMENT (128.25.6.4's record: FSB, its class): a family kind that is not own-layout (story
-    9.8's are never seen here - the tool keeps their own numbers)"""
-    return kind >= FAM_K0
+    9.8's are never seen here - the tool keeps their own numbers); never the GROUP's 255 (SPEC.md 128.31.4)"""
+    return FAM_K0 <= kind < PK_GROUP
 
 
 def fam_fetched(fams):
@@ -609,6 +611,11 @@ CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1,
               (6, 8, 16, 30, 17, 17, 14), (31, 1, 2, 4, 8, 8, 8), (14, 17, 17, 14, 17, 17, 14),
               (14, 17, 17, 15, 1, 2, 12))
 PF_UNDER, PF_LANE = 1, 2      # record +1: UNDERSIDE (reserved, refused), LANE
+PF_GRP = 4                    # ...a group MEMBER (SPEC.md 128.31.4): no lane, +8 - +15 its group lanes, 0FFh after
+GRP_MMAX = 4                  # SPEC.md 128.31.1: members a group lane (its four entries, +16 - +31)
+GRP_QMAX = 4                  # ...a member's poses (its class map is 2 bits a pose)
+GRP_PMAX = 64                 # ...a group lane's poses (the product of its members' classes)
+GRP_LMAX = 8                  # ...group lanes one member is in (its record's +8 - +15)
 FL_OBS = 8                    # grid +3 bit 3: the cell belongs to a prop
 FL_EXITSH = 4                 # grid +3 bits 4 - 7: a GOAL cell's EXIT (wave 8b, SPEC.md 128.19.4)
 FL_EDGES = 16 | 32            # bits 4 - 5: RESERVED for `edge`
@@ -1100,12 +1107,18 @@ CRACK_LINES = (
 CRACK_HOLE = 5.0              # the hole: |u| / 2 + |v| under this (and a ragged rim), black
 
 
-def crack_poses(cx, cy):
+CRACK_HOLE_FULL = 7.0         # SPEC.md 128.31.8: a `full` crack's hole, |u| / 2 + |v| under this (the top is 8)
+
+
+def crack_poses(cx, cy, full=False):
     """a crack's four poses, {pose: {(x, y): ink}} round the top's centre (cx, cy), picture pixels: 0 whole
     (a black hairline), 1 cracked, 2 cracking (its last CRACK_LATE steps), 3 broken (the hole drawn).
-    Only on its top (crystal_top_ink's diamond, the tile's top footprint) and inside |u| < 8"""
+    Only on its top (crystal_top_ink's diamond, the tile's top footprint) and inside |u| < 8 - or, FULL
+    (SPEC.md 128.31.8), the hole over the whole top less a ragged rim"""
+    um = 16 if full else 8
+
     def on(u, v):
-        return -8 <= u < 8 and BA.crystal_top_ink(u, v) is not None
+        return -um <= u < um and BA.crystal_top_ink(u, v) is not None
     out, acc = {}, {}
     for q in range(3):
         for a, b in CRACK_LINES[q]:
@@ -1114,21 +1127,24 @@ def crack_poses(cx, cy):
                     acc[(cx + u, cy + v)] = BLK
         out[q] = dict(acc)
     hole = dict(acc)
+    lim = CRACK_HOLE_FULL if full else CRACK_HOLE
     for v in range(-8, 8):
-        for u in range(-8, 8):
-            if on(u, v) and abs(u) / 2.0 + abs(v) < CRACK_HOLE + ((u * 7 + v * 3) % 5) / 4.0:
+        for u in range(-um, um):
+            if on(u, v) and abs(u) / 2.0 + abs(v) < lim + ((u * 7 + v * 3) % 5) / (8.0 if full else 4.0):
                 hole[(cx + u, cy + v)] = BLK
     out[3] = hole
     return out
 
 
-def glass_poses(cx, cy, jag):
+def glass_poses(cx, cy, jag, full=False):
     """a glass tile's two poses round its top's centre: 0 INVISIBLE (the picture is drawn without the tile;
     the path's FIRST tile shows a JAGGED EDGE, white teeth, along its edge `jag` = (dx, dy) toward the
-    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8"""
+    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8 - or, FULL
+    (SPEC.md 128.31.8), over the whole top"""
     q0, q1 = {}, {}
+    um = 16 if full else 8
     for v in range(-8, 8):
-        for u in range(-8, 8):
+        for u in range(-um, um):
             ink = BA.crystal_top_ink(u, v)
             if ink is None:
                 continue
@@ -1214,6 +1230,12 @@ def _parse_fprop(toks, where, ln):
     fam, kr = FKIND_BY_NAME[toks[1][1]]
     if fam.get("consts") == "PU":
         return _parse_pickup(toks, where, ln, fam, kr)
+    full = False
+    if len(toks) in (5, 7) and toks[-1] == ('w', "full"):     # SPEC.md 128.31.8: the art over the WHOLE top
+        if kr["art"] not in ("crack", "glass"):
+            raise CourseError("%s: `full` is a crack's or a glass tile's (SPEC.md 128.31.8), not a %s's"
+                              % (where, kr["name"]))
+        toks, full = toks[:-1], True
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -1232,7 +1254,7 @@ def _parse_fprop(toks, where, ln):
         raise CourseError("%s: a %s needs its reset class: `reset attempt` or `reset respawn` (SPEC.md "
                           "128.25.7.1: every element declares how it resets)" % (where, kr["name"]))
     return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
-            "cls": cls, "seed": None}
+            "cls": cls, "seed": None, "full": full}
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
@@ -3978,7 +4000,7 @@ def build_props(src, tiles, fname):
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                       "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
-                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0)})
+                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0), "full": sp.get("full", False)})
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -6502,11 +6524,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   "x must be a multiple of 8, SPEC.md 128.25.18)" % (fname, p["line"],
                                                                                     p["frow"]["name"], wx, wy, cx))
             sF = wx + wy
-            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
-            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            full = p.get("full")
+            rect = ((cx - 16) >> 3, (cy - 8) >> 3, 4, ((cy + 7) >> 3) - ((cy - 8) >> 3) + 1) if full \
+                else ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)    # (SPEC.md 128.31.8: `full`, the whole top's blocks)
+            poses = crack_poses(cx, cy, full) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"), full)
             for q in poses:
                 poses[q] = {(x, y): c for (x, y), c in poses[q].items()
-                            if 8 * rect[0] <= x < 8 * rect[0] + 16 and 8 * rect[1] <= y < 8 * rect[1] + 16
+                            if 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
                             and 0 <= y < lines and cv.sbuf[y][x] <= sF}
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
@@ -6557,12 +6581,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         if bx < 0 or by < 0 or bx + w > cols or by + h > brows:
             raise CourseError("%s:%d: a lane outside the picture" % (fname, L["line"]))
         L["bare"] = [bytes(cv.rows[y][8 * bx:8 * (bx + w)]) for y in range(8 * by, 8 * (by + h))]
-        for M in lanes:
-            if M is not L and M["prop"] > L["prop"]:
-                mx, my, mw, mh = M["rect"]
-                if bx < mx + mw and mx < bx + w and by < my + mh and my < by + h:
-                    raise CourseError("%s:%d: two lanes share blocks (lines %d and %d)"
-                                      % (fname, M["line"], L["line"], M["line"]))
+    lanes = group_lanes(lanes, props, cv, fname, hack)    # SPEC.md 128.31: lanes that share blocks, a GROUP
     for L in lanes:                                   # pose 0 into the picture
         for (x, y), ink in L["poses"][0].items():
             cv.rows[y][x] = ink
@@ -6762,10 +6781,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     spo = spoff
     pmo = pmoff
     slab_b = slab_bytes(slab) if slab else b""
+    jof = {i: j for j, i in enumerate(order)}
     for j, i in enumerate(order):
         p = props[i]
         L = lane_of.get(i)
-        flags = PF_LANE if L else 0
+        flags = PF_LANE if L else (PF_GRP if p.get("grp") else 0)
         rec = struct.pack("<BBBBBBH", p["kind"], flags, p["at"][0], p["at"][1], p["mask"], p["shift"], p["seed"])
         if L:
             bx, by, w, h = L["rect"]
@@ -6777,10 +6797,21 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                     blkp.append(pmoff + len(pmb))
                     pmb += struct.pack("<H", 16 * n)
             pmo += 2 * len(L["poses"]) * w * h
+        elif p.get("grp"):                          # SPEC.md 128.31.4: a MEMBER, its group lanes' records
+            rec += bytes(jof[g] for g in p["grp"]) + b"\xff" * (8 - len(p["grp"]))
+            p["lane"] = None
         else:
             rec += bytes(8)
             p["lane"] = None
-        if p["kind"] in (PK_TUBE, PK_WINDMILL):
+        if p["kind"] == PK_GROUP:                   # SPEC.md 128.31.4: four ENTRIES (member, kind, CLASS MAP, MULT)
+            eb = b""
+            for e in p["ents"]:
+                cm = 0
+                for q_, cl in enumerate(e["cmap"]):
+                    cm |= cl << (2 * q_)
+                eb += bytes((jof[e["m"]], props[e["m"]]["kind"], cm, e["mult"]))
+            rec += eb + bytes(16 - len(eb))
+        elif p["kind"] in (PK_TUBE, PK_WINDMILL):
             if p["kind"] == PK_WINDMILL:
                 g = (0 if p["door"] == 1 else 1, 0, 0)
             elif p["sub"] == TK_LAUNCH:
@@ -7257,6 +7288,19 @@ def _rects(c):
     return lanes, slabs
 
 
+def _events(meet):
+    """SPEC.md 128.31.7: the EVENT lanes' share of a window's changes on one step - 1 (a ball touches one
+    thing at a time), or the most of the window's lanes any one element's change marks (a group member's)"""
+    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4])]
+    if not ev:
+        return 0
+    per = {}
+    for r in ev:
+        for e in r.get("ents", ()):
+            per[e["m"]] = per.get(e["m"], 0) + 1
+    return max([1] + list(per.values()))
+
+
 def _meet(r, x0, y0, x1, y1):
     return r[0] < x1 and x0 < r[2] and r[1] < y1 and y0 < r[3]
 
@@ -7327,14 +7371,13 @@ def check_bounds(c):
                         raise CourseError("%s: the %s window at (row %d, column %d): %d rotor pose changes on one "
                                           "step, %d in two consecutive (at most %d)" % (
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
-                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) \
-                    + (1 if any(not lane_fast(L[4]) and not lane_digit(L[4]) for L in meet) else 0)
+                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + _events(meet)
                 most_chg = max(most_chg, chg)
                 if chg > WIN_CHG:
                     raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
-                                      "(rotors %d, clock digits %d, events 1), over %d (SPEC.md 128.19.10)" % (
+                                      "(rotors %d, clock digits %d, events %d), over %d (SPEC.md 128.19.10)" % (
                                           c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
-                                          sum(1 for L in meet if lane_digit(L[4])), WIN_CHG))
+                                          sum(1 for L in meet if lane_digit(L[4])), _events(meet), WIN_CHG))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
@@ -7383,6 +7426,134 @@ def part_identity(part, gridoff):
     b = bytearray(part)
     b[gridoff + 18:gridoff + 20] = b"\0\0"
     return _fletcher(b)
+
+
+def _grp_ok(p):
+    """SPEC.md 128.31.1: an element that may be a group's member - a family element of a `group` family
+    with at most GRP_QMAX poses"""
+    return is_fam(p["kind"]) and FKIND[p["kind"]][0].get("group")
+
+
+def group_lanes(lanes, props, cv, fname, hack=None):
+    """SPEC.md 128.31.3: lanes whose rectangles share a block join, transitively, into a COMPONENT; a
+    component of one is its lane.  Every other component's members must be groupable (else "two lanes share
+    blocks", as before); its blocks are cut by DEPENDENCY (the members whose marks there differ between
+    poses) into GROUP LANES of at most one box, each posed by its members' CLASSES (mixed radix).  A group
+    lane is appended to `props` as a record of kind PK_GROUP (anchor SIGN_AT, `ents` its entries) and its
+    members get `grp` (their group lanes, filled when the records are ordered).  -> the lanes"""
+    hack = hack or {}
+    n = len(lanes)
+    par = list(range(n))
+
+    def root(a):
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+    first = {}
+    for a in range(n):
+        ax, ay, aw, ah = lanes[a]["rect"]
+        for b in range(a + 1, n):
+            bx, by, bw, bh = lanes[b]["rect"]
+            if ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah:
+                ra, rb = root(a), root(b)
+                if ra != rb:
+                    par[rb] = ra
+                first.setdefault(root(a), (a, b))
+    comps = {}
+    for a in range(n):
+        comps.setdefault(root(a), []).append(a)
+    if all(len(v) == 1 for v in comps.values()):
+        return lanes
+    out = [L for a, L in enumerate(lanes) if len(comps[root(a)]) == 1]
+    for r_, mem in sorted(comps.items(), key=lambda kv: min(lanes[a]["prop"] for a in kv[1])):
+        if len(mem) == 1:
+            continue
+        Ls = [lanes[a] for a in mem]
+        bad_ = [L for L in Ls if not _grp_ok(props[L["prop"]])]
+        if bad_:
+            M = sorted(Ls, key=lambda L: L["prop"])
+            raise CourseError("%s:%d: two lanes share blocks (lines %d and %d)%s"
+                              % (fname, M[1]["line"], M[0]["line"], M[1]["line"],
+                                 "" if len(bad_) == len(Ls) else ": a %s's lane is not a group's member (SPEC.md "
+                                 "128.31.1)" % PK_NAMES.get(props[bad_[0]["prop"]]["kind"], "prop")))
+        for L in Ls:
+            if len(L["poses"]) > GRP_QMAX:
+                raise CourseError("%s:%d: a group member of %d poses, over %d (its class map is 2 bits a pose, "
+                                  "SPEC.md 128.31.3)" % (fname, L["line"], len(L["poses"]), GRP_QMAX))
+        # painter's order: row s, then the file's line
+        Ls.sort(key=lambda L: (sum(props[L["prop"]]["at"]), L["line"]))
+        blocks_ = set()
+        for L in Ls:
+            blocks_ |= _rect_blocks(L["rect"])
+        # the bare picture of the union: the picture before any lane's pose 0 is laid (cv.rows as it is now)
+        def marks(L, q, b):
+            x0_, y0_ = 8 * b[0], 8 * b[1]
+            return frozenset((xy, c) for xy, c in L["poses"][q].items()
+                             if x0_ <= xy[0] < x0_ + 8 and y0_ <= xy[1] < y0_ + 8)
+        dep = {}
+        for b in blocks_:
+            d = tuple(k for k, L in enumerate(Ls) if len({marks(L, q, b) for q in L["poses"]}) > 1)
+            if d:
+                dep.setdefault(d, set()).add(b)
+        taken = set()
+        rects = []
+        for d in sorted(dep, key=lambda d: (min((b[1], b[0]) for b in dep[d]), d)):
+            other = set().union(*[v for k, v in dep.items() if k != d])
+            for rc in cover_blocks(dep[d], lambda b: (b[1], b[0]), taken | other,
+                                   "%s:%d" % (fname, Ls[d[0]]["line"])):
+                taken |= _rect_blocks(rc)
+                rects.append((rc, d))
+        rects.sort(key=lambda t: (t[0][1], t[0][0]))
+        for rc, d in rects:
+            bx, by, w, h = rc
+            ents, mult, cls_all = [], 1, []
+            for k in sorted(d, key=lambda k: Ls[k]["prop"]):
+                L = Ls[k]
+                seen, cmap = {}, []
+                for q in range(len(L["poses"])):
+                    key = frozenset(m for b in _rect_blocks(rc) for m in marks(L, q, b))
+                    cmap.append(seen.setdefault(key, len(seen)))
+                if len(seen) < 2:
+                    continue
+                ents.append({"m": L["prop"], "cmap": cmap, "mult": mult, "ncls": len(seen)})
+                mult *= len(seen)
+            if len(ents) > GRP_MMAX or mult > GRP_PMAX or hack.get("grp_pmax", GRP_PMAX) < mult:
+                raise CourseError("%s:%d: a group lane of %d members and %d poses, over %d and %d (SPEC.md 128.31.3)"
+                                  % (fname, Ls[d[0]]["line"], len(ents), mult, GRP_MMAX, GRP_PMAX))
+            # each combination's marks: every member of the component in painter's order at the pose it gives
+            poses = {}
+            for c in range(mult):
+                qs = {}
+                for e in ents:
+                    cl = (c // e["mult"]) % e["ncls"]
+                    qs[e["m"]] = e["cmap"].index(cl)
+                pix = {}
+                for L in Ls:
+                    for (x, y), ink in L["poses"][qs.get(L["prop"], 0)].items():
+                        if 8 * bx <= x < 8 * (bx + w) and 8 * by <= y < 8 * (by + h):
+                            pix[(x, y)] = ink
+                poses[c] = pix
+            gi = len(props)
+            props.append({"kind": PK_GROUP, "line": Ls[0]["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
+                          "ents": ents})
+            G = {"prop": gi, "rect": rc, "poses": poses, "st": {}, "kind": PK_GROUP, "line": Ls[0]["line"],
+                 "bare": [bytes(cv.rows[y][8 * bx:8 * (bx + w)]) for y in range(8 * by, 8 * (by + h))],
+                 "group": [e["m"] for e in ents]}
+            out.append(G)
+            for e in ents:
+                props[e["m"]].setdefault("grp", []).append(gi)
+        for L in Ls:                                # every member's pose 0 into the picture (its static marks
+            for (x, y), ink in L["poses"][0].items():   # too, outside every group lane), painter's order
+                cv.rows[y][x] = ink
+        for L in Ls:
+            p = props[L["prop"]]
+            p.setdefault("grp", [])
+            p["gpix"] = L["poses"]                  # (its own marks: the model's views, --selfcheck's re-render)
+            if len(p["grp"]) > GRP_LMAX:
+                raise CourseError("%s:%d: an element in %d group lanes, over %d (its record's +8 - +15, SPEC.md "
+                                  "128.31.3)" % (fname, L["line"], len(p["grp"]), GRP_LMAX))
+    return out
 
 
 def lane_pose_verdicts(L, reach, x0, y0, cv):
@@ -8759,8 +8930,10 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
         kind, flags, wx, wy, mask, shift, seed = struct.unpack_from("<BBBBBBH", p, r)
         if kind not in PK_NAMES:
             bad("prop %d" % i, "kind %d" % kind)
-        if flags & ~PF_LANE:
-            bad("prop %d" % i, "flags %02Xh (UNDERSIDE is reserved)" % flags)
+        if flags & ~(PF_LANE | PF_GRP) or flags == PF_LANE | PF_GRP:
+            bad("prop %d" % i, "flags %02Xh (UNDERSIDE is reserved; a group member has no lane)" % flags)
+        if kind == PK_GROUP and (not flags & PF_LANE or (wx, wy) != SIGN_AT or mask or shift or seed):
+            bad("prop %d" % i, "a GROUP record without its LANE, or anchored on a cell (128.31.4)")
         if mask and (not _pow2(mask + 1) or seed > mask):
             bad("prop %d" % i, "clock mask %d, seed %d" % (mask, seed))
         if kind >= PK_CHECKPOINT and (mask or shift or seed):
@@ -8776,7 +8949,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
         d = {"i": i, "kind": kind, "flags": flags, "at": (wx, wy), "mask": mask, "shift": shift, "seed": seed}
         if flags & PF_LANE:
             brow, col, w, h, poses, pmo = struct.unpack_from("<HBBBBH", p, r + 8)
-            if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= poses <= LANE_PMAX):
+            if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX
+                    and 2 <= poses <= (GRP_PMAX if kind == PK_GROUP else LANE_PMAX)):
                 bad("prop %d" % i, "lane %d x %d, %d poses" % (w, h, poses))
             if pmaps is None:
                 if pmo != tail or pmo + 2 * poses * w * h > n:
@@ -8795,6 +8969,13 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             lanebr.append(brow)
             if len(lanebr) != i + 1:
                 bad("prop %d" % i, "a lane after a record without one")
+        elif flags & PF_GRP:                       # SPEC.md 128.31.4: a member's group lanes, 0FFh after
+            d["lane"] = None
+            gl_ = list(p[r + 8:r + 16])
+            k_ = gl_.index(0xFF) if 0xFF in gl_ else 8
+            d["grp"] = gl_[:k_]
+            if not d["grp"] or any(x != 0xFF for x in gl_[k_:]):
+                bad("prop %d" % i, "a group member's lanes %s" % gl_)
         else:
             d["lane"] = None
             if p[r + 8:r + 16] != bytes(8):
@@ -8852,13 +9033,40 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             dur_, ow_ = p[r + 18], p[r + 19]
             pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 128.25.19)
             if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 20:r + 32] != bytes(12) \
-                    or bool(d["lane"]) != (kr["art"] is not None) \
+                    or bool(d["lane"] or d.get("grp")) != (kr["art"] is not None) \
                     or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2, "icon": 2}[kr["art"]]) \
                     or (not pu and (dur_ or ow_)) or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
                     or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
                     or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
             d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
+    for d in out:                                  # SPEC.md 128.31.4: a GROUP's entries, and its members' lists
+        r = propoff + PROPREC * d["i"]
+        if d["kind"] == PK_GROUP:
+            ents, mult = [], 1
+            for k in range(GRP_MMAX):
+                m, kd, cm, mu = p[r + 16 + 4 * k:r + 20 + 4 * k]
+                if kd == 0:
+                    if p[r + 16 + 4 * k:r + 32] != bytes(16 - 4 * k):
+                        bad("prop %d" % d["i"], "a GROUP's entries after its last")
+                    break
+                mm = out[m] if m < len(out) else None
+                if mm is None or mm["kind"] != kd or d["i"] not in mm.get("grp", ()) or mu != mult:
+                    bad("prop %d" % d["i"], "a GROUP's entry %d (member %d, kind %d, mult %d)" % (k, m, kd, mu))
+                    break
+                cmap = [(cm >> (2 * q)) & 3 for q in range(GRP_QMAX)]
+                nq = {"crack": 4, "glass": 2, "pennant": 2, "icon": 2}.get(mm.get("art"), GRP_QMAX)
+                ncls = max(cmap[:nq]) + 1
+                ents.append({"m": m, "kind": kd, "cmap": cmap[:nq], "mult": mu, "ncls": ncls})
+                mult *= ncls
+            if not ents or mult != d["lane"]["poses"]:
+                bad("prop %d" % d["i"], "a GROUP of %d entries, %d poses, where its lane has %d"
+                    % (len(ents), mult, d["lane"]["poses"]))
+            d["ents"] = ents
+        elif d.get("grp"):
+            for g_ in d["grp"]:
+                if g_ >= len(out) or out[g_]["kind"] != PK_GROUP:
+                    bad("prop %d" % d["i"], "a member's lane %d is not a GROUP" % g_)
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -9973,7 +10181,10 @@ class Physics:
                     fm.step(self, j)
 
     def fpose(self, r):
-        """POSE (bz_ltrue's, through bz_fone): a family element's lane's true pose"""
+        """POSE (bz_ltrue's, through bz_fone): a family element's lane's true pose; a GROUP lane's (SPEC.md
+        128.31.4) the sum of its members' classes x MULT"""
+        if r["kind"] == PK_GROUP:
+            return sum(e["cmap"][self.fpose(self.props[e["m"]])] * e["mult"] for e in r["ents"])
         j = self._fk.get(r["kind"]) if self.fam else None
         if j is None or not self.fam[j][0].row["hooks"] & H_POSE:
             return 0
@@ -12599,6 +12810,10 @@ def emit_inc(courses, path=None, title=None):
               "BZP_CNDIG       equ 27       ; ...its digits, 1 - 3",
               "BZ_PK_SIGN      equ %d       ; wave 8R (SPEC.md 128.22.4.1): a SIGN, a lane and nothing else" % PK_SIGN,
               "BZP_SNUM        equ 28       ; SIGN: its number, the pose's index into bz_nst",
+              "BZ_PK_GROUP     equ %d      ; SPEC.md 128.31.4: a GROUP lane, posed by its members' classes" % PK_GROUP,
+              "BZP_GENT        equ 16       ; GROUP: four entries (member, kind - 0 no more, class map, MULT)",
+              "BZ_GRP_MMAX     equ %d        ; ...entries a GROUP record holds" % GRP_MMAX,
+              "BZ_GRP_LMAX     equ %d        ; ...group lanes a MEMBER's +8 - +15 lists (0FFh after the last)" % GRP_LMAX,
               "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
               % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)]
                     + [lb["num"] + 1 for c in allc for lb in c.src.labels] + [1]),
@@ -19071,6 +19286,11 @@ def _w9_cases():
          "which is SPLIT"),
         ("a crack whose top is not on a block (origin 228)", C.replace("origin 224", "origin 228")
          + "uses glass\nprop crack 6 6\n", "not on a block"),
+        # GROUP LANES (SPEC.md 128.31): `full` is a crack's or a glass tile's; a resident lane never groups
+        ("`full` on a probe", C + "uses probe\nprop probe 6 6 reset respawn full\n", "is a crack's or a glass"),
+        ("`full` on a pickup", C + "uses pickups\nprop speed 6 6 full\n", "not 'full'"),
+        ("a full crack sharing blocks with a pickup's icon", C + "uses glass pickups\nprop crack 6 6 full\n"
+         "prop speed 7 6\n", "two lanes share blocks"),
         # PICKUPS (SPEC.md 128.25.19): the element's own syntax
         ("an hourglass with a duration", C + "uses pickups\nprop hourglass 6 6 for 3\n", "not 'for'"),
         ("a speed for 0 s", C + "uses pickups\nprop speed 6 6 for 0\n", "the duration is a byte"),
@@ -19079,6 +19299,37 @@ def _w9_cases():
         ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
         ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
     ]
+
+
+def _group_rerender(text):
+    """SPEC.md 128.31.9: a course's GROUP lanes against their members' own art -> a selfcheck row.  Each
+    group lane's every pose, as its block indices name it, against the bare picture with every member laid
+    in painter's order at the pose the lane's CLASS MAPS and MULTS (read back from the part) give"""
+    c = compile_course(text, fname="<group lab>", occluders=False)
+    recs = c.part["props"]
+    gl = [r for r in recs if r["kind"] == PK_GROUP]
+    byi = {r["i"]: c.props[c.order[r["i"]]] for r in recs}
+    lane = {L["prop"]: L for L in c.lanes}
+    comp = sorted({e["m"] for g in gl for e in g["ents"]}, key=lambda m: (sum(byi[m]["at"]), byi[m]["line"]))
+    bad, n = [], 0
+    for r in gl:
+        L, G = r["lane"], lane[c.order[r["i"]]]
+        for q in range(L["poses"]):
+            qs = {e["m"]: e["cmap"].index((q // e["mult"]) % e["ncls"]) for e in r["ents"]}
+            want = [bytearray(row) for row in G["bare"]]
+            for m in comp:
+                for (x, y), ink in byi[m]["gpix"][qs.get(m, 0)].items():
+                    if 8 * L["col"] <= x < 8 * (L["col"] + L["w"]) and 8 * L["brow"] <= y < 8 * (L["brow"] + L["h"]):
+                        want[y - 8 * L["brow"]][x - 8 * L["col"]] = ink
+            for rr in range(L["h"]):
+                for kk in range(L["w"]):
+                    blk = b"".join(bytes(want[8 * rr + yy][8 * kk:8 * kk + 8]) for yy in range(8))
+                    n += 1
+                    if c.blocks[G["words"][q][rr * L["w"] + kk]] != blk:
+                        bad.append((r["i"], q, rr, kk))
+    ok = bool(gl) and not bad
+    return ("9 group lanes (128.31.9): %d lanes, %d pose blocks re-rendered from the members' own art%s"
+            % (len(gl), n, "" if ok else " -- differ at %s" % bad[:3]), ok)
 
 
 def _w9_checks(res):
@@ -19090,6 +19341,19 @@ def _w9_checks(res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 9): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # GROUP LANES (SPEC.md 128.31.9): the cap's refusal (a control: the cap lowered under a pair's 12 poses),
+    # and every group lane's every pose, read back out of the PART, equal to the overlay of its members' own
+    # marks at the poses its class maps give - over the bare picture, in painter's order
+    gt = _W4C + "uses glass\n" + "".join("prop crack %d 6 full\n" % (6 + k) for k in range(3)) \
+        + "prop glass 9 7 full\nprop glass 9 8 full\nprop glass 8 8 full\n"
+    try:
+        compile_course(gt, fname="<a group past its poses>", occluders=False, _hack={"grp_pmax": 11})
+        fired, msg = False, "compiled"
+    except CourseError as e:
+        fired, msg = "a group lane of" in str(e), str(e)
+    res.append(("2 refused (128.31): a group lane past its poses (the cap lowered to 11)%s"
+                % ("" if fired else " -- got: " + msg), fired))
+    res.append(_group_rerender(gt))
     with _famtest():                                # a fourth family (three test rows beside the probe)
         extra = []
         for k in range(3):
