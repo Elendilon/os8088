@@ -845,6 +845,18 @@ class Ref:
                                 if (x, y) in ball and out[(x, y)] != lay[y][x]:
                                     hidden += 1
                                 out[(x, y)] = lay[y][x]
+            # SPEC.md 128.29: in a VOID cell of a GF_ANA part the guest's model lays too, after the records
+            # (bbcourse.amodel_pix reads the same RAM form), its mask ORed with the checker as a record's is
+            for (x, y) in BB.amodel_pix(self.c, (lk.gx >> 12, lk.gy >> 12), lk.zb, lk.air, lk.px, lk.py):
+                if (x, y) not in out:
+                    continue
+                if BB.ghost(x, y):
+                    if (x, y) in ball and out[(x, y)] != lay[y][x]:
+                        ghosted += 1
+                    continue
+                if (x, y) in ball and out[(x, y)] != lay[y][x]:
+                    hidden += 1
+                out[(x, y)] = lay[y][x]
         if view and view[1] and view[1][2]:     # the slab OVER the ball: last (128.12.4.5)
             for xy, v in self.slab_pix(view[1][0], view[1][1], None).items():
                 if xy in out:

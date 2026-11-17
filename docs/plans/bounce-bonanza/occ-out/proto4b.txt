@@ -1,0 +1,20 @@
+
+MOON (moon.bbc): 64 cols x 130 block rows; RAM 43087, LZ4 10212, LZB 8318; with NO occluders RAM 30853, LZ4 6541, LZB 5287  [92s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3002   2546   2535   115    4   50   43087   12472  10212   8318      +0      +0
+  res4+V         308    281    281    34    2   17   32613    1998   7304   5909   -2908   -2409
+
+PEAK (summit.bbc): 64 cols x 142 block rows; RAM 48129, LZ4 12645, LZB 10325; with NO occluders RAM 33953, LZ4 8082, LZB 6576  [77s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3697   3084   3079   102    4   42   48129   14438  12645  10325      +0      +0
+  res4+V         190    166    165    28    2   11   35141    1450   8650   7040   -3995   -3285
+
+PLAY (playground.bbc): 128 cols x 94 block rows; RAM 49422, LZ4 9483, LZB 7715; with NO occluders RAM 41054, LZ4 7039, LZB 5716  [65s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          2580   1852   1852    52    3   49   49422    8534   9483   7715      +0      +0
+  res4+V         274    261    261    55    3   26   43112    2224   7929   6419   -1554   -1296
+
+ALL: variant, part records, RAM, occluder RAM (I R K O), LZ4, LZB
+  base           7466   140638    35444    32340    26358
+  res4+V          707   110866     5672    23883    19368
+  (none)            0   105860        0    21662    17579

@@ -237,6 +237,7 @@ BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 BZ_SPR_STR  equ 72              ; ...and rubber's stretch 72 (wave 6, 128.16.4.4)
 BZ_NBOXMAX  equ 4
+BZ_AFL      equ 8               ; bz_amodel's front table: bytes a cell (128.29.5)
 ; THE EARLY STEP (bz_early): a step that is already due by the clock runs in
 ; the retrace wait's idle time instead of at the next frame's top (SPEC.md
 ; 128.4; shipped 2026-11-15, the A/B knob and the harness's off switch
@@ -496,6 +497,47 @@ VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
+VAR bz_aE,128                   ; bz_amodel (SPEC.md 128.29.5): THE CELL'S CACHE -
+VAR bz_atb,16                   ; 8 words' 8 columns' least edge line (7FFFh
+VAR bz_awlo,16                  ; none) from the first word W0, each word's
+VAR bz_awhi,16                  ; least and greatest, a bit a word computed;
+VAR bz_avld,1                   ; the front list (BZ_AFL bytes a readable front
+VAR bz_aw0,2                    ; cell: H / 4, X, Y, kr, kl) and its end; the
+VAR bz_afl,BZ_AFL * 14          ; cell (its offset in the part) and the count
+VAR bz_afe,2                    ; set's interval of floor(K / 4): [the highest
+VAR bz_acptr,2                  ; H / 4 not counting, the least counting).  The
+VAR bz_amaxnc,2                 ; word's line table, the columns (DL, DH), the
+VAR bz_aminc,2                  ; ball's a, s and grid row, floor(K / 4), d,
+VAR bz_acol,2                   ; the row's X and 8 (s + d) + Y0, the word's
+VAR bz_aa,2                     ; first column and last, its slot, the block
+VAR bz_as,2                     ; row's laid lines [rs, re) and whether its
+VAR bz_ar,2                     ; bz_oprep ran, and the frames it ran (the
+VAR bz_akq,2                    ; rows')
+VAR bz_ad,2
+VAR bz_aan,2
+VAR bz_ayb,2
+VAR bz_axw,2
+VAR bz_axw7,2
+VAR bz_aj0,2
+VAR bz_axb,2
+VAR bz_awx,2
+VAR bz_awy,2
+VAR bz_avp,2
+VAR bz_arow,2
+VAR bz_arowl,2
+VAR bz_aoff,2
+VAR bz_akw,2
+VAR bz_alcol,2
+VAR bz_atx,2
+VAR bz_aty,2
+VAR bz_arue,1
+VAR bz_aemin,2
+VAR bz_ars,2
+VAR bz_are,2
+VAR bz_aprep,1
+VAR bz_namod,2
+VAR bz_omp,2                    ; bz_olay's mask in our segment: bz_omsk, or
+                                ; the model's (bz_amodel; bz_crshdr sets it)
 VAR bz_okt,1                    ; the 4-byte record (SPEC.md 128.15.5): bz_ozk
                                 ; holds s_b + SB; kt = clamp(z_b + m - TB) (bz_occ)
 VAR bz_osbias,2                 ; SB sign-extended, TB, MTAB (bz_crshdr)

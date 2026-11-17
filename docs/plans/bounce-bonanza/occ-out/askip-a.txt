@@ -1,0 +1,9 @@
+BENCH depth 2: 49462 sampled VOID positions, the analytic model alone (no record): OVER 1.03% WRONG-HIDE 0.08% frames over a quarter wrong 1.45%
+BENCH depth 3: 49462 sampled VOID positions, the analytic model alone (no record): OVER 0.28% WRONG-HIDE 0.08% frames over a quarter wrong 0.40%
+BENCH depth 4: 49462 sampled VOID positions, the analytic model alone (no record): OVER 0.00% WRONG-HIDE 0.08% frames over a quarter wrong 0.00%
+MILL depth 2: 54242 sampled VOID positions, the analytic model alone (no record): OVER 1.91% WRONG-HIDE 0.01% frames over a quarter wrong 2.56%
+MILL depth 3: 54242 sampled VOID positions, the analytic model alone (no record): OVER 0.65% WRONG-HIDE 0.01% frames over a quarter wrong 0.89%
+MILL depth 4: 54242 sampled VOID positions, the analytic model alone (no record): OVER 0.13% WRONG-HIDE 0.01% frames over a quarter wrong 0.17%
+MOON depth 2: 21253 sampled VOID positions, the analytic model alone (no record): OVER 10.35% WRONG-HIDE 0.01% frames over a quarter wrong 12.18%
+MOON depth 3: 21253 sampled VOID positions, the analytic model alone (no record): OVER 8.45% WRONG-HIDE 0.01% frames over a quarter wrong 9.82%
+MOON depth 4: 21253 sampled VOID positions, the analytic model alone (no record): OVER 7.07% WRONG-HIDE 0.01% frames over a quarter wrong 8.11%
