@@ -274586,6 +274586,8 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 
 #### 128.22.2 The pathway's source (BUILT, story 8R.1; the guest's half is 8R.2/8R.3's)
 
+*Amended by 128.31 (2026-11-17): the pathway's part carries no occluders - no record, mask or OCC cell.*
+
 `apps/bonanza/courses/path.bbc` keeps `pathway` (128.19.5: no limit, no
 countdown, no goal, cup, medals or `start` of its own - a new game rests on
 pad 0) and loses `node` and `edge` (refused, naming this section),
@@ -278222,7 +278224,14 @@ in `bz_cuef` a frame with the sparkles (128.25.19: FULLY RESOLVED tables, the
 owner's ~360 bytes, 0.92k in the blit before them), not the 150 - 300
 predicted below. **A future pickup, noted**: the "ghost" - drawing the ball
 on alternate frames reads as see-through at 60 Hz, so BLINK2's look is a
-free GHOST effect (the ball half-there) for a pickup that wants one.
+free GHOST effect (the ball half-there) for a pickup that wants one. **The places are
+BALANCED** (the owner, after playing it: "the right side is a bit over
+represented/busy compared to the left"; MEASURED, the first set put 6 of its
+8 places right of the ball's centre and every sparkle's double-time step
+there, 83% of the sparkles' pixel-time on the right on both cards): eight
+places mirrored left and right, two of them ON the ball's face, the sparkles
+drawn after the ball in a BLINK style (128.25.19, the owner's pick of four
+options, "OVER").
 
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
@@ -278673,7 +278682,7 @@ the RESET restores them; none is in `bz_step`'s routines but the clamp):
 | the Hop | `bz_mrec`'s HOP, which the step already reads (the material's copy) | 0 |
 | the cue's LOOK | `bz_cuef` (bzphys.inc), once a frame from `bz_fdis`'s tail while `bz_cue` or the last frame's look is set (with neither, three instructions): `bz_clook` = `BZ_CL_SP` + the sparkles' HOP count mod 16 under bit 0; on a FLASH frame under bit 1 (the build's style: every 2nd or every 4th `bz_frames`) `BZ_CL_FL` for a dither style, with `bz_chk` the checker's row 0 by card and py's parity (the CGA 33h / CCh, a pixel two bits; the Hercules 55h / AAh, a pixel a mono pair), or `BZ_CL_BL` for a blink style. **The hops** (the owner's: "sparkling AROUND the ball, not glittering in place"): sparkle k holds a place for 8 frames, its epoch e_k = (frames + 0, 5, 2) / 8, so the three hop on frames 0, 3 and 6 mod 8, never together, and the hops so far are 3 frames / 8 - the look's count, which moves at each hop and at no other frame (bar one extra at the word's wrap). Its place is e_k mod 4 as the steps a b c b over its three (`bz_spq`, a pointer each to the place's four entries in the card's resolved table, `bz_sps` the steps' offsets), written only when the HOP count or the sparkles' start changes the look - not when a flash turns on or off, which moves no place (the cheap fix, about 0.6k off 2 frames in 4 of the flash; all three are rewritten, since picking the one that hopped MEASURED 50 - 90 clk a hop frame for 41 bytes). A changed look sets `bz_ospr` (the sprite `bz_mkboxes`'s idle test compares against, last frame's) to this frame's `bz_spr` NOT, so that test, unchanged, recomposes a ball AT REST on exactly the frames its cue changed - a hop (3 in 8 under the sparkles alone), the cue's first frame and the frame it ends included; MEASURED on both cards, a resting ball over 40 frames of sparkles: composed on every frame its look changed and on no other (14 - 15 of 40, 0 missed). (Built first as a toggle `bz_ctog` XORed into `bz_spr` every frame, the dissolve's bit-7 trick of 128.22.6; the verifier found that a cue beginning with the toggle left set by the last one - half of them - changed nothing the idle test saw, so a ball at rest showed it up to 4 frames late, and that a dissolve density and a look changing on one frame cancelled. The `bz_ospr` form has no state across cues.) The sprite's shift is not in the look: a ball that moves is recomposed for its move | about 110 |
 | the ball's box test | `bz_boxc`: `bz_clook` sits right after `bz_hidn` (an `%error` holds them together), so ONE word compare is the test for a hidden ball and a cue; a BLINK frame draws no ball (the shadow stays), a cue frame calls `bz_blit` with BX bit 15 set | about 20 |
-| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws no sparkles and no dither checker, about 1 frame in 20 on a fast ball, never at rest; a BLINK style's flash is `bz_boxc`'s, before any clip, so a clipped ball BLINKS too): the SPARKLES first, three 2 x 2 pixel pairs XORed, each at its place's entry for the sprite's shift s in **the FULLY RESOLVED table `bz_spr0`** (the owner's, spending about 360 bytes for about 0.5k: 2 cards x 8 places x 4 shifts x 3 bytes, 192, and `bz_sps` 12; an entry is the byte off = 8 dy + W from the sprite's first byte and the first line's word mask - W the byte whose WORD holds pixels x and x + 1, x = s + dx, at its pixels j and j + 1, W at most 3, so the word XORed is inside the sprite's 5 bytes at every shift and byte 5, which a 32-line buffer's bottom-right ball once read one past the buffer, is never touched; an `%error` holds it). The second line's mask is the first's on the CGA and the first's rotated right 2 on the Hercules (an `%error` proves it for every j), so each card has its own copy of the three pairs' code, chosen once a blit: a pair is `mov si, [bz_spq + 2k]` / `add si, cx` (CX = 3 s, the one piece of arithmetic, once) / `lodsb` / `mov bl, al` / `lodsw` / two `xor [bx + di (+ 8)], ax` (the Hercules two `ror ax, 1` between); no push, no clip - the mask's row, the frame's distance and the rows are kept in BP and DX and the rows reloaded as `BZ_BAL_ROWS` (`bz_boxc`'s `.bd` is the one way in). The ball's mask then keeps them. (The 5-byte form with both masks stored, 320 bytes, MEASURED the same to 10 clk; the 3-byte form keeps 128 of them. Before: `bz_spt` 9 places x 4 shifts of (8 dy + W, 4 j) and `bz_spm` the card's pair masks by j, 128 bytes, +0.92k.) The places (dx, dy; dx 0 - 15, dy 0 - 14, all outside the 16 px silhouette): sparkle 0 (0, 0), (15, 2), (13, 14); sparkle 1 (13, 0), (15, 12), (0, 14); sparkle 2 (15, 14) and (15, 0), none shared, so two never cancel. The CGA XORs both pixels on both lines (ink XOR 3); the Hercules pixel x on the first line and x + 1 on the second (a diagonal of whole mono pairs, chosen against its dithered floors; KEPT, the owner, who read the zoomed clips as visible). Then on a FLASH frame of a DITHER style the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop | about 300 (the tables 204 of it; 190 and 128 before they were resolved) |
+| the CUE in the blit | `bz_blit`'s whole-sprite path (`.cwhole`; a clipped sprite - a split group, a window edge - draws no sparkles and no dither checker, about 1 frame in 20 on a fast ball, never at rest; a BLINK style's flash is `bz_boxc`'s, before any clip, so a clipped ball BLINKS too): the SPARKLES first, three 2 x 2 pixel pairs XORed, each at its place's entry for the sprite's shift s in **the FULLY RESOLVED table `bz_spr0`** (the owner's, spending about 360 bytes for about 0.5k: 2 cards x 8 places x 4 shifts x 3 bytes, 192, and `bz_sps` 12; an entry is the byte off = 8 dy + W from the sprite's first byte and the first line's word mask - W the byte whose WORD holds pixels x and x + 1, x = s + dx, at its pixels j and j + 1, W at most 3, so the word XORed is inside the sprite's 5 bytes at every shift and byte 5, which a 32-line buffer's bottom-right ball once read one past the buffer, is never touched; an `%error` holds it). The second line's mask is the first's on the CGA and the first's rotated right 2 on the Hercules (an `%error` proves it for every j), so each card has its own copy of the three pairs' code, chosen once a blit: a pair is `mov si, [bz_spq + 2k]` / `add si, cx` (CX = 3 s, the one piece of arithmetic, once) / `lodsb` / `mov bl, al` / `lodsw` / two `xor [bx + di (+ 8)], ax` (the Hercules two `ror ax, 1` between); no push, no clip - the mask's row, the frame's distance and the rows are kept in BP and DX and the rows reloaded as `BZ_BAL_ROWS` (`bz_boxc`'s `.bd` is the one way in). The ball's mask then keeps them. (The 5-byte form with both masks stored, 320 bytes, MEASURED the same to 10 clk; the 3-byte form keeps 128 of them. Before: `bz_spt` 9 places x 4 shifts of (8 dy + W, 4 j) and `bz_spm` the card's pair masks by j, 128 bytes, +0.92k.) **The places, BALANCED** (the owner's pick, "OVER", of four options built under a knob since removed - MIRROR, CORNERS, SIZED and OVER, `~/Repos/w9-logs/sparkbal-report.md`; "the mirror carries most of the work. The over helps herc more than cga ... probably worth 33 bytes"): (dx, dy) of the pair's top-left pixel from the ball's, the silhouette 16 px, its centre at 7.5. Sparkle 0 (0, 0) the top left corner, (15, 2) the right's top, (4, 10) ON the face's lower left; sparkle 1 (14, 0) the top right corner, (-1, 12) the left's foot, (9, 4) ON the face's upper right; sparkle 2 (-1, 2) the left's top and (15, 12) the right's foot - none shared, and no two sparkles ever XOR one pixel at once (checked on every frame phase, shift and card). The side places are ±8 from the centre: x = 16 the sprite's spare right column, x = -1 its spare LEFT one, which a shift s >= 1 has; at s = 0 the two left side places come one in to dx 0, where the ball hides one pixel of the CGA's four (one of the Hercules' two). Left against right the pixel-time is 50/50 at s 1 - 3 and 55/45 at s = 0 (was 17/83). (The first set, which put 6 of 8 right of the centre and every double-time step b there - 83% of the sparkles' pixel-time, the average sparkle 5.2 px right of the centre, top and bottom even: sparkle 0 (0, 0), (15, 2), (13, 14); sparkle 1 (13, 0), (15, 12), (0, 14); sparkle 2 (15, 14) and (15, 0).) **The drawing order**: in a BLINK style (BLINK4 the default) `.cwhole` runs the ordinary loop FIRST, its own copy (DI kept), then XORs the three pairs - off the ball the result is the one before the ball would have given (the mask keeps the box there and the frame is 0), and a face place XORs the ball's own pixels. In a DITHER style the pairs come before the ball, as before, and the two face places are the bottom corners (0, 14) and (14, 14) instead - MIRROR's set, at no cost: the table is chosen by `BZ_CFB` at assembly. The CGA XORs both pixels on both lines with 3 off the ball (the ground's ink) and with **1 on the face** - the ball's base to its ink, a GLINT (SEEN: XOR 3 there punched a black hole into a spot; the glint often blends back into the ball, the owner's note); the Hercules pixel x on the first line and x + 1 on the second, XOR whole mono pairs, on the face as off it (a diagonal of whole mono pairs, chosen against its dithered floors; KEPT, the owner, who read the zoomed clips as visible) - the face places help the Hercules more than the CGA. Then on a FLASH frame of a DITHER style the checker FOLDED INTO the ball's own loop - `(box AND mask) OR (frame AND checker)`, the old second pass's exact result since frames are pre-ANDed (128.3), `not` a row - else the ordinary loop | about 300 (the tables 204 of it; 190 and 128 before they were resolved) |
 | the sound | `bzs_events` adds `bz_nfev` to its sum and, when it moved, plays `BZS_E_PICKUP` (the 16-bit mask of counters is full); the bank's `pickup` effect, a glock triad, 10 sub-ticks | about 26 |
 
 **The image 47,551 bytes (+627 on 46,924; 47,298 as first built, 47,310
@@ -278688,7 +278697,10 @@ pointers +106), the bss 10,987 (+17)**: `bz_vup`, `bz_nfev`,
 `bz_spq` 6, `bzs_lfev` 2. Budgets +400 / +24: the bss met; the image 227
 over, the sparkles' bytes approved by the owner (the per-shift table: about
 57 + 20 asked, 104 + 46 taken; the resolved tables: about 360 approved, 182
-taken). **The part 485 bytes,
+taken). **The balanced places
+(OVER) cost +33 bytes** (47,066 on 47,033, MEASURED: the table's bytes are
+the same, the ball loop's copy in the cue path is the 33; bss +0); a DITHER
+build is its old size. **The part 485 bytes,
 424 packed** (no zero padding: it packs).
 
 **The cost, MEASURED on MartyPC** (`os8088_5150_cga_gla` and `_herc_gla`,
@@ -278741,7 +278753,13 @@ whole frame would need the pairs as immediates in the code (written through
 CS, which kern_mega's code selectors refuse) or the three resolved into a
 contiguous bss block at each hop (about 36 bytes of bss, over the +24
 budget, for about 0.1k). The cheap fix took the flash's on and off frames'
-`bz_cuef` from about 1.0k to 0.44k. The other
+`bz_cuef` from about 1.0k to 0.44k. **The balanced places (OVER), MEASURED** the same
+way (`~/Repos/w9-logs/sparkbal-look.py measure`, `sparkbal-measure-4-<card>.json`,
+against the first set built in the same tree): the ball's blit on a sparkle
+frame **+627 on the CGA, +660 on the Hercules** (the first set +656 / +671:
+the loop's own copy saves the jumps back), `bz_cuef` 283 - 289 plain and 818 -
+834 on a hop, as before - about 0.93k a sparkle frame; a resting ball composed
+on 15 of 40 sparkle frames, 0 missed, both cards. The other
 styles were not timed: DITHER4's flash frame is DITHER2's, one frame in four;
 a BLINK frame draws no ball blit (about -4.4k), and BLINK2 / DITHER2 at rest
 recompose every frame of the flash, BLINK4 / DITHER4 two frames in four. A
@@ -280345,3 +280363,65 @@ controller's READ commands.
   paragraphs more heap than A's, as two claims (3,168 and 960) where A
   had one of 3,104 - the largest claim 64 paragraphs larger. Every other
   course is unchanged.
+
+### 128.31 The pathway carries no occluders (the owner, 2026-11-17)
+
+The owner: *"For pathway: yes, drop the occlusion."* (Sections 128.28 -
+128.30 are other branches': the shaped floors, the occlusion work and the
+two-segment courses.)
+
+**Why it was dead weight.** The occluder pass runs only when the ball's
+cell carries the flag for its state (`bz_mkboxes`, 128.11.10.2): OCC for an
+airborne ball, OCCG for a grounded one. On the pathway the ball is the
+FOLLOWER: `bz_follow` moves it along the routes and no physics step runs,
+so `bz_air` stays 0 and only OCCG could open the pass - and the pathway had
+**no OCCG cell**. Its 452 records (cut for the reach the tool takes from a
+course's physics: 202 of its 257 reach positions airborne over the void)
+held 2,156 bytes of RAM that no frame read: 315 against the floating
+islands' hanging faces, 94 against the diagonal halves, 40 against the
+clocks' cells, 3 against walls.
+
+**The rule** (`tools/bbcourse.py`, a rule of the tool, not a statement in
+`path.bbc`): a course with a `pathway` statement is compiled with no
+occluders cut. Its part then has `NOCC` and `NMASK` 0 - no `R`, `K` or `O`
+section, `OCCIDX` (`I`) all the first record's offset, as the format allows
+for any course (128.15.4.2) - and no cell OCC or OCCG, so the gate can never
+open. Every other check of the pathway (its bounds, its pages' lanes, its
+routes) runs as before. **No guest code changes**: `bz_osmake` summarises
+empty rows, `bz_occ` is never entered.
+
+**What moved** (MEASURED, `bbcourse.py` at this tree):
+
+| the pathway | before | after |
+|---|---|---|
+| RAM | 24,150 | **21,994** (-2,156) |
+| LZ4 | 8,390 | **7,627** (-763) |
+| LZB | 7,153 | **6,551** (-602) |
+| records, masks, OCC cells | 452, 18, 106 | 0, 0, 0 |
+| identity | C78Ah | 98BAh |
+| `BONANZA.O88` (LZB parts) | 117,392 | **116,784** (-608) |
+| `bonanza360.img` | 123 of 354 clusters | 123 (no cluster freed) |
+
+Its Y0, map and blocks are unchanged (the picture is the same). **The
+identity moving has one effect**: a game SLOT of `BONANZA.DAT` keeps the
+pathway's identity (`BZD_SID`, 128.22.5), so a game in progress saved by an
+earlier build reads as another pathway's and the slot starts afresh
+(`bz_dslots`), as after any change to the pathway; the courses' bests are
+filed under the courses' own identities and stay. No demo names the
+pathway (the title's `.bzt` demos carry no identity, 128.23.3).
+`BZ_PATH_CLAIM` (128.22.7) falls with the RAM form, 1,510 -> 1,375
+paragraphs, and `bz_cids` carries the new identity - the package's only two
+moved words; `BZ_CRS_MAXCLAIM` counts the pad courses' claims and does not
+move.
+
+**`--selfcheck`** (the `path` section, item 8R): the shipped pathway has 0
+records, 0 masks, no OCC or OCCG cell and no `R`, `K` or `O` section; its
+negative control compiles it with the records cut anyway (`_hack` `pathocc`)
+and finds them (452). **Red arm** (MEASURED red, a patched copy of the tool
+with the rule removed): the item fails, 452 records.
+
+**The rows** (the final pass's; none run here): `bonanzacourse` (the
+selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
+`bonanzaring` (its oracle reads every part, the pathway's included),
+`bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
+a game), `bonanzamega`.
