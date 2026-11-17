@@ -47,7 +47,9 @@ LINECLIP = 40           # option X's per-group range read and clip (ESTIMATED)
 A_CELL = 80             # a front cell read through ROWTAB, its highest corner against z_b + m (most leave here)
 A_OCC = 750             # an occluding front cell: its corners on the screen, and per footprint line its span
                         # (two adds and a clamp a line, 16 lines) merged into the line's coverage
-A_WORD = 50             # a covered word of a footprint line: two edge-table lookups, AND, OR the checker, store
+A_WORD = 50             # a PARTLY covered word of a footprint line: two edge-table lookups, AND, OR the checker, store
+A_WORDFULL = 15         # a WHOLLY covered word: the checker alone, stored
+A_MISS = 40             # a front cell above the ball whose top edge is below the footprint: one screen-line test
 A_DEPTH = 4
 
 
@@ -113,14 +115,22 @@ def price_a(c, An, rrows_by, px, py, sb, zb, air, cell):
     m = 0 if air else B.CLIMB
     x4 = px & ~3
     fr = [n for n in P.front_cells(cell[0], cell[1], A_DEPTH) if n in c.tiles]
-    occl = [n for n in fr if An.ok.get(n) and An.h[n] > zb + m]
+    high = [n for n in fr if An.ok.get(n) and An.h[n] > zb + m]
     foot = {(x, y) for x in range(x4, x4 + B.FOOT_W) for y in range(py, py + B.FOOT_H)}
     hid = set()
-    for n in occl:
+    occl = []
+    for n in high:
         e = An.edge.get(256 * n[0] + n[1], {})
-        hid |= {(x, y) for (x, y) in foot if e.get(x) is not None and y >= e[x]}
-    words = {(y, x >> 3) for (x, y) in hid}
-    clk = PASS_FIXED + A_CELL * len(fr) + A_OCC * len(occl) + A_WORD * len(words)
+        h1 = {(x, y) for (x, y) in foot if e.get(x) is not None and y >= e[x]}
+        if h1:
+            occl.append(n)
+            hid |= h1
+    words = {}
+    for (x, y) in hid:
+        words[(y, x >> 3)] = words.get((y, x >> 3), 0) + 1
+    full = sum(1 for k, v in words.items() if v == 8)
+    clk = (PASS_FIXED + A_CELL * len(fr) + A_OCC * len(occl) + A_MISS * (len(high) - len(occl))
+           + A_WORD * (len(words) - full) + A_WORDFULL * full)
     rows, tested, groups = walk(c, rrows_by, px, py, sb, zb, air) if rrows_by else (0, 0, [])
     clk += PASS_ROW * rows + PASS_REC * tested
     segs = {(y >> 3, w) for (y, w) in words}           # one lay a covered word and block row; a residual group
