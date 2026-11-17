@@ -1,0 +1,9 @@
+
+MILL (mill.bbc): 64 cols x 81 block rows; RAM 29975, LZ4 9520, LZB 7786; with NO occluders RAM 23629, LZ4 7355, LZB 6032  [29s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          1649   1290   1279    67    4   41   29975    6486   9520   7786      +0      +0
+  res3           391    340    337    50    3   23   25901    2412   8340   6822   -1180    -964
+  res4           186    144    144    27    2   19   24715    1226   7854   6448   -1666   -1338
+  res3+V          32     28     28    11    2    5   23963     474   7535   6189   -1985   -1597
+  avoidR3        698    624    621    64    3   23   27289    3800   8776   7196    -744    -590
+  avoidR4        504    437    437    55    3   19   26391    2902   8462   6947   -1058    -839
