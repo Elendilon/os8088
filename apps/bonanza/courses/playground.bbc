@@ -183,10 +183,11 @@ prop crack 44 19 hole band
 prop crack 35 16
 prop crack 37 16
 prop crack 39 16
-# round 2 (SPEC.md 128.27.2.1, the owner's): a THIN BRIDGE at wy 14, off the apron's back row - `float ...
-# thick`: a slab half a unit thick (wx 34 - 37) then one unit (38 - 40), stepping down at (40, 15) onto the
-# 3-unit bridge at wy 16.  Its FIVE cracks 35 - 39, edge to edge, each vanish in a 2 x 3-block lane of its
-# own, one by one, their side corners left as small jagged leftovers - no column below them
+# rounds 2 - 4 (SPEC.md 128.27.2.1, the owner's): a THIN BRIDGE at wy 14, off the apron's back row - `float
+# ... thick`: half a unit thick (wx 34 - 37), then one unit (38 - 40), stepping down at (40, 15) onto the
+# 3-unit bridge at wy 16.  Its FIVE cracks 35 - 39, edge to edge, are a narrow walkway drawn in their 2 x 3
+# lanes, each vanishing on its own; it starts and ends on FULL tiles (34, 14) and (40, 14) (plain `thick` cells,
+# drawn whole), the walkway's end corners drawn with them and left as their edges
 floor rect  34 14 41 15  flat 4
 floor rect  40 15 41 16  flat 4
 float rect  34 14 38 15  thick 0.5

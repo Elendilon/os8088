@@ -5771,8 +5771,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     bwalk, bown, balt = {}, {}, None
     cv_rows_base = [bytes(r) for r in cv.rows]      # (the full render: round 1's column vanish diffs against it)
     if bridges and not hack.get("nowalk"):
-        for (bx_, by_) in bridges:
-            if (bx_, by_) in tiles:
+        bcr = {q["at"] for q in props if q.get("art") == "crack"}  # round 4: only a CRACK is a narrow walkway
+        for (bx_, by_) in bridges:                  # tile; a plain `thick` cell is a FULL tile, drawn whole
+            if (bx_, by_) in tiles and (bx_, by_) in bcr:
                 t_ = tiles[(bx_, by_)]
                 ccx = 16 * (bx_ - by_) + x0
                 ccy = 8 * (bx_ + by_) + 8 - 4 * t_.z0 + y0
@@ -5781,7 +5782,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
         if bkey not in _VANISH_MEMO:
             ocv = render(tiles, ops, x0, y0, width, lines, True)
-            nt = {k: v for k, v in tiles.items() if k not in bridges and k not in gcells}
+            nt = {k: v for k, v in tiles.items() if k not in bwalk and k not in gcells}
             nops = draw_ops(nt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
             if props:
                 nops = prop_ops(nt, nops, props, x0)
@@ -5806,8 +5807,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             xy = (x, y + y0)
             bown[xy] = inrect.get(xy)
             balt[xy] = alt_[(x, y)]
-            if xy not in inrect:
-                cv.rows[xy[1]][x] = balt[xy]        # (outside every walkway lane: not drawn)
+            # (round 4, the owner's: a walkway tile's corner outside every walkway lane is DRAWN, for good -
+            # at a run's end it is the full tile's neighbour, and stays as that tile's edge when the crack goes)
     lanes = []
     cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
     for i, p in enumerate(props):
@@ -5964,8 +5965,6 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                     g_[(x, y - y0)] = r1_[x]
                     _VANISH_MEMO[vkey] = g_
                 gone = {(x, y + y0): c for (x, y), c in _VANISH_MEMO[vkey].items()}
-                gone = {xy: c for xy, c in gone.items() if xy not in bown or bown[xy] is not None}
-                # (round 3: a bridge's undrawn corner stays undrawn)
                 marks = crack_poses(cx, cy, hole)
                 marks = {q: {(x, y): c for (x, y), c in marks[q].items()
                              if 0 <= y < lines and cv.sbuf[y][x] <= sF} for q in range(3)}
