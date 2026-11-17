@@ -4212,3 +4212,40 @@ item is 17**.
   test courses are knob builds; the shipped courses' pieces still match the
   kit by content, and a piece that stopped matching would simply drop out
   of that course's bitmap.
+
+## 2026-11-17 (wave 10 starts: the re-baseline)
+
+The owner opened wave 10 by asking how much of its old target list still
+holds, and then sharpened it: *"wave 10's goal is SPEED, not the T-list;
+the list is input, not scope."* So the first job was a measurement, not a
+fix: whole demos paced on MartyPC's CGA and Hercules, and every second
+frame of MILL's, PEAK's and PLAYGROUND's demos single-stepped from one
+`bz_t0` to the next, each instruction's cycles charged to its routine.
+
+What it found (the numbers are in the plan's wave 10 section):
+
+- **The demo benchmark was not measuring the game.** D's instruments add
+  about 4.7k clk a frame, and at the CGA's margin that is four to six times
+  the missed refreshes. MILL's demo misses 47 - 52 refreshes through D and
+  9 through R, which costs what a play costs. Every per-course budget from
+  here is stated in R's units.
+- **A missed frame is total work in a heavy stretch.** Three cheap ideas
+  were built in scratch trees and measured on play: the sound moved into
+  the retrace wait, a spin that takes a step falling due inside the wait,
+  and the sound skip rule. None of them helped, and the first made things
+  worse. The early step moves a step between frames; it does not remove
+  one. Only less work buys smoothness now.
+- **PEAK misses on its buildings, MILL on its second box.** PEAK's missed
+  frames lay six occluder groups where a normal frame lays one, at 1.67k a
+  group, and about 1.0k of each group is set-up that is the same for every
+  group of the pass. MILL's two-box frames are 17% of its frames, cost
+  15 - 17k more, and carry two thirds of its misses.
+- **Of the old list**, T3 (MILL) is met, T1, T2, T5, T7, T8 and T12 are
+  retired or answered, T4 (PEAK) and T11 carry on in new units, and T9
+  leaves for the size track.
+
+The ranked levers are the occluder lay's per-group set-up (O1), a play's
+surplus clock samples (O2: about 1k a frame and no bytes), and the second
+box (O3, which changes what the shadow looks like, so it is the owner's
+call). The kernel's per-tick task switch inside a full-screen bracket (O4)
+is about 0.8k a frame for every game, and that one is a kernel decision.
