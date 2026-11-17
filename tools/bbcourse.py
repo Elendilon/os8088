@@ -27184,7 +27184,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12}
+           "spike": 20, "boost": 12, "hump": 30}
 
 
 def _av_floats_want(c):
@@ -27920,6 +27920,171 @@ def bp_ok(s, s0):
     return ok and all(v[4] <= 1 for v in s.values()) and all(v[3] > 0 for v in s.values())
 
 
+# =============================================================================
+# SPEC.md 128.44: HUMPS - FIELD cells raised over the plate (tool only)
+# =============================================================================
+
+HM_TEST = os.path.join(COURSE_DIR, "humps.bbc")
+_HMBASE = """course HUMPS "Humps"
+width 128
+origin 480
+floor rect 4 4 24 24 flat 2
+start 5 22
+goal tile 22 22 flat 2
+"""
+
+
+def _hump_cases():
+    """SPEC.md 128.44.1's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    B = _HMBASE
+    return [
+        ("a hump with no height", B + "hump 8 8\n", "hump takes"),
+        ("an unknown word", B + "hump 8 8 2 tall\n", "hump takes"),
+        ("height given twice", B + "hump 8 8 2 height 6 height 8\n", "hump takes"),
+        ("a hump 1 px high", B + "hump 8 8 2 height 1\n", "stands 2 - 11 px"),
+        ("a hump 12 px high (past the slope bound)", B + "hump 8 8 2 height 12\n", "stands 2 - 11 px"),
+        ("a ridge 0 cells long", B + "hump 8 8 2 along x 0\n", "a ridge runs 1 - 12"),
+        ("a ridge 13 cells long", B + "hump 8 8 2 along y 13\n", "a ridge runs 1 - 12"),
+        ("an open dome", B + "hump 8 8 2 open\n", "`open` is a ridge's"),
+        ("an open ridge's end at a floor", B + "hump 8 8 2 along x 2 open\n", "the open ridge's end"),
+        ("a hump's rim off the plate's height", B + "hump 8 8 3\n", "off its base"),
+        ("two humps on one cell", B + "hump 8 8 2\nhump 9 8 2\n", "is laid by this hump"),
+        ("a hump over a chute", B + "chute 1 round depth 4 way 7 12 2 way 12 12\nhump 10 12 2\n", "is laid by this"),
+        ("the start on a hump", B.replace("start 5 22", "start 8 8") + "hump 8 8 2\n", "which is a FIELD cell"),
+        ("a pad on a hump", B + "hump 8 8 2\npad steel 8 8\n", "which is a FIELD cell"),
+        ("a spring on a hump", B + "hump 8 8 2\nspring 8 8 400\n", "which is a FIELD cell"),
+    ]
+
+
+# SPEC.md 128.44.4's attribution: a floor 3 units under the plate, two cells behind a HIGH dome - the PLATE's edge
+# hides a ball rolled along it, the dome adds nothing: compiled; red `hmnoattr` (the sweep blind to who hides it)
+# refuses it
+_HMDEEP = _HMBASE + "floor rect 8 9 16 10 flat -1\nhump 12 12 2 height 10\n"
+
+
+def hump_runs(c, _slope_sign=1):
+    """SPEC.md 128.44.5's scenes on the model, on HUMP: (name, material, start gx (gu), its lane gy, the far side
+    gx, steps) held +x (Right and Down) from rest -> {(name, mat): (crossed, the step it crossed or None, walls)}"""
+    out = {}
+    for name, mats, x0, gy, far, n in (
+            ("low, two cells of run", (MAT_RUBBER, MAT_STEEL, MAT_GLASS), 80, 128, 152, 300),
+            ("low, from rest at its foot", (MAT_RUBBER, MAT_STEEL, MAT_GLASS), 112, 128, 152, 300),
+            ("high bump, from the bridge's start", (MAT_STEEL,), 264, 112, 376, 300),
+            ("high bump, half a cell of run", (MAT_STEEL, MAT_GLASS), 328, 112, 376, 300),
+            ("high bump, a cell of run", (MAT_RUBBER,), 320, 112, 376, 300)):
+        for mat in mats:
+            p = Physics(c, play=True, mat=mat, _slope_sign=_slope_sign)
+            p.tsec = 0
+            _field_poke(p, x0 >> 4, gy >> 4, (x0 & 15) << 8, (gy & 15) << 8, 0, 0)
+            at = None
+            for k in range(n):
+                p.step(K_R | K_D)
+                if (p.gx >> 8) > far and at is None:
+                    at = k + 1
+                    break
+            out[(name, mat)] = (at is not None and p.nfall == 0, at,
+                                sum(1 for e in p.events if e[0] in ("wall", "corner", "undo")))
+    return out
+
+
+HM_WANT = {("low, two cells of run", MAT_RUBBER): True, ("low, two cells of run", MAT_STEEL): True,
+           ("low, two cells of run", MAT_GLASS): True, ("low, from rest at its foot", MAT_RUBBER): True,
+           ("low, from rest at its foot", MAT_STEEL): False, ("low, from rest at its foot", MAT_GLASS): True,
+           ("high bump, from the bridge's start", MAT_STEEL): True,
+           ("high bump, half a cell of run", MAT_STEEL): False, ("high bump, half a cell of run", MAT_GLASS): True,
+           ("high bump, a cell of run", MAT_RUBBER): True}
+
+
+def hump_laid(c, fd):
+    """the most lit ball px the records lay over a GROUNDED ball at the floor in the box from HUMP_BACK cells behind
+    a hump to a cell past it (every second gu), and how many such poses lose any"""
+    X0, Y0, X1, Y1 = hump_box(fd)
+    most = nany = 0
+    for wy in range(Y0 - HUMP_BACK, Y1 + 2):
+        for wx in range(X0 - HUMP_BACK, X1 + 2):
+            t = c.tiles.get((wx, wy))
+            for u in range(0, 16, 2):
+                for v in range(0, 16, 2):
+                    if isinstance(t, FieldTile):
+                        z = t.h[v][u] // 4
+                    elif type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL):
+                        z = _h4t(t, u, v) // 4
+                    else:
+                        continue
+                    gx, gy = 16 * wx + u, 16 * wy + v
+                    px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+                    hid = _arch_laid(c, px, py, wx + wy, z, False)
+                    k = sum(1 for p_ in ball_pixels(px, py) if p_ in hid)
+                    most, nany = max(most, k), nany + (k > 0)
+    return most, nany
+
+
+def _sc_hump(X, res):
+    """--selfcheck's section `hump` (SPEC.md 128.44.7): the refusals, the HUMP test course's cells, tables, scenes on
+    the model, occluders and visibility rule, and the red arms"""
+    for what, text, want in _hump_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (humps, 128.44.1): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(HM_TEST)
+    humps = [fd for fd in c.src.fields if fd["what"] == "hump"]
+    cells = {cl: t for cl, t in c.tiles.items() if isinstance(t, FieldTile) and t.piece in HUMP_PIECES}
+    want = set()
+    for fd in humps:
+        X0, Y0, X1, Y1 = hump_box(fd)
+        want |= {(x, y) for x in range(X0, X1 + 1) for y in range(Y0, Y1 + 1)}
+    rel = {cl: max(max(r) for r in t.rel()) for cl, t in cells.items()}
+    hts = {fd["line"]: max(rel[(x, y)] for x in range(hump_box(fd)[0], hump_box(fd)[2] + 1)
+                           for y in range(hump_box(fd)[1], hump_box(fd)[3] + 1)) for fd in humps}
+    rims = all(t.z0 == 2 * 2 and all(t.h[v][u] >= 64 for v in range(17) for u in range(17)) for t in cells.values())
+    res.append(("3 humps (128.44.2): HUMP's %d humps lay %d FIELD cells, each based on the plate (z0 4, no point "
+                "under it), their crests %s quarter px over it (4 x the height)" % (
+                    len(humps), len(cells), "/".join(str(hts[fd["line"]]) for fd in humps)),
+                set(cells) == want and rims and all(hts[fd["line"]] == 4 * fd["height"] for fd in humps)))
+    tabs = field_tables_by_statement(c.tiles)
+    added = sum(len(a) for _l, w, a, _s in tabs if w == "hump")
+    res.append(("3 humps (128.44.2, 128.28.4's STANDARD profiles): %d tables for %d humps - a dome one, the LOW domes "
+                "and the LOW ridge's caps one table between them; by statement %s" % (
+                    len(c.ftabs), len(humps), "; ".join("line %d adds %d shares %d" % (l_, len(a), len(sh))
+                                                         for l_, _w, a, sh in tabs)),
+                len(c.ftabs) == added == 4 and [len(a) for _l, _w, a, _s in tabs] == [1, 0, 0, 1, 1, 1]))
+    r = hump_runs(c)
+    res.append(("5 humps (128.44.5): the scenes on the model, held from rest - %s; no wall at any rim" % "; ".join(
+        "%s %s %s" % (n_, MAT_NAMES[m_], "over in %d" % v[1] if v[0] else "STALLS") for (n_, m_), v in sorted(r.items())),
+        all(r[k][0] == w for k, w in HM_WANT.items()) and not any(v[2] for v in r.values())))
+    ra = hump_runs(c, _slope_sign=-1)
+    res.append(("5 humps red `slope` (the hump's slope pushing the other way): the stalls cross",
+                any(ra[k][0] != w for k, w in HM_WANT.items())))
+    low = [hump_laid(c, fd) for fd in humps if fd["height"] < 8]
+    high = [hump_laid(c, fd) for fd in humps if fd["height"] >= 8]
+    res.append(("13 humps (128.44.4): a grounded ball behind a HIGH hump is laid under it (most %s lit px, on %s "
+                "poses); behind a LOW one never (most %s: the margin, BZ_CLIMB)" % (
+                    "/".join(str(m) for m, _n in high), "/".join(str(n) for _m, n in high),
+                    "/".join(str(m) for m, _n in low)),
+                all(m >= 20 for m, _n in high) and all(m == 0 for m, _n in low)))
+    ct = compile_course(HM_TEST, _hack={"hmtop": True})
+    hr = [hump_laid(ct, fd)[0] for fd in ct.src.fields if fd["what"] == "hump" and fd["height"] >= 8]
+    res.append(("13 humps red `hmtop` (a hump's facets topped as a chute's, FTOPQ): the HIGH humps lay at most %s px"
+                % "/".join(str(m) for m in hr), all(m < 20 for m in hr)))
+    res.append(("13 humps (128.44.4, the visibility rule): the longest a rolled ball is WHOLLY hidden by a hump, and "
+                "the least of a mechanic's top seen behind one - %s" % "; ".join(
+                    "line %d: %d gu%s" % (l_, w, "" if pd is None else ", %d of %d px" % pd) for l_, w, pd in c.hump_vis),
+                all(w <= HUMP_HIDE and (pd is None or HUMP_SEE * pd[0] >= pd[1]) for _l, w, pd in c.hump_vis)
+                and any(pd is not None for _l, _w, pd in c.hump_vis)))
+    cd = compile_course(_HMDEEP, fname="<deep>", _hack={"no_finish": True})
+    try:
+        compile_course(_HMDEEP, fname="<deep, hmnoattr>", _hack={"no_finish": True, "hmnoattr": True})
+        fired = False
+    except CourseError as e:
+        fired = "WHOLLY hidden" in str(e)
+    res.append(("13 humps (128.44.4): a floor 3 units under the plate behind a HIGH dome compiles (the plate hides "
+                "the ball there, the dome adds %d gu); red `hmnoattr` (the sweep blind to who hides it) refuses it"
+                % cd.hump_vis[0][1], cd.hump_vis[0][1] == 0 and fired))
+
+
 def _sc_boost(X, res):
     """--selfcheck's section `boost` (SPEC.md 128.40.8): the refusals, the test course's records and lanes, the
     scenes on the model (against the course less its pads), and the model's red arms"""
@@ -28044,7 +28209,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch")
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump")
 
 
 def _selfcheck(paths, res, skipped, S):
