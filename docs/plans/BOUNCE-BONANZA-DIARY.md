@@ -3841,3 +3841,109 @@ and `BZ_FTAB` holds 0FFh for it). SPEC.md 128.33 is the record.
 - **Tested**: the default and knob builds, `--selfcheck`'s `magnet` section
   (18 items), `mg_host`'s seven scenes equal at every step and seven red
   arms red (`mgbob`, `mgfresh` new). Not run: the soak rows, MartyPC.
+## 2026-11-17 (WIND: blowers, gusts and an updraft)
+
+The props round's P3 (docs/plans/BOUNCE-BONANZA-PROPS.md), built on branch
+`bb-wind` beside water and magnets (IDs 7, 8 and 9 fixed ahead so the three
+merge). The owner's design: a blower PUSHES the ball in its region, weighted
+glass x2, rubber x1, steel x1/4 (*"the push amounts sound right"*); steady
+or in gusts, so a bridge can be crossed between them; a flag or a small lane
+as the hint; and the gate the owner picked for the water's column - a wind
+across a THIN lower path, blowing hard to one side. SPEC.md 128.34 is the
+contract, written first, and the as-built record.
+
+- **No resident byte.** The push is added to the working velocity in the
+  STEP hook; the next step's force block clamps it like the arrows, so the
+  wind can never carry a ball past a cap the reach already assumes. A gust is
+  a function of the step counter (a windmill gate's rule), so there is no
+  state bit and nothing for a respawn to reset; the slot only lists the
+  blowers. The image moved +3 bytes (the ID table's gap, 7 - 9), the part is
+  326 bytes in the resident bundle.
+- **The arrows push TWICE on one axis.** Right with Down is 2 x the force
+  table on +x. So rubber's best stand against a cross-wind is 8, glass's 12,
+  steel's 4: a wind of 10 is a real gate for rubber and glass and steel leans
+  through it. Found on the model before tuning anything; the first guess
+  (strength 12, against forces of 4) was reasoning about one arrow.
+- **The scenes lied once.** Every ball fell off the thin path at the same
+  step - because the scripted route to it rolled over the GLASS PAD, so every
+  ball was glass. The pads moved off the start's diagonals.
+- **Steel cannot test the crumbling bridge from rest**: it breaks a crack
+  under it in 14 steps unless it is above 293, so the gust scene is rubber's
+  and glass's; steel's weighting is shown on the thin path.
+- **A play's RESET runs before the lanes are counted.** The slot's list was
+  first built over `bz_nlane`, which `bz_pread` sets AFTER `bz_pinit`: the
+  unicorn half caught it (an empty list in the guest, three blowers in the
+  model) at step 0. It scans `bz_nprop` now.
+- **The window's centre is the ball's cell.** Working the cell out of the
+  24.8 position cost about 0.15k a step; `bz_nwin` is one word, and the model
+  reads its own `wcell`, so the two stay equal by construction.
+- **The updraft** lifts only an airborne ball (the grounded step rewrites
+  gvz from the slopes), and only while gvz is under 128 - a steady climb and
+  a hover band of a few pixels under its top, instead of a 20 px overshoot.
+  MEASURED on the model on the WIND course: glass rises to 49 px and onto the
+  ledge's finish; rubber's best apex there, pumping Hop and boost, 23 px;
+  steel's 18 - the ledge is at 36.
+- **The fan and the flag, looked at four times.** White blades on magenta
+  read on the CGA and were white specks on the Hercules' grey checker; black
+  blades on white read on both cards. The checkpoint's own pennant, the
+  precedent, was too small to read at 320 x 200 on a white tile (MartyPC,
+  the knob build); a bigger magenta one on a taller pole vanished against the
+  magenta face behind the thin path's blower; STRIPED magenta and white like
+  a windsock, one of the two shows on any ground. SEEN on MartyPC, CGA and
+  Hercules: the bridge's pennant flying in a gust and furled between.
+
+**Measured**: the part 326 bytes; `BONANZA.O88` +259; the bundle +336 RAM;
+image +3; bss 0. **Predicted, not measured**: about 0.2 - 0.45k a blower a
+step (0.23k fixed; a gusting blower 0.33k more), against the plan's 0.1 -
+0.2k, which was the push alone. **Tested**: `make bonanzadisk`, the
+`BZWIND=1` knob build, `bbcourse.py --selfcheck --only wind` (25 items, red
+arm `nowindreach`), `bonanza_phys.py --check` with `wind_host` (eight scenes
+equal at every step; red arms `wdstep`, `wdglass`, `wdmark`, `wdlift` red),
+the tool's previews and one MartyPC look on both cards. **Not run**: the
+soak rows, MartyPC measurements (the final pass's).
+
+## 2026-11-17 (WIND, round 2: a pit that lifts, squiggles in the air, fans that spin)
+
+The owner's answers on WIND (through the lead): strength per blower and
+power-of-two gusts are fine as they are; and three changes - an updraft that
+lifts WITHOUT a jump, squiggles drawn in the air as the hint, and ground fans
+that spin when the ball is in their wind, the pennant only as an option.
+SPEC.md 128.34.11 is the record.
+
+- **The launch is the take-off's three writes.** The grounded step rewrites
+  gvz from the slopes, so a push there was lost; a `lift` updraft whose push
+  beats gravity now sets `bz_air`, `bz_gvz` and the take-off z itself, in the
+  STEP hook, and the airborne rule does the rest. A PIT needed nothing: a ball
+  rolling into one is airborne already. Glass (32 against gravity's 24) is
+  launched; rubber (16) floats when it is in the air and drops into the pit
+  slowly; steel all but ignores it - the owner's "glass rises, rubber partly,
+  steel not" falls out of the weighting unchanged.
+- **One element is one lane.** A fan that spins is the blower's lane, so a
+  gusting blower's squiggles - which must come and go - needed a second
+  element: the tool makes a WISP at the region's centre, owning no cell, its
+  lane the cluster and its record naming its blower. Steady squiggles are
+  plain marks in the picture: no lane, no step, never over the ball.
+- **The window's budget decided the course.** A spinning fan is a FAST lane
+  and a pose change a step; the test course's two clocks (4 digits) and two
+  fans in one window were 7 changes a step, over 6, so the ledge's finish
+  moved beside the main goal and one clock serves both. With one clock and an
+  event lane in view, 3 fans can spin at once.
+- **Two timed lanes, one step.** The lead's note from the magnets: a window's
+  event lanes are one pose change a step. Gust turns are the one kind known
+  ahead, so the tool checks every step of the 1,024 the periods divide and
+  refuses two gusting lanes of one window turning together.
+- **The scenes needed a smaller course.** The default build's `bz_fst` is
+  the shipped courses' five bytes; five cracks and four fan bytes would not
+  fit, so the unicorn half plays WIND less its cracks (GLASS's own scenes
+  prove those).
+
+**Measured**: the part 525 bytes (+199); `BONANZA.O88` +157 on round 1 (+416
+on the base); image +3, bss 0. **Tested**: `make bonanzadisk`, the
+`BZWIND=1` build, `--selfcheck` section `wind` (32 items, red arms
+`nowindreach`, `fanfast`, the pit wind's without `lift`), `bonanza_phys`'s
+`wind_host` (eleven scenes equal at every step; red arms `wdstep`,
+`wdglass`, `wdfan`, `wdgust`, `wdspin`, `wdlift`, `wdpit`). **SEEN** on
+MartyPC, CGA and Hercules: the bridge's squiggles in a gust and gone after,
+the fan turning frame by frame under a poked ball, the static squiggles, the
+pit's plate and flag. **Not run**: the soak rows; the per-step cost on
+MartyPC.

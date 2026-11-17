@@ -453,11 +453,31 @@ FAMILIES = (
     # and LIFTS an airborne steel ball (S a step, damped, under a ceiling), so steel hovers across a gap.  One
     # bit an element (reserved, 0: the recipe's), the state in the slot (the ball's cell's magnet, cached, and
     # the WIGGLE's count).  ID 8 (the lead's, beside WATER 7 and WIND 9: an ID may wait for its neighbours,
-    # BZ_FTAB holds 0FFh in a gap); kind 32; home `fetch` while no shipped course names it (128.33.9)
+    # BZ_FTAB holds 0FFh in a gap); kind 32; home `resident` (the owner's rule, 2026-11-17: every family resident unless chosen otherwise; 128.33.9)
     {"name": "magnet", "id": 8, "rev": 1, "hooks": H_STEP | H_POSE, "slot": 8, "consts": "MG",
      "kinds": ({"name": "magnet", "kind": FAM_K0 + 16, "bits": 1, "cls": CL_ATTEMPT, "art": "magnet",
                 "forms": ("own",), "states": (0,), "pickup": False},), "paras": 26,
-     "home": HOME_FETCH},
+     "home": HOME_RESIDENT},
+    # WIND (SPEC.md 128.34): the BLOWER - a fan grate on a flat floor that PUSHES the ball while its centre
+    # is in the element's REGION (record +20 - +23), along its FACE (+18: +x -x +y -y, or up: an UPDRAFT on an
+    # airborne ball below its TOP, +30, while gvz < WD_LIFT), by its STRENGTH (+19) weighted by the ball
+    # (glass << WD_GSH, rubber x1, steel >> WD_SSH), steadily or in GUSTS off the step counter (+24 ON,
+    # +26 the period's MASK, +28 the SEED: blowing while ((n + seed) AND mask) < ON).  STATELESS: no state
+    # bit - a gust is a function of n, as a windmill's gate is; the SLOT is only the list of the course's
+    # blowers (+0 the count, +1 on their element numbers: at most WD_NMAX), which RESET builds.  Its lane is a PENNANT that flies
+    # downwind while it blows.  ID 9 (the props round's fixed assignment: water 7, magnets 8, wind 9), so on
+    # this branch alone IDs 7 and 8 are a GAP (BZ_FTAB fills it); kind WD_K; home `resident`; CONSTS
+    # WD_GSH, WD_SSH, WD_LIFT
+    # Round 2 (the owner, 2026-11-17; SPEC.md 128.34.11): a blower's state is a BYTE, its fan's SPIN counter
+    # (the fan lane turns while it is not 0); `lift` launches a GROUNDED ball an updraft out-lifts gravity;
+    # the pennant is an option (`flag`); a gusting blower without one gets a WISP, a second element the tool
+    # makes, whose lane is the region's squiggles - there while the gust blows.  CONSTS + WD_SPIN
+    {"name": "wind", "id": 9, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE, "slot": 8, "consts": (1, 2, 128, 160),
+     "kinds": ({"name": "blower", "kind": FAM_K0 + 24, "bits": 8, "cls": CL_ATTEMPT, "art": "wind",
+                "forms": ("own",), "states": (0,), "pickup": False},
+               {"name": "wisp", "kind": FAM_K0 + 25, "bits": 0, "cls": CL_ATTEMPT, "art": "wisp",
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
@@ -483,6 +503,20 @@ MG_BOB, MG_BOBP = 48, 16      # a hanging magnet's BOBBLE: a kick of 48 (px / 25
                               # up and down in turn (about 1 px either way, the damping smoothing it)
 MG_DIRS = ("+x", "-x", "+y", "-y")              # record +18: bit 1 the y axis, bit 0 the negative way
 MG_DOWN = 1                   # record +19 bit 0: hanging (`face down`): +18 is its ARM's way
+# WIND's constants (SPEC.md 128.34): all in its FAMV (its row's consts)
+WD_K = FAM_K0 + 24            # the blower's kind (40: clear of the runs the other families of the round take)
+WD_GSH, WD_SSH = 1, 2         # the push's weighting: glass S << 1 (x2), rubber S, steel S >> 2 (x1/4)
+WD_LIFT = 128                 # an UPDRAFT pushes only while gvz < this (1/256 px a step): a steady climb, a
+                              # small hover band at the top, and rubber's fast rise left as it was
+WD_DIRS = ("+x", "-x", "+y", "-y", "up")      # record +18, the FACE: the way the wind blows
+WD_UP = 4
+WD_SDEF = 8                   # the default strength (rubber's push, 1/256 a step a step)
+WD_NMAX = 7                   # blowers a course: the slot's list (+0 the count, +1 - +7 the elements)
+WD_PERIODS = tuple(1 << k for k in range(5, 11))   # a gust's ON + OFF: 32 - 1,024 steps (0.58 - 18.6 s)
+WD_K2 = FAM_K0 + 25           # the WISP: the squiggles of a gusting blower without a flag (made by the tool)
+WD_SPIN = 160                 # a fan spins this many steps (2.9 s) after the ball was last in its blowing region
+WD_FLIFT, WD_FFLAG = 8, 16    # record +18's flags over the face: `lift` (an updraft launches a grounded ball),
+                              # `flag` (the pennant is the lane; the fan does not spin)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -509,8 +543,11 @@ assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
 assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
 assert all(k["forms"] in (("own",), ("own", "void")) for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form the reach does not take: own, and (GLASS's crack, 128.25.18) its broken VOID"
+assert FAM_BY_NAME["wind"]["consts"] == (WD_GSH, WD_SSH, WD_LIFT, WD_SPIN) and [
+    k["kind"] for k in FAM_BY_NAME["wind"]["kinds"]] == [WD_K, WD_K2]
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
-assert all(k["bits"] in (1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())
+assert all(k["bits"] in (0, 1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())   # (0: a STATELESS
+                                                                                            # kind, WIND's)
 assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
 
 # THE RESIDENT BUNDLE (the owner, 2026-11-16; SPEC.md 128.25.6.9): every home-`resident` family's part
@@ -594,8 +631,8 @@ def famv(f):
     b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
-                    {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5}[k["art"]],
-                    len(k["forms"]), int(k["pickup"])))
+                    {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
+                     "wisp": 7}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
@@ -690,7 +727,13 @@ def lane_fast(rec):
     rotor); every other lane is SLOW - a clock digit (once a second) or an
     EVENT lane (a flag, a post's lit frames, a SIGN; an icon's sign is FAST
     only while its pad is the marble's, which check_path_bounds counts)"""
-    return rec["kind"] == PK_WINDMILL or rec["kind"] in _FAST_EXTRA
+    return rec["kind"] == PK_WINDMILL or rec["kind"] in _FAST_EXTRA or lane_fan(rec)
+
+
+def lane_fan(rec):
+    """WIND (SPEC.md 128.34.11): a blower's FAN lane - FAST, since it turns every 4 steps while it spins; counted
+    against the window's FAST lanes and, each, as a pose change a step"""
+    return rec["kind"] == WD_K and not rec.get("wflags", 0) & WD_FFLAG and "fanfast" not in _CHECKS_OFF
 
 
 def lane_digit(rec):
@@ -1275,7 +1318,8 @@ def glass_first(tiles, props, start):
 def _pennant(p):
     """a prop drawn as a FLAG (a pole and two poses, furled and flying): a
     checkpoint, or a family kind whose art is "pennant" (wave 9: the PROBE's)"""
-    return p["kind"] == PK_CHECKPOINT or p.get("art") in ("pennant", "icon")
+    return p["kind"] == PK_CHECKPOINT or p.get("art") in ("pennant", "icon") \
+        or (p.get("art") == "wind" and p.get("wflags", 0) & WD_FFLAG)       # (a blower's pennant: its `flag`)
 
 
 # wave 9 (SPEC.md 128.25.19): a PICKUP's ICON, its lane's pose 1 (pose 0 the ground: taken, or the hourglass
@@ -1322,6 +1366,11 @@ def _parse_fprop(toks, where, ln):
                 _int(toks[3], where, "wy")), "cls": kr["cls"], "seed": None, "hole": toks[5][1]}
     if fam.get("consts") == "MG":
         return _parse_magnet(toks, where, ln, fam, kr)
+    if kr["kind"] == WD_K:
+        return _parse_blower(toks, where, ln, fam, kr)
+    if kr["kind"] == WD_K2:
+        raise CourseError("%s: a wisp is the tool's: a gusting blower without a `flag` makes its own (SPEC.md "
+                          "128.34.11)" % where)
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -1455,6 +1504,81 @@ def _mg_check(f, props, tiles):
         if p["mg"][1] & MG_DOWN and not -128 <= p["mg"][4] <= 127:
             raise CourseError("%s:%d: a hanging magnet on (%d, %d): its ceiling %d px is outside -128 - 127"
                               % (f, p["line"], p["at"][0], p["at"][1], p["mg"][4]))
+def _parse_blower(toks, where, ln, fam, kr):
+    """a BLOWER (SPEC.md 128.34.2): prop blower <wx> <wy> face +x|-x|+y|-y|up region <x0> <y0> <x1> <y1>
+    [strength <S>] [gust <on> <off> [seed <n>]] [top <units>] [lift] [flag] - FACE the way it blows; the
+    REGION the cells
+    (inclusive) whose ball it pushes; S rubber's push a step, 1/256 gu (px for an updraft), 1 - 127, WD_SDEF
+    by default; a GUST blows ON steps in every ON + OFF (a power of two, 32 - 1,024), SEED steps into its
+    cycle at n = 0; TOP an updraft's height, units above the blower's own floor, under which it pushes;
+    LIFT (an updraft's) launches a GROUNDED ball the push out-lifts gravity on; FLAG gives it the pennant
+    as its lane (its fan does not spin then, and a gust shows on the pennant, not as squiggles).  The class
+    is the kind's (ATTEMPT); no `reset`"""
+    if len(toks) < 4:
+        raise CourseError("%s: prop blower takes <wx> <wy> face <dir> region <x0> <y0> <x1> <y1> [strength <S>] "
+                          "[gust <on> <off> [seed <n>]] [top <units>]" % where)
+    d = {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
+         "cls": kr["cls"], "seed": None, "wdir": None, "wreg": None, "wstr": WD_SDEF, "won": 0, "wmask": 0,
+         "wseed": 0, "wtop": None, "wflags": 0}
+    i, seen = 4, set()
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if t == "reset":
+            raise CourseError("%s: a blower's reset class is its family's (attempt: it has no state): it takes "
+                              "no `reset`" % where)
+        if t in seen or t not in ("face", "region", "strength", "gust", "seed", "top", "lift", "flag"):
+            raise CourseError("%s: prop blower: unknown or repeated clause %r" % (where, toks[i][1]))
+        seen.add(t)
+        if t in ("lift", "flag"):
+            d["wflags"] |= WD_FLIFT if t == "lift" else WD_FFLAG
+            i += 1
+            continue
+        n = {"face": 1, "region": 4, "strength": 1, "gust": 2, "seed": 1, "top": 1}[t]
+        a = toks[i + 1:i + 1 + n]
+        if len(a) < n:
+            raise CourseError("%s: a blower's `%s` takes %d value%s" % (where, t, n, "s" if n > 1 else ""))
+        if t == "face":
+            if a[0][1] not in WD_DIRS:
+                raise CourseError("%s: a blower faces +x, -x, +y, -y or up, not %r" % (where, a[0][1]))
+            d["wdir"] = WD_DIRS.index(a[0][1])
+        elif t == "region":
+            x0, y0, x1, y1 = [_int(q, where, "region") for q in a]
+            if not (0 <= x0 <= x1 <= 252 and 0 <= y0 <= y1 <= 252):
+                raise CourseError("%s: a blower's region %d %d %d %d is not X0 <= X1, Y0 <= Y1 inside the grid"
+                                  % (where, x0, y0, x1, y1))
+            d["wreg"] = (x0, y0, x1, y1)
+        elif t == "strength":
+            d["wstr"] = _int(a[0], where, "strength")
+            if not 1 <= d["wstr"] <= 127:
+                raise CourseError("%s: a blower's strength %d is outside 1 - 127 (glass's is twice it, a byte)"
+                                  % (where, d["wstr"]))
+        elif t == "gust":
+            on, off = _int(a[0], where, "on"), _int(a[1], where, "off")
+            if on < 1 or off < 1 or on + off not in WD_PERIODS:
+                raise CourseError("%s: a gust's on %d and off %d steps: each at least 1, and on + off a power of "
+                                  "two of %d - %d (%.2f - %.1f s)" % (where, on, off, WD_PERIODS[0], WD_PERIODS[-1],
+                                                                      WD_PERIODS[0] / SEC_STEPS,
+                                                                      WD_PERIODS[-1] / SEC_STEPS))
+            d["won"], d["wmask"] = on, on + off - 1
+        elif t == "seed":
+            d["wseed"] = _int(a[0], where, "seed")
+        else:
+            d["wtop"] = _int(a[0], where, "top")
+        i += 1 + n
+    if d["wdir"] is None or d["wreg"] is None:
+        raise CourseError("%s: a blower needs its `face` and its `region`" % where)
+    if "seed" in seen and not d["won"]:
+        raise CourseError("%s: a blower's `seed` is its gust's: a steady blower takes none" % where)
+    if not 0 <= d["wseed"] <= d["wmask"]:
+        raise CourseError("%s: a gust's seed %d is not under its period %d" % (where, d["wseed"], d["wmask"] + 1))
+    if (d["wtop"] is None) != (d["wdir"] != WD_UP):
+        raise CourseError("%s: %s" % (where, "an updraft (face up) needs its `top`" if d["wdir"] == WD_UP
+                                      else "`top` is an updraft's (face up) alone"))
+    if d["wflags"] & WD_FLIFT and d["wdir"] != WD_UP:
+        raise CourseError("%s: `lift` is an updraft's (face up) alone" % where)
+    if d["wtop"] is not None and not 1 <= d["wtop"] <= 24:
+        raise CourseError("%s: an updraft's top %d is outside 1 - 24 units over its floor" % (where, d["wtop"]))
+    return d
 
 
 def _pow2(v):
@@ -4186,6 +4310,26 @@ def build_props(src, tiles, fname):
                       "dur": sp.get("dur", 0), "ow": sp.get("ow", 0), "hole": sp.get("hole", "small")})
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
             props[-1]["mg"] = sp["mg"] + (4 * t.z0 + MG_CEIL if sp["mg"][1] & MG_DOWN else 0,)
+        if sp["kind"] == WD_K and sum(1 for q in props if q["kind"] in (WD_K, WD_K2)) + (2 if sp["won"] and not
+                                                                                       sp["wflags"] & WD_FFLAG else 1) \
+                > WD_NMAX + 1:
+            raise CourseError("%s:%d: a blower past the %d wind elements a course has (a gusting blower without a "
+                              "flag is two: its wisp; the family's slot lists them, SPEC.md 128.34.3)" % (f, ln, WD_NMAX))
+        if sp["kind"] == WD_K:                      # WIND (SPEC.md 128.34.2): the blower stands AT its wind -
+            x0_, y0_, x1_, y1_ = sp["wreg"]         # on the region or beside it - so the player sees its source
+            if not (x0_ - 1 <= at[0] <= x1_ + 1 and y0_ - 1 <= at[1] <= y1_ + 1):
+                raise CourseError("%s:%d: a blower at (%d, %d) is not on or beside its region %d %d %d %d (the wind's "
+                                  "source must be seen where it blows, SPEC.md 128.34.2)"
+                                  % (f, ln, at[0], at[1], x0_, y0_, x1_, y1_))
+            props[-1].update(wdir=sp["wdir"], wreg=sp["wreg"], wstr=sp["wstr"], won=sp["won"], wmask=sp["wmask"],
+                             wseed=sp["wseed"], wtop=(4 * t.z0 + 8 * sp["wtop"]) if sp["wtop"] else 0,
+                             wflags=sp["wflags"])
+            if sp["won"] and not sp["wflags"] & WD_FFLAG:     # (SPEC.md 128.34.11: its squiggles' element, at the
+                wk = FAM_BY_NAME["wind"]["kinds"][1]           # region's centre, on no cell of its own: never OBS,
+                cxy = ((x0_ + x1_) // 2, (y0_ + y1_) // 2)     # never an owner, a lane and nothing else)
+                props.append({"kind": WD_K2, "line": ln, "at": cxy, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
+                              "frow": wk, "cls": CL_ATTEMPT, "art": "wisp", "bits": 0, "z4": 4 * t.z0, "dur": 0,
+                              "ow": 0, "wof": props[-1], "noclaim": True})
     _mg_check(f, props, tiles)
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
@@ -4482,6 +4626,19 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             for c in p["track"]:
                 srcs.append((c, p["hT"] + UP(hopmax), RADIUS(hopmax), "lift"))
                 bfl[c] = (p["hP"], p["hT"])
+        elif p["kind"] == WD_K and p["wdir"] == WD_UP and "windreach" not in _CHECKS_OFF:  # WIND (SPEC.md
+            # 128.34.5; --selfcheck's red arm `nowindreach` switches it off): an UPDRAFT lifts an airborne
+            # ball to its TOP at under WD_LIFT plus the strongest push (glass's), so every cell of its region is
+            # a launch from the top at that speed - the hover's overshoot - and its flight out of the region falls
+            # from there to the course's lowest floor
+            u = WD_LIFT + wind_push(MAT_GLASS, p["wstr"])
+            h = p["wtop"] + UP(u)
+            zmin = min(lo.values()) if lo else 0
+            rr = max(3, -(-((_fall_steps(max(0, h - zmin)) + flight(u)[1]) * VMAXG) // (256 * TILE)))
+            x0_, y0_, x1_, y1_ = p["wreg"]
+            for wy_ in range(y0_, y1_ + 1):
+                for wx_ in range(x0_, x1_ + 1):
+                    srcs.append(((wx_, wy_), h, rr, "updraft"))
     for c, (h0, h1) in bfl.items():
         lo[c], hi[c] = h0, h1
 
@@ -5573,10 +5730,20 @@ def prop_ops(tiles, ops, props, x0):
             p["geo"] = geo
             mk = (lambda d, tp: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: tp))(geo, 4 * t.z0 + h)
             add(p["at"], "top", (_spans_of(geo), "post", wx + wy, mk, False, t, p["at"]))
+        elif p["kind"] == WD_K2:                    # WIND (SPEC.md 128.34.11): a WISP's squiggles, its lane's
+            p["wisp_pix"] = _wind_squiggles(p["wof"], p["at"], tiles, x0)  # pose 1 (pose 0 the picture)
+        elif p["kind"] == WD_K and not p["wflags"] & WD_FFLAG:     # a fan: its spinning poses are the lane's
+            t = tiles[p["at"]]
+            pix = _top_mark(tiles, ops, p, x0)
+            p["mark_pix"] = pix
+            add(p["at"], "top", _paint_op(pix, p["at"][0] + p["at"][1], t, p["at"]))
+            p["fan_pix"] = [_top_mark(tiles, ops, dict(p, fanrot=22.5 * q), x0) for q in range(WD_FANP)]
+            _wind_static(p, tiles, ops, add, x0)
         elif p["kind"] in (PK_PAD, PK_SPRING, PK_CUP, PK_CHECKPOINT) or _pennant(p):
             wx, wy = p["at"]
             t = tiles[p["at"]]
-            if not _pennant(p):          # the mark on its top
+            if not _pennant(p) or p.get("art") == "wind":    # the mark on its top (a BLOWER's FAN too, under its
+                                                            # pole: SPEC.md 128.34.6)
                 pix = _top_mark(tiles, ops, p, x0)
                 p["mark_pix"] = pix                 # the visibility audit's mark (128.15.10.4)
                 add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
@@ -5585,11 +5752,13 @@ def prop_ops(tiles, ops, props, x0):
                 continue
             geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
             p["geo"] = geo
-            top = 4 * t.z0 + FLAG_H
+            top = 4 * t.z0 + (WD_POLE if p.get("art") == "wind" else FLAG_H)
             mk = (lambda d, tp: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: tp))(geo, top)
             add(p["at"], "top", (_spans_of(geo), "post", wx + wy, mk, False, t, p["at"]))
             if _pennant(p):
                 p["furl"], p["fly"] = _pennants(p, x0)
+            if p["kind"] == WD_K:                   # (a flagged blower's squiggles, when it blows steadily)
+                _wind_static(p, tiles, ops, add, x0)
     out = []
     for op in ops:
         out.append(op)
@@ -5623,6 +5792,10 @@ def _top_mark(tiles, ops, p, x0):
                 elif p["kind"] == PK_SPRING:
                     if d <= 6.5:
                         ink = BLK if (d <= 1.5 or 3.0 < d <= 4.0 or d > 5.5) else MAG
+                elif p["kind"] == WD_K:                 # WIND (SPEC.md 128.34.6): a FAN - four black blades on
+                    if d <= 6.5:                        # white, a black rim and hub (both cards: black on white)
+                        a = (math.degrees(math.atan2(gy - cyg, gx - cxg)) + 360.0 - p.get("fanrot", 0)) % 90.0
+                        ink = BLK if (d <= 1.5 or d > 5.5 or a < 40.0) else WHT
                 elif d <= MOUTH_HW + 1.0:                # the cup
                     ink = BLK
                 if ink is not None:
@@ -5639,7 +5812,7 @@ def _staff_pix(p, x0):
     cy = 8 * (wx + wy) + 8 - p["z4"]
     out = {}
     if _pennant(p):
-        for y in range(cy - FLAG_H - 1, cy + 1):
+        for y in range(cy - (WD_POLE if p.get("art") == "wind" else FLAG_H) - 1, cy + 1):   # (a blower's taller)
             out[(cx - 1, y)] = BLK
             out[(cx, y)] = BLK
     elif p["kind"] == PK_CUP:
@@ -5988,10 +6161,108 @@ def _pennants(p, x0):
     for k in range(5):
         for i in range(7 - 3 * abs(k - 2) if k != 2 else 7):
             fly.add((cx + 1 + i, ytop + k))
+    if p.get("art") == "wind":
+        return _wind_flag(p, cx, cy)
     fl = {}
     for (x, y) in fly:
         edge = any((x + dx, y + dy) not in fly for dx, dy in ((1, 0), (0, 1), (0, -1)))
         fl[(x, y)] = BLK if edge else WHT
+    return furl, fl
+
+
+WD_POLE = 15                  # a blower's pole, px: taller than a flag's FLAG_H, its pennant bigger (SPEC.md 128.34.6)
+WD_FANP = 4                   # a fan's spinning poses: its blades at 0, 22.5, 45 and 67.5 degrees (a quarter turn)
+WD_SQUP = 12                  # a squiggle's height over the floor under it (or the blower's), px
+
+
+def _wind_floor(p, cell, tiles):
+    """the floor a squiggle over CELL hangs from, whole px: the cell's own top, or over a void the blower's"""
+    t = tiles.get(cell)
+    if t is not None and not isinstance(t, Split) and t.kind in (KIND_FLOOR, KIND_GOAL):
+        return 4 * max(t.corners())
+    return p["z4"]
+
+
+def _squiggle(face, cx, cy):
+    """WIND (SPEC.md 128.34.11): one squiggle cluster in the air, centred (cx, cy) - two wavy strokes along the
+    wind's screen direction (an updraft's straight up), white over a black shade so one shows on any ground
+    -> {(x, y): ink}"""
+    if face == WD_UP:
+        v, n, L = (0.0, -1.0), (1.0, 0.0), 6
+    else:
+        v = {0: (2, 1), 1: (-2, -1), 2: (-2, 1), 3: (2, -1)}[face]
+        r = math.hypot(*v)
+        v = (v[0] / r, v[1] / r)
+        n, L = (-v[1], v[0]), 7
+    out = {}
+    for k in (-1, 1):
+        for i in range(-2 * L, 2 * L + 1):
+            u = i / 2.0
+            w = 1.6 * math.sin(2 * math.pi * u / 6.0) + 2.5 * k
+            x = int(round(cx + v[0] * u + n[0] * w))
+            y = int(round(cy + v[1] * u + n[1] * w))
+            out[(x, y)] = WHT
+    for (x, y) in list(out):
+        if (x, y + 1) not in out:
+            out.setdefault((x, y + 1), BLK)
+    return out
+
+
+def _wind_cells(p):
+    """the cells of a blower's region a STEADY blower draws squiggles over: every other one (wx + wy even)"""
+    x0_, y0_, x1_, y1_ = p["wreg"]
+    return [(wx, wy) for wy in range(y0_, y1_ + 1) for wx in range(x0_, x1_ + 1) if (wx + wy) % 2 == 0]
+
+
+def _wind_squiggles(b, cell, tiles, x0):
+    """blower B's squiggle cluster over CELL -> {(x, y at Y0 = 0): ink}: SQUP px over the floor there, an
+    updraft's halfway up to its top"""
+    wx, wy = cell
+    z = _wind_floor(b, cell, tiles)
+    z = (z + b["wtop"]) // 2 if b["wdir"] == WD_UP else z + WD_SQUP
+    return _squiggle(b["wdir"], 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - z)
+
+
+def _wind_static(p, tiles, ops, add, x0):
+    """a STEADY blower's squiggles: a cluster over every other cell of its region, painted as MARKS (no key:
+    they never hide the ball, which is drawn over the picture, nor cut an occluder) right after the cell's
+    own top (or, over a void, the blower's), so what stands in front still covers them"""
+    if p["won"]:
+        return
+    for cell in _wind_cells(p):
+        own = cell if _op_spans(ops, cell, "top") is not None else p["at"]
+        pix = _wind_squiggles(p, cell, tiles, x0)
+        add(own, "top", _paint_op(pix, own[0] + own[1], tiles[own], own))
+
+
+def _wind_flag(p, cx, cy):
+    """WIND (SPEC.md 128.34.6): a blower's two poses on its pole (WD_POLE high, centre (cx, floor line cy)) -
+    FURLED (0) a white roll 6 px down the pole's downwind side; FLYING (1) a long pennant (12 x 7 px) out DOWNWIND,
+    east of the pole for +x and -y (the screen's right), mirrored west for -x and +y; an UPDRAFT's a streamer
+    5 px wide and 8 high straight up off the pole's top, narrowing (the lane: 15 lines at most, so 3 block rows
+    whatever the alignment).  STRIPED like a windsock, magenta and white bands 3
+    px wide across its length (one of the two shows on any ground: a white tile, a magenta face, the black
+    void), outlined black where the shape ends (not at the pole).  -> ({(x, y at Y0 = 0): ink}, {...})"""
+    ytop = cy - WD_POLE - 1
+    d = p["wdir"]
+    furl = {}
+    for y in range(ytop + 1, ytop + 7):
+        furl[(cx + 1, y)] = WHT
+        furl[(cx + 2, y)] = BLK
+    if d == WD_UP:
+        fly = set((x, ytop - 1 - k) for k in range(8) for x in range(cx - 1 - (2 - k // 3), cx + 1 + (2 - k // 3)))
+        out = ((1, 0), (-1, 0), (0, -1))
+    else:
+        fly = set((cx + 1 + i, ytop + k) for k in range(7) for i in range(12 - 3 * abs(k - 3)))
+        out = ((1, 0), (0, 1), (0, -1))
+        if d in (1, 2):                             # (mirrored about the pole: x -> 2 cx - 1 - x)
+            furl = dict(((2 * cx - 1 - x, y), c) for (x, y), c in furl.items())
+            fly = set((2 * cx - 1 - x, y) for (x, y) in fly)
+            out = ((-1, 0), (0, 1), (0, -1))
+    fl = {}
+    for (x, y) in fly:
+        band = (ytop - y) // 3 if d == WD_UP else abs(x - cx) // 3
+        fl[(x, y)] = BLK if any((x + dx, y + dy) not in fly for dx, dy in out) else WHT if band & 1 else MAG
     return furl, fl
 
 
@@ -7412,6 +7683,30 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: {}, 1: pix}, "st": {},
                           "kind": PK_BUMPER, "line": p["line"]})
+        elif p["kind"] in (WD_K, WD_K2) and not _pennant(p):     # WIND (SPEC.md 128.34.11): a FAN's spin (4
+            # poses, the blades a quarter turn over them) or a WISP's squiggles (0 the picture, 1 the cluster); MARKS
+            # at the cell's depth, clipped by what stands in front, as a pennant is; a wisp more than half hidden is
+            # refused, as a flag is
+            sF = p["at"][0] + p["at"][1]
+            if p["kind"] == WD_K:
+                raw = dict(enumerate(p["fan_pix"]))
+            else:
+                raw = {0: {}, 1: p["wisp_pix"]}
+            poses = {}
+            for q, pix in raw.items():
+                poses[q] = {(x, y + y0): c for (x, y), c in pix.items()
+                            if 0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF}
+            if p["kind"] == WD_K2 and 2 * len(poses[1]) < len(raw[1]):
+                raise CourseError("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
+                                  "geometry in front of them" % (fname, p["line"], p["at"][0], p["at"][1],
+                                                                 len(raw[1]) - len(poses[1]), len(raw[1])))
+            xs = [x for q in poses for x, _ in poses[q]]
+            ys = [y for q in poses for _, y in poses[q]]
+            if not xs:
+                raise CourseError("%s:%d: the blower at (%d, %d): its fan is not seen" % (fname, p["line"], *p["at"]))
+            c0, r0 = min(xs) >> 3, min(ys) >> 3
+            rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
         elif _pennant(p):             # wave 4: a flag, FURLED and FLYING (128.14.4.2)
             # the pennant is a MARK at its flag's depth: whatever the picture draws IN FRONT of the flag's
             # cell (a key over wx + wy, painter's order) hides it, as a rotor's blades are clipped - and a
@@ -7871,6 +8166,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     pmo = pmoff
     slab_b = slab_bytes(slab) if slab else b""
     jof = {i: j for j, i in enumerate(order)}
+    jofid = dict((id(props[i]), j) for j, i in enumerate(order))  # (a WISP names its blower's record)
     for j, i in enumerate(order):
         p = props[i]
         L = lane_of.get(i)
@@ -7936,7 +8232,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             p["fsb"] = fsbs[i]
             if "mg" in p:                           # MAGNETS (128.33.2): +18 the way, +19 DOWN, +20 the range,
                 rec += struct.pack("<BBBBBBb9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["mg"])
-            else:                                   # +21 the strength, +22 a hanging one's ceiling (px)
+            elif p["kind"] == WD_K:                 # WIND (SPEC.md 128.34.3): +18 - +31 the blower's fields
+                rec += struct.pack("<BBBB4BHHHH", p["fsb"] if p["fsb"] < 256 else 0, p["cls"],
+                                   p["wdir"] | p["wflags"], p["wstr"],
+                                   *(p["wreg"] + (p["won"], p["wmask"], p["wseed"], p["wtop"])))
+            elif p["kind"] == WD_K2:                # ...a WISP's: +18 its blower's record (SPEC.md 128.34.11)
+                rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["wof"])])
+            else:                                   # (MAGNETS' +21 the strength, +22 a hanging one's ceiling)
                 if p.get("partner") is not None:       # (a vanishing crack and its companion: +18 the other's
                     d18, d19 = jof[p["partner"]] + 1, int(p.get("comp") is not None)  # index + 1, +19 the companion)
                 else:
@@ -8411,6 +8713,32 @@ def ring_cross(r0, r1, x0, x1, herc):
     return ((rb * r0 + 2 * x0) & 0x1FFF) + (r1 - r0 - 1) * rb + 2 * (x1 - x0) >= 0x2000 + 2
 
 
+def _wind_turns(c, recs, where):
+    """WIND (SPEC.md 128.34.11): the TIMED event lanes meeting one window - a wisp's squiggles and a flagged
+    blower's pennant, each turning when its gust does - may not turn on the same step (the window's event
+    lanes are one pose change a step, 128.19.10): over the 1,024 steps every period divides, refused when two
+    do"""
+    by = dict((r["i"], r) for r in c.part["props"])
+    gust = []
+    for r in recs:
+        b = by.get(r["wblower"]) if r["kind"] == WD_K2 else r if (r["kind"] == WD_K and r.get("wflags", 0) & WD_FFLAG
+                                                                  and r["won"]) else None
+        if b is not None:
+            gust.append((r, b))
+    if len(gust) < 2:
+        return
+    seen = {}
+    for r, b in gust:
+        for n in range(1024):
+            if wind_blowing(b, n) != wind_blowing(b, (n + 1) & 0xFFFF):
+                if n in seen and seen[n] is not r:
+                    raise CourseError("%s: the %s: two gusting blowers' lanes turn on the same step (%d of 1,024: "
+                                      "the records %d and %d) - one pose change a step among a window's event "
+                                      "lanes; give one a `seed` (SPEC.md 128.34.11)" % (c.fname, where, n, seen[n]["i"],
+                                                                                        r["i"]))
+                seen[n] = r
+
+
 def check_bounds(c):
     """SPEC.md 128.12.4.6's bounds over every window position on both cards,
     and the start window's calibration corner.  -> a dict for the report"""
@@ -8454,7 +8782,10 @@ def check_bounds(c):
                         raise CourseError("%s: the %s window at (row %d, column %d): %d rotor pose changes on one "
                                           "step, %d in two consecutive (at most %d)" % (
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
-                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + _events(meet)
+                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
+                    + _events(meet)
+                _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
+                    "Hercules" if herc else "CGA", R, C))
                 most_chg = max(most_chg, chg)
                 if chg > WIN_CHG:
                     raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
@@ -10153,6 +10484,29 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             fsb_, cls = p[r + 16], p[r + 17]
             dur_, ow_ = p[r + 18], p[r + 19]
             pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 128.25.19)
+            if kr["kind"] == WD_K:                  # WIND (SPEC.md 128.34.3, 128.34.11): the blower's fields
+                wd, ws, x0_, y0_, x1_, y1_, won, wmask, wseed, wtop = struct.unpack_from("<BB4BHHHH", p, r + 18)
+                wf, wd = wd & (WD_FLIFT | WD_FFLAG), wd & 7
+                if cls != CL_ATTEMPT or wd >= len(WD_DIRS) or not 1 <= ws <= 127 or x0_ > x1_ or y0_ > y1_ \
+                        or fsb_ & 7 or (won and (wmask + 1 not in WD_PERIODS or won > wmask or wseed > wmask)) \
+                        or (not won and (wmask or wseed)) or (wd == WD_UP) != (wtop != 0) or not d["lane"] \
+                        or p[r + 18] & 0xE0 or (wf & WD_FLIFT and wd != WD_UP) \
+                        or d["lane"]["poses"] != (2 if wf & WD_FFLAG else 4):
+                    bad("prop %d" % d["i"], "a blower's record (face %d, strength %d, gust %d / %d)"
+                        % (wd, ws, won, wmask + 1))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=8, art=kr["art"], dur=0, ow=0, wdir=wd, wstr=ws,
+                         wreg=(x0_, y0_, x1_, y1_), won=won, wmask=wmask, wseed=wseed, wtop=wtop, wflags=wf)
+                continue
+            if kr["kind"] == WD_K2:                 # ...a WISP: +18 its blower, a gusting one without a flag
+                wb = p[r + 18]
+                q = out[wb] if wb < len(out) else None
+                qd = p[r + 18 + PROPREC * (wb - d["i"])] if q is not None else 0
+                if cls != CL_ATTEMPT or q is None or q["kind"] != WD_K or p[r + 19:r + 32] != bytes(13) \
+                        or not d["lane"] or d["lane"]["poses"] != 2 or qd & WD_FFLAG \
+                        or not struct.unpack_from("<H", p, r + 24 + PROPREC * (wb - d["i"]))[0]:
+                    bad("prop %d" % d["i"], "a wisp's record (its blower %d)" % wb)
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, wblower=wb)
+                continue
             mg = fam.get("consts") == "MG"          # (MAGNETS' +18 - +22: 128.33.2)
             if mg:
                 mgv = struct.unpack_from("<BBBBb", p, r + 18)
@@ -10163,7 +10517,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if cls not in (CL_ATTEMPT, CL_RESPAWN) or (not mg and p[r + 20:r + 32] != bytes(12)) \
                     or bool(d["lane"] or d.get("grp")) != (kr["art"] is not None) \
                     or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2, "icon": 2,
-                                                             "magnet": 3}[kr["art"]]) \
+                                                             "magnet": 3, "wind": 2}[kr["art"]]) \
                     or (not pu and not mg and (dur_ or ow_) and not (kr["kind"] == FK_CRACK and 1 <= dur_ <= nprop
                                                                      and ow_ in (0, 1))) \
                     or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
@@ -10772,6 +11126,96 @@ class MagnetFamily(Family):
         if sb[6] != i + 1 or not sb[7]:
             return 0
         return 1 if sb[7] <= MG_WIG else 2
+def wind_blowing(pr, n):
+    """WIND (SPEC.md 128.34.4): does blower PR blow on step N (the step counter's low word)?  A steady one
+    always; a gust while ((n + seed) AND mask) < ON - a function of n alone, as a windmill's gate is"""
+    return not pr["won"] or ((n + pr["wseed"]) & pr["wmask"]) < pr["won"]
+
+
+def wind_push(mat, s):
+    """the push of strength S on a ball of material MAT (SPEC.md 128.34.4): glass S << WD_GSH, rubber S,
+    steel S >> WD_SSH"""
+    return s << WD_GSH if mat == MAT_GLASS else s >> WD_SSH if mat == MAT_STEEL else s
+
+
+def wind_field(p, pr, cell):
+    """THE FORCE-FIELD CORE (SPEC.md 128.34.4, 128.34.11): blower PR, blowing this step, and the ball's cell CELL
+    (None: a ball in a tube, holed out or shattering - in no region) -> whether the cell is in its REGION; and
+    if it is, its push added along its FACE.  An updraft below its TOP pushes an AIRBORNE ball while gvz <
+    WD_LIFT, and with `lift` LAUNCHES a grounded one whose push out-lifts gravity (A > G): airborne, gvz = A,
+    its take-off z (bz_ztop, bz_zoff) its own - the next step's gravity leaves it A - G rising.  Kept apart so a
+    field family that pulls (magnets) can share it"""
+    if cell is None:
+        return False
+    x0, y0, x1, y1 = pr["wreg"]
+    if not (x0 <= cell[0] <= x1 and y0 <= cell[1] <= y1):
+        return False
+    a = wind_push(p.mat, pr["wstr"])
+    d = pr["wdir"]
+    if d == WD_UP:
+        if (p.gz >> 8) < pr["wtop"]:
+            if p.air:
+                if p.gvz < WD_LIFT:
+                    p.gvz += a
+            elif pr["wflags"] & WD_FLIFT and a > G:
+                p.air = 1
+                p.gvz = a
+                p.ztop = p.zoff = p.gz >> 8
+    elif d < 2:
+        p.gvx += -a if d else a
+    else:
+        p.gvy += -a if d == 3 else a
+    return True
+
+
+def wind_fanpose(pr, cnt, n):
+    """a fan's pose (SPEC.md 128.34.11): its spin counter CNT not 0, the blades' quarter-turn frame (n >> 2) & 3;
+    0 at rest (the picture's)"""
+    return (n >> 2) & (WD_FANP - 1) if cnt else 0
+
+
+class WindFamily(Family):
+    """WIND (SPEC.md 128.34): the BLOWER and its WISP.  A gust is a function of the step counter n
+    (wind_blowing); a blower's state is a BYTE, its fan's SPIN counter.  RESET (either class) writes the SLOT's
+    list - +0 the count, +1 on every wind element's number in record order - and marks nothing.  STEP, each
+    BLOWER of the list: blowing on step n, its push (wind_field, the window's centre; no cell for a ball in a
+    tube, holed out or shattering); without a `flag`, its counter one less (not under 0), and WD_SPIN again
+    while it blows with the cell in its region.  The guest MARKS (bz_fmark) a lane whose pose on n + 1 differs
+    from its pose on n: a gusting flag's or wisp's at the gust's turns, a fan's at each frame it turns.  POSE:
+    a flag 1 while it blows (on bz_nstep: the next step); a fan its spin frame; a wisp 1 while its blower
+    blows"""
+    row = FAM_BY_NAME["wind"]
+
+    def reset(self, p, slot, cls):
+        sb = p.fsl[slot]
+        els = [pr["i"] for pr in p.props if pr["kind"] in (WD_K, WD_K2)]
+        assert len(els) <= WD_NMAX
+        sb[0] = len(els)
+        sb[1:1 + len(els)] = bytes(els)
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        n = p.nstep & 0xFFFF
+        cell = None if p.tube or p.hid or p.mst == ST_SHATTER else p.wcell
+        for i in sb[1:1 + sb[0]]:
+            pr = p.props[i]
+            if pr["kind"] != WD_K:
+                continue
+            blow = wind_blowing(pr, n)
+            inreg = wind_field(p, pr, cell) if blow else False
+            if not pr["wflags"] & WD_FFLAG:
+                k = pr["fsb"] >> 3
+                v = p.fst[k]
+                p.fst[k] = WD_SPIN if blow and inreg else v - 1 if v else 0
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        n = p.nstep & 0xFFFF
+        if pr["kind"] == WD_K2:
+            return 1 if wind_blowing(p.props[pr["wblower"]], n) else 0
+        if pr["wflags"] & WD_FFLAG:
+            return 1 if wind_blowing(pr, n) else 0
+        return wind_fanpose(pr, p.fst[pr["fsb"] >> 3], n)
 
 
 class OwnFamily(Family):
@@ -10787,7 +11231,7 @@ class OwnFamily(Family):
 
 FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
              "tube": OwnFamily("tube"),
-             "pickups": PickupFamily(), "magnet": MagnetFamily()}
+             "pickups": PickupFamily(), "magnet": MagnetFamily(), "wind": WindFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -14080,7 +14524,7 @@ def emit_inc(courses, path=None, title=None):
               "BZF_SLOT        equ %d        ; a family's slot, bytes (bz_fsl: three of them)" % FSLOT,
               "BZF_HDR         equ %d       ; the family part's header: 'BF', ID, FAMV, the stamp, the mask, the "
               "kinds, 0, six entries" % FAM_HDR,
-              "BZ_NFAM         equ %d        ; the families the build has (IDs ascending, a gap 0FFh in BZ_FTAB)" % len(FAMILIES),
+              "BZ_NFAM         equ %d        ; the families' largest ID: ID 1 - BZ_NFAM (a gap allowed)" % FAMILIES[-1]["id"],
               "BZ_NFFETCH      equ %d        ; ...home `fetch`: a part row each, BZ_P_FAM on, ID order" % len(FAM_FETCH),
               "BZ_NFRES        equ %d        ; ...home `resident`: ONE row between them, the BUNDLE, after those "
               "(SPEC.md 128.25.6.9)" % len(FAM_RES),
@@ -14118,6 +14562,15 @@ def emit_inc(courses, path=None, title=None):
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
+              "; WIND's constants (SPEC.md 128.34; bbcourse WD_*)",
+              "BZ_WD_GSH       equ %d        ; glass's push: S << this" % WD_GSH,
+              "BZ_WD_SSH       equ %d        ; steel's: S >> this" % WD_SSH,
+              "BZ_WD_LIFT      equ %d      ; an updraft pushes while gvz is under this" % WD_LIFT,
+              "BZ_WD_UP        equ %d        ; record +18, the face: 0 +x, 1 -x, 2 +y, 3 -y, 4 up" % WD_UP,
+              "BZ_WD_FLIFT     equ %d        ; record +18's flags: an updraft's `lift`" % WD_FLIFT,
+              "BZ_WD_FFLAG     equ %d       ; ...and `flag`, the pennant" % WD_FFLAG,
+              "BZ_WD_SPIN      equ %d      ; a fan spins this many steps after the ball's last in its wind" % WD_SPIN,
+              "BZ_WD_FANP      equ %d        ; a fan's frames" % WD_FANP,
               "; PICKUPS' constants (SPEC.md 128.25.19; bbcourse PU_*)",
               "BZ_PU_HGSEC     equ %d" % PU_HGSEC, "BZ_PU_SACC      equ %d" % PU_SACC,
               "BZ_PU_SVUP      equ %d" % PU_SVUP, "BZ_PU_JHOP      equ %d" % PU_JHOP,
@@ -23674,6 +24127,169 @@ def _sc_w9(X, res):
     _w9_checks(res)
 
 
+def _wind_cases():
+    """WIND (SPEC.md 128.34.2): the blower statement's refusals, (what, text, the refusal's substring)"""
+    C = _W4C + "uses wind\n"
+    B = "prop blower 6 6 face +x region 6 5 9 7"
+    return [
+        ("a blower with a clause of no meaning", C + B + " gale\n", "unknown or repeated clause 'gale'"),
+        ("a blower with a clause twice", C + B + " strength 4 strength 5\n", "unknown or repeated clause 'strength'"),
+        ("a blower facing north", C + "prop blower 6 6 face north region 6 5 9 7\n", "faces +x, -x, +y, -y or up"),
+        ("a blower with no region", C + "prop blower 6 6 face +x\n", "needs its `face` and its `region`"),
+        ("a blower's region inverted", C + "prop blower 6 6 face +x region 9 5 6 7\n", "is not X0 <= X1"),
+        ("a blower's region past 252", C + "prop blower 6 6 face +x region 6 5 253 7\n", "is not X0 <= X1"),
+        ("a region cut short", C + "prop blower 6 6 face +x region 6 5 9\n", "takes 4 values"),
+        ("a strength of 0", C + B + " strength 0\n", "outside 1 - 127"),
+        ("a strength of 128", C + B + " strength 128\n", "outside 1 - 127"),
+        ("a gust of 10 in 30", C + B + " gust 10 20\n", "a power of two"),
+        ("a gust of 0 on", C + B + " gust 0 32\n", "each at least 1"),
+        ("a gust of 2048", C + B + " gust 1024 1024\n", "a power of two"),
+        ("a seed on a steady blower", C + B + " seed 3\n", "a steady blower takes none"),
+        ("a seed past the gust's period", C + B + " gust 16 16 seed 32\n", "not under its period"),
+        ("a top on a horizontal blower", C + B + " top 3\n", "`top` is an updraft's"),
+        ("an updraft with no top", C + "prop blower 6 6 face up region 6 5 8 7\n", "needs its `top`"),
+        ("an updraft's top of 25 units", C + "prop blower 6 6 face up region 6 5 8 7 top 25\n", "outside 1 - 24"),
+        ("a blower given a reset class", C + B + " reset attempt\n", "takes no `reset`"),
+        ("a blower far from its region", C + "prop blower 6 6 face +x region 9 5 11 7\n", "not on or beside its region"),
+        ("an eighth blower", C + "".join("prop blower %d %d face +x region 5 5 12 8\n" % (x, y) for x, y in (
+            (5, 5), (6, 5), (7, 5), (8, 5), (9, 5), (10, 5), (11, 5), (5, 7))), "past the 7 wind elements"),
+        ("a blower on a ramp", C + "prop blower 14 6 face +x region 13 5 15 7\n", "not a FLAT FLOOR"),
+        ("a blower, its family not named", _W4C + B + "\n", "does not name"),
+        ("lift on a horizontal blower", C + B + " lift\n", "`lift` is an updraft's"),
+        ("a wisp written", C + "prop wisp 6 6\n", "a wisp is the tool's"),
+        ("a flag twice", C + B + " flag flag\n", "unknown or repeated clause 'flag'"),
+    ]
+
+
+def _wind_checks(res):
+    """WIND's selfcheck (SPEC.md 128.34.8): the refusals (item 2), the records and FAMV (item 3), the pennant's
+    poses downwind (item 3) and the UPDRAFT's reach with its red arm `nowindreach` (item 6)"""
+    for what, text, want in _wind_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (WIND, 128.34.2): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    t = _W4C + ("uses wind\nprop blower 6 6 face -y region 6 5 11 7 strength 9 gust 20 44 seed 5\n"
+                "prop blower 10 6 face up region 9 5 11 7 strength 16 top 3 lift flag\n")
+    c = compile_course(t, fname="<wind>", occluders=False)
+    recs = sorted((r["at"], r["wdir"], r["wflags"], r["wstr"], r["wreg"], r["won"], r["wmask"], r["wseed"], r["wtop"],
+                   r["cls"], r["fsb"] & 7, r["lane"]["poses"]) for r in c.part["props"] if r["kind"] == WD_K)
+    want = [((6, 6), 3, 0, 9, (6, 5, 11, 7), 20, 63, 5, 0, CL_ATTEMPT, 0, WD_FANP),
+            ((10, 6), WD_UP, WD_FLIFT | WD_FFLAG, 16, (9, 5, 11, 7), 0, 0, 0, 4 * c.cells[(10, 6)][0] + 24,
+             CL_ATTEMPT, 0, 2)]
+    by = dict((r["i"], r) for r in c.part["props"])
+    wisps = [(r["at"], by[r["wblower"]]["at"], r["lane"]["poses"]) for r in c.part["props"] if r["kind"] == WD_K2]
+    f0 = famv(FAM_BY_NAME["wind"])
+    k0 = FAM_BY_NAME["wind"]["consts"]
+    FAM_BY_NAME["wind"]["consts"] = k0[:3] + (k0[3] + 1,)
+    f1 = famv(FAM_BY_NAME["wind"])
+    FAM_BY_NAME["wind"]["consts"] = k0
+    res.append(("3 WIND's records (128.34.3, 128.34.11): (cell, face, flags, S, region, ON, MASK, SEED, TOP px, "
+                "class, FSB & 7, poses) %s; the gusting blower's WISP (cell, its blower's, poses) %s; FAMV %02Xh, "
+                "%02Xh with WD_SPIN + 1 (the constants are in it)" % (recs, wisps, f0, f1),
+                recs == want and wisps == [((8, 6), (6, 6), 2)] and f0 != f1))
+    # two gusting blowers' lanes in one window turning on the same step are refused; seeded apart they are not
+    two = _W4C + ("uses wind\nprop blower 5 5 face +x region 5 5 9 5 gust 32 32 flag\n"
+                  "prop blower 5 8 face +x region 5 8 9 8 gust 32 32 flag%s\n")
+    try:
+        compile_course(two % "", fname="<two gusts>")
+        fired, msg = False, "compiled"
+    except CourseError as e:
+        fired, msg = "turn on the same step" in str(e), str(e)
+    try:
+        compile_course(two % " seed 7", fname="<two gusts, seeded>")
+        ok2, msg2 = True, "compiled"
+    except CourseError as e:
+        ok2, msg2 = False, str(e)
+    res.append(("2 WIND (128.34.11): two gusting blowers' lanes in one window turning on the same step - %s; one "
+                "seeded 7 steps on - %s" % (msg[:140], msg2[:140]), fired and ok2))
+    # the pennant flies DOWNWIND: east of the pole for +x and -y, west for -x and +y, up off its top for an updraft
+    seen, ok = [], True
+    for face in WD_DIRS:
+        p = {"kind": WD_K, "art": "wind", "at": (6, 6), "z4": 32, "wdir": WD_DIRS.index(face)}
+        furl, fly = _pennants(p, 224)
+        cx, ytop = 224, 8 * 12 + 8 - 32 - WD_POLE - 1
+        xs, ys = [x for x, _ in fly], [y for _, y in fly]
+        side = "up" if max(ys) < ytop else "east" if min(xs) > cx else "west" if max(xs) < cx - 1 else "?"
+        seen.append("%s %s" % (face, side))
+        ok = ok and side == {"+x": "east", "-y": "east", "-x": "west", "+y": "west", "up": "up"}[face] and bool(furl)
+    res.append(("3 WIND's pennant flies downwind (128.34.6): %s" % ", ".join(seen), ok))
+    # ...and its lane fits LANE_WMAX x LANE_HMAX blocks at every alignment (a floor's height in half units, the
+    # origin's x by 4): the tool can never refuse a blower for its own flag's size
+    worst = (0, 0)
+    for face in WD_DIRS:
+        for z4 in range(0, 64, 4):
+            for x0_ in (224, 228):
+                fu, fy = _pennants({"kind": WD_K, "art": "wind", "at": (6, 6), "z4": z4, "wdir": WD_DIRS.index(face)},
+                                   x0_)
+                xs, ys = [x for x, _ in list(fu) + list(fy)], [y + 300 for _, y in list(fu) + list(fy)]
+                worst = (max(worst[0], (max(xs) >> 3) - (min(xs) >> 3) + 1),
+                         max(worst[1], (max(ys) >> 3) - (min(ys) >> 3) + 1))
+    res.append(("3 WIND's pennant's lane at every alignment: at most %d x %d blocks (the limit %d x %d)"
+                % (worst + (LANE_WMAX, LANE_HMAX)), worst[0] <= LANE_WMAX and worst[1] <= LANE_HMAX))
+    # the updraft's reach (128.34.5): the cells round the column take its top's height; the arm without it does not
+    base = _W4C + "floor rect 4 10 8 12 flat 4\nuses wind\n"
+    up = base + "prop blower 6 10 face up region 5 10 7 11 strength 16 top 6\n"
+    flat = base + "prop blower 6 10 face +x region 5 10 7 11 strength 16\n"
+    zu = dict(((r.wx, r.wy), r.zhi) for r in compile_course(up, fname="<updraft>", occluders=False).reach)
+    zf = dict(((r.wx, r.wy), r.zhi) for r in compile_course(flat, fname="<no updraft>", occluders=False).reach)
+    _CHECKS_OFF.add("windreach")
+    try:
+        zr = dict(((r.wx, r.wy), r.zhi) for r in compile_course(up, fname="<updraft, nowindreach>",
+                                                                  occluders=False).reach)
+    finally:
+        _CHECKS_OFF.discard("windreach")
+    raised = sorted(k for k in zu if zu[k] > zf.get(k, zu[k]))
+    top = 4 * 8 + 8 * 6
+    # PIT WIND (128.34.11): on the model, a ball at rest on a `lift` updraft's fan - glass LAUNCHED (airborne and
+    # rising) with no Hop, rubber (16 under G 24) and steel left on the ground; the red arm, the same course
+    # without `lift`, leaves glass grounded
+    lt = _W4C + "uses wind\nprop blower 6 6 face up region 5 5 7 7 strength 16 top 4%s\n"
+    seen = []
+    for arm in (" lift", ""):
+        cl = compile_course(lt % arm, fname="<lift%s>" % arm, occluders=False)
+        for mat in range(len(MATERIALS)):
+            q = Physics(cl, mat=mat).poke(6, 6)
+            for _ in range(40):
+                q.step(0)
+            seen.append((arm.strip() or "no lift", MAT_NAMES[mat], q.air, q.gz >> 8))
+    want = [("lift", "rubber", 0, 32), ("lift", "steel", 0, 32), ("no lift", "glass", 0, 32)]
+    lifted = [x for x in seen if x[0] == "lift" and x[1] == "glass"]
+    res.append(("6 WIND's PIT WIND (128.34.11): 40 steps at rest on a `lift` updraft's fan (material, airborne, "
+                "z px) %s; the red arm without `lift` leaves glass on the ground" % seen,
+                all(x in seen for x in want) and lifted and lifted[0][2] == 1 and lifted[0][3] > 32))
+    # the FANS are FAST lanes, each a pose change a step (128.34.11): seven steady fans in one window are refused;
+    # the red arm `fanfast` (counted as event lanes) lets them through
+    seven = _W4C + "uses wind\n" + "".join("prop blower %d %d face +x region %d %d %d %d\n" % (x, y, x, y, x, y)
+                                           for x, y in ((5, 5), (7, 5), (9, 5), (11, 5), (5, 7), (7, 7), (9, 7)))
+    try:
+        compile_course(seven, fname="<seven fans>")
+        fired, msg = False, "compiled"
+    except CourseError as e:
+        fired, msg = "FAST lanes" in str(e) or "pose changes" in str(e), str(e)
+    _CHECKS_OFF.add("fanfast")
+    try:
+        compile_course(seven, fname="<seven fans, fanfast>")
+        red, msg2 = True, "compiled"
+    except CourseError as e:
+        red, msg2 = False, str(e)
+    finally:
+        _CHECKS_OFF.discard("fanfast")
+    res.append(("2 WIND's fans in one window (128.34.11): seven spinning fans - %s; the red arm `fanfast` - %s"
+                % (msg[:140], msg2[:100]), fired and red))
+    res.append(("6 WIND's updraft reach (128.34.5): %d cells raised over the same course with a horizontal blower, the "
+                "column's zhi %d px (its top %d px and the hover's overshoot); the red arm `nowindreach` raises %d"
+                % (len(raised), zu[(6, 10)], top, sum(1 for k in zr if zr[k] > zf.get(k, zr[k]))),
+                len(raised) > 6 and zu[(6, 10)] > top and not any(zr[k] > zf.get(k, zr[k]) for k in zr)))
+
+
+def _sc_wind(X, res):
+    """--selfcheck's section `wind` (SPEC.md 128.34.8)"""
+    _wind_checks(res)
+
+
 def _sc_palette(X, res):
     """--selfcheck's section `palette` (selfcheck(): a fork of its state after the compile)"""
     courses = X.courses
@@ -24339,7 +24955,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1, "av": 40}
+           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4}
 
 
 def _av_floats_want(c):
@@ -24704,7 +25320,7 @@ def selfcheck_sections():
     return ["determinism"] + [n[4:] for n in _SC_ORDER]
 
 
-_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palette", "_sc_tables", "_sc_courses",
+_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind", "_sc_palette", "_sc_tables", "_sc_courses",
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
