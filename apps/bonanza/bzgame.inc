@@ -496,6 +496,11 @@ VAR bz_on,2                     ; its map row, and the block being laid
 VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
+VAR bz_o1,1                     ; wave 10's O1 (bz_occ): 1 when the pass has ONE
+VAR bz_ox0,1                    ; box and it holds every line of the pass; its
+VAR bz_ow,1                     ; x0 and w (bytes), its buffer less 8 y0, and
+VAR bz_obias,2                  ; that plus 8 x the block row's first line
+VAR bz_orw,2                    ; (bz_oprep)
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
 VAR bz_aE,128                   ; bz_amodel (SPEC.md 128.29.5): THE CELL'S CACHE -
 VAR bz_atb,16                   ; 8 words' 8 columns' least edge line (7FFFh
