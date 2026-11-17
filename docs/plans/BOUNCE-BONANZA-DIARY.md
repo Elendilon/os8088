@@ -3847,3 +3847,46 @@ not here. +184 bytes of image, +2 of bss, nothing in the kernel.
 `bbcourse.py --selfcheck` (775 ok), `--sizes`, `tests/bonanza_dfield.py` and
 `tests/bonanza_dsplit.py` (PASS), `tests/unit/t_pins.py`, `checkdocs`.
 **Not run**: every emulator row - the owner's final pass.
+
+## 2026-11-17 (the standard kit: the first final pass, and the owner's answers)
+
+The owner answered K1's three questions the same day (SPEC.md 128.33.12):
+
+- The F library: *"Whole is fine for now, we have to actually decide on,
+  and make, standards. Which will probably be finished when we do real
+  course design, though we could start today."* The shipped kit keeps it
+  whole.
+- Re-cutting: *"As un-often as possible because that takes a long time to
+  run; once we have the standards set, this should only happen when we do a
+  major change anyway. So for now probably when I ask for it only, and
+  later, when shipping."* `make` only reads `kit.bzk`; nothing re-cuts it.
+  A course edit between cuts is never refused: the kit's pieces are matched
+  by content, so a piece the course no longer uses simply drops out of its
+  bitmap and a new one is the course's own.
+- BENCH: *"Yes that is fine."* Its figures move with the alignment.
+
+The first run of the rows at `a88479f` (the coordinator's): `bonanzacourse`,
+`bonanzagame` and `bonanzaphys` ok; four red.
+
+- **`bonanzaexit`, `bonanzademo`, `bonanzamega`**: every case found the
+  kit's row FETCHED where it expected none. That is the design (held from
+  the open), and the rows had not been told. They now count `BZ_P_KIT`,
+  read from the build, among the held rows beside the resident bundle, and
+  assert it held after the open and after every case. Two new red arms in
+  `bonanzaexit`: `kitlate` and `kitdrop`.
+- **`bonanzaring`**: the CGA's void fall had the ball's footprint one line
+  past the window's bottom at the last step before the kill. The window was
+  `bbcourse.Glide`'s every frame. **Not the kit**: the PLAYGROUND's world is
+  the same bytes, and the model reproduces the guest exactly (py 659, R0
+  237 at step 206) when fed 1.3 steps a frame. That is the CGA's real pace
+  once the two-row pans run, against a nominal 0.91. From one frame phase
+  the shipped camera loses that line; from the other it does not. The kit's
+  longer load moved the replay's start phase. The model's proof was only
+  ever at the nominal rate. The row now tolerates exactly the shipped
+  camera's own shortfall at the guest's pace (bottom edge, at most 4 lines)
+  and reports it. `nosafe` still goes red, at step 195 at that pace. A
+  camera that keeps the ball in at any pace is a design change, not made.
+
+**Tested**: the rows' `--check` host halves (`kitlate` and `kitdrop`
+assemble), `bonanza_ring.py --check-reds`, the pace model above, `checkdocs`.
+**Not run**: the four rows themselves - the coordinator re-runs them.

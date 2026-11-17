@@ -18,6 +18,23 @@ many": the goal is 14 - 20 courses, possibly on one disk.
 Branch `bounce-kit`, cut from `bounce-bonanza` at `03e864602`. Not merged
 into `bounce-bonanza`: the owner merges.
 
+## The owner's answers (2026-11-17, SPEC.md 128.33.12)
+
+1. The F library: *"Whole is fine for now, we have to actually decide on,
+   and make, standards. Which will probably be finished when we do real
+   course design, though we could start today."* - the shipped kit keeps
+   the whole F library until K3's standards replace it.
+2. Re-cutting the kit: *"As un-often as possible because that takes a long
+   time to run; once we have the standards set, this should only happen
+   when we do a major change anyway. So for now probably when I ask for it
+   only, and later, when shipping."* - `bbcourse.py kit` runs only when the
+   owner asks (later: at a ship). `make` never runs it; it only reads the
+   committed `kit.bzk`. A course edit between cuts is never refused: it
+   names the kit's pieces it still has, by content, and keeps the rest as
+   its own (bytes, not correctness).
+3. BENCH: *"Yes that is fine."* - its benchmark figures move with the
+   alignment.
+
 ## The shape of the work
 
 | wave | what | depends on |

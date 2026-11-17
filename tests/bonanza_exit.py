@@ -189,8 +189,31 @@ def title_rows():
     since SPEC.md 128.26.5 (the window is silent); story 9.8 (SPEC.md
     128.25.6.9): the RESIDENT BUNDLE, one row (BZ_P_FBUN), fetched once at
     the start and never dropped - the three balls at its head since 128.25.5.2,
-    so a row in every build"""
-    return {fbun_row()}
+    so a row in every build - and (SPEC.md 128.33.5) THE KIT, BZ_P_KIT,
+    fetched quietly at the open before the bundle and held for the instance
+    (kern_small gives it back at the open; none of these rows boots it)"""
+    k = kit_row()
+    return {fbun_row()} | ({k} if k is not None else set())
+
+
+def kit_row():
+    """BZ_P_KIT, the standard kit's row (SPEC.md 128.33.5) as the package
+    assembled it - None for a tree older than 128.33"""
+    return link_row("BZ_P_KIT")
+
+
+def kit_held(g, rws):
+    """-> failures: THE KIT held - its row FETCHED and bz_kseg its segment
+    (SPEC.md 128.33.5) - for a tree that has one"""
+    k = kit_row()
+    if k is None:
+        return []
+    out = []
+    if not rws[k][0] & OP_FETCHED:
+        out.append("the kit (row %d) is not held (SPEC.md 128.33.5: fetched at the open, held)" % k)
+    elif "bz_kseg" in g.sym and g.w("bz_kseg") == 0:
+        out.append("the kit's row %d is fetched but [bz_kseg] is 0 (bz_kget did not keep its segment)" % k)
+    return out
 
 
 def fbun_row():
@@ -579,7 +602,8 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     for i, (before, after) in enumerate(zip(base_rows, r_out)):
         if i in title:                      # the title's music, held on the desktop
             if (after[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
-                fails.append("%s: the title's part row %d is %s after the launch, %s before (SPEC.md 128.20.6)"
+                fails.append("%s: the held part row %d is %s after the launch, %s before (SPEC.md 128.20.6, "
+                             "128.33.5)"
                              % (way, i, "fetched" if after[0] & OP_FETCHED else "not fetched",
                                 "fetched" if before[0] & OP_FETCHED else "not fetched"))
             continue
@@ -618,6 +642,10 @@ def after(g, what, base_rows, base_claims):
     title = title_rows() | {shell_row()}
     for i, (before, aft) in enumerate(zip(base_rows, r_out)):
         if i in title:
+            if (aft[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
+                fails.append("%s: the held part row %d is %s, %s before" % (
+                    what, i, "fetched" if aft[0] & OP_FETCHED else "not fetched",
+                    "fetched" if before[0] & OP_FETCHED else "not fetched"))
             continue
         if aft[0] & OP_FETCHED:
             fails.append("%s: part row %d is still FETCHED" % (what, i))
@@ -952,6 +980,9 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                   sorted(title), base_claims), flush=True)
         if any(f & OP_FETCHED for i, (f, _) in enumerate(base_rows) if i not in title):
             fails.append("a part row is fetched on the desktop before any launch")
+        m.pause()
+        fails += kit_held(g, base_rows)
+        m.run()
         if any(not base_rows[i][0] & OP_FETCHED for i in title):
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
                          % sorted(title))
@@ -1070,9 +1101,23 @@ for _r in RED_RUN:                              # (only the full run covers all 
     RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch; only the palette
     RED_RUN[_r].setdefault("trial", False)      # reds' the palette leg)
     RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
+# SPEC.md 128.33.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
+# desktop's check sees it), and the kit dropped with each course (held no longer: re-read every launch)
+REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 128.33.5), HELD for the instance:\n"
+                    "    call bz_kget0 ",
+                    "    push es                     ; RED kitlate: no fetch at the open\n"
+                    "    nop\n   ")]
+REDS["kitdrop"] = [("bonanza.asm", "                                ; (NO BALL: held for the instance, 128.25.5.2)\n",
+                    "    mov al, BZ_P_KIT            ; RED kitdrop: the kit dropped with the course\n"
+                    "    call op_drop\n")]
+RED_RUN["kitlate"] = {"ways": (), "mats": (), "bench": False, "mill": False, "w4": False, "keys": False,
+                      "trial": False, "cover": False, "pal": False}
+RED_RUN["kitdrop"] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False,
+                      "trial": False, "cover": False, "pal": False}
 RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % snd_row(),  # BZ_P_SND "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
             "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
-            "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT"}
+            "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT",
+            "kitlate": "the kit (row", "kitdrop": lambda: "held part row %d is not fetched" % kit_row()}
 RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card
 
 
