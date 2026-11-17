@@ -177,7 +177,11 @@ BZ_P_FAM    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; wave 9 (SPEC.md 128.25.6.2): the 
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (128.25.6.9); bz_ftab maps an ID
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
-BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
+; the TOUR is bzcourse.inc's BZ_NTOUR courses, BZ_TOUR's K in order: a short NAMED list
+; (tools/bbcourse.py TOUR), a test fixture - not every course (SPEC.md 128.26.8)
+%if BZ_NTOUR < 1 || BZ_NTOUR > BZ_NCRS - 1
+ %error "the tour is 1 - BZ_NCRS - 1 courses, never BENCH (bbcourse.py's tour_ks refuses the rest)"
+%endif
 BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
                                 ; the 65,535-step clamp (128.14.3.3)
 ; --- BONANZA.DAT (SPEC.md 128.14.3.3, 128.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
@@ -508,9 +512,12 @@ bz_game:
 .ran:
     ret
 ; the tour's next course, played with its own ball (bz_launch); a refused
-; launch leaves the tour where it was, so Enter tries it again
+; launch leaves the tour where it was, so Enter tries it again.  [bz_tour] k is
+; the tour's k-th course, BZ_TOUR's byte k - 1 (SPEC.md 128.26.8)
 bz_tgo:
-    mov ah, [bz_tour]
+    mov bl, [bz_tour]
+    xor bh, bh
+    mov ah, [bz_ctour + bx]
     mov al, 0
 ; AL = the mode, AH = the course: launched, and a best it set saved
 bz_go:
@@ -3581,27 +3588,21 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; Every line is ONE opaque OSAPI_FONT_RUN padded with spaces to the content's
 ; width (the padding is the erase, SPEC.md 6.1), and only the 2px gaps between
 ; lines and the strip under the last one are filled: no pixel is written
-; twice.  The lines are built in bz_lbuf.  MAIN's thirteen are a builder each
+; twice.  The lines are built in bz_lbuf.  MAIN's seven are a builder each
 ; (bz_ftab), so a key redraws exactly the lines it changed (bz_redraw); the
 ; RESULTS page is drawn whole and left by the next key.  EVERY LINE FITS THE
 ; CGA's 42 CELLS (128.14.17 item 2): each builder's widest output - its
 ; strings, which BZS measures, and its fields at their widest - is asserted
 ; under the strings (BZ_FIT), so a longer string fails the build.
 ; -----------------------------------------------------------------------------
-BZ_NLINE    equ 13              ; the CGA's content holds 13 lines of 42 cells
-                                ; (the window sits above the dock): MAIN's are the
-                                ; tour's, six, then a scorecard line a tour course
-                                ; - six since the PLAYGROUND (SPEC.md 128.16.8),
-                                ; which took the title's line: the title bar says it
+BZ_NLINE    equ 7               ; MAIN's lines: the tour's, then six (SPEC.md 128.26.8:
+                                ; the scorecard's line a tour course is gone, so MAIN
+                                ; no longer grows with the courses).  The CGA's content
+                                ; holds 13 lines of 42 cells; RESULTS draws all 13
 BZ_LTOUR    equ 0               ; the tour's line
 BZ_FACEW    equ 42
 BZ_TIMEW    equ 6               ; a time: `ss.hh`, `ssss.h` (from 100 s) or `20:00+`
 BZ_FALLMAX  equ 9999            ; falls are shown, and filed, to four digits
-BZ_SC_NAME  equ 3               ; the scorecard's columns (bz_lbuf offsets; 0 is
-BZ_SC_TIME  equ 9               ; the margin cell): `K NAME  time f<n> lim <l>
-BZ_SC_FALL  equ 17              ; best <b>`
-BZ_SC_LIM   equ 23
-BZ_SC_BEST  equ 31
 
 ; the face's three entries, each a far call into the SHELL PART (SPEC.md
 ; 128.19.2, bzshell.inc): bz_face paints it, bz_redraw redraws the 0FFh-ended
@@ -3656,7 +3657,7 @@ bz_slotl:   db BZ_LTOUR, 1, 0ffh  ; (8c: the slot's keys and Enter's line)
 bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M,
                                 ; the demo keys and the tour's line
 
-; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - 6, SPEC.md
+; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - BZ_NTOUR, SPEC.md
 ; 128.14.3.1).  Preserves all but the flags.
 bz_intour:
     push ax
@@ -3667,8 +3668,8 @@ bz_intour:
     ret
 
 
-; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s five; BL = 1 when
-; one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
+; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s BZ_NTOUR; BL = 1
+; when one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
 ; Preserves all else.  (bz_post's; the face's own copy is in bzface.inc)
 bz_ttotal:
     push cx
@@ -3869,7 +3870,7 @@ bz_post:
     inc byte [bz_tour]
     cmp byte [bz_tour], BZ_NTOUR + 1
     jne .best
-    call bz_ttotal              ; the fifth: the total, DX:AX
+    call bz_ttotal              ; the last: the total, DX:AX
     or bl, bl
     jnz .best                   ; (one at the clamp: never kept)
     mov cx, [bz_dat + BZD_TOUR + 2]
@@ -4880,6 +4881,8 @@ bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word ea
                                 ; (the tool's, SPEC.md 128.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 128.16.6: bz_vinit)
+bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 128.26.8): byte k its k-th course;
+            BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzvideo.inc"
 %include "bzcard.inc"           ; wave 8c (128.19.8): the cards

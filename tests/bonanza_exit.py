@@ -94,7 +94,7 @@ leg's first differing offset:
 WAVE 6 (SPEC.md 128.16.6, 128.16.8, 128.16.14): the PLAYGROUND (course 6,
 `PLAY`) takes every way out as MOON and PEAK do - its three pads, so its three
 ball rows fetched and dropped; the tour is SIX courses, so a stopped tour's
-bz_tour is BZ_NTOUR + 2 (derived from BZ_COURSES, not written here); the claim
+bz_tour is BZ_NTOUR + 2 (bzcourse.inc's BZ_TOUR since SPEC.md 128.26.8, not written here); the claim
 leg covers seven courses.  And THE PALETTE, once a card: a launch of the
 PLAYGROUND and one of FIRST, each stopped at the kernel's fsx_run and then at
 the first of bz_vinit.vpal (bz_vinit's labelled `out` to 3D9h, resolved through the
@@ -550,9 +550,9 @@ def after(g, what, base_rows, base_claims):
 
 
 def ntour():
-    """bonanza.asm BZ_NTOUR: every course but BENCH (BZ_COURSES's, six with the PLAYGROUND)"""
-    R.CRS_K["bench"]
-    return dict.__len__(R.CRS_K) - 1
+    """bonanza.asm BZ_NTOUR: the TOUR's length, bzcourse.inc's BZ_TOUR (SPEC.md 128.26.8: a short
+    NAMED list, bbcourse.py's TOUR - no longer every course but BENCH)"""
+    return len(R.tour_ks())
 
 
 def guard(g):
@@ -579,7 +579,10 @@ def wave4_exits(g, ui, base_rows, base_claims):
             fails.append("tour %s: [bz_tour] %d after the way out, not %d (stopped)" % (
                 way, g.b("bz_tour"), ntour() + 2))
     m.pause()
-    g.putb("bz_tour", R.CRS_K["moon"])          # a tour standing at MOON: Enter plays it
+    T = R.tour_ks()
+    if R.CRS_K["moon"] not in T:                # (the cup leg needs a cup on the tour)
+        raise SystemExit("bonanza_exit: MOON is not on the tour (BZ_TOUR %s, SPEC.md 128.26.8)" % T)
+    g.putb("bz_tour", T.index(R.CRS_K["moon"]) + 1)   # a tour standing at MOON: Enter plays it
     m.run()
     keyed_launch(g, "Enter", "tour MOON", fails)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "tour MOON", guest=60)

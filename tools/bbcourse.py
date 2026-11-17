@@ -184,6 +184,13 @@ CRS_MAX = 23                  # BZ_CRS_MAX: the courses a build may have, the wi
                               # table and of BONANZA.DAT's BZS4 (SPEC.md 128.22.5: 80 + 18 x 23 = 494 bytes,
                               # under one sector - 24 would be 512, a whole one, and os88data.inc's
                               # od_write then never takes its one-sector arm); more is refused
+# THE TOUR (SPEC.md 128.26.8, the owner 2026-11-17): a short NAMED list of courses, a TEST FIXTURE the
+# rows drive through G and Enter (bz_dev, 128.26.6) - no longer every course but BENCH.  Course NAMEs (the
+# `course` statement's), played in this order; each must be a course of BZ_COURSES, never BENCH (course 0),
+# none twice.  bzcourse.inc carries it as BZ_NTOUR and BZ_TOUR (a byte a tour course, its K), and
+# BZ_CRS_TOURX (BONANZA.DAT +146) is the XOR of THESE courses' identities.  A course not named here is
+# still a course: N cycles it, the pathway's pads reach it, a free play plays it.
+TOUR = ("FIRST", "TRIAL", "MILL", "MOON", "PEAK", "PLAY")
 KW_MAX = 33                   # CELLS' scratch rows, KW + 2 <= bz_cxcel's 36-byte stride (128.15.6)
 # the course budget (SPEC.md 128.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
@@ -11091,7 +11098,28 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
+def tour_ks(courses, tour=None):
+    """the TOUR (SPEC.md 128.26.8) as course numbers K, in its order: every NAME a course of COURSES, never
+    BENCH (K 0), none twice, at least one -> [K]; else CourseError naming the fault"""
+    tour = TOUR if tour is None else tour
+    byname = {c.name: k for k, c in enumerate(courses)}
+    if not tour:
+        raise CourseError("the tour is empty: G would have nothing to play (SPEC.md 128.26.8)")
+    if len(set(tour)) != len(tour):
+        raise CourseError("the tour names a course twice: %s" % ", ".join(tour))
+    ks = []
+    for n in tour:
+        if n not in byname:
+            raise CourseError("the tour names %s, which is not a course of BZ_COURSES (%s)"
+                              % (n, ", ".join(c.name for c in courses)))
+        if byname[n] == 0:
+            raise CourseError("the tour names %s, course 0 - the benchmark's, never a tour course" % n)
+        ks.append(byname[n])
+    return ks
+
+
 def emit_inc(courses, path=None, title=None):
+    tks = tour_ks(courses)
     allc = courses + ([path] if path is not None else [])   # wave 8b (128.19.5): the pathway's entry LAST
     if title is not None:                           # SPEC.md 128.23.1: the TITLE's after the pathway's
         if path is None:
@@ -11164,11 +11192,17 @@ def emit_inc(courses, path=None, title=None):
               "; the face's field widths (SPEC.md 128.14.17 item 2: every face line fits",
               "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
               "; title and NAME, the widest par in digits, and the TOUR's identity - the",
-              "; XOR of courses 1 .. BZ_NCRS - 1's (BONANZA.DAT +56, 128.14.3.3)",
+              "; XOR of the tour's courses' (BZ_TOUR below; BONANZA.DAT +146, 128.22.5)",
               "BZ_CRS_TITLEW   equ %d" % max(len(c.title) for c in courses),
               "BZ_CRS_NAMEW    equ %d" % max(len(c.name) for c in courses),
               "BZ_CRS_LIMW     equ %d" % max(len(str(c.limit)) for c in courses),
-              "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, c: a ^ c.ident, courses[1:], 0),
+              "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, k: a ^ courses[k].ident, tks, 0),
+              "; THE TOUR (SPEC.md 128.26.8): a short NAMED list (bbcourse.py's TOUR), a test",
+              "; fixture - not every course.  BZ_TOUR is a byte a tour course, its K, in order",
+              "BZ_NTOUR        equ %d        ; %s" % (len(tks), " ".join(courses[k].name for k in tks)),
+              "%macro BZ_TOUR 0",
+              "    db " + ", ".join(str(k) for k in tks),
+              "%endmacro",
               "BZ_PHYSV        equ %03Xh      ; the PHYSICS identity: CRC-16 of BZ_MATTAB, PHYS_CONSTS and the "
               "step's tables, folded (128.14.7.2, 128.14.25 item 4)" % PHYSV,
               "",
@@ -11459,7 +11493,7 @@ def emit_inc(courses, path=None, title=None):
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN",
               " %endrep",
               "%endmacro", "",
-              "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a tour course, K 1 - BZ_NCRS - 1,",
+              "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a course but BENCH, K 1 - BZ_NCRS - 1,",
               "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
               "; rows follow the songs': demo K at BZ_P_DEMO + K - 1 (bonanza.asm defines",
               "; BZ_P_DEMO = BZ_P_SONG + BZS_NSONG)",
@@ -20618,6 +20652,23 @@ def _sc_inc(X, res):
                 and "    dw " + ", ".join("%05Xh" % c.ident for c in courses) in inc
                 and PHYSV == (crc >> 8) ^ (crc & 0xFF) and "BZ_PHYSV        equ %03Xh" % PHYSV in inc
                 and all(c.ident for c in courses)))
+    # SPEC.md 128.26.8: THE TOUR is TOUR's named list, not every course but BENCH - BZ_TOUR, BZ_NTOUR and
+    # BZ_CRS_TOURX are its; and tour_ks refuses an empty list, BENCH, a name twice and a name not a course
+    tks = tour_ks(courses)
+    tx = functools.reduce(lambda x, k: x ^ courses[k].ident, tks, 0)
+    tbad = []
+    for what, t in (("empty", ()), ("BENCH", ("BENCH",) + TOUR), ("twice", TOUR + TOUR[:1]),
+                    ("unknown", TOUR + ("NOSUCH",))):
+        try:
+            tour_ks(courses, t)
+            tbad.append(what)
+        except CourseError:
+            pass
+    res.append(("4 the TOUR (SPEC.md 128.26.8) is TOUR's named list %s = K %s: bzcourse.inc's BZ_NTOUR %d, BZ_TOUR "
+                "and BZ_CRS_TOURX %04Xh are its, and an empty, BENCH, repeated or unknown tour is refused (%s)" % (
+                    " ".join(TOUR), tks, len(tks), tx, ", ".join(tbad) or "all four"),
+                "BZ_NTOUR        equ %d " % len(tks) in inc and "%macro BZ_TOUR 0\n    db " + ", ".join(
+                    str(k) for k in tks) + "\n" in inc and "BZ_CRS_TOURX    equ %05Xh" % tx in inc and not tbad))
     # wave 7 (SPEC.md 128.18.3): each course's limit by the rule (or explicit and over its floor), printed
     # with its 55-step seconds against real time; `par` refused; a limit under the floor refused
     lrows, lbad = [], []
