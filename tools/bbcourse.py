@@ -173,12 +173,12 @@ F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = 
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
             "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
-            "L": F_PLAIN}             # SPEC.md 128.28.4.2: a TWO-PART course's pose maps, its picture part's last
+            "L": F_PLAIN}             # SPEC.md 128.30.4.2: a TWO-PART course's pose maps, its picture part's last
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
              "T": "ROWTAB",
              "W": "the route", "P": "the props", "L": "the lanes' pose maps"}
-# SPEC.md 128.28: a course past one part is TWO - the PICTURE part (these tags, BZ<K>.BIN, its magic BZP2) and the
+# SPEC.md 128.30: a course past one part is TWO - the PICTURE part (these tags, BZ<K>.BIN, its magic BZP2) and the
 # WORLD part (every other tag, BZ<K>W.BIN, BZW2); one part keeps BZC2
 PIC_TAGS = "MBIRKOL"
 MAGIC_PIC, MAGIC_WORLD = b"BZP2", b"BZW2"
@@ -5052,7 +5052,7 @@ def slab_rise(p, line, x0, y0):
 
 class Course:
     """everything one course compiles to; .cga and .herc are the parts (a TWO-PART course's picture part, and
-    .wcga, .wstored and .wherc its world part's: SPEC.md 128.28)"""
+    .wcga, .wstored and .wherc its world part's: SPEC.md 128.30)"""
     split = False
     wcga = wstored = wherc = wcga4 = wcga8 = wstored4 = wstored8 = None
 
@@ -6173,7 +6173,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                               % (fname, ln, wx, wy, cl and cl[0], cl and _nib(cl[1] & 15), cl and _nib(cl[1] >> 4),
                                  t.z0, t.sx, t.sy))
     rec_ = REC if _rec is None else _rec
-    # SPEC.md 128.28.4.1: ONE part while its D and its C RAM forms each fit one (today's acceptance, so a course
+    # SPEC.md 128.30.4.1: ONE part while its D and its C RAM forms each fit one (today's acceptance, so a course
     # that builds as one part builds as it always did); past that TWO, a PICTURE part and a WORLD part
     split = one_part_len(model, 4) > PARTMAX or one_part_len(model, 8) > PARTMAX or hack.get("split")
     wcga = wcga4 = wcga8 = None
@@ -6189,18 +6189,18 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     else:
         if (pth is not None or src.title_ln is not None) and not hack.get("twopath"):
             raise CourseError("%s: the %s is %d bytes, over the %d one part may be, by %d - and the pathway and "
-                              "the title are always ONE part (SPEC.md 128.28.4.1)" % (
+                              "the title are always ONE part (SPEC.md 128.30.4.1)" % (
                                   fname, "pathway" if pth is not None else "title", one_part_len(model, 4),
                                   PARTMAX, one_part_len(model, 4) - PARTMAX))
         for rb in ((4, 8) if rec_ == 8 else (4,)):
             for nm, ln in zip(("picture", "world"), two_part_lens(model, rb)):
                 if ln > PARTMAX:
                     raise CourseError("%s: the course's %s part is %d bytes%s, over the %d one part may be, by %d "
-                                      "(SPEC.md 128.28.4.1)" % (fname, nm, ln, " under RECB 8" if rb == 8 else "",
+                                      "(SPEC.md 128.30.4.1)" % (fname, nm, ln, " under RECB 8" if rb == 8 else "",
                                                                PARTMAX, ln - PARTMAX))
         cga4, wcga4 = encode_parts(model, 4, fname, _hack=hack)
         cga8, wcga8 = encode_parts(model, 8, fname, _hack=hack) if max(two_part_lens(model, 8)) <= 0xFFFF \
-            else (None, None)                     # (C's parts need not lay out: 128.28.4.3)
+            else (None, None)                     # (C's parts need not lay out: 128.30.4.3)
         cga, wcga = (bytearray(cga4), wcga4) if rec_ == 4 else (bytearray(cga8), wcga8)
         cw = wcga
     gridoff = struct.unpack_from("<H", cw, 26)[0]
@@ -6209,7 +6209,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     rl_, pm_ = _props_runs(model)
     loff_ = part_layout2(model, rec_)[0][1]["L"][0] if split else 0
     for p in props:                           # the props' offsets, absolute in THIS build's RAM form (a two-part
-        if p.get("lane"):                     # course's pose maps in its picture part, SPEC.md 128.28.4.2)
+        if p.get("lane"):                     # course's pose maps in its picture part, SPEC.md 128.30.4.2)
             p["lane"]["off"] += (loff_ - rl_) if split else propoff
         if "segoff" in p and p["kind"] in (PK_TUBE, PK_WINDMILL):
             p["segoff"] += propoff - (pm_ if split else 0)
@@ -6274,7 +6274,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.stored = c.stored4 if rec_ == 4 else c.stored8
     if expand(c.stored, fname) != c.cga:        # the build's own check; --selfcheck item 10 does both and more
         raise CourseError("%s: the stored form does not expand to the RAM form" % fname)
-    # SPEC.md 128.28: a TWO-PART course - .cga and .stored its PICTURE part's, .wcga and .wstored its WORLD
+    # SPEC.md 128.30: a TWO-PART course - .cga and .stored its PICTURE part's, .wcga and .wstored its WORLD
     # part's (None for one part), each stored and expanded on its own
     c.split = bool(split)
     c.wcga8, c.wcga4 = wcga8, wcga4
@@ -6989,7 +6989,7 @@ def decode_part(p):
     return m
 
 
-# --- SPEC.md 128.28: THE TWO-PART COURSE ------------------------------------
+# --- SPEC.md 128.30: THE TWO-PART COURSE ------------------------------------
 #
 # The same model, serialised as a PICTURE part (M B I R K O and L, the lanes' pose maps: everything the frame
 # writers, the occluder pass and the wheel's commit read) and a WORLD part (G C D T W P: everything physics,
@@ -7019,7 +7019,7 @@ def one_part_len(m, recb):
 
 
 def part_layout2(m, recb):
-    """SPEC.md 128.28.4.2: [(order, {tag: (offset, RAM length)}, the sections' end)] for the picture part and
+    """SPEC.md 128.30.4.2: [(order, {tag: (offset, RAM length)}, the sections' end)] for the picture part and
     the world part, each from HDR, empty sections included as part_layout's"""
     g = m["grid"]
     _rl, pm = _props_runs(m)
@@ -7048,7 +7048,7 @@ def two_part_lens(m, recb):
 
 
 def _encode2(m, recb, ident=0, fname="<course>"):
-    """SPEC.md 128.28.4.2: the model as its two parts under RECB `recb` -> (picture, world), bytearrays"""
+    """SPEC.md 128.30.4.2: the model as its two parts under RECB `recb` -> (picture, world), bytearrays"""
     (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
@@ -7139,7 +7139,7 @@ def _encode2(m, recb, ident=0, fname="<course>"):
 
 
 def _ident_bytes2(a, b):
-    """SPEC.md 128.28.4.3: a two-part course's words for the identity, its picture part's and then its world
+    """SPEC.md 128.30.4.3: a two-part course's words for the identity, its picture part's and then its world
     part's, the identity word (the world part's BZG1 +18) and each directory entry's FORM byte and STORED
     LENGTH taken as 0"""
     a, b = bytearray(a), bytearray(b)
@@ -7155,7 +7155,7 @@ def _ident_bytes2(a, b):
 
 
 def ram_identity2(a, b):
-    """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (128.28.4.3), a
+    """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (128.30.4.3), a
     RECB 8 build's parts re-encoded as D first"""
     if a[32] != 4:
         a, b = _encode2(decode_parts(a, b), 4)
@@ -7172,7 +7172,7 @@ def encode_parts(m, recb, fname="<course>", _hack=None):
 
 
 def decode_parts(a, b):
-    """a two-part course's RAM forms (SPEC.md 128.28.4.2) -> the model a one-part compile of it has
+    """a two-part course's RAM forms (SPEC.md 128.30.4.2) -> the model a one-part compile of it has
     (decode_part's): the pose maps back in the props blob after the records.  Reads; does not check
     (read_parts checks, and then calls this)"""
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
@@ -7267,7 +7267,7 @@ def course_model(c):
 
 
 def herc_translate_parts(a, b):
-    """SPEC.md 128.28.5: bz_hxlat on a two-part course - the picture part's blocks, the world part's lifts'
+    """SPEC.md 128.30.5: bz_hxlat on a two-part course - the picture part's blocks, the world part's lifts'
     sprites (each part through herc_translate_course's rule) -> (picture, world)"""
     t = htab()
     a, b = bytearray(a), bytearray(b)
@@ -7591,7 +7591,7 @@ def part_forms(courses):
     """BZ_FORMS: a mask of the forms the parts use (128.15.4.5)"""
     mask = 0
     for c in courses:
-        for p in (c.cga, c.wcga):                   # (a two-part course's world part too, SPEC.md 128.28)
+        for p in (c.cga, c.wcga):                   # (a two-part course's world part too, SPEC.md 128.30)
             if p is None:
                 continue
             diroff, nsec = struct.unpack_from("<HH", p, 38)
@@ -7623,9 +7623,9 @@ def read_part(p, fname="<part>"):
 
 
 def read_parts(a, b, fname="<course>"):
-    """SPEC.md 128.28.4.2: a TWO-PART course's RAM forms, its PICTURE part (BZP2: M B I R K O L) and its WORLD
+    """SPEC.md 128.30.4.2: a TWO-PART course's RAM forms, its PICTURE part (BZP2: M B I R K O L) and its WORLD
     part (BZW2: G C D T W P), checked by read_part's rules over the sections each holds - the two headers the
-    same but their magic and directory, each directory its own part's - and the identity (128.28.4.3) and the
+    same but their magic and directory, each directory its own part's - and the identity (128.30.4.3) and the
     canonical layout over the two.  The same dict as read_part's, with split True and each directory entry's
     part (0 the picture, 1 the world)"""
     return _read_bzc2(a, b, fname, split=True)
@@ -7651,7 +7651,7 @@ def _read_bzc2(p, pw, fname, split=False):
     nw = len(pw)
     wdiroff, wnsec = struct.unpack_from("<HH", pw, 38)
     if split and (p[4:38] != pw[4:38] or p[42:HDR] != pw[42:HDR]):
-        bad("header", "the world part's header is not the picture part's (SPEC.md 128.28.4.2: the same but the "
+        bad("header", "the world part's header is not the picture part's (SPEC.md 128.30.4.2: the same but the "
             "magic, DIROFF and NSEC)")
     if cols not in (64, 128) or cols > COLS_MAX:
         bad("COLS", str(cols))
@@ -7699,7 +7699,7 @@ def _read_bzc2(p, pw, fname, split=False):
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
     dlen = 0                                        # SPEC.md 128.24.5.2: section D's length, its entry's alone
-    llen = 0                                        # SPEC.md 128.28.4.2: section L's (two parts only)
+    llen = 0                                        # SPEC.md 128.30.4.2: section L's (two parts only)
     for q, do, ns in dirs:
         for j in range(ns):
             if q[do + DIRENT * j] == ord("D"):
@@ -7710,7 +7710,7 @@ def _read_bzc2(p, pw, fname, split=False):
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, 2 * nmask))
-    if split:                                       # SPEC.md 128.28.4.2: the pose maps, the picture part's last
+    if split:                                       # SPEC.md 128.30.4.2: the pose maps, the picture part's last
         want.append(("L", maskend, llen))
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
              ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
@@ -7936,7 +7936,7 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
                 bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
-    # the identity, over C's RAM form (128.15.7) - or a two-part course's over its D parts (128.28.4.3) - and
+    # the identity, over C's RAM form (128.15.7) - or a two-part course's over its D parts (128.30.4.3) - and
     # the canonical layout
     if split:
         model = decode_parts(p_, p)
@@ -7975,7 +7975,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
     offset inside the part, every pose map word a block offset, the kinds,
     the flags (UNDERSIDE refused), the segments' and sprites' places, and the
     records, pose maps, segments and sprites filling the part's tail exactly.
-    pmaps: a TWO-PART course's (SPEC.md 128.28.4.2) pose maps - (the picture
+    pmaps: a TWO-PART course's (SPEC.md 128.30.4.2) pose maps - (the picture
     part's bytes, L's offset, L's length) - which then fill L exactly instead"""
     n = len(p) if end is None else end          # BZC2: the props end at the directory
     if pmaps is not None:
@@ -8137,7 +8137,7 @@ class Grid:
 
     def __init__(self, part_bytes, wpart=None):
         self.src = part_bytes                       # (a two-part course's: its picture part, and the cells, the
-        self.p = part_bytes if wpart is None else wpart     # route and the props read in its WORLD part, 128.28)
+        self.p = part_bytes if wpart is None else wpart     # route and the props read in its WORLD part, 128.30)
         info = read_part(part_bytes) if wpart is None else read_parts(part_bytes, wpart)
         g = info["grid"]
         self.nrows, self.smin, self.amin, self.kw = g["nrows"], g["smin"], g["amin"], g["kw"]
@@ -11903,7 +11903,7 @@ def emit_inc(courses, path=None, title=None):
     lines += ["%endmacro", "",
               "; the course part rows: BZ_NCRS, one a course, every one",
               "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 128.11.3.1) - and after them each TWO-PART course's",
-              "; WORLD part (SPEC.md 128.28.4.4), BZ<K>W.BIN, in course order",
+              "; WORLD part (SPEC.md 128.30.4.4), BZ<K>W.BIN, in course order",
               "%macro BZ_CRS_PARTS 0",
               " %rep BZ_NCRS + BZ_NCRS2",
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN",
@@ -11925,7 +11925,7 @@ def emit_inc(courses, path=None, title=None):
 
 
 def wrows(courses):
-    """SPEC.md 128.28.4.4: each course's WORLD part's row - BZ_P_CRS + BZ_NCRS + j for the j-th two-part
+    """SPEC.md 128.30.4.4: each course's WORLD part's row - BZ_P_CRS + BZ_NCRS + j for the j-th two-part
     course, in course order - or 0 for a course of one part"""
     out, j = [], 0
     for c in courses:
@@ -11935,10 +11935,10 @@ def wrows(courses):
 
 
 def emit_wrows(courses):
-    """SPEC.md 128.28.4.4: BZ_NCRS2 and, with any two-part course, BZ_CRS_WROW"""
+    """SPEC.md 128.30.4.4: BZ_NCRS2 and, with any two-part course, BZ_CRS_WROW"""
     w = wrows(courses)
     n2 = sum(1 for x in w if x)
-    out = ["; SPEC.md 128.28.4.4: the TWO-PART courses' WORLD parts (0: none, and the package is assembled as",
+    out = ["; SPEC.md 128.30.4.4: the TWO-PART courses' WORLD parts (0: none, and the package is assembled as",
            "; it was before two parts existed: bz_mseg is bz_cseg's word); with any, BZ_CRS_WROW is a byte a",
            "; course, its world part's row (0: one part)",
            "BZ_NCRS2        equ %d" % n2]
@@ -12097,7 +12097,7 @@ def crs_maxclaim(path, courses):
     It was the SUM of every claim the play made - course, balls, song, sound
     part, and not the victory fanfare, a defect - compared against the
     largest free run; the small parts are the ARENA's now (crs_armax).  A
-    TWO-PART course's is both its parts' claims, each so (SPEC.md 128.28.5)"""
+    TWO-PART course's is both its parts' claims, each so (SPEC.md 128.30.5)"""
     return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in (courses[k].cga, courses[k].wcga) if q)
                 for k in _pad_courses(path, courses)] + [0])
 
@@ -12207,7 +12207,7 @@ def check_budget(c, k):
             raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
-    return packed_len(c.stored4, "lz4") + (packed_len(c.wstored4, "lz4") if c.split else 0)   # (both parts, 128.28)
+    return packed_len(c.stored4, "lz4") + (packed_len(c.wstored4, "lz4") if c.split else 0)   # (both parts, 128.30)
 
 
 def finish_points(c):
@@ -12729,7 +12729,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     files = {}
     for k, c in enumerate(courses):
         files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 128.15.12.1); os88pkg packs it
-        if c.split:                             # SPEC.md 128.28.4.4: a two-part course's WORLD part
+        if c.split:                             # SPEC.md 128.30.4.4: a two-part course's WORLD part
             files["BZ%dW.BIN" % k] = c.wstored
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
@@ -12743,7 +12743,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         BZ_TITLE_K[0] = len(courses) + 1            # (BZ_CRS_TITLE: the demos' logs name it)
         files["BZTDEMO.BIN"] = build_title_demos(tc, demo_dir)
     compile_all.title = tc
-    # SPEC.md 128.28.4.4: the world parts' file names in row order, which the Makefile passes as --part after
+    # SPEC.md 128.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
     # the courses' (empty: none)
     texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
              "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split)}
@@ -14070,8 +14070,8 @@ def report(c, k=None):
               pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"] if not e["part"]),
               "; LZ4 %d as RECB 4 (%s)" % (c.packed4, budget_note(c, c.packed4))
               if getattr(c, "packed4", None) else ""))
-    if c.split:                                     # SPEC.md 128.28: the two parts
-        print("    TWO PARTS (SPEC.md 128.28): the picture part %d bytes (%d under 65,024), the world part %d (%d "
+    if c.split:                                     # SPEC.md 128.30: the two parts
+        print("    TWO PARTS (SPEC.md 128.30): the picture part %d bytes (%d under 65,024), the world part %d (%d "
               "under); stored %d and %d" % (len(c.cga), PARTMAX - len(c.cga), len(c.wcga), PARTMAX - len(c.wcga),
                                             len(c.stored), len(c.wstored)))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
@@ -21215,21 +21215,21 @@ def _sc_budget(X, res):
 
 
 def _sc_twoseg(X, res):
-    """--selfcheck's section `twoseg`: item 15, TWO PARTS (SPEC.md 128.28.7)"""
+    """--selfcheck's section `twoseg`: item 15, TWO PARTS (SPEC.md 128.30.7)"""
     _twoseg_checks(X.courses, res)
 
 
 def _twoseg_checks(courses, res):
-    """SPEC.md 128.28.7, item 15: TWOSEG compiles as two parts, each expands in place, read_parts takes them
-    and decode_parts gives the model back, the identity is 128.28.4.3's, the route demo reaches the goal on
+    """SPEC.md 128.30.7, item 15: TWOSEG compiles as two parts, each expands in place, read_parts takes them
+    and decode_parts gives the model back, the identity is 128.30.4.3's, the route demo reaches the goal on
     the model through the world part, every shipped course is one part - and the negative controls: a pose map
     pointed back into P, the world header carrying a picture offset, the identity over one part, a picture
     part with no L, and a two-part pathway, each REFUSED"""
     if any(c.split for c in courses):
-        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.28.6): %s"
+        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.30.6): %s"
                     % ", ".join(c.name for c in courses if c.split), False))
     else:
-        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.28.6), %s" % ", ".join(
+        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.30.6), %s" % ", ".join(
             "%s %d" % (c.name, len(c.cga)) for c in courses), True))
     c = compile_course(twoseg_text(), "<TWOSEG>")
     m = c.model
@@ -21265,7 +21265,7 @@ def _twoseg_checks(courses, res):
                 "props blob after the records)", models_equal(decode_parts(c.cga, c.wcga), m)))
     idw = struct.unpack_from("<H", c.wcga, pt["gridoff"] + 18)[0]
     id8 = ram_identity2(c.cga8, c.wcga8) if c.cga8 else idw
-    res.append(("15 TWOSEG: its identity %04Xh is 128.28.4.3's - Fletcher's pair over the picture part's D RAM form "
+    res.append(("15 TWOSEG: its identity %04Xh is 128.30.4.3's - Fletcher's pair over the picture part's D RAM form "
                 "and then the world part's - at the world part's BZG1 +18, and the same from its RECB 8 parts "
                 "(%04Xh)" % (c.ident, id8), idw == c.ident == ram_identity2(c.cga, c.wcga) == id8))
     p_ = Physics(c, play=True)
@@ -21679,7 +21679,7 @@ def _o88_arms(courses, demo_files):
             with open(p, "wb") as f:
                 f.write(c.stored)
             parts.append(p)
-        for k, c in enumerate(courses):             # SPEC.md 128.28.4.4: the WORLD parts after the courses'
+        for k, c in enumerate(courses):             # SPEC.md 128.30.4.4: the WORLD parts after the courses'
             if c.split:
                 p = os.path.join(td, "BZ%dW.BIN" % k)
                 with open(p, "wb") as f:
@@ -21740,14 +21740,14 @@ def sizes(paths):
           "(os88lz, the near-call filter tried); KiB = 1,024 bytes" % (REC, "D" if REC == 4 else "C"))
     for k, c in enumerate(courses):
         pt = c.part
-        stores = [c.stored] + ([c.wstored] if c.split else [])     # (a two-part course's both, 128.28)
+        stores = [c.stored] + ([c.wstored] if c.split else [])     # (a two-part course's both, 128.30)
         pw = [{f: packed_len(st, f) for f, _ in fmts} for st in stores]
         whole = {f: sum(q[f] for q in pw) for f, _ in fmts}
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
             k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores), sum(len(st) for st in stores),
             sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
         if c.split:
-            print("    TWO PARTS (SPEC.md 128.28): the picture part %d bytes (%d of headroom under %d), LZ4 %d, LZB %d; "
+            print("    TWO PARTS (SPEC.md 128.30): the picture part %d bytes (%d of headroom under %d), LZ4 %d, LZB %d; "
                   "the world part %d (%d), LZ4 %d, LZB %d" % (
                       len(c.cga), PARTMAX - len(c.cga), PARTMAX, pw[0]["lz4"], pw[0]["lzb"], len(c.wcga),
                       PARTMAX - len(c.wcga), pw[1]["lz4"], pw[1]["lzb"]))
@@ -22105,26 +22105,26 @@ def main_demo(argv):
     return 0
 
 
-# SPEC.md 128.28.7: THE TWO-PART TEST COURSE - the PLAYGROUND with its diagonal lane run on down the screen off the
+# SPEC.md 128.30.7: THE TWO-PART TEST COURSE - the PLAYGROUND with its diagonal lane run on down the screen off the
 # platform's foot (s 81 - 121), which takes its one-part form past 65,024 bytes (67,320 at the commit that made it,
 # a picture part of 51,956 and a world part of 15,364).  Off every route: the route, the start and the goal are the
 # PLAYGROUND's.  Not shipped and not in the tour: --selfcheck item 15 compiles it, `make bonanzatwoseg` adds it to a
 # private build as course 7
-TWOSEG_EXT = ("\n# SPEC.md 128.28.7: the lane run on down the screen off the platform's foot, until one part refuses "
+TWOSEG_EXT = ("\n# SPEC.md 128.30.7: the lane run on down the screen off the platform's foot, until one part refuses "
               "the course\nfloor box 15 17 81 121 flat 2.5\n")
 
 
 def twoseg_text():
-    """the TWOSEG course's text (SPEC.md 128.28.7), from the PLAYGROUND's"""
+    """the TWOSEG course's text (SPEC.md 128.30.7), from the PLAYGROUND's"""
     with open(os.path.join(COURSE_DIR, "playground.bbc"), "r", encoding="ascii") as f:
         t = f.read()
     t = _swap(t, 'course PLAY "Playground"', 'course TWOSG "Two segments"')
-    return ("# TWOSG - GENERATED by `python3 tools/bbcourse.py twoseg` (SPEC.md 128.28.7): a test course, never "
+    return ("# TWOSG - GENERATED by `python3 tools/bbcourse.py twoseg` (SPEC.md 128.30.7): a test course, never "
             "shipped\n" + t + TWOSEG_EXT)
 
 
 def main_twoseg(argv):
-    """bbcourse.py twoseg [-o OUT.bbc]: the two-part test course's text (SPEC.md 128.28.7)"""
+    """bbcourse.py twoseg [-o OUT.bbc]: the two-part test course's text (SPEC.md 128.30.7)"""
     ap = argparse.ArgumentParser(prog="bbcourse.py twoseg")
     ap.add_argument("-o", "--out")
     a = ap.parse_args(argv)

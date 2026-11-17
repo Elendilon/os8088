@@ -3149,7 +3149,7 @@ the scratch builds. **Not run:** the emulator rows that walk the tour
 The owner's brief: unmerged work pushes even PLAYGROUND past the 65,024
 bytes one part may be, so a course needs a second segment - and *"this
 must not hurt frame performance. Be smart about it."* Plan story 11.9,
-SPEC.md 128.28.
+SPEC.md 128.30.
 
 **The escape on file was the wrong one.** 128.15.8 had sketched the
 two-part course in wave 5b: the picture (map and blocks) in one part,
@@ -3157,7 +3157,7 @@ everything else in the other, "a segment switch per laid group in the
 occluder lay, tens of clocks". It was an estimate nobody had built. So
 this round started by reading every place the guest touches the course
 part and writing down which sections each one reads, and through which
-segment register (128.28.2). Three hot loops each read two kinds of
+segment register (128.30.2). Three hot loops each read two kinds of
 section at once:
 - the occluder lay's line loop reads a block line (the picture), the box,
   and a mask (the occluders) - three segments in one loop;
@@ -3188,7 +3188,7 @@ the shipped package is byte for byte today's.
 The price of choosing it: the picture part has less room than the
 sketch's would. PLAYGROUND's picture plus occluders are about 39KB of the
 65,024, so about 26KB of growth; past that the next lever is a third part
-for the occluders, at clocks (128.28.10, an open question for the owner).
+for the occluders, at clocks (128.30.10, an open question for the owner).
 
 **What was measured.**
 - The shipped `bonanzadisk`, built before and after in private trees:

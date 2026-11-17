@@ -21547,7 +21547,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-# SPEC.md 128.28.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
+# SPEC.md 128.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_BALLS) $(BZ_CRSPARTS)
@@ -21612,7 +21612,7 @@ $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
-# SPEC.md 128.28.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
+# SPEC.md 128.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
 # diagonal lane run on until one part refuses it) as course 7, a package and floppy of their own in a private
 # tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
 BZ_TWOSEG := $(BUILD)/bztwoseg
@@ -21620,7 +21620,7 @@ $(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
 	@mkdir -p $(BZ_TWOSEG)
 	python3 tools/bbcourse.py twoseg -o $@
 .PHONY: bonanzatwoseg
-#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 128.28.7); not shipped
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 128.30.7); not shipped
 bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
 	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 128.1, 128.14.3.3)

@@ -420,7 +420,7 @@ VAR bz_nway,2                   ; the route: NWAY waypoints at bz_wayoff in the
 VAR bz_wayoff,2                 ; course part (the autopilot's, 128.10.11.1)
 ; the parts' segments and the card
 VAR bz_cseg,2
-%if BZ_NCRS2                   ; SPEC.md 128.28.5: a two-part course's PICTURE part (bz_cseg the WORLD part's;
+%if BZ_NCRS2                   ; SPEC.md 128.30.5: a two-part course's PICTURE part (bz_cseg the WORLD part's;
 VAR bz_mseg,2                  ; a one-part course's both the same segment)
 %else
 bz_mseg     equ bz_cseg         ; (no two-part course in this build: one word, today's bytes)
