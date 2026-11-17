@@ -274320,6 +274320,10 @@ over ...`: float its neighbours too, or keep a hole).
 - A path of vanishing cracks edge to edge shares blocks (4 columns each)
   and is refused: one cell apart, or a crack among plain floating tiles.
 
+**Round 2 (a thin bridge)**: `float <shape> thick <units>` (128.27.2.1)
+makes a floating slab thinner than 3 units; a crack on it vanishes as a
+bridge tile rather than a column, and in one lane.
+
 **Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge,
 in the start's rows (roll +x from the start): a FLOATING bridge at `wy` 16
 (`wx` 34 - 40, its cracks 35, 37 and 39 vanish) and a grounded row at `wy`
@@ -274929,6 +274933,42 @@ the apron; `BENCH` at 11.
   look is part of what separates pathway"*): `path.bbc` carries
   `float rect 0 0 64 64`, the whole map, so every route and pad it gains
   later floats too. The title and every tour course stay grounded.
+
+##### 128.27.2.1 EXPLORATORY: a THIN floating slab, `float <shape> thick <units>` (the owner, 2026-11-17)
+
+*"The crack-then-disappear looks great. Can that have an option to 'float'
+and not have its pillar? Aka, a 'bridge' of cracked tiles that disappears
+rather than an entire 'column' that does."* Built to be played; nothing
+merges until the owner likes it.
+
+- **The clause**: `float <shape> thick <units>` - the cells float, and their
+  faces over the void hang `<units>` deep (a multiple of 0.25, 2 px, from
+  0.25 to 3) instead of 3 units. Without `thick`, 3 units as before. A cell
+  named by two `float` statements takes the LATER one's depth.
+- **Why a clause on `float`, not a `float bridge` word**: the thing being
+  chosen is one number, the slab's depth, and the owner asked to try "a few
+  px or about 1 unit"; a word would fix one depth and a second word would be
+  needed for the next. It stays the picture's alone (no grid byte, no
+  physics, no route), exactly as `float`.
+- **Refused**: a `thick` that is not a multiple of 0.25 or is outside 0.25 -
+  3 (`float's thick takes units ...`).
+- **With GLASS's vanishing crack** (128.25.18.1): a crack on a thin bridge
+  vanishes as a bridge TILE falling away, not a column. A tile's top is 16
+  lines and a half-unit slab's faces 4 more, so its broken picture usually
+  fits ONE lane (3 block rows): no companion record and no one-frame
+  stagger. The tool still lays a companion when the block alignment or a
+  neighbour's exposed face takes it to a fourth row. MEASURED on
+  PLAYGROUND: all three thin-bridge cracks (two at 0.5, one at 1 unit) are
+  one lane each; the 3-unit bridge's two of three need companions.
+- **Adjacency**: vanishing cracks edge to edge still share lane blocks and are
+  refused, one cell apart is the rule for now. GROUP LANES (overlapping lanes
+  merged, every pose combination drawn; another agent's work) are the
+  general fix, and a thin bridge is their cheapest case: with one lane a
+  tile, a run of n vanishing bridge tiles is one group of 2^n pre-drawn
+  poses, so a whole bridge could drop away tile by tile behind a fast ball.
+- **Shipped on**: PLAYGROUND's crack lab, a thin bridge at `wy` 14 (wx 34 -
+  37 at half a unit, 38 - 40 at one unit, stepping down at (40, 15) onto
+  the 3-unit bridge), its cracks 35, 37, 39 vanishing.
 
 #### 128.27.3 Everything else that draws down into the void
 

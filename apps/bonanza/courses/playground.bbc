@@ -183,5 +183,15 @@ prop crack 44 19 hole band
 prop crack 35 16
 prop crack 37 16
 prop crack 39 16
+# round 2 (SPEC.md 128.27.2.1): a THIN BRIDGE at wy 14, off the apron's back row - `float ... thick`: a slab
+# half a unit thick (wx 34 - 37) then one unit (38 - 40), stepping down at (40, 15) onto the floating bridge
+# at wy 16; its cracks 35, 37 (half a unit) and 39 (one unit) vanish as a bridge tile falling away
+floor rect  34 14 41 15  flat 4
+floor rect  40 15 41 16  flat 4
+float rect  34 14 38 15  thick 0.5
+float rect  38 14 41 16  thick 1
+prop crack 35 14
+prop crack 37 14
+prop crack 39 14
 pad rubber 30 18
 pad steel  31 18

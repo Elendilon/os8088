@@ -1422,9 +1422,21 @@ def parse(text, fname="<course>"):
             if len(toks) < 2:
                 raise CourseError("%s: float takes a shape and nothing else" % where)
             tiles, _half, i = _shape_h(toks, 1, where, halves=False)
+            depth = FACE8
+            if i + 2 == len(toks) and toks[i] == ('w', "thick"):
+                # EXPLORATORY (SPEC.md 128.27.2.1): `float <shape> thick <units>` - a BRIDGE slab, its faces
+                # over the void that deep (a quarter unit, 2 px, to 3 units) instead of 3 units
+                try:
+                    th = float(toks[i + 1][1])
+                except ValueError:
+                    th = -1
+                if th * 4 != int(th * 4) or not 0.25 <= th <= 3:
+                    raise CourseError("%s: float's thick takes units, a multiple of 0.25 from 0.25 to 3, not %r"
+                                      % (where, toks[i + 1][1]))
+                depth, i = int(th * 8), i + 2
             if i != len(toks):
-                raise CourseError("%s: float takes a shape and nothing else" % where)
-            src.floats.append((tiles, ln))
+                raise CourseError("%s: float takes a shape and nothing else (but `thick <units>`)" % where)
+            src.floats.append((tiles, ln, depth))
         elif st == "hole":
             tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
@@ -4208,10 +4220,11 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
         L = (2 * wx, 2 * wy + 2)
         bots = []
         floating = ground is None or (wx, wy) in floats
+        fd = floats.get((wx, wy), FACE8) if isinstance(floats, dict) else FACE8   # (a `thick` bridge's)
         for p, zp, q, zq, nb, which in faces:
             if nb is None:                          # over the void: 3 units (FLOATING), else to the ground
                 if floating:
-                    bots.append([zp - FACE8, zq - FACE8])
+                    bots.append([zp - fd, zq - fd])
                 else:
                     bots.append([min(zp - FACE8, ground), min(zq - FACE8, ground)])
             else:
@@ -5675,14 +5688,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     for ri in (sorted(pth["secret_rooms"]) if pth is not None else ()):
         gtiles.update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
     ground = None if hack.get("noground") else ground_z(gtiles)
-    floats = set()
+    floats = {}                                     # (a cell -> its faces' depth over the void, px)
     vface = void_face_cells({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles)
-    for fcells, fln in src.floats:
+    for fcells, fln, fdep in src.floats:
         if not fcells & vface:
             raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
                               "(SPEC.md 128.27.2)" % (fname, fln))
-        floats |= fcells
-    floats = frozenset(floats)
+        floats.update((c_, fdep) for c_ in fcells)     # (a later statement's depth wins)
     ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
                    {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
@@ -17939,6 +17951,8 @@ def _w9_cases():
         ("a crack's hole of no size", _W9B + "uses glass\nprop crack 10 5 hole huge\n", "hole takes small|band|wide"),
         ("two wide cracks edge to edge", _W9B + "uses glass\nprop crack 10 5 hole wide\nprop crack 11 5 hole wide\n",
          "two lanes share blocks"),
+        ("a float thick 4 units", _W9B + "float rect 9 5 12 6 thick 4\n", "float's thick takes units"),
+        ("a float thick 0.3 units", _W9B + "float rect 9 5 12 6 thick 0.3\n", "float's thick takes units"),
         ("a vanishing crack on a grounded corner", _W9B + "floor rect 4 10 6 12 flat -4\nfloat rect 8 7 9 8\n"
          "uses glass\nprop crack 8 7\n", "a vanishing crack at (8, 7)"),
     ]
@@ -17958,6 +17972,12 @@ def _w9_checks(res):
     res.append(("2 a floating crack vanishes over two lanes, one byte (128.25.18.1): %s; its control %s"
                 % (got[0], got[1]), got[0] == [(False, True, 0, 3), (True, True, 0, 2)]
                 and got[1] == [(False, False, 0, 2)]))
+    # ...and on a THIN bridge (`float ... thick`, 128.27.2.1) the tile and its faces fit ONE lane: no companion
+    c = compile_course(_W9B + "float rect 4 4 9 8 thick 0.5\nuses glass\nprop crack 8 7\n", fname="<bridge>",
+                       occluders=False)
+    rs = [(d["comp"], d["partner"], d["lane"]["h"]) for d in c.part["props"] if d["kind"] == FK_CRACK]
+    res.append(("2 a crack on a thin bridge (thick 0.5) vanishes in one lane, no companion (128.27.2.1): %s" % rs,
+                len(rs) == 1 and rs[0][1] is None and not rs[0][0]))
     for what, text, want in _w9_cases():
         try:
             compile_course(text, fname="<%s>" % what, occluders=False)
@@ -18959,7 +18979,8 @@ def _face_verdict(c, ops, floats, ground):
     for cell, which, last, (fp, zp), (fq, zq) in _face_bottoms(c, ops):
         n += 1
         flo = cell in floats
-        bp, bq = (zp - FACE8, zq - FACE8) if flo else (min(zp - FACE8, ground), min(zq - FACE8, ground))
+        fd = floats.get(cell, FACE8) if isinstance(floats, dict) else FACE8
+        bp, bq = (zp - fd, zq - fd) if flo else (min(zp - FACE8, ground), min(zq - FACE8, ground))
         want = max(4 * (fp[0] + fp[1]) - bp, 4 * (fq[0] + fq[1]) - bq) - 1
         if min(zp, zq) - FACE8 > ground + 2:
             dec += 1
