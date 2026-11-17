@@ -27,7 +27,7 @@ px, and at most 6 FAST lanes meet a window.
 | P1 | **WATER** (the owner's design, below) | one family; the tool's depth key draws the ball behind the glass | its own section; the first to build |
 | P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
 | P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
-| P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it |
+| P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it. **BUILT** on branch `bb-boost`: SPEC.md 128.40, below |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5). **BUILT** on `bb-spike` with P8, SPEC.md 128.38 and the section below |
 | P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
 | P7 | **DRAWBRIDGE** | cells VOID <-> FLOOR on a timer or a switch, a lane a bridge cell | pairs with P6 |
@@ -248,6 +248,49 @@ puts the SPIKE test course on the pathway's pad 0.
       owner's decision: **B ships**; A is parked as
       docs/plans/bounce-bonanza/patches/death-frames-a-one-shift.patch (for a
       256KB build at finalization, with short courses).
+## P4 BOOST PADS - as built (branch `bb-boost`, 2026-11-17)
+
+SPEC.md 128.40 is the contract and the record; the diary's 2026-11-17 entry
+"BOOST PADS: chevrons that push" is how it went. In short: one family (ID 10,
+kind 48 `boost`, home `resident`, a 166-byte part, no resident code but
+`BZ_FTAB`'s byte); `prop boost X Y face +x|-x|+y|-y [strength S]`, 24 by
+default; the CONTACT hook adds S to the working velocity of a GROUNDED ball on
+the pad - WEIGHTED by the ball since the owner's round 2 (steel x3/4, glass
+x1.25; `flat` per pad for S on every ball) - and the next step's clamps
+hold it to the caps, as WIND's push relies on; an airborne ball is not pushed.
+The art: a magenta plate, black rim, two white chevrons; the FLASH lane (white
+plate, black chevrons) lit while the ball rolls on it and 12 steps after, one
+pad lit at a time. Not rubber's BOOST (SPEC.md 128.16.4, the Hop's rebound):
+the names are kept apart (`BP_*`, `bp_*`). The knob build `BZBOOST=1` puts the
+BOOS test course on the pathway's pad 0.
+
+- [x] **P4.1** SPEC.md 128.40 (written as built, in one pass with the code).
+- [x] **P4.2** The tool: the statement and its refusals, the record, the
+      reader, `BoostFamily`, the chevrons and the flash lane, `--selfcheck`
+      section `boost` (12 refusals, the records, the scenes on the model
+      against the course less its pads, red arms `nopush`, `sign`, `air`,
+      `twolit`) - MEASURED green, every arm red.
+- [x] **P4.3** The guest part `fam/boost.asm` (166 bytes), equal to the model
+      (the unicorn half of `bonanza_phys --check`, `bp_host`: twelve scenes,
+      red arms `bpstep`, `bpsign`, `bplit`, `bpout`, `bpair`, each red).
+- [x] **P4.4** The knob course BOOS: a CHAIN of pads round a corner onto the
+      goal with no key held; a RAMP from a one-tile pocket rubber and steel
+      cannot climb without its pad; a GAP jump from a pocket no ball makes
+      without its pads; a pad for each ball.
+- [x] **P4.5** No shipped course, demo or identity moved (MEASURED, `cmp`);
+      the bundle +176 bytes of RAM, the package +180, the image +1.
+- [x] **P4.6** LOOKED AT once on MartyPC, CGA and Hercules (`build/boost`): the chain's pads
+      lit in turn under a rolling ball, the ramp pocket's pad lit, the gap's pocket.
+- [ ] **P4.7** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` rows on a `BZBOOST=1` build; PREDICTED about 0.2k a step,
+      0.35k more on a pad).
+- [x] **P4.8** The owner PLAYED BOOS (2026-11-17): *"Look and function great in the test map."* One
+      change: WEIGHTED BY BALL, an option ON BY DEFAULT - the owner's weights, steel x3/4, rubber x1,
+      glass x1.25 (`BP_SSH`, `BP_GSH` in the FAMV, to retune with use), `flat` per pad turning it off
+      (record +18 bit 2). BUILT: the part 166 -> 192 bytes; BOOS's chain turn at strength 32 and its gap
+      pads `flat`; selfcheck item 6's weighting with red arms `noweight`, `noflat`; `bp_host`'s red
+      arms `bpweight`, `bpflat` (SPEC.md 128.40.1 D3, 128.40.4).
+- [ ] **P4.9** A shipped course that uses pads.
 
 ## Stories
 

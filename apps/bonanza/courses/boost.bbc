@@ -1,0 +1,64 @@
+# Boost Test - BONANZA's BOOST PADS test course (SPEC.md 128.40), built only by the BZBOOST=1 knob
+# (make BUILD=<tree> BZBOOST=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
+# the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A pad pushes
+# the ball (strength 24 unless written; steel x3/4 and glass x1.25 unless the pad is `flat`) along its chevrons
+# while the ball ROLLS on it (never in the air), and its chevrons flash while it does.
+#
+# START is a plate at 2 units with a pad for each ball.  From it:
+#  - THE CHAIN (east, the runway at y 10 - 11): five +x pads in a row, then two +y pads (32) at its end that turn
+#    the ball south onto the GOAL plate (exit 0) - hold nothing and the pads carry it there;
+#  - THE RAMP (back): a corridor north off the runway (x 14) into a POCKET (14, 6) against a wall; its -x pad
+#    (strength 40) drives the ball up a 2-tile ramp to the LEDGE at 4 units and its goal (exit 1).  With the
+#    pocket's one tile of run-up rubber and steel cannot climb it; glass's own push beats the slope;
+#  - THE GAP (front): a ramp south off the start plate up to a POCKET at 4 units (10 - 11, 17) against a low
+#    wall; its two +x pads (`flat`) throw the ball over a 2-cell gap onto the LOW plate at 1.5 units - without them
+#    every ball falls short.  A ramp climbs from the low plate back to the goal plate.
+course BOOS "Boost Test"
+width 128
+origin 256
+ball rubber
+uses boost
+
+floor rect 6 9 12 15 flat 2                   # the start plate
+pad rubber 7 13
+pad steel 8 13
+pad glass 9 13
+start 7 10
+
+# THE CHAIN: the runway (x 12 - 20, y 10 - 11), five +x pads, then two +y pads onto the goal plate
+floor rect 12 10 21 12 flat 2
+prop boost 13 10 face +x
+prop boost 14 10 face +x
+prop boost 15 10 face +x
+prop boost 16 10 face +x
+prop boost 17 10 face +x
+prop boost 19 10 face +y strength 32
+prop boost 19 11 face +y strength 32
+floor rect 17 12 26 17 flat 2                 # the goal plate
+goal tile 20 14 flat 2
+
+# THE RAMP: the corridor (x 14, y 6 - 9) up from the runway into the pocket (14, 6), its wall (14, 5); the
+# ramp x 12 - 13 rising to the ledge (x 7 - 11, y 4 - 8) at 4 units
+floor rect 14 6 15 10 flat 2
+wall rect 14 5 15 6 flat 4
+prop boost 14 6 face -x strength 40
+floor rect 12 4 14 8 ramp x 12 14 4 2
+floor rect 7 4 12 9 flat 4
+goal tile 8 6 flat 4 exit 1
+
+# THE GAP: the ramp (x 10, y 15 - 16) up to the pocket (x 10 - 11, y 17) at 4, its wall (y 18); the gap x 12 -
+# 13; the low plate (x 14 on) at 1.5, a ramp (17, 17) up to the goal plate
+floor rect 10 15 11 17 ramp y 15 17 2 4
+floor rect 10 17 12 18 flat 4
+wall rect 10 18 12 19 flat 4.5               # (half a unit, so the pocket's pads stay seen: the merge's picture hid them behind 1 unit)
+prop boost 10 17 face +x flat
+prop boost 11 17 face +x flat
+floor rect 14 15 17 21 flat 1.5
+floor rect 17 18 21 21 flat 1.5
+floor rect 17 17 18 18 ramp y 17 18 2 1.5
+clock 18 15
+clock 9 7
+target 60
+way 7 10
+way 17 10
+way 20 14
