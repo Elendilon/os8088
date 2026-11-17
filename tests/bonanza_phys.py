@@ -1432,9 +1432,8 @@ def fam_parts(over=None, nocell=()):
             b[12 + 2 * 5:14 + 2 * 5] = b"\0\0"
         parts[f["name"]] = bytes(b)
     out = dict((pf + BB.fam_row(f), parts[f["name"]]) for f in BB.FAM_FETCH)
-    if BB.FAM_RES:
-        out[pf + len(BB.FAM_FETCH)] = BB.fam_bundle(parts)
-    return out
+    out[pf + len(BB.FAM_FETCH)] = BB.fam_bundle(parts, BB.fam_balls(R.at("build/bonanza-art")))  # (the balls
+    return out                                  # at its head since SPEC.md 128.25.5.2)
 
 
 class UGuest:
@@ -1457,13 +1456,16 @@ class UGuest:
             fam = {None: fam}
         fam = dict(fam or ())
         segt = bytearray(512)
-        for k, (row, b) in enumerate(sorted(fam.items(), key=lambda rb: -1 if rb[0] is None else rb[0])):
-            assert len(b) <= 0x1000
-            mu.mem_write((UFS + 0x100 * k) * 16, bytes(b))
+        at_ = UFS                               # (each part at the next 100h paragraphs or more: the bundle
+        for row, b in sorted(fam.items(), key=lambda rb: -1 if rb[0] is None else rb[0]):  # holds the balls,
+            n_ = max(0x100, (len(b) + 15) >> 4)                                          # 128.25.5.2)
+            assert at_ + n_ <= USS
+            mu.mem_write(at_ * 16, bytes(b))
             if row is None:
-                segt[:] = struct.pack("<H", UFS + 0x100 * k) * 256
+                segt[:] = struct.pack("<H", at_) * 256
             else:
-                struct.pack_into("<H", segt, 2 * row, UFS + 0x100 * k)
+                struct.pack_into("<H", segt, 2 * row, at_)
+            at_ += n_
         mu.mem_write(UCS * 16 + USEGT, bytes(segt))
         op = lst_syms(lst, ("op_fetch", "op_seg", "op_cseg", "bz_toast"))
         for n in ("op_seg", "op_cseg"):        # push bx; mov bl, al; xor bh, bh; shl bx, 1;
@@ -1738,7 +1740,7 @@ def fam_host():
         ff = dict(fam)
         row = max(ff)
         b = bytearray(ff[row])
-        b[BB.FAM_HDR_PARAS] += 1
+        b[sum(BB.BA.B2_SIZE) + BB.FAM_HDR_PARAS] += 1   # (the first FAMILY header: past the balls, 128.25.5.2)
         ff[row] = bytes(b)
         cf = []
         for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
