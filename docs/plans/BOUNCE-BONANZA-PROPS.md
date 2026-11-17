@@ -156,6 +156,11 @@ the walkway to the lower path. Ideas:
    the ball goes**, with only a few hidden-path or short-tunnel exceptions
    (SUMMIT RUSH already shows the cost: a good part of it is hidden behind
    what stands in front). A design rule for every prop, not only this one.
+   **The rule, as the owner clarified it (2026-11-17):** partial occlusion is
+   allowed. What is forbidden is a mechanic made completely invisible, or
+   blocks stacked on top of it: a mechanic (a pad, spikes, an arch's span)
+   must be visible when the ball is not on it, and the BALL may be wholly
+   hidden only for about ONE BALL LENGTH (16 px) of travel or less.
 5. **Height**: the lower path far enough below that a fall onto it shatters
    glass (rubber still survives) - gates glass for free; partial.
 
@@ -227,8 +232,9 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       contract; the tool's `guard` statement, its refusals, art, occluders and
       `FL_FLOAT`; `--selfcheck` item 16 with four red arms (MEASURED red); the
       `BZRAIL=1` test course RAIL; the knob-less build byte-identical
-      (MEASURED). Previewed on both cards (`--png`); not yet played on the
-      glass.
+      (MEASURED). Previewed on both cards (`--png`); PLAYED by the owner on
+      the `BZRAIL=1` disks, 2026-11-17: "Look great and meet their function"
+      (the 2-unit default kept).
 
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
