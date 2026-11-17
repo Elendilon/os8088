@@ -22084,19 +22084,6 @@ BZCUESTAMP := $(BUILD)/.bzcue-$(BZ_CUEFLASH)
 $(BZCUESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzcue-*
 	@touch $@
-#> [Knobs] BZ_SPARKSET=0|1|2|3|4 :: Bounce Bonanza's pickup sparkles' place set, 0 today's (EXPLORATORY: 1 MIRROR, 2 CORNERS, 3 SIZED, 4 OVER; SPEC.md 128.25.19)
-# BZ_SPARKSET picks the PLACES the pickup cue's three sparkles hop between
-# (bzvideo.inc's BZ_SPRS): 0 today's, right-heavy; 1 MIRROR, 2 CORNERS, 3 SIZED
-# and 4 OVER the balanced options the owner is choosing between.  STAMPED, as
-# BZ_CUEFLASH: a change rebuilds the package and re-links the shell part.
-BZ_SPARKSET ?= 0
-ifeq ($(filter $(BZ_SPARKSET),0 1 2 3 4),)
-$(error BZ_SPARKSET=$(BZ_SPARKSET) is not one of 0 - 4)
-endif
-BZSPKSTAMP := $(BUILD)/.bzspk-$(BZ_SPARKSET)
-$(BZSPKSTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzspk-*
-	@touch $@
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzpartz-*
@@ -22153,8 +22140,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
-                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZCUESTAMP) $(BZSPKSTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error -DBZ_CUEFLASH=$(BZ_CUEFLASH) -DBZ_SPARKSET=$(BZ_SPARKSET) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZCUESTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -DBZ_CUEFLASH=$(BZ_CUEFLASH) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
@@ -22174,7 +22161,7 @@ BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $
 # (never a code label) into bzlink.inc, which the part assembles against.
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
-		-I $(BZ_ART)/ --prefix BZL --consts BZ -D BZ_CUEFLASH=$(BZ_CUEFLASH) -D BZ_SPARKSET=$(BZ_SPARKSET) -o $@
+		-I $(BZ_ART)/ --prefix BZL --consts BZ -D BZ_CUEFLASH=$(BZ_CUEFLASH) -o $@
 # The window's art (SPEC.md 128.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)

@@ -942,60 +942,38 @@ bz_boxc:
 
 ; the cue's SPARKLES (bz_blit's .cwhole; SPEC.md 128.25.19): three, each
 ; HOPPING between its places round the ball (steps a b c b, bz_cuef's
-; bz_spq) - dx 0 - 15, dy 0 - 14, a 2 x 2 pair outside the 16 px silhouette
-; (round its four corners and the free columns at its right) - FULLY RESOLVED
-; (the owner's, 15:34): for each card, place and the sprite's shift s an
-; entry of 3 bytes - the byte off = 8 dy + W from the sprite's first byte
-; whose WORD holds pixels x and x + 1 (x = s + dx) at its pixels j and
-; j + 1, and the first line's mask for that word - so a pair in the blit is
-; two loads and two XORs and no arithmetic.  W is at most 3, so the word
-; XORed is inside the sprite's 5 bytes at every shift (byte 5 never touched:
-; a 32-line buffer's last byte is its 4th's bottom-right ball's byte 4).
-; The masks, pixel j alone 0C0h >> 2 j in a little-endian word (a byte on
-; past 3): the CGA both pixels on both lines (ink XOR 3, a pixel two bits:
-; the second line's mask is the first's); the Hercules pixel j on the first
-; and j + 1 on the second, which is the first's rotated right 2 - its
-; grounds are a checker of whole pixels (mono pairs), where a 2 x 2 XORed is
-; the checker shifted, unseen, and the diagonal is a solid square.  Each
-; card has its own copy of the three pairs' code (bz_blit's .cwhole).
+; bz_spq) - eight places, BALANCED left and right (the owner's pick, OVER:
+; the first set put six right of the centre and every double-time step b
+; there, 83% of the sparkles' pixel-time): the four corners, a side place
+; each side high and low (x = 16 the sprite's spare right column, x = -1
+; its spare LEFT one where the shift has one - at s = 0 one in, the ball
+; hiding a pixel), and two of them ON the ball's face (a BLINK style; a
+; DITHER style keeps the bottom corners there instead: its ball is drawn
+; after the sparkles) - a 2 x 2 pair each, FULLY RESOLVED (the owner's,
+; 15:34): for each card, place and the sprite's shift s an entry of 3 bytes
+; - the byte off = 8 dy + W from the sprite's first byte whose WORD holds
+; pixels x and x + 1 (x = s + dx) at its pixels j and j + 1, and the first
+; line's mask for that word - so a pair in the blit is two loads and two
+; XORs and no arithmetic.  W is at most 3, so the word XORed is inside the
+; sprite's 5 bytes at every shift (byte 5 never touched: a 32-line buffer's
+; last byte is its 4th's bottom-right ball's byte 4).  The masks, pixel j
+; alone 0C0h >> 2 j in a little-endian word (a byte on past 3): the CGA both
+; pixels on both lines (the ground's ink XOR 3, a pixel two bits: the second
+; line's mask is the first's; ON the face XOR 1, the ball's base to its ink,
+; a GLINT, where 3 would punch the ground's colour into it); the Hercules
+; pixel j on the first and j + 1 on the second, which is the first's rotated
+; right 2 - its grounds are a checker of whole pixels (mono pairs), where a
+; 2 x 2 XORed is the checker shifted, unseen, and the diagonal is a solid
+; square.  Each card has its own copy of the three pairs' code (bz_blit's
+; .cwhole), drawn AFTER the ball in a BLINK style (the face places; off the
+; ball the result is the same either way: the mask keeps the box there and
+; the frame is 0) and before it in a DITHER style.
 %define BZ_SPX(j) ((0C0h >> (2 * ((j) & 3))) << (8 * ((j) >> 2)))
-; THE PLACE SET, a build knob (the Makefile's BZ_SPARKSET; EXPLORATORY, the
-; owner's pick between them is open - sparkbal): 0 today's (six of the eight
-; places right of the ball's centre and every sparkle's double-time step b
-; among them: 83% of the sparkles' pixel-time on the right); 1 MIRROR, the
-; eight left-right (and top-bottom) symmetric, the left's side places in the
-; sprite's spare LEFT column at a shift that has one; 2 CORNERS, four places
-; (the ball's four corners) the three sparkles CIRCLE, one corner dark in
-; turn; 3 SIZED, MIRROR's places, the back (top) half's a single pixel (an
-; entry of 5 bytes: both lines' masks); 4 OVER, MIRROR with its two bottom
-; corners moved ONTO the ball's face, the sparkles XORed AFTER the ball.
-%ifndef BZ_SPARKSET
- %define BZ_SPARKSET 0
-%endif
-%if BZ_SPARKSET < 0 || BZ_SPARKSET > 4
- %error "BZ_SPARKSET is 0 - 4"
-%endif
-%if BZ_SPARKSET == 3
- %assign BZ_SPRE 5              ; an entry's bytes: the byte, both lines' masks
-%else
- %assign BZ_SPRE 3              ; the byte, the first line's mask
-%endif
-%if BZ_SPARKSET == 2
- %assign BZ_SPRN 4              ; places
-%else
- %assign BZ_SPRN 8
-%endif
-%if BZ_SPARKSET == 4
- %assign BZ_SPAFT 1             ; the sparkles after the ball (over it)
-%else
- %assign BZ_SPAFT 0
-%endif
+BZ_SPRE     equ 3               ; an entry's bytes
 BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
-; BZ_SPR dx, dy, card (0 the CGA, 1 the Hercules), size (0 a 2 x 2, 1 one
-; pixel: dx's, or dx + 1's right of the centre; 2 a 2 x 2 ON the ball, which
-; the CGA XORs with 1 a pixel - the ball's base to its ink, a GLINT - where
-; 3 would turn it to the ground's colour), and the place at a shift
-; whose x = s + dx would be left of the sprite (dx < 0 at s = 0): fdx, fdy
+; BZ_SPR dx, dy, card (0 the CGA, 1 the Hercules), on the face (1: the CGA's
+; XOR 1), and the place at a shift whose x = s + dx would be left of the
+; sprite (dx = -1 at s = 0): fdx, fdy
 %macro BZ_SPR 3-6 0, 0, 0
  %assign %%s 0
  %rep 4
@@ -1005,18 +983,10 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
    %assign %%dx %5
    %assign %%dy %6
   %endif
-  %if %4 == 1
-   %if %%dx >= 8
-    %assign %%x %%s + %%dx + 1
-   %else
-    %assign %%x %%s + %%dx
-   %endif
-  %else
-   %assign %%x %%s + %%dx
-  %endif
+  %assign %%x %%s + %%dx
   %assign %%b %%x >> 2
   %assign %%p %%x & 3
-  %if %%p == 3 && %4 != 1
+  %if %%p == 3
    %assign %%w %%b
    %assign %%j 3
   %elif %%b == 4
@@ -1026,91 +996,50 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
    %assign %%w %%b
    %assign %%j %%p
   %endif
-  %if %%x < 0 || %%dx > 15 || %%dy > 14 || %%w > 3 || %%j > 6 + (%4 == 1)
+  %if %%x < 0 || %%dx > 15 || %%dy > 14 || %%w > 3 || %%j > 6
    %error "a sparkle's pair must stay inside the sprite's 5 bytes and 16 rows"
   %endif
-  %if ((BZ_SPX(%%j) >> 2) | ((BZ_SPX(%%j) & 3) << 14)) != BZ_SPX(%%j + 1) && %4 != 1
+  %if ((BZ_SPX(%%j) >> 2) | ((BZ_SPX(%%j) & 3) << 14)) != BZ_SPX(%%j + 1)
    %error "the Hercules' second line is the first's mask rotated right 2"
   %endif
             db %%dy * BZ_BOXW * 2 + %%w
-  %if BZ_SPRE == 3
-   %if %4 == 1
-    %error "a one-pixel place needs the 5-byte entry (BZ_SPARKSET 3)"
-   %endif
-   %if %3
+  %if %3
             dw BZ_SPX(%%j)
-   %elif %4 == 2
+  %elif %4
             dw (BZ_SPX(%%j) | BZ_SPX(%%j + 1)) & 5555h
-   %else
-            dw BZ_SPX(%%j) | BZ_SPX(%%j + 1)
-   %endif
-  %elif %4 == 1
-            dw BZ_SPX(%%j), 0
-  %elif %3
-            dw BZ_SPX(%%j), BZ_SPX(%%j + 1)
   %else
-            dw BZ_SPX(%%j) | BZ_SPX(%%j + 1), BZ_SPX(%%j) | BZ_SPX(%%j + 1)
+            dw BZ_SPX(%%j) | BZ_SPX(%%j + 1)
   %endif
   %assign %%s %%s + 1
  %endrep
 %endmacro
-%macro BZ_SPRS 1                ; a card's places
-%if BZ_SPARKSET == 0
+%macro BZ_SPRS 1                ; a card's eight places
             BZ_SPR 0, 0, %1             ; 0-2 sparkle 0's: the top left corner,
-            BZ_SPR 15, 2, %1            ; the right's top, the foot's right
-            BZ_SPR 13, 14, %1
-            BZ_SPR 13, 0, %1            ; 3-5 sparkle 1's: the top's right, the
-            BZ_SPR 15, 12, %1           ; right's foot, the bottom left corner
-            BZ_SPR 0, 14, %1
-            BZ_SPR 15, 14, %1           ; 6-7 sparkle 2's: the bottom right
-            BZ_SPR 15, 0, %1            ; corner, the top right (none shared)
-%elif BZ_SPARKSET == 2
-            BZ_SPR 0, 0, %1             ; the four corners, clockwise
-            BZ_SPR 14, 0, %1
-            BZ_SPR 14, 14, %1
-            BZ_SPR 0, 14, %1
+            BZ_SPR 15, 2, %1            ; the right's top, the face's lower
+%if BZ_CFB                              ; left (a DITHER style: the bottom
+            BZ_SPR 4, 10, %1, 1         ; left corner)
 %else
- %if BZ_SPARKSET == 3
-  %assign %%t 1                         ; (the back half one pixel)
- %else
-  %assign %%t 0
- %endif
-            BZ_SPR 0, 0, %1, %%t        ; 0-2 sparkle 0's: the top left corner,
-            BZ_SPR 15, 2, %1, %%t       ; the right's top, the bottom left
-  %if BZ_SPARKSET == 4
-            BZ_SPR 4, 10, %1, 2         ; (OVER: the face's lower left)
-  %else
             BZ_SPR 0, 14, %1
-  %endif
-            BZ_SPR 14, 0, %1, %%t       ; 3-5 sparkle 1's: the top right
-            BZ_SPR -1, 12, %1, 0, 0, 12 ; corner, the left's foot, the bottom
-  %if BZ_SPARKSET == 4                  ; right
-            BZ_SPR 9, 4, %1, 2          ; (OVER: the face's upper right)
-  %else
-            BZ_SPR 14, 14, %1
-  %endif
-            BZ_SPR -1, 2, %1, %%t, 0, 2 ; 6-7 sparkle 2's: the left's top,
-            BZ_SPR 15, 12, %1           ; the right's foot
 %endif
+            BZ_SPR 14, 0, %1            ; 3-5 sparkle 1's: the top right
+            BZ_SPR -1, 12, %1, 0, 0, 12 ; corner, the left's foot, the face's
+%if BZ_CFB                              ; upper right (DITHER: the bottom
+            BZ_SPR 9, 4, %1, 1          ; right corner)
+%else
+            BZ_SPR 14, 14, %1
+%endif
+            BZ_SPR -1, 2, %1, 0, 0, 2   ; 6-7 sparkle 2's: the left's top,
+            BZ_SPR 15, 12, %1           ; the right's foot (none shared)
 %endmacro
 bz_spr0:    BZ_SPRS 0
 BZ_SPRC     equ $ - bz_spr0     ; a card's table
             BZ_SPRS 1
-; each sparkle's steps: its places' offsets in a card's table (today's and
-; MIRROR's a b c b; CORNERS' a rotation round the four, the three a quarter
-; apart - never two on one corner at the epochs' spread, e_1 >= e_2 >= e_0
-; and e_1 <= e_0 + 1)
-%define BZ_SPS(a, b, c, d) db (a) * BZ_SPRP, (b) * BZ_SPRP, (c) * BZ_SPRP, (d) * BZ_SPRP
-%if BZ_SPARKSET == 2
-bz_sps:     BZ_SPS(0, 1, 2, 3)
-            BZ_SPS(2, 3, 0, 1)
-            BZ_SPS(1, 2, 3, 0)
-%else
-bz_sps:     BZ_SPS(0, 1, 2, 1)
-            BZ_SPS(3, 4, 5, 4)
-            BZ_SPS(6, 7, 6, 7)
-%endif
-%if BZ_SPRC != BZ_SPRN * BZ_SPRP || (BZ_SPRN - 1) * BZ_SPRP > 255
+; each sparkle's steps a b c b: its places' offsets in a card's table
+%define BZ_SPS(a, b, c) db (a) * BZ_SPRP, (b) * BZ_SPRP, (c) * BZ_SPRP, (b) * BZ_SPRP
+bz_sps:     BZ_SPS(0, 1, 2)
+            BZ_SPS(3, 4, 5)
+            BZ_SPS(6, 7, 6)
+%if BZ_SPRC != 8 * BZ_SPRP || 7 * BZ_SPRP > 255
  %error "bz_sps holds a place's offset in a byte"
 %endif
 
@@ -1204,13 +1133,14 @@ bz_blit:
     jmp .wgo
     ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
     ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
-    ; SPARKLES first, three 2 x 2 pairs XORed, each at its place's entry for
+    ; SPARKLES (in a BLINK style after the ball - two places are on its
+    ; face - in a DITHER style before it), three 2 x 2 pairs XORed, each at its place's entry for
     ; the sprite's shift s (bz_spq: the place's four in the card's table,
     ; bz_cuef's): a byte offset from the sprite's first byte and the word's
     ; first line's mask (the second's the same, or on the Hercules rotated
     ; 2) - two loads and two XORs a pair, a copy for each card, no transform,
-    ; no clip, no arithmetic but 3 s once: outside the silhouette, so the
-    ; ball's mask keeps them; then on a
+    ; no clip, no arithmetic but 3 s once (before the ball: outside the
+    ; silhouette, so the ball's mask keeps them); then on a
     ; FLASH frame (a DITHER style) the ball with its frame ANDed with the
     ; checker (bz_chk, NOT a row) - the ball's own pixels black on half of
     ; it, the box round it untouched: (box AND mask) OR (frame AND checker) is
@@ -1221,11 +1151,8 @@ bz_blit:
     and bh, 7Fh                 ; BX = the frame's distance
     test byte [bz_clook], BZ_CL_SP
     jz .cf
-%if BZ_SPAFT
- %if BZ_CFB == 0
-  %error "BZ_SPARKSET 4 (the sparkles after the ball) is built for a BLINK style"
- %endif
-    ; OVER (BZ_SPARKSET 4): THE BALL FIRST - the ordinary loop, here - then
+%if BZ_CFB
+    ; a BLINK style: THE BALL FIRST - the ordinary loop, here - then
     ; the sparkles XORed over it: where a place is outside the silhouette the
     ; result is the same as before the ball (the mask keeps the box there and
     ; the frame is 0), and a place on the face XORs the ball's own pixels
@@ -1261,25 +1188,8 @@ bz_blit:
     and cx, 3
     mov ax, cx
     shl ax, 1
-%if BZ_SPRE == 5
-    shl ax, 1
-%endif
-    add cx, ax                  ; CX = BZ_SPRE s, the shift's entry in a place's
+    add cx, ax                  ; CX = 3 s, the shift's entry in a place's
     xor bx, bx
-%if BZ_SPRE == 5
- %assign BZ_SPKK 0                  ; (5 bytes: both lines' masks, one copy)
- %rep 3
-    mov si, [bz_spq + 2 * BZ_SPKK]
-    add si, cx
-    lodsb
-    mov bl, al
-    lodsw
-    xor [bx + di], ax
-    lodsw
-    xor [bx + di + BZ_BOXW * 2], ax
-  %assign BZ_SPKK BZ_SPKK + 1
- %endrep
-%else
     cmp byte [bz_herc], 0
     jne .sph
 %macro BZ_SPK3 1                ; the three pairs: 1 the Hercules'
@@ -1304,8 +1214,7 @@ bz_blit:
 .sph:
     BZ_SPK3 1
 .spe:
-%endif
-%if BZ_SPAFT
+%if BZ_CFB
     jmp .out                    ; (DS is ours)
 %else
     mov si, bp
