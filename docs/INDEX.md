@@ -376,6 +376,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | GORILLAS | `apps/gorillas/gorillas.asm` | §99 | yes |
 | HELLO | `apps/hello/hello.asm` | §27 | no |
 | IMGTEST | `apps/imgtest/imgtest.asm` |  | no |
+| Input Check | `apps/inputchk/inputchk.asm` | §129 | no |
 | Install | `apps/install/install.asm` | §117 | no |
 | LEMMINGS | `apps/lemmings/lemmings.asm` | §116 | no |
 | LOOM | `apps/loom/loom.asm` | `docs/WEAVE-SPEC.md` | yes |
@@ -560,6 +561,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 126 | VIDEO BATTLE — a battle played as joined video clips (`apps/vbattle/`, `VBATTLE.O88`, `.VBT`) |
 | 127 | Debug disks — a boot floppy per subsystem that shows what the driver found (`apps/snddiag/`, `drivers/sound/snddiag.inc`) |
 | 128 | Wire Arena — a text-mode arena shooter (`apps/wirearena/`, `WIRERENA.O88`) |
+| 129 | INPUTCHK — Input Check, a keyboard and mouse diagnostic (`apps/inputchk/`) |
 
 ## docs/
 

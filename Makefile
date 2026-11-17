@@ -94,7 +94,12 @@ DEBUGSND    := $(BUILD)/debug-sound.img
 DEBUGSND120 := $(BUILD)/debug-sound-120.img
 DEBUGSND720 := $(BUILD)/debug-sound-720.img
 DEBUGSND360 := $(BUILD)/debug-sound-360.img
-DEBUGIMGS := $(DEBUGSND) $(DEBUGSND120) $(DEBUGSND720) $(DEBUGSND360)
+DEBUGINP    := $(BUILD)/debug-input.img
+DEBUGINP120 := $(BUILD)/debug-input-120.img
+DEBUGINP720 := $(BUILD)/debug-input-720.img
+DEBUGINP360 := $(BUILD)/debug-input-360.img
+DEBUGIMGS := $(DEBUGSND) $(DEBUGSND120) $(DEBUGSND720) $(DEBUGSND360) \
+             $(DEBUGINP) $(DEBUGINP120) $(DEBUGINP720) $(DEBUGINP360)
 APPSIMG := $(BUILD)/apps.img
 APPSIMG120 := $(BUILD)/apps120.img
 APPSIMG720 := $(BUILD)/apps720.img
@@ -4353,6 +4358,30 @@ $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
 $(BUILD)/syscheck.o88: $(BUILD)/syscheck.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/syscheck.bin -o $@
 
+# --- INPUT CHECK (SPEC.md 129) -----------------------------------------------
+# The shell and its sections. EVERY file is a dependency: a section is an
+# %include, so a make that listed only inputchk.asm would ship the shell with
+# yesterday's keyboard section.
+INPUTCHK_SRC := apps/inputchk/inputchk.asm apps/inputchk/rows.inc \
+                apps/inputchk/ui.inc apps/inputchk/kread.inc \
+                apps/inputchk/moblk.inc apps/inputchk/summary.inc \
+                apps/inputchk/kbd.inc apps/inputchk/auto.inc \
+                apps/inputchk/serial.inc apps/inputchk/ps2.inc \
+                apps/inputchk/probe.inc apps/inputchk/other.inc \
+                apps/os88api.inc apps/os88ui.inc apps/os88dec.inc
+# THE KERNEL FINGERPRINT (SPEC.md 129.4): the 'ID' block's three words, read
+# from the kernel image this tree just built, so the package decodes the 'MO'
+# block only on the kernel it was made with.
+$(BUILD)/inputchk_kid.inc: $(BUILD)/kernel-full.bin tools/os88mousekid.py | $(BUILD)
+	python3 tools/os88mousekid.py $(BUILD)/kernel.map $(BUILD)/kernel-full.bin -o $@
+
+$(BUILD)/inputchk.bin: $(INPUTCHK_SRC) $(BUILD)/inputchk_kid.inc $(BUILDINC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/inputchk/inputchk.asm
+	@echo "inputchk: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/inputchk.o88: $(BUILD)/inputchk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/inputchk.bin -o $@
+
 $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
                        apps/os88type.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fontview/fontview.asm
@@ -5980,11 +6009,54 @@ $(DEBUGSND360): $(BUILD)/boot360.bin $(SDDEPS)
 		$(SDDRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(SDFILES) $(APPDATAFOLDER)
 
+# THE INPUT DEBUG DISK (SPEC.md 127.5): the SHIPPED kernel and drivers - no
+# driver swap, the keyboard and the mouse are the kernel's own - plus
+# INPUTCHK.O88 at the root and \AUTOSTRT\INPUTCHK.LNK carrying the parameter
+# AUTO (SPEC.md 26.10.7). Started that way, Input Check samples the keyboard
+# for its window, writes a numbered report to the disk it booted from, then
+# probes the controller and writes it again (SPEC.md 129.12). Started any other
+# way it is the interactive program and writes nothing by itself.
+IDFILES := $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
+           AUTOSTRT:$(BUILD)/idcfg/INPUTCHK.LNK
+IDDEPS := $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
+          $(BUILD)/idcfg/INPUTCHK.LNK tools/os88disk.py
+
+$(BUILD)/idcfg/INPUTCHK.LNK: tools/os88lnk.py | $(BUILD)
+	@mkdir -p $(BUILD)/idcfg
+	python3 tools/os88lnk.py $@ 'INPUTCHK.O88' --arg AUTO
+
+$(DEBUGINP): $(BUILD)/boot.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP120): $(BUILD)/boot120.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1200 \
+		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP720): $(BUILD)/boot360.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP360): $(BUILD)/boot360.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
 .PHONY: debugdisks
-#> [Test] debugdisks :: the sound debug disk in four geometries: boots into a report on what SOUND.DRV found (SPEC.md 127)
+#> [Test] debugdisks :: the debug disks (sound, input) in four geometries: each boots into a report (SPEC.md 127)
 debugdisks: $(DEBUGIMGS)
 	@echo "debugdisks: build/debug-sound{,-120,-720,-360}.img - boots into"
 	@echo "            SNDDIAG.O88 with the -DSNDDIAG SOUND.DRV (SPEC.md 127)"
+	@echo "            build/debug-input{,-120,-720,-360}.img - boots into"
+	@echo "            INPUTCHK.O88 AUTO: keyboard + mouse report (SPEC.md 127.5)"
 
 # PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2, 9.12.7):
 # covoxtest's shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) |
