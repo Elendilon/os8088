@@ -279444,11 +279444,13 @@ part's bytes, its identity, its demos and `BZ_PHYSV`; the package's bytes
   the one-part form is refused) compiles as two parts; each part's stored
   form expands in place to its RAM form (the in-place simulation,
   128.15.4.4); `read_parts` takes them and `decode_parts` gives the model
-  back; the identity is the two-part rule's; every shipped course is still
-  one part. Its red arms, each run on a patched copy of the tool and
-  MEASURED red: a pose map left in `P` (the picture part with no `L`), the
-  world part's header carrying the picture's offsets, the identity over
-  one part only, and a two-part pathway accepted.
+  back; the identity is the two-part rule's; the model's autopilot reaches
+  the goal through the world part; every shipped course is still one part.
+  Its negative controls run inside the item, each a pair of parts (or a
+  compile) that must be REFUSED and is (MEASURED): a lane's pose map
+  pointed back into `P`, the world header's `GRIDOFF` a picture offset,
+  the identity taken over the world part alone, a picture part with no
+  `L`, and a two-part pathway.
 - **The test course is not shipped**: `bbcourse.py twoseg` writes its
   text, and `make bonanzatwoseg` builds a private package and floppy with
   it added as course 7 (`$(BUILD)/bztwoseg/`), on no shipped disk and not
@@ -279467,9 +279469,49 @@ part's bytes, its identity, its demos and `BZ_PHYSV`; the package's bytes
   world part's header (48), its directory (8 a section) and `L`'s entry
   (8).
 
-#### 128.28.9 As built
+#### 128.28.9 As built (2026-11-17)
 
-*(The implementation's record.)*
+Everything here is MEASURED unless it says otherwise.
+
+- **The shipped build is today's, byte for byte**: `make BUILD=<tree>
+  bonanzadisk` before and after - `bonanza.bin`, `bzshell.bin`,
+  `BONANZA.O88`, `bonanza.img`, `bonanza360.img` and every course, demo
+  and ball part `cmp` equal. Only two generated TEXT files differ:
+  `bzcourse.inc` (`BZ_NCRS2 equ 0` and the macro's comment) and the shell
+  part's `bzlink.inc` (which lists that constant and `bz_mseg`, at
+  `bz_cseg`'s address). `bzcrs2.lst` is empty.
+- **The test course** (`TWOSG`, course 7 of `make bonanzatwoseg`): one
+  part would be **67,264** bytes under D and 75,720 under C, so two: the
+  picture part **51,956** (`M` 35,584, `B` 6,192, `I` 280, `R` 8,568, `K`
+  832, `O` 104, `L` 292 - 14 lanes' pose maps; 13,068 of room) and the
+  world part **15,364** (`G` 32, `C` 13,688, `D` 712, `T` 236, `W` 12, `P`
+  588; 49,660 of room). Packed: the picture part 8,145 LZ4 / 6,636 LZB, the
+  world part 1,801 / 1,433. Its C parts lay out (60,412 and 15,364), so its
+  identity is the same from either (1551h).
+- **The guest's code with a two-part course**: the package grows 87 bytes
+  against the same course set assembled with `BZ_NCRS2` 0 - one part row
+  (8), `BZ_CRS_WROW` (a byte a course, 8), and 71 of code: `bz_cload2`,
+  `bz_cload` +11, `bz_cdrop` +13, `bz_crshdr` +4, `bz_hxlat` +4; and 2
+  bytes of bss (`bz_mseg`).
+- **0 clk a frame and a step, by construction and checked**: every routine
+  a frame or a step runs (`bz_row`, `bz_col`, `bz_boxc`, `bz_frun`,
+  `bz_blit`, `bz_occ`, `bz_oprep`, `bz_oand`, `bz_olay`, `bz_boxw`,
+  `bz_wprect`, `bz_wpc`, `bz_wph`, `bz_lsync`, `bz_lmap`, `bz_pblit`,
+  `bz_step`, `bz_win9i`, `bz_fill`, `bz_wheel`, `bz_ldesc`, `bz_lsrcp`)
+  assembles to the same length from the same source lines with and
+  without two-part support (the two listings compared); the only change
+  inside any of them is which word a `mov sreg, [word]` names. No frame
+  cost was measured on MartyPC: there is no difference to measure, and a
+  one-part twin of `TWOSG` does not exist to compare it with.
+- **It plays** (MartyPC, `os8088_5150_cga_gla` and `os8088_5150_herc_gla`,
+  one look boot each of the `bonanzatwoseg` floppy): at `OSAPI_FSX_RUN`
+  `bz_cseg` and `bz_mseg` are two claims, the picture part `BZP2` and the
+  world part `BZW2` equal the tool's RAM forms byte for byte (the
+  Hercules': `herc_translate_parts`'), the identity read through the world
+  part is 1551h; the autopilot (`bz_apilot`) reaches the goal in **235
+  steps on both cards**, the model's count; and after the bracket both
+  words are 0, both parts dropped.
+- `--selfcheck` passes whole, item 15 included (5 min 26 s on the host).
 
 #### 128.28.10 Open questions for the owner
 
