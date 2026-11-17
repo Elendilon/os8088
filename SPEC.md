@@ -279453,11 +279453,14 @@ NROWS - 1` or a `k` outside `0 .. KW - 1` is skipped.
 slopes signed nibbles), `X = 16 (wx_N - wy_N) + X0` and
 `Y = 8 (wx_N + wy_N) + Y0 - 4 z0`, the edge in picture column `x` is
 
-    E(x) = Y + F(2 - sx, x - X)        for X <= x <= X + 15
-    E(x) = Y + F(2 - sy, X - 1 - x)    for X - 16 <= x <= X - 1
-    F(k, d) = floor((k (2 d + 1) + 3) / 8)
+    E(x) = Y + floor(((2 - sx) (2 d + 1) + 4) / 8),  d = x - X,      for X <= x <= X + 15
+    E(x) = Y + floor(((2 - sy) (2 d + 1) + 3) / 8),  d = X - 1 - x,  for X - 16 <= x <= X - 1
 
-and nothing outside those 32 columns. `E` is the first line whose pixel
+and nothing outside those 32 columns. (*As built*: the right half's `+ 4`
+where the contract first said `+ 3` - a pixel centre exactly ON the edge,
+which a slope of `-2`, `6` or `-6` gives, is not the top's on the right half
+as `spans` fills it, and is on the left; the pathway's 45-degree cell (9, 12)
+found it at item 15's comparison with the tiles.) `E` is the first line whose pixel
 centre is inside the cell's top polygon as the renderer fills it
 (`spans`), in every column but the two end ones, where the polygon has no
 pixel and `E` is the line under its corner (MEASURED: the formula against
@@ -279548,7 +279551,11 @@ word whose mask keeps every pixel is not laid.
   columns and 8 lines a word, no per-pixel compare.
 - **Bytes, PREDICTED**: 450 - 700 of resident code and 70 of bss (the
   column table, the frame's state, `bz_namod`, a count of the frames the
-  model ran, for the rows).
+  model ran, for the rows). *As built* (MEASURED): **1,028 bytes of code**
+  (`bz_amodel` 723, `bz_acell` 268, `bz_ahalf` 37) and the call, so the
+  image grows 47,033 -> 48,064 (+1,031); **107 bytes of bss** (10,995 ->
+  11,102). Over the prediction: the per-word classification and the inlined
+  front-cell tests below, both bought for clocks.
 - **Clocks, PREDICTED** (128.15.5.2's method: each instruction at max(EU +
   EA, 4.34 a byte), the sum x 1.05; the guest's routine is priced again
   from its listing as built and MEASURED on MartyPC, 128.29.9):
@@ -279567,12 +279574,57 @@ word whose mask keeps every pixel is not laid.
     the smoothness rule (128.15.5.4) is at risk only on a fall that misses a
     refresh it would otherwise have made; 128.29.9 measures it.
 
+*As built - the clocks were under-predicted by a factor of four or more.* The
+first routine (a mask built for every word of the footprint, every front cell
+tested through a call) was PRICED from its instructions under unicorn
+(`tests/bonanza_av.py --price`) at +27k to +32k a fall frame in the mean and
+MEASURED on MartyPC at **+36k to +42k in the mean, +45k to +62k at worst**.
+The profile showed the model laying only about one word a frame - the cost was
+building masks that laid nothing (27.7k of a MILL fall frame) and rejecting
+front cells (3.2k). Two changes, kept:
+- **each word's least and greatest edge first**: a footprint whose every edge
+  is under its last line returns at once; a word whose edges are all under the
+  block row's laid lines is skipped without a mask or `bz_oprep`; one whose
+  edges are all at or over the first laid line is laid under the checker
+  alone (no mask built);
+- **the front cells' cheap tests inline** in the loop (kind, `OBS`,
+  `FL_FLOAT`, and `H / 4` against `floor(K / 4)`), `bz_acell` called only for
+  a cell that counts.
+
+PRICED after them: +8.6k to +15.2k a fall frame in the mean, a median of
++8.8k to +10.1k, +34k to +54k at worst (60 VOID positions a course). MEASURED:
+128.29.9.
+
 #### 128.29.6 The bytes (PREDICTED from the prototype; MEASURED as built)
 
 The prototype (`occproto.py`'s `avoidR4`, the owner-render edge, the report's
 section 3): records 12,403 -> 6,267 over the seven courses, LZB 46,147 ->
 40,993 (-5,154), LZ4 56,796 -> 50,413 (-6,383), RAM 237,789 -> 212,237
-(-25,552). The binding model differs from the prototype's only in the two end
+(-25,552).
+
+*As built* (MEASURED, `--occ off` against `--occ void`, the stored form
+packed as `os88pkg` packs a part):
+
+| part | RAM | LZ4 | LZB | records |
+|---|---|---|---|---|
+| BENCH | 40,156 -> 34,200 (-5,956) | 7,607 -> 6,003 (-1,604) | 6,011 -> 4,754 (-1,257) | 2,660 -> 1,270 |
+| FIRST | 10,140 -> 9,048 (-1,092) | 2,693 -> 2,245 (-448) | 2,194 -> 1,868 (-326) | 291 -> 81 |
+| TRIAL | 16,880 -> 15,078 (-1,802) | 4,636 -> 4,129 (-507) | 3,798 -> 3,428 (-370) | 707 -> 297 |
+| MILL | 29,975 -> 26,129 (-3,846) | 9,520 -> 8,402 (-1,118) | 7,786 -> 6,891 (-895) | 1,279 -> 394 |
+| MOON | 43,087 -> 38,867 (-4,220) | 10,212 -> 9,354 (-858) | 8,318 -> 7,587 (-731) | 2,535 -> 1,588 |
+| PEAK | 48,129 -> 41,503 (-6,626) | 12,645 -> 11,004 (-1,641) | 10,325 -> 8,984 (-1,341) | 3,079 -> 1,544 |
+| PLAY | 49,422 -> 45,260 (-4,162) | 9,483 -> 8,588 (-895) | 7,715 -> 6,965 (-750) | 1,852 -> 807 |
+| **the seven** | **237,789 -> 210,085 (-27,704)** | **56,796 -> 49,725 (-7,071)** | **46,147 -> 40,477 (-5,670)** | 12,403 -> 5,981 |
+| the pathway | 24,150 -> 24,150 | 8,390 -> 8,395 (+5) | 7,153 -> 7,156 (+3) | 452 -> 452 |
+| the title | 30,811 -> 28,397 (-2,414) | 7,715 -> 7,139 (-576) | 6,299 -> 5,855 (-444) | 943 -> 344 |
+
+Better than the prototype on every course: it kept a record wherever a front
+cell was unreadable, and the binding residual keeps only the pixels the model
+misses. The pathway floats everywhere, so the model passes over every cell
+and its residual is all of today's records. PEAK's part gains 6.6 KB of
+headroom (16,895 -> 23,521 under `PARTMAX`). **The disk**: `BONANZA.O88`
+117,392 -> 112,173 bytes (-5,219: the parts' -5,670 LZB less the image's
+growth), `bonanza360.img` **123 -> 118 clusters** of 354. The binding model differs from the prototype's only in the two end
 columns of each cell and in passing over the PLAYGROUND's floating platform,
 so the figure is expected within a few percent; `--sizes` measures it, per
 course, both formats, the pathway and the title included, with `--occ off`
@@ -279608,6 +279660,28 @@ beside it.
   dither left off the model's masks (the guest check below and item 11's
   composite).
 
+*As built* (`--selfcheck` green, section `av`, about 40 s of the run): the
+red arms are in-process controls (a `_hack` or a module switch, as items 5
+and 11's are), all five red. MEASURED on every part: completeness holds
+(1,532 - 48,283 (pixel, cell) cases a part), the model's edges equal the
+tiles' at every column but the end ones (990 - 17,310 a part), WRONG-HIDE is
+**0.0000 - 0.0005% of the ball's lit pixels** (BENCH's worst position 2.9% of
+one ball), and every grid byte but `FL_FLOAT` equals `--occ off`'s. **The
+`FL_FLOAT` arm is the flags' check, not WRONG-HIDE**: counting the floating
+cells instead moves 0 ball pixels of the PLAYGROUND's lattice and 4 of the
+pathway's, so the flag guards a later course, not these; its control is the
+PLAYGROUND compiled with the flag never set. Items 2, 3 and 5 were amended:
+the two bound refusals are proved on today's records (`--occ off`: AV's
+residual meets the bounds), item 3's FLAGS less `GF_ANA`, and item 5's
+lowered-record control takes a cell the model does not run in.
+
+*The guest against the host, as built* (`tests/bonanza_av.py`, imported by
+`bonanza_phys.py --check`, so `bonanzaphys`'s host half runs it): 400
+positions on each of the nine parts, 300 of them VOID (68 - 96 a part with
+the window clipping the footprint): every buffer byte, laid count and model
+verdict equal (MEASURED). Its red arm `amodel` (the right half's `+ 4` made
+`+ 12`: every right-half edge a line low) is red.
+
 **The guest against the host** (A1, not a row): `bz_occ` built from this
 tree, under unicorn, on every course's RAM form, at 300 VOID positions a
 course and 100 others (half placed where a counting cell's edge crosses the
@@ -279634,6 +279708,36 @@ key log on the AV build and on the build at its base (today's records,
 today's guest): the fall frames' span, typical and worst, AV against
 today, as clocks and as a fraction of the 79.6k-clk refresh, beside the
 price from the instructions.
+
+*As MEASURED* (MartyPC, `tests/bonanza_perf.py`'s `avfall_leg`, sound OFF,
+each log replayed through R on this build and on its base, the merge
+`477ea40e9` - today's records and today's guest - with frames paired by their
+step count; the VOID frames are the ones the model ran on, read off the host
+model). The runs: MILL's scripted falls (`AVFALL["mill"]`: five falls, 977
+steps), PEAK's (three falls, 1,091 steps) and PEAK's shipped demo
+(`summit.bzd`, 2,172 steps). The pass's span on a fall frame, in clocks:
+
+| card, run | fall frames paired | today: mean / median / worst | AV: mean / median / worst | AV - today: mean / median / worst | the worst as a share of a refresh |
+|---|---|---|---|---|---|
+| CGA, MILL falls | 216 | 5.4k / 3.4k / 37.6k | 21.5k / 15.9k / 79.4k | **+16.1k / +12.7k / +53.9k** | 68% (79.6k) |
+| CGA, PEAK falls | 42 | 6.4k / 3.4k / 23.6k | 27.8k / 22.4k / 75.8k | **+21.4k / +18.9k / +52.2k** | 66% |
+| CGA, PEAK's demo | 44 | 3.9k / 3.7k / 10.2k | 17.3k / 15.8k / 40.9k | **+13.3k / +12.1k / +30.8k** | 39% |
+| Hercules, MILL falls | 183 | 5.0k / 3.4k / 36.5k | 20.3k / 15.5k / 77.5k | **+15.2k / +12.1k / +58.2k** | 62% (93.9k) |
+| Hercules, PEAK falls | 40 | 7.6k / 4.1k / 26.5k | 29.9k / 22.9k / 77.2k | **+22.3k / +18.9k / +50.7k** | 54% |
+| Hercules, PEAK's demo | 41 | 3.8k / 3.9k / 7.5k | 17.4k / 14.9k / 41.4k | **+13.6k / +12.3k / +36.2k** | 39% |
+
+The first routine, for the record: +38.0k / +37.0k / +60.6k on the CGA's
+MILL falls, the same shape everywhere. Every other gated frame is unchanged
+(+0.2k to +0.5k in the mean, pairing noise). **Frames presented** over each
+whole run, AV against today: MILL's falls 1,043 against 1,056 on the CGA and
+884 against 897 on the Hercules, PEAK's 1,175 / 1,179 and 1,008 / 1,016,
+PEAK's demo 2,363 / 2,375 and 2,016 / 2,017 - about a frame lost every 17
+fall frames on MILL, and 0.3 a second over PEAK's demo on the CGA, against
+128.15.5.4's +1.0 missed refresh a second. **The smoothness rule is at risk on
+falls, not on play**: a fall frame now costs 15 - 30% of a refresh in the
+median and up to two thirds at worst, so a fall can drop to the next refresh
+where today's did not. The rule's own A/B (missed refreshes a second, six runs
+a build) has not been run; whether falls count is the owner's call.
 
 **The rows** (the final pass's, named, not run here): `bonanzacourse` (item
 15 and every item the records reach), `bonanzaassets`, `bonanzaring` (its
