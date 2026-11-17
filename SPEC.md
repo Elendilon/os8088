@@ -271500,9 +271500,9 @@ Five tiers and four features, after the sketch:
 | the PILLAR | a tall wall between UR and the strip, the windmill's house: its tube runs down through it onto the strip |
 | LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit; it runs off the glass to the left, and a STEP (a half-unit tier, 9 - 11 x 13) takes a ball down to it from LL, so a ball on LL can reach the brown tube without jumping |
 | LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT (128.23.2's waiver) |
-| the PIT | two cells wide (x 12 - 13) from LS's back wall to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16), and the strip in front of the pillar that joined LS to LC went too (2026-11-17), so the gap is a real one on that side |
-| the GLASS BRIDGE | LL's back row carried over the pit to LC at LL's height (x 12 - 13, y 14; floor 3.5, a 1.5-unit drop onto LC), two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, its first tile's jagged edge at LL the only hint. Demo 3's glass ball enters along that row and finds it; steel (demo 2) falls through the pit on row 15 and never touches it. The family is home `fetch`, the title's first fetched family (128.25.6.9) |
-| LC, the lower centre | the key hints painted above it; joined to the ramp's foot on the right, and to LL only by the glass bridge |
+| the PIT | two cells wide (x 12 - 13) from LS's back wall to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16), and the visible strip in front of the pillar that joined LS to LC went too (2026-11-17): the glass bridge is all that crosses it now |
+| the GLASS BRIDGE | LS carried over the pit at LS's height (x 12 - 13, y 12; floor 2.5), where the visible strip used to be, ending half a step above the channel: no row of the pit is level on both sides (LS 2.5, the step 3, LL 3.5 against the channel's 2), and this is the least drop. Two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, the first tile's jagged edge where it meets LS the only hint (a hint only joins level ground, 128.25.18). Demo 3's glass ball goes down the step and finds it; steel (demo 2) falls through the pit on row 15, and demo 4 flies over the bridge, so neither touches it. The family is home `fetch` in this tree (128.25.6.9) |
+| LC, the lower centre | the key hints painted above it; joined to the ramp's foot on the right, and to LS only by the glass bridge |
 | the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
 | the hidden tube | its mouth at (23, 11), beside the east rail just past the glass's bottom right corner, its body up the rail and along the back one to UR, so a ball that bounces off the bottom right comes back on UR |
 | the windmill | its doorway on the pillar's +x face at UR's level; its tube runs down inside the pillar and out of an arch in the same face at the channel's floor (14, 11), heading +x, so the ball comes out rolling the way it went in, in full view |
@@ -271520,8 +271520,9 @@ the sketch, and the built course is a different shape):
    seems to jump the gap by dying; rolls down the step to LS and into the brown tube,
    comes out on UR, and down the ramp off the glass.
 3. **Glass** (the owner, 2026-11-17: no tube, no waiting on UR, no circles):
-   rolls in along LL's back row and pauses, then on over the pit, where the
-   GLASS BRIDGE appears under it tile by tile, and down onto LC; a run at the
+   rolls in along LL's back row and pauses, then down the step to LS and on
+   over the pit, where the GLASS BRIDGE appears under it tile by tile, and
+   half a step down onto the channel; a run at the
    ramp from below gets a third of the way up and rolls back (glass cannot
    climb it); it goes down to spring 2, looks at it a long beat, and tries
    it: the spring throws it level with UR's edge, it catches the lip and
@@ -274219,7 +274220,11 @@ pennant's), CGA inks (the Hercules translates them as every lane's):
   128.22.8) over the lane's band of the top (`glass_poses`). The FIRST tile is
   the tool's (`glass_first`): in each 4-connected run of glass tiles, the
   tile one of whose edge neighbours is a non-glass FLOOR or GOAL nearest the
-  start (Manhattan; ties by the file).
+  start (Manhattan; ties by the file) - and since 2026-11-17 only a
+  neighbour LEVEL with the glass tile at their shared edge (the owner: the
+  teeth are drawn to join a tile and must never hang over a drop; the
+  title's bridge had them over a 1.5-unit drop). A run with no level
+  neighbour has no hint.
 - The revealed glass is not an occluder (the picture has no tile there), and
   the band leaves the top's left and right tips undrawn; both are what a
   2 x 2 lane buys a path of them.
