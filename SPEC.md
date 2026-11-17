@@ -268093,7 +268093,7 @@ rate, `latpad` the shipped camera. Where the rows differ from the table:
   `LAT_PRICE` 5,760 clocks, its worst (a frame in a tube), + 25%.
 - **`level1`** is not re-pointed: its anchor is `bz_hv1`'s text, which 6b
   left as it was (the near-edge bits went into `bz_pnear`).
-- **`bonanzaperf`'s A/B** is `--lattice-ab`, the final pass's by-hand run as
+- **`bonanzaperf`'s A/B** is `--lattice-ab` (removed once LATTICE shipped, as `--clock-ab` once 128.18.7's form did), the final pass's by-hand run as
   every earlier A/B of this row is (exit 77 when `4d69985c` is not in the
   clone): its tree builds from git with its own art and demos, and the two
   `MILL` route demos' key bytes are identical (MEASURED), `BZ_PHYSV` 25h
