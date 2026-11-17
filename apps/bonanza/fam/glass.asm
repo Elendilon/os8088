@@ -43,7 +43,9 @@ GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the co
 %endif
 
 ; RESET (either class: every crack is RESPAWN, cleared by the engine): no
-; crack counting; every crack's and glass tile's lane MARKED (its pose may
+; crack counting; the cracks BROKEN COUNTED again (+1: 0 when the engine has
+; cleared them, the right count for a class that would keep one, SPEC.md
+; 128.19.10 item 8); every crack's and glass tile's lane MARKED (its pose may
 ; have gone back) - every RECORD's, not every lane's: a GROUP MEMBER has no
 ; lane of its own and bz_fmark marks its group's (SPEC.md 128.32.5)
 gl_reset:
@@ -60,7 +62,17 @@ gl_reset:
     sub al, BZ_FK_CRACK
     cmp al, 1
     ja .n
-    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark)
+    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark,
+    or al, al                   ; which preserves everything)
+    jnz .n                      ; a crack, not a companion (its byte is its
+    cmp byte [es:si + GL_COMP], 0 ; crack's), BROKEN: counted
+    jne .n
+    push si
+    call gl_byte
+    cmp byte [si], GL_BROKEN
+    pop si
+    jne .n
+    inc byte [di + 1]
 .n:
     add si, 32
     inc bx

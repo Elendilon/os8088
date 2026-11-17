@@ -274331,11 +274331,15 @@ the skip's kinds, three taken jumps) - item 6 below.
    course on every window refill, about 110 clk a prop (4.9k a refill at
    PLAYGROUND's 44 props) to find no broken crack on almost every refill
    of a play. The glass slot's +1 now COUNTS the cracks BROKEN (128.25.18:
-   RESET clears it with +0, CONTACT's break and STEP's break add one) and
-   `gl_cell` returns at once while it is 0. `bbcourse.GlassFamily` keeps
-   the same byte (`Physics.statef` compares every slot byte with the
-   guest's at every step). The image is unchanged; the glass part is 16
-   bytes longer. The PROBE keeps its walk: its slot has one byte free and
+   CONTACT's break and STEP's break add one, and RESET counts them again
+   over the records it already walks to mark them - 0 once the engine has
+   cleared the RESPAWN class, and right for a class that keeps a broken
+   crack, which `--selfcheck` item 7's forced-ATTEMPT NO TRAP arm presets:
+   a RESET that only zeroed it left that arm's broken bridge un-voided and
+   the arm green) and `gl_cell` returns at once while it is 0.
+   `bbcourse.GlassFamily` keeps the same byte (`Physics.statef` compares
+   every slot byte with the guest's at every step). The image is
+   unchanged; the glass part is 40 bytes longer (596 -> 636). The PROBE keeps its walk: its slot has one byte free and
    its TOUCHED bit is cleared by the course's RESPAWN mask rather than by
    the part, so a count there is not the trivial change (it is a test
    family).
@@ -274382,6 +274386,24 @@ the skip's kinds, three taken jumps) - item 6 below.
    lane's `bz_pkick` or `bz_lhold` must leave it marked and `bz_lqt` 0;
    red `kickquiet` (the kick's clear NOPed) goes red on MILL's `kick`
    scenario. MEASURED: image -84, bss -6.
+
+   **MEASURED, items 8 - 10** (MartyPC's CGA, PLAYGROUND's void fall as
+   `bonanza_ring --part ground` plays it, GLIDE; every frame single-stepped
+   from `bz_t0` to `bz_camera`, clk a frame; the pacing two untraced runs,
+   a refresh missed when `bz_t0` to presented is over 110k clk):
+
+   | | before (48b944a40) | item 8 (F4) | + item 9 (F6) | + item 10 (F3) |
+   |---|---|---|---|---|
+   | image / bss, bytes | 49,898 / 11,915 | 49,898 / 11,915 (glass part 596 -> 636) | 49,962 / 12,149 | 49,878 / 12,143 |
+   | t0 .. camera, mean of every frame | 19,042 | 18,966 | 18,854 | **17,350** |
+   | a QUIET frame (the quiet walk held), mean; its `bz_props` | 15,825; 2,926 | 15,592; 2,927 | 15,687; 2,912 | **13,581; 968** |
+   | a WINDOW-REFILL frame, mean; the families' CELL in it | 37,954; 8,673 | 32,230; **3,854** (the probe's alone) | 32,139; 3,854 | 30,255; 3,855 |
+   | the family dispatch a frame; a dispatch (3 families, STEP each step) | 1,441; 1,801 | 1,476; 1,800 | **1,160; 1,365** | 1,134; 1,366 |
+   | untraced: t0 .. camera mean; refreshes missed of the frames | 18.8k, 19.2k; 12 / 217, 13 / 217 | 19.0k, 19.0k; 9 / 221, 13 / 216 | 18.7k, 18.5k; 12 / 216, 10 / 217 | **17.5k, 17.4k; 8 / 219, 11 / 217** |
+
+   The pacing's missed count moves by a few between runs of one tree (the
+   camera's pans fall on different frames); the per-frame means are the
+   measure. The labs-free tree of item 7 (a428af6d0) was 17,604 a frame.
 
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
@@ -278723,7 +278745,7 @@ it ran.
 
 | hook | GLASS |
 |---|---|
-| RESET (either class) | the slot's counts (+0, +1) 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
+| RESET (either class) | the slot's +0 0 and its +1 the cracks BROKEN counted again (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
 | CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1; the broken count +1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
 | STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1, the broken count +1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |

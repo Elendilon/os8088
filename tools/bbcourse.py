@@ -11324,8 +11324,11 @@ class GlassFamily(Family):
         return p.props[i]["fsb"] >> 3
 
     def reset(self, p, slot, cls):
-        p.fsl[slot][0] = p.fsl[slot][1] = 0  # (every crack is RESPAWN: cleared at either class; the lanes
-                                            # of both kinds marked, bz_latt: the display's)
+        p.fsl[slot][0] = 0                  # (every crack is RESPAWN: cleared at either class; the lanes
+                                            # of both kinds marked, bz_latt: the display's) - and the BROKEN
+        p.fsl[slot][1] = sum(1 for pr in p.props    # counted again (+1: 0 once the engine cleared them; a
+                             if pr["kind"] == FK_CRACK and not pr.get("comp")   # class that kept one, the
+                             and p.fst[pr["fsb"] >> 3] == CR_BROKEN) & 255      # NO TRAP preset's, keeps it)
 
     def contact(self, p, slot, i):
         pr = p.props[i]
