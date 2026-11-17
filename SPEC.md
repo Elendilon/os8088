@@ -269934,6 +269934,34 @@ the skip's kinds, three taken jumps) - item 6 below.
    | the walk a frame, rolling | mean 3,490, max 9,954 (was 3,780 / 9,813) | **mean 3,274, max 10,148; over 10k on 1 frame of 80** (was 17,000 - 25,000 on 22) |
    | `bz_lfull` | 7,436 clk (+114: the marks' `rep stosw`) | 24,154 clk |
 
+7. **(wave 9, 2026-11-17: the void fall's profile)** **A lane the walk
+   does not walk is no reason to make the next one.** A lane of the slice
+   that fails the exact range test or lies outside the column band is
+   unmarked (item 6) and, from this wave, has its TRUE pose set to its
+   DRAWN one (`bz_ltru` = `bz_ldrw`, 8 bytes at `.nxo`). Neither is read
+   until a walk walks the lane again, and that walk is always the
+   unconditional one (`.w0`: a range entry or a band return, `bz_ltrue`
+   first). Without it, a lane that is in the row slice but outside the
+   exact range or the band is never synced. It stays at `bz_pread`'s
+   UNKNOWN 0FFh against a true pose of 0, the quiet walk's `repe cmpsb`
+   over the slice fails on it every frame, and the walk is made on every
+   frame. PLAYGROUND's labs (the GROUP LAB's group lanes, the CRACK LAB's
+   cracks) put such lanes in the slice for the whole void fall.
+
+   **A column move marks only the OUT lanes that are back in the band**
+   (`.cm` runs `.l1`'s band test; the band's columns, `bz_pcl`/`bz_pch`,
+   are computed at `.walk`, before it, +32 bytes). It used to mark every
+   OUT lane of the slice, and the walk then took each one through the
+   lane scan, the range test and the band test only to unmark it again:
+   about 0.7k clk a lane, on every frame the camera moved a column. A lane
+   that is back is walked exactly as 128.18.2 item 3 says.
+
+   The same profile found the second cost in the families' CELL hooks
+   (128.25.6.3). Each runs over every prop of the course on every window
+   refill. `gl_cell` and `pr_cell` now test the window first and read an
+   element's state (`gl_byte`, `pr_bit`) only for an element in it. This
+   moves bytes in the parts only, never in the image.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
