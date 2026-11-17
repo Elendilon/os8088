@@ -8491,6 +8491,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
     finally:
         _FAST_EXTRA = ()
         _DOWN_S0 = False
+        _HM_FTOP = False
         _REACH_MEMO = saved
 
 
