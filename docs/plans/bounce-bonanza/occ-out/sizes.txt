@@ -1,0 +1,145 @@
+bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 128.15.4.3; packed as os88pkg packs a part (os88lz, the near-call filter tried); KiB = 1,024 bytes
+
+  course 0 BENCH (bench.bbc): RAM 40156 bytes, stored 40156 (6788 of them holes), 10 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES    16640   10400      1379      1163
+    B   the blocks         PLAIN         4800    4800      1933      1528
+    I   OCCIDX             COUNTS         262     130       105       106
+    R   the records        WDIFF        10640   10640      2576      2048
+    K   the masks          PLAIN         1440    1440       407       311
+    O   the mask table     MASKTAB        180       0         0         0
+    G   the grid's header  PLAIN           32      32        32        33
+    C   the cells          CELLS         5768    5768       847       641
+    T   ROWTAB             ROWTAB         206       0         0         0
+    W   the route          WAYS            60      30        30        30
+    header 48, directory 10 x 8 = 80
+    the whole stored form: LZ4 7607 (7616 with its paragraph padding), LZB 6011 (6016)
+    its decode, PREDICTED: LZ4 537 ms (40156 bytes at 63.8 clk), LZB 464 ms (1537 literals, 2013 matches, 38619 bytes copied; 55 clk a byte)
+    RAM 40156 bytes against 65024: 24868 of headroom; 309 bytes a block row (130 rows)
+    no target (course 0, the benchmark's): no budget
+
+  course 1 FIRST (first.bbc): RAM 10140 bytes, stored 10140 (1933 of them holes), 11 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES     4736    2960       348       305
+    B   the blocks         PLAIN         2144    2144      1075       887
+    I   OCCIDX             COUNTS          76      37        25        26
+    R   the records        WDIFF         1164    1164       562       422
+    K   the masks          PLAIN          544     544       178       135
+    O   the mask table     MASKTAB         68       0         0         0
+    G   the grid's header  PLAIN           32      32        32        28
+    C   the cells          CELLS          968     968       138       102
+    T   ROWTAB             ROWTAB          44       0         0         0
+    W   the route          WAYS            12       6         6         6
+    P   the props          PLAIN          216     216       121       111
+    header 48, directory 11 x 8 = 88
+    the whole stored form: LZ4 2693 (2704 with its paragraph padding), LZB 2194 (2208)
+    its decode, PREDICTED: LZ4 136 ms (10140 bytes at 63.8 clk), LZB 142 ms (782 literals, 664 matches, 9358 bytes copied; 67 clk a byte)
+    RAM 10140 bytes against 65024: 54884 of headroom; 274 bytes a block row (37 rows)
+    target 30 s: 0.811 s a block row; one part holds about 237 rows at this density, about 192 s at this pace
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 2693, under; LZB 2194, under
+
+  course 2 TRIAL (trial.bbc): RAM 16880 bytes, stored 16880 (2900 of them holes), 11 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES     7168    4480       696       604
+    B   the blocks         PLAIN         3696    3696      2023      1691
+    I   OCCIDX             COUNTS         114      56        39        39
+    R   the records        WDIFF         2828    2828       950       749
+    K   the masks          PLAIN          624     624       214       163
+    O   the mask table     MASKTAB         78       0         0         0
+    G   the grid's header  PLAIN           32      32        32        29
+    C   the cells          CELLS         1792    1792       276       199
+    T   ROWTAB             ROWTAB          64       0         0         0
+    W   the route          WAYS            24      12        13        13
+    P   the props          PLAIN          324     324       156       141
+    header 48, directory 11 x 8 = 88
+    the whole stored form: LZ4 4636 (4640 with its paragraph padding), LZB 3798 (3808)
+    its decode, PREDICTED: LZ4 226 ms (16880 bytes at 63.8 clk), LZB 243 ms (1350 literals, 1144 matches, 15530 bytes copied; 69 clk a byte)
+    RAM 16880 bytes against 65024: 48144 of headroom; 301 bytes a block row (56 rows)
+    target 30 s: 0.536 s a block row; one part holds about 215 rows at this density, about 115 s at this pace
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 4636, under; LZB 3798, under
+
+  course 3 MILL (mill.bbc): RAM 29975 bytes, stored 29975 (4229 of them holes), 11 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES    10368    6480      1455      1239
+    B   the blocks         PLAIN         8320    8320      4353      3566
+    I   OCCIDX             COUNTS         164      81        69        71
+    R   the records        WDIFF         5116    5116      1683      1361
+    K   the masks          PLAIN         1072    1072       355       276
+    O   the mask table     MASKTAB        134       0         0         0
+    G   the grid's header  PLAIN           32      32        32        31
+    C   the cells          CELLS         3000    3000       512       373
+    T   ROWTAB             ROWTAB         100       0         0         0
+    W   the route          WAYS            48      24        24        24
+    P   the props          PLAIN         1485    1485       719       657
+    header 48, directory 11 x 8 = 88
+    the whole stored form: LZ4 9520 (9520 with its paragraph padding), LZB 7786 (7792)
+    its decode, PREDICTED: LZ4 401 ms (29975 bytes at 63.8 clk), LZB 507 ms (2240 literals, 2564 matches, 27735 bytes copied; 81 clk a byte)
+    RAM 29975 bytes against 65024: 35049 of headroom; 370 bytes a block row (81 rows)
+    target 30 s: 0.370 s a block row; one part holds about 175 rows at this density, about 65 s at this pace
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9418 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 9520, OVER 1.5x; LZB 7786, OVER
+
+  course 4 MOON (moon.bbc): RAM 43087 bytes, stored 43087 (6860 of them holes), 12 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES    16640   10400      1855      1557
+    B   the blocks         PLAIN         6176    6176      3007      2460
+    I   OCCIDX             COUNTS         262     130       110       109
+    R   the records        WDIFF        10140   10140      2974      2487
+    K   the masks          PLAIN         1840    1840       511       393
+    O   the mask table     MASKTAB        230       0         0         0
+    G   the grid's header  PLAIN           32      32        33        34
+    C   the cells          CELLS         6360    6360       974       730
+    D   the split cells' pairs PLAIN          424     424        61        44
+    T   ROWTAB             ROWTAB         212       0         0         0
+    W   the route          WAYS            92      46        44        48
+    P   the props          PLAIN          535     535       291       265
+    header 48, directory 12 x 8 = 96
+    the whole stored form: LZ4 10212 (10224 with its paragraph padding), LZB 8318 (8320)
+    its decode, PREDICTED: LZ4 576 ms (43087 bytes at 63.8 clk), LZB 591 ms (2279 literals, 2720 matches, 40808 bytes copied; 65 clk a byte)
+    RAM 43087 bytes against 65024: 21937 of headroom; 331 bytes a block row (130 rows)
+    target 60 s: 0.462 s a block row; one part holds about 196 rows at this density, about 90 s at this pace
+    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 10212, under; LZB 8318, under
+
+  course 5 PEAK (summit.bbc): RAM 48129 bytes, stored 48129 (7446 of them holes), 11 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES    18176   11360      2271      1896
+    B   the blocks         PLAIN         6768    6768      3627      2995
+    I   OCCIDX             COUNTS         286     142       120       122
+    R   the records        WDIFF        12316   12316      3887      3230
+    K   the masks          PLAIN         1632    1632       464       354
+    O   the mask table     MASKTAB        204       0         0         0
+    G   the grid's header  PLAIN           32      32        32        35
+    C   the cells          CELLS         6720    6720      1079       804
+    T   ROWTAB             ROWTAB         224       0         0         0
+    W   the route          WAYS           116      58        60        59
+    P   the props          PLAIN         1519    1519       713       642
+    header 48, directory 11 x 8 = 88
+    the whole stored form: LZ4 12645 (12656 with its paragraph padding), LZB 10325 (10336)
+    its decode, PREDICTED: LZ4 644 ms (48129 bytes at 63.8 clk), LZB 714 ms (2917 literals, 3378 matches, 45212 bytes copied; 71 clk a byte)
+    RAM 48129 bytes against 65024: 16895 of headroom; 339 bytes a block row (142 rows)
+    target 60 s: 0.423 s a block row; one part holds about 191 rows at this density, about 81 s at this pace
+    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 12645, OVER; LZB 10325, under
+
+  course 6 PLAY (playground.bbc): RAM 49422 bytes, stored 49422 (9386 of them holes), 12 sections
+    tag section            form           RAM  stored LZ4 share LZB share
+    M   the map            ROWPLANES    24064   15040      1982      1679
+    B   the blocks         PLAIN         6160    6160      3062      2501
+    I   OCCIDX             COUNTS         190      94        78        78
+    R   the records        WDIFF         7408    7408      2070      1697
+    K   the masks          PLAIN          832     832       230       184
+    O   the mask table     MASKTAB        104       0         0         0
+    G   the grid's header  PLAIN           32      32        35        34
+    C   the cells          CELLS         9048    9048       971       756
+    D   the split cells' pairs PLAIN          392     392       133       104
+    T   ROWTAB             ROWTAB         156       0         0         0
+    W   the route          WAYS            12       6         4         4
+    P   the props          PLAIN          880     880       509       477
+    header 48, directory 12 x 8 = 96
+    the whole stored form: LZ4 9483 (9488 with its paragraph padding), LZB 7715 (7728)
+    its decode, PREDICTED: LZ4 661 ms (49422 bytes at 63.8 clk), LZB 585 ms (1997 literals, 2524 matches, 47425 bytes copied; 56 clk a byte)
+    RAM 49422 bytes against 65024: 15602 of headroom; 526 bytes a block row (94 rows)
+    target 30 s: 0.319 s a block row; one part holds about 123 rows at this density, about 39 s at this pace
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 128.27.5): LZ4 9483, OVER 1.5x; LZB 7715, OVER
+
+  the 7 courses: LZ4 56796, LZB 46147 packed; RAM 237789
+  the set: the shipped tour courses (49189 LZ4, 40136 LZB) and the plan's courses still to come at their budgets (194525: 2 x 30 s, 7 x 60 s, 5 x 90 s) against ROOM 244736 (239 KiB): LZ4 238.0 KiB, LZB 229.2 KiB
+  the package: build/bonanza.bin or the built art's other parts are missing - `make bonanza` first for BONANZA.O88's figures

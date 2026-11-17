@@ -1,0 +1,87 @@
+  vghost: 459 VOID cells, 244 ghosted somewhere; H - kill px: max 54, mean 17.2; over 63632 ghosted positions today hides 30% of the ball on average, under a quarter at 62%, none at 50%
+
+BENCH (bench.bbc): 64 cols x 130 block rows; RAM 40156, LZ4 7607, LZB 6011; with NO occluders RAM 27872, LZ4 4442, LZB 3504  [50s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3097   2662   2660    90    4   77   40156   12522   7607   6011      +0      +0
+  novoid        1255   1229   1224    63    4   55   33926    6292   5811   4575   -1796   -1436
+  pits          1351   1317   1312    76    4   55   34512    6878   6104   4800   -1503   -1211
+  vlow          2188   2090   2085    90    4   72   37856   10222   6909   5448    -698    -563
+  vghost        1255   1229   1224    63    4   55   33926    6292   5942   4663   -1665   -1348
+  avoid         1255   1229   1224    63    4   55   33926    6292   5811   4575   -1796   -1436
+  aall             0      0      0     0    0    0   27872     262   4442   3504   -3165   -2507
+  vghost: 77 VOID cells, 35 ghosted somewhere; H - kill px: max 48, mean 13.6; over 8416 ghosted positions today hides 30% of the ball on average, under a quarter at 62%, none at 49%
+
+FIRST (first.bbc): 64 cols x 37 block rows; RAM 10140, LZ4 2693, LZB 2194; with NO occluders RAM 8340, LZ4 1883, LZB 1570  [7s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base           335    291    291    34    3   19   10140    1852   2693   2194      +0      +0
+  novoid          52     52     52    13    2   10    8806     518   2108   1752    -585    -442
+  pits            84     80     80    15    2   10    8954     666   2189   1814    -504    -380
+  vlow           150    147    147    36    3   17    9600    1312   2475   2032    -218    -162
+  vghost          52     52     52    13    2   10    8806     518   2145   1778    -548    -416
+  avoid          145    123    123    23    3   12    9270     982   2359   1956    -334    -238
+  aall           106     84     84    22    3    9    9096     808   2275   1890    -418    -304
+  vghost: 154 VOID cells, 80 ghosted somewhere; H - kill px: max 92, mean 17.0; over 20992 ghosted positions today hides 36% of the ball on average, under a quarter at 56%, none at 45%
+
+TRIAL (trial.bbc): 64 cols x 56 block rows; RAM 16880, LZ4 4636, LZB 3798; with NO occluders RAM 13326, LZ4 3379, LZB 2806  [18s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base           919    707    707    39    4   45   16880    3644   4636   3798      +0      +0
+  novoid         234    222    222    22    4   19   14634    1398   3870   3215    -766    -583
+  pits           234    222    222    22    4   19   14634    1398   3870   3215    -766    -583
+  vlow           482    418    418    30    4   33   15562    2326   4237   3486    -399    -312
+  vghost         234    222    222    22    4   19   14634    1398   3947   3270    -689    -528
+  avoid          301    263    263    25    4   19   14852    1616   3956   3288    -680    -510
+  aall           103     74     74    21    2   13   14024     788   3709   3085    -927    -713
+  vghost: 257 VOID cells, 141 ghosted somewhere; H - kill px: max 80, mean 16.9; over 34944 ghosted positions today hides 32% of the ball on average, under a quarter at 59%, none at 46%
+
+MILL (mill.bbc): 64 cols x 81 block rows; RAM 29975, LZ4 9520, LZB 7786; with NO occluders RAM 23629, LZ4 7355, LZB 6032  [30s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          1649   1290   1279    67    4   41   29975    6486   9520   7786      +0      +0
+  novoid         363    321    321    44    3   16   25729    2240   8125   6662   -1395   -1124
+  pits           363    321    321    44    3   16   25729    2240   8125   6662   -1395   -1124
+  vlow           781    702    692    69    4   30   27663    4174   8768   7166    -752    -620
+  vghost         390    342    342    44    3   16   25813    2324   8238   6755   -1282   -1031
+  avoid          432    366    366    44    3   16   25909    2420   8193   6718   -1327   -1068
+  aall           120     87     87    14    2   10   24253     764   7668   6294   -1852   -1492
+  vghost: 441 VOID cells, 217 ghosted somewhere; H - kill px: max 86, mean 17.2; over 60704 ghosted positions today hides 35% of the ball on average, under a quarter at 58%, none at 47%
+
+MOON (moon.bbc): 64 cols x 130 block rows; RAM 43087, LZ4 10212, LZB 8318; with NO occluders RAM 30853, LZ4 6541, LZB 5287  [63s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3002   2546   2535   115    4   50   43087   12472  10212   8318      +0      +0
+  novoid        1675   1431   1427    88    4   35   38169    7554   8983   7282   -1229   -1036
+  pits          1715   1467   1463    89    4   35   38331    7716   9033   7326   -1179    -992
+  vlow          2345   2064   2056   109    4   47   41063   10448   9738   7869    -474    -449
+  vghost        1675   1431   1427    88    4   35   38169    7554   9156   7413   -1056    -905
+  avoid         1790   1546   1543    88    4   35   38633    8018   9100   7380   -1112    -938
+  aall           874    713    711    50    3   23   34621    4006   7845   6341   -2367   -1977
+  vghost: 481 VOID cells, 272 ghosted somewhere; H - kill px: max 100, mean 21.3; over 82016 ghosted positions today hides 39% of the ball on average, under a quarter at 54%, none at 43%
+
+PEAK (summit.bbc): 64 cols x 142 block rows; RAM 48129, LZ4 12645, LZB 10325; with NO occluders RAM 33953, LZ4 8082, LZB 6576  [82s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          3697   3084   3079   102    4   42   48129   14438  12645  10325      +0      +0
+  novoid        1515   1319   1316    73    4   31   40555    6864  10506   8568   -2139   -1757
+  pits          1654   1449   1442    84    4   31   41257    7566  10839   8841   -1806   -1484
+  vlow          2672   2333   2325    94    4   42   44969   11278  11894   9666    -751    -659
+  vghost        1543   1343   1340    73    4   31   40651    6960  10740   8760   -1905   -1565
+  avoid         1799   1538   1536    74    4   31   41453    7762  10873   8852   -1772   -1473
+  aall           768    577    575    29    3   21   36799    3108   9337   7601   -3308   -2724
+  vghost: 486 VOID cells, 282 ghosted somewhere; H - kill px: max 131, mean 13.5; over 52592 ghosted positions today hides 20% of the ball on average, under a quarter at 72%, none at 59%
+
+PLAY (playground.bbc): 128 cols x 94 block rows; RAM 49422, LZ4 9483, LZB 7715; with NO occluders RAM 41054, LZ4 7039, LZB 5716  [107s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base          2580   1852   1852    52    3   49   49422    8534   9483   7715      +0      +0
+  novoid         748    628    628    50    3   34   44490    3602   8207   6652   -1276   -1063
+  pits           955    764    764    50    3   34   45034    4146   8413   6828   -1070    -887
+  vlow           879    737    737    51    3   34   44944    4056   8424   6839   -1059    -876
+  vghost         748    628    628    50    3   34   44490    3602   8325   6758   -1158    -957
+  avoid          967    788    788    51    3   34   45148    4260   8435   6835   -1048    -880
+  aall           785    611    611    52    3   28   44458    3570   8223   6664   -1260   -1051
+
+ALL: variant, part records, RAM, occluder RAM (I R K O), LZ4, LZB
+  base          12403   237789    59948    56796    46147
+  novoid         5190   206309    28468    47610    38706
+  pits           5604   208451    30610    48573    39486
+  vlow           8460   221657    43816    52445    42506
+  vghost         5235   206489    28648    48493    39397
+  avoid          5843   209191    31350    48727    39604
+  aall           2142   191123    13306    43499    35379
+  (none)            0   179027        0    38721    31491

@@ -1,0 +1,70 @@
+BENCH: 4000 trials, 710276 steps (2643 ended in a fall); 391110 distinct positions (64724 in VOID cells)
+  shipped rule records 2662; laid somewhere by a sampled position 1648 (62%); by a non-VOID one 786 (30%)
+  sampled VOID positions: today the rule hides 10% of the ball on average, none of it at 76%; of them option V ghosts 27993, where today hides 23% on average and none at 45%
+  visual error over 64724 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER   9.8%  DIM   0.0%  frames over a quarter of the ball wrong  12.7%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   1.1%  DIM   0.1%  frames over a quarter of the ball wrong   1.5%;  ghosted 64724 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  33.5%  frames over a quarter of the ball wrong  37.4%;  ghosted 27993 positions (16635 below every floor within two tiles)
+    V(25%)  OVER   1.2%  DIM   6.5%  frames over a quarter of the ball wrong  10.5%;  ghosted 9735 positions (8030 below every floor within two tiles)
+    V(50%)  OVER   3.0%  DIM   1.8%  frames over a quarter of the ball wrong   7.5%;  ghosted 5597 positions (5132 below every floor within two tiles)
+    option A everywhere, over the 326386 sampled NON-void positions (326386 readable): OVER 0.0%  WRONG-HIDE 0.1%  frames over a quarter wrong 0.0%
+FIRST: 4000 trials, 380631 steps (3767 ended in a fall); 128280 distinct positions (70469 in VOID cells)
+  shipped rule records 291; laid somewhere by a sampled position 184 (63%); by a non-VOID one 45 (15%)
+  sampled VOID positions: today the rule hides 6% of the ball on average, none of it at 84%; of them option V ghosts 21137, where today hides 19% on average and none at 46%
+  visual error over 70469 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER   5.6%  DIM   0.0%  frames over a quarter of the ball wrong   7.8%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   0.6%  DIM   0.0%  frames over a quarter of the ball wrong   1.0%;  ghosted 62888 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  24.4%  frames over a quarter of the ball wrong  27.4%;  ghosted 21137 positions (14886 below every floor within two tiles)
+    V(25%)  OVER   1.1%  DIM   4.2%  frames over a quarter of the ball wrong   7.5%;  ghosted 6165 positions (5349 below every floor within two tiles)
+    V(50%)  OVER   2.1%  DIM   1.6%  frames over a quarter of the ball wrong   5.9%;  ghosted 3630 positions (3385 below every floor within two tiles)
+    option A everywhere, over the 57811 sampled NON-void positions (50853 readable): OVER 0.0%  WRONG-HIDE 0.0%  frames over a quarter wrong 0.0%
+TRIAL: 4000 trials, 564627 steps (3108 ended in a fall); 187040 distinct positions (71979 in VOID cells)
+  shipped rule records 707; laid somewhere by a sampled position 570 (81%); by a non-VOID one 159 (22%)
+  sampled VOID positions: today the rule hides 11% of the ball on average, none of it at 74%; of them option V ghosts 31244, where today hides 26% on average and none at 41%
+  visual error over 71979 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER  11.1%  DIM   0.0%  frames over a quarter of the ball wrong  14.3%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   3.1%  DIM   0.0%  frames over a quarter of the ball wrong   4.2%;  ghosted 71510 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  32.3%  frames over a quarter of the ball wrong  36.6%;  ghosted 31244 positions (24116 below every floor within two tiles)
+    V(25%)  OVER   1.6%  DIM   5.4%  frames over a quarter of the ball wrong  10.2%;  ghosted 10764 positions (8659 below every floor within two tiles)
+    V(50%)  OVER   3.0%  DIM   2.2%  frames over a quarter of the ball wrong   8.3%;  ghosted 7431 positions (5950 below every floor within two tiles)
+    option A everywhere, over the 115061 sampled NON-void positions (97270 readable): OVER 0.0%  WRONG-HIDE 0.1%  frames over a quarter wrong 0.0%
+MILL: 4000 trials, 610452 steps (2873 ended in a fall); 239572 distinct positions (72454 in VOID cells)
+  shipped rule records 1290; laid somewhere by a sampled position 919 (71%); by a non-VOID one 229 (18%)
+  sampled VOID positions: today the rule hides 12% of the ball on average, none of it at 72%; of them option V ghosts 31995, where today hides 27% on average and none at 37%
+  visual error over 71018 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER  12.3%  DIM   0.0%  frames over a quarter of the ball wrong  15.8%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   2.0%  DIM   0.0%  frames over a quarter of the ball wrong   2.6%;  ghosted 69696 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  32.8%  frames over a quarter of the ball wrong  37.5%;  ghosted 31995 positions (24236 below every floor within two tiles)
+    V(25%)  OVER   1.6%  DIM   6.4%  frames over a quarter of the ball wrong  11.4%;  ghosted 12174 positions (10519 below every floor within two tiles)
+    V(50%)  OVER   3.3%  DIM   2.9%  frames over a quarter of the ball wrong   9.6%;  ghosted 8439 positions (7479 below every floor within two tiles)
+    option A everywhere, over the 167118 sampled NON-void positions (129634 readable): OVER 0.9%  WRONG-HIDE 0.0%  frames over a quarter wrong 1.3%
+MOON: 4000 trials, 969399 steps (1291 ended in a fall); 332899 distinct positions (28528 in VOID cells)
+  shipped rule records 2546; laid somewhere by a sampled position 1234 (48%); by a non-VOID one 832 (33%)
+  sampled VOID positions: today the rule hides 23% of the ball on average, none of it at 56%; of them option V ghosts 19048, where today hides 34% on average and none at 34%
+  visual error over 28528 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER  23.0%  DIM   0.0%  frames over a quarter of the ball wrong  28.6%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   8.4%  DIM   0.0%  frames over a quarter of the ball wrong  10.1%;  ghosted 24849 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  43.8%  frames over a quarter of the ball wrong  50.7%;  ghosted 19048 positions (11824 below every floor within two tiles)
+    V(25%)  OVER   2.1%  DIM   9.4%  frames over a quarter of the ball wrong  16.9%;  ghosted 8634 positions (6188 below every floor within two tiles)
+    V(50%)  OVER   4.8%  DIM   4.0%  frames over a quarter of the ball wrong  14.2%;  ghosted 6327 positions (4929 below every floor within two tiles)
+    option A everywhere, over the 304371 sampled NON-void positions (209956 readable): OVER 1.0%  WRONG-HIDE 0.0%  frames over a quarter wrong 1.6%
+PEAK: 4000 trials, 793873 steps (2186 ended in a fall); 339332 distinct positions (52043 in VOID cells)
+  shipped rule records 3084; laid somewhere by a sampled position 1685 (55%); by a non-VOID one 1057 (34%)
+  sampled VOID positions: today the rule hides 16% of the ball on average, none of it at 66%; of them option V ghosts 29909, where today hides 28% on average and none at 42%
+  visual error over 51013 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER  16.4%  DIM   0.0%  frames over a quarter of the ball wrong  20.2%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   4.8%  DIM   0.0%  frames over a quarter of the ball wrong   5.8%;  ghosted 48297 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  42.2%  frames over a quarter of the ball wrong  47.3%;  ghosted 29909 positions (19399 below every floor within two tiles)
+    V(25%)  OVER   1.4%  DIM   8.8%  frames over a quarter of the ball wrong  14.0%;  ghosted 12135 positions (8804 below every floor within two tiles)
+    V(50%)  OVER   3.2%  DIM   4.2%  frames over a quarter of the ball wrong  11.2%;  ghosted 8882 positions (6540 below every floor within two tiles)
+    option A everywhere, over the 287289 sampled NON-void positions (232548 readable): OVER 5.5%  WRONG-HIDE 0.0%  frames over a quarter wrong 7.1%
+PLAY: 4000 trials, 648501 steps (2938 ended in a fall); 401077 distinct positions (68785 in VOID cells)
+  shipped rule records 1852; laid somewhere by a sampled position 1174 (63%); by a non-VOID one 272 (15%)
+  sampled VOID positions: today the rule hides 8% of the ball on average, none of it at 75%; of them option V ghosts 33769, where today hides 17% on average and none at 49%
+  visual error over 68785 sampled VOID positions, the mean share of the ball wrong a frame (OVER: drawn over its occluder; DIM: ghosted though nothing hides it):
+    (c)     OVER   8.4%  DIM   0.0%  frames over a quarter of the ball wrong  11.7%;  ghosted 0 positions (0 below every floor within two tiles)
+    A(void) OVER   0.6%  DIM   0.0%  frames over a quarter of the ball wrong   0.9%;  ghosted 58310 positions (0 below every floor within two tiles)
+    V(any)  OVER   0.0%  DIM  40.7%  frames over a quarter of the ball wrong  45.5%;  ghosted 33769 positions (30789 below every floor within two tiles)
+    V(25%)  OVER   1.7%  DIM   6.0%  frames over a quarter of the ball wrong  10.9%;  ghosted 8706 positions (8558 below every floor within two tiles)
+    V(50%)  OVER   3.3%  DIM   2.3%  frames over a quarter of the ball wrong   8.8%;  ghosted 5126 positions (5115 below every floor within two tiles)
+    option A everywhere, over the 332292 sampled NON-void positions (281341 readable): OVER 0.1%  WRONG-HIDE 0.0%  frames over a quarter wrong 0.2%
