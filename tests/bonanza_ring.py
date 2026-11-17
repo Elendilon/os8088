@@ -603,6 +603,20 @@ def guest_propmax(art=None):
     return int(re.search(r"^BZ_PROPMAX\s+equ\s+(\d+)", t, re.M).group(1))
 
 
+def tour_ks(art=None):
+    """THE TOUR (SPEC.md 128.26.8): its courses' K in order, BZ_TOUR's bytes out of the
+    GENERATED bzcourse.inc - a short NAMED list (bbcourse.py's TOUR), not every course
+    but BENCH, so a row never derives it from BZ_COURSES.  BZ_NTOUR is its length."""
+    t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^%macro BZ_TOUR 0\n\s+db ([^\n]+)", t, re.M)
+    if not m:
+        raise SystemExit("bonanza rows: bzcourse.inc has no BZ_TOUR (built before SPEC.md 128.26.8)")
+    ks = [int(x) for x in m.group(1).split(",")]
+    n = int(re.search(r"^BZ_NTOUR\s+equ\s+(\d+)", t, re.M).group(1))
+    assert n == len(ks), "bzcourse.inc's BZ_NTOUR %d is not BZ_TOUR's %d bytes" % (n, len(ks))
+    return ks
+
+
 def medals(crs):
     """a course's (G, S) in STEPS (wave 8c, SPEC.md 128.19.8.3): BZ_CRS_MEDALS's pair,
     out of the generated bzcourse.inc"""

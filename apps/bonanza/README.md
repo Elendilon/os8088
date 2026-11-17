@@ -14,8 +14,8 @@ else is read at build time or at run time. See SPEC.md 128 and
 benchmark's "Proving Ground" - with flags, ball-swap pads, springs, tubes,
 windmills, bumper posts, a lift and the cup; three balls (rubber, steel,
 glass), each with its own Hop and Grip, and rubber's one BOOST (Space again
-at a Hop's first contact); the six-course tour
-on G with a scorecard and best times kept on disk; demos saved and loaded on
+at a Hop's first contact); a tour
+on G and best times kept on disk; demos saved and loaded on
 disk (W, L), benchmarked (D) and shipped (V); the mouse as a tilt stick (T);
 and music and impacts (S). There is no in-play HUD (it did not fit; SPEC.md
 128.14.16) - the time is on the results face. SPEC.md 128.10 - 128.14 and
@@ -43,9 +43,9 @@ desktop.
 **The game** (SPEC.md 128.14.3): **G starts a tour** of the six courses
 after the benchmark's, each with its own ball, raced for total time against
 each course's par - there are no lives, a fall costs the way back. After each
-course the window is the SCORECARD (every course's time, `*` at or under par,
-its falls, the par and the best) and Enter plays the next; Esc in a course or
-on the scorecard stops the tour. While playing, **P pauses** and Backspace
+course Enter plays the next; Esc in a course or on the window between two
+stops the tour. (Since SPEC.md 128.26.8 the tour is a short named list of
+courses and a test instrument, and the window shows no scorecard.) While playing, **P pauses** and Backspace
 returns the ball to its last flag. The best course times and the best tour
 are kept in `SYSTEM\APPDATA\BONANZA.DAT` on the game's own disk (only a play
 started with the course's own ball sets one). After any play or replay the
