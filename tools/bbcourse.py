@@ -6279,6 +6279,341 @@ def merge_exact(raw, merged, q):
     return tried, None
 
 
+# =============================================================================
+# SPEC.md 128.29: OCCLUSION COMPUTED IN THE VOID CELLS (AV).  Kept in one block so the other open branches'
+# changes to this tool merge round it: the model (AGrid, amodel_*), the residual (av_residual) and the proofs
+# (av_proof, av_wrong) are here; _compile_course calls av_records, and the composites read amodel_pix
+# =============================================================================
+
+GF_ANA = 64                   # BZG1 +28 bit 6: the part's records are AV's, the pass runs the model in VOID cells
+FL_FLOAT = 64                 # grid +3 bit 6: a FLOOR or WALL whole cell that FLOATS (128.27.2): the model passes over it
+OCCDEPTH = 4                  # the front cells: (wx + i, wy + d - i), d = 1 .. OCCDEPTH, i = 0 .. d
+OCC_WRONG_MAX = 0.0025        # WRONG-HIDE's bound: 0.25% of the ball's lit pixels over a course's VOID lattice
+OCC_MODES = ("void", "off")   # --occ: AV (the default), or today's records everywhere (the A/B)
+OCC_MODE = "void"
+_AV_FLAT = False              # item 15's controls: the model reading every cell as flat ...
+_AV_NODITHER = False          # ... and card_composite laying the model's masks without the checker
+
+
+def amodel_f(k, d, right):
+    """SPEC.md 128.29.2's F: the edge's line offset d columns along a half whose slope term is k = 2 - slope -
+    the first line whose pixel centre is inside the top polygon, as spans() fills it: a centre exactly ON the
+    edge is the run's (included) on the LEFT half, L to T, and not on the RIGHT half, T to R (+4, not +3)"""
+    return (k * (2 * d + 1) + (4 if right else 3)) >> 3
+
+
+class AGrid:
+    """the model's view of a grid (SPEC.md 128.29.2): what bz_amodel reads - NROWS, SMIN, AMIN, KW, X0, Y0, the
+    GF_ANA flag and each cell's four bytes through ROWTAB.  From a part's RAM form (AGrid(part)), or from a
+    compile's cell dictionary before the part exists (AGrid.of_cells: the same bytes, the build's own use)"""
+
+    def __init__(self, p=None):
+        if p is None:
+            return
+        g = struct.unpack_from("<H", p, 26)[0]
+        if p[g:g + 4] != b"BZG1":
+            raise CourseError("AGrid: no BZG1 at %d" % g)
+        self.nrows, self.smin, self.amin, self.kw, rt, self.x0, self.y0 = struct.unpack_from("<HhhHHhh", p, g + 4)
+        self.gflags = p[g + 28]
+        rows = struct.unpack_from("<%dH" % self.nrows, p, rt)
+        self._b = lambda r, k: struct.unpack_from("<bBBB", p, rows[r] + 4 * k)
+
+    @classmethod
+    def of_cells(cls, cells, smin, amin, kw, nrows, x0, y0, gflags):
+        a = cls()
+        a.nrows, a.smin, a.amin, a.kw, a.x0, a.y0, a.gflags = nrows, smin, amin, kw, x0, y0, gflags
+
+        def b(r, k):
+            s = smin + r
+            av = amin + 2 * k + (s & 1)
+            c = cells.get(((s + av) >> 1, (s - av) >> 1))
+            if c is None:
+                return (Z_OPEN, 0, KIND_VOID, 0)
+            return (c[0] if not (c[2] & 15) in SPLIT_KINDS else 0, c[1], c[2], c[3])
+        a._b = b
+        return a
+
+    def raw(self, wx, wy):
+        """-> (z0, slopes byte, kind byte, flags) or None outside the grid"""
+        r, k = wx + wy - self.smin, (wx - wy - self.amin) >> 1
+        if not (0 <= r < self.nrows and 0 <= k < self.kw):
+            return None
+        return self._b(r, k)
+
+    def runs(self, wx, wy):
+        """the model runs for a ball centred in (wx, wy): GF_ANA, and the cell inside the grid, VOID, not OBS"""
+        if not self.gflags & GF_ANA:
+            return False
+        b = self.raw(wx, wy)
+        return b is not None and b[2] & 15 == KIND_VOID and not b[3] & FL_OBS
+
+    def front(self, wx, wy, depth=None):
+        """-> [(H, X, Y, kr, kl)] the READABLE front cells of (wx, wy) in the guest's order, whatever their height:
+        H the highest corner (px), X, Y the edge's apex, kr = 2 - sx and kl = 2 - sy the halves' slope terms"""
+        out = []
+        s, a = wx + wy, wx - wy
+        for d in range(1, (OCCDEPTH if depth is None else depth) + 1):
+            r = s - self.smin + d
+            if not 0 <= r < self.nrows:
+                continue
+            k0 = (a - d - self.amin) >> 1
+            for i in range(d + 1):
+                k = k0 + i
+                if not 0 <= k < self.kw:
+                    continue
+                z0, sl, kd, fl = self._b(r, k)
+                kind = kd & 15
+                if kind not in (KIND_FLOOR, KIND_WALL, KIND_GOAL) or fl & FL_OBS \
+                        or (kind != KIND_GOAL and fl & FL_FLOAT):
+                    continue
+                sN = s + d
+                out.append(self.geom((z0, sl), sN, self.amin + 2 * k + (sN & 1)))
+        return out
+
+    def geom(self, b, sN, aN):
+        """a cell's bytes (z0, slopes) at row sN, column aN -> (H, X, Y, kr, kl): H its highest corner (px), X,
+        Y its edge's apex, kr = 2 - sx and kl = 2 - sy the halves' slope terms (SPEC.md 128.29.2)"""
+        z0, sl = b[0], b[1]
+        sx, sy = (0, 0) if _AV_FLAT else (_nib(sl & 15), _nib(sl >> 4))
+        return (4 * (z0 + max(sx, 0) + max(sy, 0)), 16 * aN + self.x0, 8 * sN + self.y0 - 4 * z0, 2 - sx, 2 - sy)
+
+
+def amodel_edge(cell, x):
+    """a front cell's top edge in picture column x (SPEC.md 128.29.2's E), or None outside its 32 columns"""
+    _H, X, Y, kr, kl = cell
+    if X <= x <= X + 15:
+        return Y + amodel_f(kr, x - X, True)
+    if X - 16 <= x < X:
+        return Y + amodel_f(kl, X - 1 - x, False)
+    return None
+
+
+def amodel_cols(front, xlo, xhi):
+    """-> {x: [(E, H), ...] sorted by E} over columns xlo .. xhi: every readable front cell's edge there"""
+    out = {}
+    for cell in front:
+        for x in range(max(xlo, cell[1] - 16), min(xhi, cell[1] + 15) + 1):
+            out.setdefault(x, []).append((amodel_edge(cell, x), cell[0]))
+    for v in out.values():
+        v.sort()
+    return out
+
+
+def amodel_z(cols, x, y):
+    """Z: the model hides pixel (x, y) exactly for a key below this (the greatest H of an edge at or above y)"""
+    z = -(1 << 30)
+    for e, h in cols.get(x, ()):
+        if e > y:
+            break
+        if h > z:
+            z = h
+    return z
+
+
+def amodel_pix(course, cell, zb, air, px, py):
+    """the footprint pixels (20 x 16 from px & ~3, as composite) the guest's model hides for a ball centred in
+    CELL at whole height zb (SPEC.md 128.29.2), read from the course's RAM form: an empty set where the model
+    does not run (no GF_ANA, a cell that is not VOID, OBS, no cell given)"""
+    if cell is None:
+        return set()
+    ag = getattr(course, "_agrid", None)
+    if ag is None or ag[0] is not world_of(course):
+        ag = course._agrid = (world_of(course), AGrid(world_of(course)))
+    g = ag[1]
+    if not g.runs(*cell):
+        return set()
+    key = zb + (0 if air else CLIMB)
+    x4 = px & ~3
+    fr = [f for f in g.front(*cell) if f[0] > key]
+    cols = amodel_cols(fr, x4, x4 + FOOT_W - 1)
+    out = set()
+    for x, evs in cols.items():
+        e = evs[0][0]
+        for y in range(max(e, py), py + FOOT_H):
+            out.add((x, y))
+    return out
+
+
+def av_positions(reach, grid, slabcells):
+    """the reach cells the model runs in (SPEC.md 128.29.3): kind VOID in the reach, and VOID, not OBS, inside
+    the part's grid"""
+    return [rc for rc in reach if rc.kind == KIND_VOID and (rc.wx, rc.wy) not in slabcells and grid.runs(rc.wx, rc.wy)]
+
+
+def av_residual(cv, rcs, grid, x0, y0, depth=None):
+    """the RESIDUAL occluder pixels (SPEC.md 128.29.3) over the VOID positions RCS: {(x, y): (s, top)} - each
+    footprint pixel the rule lays at some height of the cell at which the model does not hide it"""
+    occ = {}
+    w, h = cv.w, cv.h
+    for rc in rcs:
+        xl, xh = foot_x(rc, x0)
+        xl, xh = max(xl, 0), min(xh, w - 1)
+        cols = amodel_cols(grid.front(rc.wx, rc.wy, depth), xl, xh)
+        base = 8 * rc.s + y0
+        for y in range(max(foot_top(rc, rc.zhi) + y0 - 1, 0), min(foot_top(rc, rc.zlo) + y0 + 30, h - 1) + 1):
+            sr, tr = cv.sbuf[y], cv.tbuf[y]
+            zlo_y = max(rc.zlo, base - 14 - y)
+            zhi_y = min(rc.zhi, base + 17 - y)
+            if zlo_y > zhi_y:
+                continue
+            for x in range(xl, xh + 1):
+                sp = sr[x]
+                if sp <= rc.s:
+                    continue
+                tp = tr[x]
+                if max(zlo_y, amodel_z(cols, x, y)) <= min(zhi_y, tp - 1):
+                    occ[(x, y)] = (sp, tp)
+    return occ
+
+
+def _group_occ(occ):
+    """_occluders' grouping over an occluder pixel map: one record per (block, cell row, band of tops)"""
+    groups = {}
+    for (x, y), (sp, tp) in occ.items():
+        groups.setdefault((y >> 3, x >> 3, sp), []).append((tp, x, y))
+    records = []
+    for (br, bc, sp) in sorted(groups):
+        px = sorted(groups[(br, bc, sp)])
+        band = []
+        for p in px:
+            if band and p[0] - band[0][0] > BAND:
+                records.append((br, bc, sp, band))
+                band = []
+            band.append(p)
+        records.append((br, bc, sp, band))
+    out = []
+    for br, bc, sp, band in records:
+        top = max(p[0] for p in band)
+        mask = bytearray(b"\xff" * 16)
+        for _, x, y in band:
+            ly, lx = y & 7, x & 7
+            mask[2 * ly + (lx >> 2)] &= ~(3 << (6 - 2 * (lx & 3))) & 0xFF
+        out.append({"brow": br, "col": bc, "s": sp, "top": top, "mask": bytes(mask),
+                    "pix": frozenset((x, y) for _, x, y in band)})
+    out.sort(key=lambda r: (r["brow"], r["col"], r["s"], r["top"], r["mask"]))
+    return out
+
+
+def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=False, tiles=None, sub=None,
+               _raise=0, show=None, lift=CLIMB):
+    """AV's records (SPEC.md 128.29.3): today's occluder pixels over every reach cell the model does not run in
+    (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 128.28.6), the
+    residual over the ones it does (VOID cells: never a FIELD cell), grouped and merged as today -> (raw,
+    merged, occ pixels, VOID positions)"""
+    rcs = av_positions(reach, grid, slabcells)
+    ids = {id(rc) for rc in rcs}
+    _r, occ = _occluders(cv, [rc for rc in reach if id(rc) not in ids], x0, y0, 0, 0, tiles, sub, _raise, show,
+                         lift)       # (SHOW and LIFT: 128.28.6's toggle, as the compile's own cut - None, off)
+    occ = dict(occ)
+    if not _noresidual:
+        occ.update(av_residual(cv, rcs, grid, x0, y0, depth))
+    raw = _group_occ(occ)
+    return raw, merge_records(raw, q), occ, rcs
+
+
+def av_proof(c, grid=None, rcs=None):
+    """item 15's COMPLETENESS (SPEC.md 128.29.7): at every VOID position (every whole height, airborne) and every
+    pixel of its superset footprint the rule lays, the model (read from the PART) hides it or a SHIPPED record
+    (merged, undithered: c.records) lays it.  -> (pixel-cells tried, [the first few misses])"""
+    grid = grid or AGrid(world_of(c))
+    rcs = rcs if rcs is not None else av_positions(c.reach, grid, c.slabcells)
+    pix_rec = {}
+    for r in c.records:                         # (an ALL-KEEP record - every pixel of it one the checker keeps,
+        for p in r["pix"]:                      # so dropped: laying it changes no pixel - counts as laid: since
+            pix_rec.setdefault(p, []).append(r)     # 128.28's real-pose cut, PLAYGROUND's pit makes one-pixel ones)
+    tried, miss = 0, []
+    for rc in rcs:
+        xl, xh = foot_x(rc, c.x0)
+        xl, xh = max(xl, 0), min(xh, c.width - 1)
+        cols = amodel_cols(grid.front(rc.wx, rc.wy), xl, xh)
+        base = 8 * rc.s + c.y0
+        for y in range(max(foot_top(rc, rc.zhi) + c.y0 - 1, 0), min(foot_top(rc, rc.zlo) + c.y0 + 30,
+                                                                    c.lines - 1) + 1):
+            sr, tr = c.sbuf[y], c.tbuf[y]
+            zlo_y = max(rc.zlo, base - 14 - y)
+            zhi_y = min(rc.zhi, base + 17 - y)
+            for x in range(xl, xh + 1):
+                if sr[x] <= rc.s:
+                    continue
+                lo, hi = max(zlo_y, amodel_z(cols, x, y)), min(zhi_y, tr[x] - 1)
+                if lo > hi:
+                    continue
+                tried += 1
+                if not any(r["s"] > rc.s and r["top"] > hi for r in pix_rec.get((x, y), ())):
+                    if len(miss) < 4:
+                        miss.append(((rc.wx, rc.wy), (x, y), lo, hi))
+    return tried, miss
+
+
+def av_wrong(c, grid=None, step=2):
+    """WRONG-HIDE (SPEC.md 128.29.7): over each VOID cell's lattice (z in STEP px, the ball's top-left on a 4 px
+    lattice over the cell's area, airborne) the ball's lit pixels the model hides that the rule does not -> (ball
+    pixels, wrong pixels, the worst position (share, cell, z, px, py) or None, positions)"""
+    grid = grid or AGrid(world_of(c))
+    nb = nw = npos = 0
+    worst = None
+    for rc in av_positions(c.reach, grid, c.slabcells):
+        xl, xh = foot_x(rc, c.x0)
+        cols = amodel_cols(grid.front(rc.wx, rc.wy), max(xl, 0), min(xh, c.width - 1))
+        zs = {}                                     # (x, y) -> (Z, the rule's threshold) for the cell
+        for z in range(rc.zlo, rc.zhi + 1, step):
+            for gx in range(16 * rc.wx, 16 * rc.wx + 16, 4):
+                for gy in range(16 * rc.wy, 16 * rc.wy + 16, 4):
+                    px = gx - gy + c.x0 - 8
+                    py = (gx + gy) // 2 - z + c.y0 - 13
+                    if px < 0 or py < 0 or px + 20 >= c.width or py + 16 >= c.lines:
+                        continue
+                    bp = ball_pixels(px, py)
+                    w = 0
+                    for (x, y) in bp:
+                        t = zs.get((x, y))
+                        if t is None:
+                            sp = c.sbuf[y][x]
+                            t = zs[(x, y)] = (amodel_z(cols, x, y), c.tbuf[y][x] if sp > rc.s else -(1 << 30))
+                        if t[0] > z >= t[1]:
+                            w += 1
+                    npos += 1
+                    nb += len(bp)
+                    nw += w
+                    if w and (worst is None or w / float(len(bp)) > worst[0]):
+                        worst = (w / float(len(bp)), (rc.wx, rc.wy), z, px, py)
+    return nb, nw, worst, npos
+
+
+def av_tile_edges(c, grid=None):
+    """item 15: the model read from the PART against the TILES: every readable whole cell's edge E(x) against
+    the first line of its top polygon's spans (the renderer's), the two end columns apart, and its H against
+    its corners -> (columns compared, [the first few that differ])"""
+    grid = grid or AGrid(world_of(c))
+    n, bad = 0, []
+    for (wx, wy), t in sorted(c.tiles.items()):
+        if isinstance(t, Split):
+            continue
+        b = grid.raw(wx, wy)
+        if b is None:
+            continue
+        if b[2] & 15 not in (KIND_FLOOR, KIND_WALL, KIND_GOAL):
+            continue
+        cell = grid.geom(b, wx + wy, wx - wy)
+        zt, zr, zb, zl = (4 * q for q in t.corners())
+        if cell[0] != max(zt, zr, zb, zl):
+            bad.append(((wx, wy), "H %d, corners %s" % (cell[0], (zt, zr, zb, zl))))
+        quad = [_scr(2 * wx, 2 * wy, zt, c.x0), _scr(2 * wx + 2, 2 * wy, zr, c.x0),
+                _scr(2 * wx + 2, 2 * wy + 2, zb, c.x0), _scr(2 * wx, 2 * wy + 2, zl, c.x0)]
+        first = {}
+        for y in sorted(spans(quad)):
+            for a_, b_ in spans(quad)[y]:
+                for x in range(a_, b_):
+                    first.setdefault(x, y + c.y0)
+        X = cell[1]
+        for x in range(X - 15, X + 15):
+            n += 1
+            if first.get(x) != amodel_edge(cell, x) and len(bad) < 4:
+                bad.append(((wx, wy), "column %d: E %s, the spans' first line %s" % (
+                    x - X, amodel_edge(cell, x), first.get(x))))
+    return n, bad
+
+
 def _occg_field(rc, t, by_block, x0, y0):
     """SPEC.md 128.11.4.3, 128.28.6: the most records a GROUNDED ball in FIELD cell rc meets, at its REAL
     grounded poses - its centre at each integer point (u, v) with any fraction (the footprint's column u - v
@@ -6480,6 +6815,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None)
     Every compile is looked up in the compile cache (build/bbcache/, docs/TESTING.md *BONANZA's host
     checks*), and one of a course FILE or one that took a second or more is written to it: cache_key() is
     every input the compile reads, so a hit is the compile it stands for"""
+    if OCC_MODE != "void" and not (_hack or {}).get("occ"):     # SPEC.md 128.29: --occ off, the run's A/B
+        _hack = dict(_hack or {}, occ=OCC_MODE)
     key = cache_key(source, fname, occluders, _hack, crsinfo)
     c = cache_get(key)
     if c is None:
@@ -7148,15 +7485,6 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         per_block[(r["brow"], r["col"])] = per_block.get((r["brow"], r["col"]), 0) + 1
     if hack.get("y0probe"):                         # SPEC.md 128.25.3: one alignment's records, and no more
         raise _Y0Probe((len(records), max(per_block.values(), default=0), max(per_row.values(), default=0)))
-    for key in sorted(per_block):
-        if per_block[key] > REC_BLOCK_MAX:
-            raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
-                              "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
-                                             8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
-    for br in sorted(per_row):
-        if per_row[br] > REC_ROW_MAX:
-            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
-                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX, _pairnote(reach)))
     by_block = {}
     for r in records:
         by_block.setdefault((r["brow"], r["col"]), []).append(r)
@@ -7171,6 +7499,43 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for (wx, wy), n in occg.items():
         if n:
             cells[(wx, wy)][3] |= FL_OCC | FL_OCCG
+    # SPEC.md 128.29: AV - the flags above are the RULE's (today's records over the whole reach); the part's
+    # records are the RESIDUAL over the VOID positions the model runs in and today's over every other, and the
+    # bounds below are refused on those.  A FLOATING GOAL cell (its flag bits 4 - 7 its exit) keeps a course off
+    rule = (raw, records, occpix, by_block)
+    av_on = bool(cutocc) and hack.get("occ", "void") == "void" and not any(    # (128.31: no records, no model)
+        c_ in tiles and not isinstance(tiles[c_], Split) and tiles[c_].kind == KIND_GOAL for c_ in floats)
+    av_rcs = []
+    if av_on:
+        for c_ in floats:
+            t_ = tiles.get(c_)
+            if t_ is not None and not isinstance(t_, Split) and t_.kind in (KIND_FLOOR, KIND_WALL) \
+                    and c_ not in gcells and not hack.get("nofloatflag"):
+                cells[c_][3] |= FL_FLOAT
+        cells_v = {k_: list(v_) for k_, v_ in cells.items()}
+        for c_ in pcell:
+            cells_v[c_][3] |= FL_OBS
+        ag = AGrid.of_cells(cells_v, smin, amin, kw, nrows, x0, y0, GF_ANA)
+        raw, records, occpix, av_rcs = av_records(cv, reach, ag, slabcells, x0, y0, q, depth=hack.get("occdepth"),
+                                                  _noresidual=hack.get("noresidual"), tiles=tiles,
+                                                  sub=hack.get("focc"), _raise=hack.get("fraise", 0), show=fshow,
+                                                  lift=hack.get("flift", CLIMB))
+        per_row, per_block = {}, {}
+        for r in records:
+            per_row[r["brow"]] = per_row.get(r["brow"], 0) + 1
+            per_block[(r["brow"], r["col"])] = per_block.get((r["brow"], r["col"]), 0) + 1
+        by_block = {}
+        for r in records:
+            by_block.setdefault((r["brow"], r["col"]), []).append(r)
+    for key in sorted(per_block):
+        if per_block[key] > REC_BLOCK_MAX:
+            raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
+                              "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
+                                             8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
+    for br in sorted(per_row):
+        if per_row[br] > REC_ROW_MAX:
+            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
+                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX, _pairnote(reach)))
     # wave 3's occlusion refusals (SPEC.md 128.12.4.5, 128.12.15 item 2)
     if cutocc:
         for L in lanes:
@@ -7251,7 +7616,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
         | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0) \
-        | (GF_SPLIT if pairs else 0) | (GF_FIELD if ftabs else 0)
+        | (GF_SPLIT if pairs else 0) | (GF_FIELD if ftabs else 0) | (GF_ANA if av_on else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
@@ -7465,6 +7830,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.blocks, c.map = blocks, mp
     c.nblk_pic = nblk_pic
     c.records, c.occpix, c.by_block = records, occpix, by_block
+    # SPEC.md 128.29: the records above are the PART's (AV's under --occ void); the rule's, over the whole reach,
+    # are what the flags were computed from
+    c.rule_raw, c.rule_records, c.rule_occpix, c.rule_by_block = rule
+    c.av, c.av_rcs = av_on, av_rcs
     c.raw, c.queries = raw, q
     c.masks = masks                         # the K section's: DITHERED (128.15.10.1), deduplicated again
     c.raw_masks = len({r["mask"] for r in raw})
@@ -9245,7 +9614,7 @@ def _read_bzc2(p, pw, fname, split=False):
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
     gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
-    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) or padmask & ~7
+    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD | GF_ANA) or padmask & ~7
             or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
             or (gflags & GF_CUP and not gflags & GF_CKPT)):
         bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
@@ -9323,7 +9692,8 @@ def _read_bzc2(p, pw, fname, split=False):
             fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[16 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
                                                         for v in range(17)]
         elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
-                or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)) \
+                or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)
+                          | (FL_FLOAT if kd & 15 in (KIND_FLOOR, KIND_WALL) else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
         # CELLS (128.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
@@ -9397,7 +9767,7 @@ def _read_bzc2(p, pw, fname, split=False):
     for d in props:
         if d["kind"] == PK_PAD:
             want_m |= 1 << d["mat"]
-    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) != want_f or padmask != want_m:
+    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD | GF_ANA) != want_f or padmask != want_m:
         bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
             % (gflags, padmask, want_f, want_m))
     for d in props:
@@ -13022,7 +13392,7 @@ def ball_pixels(px, py):
     return out
 
 
-def composite(course, px, py, sb, zb, air, via="records", ghost=False, cut=None):
+def composite(course, px, py, sb, zb, air, via="records", ghost=False, cell=None, cut=None):
     """the footprint (20 x 16 from px & ~3) with the ball drawn and 128.10.4.4's
     rule applied: via 'records' (what the guest does), 'pixels' (the per-pixel
     buffer, each pixel's top raised to its record's) or 'none' (the ball whole:
@@ -13030,7 +13400,10 @@ def composite(course, px, py, sb, zb, air, via="records", ghost=False, cut=None)
     ghost: the CARD's model (SPEC.md 128.15.10.3) - a record lays its pixels
     LESS the checker's, (x, y) only where ghost(x, y) is false; without it the
     RULE's (the undithered pixels, every verdict's model).  cut: 'pixels' over only these pixels (the
-    occluder cut's, c.occpix: what SPEC.md 128.28.6's SHOW rule leaves out is no record's).  -> {(x, y): index}"""
+    occluder cut's, c.occpix: what SPEC.md 128.28.6's SHOW rule leaves out is no record's).  CELL: the
+    ball's centre cell, where SPEC.md 128.29's model runs (a VOID cell of a GF_ANA part) its pixels are
+    laid too, by 'records' and 'pixels' alike - the design is the rule's pixels with the model's added.
+    -> {(x, y): index}"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     out = {}
@@ -13055,6 +13428,10 @@ def composite(course, px, py, sb, zb, air, via="records", ghost=False, cut=None)
                 continue
             top = raised.get((x, y), course.tbuf[y][x])
             if sb < s and zb + m < top:
+                out[(x, y)] = course.pic[y][x]
+    if via in ("records", "pixels") and cell is not None:
+        for (x, y) in amodel_pix(course, cell, zb, air, px, py):
+            if (x, y) in out and not (ghost and _ghost_px(x, y)):
                 out[(x, y)] = course.pic[y][x]
     return out
 
@@ -13283,6 +13660,9 @@ def emit_inc(courses, path=None, title=None):
               "",
               "; wave 3 (SPEC.md 128.12.3, 128.12.6): the props, the prop table, the tubes",
               "BZ_FL_OBS       equ %d        ; grid +3 bit 3: the cell belongs to a prop" % FL_OBS,
+              "BZ_FL_FLOAT     equ %d       ; grid +3 bit 6: a floating FLOOR or WALL (SPEC.md 128.29.4)" % FL_FLOAT,
+              "BZ_GF_ANA       equ %d       ; BZG1 +28 bit 6: AV, the model in VOID cells (128.29.4)" % GF_ANA,
+              "BZ_OCCDEPTH     equ %d        ; the model's front cells' depth (SPEC.md 128.29.2)" % OCCDEPTH,
               "BZ_PROPMAX      equ %d       ; LANES the build's largest course has, even (128.19.10: the "
               "per-lane tables, bz_ldrw, bz_lage, bz_pkick ...)" % table_max(allc, True),
               "BZ_PROPREC      equ %d       ; bytes a prop record" % PROPREC,
@@ -16726,11 +17106,12 @@ def _grammar_cases():
         # launch, and its records swing under 252's with Y0's alignment, 128.11.4.4 - so the case pins them:
         # it proves the REFUSAL, which the reach's inputs do not touch)
         ("a block over %d records (a steep ramp's faces over the void)" % REC_BLOCK_MAX, STEEP,
-         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0}),
+         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0,
+                                                       "occ": "off"}),
         # (both bound refusals PIN their alignment, SPEC.md 128.25.3: the Y0 search would otherwise look for
         # one that compiles, and these prove the refusal itself)
         ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX,
-         {"y0add": 0}),
+         {"y0add": 0, "occ": "off"}),        # (both on today's records, --occ off: AV's residual meets them)
     ]
 
 
@@ -16865,7 +17246,7 @@ def _decode(part, herc=False):
     return rows
 
 
-def laid_at(course, px, py, sb, zb, air, card=False):
+def laid_at(course, px, py, sb, zb, air, card=False, cell=None):
     """the records the guest's pass lays for a ball at picture top-left (px, py)
     in cell row sb at whole height zb (SPEC.md 128.10.8 item 1).  card: the
     CARD's count instead (128.15.10.3) - the set of the footprint's pixels
@@ -16881,10 +17262,11 @@ def laid_at(course, px, py, sb, zb, air, card=False):
     if not card:
         return out
     return {(x, y) for r in out for (x, y) in r["pix"]
-            if py <= y < py + FOOT_H and x4 <= x < x4 + FOOT_W and not ghost(x, y)}
+            if py <= y < py + FOOT_H and x4 <= x < x4 + FOOT_W and not ghost(x, y)} | {
+        q for q in amodel_pix(course, cell, zb, air, px, py) if not ghost(*q)}     # (SPEC.md 128.29: the model's)
 
 
-def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None):
+def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None, cell=None):
     """the footprint as the CARD lays it, read independently of the tool's
     records: the records and masks out of the RAM part (decode_part, which
     reads the bytes the guest holds), each laid as the guest lays a mask -
@@ -16927,6 +17309,13 @@ def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None):
                             laid.add((x, y))
                         blk = course.pic[y][x]
                         out[(x, y)] = ((out[(x, y)] ^ blk) & mb) ^ blk
+    # SPEC.md 128.29: the guest's model, read from the same RAM form (amodel_pix reads course.cga), its mask
+    # ORed with the checker as the guest's is (or not, _strip=False), laid after the records as bz_amodel lays
+    for (x, y) in amodel_pix(course, cell, zb, air, px, py):
+        if (x, y) in out and not (_strip and not _AV_NODITHER and ghost(x, y)):
+            if laid is not None:
+                laid.add((x, y))
+            out[(x, y)] = course.pic[y][x]
     return out
 
 
@@ -18552,7 +18941,7 @@ def _slab_decode(c, part, herc):
     return True
 
 
-def _composite_pose(c, L, q, px, py, sb, zb, air, via):
+def _composite_pose(c, L, q, px, py, sb, zb, air, via, cell=None):
     """composite() with lane L at pose q: 'records' lays the records cut from
     pose 0 through the map (now pose q's); 'pixels' rules each pixel by pose
     q's own (s, top) - its overrides, else the picture's"""
@@ -18583,6 +18972,9 @@ def _composite_pose(c, L, q, px, py, sb, zb, air, via):
                 t_ = c._raised.get((x, y), t_)
             if sb < s_ and zb + m < t_:
                 out[(x, y)] = pic[y][x]
+    for (x, y) in amodel_pix(c, cell, zb, air, px, py):        # SPEC.md 128.29: the model's, both ways
+        if (x, y) in out:
+            out[(x, y)] = pic[y][x]
     return out
 
 
@@ -18653,6 +19045,8 @@ def _props_course_checks(c, res, tag):
     for (wx, wy), t in c.tiles.items():
         fl = g.cell(wx, wy)[4]
         want = t.exit if t.kind == KIND_GOAL else 0
+        if t.kind != KIND_GOAL:                         # (SPEC.md 128.29.4: bit 6 FL_FLOAT on a floor or wall)
+            fl &= ~FL_FLOAT
         if fl >> FL_EXITSH != want:
             ex_ok = False
         if t.kind == KIND_GOAL:
@@ -18689,8 +19083,9 @@ def _props_course_checks(c, res, tag):
                 for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                     for q in L["poses"]:
                         tried += 1
-                        if _composite_pose(c, L, q, px, py, rc.s, z, air, "records") != \
-                                _composite_pose(c, L, q, px, py, rc.s, z, air, "pixels"):
+                        cl_ = (rc.wx, rc.wy)
+                        if _composite_pose(c, L, q, px, py, rc.s, z, air, "records", cl_) != \
+                                _composite_pose(c, L, q, px, py, rc.s, z, air, "pixels", cl_):
                             mism += 1
     nsl = sum(8 * pr["L"] + 1 for pr in c.props if pr["kind"] == PK_PLATFORM)
     res.append(("5 %s: over EVERY POSE, the ball through the records cut from pose 0 equals that pose's per-pixel "
@@ -20113,7 +20508,7 @@ def _w4_records(c, res):
     # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
     wf |= GF_SPLIT if any(isinstance(t_, Split) for t_ in c.tiles.values()) else 0
     wf |= GF_FIELD if any(isinstance(t_, FieldTile) for t_ in c.tiles.values()) else 0     # (SPEC.md 128.28.2)
-    ok = ok and pt["grid"]["gflags"] == wf
+    ok = ok and pt["grid"]["gflags"] & ~GF_ANA == wf          # (GF_ANA: item 15's, SPEC.md 128.29.4)
     res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
                 "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
                 % (c.name, pt["grid"]["gflags"], pt["grid"]["padmask"]), ok))
@@ -20885,18 +21280,20 @@ def _w5_dither(courses, res, demos=None):
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
             for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
                 for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
-                    pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air))
+                    pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air,
+                                (rc.wx, rc.wy)))
         ph = Physics(c, play=True)
         while ph.nstep < DEMO_STEPS and not ph.goal:
             ph.step(ph.auto())
             if not ph.nstep & 3 and not ph.tube and not ph.hid:
-                pos.append((ph.px, ph.py, ph.sb, ph.zb, ph.air))
+                pos.append((ph.px, ph.py, ph.sb, ph.zb, ph.air, (ph.gx >> 12, ph.gy >> 12)))
         diff = cnt = ghosts = 0
-        for px, py, sb, z, air in pos:
+        for px, py, sb, z, air, cl_ in pos:         # (cl_: the ball's cell, SPEC.md 128.29's model there)
             lset = set()
-            if composite(c, px, py, sb, z, air, ghost=True) != card_composite(c, px, py, sb, z, air, laid=lset):
+            if composite(c, px, py, sb, z, air, ghost=True, cell=cl_) != card_composite(c, px, py, sb, z, air,
+                                                                                        laid=lset, cell=cl_):
                 diff += 1
-            card = laid_at(c, px, py, sb, z, air, card=True)
+            card = laid_at(c, px, py, sb, z, air, card=True, cell=cl_)
             if card != lset:
                 cnt += 1
             ghosts += sum(1 for q in ball_pixels(px, py) if ghost(*q) and any(
@@ -20909,7 +21306,8 @@ def _w5_dither(courses, res, demos=None):
     # the negative controls (128.15.10.3)
     mill = next((c for c in courses if c.name == "MILL"), None)
     if mill is not None:
-        hit = next((q for q in mill._vis_pos if composite(mill, *q, ghost=False) != card_composite(mill, *q)), None)
+        hit = next((q for q in mill._vis_pos if composite(mill, *q[:5], ghost=False, cell=q[5])
+                    != card_composite(mill, *q[:5], cell=q[5])), None)
         res.append(("11 MILL negative control: the card's model with the checker NOT stripped disagrees with the "
                     "dithered composite%s" % (" (first at px %d, py %d)" % hit[:2] if hit else ""), hit is not None))
         if getattr(mill, "_raised", None) is None:
@@ -20922,8 +21320,8 @@ def _w5_dither(courses, res, demos=None):
             fed.setdefault((r["brow"], r["col"]), []).append(d)
         mill.by_block = fed
         try:
-            hit = next((q for q in mill._vis_pos if composite(mill, *q, via="records")
-                        != composite(mill, *q, via="pixels")), None)
+            hit = next((q for q in mill._vis_pos if composite(mill, *q[:5], via="records", cell=q[5])
+                        != composite(mill, *q[:5], via="pixels", cell=q[5])), None)
         finally:
             mill.by_block = keep
         res.append(("11 MILL negative control: the rule's composite fed the DITHERED masks fails item 5's comparison "
@@ -22140,7 +22538,7 @@ def _field_real_poses(c, rc, step=7, lift=0):
     return out
 
 
-def _poses_hidden(c, poses, show=0):
+def _poses_hidden(c, poses, show=0, cells=None):
     """-> (poses where the records leave MORE than `show` lit ball pixels the per-pixel rule hides unlaid,
     poses where the rule hides any, poses it leaves 1 - `show` unlaid): records' pixels by a pixel -> record
     map, the rule by sbuf and tbuf (no record's top raised: a pixel no record holds is exactly what a
@@ -22150,14 +22548,15 @@ def _poses_hidden(c, poses, show=0):
         for p_ in r["pix"]:
             rec[p_] = r
     bad = hid = shown = 0
-    for px, py, sb, z, air in poses:
+    for i_, (px, py, sb, z, air) in enumerate(poses):
         m = 0 if air else CLIMB
         any_ = False
         n = 0
+        mod = amodel_pix(c, cells[i_], z, air, px, py) if cells else set()
         for (x, y) in ball_pixels(px, py):
             rule = c.sbuf[y][x] > sb and c.tbuf[y][x] > z + m
             r = rec.get((x, y))
-            laid = r is not None and r["s"] > sb and r["top"] > z + m
+            laid = (r is not None and r["s"] > sb and r["top"] > z + m) or (x, y) in mod
             any_ |= rule
             if rule and not laid:
                 n += 1
@@ -22192,18 +22591,19 @@ def _field_occ_checks(cs, res):
             isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
             and all(isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) or (dx, dy) == (0, 0)
                     or c.tiles.get((rc.wx + dx, rc.wy + dy)) is None for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
-        hp = []
+        hp, hcell = [], []
         for rc in hole:
             for u, v in ((8, 8), (2, 2), (14, 14), (2, 14), (14, 2)):
                 gx, gy = ((16 * rc.wx + u) << 8), ((16 * rc.wy + v) << 8)
                 for z in range(rc.zlo, rc.zhi + 1, 2):
                     hp.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, 1))
+                    hcell.append((rc.wx, rc.wy))
         # the SHOW rule's poses: airborne from BZ_CLIMB over the floor (lower, the ball is drawn whole)
         hi = [q for rc in fr for q in _field_real_poses(c, rc, lift=CLIMB)]
         bad, hid, shown = _poses_hidden(cb, hi, FSHOW)
-        hbad, hhid, _hs = _poses_hidden(cb, hp, FSHOW)
+        hbad, hhid, _hs = _poses_hidden(cb, hp, FSHOW, hcell)
         nbad, nhid, _ns = _poses_hidden(cn, poses)
-        nhbad, _nhh, _nhs = _poses_hidden(cn, hp)
+        nhbad, _nhh, _nhs = _poses_hidden(cn, hp, cells=hcell)
         cr = compile_course(text, "<%s, floor + 3>" % k, _hack={"no_finish": True, "fraise": 3, "fshow": None})
         rbad, _rh, _rs = _poses_hidden(cr, poses)
         ca = compile_course(text, "<%s, SHOW from the floor>" % k, _hack={"no_finish": True, "fshow": 1 << 20,
@@ -22702,6 +23102,7 @@ def _course_items(c, k, res, t):
     mism = 0
     tried = 0
     first_laid = None
+    ag5 = AGrid(world_of(c))                  # (SPEC.md 128.29: the control's record is one the model does not cover)
     for rc in c.reach:
         gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
         for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
@@ -22709,14 +23110,14 @@ def _course_items(c, k, res, t):
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 tried += 1
-                A = composite(c, px, py, rc.s, z, air, "records")
-                Bp = composite(c, px, py, rc.s, z, air, "pixels", cut=c.occpix)
+                A = composite(c, px, py, rc.s, z, air, "records", cell=(rc.wx, rc.wy))
+                Bp = composite(c, px, py, rc.s, z, air, "pixels", cell=(rc.wx, rc.wy), cut=c.occpix)
                 if A != Bp:
                     mism += 1
-                if first_laid is None:
+                if first_laid is None and not ag5.runs(rc.wx, rc.wy):
                     for r in laid_at(c, px, py, rc.s, z, air):
                         if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
-                            first_laid = (r, px, py, rc.s, z, air)
+                            first_laid = (r, px, py, rc.s, z, air, (rc.wx, rc.wy))
                             break
     res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's over the cut's "
                 "pixels (tops raised to the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
@@ -22732,7 +23133,8 @@ def _course_items(c, k, res, t):
             py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
             for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                 ftried += 1
-                if composite(c, px, py, rc.s, z, air, "records") != composite(c, px, py, rc.s, z, air, "pixels"):
+                if composite(c, px, py, rc.s, z, air, "records", cell=(rc.wx, rc.wy)) != composite(
+                        c, px, py, rc.s, z, air, "pixels", cell=(rc.wx, rc.wy)):
                     fmism += 1
                 if laid_at(c, px, py, rc.s, z, air):
                     if not c.cells[(rc.wx, rc.wy)][3] & FL_OCC:
@@ -22756,11 +23158,12 @@ def _course_items(c, k, res, t):
                  if v[2] & 15 != KIND_WALL)
     res.append(("5 %s: OCC set exactly on the cells some position of which lays a record" % tag, occ_ok))
     if first_laid is not None:
-        r, px, py, sb, z, air = first_laid
+        r, px, py, sb, z, air, cl_ = first_laid
         old = r["s"]
         r["s"] = sb
         try:
-            caught = composite(c, px, py, sb, z, air, "records") != composite(c, px, py, sb, z, air, "pixels")
+            caught = composite(c, px, py, sb, z, air, "records", cell=cl_) != composite(c, px, py, sb, z, air,
+                                                                                        "pixels", cell=cl_)
         finally:
             r["s"] = old
         res.append(("5 %s negative control: one record's s_C lowered to the ball's row fails the composite" % tag,
@@ -22797,7 +23200,7 @@ def _course_items(c, k, res, t):
                     "bounds, and its compile has the records its probe counted" % (
                         tag, c.y0add, len(c.records), "the fewest" if c.y0add == best else
                         "+%d, the fewest, refused by a later rule" % best, len(ok)),
-                    c.y0add in ok and len(c.records) == c.y0counts[c.y0add][0]))
+                    c.y0add in ok and len(c.rule_records) == c.y0counts[c.y0add][0]))
     if c.props:
         _props_course_checks(c, res, tag)
     _w4_records(c, res)
@@ -22874,7 +23277,8 @@ def _sc_crosscommit(X, res):
             try:
                 # (that tool had no Y0 search; and SPEC.md 128.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
-                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True})
+                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True,
+                                                "occ": "off"})      # (and SPEC.md 128.29's AV off: today's records)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -23613,8 +24017,137 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1}
+           "seeds": 1, "tables": 1, "title": 1, "av": 40}
 
+
+def _av_floats_want(c):
+    """SPEC.md 128.29.4: the cells FL_FLOAT is set on - every FLOOR or WALL whole cell a `float` names that the
+    picture draws (a glass tile's is not drawn), on a GF_ANA part"""
+    if not c.av:
+        return set()
+    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
+    return {k for k in c.floats if k in c.tiles and not isinstance(c.tiles[k], Split)
+            and c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) and k not in gc}
+
+
+def _av_checks(c, res, tag, off=None, flags_only=False):
+    """item 15 (SPEC.md 128.29.7) on one course: the flags, completeness, the model against the tiles,
+    WRONG-HIDE, and the gate and the picture against --occ off's compile (OFF)"""
+    g = AGrid(world_of(c))
+    fgoal = any(k in c.tiles and not isinstance(c.tiles[k], Split) and c.tiles[k].kind == KIND_GOAL for k in c.floats)
+    want_f = _av_floats_want(c)
+    got_f = {k for k in c.cells if g.raw(*k) is not None and g.raw(*k)[3] & FL_FLOAT}
+    path = getattr(c, "pth", None) is not None          # (SPEC.md 128.31: the pathway cuts no occluder, so no model)
+    flags_ok = c.av == (not fgoal and not path) and bool(g.gflags & GF_ANA) == c.av and got_f == want_f
+    res.append(("15 %s: GF_ANA %s%s; FL_FLOAT on exactly the %d floating FLOOR and WALL cells the picture draws "
+                "(SPEC.md 128.29.4)" % (tag, "set" if g.gflags & GF_ANA else "clear",
+                                        " (a floating GOAL cell keeps it off)" if fgoal else
+                                        " (the pathway: no occluders, 128.31)" if path else "", len(want_f)),
+                flags_ok))
+    if not c.av or flags_only:
+        return
+    rcs = av_positions(c.reach, g, c.slabcells)
+    tried, miss = av_proof(c, g, rcs)
+    res.append(("15 %s: COMPLETENESS - at %d VOID positions' every height, %d (pixel, cell) cases the rule lays are "
+                "each hidden by the model read from the PART or laid by a shipped record%s" % (
+                    tag, len(rcs), tried, "" if not miss else " -- MISSED %s" % miss), tried > 0 and not miss))
+    n, bad = av_tile_edges(c, g)
+    res.append(("15 %s: the model's edges and heights read from the part are the tiles' (the top polygons' first "
+                "lines, %d columns, the end columns apart)%s" % (tag, n, "" if not bad else " -- %s" % bad[:3]),
+                n > 0 and not bad))
+    nb, nw, worst, npos = av_wrong(c, g)
+    share = nw / float(nb) if nb else 0.0
+    res.append(("15 %s: WRONG-HIDE %.4f%% of the ball's lit pixels over %d VOID positions (%d of %d), at most "
+                "%.2f%%; the worst position %s" % (
+                    tag, 100 * share, npos, nw, nb, 100 * OCC_WRONG_MAX,
+                    "%.1f%% of the ball (cell %s at %d px, top-left %d, %d)" % (100 * worst[0], worst[1], worst[2],
+                                                                                worst[3], worst[4])
+                    if worst else "none"), share <= OCC_WRONG_MAX))
+    c.av_figs = (len(rcs), tried, share, worst)
+    if off is not None:
+        same_g = all((c.cells[k][3] & ~FL_FLOAT) == off.cells[k][3] and c.cells[k][:3] == off.cells[k][:3]
+                     for k in c.cells) and set(c.cells) == set(off.cells)
+        same_p = c.map == off.map and c.blocks == off.blocks and c.y0 == off.y0 and c.x0 == off.x0
+        res.append(("15 %s: against --occ off: every grid byte but FL_FLOAT the same (OCC, OCCG, SAFE, OBS: the "
+                    "gate opens on today's frames), the picture, map and blocks the same; records %d -> %d, RAM "
+                    "%d -> %d" % (tag, len(off.model["recs"]), len(c.model["recs"]), len(off.cga), len(c.cga)),
+                    same_g and same_p))
+
+
+def _sc_av(X, res):
+    """--selfcheck's section `av`: item 15 (SPEC.md 128.29.7) - AV on every course, the pathway and the title,
+    and its negative controls"""
+    global _AV_FLAT, _AV_NODITHER
+    courses = X.courses
+    every = list(courses)
+    try:
+        every.append(compile_course(os.path.join(COURSE_DIR, "path.bbc"), crsinfo=[(c.name, c.title)
+                                                                                   for c in courses]))
+        every[-1].name = every[-1].name or "PATH"
+        every.append(compile_course(os.path.join(COURSE_DIR, "title.bbc")))
+    except CourseError as e:
+        res.append(("15 the pathway and the title compile (%s)" % e, False))
+    for c in every:
+        off = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),
+                             _hack={"occ": "off"}, crsinfo=[(q.name, q.title) for q in courses]
+                             if c.pth is not None else None)
+        _av_checks(c, res, c.name, off)
+    byname = {c.name: c for c in courses}
+    # the negative controls, each red where item 15 says
+    first = byname.get("FIRST")
+    if first is not None:
+        nr = compile_course(os.path.join(ROOT, first.fname) if not os.path.isabs(first.fname) else first.fname,
+                            _hack={"noresidual": True})
+        _t, miss = av_proof(nr)
+        res.append(("15 FIRST negative control: the residual dropped (today's records outside the VOID cells "
+                    "alone) is caught by COMPLETENESS (%s)" % (miss[:1] if miss else "not caught"), bool(miss)))
+    bench = byname.get("BENCH")
+    if bench is not None:
+        g = AGrid(world_of(bench))
+        rcs = av_positions(bench.reach, g, bench.slabcells)
+        front = g.front
+        g.front = lambda wx, wy, depth=None: front(wx, wy, 3)
+        try:
+            _t, miss = av_proof(bench, g, rcs)
+        finally:
+            g.front = front
+        res.append(("15 BENCH negative control: the guest's model at depth 3 against the residual cut for depth 4 "
+                    "is caught by COMPLETENESS (%s)" % (miss[:1] if miss else "not caught"), bool(miss)))
+    trial = byname.get("TRIAL")
+    if trial is not None:
+        _AV_FLAT = True
+        try:
+            _n, bad = av_tile_edges(trial)
+        finally:
+            _AV_FLAT = False
+        res.append(("15 TRIAL negative control: the model reading every cell as flat is caught by the comparison "
+                    "with the tiles on its ramp (%s)" % (bad[:1] if bad else "not caught"), bool(bad)))
+    play = byname.get("PLAY")
+    if play is not None:                        # (counting the floating cells instead moves 0 - 4 ball pixels of
+        nf = compile_course(os.path.join(ROOT, play.fname) if not os.path.isabs(play.fname) else play.fname,
+                            _hack={"nofloatflag": True})            # today's lattices: the flag is the check)
+        r_ = []
+        _av_checks(nf, r_, "PLAY (no FL_FLOAT)", flags_only=True)
+        res.append(("15 PLAY negative control: the compile with FL_FLOAT never set is caught by the flags' check "
+                    "(its platform's %d floating cells)" % len(_av_floats_want(play)), not r_[0][1]))
+    mill = byname.get("MILL")
+    if mill is not None:
+        pos = [q for q in getattr(mill, "_vis_pos", ()) if AGrid(world_of(mill)).runs(*q[5])]
+        if not pos:
+            for rc in av_positions(mill.reach, AGrid(world_of(mill)), mill.slabcells):
+                gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
+                for z in sorted({rc.zlo, rc.zhi, (rc.zlo + rc.zhi) // 2}):
+                    pos.append((((gx - gy) >> 8) + mill.x0 - 8, (((gx + gy) >> 1) >> 8) - z + mill.y0 - 13, rc.s,
+                                z, 1, (rc.wx, rc.wy)))
+        _AV_NODITHER = True
+        try:
+            hit = next((q for q in pos if composite(mill, *q[:5], ghost=True, cell=q[5])
+                        != card_composite(mill, *q[:5], cell=q[5])), None)
+        finally:
+            _AV_NODITHER = False
+        res.append(("15 MILL negative control: the model's masks laid WITHOUT the checker disagree with the dithered "
+                    "composite at a VOID position (item 11's comparison)%s" % (
+                        " (px %d, py %d)" % hit[:2] if hit else " -- not caught"), hit is not None))
 
 def _sc_cache(X, res):
     """--selfcheck's section `cache`: the compile cache's key (cache_key) names every input, so a hit is the
@@ -23721,7 +24254,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palet
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
-             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
+             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_cache")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -24360,7 +24893,7 @@ def main_author(argv):
 
 
 def main():
-    global FSHOW_ALL
+    global OCC_MODE, FSHOW_ALL
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -24401,6 +24934,10 @@ def main():
                     help="LATTICE over every demo and autopilot on both cards: the guarantees, the side, two-row, "
                          "ramp-bottom and dither checks, the reports and the controls (SPEC.md 128.17.9, item 8's); "
                          "writes nothing")
+    ap.add_argument("--occ", choices=OCC_MODES, default=OCC_MODE,
+                    help="the occluder records (SPEC.md 128.29): `void` (AV, the default and the shipped form: the "
+                         "model computes the mask in the VOID cells and the part holds their residual) or `off` "
+                         "(today's records everywhere, no GF_ANA: the A/B)")
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 128.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
@@ -24410,6 +24947,7 @@ def main():
     a = ap.parse_args()
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
+    OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
