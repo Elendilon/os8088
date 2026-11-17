@@ -196,8 +196,9 @@ it to finish. The sound disk shows its report on screen: photograph each page
 (the keys 1, 2 and 3 change page). The input disk (keyboard and mouse) writes
 its report to the disk itself, a new INPUTnn.TXT each boot: boot it several
 times, copy the files off and send them. Send what you saw and heard with
-either. Each disk has a text file at its root that says the same thing. Use
-the size your drive takes; the four of each are the same disk."""),
+either. Each disk has a text file at its root that says the same thing, and
+carries the other debug programs and REDLINE in its APPS folder to start by
+hand. Use the size your drive takes; the four of each are the same disk."""),
 
     # THE LIVE GROUP IS THE LIVE ZIP'S, not this one's: its files go to
     # os8088-<version>-live.zip and its text heads that zip's README. It stays

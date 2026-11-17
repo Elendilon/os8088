@@ -5970,8 +5970,18 @@ SDDRIVERS = $(if $(filter $(BUILD)/sound.drv,$(DRIVERS)),,$(error \
 SDDRIVERS360 = $(filter-out $(BUILD)/sound.drv,$(DRIVERS360)) $(SDDRV)
 SDFILES := $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT \
            $(BUILD)/sdcfg/system.cfg AUTOSTRT:$(BUILD)/sdcfg/SNDDIAG.LNK
-SDAPPS := APPS:$(BUILD)/notepad.o88
+# THE OTHER DIAGNOSTICS RIDE EVERY DEBUG DISK, BY HAND (SPEC.md 127.1 rule 6,
+# the owner's of 2026-11-17): each disk autostarts its own program and carries
+# every other user-facing diagnostic in APPS\ beside Note Pad - the other debug
+# disks' programs and REDLINE (its Inspect page, SPEC.md 103.7) - so whichever
+# disk a user holds runs all of them. No second AUTOSTRT link: two programs
+# opening at once would compete for the keys one of them is counting. Until
+# they stop fitting the 360KB disk, then re-assess.
+DIAGTOOLS := $(BUILD)/redline.o88 $(BUILD)/snddiag.o88 $(BUILD)/inputchk.o88
+SDAPPS := APPS:$(BUILD)/notepad.o88 \
+          $(addprefix APPS:,$(filter-out $(BUILD)/snddiag.o88,$(DIAGTOOLS)))
 SDDEPS := $(KERNFILE) $(DRIVERS) $(SDDRV) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(DIAGTOOLS) \
           $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT $(BUILD)/sdcfg/system.cfg \
           $(BUILD)/sdcfg/SNDDIAG.LNK tools/os88disk.py
 
@@ -6018,7 +6028,10 @@ $(DEBUGSND360): $(BUILD)/boot360.bin $(SDDEPS)
 # way it is the interactive program and writes nothing by itself.
 IDFILES := $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
            AUTOSTRT:$(BUILD)/idcfg/INPUTCHK.LNK
+IDAPPS := APPS:$(BUILD)/notepad.o88 \
+          $(addprefix APPS:,$(filter-out $(BUILD)/inputchk.o88,$(DIAGTOOLS)))
 IDDEPS := $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(DIAGTOOLS) \
           $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
           $(BUILD)/idcfg/INPUTCHK.LNK tools/os88disk.py
 
@@ -6029,25 +6042,25 @@ $(BUILD)/idcfg/INPUTCHK.LNK: tools/os88lnk.py | $(BUILD)
 $(DEBUGINP): $(BUILD)/boot.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP120): $(BUILD)/boot120.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP720): $(BUILD)/boot360.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP360): $(BUILD)/boot360.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 .PHONY: debugdisks

@@ -251490,7 +251490,18 @@ assumes the machine boots and asks what a driver made of its hardware.
    `make` (they are in `$(SHIPIMGS)`, so they sign in their own slots,
    §18.8.2.2) and alone by `make debugdisks`. Each carries the boot set, the
    system packages, Note Pad and a `.TXT` saying what to send - not a second
-   system disk's payload.
+   system disk's payload - **and every other user-facing diagnostic in
+   `APPS\`, started by hand** (the owner, 2026-11-17): the other debug disks'
+   programs and `REDLINE.O88` (its Inspect page, §103.7), the Makefile's
+   `$(DIAGTOOLS)`. Whichever debug disk a user holds then runs all of them.
+   Only the disk's OWN program is in `\AUTOSTRT`: two opening at boot would
+   compete for the screen and for the keys Input Check counts. A diagnostic
+   carried this way runs against the disk's drivers, not its own disk's -
+   Sound Debug beside the shipped `SOUND.DRV` says it has no detail (rule 2),
+   and Input Check beside `-DSNDDIAG`'s reads a boot that driver took part in -
+   so the tool's own disk stays the one to send. **The pattern holds until the
+   360KB disks run out** (29 and 30 clusters free with three tools), and is
+   then re-assessed, not trimmed.
 7. **A debug disk follows its driver.** A probe added to the driver is a row
    added to the record and a line added to a page in the same change; the
    record carries a version byte (`SDG_VER`) for a program reading an older

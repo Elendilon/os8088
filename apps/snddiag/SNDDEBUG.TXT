@@ -32,3 +32,10 @@ Keys: 1 2 3 pages, P runs the play test again, R changes its rate (22050,
 
 If the tone stops when D8h sampling is on and plays through when it is off,
 say so: that is a finding too.
+
+OTHER CHECKS ON THIS DISK
+-------------------------
+The APPS folder also holds the other diagnostics, to start by hand:
+INPUTCHK.O88 (Input Check: the keyboard and the mouse) and REDLINE.O88
+(the benchmark, whose Inspect page lists the machine's hardware). For a
+keyboard or mouse report, the input debug disk is still the one to boot.
