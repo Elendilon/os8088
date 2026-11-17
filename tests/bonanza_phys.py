@@ -2285,7 +2285,7 @@ BP_SCENES = (
     ("ramp", (14, 6, 0, 0), _bp_ramp, 120, "from the pocket's one tile of run-up, the -x pad (strength 40) drives the "
      "ball up the ramp to the ledge; rubber and steel cannot climb it without the pad, glass can"),
     ("gap", (10, 16, 0, 200), _bp_gap, 120, "into the pocket and +x: its two pads throw the ball over the 2-cell gap "
-     "onto the low plate; without them every ball falls short into the gap"),
+     "onto the low plate (they are `flat`: every ball pushed the same); without them every ball falls short"),
     ("chain", (12, 10, 120, 0), _bp_chain, 200, "no key held: five +x pads and two +y pads carry the ball down the "
      "runway and round onto the goal plate; without them it stops on the runway"),
     ("hop", (12, 10, 300, 0), lambda p: BB.K_HOP if p.nstep < 2 else 0, 60, "a Hop over the pads: no push while "
@@ -2366,7 +2366,9 @@ def bp_host(binp, lst, sym):
     assembled from a broken copy of the part's source and each of which must part from the model:
     `bpstep` (STEP's entry 0: a flash never goes out), `bpsign` (the minus sign's `neg` gone: a -x pad pushes
     +x), `bplit` (the lighting's mark gone: a lit pad never drawn), `bpout` (the putting-out's mark gone: the
-    chain's put-out pad never drawn), `bpair` (the air test gone: a Hop over the pads pushed)
+    chain's put-out pad never drawn), `bpair` (the air test gone: a Hop over the pads pushed), and round 2's
+    `bpweight` (glass's x1.25 gone: glass pushed as rubber) and `bpflat` (`flat` ignored: the gap's flat pads
+    weight steel)
     -> (lines, failures)"""
     out, fails = [], []
     fam = fam_parts()
@@ -2391,7 +2393,11 @@ def bp_host(binp, lst, sym):
             ("bplit", "    call far [bz_fmkp]          ; this pad LIT: its lane MARKED\n", "", "never drawn",
              ("gap", BB.MAT_GLASS)),
             ("bpout", mk, "    pop bx\n", "never drawn", ("chain", BB.MAT_STEEL)),
-            ("bpair", "    cmp byte [bz_air], 0\n    jne .out\n", "", "the ball", ("hop", BB.MAT_RUBBER)))
+            ("bpair", "    cmp byte [bz_air], 0\n    jne .out\n", "", "the ball", ("hop", BB.MAT_RUBBER)),
+            # round 2 (SPEC.md 128.37.4): glass's x1.25 gone (glass pushed as rubber); `flat` ignored (the gap's
+            # flat pads weight steel)
+            ("bpweight", "    add al, ah\n", "", "the ball", ("ramp", BB.MAT_GLASS)),
+            ("bpflat", "    test bl, BZ_BP_FFLAT\n    jnz .w\n", "", "the ball", ("gap", BB.MAT_STEEL)))
     for arm, a_, b_, want, (name, mat) in arms:
         assert bsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]

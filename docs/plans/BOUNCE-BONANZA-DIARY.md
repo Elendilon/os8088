@@ -4123,3 +4123,31 @@ BZBOOST=1` (all and `bonanzadisk`), `bbcourse.py --selfcheck --only boost`
 at every step, five red arms red), one MartyPC look on each card (the chain's
 lit pad under a rolling ball, the ramp pocket's lit pad, the gap). **Not
 run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-17 (BOOST PADS, round 2: weighted by ball)
+
+The owner played BOOS: *"Look and function great in the test map."* One
+change - weight by ball type, on by default, "to keep the game feeling
+consistent". The lead's first word was WIND's weights (glass x2, steel x1/4);
+on the model those broke the ramp and the chain for steel (6 a step from a
+24 pad). The owner's own weights then came: steel x3/4 ("else it's going to
+hardly help it"), glass x1.25 ("or it's an uncontrollable rocket").
+
+- **The part.** S + (S >> 2) and S - (S >> 2) are byte arithmetic (S is at most
+  127), so steel's is an ADD of the negated quarter; the rubber/steel/glass
+  test is one `dec` of the material. It came out 200 bytes, 13 paragraphs;
+  folding steel into glass's add and masking the face with `and bx, 1` after
+  the sign brought it to 192, 12 paragraphs.
+- **`flat`.** Bit 2 of the face byte, as WIND's `lift` and `flag` ride its.
+  BOOS's gap pocket pads are `flat`, so the clause is in play and `bpflat` has
+  a scene to break.
+- **The course.** With x3/4 steel took the ramp (40 -> 30) but ran off the goal
+  plate past the chain's bend; the two +y pads are strength 32 now (steel 24,
+  what it had before). Everything else unchanged.
+- **Bytes.** The part 166 -> 192; the bundle +16 more (+192 on the base),
+  `BONANZA.O88` +27 more (+207); shipped courses byte for byte as before.
+
+**Tested**: `make`, `make bonanzadisk`, `make BUILD=build/boost BZBOOST=1
+bonanzadisk`, `--selfcheck` section `boost` (22 items, six model red arms
+red), `bp_host` (twelve scenes equal, seven red arms red). **Not run**: soak
+rows, `test-full`, a MartyPC look (the art did not change).

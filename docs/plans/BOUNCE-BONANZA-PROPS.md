@@ -209,8 +209,8 @@ SPEC.md 128.37 is the contract and the record; the diary's 2026-11-17 entry
 kind 48 `boost`, home `resident`, a 166-byte part, no resident code but
 `BZ_FTAB`'s byte); `prop boost X Y face +x|-x|+y|-y [strength S]`, 24 by
 default; the CONTACT hook adds S to the working velocity of a GROUNDED ball on
-the pad - the same for every ball (the cap is the same for every ball, and a
-weighted pad would be one more material gate) - and the next step's clamps
+the pad - WEIGHTED by the ball since the owner's round 2 (steel x3/4, glass
+x1.25; `flat` per pad for S on every ball) - and the next step's clamps
 hold it to the caps, as WIND's push relies on; an airborne ball is not pushed.
 The art: a magenta plate, black rim, two white chevrons; the FLASH lane (white
 plate, black chevrons) lit while the ball rolls on it and 12 steps after, one
@@ -238,8 +238,13 @@ BOOS test course on the pathway's pad 0.
 - [ ] **P4.7** The per-step cost MEASURED (the final pass's `bonanzaphys` /
       `bonanzaperf` rows on a `BZBOOST=1` build; PREDICTED about 0.2k a step,
       0.35k more on a pad).
-- [ ] **P4.8** The owner's answers (strength, flash, weighting:
-      SPEC.md 128.37.10) and a shipped course that uses pads.
+- [x] **P4.8** The owner PLAYED BOOS (2026-11-17): *"Look and function great in the test map."* One
+      change: WEIGHTED BY BALL, an option ON BY DEFAULT - the owner's weights, steel x3/4, rubber x1,
+      glass x1.25 (`BP_SSH`, `BP_GSH` in the FAMV, to retune with use), `flat` per pad turning it off
+      (record +18 bit 2). BUILT: the part 166 -> 192 bytes; BOOS's chain turn at strength 32 and its gap
+      pads `flat`; selfcheck item 6's weighting with red arms `noweight`, `noflat`; `bp_host`'s red
+      arms `bpweight`, `bpflat` (SPEC.md 128.37.1 D3, 128.37.4).
+- [ ] **P4.9** A shipped course that uses pads.
 
 ## Stories
 
