@@ -274596,7 +274596,7 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 | locked routes | **a GATE** across the route's mouth, closed; it plays its opening animation once when the route opens. Gates, like everything on this page, animate only when something happens to them, so the page can have many | the owner prefers gates, *"as long as the art and animation are good"* |
 | secret routes | **not drawn** until taken: the route, its pad, icon and title appear as the marble first rolls along it (REVEAL lanes) | the owner: *"once you find it and take it, is when the pathway and its icon appears"* |
 | course icons | the course's THEME, its TITLE written above it, several frames, animated only while the marble rests on its pad; recognisable, fitting the page; sizes may differ | the owner's |
-| lives | **a counter on the map** like a clock: a crystal ball holding the lives digit, one on every page | the owner: *"a life counter that goes on the map, similar to a clock"* |
+| lives | **a counter on the map** like a clock, one on every page: since 2026-11-17 the word LIVES in the map's label face over the player's MARBLE on a plinth, an "x" and the digit (the `lives` frame; until then a crystal ball holding the digit, which read as a clock) | the owner: *"a life counter that goes on the map, similar to a clock"*; and (2026-11-17) the counter's purpose spelled out, the clocks' being obvious - option C of four, the rest in docs/plans/BOUNCE-BONANZA-LIVES.md |
 | the finish | **no card**: the course's own clock FLASHES the frozen finishing time for about 2 s and a short VICTORY tune plays; a CHECKERED goal lets the ball roll on (an edge rolled off after it neither kills nor respawns), a CUP swallows it; the camera stops at the finish; **Enter skips** (Space and the arrows do not); then the pathway | the owner, 2026-11-16 (and: *"if they roll off an edge after crossing a finish checkers, that should not kill them or respawn them. Finish the tune/clock flash at its now frozen time, without scrolling the screen"*) |
 | a clock at every finish | **a rule the tool proves**: every finish, hidden ones too, has a clock whose digits are inside a CGA window centred on the finish | the owner: *"a rule that one is visible on the screen of every goal. Doesn't have to be on top of it, which is handy for secret goals"* |
 | the cards | INTRO and RESULT **go**; a course's facts are an INFO card brought up by **Space** at its pad; PAUSE stays a full stop; GAME OVER keeps its card and returns to the title | the owner: *"we probably can't afford a status bar and scrolling ... keep a card, but only bring it up via some keypress"* |
@@ -274698,7 +274698,13 @@ refused on any other course (`view` is also the title's, 128.23.2):
 - **`lives WX WY`**: a lives counter, a clock record of ONE digit (128.18.5)
   showing `bz_lives`, on a one-tile plinth of the route material the tool
   lays; **one on every page**, its digit inside that page's CGA window, and
-  none outside every window (each refused).
+  none outside every window (each refused). Its frame is `lives`
+  (`lives_face_pix`): a dithered shadow on the tile, a small plinth with the
+  player's MARBLE on it, "x" in the block left of the digit's, and LIVES
+  above, both white in the map's label face (`label_glyph`, the course
+  names'); the digit's poses are that face's digits in white on the sky,
+  not the crystal ball's 5 x 7 black. The record and its lane are a
+  clock's as before, so the guest is unchanged.
 - **`rail MATERIAL`**: the route material: `crystal` (the art set's,
   128.22.8: `crystal_top_ink` on every top - a ramp's through its ground
   point - and `crystal_side_ink` on the sides; the default) or a surface's

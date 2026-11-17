@@ -3522,3 +3522,31 @@ art, and a glass bridge with a 2 x 3 LEVEL mode replacing the teeth; neither
 is on any branch of the repository yet (another session's merge, still
 waiting on its soak). The bridge here is laid in the flat mode this tree
 has, and nothing in demo 3 depends on how it is drawn.
+
+## 2026-11-17 (the victory tune that never played, and the lives counter says LIVES)
+
+**The fanfare.** The owner remembered a VICTORY tune that never played: the
+course's song ran on through every finish. The call from the finish
+sequence to `bzs_victory` was inside `%ifdef BZ_SONG_VICTORY`, and the
+music tool defines that name with `equ`, which `%ifdef` does not see, so
+NASM never assembled the call. Every check of the fanfare passed, because
+each asked whether the routine and the song's index EXISTED. The listing
+told the truth: the call line had no expansion under it. The guard is gone,
+and `bonanzasound`'s host half now reads the listing for the assembled call
+(green on the fix, red on the old source). No other `%ifdef` in the
+package tests an `equ` name.
+
+**The lives counter.** The pathway's counter was a crystal ball holding a
+digit - a clock, to look at. Four options were mocked on the real picture,
+both cards (BOUNCE-BONANZA-LIVES.md): the ball with a caption, a plaque, the
+marble "x N", and the lives as marbles. The owner liked all four and chose
+the marble "x N" (C): LIVES and the "x" in the map's own label face, the
+course names', with the player's marble on a plinth. The marbles-as-lives
+idea, with one shattering on the way back to the map after a lost life, is
+parked in that plan for the end of development. Built as a `lives` frame of
+the clock record, so the guest is unchanged; both pages' counters looked at
+on host renders, CGA and Hercules, and inside their windows.
+
+A finding on the way: on the Hercules the old counter's black digit sat on
+cyan's grey checker. The owner judged that it reads, and prefers it to a
+black box round the digit, which looks pasted on.
