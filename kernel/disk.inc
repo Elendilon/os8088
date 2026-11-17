@@ -1446,6 +1446,11 @@ dsk_xfer:
     mov dl, [disk_drive]        ; **A STOPPED FLOPPY MOTOR IS WARM ALREADY**
     call dsk_media_ok           ; (SPEC.md 12.8.3.1). The first transfer of a
     jnc .warm                   ; mount is the one-sector boot read, and it is
+    mov [dsk_mvok], ch          ; (...and a write must now re-check the disk,
+                                ; SPEC.md 18.9.1.3: this transfer may spin
+                                ; the motor up on a disk nobody has signed.
+                                ; CH is 0 here - below - so the store is 4
+                                ; bytes, and dsk_runcap keeps its parity)
     mov cl, FPG_WARM            ; the one that carries the SPIN-UP - an AT
 .warm:                          ; BIOS waits DPT byte 10 for it, one second on
                                 ; a 286 - so FPG_WARM's sector count put the
@@ -4302,7 +4307,22 @@ disk_mount_x:
     call dsk_rah_flush
     mov byte [dsk_rah_lim], 8   ; the fill's ceiling, lowered to the cap
 .nolist:
-%endif
+    xor ax, ax                  ; A REFRESH OF A FLOPPY JOGS THE HEAD FIRST
+    xchg al, [dsk_jog]          ; (SPEC.md 18.9.1.4), the flag read and
+    or al, al                   ; spent in one: one sector off cylinder 1
+    jz .nojog                   ; (LBA 18 under the 9/2 fallback geometry is
+    cmp byte [dsk_vflop], 1     ; CHS 1/0/1 on every floppy), so LBA 0 below
+    jne .nojog                  ; is reached by a SEEK - the one thing an
+    push ss                     ; emulator holding a cylinder of the image in
+    pop es                      ; RAM re-reads it on. Answer and carry are not
+    mov ax, 18                  ; read: LBA 0 is the test. (AX is dead -
+                                ; bank_get spends it; `mov ax` and not
+                                ; `mov al` keeps dsk_next_clus_x's parity)
+    inc byte [dsk_rah_busy]     ; (never from §18.95's cache, as LBA 0)
+    call dsk_rd1_x
+    dec byte [dsk_rah_busy]
+.nojog:
+%endif                          ; (DSK_RAHINT: kern_dos has no Refresh)
     call dsk_bpb_bank_get
     jnc .bpb_staged
 %ifdef DSK_STREAM
@@ -5036,8 +5056,9 @@ disk_mount_x:
 .publish:
     mov [disk_nfiles], bp       ; publish the count last
     mov [dsk_lstale], al
-    mov byte [dsk_mntok], 1     ; the volume IS validated: only now open the
-    clc                         ; write gate
+    mov word [dsk_mntok], 0x0101 ; the volume IS validated: only now open the
+    clc                         ; write gate - and [dsk_mvok], its medium
+                                ; just read (SPEC.md 18.9.1.3)
     jmp .out
     ; --- A REDIRECTED VOLUME: ASK THE DRIVER, READ NO DISK (SPEC.md 62.9) ---
     ; Everything the FAT path does between .cwd_kept and the listing is about
@@ -11825,6 +11846,14 @@ dsk_base:     resd 1            ; the partition base added to every LBA; 0
 ; --- write-path state (SPEC.md 18.4), all reset by disk_mount ---------------
 dsk_mntok:    resb 1            ; 1 only between a fully successful mount and
                                 ; the next mount attempt - the write gate
+dsk_mvok:     resb 1            ; ADJACENT to dsk_mntok (.publish sets both
+                                ; with one word): 1 = no transfer has run on
+                                ; this volume with its floppy motor stopped
+                                ; since the mount - dskw_wck's question
+                                ; (SPEC.md 18.9.1.3)
+dsk_jog:      resb 1            ; 1 = the next mount is a Refresh: jog the
+                                ; floppy's head off cylinder 0 before LBA 0
+                                ; (fm_reload sets it; SPEC.md 18.9.1.4)
                                 ; (a dsk_wpad was here to keep the words below
                                 ; even-aligned. The target is an 8088 and its
                                 ; bus is EIGHT BITS WIDE, so a word costs two

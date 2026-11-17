@@ -4687,6 +4687,8 @@ fm_mount:
 ; -----------------------------------------------------------------------------
 fm_reload:
     call kentc_di
+    mov byte [dsk_jog], 1       ; a REFRESH: the mount jogs a floppy's head
+                                ; off cylinder 0 first (SPEC.md 18.9.1.4)
     call fmv_hload_vp
     jmp short fm_go.tail
 

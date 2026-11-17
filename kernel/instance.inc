@@ -1056,15 +1056,11 @@ inst_caller:
 ; before an instance's file operation runs, the volume is put where THAT
 ; instance believes it is standing.
 ;
-; **The compare is what makes it free** - dsk_here_ok's compare, asked through
-; dsk_chdir_q (SPEC.md 18.9.1.3). A machine with one app doing file work never
-; moves, so banked == current on every call and the cost is a far call, the
-; compares and the motor test. A mount is paid only when something really did
-; move the volume underneath this app - which is exactly the case that used
-; to write the file into the wrong folder in silence - or when a FLOPPY's
-; motor has stopped since the last transfer, which is the one moment its disk
-; can have been swapped (SPEC.md 18.9.1): a quiet mount, LBA 0 and the FAT
-; window kept when the signature still matches.
+; **The compare is what makes it free.** A machine with one app doing file
+; work never moves, so banked == current on every call and the cost is six
+; compares. A mount is paid only when something really did move the volume
+; underneath this app - which is exactly the case that used to write the
+; file into the wrong folder in silence.
 ;
 ; QUIET (SPEC.md 18.9), because a file operation reads no listing: the scan,
 ; the sort and one icon-harvest read per file are all bought for nothing
@@ -1087,28 +1083,18 @@ inst_vol_enter:
                                 ; itself. Five more pairs stood here until
                                 ; size pass 10
     call inst_where             ; DL:AX = where the instance behind this call
-                                ; is standing - dsk_chdir's arguments. The
-                                ; kernel or a driver, which has no folder of
-                                ; its own, gets the machine's
-    call dsk_chdir_q            ; **AND THE COMPARE IS dsk_chdir_q's, NOT
-                                ; OURS** (SPEC.md 18.9.1.3): it is
-                                ; dsk_here_ok - the same (drive, folder) AND a
-                                ; medium that cannot have changed - and only
-                                ; then no I/O. This routine had the bare
-                                ; (drive, folder) compare in front of it, so a
-                                ; package standing where the machine stood
-                                ; reached the platter with NO media test at
-                                ; all: a floppy swapped under it was read
-                                ; through the old disk's FAT window, the read
-                                ; spun the motor, and the package's next WRITE
-                                ; passed dsk_media_ok on that spinning motor
-                                ; and allocated off the old disk's free map
-                                ; onto the new disk. MEASURED (MartyPC, a real
-                                ; mount): BONANZA's BONANZA.DAT landed inside
-                                ; the new disk's BONANZA.O88, whose FAT went
-                                ; back to the old chain - "Cannot read my
-                                ; parts" on every launch after. 12 bytes of
-                                ; `.text` fewer, and a far call per file cell
+                                ; is standing - dsk_chdir's arguments, loaded
+                                ; before the compare because they ARE the
+                                ; compare. The kernel or a driver, which has no
+                                ; folder of its own, gets the machine's, and the
+                                ; compare then finds it already there
+    cmp dl, [disk_drive]
+    jne .go
+    cmp ax, [dsk_cwd]
+    je .out                     ; already standing there: nothing to undo,
+.go:                            ; and the remount is the whole cost
+    call dsk_chdir_q
+.out:
     pop dx
     pop ax
     popf
