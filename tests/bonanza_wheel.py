@@ -523,12 +523,13 @@ def post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, label="", cuts=Fals
     # (the kicks an EARLY STEP made, after the frame's walk: bz_pkick at bz_presented ahead of bz_tv's)
     nek = sum(1 for fr in frames if fr.get("pr") and fr["pr"].get("pkdrawn") is not None
               and fr["pr"]["pkdrawn"] != fr["pr"]["pkick"])
+    nes = sum(1 for fr in frames if fr.get("pr") and fr["pr"]["nstep"] != fr["pr"]["ndraw"])
     rep.append("(12)%s %d kicks: each post drawn LIT on its kick's frame or (by reason) the next - lags %s, the "
                "next frame's reasons %s - and lit for %s presented frames (at least %d); %d posts' lit frames ran "
                "out while shown, drawn dark within %s frames (at most %d); kicks in an early step, judged on the next "
-               "frame's walk: %d" % (
+               "frame's walk: %d (frames presented with an early step in them: %d of %d)" % (
                    label, nk, sorted(set(lags)), why1 or "none", sorted(set(runs)), BB.PLITF, len(darks),
-                   sorted(set(d for d in darks if d is not None)), BB.WPRF + 1, nek))
+                   sorted(set(d for d in darks if d is not None)), BB.WPRF + 1, nek, nes, len(frames)))
 
 
 def commit_snap(g, r):
