@@ -275343,6 +275343,37 @@ profile keeps it, which is what caps the depth.
     edge are indistinguishable from the tiles round them. Every other facet
     - anything below the lip, however gentle - is magenta: no cyan or white
     inside a shape.
+  - **The join** (the owner, 2026-11-17, of a raised chute corner: *"The red
+    circled corner looks 'see-through', because its elevated above the tile
+    below it. So, can we make a tool rule for 'only join into the corner if
+    another tile at the same elevation exists'? ... If its easy, we could
+    calculate it per touching side (so a theoretical corner with something
+    to the left, but nothing above, would still connect cleanly)."*). A
+    lip-level facet is the floor only where it JOINS real floor at its own
+    height; otherwise it is magenta like the rest of the shape. By triangle
+    (the facet's two, as drawn): a SEED is a lip-level triangle with an edge
+    on its cell's border whose neighbour across that edge is a plain floor
+    or goal record (a split cell's piece that owns that edge) at the same
+    height at all five of that edge's points; the join spreads from the
+    seeds across every edge two lip-level triangles share, inside a cell and
+    across FIELD cells (whose heights already agree there, by the SEAM rule).
+    So it is per touching SIDE: a corner with floor at its height to its
+    left and nothing above joins along the left, and its exposed top edge
+    takes the same ink; a corner standing proud of the plate (SHAPE's `bank`
+    chute's raised corner, PLAYGROUND's chute corners over the void) joins
+    nothing and is wholly magenta, while a plate-level corner with floor
+    round it is unchanged. A wall is not floor, and the diagonal neighbour
+    alone joins nothing (a facet that touches the floor only at a point
+    would show the floor's ink with no floor beside it). MEASURED on the
+    previews: SHAPE changes only its raised corner, PITS nothing (its pits'
+    plates and its chutes' tapers all join), PLAYGROUND only the two chute
+    corners at its back edge (blocks, and the whole part packed LZB and
+    LZ4: SHAPE 243 -> 245, 5,590 -> 5,596, 6,990 -> 7,000; PITS 291, 5,989,
+    7,489 unchanged; PLAYGROUND 588 blocks, 13,474 -> 13,454, 16,725 ->
+    16,709); every section but `M` and `B` (and the
+    offsets into them and the identity) is byte-identical (`bbcourse
+    field_joined`; `--selfcheck` checks a raised corner inks no floor and a
+    plate-level one still does, red: every lip-level triangle joined).
   - **On Hercules** (128.11.3's translation) solid magenta is the half grey
     the cyan floor is and `field_ms` a quarter, so the checker and the
     lattice carry the shape there too.

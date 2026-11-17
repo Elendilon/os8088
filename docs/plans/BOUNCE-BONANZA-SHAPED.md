@@ -112,6 +112,7 @@ colors ... mchkgrid2 is the winner of them".*
 | C7.2 [x] | the chosen ink: the cell's parity as two magentas (solid, and black every other line) under the floor's black cell lattice carried over the shape, by a per-facet screen-to-ground map; no light | SPEC.md 128.28.6; the previews, CGA and Hercules |
 | C7.3 [x] | no floor ink inside a shape: a facet is the floor only when its three corners lie on the LIP (each FIELD tile's lip heights, the piece's function without its depth) - the cyan corners inside a bowl and at chute corners and tapers gone | before/after crops of the bowl, the dish, the corners and the tapers |
 | C7.4 [x] | picture only: every section but `M`, `B` and the offsets into them byte-identical to the first ink's | the sections' hashes, both test courses |
+| C7.5 [x] | the JOIN rule (the owner, 2026-11-17: a raised corner "looks 'see-through' ... only join into the corner if another tile at the same elevation exists", per touching side): a lip-level triangle takes the floor's ink only when joined, edge by edge, to plain floor at its own height; a raised corner or a corner over the void is wholly magenta | before/after crops of SHAPE's raised and upper-left corners, the chute ends, the pit rims, PLAYGROUND's back corners, CGA and Hercules; `--selfcheck` (red: every lip-level triangle joined); every section but `M`, `B`, the offsets into them and the identity byte-identical (SHAPE, PITS, PLAYGROUND), PLAYGROUND's demo re-authored (its `ident` line only) |
 
 ## The rows (named, run once in the final pass)
 
