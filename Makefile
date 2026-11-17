@@ -21506,6 +21506,35 @@ BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
 $(BZWINDSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwind-*
 	@touch $@
+#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 128.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
+# BZRAIL=1 adds apps/bonanza/courses/rails.bbc to BZ_COURSES (after the shipped ones, so every shipped course
+# keeps its K; not on the TOUR) and compiles the pathway through apps/bonanza/courses/pathrail.sed: pad 0
+# becomes RAIL, FIRST gets pad 6 beside it.  Pad 0 is one course, so BZRAIL and BZSHAPES are refused together.
+# STAMPED, so turning it on or off recompiles the courses; without it the build is byte for byte the knob-less one.
+BZRAIL ?=
+ifeq ($(filter $(BZRAIL),1),)
+ifneq ($(BZRAIL),)
+$(error BZRAIL=$(BZRAIL) is 1 or empty)
+endif
+endif
+ifeq ($(BZRAIL),1)
+ifeq ($(BZSHAPES),1)
+$(error BZRAIL=1 and BZSHAPES=1 both make their test course the pathway's pad 0: one at a time)
+endif
+ifneq ($(filter 1,$(BZMAGNET) $(BZWIND)),)
+$(error BZRAIL=1 with BZMAGNET=1 or BZWIND=1: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/rails.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathrail.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathrail.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathrail.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZRAILSTAMP := $(BUILD)/.bzrail-$(or $(BZRAIL),0)
+$(BZRAILSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzrail-*
+	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
 # it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
@@ -21574,7 +21603,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZMAGNETSTAMP) $(BZWINDSTAMP) \
-                   $(BZFSHOWSTAMP) \
+                   $(BZRAILSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs

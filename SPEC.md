@@ -278076,3 +278076,230 @@ squiggles there in a gust and gone between; the thin path's static
 squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
 fan turning frame by frame with the ball poked into its gust; the pit wind's
 plate, flag and squiggles over the pit.
+### 128.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
+
+The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,
+HIGH ENOUGH that rubber cannot boost over it from flat ground (the jump
+pickup may), and SEE-THROUGH, so it never hides the ball's path - posts and a
+thin top bar with the course visible through them (the visibility rule of
+`docs/plans/BOUNCE-BONANZA-PROPS.md`: the player must see everywhere the ball
+goes). Its first use: along a walkway's edge beside a water column (WATER,
+128.32), so only steel, sinking through the water, reaches the lower path.
+This is the props plan's P13 (*thin rails*) built as a statement of its own;
+the shipped courses' rails (`wall` cells half a unit proud, `surface bounce`
+for a bumper) are unchanged - restyling them is the owner's separate
+decision.
+
+**Status: BUILT, the tool alone.** No guest byte moves, no family, no
+`BZ_PHYSV`; every shipped course's part, demo and identity is byte for byte
+what it was (MEASURED: `make bonanzadisk` after the change, every
+`build/bonanza-art/*.BIN`, `bzcourse.inc`, `BONANZA.O88` and the four
+images `md5sum`-identical to the tree before it).
+
+#### 128.35.1 The decisions, the statement and its refusals
+
+| | decision |
+|---|---|
+| physics | a guard cell is a **WALL** (128.10.3): impassable from every side at every height, the ball stopping at the cell's near edge - so nothing crosses it however high it flies. No physics change, no grid format change |
+| why not the `edge` bits | the reserved thin-wall bits (128.12.3.2, flags bits 4 - 5) would put the wall ON a cell edge with no cell spent, but they are resident work in step 5 (a new blocking test at every edge crossing, its corner and its fallback), a `BZ_PHYSV` move that re-authors every demo, and a model change held to the guest by `bonanzaphys`. A one-cell WALL already stops the ball exactly at the edge the rail is drawn on; the cell it stands in is the open edge beside the walkway anyway |
+| the picture | the guard cell is NOT drawn as a wall: its rail is drawn on each edge it shares with the floor it guards, and the rest of the cell is drawn as the open edge it is - its neighbours' faces hang into it as into the void (the glass tile's rule, 128.25.18) |
+| height | over the floor it guards: **2 units (16 px) by default**, `height` 1.5 - 3 units (128.35.2) |
+| occluders | the rule (128.10.4.4), unchanged: the rail's pixels are geometry keyed at the guard cell's `s` with the rail's TOP, so they - and nothing else of the cell - are laid over a ball behind; a ball in front draws over them |
+| AV | `FL_FLOAT` (flags bit 6) on every guard cell, so 128.29's model passes over it and its residual records lay the rail's pixels alone (128.35.4) |
+| art | white posts and bars with a black shade, the course's palette, readable on both cards (128.35.3) |
+| cost | the tool's only: 0 resident bytes, no part format change (128.35.5) |
+
+    guard <shape> [height <units>]
+
+`<shape>` is any of 128.10.3's (`tile`, `rect`, `band`); `height` a
+multiple of 0.5 units. The statement is laid AFTER every room, hole and
+FIELD cell (128.28.3), in OPEN cells. A guard cell's **rail edges** are the
+edges it shares with a floor; the cell becomes a WALL whose top is that
+floor's height plus the rail's, flat. `guard` is a word no other statement
+uses (`rail` is the pathway's route material, 128.22.8). Refused at the line:
+
+- a guard on a solid cell ("a guard rail's cell is the OPEN edge beside the
+  floor it guards"), or laid twice;
+- a guard sharing no edge with a floor (it guards nothing);
+- a guard touching (at an edge or a corner) a cell that is not a whole FLAT
+  FLOOR or GOAL - a ramp, a split or a FIELD cell - other than a WALL or
+  another guard: a guard rail stands on the edge of a flat floor;
+- a guard touching floors at two heights: it guards ONE height;
+- a floor at a guard's CORNER with no rail edge through that corner: the
+  ball would meet a wall corner nobody can see;
+- a height under 1.5 or over 3 units, and any other clause (`side` is not
+  one: the rail edges follow from the floors).
+
+Every edge of a guard cell that is not a rail edge is drawn OPEN, so only
+the void, a WALL or another guard may be across it - which is what the
+refusals amount to. A guard strip's end therefore needs nothing (the void)
+or a corner (two rail edges on one cell, the cell beside two floors at one
+height). A guard is never a prop's cell.
+
+#### 128.35.2 The height
+
+The flights from flat ground the rail is measured against (128.16.4 and
+128.25.19; item 16 re-measures them against a guard, in whole px, from a
+walkway's middle into its rail with every Hop and every second press - a
+boost at its contact - in its sweep):
+
+| flight | apex | against the default 16 px |
+|---|---|---|
+| steel's Hop | 2.4 px (item 16: 2) | under |
+| glass's Hop | 4.5 px (4) | under |
+| rubber's Hop | 5.7 px | under |
+| rubber's boost | **9.3 px (9)** | under: the owner's line |
+| the jump pickup's Hop (`PU_JHOP`) | 13.8 px | under |
+| the jump with rubber's boost stacked | 18.0 px (item 16: 17) | about 2 px OVER the top bar - and stopped |
+
+**2 units** is the least height that keeps the jump pickup's own Hop under
+the drawn bar as well as rubber's boost; 1.5 units (12 px, the least the
+statement takes) still covers the boost. A rubber ball bouncing off a long
+fall onto the walkway right at the rail can rise past any height, and it too
+is stopped: **in physics a guard is a column at every height**, so nothing
+crosses it - not the jump, not a bounce. Only above the drawn bar is that
+stop "a wall nobody can see": 1 - 2 px for the jump with the boost. A taller
+rail (`height 2.5`, 20 px) closes that and covers more of the course behind
+it.
+
+#### 128.35.3 The picture
+
+On each rail edge, from the guarded floor's height (the edge's line on its
+top) up the rail's height `H` px, `guard_pix` draws:
+
+- a 2 px **POST** at each end of the edge and at its middle (8 px apart on
+  screen), WHITE then BLACK left to right, from 2 lines under the top to the
+  floor's line;
+- the **TOP BAR**, 2 lines: WHITE over BLACK, along the whole edge (and a
+  column past each end, so a strip reads as one rail);
+- the **MIDDLE BAR**, 1 line of WHITE at half the height.
+
+Back edges (`-y`, `-x`) first, so at a corner the front edge's rail is
+drawn over the back one's. Every pixel is a geometry pixel (the post op of
+128.12.6.3): key `s = wx + wy` of the guard cell, top the rail's top, put
+into the back-to-front order at the guard cell's place - so a cell in front
+covers it and the cells behind are under it. **Nothing else of the cell is
+drawn**: the floor's faces and the course behind show between the posts and
+bars. The black shade keeps the rail on a white tile, the white on a cyan or
+black one; on the Hercules (cyan and magenta one grey checker, 128.3) the
+rail is white and black over that checker and reads as it does on the CGA
+(`--png`'s `-herc` previews, LOOKED AT). A first try shaded the rail CYAN
+(a crystal tint): it vanished on the cyan tiles and into the Hercules
+checker. About a quarter of a ball behind the rail is covered by it.
+
+**Where a rail is in front of a ball.** A rail on a walkway's FRONT edge
+stands in front of a ball on that walkway: laid over it, the ball seen
+between the bars. A rail on a walkway's BACK edge stands in front of what is
+behind it - but a lower path behind is behind the rail ON SCREEN only when it
+is low enough: each cell row back lifts a ball 8 lines, each unit down lowers
+it 8. A lower path two rows behind a 4-unit walkway at 2 units is drawn
+ABOVE the rail (seen whole); one row behind at 0 units stands behind it
+(item 16's L).
+
+#### 128.35.4 Occluders and AV
+
+The rule of 128.10.4.4 is unchanged and needs nothing: an occluder pixel is
+one some reachable ball is behind and below; the rail's pixels are the only
+pixels the guard cell's key draws, so they are the only ones of the cell a
+record lays. **A ball shows through the gaps**: the mask keeps everything
+between the posts and bars. A ball in a cell in front (a greater `s`) is
+never laid over by the rail.
+
+**AV** (128.29) would otherwise get it wrong: its model counts a front WALL
+cell and hides everything under its top edge - the whole diamond of the
+guard cell, gaps included, down to the ground plane. So every guard cell
+carries `FL_FLOAT` (128.29.4: "the model passes over it"; no step of physics
+reads it), and the rail's pixels are the RESIDUAL's records over the VOID
+positions behind it, as a prop's drawing is. `_av_floats_want` counts guard
+cells, so item 15's flags check holds the part to it.
+
+**The bounds** (128.11.4.2: 4 records a block, 128 a block row) are the
+tool's as ever: a rail adds one key to the blocks it crosses, and a course
+that crosses the block bound is refused there, naming it. RAIL (128.35.7)
+reaches 4 in two blocks, where C's right-edge rail meets the faces under it
+(MEASURED; with its guards compiled as solid walls, 3).
+
+#### 128.35.5 What it costs
+
+- **Resident: 0 bytes.** No guest code, no family, no part format change;
+  the guest reads a guard cell as the WALL it is and lays its records as any
+  record. `BZ_PHYSV` and every demo are unchanged.
+- **A course's part**: a rail's picture and records against a solid wall of
+  the same height (MEASURED, RAIL compiled both ways, the walls with the
+  `guardsolid` switch): RAM 23,874 -> **24,538** (+664: 36 more distinct
+  blocks, the posts over every background; 104 FEWER records - the wall hid
+  more), LZ4 4,024 -> **4,456** (+432), 32 guard cells.
+- **The knob build's `BONANZA.O88`**: 122,855 bytes against the shipped
+  118,615 (the RAIL part, the pathway's two pads, the per-course tables a
+  row wider); its 360KB disk 128 of 354 clusters (the shipped 124).
+- **The tool**: the statement, `lay_guards`, `guard_pix`, `guard_ops`, the
+  undrawn cells beside the glass tile's, `FL_FLOAT`, item 16 and its cases.
+
+#### 128.35.6 `--selfcheck` item 16 and the red arms
+
+Item 2 carries the eight refusals of 128.35.1 (`_guard_cases`, each a string
+in the tool). The section `guard` (`--only guard`) compiles a course of its
+own - a walkway at 4 units with a rail on its back edge and one on its front,
+the gap and a lower path at 0 behind the back one - and asserts:
+
+1. 20 guard cells, each a WALL 16 px over the walkway with `FL_FLOAT`, on a
+   `GF_ANA` part;
+2. the picture holds every rail pixel and no other pixel at the guard key
+   and top - the rest of the cell is the open edge;
+3. a ball BEHIND a rail - on the lower path behind the back rail (grounded),
+   on the walkway behind the front rail (grounded), and over the gap behind
+   the back rail (airborne, through AV's model) - is laid over by the rail's
+   pixels ALONE and at most half of it: MEASURED 46, 46 and 54 of its 208
+   lit pixels;
+4. a ball IN FRONT of the back rail (on the walkway's back row, grounded and
+   at 44 px in the air) is laid over by nothing;
+5. the physics: from the walkway's middle into each rail, every Hop and
+   every second press 2 - 33 steps after it (the boost at its contact, a
+   contact Hop), for rubber, steel, glass and the jump pickup's Hop - no run
+   reaches the rail's row or falls, rubber boosted in the sweep, and
+   rubber's highest flight (9 px) is under the 16 px bar.
+
+**Red arms** (each MEASURED red, the section's own negative controls): the
+guard drawn as the solid wall it is (`guardsolid`: items 2 and 3 fail); the
+rail keyed 8 rows nearer (`guardfront`: item 4 fails); `FL_FLOAT` left off
+(`noguardfloat`: items 1 and 3 fail - the model hides the gaps); the physics
+reading each guard cell as a FLOOR at its top (`guardfloor`: item 5 fails -
+the jump's 13.8 px Hop and its 4 px climb get onto a 16 px floor and across:
+why a guard is a WALL and not a high floor).
+
+#### 128.35.7 The knob build: RAIL (`BZRAIL=1`)
+
+`make BUILD=<tree> BZRAIL=1 bonanzadisk` (a private tree; `make help` lists
+the knob) adds `apps/bonanza/courses/rails.bbc`, RAIL "Guard Rails", after
+the shipped courses (every shipped course keeps its K; not on the TOUR) and
+compiles the pathway through `apps/bonanza/courses/pathrail.sed`: pad 0
+becomes RAIL, so a new game rests on it (title, Play Game, Enter); RAIL's
+exit 0 goes on to TRIAL as FIRST's did, its exit 1 straight left to FIRST
+(pad 6, FIRST's icon moved with it). `BZRAIL=1` with `BZSHAPES=1` is refused
+by make (both make their course pad 0). Without the knob nothing changes
+(MEASURED, `md5sum`).
+
+| part of RAIL | what it is for |
+|---|---|
+| P, the start plate (4 units) | the start; a PAD for each ball (rubber, steel, glass) |
+| A, the back walkway (4 units, 2 wide) | its BACK edge guarded, the gap and L behind; the JUMP pickup at its left end: Hop, boost and jump into the rail |
+| B, the front walkway (4 units, 2 wide) | its FRONT edge guarded: rolling along B the ball is seen through the rail in front of it |
+| C, the platform joining them | its right edge guarded: the other slope's rail |
+| L, the lower path behind A (2 units) | down the ramp off C's back; finish exit 1 at its left end. Two rows behind A's rail it is drawn ABOVE the rail (128.35.3) |
+| F, the lower path in front of B (2 units) | down the ramp off C's front; finish exit 0 at its left end |
+
+MEASURED (the tool): RAM 24,538, LZ4 4,456, 549 records, 32 guard cells.
+
+#### 128.35.8 Open questions for the owner, and the rows
+
+| | question | as built |
+|---|---|---|
+| R1 | the rail's look: white posts and bars with a black shade, posts 8 px apart, two bars | as built; a cyan crystal tint was tried and vanished (128.35.3) |
+| R2 | the default height | 2 units (16 px): over the jump pickup's Hop; the jump with the boost rises about 2 px past the bar and is stopped |
+| R3 | the shipped courses' block rails (TRIAL's bumper rails, FIRST's back rail) | unchanged: restyling them moves their parts and identities, the owner's call |
+| R4 | a guard over a ramp or beside a sloped floor | refused (one flat height): a sloped rail is a later decision if a course wants one |
+
+**The rows** (the final pass's; none run here): `bonanzacourse` (the
+selfcheck: its `guard` section and the grammar's cases). No guest code moves,
+so no MartyPC row can see a change on the shipped disks; the knob build is
+LOOKED AT by hand.

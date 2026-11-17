@@ -45,7 +45,7 @@ px, and at most 6 FAST lanes meet a window.
 
 | | what | how |
 |---|---|---|
-| P13 | **THIN RAILS** (the owner, 2026-11-17: today's rails read as blocks) | a rail stays a one-cell WALL; the ball stops at that cell's near edge, so the tool draws a thin rail ON that edge and the rest of the cell as the open edge it is - the art matches the physics with no physics change (the reserved `edge` bits, thin walls BETWEEN cells, are not needed) |
+| P13 | **THIN RAILS** (the owner, 2026-11-17: today's rails read as blocks) | a rail stays a one-cell WALL; the ball stops at that cell's near edge, so the tool draws a thin rail ON that edge and the rest of the cell as the open edge it is - the art matches the physics with no physics change (the reserved `edge` bits, thin walls BETWEEN cells, are not needed). **BUILT as the see-through GUARD RAIL** (SPEC.md 128.35, branch `bb-rail`): `guard <shape> [height <units>]`, 2 units by default, posts and bars with the course seen through them, 0 resident bytes; its test course RAIL is the `BZRAIL=1` knob build. The shipped courses' block rails are unchanged (restyling them is the owner's call, 128.35.8 R3) |
 
 ### Possible
 
@@ -137,7 +137,15 @@ The water lets steel down; nothing yet stops rubber or glass dropping off
 the walkway to the lower path. Ideas:
 
 1. **Rails** along the walkway's edges (walls, or `bounce` bumper rails):
-   built today; the simplest, but they box the walkway in.
+   built today; the simplest, but they box the walkway in. **The owner's
+   choice (2026-11-17): a SEE-THROUGH GUARD RAIL** - thin, high enough that
+   rubber cannot boost over it from flat ground, and never hiding the ball's
+   path. BUILT (SPEC.md 128.35): a `guard` statement along the walkway's
+   edge beside the column; a WALL in physics (a column at every height, so
+   nothing crosses it - the jump pickup neither), drawn as posts and bars.
+   The water course itself (W.2) is where the two meet: a water cell is
+   laid as a flat FLOOR at the walkway's height, which is what a guard may
+   touch - to be checked when WATER and the rail merge.
 2. **A SPIKE PIT (P5) at the arch's mouth**: the exit corridor's first cells
    are spikes - steel rides over them, rubber pops and glass shatters if
    they drop there. Water and the material gate together.
@@ -206,12 +214,18 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
       cards.
-- [ ] P3 - P12 as the owner orders them.
+- [x] **P13 / the guard rail** (SPEC.md 128.35, branch `bb-rail`): the
+      contract; the tool's `guard` statement, its refusals, art, occluders and
+      `FL_FLOAT`; `--selfcheck` item 16 with four red arms (MEASURED red); the
+      `BZRAIL=1` test course RAIL; the knob-less build byte-identical
+      (MEASURED). Previewed on both cards (`--png`); not yet played on the
+      glass.
+
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
 
-Family ID 8, kind 32, home `fetch` (no shipped course names it yet:
-128.33.9). A magnet on a post pulls STEEL along a FIELD of N cells out from
+Family ID 8, kind 32, home `resident` (the owner's rule; it was `fetch` on
+its branch, 128.33.9). A magnet on a post pulls STEEL along a FIELD of N cells out from
 it, `S >> (k - 1)` at the k-th cell toward the post; a HANGING magnet (`face
 down`) lifts an airborne steel ball, `gvz += S; gvz -= gvz >> 3`, so with S
 = 27 against G = 24 steel rolled off a level edge HOVERS at its height. The
@@ -244,4 +258,4 @@ there is no resident change.
       magnet's range other than 1 refused); at most one wiggle pose change a
       step (N hanging magnets: N SLOW lanes, no FAST one); the law judged by
       the owner on the test course.
-- [ ] **M.8** A shipped course that uses magnets (then home `resident`).
+- [ ] **M.8** A shipped course that uses magnets (home `resident` since the merge).
