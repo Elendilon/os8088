@@ -267816,6 +267816,11 @@ and a pace of at least 0.425 s a row**, as the plan's CD3 says. The tool
 prints that line under every 90 s course.
 
 **The two-part course: the documented escape for a course past one part.**
+*Amended by 128.30 (2026-11-17): built, with a different split - the
+picture AND its occluders and the lanes' pose maps in one part, the grid,
+route and props in the other - because the split below costs clocks in
+the occluder lay and the wheel's commit on every frame (128.30.3); the
+estimate below is kept as it was written.*
 The owner asked (2026-11-14) whether a course could "make a larger claim,
 and split out art/sound from occlusion data", and said "we can look into
 the option if we actually need it". It is recorded here and NOT built in
@@ -279266,7 +279271,8 @@ There is **no per-course opt-out** statement; instead:
   stand; `ROOM`, `PLAN_SECS` and `budget(t)` stay as the report's
   arithmetic;
 - **the hard refusals that protect correctness stay**: a RAM form over
-  65,024 bytes (20.12.11), the occluder bounds (128.11.4.2), and every
+  65,024 bytes (20.12.11; *amended by 128.30: a course past it is two
+  parts, and each PART is held to it*), the occluder bounds (128.11.4.2), and every
   check the run makes on what it wrote (128.10.4);
 - the twenty-courses-on-one-disk goal of CD3 and 128.15.9's "one disk" is
   no longer binding; whether a second disk comes is the owner's when the
@@ -279793,3 +279799,302 @@ are dead ends there, as PEAK is: a route into TRIAL from either would share
 an arrow at a pad (128.22.4.5). Without the knob nothing changes: the knob
 is make variables and two course files, and the knob-less build is byte for
 byte what it was (MEASURED, `cmp`).
+
+### 128.30 Two-segment courses (the owner's brief, 2026-11-17)
+
+**The brief.** A course must be able to pass ONE 64KB segment: the owner's
+unmerged work pushes even `PLAYGROUND` (49,422 bytes of RAM at this tree,
+MEASURED) over the 65,024 bytes one part may be (§20.12.11's `OP_PARTMAX`),
+and *"this must not hurt frame performance."* 128.15.8 recorded an escape,
+the TWO-PART COURSE, as an ESTIMATE that was never built or measured. This
+section is its contract, decided from a map of every reader rather than
+from the estimate - and it does NOT take the split 128.15.8 sketched
+(128.30.3 says why).
+
+#### 128.30.1 The decisions, in one table
+
+| question | decision |
+|---|---|
+| which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 128.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (128.30.6) |
+| the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D T W P`): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (128.30.2) |
+| what it costs a frame or a step | **0 clk, on a two-part course and on a one-part one**: no routine reads both parts at once, and each site loads one segment word where it loads `bz_cseg` today (128.30.5) |
+| what it costs a launch | one more fetch and claim, one more directory walk, and the world part's 48-byte header and its directory (128.30.8) |
+| the guest's code | assembled only into a build that HAS a two-part course (`BZ_NCRS2` > 0): a build with none is today's package, byte for byte |
+| the pathway, the title | always ONE part (refused otherwise): the held pathway (128.22.7) and the title keep one row |
+| kern_mega | each part its own claim and LDT selector from `op_seg`; nothing computed between them (128.15.11) |
+| kern_small | refuses on the desktop, as for every course (128.1) |
+
+#### 128.30.2 The reader map (this tree)
+
+Every place the guest reads the course part, by section, with the segment
+register it reads through. "Frame" is per frame, "step" per physics step,
+"launch" once a fetch.
+
+| routine | when | reads | through |
+|---|---|---|---|
+| `bz_row`, `bz_col` (`bzvideo.inc`) | frame | `M` (a block row's map words), `B` (their lines), the header's `ROWB` | DS |
+| `bz_boxc`'s fill | frame | `M`, `B`, `ROWB` | DS |
+| `bz_occ`, `bz_oprep`, `bz_oand`, `bz_olay` | frame | `I`, `R` (the walk), `O` (`MTAB`), `K` (the masks, ANDed and laid), `M` (the laid word's map entry) and `B` (its lines), in ONE pass: `bz_olay`'s line loop is `lodsw` (the block), `xor ax, [es:di]` (the box), `and ax, [bx]` (the mask) | DS (ES = ours) |
+| `bz_wprect`, `bz_wpc`, `bz_wph` (the wheel's commit) | frame | a lane's POSE MAP word (in `P`), written into `M`, then that block's lines (`B`), all in one column loop | DS (ES = the card) |
+| `bz_lsync`, `bz_lmap` | frame | a pose map (in `P`) copied into `M` (`rep movsw`) | DS -> ES |
+| `bz_pblit` (the lift's slab) | frame | the lift's sprite (in `P`) into a box | DS (ES = ours) |
+| the wheel's lane state (`bz_ltrue`, `bz_nset`, the gate test) | frame | prop records (`P`) | ES |
+| `bz_step` and what it calls (`bz_win9i`, `bz_fill`, `bz_blocks`, `bz_wsplit`, `bz_prule`, `bz_circle`, `bz_ppos`, `bz_owner`, ...) | step | `G`, `C`, `T`, `D` (cells, ROWTAB, the split pairs) and `P` (records, tube segments), interleaved | ES |
+| the families' parts (`fam/*.asm`, `bzfam.inc`) | step | `P` (records, the family list) | ES |
+| `bz_auto`, `bz_lexit` | step | `W`, `P` | ES |
+| the pathway (`bz_ppose`, `bz_follow`, `bz_pwkey`, ...) | step | `P` (the pathway's tables) | ES |
+| the identity check (`bz_launch`, `bz_play`) | launch | `G` (`BZG1` +18) | ES |
+| `bz_cload`'s balls | launch | `G` (+29 the pad mask), `P` | ES |
+| `bz_crshdr` | launch | the header, `G`; its `bz_osmake` reads `I` and `R` | ES |
+| `bz_cexp` and its forms | launch | each section's own slot; ROWPLANES, COUNTS, WDIFF and MASKTAB read only the header and their own section; ROWTAB reads `G`; WAYS `G`, `C`, `T`; CELLS `G`, `C`, `D` | ES, DS |
+| `bz_hxlat` (the Hercules) | launch | `B`, and the lifts' sprites (`P`) | ES |
+| the replays, `bz_dev` | - | nothing of the part but the identity word | - |
+
+What the map says:
+- **Three couplings sit in hot loops, and they chain every section
+  together**: the occluder lay reads the picture (`M`, `B`) and the masks
+  (`K`, `O`) in one line loop; the wheel's commit reads the pose maps (in
+  `P`) with `M` and `B` in one column loop; physics reads the cells and the
+  prop records in one step through one ES.
+- **So any split cuts one of them unless something moves across it.** The
+  chosen split moves ONE thing: the lanes' pose maps leave `P` for the
+  picture part (`L`). They are block offsets into `B`, and only the three
+  wheel routines that write them into `M` read them; nothing in a step
+  does.
+- **The header is read by both kinds of reader**, so both parts carry it
+  (128.30.4.2).
+
+#### 128.30.3 The options, priced
+
+PREDICTED from the instructions, at max(EU + EA, 4.34 a byte) (128.13's
+way). A frame at 60 Hz is about 79,500 clk at 4.77 MHz.
+
+| option | the parts | what crosses | clk | verdict |
+|---|---|---|---|---|
+| **(a) 128.15.8's sketch**: the picture alone | `M B` / `I R K O G C D T W P` | the occluder lay reads `M`, `B` and `K` in its line loop: each laid GROUP's mask lines copied into `bz_omsk` first (up to 8 words, about 250 clk), DS switched to the picture round its boxes (about 46), its lines on the ES path (+2 clk and a byte a line, about 100 for two boxes); the wheel's commit reads a pose word from `P` for every block, a DS switch each way (about 40 a block, up to 12 blocks a lane). And it is paid on EVERY course, unless the lay is assembled twice and chosen per group (about +150 bytes, about 20 clk a group) | **about 400 a laid group** (at most 9 a frame: about **3,600 worst**, 4.5% of a frame) **and about 500 a committed lane** | refused: never 0 |
+| (b) the masks with the picture | `M B K O` / `I R` + the world | the walk reads `I` and `R`; a laid record's `MTAB` and mask are read across (two DS switches, about 92, at a group's first record and in `bz_oand`); the lay itself is all picture | about **100 - 150 a laid group**, plus (a)'s wheel cost | refused: never 0 |
+| (c) the grid alone (story 11.6's "the grid in a claim of its own") | `M B I R K O P` / `G C D T W` | physics reads the cells and the props through ONE ES all step: every prop routine (eleven, and the families') switches ES and back, about 44 clk a call | tens to hundreds **a step** | refused |
+| **(d) CHOSEN: the picture with its occluders and the pose maps** | `M B I R K O L` / `G C D T W P` | nothing: the occluder pass, the writers and the wheel's commit read only the picture part; physics, the families and the wheel's record reads only the world part | **0** | taken |
+| (e) three parts | (d) with `I R K O` apart | (b)'s cost, and a third claim | as (b) | the next lever, only if (d)'s picture part outgrows 65,024 (128.30.10) |
+
+**What (d) holds** (MEASURED, `PLAYGROUND` at this tree, D): its picture
+part's sections are 38,758 bytes (`M` 24,064, `B` 6,160, `I` 190, `R`
+7,408, `K` 832, `O` 104) plus `L`, its header and its directory, so about
+**26KB of room**; the world part's are 10,520 less `L`, so about **54KB of
+room**. Every other course's picture part is smaller (`PEAK`'s about
+39KB). (a) balances the parts better (about 30KB and 19KB), at the clocks
+above; the owner's constraint decides it.
+
+#### 128.30.4 The format
+
+##### 128.30.4.1 When a course is two parts
+
+- **One part** when its D RAM form and its C RAM form are each at most
+  65,024 bytes: exactly 128.15.8's acceptance today, so nothing that builds
+  today changes.
+- **Otherwise two parts**, each D part at most 65,024 (refused past it,
+  naming the part: *"the course's picture part is N bytes, over the 65,024
+  one part may be"*). Under `--rec 8` (C, 128.15.5.3) each C part is held to
+  65,024 as well; a D build does not require the C parts to fit.
+- **The pathway and the title are always one part** (`--path`,
+  `--title`): refused as two.
+
+##### 128.30.4.2 The two parts
+
+Each part is a `BZC2` part (128.15.4) of its own: a 48-byte header, its
+sections from +48 in RAM order, each at the end of its own slot when
+stored (128.15.4.3), and its directory last.
+
+| | the PICTURE part, `BZ<K>.BIN` | the WORLD part, `BZ<K>W.BIN` |
+|---|---|---|
+| +0 | `BZP2` | `BZW2` |
+| its sections, RAM order | `M` (at +48: `BZC_MAP` as ever), `B`, `I`, `R`, `K`, `O`, `L` | `G` (at +48), `C`, `D`, `T`, `W`, `P` |
+| +38 `DIROFF`, +40 `NSEC` | its own directory | its own directory |
+
+- **Every other header field (+4 - +37, +42 - +47) is the SAME in both
+  headers**, and each offset field is its section's offset IN THE PART
+  THAT HOLDS IT: `BLKOFF`, `OCCIDX`, `OCCREC`, `MASKOFF` and `MTAB` in the
+  picture part; `GRIDOFF`, `PROPOFF`, `PTHOFF` and `FAMOFF` in the world
+  part. So a header field reads the same through either segment, and none
+  of the guest's header reads moves.
+- **`L`, the lanes' pose maps** (tag `L`, form 0 PLAIN), in the picture
+  part when the course has a lane: the pose maps a one-part course keeps in
+  `P` straight after its records (128.12.3.1), in the same order. A lane
+  record's pose-map offset (+14) is then an offset into the PICTURE part;
+  `P` holds the records, the tube segments, the lifts' sprites, the family
+  list and the pathway's tables, and its +20 and +22 offsets stay the world
+  part's. A one-part course has no `L`.
+- **No form reads across the parts**: ROWPLANES, COUNTS, WDIFF and MASKTAB
+  read the header and the picture part; ROWTAB, WAYS and CELLS read `G`,
+  `C`, `T` and `D`, all in the world part, so 128.15.4.5's order holds in
+  each. `bz_dfind` and `bz_dval` (D3, 128.24.5.2) find `C` and `D` in the
+  world part's directory and nothing in the picture part's.
+- **`read_part`'s rules** (128.15.4.2) hold in each part over the sections
+  it holds; the canonical-layout check is over the two together.
+
+##### 128.30.4.3 The identity
+
+**A two-part course's identity is Fletcher's pair (128.12.8) over its
+picture part's D RAM form and then its world part's**, with 128.15.7's
+fields taken as 0 in each (the world part's `BZG1` +18; every directory
+entry's FORM byte and STORED LENGTH). Over D, not over C as 128.15.7 takes
+one part: a two-part course's C form need not lay out in 16-bit offsets,
+and a C build's parts are re-encoded as D to take it. A one-part course's
+identity is 128.15.7's, unchanged. The guest compares the word at `GRIDOFF
++ 18`, in the world part, through `bz_cseg` as today.
+
+##### 128.30.4.4 The rows and the files
+
+- The picture part is course K's row, as today: `BZ_P_CRS + K`.
+- The world parts follow the courses' rows, in course order:
+  `BZ_P_CRS + BZ_NCRS + j` for the j-th two-part course, each `OP_ASSET,
+  OP_LAZY | OP_COMP`. The sound part's row and every later one move up by
+  `BZ_NCRS2`.
+- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses, 0 for none) and,
+  only when it is not 0, `BZ_CRS_WROW`: a byte a course, its world part's
+  row (0: one part).
+- The tool writes `bzcrs2.lst`, the world parts' `--part` arguments in row
+  order (empty for none), and the Makefile passes them after the courses'.
+
+#### 128.30.5 The guest
+
+**Two segment words.** `bz_cseg` stays the WORLD part's - what physics,
+the families (whose parts link against it), the wheel's record reads, the
+route, the identity, the pathway and the balls read - so none of those
+sites changes. `bz_mseg` is the PICTURE part's, read by the eight sites
+that read the picture - `bz_row`, `bz_col`, `bz_boxc`, `bz_occ`,
+`bz_wprect`, `bz_lsync`, `bz_lmap` and `bz_hxlat`'s blocks - and
+`bz_crshdr` loads it for `bz_osmake`. Each loads `[bz_mseg]` where it
+loads `[bz_cseg]` today: **the same instruction, the same length, 0 clk**.
+
+**A build with no two-part course** (`BZ_NCRS2` = 0) defines `bz_mseg equ
+bz_cseg`, so every one of those sites assembles to today's bytes, and
+nothing below is assembled.
+
+**With one**:
+- `bz_cload` stores the first fetch's segment in both words and expands it
+  (`bz_cexp`, through `bz_cseg` as today); then `bz_cload2` fetches the
+  course's world part when `BZ_CRS_WROW` names one, stores its segment in
+  `bz_cseg` and expands it, before the balls, `bz_crshdr` and the families,
+  which read the world. A refusal is CF = 1, as any fetch's.
+- `bz_cexp` runs once on each part, each after the fetch that decoded it
+  (128.15.4.5's rule, per part); the world part's last, so `bz_dfind`'s
+  bounds are the world part's when `bz_dval` reads them.
+- `bz_cdrop` drops every world row (a row not here is a no-op) beside the
+  course's own, and zeroes `bz_mseg`.
+- `bz_hxlat` translates the picture's blocks through `bz_mseg` and the
+  lifts' sprites through `bz_cseg`.
+- **The heap**: one more claim while a two-part course is held - the
+  region, the two parts, the arena and a held pathway, five of
+  `MEM_OWNER_MAX`'s eight (§20.12.15). `BZ_CRS_MAXCLAIM` (128.22.7) counts
+  both parts, each its RAM form's granule-rounded claim with
+  `CLAIM_SLACK`, so `bz_phrel` keeps the pathway only beside room for both.
+- **kern_mega**: both parts are the package's claims and LDT selectors from
+  `op_seg`; nothing adds to a segment and nothing is written through CS, so
+  no `PKG_MEGA` arm (128.15.11 holds for each part).
+- **kern_small**: `bz_launch` refuses every course there (128.1).
+
+#### 128.30.6 What stays exactly as it is
+
+For every course that is one part (all the shipped ones at this tree): its
+part's bytes, its identity, its demos and `BZ_PHYSV`; the package's bytes
+(`BZ_NCRS2` = 0); every frame's and step's instructions. The proof is a
+`cmp` of the build's parts and `BONANZA.O88` against the base's (128.30.9).
+
+#### 128.30.7 The tool
+
+- `encode_parts`, `decode_parts`, `read_parts` and `expand` per part: the
+  model (128.15.4's, offset-free) is the same for one part or two, the
+  split is a serialisation of it, and `decode_parts` gives back the model
+  a one-part compile has.
+- A Course keeps `.cga` and `.stored` as its (picture) part's forms and
+  adds `.wcga` and `.wstored` (None for one part); `Grid` and the physics
+  model read the world part, and the picture's readers (the oracle, the
+  visibility audit, the Hercules translation) read both.
+- `--sizes` prints each part's sections, its headroom under 65,024 and its
+  packed sizes, and the course's total.
+- **`--selfcheck` item 15, TWO PARTS**: a course made for it from
+  `PLAYGROUND` (`TWOSEG`: its diagonal lane run on down the screen until
+  the one-part form is refused) compiles as two parts; each part's stored
+  form expands in place to its RAM form (the in-place simulation,
+  128.15.4.4); `read_parts` takes them and `decode_parts` gives the model
+  back; the identity is the two-part rule's; the model's autopilot reaches
+  the goal through the world part; every shipped course is still one part.
+  Its negative controls run inside the item, each a pair of parts (or a
+  compile) that must be REFUSED and is (MEASURED): a lane's pose map
+  pointed back into `P`, the world header's `GRIDOFF` a picture offset,
+  the identity taken over the world part alone, a picture part with no
+  `L`, and a two-part pathway.
+- **The test course is not shipped**: `bbcourse.py twoseg` writes its
+  text, and `make bonanzatwoseg` builds a private package and floppy with
+  it added as course 7 (`$(BUILD)/bztwoseg/`), on no shipped disk and not
+  in the tour.
+
+#### 128.30.8 Costs
+
+- **A frame, a step: 0 clk** on every course (128.30.5: the same
+  instructions).
+- **A two-part launch** (PREDICTED): one more `op_fetch` - a claim and the
+  world part's packed bytes read, bytes the one part would have held
+  anyway, so about one more `int 13h` run, under 0.4 s - and the world
+  part's forms, already priced in 128.15.4.6.
+- **Bytes**: the shipped package 0. A build with a two-part course: the
+  guest's code above (MEASURED, 128.30.9), and per two-part course the
+  world part's header (48), its directory (8 a section) and `L`'s entry
+  (8).
+
+#### 128.30.9 As built (2026-11-17)
+
+Everything here is MEASURED unless it says otherwise.
+
+- **The shipped build is today's, byte for byte**: `make BUILD=<tree>
+  bonanzadisk` before and after - `bonanza.bin`, `bzshell.bin`,
+  `BONANZA.O88`, `bonanza.img`, `bonanza360.img` and every course, demo
+  and ball part `cmp` equal. Only two generated TEXT files differ:
+  `bzcourse.inc` (`BZ_NCRS2 equ 0` and the macro's comment) and the shell
+  part's `bzlink.inc` (which lists that constant and `bz_mseg`, at
+  `bz_cseg`'s address). `bzcrs2.lst` is empty.
+- **The test course** (`TWOSG`, course 7 of `make bonanzatwoseg`): one
+  part would be **67,264** bytes under D and 75,720 under C, so two: the
+  picture part **51,956** (`M` 35,584, `B` 6,192, `I` 280, `R` 8,568, `K`
+  832, `O` 104, `L` 292 - 14 lanes' pose maps; 13,068 of room) and the
+  world part **15,364** (`G` 32, `C` 13,688, `D` 712, `T` 236, `W` 12, `P`
+  588; 49,660 of room). Packed: the picture part 8,145 LZ4 / 6,636 LZB, the
+  world part 1,801 / 1,433. Its C parts lay out (60,412 and 15,364), so its
+  identity is the same from either (1551h).
+- **The guest's code with a two-part course**: the package grows 87 bytes
+  against the same course set assembled with `BZ_NCRS2` 0 - one part row
+  (8), `BZ_CRS_WROW` (a byte a course, 8), and 71 of code: `bz_cload2`,
+  `bz_cload` +11, `bz_cdrop` +13, `bz_crshdr` +4, `bz_hxlat` +4; and 2
+  bytes of bss (`bz_mseg`).
+- **0 clk a frame and a step, by construction and checked**: every routine
+  a frame or a step runs (`bz_row`, `bz_col`, `bz_boxc`, `bz_frun`,
+  `bz_blit`, `bz_occ`, `bz_oprep`, `bz_oand`, `bz_olay`, `bz_boxw`,
+  `bz_wprect`, `bz_wpc`, `bz_wph`, `bz_lsync`, `bz_lmap`, `bz_pblit`,
+  `bz_step`, `bz_win9i`, `bz_fill`, `bz_wheel`, `bz_ldesc`, `bz_lsrcp`)
+  assembles to the same length from the same source lines with and
+  without two-part support (the two listings compared); the only change
+  inside any of them is which word a `mov sreg, [word]` names. No frame
+  cost was measured on MartyPC: there is no difference to measure, and a
+  one-part twin of `TWOSG` does not exist to compare it with.
+- **It plays** (MartyPC, `os8088_5150_cga_gla` and `os8088_5150_herc_gla`,
+  one look boot each of the `bonanzatwoseg` floppy): at `OSAPI_FSX_RUN`
+  `bz_cseg` and `bz_mseg` are two claims, the picture part `BZP2` and the
+  world part `BZW2` equal the tool's RAM forms byte for byte (the
+  Hercules': `herc_translate_parts`'), the identity read through the world
+  part is 1551h; the autopilot (`bz_apilot`) reaches the goal in **235
+  steps on both cards**, the model's count; and after the bracket both
+  words are 0, both parts dropped.
+- `--selfcheck` passes whole, item 15 included (5 min 26 s on the host).
+
+#### 128.30.10 Open questions for the owner
+
+1. **The picture part's own cap.** (d) puts the picture and its occluders
+   in one 65,024-byte part, and `PLAYGROUND` fills about 39KB of it. If the
+   owner's growth is mostly picture and occluders past that, the next
+   lever is (e), a third part for the occluders, at (b)'s clocks - or a
+   split inside the picture (the map apart from the blocks, a DS switch a
+   block in every writer), which this section does not price further.
+2. **A two-part pathway** is refused: the held pathway (128.22.7) would
+   need both its parts held. Say if the pathway is expected to grow past
+   one part.

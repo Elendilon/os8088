@@ -420,6 +420,11 @@ VAR bz_nway,2                   ; the route: NWAY waypoints at bz_wayoff in the
 VAR bz_wayoff,2                 ; course part (the autopilot's, 128.10.11.1)
 ; the parts' segments and the card
 VAR bz_cseg,2
+%if BZ_NCRS2                   ; SPEC.md 128.30.5: a two-part course's PICTURE part (bz_cseg the WORLD part's;
+VAR bz_mseg,2                  ; a one-part course's both the same segment)
+%else
+bz_mseg     equ bz_cseg         ; (no two-part course in this build: one word, today's bytes)
+%endif
 VAR bz_bseg,2                   ; the sprite's ball part: bz_bsegs[bz_mat]
 VAR bz_bsegs,2 * BZ_NMAT        ; wave 4 (SPEC.md 128.14.4.7): each material's
                                 ; ball part, 0 when this launch did not fetch it
