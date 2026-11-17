@@ -72,11 +72,11 @@ mg_step:
     mov [di + 4], ax
     mov [di + 6], al
     call mg_scan
+    call mg_one                 ; (a cell change's step: the force, no count -
+    jmp short .out              ; it may have STOPPED a wiggle: one change a step)
 .have:
-    mov bl, [di + 6]
-    sub bl, 1                   ; BL = the element (CF: none)
+    call mg_one
     jc .out
-    call mg_apply
     mov al, [di + 7]            ; the wiggle: 1 .. 2 BZ_MG_WIG, round again
     inc ax
     cmp al, 2 * BZ_MG_WIG
@@ -196,6 +196,14 @@ mg_apply:
     jge .r
     mov al, [di + 4]
     xor ah, ah
+    mov dl, [bz_nstep]          ; the BOBBLE: every BZ_MG_BOBP steps a kick of
+    test dl, BZ_MG_BOBP - 1     ; BZ_MG_BOB, up and down in turn
+    jnz .nb
+    add ax, BZ_MG_BOB
+    test dl, BZ_MG_BOBP
+    jnz .nb
+    sub ax, 2 * BZ_MG_BOB
+.nb:
     add ax, [bz_gvz]
     mov dx, ax
     sar dx, 1
@@ -203,6 +211,17 @@ mg_apply:
     sar dx, 1
     sub ax, dx
     mov [bz_gvz], ax
+.r:
+    ret
+
+; DI's slot's magnet's force, if it has one (mg_apply): BL = the element, CF
+; none.  Clobbers AX, DX.
+mg_one:
+    mov bl, [di + 6]
+    sub bl, 1
+    jc .r
+    call mg_apply
+    clc
 .r:
     ret
 

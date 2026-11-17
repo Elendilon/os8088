@@ -3819,3 +3819,25 @@ and `BZ_FTAB` holds 0FFh for it). SPEC.md 128.33 is the record.
   question). **Not run**: the soak rows; the per-step clocks are PREDICTED
   from unicorn's instruction counts (about 0.6k a step in a field - over the
   plan's 0.3 - 0.5k - and 2.5k on a cell change).
+
+## 2026-11-17 (MAGNETS: the owner's answers - a bobble, and one change a step)
+
+- **The bobble.** The owner liked the hover and asked for a slight bob if it
+  was cheap. Varying the lift itself (26 / 28 in turn) crept upward: the
+  damping's integer rounding has a band of fixed points, and switching
+  between them ratchets. A KICK every 16 steps, +48 and -48 in turn, before
+  the damping, does not: equal and opposite, it bobs the ball about 1.7 px
+  with no drift. 20 bytes of the part (408 now).
+- **Two changes on one step.** Checking the tool's rate rule for the
+  wiggle found that a cell change could stop one magnet's wiggle and start
+  the next on the same step - two pose changes where the window's budget
+  counts slow event lanes as one. The refreshing step now only stops; the
+  next one starts. The selfcheck counts the worst step (1), and red arm
+  `mgfresh` puts the old order back and goes red.
+- **One head an element.** The owner, playing the knob build, saw every
+  hanging magnet wiggle already - each is its own element there. Rather
+  than build lanes for several heads on one element, a hanging magnet's
+  range other than 1 is refused.
+- **Tested**: the default and knob builds, `--selfcheck`'s `magnet` section
+  (18 items), `mg_host`'s seven scenes equal at every step and seven red
+  arms red (`mgbob`, `mgfresh` new). Not run: the soak rows, MartyPC.

@@ -201,5 +201,9 @@ there is no resident change.
       Hercules - open question 5).
 - [ ] **M.6b** The wiggle's frames and a step's clocks MEASURED on MartyPC
       (`bonanzaperf`-style) - the final pass's.
-- [ ] **M.7** The owner's open questions (SPEC.md 128.33.12), and a shipped
-      course that uses magnets (then home `resident`).
+- [x] **M.7** The owner's answers (SPEC.md 128.33.13): the hover BOBBLES
+      (+20 bytes, about 1.7 px, no drift); one head an element (a hanging
+      magnet's range other than 1 refused); at most one wiggle pose change a
+      step (N hanging magnets: N SLOW lanes, no FAST one); the law judged by
+      the owner on the test course.
+- [ ] **M.8** A shipped course that uses magnets (then home `resident`).

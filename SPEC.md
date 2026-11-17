@@ -277103,9 +277103,9 @@ ceiling outside the signed byte. Each a `--selfcheck` case (section
 
 | | |
 |---|---|
-| the part `bzf-magnet.bin` | **376 bytes** RAM (`paras` 25), an `OP_COMP` row of its own |
+| the part `bzf-magnet.bin` | **408 bytes** RAM (`paras` 26), an `OP_COMP` row of its own (376 as first built; +32 the bobble and the one-change-a-step rule, 128.33.13) |
 | BONANZA's image | **+12** (49,732 -> 49,744: the part row, `BZ_FTAB`'s IDs 7 and 8); bss **+0** (11,431) |
-| `BONANZA.O88` | +368 (118,615 -> 118,983) |
+| `BONANZA.O88` | +400 (118,615 -> 119,015; +368 as first built) |
 | the shipped courses, demos, identities | **unchanged**: every `BZ*.BIN` byte for byte (`cmp` against the base build) |
 | a step, the part's own (unicorn: instructions / their bytes) | not steel 17 / 38; steel, no field 28 / 65; in a side field 48 - 50 / 111 - 117; in a hanging field 63 - 65 / 150 - 156; a cell change (the scan, 11 magnets on the test course) about 200 / 530 |
 | a step, in clocks (PREDICTED: about 4.5 a byte on the 8088, plus the dispatch's 0.1k) | about 0.3k idle steel, **0.6k** in a side field, 0.8k under a hanging one, about 2.5k on the step the ball's cell changes (a record about 0.2k) - over the plan's 0.3 - 0.5k in a field; `mg_slot`'s call is 8 of the instructions |
@@ -277194,3 +277194,43 @@ over a REGION, likely wider than a line; the line's `across` test grows to
    it), so the hovering ball is drawn against the posts' pillar faces; on
    the Hercules it is hard to pick out there. Posts set back a cell (a
    longer arm, `range` 2) or on the far side would clear it.
+
+#### 128.33.13 The owner's answers (2026-11-17), as built
+
+| | the answer | as built (MEASURED) |
+|---|---|---|
+| 1 the law | the owner plays the test course to judge | no change |
+| 2 the hover | holding the height it came in at is fine; a slight BOBBLE preferred if cheap and safe | built, **+20 bytes** of the part (below) |
+| 3 the wiggle | each head that pulls wiggles - the owner, playing the knob build: every hanging magnet of the test course already does, each its own element | **one head an element**: `face down` with a range other than 1 is REFUSED (a row of them is a magnet a cell); no multi-head lanes |
+| 4 the Hercules | the hovering ball reads fine | no change; open question 5 withdrawn |
+
+**The BOBBLE.** In the lift (128.33.4), on a step whose `bz_nstep` (the step
+being run: STEP runs before the count) has its low four bits 0, the lift
+gets a KICK, `+MG_BOB` (48) when bit 4 is set and `-MG_BOB` when it is clear,
+before the damping: `gvz += S +- 48; gvz -= gvz >> 3`. The damping turns
+each kick into a smooth rise or dip of about 0.8 px, so the hovering ball
+bobs about 1.7 px top to bottom with a period of 32 steps (MEASURED on the
+model over the test gap: z 16.0 - 17.7 px). Safe: the kicks are equal and
+opposite, so the bobble adds no drift (a 4,000-step hover on the model's
+arithmetic dips at most 1.1 px under its entry height, against a kill 24 px
+below; the rise stays under the ceiling, 128.33.4, and the heads 23 px up).
+`MG_BOB` and `MG_BOBP` (16) are in the `FAMV`. The part's code: six
+instructions, 20 bytes; nothing per step when the ball is not under a
+hanging magnet.
+
+**One pose change a step.** The tool's rate rule (128.19.10, `check_bounds`)
+counts every SLOW event lane of a window as ONE pose change a step. A
+magnet's wiggle first changed two on a cell change (the old magnet's stop
+and the new one's start). Now the step that refreshes the cache applies the
+force and does not count: the old stops on that step, the new starts on the
+next (`mg_one`, about 12 bytes). So a row of N hanging magnets costs **N
+SLOW lanes, no FAST lane, and at most one pose change a step** in any window
+(one field a cell: only the magnet over the ball's cell wiggles); SLOW lanes
+are unbounded in a window. `--selfcheck` checks the scenes' worst at 1.
+
+**The proofs added.** `--selfcheck` `magnet`: the refusal of a hanging
+magnet's range 2; the bobble's span (at least 1 px) and the one-change rule
+in the scenes. `mg_host`: two more red arms on the part, both MEASURED red -
+`mgbob` (the up kick gone: the ball parts at the hover's 48th step) and
+`mgfresh` (a cell change's step counting the wiggle: the slot parts at
+step 36). The seven scenes stay equal at every step.
