@@ -1,0 +1,9 @@
+per PLAYED STEP of each course's demo, the pass PREDICTED (one box; see the constants)
+course demo                      steps  gated  void   today lineclp  vghost  worst w.clip    w.V  groups, lines laid -> active
+BENCH  route demo                 3600   2685     0    7129    7048    7129   7490   7480   7490  12613, 77785 -> 71192 (92%)
+FIRST  route demo                  154     21    21    1587    1587       0   1690   1690      0  0, 0 -> 0 (0%)
+TRIAL  route demo                  499    128    22    1718    1661    1511   3020   2185   3020  12, 26 -> 0 (0%)
+MILL   route demo                  778    263     0    3161    2892    3161   7345   6810   7345  340, 1806 -> 1137 (63%)
+MOON   authored moon.bzd          1983   1580    50    3373    3106    3216  11350  11545  11350  2706, 14364 -> 10108 (70%)
+PEAK   authored summit.bzd        2172   1393    58    4820    4672    4763  13045  13405  13045  4116, 22980 -> 20160 (88%)
+PLAY   authored playground.bzd    1504     31     0    2011    1800    2011   3800   3145   3800  20, 116 -> 46 (40%)
