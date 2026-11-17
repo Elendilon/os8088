@@ -4301,7 +4301,10 @@ def part_args(art, src=None, shell=None, fams=None):
     them - the sound part and one part a song (SPEC.md 128.20.3)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
     files = list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]
-    asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 128.28.4.4: the two-part courses' WORLD parts
+    if os.path.exists(lst):
+        files += open(lst).read().split()
+    asm =open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))

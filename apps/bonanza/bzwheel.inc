@@ -876,7 +876,7 @@ bz_lsync:
     sub dx, ax                  ; the map's step past a row's words
     xor cx, cx
     mov ah, [bz_lhh + bx]       ; AL = the words, AH = the block rows
-    mov es, [bz_cseg]
+    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 128.28.5)
     push es
     pop ds
 .r:
@@ -922,7 +922,7 @@ bz_lmap:
     sub dx, ax
     sub dx, ax                  ; ...and the map's
     mov bp, [bz_lh]
-    mov es, [bz_cseg]
+    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 128.28.5)
     push es
     pop ds
 .r:
@@ -1201,7 +1201,7 @@ bz_wprect:
     push ax                     ; [+2]
     push bp                     ; [+0]
     mov es, [bz_vseg]
-    mov ds, [bz_cseg]
+    mov ds, [bz_mseg]           ; (the PICTURE part: L, M and B, 128.28.5)
 .col:                           ; A COLUMN: its first block's pose word read
     mov bp, sp                  ; and stored, then the card's writer, told
     mov di, [bp + 6]            ; by CF = 0 that the column's rows cross the

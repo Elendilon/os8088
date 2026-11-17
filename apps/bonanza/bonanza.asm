@@ -760,6 +760,9 @@ bz_cload:
     mov al, [bz_pc]             ; (each fetch's segment stored before the next
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
+%if BZ_NCRS2
+    mov [bz_mseg], ax           ; (the PICTURE part: SPEC.md 128.28.5)
+%endif
 %if BZ_PATH_NPAD
     cmp byte [bz_phre], 0
     jne .exd
@@ -775,6 +778,10 @@ bz_cload:
                                 ; part (SPEC.md 128.15.4.5)
 %if BZ_PATH_NPAD
 .exd:
+%endif
+%if BZ_NCRS2
+    call bz_cload2              ; a two-part course's WORLD part (128.28.5),
+    jc .drop                    ; before anything reads the world
 %endif
     push es                     ; THE BALLS (wave 4, SPEC.md 128.14.4.4): the
     mov es, [bz_cseg]           ; starting one and every one the course's
@@ -857,6 +864,36 @@ bz_cload:
 .drop:
     stc
     ret
+
+%if BZ_NCRS2
+; -----------------------------------------------------------------------------
+; bz_cload2 - a TWO-PART course's WORLD part (SPEC.md 128.28.5): when
+; BZ_CRS_WROW names one for course [bz_crs], fetched (the picture part's
+; segment stays in bz_mseg), its segment stored in bz_cseg and expanded in
+; place ONCE (bz_cexp, 128.15.4.5) - after the picture part's, so bz_dfind's
+; bounds are the world part's.  The pathway and the title are one part.  CF = 1
+; the fetch was refused (op_fetch said why): bz_cdrop gives back what was
+; fetched (it drops every world row).  At home.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_cload2:
+    mov bl, [bz_crs]
+    cmp bl, BZ_NCRS
+    jae .one                    ; (CF = 0: the pathway, the title)
+    xor bh, bh
+    mov al, [bz_cwrow + bx]
+    or al, al                   ; (CF = 0)
+    jz .one
+    push ax
+    call op_fetch               ; claim, read, decode - or a toast said why
+    pop ax
+    jc .one
+    call op_seg
+    mov [bz_cseg], ax
+    call bz_cexp                ; the STORED form expanded in place, once
+    clc
+.one:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; bz_arload - THE ARENA BATCH'S END (SPEC.md 128.25.4.2, 20.12.15): the arena
@@ -2576,11 +2613,22 @@ bz_cdrop:
 %if BZ_PATH_NPAD
 .held:
 %endif
+%if BZ_NCRS2
+    mov al, BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; every two-part course's WORLD part
+.dw:                            ; (SPEC.md 128.28.5): a row not here is a
+    dec ax                      ; no-op (op_drop preserves AX)
+    call op_drop
+    cmp al, BZ_P_CRS + BZ_NCRS
+    ja .dw
+%endif
     xor ax, ax
     mov [bz_bsegs], ax
     mov [bz_bsegs + 2], ax
     mov [bz_bsegs + 4], ax
     mov [bz_cseg], ax
+%if BZ_NCRS2
+    mov [bz_mseg], ax
+%endif
     mov [bz_bseg], ax
     ret
 
@@ -2653,6 +2701,9 @@ bz_crshdr:
     mov [bz_otb], ax
     mov ax, [es:BZC_MTAB]
     mov [bz_mtab], ax
+%if BZ_NCRS2
+    mov es, [bz_mseg]           ; (the occluders: the PICTURE part, 128.28.5)
+%endif
     call bz_osmake              ; ...and its rows' summary (bzvideo.inc bz_occ)
     mov ax, [bz_x0]             ; the projection's constants, 24.8 (128.10.8):
     sub ax, 8                   ; bz_kx = (X0 - 8) << 8 ...
@@ -3464,7 +3515,7 @@ bz_hxlat:
     cmp byte [bz_phre], 0       ; a HELD pathway was translated when it was
     jne .noplat                 ; fetched: the balls alone (128.22.7)
 %endif
-    mov es, [bz_cseg]           ; the course: 8 N rows of 2 bytes
+    mov es, [bz_mseg]           ; the course: 8 N rows of 2 bytes (its PICTURE part)
     mov si, [es:BZC_BLKOFF]
     mov cx, [es:BZC_NBLK]
     shl cx, 1
@@ -3472,6 +3523,9 @@ bz_hxlat:
     shl cx, 1
     mov dl, 2
     call bz_hxrows
+%if BZ_NCRS2
+    mov es, [bz_cseg]           ; (the sprites: the WORLD part, 128.28.5)
+%endif
     mov cx, [es:BZC_NPROP]      ; the PLATFORMS' sprites (SPEC.md 128.12.6.4):
     mov di, [es:BZC_PROPOFF]    ; parity copy p's frame half, row r through
     jcxz .noplat                ; table (p + r) AND 1 (BX is table 0 here: the
@@ -4878,6 +4932,9 @@ bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECS
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
 bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 128.18.6)
 bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
+%if BZ_NCRS2
+bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 128.28.4.4: each course's WORLD part's row (0: one part)
+%endif
                                 ; (the tool's, SPEC.md 128.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 128.16.6: bz_vinit)
@@ -4907,11 +4964,11 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFROW
+OS88_PARTS_BEGIN 3 + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_NFROW
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; 2  BZBALG.BIN  glass
-    BZ_CRS_PARTS                            ; 3 + K: BZ<K>.BIN
+    BZ_CRS_PARTS                            ; 3 + K: BZ<K>.BIN, then the WORLD parts (128.28.4.4)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (128.20.3)
  %rep BZS_NSONG
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SONG + S: BZM<S>.BIN
@@ -4925,7 +4982,7 @@ OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO + 2 + 2 * BZ_TITLE + BZ_
 %endif
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (128.25.6.9)
 OS88_PARTS_END
-%if BZ_P_DEMO != 3 + BZ_NCRS + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
+%if BZ_P_DEMO != 3 + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
 %endif
 

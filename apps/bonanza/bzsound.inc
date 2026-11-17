@@ -131,7 +131,7 @@ F_SVOL      equ 21              ; the segment's own volume: the AdLib's level
 F_SIZE      equ 22
 
 ; the part rows (bonanza.asm's table: after the courses)
-BZ_P_SND    equ BZ_P_CRS + BZ_NCRS
+BZ_P_SND    equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; (after the WORLD parts' rows, 128.28.4.4)
 BZ_P_SONG   equ BZ_P_SND + 1    ; song S's row: BZ_P_SONG + S
 
 %macro BZ_SND_VARS 0

@@ -460,7 +460,7 @@ bz_row:
     mov cx, ax                  ; CX = the words before it (at least 1)
     mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
     cmp byte [bz_herc], 0
-    mov ds, [bz_cseg]           ; DS = the course from here (MOV keeps the flags)
+    mov ds, [bz_mseg]           ; DS = the course from here (MOV keeps the flags; its PICTURE part, 128.28.5)
     jne .herc
 .cga:
     mov ax, 2000h               ; AX: back from bank 1 to bank 0's next word
@@ -612,7 +612,7 @@ bz_col:
     mov cx, ax                  ; CX = the run (at least 1, at most 103)
     mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
     cmp byte [bz_herc], 0
-    mov ds, [bz_cseg]           ; (MOV keeps the flags)
+    mov ds, [bz_mseg]           ; (MOV keeps the flags; the PICTURE part, 128.28.5)
     jne .herc
     mov si, [bx]
     add si, dx
@@ -837,7 +837,7 @@ bz_boxc:
     mov cx, [si + 4]            ; CX = the word columns
     mov ax, [si + 6]            ; AX = the lines
     push si                     ; (the descriptor, for the slab and the sprite)
-    mov ds, [bz_cseg]           ; DS = the course part until .filled
+    mov ds, [bz_mseg]           ; DS = the course's (PICTURE) part until .filled
     cmp dx, ax                  ; the first run: the block's lines, cut at the
     jbe .n                      ; box's foot
     mov dx, ax
@@ -1470,7 +1470,7 @@ bz_occ:
     mov [bz_ozk], ax
     push ds
     pop es                      ; ES = ours
-    mov ds, [bz_cseg]           ; DS = the course part
+    mov ds, [bz_mseg]           ; DS = the course's PICTURE part (128.28.5: occluders, map, blocks)
 .brow:
     mov ax, [es:bz_ozk]         ; the row's key in a register first: CL = ks =
     BZ_OCLAMP                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
