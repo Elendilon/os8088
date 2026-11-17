@@ -149,12 +149,21 @@ the walkway to the lower path. Ideas:
       the refusals) before the code - SPEC.md 128.32 (family ID 7).
 - [x] **W.2** The model and the tool: `WaterFamily`, the statements, the
       `bed` form, the refusals, the depth key and the art; a test course
-      (`BZWATER=1`, `courses/water.bbc`).  Animated ripples (W7) and the bob
-      (W1) NOT built: 128.32.8.
+      (`BZWATER=1`, `courses/water.bbc`).
 - [x] **W.3** The guest family part (`fam/water.asm`, 341 bytes, resident),
       held equal to the model.
 - [x] **W.4** Rows: `bonanzaphys`'s water scene (steel sinks, no stun, out
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
       cards (one MartyPC boot of the knob tree; the soak rows not run).
+- [x] **W.5** The owner's second round (SPEC.md 128.32.9): ripples ANIMATED
+      while a ball is in the column (`ripple`) or always (`always`, a FAST
+      lane), marked on change only; the FLOAT LINE (rubber and glass ride a
+      half unit under the top, their lower half behind the water); steel's
+      WOBBLE while sinking (`WA_BOB`, 15 bytes, one constant); a 6-unit
+      DEEP column on the test course; unicorn scenes and red arms; LOOKED AT
+      on both cards.  The float line's own bob NOT built (a moving floor is
+      the lift's carry; a gvz kick lands every time).
+- [ ] The see-through GUARD RAIL keeping the column steel's (the owner's
+      choice; another agent's).
 - [ ] P2 - P12 as the owner orders them.
