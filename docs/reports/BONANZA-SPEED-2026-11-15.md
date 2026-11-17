@@ -20,8 +20,8 @@ each, as pure speed changes: same pixels, same physics results, same sound.
 | physics | `bzphys.inc` | the nine-cell window refilled by moving six cells and reading three (`bz_win9i`); flat-floor paths in line; 19 single-routine commits, bit-exact |
 | keys | `bzgame.inc` | one `OSAPI_KEY_MAP` (SPEC.md 9.7.3) a frame in `bz_exitchk`, in place of ten `OSAPI_KEY_DOWN` |
 
-**The early step** (`bz_early`, knob `BZ_EARLYSTEP`, off with
-`-DBZ_NOEARLYSTEP`): after the wheel, when a physics step is already due by
+**The early step** (`bz_early`; at the time a knob `BZ_EARLYSTEP` and
+a runtime byte `bz_noearly`, both retired 2026-11-17): after the wheel, when a physics step is already due by
 the clock and at least `BZ_EROOM` (8000 PIT counts) of the retrace wait
 remain, that step runs in the wait. The step count is unchanged; replays and
 demos end where they did. **The one behaviour change of the pass**: in live

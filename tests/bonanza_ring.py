@@ -250,8 +250,7 @@ their own check:
              - the W4 replays' blank check
   nodither   (5b.6) made at the DATA, not the source: a copy of
              build/bonanza-art whose every BZ<K>.BIN is the tool's
-             UNDITHERED compile of the course (_hack no_dither, the art's
-             RECB) with the shipped identity word stamped in, so the demos
+             UNDITHERED compile of the course (_hack no_dither) with the shipped identity word stamped in, so the demos
              still play, packed by build_tree: the shipped build less the
              dither and nothing else (SPEC.md 128.15.10.6).
              The card lays the records' checker pixels the oracle keeps for
@@ -404,36 +403,23 @@ def at(p):
     return os88build.at(p)
 
 
-def build_rec(art=None):
-    """the build's RECB: bzcourse.inc's BZ_REC (8 when the art predates it:
-    wave 4's BZC1 parts have 8-byte records too).  D shipped and C's arm was
-    deleted (SPEC.md 128.15.5.4), so every shipped build reads 4; the line
-    stays the one place a row learns the stride a compile is laid out in."""
-    inc = open(os.path.join(ROOT, art or at("build/bonanza-art"), "bzcourse.inc")).read()
-    m_ = re.search(r"^BZ_REC\s+equ\s+(\d+)", inc, re.M)
-    return int(m_.group(1)) if m_ else 8
-
-
 def prefetch(names):
     """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
-    rec = build_rec()
-    todo = [n for n in names if (os.path.join(ROOT, COURSES[n]), rec) not in _COURSE]
-    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _rec=rec),
-                                          todo)):
+    todo = [n for n in names if os.path.join(ROOT, COURSES[n]) not in _COURSE]
+    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n])), todo)):
         if e is None:
-            _COURSE[(os.path.join(ROOT, COURSES[n]), rec)] = c
+            _COURSE[os.path.join(ROOT, COURSES[n])] = c
 
 
 def course(name, src=None, art=None):
     """bbcourse's compile of a course, once a process (a few seconds each),
-    its RAM form (c.cga, c.part's offsets) under the ART's RECB (build_rec).
+    its RAM form (c.cga, c.part's offsets).
     SRC: a course file other than the shipped one (a red tree's)."""
     path = src or os.path.join(ROOT, COURSES[name])
-    rec = build_rec(art)
-    if (path, rec) not in _COURSE:
-        _COURSE[(path, rec)] = BB.compile_course(path, _rec=rec)
-    return _COURSE[(path, rec)]
+    if path not in _COURSE:
+        _COURSE[path] = BB.compile_course(path)
+    return _COURSE[path]
 
 
 def course_k(k):
@@ -898,6 +884,7 @@ class Bz:
         under it, bonanza_exit); otherwise the base is banked once and
         check_base() says if it moved."""
         self.ui, self.m, self.tag, self.sym, self.live = ui, ui.m, tag, sym, live
+        self.pre = None                         # the ball's state AT bz_tv (Walker): see look()
         self.win = ui.window("Bounce Bonanza")
         self.base = self.wseg() << 4
         assert self.base, "the window has no package segment"
@@ -963,6 +950,27 @@ class Bz:
         """(S, R0, c0, px, py) as the package holds them now."""
         return (self.w("bz_S"), self.w("bz_R0"), self.w("bz_c0"), self.w("bz_px"), self.w("bz_py"))
 
+    def bank_pre(self):
+        """at bz_tv (the loop's marks): the ball as the frame's boxes drew it, before bz_early's step"""
+        lo = self.sym["bz_phs"]
+        self.pre = (self.m.read(self.base + lo, self.sym["bz_phe"] - lo), self.w("bz_px"), self.w("bz_py"),
+                    self.b("bz_mat"), self.b("bz_hidn") if "bz_hidn" in self.sym else None)
+
+    def nd(self):
+        """bz_nstep AS THE FRAME WAS DRAWN, at bz_tf or bz_presented: less the early step bz_estp says ran in the wait"""
+        return self.d("bz_nstep") - self.b("bz_estp")
+
+    def dpx(self):
+        """(bz_px, bz_py) as drawn: the bank at bz_tv, else live"""
+        return (self.pre[1], self.pre[2]) if self.pre else (self.w("bz_px"), self.w("bz_py"))
+
+    def drawn(self, n, k=0):
+        """a byte of the ball's state (bz_phs .. bz_phe) as the frame DREW it: the bank at bz_tv when a loop made
+        one, else the live byte"""
+        if self.pre is None:
+            return self.m.read(self.a(n) + k, 1)[0]
+        return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
+
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
         bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
@@ -972,21 +980,25 @@ class Bz:
         complaint or None)."""
         grid = getattr(crs, "_grid", None)
         if grid is None:
-            grid = crs._grid = BB.Grid(crs.cga)
+            grid = crs._grid = BB.Grid(crs.cga, crs.wcga)
         lo = self.sym["bz_phs"]
-        raw = self.m.read(self.base + lo, self.sym["bz_phe"] - lo)
+        # THE EARLY STEP (SPEC.md 128.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
+        # a step ahead of the picture on such a frame.  A Walker stopped at bz_tv banks the state as drawn.
+        raw, px, py, mat, hidn = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
+                                              self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"),
+                                              self.b("bz_hidn") if "bz_hidn" in self.sym else None)
 
         def f(n, fmt):
             return struct.unpack_from(fmt, raw, self.sym[n] - lo)[0]
         lk = Look(grid=grid, gx=f("bz_gx", "<I"), gy=f("bz_gy", "<I"), gz=f("bz_gz", "<i"), air=f("bz_air", "B"),
                   mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
-                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0,
+                  mat=mat, px=px, py=py, y0=grid.y0,
                   stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 128.16.4.4)
         lk.zb = lk.gz >> 8
         # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
-        lk.tube = self.b("bz_hidn") if "bz_hidn" in self.sym else f("bz_tube", "B") if "bz_tube" in self.sym else 0
+        lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
@@ -1109,6 +1121,8 @@ class Walker:
     def __init__(self, g, t0=False, extra=()):
         self.g, self.m = g, g.m
         self.tf, self.pr = g.a("bz_tf"), g.a("bz_presented")
+        self.tv = g.a("bz_tv")                  # (the ball as drawn, before the early step: Bz.look)
+        g.pre = None
         self.t0 = g.a("bz_t0") if t0 else None
         self.extra = {}
         for n in extra:
@@ -1118,17 +1132,24 @@ class Walker:
                 self.extra[g.a(n)] = n
 
     def arm(self):
-        self.m.bp_exec(*([a for a in (self.t0, self.tf, self.pr) if a is not None] + list(self.extra)))
+        self.m.bp_exec(*([a for a in (self.t0, self.tv, self.tf, self.pr) if a is not None] + list(self.extra)))
 
     def next(self):
         """Run to the next mark; -> 't0', 'tf', 'pr' or an EXTRA name."""
-        m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        r = m.regs()
+        m, g = self.m, self.g
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv:                 # bank the ball as drawn: bz_early runs next
+                g.bank_pre()
+                continue
+            break
         self.r = r
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        if flat == self.t0:
+            g.pre = None
         if flat == self.tf:
             return "tf"
         if flat == self.t0:
@@ -1698,7 +1719,7 @@ def low_plan(g, crs, near=0):
     tag = g.tag
     lsh, rl = (1 if tag == "cga" else 2), RL[tag]
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     # a post whose columns cross the ring's end first (the Hercules' post 4, MILL's only one on either
     # card): every LOW commit of it is then a `wrapcommit` (bz_wprect's row-at-a-time path, the
@@ -2062,7 +2083,7 @@ def defer_plan(g, crs):
     outside it) with the ball's centre clear of every post by 16 gu and over a
     floor by 16 px (no kick), Q2 the same 48 px across (its footprint clear of
     every lane)"""
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     recs = {r["i"]: r for r in crs.part["props"]}
     posts = [i for i in sorted(rects) if recs[i]["kind"] == BB.PK_BUMPER]
@@ -2138,7 +2159,7 @@ def pwait_plan(g, crs, n_now):
     c0 = max(0, min((x_l >> 3) + 2 - Wc // 2, cmax))
     if not (0 <= R0 <= rmax and c0 <= x_l >> 3 and (x_l >> 3) + 4 <= c0 + Wc):
         return None
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     top, left = R0 << lsh, 8 * c0
     cen = p1 = p2 = None
     for dy in range(rl):
@@ -2240,7 +2261,7 @@ def mill_play(g, ref):
                     sc["pw"] = pwait_plan(g, crs, n & 0xFFFF)
                     sc["crs"] = crs
                     if getattr(crs, "_grid", None) is None:
-                        crs._grid = BB.Grid(crs.cga)
+                        crs._grid = BB.Grid(crs.cga, crs.wcga)
                     if sc["pw"] is None:
                         fails.append("MILL play: no window puts the lift's slab across its bottom edge with the ball "
                                      "held in the band (the PWAIT scene)")
@@ -2600,7 +2621,7 @@ def tpoke(g, crs):
     tag = g.tag
     S, R0, c0, px, py = g.state()
     top, left = R0 * RL[tag], c0 * 8
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     for dx in (40, -40, 48, -48, 56, -56):
         tpx = px + dx
         if tpx < left + 8 or tpx + 24 > left + W[tag] - 8:
@@ -2646,7 +2667,7 @@ def entercol_plan(g, crs):
     tag = g.tag
     lsh, rl = (1 if tag == "cga" else 2), RL[tag]
     H, Wc, rmax, cmax = g.w("bz_H"), g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     rects = lane_rects(crs)
     for side in (-1, 1):
         for i in sorted(rects):
@@ -2705,7 +2726,7 @@ def ringend_plan(g, crs):
     lines, near alike, and the red stayed green)"""
     tag = g.tag
     rl, rb = RL[tag], RB[tag]
-    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga, crs.wcga)
     ylim, xlim = crs.brows * 8 - BB.FOOT_H - 8, crs.cols * 8 - BB.FOOT_W - 8
 
     def crosses(px, y):
@@ -2778,7 +2799,7 @@ def probe(g, ref):
     multi-box frame (the ball at window row 0, its shadow in a box below)."""
     m, tag = g.m, g.tag
     crs = ref.c
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     for nm, op in (("bz_tb.first", 0x9D), ("bz_wbox.wr", 0xE8)):
         got = m.read(g.a(nm), 1)[0]
         assert got == op, "%s is not the instruction the probe breakpoints after (%02X, not %02X)" % (nm, got, op)
@@ -3180,7 +3201,7 @@ def ground_replay(g, s, mode, art=None):
             continue
         tal["frames"] += 1                      # bz_presented
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"])
         R0, c0 = g.w("bz_R0"), g.w("bz_c0")
         if mode == 0:
@@ -3189,7 +3210,7 @@ def ground_replay(g, s, mode, art=None):
                 fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
                              "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
                 break
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
                          "%d)" % (label, fr, n, px, py, R0, c0))
@@ -3204,7 +3225,7 @@ def ground_replay(g, s, mode, art=None):
                                  "void (SPEC.md 128.16.7's latch)" % (label, fr, n))
                     break
         R0p = R0
-        if s["stretch"] and g.b("bz_stf"):
+        if s["stretch"] and g.drawn("bz_stf"):
             S_, R0_, c0_ = g.state()[:3]
             lk, why = g.look(ref.c)
             if why:
@@ -3214,7 +3235,7 @@ def ground_replay(g, s, mode, art=None):
             tal["stretch"] += 1
             if lk.spr != ("stretch", 0):
                 fails.append("%s frame %d: bz_stf %d with the model's sprite %s, not the stretch" % (
-                    label, fr, g.b("bz_stf"), lk.spr))
+                    label, fr, g.drawn("bz_stf"), lk.spr))
             elif nd:
                 fails.append("%s frame %d (the stretch) at bz_presented: card != oracle: %d px, lines %d-%d, x %d-%d"
                              % (label, fr, nd, *box))
@@ -3639,7 +3660,7 @@ def camera_replay(g, s, art=None):
             continue
         tal["frames"] += 1
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"], s.get("tilts"))
         R0m = gl.R0
         gl.camera()
@@ -3664,7 +3685,7 @@ def camera_replay(g, s, art=None):
         tal["withheld"] += dw["x"] + dw["y"]
         what = "%s frame %d (step %d)" % (label, fr, n)
         # 1. the footprint inside the window (outside tubes; a holed-out ball is not drawn)
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not tube and not g.b("bz_hid") and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s: the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 %d; SPEC.md "
                          "128.17.6.5 item 3)" % (what, px, py, R0, c0))
@@ -3790,8 +3811,6 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = Bz(ui, tag, sym)
-        if "bz_noearly" in g.sym:
-            g.putb("bz_noearly", 1)     # the oracle reads the ball at bz_tf / bz_presented: the state as drawn
         ui.settle()
         if "glass" in parts:
             glass(g, Ref(tag, course("first", art=art), art))
@@ -3907,6 +3926,10 @@ class Loop:
     def __init__(self, g, names, io=None, kernel=()):
         self.g, self.m = g, g.m
         self.ex = {g.a(n): n for n in names}
+        self.names = names
+        self.tv = g.a("bz_tv")                   # (banks the ball as drawn, before the early step: Bz.look)
+        self.ex.setdefault(self.tv, "bz_tv")
+        g.pre = None
         self.ex.update({g.m.sym(n): n for n in kernel})     # (KERNEL names: the int 08h handler's sch_isr)
         self.io = io
 
@@ -3918,14 +3941,18 @@ class Loop:
 
     def next(self):
         m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        self.r = r = m.regs()
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
-        if flat in self.ex:
-            return self.ex[flat]
-        return "io"
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            self.r = r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv and self.ex.get(flat) == "bz_tv" and "bz_tv" not in self.names:
+                self.g.bank_pre()
+                continue
+            if flat in self.ex:
+                return self.ex[flat]
+            return "io"
 
 
 def load_demo(g, kd):
@@ -3973,7 +4000,8 @@ def end_replay(g, what):
 
 def replay_end(g):
     """at bz_t0: the replay's end (this bz_t0 leaves the bracket)"""
-    return g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))
+    # (an early step's frame is presented first, bz_t0's `bz_estp` test: the step that ended the run drew its frame)
+    return (g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))) and not g.b("bz_estp")
 
 
 def w4_replay(g, ref, label, log=None, poke=None, windows=()):
@@ -4039,11 +4067,11 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             fails.append("%s frame %d: the frame after a full write presented still DARK (bz_unblank, SPEC.md "
                          "128.14.5.6)" % (label, fr))
         lastfull, fullfr, infull = fullfr, False, False
-        hid = g.b("bz_hid") if "bz_hid" in g.sym else 0
+        hid = g.drawn("bz_hid") if "bz_hid" in g.sym else 0
         if hid and not hid0:
             why.append("capture")
         hid0 = hid
-        nlip = g.w("bz_nlip") if "bz_nlip" in g.sym else 0
+        nlip = g.drawn("bz_nlip") + 256 * g.drawn("bz_nlip", 1) if "bz_nlip" in g.sym else 0
         if nlip != nlip0:
             why.append("lip")
         nlip0 = nlip
@@ -4052,11 +4080,12 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
         if flags0 is not None and fl != flags0:
             why.append("flag")
         flags0 = fl
-        if g.b("bz_mat") != mat0:
+        matd = g.pre[3] if g.pre else g.b("bz_mat")      # (as drawn: the early step may have swapped it since)
+        if matd != mat0:
             why.append("pad")
-        mat0 = g.b("bz_mat")
+        mat0 = matd
         if windows:
-            n_ = g.d("bz_nstep")
+            n_ = g.nd()
             if any(a_ <= n_ <= b_ for a_, b_ in windows):
                 why.append("stretch")
         if not why and fr % W4_EVERY:
@@ -4156,7 +4185,7 @@ def part_fmt(o88=None):
     parts TABLE's format byte (OP_T_FMT, os88pkg's PART_FMT_AT) read out of
     build/bonanza.o88 (O88 another package).  Every private tree a row builds
     packs its parts in it (SPEC.md 128.15.9), never in os88pkg's default, so a
-    red arm runs the decoder the shipped package runs (BZPARTZ=lzb, or the
+    red arm runs the decoder the shipped package runs (LZB, or the
     format a single-format COMPRESS= kernel forces)"""
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     import os88pkg
@@ -4305,6 +4334,9 @@ def part_args(art, src=None, shell=None, fams=None):
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
                                                 # ride the bundle since SPEC.md 128.25.5.2)
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 128.30.4.4: the two-part courses' WORLD parts
+    if os.path.exists(lst):
+        files += open(lst).read().split()
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
@@ -4548,7 +4580,7 @@ RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's h
 def nodither_art(td):
     """`nodither`'s data (SPEC.md 128.15.13): build/bonanza-art copied into TD
     with every BZ<K>.BIN replaced by the TOOL'S UNDITHERED compile of the same
-    course (`_hack no_dither`, under the art's RECB), its identity word
+    course (`_hack no_dither`), its identity word
     stamped with the shipped part's so the demos and BONANZA.DAT still match.
     So the arm differs from the shipped build in exactly the dither: each
     record lays its undithered mask, and the records the dither leaves out of
@@ -4559,12 +4591,11 @@ def nodither_art(td):
     ones.  -> the copy's directory"""
     art = os.path.join(td, "art-nodither")
     shutil.copytree(at("build/bonanza-art"), art)
-    rec = build_rec()
     CRS_K["bench"]                              # (fills the table)
     order = sorted(CRS_K.items(), key=lambda kv: kv[1])
     # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
     und = dict(zip([n for n, _k in order], BB.par_map(
-        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}, _rec=rec),
+        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}),
         [n for n, _k in order])))
     for name, k in order:
         f = os.path.join(art, "BZ%d.BIN" % k)
@@ -4574,16 +4605,36 @@ def nodither_art(td):
         u, e = und[name]
         if e is not None:
             raise e
+        if u.split != c.split:
+            raise AssertionError("nodither: %s is %s undithered and %s shipped" % (
+                name, "two parts" if u.split else "one part", "two" if c.split else "one"))
+        # (a TWO-PART course, SPEC.md 128.30: the masks are its picture part's, the identity word its world
+        # part's, and both parts are written, BZ<K>.BIN and BZ<K>W.BIN)
         ram = bytearray(u.cga)
-        g = struct.unpack_from("<H", ram, 26)[0]
-        struct.pack_into("<H", ram, g + 18, c.ident)
-        st = BB.stored_form(u.model, rec, bytes(ram), u.fname)
-        if BB.expand(st) != bytes(ram):
-            raise AssertionError("nodither: %s's undithered stored form does not expand to its RAM form" % name)
-        if c.masks and BB.decode_part(bytes(ram))["masks"] == BB.decode_part(c.cga)["masks"]:
+        wram = bytearray(u.wcga) if u.split else None
+        idp = wram if u.split else ram
+        g = struct.unpack_from("<H", idp, 26)[0]
+        struct.pack_into("<H", idp, g + 18, c.ident)
+        out = [(f, ram)]
+        if u.split:
+            fw = os.path.join(art, "BZ%dW.BIN" % k)
+            if open(fw, "rb").read() != c.wstored:
+                raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (fw, name))
+            out.append((fw, wram))
+        sts = []
+        for fn, r in out:
+            st = BB.stored_form(u.model, BB.REC, bytes(r), u.fname)
+            if BB.expand(st) != bytes(r):
+                raise AssertionError("nodither: %s's undithered stored form does not expand to its RAM form (%s)"
+                                     % (name, os.path.basename(fn)))
+            sts.append((fn, st))
+        und_m = BB.decode_parts(bytes(ram), bytes(wram)) if u.split else BB.decode_part(bytes(ram))
+        shp_m = BB.decode_parts(c.cga, c.wcga) if c.split else BB.decode_part(c.cga)
+        if c.masks and und_m["masks"] == shp_m["masks"]:
             raise AssertionError("nodither: %s's undithered masks are the shipped ones" % name)
-        with open(f, "wb") as fo:
-            fo.write(st)
+        for fn, st in sts:
+            with open(fn, "wb") as fo:
+                fo.write(st)
     return art
 
 

@@ -164,19 +164,25 @@ COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 HDR = 48                      # BZC2's header: the map's offset, BZC_MAP (SPEC.md 128.15.4.1)
 HDR1 = 32                     # BZC1's (wave 4's parts; the item 1 comparison writes it back)
 GHDR = 32                     # BZG1's header
-REC = 4                       # RECB, the occluder record's RAM size: 4, D, SHIPS (128.15.5.4's verdict under the
-                              # owner's smoothness rule); `--rec 8` still writes C's form for the host checks
-                              # (the identity is over the RECB 8 layout either way, 128.15.7)
+REC = 4                       # RECB, the occluder record's RAM size: 4 (SPEC.md 128.15.5.4; C's 8 is gone).  The
+                              # IDENTITY is still taken over the 8-byte layout of the model (128.15.7): see
+                              # identity_form()
 DIRENT = 8                    # a directory entry (128.15.4.2)
 NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
-            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
+            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
+            "L": F_PLAIN}             # SPEC.md 128.30.4.2: a TWO-PART course's pose maps, its picture part's last
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
+             "F": "the FIELD cells' tables",
              "T": "ROWTAB",
-             "W": "the route", "P": "the props"}
+             "W": "the route", "P": "the props", "L": "the lanes' pose maps"}
+# SPEC.md 128.30: a course past one part is TWO - the PICTURE part (these tags, BZ<K>.BIN, its magic BZP2) and the
+# WORLD part (every other tag, BZ<K>W.BIN, BZW2); one part keeps BZC2
+PIC_TAGS = "MBIRKOL"
+MAGIC_PIC, MAGIC_WORLD = b"BZP2", b"BZW2"
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
 BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
 ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
@@ -396,7 +402,8 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 # no reset class and no `prop <kind>` line; the tool and its model keep the kind's own number (PK_TUBE,
 # PK_WINDMILL, PK_SPRING, "of"), in the record too: the family's kind is only the engine's bz_fone key.
 # HOME (SPEC.md 128.25.6.9): "fetch", a course's launch fetches the part, or "resident", fetched once when
-# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).
+# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).  The DEFAULT for a
+# new family is "resident" (the owner, 2026-11-17); the probe is test-only and stays "fetch".
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
@@ -412,7 +419,7 @@ FAMILIES = (
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
                 "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40,
-     "home": HOME_FETCH},
+     "home": HOME_RESIDENT},
     {"name": "rotor", "id": 3, "rev": 1, "hooks": H_PROP, "slot": 0,
      "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
                 "states": (0,), "pickup": False, "own": True, "of": PK_WINDMILL},), "paras": 16,
@@ -429,7 +436,7 @@ FAMILIES = (
     # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
     # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
     # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
-    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `fetch`; kinds 19 - 21
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21
     {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
      "consts": "PU",
      "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
@@ -438,7 +445,7 @@ FAMILIES = (
                 "forms": ("own",), "states": (0, 1), "pickup": True},
                {"name": "jump", "kind": FAM_K0 + 5, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
                 "forms": ("own",), "states": (0, 1), "pickup": True}), "paras": 40,
-     "home": HOME_FETCH},
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
@@ -674,7 +681,7 @@ LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
-PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball DITHER-FLASHED (about 1 s)
+PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball FLASHED (BLINK4; about 1 s)
 PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
@@ -683,6 +690,7 @@ FALL_S = 8                    # ...plus one fall's allowance, seconds (a constan
 PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
 GF_SPLIT = 16                 # BZG1 +28 bit 4: the course has a SPLIT cell, its pairs in section D (SPEC.md 128.24.5.2)
+GF_FIELD = 32                 # BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F (SPEC.md 128.28.2)
 PAIR = 8                      # a split cell's PAIR: half A's four bytes, then half B's
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
 TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
@@ -786,6 +794,7 @@ class Source:
         self.labels = []            # [dict num col row glyphs ink line]
         self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
         self.uses = []              # wave 9 (SPEC.md 128.25.6.4): [(family row, line)], the families named
+        self.fields = []            # SPEC.md 128.28.3: [dict] chutes and pits, in file order
 
 
 def _int(tok, where, what):
@@ -1129,31 +1138,73 @@ def crack_poses(cx, cy, hole="small"):
     return out
 
 
-def glass_poses(cx, cy, jag):
+GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
+
+
+def glass_lane_rect(cx, cy):
+    """a glass tile's lane, blocks (SPEC.md 128.25.18): 2 across x 3 rows from (cy - 8) >> 3 - a straight
+    run's 16-column slab holds 24 lines of it, so BOTH of the run's outer edges cross every lane"""
+    return ((cx - 8) >> 3, (cy - 8) >> 3, 2, 3)
+
+
+def glass_pane_ink(u, v, cx, nb):
+    """the REVEALED glass (SPEC.md 128.25.18, the owner's pick), tile-local (u, v) round the top's centre,
+    anywhere in its lane: the path is ONE clear pane - the outer edge of the union of this tile's top and
+    its glass edge neighbours' (`nb`, (dx, dy, dz4) each) in white, wherever it falls in this lane (a
+    neighbour's tip too), and a dashed white glint along the run's axis that every lane continues; the
+    rest None, the bare picture behind showing through"""
+    cs = [(0, 0)] + [(16 * (dx - dy), 8 * (dx + dy) - dz) for dx, dy, dz in nb]
+
+    def inS(a, b):
+        return any(BA._diamond(a - ox, b - oy) <= 1.0 for ox, oy in cs)
+    if not inS(u, v):
+        return None
+    if any(not inS(u + du, v + dv) for du, dv in ((0, -1), (0, 1), (-1, 0), (1, 0))):
+        return WHT
+    xrun = any(dx for dx, _, _ in nb) or not nb
+    if v == ((u - 1) >> 1 if xrun else (-u - 1) >> 1) and (cx + u) % GLASS_DASH[0] < GLASS_DASH[1]:
+        return WHT
+    return None
+
+
+def glass_poses(cx, cy, jag, nb=()):
     """a glass tile's two poses round its top's centre: 0 INVISIBLE (the picture is drawn without the tile;
     the path's FIRST tile shows a JAGGED EDGE, white teeth, along its edge `jag` = (dx, dy) toward the
-    ground it leaves from), 1 REVEALED (the crystal material, 128.22.8), inside |u| < 8"""
+    ground it leaves from - inside |u| < 8 and the band of lines (cy - 4) >> 3 .. +16, where it has always
+    been drawn), 1 REVEALED (glass_pane_ink over the whole lane, glass_lane_rect)"""
     q0, q1 = {}, {}
+    v0 = 8 * ((cy - 4) >> 3) - cy
     for v in range(-8, 8):
         for u in range(-8, 8):
-            ink = BA.crystal_top_ink(u, v)
-            if ink is None:
-                continue
-            q1[(cx + u, cy + v)] = ink
-            if jag is None:
+            if jag is None or BA.crystal_top_ink(u, v) is None or not v0 <= v < v0 + 16:
                 continue
             fx, fy = (u / 16.0 + v / 8.0 + 1) / 2.0, (v / 8.0 - u / 16.0 + 1) / 2.0
             d, t = {(1, 0): (1 - fx, fy), (-1, 0): (fx, fy), (0, 1): (1 - fy, fx), (0, -1): (fy, fx)}[jag]
             z = (t * 5.0) % 1.0
             if d < 0.05 + 0.13 * (1 - abs(2 * z - 1)):
                 q0[(cx + u, cy + v)] = WHT
+    bx, by, w, h = glass_lane_rect(cx, cy)
+    for y in range(8 * by, 8 * (by + h)):
+        for x in range(8 * bx, 8 * (bx + w)):
+            ink = glass_pane_ink(x - cx, y - cy, cx, nb)
+            if ink is not None:
+                q1[(x, y)] = ink
     return {0: q0, 1: q1}
+
+
+def _edge_z(t, d):
+    """a tile's top at the middle of its edge toward d = (dx, dy): z0 + sx fx + sy fy (128.10.4.5's plane)"""
+    fx = {1: 1.0, -1: 0.0, 0: 0.5}[d[0]]
+    fy = {1: 1.0, -1: 0.0, 0: 0.5}[d[1]]
+    return t.z0 + t.sx * fx + t.sy * fy
 
 
 def glass_first(tiles, props, start):
     """the GLASS PATH's FIRST tiles (SPEC.md 128.25.8, the tool's): each 4-connected run of glass tiles
-    leaves the solid ground at the tile one of whose edge neighbours is a non-glass FLOOR or GOAL, that
-    neighbour nearest the start (Manhattan; ties by the file's order) -> {glass cell: (dx, dy)}, the edge"""
+    leaves the solid ground at the tile one of whose edge neighbours is a non-glass FLOOR or GOAL LEVEL
+    with it at their shared edge (the owner, 2026-11-17: the hint is drawn to join a tile, so it never
+    hangs over a drop), that neighbour nearest the start (Manhattan; ties by the file's order) -> {glass
+    cell: (dx, dy)}, the edge.  A run with no level neighbour has no hint"""
     gl = {p["at"]: p for p in props if p.get("art") == "glass"}
     out, seen = {}, set()
     for at in sorted(gl, key=lambda a: gl[a]["line"]):
@@ -1173,6 +1224,8 @@ def glass_first(tiles, props, start):
                 n = (c[0] + d[0], c[1] + d[1])
                 t = tiles.get(n)
                 if n in gl or t is None or getattr(t, "kind", None) not in (KIND_FLOOR, KIND_GOAL):
+                    continue
+                if _edge_z(t, (-d[0], -d[1])) != _edge_z(tiles[c], d):
                     continue
                 k = abs(n[0] - start[0]) + abs(n[1] - start[1])
                 if best is None or k < best[0]:
@@ -1415,6 +1468,47 @@ def parse(text, fname="<course>"):
             if src.ball is not None:
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
+        elif st == "chute":                         # SPEC.md 128.28.3: a channel of FIELD cells
+            if len(toks) < 5 or toks[1][1] not in ("1", "2") or toks[2][1] not in F_PROFILES \
+                    or toks[3][1] != "depth":
+                raise CourseError("%s: chute takes <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> "
+                                  "[<z>] ..." % where)
+            dep = _int(toks[4], where, "depth")
+            if not 1 <= dep <= 60:
+                raise CourseError("%s: a chute's depth is 1 - 60 px, not %d" % (where, dep))
+            ways, i = [], 5
+            while i < len(toks):
+                if toks[i][1] != "way" or i + 2 >= len(toks):
+                    raise CourseError("%s: a chute's ways are `way <x> <y> [<z>]`, not %r" % (where, toks[i][1]))
+                pt = (_int(toks[i + 1], where, "x"), _int(toks[i + 2], where, "y"))
+                i += 3
+                z = None
+                if i < len(toks) and toks[i][1] != "way":
+                    z = _height2(toks[i], where)
+                    i += 1
+                ways.append((pt, z, ln))
+            if len(ways) < 2:
+                raise CourseError("%s: a chute takes at least two ways" % where)
+            if ways[0][1] is None:
+                raise CourseError("%s: a chute's first way gives the lip's height: way <x> <y> <z>" % where)
+            src.fields.append({"what": "chute", "wide": int(toks[1][1]), "prof": toks[2][1], "depth": dep,
+                               "ways": ways, "line": ln})
+        elif st == "pit":                           # SPEC.md 128.28.3: a bowl of FIELD cells round a hole
+            if len(toks) not in (8, 10) or toks[4][1] != "radius" or toks[6][1] != "depth" \
+                    or (len(toks) == 10 and toks[8][1] != "hole"):
+                raise CourseError("%s: pit takes <x> <y> <z> radius <r> depth <px> [hole <h>]" % where)
+            at = (_int(toks[1], where, "x"), _int(toks[2], where, "y"))
+            z = _height2(toks[3], where)
+            rad, dep = _int(toks[5], where, "radius"), _int(toks[7], where, "depth")
+            hole = _int(toks[9], where, "hole") if len(toks) == 10 else 1
+            if not 2 <= rad <= 4:
+                raise CourseError("%s: a pit's radius is 2 - 4 cells, not %d" % (where, rad))
+            if not 0 <= hole < rad:
+                raise CourseError("%s: a pit's hole is 0 - %d cells (under its radius), not %d" % (where, rad - 1, hole))
+            if not 1 <= dep <= 60:
+                raise CourseError("%s: a pit's depth is 1 - 60 px, not %d" % (where, dep))
+            src.fields.append({"what": "pit", "at": at, "z2": z, "radius": rad, "hole": hole, "depth": dep,
+                               "line": ln})
         elif st == "float":                         # SPEC.md 128.27.2: cells whose faces over the void hang
             if len(toks) > 1 and toks[1] in (('w', "half"), ('w', "quarter")):   # 3 units, not to the ground
                 raise CourseError("%s: float takes whole cells, never a half or a quarter: a cell's faces "
@@ -1661,7 +1755,7 @@ _KIND = {"floor": KIND_FLOOR, "wall": KIND_WALL, "goal": KIND_GOAL}
 # 8 - 15 for 128.10.4.3's other non-planar floors: every kind from 4 up is "a cell whose +0 - +1 point into
 # section D", the kind saying how many records are there and how they are read
 KIND_TB, KIND_LR, KIND_Q = 4, 5, 6
-KIND_CHANNEL = 7              # RESERVED (SPEC.md 128.24.13): not built
+KIND_FIELD = 7                # SPEC.md 128.28: a FIELD cell (128.24.13 reserved it as the CHANNEL)
 SPLIT_KINDS = (KIND_TB, KIND_LR, KIND_Q)
 NREC = {KIND_TB: 2, KIND_LR: 2, KIND_Q: 4}        # the records a split cell's offset names in D
 Q_N, Q_E, Q_S, Q_W = 0, 1, 2, 3
@@ -1749,6 +1843,352 @@ def pick(diag, pu, pv):
 
 def has_split(tiles):
     return any(isinstance(t, Split) for t in tiles.values())
+
+
+# --- SPEC.md 128.28: the FIELD cell (kind 7) - a 17 x 17 HEIGHTFIELD in section F read through one of the
+# square's eight symmetries.  A cell's +1 is the shape (bits 0 - 3, and bit 7 its fifth bit) and the
+# symmetry (bits 4 - 6): MU mirrors u (u' = 16 - u), MV mirrors v, then SW swaps; the table index of the world
+# point (u, v) is 17 V + U
+FSYM_MU, FSYM_MV, FSYM_SW = 1, 2, 4
+FTAB = 289                    # a table's bytes, 17 x 17
+FSHAPE_MAX = 32               # tables a course may have (the shape's five bits: +1's bits 0 - 3 and 7)
+FSLOPE_MAX = 7                # |sx| + |sy| at every point (the floor rate within 7 x 384 / 4 = 672)
+F_PROFILES = ("round", "bank")
+
+
+def fsl(shape, sym):
+    """SPEC.md 128.28.2: a FIELD cell's +1 from its shape (0 - 31) and symmetry (0 - 7)"""
+    return (shape & 15) | (sym << 4) | ((shape & 16) << 3)
+
+
+def fshape(sl):
+    """...and back: the shape a FIELD cell's +1 names (bits 0 - 3, bit 7 the fifth)"""
+    return (sl & 15) | ((sl >> 3) & 16)
+
+
+def fidx(sym, u, v):
+    """SPEC.md 128.28.2: the world point (u, v) of a FIELD cell (0 - 16 each) -> its table index 17 V + U"""
+    if sym & FSYM_MU:
+        u = 16 - u
+    if sym & FSYM_MV:
+        v = 16 - v
+    if sym & FSYM_SW:
+        u, v = v, u
+    return 17 * v + u
+
+
+def fsym_entry(sym):
+    """the guest's BZ_FSYM entry for a symmetry: (the index of (0, 0), DU, DV) - the index of (u, v) is
+    origin + u DU + v DV, each stride +-1 or +-17"""
+    o = fidx(sym, 0, 0)
+    return o, fidx(sym, 1, 0) - o, fidx(sym, 0, 1) - o
+
+
+def fworld(tab, sym):
+    """a stored table under a symmetry -> the world heights [v][u] (0 - 16 each), relative"""
+    return [[tab[fidx(sym, u, v)] for u in range(17)] for v in range(17)]
+
+
+def fslopes(h, u, v):
+    """SPEC.md 128.28.2's slopes at the integer point (u, v), 0 - 15: forward differences of the world
+    heights h[v][u] (anything that adds a constant to every point gives the same)"""
+    return h[v][u + 1] - h[v][u], h[v + 1][u] - h[v][u]
+
+
+class FieldTile:
+    """SPEC.md 128.28: a FIELD cell's tile - its world heights h[v][u] (0 - 16 each, ABSOLUTE quarter px),
+    its base z0 (the floor of its lowest point / 16, half units), and once build_fields has run its shape
+    (an index into the course's tables) and symmetry.  .piece names what laid it (the refusals' and the
+    picture's)."""
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "h", "shape", "sym", "piece",
+                 "hmin", "hmax", "lip")
+
+    def __init__(self, h, line, piece, lip=None):
+        self.kind = KIND_FIELD
+        self.h = h
+        self.lip = lip if lip is not None else h    # the LIP's heights there (the picture's, 128.28.6)
+        self.hmin = min(min(r) for r in h)
+        self.hmax = max(max(r) for r in h)
+        self.z0 = self.hmin // 16
+        self.sx = self.sy = 0           # (no plane: every reader of a plane's slopes asks the kind first)
+        self.line, self.piece = line, piece
+        self.surf, self.exit, self.rail = SURF_NORMAL, 0, False
+        self.shape = self.sym = None
+
+    def rel(self):
+        """the heights less 16 z0 - the table's bytes in world order"""
+        b = 16 * self.z0
+        return [[x - b for x in r] for r in self.h]
+
+    def h4(self, u, v):
+        return self.h[v][u]
+
+    def corner(self, dx, dy):
+        """the corner (wx + dx, wy + dy) in half units (a Fraction: the table is quarter px)"""
+        return Fraction(self.h[16 * dy][16 * dx], 16)
+
+    def corners(self):
+        """(top, right, bottom, left) in half units - as a plane's, for the readers that take the lowest
+        or the highest: the lowest point for each low corner, the highest for each high, so the range
+        is the cell's whole range (128.28.2's z0 is its floor)"""
+        lo, hi = self.z0, -((-self.hmax) // 16)
+        return (lo, hi, hi, lo)
+
+
+def _fround(x):
+    return int(math.floor(x + 0.5))
+
+
+def fprofile(name, c, W, D):
+    """SPEC.md 128.28.4's cross-section: the height above the channel's bottom at distance c from the
+    crease (ground units, 0 - W), in quarter px, 0 at the crease and D at the lip; a float"""
+    c = min(float(W), abs(c))
+    c0 = 0.0 if name == "round" else 0.25 * W   # round: curved from the crease; bank: a flat bottom first
+    c1 = 0.5 * W                                # ...curved to half the width, then a straight bank at the
+    s = D / (W - (c0 + c1) / 2.0)               # slope s to the lip, which is a crest (128.28.5.4)
+    if c <= c0:
+        return 0.0
+    if c <= c1:
+        return s * (c - c0) * (c - c0) / (2.0 * (c1 - c0))
+    return s * (c1 - c0) / 2.0 + s * (c - c1)
+
+
+def pit_profile(r, R, H, D):
+    """SPEC.md 128.28.4's pit: depth below the lip at distance r (gu) from the centre, R the radius and H
+    the hole's half side in gu: D at the hole's edge, 0 at the rim, steepest at the rim"""
+    if r >= R:
+        return 0.0
+    x = max(0.0, (r - H) / float(R - H))        # 0 at the hole's edge, 1 at the rim
+    return D * (1.0 - x * x)
+
+
+def _sgn(v):
+    return (v > 0) - (v < 0)
+
+
+def chute_cells(f, where):
+    """SPEC.md 128.28.3 - 128.28.4: a parsed `chute` -> ({(wx, wy): (piece name, world height function
+    (gx, gy) -> quarter px)}).  f: {"wide", "prof", "depth", "ways": [((x, y), z2 or None, line)], "line"}"""
+    wide, prof, D = f["wide"], f["prof"], 4 * f["depth"]
+    W = 8 * wide                                    # the half width, gu
+    ways = f["ways"]
+    pts = [w[0] for w in ways]
+    if len(pts) < 2:
+        raise CourseError("%s: a chute takes at least two ways" % where)
+    z2 = [ways[0][1]]
+    for (_p, z, _l) in ways[1:]:
+        z2.append(z2[-1] if z is None else z)
+    dirs = []
+    for i in range(len(pts) - 1):
+        dx, dy = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        if (dx != 0) == (dy != 0):
+            raise CourseError("%s: chute way %d (%d, %d) to way %d (%d, %d) is not along one axis"
+                              % (where, i + 1, pts[i][0], pts[i][1], i + 2, pts[i + 1][0], pts[i + 1][1]))
+        dirs.append((_sgn(dx), _sgn(dy)))
+    for i in range(1, len(dirs)):
+        if dirs[i] == dirs[i - 1] or dirs[i] == (-dirs[i - 1][0], -dirs[i - 1][1]):
+            raise CourseError("%s: chute way %d (%d, %d) %s: an inner way is a 90-degree corner"
+                              % (where, i + 1, pts[i][0], pts[i][1],
+                                 "goes straight on" if dirs[i] == dirs[i - 1] else "doubles back"))
+    out = {}
+
+    def put(cell, piece, fn):
+        if cell in out:
+            raise CourseError("%s: the chute crosses itself at cell (%d, %d)" % (where, cell[0], cell[1]))
+        out[cell] = (piece, fn)
+
+    def depth_at(c):
+        return D - fprofile(prof, c, W, D)          # below the lip
+
+    n = len(pts) - 1
+    for i in range(n):
+        (ax, ay), (bx, by) = pts[i], pts[i + 1]
+        d = dirs[i]
+        L = abs(bx - ax) + abs(by - ay)             # cells (1-wide) or crease units (2-wide)
+        za, zb = 16 * z2[i], 16 * z2[i + 1]         # the lips, quarter px
+        nstr = L - 1 if wide == 1 else L - 2
+        if nstr < 0:
+            raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, under the %d its "
+                              "corners and ends take (SPEC.md 128.28.4)" % (where, i + 1, ax, ay, bx, by, L,
+                                                                          "cells" if wide == 1 else "units",
+                                                                          1 if wide == 1 else 2))
+        if za != zb:
+            if nstr == 0 or (zb - za) % (16 * nstr):
+                raise CourseError("%s: chute leg %d rises %s units over %d straight cells: not a whole number "
+                                  "of half units a tile (corners and ends are level)"
+                                  % (where, i + 1, (z2[i + 1] - z2[i]) / 2.0, nstr))
+        rate = (zb - za) // (16 * nstr) if nstr else 0      # quarter px a gu = half units a tile
+        # the leg's straight cells: the run coordinate t (gu from way i along d) and the cross offset
+        if wide == 1:
+            ox, oy = 16 * ax + 8, 16 * ay + 8       # way i's centre: the crease
+            first, cnt = 1, nstr                    # cells 1 .. L - 1 from way i
+        else:
+            ox, oy = 16 * ax, 16 * ay
+            first, cnt = 1, nstr                    # cell pairs: run 16 .. L*16 - 16
+        for j in range(first, first + cnt):
+            for side in ((0,) if wide == 1 else (-1, 0)):
+                if wide == 1:
+                    cell = (ax + d[0] * j, ay + d[1] * j)
+                else:                               # the pair either side of the crease, run [16 j, 16 j + 16)
+                    rx, ry = ax + (d[0] * j if d[0] >= 0 else d[0] * (j + 1)), ay + (d[1] * j if d[1] >= 0
+                                                                                  else d[1] * (j + 1))
+                    cell = (rx + (side if d[0] == 0 else 0), ry + (side if d[1] == 0 else 0))
+                t0 = 8 if wide == 1 else 16             # the run at the straights' start
+
+                def fn(gx, gy, ox=ox, oy=oy, d=d, za=za, rate=rate, t0=t0, lip=False):
+                    t = (gx - ox) * d[0] + (gy - oy) * d[1]
+                    c = (gy - oy) if d[0] else (gx - ox)
+                    return za + rate * (t - t0) - (0 if lip else depth_at(c))
+                put(cell, "straight", fn)
+    # the ends: a taper over one cell, open at its outer edge
+    for end in (0, n):
+        (px_, py_) = pts[end]
+        d = dirs[0] if end == 0 else dirs[n - 1]
+        sgn = 1 if end == 0 else -1                 # the run from the open edge INTO the chute
+        dd = (d[0] * sgn, d[1] * sgn)
+        zl = 16 * z2[end]
+        if wide == 1:
+            ox, oy = 16 * px_ + 8, 16 * py_ + 8
+            e0 = (ox - 8 * dd[0], oy - 8 * dd[1])   # the open edge's middle
+            cells = [(px_, py_)]
+        else:
+            ox, oy = 16 * px_, 16 * py_
+            e0 = (ox, oy)
+            base = (px_ if dd[0] >= 0 else px_ - 1, py_ if dd[1] >= 0 else py_ - 1)
+            cells = [(base[0] + (s_ if dd[0] == 0 else 0), base[1] + (s_ if dd[1] == 0 else 0)) for s_ in (-1, 0)]
+
+        def tfn(gx, gy, e0=e0, dd=dd, zl=zl, ox=ox, oy=oy, lip=False):
+            t = min(1.0, max(0.0, ((gx - e0[0]) * dd[0] + (gy - e0[1]) * dd[1]) / 16.0))
+            c = (gy - oy) if dd[0] else (gx - ox)
+            return zl - (0 if lip else t * depth_at(c))
+        for cell in cells:
+            put(cell, "taper", tfn)
+    # the corners: radial round the far corner of the block (2-wide) or of the cell (1-wide) inside the turn
+    for k in range(1, n):
+        (px_, py_) = pts[k]
+        di, do = dirs[k - 1], dirs[k]
+        zl = 16 * z2[k]
+        if wide == 1:
+            cx, cy = 16 * px_ + 8 - 8 * di[0] + 8 * do[0], 16 * py_ + 8 - 8 * di[1] + 8 * do[1]
+            cells, R0 = [(px_, py_)], 8
+        else:
+            cx, cy = 16 * px_ - 16 * di[0] + 16 * do[0], 16 * py_ - 16 * di[1] + 16 * do[1]
+            cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0) for b in (-1, 0)], 16
+
+        def cfn(gx, gy, cx=cx, cy=cy, zl=zl, R0=R0, lip=False):
+            c = math.hypot(gx - cx, gy - cy) - R0
+            return zl if lip or abs(c) > W else zl - depth_at(c)
+        for cell in cells:
+            put(cell, "corner", cfn)
+    return out
+
+
+def pit_cells(f, where):
+    """SPEC.md 128.28.3 - 128.28.4: a parsed `pit` -> ({(wx, wy): (piece, fn)}, {hole cells})"""
+    (x, y), z2, R, H, D = f["at"], f["z2"], f["radius"], f["hole"], 4 * f["depth"]
+    cx, cy, zl = 16 * x, 16 * y, 16 * z2
+    out, hole = {}, set()
+
+    def fn(gx, gy, lip=False):
+        return zl if lip else zl - pit_profile(math.hypot(gx - cx, gy - cy), 16 * R, 16 * H, D)
+    for wx in range(x - R, x + R):
+        for wy in range(y - R, y + R):
+            if x - H <= wx < x + H and y - H <= wy < y + H:
+                hole.add((wx, wy))
+            else:
+                out[(wx, wy)] = ("pit", fn)
+    return out, hole
+
+
+def field_tile(cell, piece, fn, line, where):
+    """a FIELD cell's tile: its 17 x 17 world heights sampled from the piece's function, rounded half up,
+    checked against the table's range and the slope bound under every symmetry"""
+    wx, wy = cell
+    h = [[_fround(fn(16 * wx + u, 16 * wy + v)) for u in range(17)] for v in range(17)]
+    lip = [[_fround(fn(16 * wx + u, 16 * wy + v, lip=True)) for u in range(17)] for v in range(17)]
+    t = FieldTile(h, line, piece, lip)
+    if t.hmax - 16 * t.z0 > 255:
+        raise CourseError("%s: the %s cell (%d, %d) spans %d quarter px from its base, over a table byte's 255 "
+                          "(SPEC.md 128.28.2): a shallower depth" % (where, piece, wx, wy, t.hmax - 16 * t.z0))
+    for v in range(16):
+        for u in range(16):
+            sx, sy = fslopes(h, u, v)
+            if abs(sx) + abs(sy) > FSLOPE_MAX:
+                raise CourseError("%s: the %s cell (%d, %d) has slopes (%d, %d) at its point (%d, %d), over the "
+                                  "bound |sx| + |sy| <= %d (SPEC.md 128.28.2): a shallower depth"
+                                  % (where, piece, wx, wy, sx, sy, u, v, FSLOPE_MAX))
+    return t
+
+
+def build_fields(tiles):
+    """SPEC.md 128.28.4: every FIELD tile's shape and symmetry - a stored table and a symmetry that reproduce
+    its relative heights exactly, a new table when none does (in the order the cells sort) -> [tables, each
+    289 bytes].  Refuses more than FSHAPE_MAX."""
+    tabs = []
+    for cell in sorted(tiles):
+        t = tiles[cell]
+        if not isinstance(t, FieldTile):
+            continue
+        rel = t.rel()
+        found = None
+        for i, tab in enumerate(tabs):
+            for sym in range(8):
+                if all(tab[fidx(sym, u, v)] == rel[v][u] for v in range(17) for u in range(17)):
+                    found = (i, sym)
+                    break
+            if found:
+                break
+        if found is None:
+            if len(tabs) == FSHAPE_MAX:
+                raise CourseError("%s:%d: a %dth shape table (cell (%d, %d), a %s), over the %d a course may "
+                                  "have (SPEC.md 128.28.2)" % ("<course>", t.line, FSHAPE_MAX + 1, cell[0],
+                                                               cell[1], t.piece, FSHAPE_MAX))
+            tab = bytearray(FTAB)
+            for v in range(17):
+                for u in range(17):
+                    tab[17 * v + u] = rel[v][u]
+            tabs.append(bytes(tab))
+            found = (len(tabs) - 1, 0)
+        t.shape, t.sym = found
+    return tabs
+
+
+def has_field(tiles):
+    return any(isinstance(t, FieldTile) for t in tiles.values())
+
+
+def field_tables_by_statement(tiles):
+    """SPEC.md 128.28.4's standard profiles: -> [(line, what, tables it ADDED, tables it SHARES)] in source
+    order - a table is added by the statement whose cell build_fields stored it for (the cells' sort order),
+    and shared by every other statement with a cell that names it"""
+    first, use, what = {}, {}, {}
+    for cell in sorted(tiles):
+        t = tiles[cell]
+        if not isinstance(t, FieldTile) or t.shape is None:
+            continue
+        first.setdefault(t.shape, t.line)
+        use.setdefault(t.line, set()).add(t.shape)
+        what[t.line] = "pit" if t.piece == "pit" else "chute"
+    return [(ln, what[ln], sorted(i for i in use[ln] if first[i] == ln),
+             sorted(i for i in use[ln] if first[i] != ln)) for ln in sorted(use)]
+
+
+def field_seams(tiles, fname):
+    """SPEC.md 128.28.2's SEAM rule: two FIELD cells sharing an edge are equal at all 17 of its points"""
+    for (wx, wy), t in sorted(tiles.items()):
+        if not isinstance(t, FieldTile):
+            continue
+        for dx, dy in ((1, 0), (0, 1)):
+            n = tiles.get((wx + dx, wy + dy))
+            if not isinstance(n, FieldTile):
+                continue
+            for k in range(17):
+                a = t.h[k][16] if dx else t.h[16][k]
+                b = n.h[k][0] if dx else n.h[0][k]
+                if a != b:
+                    raise CourseError("%s:%d: FIELD cells (%d, %d) and (%d, %d) differ at their shared edge's "
+                                      "point %d (%d against %d quarter px): the SEAM rule (SPEC.md 128.28.2)"
+                                      % (fname, t.line, wx, wy, wx + dx, wy + dy, k, a, b))
 
 
 def _tile_same(a, b):
@@ -1882,6 +2322,38 @@ def build_tiles(src):
                 del tiles[cell]
             else:
                 tiles[cell] = t
+    # SPEC.md 128.28.3: the chutes and pits LAY their FIELD cells after every room, surface and hole; a
+    # pit's hole is VOID whatever was there.  Two of them on one cell, or a split cell in a FIELD cell's 3 x 3,
+    # are refused
+    laid = {}
+    for fd in src.fields:
+        where = "%s:%d" % (f, fd["line"])
+        if fd["what"] == "chute":
+            cs, hole = chute_cells(fd, where), set()
+        else:
+            cs, hole = pit_cells(fd, where)
+        for cell in sorted(set(cs) | hole):
+            if cell in laid:
+                raise CourseError("%s: cell (%d, %d) is laid by this %s and by the %s on line %d" % (
+                    where, cell[0], cell[1], fd["what"], laid[cell][0], laid[cell][1]))
+            laid[cell] = (fd["what"], fd["line"])
+        for cell in sorted(hole):
+            tiles.pop(cell, None)
+        for cell in sorted(cs):
+            piece, fn = cs[cell]
+            tiles[cell] = field_tile(cell, piece, fn, fd["line"], where)
+    if laid:
+        for (wx, wy) in sorted(tiles):
+            t = tiles[(wx, wy)]
+            if not isinstance(t, FieldTile):
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    n = tiles.get((wx + dx, wy + dy))
+                    if isinstance(n, Split):
+                        raise CourseError("%s:%d: the split cell (%d, %d) is in the 3 x 3 of the FIELD cell (%d, %d) "
+                                          "(SPEC.md 128.28.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
+        field_seams(tiles, f)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
@@ -1959,9 +2431,14 @@ def build_cells(tiles):
             for dx in range(-2, 3):
                 if (wx + dx, wy + dy) not in tiles:
                     near.add((wx + dx, wy + dy))
+    if any(isinstance(t, FieldTile) and t.shape is None for t in tiles.values()):
+        build_fields(tiles)
     for (wx, wy), t in tiles.items():
         if isinstance(t, Split):
             cells[(wx, wy)] = [0, 0, t.diag | (t.surf << 4), 0]
+            continue
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.2: the base, the shape and the symmetry
+            cells[(wx, wy)] = [t.z0, fsl(t.shape, t.sym), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
         if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
@@ -2504,7 +2981,7 @@ def path_prepare(src, fname, crsinfo):
     for lv in lives:
         room({lv["at"]: ("flat", 0)}, lv["line"], src.rooms)
         rail.add(lv["at"])
-        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "crystal"})
+        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "lives"})
     return {"pads": pads, "routes": routes, "icons": icons, "lives": lives, "rail": rail,
             "secret_rooms": secret_rooms, "npages": src.pages[0] if src.pages else 1,
             "crystal": rail_crystal(src), "surf": (SURFACES.index(src.rail[0]) if src.rail and
@@ -3366,6 +3843,10 @@ def split_anchors(src, tiles, f):
         if isinstance(tiles.get(tuple(cell)), Split):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is SPLIT: it stands on the cell's centre, which "
                               "is on the diagonal (SPEC.md 128.24.4)" % (f, ln, what, cell[0], cell[1]))
+        if isinstance(tiles.get(tuple(cell)), FieldTile):
+            raise CourseError("%s:%d: %s on cell (%d, %d), which is a FIELD cell (a %s): it stands on a flat "
+                              "cell's centre (SPEC.md 128.28.3)" % (f, ln, what, cell[0], cell[1],
+                                                                   tiles[tuple(cell)].piece))
 
 
 def build_props(src, tiles, fname):
@@ -3607,7 +4088,7 @@ def build_props(src, tiles, fname):
         claim(at, ln, "clock")
         for place in range(ndig):                   # (128.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
-                          "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
+                          "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
     for lb in src.labels:                           # SPEC.md 128.23.2: a LABEL - a SIGN (wave 8R, 128.22.4.1,
         # the lead's D9), its number the label's N: a lane and nothing else, anchored at SIGN_AT, a cell no
@@ -3840,7 +4321,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     srcs = []
     for k in sorted(sol):
         for t in sol[k]:
-            U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
+            U = (FSLOPE_MAX if t.kind == KIND_FIELD else abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
             srcs.append((k, 4 * max(t.corners()) + UP(U), RADIUS(U), "launch"))
     bcells = set()
     if boost:
@@ -4146,6 +4627,217 @@ def _cell_pieces(tiles):
     return out
 
 
+def _fpt(gx, gy, h4, x0):
+    """SPEC.md 128.28.6: a world point (gu) at height h4 (quarter px) -> the quarter-pixel screen, Y0 = 0"""
+    return (4 * (gx - gy) + 4 * x0, 2 * (gx + gy) - h4)
+
+
+FTOPQ = 16                    # SPEC.md 128.28.6: a facet's occluder top, whole px rounded down to a multiple
+FACET = 4                     # SPEC.md 128.28.6: a FIELD top's facets, ground units a side
+def field_ms(x, y):
+    """SPEC.md 128.28.6: the second shape tone, magenta with a black line every other line (Hercules reads
+    it a quarter grey, solid magenta a half)"""
+    return MAG if (y & 1) == 0 else BLK
+
+
+class FieldInk:
+    """SPEC.md 128.28.6: a FIELD facet's ink - the TONE (a colour or an (x, y) ink) under the floor's black
+    cell LATTICE carried over it: a pixel is black when the ground point at its centre lies in another cell
+    than the one at the centre of the pixel above, by the facet's own map from the screen back to the ground
+    (its three corners' quarter-pixel points P and ground points G), as a plain floor cell outlines the top
+    edges of its diamond.  bind(y0) -> the ink at the picture's Y0 (render's)"""
+    __slots__ = ("tone", "P", "G", "k")
+
+    def __init__(self, tone, P, G, k=None):
+        self.tone, self.P, self.G, self.k = tone, P, G, k
+
+    def bind(self, y0):
+        (X0, Y0), (X1, Y1), (X2, Y2) = self.P
+        Y0, Y1, Y2 = Y0 + 4 * y0, Y1 + 4 * y0, Y2 + 4 * y0
+        det = float((X1 - X0) * (Y2 - Y0) - (X2 - X0) * (Y1 - Y0))
+        k = []
+        for c in (0, 1):                            # gx, then gy (gu) = ax X + ay Y + a0, X, Y quarter px
+            g0, g1, g2 = self.G[0][c], self.G[1][c], self.G[2][c]
+            ax = ((g1 - g0) * (Y2 - Y0) - (g2 - g0) * (Y1 - Y0)) / det
+            ay = ((X1 - X0) * (g2 - g0) - (X2 - X0) * (g1 - g0)) / det
+            k.append((ax, ay, g0 - ax * X0 - ay * Y0))
+        return FieldInk(self.tone, self.P, self.G, k)
+
+    def __call__(self, x, y):
+        X, Y = 4 * x + 2, 4 * y + 2
+        for ax, ay, a0 in self.k:
+            g = ax * X + ay * Y + a0
+            if math.floor(g / 16.0) != math.floor((g - 4 * ay) / 16.0):
+                return BLK
+        t = self.tone
+        return t(x, y) if callable(t) else t
+
+
+def field_tone(base, plate):
+    """SPEC.md 128.28.6: a facet's tone - at the floor's own height (plate: every corner on the lip's
+    surface) the plain floor cell's ink there, so the shape's level rim is that floor; anything below it
+    magenta only, by the cell's parity as the floor's checker: a white cell solid magenta, a cyan one
+    field_ms"""
+    if plate:
+        return base
+    return MAG if base == WHT else field_ms
+
+
+def _field_tris(i, j):
+    """a facet's two triangles (in-cell ground points), the order _field_ops draws them"""
+    u0, v0, u1, v1 = FACET * i, FACET * j, FACET * (i + 1), FACET * (j + 1)
+    return (((u0, v0), (u1, v0), (u1, v1)), ((u0, v0), (u1, v1), (u0, v1)))
+
+
+def _floor_h4(nb, u, v):
+    """a plain floor record's height (quarter px) at its in-cell point (u, v), gu; None for anything that is
+    not floor (the void, a wall)"""
+    if nb is None or not isinstance(nb, Tile) or nb.kind not in (KIND_FLOOR, KIND_GOAL):
+        return None
+    return 16 * nb.z0 + nb.sx * u + nb.sy * v
+
+
+def field_joined(tiles, _seed_all=False):
+    """SPEC.md 128.28.6, the JOIN rule (the owner, 2026-11-17): a FIELD triangle at its lip level takes the
+    floor's ink only where it JOINS real floor at the same elevation.  The seeds are the lip-level triangles
+    with an edge on their cell's border whose neighbour across it is a plain floor (or goal) record - a
+    split's owning piece - at the SAME heights at both ends of that edge; the join spreads from them across
+    every edge two lip-level triangles share, inside a cell and across FIELD cells (the same heights at the
+    shared points, which the SEAM rule already holds).  So a corner joins through whichever SIDE has floor at
+    its height, and a lip standing proud of the plate round it (a raised corner, a climbing leg's rim) joins
+    nothing and is magenta.  -> {(wx, wy, i, j, k)}, k the triangle; _seed_all: the rule before it (every
+    lip-level triangle joined), --selfcheck's red arm"""
+    side = {}                                       # a ground edge (sorted global points) -> its triangles
+    lipt = []
+    for (wx, wy), t in tiles.items():
+        if not isinstance(t, FieldTile):
+            continue
+        h, lip = t.h, t.lip
+        for i in range(16 // FACET):
+            for j in range(16 // FACET):
+                for k, tri in enumerate(_field_tris(i, j)):
+                    if not all(h[v][u] == lip[v][u] for u, v in tri):
+                        continue
+                    node = (wx, wy, i, j, k)
+                    lipt.append(node)
+                    for a in range(3):
+                        (ua, va), (ub, vb) = tri[a], tri[(a + 1) % 3]
+                        e = tuple(sorted(((16 * wx + ua, 16 * wy + va, h[va][ua]),
+                                          (16 * wx + ub, 16 * wy + vb, h[vb][ub]))))
+                        side.setdefault(e, []).append(node)
+    if _seed_all:
+        return set(lipt)
+    seen = set()
+    todo = []
+    for (wx, wy), t in tiles.items():
+        if not isinstance(t, FieldTile):
+            continue
+        h = t.h
+        for nb_cell, nb_edge, line in (((wx, wy - 1), "S", [(u, 0, u, 16) for u in range(17)]),
+                                       ((wx, wy + 1), "N", [(u, 16, u, 0) for u in range(17)]),
+                                       ((wx - 1, wy), "E", [(0, v, 16, v) for v in range(17)]),
+                                       ((wx + 1, wy), "W", [(16, v, 0, v) for v in range(17)])):
+            nb = tiles.get(nb_cell)
+            if nb is None or isinstance(nb, FieldTile):
+                continue
+            rec = edge_rec(nb, nb_edge)
+            ok = [_floor_h4(rec, nu, nv) == h[v][u] for u, v, nu, nv in line]
+            for a in range(0, 16, FACET):           # a facet's edge joins when the floor meets it all along
+                if not all(ok[a:a + FACET + 1]):
+                    continue
+                (u, v), (u2, v2) = line[a][:2], line[a + FACET][:2]
+                e = tuple(sorted(((16 * wx + u, 16 * wy + v, h[v][u]), (16 * wx + u2, 16 * wy + v2, h[v2][u2]))))
+                for node in side.get(e, ()):
+                    if node not in seen:
+                        seen.add(node)
+                        todo.append(node)
+    by_node = {}
+    for e, nodes in side.items():
+        for n in nodes:
+            by_node.setdefault(n, []).append(e)
+    while todo:
+        n = todo.pop()
+        for e in by_node[n]:
+            for m in side[e]:
+                if m not in seen:
+                    seen.add(m)
+                    todo.append(m)
+    return seen
+
+
+def _poly_top_fn(pts):
+    """the top edge of a face whose top is a polyline of quarter-pixel points (X4, h4): at a pixel column,
+    whole px (floor), interpolated between the polyline's points"""
+    xs = [p[0] for p in pts]
+
+    def top(x, y):
+        X = 4 * x + 2
+        for (xa, ha), (xb, hb) in zip(pts, pts[1:]):
+            lo, hi = min(xa, xb), max(xa, xb)
+            if lo <= X <= hi and xa != xb:
+                return int(math.floor((ha + (hb - ha) * (X - xa) / float(xb - xa)) / 4.0))
+        i = min(range(len(xs)), key=lambda k: abs(xs[k] - X))
+        return pts[i][1] // 4
+    return top
+
+
+def _field_ops(tiles, t, wx, wy, s, x0, ground=None, joined=None):
+    """SPEC.md 128.28.6: a FIELD cell's ops - its sw and se faces (their tops the table's heights along the
+    edge, down to the neighbour's heights there or FACE8 into the void, nothing against a FIELD neighbour),
+    then its top as FACET x FACET triangles back to front, each culled when it faces away, inked by its
+    shade and keyed s + 1 when its ground is in the front half of the row"""
+    ops = []
+    gx0, gy0 = 16 * wx, 16 * wy
+    h = t.h
+    for which, nb_cell, pts in (("sw", (wx, wy + 1), [(u, 16) for u in range(17)]),
+                                ("se", (wx + 1, wy), [(16, v) for v in range(16, -1, -1)])):
+        nb = tiles.get(nb_cell)
+        if isinstance(nb, FieldTile):
+            continue
+        tops = [h[v][u] for u, v in pts]
+        if nb is None or isinstance(nb, Split):     # (a split neighbour is refused in the 3 x 3)
+            # over the void: 3 units below the edge, and down to the GROUND plane (px) unless the cell floats
+            # (ground None) - draw_ops' rule (SPEC.md 128.27), sample by sample along the profile
+            bots = [q - 4 * FACE8 if ground is None else min(q - 4 * FACE8, 4 * ground) for q in tops]
+        else:
+            bots = []
+            for u, v in pts:
+                nu, nv = (u, 0) if which == "sw" else (0, v)
+                bots.append(min(16 * nb.z0 + nb.sx * nu + nb.sy * nv, h[v][u]))
+        if all(b >= q for b, q in zip(bots, tops)):
+            continue
+        top_pts = [_fpt(gx0 + u, gy0 + v, q, x0) for (u, v), q in zip(pts, tops)]
+        bot_pts = [_fpt(gx0 + u, gy0 + v, q, x0) for (u, v), q in zip(pts, bots)]
+        poly = top_pts + bot_pts[::-1]
+        line = [(p[0], q) for p, q in zip(top_pts, tops)]
+        mk = (lambda ln_: lambda y0: _poly_top_fn(ln_))(line)
+        ops.append((spans(poly), which, s, mk, True, t, (wx, wy)))
+    base = WHT if (wx + wy) & 1 else CYN
+    if joined is None:
+        joined = field_joined(tiles)
+    n = 16 // FACET
+    for k in range(2 * n - 1):                      # back to front: i + j, then i
+        for i in range(n):
+            j = k - i
+            if not 0 <= j < n:
+                continue
+            u0, v0 = FACET * i, FACET * j
+            key = s + (1 if u0 + v0 + FACET >= 16 else 0)
+            for kt, tri in enumerate(_field_tris(i, j)):
+                P = [_fpt(gx0 + u, gy0 + v, h[v][u], x0) for u, v in tri]
+                area = (P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])
+                if area <= 0:                       # facing away (or edge-on): what is behind it shows
+                    continue
+                (ua, va), (ub, vb), (uc, vc) = tri
+                ha, hb, hc = h[va][ua], h[vb][ub], h[vc][uc]
+                plate = (wx, wy, i, j, kt) in joined    # on the lip AND joined to floor at its height
+                ink = FieldInk(field_tone(base, plate), P, [(gx0 + u_, gy0 + v_) for u_, v_ in tri])
+                topv = (min(ha, hb, hc) // (4 * FTOPQ)) * FTOPQ   # (whole px, in steps of FTOPQ: fewer records)
+                mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
+                ops.append((spans(P), "facet", key, mk, ink, t, (wx, wy)))
+    return ops
+
+
 def ground_z(tiles):
     """SPEC.md 128.27.1: the course's GROUND PLANE, px - its lowest floor (the
     least corner of every solid record, a whole cell's or a piece's) less 3
@@ -4159,6 +4851,11 @@ def _cell_faces(tiles):
     out = []
     for key, (wx, wy), t, h, s in _cell_pieces(tiles):
         ent = tiles[(wx, wy)]
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.6: a FIELD cell's faces are _field_ops'; here
+            faces = [(None, 0, None, 0, None if tiles.get(n) is None else 0, w)  # only which edge is over the
+                     for n, w in (((wx, wy + 1), "sw"), ((wx + 1, wy), "se"))]   # void (void_face_cells)
+            out.append((key, (wx, wy), t, h, s, ent, faces))
+            continue
         zt, zr, zb, zl = (4 * c for c in t.corners())
         R = (2 * wx + 2, 2 * wy)
         B = (2 * wx + 2, 2 * wy + 2)
@@ -4212,7 +4909,14 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
     ops = []
     if ground is GROUND_AUTO:
         ground = ground_z(tiles) if tiles else None
+    joined = None
     for _key, (wx, wy), t, h, s, ent, faces in _cell_faces(tiles):
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.6: a FIELD cell's faces and facets, its
+            if joined is None:                      # (the JOIN rule's set, once a course)
+                joined = field_joined(tiles)
+            ops += _field_ops(tiles, t, wx, wy, s, x0,  # faces over the void by the ground rule (or `float`)
+                              None if ground is None or (wx, wy) in floats else ground, joined)
+            continue
         zt, zr, zb, zl = (4 * c for c in t.corners())
         T = (2 * wx, 2 * wy)
         R = (2 * wx + 2, 2 * wy)
@@ -4345,6 +5049,9 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
         if which == "post":                         # wave 3: a post, geometry
             ink, top = mk(y0)
             cv.fill(sp, ink, s, top, own)
+            continue
+        if which == "facet":                        # SPEC.md 128.28.6: a FIELD top's facet, its ink in `left`
+            cv.fill(sp, left.bind(y0), s, mk(y0), own)
             continue
         top = mk(y0)
         if t.rail and which in ("sw", "se", "front"):   # wave 8R: the crystal rail's dark side (128.22.8)
@@ -4825,9 +5532,81 @@ def clock_face_geom(p, x0, y0):
 
 def clock_digit_block(p, x0, y0):
     """the canvas block (column, row) of digit PLACE (0 the units, the rightmost)"""
+    if p.get("frame") == "lives":
+        cx, cy = lives_anchor(p, x0, y0)
+        return (cx >> 3) + 1, (cy - LIVES_DUP) >> 3
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
+
+
+# the pathway's LIVES counter (the owner, 2026-11-17: option C of four - "LIVES" in the map's own label face
+# over the player's MARBLE on a little plinth, "x" and the digit beside it; the other three and the marble
+# rack that breaks a marble a life are docs/plans/BOUNCE-BONANZA-LIVES.md).  The tile's centre at (cx, cy)
+# on its floor line; the digit's block right of the "x" block at cx, LIVES_DUP px up; the caption
+# LIVES_CUP px up, centred
+LIVES_DUP = 16
+LIVES_CUP = 34
+
+
+def lives_anchor(p, x0, y0):
+    """the lives counter's tile centre (x, floor line), on blocks (x0 and the floor lines are)"""
+    wx, wy = p["at"]
+    return 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+
+
+def lives_marble(cx, cy, r):
+    """the player's marble, small: a black rim, magenta, a white rim of light to the upper left, a dither
+    of shade to the lower right and a glint -> {(x, y): ink}"""
+    out = {}
+    for y in range(int(cy - r) - 1, int(cy + r) + 2):
+        for x in range(int(cx - r) - 1, int(cx + r) + 2):
+            ux, uy = (x + 0.5 - cx) / r, (y + 0.5 - cy) / r
+            d = ux * ux + uy * uy
+            if d > 1.0:
+                continue
+            if d > 0.62:
+                ink = BLK
+            elif ux + uy < -0.55 and d > 0.18:
+                ink = WHT
+            else:
+                ink = MAG
+            out[(x, y)] = ink
+    out[(int(cx - 0.35 * r), int(cy - 0.4 * r))] = WHT
+    return out
+
+
+def lives_face_pix(p, x0, y0):
+    """the LIVES counter's static art (its digit is the lane's): a dithered shadow on the tile, a plinth
+    (white top, magenta faces, black edges, as the clocks'), the marble on it, the "x" left of the
+    digit's block and "LIVES" above, both in the map's label face -> {(x, y): ink}"""
+    cx, cy = lives_anchor(p, x0, y0)
+    out = {}
+    for y in range(cy - 2, cy + 5):                 # the shadow, cast to the lower right
+        for x in range(cx - 10, cx + 12):
+            e = ((x - cx) / 12.0) ** 2 + ((y - cy - 1) / 3.6) ** 2
+            if e <= 1.0 and (x + y) & 1:
+                out[(x, y)] = BLK
+    px, ph, pw, pt = cx - 8, 4, 9, 4                 # the plinth
+    top_y = cy - ph
+    for x in range(px - pw, px + pw + 1):
+        half = pt * (pw - abs(x - px)) / float(pw)
+        y_lo, y_hi = top_y - half, top_y + half
+        for y in range(int(math.floor(y_lo)), int(math.ceil(y_hi)) + 1):
+            if y_lo - 0.5 <= y <= y_hi + 0.5:
+                out[(x, y)] = BLK if (y <= y_lo + 0.5 or y >= y_hi - 0.5) else WHT
+        for y in range(int(math.ceil(y_hi)) + 1, int(math.ceil(y_hi)) + ph + 1):
+            if x == px - pw or x == px + pw or y == int(math.ceil(y_hi)) + ph or x == px:
+                out[(x, y)] = BLK
+            elif x < px:
+                out[(x, y)] = MAG
+            else:
+                out[(x, y)] = MAG if (x + y) & 1 else BLK
+    out.update(lives_marble(px + 0.5, top_y - 5.5, 6.2))
+    bx, by = clock_digit_block(p, x0, y0)
+    out.update(label_glyph("x", bx - 1, by, WHT))
+    out.update(text_pixels("LIVES", cx - 20, cy - LIVES_CUP, WHT))
+    return out
 
 
 def clock_face_pix(p, x0, y0, style="crystal"):
@@ -4840,6 +5619,8 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     magenta dither, a white rim of light to the upper left, a glint and a
     finial - with the digits' window left plain cyan.  -> {(x, y): ink},
     later layers over earlier"""
+    if p.get("frame") == "lives":
+        return lives_face_pix(p, x0, y0)
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     out = {}
@@ -5094,7 +5875,10 @@ def slab_rise(p, line, x0, y0):
 # =============================================================================
 
 class Course:
-    """everything one course compiles to; .cga and .herc are the parts"""
+    """everything one course compiles to; .cga and .herc are the parts (a TWO-PART course's picture part, and
+    .wcga, .wstored and .wherc its world part's: SPEC.md 128.30)"""
+    split = False
+    wcga = wstored = wherc = None
 
 
 def _blocks(pic, cols, brows):
@@ -5138,33 +5922,129 @@ def dither(mask):
     return bytes(b | CHK[(i >> 1) & 1] for i, b in enumerate(mask))
 
 
-def _occluders(cv, reach, x0, y0, cols, brows):
+FOCC = 4                      # SPEC.md 128.28.6: a FIELD cell's query squares, ground units a side
+
+
+def feet(reach, tiles, x0, sub=None):
+    """SPEC.md 128.10.4.4, 128.28.6: the footprints the merge's queries (and the cutter, but for a FIELD
+    cell's) take over the reach -> [(rc, zlo, zhi, xl, xh, yt0, yb0)]: a ball in reach cell rc at whole height
+    z, zlo <= z <= zhi, whose footprint is columns xl .. xh and lines yt0 - z .. yb0 - z (Y0 = 0).  A cell's
+    whole area is one (foot_x, foot_top: yt0 = 8 s - 13, yb0 = 8 s + 17) - except a FIELD cell's, SUB x SUB
+    squares of ground units (FOCC), each at the lowest floor of its integer points (field_zlo's rule).
+    sub 16: the whole cell, a FIELD cell's too (the cutter before 128.28.6's rule: --selfcheck's red arm)"""
+    sub = FOCC if sub is None else sub
+    out = []
+    for rc in reach:
+        t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+        if not isinstance(t, FieldTile) or sub >= 16:
+            xl, xh = foot_x(rc, x0)
+            out.append((rc, rc.zlo, rc.zhi, xl, xh, 8 * rc.s - 13, 8 * rc.s + 17))
+            continue
+        xc = 16 * rc.a + x0
+        for v0 in range(0, 16, sub):
+            for u0 in range(0, 16, sub):
+                zl = min(min(t.h[v][u] for v in range(v0, v0 + sub) for u in range(u0, u0 + sub)) >> 2, rc.zhi)
+                zl = max(zl, rc.zlo)
+                off = (u0 + v0) >> 1
+                out.append((rc, zl, rc.zhi, xc + u0 - v0 - sub - 8, xc + u0 - v0 + sub + 7,
+                            8 * rc.s + off - 13, 8 * rc.s + off + sub + 1))
+    return out
+
+
+def field_zlo(tiles, rc, gx, gy, _raise=0):
+    """SPEC.md 128.28.6: the lowest whole px a ball whose centre is at (gx, gy) (ground units, 8 fraction
+    bits) can be at in reach cell rc - on a FIELD cell its floor at its integer point (h4 >> 2: step 6
+    leaves gz >= h4 << 6 on a FIELD centre, 128.28.5.1), elsewhere rc.zlo.  _raise: the red arm's floor"""
+    t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+    if not isinstance(t, FieldTile):
+        return rc.zlo
+    u, v = (gx >> 8) - 16 * rc.wx, (gy >> 8) - 16 * rc.wy
+    return min(max((t.h[v][u] >> 2) + _raise, rc.zlo), rc.zhi)
+
+
+def _ball_cols():
+    """the ball's lit rows in each of its 16 columns, (first, last): ONE circle at every alignment (the
+    frames differ in ink only)"""
+    lit = [[c is not None for c in r] for r in BA.ball_frame_indices(0)]
+    return tuple((min(r for r in range(16) if lit[r][dx]), max(r for r in range(16) if lit[r][dx]))
+                 for dx in range(16))
+
+
+def _field_occ(cv, rc, t, x0, y0, occ, _raise=0):
+    """SPEC.md 128.28.6: the occluder pixels a ball in FIELD cell rc needs, at its REAL poses - its centre at
+    every integer point (u, v) with any fraction, so its footprint column (gx - gy) >> 8 is u - v or one
+    less and its line ((gx + gy) >> 1) >> 8 the floor or ceiling of (u + v) / 2, and every whole height z
+    from the floor there (field_zlo) to rc.zhi, its top line a line higher with a fraction - and its LIT
+    circle (_ball_cols), not the footprint's box.  A pixel joins occ when it lays over a lit pixel of one
+    such pose (keyed after the ball's row and above its z, the airborne rule: margin 0)"""
+    cols = _BALL_COLS
+    xc, s = 16 * rc.a + x0, rc.s
+    poses = {}                                      # (px, line of the top at z = 0) -> the lowest z
+    for v in range(16):
+        for u in range(16):
+            zl = min(max((t.h[v][u] >> 2) + _raise, rc.zlo), rc.zhi)
+            d, e = u - v, u + v
+            for X in (d - 1, d):
+                for g in {e >> 1, (e + 1) >> 1}:
+                    k = (xc + X - 8, 8 * s + g - 13 + y0)
+                    if poses.get(k, rc.zhi + 1) > zl:
+                        poses[k] = zl
+    w, h, zhi = cv.w, cv.h, rc.zhi
+    for (px, pyz), zl in poses.items():
+        for dx in range(16):
+            x = px + dx
+            if not 0 <= x < w:
+                continue
+            r0, r1 = cols[dx]
+            # the pose at z has its top at pyz - z (pyz - z - 1 with a fraction): line y is lit at some z of
+            # [pyz - y - 1 + r0, pyz - y + r1]
+            for y in range(max(pyz - zhi - 1 + r0, 0), min(pyz - zl + r1, h - 1) + 1):
+                sp = cv.sbuf[y][x]
+                if sp <= s:
+                    continue
+                tp = cv.tbuf[y][x]
+                if max(zl, pyz - y - 1 + r0) <= min(zhi, tp - 1, pyz - y + r1):
+                    occ[(x, y)] = (sp, tp)
+
+
+_BALL_COLS = _ball_cols()
+
+
+def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0):
     """-> (records, occ pixel set): SPEC.md 128.10.4.4.  A pixel is an occluder
     when SOME reachable position's footprint covers it and the rule lays it
     back there: the ball's cell row before the pixel's, and the ball lower
     than the pixel's top (airborne, so the margin is 0: the most it can lay).
-    Records: one per (block, cell, band of tops at most BAND px)."""
+    Records: one per (block, cell, band of tops at most BAND px).  tiles: a
+    FIELD cell's ball is taken at its real poses (_field_occ, SPEC.md 128.28.6)
+    unless sub is 16 (feet()'s whole cell: the red arm); _raise, the arm that
+    takes its floor too high"""
     occ = {}                                   # (x, y) -> (s, top)
     w, h = cv.w, cv.h
-    for rc in reach:
-        xl, xh = foot_x(rc, x0)
+    tiles = tiles or {}
+    for rc, zlo, zhi, xl, xh, yt0, yb0 in feet(reach, tiles, x0, 16):
+        t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
+        if isinstance(t, FieldTile) and (FOCC if sub is None else sub) < 16:
+            _field_occ(cv, rc, t, x0, y0, occ, _raise)
+            continue
+        s = rc.s
         xl, xh = max(xl, 0), min(xh, w - 1)
-        ytop = foot_top(rc, rc.zhi) + y0
-        ybot = foot_top(rc, rc.zlo) + y0 + 15 + 15
+        ytop = yt0 - zhi + y0
+        ybot = yb0 - zlo + y0
         for y in range(max(ytop, 0), min(ybot, h - 1) + 1):
             sr, tr = cv.sbuf[y], cv.tbuf[y]
             for x in range(xl, xh + 1):
                 sp = sr[x]
-                if sp <= rc.s:
+                if sp <= s:
                     continue
                 tp = tr[x]
-                zmax = min(rc.zhi, tp - 1)       # the highest ball the pixel still hides
-                if zmax < rc.zlo:
+                zmax = min(zhi, tp - 1)          # the highest ball the pixel still hides
+                if zmax < zlo:
                     continue
                 # above every footprint low enough - a ball at whole height zmax
                 # with a FRACTION (any zmax below the apex) has its top a line
                 # higher than foot_top(zmax) at the cell row's first line
-                if y < foot_top(rc, zmax) + y0 - (1 if zmax < rc.zhi else 0):
+                if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
                     continue
                 occ[(x, y)] = (sp, tp)
     # group: block, cell row (one cell per row per block column is not
@@ -5236,20 +6116,23 @@ def _laid(reach, recs_by_block, x0, y0, rc_list=None, zr=None, margin=0, frac=No
     return best, worst
 
 
-def block_queries(reach, x0, y0, width):
+def block_queries(reach, x0, y0, width, ft=None):
     """-> {(block row, block column): {(s_b, z_b + m)}}: every verdict input a
     reachable position whose footprint meets the block can present (SPEC.md
     128.11.4.1) - every whole height of its cell's range, both margins, the
     footprint over the cell's area and the fractional line.  A superset of the
-    real set, so a merge over it is exact over the real one."""
+    real set, so a merge over it is exact over the real one.  ft: feet()'s
+    footprints, as _occluders takes them"""
     q = {}
-    for rc in reach:
-        xl, xh = foot_x(rc, x0)
+    if ft is None:
+        ft = feet(reach, {}, x0)
+    for rc, zlo, zhi, xl, xh, yt0, yb0 in ft:
+        s = rc.s
         cols = range(max(xl, 0) >> 3, (min(xh, width - 1) >> 3) + 1)
-        for z in range(rc.zlo, rc.zhi + 1):
-            t0 = foot_top(rc, z) + y0 - 1
-            t1 = foot_top(rc, z) + y0 + 30
-            pair = ((rc.s, z), (rc.s, z + CLIMB))
+        for z in range(zlo, zhi + 1):
+            t0 = yt0 - z + y0 - 1
+            t1 = yb0 - z + y0
+            pair = ((s, z), (s, z + CLIMB))
             for br in range(max(t0, 0) >> 3, (t1 >> 3) + 1):
                 for bc in cols:
                     st = q.get((br, bc))
@@ -5480,27 +6363,26 @@ def _course_limit(c, src, fname):
     return min(LIMIT_MAX, limit_rule(route_steps)), route_steps
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, crsinfo=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
     _hack: --selfcheck's negative controls' switches, and nothing else's.
-    _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
     crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
     courses; default the shipped list's, read off their `course` lines)
     Every compile is looked up in the compile cache (build/bbcache/, docs/TESTING.md *BONANZA's host
     checks*), and one of a course FILE or one that took a second or more is written to it: cache_key() is
     every input the compile reads, so a hit is the compile it stands for"""
-    key = cache_key(source, fname, occluders, _hack, _rec, crsinfo)
+    key = cache_key(source, fname, occluders, _hack, crsinfo)
     c = cache_get(key)
     if c is None:
         t0 = time.time()
-        c = _compile_y0(source, fname, occluders, _hack, _rec, crsinfo)
+        c = _compile_y0(source, fname, occluders, _hack, crsinfo)
         if fname is None or time.time() - t0 >= 1.0:
             cache_put(key, c)
     return c
 
 
-def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
+def _compile_y0(source, fname, occluders, _hack, crsinfo):
     global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
@@ -5509,14 +6391,14 @@ def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
     try:
         counts, order = None, [None]
         if occluders and "y0add" not in hack:        # SPEC.md 128.25.3: the Y0 search
-            counts = y0_search(source, fname, hack, _rec, crsinfo)
+            counts = y0_search(source, fname, hack, crsinfo)
             if counts is not None:
                 order = y0_order(counts)
         first = None
         for k in order:                             # the best alignment first; one that a later rule refuses (a
             h = hack if k is None else dict(hack, y0add=k)      # lane's blocks, a corner) gives way to the next,
             try:                                    # and if every one is refused, the first one's reason
-                c = _compile_course(source, fname, occluders, h, _rec, crsinfo)
+                c = _compile_course(source, fname, occluders, h, crsinfo)
             except CourseError as e:
                 first = first or e
                 continue
@@ -5555,7 +6437,7 @@ class _Y0Probe(Exception):
         self.counts = counts
 
 
-def y0_search(source, fname, hack, _rec, crsinfo):
+def y0_search(source, fname, hack, crsinfo):
     """SPEC.md 128.25.3: the occluder records at each of the picture's eight
     block alignments (Y0 + k, k = 0 - 7), each a compile that stops once its
     records are merged.  -> [(records, most a block, most a row) or None for an
@@ -5566,17 +6448,17 @@ def y0_search(source, fname, hack, _rec, crsinfo):
     if own:
         _REACH_MEMO = {}
     try:
-        return _y0_search(source, fname, hack, _rec, crsinfo)
+        return _y0_search(source, fname, hack, crsinfo)
     finally:
         if own:
             _REACH_MEMO = None
 
 
-def _y0_search(source, fname, hack, _rec, crsinfo):
+def _y0_search(source, fname, hack, crsinfo):
     counts = []
     for k in range(8):
         try:
-            _compile_course(source, fname, True, dict(hack, y0add=k, y0probe=True), _rec, crsinfo)
+            _compile_course(source, fname, True, dict(hack, y0add=k, y0probe=True), crsinfo)
         except _Y0Probe as p:
             if p.counts is None:
                 return None
@@ -5601,7 +6483,7 @@ def y0_order(counts):
 _VANISH_MEMO = {}       # EXPLORATORY (SPEC.md 128.25.18.1): a vanishing crack's picture change, y0-free
 
 
-def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
+def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if fname is None:
         ab = os.path.abspath(source)
         fname = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
@@ -5633,9 +6515,14 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             if v:
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
+    ftabs = build_fields(tiles)                     # SPEC.md 128.28.4: the FIELD cells' tables (section F)
     cells = build_cells(tiles)
     pairs = build_pairs(tiles)                      # SPEC.md 128.24.5.2: the split cells' halves
     pcell = prop_cells(props)
+    for c_ in pcell:                                  # SPEC.md 128.28.3: no prop's cell is a FIELD cell
+        if isinstance(tiles.get(c_), FieldTile):
+            raise CourseError("%s:%d: cell (%d, %d) belongs to a prop and is a FIELD cell (a %s, SPEC.md 128.28.3)"
+                              % (fname, tiles[c_].line, c_[0], c_[1], tiles[c_].piece))
     for c_ in pcell:                                  # no prop's cell is SAFE (a respawn lands in no drain)
         if c_ in cells:
             cells[c_][3] &= ~FL_SAFE
@@ -5654,7 +6541,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         return r_, n_, e_
     reach, rounds, emax = _reach_once((hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
         (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))), tuple(sorted(_CHECKS_OFF)),
-        _FAST_EXTRA, _DOWN_S0, _rec, repr(crsinfo)), _reach)
+        _FAST_EXTRA, _DOWN_S0, repr(crsinfo)), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -5682,6 +6569,19 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+        gat = {p["at"]: p for p in props if p.get("art") == "glass"}
+        for (wx, wy), p in sorted(gat.items(), key=lambda kv: kv[1]["line"]):
+            # its glass edge neighbours (the pane's outline), and the 2 x 3 lane's one refusal: two glass tiles
+            # touching at a CORNER on the screen's vertical ((wx + 1, wy + 1): 16 px straight below) would share
+            # a block row
+            p["gnb"] = tuple((dx, dy, gat[(wx + dx, wy + dy)]["z4"] - p["z4"])
+                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (wx + dx, wy + dy) in gat)
+            q = gat.get((wx + 1, wy + 1))
+            if q is not None:
+                raise CourseError("%s:%d: glass at (%d, %d) and (%d, %d) (line %d) touch at a corner, one above the "
+                                  "other on the screen: their 2 x 3-block lanes would share a block row (SPEC.md "
+                                  "128.25.18) - a glass path may not turn or run two wide; break it with a solid tile"
+                                  % (fname, p["line"], wx, wy, wx + 1, wy + 1, q["line"]))
     # SPEC.md 128.27: the GROUND plane, one a course - its lowest floor (a secret route's and a glass tile's
     # counted) less 3 units - and the FLOATING cells, whose faces over the void hang 3 units instead
     gtiles = dict(tiles)
@@ -5895,8 +6795,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
                           "kind": p["kind"], "line": p["line"]})
         elif _famart(p):                            # GLASS (SPEC.md 128.25.18): a crack's or a glass tile's
-            # lane: 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
-            # blocks across or 2 block rows down, so a path of them shares no block); its poses MARKS at the
+            # lane: a crack's 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
+            # blocks across or 2 block rows down, so a path of them shares no block), a glass tile's 2 x 3
+            # (glass_lane_rect: a path's corner-touching pair refused above); its poses MARKS at the
             # tile's depth, clipped by what is drawn in front of it, as a pennant is
             wx, wy = p["at"]
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
@@ -6001,9 +6902,11 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                 continue
             if hole == "wide":
                 rect = ((cx - 16) >> 3, (cy - 8) >> 3, 4, ((cy + 7) >> 3) - ((cy - 8) >> 3) + 1)
-            else:
+            elif p["art"] == "crack":
                 rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
-            poses = crack_poses(cx, cy, hole) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            else:
+                rect = glass_lane_rect(cx, cy)
+            poses = crack_poses(cx, cy, hole) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"), p["gnb"])
             for q in poses:
                 poses[q] = {(x, y): c for (x, y), c in poses[q].items()
                             if 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
@@ -6042,8 +6945,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   and q["place"] == 0)
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
-            for d in range(10):
-                poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+            if p.get("frame") == "lives":           # the map's label face, WHITE, on the sky beside the "x"
+                for d in range(10):
+                    poses[1 + d] = {k: v for k, v in label_glyph(str(d), bx, by, WHT).items()
+                                    if cv.sbuf[k[1]][k[0]] <= sC}
+            else:
+                for d in range(10):
+                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): a sign, path_signs's lane
@@ -6102,14 +7010,30 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     amin = min(aa) & ~1
     kw = ((max(aa) - amin) >> 1) + 1
     nrows = smax - smin + 1
-    least = (HDR + 2 * cols * brows + 16 * len(blocks) + 2 * (brows + 1) + GHDR
-             + 4 * nrows * kw + PAIR * len(pairs) + 2 * nrows + 4 * len(src.ways))
-    if least > PARTMAX:
+    # the early refusal (before the occluders are cut): ONE part's least for the pathway and the title, which
+    # are always one part; for a course each of the TWO parts' least (SPEC.md 128.30.4.1: a course past one
+    # part is two, so a one-part least over PARTMAX is not yet a refusal - it was, until TWOSEG's least
+    # passed 64KB with the PLAYGROUND's shaped floors)
+    lpic = HDR + 2 * cols * brows + 16 * len(blocks) + 2 * (brows + 1)
+    lworld = HDR + GHDR + 4 * nrows * kw + PAIR * len(pairs) + FTAB * len(ftabs) + 2 * nrows + 4 * len(src.ways)
+    least = lpic + lworld - HDR
+    if least > PARTMAX and (pth is not None or src.title_ln is not None):
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
+    for nm, ln in (("picture", lpic), ("world", lworld)):
+        if ln > PARTMAX:
+            raise CourseError("%s: the course's %s part is at least %d bytes before any occluder, over the %d "
+                              "one part may be, by %d (SPEC.md 128.30.4.1)" % (fname, nm, ln, PARTMAX,
+                                                                              ln - PARTMAX))
     # the occluders: cut (128.10.4.4) from pose 0's picture, merged (128.11.4.1), bounded (128.11.4.2)
-    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows) if occluders else ([], {})
-    q = block_queries(reach, x0, y0, width) if occluders else {}
+    # (SPEC.md 128.28.6: a FIELD cell's ball at its real poses; hack focc 16 the whole cell, fraise its floor
+    # raised - --selfcheck's red arms).
+    # SPEC.md 128.31: THE PATHWAY CARRIES NONE - its ball is the follower, always grounded, and no cell of it
+    # is ever OCCG, so the guest's pass never runs there; _hack pathocc: --selfcheck's red arm, cut anyway
+    cutocc = occluders and (pth is None or hack.get("pathocc"))
+    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows, tiles, hack.get("focc"), hack.get("fraise", 0)) \
+        if cutocc else ([], {})
+    q = block_queries(reach, x0, y0, width, feet(reach, tiles, x0, hack.get("focc"))) if cutocc else {}
     records = merge_records(raw, q)
     per_row, per_block = {}, {}
     for r in records:
@@ -6138,7 +7062,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         if n:
             cells[(wx, wy)][3] |= FL_OCC | FL_OCCG
     # wave 3's occlusion refusals (SPEC.md 128.12.4.5, 128.12.15 item 2)
-    if occluders:
+    if cutocc:
         for L in lanes:
             bad = lane_pose_verdicts(L, reach, x0, y0, cv)
             if bad:
@@ -6217,7 +7141,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
         | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0) \
-        | (GF_SPLIT if pairs else 0)
+        | (GF_SPLIT if pairs else 0) | (GF_FIELD if ftabs else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
@@ -6348,7 +7272,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
                       "swy": swy, "gflags": gflags, "padmask": padmask,
                       "view": (view[0] // 4 | view[1] << 8) if view else 0},
-             "cells": bytes(cellb), "pairs": bytes(pairb), "route": list(route), "ways": [t for t, ln in src.ways],
+             "cells": bytes(cellb), "pairs": bytes(pairb), "ftabs": b"".join(ftabs),
+             "route": list(route), "ways": [t for t, ln in src.ways],
              "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ftab + ptab), "self": selfp,
                        "blk": blkp} if props else None,
              "pth": len(ptab), "npages": pth["npages"] if pth is not None else 0,
@@ -6371,24 +7296,38 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                               "%d - the guest's route (found through ROWTAB) would differ from the tool's"
                               % (fname, ln, wx, wy, cl and cl[0], cl and _nib(cl[1] & 15), cl and _nib(cl[1] >> 4),
                                  t.z0, t.sx, t.sy))
-    rec_ = REC if _rec is None else _rec
-    cga8 = encode_part(model, 8, fname)
-    cga4 = encode_part(model, 4, fname)       # D's bounds are a course's under either knob
-    cga = bytearray(cga4 if rec_ == 4 else cga8)
-    end = len(cga)
-    if end > PARTMAX or len(cga8) > PARTMAX:
-        raise CourseError("%s: the course part is %d bytes, over the %d one part may be, by %d"
-                          % (fname, max(end, len(cga8)), PARTMAX, max(end, len(cga8)) - PARTMAX))
-    gridoff = struct.unpack_from("<H", cga, 26)[0]
-    propoff = struct.unpack_from("<H", cga, 28)[0]
-    ident = struct.unpack_from("<H", cga, gridoff + 18)[0]
-    for p in props:                           # the props' offsets, absolute in THIS build's RAM form
-        if p.get("lane"):
-            p["lane"]["off"] += propoff
+    # SPEC.md 128.30.4.1: ONE part while its RAM form AND its identity form (128.15.7: the 8-byte layout the
+    # identity is taken over, which must lay out too) each fit one; past that TWO, a PICTURE part and a WORLD part
+    split = one_part_len(model, 4) > PARTMAX or one_part_len(model, 8) > PARTMAX or hack.get("split")
+    wcga = None
+    if not split:
+        cga = bytearray(encode_part(model, 4, fname))
+        cw = cga
+    else:
+        if (pth is not None or src.title_ln is not None) and not hack.get("twopath"):
+            raise CourseError("%s: the %s is %d bytes, over the %d one part may be, by %d - and the pathway and "
+                              "the title are always ONE part (SPEC.md 128.30.4.1)" % (
+                                  fname, "pathway" if pth is not None else "title", one_part_len(model, 4),
+                                  PARTMAX, one_part_len(model, 4) - PARTMAX))
+        for nm, ln in zip(("picture", "world"), two_part_lens(model, REC)):
+            if ln > PARTMAX:
+                raise CourseError("%s: the course's %s part is %d bytes, over the %d one part may be, by %d "
+                                  "(SPEC.md 128.30.4.1)" % (fname, nm, ln, PARTMAX, ln - PARTMAX))
+        cga, wcga = encode_parts(model, REC, fname, _hack=hack)
+        cga = bytearray(cga)
+        cw = wcga
+    gridoff = struct.unpack_from("<H", cw, 26)[0]
+    propoff = struct.unpack_from("<H", cw, 28)[0]
+    ident = struct.unpack_from("<H", cw, gridoff + 18)[0]
+    rl_, pm_ = _props_runs(model)
+    loff_ = part_layout2(model, REC)[0][1]["L"][0] if split else 0
+    for p in props:                           # the props' offsets, absolute in THIS build's RAM form (a two-part
+        if p.get("lane"):                     # course's pose maps in its picture part, SPEC.md 128.30.4.2)
+            p["lane"]["off"] += (loff_ - rl_) if split else propoff
         if "segoff" in p and p["kind"] in (PK_TUBE, PK_WINDMILL):
-            p["segoff"] += propoff
+            p["segoff"] += propoff - (pm_ if split else 0)
         if p["kind"] == PK_PLATFORM:
-            p["spoff"] += propoff
+            p["spoff"] += propoff - (pm_ if split else 0)
     if ident == 0:                            # BONANZA.DAT files nothing under 0 (128.14.25 item 6)
         raise CourseError("%s: the course's identity is 0, which BONANZA.DAT reserves for no course: "
                           "change anything in it (a seed, a tile)" % fname)
@@ -6397,6 +7336,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.ground, c.floats = ground, floats             # SPEC.md 128.27: the ground plane (px), the FLOATING cells
     c.pairs = pairs                                # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
+    c.ftabs = ftabs                                 # SPEC.md 128.28.2: section F's tables
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
     c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
@@ -6427,10 +7367,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (128.16.6)
     c.nflags = len(src.ckpts)
     c.branches = src.branches
-    # the forms (SPEC.md 128.15.12.1): .cga the RAM form under this build's RECB (the bytes the guest
+    # the forms (SPEC.md 128.15.12.1): .cga the RAM form (the bytes the guest
     # holds after bz_cexp and before bz_hxlat), .stored BZ<K>.BIN's, .herc the RAM form through htab();
-    # .cga8/.cga4 and .stored8/.stored4 both RECBs', .model what they all serialise
-    c.rec = rec_
+    # .model what they all serialise
     c.model = model
     # the model as it was before the dither (5b.6): item 1's comparison with the last BZC1 tree, which
     # proves that 5b moved the container and that the dither moved the masks and nothing else
@@ -6441,18 +7380,25 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             umasks.append(r["mask"])
     c.model_u = dict(model, masks=umasks,
                      recs=[(r["brow"], r["col"], r["s"], r["top"], uidx[r["mask"]]) for r in records])
-    c.cga8, c.cga4 = cga8, cga4
-    c.stored8 = stored_form(model, 8, cga8, fname)
-    c.stored4 = stored_form(model, 4, cga4, fname)
     c.cga = bytes(cga)
-    c.stored = c.stored4 if rec_ == 4 else c.stored8
+    c.stored = stored_form(model, REC, c.cga, fname)
     if expand(c.stored, fname) != c.cga:        # the build's own check; --selfcheck item 10 does both and more
         raise CourseError("%s: the stored form does not expand to the RAM form" % fname)
+    # SPEC.md 128.30: a TWO-PART course - .cga and .stored its PICTURE part's, .wcga and .wstored its WORLD
+    # part's (None for one part), each stored and expanded on its own
+    c.split = bool(split)
+    c.wcga = bytes(wcga) if wcga is not None else None
+    c.wstored = stored_form(model, REC, c.wcga, fname) if split else None
+    if split and expand(c.wstored, fname) != c.wcga:
+        raise CourseError("%s: the world part's stored form does not expand to its RAM form" % fname)
     c.part_bytes = c.stored             # the ONE part, BZ<K>.BIN (SPEC.md 128.11.3), as STORED (128.15.4.3)
-    c.herc = herc_translate_course(c.cga)   # what the guest makes of it on the Hercules
+    if split:                           # what the guest makes of it on the Hercules
+        c.herc, c.wherc = herc_translate_parts(c.cga, c.wcga)
+    else:
+        c.herc, c.wherc = herc_translate_course(c.cga), None
     c.gtop, c.ftop = gtop, ftop
     c.target = src.target[0] if src.target else None
-    c.part = read_part(c.cga, fname)
+    c.part = read_parts(c.cga, c.wcga, fname) if split else read_part(c.cga, fname)
     c.exits = {}
     if props and not hack.get("no_exits"):
         check_exits(c)
@@ -6882,13 +7828,13 @@ def lane_pose_verdicts(L, reach, x0, y0, cv):
 
 
 # =============================================================================
-# BZC2 (SPEC.md 128.15.4): the part's MODEL, its RAM forms (RECB 8 and 4), its
-# stored form, the host's model of the guest's expander, and the identity
+# BZC2 (SPEC.md 128.15.4): the part's MODEL, its RAM form (RECB 4; the 8-byte form is
+# the identity's only), its stored form, the host's model of the guest's expander, and the identity
 # =============================================================================
 #
 # A course compiles to a MODEL - what the part says, with no offset in it - and
-# every form is a serialisation of the model: the RAM form under either record
-# size (`encode_part`), wave 4's BZC1 (the item 1 comparison), and the stored
+# every form is a serialisation of the model: the RAM form (`encode_part`) and the
+# identity's 8-byte form (`identity_form`), wave 4's BZC1 (the item 1 comparison), and the stored
 # form BZ<K>.BIN carries (`stored_form`).  `decode_part` reads any of the RAM
 # forms back into the model, so read_part can take the identity over C's RAM
 # form whatever the part's RECB, and can require a part to be exactly its own
@@ -6946,8 +7892,8 @@ def part_layout(m, recb, bzc2=True):
             ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if bzc2 and recb == 4:
         lens.append(("O", 2 * len(m["masks"])))
-    lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")), ("T", 2 * g["nrows"]),
-             ("W", 4 * len(m["route"]))]
+    lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
+             ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
     if m["props"]:
         lens.append(("P", len(m["props"]["blob"])))
     off = HDR if bzc2 else HDR1
@@ -7026,6 +7972,8 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         for i in range(0, len(m["cells"]), 4):
             if m["cells"][i + 2] & 15 in SPLIT_KINDS:
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
+    if m.get("ftabs"):                              # SPEC.md 128.28.2: F after D, PLAIN
+        b[sec["F"][0]:sec["F"][0] + len(m["ftabs"])] = m["ftabs"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
     for i, (x, y) in enumerate(m["route"]):
@@ -7072,6 +8020,13 @@ def encode_part(m, recb, fname="<course>"):
     return bytes(_encode(m, recb, ident=ident, fname=fname))
 
 
+def identity_form(c):
+    """SPEC.md 128.15.7: the 8-byte-record layout of a ONE-part course's model, the form its identity is
+    Fletcher'd over (the guest's records are 4 bytes; this is the identity's own bytes, derived from the
+    model, never a RAM form that ships)"""
+    return encode_part(c.model, 8, c.name)
+
+
 def encode_bzc1(m):
     """the model as wave 4's BZC1 (SPEC.md 128.10.5.1): the header's first 32
     bytes, 8-byte records, no directory, 128.12.8's identity over the whole
@@ -7110,9 +8065,11 @@ def decode_part(p):
     nfam, famoff = struct.unpack_from("<BH", p, 45) if bzc2 else (0, 0)
     celloff = gridoff + GHDR
     cells = bytearray(p[celloff:celloff + 4 * kw * nrows])
-    pairs = b""
+    pairs = ftabs = b""
     for j in range(nsec):                           # SPEC.md 128.24.5.2: section D, if there is one
         tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
+        if tag == ord("F"):                         # SPEC.md 128.28.2: section F, the FIELD tables
+            ftabs = bytes(p[off:off + ln])
         if tag == ord("D"):
             pairs = bytes(p[off:off + ln])
             for i in range(0, len(cells), 4):
@@ -7122,7 +8079,7 @@ def decode_part(p):
          "recs": recs, "masks": masks,
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
                   "gflags": gflags, "padmask": padmask, "view": gview},
-         "cells": bytes(cells), "pairs": pairs,
+         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (diroff - pthoff) if pthoff else 0,
          "npages": npages, "fam": ((pthoff or diroff) - famoff) if famoff else 0, "nfam": nfam}
@@ -7148,6 +8105,310 @@ def decode_part(p):
             struct.pack_into("<H", pb, o, (struct.unpack_from("<H", pb, o)[0] - blkoff) & 0xFFFF)
         m["props"] = {"n": nprop, "blob": bytes(pb), "self": selfp, "blk": blkp}
     return m
+
+
+# --- SPEC.md 128.30: THE TWO-PART COURSE ------------------------------------
+#
+# The same model, serialised as a PICTURE part (M B I R K O and L, the lanes' pose maps: everything the frame
+# writers, the occluder pass and the wheel's commit read) and a WORLD part (G C D T W P: everything physics,
+# the families and the wheel's record reads read), each a BZC2 part of its own with the SAME header but its
+# magic and its directory (+38 DIROFF, +40 NSEC), each offset field its section's offset in the part that
+# holds it.  The pose maps are the one thing that moves: a one-part course keeps them in P after the records.
+
+def _props_runs(m):
+    """the props blob's first two runs (SPEC.md 128.12.3.1): (the records' bytes, the lanes' pose maps' bytes
+    straight after them) - a lane's 2 poses w h"""
+    pr = m["props"]
+    if not pr:
+        return 0, 0
+    blob, pm = pr["blob"], 0
+    for i in range(pr["n"]):
+        r = PROPREC * i
+        if blob[r + 1] & PF_LANE:
+            pm += 2 * blob[r + 13] * blob[r + 11] * blob[r + 12]
+    return PROPREC * pr["n"], pm
+
+
+def one_part_len(m, recb):
+    """the ONE-part RAM form's length under RECB `recb`, from the layout alone: a course past 64KB is
+    measured, never packed into a 16-bit offset"""
+    order, sec, end = part_layout(m, recb)
+    return end + DIRENT * sum(1 for t in order if sec[t][1])
+
+
+def part_layout2(m, recb):
+    """SPEC.md 128.30.4.2: [(order, {tag: (offset, RAM length)}, the sections' end)] for the picture part and
+    the world part, each from HDR, empty sections included as part_layout's"""
+    g = m["grid"]
+    _rl, pm = _props_runs(m)
+    la = [("M", 2 * m["cols"] * m["brows"]), ("B", len(m["blocks"])), ("I", 2 * (m["brows"] + 1)),
+          ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
+    if recb == 4:
+        la.append(("O", 2 * len(m["masks"])))
+    la.append(("L", pm))
+    lb = [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
+          ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
+    if m["props"]:
+        lb.append(("P", len(m["props"]["blob"]) - pm))
+    out = []
+    for lens in (la, lb):
+        off, sec = HDR, {}
+        for t, n in lens:
+            sec[t] = (off, n)
+            off += n
+        out.append(([t for t, _n in lens], sec, off))
+    return out
+
+
+def two_part_lens(m, recb):
+    """the two parts' RAM lengths under RECB `recb` (from the layout: nothing packed)"""
+    return tuple(end + DIRENT * sum(1 for t in order if sec[t][1]) for order, sec, end in part_layout2(m, recb))
+
+
+def _encode2(m, recb, ident=0, fname="<course>"):
+    """SPEC.md 128.30.4.2: the model as its two parts under RECB `recb` -> (picture, world), bytearrays"""
+    (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb)
+    cols, brows, g = m["cols"], m["brows"], m["grid"]
+    recs, masks = m["recs"], m["masks"]
+    rl, pm = _props_runs(m)
+    blkoff, occidx, occrec, maskoff, loff = sa["B"][0], sa["I"][0], sa["R"][0], sa["K"][0], sa["L"][0]
+    gridoff, celloff, rowtab, routeoff = sb["G"][0], sb["C"][0], sb["T"][0], sb["W"][0]
+    propoff = sb["P"][0] if "P" in sb else 0
+    nprop = m["props"]["n"] if m["props"] else 0
+    plen = len(m["props"]["blob"]) - pm if m["props"] else 0
+    SB, TB = rec_biases(recs, fname) if recb == 4 else (0, 0)
+    pa, pb = [t for t in oa if sa[t][1]], [t for t in ob if sb[t][1]]
+    for ln in (ea + DIRENT * len(pa), eb + DIRENT * len(pb)):
+        if ln > 0xFFFF:
+            raise CourseError("%s: a part of %d bytes: past what a 16-bit offset reaches" % (fname, ln))
+    hdr = bytearray(HDR)
+    struct.pack_into("<13H", hdr, 4, cols, brows, len(m["blocks"]) // 16, 4 if cols == 64 else 5, blkoff, occidx,
+                     occrec, len(recs), maskoff, len(masks), 2 * cols, gridoff, propoff)
+    struct.pack_into("<H", hdr, 30, nprop)
+    struct.pack_into("<BbhH", hdr, 32, recb, SB, TB, sa["O"][0] if recb == 4 else 0)
+    if m.get("pth"):                                # the pathway's tables and its family list, in the WORLD part
+        struct.pack_into("<HB", hdr, 42, propoff + plen - m["pth"], m.get("npages", 0))
+    if m.get("fam"):
+        struct.pack_into("<BH", hdr, 45, m["nfam"], propoff + plen - m.get("pth", 0) - m["fam"])
+    a, b = bytearray(ea + DIRENT * len(pa)), bytearray(eb + DIRENT * len(pb))
+    for buf, magic, end, present in ((a, MAGIC_PIC, ea, pa), (b, MAGIC_WORLD, eb, pb)):
+        buf[0:HDR] = hdr
+        buf[0:4] = magic
+        struct.pack_into("<HH", buf, 38, end, len(present))
+    # the PICTURE part: the map, the blocks, the occluders, the mask table, the pose maps
+    struct.pack_into("<%dH" % len(m["idx"]), a, HDR, *[blkoff + 16 * i for i in m["idx"]])
+    a[blkoff:blkoff + len(m["blocks"])] = m["blocks"]
+    cnt = [0] * brows
+    for r in recs:
+        cnt[r[0]] += 1
+    x = 0
+    for br in range(brows + 1):
+        struct.pack_into("<H", a, occidx + 2 * br, occrec + recb * x)
+        if br < brows:
+            x += cnt[br]
+    for i, (br, col, s, top, mi) in enumerate(recs):
+        if recb == 8:
+            struct.pack_into("<BBHhH", a, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
+        else:
+            a[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TB, mi))
+    for i, mk in enumerate(masks):
+        a[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
+    if recb == 4:
+        for i in range(len(masks)):
+            struct.pack_into("<H", a, sa["O"][0] + 2 * i, maskoff + 16 * i)
+    blob = m["props"]["blob"] if m["props"] else b""
+    if pm:
+        lb = bytearray(blob[rl:rl + pm])
+        for o in m["props"]["blk"]:                 # a pose map word: a block offset, in THIS part
+            if not rl <= o < rl + pm:
+                raise CourseError("%s: a pose map word at %d of the props, outside their pose maps" % (fname, o))
+            struct.pack_into("<H", lb, o - rl, struct.unpack_from("<H", blob, o)[0] + blkoff)
+        a[loff:loff + pm] = lb
+    # the WORLD part: the grid's header, the cells, the split pairs, ROWTAB, the route, the props
+    b[gridoff:gridoff + GHDR] = (b"BZG1" + struct.pack("<HhhHHHhH", g["nrows"], g["smin"], g["amin"], g["kw"],
+                                                        rowtab, g["x0"], g["y0"], ident)
+                                 + struct.pack("<HHHH", g["swx"], g["swy"], len(m["route"]), routeoff)
+                                 + struct.pack("<BBH", g["gflags"], g["padmask"], g.get("view", 0)))
+    b[celloff:celloff + len(m["cells"])] = m["cells"]
+    if m.get("pairs"):
+        doff = sb["D"][0]
+        b[doff:doff + len(m["pairs"])] = m["pairs"]
+        for i in range(0, len(m["cells"]), 4):
+            if m["cells"][i + 2] & 15 in SPLIT_KINDS:
+                struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
+    if m.get("ftabs"):                              # SPEC.md 128.28.2: F after D, PLAIN, in the WORLD part
+        b[sb["F"][0]:sb["F"][0] + len(m["ftabs"])] = m["ftabs"]
+    for r in range(g["nrows"]):
+        struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
+    for i, (x_, y_) in enumerate(m["route"]):
+        struct.pack_into("<HH", b, routeoff + 4 * i, x_, y_)
+    if m["props"]:
+        pw = bytearray(blob[:rl] + blob[rl + pm:])
+        for o in m["props"]["self"]:                # every offset word sits in a record
+            if o >= rl:
+                raise CourseError("%s: an offset word at %d of the props, past their records" % (fname, o))
+            v = struct.unpack_from("<H", blob, o)[0]
+            v = loff + v - rl if rl <= v < rl + pm else propoff + v - (pm if v >= rl + pm else 0)
+            struct.pack_into("<H", pw, o, v)
+        b[propoff:propoff + len(pw)] = pw
+    for buf, sec, end, present in ((a, sa, ea, pa), (b, sb, eb, pb)):
+        for j, t in enumerate(present):
+            off, ln = sec[t]
+            struct.pack_into("<BBHHH", buf, end + DIRENT * j, ord(t), SEC_FORM[t], off, ln, stored_len(t, m, ln))
+    return a, b
+
+
+def _ident_bytes2(a, b):
+    """SPEC.md 128.30.4.3: a two-part course's words for the identity, its picture part's and then its world
+    part's, the identity word (the world part's BZG1 +18) and each directory entry's FORM byte and STORED
+    LENGTH taken as 0"""
+    a, b = bytearray(a), bytearray(b)
+    g = struct.unpack_from("<H", b, 26)[0]
+    b[g + 18:g + 20] = b"\0\0"
+    for p in (a, b):
+        diroff, nsec = struct.unpack_from("<HH", p, 38)
+        for j in range(nsec):
+            e = diroff + DIRENT * j
+            p[e + 1] = 0
+            p[e + 6:e + 8] = b"\0\0"
+    return bytes(a) + bytes(b)
+
+
+def ram_identity2(a, b):
+    """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (128.30.4.3), a
+    RECB 8 build's parts re-encoded as D first"""
+    if a[32] != 4:
+        a, b = _encode2(decode_parts(a, b), 4)
+    return _fletcher(_ident_bytes2(a, b))
+
+
+def encode_parts(m, recb, fname="<course>", _hack=None):
+    """the model's two parts under RECB `recb`, the identity stamped -> (picture, world) bytes.  _hack:
+    --selfcheck item 15's red arm `ident1` (the identity over the world part alone)"""
+    a4, b4 = _encode2(m, 4, fname=fname)
+    ib = _ident_bytes2(a4, b4)
+    ident = _fletcher(ib[len(a4):] if (_hack or {}).get("ident1") else ib)
+    return tuple(bytes(x) for x in _encode2(m, recb, ident=ident, fname=fname))
+
+
+def decode_parts(a, b):
+    """a two-part course's RAM forms (SPEC.md 128.30.4.2) -> the model a one-part compile of it has
+    (decode_part's): the pose maps back in the props blob after the records.  Reads; does not check
+    (read_parts checks, and then calls this)"""
+    (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
+     propoff) = struct.unpack_from("<13H", a, 4)
+    nprop = struct.unpack_from("<H", a, 30)[0]
+    recb, SB, TB, mtab = struct.unpack_from("<BbhH", a, 32)
+
+    def ents(p):
+        do, ns = struct.unpack_from("<HH", p, 38)
+        return {chr(p[do + DIRENT * j]): struct.unpack_from("<HH", p, do + DIRENT * j + 2) for j in range(ns)}
+    ea, eb = ents(a), ents(b)
+    dirb = struct.unpack_from("<H", b, 38)[0]
+    idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), a, HDR)]
+    oi = struct.unpack_from("<%dH" % (brows + 1), a, occidx)
+    recs = []
+    for br in range(brows):
+        for k in range((oi[br] - occrec) // recb, (oi[br + 1] - occrec) // recb):
+            if recb == 8:
+                col, z, s, top, moff = struct.unpack_from("<BBHhH", a, occrec + 8 * k)
+                recs.append((br, col, s, top, (moff - maskoff) // 16))
+            else:
+                col, s_, t_, mi = a[occrec + 4 * k:occrec + 4 * k + 4]
+                recs.append((br, col, s_ + br - SB, t_ + TB, mi))
+    masks = [bytes(a[maskoff + 16 * i:maskoff + 16 * i + 16]) for i in range(nmask)]
+    nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", b, gridoff + 4)
+    swx, swy, nway, routeoff = struct.unpack_from("<HHHH", b, gridoff + 20)
+    gflags, padmask, gview = struct.unpack_from("<BBH", b, gridoff + 28)
+    pthoff, npages = struct.unpack_from("<HB", b, 42)
+    nfam, famoff = struct.unpack_from("<BH", b, 45)
+    celloff = gridoff + GHDR
+    cells = bytearray(b[celloff:celloff + 4 * kw * nrows])
+    pairs = b""
+    if "D" in eb:
+        off, ln = eb["D"]
+        pairs = bytes(b[off:off + ln])
+        for i in range(0, len(cells), 4):
+            if cells[i + 2] & 15 in SPLIT_KINDS:
+                struct.pack_into("<H", cells, i, (struct.unpack_from("<H", cells, i)[0] - off) & 0xFFFF)
+    ftabs = bytes(b[eb["F"][0]:eb["F"][0] + eb["F"][1]]) if "F" in eb else b""   # (SPEC.md 128.28.2)
+    m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(a[blkoff:blkoff + 16 * nblk]),
+         "recs": recs, "masks": masks,
+         "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
+                  "gflags": gflags, "padmask": padmask, "view": gview},
+         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
+         "route": [struct.unpack_from("<HH", b, routeoff + 4 * i) for i in range(nway)], "ways": None,
+         "props": None, "pth": (dirb - pthoff) if pthoff else 0,
+         "npages": npages, "fam": ((pthoff or dirb) - famoff) if famoff else 0, "nfam": nfam}
+    if nprop:
+        pw = bytearray(b[propoff:dirb])
+        rl = PROPREC * nprop
+        loff, pm = ea.get("L", (0, 0))
+        pmb = bytearray(a[loff:loff + pm])
+        selfp, blkp = [], []
+        for i in range(nprop):
+            r = PROPREC * i
+            kind, flags = pw[r], pw[r + 1]
+            if flags & PF_LANE:
+                brow, col, w, h, poses, pmo = struct.unpack_from("<HBBBBH", pw, r + 8)
+                selfp.append(r + 14)
+                struct.pack_into("<H", pw, r + 14, (rl + pmo - loff) & 0xFFFF)
+                for k in range(poses * w * h):
+                    blkp.append(rl + pmo - loff + 2 * k)
+            if kind in (PK_TUBE, PK_WINDMILL):
+                o = r + 20
+            elif kind == PK_PLATFORM:
+                o = r + 22
+            else:
+                continue
+            selfp.append(o)
+            struct.pack_into("<H", pw, o, (struct.unpack_from("<H", pw, o)[0] - propoff + pm) & 0xFFFF)
+        for k in range(0, pm, 2):
+            struct.pack_into("<H", pmb, k, (struct.unpack_from("<H", pmb, k)[0] - blkoff) & 0xFFFF)
+        m["props"] = {"n": nprop, "blob": bytes(pw[:rl] + pmb + pw[rl:]), "self": selfp, "blk": blkp}
+    return m
+
+
+def models_equal(m1, m2):
+    """two models say the same course (the route's way tiles, which only a compile has, apart; the props'
+    offset-word lists as sets)"""
+    def norm(m):
+        d = dict(m, ways=None)
+        if d["props"]:
+            d["props"] = dict(d["props"], self=sorted(d["props"]["self"]), blk=sorted(d["props"]["blk"]))
+        d["grid"] = dict(d["grid"])
+        d["grid"].setdefault("view", 0)
+        return d
+    return norm(m1) == norm(m2)
+
+
+def course_model(c):
+    """the model a course's RAM form(s) hold, read back (decode_part, or decode_parts for two)"""
+    return decode_parts(c.cga, c.wcga) if getattr(c, "wcga", None) else decode_part(c.cga)
+
+
+def herc_translate_parts(a, b):
+    """SPEC.md 128.30.5: bz_hxlat on a two-part course - the picture part's blocks, the world part's lifts'
+    sprites (each part through herc_translate_course's rule) -> (picture, world)"""
+    t = htab()
+    a, b = bytearray(a), bytearray(b)
+    nblk, _, blkoff = struct.unpack_from("<HHH", a, 8)
+    for i in range(16 * nblk):
+        o = blkoff + i
+        a[o] = t[256 * ((i >> 1) & 1) + a[o]]
+    propoff, nprop = struct.unpack_from("<HH", b, 28)
+    rb = PL_W // 4
+    for k in range(nprop):
+        r0 = propoff + PROPREC * k
+        if b[r0] == PK_PLATFORM:
+            so = struct.unpack_from("<H", b, r0 + 22)[0]
+            for cp in range(2):
+                fo = so + cp * 2 * rb * PL_H + rb * PL_H
+                for r in range(PL_H):
+                    for j in range(rb):
+                        o = fo + rb * r + j
+                        b[o] = t[256 * ((cp + r) & 1) + b[o]]
+    return bytes(a), bytes(b)
 
 
 # --- the stored form (128.15.4.3, 128.15.4.4) --------------------------------
@@ -7233,6 +8494,8 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
         if kd & 15 == KIND_VOID:
             V.append(0xFF)
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.28.2: its base (its +1 is no slopes)
+            V.append(vrec(_s8(z0), 0))
         elif kd & 15 in SPLIT_KINDS and not _no_halves:
             hs = pair(cells[4 * i] | cells[4 * i + 1] << 8, NREC[kd & 15])
             H[i] = hs
@@ -7451,10 +8714,12 @@ def part_forms(courses):
     """BZ_FORMS: a mask of the forms the parts use (128.15.4.5)"""
     mask = 0
     for c in courses:
-        p = c.cga
-        diroff, nsec = struct.unpack_from("<HH", p, 38)
-        for j in range(nsec):
-            mask |= 1 << p[diroff + DIRENT * j + 1]
+        for p in (c.cga, c.wcga):                   # (a two-part course's world part too, SPEC.md 128.30)
+            if p is None:
+                continue
+            diroff, nsec = struct.unpack_from("<HH", p, 38)
+            for j in range(nsec):
+                mask |= 1 << p[diroff + DIRENT * j + 1]
     return mask
 
 
@@ -7463,6 +8728,27 @@ def restamp(b):
     g = struct.unpack_from("<H", b, 26)[0]
     struct.pack_into("<H", b, g + 18, ram_identity(bytes(b)))
     return b
+
+
+def world_of(c):
+    """the RAM part a course's grid, route and records are in: its WORLD part when it is two (SPEC.md 128.30.4.2),
+    else its one part - the bytes c.part's grid and prop offsets index"""
+    return c.wcga if c.split else c.cga
+
+
+def restamp_world(c, b):
+    """--selfcheck's controls: a changed world_of(c) re-stamped with its course's identity rule (128.15.7 for one
+    part, 128.30.4.3's over the picture part and B for two)"""
+    if not c.split:
+        return restamp(b)
+    g = struct.unpack_from("<H", b, 26)[0]
+    struct.pack_into("<H", b, g + 18, ram_identity2(c.cga, bytes(b)))
+    return b
+
+
+def read_world(c, b, fname=None):
+    """the reader over a changed world_of(c): read_part, or read_parts with the course's own picture part"""
+    return read_parts(c.cga, bytes(b), fname or c.name) if c.split else read_part(bytes(b), fname or c.name)
 
 
 # =============================================================================
@@ -7477,18 +8763,40 @@ def read_part(p, fname="<part>"):
     identity over C's RAM form (128.15.7), and finally the part being its own
     model's serialisation byte for byte (the canonical layout).  The records
     come back as (col, s, top, mask offset) whatever the RECB"""
+    return _read_bzc2(p, p, fname)
+
+
+def read_parts(a, b, fname="<course>"):
+    """SPEC.md 128.30.4.2: a TWO-PART course's RAM forms, its PICTURE part (BZP2: M B I R K O L) and its WORLD
+    part (BZW2: G C D T W P), checked by read_part's rules over the sections each holds - the two headers the
+    same but their magic and directory, each directory its own part's - and the identity (128.30.4.3) and the
+    canonical layout over the two.  The same dict as read_part's, with split True and each directory entry's
+    part (0 the picture, 1 the world)"""
+    return _read_bzc2(a, b, fname, split=True)
+
+
+def _read_bzc2(p, pw, fname, split=False):
+    """read_part and read_parts: p the part (the PICTURE part's bytes), pw the WORLD part's (p itself for one
+    part).  Every check that reads the map, the blocks or the occluders reads p, every one that reads the grid,
+    the route or the props reads pw"""
     def bad(field, why):
         raise CourseError("%s: part field %s: %s" % (fname, field, why))
 
     n = len(p)
-    if n < HDR or p[:4] != b"BZC2":
-        bad("magic", "not BZC2")
-    if n > PARTMAX:
-        bad("length", "%d over %d" % (n, PARTMAX))
+    for q, magic in (((p, MAGIC_PIC), (pw, MAGIC_WORLD)) if split else ((p, b"BZC2"),)):
+        if len(q) < HDR or q[:4] != magic:
+            bad("magic", "not %s" % magic.decode())
+        if len(q) > PARTMAX:
+            bad("length", "%d over %d" % (len(q), PARTMAX))
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", p, 4)
     nprop = struct.unpack_from("<H", p, 30)[0]
     recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", p, 32)
+    nw = len(pw)
+    wdiroff, wnsec = struct.unpack_from("<HH", pw, 38)
+    if split and (p[4:38] != pw[4:38] or p[42:HDR] != pw[42:HDR]):
+        bad("header", "the world part's header is not the picture part's (SPEC.md 128.30.4.2: the same but the "
+            "magic, DIROFF and NSEC)")
     if cols not in (64, 128) or cols > COLS_MAX:
         bad("COLS", str(cols))
     if mapsh != (4 if cols == 64 else 5):
@@ -7516,58 +8824,75 @@ def read_part(p, fname="<part>"):
         bad("MTAB", "offset %d, not MASKOFF + 16 NMASK" % mtab)
     if recb == 4 and nmask > 256:
         bad("NMASK", "%d, over the 256 a record's index byte names" % nmask)
-    if gridoff != maskoff + 16 * nmask + (2 * nmask if recb == 4 else 0):
+    maskend = maskoff + 16 * nmask + (2 * nmask if recb == 4 else 0)      # the mask table's end
+    if gridoff != (HDR if split else maskend):
         bad("GRIDOFF", str(gridoff))
     if bool(propoff) != bool(nprop) or nprop > PROP_ALL:
         bad("PROPOFF", "offset %d with %d props" % (propoff, nprop))
-    if gridoff + GHDR > n:
+    if gridoff + GHDR > nw:
         bad("GRIDOFF", "past the part")
     # the directory (128.15.4.2): the part's last 8 NSEC bytes, the entries in RAM order tiling [48, DIROFF)
     if nsec > NSEC_MAX or diroff + DIRENT * nsec != n:
         bad("DIROFF", "%d with %d entries, the part %d bytes" % (diroff, nsec, n))
-    nrows, kw, rowtab = struct.unpack_from("<H", p, gridoff + 4)[0], struct.unpack_from("<H", p, gridoff + 10)[0], \
-        struct.unpack_from("<H", p, gridoff + 12)[0]
-    nway, routeoff = struct.unpack_from("<HH", p, gridoff + 24)
+    if split and (wnsec > NSEC_MAX or wdiroff + DIRENT * wnsec != nw):
+        bad("DIROFF", "the world part's %d with %d entries, the part %d bytes" % (wdiroff, wnsec, nw))
+    dirs = [(p, diroff, nsec)] + ([(pw, wdiroff, wnsec)] if split else [])
+    nrows, kw, rowtab = struct.unpack_from("<H", pw, gridoff + 4)[0], struct.unpack_from("<H", pw, gridoff + 10)[0], \
+        struct.unpack_from("<H", pw, gridoff + 12)[0]
+    nway, routeoff = struct.unpack_from("<HH", pw, gridoff + 24)
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
-    dlen = 0                                        # SPEC.md 128.24.5.2: section D's length, its entry's alone
-    for j in range(nsec):
-        if p[diroff + DIRENT * j] == ord("D"):
-            dlen = struct.unpack_from("<H", p, diroff + DIRENT * j + 4)[0]
+    dlen = flen = 0                                 # SPEC.md 128.24.5.2: section D's length, its entry's alone
+    llen = 0                                        # (and 128.28.2: F's; 128.30.4.2: L's, two parts only)
+    for q, do, ns in dirs:
+        for j in range(ns):
+            if q[do + DIRENT * j] == ord("D"):
+                dlen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
+            if q[do + DIRENT * j] == ord("F"):
+                flen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
+            if q[do + DIRENT * j] == ord("L"):
+                llen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
     want = [("M", HDR, 2 * cols * brows), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, 2 * nmask))
+    if split:                                       # SPEC.md 128.30.4.2: the pose maps, the picture part's last
+        want.append(("L", maskend, llen))
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
-             ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
+             ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("F", gridoff + GHDR + 4 * kw * nrows + dlen, flen),
+             ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
     if nprop:
-        want.append(("P", propoff, diroff - propoff))
+        want.append(("P", propoff, (wdiroff if split else diroff) - propoff))
     wantd = {t: (o, ln) for t, o, ln in want}
-    ents, at, seen = [], HDR, set()
-    for j in range(nsec):
-        tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
-        t = chr(tag)
-        ents.append({"tag": t, "form": form, "off": off, "len": ln, "dlen": dl})
-        where = "directory entry %d (%s)" % (j, t if t in SEC_FORM else "tag %02Xh" % tag)
-        if t not in SEC_FORM:
-            bad(where, "an unknown tag")
-        if t in seen:
-            bad(where, "the tag a second time")
-        seen.add(t)
-        if not ln:
-            bad(where, "a section of length 0 has no entry")
-        if off != at:
-            bad(where, "at %d, where the entries before it end at %d (sorted, no gap)" % (off, at))
-        if t not in wantd:
-            bad(where, "%s, which a RECB %d part does not have" % (SEC_NAMES[t], recb))
-        if (off, ln) != wantd[t]:
-            bad(where, "(%d, %d), where its header fields put %s at (%d, %d)" % (off, ln, SEC_NAMES[t],
-                                                                              wantd[t][0], wantd[t][1]))
-        if form != SEC_FORM[t]:
-            bad(where, "form %d, not %d (%s)" % (form, SEC_FORM[t], FORM_NAMES[SEC_FORM[t]]))
-        at = off + ln
-    if at != diroff:
-        bad("directory", "the entries end at %d, DIROFF is %d" % (at, diroff))
+    ents, seen = [], set()
+    for k, (q, do, ns) in enumerate(dirs):
+        at = HDR
+        for j in range(ns):
+            tag, form, off, ln, dl = struct.unpack_from("<BBHHH", q, do + DIRENT * j)
+            t = chr(tag)
+            ents.append({"tag": t, "form": form, "off": off, "len": ln, "dlen": dl, "part": k})
+            where = "%sdirectory entry %d (%s)" % ("the world part's " if k else "", j,
+                                                   t if t in SEC_FORM else "tag %02Xh" % tag)
+            if t not in SEC_FORM:
+                bad(where, "an unknown tag")
+            if t in seen:
+                bad(where, "the tag a second time")
+            seen.add(t)
+            if not ln:
+                bad(where, "a section of length 0 has no entry")
+            if off != at:
+                bad(where, "at %d, where the entries before it end at %d (sorted, no gap)" % (off, at))
+            if t not in wantd or (split and (t in PIC_TAGS) != (k == 0)):
+                bad(where, "%s, which a RECB %d %s does not have" % (
+                    SEC_NAMES[t], recb, ("world part" if k else "picture part") if split else "part"))
+            if (off, ln) != wantd[t]:
+                bad(where, "(%d, %d), where its header fields put %s at (%d, %d)" % (off, ln, SEC_NAMES[t],
+                                                                                  wantd[t][0], wantd[t][1]))
+            if form != SEC_FORM[t]:
+                bad(where, "form %d, not %d (%s)" % (form, SEC_FORM[t], FORM_NAMES[SEC_FORM[t]]))
+            at = off + ln
+        if at != do:
+            bad("directory", "%sthe entries end at %d, DIROFF is %d" % ("the world part's: " if k else "", at, do))
     for t, o, ln in want:
         if ln and t not in seen:
             bad("directory", "no entry for %s (%s, %d bytes at %d)" % (t, SEC_NAMES[t], ln, o))
@@ -7597,7 +8922,7 @@ def read_part(p, fname="<part>"):
             col, z, s, top, moff = struct.unpack_from("<BBHhH", p, occrec + 8 * i)
             if col >= cols or z:
                 bad("record %d" % i, "column %d" % col)
-            if moff < maskoff or moff + 16 > gridoff or (moff - maskoff) % 16:
+            if moff < maskoff or moff + 16 > maskend or (moff - maskoff) % 16:
                 bad("record %d" % i, "mask offset %d" % moff)
             recs.append((col, s, top, moff))
         else:
@@ -7618,13 +8943,16 @@ def read_part(p, fname="<part>"):
         row = recs[(idx[br] - occrec) // recb:(idx[br + 1] - occrec) // recb]
         if [r[:2] for r in row] != sorted(r[:2] for r in row):
             bad("records of block row %d" % br, "not sorted by column, then s")
+    p_, p = p, pw                                   # (from here the world part's: the grid, the route, the props)
+    pdiroff = diroff
+    diroff = wdiroff if split else diroff
     g = gridoff
     if p[g:g + 4] != b"BZG1":
         bad("BZG1", "magic")
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, g + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, g + 20)
     gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
-    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT) or padmask & ~7
+    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) or padmask & ~7
             or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
             or (gflags & GF_CUP and not gflags & GF_CKPT)):
         bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
@@ -7639,8 +8967,14 @@ def read_part(p, fname="<part>"):
         bad("AMIN", "odd")
     celloff = g + GHDR
     cellend = doff = celloff + 4 * nrows * kw
-    if rowtab != cellend + dlen:
+    if rowtab != cellend + dlen + flen:
         bad("ROWTAB", "offset %d" % rowtab)
+    foff = cellend + dlen                           # SPEC.md 128.28.2: section F, after D
+    if flen % FTAB or flen > FTAB * FSHAPE_MAX or bool(gflags & GF_FIELD) != bool(flen):
+        bad("F", "%d bytes (tables of %d, at most %d), GF_FIELD %s" % (flen, FTAB, FSHAPE_MAX,
+                                                                        "set" if gflags & GF_FIELD else "clear"))
+    fnamed = set()
+    fcells = {}
     rt = struct.unpack_from("<%dH" % nrows, p, rowtab)
     for r, o in enumerate(rt):
         if o < celloff or o + 4 * kw > cellend:
@@ -7683,6 +9017,18 @@ def read_part(p, fname="<part>"):
             floors = {h[2] >> 4 for h in hs if h[2] & 15 in (KIND_FLOOR, KIND_GOAL)}
             if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
                 bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.28.2: a FIELD cell names a table of F
+            if fshape(sl) * FTAB >= flen or kd >> 4 != SURF_NORMAL or fl & ~(FL_OCC | FL_OCCG) \
+                    or (fl & FL_OCCG and not fl & FL_OCC):
+                bad("cell %d" % i, "a FIELD cell's shape %d of %d, symmetry byte %02Xh, surface %d, flags %02Xh"
+                    % (fshape(sl), flen // FTAB, sl, kd >> 4, fl))
+            fnamed.add(fshape(sl))
+            r_, k_ = divmod(i, kw)
+            s_ = smin + r_
+            a_ = amin + 2 * k_ + (s_ & 1)
+            tab = p[foff + FTAB * fshape(sl):foff + FTAB * fshape(sl) + FTAB]
+            fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[16 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
+                                                        for v in range(17)]
         elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
                 or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
@@ -7697,6 +9043,20 @@ def read_part(p, fname="<part>"):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
+    if len(fnamed) * FTAB != flen:
+        bad("F", "%d tables, %d of them named by a cell (every table is)" % (flen // FTAB, len(fnamed)))
+    for (fx, fy), h in sorted(fcells.items()):      # SPEC.md 128.28.2: the slope bound and the SEAM rule
+        for v in range(16):
+            for u in range(16):
+                sx_, sy_ = fslopes(h, u, v)
+                if abs(sx_) + abs(sy_) > FSLOPE_MAX:
+                    bad("F", "FIELD cell (%d, %d)'s slopes (%d, %d) at (%d, %d)" % (fx, fy, sx_, sy_, u, v))
+        for dx, dy in ((1, 0), (0, 1)):
+            n_ = fcells.get((fx + dx, fy + dy))
+            if n_ is not None and any((h[k][16] if dx else h[16][k]) != (n_[k][0] if dx else n_[0][k])
+                                      for k in range(17)):
+                bad("F", "FIELD cells (%d, %d) and (%d, %d) differ along their shared edge (the SEAM rule)"
+                    % (fx, fy, fx + dx, fy + dy))
     if len(named) * 4 != dlen or bool(gflags & GF_SPLIT) != bool(dlen):
         bad("D", "%d bytes for %d split records, GF_SPLIT %s" % (dlen, len(named), "set" if gflags & GF_SPLIT
                                                                    else "clear"))
@@ -7721,7 +9081,8 @@ def read_part(p, fname="<part>"):
         if len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])) > FAM_MAX:
             bad("FAMOFF", "%d fetched families, over the %d a course may name" % (
                 len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])), FAM_MAX))
-    props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or diroff) if nprop else []
+    props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or diroff,
+                       pmaps=(p_, maskend, llen) if split else None) if nprop else []
     fk = [k for fid, _v in fams for k in FKIND if FKIND[k][0]["id"] == fid]
     for d in props:                                 # wave 9: every family element's family is listed, its
         if is_fam(d["kind"]):                       # bits inside NFST, its RESPAWN bits the mask's
@@ -7743,7 +9104,7 @@ def read_part(p, fname="<part>"):
     for d in props:
         if d["kind"] == PK_PAD:
             want_m |= 1 << d["mat"]
-    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT) != want_f or padmask != want_m:
+    if gflags & ~(GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD) != want_f or padmask != want_m:
         bad("BZG1 +28", "FLAGS %02Xh and PAD MASK %02Xh are not the records' (%02Xh, %02Xh)"
             % (gflags, padmask, want_f, want_m))
     for d in props:
@@ -7754,33 +9115,51 @@ def read_part(p, fname="<part>"):
                 else (0, 0, 0, 0)
             if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
                 bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
-    # the identity, over C's RAM form (128.15.7), and the canonical layout
-    model = decode_part(p)
-    if ident != ram_identity(p):
-        bad("BZG1 +18", "identity %04Xh is not the part's sum %04Xh" % (ident, ram_identity(p)))
-    if _encode(model, recb, ident=ident) != p:
-        q = _encode(model, recb, ident=ident)
-        k = next((i for i in range(min(len(p), len(q))) if p[i] != q[i]), min(len(p), len(q)))
-        bad("layout", "the part is not its own model's serialisation (first difference at offset %d)" % k)
+    # the identity, over C's RAM form (128.15.7) - or a two-part course's over its D parts (128.30.4.3) - and
+    # the canonical layout
+    if split:
+        model = decode_parts(p_, p)
+        rid = ram_identity2(p_, p)
+        if ident != rid:
+            bad("BZG1 +18", "identity %04Xh is not the parts' sum %04Xh" % (ident, rid))
+        for k, (q, mine) in enumerate(zip(_encode2(model, recb, ident=ident), (p_, p))):
+            if q != mine:
+                at_ = next((i for i in range(min(len(q), len(mine))) if q[i] != mine[i]), min(len(q), len(mine)))
+                bad("layout", "the %s part is not its own model's serialisation (first difference at offset %d)"
+                    % ("world" if k else "picture", at_))
+    else:
+        model = decode_part(p)
+        if ident != ram_identity(p):
+            bad("BZG1 +18", "identity %04Xh is not the part's sum %04Xh" % (ident, ram_identity(p)))
+        if _encode(model, recb, ident=ident) != p:
+            q = _encode(model, recb, ident=ident)
+            k = next((i for i in range(min(len(p), len(q))) if p[i] != q[i]), min(len(p), len(q)))
+            bad("layout", "the part is not its own model's serialisation (first difference at offset %d)" % k)
     return {"cols": cols, "brows": brows, "nblk": nblk, "mapsh": mapsh, "blkoff": blkoff,
             "occidx": occidx, "occrec": occrec, "nocc": nocc, "maskoff": maskoff, "nmask": nmask,
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
-            "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": diroff, "nsec": nsec, "dir": ents,
+            "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": pdiroff, "nsec": nsec, "dir": ents,
+            "split": split, "wdiroff": wdiroff if split else None, "wnsec": wnsec if split else None,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
             "npages": npages, "pthoff": pthoff, "path": path, "fams": fams, "nfst": nfst, "rmask": rmask,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
                      "gflags": gflags, "padmask": padmask, "view": gz,
                      "cells_raw": bytes(p[celloff:cellend]), "celloff": celloff, "pairoff": doff,
-                     "pairs": bytes(p[doff:doff + dlen])}}
+                     "pairs": bytes(p[doff:doff + dlen]), "foff": foff,
+                     "ftabs": bytes(p[foff:foff + flen])}}
 
 
-def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
+def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
     """the prop table (SPEC.md 128.12.3.1) as the guest reads it, checked: every
     offset inside the part, every pose map word a block offset, the kinds,
     the flags (UNDERSIDE refused), the segments' and sprites' places, and the
-    records, pose maps, segments and sprites filling the part's tail exactly"""
+    records, pose maps, segments and sprites filling the part's tail exactly.
+    pmaps: a TWO-PART course's (SPEC.md 128.30.4.2) pose maps - (the picture
+    part's bytes, L's offset, L's length) - which then fill L exactly instead"""
     n = len(p) if end is None else end          # BZC2: the props end at the directory
+    if pmaps is not None:
+        pmp, lat, lend = pmaps[0], pmaps[1], pmaps[1] + pmaps[2]
     out = []
     if propoff + PROPREC * nprop > n:
         bad("PROPOFF", "the records run past the part")
@@ -7810,13 +9189,19 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             brow, col, w, h, poses, pmo = struct.unpack_from("<HBBBBH", p, r + 8)
             if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= poses <= LANE_PMAX):
                 bad("prop %d" % i, "lane %d x %d, %d poses" % (w, h, poses))
-            if pmo != tail or pmo + 2 * poses * w * h > n:
-                bad("prop %d" % i, "pose maps at %d" % pmo)
+            if pmaps is None:
+                if pmo != tail or pmo + 2 * poses * w * h > n:
+                    bad("prop %d" % i, "pose maps at %d" % pmo)
+            elif pmo != lat or pmo + 2 * poses * w * h > lend:
+                bad("prop %d" % i, "pose maps at %d of the picture part, where L's next are at %d" % (pmo, lat))
             for k in range(poses * w * h):
-                wd = struct.unpack_from("<H", p, pmo + 2 * k)[0]
+                wd = struct.unpack_from("<H", p if pmaps is None else pmp, pmo + 2 * k)[0]
                 if wd < blkoff or wd >= occidx or (wd - blkoff) % 16:
                     bad("prop %d pose map[%d]" % (i, k), "word %d is not a block offset" % wd)
-            tail += 2 * poses * w * h
+            if pmaps is None:
+                tail += 2 * poses * w * h
+            else:
+                lat += 2 * poses * w * h
             d["lane"] = {"brow": brow, "col": col, "w": w, "h": h, "poses": poses, "off": pmo}
             lanebr.append(brow)
             if len(lanebr) != i + 1:
@@ -7932,15 +9317,18 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             d.update(v=v, W=W, L=L, hP=hP, hT=hP + 8 * L, spoff=so, pmax=pmax)
     if tail != n:
         bad("props", "the tail ends at %d, the part at %d" % (tail, n))
+    if pmaps is not None and lat != lend:
+        bad("props", "the pose maps end at %d of the picture part, L at %d" % (lat, lend))
     return out
 
 
 class Grid:
     """the BZG1 grid as the guest reads it, from a part's bytes"""
 
-    def __init__(self, part_bytes):
-        self.p = part_bytes
-        info = read_part(part_bytes)
+    def __init__(self, part_bytes, wpart=None):
+        self.src = part_bytes                       # (a two-part course's: its picture part, and the cells, the
+        self.p = part_bytes if wpart is None else wpart     # route and the props read in its WORLD part, 128.30)
+        info = read_part(part_bytes) if wpart is None else read_parts(part_bytes, wpart)
         g = info["grid"]
         self.nrows, self.smin, self.amin, self.kw = g["nrows"], g["smin"], g["amin"], g["kw"]
         self.rowtab = g["rowtab"]
@@ -7950,6 +9338,8 @@ class Grid:
         self.gflags, self.padmask = g["gflags"], g["padmask"]
         self.props = info["props"]
         self.fams, self.nfst, self.rmask = info["fams"], info["nfst"], info["rmask"]   # wave 9 (128.25.6.4)
+        self.ftabs = g["ftabs"]                     # SPEC.md 128.28.2: section F
+        self._fw = {}                               # (shape, symmetry) -> its world table, relative
 
     def cell(self, wx, wy):
         """-> (z0, sx, sy, kind, flags, surface); OPEN outside the grid.  A SPLIT
@@ -7962,7 +9352,18 @@ class Grid:
         z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, self.rowtab[r] + 4 * k)
         if kd & 15 in SPLIT_KINDS:
             return (0, 0, 0, kd & 15, fl, kd >> 4)
+        if kd & 15 == KIND_FIELD:                   # SPEC.md 128.28.2: (z0, 0, 0, 7, flags, surface, h[v][u] the
+            return (z0, 0, 0, KIND_FIELD, fl, kd >> 4, self.fworld(z0, sl))     # ABSOLUTE heights, quarter px)
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
+
+    def fworld(self, z0, sl):
+        """a FIELD cell's world heights from its +0 and +1: 16 z0 + its table through its symmetry"""
+        key = (z0, sl)
+        w = self._fw.get(key)
+        if w is None:
+            o = FTAB * fshape(sl)
+            w = self._fw[key] = [[16 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
+        return w
 
     def pair(self, wx, wy):
         """a SPLIT cell's records (128.24.5.2): (half A's, half B's) or the quarters (N, E, S, W), each as
@@ -8390,13 +9791,14 @@ class Physics:
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
                  _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
-                 _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False):
+                 _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False, _nolift=False,
+                 _ffblock=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
         if isinstance(course, Course):              # one read of the part a course (its records
-            if getattr(course, "_grid", None) is None or course._grid.p is not course.cga:
-                course._grid = Grid(part)          # are only read by the model)
+            if getattr(course, "_grid", None) is None or course._grid.src is not course.cga:
+                course._grid = Grid(part, course.wcga)     # are only read by the model)
             self.grid = course._grid
         else:
             self.grid = Grid(part)
@@ -8499,6 +9901,8 @@ class Physics:
         self._ray_inv, self._all_radial = _ray_inv, _all_radial
         self._inner_on = _inner_on                  # (a red arm: a quartered cell's second line after a push out)
         self.wsplit = False                         # bz_ps bit 3 (128.24.7.6)
+        self._fc = None                             # SPEC.md 128.28.5.3: step 5's FIELD centre (C, wx, wy)
+        self._nolift, self._ffblock = _nolift, _ffblock     # (red arms: no lift; field neighbours blocking)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -8532,6 +9936,8 @@ class Physics:
 
     @staticmethod
     def h4(c, u, v):
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.28.2: a FIELD record carries its world heights
+            return c[6][v][u]
         return 16 * c[0] + c[1] * u + c[2] * v
 
     def blocks(self, c, u, v, at=None):
@@ -8546,10 +9952,19 @@ class Physics:
         assert c[3] not in SPLIT_KINDS, "blocks() takes a RECORD, never a split cell (SPEC.md 128.24.7.3)"
         if c[3] == KIND_WALL:
             return True
-        if c[3] in (KIND_FLOOR, KIND_GOAL):
+        if c[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD):
             h = self.h4(c, u, v) << 6
             marg = 0 if (self.air and self._no_airclimb) else CLIMB << 8
-            return h > self.zs + marg
+            if not h > self.zs + marg:
+                return False
+            fc = self._fc                           # SPEC.md 128.28.5.3: a FIELD centre's edges and corner
+            if fc is not None and at is not None and not self._nolift:
+                C, cx, cy = fc
+                if c[3] == KIND_FIELD:              # field to field: never (the SEAM rule)
+                    return bool(self._ffblock)
+                hc = self.h4(C, u + 16 * (at[0] - cx), v + 16 * (at[1] - cy))   # the lift: C's own height
+                return self.h4(c, u, v) > hc + 4 * CLIMB                         # at the same point
+            return True
         return False
 
     # -- SPEC.md 128.24.7: split cells ---------------------------------------
@@ -8567,6 +9982,9 @@ class Physics:
     def prec(self, wx, wy):
         """the RECORD the centre (gx, gy) is in, its cell (wx, wy): the cell, or its PICKED half (128.24.7.1)"""
         c = self.cell(wx, wy)
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.28.5.1: a FIELD cell's slopes at the point
+            sx, sy = fslopes(c[6], (self.gx >> 8) & 15, (self.gy >> 8) & 15)
+            return (c[0], sx, sy, KIND_FIELD, c[4], c[5], c[6])
         if c[3] in SPLIT_KINDS:
             h = pick(c[3], self.gx & 0xFFF, self.gy & 0xFFF)
             if self._pick_swap:                     # (a red arm: the pick's sides swapped)
@@ -8892,7 +10310,7 @@ class Physics:
                     if depth > 16 * PRAD:
                         h4 += 4 * pr["ph"]
                 return C, h4, None
-        return C, (self.h4(C, u, v) if C[3] in (KIND_FLOOR, KIND_GOAL) else 0), None
+        return C, (self.h4(C, u, v) if C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD) else 0), None
 
     def _door(self, C, cwx, cwy):
         """the centre's cell a windmill's IN: (0 for a -x doorway, 1 for -y, the record)"""
@@ -9157,7 +10575,7 @@ class Physics:
                 fx, fy = self._forces(K, ftg_table(force + self.wacc))
                 self.gvx += fx
                 self.gvy += fy
-            sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL) else (0, 0)
+            sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD) else (0, 0)
             self.gvx -= self._slope_sign * GSL * sx
             self.gvy -= self._slope_sign * GSL * sy
             if self._ceil_drag:                     # (a red arm: wave 2's round-up)
@@ -9220,6 +10638,7 @@ class Physics:
                     cwx, cwy = self.gx >> 12, self.gy >> 12        # tip): the window refilled round it
                     self._fill(cwx, cwy)
                 C = self.cell(cwx, cwy)
+        self._fc = (C, cwx, cwy) if C[3] == KIND_FIELD else None    # SPEC.md 128.28.5.3: the lift's centre
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         u, v = pu >> 8, pv >> 8
         lo = RAD << 8
@@ -9344,7 +10763,8 @@ class Physics:
                 self._circle(pr, n)
         if self.wol and (self.gx >> 12, self.gy >> 12) != self.wcell:
             self._fill(self.gx >> 12, self.gy >> 12)
-        # the fallback
+        # the fallback (SPEC.md 128.28.5.3: never lifted)
+        self._fc = None
         cwx, cwy = self.gx >> 12, self.gy >> 12
         if (cwx, cwy) != scell:
             C = self.prec(cwx, cwy)                 # (128.24.7.5: the centre's RECORD)
@@ -9366,7 +10786,7 @@ class Physics:
         C = self.prec(cwx, cwy)
         Cv = C
         C, h4, slab = self._floor(C, (cwx, cwy), n)
-        solid = C[3] in (KIND_FLOOR, KIND_GOAL)
+        solid = C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD)
         h = h4 << 6
         onslab = False
         lifted = False
@@ -9789,6 +11209,8 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # the constants before it.
 PHYS_REV = 12                 # SPEC.md 128.24.7 (story D2.4): the step reads split cells (the half pick,
                               # the diagonal inside a cell, the edges by their owning half, the corner's rays)
+PHYS_REV = 13                 # SPEC.md 128.28.5 (story C2): the step reads FIELD cells (the table's floor and
+                              # slopes, the field-to-field edge, the lift)
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
                DIAG, DWMIN, PHYS_REV)
@@ -9801,7 +11223,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21, 0xB1)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -11220,7 +12642,7 @@ def gap3_scan(c):
     units down or more, rubber's Hop alone) can now cross where wave 5b could
     not.  -> [(dz units down, direction, [take-off cells])], one entry an
     edge's run of cells with one drop and direction"""
-    gd = Grid(c.cga)
+    gd = Grid(c.cga, c.wcga)
     found = {}
     solid = (KIND_FLOOR, KIND_GOAL)
     for wx in range(0, 160):
@@ -11353,7 +12775,7 @@ def emit_inc(courses, path=None, title=None):
         "BZ_CRS_MAX      equ %d       ; the most courses (SPEC.md 128.22.5): every per-course table's width" % CRS_MAX,
         "BZ_P_CRS        equ 0        ; course 0's row; course K's is BZ_P_CRS + K (no ball rows: 128.25.5.2)",
         "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
-        "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
+        "not shipped; SPEC.md 128.15.5.4)" % REC,
         "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 128.15.4.5)"
         % part_forms(courses),
         "BZ_KWMAX        equ %d       ; the most cells a grid row has (CELLS' scratch rows, SPEC.md 128.15.6)" % KW_MAX,
@@ -11440,7 +12862,10 @@ def emit_inc(courses, path=None, title=None):
               "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
               "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
               "BZ_KQ           equ %d        ; QUARTERED (R4): records N, E, S, W" % KIND_Q,
-              "BZ_KCHANNEL     equ %d        ; RESERVED: a CHANNEL (SPEC.md 128.24.13), not built" % KIND_CHANNEL,
+              "BZ_KFIELD       equ %d        ; a FIELD cell: a heightfield table in section F (SPEC.md 128.28)" % KIND_FIELD,
+              "BZ_GF_FIELD     equ %d       ; BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F" % GF_FIELD,
+              "BZ_FIELDTAB     equ %d      ; a FIELD table: 17 x 17 heights (SPEC.md 128.28.2)" % FTAB,
+              "BZ_FSHAPE_MAX   equ %d       ; ...at most this many a course" % FSHAPE_MAX,
               "BZ_PAIR         equ %d        ; a pair: half A's cell record, then half B's" % PAIR,
               "BZ_QUAD         equ %d       ; a quartered cell's four records" % (2 * PAIR),
               "BZ_DIAG         equ %d     ; round(6 sqrt 2 x 256): the radius along a diagonal's normal" % DIAG,
@@ -11704,12 +13129,13 @@ def emit_inc(courses, path=None, title=None):
         lines.append("    db " + ", ".join("%d,%d,%d" % OCTANT[k0 + b] for b in range(a + 1)) + "   ; a = %d" % a)
     lines += ["%endmacro", "",
               "; the course part rows: BZ_NCRS, one a course, every one",
-              "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 128.11.3.1)",
+              "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 128.11.3.1) - and after them each TWO-PART course's",
+              "; WORLD part (SPEC.md 128.30.4.4), BZ<K>W.BIN, in course order",
               "%macro BZ_CRS_PARTS 0",
-              " %rep BZ_NCRS",
-              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN",
+              " %rep BZ_NCRS + BZ_NCRS2",
+              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN",
               " %endrep",
-              "%endmacro", "",
+              "%endmacro", ""] + emit_wrows(courses) + [
               "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a course but BENCH, K 1 - BZ_NCRS - 1,",
               "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
               "; rows follow the songs': demo K at BZ_P_DEMO + K - 1 (bonanza.asm defines",
@@ -11723,6 +13149,32 @@ def emit_inc(courses, path=None, title=None):
     lines += emit_path(path, courses, title)
     lines += emit_title(title, courses)
     return "\n".join(lines)
+
+
+BZ_P_CRS = 0                  # course 0's part row (bzcourse.inc's; no ball rows since SPEC.md 128.25.5.2)
+
+
+def wrows(courses):
+    """SPEC.md 128.30.4.4: each course's WORLD part's row - BZ_P_CRS + BZ_NCRS + j for the j-th two-part
+    course, in course order - or 0 for a course of one part"""
+    out, j = [], 0
+    for c in courses:
+        out.append(BZ_P_CRS + len(courses) + j if c.split else 0)
+        j += 1 if c.split else 0
+    return out
+
+
+def emit_wrows(courses):
+    """SPEC.md 128.30.4.4: BZ_NCRS2 and, with any two-part course, BZ_CRS_WROW"""
+    w = wrows(courses)
+    n2 = sum(1 for x in w if x)
+    out = ["; SPEC.md 128.30.4.4: the TWO-PART courses' WORLD parts (0: none, and the package is assembled as",
+           "; it was before two parts existed: bz_mseg is bz_cseg's word); with any, BZ_CRS_WROW is a byte a",
+           "; course, its world part's row (0: one part)",
+           "BZ_NCRS2        equ %d" % n2]
+    if n2:
+        out += ["%macro BZ_CRS_WROW 0", "    db " + ", ".join(str(x) for x in w), "%endmacro"]
+    return out + [""]
 
 
 def emit_title(title, courses):
@@ -11874,9 +13326,10 @@ def crs_maxclaim(path, courses):
     paragraphs plus CLAIM_SLACK (op_lazyp's cluster rounding), to the granule.
     It was the SUM of every claim the play made - course, balls, song, sound
     part, and not the victory fanfare, a defect - compared against the
-    largest free run; the small parts are the ARENA's now (crs_armax)"""
-    return max([_granule(_para(len(courses[k].cga)) + CLAIM_SLACK) for k in _pad_courses(path, courses)]
-               + [0])
+    largest free run; the small parts are the ARENA's now (crs_armax).  A
+    TWO-PART course's is both its parts' claims, each so (SPEC.md 128.30.5)"""
+    return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in (courses[k].cga, courses[k].wcga) if q)
+                for k in _pad_courses(path, courses)] + [0])
 
 
 def crs_armax(path, courses):
@@ -11889,9 +13342,8 @@ def crs_armax(path, courses):
                + [0])
 
 
-def stamp(paths, rec=None):
+def stamp(paths):
     h = hashlib.sha256()
-    h.update(b"BZREC %d\0" % (REC if rec is None else rec))   # the course stamp carries the RECB (128.15.5.3)
     for name, path in (("tools/bbcourse.py", TOOL),
                        ("tools/bonanza_assets.py", os.path.abspath(BA.__file__)),
                        ("tools/bbmusic.py", os.path.join(os.path.dirname(TOOL), "bbmusic.py"))):
@@ -11971,9 +13423,8 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
-    is the RECB 4 stored form whatever --rec is, which is the shipped form
-    since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
+    packed as LZ4 - whatever the parts' format is - against its budget.  The part read
+    is the RECB 4 stored form, the shipped form since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
     2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
     "that limit is the thing wrong; we'll end up with less courses, or two
     disks".  What protects correctness stays refused where it always was (one
@@ -11984,7 +13435,7 @@ def check_budget(c, k):
             raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
-    return packed_len(c.stored4, "lz4")
+    return packed_len(c.stored, "lz4") + (packed_len(c.wstored, "lz4") if c.split else 0)   # (both parts, 128.30)
 
 
 def finish_points(c):
@@ -12239,7 +13690,7 @@ def _cache_on():
     return "rw" if os.environ.get("BB_CACHE", "1") != "0" else None
 
 
-def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _inputs=None, _state=None):
+def cache_key(source, fname, occluders, _hack, crsinfo, _tool=None, _inputs=None, _state=None):
     """the compile's key (None when the cache is off).  _tool, _inputs, _state: --selfcheck's proof that
     each of them moves the key"""
     if not _cache_on():
@@ -12257,7 +13708,7 @@ def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _input
     h = hashlib.sha256()
     for part in (_tool or tool_hash(), _inputs or _inputs_hash(), _state or _state_fp(), name,
                  hashlib.sha256(text).hexdigest(), repr(bool(occluders)), _fp(_hack or {}),
-                 repr(REC if _rec is None else _rec), _fp(crsinfo)):
+                 _fp(crsinfo)):
         h.update(part.encode() + b"\0")
     return (_tool or tool_hash(), h.hexdigest())
 
@@ -12506,6 +13957,8 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     files = {}
     for k, c in enumerate(courses):
         files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 128.15.12.1); os88pkg packs it
+        if c.split:                             # SPEC.md 128.30.4.4: a two-part course's WORLD part
+            files["BZ%dW.BIN" % k] = c.wstored
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
         files["BZD%d.BIN" % k] = d["log"]
@@ -12518,7 +13971,11 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         BZ_TITLE_K[0] = len(courses) + 1            # (BZ_CRS_TITLE: the demos' logs name it)
         files["BZTDEMO.BIN"] = build_title_demos(tc, demo_dir)
     compile_all.title = tc
-    return courses, files, {"bzcourse.inc": emit_inc(courses, pc, tc)}
+    # SPEC.md 128.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
+    # the courses' (empty: none)
+    texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
+             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split)}
+    return courses, files, texts
 
 
 # =============================================================================
@@ -12996,15 +14453,18 @@ TITLE_AUTHOR = {
         "script": [("wait", 110), ("until", "respawn", ((9, 15), (11, 15), (14, 15))), ("wait", 75),
                    ("until", "capture", ((10, 14), (10, 13), (10, 12))), ("wait", 10),
                    ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (18, 14))), ("to", ((18, 15),))]},
-    3: {"what": "the glass ball rolled in onto LL, down the step, through the brown tube, to the ramp's edge, "
-                "round UR until it falls off the front and shatters, its shatter ending on the glass (the owner, "
-                "2026-11-16: LC's corner by the pit taken out, so it goes down the step)",
+    3: {"what": "the glass ball rolled in along LL's back row, a pause, down the step to LS and on over the pit "
+                "on the hidden GLASS BRIDGE (revealed as it rolls), half a step down onto the channel; a run at "
+                "the ramp from below, a third of the way up and back; down to spring 2, a look at it; up off "
+                "it, short of UR by its lip, back down onto the spring and shattered, its shatter ending on "
+                "the glass (the owner, 2026-11-17: no tube, no waiting on UR, no circles)",
         "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
-        "expects": (("capture", 1), ("shatter", 1)),
-        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (11, 13))),
-                   ("until", "capture", ((11, 12), (10, 12))), ("to", ((17, 7),)),
-                   ("wait", 124), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
-                   ("until", "shatter", ((15, 9), (15, 11)))]},
+        "expects": (("spring", 1), ("shatter", 1)),
+        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11.0, 14.2), (11.0, 13.4), (11.2, 12.6), (11.8, 12.5))),
+                   ("keys", K_R | K_D, 100), ("keys", K_R | K_U, 60),
+                   ("keys", K_L | K_U, 30), ("keys", 0, 25), ("keys", K_L | K_D, 30), ("keys", K_L | K_U, 45),
+                   ("to", ((15.6, 11.2),)), ("wait", 20), ("keys", K_R | K_U, 22),
+                   ("keys", 0, TITLE_STEPS)]},
     4: {"what": "the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto "
                 "LC, on along the front and off the bottom right into the hidden tube; out on UR, a run at the "
                 "back rail and a Hop and boost - its highest bounce, well short of the rail's top - back off the "
@@ -13832,14 +15292,19 @@ def report(c, k=None):
     print("    part %d bytes in RAM (BZC2, RECB %d): header %d, map %d, blocks %d x 16 = %d, OCCIDX %d, records "
           "%d x %d = %d, masks %d x 16 = %d%s, grid %d (%d rows x %d cells x 4 + %d header, ROWTAB %d, route %d)%s, "
           "directory %d x %d; stored %d bytes, %d of them zero holes%s" % (
-              len(c.cga), c.rec, HDR, 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
-              len(c.model["recs"]), c.rec, c.rec * len(c.model["recs"]), len(c.masks), 16 * len(c.masks),
-              ", MTAB %d" % (2 * len(c.masks)) if c.rec == 4 else "",
-              (pt["propoff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR, 2 * g["nrows"],
-              4 * len(c.route), ", props %d" % (pt["diroff"] - pt["propoff"]) if pt["nprop"] else "",
-              pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"]),
+              len(c.cga), REC, HDR, 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
+              len(c.model["recs"]), REC, REC * len(c.model["recs"]), len(c.masks), 16 * len(c.masks),
+              ", MTAB %d" % (2 * len(c.masks)),
+              (pt["propoff"] or pt["wdiroff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR,
+              2 * g["nrows"], 4 * len(c.route),
+              ", props %d" % ((pt["wdiroff"] or pt["diroff"]) - pt["propoff"]) if pt["nprop"] else "",
+              pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"] if not e["part"]),
               "; LZ4 %d as RECB 4 (%s)" % (c.packed4, budget_note(c, c.packed4))
               if getattr(c, "packed4", None) else ""))
+    if c.split:                                     # SPEC.md 128.30: the two parts
+        print("    TWO PARTS (SPEC.md 128.30): the picture part %d bytes (%d under 65,024), the world part %d (%d "
+              "under); stored %d and %d" % (len(c.cga), PARTMAX - len(c.cga), len(c.wcga), PARTMAX - len(c.wcga),
+                                            len(c.stored), len(c.wstored)))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
           "dithered left out of the part); most in a block %d -> %d (bound "
           "%d), in a block row %d -> %d (bound %d); most laid at a position %d%s; %d OCC cells (%d OCCG) of %d "
@@ -13850,6 +15315,12 @@ def report(c, k=None):
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
               len(c.reach)))
+    if c.ftabs:                                     # SPEC.md 128.28.4: the tables each shape statement costs
+        rows = field_tables_by_statement(c.tiles)
+        print("    section F: %d tables of %d (%d bytes); by statement: %s" % (
+            len(c.ftabs), FSHAPE_MAX, FTAB * len(c.ftabs), "; ".join(
+                "line %d %s adds %d%s" % (ln, w, len(add), " and shares %d (%s)" % (
+                    len(sh), ", ".join(str(i) for i in sh)) if sh else "") for ln, w, add, sh in rows)))
 
 
 def pans(c, log, herc, **gkw):
@@ -14769,8 +16240,7 @@ def write_out(out, paths, path=None, title=None):
     # the stamp before the files: a run that dies writing leaves a stamp and a
     # missing file, which make's fallback turns back into a re-run
     with open(st, "w") as f:
-        f.write(stamp(paths + ([path] if path else []) + ([title] if title else []),
-                      courses[0].rec if courses else None) + "\n")
+        f.write(stamp(paths + ([path] if path else []) + ([title] if title else [])) + "\n")
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -15074,7 +16544,7 @@ def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None):
     the checker NOT stripped, the control's other half).  laid: a set, which
     gets every footprint pixel a mask lays (its pair 0).  -> {(x, y): index}"""
     if getattr(course, "_cm", None) is None or course._cm[0] is not course.cga:
-        m = decode_part(course.cga)
+        m = course_model(course)
         byb = {}
         for br, col, s_, top, mi in m["recs"]:
             byb.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
@@ -16797,7 +18267,7 @@ def _props_course_checks(c, res, tag):
         res.append(("3 %s negative control: one pose map word moved fails the decode" % tag,
                     _lanes_decode(c, bytes(b), False) is not None))
     # 4. OBS exactly on the props' cells; the window's scan names the right prop; the track's kill; the seeds
-    g = Grid(c.cga)
+    g = Grid(c.cga, c.wcga)
     obs_ok = True
     for r in range(g.nrows):
         sR = g.smin + r
@@ -16860,7 +18330,7 @@ def _props_course_checks(c, res, tag):
             if not (xl <= rx[2] and rx[0] <= xh):
                 continue
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({rc.zlo, rc.zhi}):
+            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 if not _meet((px & ~3, py, (px & ~3) + FOOT_W, py + FOOT_H), *rx):
@@ -17815,7 +19285,7 @@ def _route_checks(bench, res, trial=None, first=None):
     q = Physics(bench)
     for _ in range(HERC_STEPS):
         q.step_auto()
-    route = Grid(bench.cga).route
+    route = Grid(bench.cga, bench.wcga).route
     res.append(("8 BENCH: the autopilot rolling its rubber ball through the ramp reaches the route's first %d "
                 "waypoints in order within the CGA's %d steps (at %s) and falls nowhere in the Hercules's %d" % (
                     BENCH_COVER, CGA_STEPS, ", ".join(str(reached.get(k, "-")) for k in range(1, BENCH_COVER - 1)),
@@ -18236,6 +19706,7 @@ def _w4_records(c, res):
     ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
     # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
     wf |= GF_SPLIT if any(isinstance(t_, Split) for t_ in c.tiles.values()) else 0
+    wf |= GF_FIELD if any(isinstance(t_, FieldTile) for t_ in c.tiles.values()) else 0     # (SPEC.md 128.28.2)
     ok = ok and pt["grid"]["gflags"] == wf
     res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
                 "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
@@ -18243,24 +19714,24 @@ def _w4_records(c, res):
     # the reader's own refusals: a flag in a lane-less record; a pad mask the records do not give
     fr = next(r for r in pt["props"] if r["kind"] == PK_CHECKPOINT) if PK_CHECKPOINT in kinds else None
     if fr is not None:
-        bb = bytearray(c.cga)
+        bb = bytearray(world_of(c))                 # (a two-part course's records are its world part's, 128.30)
         o = pt["propoff"] + PROPREC * fr["i"]
         bb[o + 1] &= ~PF_LANE
         bb[o + 8:o + 16] = bytes(8)
-        restamp(bb)
+        restamp_world(c, bb)
         try:
-            read_part(bytes(bb))
+            read_world(c, bb)
             caught = False
         except CourseError as e:
             caught = "without its LANE" in str(e) or "a lane after a record without one" in str(e) \
                 or "pose maps" in str(e)
         res.append(("3 %s negative control: a flag's record without its LANE is refused by the reader" % c.name,
                     caught))
-    bb = bytearray(c.cga)
+    bb = bytearray(world_of(c))
     bb[pt["gridoff"] + 29] ^= 4 if not wm & 4 else 1
-    restamp(bb)
+    restamp_world(c, bb)
     try:
-        read_part(bytes(bb))
+        read_world(c, bb)
         caught = False
     except CourseError as e:
         caught = "PAD MASK" in str(e)
@@ -18776,24 +20247,26 @@ def _w5_compact(courses, res):
     """item 10 (SPEC.md 128.15.12.3): the compact form, and its eight controls"""
     ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": []}
     for c in courses:
+        if c.split:                                 # (a TWO-PART course, SPEC.md 128.30: _w5_compact2's checks;
+            _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
+            continue
         why = []
-        for rec, ram, st in ((8, c.cga8, c.stored8), (4, c.cga4, c.stored4)):
-            try:
-                if expand(st, c.name, sim=True) != ram:
-                    why.append("RECB %d: expand(stored) != RAM" % rec)
-                pt = read_part(ram, c.name)
-            except CourseError as e:
-                why.append("RECB %d: %s" % (rec, e))
-                continue
-            if rec == 4 and [struct.unpack_from("<H", ram, pt["mtab"] + 2 * i)[0] for i in range(pt["nmask"])] \
+        try:
+            if expand(c.stored, c.name, sim=True) != c.cga:
+                why.append("expand(stored) != RAM")
+            pt = read_part(c.cga, c.name)
+        except CourseError as e:
+            why.append(str(e))
+        else:
+            if [struct.unpack_from("<H", c.cga, pt["mtab"] + 2 * i)[0] for i in range(pt["nmask"])] \
                     != [pt["maskoff"] + 16 * i for i in range(pt["nmask"])]:
                 why.append("MTAB")
         holes = sum(e["len"] - e["dlen"] for e in c.part["dir"])
-        res.append(("10 %s: expand(stored) == RAM byte for byte under RECB 8 and 4 (%d and %d bytes), the IN-PLACE "
+        res.append(("10 %s: expand(stored) == RAM byte for byte (%d bytes), the IN-PLACE "
                     "simulation clean (every stored byte read before anything is written over it), the directory's "
                     "rules (%d entries, each in its header fields' place and size), the records' s' and t' bounds "
                     "and MTAB (%d words); %d bytes of holes%s" % (
-                        c.name, len(c.cga8), len(c.cga4), c.part["nsec"], len(c.masks), holes,
+                        c.name, len(c.cga), c.part["nsec"], len(c.masks), holes,
                         "" if not why else " -- " + "; ".join(why)), not why))
         n, bad = rec4_verdicts(c)
         SB, TB = rec_biases(c.model["recs"], c.name)
@@ -18805,17 +20278,17 @@ def _w5_compact(courses, res):
             ctl["sb"].append(rec4_verdicts(c, sb_delta=-1)[1] is not None)
             ctl["wrap"].append(rec4_verdicts(c, wrap=True)[1] is not None)
         # the identity, three ways (128.15.7)
-        b8 = bytearray(c.cga8)
+        b8 = bytearray(identity_form(c))
         diroff = struct.unpack_from("<H", b8, 38)[0]
         b8[diroff + 1] ^= 5
         struct.pack_into("<H", b8, diroff + 6, struct.unpack_from("<H", b8, diroff + 6)[0] ^ 0x0101)
-        moved = bytearray(c.cga8)
+        moved = bytearray(identity_form(c))
         cell = struct.unpack_from("<H", moved, 26)[0] + GHDR
         moved[cell] ^= 1
         id3 = (ram_identity(bytes(b8)) == c.ident, ram_identity(bytes(moved)) != c.ident,
-               ram_identity(c.cga4) == ram_identity(c.cga8) == c.ident)
+               ram_identity(c.cga) == ram_identity(identity_form(c)) == c.ident)
         res.append(("10 %s: the identity %04Xh three ways - a directory entry's form byte and stored length changed "
-                    "leave it, one changed RAM byte moves it, and RECB 4's and 8's RAM forms give the same one%s"
+                    "leave it, one changed RAM byte moves it, and the RAM form and its 8-byte identity form give the same one%s"
                     % (c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
         # CELLS (128.15.6): the exceptions, the cells whose stored difference from the rule is not 0, every
         # one a lift's shaft cell; and the control, the rule without SAFE's OBS clause (red arm cellsafe's)
@@ -18837,17 +20310,17 @@ def _w5_compact(courses, res):
             ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
         # the controls
         try:
-            expand(stored_form(c.model, 4, c.cga4, c.name, _hack={"low_first": True}), c.name, sim=True,
+            expand(stored_form(c.model, 4, c.cga, c.name, _hack={"low_first": True}), c.name, sim=True,
                    _hack={"low_first": True})
             ctl["low_first"].append(False)
         except CourseError as e:
             ctl["low_first"].append("section M" in str(e))
         if len(c.model["recs"]) > 1:
-            ctl["wdiff"].append(expand(c.stored4, c.name, _hack={"wdiff_short": True}) != c.cga4)
+            ctl["wdiff"].append(expand(c.stored, c.name, _hack={"wdiff_short": True}) != c.cga)
         if c.masks:
-            ctl["mtab"].append(expand(c.stored4, c.name, _hack={"mtab_short": True}) != c.cga4)
-        bb = bytearray(c.cga4)
-        pt = c.part if c.rec == 4 else read_part(c.cga4)
+            ctl["mtab"].append(expand(c.stored, c.name, _hack={"mtab_short": True}) != c.cga)
+        bb = bytearray(c.cga)
+        pt = c.part
         ji = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "I")
         jr = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "R") if any(
             e["tag"] == "R" for e in pt["dir"]) else None
@@ -18875,6 +20348,38 @@ def _w5_compact(courses, res):
         res.append(("10 negative control: %s, on every course (%d)" % (what, len(v)), bool(v) and all(v)))
 
 
+def _w5_compact2(c, res):
+    """item 10 for a TWO-PART course (SPEC.md 128.30.4): each part's stored form expands IN PLACE to its RAM form,
+    read_parts takes both, the 4-byte records' compares, and the identity three ways over the pair; CELLS'
+    exceptions as a one-part course's"""
+    why = []
+    try:
+        if expand(c.stored, c.name, sim=True) != c.cga or expand(c.wstored, c.name, sim=True) != c.wcga:
+            why.append("expand(stored) != RAM")
+        read_parts(c.cga, c.wcga, c.name)
+    except CourseError as e:
+        why.append(str(e))
+    res.append(("10 %s (TWO parts, SPEC.md 128.30): each part's expand(stored) == RAM byte for byte "
+                "(%d + %d bytes), the IN-PLACE simulation clean per part, read_parts takes both%s" % (
+                    c.name, len(c.cga), len(c.wcga), "" if not why else " -- " + "; ".join(why)), not why))
+    n, bad = rec4_verdicts(c)
+    res.append(("10 %s: the 4-byte records' byte compares give the rule's verdict on all %d (record, query) pairs%s"
+                % (c.name, n, "" if bad is None else " -- differs at %s" % (bad,)), bad is None))
+    moved = bytearray(c.wcga)
+    moved[struct.unpack_from("<H", moved, 26)[0] + GHDR] ^= 1
+    pic = bytearray(c.cga)
+    pic[HDR] ^= 1
+    id3 = (ram_identity2(c.cga, bytes(moved)) != c.ident, ram_identity2(bytes(pic), c.wcga) != c.ident,
+           ram_identity2(c.cga, c.wcga) == c.ident)
+    res.append(("10 %s: the identity %04Xh three ways - one changed world RAM byte moves it, one changed picture "
+                "RAM byte moves it, and the two parts give the shipped one%s" % (
+                    c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
+    exc = cells_exceptions(c.wcga)
+    shaft = set(c.slabcells)
+    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell" % (
+        c.name, len(exc), "" if len(exc) == 1 else "s"), all((wx, wy) in shaft for wx, wy, _ in exc)))
+
+
 def _mask_pix(mask, br, bc):
     """the picture pixels a 16-byte mask of block (br, bc) LAYS: its pairs 0"""
     return frozenset((8 * bc + lx, 8 * br + ly) for ly in range(8) for lx in range(8)
@@ -18887,22 +20392,21 @@ def _w5_dither(courses, res, demos=None):
     # every K mask holds the checker, in both RAM forms' bytes; deduplicated again after the dither
     bad, figs = [], []
     for c in courses:
-        for form in (c.cga4, c.cga8):
-            ms = decode_part(form)["masks"]
-            if any(dither(mk) != mk for mk in ms) or len(set(ms)) != len(ms):
-                bad.append(c.name)
+        ms = (decode_parts(c.cga, c.wcga) if c.split else decode_part(c.cga))["masks"]
+        if any(dither(mk) != mk for mk in ms) or len(set(ms)) != len(ms):
+            bad.append(c.name)
         if any(r["kmask"] != dither(r["mask"]) for r in c.records) or len(c.masks) > c.umasks:
             bad.append(c.name)
         figs.append("%s %d -> %d" % (c.name, c.umasks, len(c.masks)))
     res.append(("11 every K mask has the checker set (mask OR CHK = mask, 3333h on an even line and CCCCh on an odd "
-                "one: the kept lattice x + y odd, the shadow's dark pixels' complement) in both RAM forms, each "
+                "one: the kept lattice x + y odd, the shadow's dark pixels' complement) in the RAM form, each "
                 "record's mask its merged mask ORed with it, and the masks deduplicated again (%s)%s" % (
                     ", ".join(figs), "" if not bad else " -- %s" % sorted(set(bad))), not bad))
     # no record in the part lays nothing: an all-keep kmask is left out with its record (S1), and every record
     # the rule holds and the part leaves out is exactly such a one
     dbad, dfig = [], []
     for c in courses:
-        m = decode_part(c.cga)
+        m = decode_parts(c.cga, c.wcga) if c.split else decode_part(c.cga)
         kept = [r for r in c.records if r["kmask"] != ALLKEEP]
         if ALLKEEP in m["masks"] or len(m["recs"]) != len(kept) or \
                 [(r["brow"], r["col"], r["s"], r["top"]) for r in kept] != [q[:4] for q in m["recs"]]:
@@ -18931,14 +20435,14 @@ def _w5_dither(courses, res, demos=None):
         for p in c.props:
             if p["kind"] == PK_PLATFORM:
                 nslab += 1
-                for form in (c.cga4, c.cga8):
-                    po = struct.unpack_from("<H", form, 28)[0]
-                    so = p["spoff"] - struct.unpack_from("<H", c.cga, 28)[0] + po
-                    if form[so:so + PL_SPR] != slab_bytes(slab_pixels()):
-                        sbad.append(c.name)
+                form = c.wcga if c.split else c.cga
+                po = struct.unpack_from("<H", form, 28)[0]
+                so = p["spoff"] - struct.unpack_from("<H", world_of(c), 28)[0] + po
+                if form[so:so + PL_SPR] != slab_bytes(slab_pixels()):
+                    sbad.append(c.name)
     res.append(("11 not dithered: the three balls' masks are their silhouettes' at every shift (bonanza_assets' "
                 "generator's bytes, no checker added), and the lift's slab sprite in every part with one (%d) is "
-                "slab_bytes() of its pixels, both RAM forms%s" % (
+                "slab_bytes() of its pixels%s" % (
                     nslab, "" if not (bbad or sbad) else " -- %s" % sorted(set(bbad + sbad))),
                 not bbad and not sbad and nslab))
     # the merge's exactness, re-run on the UNDITHERED masks: each merged record's mask the AND of its members',
@@ -18973,7 +20477,7 @@ def _w5_dither(courses, res, demos=None):
         pos = []
         for rc in c.reach:
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({rc.zlo, rc.zhi}):
+            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
                 for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                     pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air))
         ph = Physics(c, play=True)
@@ -19044,7 +20548,7 @@ def _face_bottoms(c, ops):
     drawn = {k: v for k, v in c.tiles.items() if k not in gc}
     out = []
     for _k, cell, _t, h, _s, _e, faces in _cell_faces(drawn):
-        if h is not None:
+        if h is not None or isinstance(_t, FieldTile):  # (a FIELD cell's faces follow its profile: 128.28.6)
             continue
         for fp, zp, fq, zq, nb, which in faces:
             if nb is not None:
@@ -19135,7 +20639,7 @@ def _w5_budget(courses, res):
         except CourseError as e:
             got, ok_ = "refused: %s" % e, False
         res.append(("12 reported, not refused (128.27.5): PEAK as a 30 s course (its %d LZ4 bytes over the 1.5x "
-                    "line of %d) - %s" % (packed_len(peak.stored4), budget_cap(30), got), ok_))
+                    "line of %d) - %s" % (packed_len(peak.stored), budget_cap(30), got), ok_))
     first = _first_text()
     for what, text, want in (("target 45", _swap(first, "target 30", "target 45"), "target takes 30, 60 or 90"),
                              ("target given twice", first + "target 60\n", "target given twice")):
@@ -19155,7 +20659,7 @@ def _w5_budget(courses, res):
         if c.target is None:
             res.append(("12 %s (course %d): no target, the benchmark's: no budget" % (c.name, k), k == 0))
             continue
-        n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
+        n, z = packed_len(c.stored, "lz4"), packed_len(c.stored, "lzb")
         bg = budget(c.target)
         res.append(("12 %s: target %d s, budget %d, 1.5x %d (REPORTED, 128.27.5): RECB 4's stored form LZ4 %d (%s), "
                     "LZB %d (%s); RAM %d of %d" % (
@@ -19229,9 +20733,21 @@ def _path_checks(courses, res):
     proofs = path_proofs(pc, courses)
     pth, part = pc.pth, pc.part
     rt = part["path"]
+    # SPEC.md 128.31: THE PATHWAY CARRIES NO OCCLUDERS - no record, no mask, no OCC or OCCG cell, no R, K or
+    # O section; the red arm compiles it with the records cut anyway (_hack pathocc) and must find them
+    red = compile_course(shipped, crsinfo=[(c.name, c.title) for c in courses], _hack={"pathocc": 1})
+    tags = {e["tag"] for e in part["dir"]}
+    nocc = sum(1 for v in pc.cells.values() if v[3] & (FL_OCC | FL_OCCG))
+    res.append(("8R the shipped pathway carries NO occluders (SPEC.md 128.31): %d records, %d masks, %d OCC/OCCG "
+                "cells, sections %s; RAM %d (with them it would be %d, %d records); negative control, the records "
+                "cut anyway: %d records" % (part["nocc"], part["nmask"], nocc, "".join(sorted(tags & set("RKO")))
+                                            or "none of R K O", len(pc.cga), len(red.cga), red.part["nocc"],
+                                            red.part["nocc"]),
+                part["nocc"] == 0 and part["nmask"] == 0 and nocc == 0 and not tags & set("RKO")
+                and red.part["nocc"] > 0 and len(red.cga) > len(pc.cga)))
     print("    the pathway: %d pads, %d routes, %d signs, %d pages; part %d bytes in RAM (%d stored), LZ4 %d" % (
         len(pth["pads"]), len(pth["routes"]), pth["nsign"], pth["npages"], len(pc.cga), len(pc.stored),
-        packed_len(pc.stored4, "lz4")))
+        packed_len(pc.stored, "lz4")))
     for q in pth["pads"]:
         print("      pad %d %-5s page %d, icon sign %s, keys %s" % (
             q["num"], q["crs"], q["page"], q["isign"], ", ".join(
@@ -19365,8 +20881,9 @@ def _path_checks(courses, res):
     except CourseError as e:
         why = str(e)
     res.append(("8R refused: a route left with no arrow (%s)" % why[:80], "has no arrow" in why))
-    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal)
-    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 23 28"), courses, "a lives counter's digit",
+    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal); (22, 27) puts the
+    # `lives` frame's digit, right of its marble, on pad 0's lane (the crystal ball's was (23, 28)'s, above it)
+    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 22 27"), courses, "a lives counter's digit",
                                "a lane over a lives digit", ex)
     res.append(("8R refused: a pad's lane over a lives counter's digit%s" % ("" if fired else " -- got: " + msg[:160]),
                 fired))
@@ -19993,6 +21510,374 @@ def _split_physics(res):
     return cs, cr
 
 
+# SPEC.md 128.28's FIELD courses (stories C1 - C2): THE CHUTES - a 2-wide chute set in the ground (a straight,
+# two radial corners, its tapered ends), a 1-wide one with a sloped leg, a floor raised beside the 2-wide's
+# lip (the lift's wall); THE PIT - a bowl round a hole; THE BRIDGE - a chute over the void.  tests/
+# bonanza_dfield.py runs the guest on the same three
+_FCHUTE = """course CHUTE "Chutes"
+width 128
+origin 544
+floor rect 6 6 28 34 flat 2
+floor rect 12 10 14 11 flat 4
+chute 2 round depth 10 way 8 12 2 way 20 12 way 20 20 way 26 20
+chute 1 round depth 5 way 8 26 2 way 16 26 way 16 31 4
+start 7 7
+goal tile 26 32 flat 2
+"""
+_FPIT = """course PIT "Pit"
+width 128
+origin 544
+floor rect 6 6 28 34 flat 2
+pit 16 20 2 radius 3 depth 16
+start 7 7
+goal tile 26 32 flat 2
+"""
+_FBRIDGE = """course BRIDG "Bridge"
+width 128
+origin 544
+floor rect 6 6 12 30 flat 2
+floor rect 20 6 26 30 flat 2
+chute 2 bank depth 7 way 10 16 2 way 22 16
+start 7 7
+goal tile 24 28 flat 2
+"""
+
+# SPEC.md 128.28.2: MORE THAN 16 TABLES - two 2-wide chutes and a pit, 17 tables, so the pit's last is
+# shape 16 and its cells' +1 carry bit 7 (the shape's fifth bit)
+_FMANY = """course MANY "Many"
+width 128
+origin 480
+floor rect 4 3 31 22 flat 2
+chute 2 round depth 10 way 8 10 2 way 8 5 way 14 5 way 14 10
+chute 2 bank depth 8 way 20 9 2 way 20 5 way 26 5 4 way 26 9 2
+pit 11 17 2 radius 3 depth 16
+start 5 4
+goal tile 30 21 flat 2
+"""
+
+
+def _field_cases():
+    """SPEC.md 128.28.3's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    S = _FCHUTE
+    return [
+        ("a leg off the axis", S + "chute 1 round depth 4 way 8 29 2 way 12 30\n", "not along one axis"),
+        ("an inner way that goes straight on", S + "chute 1 round depth 4 way 8 29 2 way 10 29 way 14 29\n",
+         "goes straight on"),
+        ("an inner way that doubles back", S + "chute 1 round depth 4 way 8 29 2 way 12 29 way 10 29\n",
+         "doubles back"),
+        ("a 2-wide leg too short", S + "chute 2 round depth 4 way 8 30 2 way 9 30\n", "too short"),
+        ("a slope not a whole number of half units a tile", S.replace("way 16 31 4", "way 16 31 3.5"),
+         "not a whole number"),
+        ("a depth past the slope bound", S.replace("depth 10", "depth 16"), "the bound |sx| + |sy|"),
+        ("a pit's radius 5", S + "pit 22 28 2 radius 5 depth 8\n", "radius is 2 - 4"),
+        ("a pit's hole not under its radius", S + "pit 22 28 2 radius 2 depth 8 hole 2\n", "under its radius"),
+        ("two chutes on one cell", S + "chute 1 round depth 4 way 9 10 2 way 9 16\n", "is laid by this chute"),
+        ("the start on a FIELD cell", S.replace("start 7 7", "start 14 12"), "which is a FIELD cell"),
+        ("a way on a FIELD cell", S + "way 14 12\n", "which is a FIELD cell"),
+        ("a pad on a FIELD cell", S + "pad steel 14 12\n", "which is a FIELD cell"),
+        ("a spring on a FIELD cell", S + "spring 14 12 400\n", "which is a FIELD cell"),
+        ("a split cell in a FIELD cell's 3 x 3", S + "floor half left tile 15 10 flat 3\n", "is in the 3 x 3"),
+        ("a first way with no height", S + "chute 1 round depth 4 way 8 29 way 12 29\n", "gives the lip's height"),
+    ]
+
+
+# SPEC.md 128.28.6's JOIN rule: SHAPE's `bank` chute alone - a plate-level corner at (20, 5), a corner RAISED
+# a unit over the plate at (26, 5)
+_FRAISE = """course RAISE "Raised"
+width 128
+origin 480
+floor rect 4 3 31 24 flat 2
+chute 2 bank depth 8 way 20 9 2 way 20 5 way 26 5 4 way 26 9 2
+start 5 4
+goal tile 30 23 flat 2
+"""
+
+
+def _field_join_checks(res):
+    """SPEC.md 128.28.6, the JOIN rule: a raised FIELD corner over a lower plate draws no floor ink at its
+    lip; a plate-level one still does (both by the facets _field_ops inks); red: every lip-level triangle
+    joined, the rule before it, inks the raised one's"""
+    c = compile_course(_FRAISE, "<RAISE>", _hack={"no_finish": True})
+    tiles = c.tiles
+    plate = _floor_h4(tiles[(5, 4)], 0, 0)          # the plate's height, quarter px
+
+    def inked(joined):
+        """lip-level triangles drawn in the floor's ink: (raised, at the plate's height)"""
+        up = flat = 0
+        for (wx, wy), t in tiles.items():
+            if not isinstance(t, FieldTile):
+                continue
+            for op in _field_ops(tiles, t, wx, wy, 0, 0, None, joined):
+                if op[1] == "facet" and op[4].tone in (WHT, CYN):
+                    G = [(gx - 16 * wx, gy - 16 * wy) for gx, gy in op[4].G]
+                    hs = [t.h[v][u] for u, v in G]
+                    if min(hs) > plate:
+                        up += 1
+                    elif max(hs) == plate:
+                        flat += 1
+        return up, flat
+    up, flat = inked(field_joined(tiles))
+    rup, rflat = inked(field_joined(tiles, _seed_all=True))
+    res.append(("2 the JOIN rule (128.28.6): a FIELD corner raised over a lower plate draws no floor ink at its "
+                "lip (%d triangles) and a plate-level corner still does (%d); red: every lip-level triangle "
+                "joined inks %d of the raised corner's" % (up, flat, rup),
+                up == 0 and flat > 0 and rup > 0 and rflat >= flat))
+
+
+def _field_checks(res):
+    """SPEC.md 128.28's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
+    cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
+    seam broken, red); the reader's refusals; the stored form; the model's scripted runs and their red arms"""
+    for what, text, want in _field_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (128.28.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    cs = {k: compile_course(t, "<%s>" % k, _hack={"no_finish": True})
+          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE), ("MANY", _FMANY))}
+    for k, c in cs.items():
+        g = Grid(c.cga)
+        ft = {cell: t for cell, t in c.tiles.items() if isinstance(t, FieldTile)}
+        same = all(g.cell(*cell)[6] == t.h for cell, t in ft.items())
+        flip = sum(1 for cell, t in ft.items() if g.fworld(t.z0, fsl(t.shape, t.sym ^ FSYM_MU)) != t.h)
+        smax = max(abs(a) + abs(b) for t in ft.values() for v in range(16) for u in range(16)
+                   for a, b in (fslopes(t.h, u, v),))
+        pieces = {}
+        for t in ft.values():
+            pieces[t.piece] = pieces.get(t.piece, 0) + 1
+        print("    %s (SPEC.md 128.28): %d FIELD cells (%s), %d tables (F %d bytes), part %d, %d blocks, %d records"
+              % (k, len(ft), ", ".join("%s %d" % kv for kv in sorted(pieces.items())), len(c.ftabs),
+                 FTAB * len(c.ftabs), len(c.cga), len(c.blocks), len(c.records)))
+        res.append(("2 %s: every FIELD cell's heights read back through the grid (its table, its symmetry); red: "
+                    "MU flipped changes %d of %d" % (k, flip, len(ft)), same and flip > 0))
+        res.append(("2 %s: the slope bound holds, |sx| + |sy| at most %d (bound %d)" % (k, smax, FSLOPE_MAX),
+                    smax <= FSLOPE_MAX))
+        res.append(("10 %s: expand(stored) == RAM with section F" % k, expand(c.stored, k) == bytes(c.cga)))
+    # SPEC.md 128.28.2: 32 tables - MANY's 17th (shape 16) is named by cells whose +1 has bit 7, read back
+    # through the grid above; red: the fifth bit dropped reads table 0 for them
+    c = cs["MANY"]
+    g = Grid(c.cga)
+    hi = [(cell, t) for cell, t in sorted(c.tiles.items()) if isinstance(t, FieldTile) and t.shape >= 16]
+    drop = sum(1 for cell, t in hi if g.fworld(t.z0, fsl(t.shape, t.sym) & 0x7F) != t.h)
+    res.append(("2 MANY: %d tables, the %d cells of shape 16 - 31 carry the +1's bit 7 and read back their own "
+                "tables (SPEC.md 128.28.2: up to %d); red: the fifth bit dropped misreads %d of them" % (
+                    len(c.ftabs), len(hi), FSHAPE_MAX, drop),
+                len(c.ftabs) > 16 and hi and all(c.cells[cl][1] & 0x80 for cl, _t in hi) and drop == len(hi)))
+    _field_occ_checks(cs, res)
+    _field_join_checks(res)
+    # the SEAM rule's red arm, and the reader's
+    c = cs["CHUTE"]
+    tl = dict(c.tiles)
+    cell = next(cl for cl, t in sorted(tl.items()) if isinstance(t, FieldTile) and isinstance(
+        tl.get((cl[0] + 1, cl[1])), FieldTile))
+    bad = FieldTile([r[:] for r in tl[cell].h], tl[cell].line, tl[cell].piece, tl[cell].lip)
+    bad.h[8][16] += 1
+    tl[cell] = bad
+    try:
+        field_seams(tl, "<seam>")
+        fired = False
+    except CourseError as e:
+        fired = "SEAM rule" in str(e)
+    res.append(("2 red: a FIELD cell one quarter px off its neighbour at a shared edge is refused (the SEAM rule)",
+                fired))
+    p = bytearray(c.cga)
+    foff = c.part["grid"]["foff"]
+    p[foff + 8] ^= 0x40                             # a table byte made a cliff
+    try:
+        read_part(bytes(restamp(p)))
+        fired, msg = False, "read"
+    except CourseError as e:
+        fired, msg = "F" in str(e), str(e)
+    res.append(("10 red: read_part refuses a table with a cliff in it (the slope bound or the SEAM rule)%s" % (
+        "" if fired else " -- got: " + msg), fired))
+    # the model (story C2): the scripted runs, and the red arms that break them
+    for what, k, mat, at, keys, ok, arm in _field_runs():
+        p_ = Physics(cs[k], play=True, mat=mat)
+        p_.tsec = 0
+        _field_poke(p_, *at)
+        for kk in keys(p_) if callable(keys) else keys:
+            p_.step(kk)
+        good = ok(p_)
+        res.append(("7 FIELD run (128.28.5): %s" % what, good))
+        if arm:
+            q = Physics(cs[k], play=True, mat=mat, **{arm: True})
+            q.tsec = 0
+            _field_poke(q, *at)
+            for kk in keys(q) if callable(keys) else keys:
+                q.step(kk)
+            res.append(("7 FIELD red `%s` breaks it: %s" % (arm.strip("_"), what), not ok(q)))
+
+
+def _field_real_poses(c, rc, step=7):
+    """SPEC.md 128.28.6: a SAMPLE of a FIELD reach cell's real poses for --selfcheck - the centre at every
+    integer point with (u + 3 v) % step == 0, each corner of its fraction, at its floor (grounded and in the
+    air) and one and two px above it, with and without a height fraction -> [(px, py, s, z, air)]"""
+    t = c.tiles[(rc.wx, rc.wy)]
+    out = []
+    for v in range(16):
+        for u in range(16):
+            if (u + 3 * v) % step:
+                continue
+            for fu, fv in ((0, 0), (255, 255), (255, 0), (0, 255)):
+                gx, gy = ((16 * rc.wx + u) << 8) + fu, ((16 * rc.wy + v) << 8) + fv
+                zf = field_zlo(c.tiles, rc, gx, gy)
+                for z in range(zf, min(zf + 2, rc.zhi) + 1):
+                    for f in (0, 200):
+                        gz = (z << 8) + f
+                        px = ((gx - gy) >> 8) + c.x0 - 8
+                        py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
+                        for air in ((0, 1) if z == zf and f == 0 else (1,)):
+                            out.append((px, py, rc.s, z, air))
+    return out
+
+
+def _poses_hidden(c, poses):
+    """-> (poses where the records and the per-pixel rule disagree on a LIT ball pixel, poses where the rule
+    hides any): records' pixels by a pixel -> record map, the rule by sbuf and tbuf (no record's top raised:
+    a pixel no record holds is exactly what a too-thin cut leaves out)"""
+    rec = {}
+    for r in c.records:
+        for p_ in r["pix"]:
+            rec[p_] = r
+    bad = hid = 0
+    for px, py, sb, z, air in poses:
+        m = 0 if air else CLIMB
+        any_ = diff = False
+        for (x, y) in ball_pixels(px, py):
+            rule = c.sbuf[y][x] > sb and c.tbuf[y][x] > z + m
+            r = rec.get((x, y))
+            laid = r is not None and r["s"] > sb and r["top"] > z + m
+            any_ |= rule
+            if rule and not laid:
+                diff = True
+        bad += diff
+        hid += any_
+    return bad, hid
+
+
+def _field_occ_checks(cs, res):
+    """SPEC.md 128.28.6's real-pose cut: (1) the records against the whole-cell cut (fewer); (2) a sample of
+    every FIELD cell's real poses, and the pit's hole at every height a ball falls through it, laid by the
+    records wherever the per-pixel rule hides a lit ball pixel - red arm: the cut's floor 3 px too high
+    misses some; (3) the model never puts a ball's centre in a FIELD cell under its floor there (what the
+    cut stands on) - red arm: that floor read 1 px higher is broken by a grounded ball"""
+    for k, text in (("CHUTE", _FCHUTE), ("PIT", _FPIT)):
+        c = cs[k]
+        cw = compile_course(text, "<%s>" % k, _hack={"no_finish": True, "focc": 16})
+        fr = [rc for rc in c.reach if rc.kind == KIND_FIELD]
+        poses = [q for rc in fr for q in _field_real_poses(c, rc)]
+        hole = [rc for rc in c.reach if rc.kind == KIND_VOID and any(
+            isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+            and all(isinstance(c.tiles.get((rc.wx + dx, rc.wy + dy)), FieldTile) or (dx, dy) == (0, 0)
+                    or c.tiles.get((rc.wx + dx, rc.wy + dy)) is None for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+        hp = []
+        for rc in hole:
+            for u, v in ((8, 8), (2, 2), (14, 14), (2, 14), (14, 2)):
+                gx, gy = ((16 * rc.wx + u) << 8), ((16 * rc.wy + v) << 8)
+                for z in range(rc.zlo, rc.zhi + 1, 2):
+                    hp.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, 1))
+        bad, hid = _poses_hidden(c, poses)
+        hbad, hhid = _poses_hidden(c, hp)
+        cr = compile_course(text, "<%s, floor + 3>" % k, _hack={"no_finish": True, "fraise": 3})
+        rbad, _rh = _poses_hidden(cr, poses)
+        print("    %s (SPEC.md 128.28.6): %d records cut at the FIELD cells' real poses, %d at their whole cells (masks "
+              "%d against %d, blocks %d); %d sampled real poses, %d of them with lit pixels the rule hides; the "
+              "hole: %d poses, %d hidden" % (k, len(c.records), len(cw.records), len(c.masks), len(cw.masks),
+                                            len(c.blocks), len(poses), hid, len(hp), hhid))
+        res.append(("5 %s: the FIELD cells' records are cut at their REAL poses (128.28.6): %d records against %d "
+                    "cut at the whole cell" % (k, len(c.records), len(cw.records)),
+                    len(c.records) < len(cw.records) and c.cga != cw.cga))
+        res.append(("5 %s: at %d sampled real poses on FIELD cells (%d hidden in part) and %d in %s, every lit ball "
+                    "pixel the per-pixel rule hides is laid by a record (%d, %d differ); red: the cut's floor 3 px "
+                    "high leaves %d poses short" % (k, len(poses), hid, len(hp), "the pit's hole" if hole else
+                                                     "no hole", bad, hbad, rbad),
+                    bad == 0 and hbad == 0 and hid > 0 and rbad > 0 and (k != "PIT" or hhid > 0)))
+    # (3) the model: the centre in a FIELD cell is never under the floor at its integer point - the scripted
+    # runs, and 60 seeded runs from random poses on and beside FIELD cells, random keys
+    worst = {0: 0, 1: 0}
+    n = 0
+    fr = {k: {(r.wx, r.wy): r for r in c.reach if r.kind == KIND_FIELD} for k, c in cs.items()}
+    import random
+    rnd = random.Random(1117)
+    runs = [(k, mat, at, keys) for _w, k, mat, at, keys, _ok, _arm in _field_runs()]
+    for i in range(60):
+        k = ("CHUTE", "PIT", "MANY")[i % 3]
+        wx, wy = rnd.choice(sorted(fr[k]))
+        v = VMAXG
+        ks = []
+        while len(ks) < 120:
+            ks += [rnd.choice((0, K_U, K_D, K_L, K_R, K_U | K_L, K_D | K_R, K_HOP))] * rnd.randrange(1, 20)
+        runs.append((k, rnd.choice((MAT_RUBBER, MAT_STEEL)), (wx, wy, rnd.randrange(4096), rnd.randrange(4096),
+                                                              rnd.randrange(-v, v + 1), rnd.randrange(-v, v + 1)),
+                     ks[:120]))
+    for k, mat, at, keys in runs:
+        p_ = Physics(cs[k], play=True, mat=mat)
+        p_.tsec = 0
+        _field_poke(p_, *at)
+        for kk in keys(p_) if callable(keys) else keys:
+            p_.step(kk)
+            rc_ = fr[k].get((p_.gx >> 12, p_.gy >> 12))
+            if rc_ is None or p_.hid or p_.tube:
+                continue
+            n += 1
+            for rz in (0, 1):
+                if (p_.gz >> 8) < field_zlo(cs[k].tiles, rc_, p_.gx, p_.gy, rz):
+                    worst[rz] += 1
+    res.append(("7 FIELD runs (128.28.5.1, the cut's floor): over %d steps whose centre is a FIELD cell the ball "
+                "is never under the floor at its integer point (%d under); red: that floor 1 px high, %d steps "
+                "under it" % (n, worst[0], worst[1]), n > 0 and worst[0] == 0 and worst[1] > 0))
+
+
+def _field_poke(p, wx, wy, pu, pv, gvx, gvy):
+    p.poke(wx, wy, gvx, gvy)
+    p.gx, p.gy = (16 * wx << 8) + pu, (16 * wy << 8) + pv
+    p.gz = Physics.h4(p.prec(wx, wy), pu >> 8, pv >> 8) << 6
+    p._fill(wx, wy)
+    p._ps()
+    p._derive(True)
+
+
+def _field_steer(turn_x, before, after, n):
+    def keys(p):
+        for _ in range(n):
+            yield after if (p.gx >> 8) >= turn_x else before
+    return keys
+
+
+def _field_runs():
+    """SPEC.md 128.28.5's scripted runs (story C2.3): (what, course, material, poke, keys, the outcome, a red
+    arm that must break it or None)"""
+    rub, stl = MAT_RUBBER, MAT_STEEL
+    U, D, L, Rt = K_U, K_D, K_L, K_R
+
+    def noev(*names):
+        return lambda p: not any(e[0] in names for e in p.events)
+    return [
+        ("a 2-wide corner carried round at 250, the turn held", "CHUTE", rub, (17, 12, 8 << 8, 0, 250, 0),
+         _field_steer(288, 0, D | L, 160), lambda p: p.gy >> 8 > 230 and 304 <= p.gx >> 8 < 336, None),
+        ("...and at 384, steel", "CHUTE", stl, (17, 12, 8 << 8, 0, 384, 0), _field_steer(288, 0, D | L, 160),
+         lambda p: p.gy >> 8 > 230, None),
+        ("a 1-wide corner left over its lip at 384, the arrows on", "CHUTE", rub, (14, 26, 0, 8 << 8, 384, 0),
+         [Rt | D] * 120, lambda p: p.cell(p.gx >> 12, p.gy >> 12)[3] != KIND_FIELD, None),
+        ("a ball rests at a chute's bottom, no dither", "CHUTE", rub, (12, 11, 8 << 8, 3 << 8, 0, 160), [0] * 400,
+         lambda p: p.gvx == 0 and p.gvy == 0, None),
+        ("the pit ridden round and out over the far lip at speed", "PIT", rub, (12, 21, 8 << 8, 8 << 8, 384, 0),
+         [Rt | D] * 140, lambda p: p.nfall == 0 and p.gx >> 8 > 300, None),
+        ("the pit fallen through when slow", "PIT", rub, (12, 19, 8 << 8, 15 << 8, 250, 0), [0] * 140,
+         lambda p: p.nfall == 1, None),
+        ("the lift: a floor above the lip is a wall", "CHUTE", rub, (13, 11, 8 << 8, 6 << 8, 0, -300),
+         [U | Rt] * 60, lambda p: any(e[0] == "wall" for e in p.events), None),
+        ("the lift: a floor at the lip's height is a lip", "CHUTE", rub, (17, 11, 8 << 8, 12 << 8, 0, -330),
+         [U | Rt] * 40, lambda p: p.gy >> 8 < 176, "_nolift"),
+        ("field to field: across the pit's bank, no wall", "PIT", rub, (14, 18, 1216, 1502, -137, -151), [Rt] * 20,
+         noev("wall", "corner", "undo"), "_ffblock"),
+        ("a chute on a bridge left over its lip into the void", "BRIDGE", rub, (16, 15, 8 << 8, 8 << 8, 0, -384),
+         [U | Rt] * 80, lambda p: p.nfall == 1, None),
+    ]
+
+
 def _split_checks(res, t):
     """SPEC.md 128.24.11's `bonanzacourse` items on THE SPLIT COURSE (stories D1.1 - D1.4): the refusals, the
     normalisation, items 3 - 6 on halves, the reader's refusals of a bad pair, the stored form with D, the
@@ -20078,8 +21963,8 @@ def _split_checks(res, t):
              "are cell"),
             ("a split VOID-VOID", _vv, "all VOID"),
             ("a SAFE split cell", lambda b: b.__setitem__(co + i0 + 3, b[co + i0 + 3] | FL_SAFE), "flags"),
-            ("the reserved kind 7 (a channel)", lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7),
-             "kind 7"),
+            ("a kind 7 (FIELD) cell with no section F (SPEC.md 128.28.2)",
+             lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7), "FIELD cell's shape"),
             ("GF_SPLIT clear", lambda b: b.__setitem__(c.part["gridoff"] + 28, b[c.part["gridoff"] + 28] & ~GF_SPLIT),
              "GF_SPLIT"))
     for what, f_, want in bads:
@@ -20093,14 +21978,14 @@ def _split_checks(res, t):
             fired, msg = want in str(e), str(e)
         res.append(("10 SPLIT: read_part refuses %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     # the stored form (item 10): CELLS reads the halves through D, PLAIN and in place before C expands
-    sim = all(expand(st, "<SPLIT>", sim=True) == ram for st, ram in ((c.stored4, c.cga4), (c.stored8, c.cga8)))
+    sim = expand(c.stored, "<SPLIT>", sim=True) == c.cga
     exc = cells_exceptions(c.cga)
     try:
-        wrong = stored_form(c.model, 4, c.cga4, "<SPLIT>", _hack={"no_halves": True})
-        red = expand(wrong, "<SPLIT>") != c.cga4
+        wrong = stored_form(c.model, 4, c.cga, "<SPLIT>", _hack={"no_halves": True})
+        red = expand(wrong, "<SPLIT>") != c.cga
     except (CourseError, struct.error, IndexError):
         red = True
-    res.append(("10 SPLIT: both stored forms expand IN PLACE to their RAM forms with section D (the in-place "
+    res.append(("10 SPLIT: the stored form expands IN PLACE to its RAM form with section D (the in-place "
                 "simulation: every byte read before it is written), and the CELLS rule BY HALVES reproduces every "
                 "cell (%d exceptions); negative control: the rule without halves (a split cell's offset read as a "
                 "z0) gives another grid" % len(exc), sim and not exc and red))
@@ -20195,7 +22080,7 @@ def _course_items(c, k, res, t):
             _BA.htab = old
         res.append(("3 %s negative control: one htab() entry flipped fails the Hercules picture" % tag, caught))
     # 4. the grid against the geometry
-    g = Grid(c.cga)
+    g = Grid(c.cga, c.wcga)
     okp = okk = okv = oks = oksf = True
     nsplit = 0
     for (wx, wy), ent in c.tiles.items():
@@ -20225,6 +22110,10 @@ def _course_items(c, k, res, t):
                             okp = False
             continue
         tl = ent
+        if isinstance(tl, FieldTile):               # SPEC.md 128.28.2: its heights, all 17 x 17, the tile's
+            if cl[3] != KIND_FIELD or cl[6] != tl.h or cl[4] & FL_SAFE:
+                okp = False
+            continue
         zt, zr, zb, zl = (4 * v for v in tl.corners())
         if zb != zr + zl - zt:
             okp = False
@@ -20336,7 +22225,7 @@ def _course_items(c, k, res, t):
     first_laid = None
     for rc in c.reach:
         gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-        for z in sorted({rc.zlo, rc.zhi}):
+        for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (128.28.6: a FIELD cell's floor there)
             for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
@@ -20358,7 +22247,7 @@ def _course_items(c, k, res, t):
     for rc in c.reach:
         if rc.zhi <= rc.zlo:
             continue
-        for z in sorted({rc.zlo, rc.zhi - 1}):
+        for z in sorted({field_zlo(c.tiles, rc, (16 * rc.wx) << 8, (16 * rc.wy) << 8), rc.zhi - 1}):
             gx, gy, gz = (16 * rc.wx) << 8, (16 * rc.wy) << 8, (z << 8) + 128
             px = ((gx - gy) >> 8) + c.x0 - 8
             py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
@@ -20686,6 +22575,7 @@ def _sc_split(X, res):
 def _sc_splitphys(X, res):
     """--selfcheck's section `splitphys` (selfcheck(): a fork of its state after the compile)"""
     _split_physics(res)                             # ...and the model's runs on its halves (story D2)
+    _field_checks(res)                              # SPEC.md 128.28: the FIELD courses (stories C1 - C2)
 
 
 def _sc_gaps(X, res):
@@ -20850,7 +22740,7 @@ def _sc_y0moon(X, res):
         forced = "compiled"
     except CourseError as e:
         forced = str(e)
-    mc = y0_search(mtxt, None, {"hopmax": 366}, None, None)
+    mc = y0_search(mtxt, None, {"hopmax": 366}, None)
     mok = [k for k, n in enumerate(mc or []) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
     res.append(("6 negative control: MOON with every Hop at 366 refuses at +0 (%s) and the Y0 search finds %d "
                 "alignment(s) that meet the bounds (%s)" % (
@@ -21010,6 +22900,113 @@ def _sc_budget(X, res):
     _ground_checks(courses, res)              # SPEC.md 128.27.6
 
 
+def _sc_twoseg(X, res):
+    """--selfcheck's section `twoseg`: item 15, TWO PARTS (SPEC.md 128.30.7)"""
+    _twoseg_checks(X.courses, res, X.paths)
+
+
+def _two_earned(c):
+    """SPEC.md 128.30.4.1: a course may be two parts only when its ONE-part form is refused - its D or its C
+    RAM form over PARTMAX.  -> True for a one-part course and for a two-part one that earned it"""
+    return not c.split or one_part_len(c.model, 4) > PARTMAX or one_part_len(c.model, 8) > PARTMAX
+
+
+def _twoseg_checks(courses, res, paths):
+    """SPEC.md 128.30.7, item 15: TWOSEG compiles as two parts, each expands in place, read_parts takes them
+    and decode_parts gives the model back, the identity is 128.30.4.3's, the route demo reaches the goal on
+    the model through the world part, every shipped course is one part unless its one-part form is refused
+    (PLAYGROUND since 128.30.11) - and the negative controls: a pose map pointed back into P, the world header
+    carrying a picture offset, the identity over one part, a picture part with no L, a two-part pathway, each
+    REFUSED, and a course that fits one part compiled as two, CAUGHT by the shipped courses' rule"""
+    two = [c for c in courses if c.split]
+    res.append(("15 TWO PARTS: a shipped course is two parts only when its ONE-part form is refused (SPEC.md "
+                "128.30.4.1, 128.30.6): one part %s; two parts %s" % (
+                    ", ".join("%s %d" % (c.name, len(c.cga)) for c in courses if not c.split),
+                    ", ".join("%s %d + %d (one part would be %d under D, %d under C, over %d)" % (
+                        c.name, len(c.cga), len(c.wcga), one_part_len(c.model, 4), one_part_len(c.model, 8),
+                        PARTMAX) for c in two) or "none"),
+                all(_two_earned(c) for c in courses)))
+    c = compile_course(twoseg_text(), "<TWOSEG>")
+    m = c.model
+    one = one_part_len(m, 4)
+    la, lb = len(c.cga), len(c.wcga or b"")
+    res.append(("15 TWOSEG is TWO parts: one part would be %d bytes, over %d; the picture part (%s) %d, the world part "
+                "(%s) %d, each under it" % (one, PARTMAX, bytes(c.cga[:4]).decode(), la,
+                                             bytes((c.wcga or b"????")[:4]).decode(), lb),
+                c.split and one > PARTMAX and la <= PARTMAX and 0 < lb <= PARTMAX
+                and c.cga[:4] == MAGIC_PIC and c.wcga[:4] == MAGIC_WORLD))
+    ok_exp = True
+    for st, ram in ((c.stored, c.cga), (c.wstored, c.wcga)):
+        if st is None:
+            continue
+        try:
+            ok_exp = ok_exp and expand(st, "<TWOSEG>", sim=True) == ram
+        except CourseError:
+            ok_exp = False
+    res.append(("15 TWOSEG: each part's STORED form expands IN PLACE to its RAM form (the simulation of 128.15.4.4, "
+                "each part alone: no form reads across them)", ok_exp))
+    pt = c.part
+    tags = ["".join(e["tag"] for e in pt["dir"] if e["part"] == k) for k in (0, 1)]
+    lanes = [d for d in pt["props"] if d["lane"]]
+    loff = next((e["off"] for e in pt["dir"] if e["tag"] == "L"), None)
+    lend = loff + next(e["len"] for e in pt["dir"] if e["tag"] == "L") if loff is not None else None
+    res.append(("15 TWOSEG: read_parts takes it - the picture part's sections %s, the world part's %s; the two headers "
+                "the same but the magic and the directory; %d lanes' pose maps in L, the picture part's [%s, %s)" % (
+                    tags[0], tags[1], len(lanes), loff, lend),
+                tags[0] in ("MBIRKOL", "MBIRKO") and tags[1].startswith("GC") and set(tags[1]) <= set("GCDFTWP")
+                and c.cga[4:38] == c.wcga[4:38] and c.cga[42:HDR] == c.wcga[42:HDR]
+                and all(loff <= d["lane"]["off"] < lend for d in lanes) and bool(lanes)))
+    res.append(("15 TWOSEG: decode_parts gives back the model the compile serialised (the pose maps back in the "
+                "props blob after the records)", models_equal(decode_parts(c.cga, c.wcga), m)))
+    idw = struct.unpack_from("<H", c.wcga, pt["gridoff"] + 18)[0]
+    res.append(("15 TWOSEG: its identity %04Xh is 128.30.4.3's - Fletcher's pair over the picture part's D RAM form "
+                "and then the world part's - at the world part's BZG1 +18" % c.ident,
+                idw == c.ident == ram_identity2(c.cga, c.wcga)))
+    p_ = Physics(c, play=True)
+    n = 0
+    while n < DEMO_STEPS and not p_.goal and not p_.tout:
+        p_.step(p_.auto())
+        n += 1
+    res.append(("15 TWOSEG: the model reads its cells, route and props through the WORLD part, and its autopilot "
+                "reaches the goal in %d steps" % n, bool(p_.goal)))
+    # the negative controls: each a pair of parts that must be refused
+    ctl = []
+    b = bytearray(c.wcga)                           # a lane's pose map pointed back into P (the world part)
+    r0 = pt["propoff"] + PROPREC * lanes[0]["i"]
+    struct.pack_into("<H", b, r0 + 14, pt["propoff"] + PROPREC * len(pt["props"]))
+    ctl.append(("a pose map in P", c.cga, bytes(b)))
+    b = bytearray(c.wcga)                           # the world header with a picture offset (GRIDOFF as MASKOFF)
+    struct.pack_into("<H", b, 26, pt["maskoff"])
+    ctl.append(("the world header's GRIDOFF a picture offset", c.cga, bytes(b)))
+    ctl.append(("the identity over the world part alone",) + encode_parts(m, REC, "<TWOSEG>", _hack={"ident1": 1}))
+    a = bytearray(c.cga)                            # a picture part with no L: its directory's last entry gone
+    da, na = struct.unpack_from("<HH", a, 38)
+    struct.pack_into("<H", a, 40, na - 1)
+    ctl.append(("a picture part with no L", bytes(a[:da + DIRENT * (na - 1)]), c.wcga))
+    out = []
+    for what, a_, b_ in ctl:
+        try:
+            read_parts(a_, b_, "<TWOSEG, %s>" % what)
+            out.append((what, False))
+        except (CourseError, struct.error, IndexError, ValueError):
+            out.append((what, True))
+    try:
+        compile_course(os.path.join(COURSE_DIR, "path.bbc"), _hack={"split": True},
+                       crsinfo=[(x.name, x.title) for x in courses])
+        out.append(("a two-part pathway", False))
+    except CourseError as e:
+        out.append(("a two-part pathway", "always ONE part" in str(e)))
+    ks = min((k for k, x in enumerate(courses) if not x.split), key=lambda k: len(courses[k].cga))
+    small = courses[ks]                             # (the red arm of the first line: a course that fits one
+    try:                                            # part, forced into two)
+        f2 = compile_course(paths[ks], _hack={"split": True})
+        out.append(("%s (one part) forced into two" % small.name, f2.split and not _two_earned(f2)))
+    except CourseError:
+        out.append(("%s (one part) forced into two" % small.name, False))
+    res.append(("15 TWO PARTS negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
+                                                                     for w, g in out), all(g for _w, g in out)))
+
+
 def _sc_title(X, res):
     """--selfcheck's section `title` (selfcheck(): a fork of its state after the compile)"""
     _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
@@ -21149,7 +23146,7 @@ def _sc_cache(X, res):
     p = os.path.join(COURSE_DIR, "first.bbc")
     mode, _CACHE["mode"] = _CACHE["mode"], "rw"     # (on, whatever BB_CACHE says: this is the key's proof)
     try:
-        k0 = cache_key(p, None, True, None, None, None)
+        k0 = cache_key(p, None, True, None, None)
         moved = {}
         with tempfile.TemporaryDirectory() as td:
             q = os.path.join(td, "first.bbc")
@@ -21157,34 +23154,33 @@ def _sc_cache(X, res):
                 txt = f.read()
             with open(q, "wb") as f:
                 f.write(txt)
-            kq = cache_key(q, None, True, None, None, None)
+            kq = cache_key(q, None, True, None, None)
             with open(q, "wb") as f:                # one byte of the course
                 f.write(txt.replace(b"course ", b"course  ", 1))
-            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None, None) != kq
+            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None) != kq
         moved["the course's name"] = kq != k0
-        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None, None,
+        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None,
                                                            _tool="0" * 20) != k0
         moved["a file under courses/ or demos/, the font or the Makefile"] = cache_key(
-            p, None, True, None, None, None, _inputs="0") != k0
-        moved["occluders"] = cache_key(p, None, False, None, None, None) != k0
-        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None, None) != k0
-        moved["RECB"] = cache_key(p, None, True, None, 8, None) != k0
-        moved["crsinfo"] = cache_key(p, None, True, None, None, [("X", "x")]) != k0
-        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None, None) != k0
+            p, None, True, None, None, _inputs="0") != k0
+        moved["occluders"] = cache_key(p, None, False, None, None) != k0
+        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None) != k0
+        moved["crsinfo"] = cache_key(p, None, True, None, [("X", "x")]) != k0
+        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None) != k0
         _CHECKS_OFF.add("flat")
         try:
-            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None) != k0
         finally:
             _CHECKS_OFF.discard("flat")
         keep = copy.deepcopy(MATERIALS[MAT_RUBBER])
         MATERIALS[MAT_RUBBER]["HOP"] += 1
         try:
-            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None) != k0
         finally:
             MATERIALS[MAT_RUBBER].update(keep)
-        back = cache_key(p, None, True, None, None, None) == k0
+        back = cache_key(p, None, True, None, None) == k0
         with _famtest():                            # (last: its class attribute stays set, a later key's miss)
-            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None, None) != k0
+            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None) != k0
         imp = {"bbcourse", "bonanza_assets", "os88lz", "os88font", "bbmusic"} <= set(TOOL_MODULES)
         res.append(("1 the compile cache's key moves with each input by itself (%s), comes back when they do, and "
                     "TOOL_HASH covers %s" % ("; ".join("%s %s" % (w, "moves" if v else "DOES NOT MOVE")
@@ -21197,7 +23193,7 @@ def _sc_cache(X, res):
         with tempfile.TemporaryDirectory() as td:
             CACHE_DIR = td
             try:
-                c = _compile_y0(p, None, True, None, None, None)
+                c = _compile_y0(p, None, True, None, None)
                 cache_put(k0, c)
                 h = cache_get(k0)
                 same = h is not None and (h.cga, h.stored, h.ident, h.pic, [r["mask"] for r in h.records]) == (
@@ -21246,7 +23242,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palet
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
-             "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
+             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -21260,15 +23256,24 @@ def _selfcheck(paths, res, skipped, S):
     byname = {c.name: c for c in courses}
     for k, c in enumerate(courses):
         report(c, k)
-    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
-               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
+    def _idok(c):                                   # (a TWO-PART course's is 128.30.4.3's, at its world part's
+        if c.split:                                 # BZG1 +18: item 15 holds TWOSEG to the same)
+            return struct.unpack_from("<H", c.wcga, c.part["gridoff"] + 18)[0] == ram_identity2(c.cga, c.wcga) \
+                == c.ident
+        return struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident \
+            and _fletcher(_ident_bytes(identity_form(c))) == c.ident
+    idok = all(_idok(c) for c in courses)
     res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
-                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
-                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
-    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
-        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
-    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
-                "compared above)", st1))
+                "them out, that word and the directory's form bytes and stored lengths taken as 0 - a two-part "
+                "course's 128.30.4.3's, over its two D parts (%s)"
+                % ", ".join("%s %04Xh%s" % (c.name, c.ident, " (two parts)" if c.split else "") for c in courses),
+                idok))
+    st1 = all(expand(c.stored, c.name) == c.cga and (not c.split or expand(c.wstored, c.name) == c.wcga)
+              for c in courses) and all(
+        a[1]["BZ%d.BIN" % k] == c.stored and (not c.split or a[1]["BZ%dW.BIN" % k] == c.wstored)
+        for k, c in enumerate(courses))
+    res.append(("1 every BZ<K>.BIN (and a two-part course's BZ<K>W.BIN) is the course's STORED form and expands to "
+                "its RAM form (both compiles' files compared above)", st1))
     import types
     X = types.SimpleNamespace(paths=paths, a=a, courses=courses, byname=byname, t=htab())
     for fn in _SC_ORDER:
@@ -21383,6 +23388,12 @@ def _o88_arms(courses, demo_files):
             with open(p, "wb") as f:
                 f.write(c.stored)
             parts.append(p)
+        for k, c in enumerate(courses):             # SPEC.md 128.30.4.4: the WORLD parts after the courses'
+            if c.split:
+                p = os.path.join(td, "BZ%dW.BIN" % k)
+                with open(p, "wb") as f:
+                    f.write(c.wstored)
+                parts.append(p)
         parts += [need[3]] + [os.path.join(art, n) for n in songs]
         for name in sorted(demo_files, key=lambda n: int(n[3:-4])):
             p = os.path.join(td, name)
@@ -21441,16 +23452,23 @@ def sizes(paths):
           "(os88lz, the near-call filter tried); KiB = 1,024 bytes" % (REC, "D" if REC == 4 else "C"))
     for k, c in enumerate(courses):
         pt = c.part
-        whole = {f: packed_len(c.stored, f) for f, _ in fmts}
+        stores = [c.stored] + ([c.wstored] if c.split else [])     # (a two-part course's both, 128.30)
+        pw = [{f: packed_len(st, f) for f, _ in fmts} for st in stores]
+        whole = {f: sum(q[f] for q in pw) for f, _ in fmts}
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
-            k, c.name, os.path.basename(c.fname), len(c.cga), len(c.stored),
-            sum(e["len"] - e["dlen"] for e in pt["dir"]), pt["nsec"]))
+            k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores), sum(len(st) for st in stores),
+            sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
+        if c.split:
+            print("    TWO PARTS (SPEC.md 128.30): the picture part %d bytes (%d of headroom under %d), LZ4 %d, LZB %d; "
+                  "the world part %d (%d), LZ4 %d, LZB %d" % (
+                      len(c.cga), PARTMAX - len(c.cga), PARTMAX, pw[0]["lz4"], pw[0]["lzb"], len(c.wcga),
+                      PARTMAX - len(c.wcga), pw[1]["lz4"], pw[1]["lzb"]))
         print("    %-3s %-18s %-10s %7s %7s %9s %9s" % ("tag", "section", "form", "RAM", "stored", "LZ4 share",
                                                        "LZB share"))
         for e in pt["dir"]:
-            z = bytearray(c.stored)
+            z = bytearray(stores[e["part"]])
             z[e["off"] + e["len"] - e["dlen"]:e["off"] + e["len"]] = bytes(e["dlen"])
-            sh = {f: whole[f] - packed_len(bytes(z), f) if e["dlen"] else 0 for f, _ in fmts}
+            sh = {f: pw[e["part"]][f] - packed_len(bytes(z), f) if e["dlen"] else 0 for f, _ in fmts}
             print("    %-3s %-18s %-10s %7d %7d %9d %9d" % (e["tag"], SEC_NAMES[e["tag"]], FORM_NAMES[e["form"]],
                                                          e["len"], e["dlen"], sh["lz4"], sh["lzb"]))
         print("    header %d, directory %d x %d = %d" % (HDR, pt["nsec"], DIRENT, DIRENT * pt["nsec"]))
@@ -21483,7 +23501,7 @@ def sizes(paths):
                       whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
         tot["lz4"] += whole["lz4"]
         tot["lzb"] += whole["lzb"]
-        tot["ram"] += len(c.cga)
+        tot["ram"] += len(c.cga) + len(c.wcga or b"")
     print("\n  the %d courses: LZ4 %d, LZB %d packed; RAM %d" % (len(courses), tot["lz4"], tot["lzb"], tot["ram"]))
     planned = 0
     have = {}
@@ -21716,7 +23734,7 @@ def main_tune(assigns, paths):
             c.packed4 = check_budget(c, k)
             was = W6_SIZES.get(c.name)
             print("  %-5s compiles: %d records, RAM %d, LZ4 %d, LZB %d%s" % (
-                c.name, len(c.records), len(c.cga), packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb"),
+                c.name, len(c.records), len(c.cga), packed_len(c.stored, "lz4"), packed_len(c.stored, "lzb"),
                 "" if was is None else " (128.16.5.4: %d, %d, %d, %d)" % was))
             courses.append(c)
         except CourseError as e:
@@ -21799,6 +23817,38 @@ def main_demo(argv):
     return 0
 
 
+# SPEC.md 128.30.7: THE TWO-PART TEST COURSE - the PLAYGROUND with its diagonal lane run on down the screen off the
+# platform's foot (s 81 - 121), which takes its one-part form past 65,024 bytes (67,320 at the commit that made it,
+# a picture part of 51,956 and a world part of 15,364).  Off every route: the route, the start and the goal are the
+# PLAYGROUND's.  Not shipped and not in the tour: --selfcheck item 15 compiles it, `make bonanzatwoseg` adds it to a
+# private build as course 7
+TWOSEG_EXT = ("\n# SPEC.md 128.30.7: the lane run on down the screen off the platform's foot, until one part refuses "
+              "the course\nfloor box 15 17 81 121 flat 2.5\n")
+
+
+def twoseg_text():
+    """the TWOSEG course's text (SPEC.md 128.30.7), from the PLAYGROUND's"""
+    with open(os.path.join(COURSE_DIR, "playground.bbc"), "r", encoding="ascii") as f:
+        t = f.read()
+    t = _swap(t, 'course PLAY "Playground"', 'course TWOSG "Two segments"')
+    return ("# TWOSG - GENERATED by `python3 tools/bbcourse.py twoseg` (SPEC.md 128.30.7): a test course, never "
+            "shipped\n" + t + TWOSEG_EXT)
+
+
+def main_twoseg(argv):
+    """bbcourse.py twoseg [-o OUT.bbc]: the two-part test course's text (SPEC.md 128.30.7)"""
+    ap = argparse.ArgumentParser(prog="bbcourse.py twoseg")
+    ap.add_argument("-o", "--out")
+    a = ap.parse_args(argv)
+    t = twoseg_text()
+    if a.out:
+        with open(a.out, "w", newline="\n") as f:
+            f.write(t)
+    else:
+        sys.stdout.write(t)
+    return 0
+
+
 def main_author(argv):
     """bbcourse.py author COURSE.bbc [-o OUT.bzd]: play the course's AUTHOR
     script with the model and write its .bzd (MOON's and PEAK's demos until
@@ -21830,16 +23880,16 @@ def main_author(argv):
 
 
 def main():
-    global REC
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
-    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor", "twoseg"):
         try:
-            return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor}[sys.argv[1]](sys.argv[2:])
+            return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor,
+                    "twoseg": main_twoseg}[sys.argv[1]](sys.argv[2:])
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
@@ -21859,9 +23909,6 @@ def main():
                     help="processes at once: the courses' compiles and --selfcheck's sections (default BB_JOBS, "
                          "else the cores, at most 4); 1 is the sequential run")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
-    ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
-                    help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
-                         "(C, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
     ap.add_argument("--tune", nargs="+", metavar="NAME=VALUE",
                     help="compile every course under trial values of MATERIALS (HOP=r,s,g BOOST=b ...), write "
                          "nothing, and print each course's verdict, the step and gap ladders, every route proof and "
@@ -21879,7 +23926,6 @@ def main():
     a = ap.parse_args()
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
-    REC = a.rec
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
     only = None

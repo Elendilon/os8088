@@ -22,16 +22,17 @@ course TITLE "Bounce Bonanza"
 width 128
 origin 512
 ball rubber
-# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9)
-uses rotor spring tube
+# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9); and GLASS, home
+# FETCH, for the glass bridge over the pit (SPEC.md 128.23.5, the owner 2026-11-17)
+uses rotor spring tube glass
 title
 view 56 124 drop 128
 # the title screen's song (song 7, by name): a ONE-SHOT exactly as long as a title demo (BZ_TSTEPS)
 music attract
 
-# LC, and the channel in front of UR's cliff; the PIT beside LL, two wide from LS's step to the bottom
-# of the glass (the owner, 2026-11-16: a corner of LC beside it hid the gap)
-floor rect 12 12 14 13 flat 2
+# LC, and the channel in front of UR's cliff; the PIT beside LL, two wide from LS's back wall to the
+# bottom of the glass (the owner, 2026-11-16: a corner of LC beside it hid the gap; 2026-11-17: the
+# visible strip in front of the pillar taken out too - glass's hidden BRIDGE crosses there now, below)
 floor rect 14 12 17 17 flat 2
 floor rect 14 9 18 12 flat 2
 # the pillar, its back, and the rail behind UR and LR
@@ -70,6 +71,13 @@ tube keep 14 8 14 11 via 13 8 via 13 11 out +x
 # right corner (the owner, 2026-11-16: nearer its exit), its body in the rail, up it and along
 # the back rail to UR's back row
 tube keep 23 11 17 6 via 24 11 via 24 5 via 17 5 out +y
+# the GLASS BRIDGE (SPEC.md 128.25.8's glass path; the owner, 2026-11-17): LS carried over the pit at
+# LS's height to the channel, where the strip used to be, invisible until a ball rolls onto it - demo
+# 3's glass ball, down the step and across; it ends half a step above the channel (no row of the pit
+# is level both sides), so its hint is at LS's end, the level one
+floor rect 12 12 14 13 flat 2.5
+prop glass 12 12
+prop glass 13 12
 # spring 1 at LL's edge over the pit (the title's springs may stand beside VOID, SPEC.md 128.23.2)
 spring 11 15 512
 spring 15 9 768
