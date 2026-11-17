@@ -146,17 +146,25 @@ bz_fh0:
 ; -----------------------------------------------------------------------------
 bz_fmark:
     mov byte [bz_lqt], 0
-    push bx
-    push cx
-    push si
-    push es
-    mov es, [bz_cseg]           ; (by the record's flag, never by bz_nlane: a
-    call bz_lrecsi              ; RESET at bz_pinit runs before bz_pread sets it)
+    push si                     ; (the COMMON path - a lone element - saves
+    push es                     ; only these two and reads the flag first)
+    mov si, bx                  ; (bz_lrecsi inline: by the record's flag, never
+    shl si, 1                   ; by bz_nlane - a RESET at bz_pinit runs before
+    shl si, 1                   ; bz_pread sets it)
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, [bz_poff]
+    mov es, [bz_cseg]
     test byte [es:si + BZP_FLAGS], BZ_PF_GRP
     jnz .grp
     mov byte [bz_latt + bx], 1
-    jmp short .d
+    pop es
+    pop si
+    retf
 .grp:
+    push bx                     ; (a member needs BX, CX for its list)
+    push cx
     mov cx, BZ_GRP_LMAX
 .l:
     mov bl, [es:si + BZP_LROW]  ; (BH 0: an element's index is a byte)
@@ -166,10 +174,10 @@ bz_fmark:
     inc si
     loop .l
 .d:
-    pop es
-    pop si
     pop cx
     pop bx
+    pop es
+    pop si
     retf
 
 ; -----------------------------------------------------------------------------
