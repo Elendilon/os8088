@@ -2378,30 +2378,19 @@ def water_verdict(name, p, ctl=None, zt=()):
     loud = [e for e in lands if (e[2][1] if e[0] == "land" else e[2]) >= 48]     # (bzsound's BZS_LMIN)
     if name == "water-float":                   # SPEC.md 128.36.10: the SURFACE BOB of a ball at rest on the water -
         zs = sorted(set(zt))                    # no landing, no takeoff (no sound, no squash), its heights
-        if BB.WA_MODE == "e":
-            ok = not lands and p.air and 16 <= min(zs) and max(zs) <= 28 and len(zs) > 2
-        else:
-            ok = not lands and "takeoff" not in kinds and zs == [20, 24]
-        return ok, "rubber at rest on the water, %d steps (arm %s): heights %s px, %d landing(s), %d takeoff(s)" % (
-            len(zt), BB.WA_MODE, zs if len(zs) < 8 else "%d - %d" % (min(zs), max(zs)), len(lands),
-            kinds.count("takeoff"))
-    if name == "water-roll":                    # rubber across the walkway's water: never chatter, never loud on E
-        ok = (not loud if BB.WA_MODE == "e" else len(lands) <= 2) and p.nfall == 0 and "stun" not in kinds
+        ok = not lands and "takeoff" not in kinds and zs == [20, 24]
+        return ok, "rubber at rest on the water, %d steps: heights %s px, %d landing(s), %d takeoff(s)" % (
+            len(zt), zs, len(lands), kinds.count("takeoff"))
+    if name == "water-roll":                    # rubber across the walkway's water: never chatter
+        ok = len(lands) <= 2 and p.nfall == 0 and "stun" not in kinds
         return ok, "rubber rolled across the sketch's column: %d landing(s) (%s), %d of them audible" % (
             len(lands), [e[1] for e in lands], len(loud))
-    if name == "water-rubber" and BB.WA_MODE == "e":
-        ok = not [e for e in lands if e[0] == "bounce"] and p.air and p.nfall == 0
-        return ok, "rubber dropped 3 units onto the water: no bounce, hovering at z %d px (%d landing(s))" % (
-            p.gz >> 8, len(lands))
     if name == "water-rubber":
         b = next((e for e in ev if e[0] == "bounce"), None)
         we, se = BB.water_entry(BB.MAT_RUBBER)[3], BB.surf_entry(BB.MAT_RUBBER, BB.SURF_SAND)[3]
         ok = b is not None and b[3] == (we * b[2]) >> 8 < (se * b[2]) >> 8 and not p.air and p.gz >> 8 in (20, 24)
         return ok, "rubber's first bounce on the water: lvz %s, rebound %s (sand's would be %s); at rest on the " \
             "float line, z %d px (the top 24)" % (b and b[2], b and b[3], b and (se * b[2]) >> 8, p.gz >> 8)
-    if name == "water-glass" and BB.WA_MODE == "e":
-        ok = "shatter" not in kinds and p.nfall == 0
-        return ok, "glass dropped 5 units onto the water: whole, %d landing(s)" % len(lands)
     if name == "water-glass":
         lv = max([e[2][1] for e in ev if e[0] == "land"] + [e[2] for e in ev if e[0] == "bounce"] + [0])
         ok = "shatter" not in kinds and p.nfall == 0 and (lv or 0) >= BB.MATERIALS[BB.MAT_GLASS]["HTHR"] \
@@ -2434,7 +2423,6 @@ def water_reds():
             ("wabsnap", ("    sub word [bz_gz], 4 << 8\n    sbb word [bz_gz + 2], 0\n", ""), "water-float", "the ball"),
             ("wabflip", ("    mov byte [bz_fref], 1\n    test al, 1 << BZ_WA_FBSH\n", "    test al, 1 << BZ_WA_FBSH\n"),
              "water-float", "the window"),
-            ("wahover", ("    add ax, BZ_WE_LIFT\n", ""), "water-float", "the ball"),
             ("waact", ("    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n    call far [bz_fmkp]\n.x:\n    retf\n\n"
                        "; POSE", "    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n.x:\n    retf\n\n; POSE"),
              "water-rubber", "never drawn"),
@@ -2445,11 +2433,7 @@ def water_host(binp, lst, sym, fam):
     """the WATER scenarios under unicorn, every step against the model, and their red arms -> (lines, fails)"""
     import shutil
     import subprocess
-    import re
     out, fails = [], []
-    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    BB.WA_MODE = "e" if int(re.search(r"^BZ_WA_MODE\s+equ\s+(\d+)", inc, re.M).group(1)) else "b"
-    out.append("the build's surface bob (BZWATERBOB): %s" % BB.WA_MODE)
     sc = dict((n, (m, pk, k)) for n, m, pk, k in water_scenarios())
     for name, (mat, pk, keys) in sc.items():
         p, bad = urun(binp, lst, sym, "water", mat, keys, fam, poke=pk)
@@ -2468,8 +2452,6 @@ def water_host(binp, lst, sym, fam):
         fails += bad + ([] if ok else ["%s: %s" % (name, what)])
     src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "water.asm")).read()
     for arm, (a_, b_), scn, want in water_reds():
-        if arm in ("wabsnap", "wabflip") and BB.WA_MODE != "b" or arm == "wahover" and BB.WA_MODE != "e":
-            continue                            # (each bob's arm on its own build, SPEC.md 128.36.10)
         assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "bonanza")

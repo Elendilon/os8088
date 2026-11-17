@@ -96,9 +96,9 @@ wa_reset:
 ; CELL: the window's water cells for this ball, then the centre's rules
 wa_cell:
     call wa_slot                ; DI = the slot
-%if BZ_WA_MODE                  ; BP = rubber's and glass's floor under the
-    mov bp, 2                   ; top, half units: E the safety floor; B the
-%elif BZ_WA_FBSH                ; bob's phase (the top, or the float line)
+%if BZ_WA_FBSH                  ; BP = rubber's and glass's floor under the
+                                ; top, half units: the bob's phase (the top,
+                                ; or the float line; SPEC.md 128.36.10)
     mov al, [bz_nstep]
     mov cl, BZ_WA_FBSH
     shr al, cl
@@ -250,11 +250,7 @@ wa_step:
     shl ax, 1
     xchg ax, dx
     cmp byte [bz_mat], BZ_MAT_STEEL
-%if BZ_WA_MODE
-    jne .hov
-%else
     jne .m
-%endif
     cmp byte [bz_air], 0        ; STEEL, airborne under the float line:
     je .m                       ; no way across (it sinks STRAIGHT down,
     cmp [bz_gz + 1], dx         ; never out of an arch above its sill),
@@ -272,50 +268,6 @@ wa_step:
     cmp word [bz_gvz], -BZ_WA_SINK
     jge .m
     mov word [bz_gvz], -BZ_WA_SINK
-%if BZ_WA_MODE
-    jmp short .m
-.hov:                           ; E (SPEC.md 128.36.10): THE HOVER - rubber
-    cmp byte [bz_air], 0        ; and glass kept airborne (off the safety
-    jne .ha                     ; floor again with no event)
-    mov byte [bz_air], 1
-    mov ax, [bz_gz + 1]
-    mov [bz_ztop], ax
-.ha:
-    mov ax, [bz_gvz]            ; buoyancy under the float line, damped,
-    cmp [bz_gz + 1], dx         ; the bob's kick each way every 16 steps
-    jge .hd
-    add ax, BZ_WE_LIFT
-.hd:
-    mov cl, BZ_WE_DAMP
-    mov bx, ax
-    sar bx, cl
-    sub ax, bx
-    mov bl, [bz_nstep]
-    and bl, 31
-    jnz .k1
-    add ax, BZ_WE_KICK
-.k1:
-    cmp bl, 16
-    jne .k2
-    sub ax, BZ_WE_KICK
-.k2:
-    mov [bz_gvz], ax
-    mov si, bz_gvx              ; the water's drag by hand, gvx and gvy
-    mov cl, BZ_WE_DRAG
-.dr:
-    mov ax, [si]
-    mov bx, ax
-    sar bx, cl
-    sub ax, bx
-    mov [si], ax
-    inc si
-    inc si
-    cmp si, bz_gvx + 4
-    jne .dr
-%if bz_gvy != bz_gvx + 2
- %error "the hover's drag walks bz_gvx, bz_gvy as two words"
-%endif
-%endif
 .m:
     mov al, [bz_mat]
     cmp al, [di]
@@ -323,8 +275,8 @@ wa_step:
     mov [di], al
     mov byte [bz_fref], 1
 .bb:
-%if BZ_WA_MODE == 0 && BZ_WA_FBSH
-    test byte [di + WA_IN], 2   ; B (SPEC.md 128.36.10): the bob's flip, a
+%if BZ_WA_FBSH
+    test byte [di + WA_IN], 2   ; the bob's flip (SPEC.md 128.36.10), a
     jz .rp                      ; water cell in the window and not steel -
     cmp byte [bz_mat], BZ_MAT_STEEL ; the next window rewritten; into the
     je .rp                      ; dip a ball resting on the water goes down
