@@ -485,7 +485,7 @@ def feats(r):
     return "; " + ", ".join(out) if out else ""
 
 
-LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "dover", "fall")
+LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "dover", "fall", "avfall")
 SOUNDS = ("off", "on")
 
 
@@ -575,6 +575,8 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
         if "fall" in legs and not old:          # wave 6b (SPEC.md 128.17.10): FIRST's fall-and-respawn replay
             bad, summ = fall_leg(g, tag)
             out.append(("fall", bad, summ))
+        if "avfall" in legs and not old:        # SPEC.md 128.29.9: the model's fall frames, REPORTED
+            out.append(("avfall", [], avfall_leg(g, tag, art)))
         set_snd(g, True)                        # (S back at AUTO for whatever runs next)
     return out
 
@@ -1342,6 +1344,103 @@ def fall_leg(g, tag):
                                       sm["longest"]), flush=True)
     return [], out
 
+
+# ---- SPEC.md 128.29.9: THE FALL FRAMES (AV) ------------------------------------------------------------------
+# The occluder pass's span (OCC) on the frames whose ball is in a VOID cell the model runs in, over scripted
+# falls off MILL's and PEAK's edges and PEAK's shipped demo, each REPLAYED through R (the log written into
+# bz_rlog: the same key bytes on every build, so frames pair up by their step count n).  A fall: from the
+# state the last one left (the start, or a respawn), LEAD held N steps, then FALL held until the respawn.
+AVFALL = {"mill": (("DR", 20, "DL"), ("U", 60, "D"), ("D", 60, "UL"), ("R", 120, "DL"), ("DL", 120, "DR")),
+          "peak": (("D", 60, "D"), ("DR", 20, "D"), ("R", 120, "D"))}
+_AVK = {"U": BB.K_U, "D": BB.K_D, "L": BB.K_L, "R": BB.K_R}
+
+
+def _avkey(s):
+    k = 0
+    for ch in s:
+        k |= _AVK[ch]
+    return k
+
+
+def avfall_keys(name):
+    """-> (the course, the key bytes): AVFALL[name]'s falls one after another, on the model"""
+    c = R.course(name)
+    p = BB.Physics(c, play=True)
+    keys = []
+    for lead, n, fall in AVFALL[name]:
+        for _ in range(n):
+            p.step(_avkey(lead))
+            keys.append(_avkey(lead))
+        for _ in range(900):
+            e0 = len(p.events)
+            p.step(_avkey(fall))
+            keys.append(_avkey(fall))
+            if any(e[0] == "respawn" for e in p.events[e0:]) or p.goal:
+                break
+        for _ in range(30):                     # (the respawn's settle, no key)
+            p.step(0)
+            keys.append(0)
+    return c, keys
+
+
+def avfall_void(c, keys, mat=None):
+    """the step counts n after which the ball is in a VOID cell the model runs in, airborne in an OCC cell (the
+    gate open): the frames that pay for the model, on the model"""
+    ag = BB.AGrid(BB.world_of(c))
+    p = BB.Physics(c, play=True, mat=c.ball if mat is None else mat)
+    out = set()
+    for i, k in enumerate(keys):
+        p.step(k)
+        wx, wy = p.gx >> 12, p.gy >> 12
+        cl = c.cells.get((wx, wy))
+        if p.air and not p.tube and cl and cl[3] & BB.FL_OCC and ag.runs(wx, wy):
+            out.add(i + 1)
+    return out
+
+
+def _art_ident(art, k):
+    """the identity of course K as ART's build ships it (its BZ<K>.BIN expanded): a log names it"""
+    st = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZ%d.BIN" % k), "rb").read()
+    ram = BB.expand(st, "BZ%d" % k)
+    return struct.unpack_from("<H", ram, struct.unpack_from("<H", ram, 26)[0] + 18)[0]
+
+
+def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
+    """THE FALL FRAMES (SPEC.md 128.29.9, REPORTED): each run's log replayed through R, speaker OFF; per run the
+    occluder pass's span on the VOID frames (the model's) and on the other frames whose gate opened.  ART: the
+    build's art (its identities).  -> {run: {n: span}} over every frame the pass ran on, and the VOID set"""
+    out = {}
+    set_snd(g, False)
+    for run_ in runs:
+        if run_ == "peakdemo":
+            c = R.course("peak")
+            k = R.CRS_K["peak"]
+            demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb").read()
+            _K, mat, kt, _fl = BB.decode_log_t(demo)
+            keys = [k_ for k_, _t in kt]
+            log = demo
+        else:
+            c, keys = avfall_keys(run_)
+            k = R.CRS_K[run_]
+            mat = c.ball
+            log = BB.encode_log(keys, k, mat, True, _art_ident(art, k))
+        void = avfall_void(c, keys, mat)
+        m = g.m
+        m.pause()
+        g.write_log(log)
+        m.run()
+        fr, _pkg, refresh, _np = measure(g, key="KeyR", frames_cap=DEMO_CAP)
+        spans = {f["n"]: f["occ"] for f in fr if f.get("occ")}
+        vs = sorted(v for n_, v in spans.items() if n_ in void)
+        os_ = sorted(v for n_, v in spans.items() if n_ not in void)
+        print("  %s AV FALL FRAMES %-8s (%d steps, %d frames, refresh %.0f clk): the pass on %d VOID frames: mean %.0f, "
+              "median %d, max %d clk; on %d other gated frames: mean %.0f, median %d, max %d" % (
+                  tag, run_, len(keys), len(fr), refresh, len(vs), sum(vs) / max(len(vs), 1), vs[len(vs) // 2] if vs
+                  else 0, vs[-1] if vs else 0, len(os_), sum(os_) / max(len(os_), 1),
+                  os_[len(os_) // 2] if os_ else 0, os_[-1] if os_ else 0), flush=True)
+        out[run_] = {"spans": spans, "void": void, "refresh": refresh, "frames": len(fr)}
+    set_snd(g, True)
+    return out
 
 BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (128.16.10); 3 for the rest
 BASE_DEFAULT = 3

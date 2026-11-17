@@ -3591,3 +3591,189 @@ on host renders, CGA and Hercules, and inside their windows.
 A finding on the way: on the Hercules the old counter's black digit sat on
 cyan's grey checker. The owner judged that it reads, and prefers it to a
 black box round the digit, which looks pasted on.
+
+## 2026-11-17 (occlusion: what it costs, and computing it instead)
+
+The owner: *"Course size is too big, and most of it seems to be occlusion ...
+It does not need to be pixel-perfect or the same as today. Can we just store
+less?"* A host-only deep-dive answered it.
+[BONANZA-OCCLUSION-2026-11-17](../reports/BONANZA-OCCLUSION-2026-11-17.md)
+is the measurement, and
+[BOUNCE-BONANZA-OCCLUSION.md](BOUNCE-BONANZA-OCCLUSION.md) is the proposal.
+
+- **Occlusion is a third, not most.** Over the seven courses it is 31% of the
+  packed parts and 25% of their RAM: 14,656 bytes LZB and 58,762 of RAM, in
+  context. The picture is 52% and 57%. The map alone is 41% of course RAM.
+- **58% of the records exist only for a ball in a VOID cell**: falls and
+  flights over gaps.
+- **Most records can be computed.** Since every face reaches the ground
+  plane (128.27), the picture under a front cell's top edge is that cell's.
+  A model that reads up to 14 cells in front of the ball hides at most 0.1%
+  of the ball's pixels that the rule does not. "Residual" records cover
+  what it cannot see: props, split cells, cells further away. Everywhere
+  (A4R), that takes the records from 12,403 to 1,958, the parts' LZB down
+  9,862 and their RAM down 46,046. In the VOID cells alone (AV) it is -5,154
+  and -25,552.
+- **CPU is the cost, not a saving.** The lay dominates the pass whatever
+  stores the masks, and computing a mask costs more than reading one: +0.4k
+  to +3.1k clocks a gated frame, PREDICTED. The proposal ships AV first,
+  which only touches fall frames, and A4R only if the measured routine passes
+  the owner's smoothness rule.
+- **The ghost (V)** was priced too. It is cheaper and smaller than AV, and
+  the pictures show its fault: the ball dims a few frames before it goes
+  behind the edge.
+
+**Tested**: host only, the tool's own pipeline, a Monte Carlo of about 2
+million positions of the binding physics, and the fall pictures in
+`bounce-bonanza/`. **Not run**: any emulator row (nothing shipped changed).
+
+## 2026-11-17 (AV: the occlusion computed in the void, built and timed)
+
+The owner: *"Let's try AV so I can play with it ... and see how much those
+fall-frame costs are."* AV is built (SPEC.md 128.29, branch
+`bounce-bonanza-av`): when the ball is in a VOID cell the occluder pass
+computes what hides it from the 14 cells in front of it, out of the grid's
+own bytes, and the part keeps only the residual records the computation
+cannot see. Every other position keeps today's records.
+
+- **The bytes (MEASURED, the shipped tool's pipeline).** Over the seven
+  courses the records fall from 12,403 to 5,981, the parts by **5,670 bytes
+  LZB** and **27,704 bytes of RAM** - better than the prototype's -5,154 and
+  -25,552, because the binding residual keeps only the pixels the model
+  misses. `BONANZA.O88` loses 5,219 bytes and `bonanza360.img` goes from 123
+  to 118 clusters. PEAK's part gains 6.6 KB of headroom.
+- **The picture (MEASURED on the host).** Nothing the rule hides is drawn
+  over - proved at every height of every VOID cell of all nine parts - and
+  what the model hides that the rule does not is 0.0000 - 0.0005% of the
+  ball's pixels. On the glass it should look like today; one MartyPC CGA boot
+  of MILL's falls showed the front-edge falls drawn as today. A back-edge fall
+  was not looked at on the glass.
+- **The fall frames (MEASURED on MartyPC, both cards; the owner's
+  question).** The first routine was a surprise: **+36k to +42k clocks a
+  fall frame**, half a refresh, where the contract predicted +1k to +4k.
+  Pricing it from the instructions under unicorn agreed (+30k), and the
+  profile said why: the model built a mask for every word of the footprint
+  and laid about one. Skipping words whose edges are all under (or all over)
+  the lines, and testing the front cells inline, brought it to **+12k to
+  +19k in the median and +31k to +58k at worst** - 15 - 30% of a 79.6k
+  refresh typically, up to two thirds at worst. Over MILL's scripted falls
+  about one frame in 17 fall frames is lost; over PEAK's demo 0.3 frames a
+  second. Play off the void is untouched.
+- **What the prediction missed**: it priced the model's own arithmetic and
+  forgot that a model has to look at every word to find out it lays nothing.
+  The records never pay that, because a record that lays nothing is never
+  read.
+- **Decisions taken here**: `FL_FLOAT` went to flag bit 6, not 4 (4 - 5 are
+  reserved for `edge`); a floating GOAL keeps its course on today's records
+  rather than being refused; the model lays its own words after the walk
+  instead of ANDing into the walk's groups (two lays are one lay under the
+  AND), which left the walk untouched; F's right half takes `+ 4` so the edge
+  is exactly the renderer's (the pathway's 45-degree cell found it).
+- **Open for the owner**: whether the fall frames' cost is acceptable, or AV
+  waits for the next lever (a launch-time bitmap of the front cells that can
+  ever occlude each cell, which would skip most reads; or depth 3 where the
+  tool proves it enough). The smoothness A/B was not run.
+
+**Tested**: `--selfcheck` (item 15 new, all red arms red), `make`,
+`make bonanzadisk`, the guest against the host under unicorn on nine parts,
+MartyPC's fall-frame A/B on both cards, one look-boot. **Not run**: the soak
+rows (the final pass's: `bonanzacourse`, `bonanzaassets`, `bonanzaring`,
+`bonanzaphys`, `bonanzareplay`, `bonanzaperf`, `bonanzawheel`,
+`bonanzapath`, `bonanzatitle`, `bonanzaexit`, `bonanzamega`).
+
+**Later the same day: the cell's top test.** The owner pointed out that a ball jumping high over a gap is above every front tile, so one test against the tile tops should end the model. It skipped a cell whose top was not above the ball but read all 14 cells every frame anyway. It now remembers the last cell and the highest top in front of it: the same cell with the ball at or over that top costs one compare. TRIAL's gap jump went from +10.6k a frame to +713 after the frame that enters each cell (PRICED). MEASURED on MartyPC, the median fall frame on MILL and PEAK's demo dropped from +12k to under +2k on the CGA; PEAK's scripted falls, which really go behind its terrain, still cost about +21k in the median.
+
+## 2026-11-17 (AV: an independent speed pass)
+
+The owner, on AV's fall frames costing four to ten times the prediction:
+*"half the time when these come in so much higher it's because someone did it
+totally differently, and there is a cheaper way to do it after all."* An
+independent pass over the code and the approach (branch
+`bounce-bonanza-av2`, SPEC.md 128.29.5 and 128.29.9).
+
+- **Why the estimate missed (PRICED from the instructions on the real fall
+  frames).** The plan priced one frame's work: read the front cells, build 4
+  - 6 words, lay them - at 60 - 90 clocks a cell and about 30 a column. The
+  routine as built spent 9.4k a PEAK fall frame reading the 14 cells (670 a
+  cell: an 8088 pays 15 - 20 clocks an instruction, and each one touched
+  memory through a segment override), 6.7k on edges and 2.9k on each word's
+  bounds - **19k of 22k recomputed every frame, though none of it changes
+  while the ball falls straight down through one cell.** The work was the
+  right work; it was done once a frame where it needs doing once a cell.
+- **What was priced and dropped.** A coarser model - each edge taken at its
+  least over 4 or 8 columns - saves no byte at all (the records do not move)
+  and hides 0.24 - 0.76% of the ball's pixels that the rule does not, past the
+  0.25% bound on most courses (MEASURED on the host). Per-word or per-span
+  mask building would cost about the same per column on an 8088 (ESTIMATED
+  from the instruction counts); the general shadow test
+  needs a multiply a half for three more halves dropped on the worst frame.
+- **What was built.** The model is now computed once a cell and kept: the
+  front cells read once into a table, the count set as an interval of the
+  key, each footprint word's edges computed the first frame it is needed.
+  80 - 90% of the model's frames over the scripted falls change neither the
+  cell nor the count set (the host's replay). A cell's half that its flat parent covers is never
+  computed (three compares; the worst frame's 28 halves become 13). Exact: no
+  part byte, no tool change; the unicorn proof now drives ten-frame FALLS
+  through the cache and has a second red arm for it.
+- **MEASURED on MartyPC** (the same legs, once; AV - today's pass on the fall
+  frames). Mean +11.2k -> **+4.6k** on the CGA's MILL falls, +22.8k ->
+  **+7.9k** on PEAK's, +9.0k -> **+3.2k** on PEAK's demo; the Hercules the
+  same shape. PEAK's falls' median **+20.7k -> +3.3k**. The worst frame,
+  72% -> 46% of a refresh on MILL and 44% -> 24% on PEAK's demo - but one
+  frame entering a cell deep behind PEAK's terrain still costs +43k.
+- **The bytes**: +541 of code and +236 of bss over the AV head; `BONANZA.O88`
+  +448, `bonanza360.img` 118 -> 119 clusters. That is 8% of what AV saves on
+  the disk, bought for a mean fall frame two and a half times cheaper.
+- **Left, PREDICTED**: reusing nine of the 14 front cells when the ball moves
+  to a neighbouring cell (the entering frame's reads about 10k -> 4k), and
+  folding the model's mask into a residual group's lay of the same word.
+
+**Tested**: `tests/bonanza_av.py` (nine parts, 500 positions each, falls
+included; both red arms red), `make`, `make bonanzadisk`, the MartyPC fall
+legs on both cards. **Not run**: the soak rows (the final pass's:
+`bonanzacourse`, `bonanzaassets`, `bonanzaring`, `bonanzaphys`,
+`bonanzareplay`, `bonanzaperf`, `bonanzawheel`, `bonanzapath`,
+`bonanzatitle`, `bonanzaexit`, `bonanzamega`); `bbcourse.py --selfcheck`
+(the tool did not change).
+
+## 2026-11-17 (AV: the neighbour, and AV merged with the shaped floors, two-part courses and the bare pathway)
+
+The owner on the speed pass's two levers: build the neighbour reuse (*"the
+performance is worth it"*), hold the fold as a future item; then make AV
+merge-ready against `bounce-bonanza` (SPEC.md 128.29.5, 128.29.9, 128.29.11).
+
+- **The neighbour (built).** A ball stepping one cell forward sees the old
+  cell's front rows 2 - 4 as its rows 1 - 3, so only row 4 is read and two
+  shadow bits are cleared. +227 bytes against the 120 predicted. MEASURED it
+  bought little: the means fell 0.1 - 0.4k and CGA PEAK's worst frame 43.3k ->
+  38.7k. Most cell changes over the scripted falls are not a step forward, and
+  an entering frame's cost is the words it computes and lays more than the
+  reads. Recorded as it is, not as the prediction said.
+- **The fold (held, `BOUNCE-BONANZA-PLAN.md` T13).** About -1k a PEAK fall
+  frame, twice on two-box frames, PREDICTED; deferred because it touches the
+  walk every occluder frame runs.
+- **The merge.** Three things AV had not met, resolved on purpose: 128.28 had
+  taken the same flag bit (`GF_ANA` moved to bit 6); FIELD cells' records are
+  cut at the ball's real poses, so AV's non-void records pass the tiles too;
+  a two-part course keeps the grid in the world part, so the model reads it
+  through `bz_cseg` in the two places it reads it at all and the host reads it
+  through `world_of`; and the pathway, which now cuts no occluder, gets no
+  model. Two checks met AV for the first time and now count the model: the
+  pit's hole (item 5) and an all-keep record (item 15).
+- **MEASURED on MartyPC (once, against the merged tree with no model).** AV -
+  today on the fall frames, mean / median / worst: CGA MILL +4.2k / +0.8k /
+  +36.0k, PEAK +7.8k / +3.8k / +38.7k, PEAK's demo +3.0k / +0.8k / +19.2k; the
+  Hercules +4.2k / +0.7k / +46.5k, +8.1k / +4.6k / +37.9k, +3.0k / +0.7k /
+  +25.2k. Frames presented within 1% of today's but on MILL's falls (1,049
+  against 1,057 on the CGA, 887 against 905 on the Hercules).
+- **The bytes, merged.** The seven courses -28,468 bytes of RAM, -5,760 LZB;
+  `BONANZA.O88` -4,481 with the model's 1,890 bytes of code in it;
+  `bonanza360.img` 129 -> 124 clusters; PLAYGROUND's picture part 4,926 bytes
+  more headroom.
+
+**Tested**: `bbcourse.py --selfcheck` in full; `tests/bonanza_av.py` on all
+nine parts (PLAYGROUND's two, the pathway with no model) with falls forward,
+its red arms `amodel`, `acache` and `aneigh` red; `make`, `make
+bonanzadisk`; the three authored demos' `ident` lines; the MartyPC fall legs,
+both cards. **Not run**: the soak rows (the final pass's).
+

@@ -1,0 +1,12 @@
+PEAK depth 2: 39189 sampled VOID positions, the analytic model alone (no record): OVER 5.79% WRONG-HIDE 0.01% frames over a quarter wrong 6.84%
+PEAK depth 3: 39189 sampled VOID positions, the analytic model alone (no record): OVER 4.37% WRONG-HIDE 0.01% frames over a quarter wrong 5.24%
+PEAK depth 4: 39189 sampled VOID positions, the analytic model alone (no record): OVER 3.56% WRONG-HIDE 0.01% frames over a quarter wrong 4.12%
+PLAY depth 2: 51390 sampled VOID positions, the analytic model alone (no record): OVER 1.72% WRONG-HIDE 0.00% frames over a quarter wrong 2.47%
+PLAY depth 3: 51390 sampled VOID positions, the analytic model alone (no record): OVER 1.22% WRONG-HIDE 0.00% frames over a quarter wrong 1.66%
+PLAY depth 4: 51390 sampled VOID positions, the analytic model alone (no record): OVER 1.16% WRONG-HIDE 0.00% frames over a quarter wrong 1.64%
+FIRST depth 2: 56198 sampled VOID positions, the analytic model alone (no record): OVER 1.06% WRONG-HIDE 0.03% frames over a quarter wrong 1.65%
+FIRST depth 3: 56198 sampled VOID positions, the analytic model alone (no record): OVER 0.49% WRONG-HIDE 0.03% frames over a quarter wrong 0.70%
+FIRST depth 4: 56198 sampled VOID positions, the analytic model alone (no record): OVER 0.45% WRONG-HIDE 0.03% frames over a quarter wrong 0.64%
+TRIAL depth 2: 55711 sampled VOID positions, the analytic model alone (no record): OVER 2.94% WRONG-HIDE 0.00% frames over a quarter wrong 4.05%
+TRIAL depth 3: 55711 sampled VOID positions, the analytic model alone (no record): OVER 1.13% WRONG-HIDE 0.00% frames over a quarter wrong 1.67%
+TRIAL depth 4: 55711 sampled VOID positions, the analytic model alone (no record): OVER 0.13% WRONG-HIDE 0.00% frames over a quarter wrong 0.20%

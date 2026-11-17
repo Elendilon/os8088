@@ -1579,8 +1579,10 @@ bz_occ:
     add ax, 8
     mov [es:bz_obr], ax
     cmp ax, [es:bz_ohi]
-    jge .out
+    jge .amod
     jmp .brow
+.amod:
+    call bz_amodel              ; SPEC.md 128.29: the model, in a VOID cell
 .out:
     pop es
     pop ds
@@ -1700,7 +1702,8 @@ bz_oand:
 
 ; bz_olay - lay a group into EVERY box it meets: block word DL of the block row
 ; bz_occ is on, its lines [bz_of, + bz_on) (2 x the first's place in the
-; block: bz_ofl2), under mask BX (a part offset, or -1 for bz_omsk), each box
+; block: bz_ofl2), under mask BX (a part offset, or -1 for [bz_omp]: bz_omsk,
+; or the model's checker, bz_amodel), each box
 ; taking the lines and the word it holds: buffer = ((buffer XOR block) AND
 ; mask) XOR block.  DS = the course part, ES = ours.  Preserves all but AX and
 ; BX.
@@ -1774,7 +1777,7 @@ bz_olay:
     loop .line
     jmp short .bd
 .scr:
-    lea bx, [bz_omsk]
+    mov bx, [es:bz_omp]         ; (bz_omsk, or the model's checker)
     add bx, ax
 .sline:
     lodsw
@@ -1803,6 +1806,854 @@ bz_olay:
     pop si
     pop dx
     pop cx
+    ret
+
+; bz_amodel - SPEC.md 128.29: THE MODEL, in a VOID cell of a GF_ANA part, once
+; bz_occ's walk has laid every group.  A front cell N = (wx + i, wy + d - i),
+; d = 1 .. BZ_OCCDEPTH, i = 0 .. d - a FLOOR, WALL or GOAL, not OBS, not
+; FL_FLOAT unless a GOAL, its highest corner H = 4 (z0 + max(sx, 0) +
+; max(sy, 0)) over the key K = z_b + m - hides every picture pixel at or
+; under its top edge, E(x) = Y + ((kr (2 d + 1) + 4) >> 3), d = x - X, right
+; of its apex X and Y + ((kl (2 d + 1) + 3) >> 3), d = X - 1 - x, left of it,
+; kr = 2 - sx, kl = 2 - sy (128.29.2).  Each block word of the footprint gets
+; its mask (each column's first hidden line puts its pixel's bit pair into
+; bz_atb[line], ORed down the lines, inverted, the checker ORed in:
+; 128.15.10.1) and is laid by bz_olay under it (BX = -1, bz_omp) - laying a
+; word again under a second mask lays it under the AND of the two, the block
+; being the same, so the walk's groups need no change.
+;
+; THE CELL'S CACHE (the speed pass, SPEC.md 128.29.5).  The edges are picture
+; columns and lines: they depend on the ball only through its cell V and the
+; SET of front cells that count (H > K), never on the footprint.  So a frame
+; computes only what changed since the last:
+; - the ball's grid cell (bz_awx, bz_awy) the same as the last frame's: V and
+;   its verdict are kept (bz_avp), no ROWTAB read;
+; - a NEW V (bz_acptr) reads its 14 front cells once into the front table
+;   bz_afl, a slot each in (d, i) order: H / 4 (8000h: not readable), X, Y,
+;   the slopes byte and the SHADOWED halves: a flat half whose columns a flat
+;   parent cell at d - 1 covers at or over it whenever it counts is never the
+;   least in any column, so it is never computed (.cyes);
+; - the count set is an interval of floor(K / 4), [bz_amaxnc, bz_aminc): the
+;   highest H / 4 that does not count, the least that does (a wholly shadowed
+;   cell apart).  K outside it recounts from the table (no grid byte read)
+;   and drops the words.  No cell counting is the cell's TOP TEST (the
+;   owner's, 2026-11-17): the same cell and the ball at or over every front
+;   top is a few compares and out;
+; - each footprint WORD's eight columns' least edge, and the word's least and
+;   greatest, are computed the first frame the word is in the footprint
+;   (bz_arange, every new word of the frame in one pass a half) and kept: 8
+;   words from W0 = (Xv - 24) >> 3, which hold every footprint of a ball
+;   centred in V (a footprint outside them re-bases W0).
+; A frame in the same cell and count set reads no cell and computes no edge:
+; it masks and lays.  DS = the course part, ES = ours, DL / DH the footprint's
+; first and last word columns (bz_occ's).  Clobbers all but DS, ES (bz_occ's
+; caller's are back at its .out).
+bz_amodel:
+    test byte [es:bz_gfl], BZ_GF_ANA
+    jnz .ana
+    ret
+.ana:
+    mov [es:bz_acol], dx        ; DL, DH: the columns
+    mov ax, [es:bz_gx + 1]      ; the ball's centre cell (bz_foot's s_b's)
+    mov si, [es:bz_gy + 1]
+    mov cl, 4
+    shr ax, cl                  ; wx
+    shr si, cl                  ; wy
+    cmp ax, [es:bz_awx]
+    jne .look
+    cmp si, [es:bz_awy]
+    jne .look
+    mov si, [es:bz_avp]         ; THE SAME GRID CELL: V's verdict kept
+    or si, si
+    jnz .run
+    ret
+.look:
+    mov [es:bz_awx], ax
+    mov [es:bz_awy], si
+    mov word [es:bz_avp], 0     ; (0: the model does not run here)
+    push ds                     ; the GRID: the course's WORLD part (128.30.5;
+    mov ds, [es:bz_cseg]        ; a one-part course's the same segment)
+    mov bx, [es:bz_goff]        ; BX = BZG1
+    mov di, ax
+    add di, si                  ; s
+    sub ax, si                  ; a
+    mov [es:bz_aa], ax
+    mov [es:bz_as], di
+    sub di, [bx + BZG_SMIN]     ; r (a negative r is huge)
+    cmp di, [bx + BZG_NROWS]
+    jae .lno
+    mov [es:bz_ar], di
+    sub ax, [bx + BZG_AMIN]
+    sar ax, 1                   ; k (a negative k is huge)
+    cmp ax, [bx + BZG_KW]
+    jae .lno
+    shl di, 1
+    add di, [bx + BZG_ROWTAB]
+    mov si, [di]                ; ROWTAB[r]
+    shl ax, 1
+    shl ax, 1
+    add si, ax                  ; V's four bytes
+    test byte [si + 2], 0fh
+    jnz .lno                     ; not VOID: today's pass alone
+    test byte [si + 3], BZ_FL_OBS
+    jnz .lno                     ; (a lift's shaft is OBS)
+    mov [es:bz_avp], si
+    pop ds
+.run:
+    inc word [es:bz_namod]
+    mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 4): H > K iff
+    cmp byte [es:bz_air], 0     ; H / 4 > it
+    jne .air
+    add ax, BZ_CLIMB
+.air:
+    sar ax, 1
+    sar ax, 1
+    mov [es:bz_akq], ax
+    cmp si, [es:bz_acptr]
+    jne .new
+    cmp ax, [es:bz_amaxnc]
+    jl .count0                  ; a front cell counts that did not
+    cmp ax, [es:bz_aminc]
+    jge .count0                 ; one that counted does not
+    jmp .words                  ; THE SAME CELL AND COUNT SET: the cache's
+.count0:
+    jmp .count
+.lno:
+    pop ds
+.no:
+    ret
+.new:                           ; A NEW V: its front table, and the count set
+    mov dx, -1                  ; read with it, through the WORLD part.  DX:
+    cmp word [es:bz_acptr], -1  ; THE NEIGHBOUR (the speed pass, SPEC.md
+    je .nfull                   ; 128.29.5): a V one step in front of the
+    mov ax, [es:bz_awx]         ; table's own cell, (wx + 1, wy) or (wx, wy +
+    mov bx, [es:bz_awy]         ; 1), sees that cell's rows 2 - 4 as its rows
+    sub ax, [es:bz_atx]         ; 1 - 3, from i = 1 (DX = 1) or i = 0 (DX =
+    sub bx, [es:bz_aty]         ; 0); -1: the table read whole
+    or bx, bx
+    jnz .ny
+    cmp ax, 1
+    jne .nfull
+    mov dx, 1
+    jmp short .nfull
+.ny:
+    cmp bx, 1
+    jne .nfull
+    or ax, ax
+    jnz .nfull
+    xor dx, dx
+.nfull:
+    mov ax, [es:bz_awx]         ; (the table's cell from here)
+    mov [es:bz_atx], ax
+    mov ax, [es:bz_awy]
+    mov [es:bz_aty], ax
+    mov [es:bz_acptr], si
+    mov [es:bz_arue], dl        ; (FFh: read whole, the count set inline)
+    push ds
+    mov ds, [es:bz_cseg]
+    mov bx, [es:bz_goff]
+    mov ax, [bx + BZG_KW]
+    mov [es:bz_akw], ax
+    mov ax, [es:bz_aa]          ; Xv = 16 a + X0: the row d's X for i = 0 is
+    mov cl, 4                   ; Xv - 16 d, and W0 = (Xv - 24) >> 3
+    shl ax, cl
+    add ax, [bx + BZG_X0]
+    mov [es:bz_aan], ax
+    sub ax, 24
+    mov cl, 3
+    sar ax, cl
+    mov [es:bz_aw0], ax
+    mov ax, [es:bz_as]          ; 8 s + Y0: the row d's 8 (s + d) + Y0 is
+    shl ax, cl                  ; this plus 8 d
+    add ax, [bx + BZG_Y0]
+    mov [es:bz_ayb], ax
+    mov word [es:bz_amaxnc], 8000h
+    mov word [es:bz_aminc], 7fffh
+    mov byte [es:bz_avld], 0
+    mov word [es:bz_alcol], -1
+    mov di, bz_afl              ; ES:DI: the table
+    mov word [es:bz_ad], 1      ; THE FRONT CELLS: d = 1 .. BZ_OCCDEPTH
+    or dx, dx
+    js .drow
+    ; THE NEIGHBOUR: rows 1 - 3 are the old rows 2 - 4 from i = DX (slots 2,
+    ; 5, 9 on), their bytes the same cells' (X, Y, H and the slopes are the
+    ; picture's).  A slot's shadows name its parents one row back at i and
+    ; i - 1 - the same cells in both tables - but for the slot at the row's
+    ; end that the old table's parent row had and the new one has not: i = 0
+    ; loses its left shadow (DX = 1) and i = d its right (DX = 0); row 1 has
+    ; no parents at all.  Then row 4 read, and the count set from the table.
+    push ds
+    push es
+    pop ds                      ; DS = ours
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1                   ; DX = 8 i0
+    mov ax, [bz_afe]            ; the old table's rows (its end: 16, 40, 72,
+    sub ax, bz_afl              ; 112 bytes for 1 - 4 rows) -> the new one's
+    mov si, bz_afl + 2 * BZ_AFL
+    add si, dx
+    mov cx, 2 * BZ_AFL / 2      ; row 1: the old row 2's [i0, i0 + 1]
+    rep movsw
+    mov si, bz_afl + 5 * BZ_AFL
+    add si, dx
+    mov cx, 3 * BZ_AFL / 2      ; row 2: the old row 3's [i0, i0 + 2]
+    rep movsw
+    mov si, bz_afl + 9 * BZ_AFL
+    add si, dx
+    mov cx, 4 * BZ_AFL / 2      ; row 3: the old row 4's [i0, i0 + 3]
+    rep movsw
+    mov byte [bz_afl + 7], 0    ; row 1: no shadow
+    mov byte [bz_afl + BZ_AFL + 7], 0
+    or dx, dx
+    jz .nb0
+    and byte [bz_afl + 2 * BZ_AFL + 7], 0fdh    ; i0 = 1: (2, 0) and (3, 0)
+    and byte [bz_afl + 5 * BZ_AFL + 7], 0fdh    ; lose the left shadow
+    jmp short .nb1
+.nb0:
+    and byte [bz_afl + 4 * BZ_AFL + 7], 0feh    ; i0 = 0: (2, 2) and (3, 3)
+    and byte [bz_afl + 8 * BZ_AFL + 7], 0feh    ; lose the right shadow
+.nb1:
+    pop ds                      ; (the world part)
+    cmp ax, 14 * BZ_AFL
+    jne .nshort
+    mov word [es:bz_ad], 4      ; all four rows: row 4 read as a full read's
+    mov di, bz_afl + 9 * BZ_AFL ; is (.drow's step: 8 (s + 4) + Y0 and Xv -
+    add word [es:bz_ayb], 3 * 8 ; 64)
+    sub word [es:bz_aan], 3 * 16
+    jmp short .drow
+.nshort:                        ; fewer: the new table one row shorter
+    mov di, bz_afl
+    cmp ax, 5 * BZ_AFL
+    jb .lst0                    ; (one row: none)
+    mov di, bz_afl + 2 * BZ_AFL
+    je .lst0
+    mov di, bz_afl + 5 * BZ_AFL
+.lst0:
+    jmp .listed
+.drow:
+    mov bx, [es:bz_goff]
+    mov ax, [es:bz_ar]
+    add ax, [es:bz_ad]
+    cmp ax, [bx + BZG_NROWS]
+    jb .din
+    jmp .listed                 ; (the rows only grow with d)
+.din:
+    shl ax, 1
+    mov si, ax
+    add si, [bx + BZG_ROWTAB]
+    mov bp, [si]                ; BP = the row's first cell
+    add word [es:bz_ayb], 8     ; 8 (s + d) + Y0
+    sub word [es:bz_aan], 16    ; Xv - 16 d
+    mov ax, [es:bz_aa]
+    sub ax, [es:bz_ad]          ; a - d: N's a for i = 0
+    sub ax, [bx + BZG_AMIN]
+    sar ax, 1                   ; k0
+    mov dx, [es:bz_aan]         ; DX = N's X, 32 more an i
+    mov cx, [es:bz_ad]
+    mov bx, cx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov [es:bz_aoff], bx        ; P1 = (d - 1, i) is 8 d bytes back
+    mov [es:bz_arow], di        ; (the row's first slot, and its last)
+    add bx, di
+    mov [es:bz_arowl], bx
+    inc cx                      ; d + 1 cells, k0 .. k0 + d
+.cell:
+    mov word [es:di], 8000h     ; not readable (H / 4 under every key: no
+                                ; pass reads the rest of its slot)
+    cmp ax, [es:bz_akw]
+    jae .cnext                  ; (a negative k is huge)
+    mov si, ax
+    shl si, 1
+    shl si, 1
+    add si, bp                  ; SI = N's four bytes: a FLOOR, WALL or GOAL,
+    push ax                     ; not OBS, not FL_FLOAT unless a GOAL
+    push cx
+    mov ax, [si + 2]
+    and al, 0fh
+    dec al
+    cmp al, 2
+    ja .cno
+    test ah, BZ_FL_OBS
+    jnz .cno
+    cmp al, 2
+    je .cyes
+    test ah, BZ_FL_FLOAT
+    jnz .cno
+.cyes:                          ; READABLE: X, the slopes, H / 4 = z0 +
+    mov [es:di + 2], dx         ; max(sx, 0) + max(sy, 0) and Y = 8 (s + d)
+    mov al, [si + 1]            ; + Y0 - 4 z0
+    mov [es:di + 6], al
+    mov ah, al
+    and al, 0fh                 ; (a nibble 8 - 15 is a negative slope)
+    cmp al, 8
+    jb .h1
+    xor al, al
+.h1:
+    mov cl, 4
+    shr ah, cl
+    cmp ah, 8
+    jb .h2
+    xor ah, ah
+.h2:
+    add al, ah
+    xor ah, ah
+    mov cx, ax
+    mov al, [si]
+    cbw
+    add cx, ax
+    mov [es:di], cx             ; CX = H / 4
+    shl ax, 1
+    shl ax, 1
+    neg ax
+    add ax, [es:bz_ayb]
+    mov [es:di + 4], ax         ; AX = Y
+    ; THE SHADOWED HALVES (d >= 2): N's right half's columns [X, X + 15] are
+    ; its parent P1 = (d - 1, i)'s left half's, its left half's [X - 16,
+    ; X - 1] P2 = (d - 1, i - 1)'s right half's.  Both halves flat, P's edge
+    ; is at or over N's in all 16 columns exactly when Y_P + 8 <= Y_N (F
+    ; runs 0 .. 8 along a flat half, the two the other way round); and with
+    ; H_P >= H_N, P counts whenever N does.  So that half of N is never the
+    ; least in any column, and is never computed (bz_arange).
+    mov byte [es:di + 7], 0
+    cmp word [es:bz_ad], 1
+    je .csh                     ; (row 1: its parents are not front cells)
+    sub ax, 8                   ; AX = Y_N - 8: Y_P at or over it
+    mov bl, [es:di + 6]         ; BL = N's slopes
+    test bl, 0fh
+    jnz .cl1                    ; N's right half not flat
+    cmp di, [es:bz_arowl]
+    je .cl1                     ; i = d: no P1
+    mov si, di
+    sub si, [es:bz_aoff]
+    test byte [es:si + 6], 0f0h
+    jnz .cl1                    ; P1's left half not flat
+    cmp [es:si], cx
+    jl .cl1                     ; H_P1 < H_N (or not readable)
+    cmp [es:si + 4], ax
+    jg .cl1
+    or byte [es:di + 7], 1      ; the right half shadowed
+.cl1:
+    test bl, 0f0h
+    jnz .csh                    ; N's left half not flat
+    cmp di, [es:bz_arow]
+    je .csh                     ; i = 0: no P2
+    mov si, di
+    sub si, [es:bz_aoff]
+    sub si, BZ_AFL
+    test byte [es:si + 6], 0fh
+    jnz .csh                    ; P2's right half not flat
+    cmp [es:si], cx
+    jl .csh
+    cmp [es:si + 4], ax
+    jg .csh
+    or byte [es:di + 7], 2      ; the left half shadowed
+.csh:                           ; THE COUNT SET's interval (CX = H / 4, a cell
+    cmp byte [es:di + 7], 3     ; with both halves shadowed apart)
+    je .cno
+    cmp cx, [es:bz_akq]
+    jg .cgt
+    cmp cx, [es:bz_amaxnc]
+    jle .cno
+    mov [es:bz_amaxnc], cx
+    jmp short .cno
+.cgt:
+    cmp cx, [es:bz_aminc]
+    jge .cno
+    mov [es:bz_aminc], cx
+.cno:
+    pop cx
+    pop ax
+.cnext:
+    add di, BZ_AFL
+    add dx, 32
+    inc ax
+    dec cx
+    jz .cend
+    jmp .cell
+.cend:
+    mov ax, [es:bz_ad]
+    inc ax
+    mov [es:bz_ad], ax
+    cmp ax, BZ_OCCDEPTH
+    ja .listed
+    jmp .drow
+.listed:
+    mov [es:bz_afe], di
+    pop ds                      ; (DS = the picture part again)
+    cmp byte [es:bz_arue], 0ffh
+    je .lwords                  ; read whole: the count set read with it
+    mov ax, [es:bz_akq]         ; a neighbour's: from the table
+    jmp .count
+.lwords:
+    jmp .words
+.count:                         ; THE COUNT SET from the table (AX = floor(K /
+    mov byte [es:bz_avld], 0    ; 4)), the words dropped: BX the highest H / 4
+    mov word [es:bz_alcol], -1
+    mov bx, 8000h               ; at or under it, DX the least over it (a cell
+    mov dx, 7fffh               ; whose halves are both left out apart)
+    mov si, bz_afl
+    jmp short .ct
+.cl:
+    cmp byte [es:si + 7], 3
+    je .cn
+    mov cx, [es:si]
+    cmp cx, ax
+    jg .cg
+    cmp cx, bx
+    jle .cn
+    mov bx, cx
+    jmp short .cn
+.cg:
+    cmp cx, dx
+    jge .cn
+    mov dx, cx
+.cn:
+    add si, BZ_AFL
+.ct:
+    cmp si, [es:bz_afe]
+    jb .cl
+    mov [es:bz_amaxnc], bx
+    mov [es:bz_aminc], dx
+.words:
+    cmp word [es:bz_aminc], 7fffh
+    jne .wany
+    ret                         ; none counts: nothing in front hides the ball
+.wany:                          ; THE FOOTPRINT'S WORDS: the same columns as
+    mov dx, [es:bz_acol]        ; the last frame's and nothing dropped since
+    cmp dx, [es:bz_alcol]       ; (bz_alcol, emptied wherever bz_avld is):
+    jne .wnew                   ; their slots and least edge are the last
+    mov bp, [es:bz_aemin]       ; frame's
+    jmp .wsame
+.wnew:                          ; slots j0 .. j0 + DH - DL of the cache
+    mov al, dl                  ; (re-based when outside it), the ones not
+    xor ah, ah                  ; computed yet computed (bz_arange), and BP the
+    sub ax, [es:bz_aw0]         ; least edge of all
+    mov bl, dh
+    sub bl, dl
+    xor bh, bh
+    add bx, ax                  ; BX = the last word's slot
+    cmp ax, 7
+    ja .wbase                   ; (left of W0: huge)
+    cmp bx, 7
+    jbe .wfit
+.wbase:
+    mov al, dl
+    xor ah, ah
+    mov [es:bz_aw0], ax
+    mov byte [es:bz_avld], 0
+    sub bx, ax
+    xor ax, ax
+.wfit:
+    mov [es:bz_aj0], ax         ; (j0, for the rows)
+    mov cx, ax                  ; the words not yet computed: the first's and
+    mov dx, -1                  ; the last's slots (CL, DL)
+    mov ch, 1
+    shl ch, cl                  ; CH = j0's bit
+.wl:
+    test [es:bz_avld], ch
+    jnz .wh
+    or dl, dl
+    jns .wd                     ; (one before it)
+    mov dl, cl
+.wd:
+    mov dh, cl
+.wh:
+    shl ch, 1
+    inc cl
+    cmp cl, bl
+    jbe .wl
+    or dl, dl
+    js .wmin                    ; every one computed
+    push ax
+    push bx
+    mov al, dl
+    mov bl, dh
+    call bz_arange              ; slots AL .. BL
+    pop bx
+    pop ax
+.wmin:
+    shl ax, 1                   ; BP = the least edge over the words
+    shl bx, 1
+    mov si, ax
+    mov bp, 7fffh
+.wm:
+    cmp bp, [es:bz_awlo + si]
+    jle .wm1
+    mov bp, [es:bz_awlo + si]
+.wm1:
+    inc si
+    inc si
+    cmp si, bx
+    jbe .wm
+    mov [es:bz_aemin], bp
+    mov dx, [es:bz_acol]
+    mov [es:bz_alcol], dx
+.wsame:
+    cmp bp, [es:bz_ohi]         ; a footprint whose every edge is under its
+    jl .rows                    ; last line lays nothing, and is left here
+    ret
+.rows:                          ; THE MASKS: each block row of [olo, ohi),
+    mov ax, [es:bz_olo]         ; its laid lines [rs, re) = [max(B, olo),
+    and ax, 0fff8h              ; min(B + 8, ohi)) in SI and CX; a row whose
+.mrow:                          ; lines are all over every edge (BP's) is
+    mov [es:bz_obr], ax         ; passed by (B: bz_oprep's too)
+    mov si, [es:bz_olo]
+    cmp si, ax
+    jge .rs
+    mov si, ax
+.rs:
+    mov cx, ax
+    add cx, 8
+    cmp cx, [es:bz_ohi]
+    jle .re
+    mov cx, [es:bz_ohi]
+.re:
+    cmp bp, cx
+    jl .mrw
+    jmp .mrd
+.mrw:
+    mov [es:bz_ars], si
+    mov [es:bz_are], cx
+    mov di, 0                   ; DI = 0 until the row's bz_oprep has run
+    mov dx, [es:bz_acol]
+    mov bx, [es:bz_aj0]         ; BX = 2 j
+    shl bx, 1
+.mword:
+    cmp [es:bz_awlo + bx], cx
+    jge .mnext                  ; every edge under the laid lines: nothing
+    or di, di                   ; the row's first word to lay: its lines and
+    jnz .mprep                  ; map row, once (bz_oprep; DI = MTAB)
+    call bz_oprep
+.mprep:
+    cmp [es:bz_awhi + bx], si
+    jg .mbuild
+    mov word [es:bz_omp], bz_achk ; every edge at or over the first laid
+.mlay:                          ; line: every pixel hidden, the checker alone
+    push bx
+    mov bx, -1
+    call bz_olay                ; word DL, lines [bz_of, + bz_on)
+    pop bx
+.mnext:
+    inc bx
+    inc bx
+    inc dl
+    cmp dl, dh
+    jbe .mword
+.mrd:
+    mov ax, [es:bz_obr]
+    add ax, 8
+    cmp ax, [es:bz_ohi]
+    jge .mout
+    jmp .mrow
+.mout:
+    mov word [es:bz_omp], bz_omsk
+    ret
+.mbuild:                        ; THE WORD'S MASK over the laid lines [rs, re):
+    push bx                     ; each column's first hidden line - rs (0 ..
+    push dx                     ; re - rs - 1, or none) puts its pixel's bit
+    push bp                     ; pair into bz_atb[it], ORed down, inverted,
+    push di                     ; the checker in, into bz_omsk at rs's place
+    push ds
+    push es
+    pop ds                      ; DS = ours
+    mov ax, si                  ; (rs, kept: AX)
+    mov si, bx
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, bz_aE               ; SI = the word's columns
+    mov bp, ax                  ; BP = rs
+    mov di, bz_atb
+    xor ax, ax
+    mov cx, 8
+    rep stosw                   ; (ES = ours)
+    mov di, [bz_are]
+    sub di, bp                  ; DI = the lines
+    mov dx, 00c0h               ; pixel 0's bit pair; ROR 2 walks 1 .. 7
+    mov cx, 8
+.mcol:
+    lodsw
+    sub ax, bp                  ; the column's first hidden line, from rs
+    jge .mc0
+    xor ax, ax
+.mc0:
+    cmp ax, di
+    jae .mc1                    ; none in the laid lines
+    shl ax, 1
+    mov bx, ax
+    or [bz_atb + bx], dx
+.mc1:
+    ror dx, 1
+    ror dx, 1
+    loop .mcol
+    mov cx, di
+    mov di, bp
+    and di, 7
+    shl di, 1
+    add di, bz_omsk             ; ES:DI = bz_omsk's line rs
+    mov dx, 3333h               ; the checker: even line 3333h, odd CCCCh
+    test bp, 1
+    jz .mev
+    not dx
+.mev:
+    mov si, bz_atb
+    xor bx, bx
+.mline:
+    lodsw
+    or bx, ax
+    mov ax, bx
+    not ax
+    or ax, dx
+    stosw
+    not dx
+    loop .mline
+    pop ds
+    pop di
+    pop bp
+    pop dx
+    pop bx
+    mov si, [es:bz_ars]
+    mov cx, [es:bz_are]
+    mov word [es:bz_omp], bz_omsk
+    jmp .mlay
+
+; bz_achk - the checker alone (128.15.10.1): a word every pixel of which the
+; model hides, by the line's place in its block
+bz_achk:
+    dw 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch
+
+; bz_arange - bz_amodel's cache slots AL .. BL (words W0 + AL .. W0 + BL)
+; computed: each column's least edge line over the COUNTING front cells (H / 4
+; > floor(K / 4)), their halves the shadow test left, 7FFFh where none; then
+; each word's least and greatest (bz_awlo, bz_awhi) and its bit in bz_avld.
+; The slots' columns are one run (16 bytes a word), so a half meets it in one
+; run of columns and is stepped along it by the formula's own increment; a
+; FLAT half (its slope nibble 0, k = 2) needs no multiply: num = 4 d' + 6 on
+; the right, 4 d' + 5 on the left.  DS = the part, ES = ours.  Clobbers all
+; but DS, ES.
+bz_arange:
+    push ds
+    push es
+    pop ds                      ; DS = ours
+    xor ah, ah
+    xor bh, bh
+    push ax                     ; (the first slot and the last, for the words)
+    push bx
+    sub bx, ax
+    inc bx                      ; BX = the words
+    mov cl, 4
+    shl ax, cl
+    add ax, bz_aE
+    mov di, ax                  ; DI = the first slot's columns, every one
+    mov cl, 3                   ; "none"
+    shl bx, cl
+    mov cx, bx                  ; CX = the columns
+    mov ax, 7fffh
+    rep stosw
+    mov ax, [bz_aw0]            ; the slots' first column 8 W0 (bz_axb), and
+    mov cl, 3                   ; the run's [x0, x1] (bz_axw, bz_axw7)
+    shl ax, cl
+    mov [bz_axb], ax
+    pop bx                      ; (the last slot)
+    pop dx                      ; (the first)
+    push dx
+    push bx
+    shl dx, cl
+    add dx, ax
+    mov [bz_axw], dx
+    inc bx
+    shl bx, cl
+    add ax, bx
+    dec ax
+    mov [bz_axw7], ax
+    mov si, bz_afl
+.e:
+    cmp si, [bz_afe]
+    jb .e1
+    jmp .mm
+.e1:
+    mov ax, [si]
+    cmp ax, [bz_akq]
+    jle .en0                    ; H <= K: it does not count (or not readable)
+    mov dx, [si + 2]            ; DX = X
+    test byte [si + 7], 1
+    jz .right
+    jmp .left                   ; (the right half shadowed)
+.en0:
+    jmp .en
+.right:                         ; THE RIGHT HALF: [max(X, x0), min(X + 15,
+    mov cx, dx                  ; x1)], d' = x - X, num = kr (2 d' + 1) + 4
+    cmp cx, [bz_axw]            ; (a centre ON the edge is not the top's,
+    jge .r0                     ; 128.29.2), +2 kr a column, kr = 2 - sx
+    mov cx, [bz_axw]
+.r0:
+    mov bp, dx
+    add bp, 15
+    cmp bp, [bz_axw7]
+    jle .r1
+    mov bp, [bz_axw7]
+.r1:
+    sub bp, cx
+    jl .left
+    push dx
+    mov di, cx
+    sub di, [bz_axb]
+    shl di, 1
+    add di, bz_aE               ; DI = the first column's least
+    mov ax, cx
+    sub ax, dx                  ; d'
+    mov cx, bp
+    inc cx                      ; CX = the columns
+    mov bl, [si + 6]
+    and bl, 0fh
+    jnz .rk
+    shl ax, 1                   ; flat: 4 d' + 6, +4 a column
+    shl ax, 1
+    add ax, 6                   ; (flat: 2 (2 d' + 1) + 4)
+    mov dx, 4
+    jmp short .rh
+.rk:
+    shl ax, 1
+    inc ax
+    push cx
+    mov cl, 4
+    shl bl, cl
+    sar bl, cl
+    pop cx
+    neg bl
+    add bl, 2                   ; BL = kr
+    imul bl                     ; AX = kr (2 d' + 1)
+    add ax, 4                   ; (the right half's + 4)
+    mov dl, bl
+    xchg ax, dx
+    cbw
+    shl ax, 1
+    xchg ax, dx                 ; DX = 2 kr
+.rh:
+    mov bx, [si + 4]            ; BX = Y
+    call bz_ahalf
+    pop dx
+.left:                          ; THE LEFT HALF: [max(X - 16, x0), min(X - 1,
+    test byte [si + 7], 2       ; x1)], d' = X - 1 - x, num = kl (2 d' + 1)
+    jnz .en                     ; + 3, -2 kl a column (d' falls), kl = 2 - sy
+    mov cx, dx
+    sub cx, 16
+    cmp cx, [bz_axw]
+    jge .l0
+    mov cx, [bz_axw]
+.l0:
+    mov bp, dx
+    dec bp
+    cmp bp, [bz_axw7]
+    jle .l1
+    mov bp, [bz_axw7]
+.l1:
+    sub bp, cx
+    jl .en
+    mov di, cx
+    sub di, [bz_axb]
+    shl di, 1
+    add di, bz_aE
+    mov ax, dx
+    dec ax
+    sub ax, cx                  ; d' = X - 1 - x
+    mov cx, bp
+    inc cx
+    mov bl, [si + 6]
+    and bl, 0f0h
+    jnz .lk
+    shl ax, 1                   ; flat: 4 d' + 5, -4 a column
+    shl ax, 1
+    add ax, 5
+    mov dx, -4
+    jmp short .lh
+.lk:
+    shl ax, 1
+    inc ax
+    push cx
+    mov cl, 4
+    sar bl, cl
+    pop cx
+    neg bl
+    add bl, 2                   ; BL = kl
+    imul bl                     ; AX = kl (2 d' + 1)
+    add ax, 3
+    mov dl, bl
+    xchg ax, dx
+    cbw
+    shl ax, 1
+    neg ax
+    xchg ax, dx                 ; DX = -2 kl
+.lh:
+    mov bx, [si + 4]
+    call bz_ahalf
+.en:
+    add si, BZ_AFL
+    jmp .e
+.mm:                            ; EACH WORD'S least and greatest, its bit set
+    pop dx                      ; (the last slot)
+    pop ax                      ; (the first)
+.mw:
+    push ax
+    mov si, ax
+    mov cl, 4
+    shl si, cl
+    add si, bz_aE
+    mov bx, 7fffh
+    mov di, 8000h
+    mov cx, 8
+.m:
+    lodsw
+    cmp ax, bx
+    jge .m1
+    mov bx, ax
+.m1:
+    cmp ax, di
+    jle .m2
+    mov di, ax
+.m2:
+    loop .m
+    pop ax
+    mov si, ax
+    shl si, 1
+    mov [bz_awlo + si], bx
+    mov [bz_awhi + si], di
+    mov cl, al
+    mov ch, 1
+    shl ch, cl
+    or [bz_avld], ch
+    inc ax
+    cmp ax, dx
+    jbe .mw
+    pop ds
+    ret
+
+; bz_ahalf - E = Y + (num >> 3) over CX columns from DI (bz_aE's), num = AX
+; stepping by DX a column, BX = Y: each the least of it and the column's.
+; num is carried x 32, so its high byte IS num >> 3 (|num| < 1,024).  DS = ours.
+; Clobbers AX, CX, DX, DI, BP.
+bz_ahalf:
+    push cx
+    mov cl, 5
+    shl ax, cl
+    shl dx, cl
+    pop cx
+    mov bp, ax
+.c:
+    mov ax, bp
+    mov al, ah
+    cbw
+    add ax, bx
+    cmp ax, [di]
+    jge .k
+    mov [di], ax
+.k:
+    add bp, dx
+    inc di
+    inc di
+    loop .c
     ret
 
 ; bz_boxw - box SI (a descriptor) to the card, a line at a time, each line

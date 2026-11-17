@@ -3493,6 +3493,7 @@ def main():
         # of each other: each a forked child of this process (BB.jobs_default() > 1), started first, its
         # output printed where the sequential run printed it; BB_JOBS=1 runs them here, in order)
         import bonanza_dsplit
+        import bonanza_av
         import bonanza_dfield
         pool = BB._Pool(BB.jobs_default()) if BB.jobs_default() > 1 and hasattr(os, "fork") else None
 
@@ -3512,6 +3513,7 @@ def main():
         try:
             k9 = kid(fam_host)
             kd = kid(bonanza_dsplit.check, 200)
+            ka = kid(bonanza_av.check, 300)
             kf = kid(bonanza_dfield.check, 150)
             S = replays()
             bad = prove(S)
@@ -3541,6 +3543,11 @@ def main():
             # its red arms by hand, `--reds`)
             bad += got(kf)
             for line in R.check_reds(bonanza_dfield.REDS, "bonanza_dfield"):
+                print(line)
+            # SPEC.md 128.29.7: AV's model in the guest - bz_occ under unicorn against bbcourse's model and the
+            # part's records, every course (tests/bonanza_av.py; its red arms by hand, `--red amodel|acache|aneigh`)
+            bad += got(ka)
+            for line in R.check_reds(bonanza_av.REDS, "bonanza_av"):
                 print(line)
         finally:
             if pool is not None:
