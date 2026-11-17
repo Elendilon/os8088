@@ -1143,10 +1143,19 @@ def glass_poses(cx, cy, jag):
     return {0: q0, 1: q1}
 
 
+def _edge_z(t, d):
+    """a tile's top at the middle of its edge toward d = (dx, dy): z0 + sx fx + sy fy (128.10.4.5's plane)"""
+    fx = {1: 1.0, -1: 0.0, 0: 0.5}[d[0]]
+    fy = {1: 1.0, -1: 0.0, 0: 0.5}[d[1]]
+    return t.z0 + t.sx * fx + t.sy * fy
+
+
 def glass_first(tiles, props, start):
     """the GLASS PATH's FIRST tiles (SPEC.md 128.25.8, the tool's): each 4-connected run of glass tiles
-    leaves the solid ground at the tile one of whose edge neighbours is a non-glass FLOOR or GOAL, that
-    neighbour nearest the start (Manhattan; ties by the file's order) -> {glass cell: (dx, dy)}, the edge"""
+    leaves the solid ground at the tile one of whose edge neighbours is a non-glass FLOOR or GOAL LEVEL
+    with it at their shared edge (the owner, 2026-11-17: the hint is drawn to join a tile, so it never
+    hangs over a drop), that neighbour nearest the start (Manhattan; ties by the file's order) -> {glass
+    cell: (dx, dy)}, the edge.  A run with no level neighbour has no hint"""
     gl = {p["at"]: p for p in props if p.get("art") == "glass"}
     out, seen = {}, set()
     for at in sorted(gl, key=lambda a: gl[a]["line"]):
@@ -1166,6 +1175,8 @@ def glass_first(tiles, props, start):
                 n = (c[0] + d[0], c[1] + d[1])
                 t = tiles.get(n)
                 if n in gl or t is None or getattr(t, "kind", None) not in (KIND_FLOOR, KIND_GOAL):
+                    continue
+                if _edge_z(t, (-d[0], -d[1])) != _edge_z(tiles[c], d):
                     continue
                 k = abs(n[0] - start[0]) + abs(n[1] - start[1])
                 if best is None or k < best[0]:
@@ -14124,17 +14135,17 @@ TITLE_AUTHOR = {
         "script": [("wait", 110), ("until", "respawn", ((9, 15), (11, 15), (14, 15))), ("wait", 75),
                    ("until", "capture", ((10, 14), (10, 13), (10, 12))), ("wait", 10),
                    ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (18, 14))), ("to", ((18, 15),))]},
-    3: {"what": "the glass ball rolled in along LL's back row, a pause, on over the pit on the hidden GLASS BRIDGE "
-                "(revealed as it rolls) and down onto LC; a run at the ramp from below, a third of the way up and "
-                "back; down to spring 2 and a long look at it; up off it, short of UR by its lip, back down onto "
-                "the spring and shattered, its shatter ending on the glass (the owner, 2026-11-17: no tube, no "
-                "waiting on UR, no circles)",
+    3: {"what": "the glass ball rolled in along LL's back row, a pause, down the step to LS and on over the pit "
+                "on the hidden GLASS BRIDGE (revealed as it rolls), half a step down onto the channel; a run at "
+                "the ramp from below, a third of the way up and back; down to spring 2, a look at it; up off "
+                "it, short of UR by its lip, back down onto the spring and shattered, its shatter ending on "
+                "the glass (the owner, 2026-11-17: no tube, no waiting on UR, no circles)",
         "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
         "expects": (("spring", 1), ("shatter", 1)),
-        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((10.0, 14.5), (11.0, 14.5))),
-                   ("keys", K_R | K_D, 45), ("keys", K_R, 140),
+        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11.0, 14.2), (11.0, 13.4), (11.2, 12.6), (11.8, 12.5))),
+                   ("keys", K_R | K_D, 100), ("keys", K_R | K_U, 60),
                    ("keys", K_L | K_U, 30), ("keys", 0, 25), ("keys", K_L | K_D, 30), ("keys", K_L | K_U, 45),
-                   ("to", ((15.6, 11.2),)), ("wait", 50), ("keys", K_R | K_U, 22),
+                   ("to", ((15.6, 11.2),)), ("wait", 20), ("keys", K_R | K_U, 22),
                    ("keys", 0, TITLE_STEPS)]},
     4: {"what": "the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto "
                 "LC, on along the front and off the bottom right into the hidden tube; out on UR, a run at the "
