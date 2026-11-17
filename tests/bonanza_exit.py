@@ -522,7 +522,7 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         fails.append("%s: the instance's claims after the launch %s, before it %s" % (way, c_out, base_claims))
     m.run()
     line = "%s %s (%s): rows %d,%d fetched inside; %d floppy reads to the bracket; after it every row as before " \
-           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, pb, reads,
+           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, fbun_row(), reads,
                                              "yes" if not fails else "NO")
     return fails, line
 
