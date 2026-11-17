@@ -3088,6 +3088,20 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("inputchk", "soak", py("tests/unit/t_inputchk.py"), 0.1,
+        "SPEC.md 129.4: INPUTCHK reads the kernel's 'MO' debug block by "
+        "offset - the one shipped reader SPEC.md 57.3 names - so "
+        "apps/inputchk/moblk.inc must equal kernel/mouse.inc's real layout "
+        "(every MOS_*, MOP_*, MOC_* member, the descriptor's four words read "
+        "off the image), the two bytes the keyboard section reads past the "
+        "span (mou_p2cmdr, and kern_big's mou_p2m1 at KBO_P2M1, SPEC.md "
+        "129.11.1) must be where it reads them, and the three 'ID' words "
+        "build/inputchk_kid.inc carries must be what the map says they are. "
+        "Upstream registers its twin in FAST, because any KERNEL change can "
+        "break it and only `make` runs on every kernel change; here it is "
+        "soak until the owner adds it to tests/tierlock.txt (WRITING-TESTS "
+        "2.0). Reads kernel.map and kernel-full.bin, assembles "
+        "nothing"),
     Row("wirefleetlink", "soak", py("tests/wirefleetlink.py"), 140.0,
         "WireFleet two UART peers: turn rules, private fleets, lost result, save/load/reconnect, duplicate commands/chat, malformed frames, victory and cleanup (SPEC.md 114/115)",
         needs=("qemu", "nasm", "pil"), wants=("build/wireflet.img", "build/os8088.img"), timeout=300),

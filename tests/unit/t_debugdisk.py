@@ -18,6 +18,12 @@ Two claims, each with nothing else checking it:
    SNDDIAG.O88 and SNDDEBUG.TXT are at the root, \\AUTOSTRT holds the link,
    and SYSTEM.CFG asks for SOUND.DRV. And the shipped system disks still
    carry the SHIPPED SOUND.DRV - the swap must not leak.
+
+3. EACH INPUT DEBUG IMAGE BOOTS INTO INPUT CHECK'S AUTOMATIC RUN (127.5):
+   INPUTCHK.O88 (build/inputchk.o88's bytes) and INPDEBUG.TXT at the root,
+   and \\AUTOSTRT\\INPUTCHK.LNK a link to INPUTCHK.O88 on its own volume
+   carrying the parameter AUTO - a link without it opens the interactive
+   program and writes nothing. Its drivers are the SHIPPED ones: no swap.
 """
 import os
 import re
@@ -36,6 +42,8 @@ from harness import check, done    # noqa: E402
 BUILD = os.path.join(ROOT, "build")
 DEBUG = ["debug-sound.img", "debug-sound-120.img", "debug-sound-720.img",
          "debug-sound-360.img"]
+INPUT = ["debug-input.img", "debug-input-120.img", "debug-input-720.img",
+         "debug-input-360.img"]
 SHIPPED = ["os8088.img", "os8088-120.img", "os8088-720.img", "os8088-360.img"]
 
 
@@ -176,6 +184,39 @@ def main():
               "%s still carries the SHIPPED SOUND.DRV" % n)
         check(find(fat, "SNDDIAG.O88") is None,
               "%s carries no SNDDIAG.O88" % n)
+        check(find(fat, "INPUTCHK.O88") is None,
+              "%s carries no INPUTCHK.O88 (the debug-input disks only)" % n)
+
+    # --- 3: the input debug disk (SPEC.md 127.5) ---------------------------
+    import os88lnk                  # noqa: E402 - tools/, on the path above
+    ipkg = os.path.join(BUILD, "inputchk.o88")
+    have = [n for n in INPUT if os.path.exists(os.path.join(BUILD, n))]
+    check(len(have) == len(INPUT), "all four debug-input images are built",
+          "they are in $(SHIPIMGS), so `make` builds them",
+          got=have, want=INPUT)
+    if not os.path.exists(ipkg):
+        check(False, "build/inputchk.o88 exists")
+        done("t_debugdisk")
+    ibytes = open(ipkg, "rb").read()
+    for n in have:
+        fat = Fat12(os.path.join(BUILD, n))
+        check(find(fat, "INPUTCHK.O88") == ibytes,
+              "%s: INPUTCHK.O88 at the root is build/inputchk.o88" % n)
+        check(find(fat, "INPDEBUG.TXT") is not None,
+              "%s: INPDEBUG.TXT at the root" % n)
+        check(find(fat, "SOUND.DRV") == sbytes,
+              "%s: SOUND.DRV is the SHIPPED one (no swap here)" % n)
+        lnk = find(fat, "AUTOSTRT/INPUTCHK.LNK")
+        ok = lnk is not None
+        if ok:
+            vol, kind, path = os88lnk.parse(lnk)
+            arg = os88lnk.param(lnk)
+            ok = (vol == os88lnk.SELF and kind == 1 and
+                  path == "INPUTCHK.O88" and arg == "AUTO")
+        check(ok, "%s: \\AUTOSTRT\\INPUTCHK.LNK opens INPUTCHK.O88 on its "
+              "own volume with the parameter AUTO (SPEC.md 129.12)" % n,
+              got=(os88lnk.parse(lnk) + (os88lnk.param(lnk),)) if lnk
+              else None)
     done("t_debugdisk")
 
 

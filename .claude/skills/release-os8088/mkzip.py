@@ -191,11 +191,13 @@ pairs above."""),
 The DEBUG folder holds disks that boot os8088 straight into a report on one
 part of the system: what its driver found on your machine, and what it did
 when it was exercised. They are for sending us. If something does not work
-the way it should, boot the debug disk for that part in drive A, wait for it
-to finish, photograph each page (the keys 1, 2 and 3 change page) and send
-the photographs with what you saw and heard. Each disk has a text file at its
-root that says the same thing. Use the size your drive takes; the four are
-the same disk."""),
+the way it should, boot the debug disk for that part in drive A and wait for
+it to finish. The sound disk shows its report on screen: photograph each page
+(the keys 1, 2 and 3 change page). The input disk (keyboard and mouse) writes
+its report to the disk itself, a new INPUTnn.TXT each boot: boot it several
+times, copy the files off and send them. Send what you saw and heard with
+either. Each disk has a text file at its root that says the same thing. Use
+the size your drive takes; the four of each are the same disk."""),
 
     # THE LIVE GROUP IS THE LIVE ZIP'S, not this one's: its files go to
     # os8088-<version>-live.zip and its text heads that zip's README. It stays
@@ -328,6 +330,15 @@ ITEMS = [
      "second showing whether the card kept playing.",
      [("debug-sound.img", "1.44MB", ""), ("debug-sound-120.img", "1.2MB", ""),
       ("debug-sound-720.img", "720KB", ""), ("debug-sound-360.img", "360KB", "")]),
+    ("debug", "Keyboard and mouse debug disk", True,
+     "A PS/2 keyboard that is not always recognised, or a mouse that is "
+     "not found: whether keystrokes reach the BIOS, what the keyboard "
+     "controller says and what the system's PS/2 probe did to it, every "
+     "serial port and the PS/2 mouse port - written to the disk as "
+     "INPUTnn.TXT, a new file each boot, so a good boot and a bad one can "
+     "be sent side by side.",
+     [("debug-input.img", "1.44MB", ""), ("debug-input-120.img", "1.2MB", ""),
+      ("debug-input-720.img", "720KB", ""), ("debug-input-360.img", "360KB", "")]),
 
     ("small", "128KB system disk", True,
      "The small kernel with every program that fits a 128KB machine.",
@@ -559,6 +570,10 @@ DEST = {
     "debug-sound-120.img": "DEBUG/SOUND120.IMG",
     "debug-sound-720.img": "DEBUG/SOUND720.IMG",
     "debug-sound-360.img": "DEBUG/SOUND360.IMG",
+    "debug-input.img": "DEBUG/INPUT144.IMG",
+    "debug-input-120.img": "DEBUG/INPUT120.IMG",
+    "debug-input-720.img": "DEBUG/INPUT720.IMG",
+    "debug-input-360.img": "DEBUG/INPUT360.IMG",
     # the live zip's, which has no folders
     "os8088-usb.img": "LIVEUSB.IMG",
     "os8088.iso": "OS8088.ISO",
