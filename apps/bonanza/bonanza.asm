@@ -2955,8 +2955,9 @@ bz_drec:
 ; flat, VOID, no flags), and every record of D a kind 0 - 3 (above: VOID) -
 ; so the step's window (bz_wsplit) and bz_blocks read only D and only a
 ; record of 128.24.5.2's kinds.  A part the tool built has neither (its
-; read_part checks them).  SPEC.md 128.28.2: a FIELD cell whose shape is not
-; inside F, or whose +1 has bit 7, becomes OPEN.  ES = the part.  Clobbers AX,
+; read_part checks them).  SPEC.md 128.28.2: a FIELD cell whose shape (its
+; +1's bits 0 - 3, bit 7 the fifth) is not inside F becomes OPEN.  ES = the
+; part.  Clobbers AX,
 ; BX, CX, DX, SI.
 bz_dval:
     mov bx, [bz_clo]
@@ -2967,8 +2968,8 @@ bz_dval:
     and al, 0fh
     cmp al, BZ_KTB
     jb .cn
-    cmp al, BZ_KFIELD           ; a FIELD cell: its shape inside F, bit 7
-    je .cf                      ; of its +1 clear (else OPEN)
+    cmp al, BZ_KFIELD           ; a FIELD cell: its shape (five bits)
+    je .cf                      ; inside F (else OPEN)
     mov si, bx
     call bz_drec
     jnc .cn
@@ -2980,9 +2981,10 @@ bz_dval:
     jmp short .c
 .cf:
     mov al, [es:bx + 1]
-    test al, 80h
-    jnz .co
-    and ax, 0fh
+    cbw                         ; AH = FFh when bit 7, the shape's fifth bit
+    and ax, 100fh
+    or al, ah
+    xor ah, ah                  ; AX = the shape, 0 - 31
     mov si, BZ_FIELDTAB
     mul si                      ; (launch-only: one MUL a FIELD cell)
     add ax, BZ_FIELDTAB
