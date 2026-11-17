@@ -454,7 +454,7 @@ FAMILIES = (
     # BZ_FTAB holds 0FFh in a gap); kind 32; home `fetch` while no shipped course names it (128.33.9)
     {"name": "magnet", "id": 8, "rev": 1, "hooks": H_STEP | H_POSE, "slot": 8, "consts": "MG",
      "kinds": ({"name": "magnet", "kind": FAM_K0 + 16, "bits": 1, "cls": CL_ATTEMPT, "art": "magnet",
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 25,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 26,
      "home": HOME_FETCH},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
@@ -477,6 +477,8 @@ MG_CEIL = 4                   # a hanging magnet's CEILING: px above its post's 
 MG_SH, MG_SV = 6, 28          # the default strength: a side magnet's pull at its first cell (gu / 256 a step),
                               # a hanging one's lift (px / 256 a step; G is 24)
 MG_RMAX, MG_SMAX = 8, 127     # range 1 - 8 cells; strength 1 - 127 (a signed byte)
+MG_BOB, MG_BOBP = 48, 16      # a hanging magnet's BOBBLE: a kick of 48 (px / 256 a step) on gvz every 16 steps,
+                              # up and down in turn (about 1 px either way, the damping smoothing it)
 MG_DIRS = ("+x", "-x", "+y", "-y")              # record +18: bit 1 the y axis, bit 0 the negative way
 MG_DOWN = 1                   # record +19 bit 0: hanging (`face down`): +18 is its ARM's way
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
@@ -596,7 +598,7 @@ def famv(f):
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
     elif f.get("consts") == "MG":               # MAGNETS' (128.33)
-        b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX))
+        b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
     else:
         b += bytes(f.get("consts", ()))         # (GLASS's constants; the probe has none: its FAMV as before)
     crc = 0xFFFF
@@ -1377,6 +1379,9 @@ def _parse_magnet(toks, where, ln, fam, kr):
             raise CourseError("%s: a magnet's reset class is its family's (attempt): it takes no `reset`" % where)
         else:
             raise CourseError("%s: prop magnet takes %s, not %r" % (where, MG_SYNTAX, toks[i][1]))
+    if down and (rng or 1) != 1:
+        raise CourseError("%s: a hanging magnet is ONE head over one cell (each head its own wiggle lane, SPEC.md "
+                          "128.33.6): a row of them is a magnet a cell, not range %d" % (where, rng))
     return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
             "cls": kr["cls"], "seed": None,
             "mg": (d, MG_DOWN if down else 0, rng or 1, st or (MG_SV if down else MG_SH))}
@@ -10302,6 +10307,8 @@ class MagnetFamily(Family):
         p.gvy += _s8(sb[3])
         if sb[4] and p.air and (p.gz >> 8) < _s8(sb[5]):
             v = p.gvz + sb[4]
+            if not p.nstep & MG_BOBP - 1:           # the BOBBLE (128.33.4): every MG_BOBP steps a kick, up
+                v += MG_BOB if p.nstep & MG_BOBP else -MG_BOB     # and down in turn, which the damping smooths
             p.gvz = v - (v >> 3)
 
     def _stop(self, p, sb):
@@ -10313,7 +10320,8 @@ class MagnetFamily(Family):
             self._stop(p, sb)
             return
         cx, cy = (p.gx >> 12) & 255, (p.gy >> 12) & 255
-        if (cx, cy) != (sb[0], sb[1]):
+        fresh = (cx, cy) != (sb[0], sb[1])
+        if fresh:
             self._stop(p, sb)
             sb[0], sb[1] = cx, cy
             sb[2] = sb[3] = sb[4] = sb[5] = sb[6] = 0
@@ -10325,7 +10333,8 @@ class MagnetFamily(Family):
         if not sb[6]:
             return
         self.mg_apply(p, sb)
-        sb[7] = sb[7] + 1 if sb[7] < 2 * MG_WIG else 1      # (pose 1 at 1, 2 at MG_WIG + 1: marked there)
+        if not fresh:                               # (a cell change's step only STOPS a wiggle: at most one
+            sb[7] = sb[7] + 1 if sb[7] < 2 * MG_WIG else 1  # pose change a step, 128.33.5; pose 1 at 1, 2 at 9)
 
     def pose(self, p, slot, i):
         sb = p.fsl[slot]
@@ -13677,7 +13686,9 @@ def emit_inc(courses, path=None, title=None):
               "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
               "BZ_K_JUMP       equ %d" % K_JUMP,
               "; MAGNETS' constants (SPEC.md 128.33; bbcourse MG_*): the wiggle's steps a pose",
-              "BZ_MG_WIG       equ %d" % MG_WIG] + [
+              "BZ_MG_WIG       equ %d" % MG_WIG,
+              "BZ_MG_BOB       equ %d        ; the hover's bobble: its kick, and its period (a power of 2)" % MG_BOB,
+              "BZ_MG_BOBP      equ %d" % MG_BOBP] + [
               "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
               "; RESIDENT BUNDLE's (SPEC.md 128.25.6.9)",
               "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; bzf-%s.bin (ID %d, FAMV %02Xh)"
@@ -24036,6 +24047,7 @@ def _mg_cases():
         ("a field over another magnet's post", C + "prop magnet 6 6 face +x range 3\nprop magnet 8 6 face +y\n",
          "holds the magnet on line"),
         ("a field off the grid", C + "prop magnet 4 6 face -x range 5\n", "off the grid"),
+        ("a hanging magnet of range 2", C + "prop magnet 6 6 face down +x range 2\n", "ONE head over one cell"),
     ]
 
 
@@ -24076,17 +24088,22 @@ def mg_scenes(c, arm=None):
         for name, mat, (wx, wy, gvx, gvy), n in MG_SC:
             p = Physics(c, play=True, mat=mat).poke(wx, wy, gvx, gvy)
             mgp = [pr for pr in p.props if pr["kind"] == K_MAGNET]
-            fell, wig, poses, over = None, 0, set(), []
+            fell, wig, poses, over, chg = None, 0, set(), [], 0
+            q0 = [p.fpose(pr) for pr in mgp]
             for i in range(n):
                 p.step()
+                q1 = [p.fpose(pr) for pr in mgp]
+                chg = max(chg, sum(a != b for a, b in zip(q0, q1)))
+                q0 = q1
                 if p.respawned:
                     fell = i
                     break
                 wig += p.fsl[0][7] != 0
-                poses |= {p.fpose(pr) for pr in mgp}
+                poses |= set(q1)
                 if p.air and 18 <= p.gx >> 12 <= 20:
-                    over.append(p.gz >> 8)
-            out[name] = (fell, (p.gx >> 12, p.gy >> 12), wig, poses, (len(over), min(over or [0])))
+                    over.append(p.gz)
+            out[name] = (fell, (p.gx >> 12, p.gy >> 12), wig, poses,
+                         (len(over), min(over or [0]) >> 8, max(over or [0]) - min(over or [0])), chg)
     finally:
         FAM_MODEL["magnet"] = old
         _MgArm.arm = None
@@ -24099,7 +24116,8 @@ def mg_ok(s):
             and s["hover-steel"][4][1] >= 15 and s["hover-rubber"][0] is not None
             and s["pull-steel"][0] is not None and s["pull-fast"][0] is None and s["pull-rubber"][0] is None
             and s["rail-steel"][0] is None and s["rail-steel"][1][1] >= 15 and s["rail-steel"][3] == {0, 1, 2}
-            and s["rail-rubber"][0] is not None)
+            and s["rail-rubber"][0] is not None
+            and s["hover-steel"][4][2] >= 256 and max(v[5] for v in s.values()) <= 1)
 
 
 def _sc_magnet(X, res):
@@ -24125,8 +24143,10 @@ def _sc_magnet(X, res):
     s = mg_scenes(c)
     res.append(("6 MAGNETS' scenes on the model (128.33.10): %s" % "; ".join(
         "%s %s" % (k, "fell at %d" % v[0] if v[0] is not None else "ended on %s" % (v[1],)) for k, v in s.items())
-        + "; the hover %d steps over the gap, z >= %d px; the rail's poses %s" % (
-            s["hover-steel"][4][0], s["hover-steel"][4][1], sorted(s["rail-steel"][3])), mg_ok(s)))
+        + "; the hover %d steps over the gap, z >= %d px, its bobble %.2f px from top to bottom; the rail's poses "
+        "%s; at most %d magnet pose change a step" % (
+            s["hover-steel"][4][0], s["hover-steel"][4][1], s["hover-steel"][4][2] / 256.0,
+            sorted(s["rail-steel"][3]), max(v[5] for v in s.values())), mg_ok(s)))
     for arm in ("nolift", "anyball", "sign"):
         res.append(("6 MAGNETS' red arm %s on the model: the scenes no longer show what they are for" % arm,
                     not mg_ok(mg_scenes(c, arm))))

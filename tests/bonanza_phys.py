@@ -1904,7 +1904,12 @@ def mg_host(binp, lst, sym):
              ("hover-steel",)),
             ("mgscan", "    or ah, ah\n    jnz .n\n", "    or ah, ah\n", None, ("pull-fast", "hover-steel")),
             ("mgmark", "    call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)\n", "",
-             "never drawn", ("rail-steel",)))
+             "never drawn", ("rail-steel",)),
+            # (the hover's BOBBLE gone; a cell change's step counting the wiggle on - two pose changes a step)
+            ("mgbob", "    add ax, BZ_MG_BOB\n", "    nop\n", "the ball", ("hover-steel",)),
+            ("mgfresh", "    call mg_one                 ; (a cell change's step: the force, no count -\n"
+             "    jmp short .out              ; it may have STOPPED a wiggle: one change a step)\n", "", None,
+             ("hover-steel", "rail-steel")))
     for arm, a_, b_, want, scs in arms:
         assert msrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         ff = mg_parts(src=msrc.replace(a_, b_))
