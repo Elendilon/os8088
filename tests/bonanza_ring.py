@@ -2102,7 +2102,7 @@ DF_KICK, DF_ALT, DF_END = 5, 4, 12
 # meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
 # point PW_END frames (one box: the slab's is drawn - 18 + 2 x 6 lines at most)
 PW_FRAMES = {"cga": 24, "herc": 21}
-PW_END, PW_TRIES, PW_STEPS = 3, 4, 20
+PW_END, PW_TRIES, PW_STEPS, PW_RUNS = 3, 8, 20, 4
 PW_DX = 24                          # px either side of the window's centre
 
 
@@ -2240,12 +2240,12 @@ def mill_play(g, ref):
     for f in LOW_FEATS:
         cnt[f] = 0
     # the scenes' state: the phase's own bz_t0 count, its plans and what each saw
-    sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0,
+    sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0, "pwrun": 0,
           "strip": 0, "waits": 0, "dframes": 0, "tall": 0, "ptall": 0, "rideb": 0, "tfwait": False,
           "wfr": set()}
     low_end = RIDE_FRAMES + OVER_FRAMES + low_frames(LOW_DARK[tag])
     df_end = low_end + DF_END + 1
-    nmax = df_end + 600                         # (the pwait scene waits for the lift's next rise: at most a
+    nmax = df_end + 600 + 3 * (PW_FRAMES[tag] + PW_END + 40)                        # (the pwait scene waits for the lift's next rise: at most a
     tag_pw = PW_FRAMES[tag]                     # period, 256 steps)
     while frames < nmax and phase != "done":
         k = wk.next()
@@ -2297,6 +2297,18 @@ def mill_play(g, ref):
                         phase = "done"
                         continue
                 pwait_step(g, sc, n, tag_pw)
+                if sc["pwend"] > PW_END and not sc["strip"] and sc["pwrun"] < PW_RUNS - 1:
+                    # no entering row met the slab on a waited frame this run (whether a frame waits is the
+                    # machine's load, and a lighter frame waits less): the scene starts again at the lift's
+                    # NEXT rise, a different start phase, up to PW_RUNS runs - the check is unchanged
+                    sc["pwrun"] += 1
+                    sc.update(k=0, pwj=0, pwend=0, pwn0=None, pwn1=None, tries=0)
+                    sc["pw"] = pwait_plan(g, crs, n & 0xFFFF)
+                    if sc["pw"] is None:
+                        fails.append("MILL play: no window puts the lift's slab across its bottom edge with the "
+                                     "ball held in the band (the PWAIT scene, run %d)" % (sc["pwrun"] + 1))
+                        phase = "done"
+                    continue
                 if sc["pwend"] > PW_END:
                     phase, sc["k"] = "ringend", 0
                     sc["re"] = ringend_plan(g, crs)
@@ -2449,7 +2461,7 @@ def mill_play(g, ref):
                 nlift, PW_STEPS))
         if not sc["strip"]:
             fails.append("MILL play: the PWAIT scene had no WAITED frame on which an entering row met the slab's "
-                         "drawn footprint (bz_ctype 3) in %d tries (SPEC.md 128.13.12)" % sc["tries"])
+                         "drawn footprint (bz_ctype 3) in %d runs (SPEC.md 128.13.12)" % (sc["pwrun"] + 1))
     print("%s MILL play: the ball poked onto the slab and ridden %d frames, then under it %d: frames checked with "
           "the slab's layer in the riding ball's box %d, THE RIDE BOX %d, the slab OVER the ball %d; then THE LOW "
           "SCENARIO (post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, "
@@ -2494,9 +2506,18 @@ def pwait_step(g, sc, n, nfr):
             # the centre px first, then outward a px at a time to 16 either side (the band's foot, 2 lines
             # past it, held: only the across moves - TRICKLE's row step is the line's, its column a word's
             # band away): the CGA's centre over the slab's shaft has no floor clear of OCC (the final pass)
-            for dx in [0] + [s_ * d_ for d_ in range(1, 17) for s_ in (-1, 1)]:
-                P = probe_ground(crs, left + 4 * g.w("bz_W") - 8 + dx, top + 2 * 200 // 3 - 8 + 2, crs._grid, 1,
-                                 clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+            # (each try starts its search 5 px further across than the last: a try that met no waited frame at
+            # one offset - the faster the frame, the likelier - is not repeated at the same one)
+            # (and when no floor is clear at 2 lines past the foot at ANY offset - the window has stepped over
+            # the slab's shaft - the row is looked for 4, 8 and 12 lines further down: still across the foot)
+            dxs = [0] + [s_ * d_ for d_ in range(1, 17) for s_ in (-1, 1)]
+            rot = (5 * sc["tries"]) % len(dxs)
+            for dy in (2, 6, 10, 14):
+                for dx in dxs[rot:] + dxs[:rot]:
+                    P = probe_ground(crs, left + 4 * g.w("bz_W") - 8 + dx, top + 2 * 200 // 3 - 8 + dy, crs._grid, 1,
+                                     clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+                    if P:
+                        break
                 if P:
                     break
         if P:
