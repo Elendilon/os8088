@@ -2137,7 +2137,8 @@ def fam_host():
     o_, f_ = mg_host(binp, lst, sym)
     o2, f2 = wind_host(binp, lst, sym, fam)
     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
-    return out + o_ + o2 + wo, fails + f_ + f2 + wf
+    bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.37)
+    return out + o_ + o2 + wo + bo, fails + f_ + f2 + wf + bf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2253,6 +2254,149 @@ def mg_host(binp, lst, sym):
             if name in scs and hit is None:
                 _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=0)
                 hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn" % arm)
+    return out, fails
+
+
+# ---- BOOST PADS (SPEC.md 128.37.8): the BZBOOST=1 knob's test course BOOS, compiled from its source and played on
+# the default build's image and parts (the family's part is in every build's resident bundle) -------------------
+BP_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "boost.bbc")
+
+
+def _bp_ramp(p):
+    return BB.K_L | BB.K_U if p.gx >> 12 > 10 else BB.K_GRIP     # (-x: up the ramp; on the ledge, the brake)
+
+
+def _bp_gap(p):
+    if p.gx >> 12 >= 14:
+        return BB.K_GRIP                                    # (over the low plate: the brake)
+    return BB.K_R | BB.K_D if (p.gy >> 12) >= 17 or p.gx >> 12 > 10 else BB.K_D | BB.K_L
+
+
+def _bp_chain(p):
+    return BB.K_GRIP if p.gy >> 12 >= 12 else 0             # (nothing held until the goal plate: the brake)
+
+
+BP_SCENES = (
+    # name    poke (wx, wy, gvx, gvy)  keys      steps  what (judged on the model: the pad's scene against the
+    #                                                   same course LESS the scene's pads, bp_verdict)
+    ("ramp", (14, 6, 0, 0), _bp_ramp, 120, "from the pocket's one tile of run-up, the -x pad (strength 40) drives the "
+     "ball up the ramp to the ledge; rubber and steel cannot climb it without the pad, glass can"),
+    ("gap", (10, 16, 0, 200), _bp_gap, 120, "into the pocket and +x: its two pads throw the ball over the 2-cell gap "
+     "onto the low plate; without them every ball falls short into the gap"),
+    ("chain", (12, 10, 120, 0), _bp_chain, 200, "no key held: five +x pads and two +y pads carry the ball down the "
+     "runway and round onto the goal plate; without them it stops on the runway"),
+    ("hop", (12, 10, 300, 0), lambda p: BB.K_HOP if p.nstep < 2 else 0, 60, "a Hop over the pads: no push while "
+     "airborne (bpair's scene)"),
+)
+BP_PADS = {"ramp": {(14, 6)}, "gap": {(10, 17), (11, 17)}, "chain": {(13, 10), (14, 10), (15, 10), (16, 10), (17, 10), (19, 10),
+                                                           (19, 11)}}
+
+
+def bp_course(drop=()):
+    """BOOS (DROP: less the pads at those cells, a scene's control) - a Course, compiled from the tree"""
+    if not drop:
+        return R.course("boos", src=BP_SRC)
+    txt = open(BP_SRC).read().split("\n")
+    txt = [ln for ln in txt if not (ln.split()[:2] == ["prop", "boost"] and (int(ln.split()[2]), int(ln.split()[3]))
+                                    in drop)]
+    return BB.compile_course("\n".join(txt), fname=BP_SRC + " (less its pads)")
+
+
+def bp_play(c, mat, at, keyf, n):
+    """the scene's model run -> (its keys, the Physics, the step it respawned or None, steps lit, poses seen)"""
+    p = BB.Physics(c, play=True, mat=mat).poke(*at)
+    keys, fell, lit, poses = [], None, 0, set()
+    p.landed = None                         # (the first step it meets the gap's low plate, x 14 on)
+    pads = [pr for pr in p.props if pr["kind"] == BB.BP_K]
+    for i in range(n):
+        k = keyf(p)
+        keys.append(k)
+        p.step(k)
+        poses |= {p.fpose(pr) for pr in pads}
+        lit += p.fsl[0][0] != 0
+        if p.respawned and fell is None:
+            fell = i
+        if fell is None and p.landed is None and p.gx >> 12 >= 14 and (not p.air or p.events[-1][1] == p.nstep
+                                                                        and p.events[-1][0] in ("land", "bounce")):
+            p.landed = i                    # (its first contact there: a landing, or rubber's bounce)
+    return keys, p, fell, lit, poses
+
+
+def bp_verdict(name, mat):
+    """what a boost scene is for, on the model: with its pads and without -> (ok, what it saw)"""
+    at, keyf, n = next((a, k, n_) for nm, a, k, n_, _w in BP_SCENES if nm == name)
+    _k, p1, f1, lit, poses = bp_play(bp_course(), mat, at, keyf, n)
+    if name == "hop":
+        return poses == {0, 1} and f1 is None, "lit %d steps, poses %s" % (lit, sorted(poses))
+    _k, p0, f0, _l, _q = bp_play(bp_course(BP_PADS[name]), mat, at, keyf, n)
+    cell = lambda q: (q.gx >> 12, q.gy >> 12, q.gz >> 8)
+    if name == "ramp":                      # (the ledge: x 11 or less, 4 units up)
+        up1, up0 = p1.gx >> 12 <= 11 and p1.gz >> 8 == 32, p0.gx >> 12 <= 11 and p0.gz >> 8 == 32
+        ok = up1 and f1 is None and up0 == (mat == BB.MAT_GLASS)
+    elif name == "gap":                     # (the low plate: x 14 on, 1.5 units up - met whole)
+        ok = p1.landed is not None and (f1 is None or f1 > p1.landed) and p0.landed is None
+    else:
+        ok = f1 is None and p1.gy >> 12 >= 12 and f0 is None and p0.gy >> 12 < 12
+    return ok and poses == {0, 1}, "with its pads ended on %s%s%s, lit %d steps; without, %s%s" % (
+        cell(p1), "" if f1 is None else " (FELL at %d)" % f1, "" if name != "gap" or p1.landed is None
+        else ", met the low plate at step %d" % p1.landed, lit, cell(p0), "" if f0 is None else " (fell at %d)" % f0)
+
+
+def bp_parts(src):
+    """the build's family rows with the BOOST part assembled from SRC (text)"""
+    import shutil
+    import subprocess
+    with tempfile.TemporaryDirectory() as td:
+        d = os.path.join(td, "bonanza")
+        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+        open(os.path.join(d, "fam", "boost.asm"), "w").write(src)
+        o = os.path.join(td, "part.bin")
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                        "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "boost.asm")],
+                       cwd=ROOT, check=True)
+        return fam_parts({"boost": open(o, "rb").read()})
+
+
+def bp_host(binp, lst, sym):
+    """BOOST PADS' unicorn half (SPEC.md 128.37.8): every scene for every ball equal at every step (the ball, the
+    slot, every pad's POSE and its marks), what each is for asserted on the model, and the red arms, each
+    assembled from a broken copy of the part's source and each of which must part from the model:
+    `bpstep` (STEP's entry 0: a flash never goes out), `bpsign` (the minus sign's `neg` gone: a -x pad pushes
+    +x), `bplit` (the lighting's mark gone: a lit pad never drawn), `bpout` (the putting-out's mark gone: the
+    chain's put-out pad never drawn), `bpair` (the air test gone: a Hop over the pads pushed)
+    -> (lines, failures)"""
+    out, fails = [], []
+    fam = fam_parts()
+    sc = {}
+    for name, at, keyf, n, what in BP_SCENES:
+        for mat in (BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS):
+            keys = bp_play(bp_course(), mat, at, keyf, n)[0]
+            poke = poke_of(BB.Physics(bp_course(), play=True, mat=mat).poke(*at))
+            sc[(name, mat)] = (poke, keys)
+            _p, bad = urun(binp, lst, sym, "boos", mat, keys, fam, poke=poke, src=BP_SRC, k=0)
+            ok, saw = bp_verdict(name, mat)
+            out.append("boost %s, %s (%s): %s; %s" % (name, BB.MAT_NAMES[mat], what if mat == BB.MAT_RUBBER else
+                                                      "as rubber's", "; ".join(bad)[:200] or "equal at every step",
+                                                      saw))
+            fails += ["boost %s, %s: %s" % (name, BB.MAT_NAMES[mat], b) for b in bad] + (
+                [] if ok else ["boost %s, %s is not what it is for: %s" % (name, BB.MAT_NAMES[mat], saw)])
+    bsrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "boost.asm")).read()
+    mk = "    call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)\n    pop bx\n"
+    arms = (("bpstep", "    dw 0, 0, bp_contact, bp_step, bp_pose, 0\n", "    dw 0, 0, bp_contact, 0, bp_pose, 0\n",
+             None, ("chain", BB.MAT_RUBBER)),
+            ("bpsign", "    jnc .pos\n    neg ax\n", "    jnc .pos\n", "the ball", ("ramp", BB.MAT_STEEL)),
+            ("bplit", "    call far [bz_fmkp]          ; this pad LIT: its lane MARKED\n", "", "never drawn",
+             ("gap", BB.MAT_GLASS)),
+            ("bpout", mk, "    pop bx\n", "never drawn", ("chain", BB.MAT_STEEL)),
+            ("bpair", "    cmp byte [bz_air], 0\n    jne .out\n", "", "the ball", ("hop", BB.MAT_RUBBER)))
+    for arm, a_, b_, want, (name, mat) in arms:
+        assert bsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
+        poke, keys = sc[(name, mat)]
+        _p, bad = urun(binp, lst, sym, "boos", mat, keys, bp_parts(bsrc.replace(a_, b_)), poke=poke, src=BP_SRC, k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
             fails.append("red %s stayed green on the unicorn" % arm)

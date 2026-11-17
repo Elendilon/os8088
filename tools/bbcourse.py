@@ -25736,7 +25736,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20}
+           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "boost": 12}
 
 
 def _av_floats_want(c):
@@ -26230,6 +26230,167 @@ def _sc_magnet(X, res):
                     not mg_ok(mg_scenes(c, arm))))
 
 
+BP_TEST = os.path.join(ROOT, "apps", "bonanza", "courses", "boost.bbc")    # the BZBOOST=1 knob's course
+# BOOST PADS' scenes on it (SPEC.md 128.37.8): (name, the poke: tile and ground velocity, steps), each ball - the
+# same scenes tests/bonanza_phys.py's bp_host holds the guest to (its keys the same functions of the ball)
+BP_SC = (("ramp", (14, 6, 0, 0), 120), ("gap", (10, 16, 0, 200), 130), ("chain", (12, 10, 120, 0), 160))
+
+
+def _bp_keys(name, p):
+    if name == "ramp":                              # (-x up the ramp; on the ledge, the brake)
+        return K_L | K_U if p.gx >> 12 > 10 else K_GRIP
+    if name == "gap":                               # (south into the pocket, then +x; over the low plate the brake)
+        if p.gx >> 12 >= 14:
+            return K_GRIP
+        return K_R | K_D if (p.gy >> 12) >= 17 or p.gx >> 12 > 10 else K_D | K_L
+    return K_GRIP if p.gy >> 12 >= 12 else 0        # (the chain: nothing held until the goal plate)
+
+
+def _bp_cases():
+    """(what, text, the refusal's substring): 128.37.7's refusals"""
+    C = _W4C + "uses boost\n"
+    return [
+        ("a pad with no face", C + "prop boost 6 6\n", "takes <wx> <wy> face"),
+        ("a pad facing up", C + "prop boost 6 6 face up\n", "faces +x, -x, +y or -y"),
+        ("a strength of 0", C + "prop boost 6 6 face +x strength 0\n", "strength is 1 - 127"),
+        ("a strength of 128", C + "prop boost 6 6 face +x strength 128\n", "strength is 1 - 127"),
+        ("a strength twice", C + "prop boost 6 6 face +x strength 8 strength 9\n", "not 'strength'"),
+        ("a pad with a reset class", C + "prop boost 6 6 face +x reset attempt\n", "takes no `reset`"),
+        ("a pad with a word of no meaning", C + "prop boost 6 6 face +x fast\n", "not 'fast'"),
+        ("a pad on a ramp", C + "prop boost 14 6 face +x\n", "not a FLAT FLOOR"),
+        ("a pad on the cup's cell", C + "prop boost 12 6 face +x\n", "cup"),
+        ("a pad with no `uses boost`", _W4C + "prop boost 6 6 face +x\n", "does not name"),
+        ("`uses boost` and no pad", C, "no element of it is placed"),
+        ("a pad hidden behind a wall in front of it", C + "wall rect 7 7 8 8 flat 9\nprop boost 6 6 face +x\n",
+         "is HIDDEN"),
+    ]
+
+
+class _BpArm(BoostFamily):
+    """BOOST PADS' red arms ON THE MODEL (--selfcheck `boost`): ARM "nopush" (a pad pushes nothing), "sign"
+    (every pad pushes the other way), "air" (an airborne ball pushed too), "twolit" (a pad lit while another
+    is: two pose changes on one step)"""
+    arm = None
+
+    def contact(self, p, slot, i):
+        if self.arm == "air" and p.air:
+            a = p.air
+            p.air = 0
+            try:
+                return self.contact(p, slot, i)
+            finally:
+                p.air = a
+        if self.arm == "twolit" and not p.air:
+            p.fsl[slot][0] = 0
+        g = (p.gvx, p.gvy)
+        BoostFamily.contact(self, p, slot, i)
+        if self.arm == "nopush":
+            p.gvx, p.gvy = g
+        elif self.arm == "sign":
+            p.gvx, p.gvy = 2 * g[0] - p.gvx, 2 * g[1] - p.gvy
+
+
+def bp_scenes(c, arm=None, drop=False):
+    """each of BP_SC for each ball on course C's model (ARM: _BpArm's; DROP: on C less its pads, the controls)
+    -> {(name, mat): (fell at a step or None, the end's (wx, wy, z px), met the gap's low plate at a step or None,
+    the steps a pad was lit, the most pad pose changes on one step)}"""
+    out = {}
+    old = FAM_MODEL["boost"]
+    if arm:
+        _BpArm.arm = arm
+        FAM_MODEL["boost"] = _BpArm()
+    try:
+        for name, (wx, wy, gvx, gvy), n in BP_SC:
+            for mat in (MAT_RUBBER, MAT_STEEL, MAT_GLASS):
+                p = Physics(c, play=True, mat=mat).poke(wx, wy, gvx, gvy)
+                pads = [pr for pr in p.props if pr["kind"] == BP_K]
+                fell, met, lit, chg = None, None, 0, 0
+                q0 = [p.fpose(pr) for pr in pads]
+                for i in range(n):
+                    p.step(_bp_keys(name, p))
+                    q1 = [p.fpose(pr) for pr in pads]
+                    chg = max(chg, sum(a != b for a, b in zip(q0, q1)))
+                    q0 = q1
+                    if p.respawned and fell is None:
+                        fell = i
+                    if fell is None and met is None and name == "gap" and p.gx >> 12 >= 14 and (
+                            not p.air or p.events[-1][1] == p.nstep and p.events[-1][0] in ("land", "bounce")):
+                        met = i
+                    lit += bool(pads) and p.fsl[0][0] != 0
+                out[(name, mat)] = (fell, (p.gx >> 12, p.gy >> 12, p.gz >> 8), met, lit, chg)
+    finally:
+        FAM_MODEL["boost"] = old
+        _BpArm.arm = None
+    return out
+
+
+def bp_ok(s, s0):
+    """the scenes show what they are for (SPEC.md 128.37.8), S with the pads and S0 the course less them"""
+    ok = True
+    for mat in (MAT_RUBBER, MAT_STEEL, MAT_GLASS):
+        r, r0 = s[("ramp", mat)], s0[("ramp", mat)]
+        ok = ok and r[0] is None and r[1][0] <= 11 and r[1][2] == 32 and (r0[1][0] <= 11) == (mat == MAT_GLASS)
+        g, g0 = s[("gap", mat)], s0[("gap", mat)]
+        ok = ok and g[2] is not None and g0[2] is None and g0[0] is not None
+        h, h0 = s[("chain", mat)], s0[("chain", mat)]
+        ok = ok and h[0] is None and h[1][1] >= 12 and h0[1][1] < 12
+    return ok and all(v[4] <= 1 for v in s.values()) and all(v[3] > 0 for v in s.values())
+
+
+def _sc_boost(X, res):
+    """--selfcheck's section `boost` (SPEC.md 128.37.8): the refusals, the test course's records and lanes, the
+    scenes on the model (against the course less its pads), and the model's red arms"""
+    for what, text, want in _bp_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (boost pads, 128.37.7): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(BP_TEST)
+    src = parse(open(BP_TEST).read(), BP_TEST)
+    want = sorted((sp["at"], sp["bp"]) for sp in src.props if "bp" in sp)
+    recs = [r for r in c.part["props"] if r["kind"] == BP_K]
+    got = sorted((r["at"], r["bp"]) for r in recs)
+    fv = famv(FAM_BY_NAME["boost"])
+    row = FAM_BY_NAME["boost"]
+    moved = famv(dict(row, consts=(BP_FLASH + 1, BP_SDEF))) != fv and famv(dict(row, consts=(BP_FLASH, BP_SDEF + 1))) != fv
+    res.append(("3 BOOST PADS' records (128.37.3): %d pads, +18 the face and +19 the strength the source's (the "
+                "default %d where none is written), each a lane of 2 poses (the flash), no state bit, class "
+                "ATTEMPT; FAMV %02Xh moves with BP_FLASH and BP_SDEF" % (len(recs), BP_SDEF, fv),
+                got == want and len(recs) == 10 and moved and all(
+                    r["lane"] and r["lane"]["poses"] == 2 and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT for r in recs)))
+    s = bp_scenes(c)
+    s0 = bp_scenes(compile_course("\n".join(ln for ln in open(BP_TEST).read().split("\n")
+                                             if not ln.startswith("prop boost") and ln.split()[:1] != ["uses"]),
+                                  fname=BP_TEST + " (less its pads)"))
+    res.append(("6 BOOST PADS' scenes on the model (128.37.8), every ball, against the course less its pads: %s; at "
+                "most %d pad pose change a step" % ("; ".join(
+                    "%s %s %s%s" % (n_, MAT_NAMES[m_], "fell at %d" % v[0] if v[0] is not None else "ended on %s" % (
+                        v[1],), "" if v[2] is None else " (met the low plate at %d)" % v[2])
+                    for (n_, m_), v in sorted(s.items())), max(v[4] for v in s.values())), bp_ok(s, s0)))
+    for arm in ("nopush", "sign", "air", "twolit"):
+        sa = bp_scenes(c, arm)
+        res.append(("6 BOOST PADS' red arm %s on the model: the scenes no longer show what they are for" % arm,
+                    not bp_ok(sa, s0) or (arm == "air" and _bp_hop(c, arm) != _bp_hop(c))))
+
+
+def _bp_hop(c, arm=None):
+    """a Hop over the chain's pads (the `air` arm's own scene): the ball's state after 40 steps"""
+    old = FAM_MODEL["boost"]
+    if arm:
+        _BpArm.arm = arm
+        FAM_MODEL["boost"] = _BpArm()
+    try:
+        p = Physics(c, play=True, mat=MAT_RUBBER).poke(12, 10, 300, 0)
+        for i in range(40):
+            p.step(K_HOP if i < 2 else 0)
+        return p.state()
+    finally:
+        FAM_MODEL["boost"] = old
+        _BpArm.arm = None
+
+
 SC_SPLIT = {"grammar": 4}      # a section run as N slices in the parallel run (its function takes part=(k, n))
 
 
@@ -26263,7 +26424,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_cache",
-             "_sc_magnet", "_sc_water")
+             "_sc_magnet", "_sc_water", "_sc_boost")
 
 
 def _selfcheck(paths, res, skipped, S):
