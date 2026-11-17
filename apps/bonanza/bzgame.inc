@@ -2616,6 +2616,65 @@ bz_fold:
 %if (BZ_SPR_STR & 3) != 0 || BZ_BAL_NSTR != 1
  %error "bz_sprite's .ent takes the stretch as entry 0 of the table at BZ_BAL_STROFF"
 %endif
+%if BZ_BAL_ESH == 1
+; bz_eshift - A (SPEC.md 128.38.10): the entry at AX (shift 0, mask 16 rows
+; then frame 16 rows, in the ball part bz_bsegs[bz_mat]) moved BL = s (1 - 3)
+; pixels right into the part's scratch, BZ_BAL_SCROFF - the mask filling with
+; kept pixels, the frame with 0 - so bz_blit, bz_fdis and the boxes read it
+; as a stored entry at shift s.  -> AX = BZ_BAL_SCROFF.  Preserves BX.
+; Clobbers CX, DX.
+bz_eshift:
+    push bx
+    push si
+    push di
+    push bp
+    push es
+    mov si, ax
+    mov bh, bl
+    shl bh, 1                   ; BH = the bits, 2 s
+    mov bl, [bz_mat]
+    push bx
+    xor bh, bh
+    shl bx, 1
+    mov es, [bz_bsegs + bx]
+    pop bx
+    mov di, BZ_BAL_SCROFF
+    mov ch, 80h                 ; the mask's fill, a bit at a time
+    mov bp, 2 * BZ_BAL_ROWS
+.r:
+    cmp bp, BZ_BAL_ROWS
+    jne .g
+    xor ch, ch                  ; the frame's
+.g:
+    mov ax, [es:si]
+    mov dx, [es:si + 2]
+    mov cl, [es:si + 4]
+    mov bl, bh
+.b:
+    shr al, 1
+    rcr ah, 1
+    rcr dl, 1
+    rcr dh, 1
+    rcr cl, 1
+    or al, ch
+    dec bl
+    jnz .b
+    mov [es:di], ax
+    mov [es:di + 2], dx
+    mov [es:di + 4], cl
+    add si, BZ_BAL_RB
+    add di, BZ_BAL_RB
+    dec bp
+    jnz .r
+    mov ax, BZ_BAL_SCROFF
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop bx
+    ret
+%endif
+
 bz_sprite:
     mov ax, [bz_gx]
     mov dx, [bz_gx + 2]
@@ -2692,16 +2751,20 @@ bz_sprite:
     mov al, BZ_SPR_SQ
     add al, cl
     mov dx, BZ_BAL_SQOFF
-.ent:                           ; entry ((k 4 + s) 2 + p) of the table at DX
-    mov [bz_spr], al
-    and al, 3                   ; k
+.ent:                           ; entry ((k ESH + s) EPAR + p) of the table at
+    mov [bz_spr], al            ; DX (SPEC.md 128.38.10: B one parity copy, A
+    and al, 3                   ; one shift, k)
+%if BZ_BAL_ESH > 1
     shl al, 1
     shl al, 1
     add al, bl
+%endif
+%if BZ_BAL_EPAR > 1
     mov ah, [bz_py]
     and ah, 1
     shl al, 1
     or al, ah
+%endif
     xor ah, ah                  ; x 160 = (i << 5) x 5, by shifts (128.9 item
     mov cl, 5                   ; 1's no-MUL rule; i <= 31)
     shl ax, cl
@@ -2709,6 +2772,12 @@ bz_sprite:
     shl ax, 1
     shl ax, 1
     add ax, dx
+%if BZ_BAL_ESH == 1
+    or bl, bl                   ; A: at shift s > 0 the entry shifted into
+    jz .e0                      ; the ball part's scratch
+    call bz_eshift
+.e0:
+%endif
     mov [bz_smsk], ax
     mov word [bz_sfd], BZ_BAL_ENT / 2
     jmp short .shadow

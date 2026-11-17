@@ -813,9 +813,11 @@ class Ref:
         kind, k = lk.spr                         # the sprite: mask AND, frame OR
         if kind == "roll":
             mo, fo = A.B2_MASKOFF + s * A.D * A.RB, A.B2_FRMOFF + k * A.D * A.RB
-        else:
-            base = A.B2_SQOFF if kind == "squash" else A.B2_SHAOFF
-            mo = base + ((k * A.SHIFTS + s) * 2 + (lk.py & 1)) * A.ENT
+        else:                                    # (SPEC.md 128.38.10: the entry as DRAWN - B's one copy,
+            base = A.B2_SQOFF if kind == "squash" else A.B2_SHAOFF      # A's shift made at the draw)
+            em, ef = A.ent_rows(part, base, k, s, lk.py & 1)
+            mo = len(part)
+            part = bytes(part) + em + ef
             fo = mo + A.ENT // 2
         ball = {}
         for r in range(A.D):
