@@ -964,6 +964,12 @@ class Bz:
         """(S, R0, c0, px, py) as the package holds them now."""
         return (self.w("bz_S"), self.w("bz_R0"), self.w("bz_c0"), self.w("bz_px"), self.w("bz_py"))
 
+    def bank_pre(self):
+        """at bz_tv (the loop's marks): the ball as the frame's boxes drew it, before bz_early's step"""
+        lo = self.sym["bz_phs"]
+        self.pre = (self.m.read(self.base + lo, self.sym["bz_phe"] - lo), self.w("bz_px"), self.w("bz_py"),
+                    self.b("bz_mat"))
+
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
         bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
@@ -1136,8 +1142,7 @@ class Walker:
             r = m.regs()
             flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
             if flat == self.tv:                 # bank the ball as drawn: bz_early runs next
-                lo = g.sym["bz_phs"]
-                g.pre = (m.read(g.base + lo, g.sym["bz_phe"] - lo), g.w("bz_px"), g.w("bz_py"), g.b("bz_mat"))
+                g.bank_pre()
                 continue
             break
         self.r = r
@@ -3919,6 +3924,10 @@ class Loop:
     def __init__(self, g, names, io=None, kernel=()):
         self.g, self.m = g, g.m
         self.ex = {g.a(n): n for n in names}
+        self.names = names
+        self.tv = g.a("bz_tv")                   # (banks the ball as drawn, before the early step: Bz.look)
+        self.ex.setdefault(self.tv, "bz_tv")
+        g.pre = None
         self.ex.update({g.m.sym(n): n for n in kernel})     # (KERNEL names: the int 08h handler's sch_isr)
         self.io = io
 
@@ -3930,14 +3939,18 @@ class Loop:
 
     def next(self):
         m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        self.r = r = m.regs()
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
-        if flat in self.ex:
-            return self.ex[flat]
-        return "io"
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            self.r = r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv and self.ex.get(flat) == "bz_tv" and "bz_tv" not in self.names:
+                self.g.bank_pre()
+                continue
+            if flat in self.ex:
+                return self.ex[flat]
+            return "io"
 
 
 def load_demo(g, kd):

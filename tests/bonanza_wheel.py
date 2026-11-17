@@ -378,7 +378,7 @@ def enter_check(g, ref, prev, out, rects, recs):
         now = clip(q, (out["R0"], out["R0"] + H, out["c0"], out["c0"] + Wc))
         if was or not cells(now):
             continue
-        tq = R.true_pose(recs[i], out["nstep"], out["pkick"], out["hold"], out.get("tsec"))
+        tq = R.true_pose(recs[i], out["ndraw"], out["pkick"], out["hold"], out.get("tsec"))
         lk, _ = g.look(crs)
         lanes = dict(enumerate(out["drawn"]))
         lanes[i] = tq
@@ -1409,6 +1409,9 @@ def stale_leg(g, ref):
 
         def on_hit(mm, rec_):
             a = rec_["addr"]
+            if a == A["bz_tv"]:                   # the ball as drawn, before the early step (Bz.look)
+                g.bank_pre()
+                return None
             if a == A["bz_t0"]:
                 st["k"] += 1
                 k = st["k"]
@@ -1446,8 +1449,8 @@ def stale_leg(g, ref):
                 st["enter"] += enter_check(g, ref, st["pr"], out, rects, recs)
             st["pr"] = out
             return None
-        A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
-        with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=4000):
+        A = {n: g.a(n) for n in ("bz_t0", "bz_tv", "bz_presented")}
+        with M.bp_trace(m, A["bz_t0"], A["bz_tv"], A["bz_presented"], on_hit=on_hit, cap=4000):
             m.run()
             M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + STALE_AFTER) or
                     st["k"] >= STALE_MAX, "the STALE scene's frames", guest=60 + 10 * STALE_RETRY)
@@ -1606,6 +1609,9 @@ def side_leg(g, ref):
               "seen": 0}
 
         def on_hit(mm, rec_):
+            if rec_["addr"] == A["bz_tv"]:        # the ball as drawn, before the early step (Bz.look)
+                g.bank_pre()
+                return None
             if rec_["addr"] == A["bz_t0"]:
                 st["k"] += 1
                 k = st["k"]
@@ -1647,8 +1653,8 @@ def side_leg(g, ref):
                 st["enter"] += enter_check(g, ref, st["pr"], out, rects, recs)
             st["pr"] = out
             return None
-        A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
-        with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=6000):
+        A = {n: g.a(n) for n in ("bz_t0", "bz_tv", "bz_presented")}
+        with M.bp_trace(m, A["bz_t0"], A["bz_tv"], A["bz_presented"], on_hit=on_hit, cap=6000):
             m.run()
             M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + abs(c0w - c0g) + SIDE_AFTER)
                     or st["k"] >= SIDE_MAX, "the SIDE scene's frames", guest=90 + 10 * SIDE_RETRY)
@@ -1820,6 +1826,7 @@ def gate_leg(g, scen):
                                                                     e[1] - 1, dq, "closed" if shut else "open",
                                                                     n0 + 1, n))
             n0 = n
+        g.pre = None
         m.bp_exec()
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the %s replay ends" % s["name"], guest=60)
