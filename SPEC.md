@@ -278635,3 +278635,144 @@ arms `waact` (the ACTIVE ripple's flip unmarked) and `waalw` (an ALWAYS one's)
 go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
+
+### 128.39 The ARCHWAY: an arch to roll under (the props round's P10, 2026-11-17)
+
+The owner (docs/plans/BOUNCE-BONANZA-PROPS.md, P10): an ARCH spans a path; a
+ball ROLLS UNDER it, and a ball in the air at the arch's height HITS its
+underside - a CEILING - so it cannot Hop or boost over the arch. Two uses:
+art, and a GATE for pads: rubber can boost over any one tile and so skip a
+pad a course wants taken, and an arch over the pad forces it to roll through.
+Kept SHORT - one cell deep, at most two: no long tunnels. The owner's
+visibility rule as clarified for it (2026-11-17): partial occlusion is
+allowed - the arch's top or legs drawn over part of the ball - but the ball
+may be WHOLLY hidden for at most one ball length (16 px) of travel, and
+whatever the arch spans (a pad) is seen while the ball is not on it.
+**Status: PLANNED here; 128.39.8 is what was BUILT and MEASURED.**
+
+#### 128.39.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| A1 | a FAMILY, `archway`, ID 12 (`BZ_FID_ARCHWAY`), one kind `archway` (`FK_ARCH` = `FAM_K0 + 48` = 64), hooks CELL and STEP, home `resident` | 128.25.6's two hooks are exactly the two halves of a ceiling (A3, A4): **no resident engine byte, no `BZ_PHYSV` move, no shipped identity moves**. A per-cell ceiling in the grid (the reserved `edge` bits, or the reserved UNDERSIDE flag of 128.12.3.1) would be resident work in steps 5 and 6 and a `BZ_PHYSV` move that re-authors every demo, for a prop no shipped course has. UNDERSIDE stays reserved and refused |
+| A2 | the grammar word is `archway` (`arch` is WATER's column exit, 128.36.1) | one word, one meaning |
+| A3 | **the wall above the ceiling: CELL.** At every window refill the hook writes each archway cell in the window as a WALL (kind 2 in the window's copy, never the grid: 128.25.7.2) when the ball's whole-px `z` (`bz_gz + 1`) is above the cell's CLEARANCE, and leaves it the FLOOR it is otherwise - the CENTRE included | the engine's own wall test (step 5's circle, corner and fallback, with the material's restitution off stone) then stops a ball that would enter the arch above its clearance at the arch's FACE, from either end and at every height: nothing flies over or into it. The fallback's undo refills round the start's cell, so the cell is written again from the start's `z`. The wallprobe test family (`_TestWall`) is the precedent for a CELL hook writing a WALL |
+| A4 | **the ceiling inside: STEP.** While the window's centre is an archway cell and the ball's whole-px `z` is above that cell's clearance: `z` = the clearance (fraction 0) and, if `gvz > 0`, `gvz = -(gvz >> AR_RSH)` (a quarter rebound off the underside) | a ball can only ENTER an archway cell at or under its clearance (A3); a Hop or a rising bounce inside is stopped at the underside before the frame is drawn. STEP runs at `.count`, so no frame ever shows the ball above the ceiling |
+| A5 | **the refill when z crosses a clearance: STEP.** CELL records in the slot the band of `z` its writes hold for: `LO` the highest clearance it walled (or -32768), `HI` the lowest it left open (or 32767). STEP, after A4, sets `bz_fref` when the new whole-px `z` is `<= LO` or `> HI` | the window is a snapshot taken at a refill; a ball rising or falling beside an arch must see its wall appear and go. `bz_fref` asks for the refill the next step's head makes (128.25.6.3), so the step's wall test reads the window written from the `z` it starts at - 128.10.7.3's START rule. Two compares a step; no refill while `z` stays in the band |
+| A6 | the CLEARANCE is the underside's height less `AR_TOPB` (16) px, the ball's height (its 16-px disc, 128.10.2) | the ceiling is drawn where physics puts it, with the sprite's top 3 px under it. A first draft took 14 (the sprite's top over the contact, and a px): under a 2-unit arch that left the contact 2 px to rise in, and rubber's LOW bounces (apex 1 - 2 px) carried it across the pad under it airborne - a pad is taken only grounded (128.14.4) - in 22 of 167 sweep runs that crossed (MEASURED). At 16 they are 0 |
+| A7 | **the default underside is 2 units (16 px) over the floor**, `under` 2 - 4 units in halves; the lintel is 1 unit thick | 2 units is the least a grounded ball rolls under (clearance 0: the contact cannot leave the floor by a whole px - a rise is capped within a step and lands under the bounce threshold), so under a 2-unit arch the ball ROLLS and takes the pad it spans. A taller arch is the art case: 3 units is 8 px of clearance, so rubber's Hop (5.7 px) passes under and its boost (9.3 px) hits |
+| A8 | the LEGS are WALL cells the statement lays at the two ends across the run, their top the lintel's (underside + 1 unit); the archway's own cells keep their FLOOR and get NO `OBS` bit | a leg is an ordinary WALL (physics, picture, occluders, AV all as today). No OBS: the archway's record is not an owner (`prop_cells` skips it), so a PAD can stand under the arch on the same cell, and the window's prop list never sees the arch. The CELL hook finds its cells by walking the records, as WATER's does |
+| A9 | the picture: the LINTEL - its top over every archway cell at the lintel's top, and on the run's front-most cells its FRONT face (the face along the run toward the viewer) from the underside to the top, a black underside line, the two lower corners rounded into the legs - is geometry keyed `s + 1` of its cell (WATER's precedent, 128.36.5), its tops the lintel's top | keyed one row nearer, the occluder rule (128.10.4.4) lays the lintel over a ball UNDER it (same row) and over a ball behind it, and never over a ball in front of it. The legs are the walls they are |
+| A10 | the visibility rule is a REFUSAL the tool measures: a ball rolled along each lane of the run, grounded, from the middle of the cell before the arch to the middle of the cell after it, a ground unit at a time, composited as the guest does (its records), may have EVERY lit pixel laid over at no more than `AR_HIDE` (16) consecutive positions - one ball length; and a pad under an arch keeps at least a third of its top's pixels in the picture | the owner's clarification, as a number the build holds |
+
+#### 128.39.2 The statement
+
+    uses archway
+    archway <shape> along x|y [under <units>]
+
+`<shape>` is `tile` or `rect` (128.10.3's), the cells UNDER the arch;
+`along` the axis the ball rolls through it on. Its DEPTH (cells along the
+run) and WIDTH (cells across it) are each 1 or 2. The legs are laid on the
+cells just past each side ACROSS the run, beside every cell of the depth:
+WALLs, flat, normal, their top the floor's height plus `under` plus 1 unit.
+Laid after every room, hole, FIELD, water cell and guard rail (128.35), so a
+leg may replace a WALL a room laid.
+
+**Refused**, naming the line (each a `--selfcheck` string case, item 2):
+
+- a shape that is not one rectangle, or deeper or wider than 2 cells;
+- an archway cell that is not a whole FLAT FLOOR (a ramp, a split cell, a
+  FIELD cell, a WALL, a goal, water, the void), or two at different heights;
+- `under` outside 2 - 4 units ("a grounded ball cannot roll under it" under
+  2);
+- a leg on a floor, a goal, a split or FIELD cell, water or a guard rail (a
+  leg stands on the open edge beside the passage, or replaces a wall);
+- an END of the run (the cells just before and after it along the axis)
+  that is not a whole floor - a passage leads somewhere - or whose corners on
+  the shared edge are higher than the archway's floor plus its clearance (a
+  ball rolling off it would meet the arch as a wall);
+- two archways sharing a cell, legs included;
+- a prop on an archway cell other than a PAD (a clock, a windmill, a tube's
+  cell, a bumper, a spring, the cup, a checkpoint, a family element): the
+  ceiling would meet it;
+- the visibility rule (A10) not met;
+- any other clause.
+
+#### 128.39.3 The record and the slot
+
+An archway CELL is one element (128.25.6.4's record), anchored on the cell,
+NOT an owner (A8): +16 FSB 0, +17 class 0 (ATTEMPT: it has no state), **+18
+the CLEARANCE, a signed word, whole px** (`4 z0 + 8 under - AR_TOPB`), +20 -
++31 zero. The reader accepts exactly that, anchored on a flat FLOOR cell
+whose height leaves the clearance at least 2 px over it, and no lane. The
+elements are the LAST records of the table (after every prop that claims a
+cell), so the window refill's owner scan - the first record whose anchor is
+the cell - meets a pad before the arch on a cell they share.
+
+**The SLOT** (`BZF_SLOT`'s 8 bytes, written by CELL alone): +0 `LO`, +2
+`HI`, +4 `CC` (the centre's clearance, 32767 when the centre is no archway
+cell), signed words; +6 - +7 zero. A play's start and a respawn refill the
+window (`bz_place`), which writes it before any step reads it: no RESET.
+
+#### 128.39.4 The hooks (binding: the guest and `bbcourse.ArchFamily` do exactly this)
+
+**CELL** (`Z` = the ball's whole-px `z`, `[bz_gz + 1]`): `LO` = -32768,
+`HI` = 32767, `CC` = 32767; for every archway record whose cell is in the
+window, `C` its clearance: the centre's cell, `CC = C`; if `Z > C`, the
+window's copy of the cell becomes a WALL (its kind nibble 2; the surface,
+height, slopes and flags kept) and `LO = max(LO, C)`; else `HI = min(HI, C)`.
+
+**STEP**: `Z` as above; if `Z > CC`: `z = CC` (whole, fraction 0), and if
+`gvz > 0`, `gvz = -(gvz >> AR_RSH)` (arithmetic; `AR_RSH` 2); `Z = CC`.
+Then if `Z <= LO` or `Z > HI`: `bz_fref = 1`.
+
+#### 128.39.5 The picture and the occluders
+
+A9's lintel, drawn by `arch_ops` after the guard rails and before WATER's
+arches, put into the back-to-front order after the archway cell's whole row:
+its top WHITE with the black outline every top has; its front face the ink
+of a wall's face on that side (the `se` face's checker, the `sw` face's
+solid) with a black outline and a black underside line; the lower corners
+rounded two px into the legs. The legs are walls, drawn as walls. No cell is
+`FL_FLOAT`: AV's model (128.29) sees the archway cell's floor and the legs'
+walls as they are, and the lintel's pixels are residual records as a guard
+rail's are.
+
+#### 128.39.6 The reach
+
+The archway's cells are floors in the grid and the reach takes them as
+floors (form `own`): it puts a ball in them at every height a flight from
+round about reaches, which the ceiling forbids. That is CONSERVATIVE for
+every use the reach has (the occluders, the bounds, OCC and OCCG, NO TRAP's
+"can reach" side) and costs only records the guest never lays; the
+visibility rule (A10) and the physics proofs (128.39.7) are measured on the
+model, not the reach.
+
+#### 128.39.7 The test course: `BZARCH=1`, and the proofs
+
+`make BUILD=<tree> BZARCH=1 bonanzadisk` adds `apps/bonanza/courses/arches.bbc`,
+ARCH "Archways", after the shipped courses (every shipped course keeps its
+K; not on the TOUR) and compiles the pathway through
+`apps/bonanza/courses/patharch.sed`: pad 0 becomes ARCH (title, Play Game,
+Enter), its exit 1 goes to FIRST on a pad of its own. Refused with
+`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL` and `BZWATER` (each takes pad 0).
+Without the knob no course part or demo moves. The course: a 2-unit archway
+over a STEEL PAD on a one-cell path (rubber cannot boost over it: it rolls
+through and takes the pad), a 2-unit arch rubber Hops and boosts into and
+hits, and a 3-unit two-wide archway the ball rolls through, seen.
+
+`--selfcheck` section `arch`: item 2's string cases (128.39.2); the
+records; the ceiling on the model - every Hop and second press (a boost at
+its contact) by rubber into the 2-unit arches is stopped at the face or
+under the underside, the ball never above a clearance inside one; rolled
+straight, the ball goes through; the pad under the arch is taken; and the
+visibility measure. Red arms: the CELL hook's wall left out (`arnowall`),
+the STEP cap left out (`arnocap`), the lintel keyed at its own row
+(`arkey`), and the visibility bound at 2 positions (`arvis`).
+`tests/bonanza_phys.py`'s unicorn half (`arch_host`) holds the guest part
+equal to the model at every step of the course's scenes, with red arms on
+the part.
+
+#### 128.39.8 What is BUILT and MEASURED
+
+(The as-built record follows when the work lands.)
