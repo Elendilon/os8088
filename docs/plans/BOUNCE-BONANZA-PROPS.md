@@ -38,7 +38,7 @@ px, and at most 6 FAST lanes meet a window.
 | | what | why moderate |
 |---|---|---|
 | P9 | **SEE-SAW / TILT PLATE** | the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a resting ball is the lift's carry adapted, not new physics |
-| P10 | **ARCH to roll under** (also: a ball forced under it cannot boost over a pad, so rubber must take a pad) | the reserved UNDERSIDE flag (SPEC.md 128.12.3.1): a CEILING in physics (an airborne ball at its height hits the arch's top) and the arch's top drawn over a ball under it - both resident, bounded |
+| P10 | **ARCH to roll under** (also: a ball forced under it cannot boost over a pad, so rubber must take a pad) | ~~the reserved UNDERSIDE flag: resident~~ - **BUILT as a family with no resident change** (the ARCHWAY, SPEC.md 128.39, branch `bb-arch`): CELL walls the arch above the ball's clearance, STEP caps the ball under it; below |
 | P11 | **TURNTABLE, quarter-turn**: half filled, a quarter turn every second or so, the cells switching; it does not carry the ball (a cell that turns to a gap drops you) | several SLOW lanes |
 
 ### Chosen - art only
@@ -231,6 +231,43 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       the `BZRAIL=1` disks, 2026-11-17: "Look great and meet their function"
       (the 2-unit default kept).
 
+
+## P10 THE ARCHWAY - built (branch `bb-arch`, SPEC.md 128.39)
+
+Family ID 12, kind 64, home `resident`, a 233-byte part; no resident engine
+byte, `BZ_PHYSV` and every shipped course, demo and identity unchanged
+(MEASURED). `archway <shape> along x|y [under <units>]` lays the cells under
+an arch (1 - 2 deep, 1 - 2 wide) and its two block LEGS; the lintel is drawn
+keyed a row nearer, so it lays over a ball under it. Physics: CELL writes
+each archway cell in the window as a WALL while the ball's z is above its
+clearance (the engine's wall test stops it at the face, from either end, at
+every height), STEP caps the ball under the underside and refills the window
+when z crosses a clearance. The default 2-unit arch is the ball's height:
+under it the ball cannot leave the floor, so it ROLLS - and takes a pad under
+it. The owner's visibility rule as clarified (partial occlusion fine; wholly
+hidden at most a ball length; the pad seen) is a REFUSAL the tool measures.
+
+- [x] **A.1** SPEC.md 128.39: the contract before the code.
+- [x] **A.2** The tool: the statement, the legs, the refusals (15 string
+      cases), the records (the LAST, no OBS: a pad under an arch), the reader,
+      `ArchFamily`, the lintel's art, the visibility rule; `--selfcheck`
+      section `arch` with red arms `arnowall`, `arnocap`, `arkey`, `arvis`
+      (MEASURED red).
+- [x] **A.3** The part `fam/archway.asm` (233 bytes), equal to the model at
+      every step of five unicorn scenes; red arms `arwall`, `arcap`,
+      `arref`, `arcell` (MEASURED red).
+- [x] **A.4** The knob course ARCH (`BZARCH=1`, pad 0): a 2-unit arch over
+      a steel pad (rubber cannot boost past it: none of the sweep's runs got
+      past without the pad), a bare 2-unit arch to Hop and boost into, a
+      3-unit two-wide arch a Hop passes under.
+- [x] **A.5** LOOKED AT on MartyPC, CGA and Hercules (the knob tree, rolled through A and C: the ball ghosted where the lintel and the front leg cover it, whole in the opening; see the diary).
+- [ ] **A.6** The per-step cost MEASURED (the final pass's `bonanzaperf` /
+      `bonanzaphys` on a `BZARCH=1` tree; about 0.35k a step PREDICTED).
+- [ ] **A.7** The owner's answers (SPEC.md 128.39.9): the look (block legs
+      hide half of a pad under a 1-deep arch - the route audit reports its
+      mark BELOW, 50% against 75%; posts at the corners would show it), the
+      default height, 2-deep low arches.
+- [ ] **A.8** A shipped course that uses it.
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
 

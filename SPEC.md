@@ -278648,7 +278648,8 @@ visibility rule as clarified for it (2026-11-17): partial occlusion is
 allowed - the arch's top or legs drawn over part of the ball - but the ball
 may be WHOLLY hidden for at most one ball length (16 px) of travel, and
 whatever the arch spans (a pad) is seen while the ball is not on it.
-**Status: PLANNED here; 128.39.8 is what was BUILT and MEASURED.**
+**Status: BUILT on branch `bb-arch` (the tool, the part, the knob course,
+the checks); 128.39.8 is the as-built record, MEASURED where it says so.**
 
 #### 128.39.1 The decisions, in one table
 
@@ -278775,4 +278776,63 @@ the part.
 
 #### 128.39.8 What is BUILT and MEASURED
 
-(The as-built record follows when the work lands.)
+- **No resident engine byte; no shipped course, demo or identity moved**
+  (MEASURED: `make bonanzadisk` before and after, all 28 `BZ*.BIN` of
+  `build/bonanza-art/` byte for byte the same, `BZ_PHYSV` unchanged). The
+  image `bonanza.bin` is **+3 bytes** (49,898 -> 49,901): `BZ_FTAB`, one
+  byte an ID, now runs to ID 12 - two of the three are the gap IDs 10 and
+  11, which BOOST and SPIKES fill. **bss: 0** (the slot is one of the three
+  `bz_fsl` slots every build has).
+- **The part** `bzf-archway.bin`: **233 bytes** (header 24, CELL 132, STEP
+  60, the slot's address 17; MEASURED as `ndisasm` spans); in the RESIDENT BUNDLE it is 15
+  paragraphs, **+240 bytes of every play's RAM** (the bundle 34,976 ->
+  35,216); `BONANZA.O88` +164 bytes (122,032 -> 122,196). Its FAMILIES
+  ceiling is 16 paragraphs.
+- **Per step** (PREDICTED, 8088 clocks from the instruction tables, the
+  final pass's `bonanzaperf` on a `BZARCH=1` tree to measure): STEP's hook
+  about 0.23k with the band unchanged (the slot's address 85, three
+  compares, `retf`), plus `bz_fall`'s far call - about 0.35k a step on a
+  course that names the family; CELL about 60 clk a record on a refill, 0.2k
+  an archway cell in the window. A course without an archway: nothing.
+- **The knob build** (`make BUILD=build/arch BZARCH=1 bonanzadisk`):
+  ARCH is course 7, RAM 21,815 bytes stored, its route demo COMPLETE (576
+  steps, no fall); `BONANZA.O88` 125,547 bytes, the 360KB disk 131 of 354
+  clusters (the shipped 128).
+- **The physics** (`--selfcheck --only arch`, MEASURED): every Hop and
+  second press (a boost at its contact) into A, B and C - 144 runs each,
+  rubber and the jump pickup's Hop - leaves no ball above a clearance inside
+  an archway cell and none entering one from a step that began above it;
+  none of the 43 rubber runs that got past A did so without its steel pad.
+  Rubber rolled through A comes out steel; a Hop passes under C (its
+  contact up to 17 px, the clearance 24).
+- **Visibility** (A10, MEASURED): a ball rolled through each of ARCH's
+  three archways is wholly hidden for at most **11 ground units** in a row
+  (the bound 16); A's pad keeps **126 of its top's 256 px** (49%). A 2-unit
+  archway TWO deep is refused by the rule (27 gu wholly hidden, MEASURED on
+  the course's first draft, which had one over the pad). The build's own
+  route audit (128.15.10.4) reports the pad mark at 50% against its 75%
+  (BELOW: reported, not refused) and, on the route's 576 steps, the ball
+  over half hidden on 71 and wholly on 27, in two over-half stretches of
+  0.70 and 0.60 s (the autopilot rolls slowly through the two 2-unit
+  arches) - the owner's to weigh (128.39.9).
+- **The guest equals the model** (`tests/bonanza_phys.py`'s `arch_host`,
+  MEASURED under unicorn): five scenes (`arch-roll`, `arch-boost`,
+  `arch-hop`, `arch-tall`, `arch-under`) equal at every step; red arms
+  `arwall` (the WALL write gone: the window), `arcap` (the ceiling gone: the
+  ball), `arref` (the band's refill gone: `bz_fref`), `arcell` (the CELL
+  entry 0) each red.
+- **kern_mega, kern_small**: nothing of their own. The part is a family
+  part (128.25.11's: assembled against the image, its far pointer from
+  `op_cseg`, a code selector on kern_mega); it reads and writes only
+  BONANZA's bss and the course part through `bz_cseg`, which is a selector
+  there already - no segment arithmetic, so no `PKG_MEGA` arm. kern_small
+  runs BONANZA as every kernel does.
+
+#### 128.39.9 Open questions for the owner
+
+| | question | as built |
+|---|---|---|
+| AQ1 | the look: block legs (walls) and a 1-unit lintel, its front face the wall face's ink | as built; the legs hide half of a pad under a 1-deep arch (128.39.8). Thin POSTS at the archway's corners instead of block legs would show the whole pad and more of the ball, at the price of a WALL drawn as open space beside the passage (the guard rail's trade, 128.35.1) |
+| AQ2 | the default underside, 2 units (the ball cannot leave the floor under it) | the gate's height; 3 units lets a Hop pass under |
+| AQ3 | a 2-unit arch two cells deep | refused by the visibility rule as the legs are drawn; posts would let it through |
+| AQ4 | a shipped course that uses an archway | none yet: the props round's courses are the owner's |
