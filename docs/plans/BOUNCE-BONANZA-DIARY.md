@@ -4212,3 +4212,16 @@ item is 17**.
   test courses are knob builds; the shipped courses' pieces still match the
   kit by content, and a piece that stopped matching would simply drop out
   of that course's bitmap.
+
+### Wave 9 closed: what the last day added (2026-11-17)
+
+The final pass on 2026-11-16 was not the end. The owner played the build and the day became a run of small, sharp decisions, each tried as an exploratory branch, shown as disks and frame strips, and merged only once liked:
+
+- **Pickups, played.** A one-off build put them at the start of a test course. Tuning held; the cue's flash stayed BLINK4; the sparkles were measured as 83% on the right and rebalanced (OVER).
+- **The balls generated once** and **glass and pickups resident**: launches lost a read or more each. The rule now is that a family is resident unless there is a reason.
+- **Cracks and glass found their shapes** by iteration: eleven glass looks filmed (look 11, a joined pane); hole sizes; a vanishing column; then a thin floating bridge in four rounds - full tiles, column, 2 x 3 with leftovers, narrow walkway joined to full tiles - which the owner made the default cracked tile. Group lanes were built, priced and kept as an option.
+- **Why lanes are small** was explained once and changed what was asked for: the course is pre-rendered blocks, so a changing element owns a rectangle no neighbour may share; group lanes are the general answer, 2 x 3 lanes the cheap one.
+- **Test hygiene** paid for itself twice: a mid-run merge produced six false reds (the runner now warns), and the final pass found a kern_mega bug no MartyPC row could see.
+- **The labs cost frames.** PLAYGROUND's new sections made its void fall miss retraces; a by-routine profile found two costs that scale with props near the ball, and the fixes plus three approved speedups left the frame faster than before the labs. That profile is where wave 10 starts.
+
+Decisions are in `~/Repos/w9-logs/DECISIONS.md` as they were made; the plan rows 9.12 - 9.17 carry the numbers.
