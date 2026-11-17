@@ -3328,3 +3328,49 @@ shipped package is byte-identical, those rows would run yesterday's bytes;
 the ones that do read the changed tool or Makefile are `bonanzacourse` and
 `bonanzaassets` on the host and `bonanzaring` (its part list now reads
 `bzcrs2.lst`).
+
+## 2026-11-17 (PLAYGROUND ships as two parts: what it costs)
+
+The shaped floors and two-segment courses met in one tree: PLAYGROUND got
+wave C4's walkway and chutes back, and the radius-3 pit that never fit,
+which took it to 65,513 bytes as one part - so it became the first shipped
+two-part course (SPEC.md 128.30.11). The owner played it and asked one
+question: *what does it cost - the package, the image, any CPU?*
+
+**Three trees, not two.** Comparing the owner's branch (A) with the merged
+one (B) mixes two things: the mechanism and the bigger course. So a third
+tree (C) is B with PLAYGROUND's old text and demo put back. C turned out
+to be A byte for byte - package, shell, `BONANZA.O88` and every disk - so
+everything that differs between A and B is the course using the
+mechanism.
+
+**What was measured** (MartyPC, the CGA 5150, 640KB, one run each):
+- The package: +83 bytes of image, +2 of bss. `BONANZA.O88` +6,450 bytes,
+  nearly all PLAYGROUND's packed parts (7,715 bytes of LZB became 11,057 +
+  3,026). The 360KB floppy: 124 to 130 clusters of 354.
+- The frame: PLAYGROUND's demo through D, 1,649 frames, busy mean 40,455
+  clk on A and 40,224 on B, 3 misses each. The routines that run every
+  frame or step were checked to be the same instructions by comparing the
+  two assembler listings routine by routine. What did change is the
+  course's own work: the occluder pass costs 941 clk more on the 23 frames
+  it runs, because the course has more records.
+- The launch: 0.9 s slower the first time (3.90 to 4.80 s to the first
+  frame), 0.63 s the second. Timing each step with logged breakpoints
+  showed where it goes: reading and decoding 6.4KB more of packed data and
+  expanding 16KB more of RAM. The second part's own fetch is part of
+  that, not a fixed toll on top.
+- The heap: 16KB less free during PLAYGROUND's play (358 to 342KB on a
+  640KB machine) and one more claim (4 for BONANZA, 9 on the heap).
+
+**What making it merge-ready found.** The scratch merge's selfcheck did
+not just fail item 15 "by design" - it crashed: items 1, 3, 10 and 11 each
+assumed every shipped course is one part, and so did the compiler's own
+early refusal, which turned the two-part test course away once PLAYGROUND
+grew (its one-part least was 68,613 bytes although its two parts fit).
+Each now reads a two-part course whole. Several host checks behind the
+emulator rows had the same assumption (the unicorn guest of `bonanzaphys`
+loaded the picture part where the world part goes, and `bonanzaexit`
+compared the wrong claim); and two of `bonanzaphys`'s drag scenarios
+picked the new pit's plate as "the longest level run", because a FIELD
+cell's bytes look like a level floor to that search. All fixed; the
+emulator rows themselves are the final pass's.
