@@ -633,6 +633,14 @@ def scenario(g, crs, name):
             continue
         frames += 1
         st, s2, ext = rd.read()
+        if name == "goal" and ext["goal"] and last is not None and last[0] < st[0] and \
+                [e for e in p.events if e[0] == "goal"]:
+            # (a frame presented on a FINISH-SEQUENCE step, past the goal's: bz_fstep holds the clock
+            # (bz_t55 BZ_SECSTEPS, 128.22.6), which the model does not run - the play has ended as far as
+            # this scenario is concerned, as bz_t0 seeing bz_goal says.  A loaded machine can present one
+            # such frame before bz_t0 runs; the soak of 2026-11-17 did, at step 62 of a goal at 61)
+            ended = True
+            break
         ev = advance(p, st[0], 0)
         bad = compare(name, frames, st, s2, ext, p)
         if bad:
