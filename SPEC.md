@@ -283000,7 +283000,7 @@ go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
 
-#### 128.36.10 The third round: the floating ball's SURFACE BOB, two arms (the owner, 2026-11-17; BUILT)
+#### 128.36.10 The third round: the floating ball's SURFACE BOB - B ships (the owner, 2026-11-17; BUILT)
 
 The owner watched a host mock of four bobs on the sketch column (A none; B the
 float floor 4 px deeper for a while and back; C a 4 px dip the ball falls into
@@ -283025,28 +283025,21 @@ in the hot floor path (about 10 - 20 cycles every `bz_h4` call), plus about
 box every frame of the bob (the idle test no longer quiet), as a lift's rider
 does. The occluder pass needs nothing new (the BED reach already spans it).
 
-**E's price and handling (BUILT as an arm).** No resident change; part +109
-bytes (below). What the owner will feel: rubber and glass are AIRBORNE on the
-water - no Hop there (Space does nothing; no contact Hop, no boost), no Grip
-brake, steering by the AIR force table (for rubber the same force as sand's
-ground table, 2 at full ramp; glass 3 against sand's 3), and the water's drag
-written by hand (gvx and gvy less themselves >> 4 every step, a little more
-than sand's 1/32 a step). Rolling onto the water is a takeoff, not a landing
-(no sound); leaving is a landing on the walkway at the hover's small vertical
-speed (silent under `BZS_LMIN` 48); a fall onto the water from height may
-touch the SAFETY floor once (a unit under the top: one landing, the splash),
-and is lifted off it with no event. At the bottom of a bob the walkway's edge
-(4 px above the float line) can be more than a climb above the ball, so the
-edge bumps it back for a few steps; at the top it rolls out.
+**E, the HOVER: built, tried and SET ASIDE.** For the owner's A/B it was built
+as a second arm behind a build knob (`BZWATERBOB=b|e`, since removed), held
+equal to the model on the unicorn: rubber and glass kept AIRBORNE on the water
+over a safety floor a unit under the top - a buoyancy of 48 under the float
+line, damped (gvz less gvz >> 3), a kick of 112 each way every 16 steps, the
+water's drag by hand (>> 4); no Hop, no Grip, the air's steering; heights 16
+- 24 px, no landing while floating; part +109 bytes, no resident change. The
+owner played both: *"E looks better, but it can't exit the water, and I don't
+want another round; B is good enough."* **Why it was set aside: the hover
+cannot leave the water** - the walkway is 4 px over the float line, and for
+most of a bob the ball is lower than a climb under it, so the walkway's edge
+bumps it back. The arm, its knob and its red arm (`wahover`) are deleted; this
+paragraph is its record.
 
-**THE KNOB.** `BZWATERBOB=b|e` (Makefile; `bbcourse.py --waterbob`; default
-`b`, the owner to pick): bbcourse writes `BZ_WA_MODE` into `bzcourse.inc` (the
-part assembles its arm from it) and folds the arm and every bob constant into
-water's `FAMV`, so a course's identity says which bob it was compiled for (a
-demo of one arm is refused on the other; `--selfcheck` item 3 holds the two
-FAMVs apart). `BZWATERBOB=c` is refused, naming the reason. Stamped.
-
-**B, the float floor (the default arm).** CELL writes rubber's and glass's
+**B, the float floor: WHAT SHIPS.** CELL writes rubber's and glass's
 water at the TOP and at the float line (a half unit under it) on alternate
 halves of a 2^`WA_FBSH` = 16-step period (32 steps a cycle, 1.7 a second -
 the owner's "slightly faster" than the mock's 24 each way). The dip is from
@@ -283064,28 +283057,15 @@ only, no landing, no takeoff. Red arms: `wabsnap` (no snap: the ball) and
 `wabflip` (no refill at the flip: `bz_fref`). `WA_FBSH` 0 is the round-two
 float line, fixed.
 
-**E, the hover.** CELL writes rubber's and glass's water a UNIT under the top
-(the safety floor). STEP, the centre water and the ball not steel: off the
-safety floor with no event (air 1, ztop its z); gvz += `WE_LIFT` 48 under the
-float line (2 x `BZ_G`), then gvz less gvz >> `WE_DAMP` 3; the bob, gvz +
-`WE_KICK` 112 when the step's low 5 bits are 0 and - 112 when they are 16;
-the drag (>> `WE_DRAG` 4). MEASURED (`water-float`): heights 16 - 24 px,
-settling to about 17 - 22 px with a period near 32 steps; no landing; one
-takeoff (onto the water). `water-rubber` (dropped 3 units): no bounce, one
-landing on the safety floor. Red arm `wahover` (no lift: the ball).
-
-**Both:** steel's stop and cap now test the material first (only steel ever
-sinks under the float line; B's floating ball never did, E's does). The
-look, SEEN on MartyPC (CGA, frame sequences): B's ball whole at the top and
-the ghost in the dip; E's the ghost throughout its bob, below the top's tops
-(`WATER_FLOAT` up) the whole time.
+Steel's stop and cap test the material first (only steel sinks under the
+float line). The look, SEEN on MartyPC (CGA, a frame sequence): the ball whole
+at the top and the ghost in the dip. Water's `FAMV` folds `WA_FBSH` (item 3:
+a retune moves it).
 
 | | the part | the bundle, RAM | the pinned claim |
 |---|---|---|---|
 | before (`10aa359d1`, the wobble off) | 601 | 34,976 | 2,240 paragraphs |
-| **B** | **684 (+83)** | 35,056 (+80) | 2,240 (no step) |
-| **E** | **710 (+109)** | 35,088 (+112) | 2,240 (no step) |
+| **B, as shipped** | **684 (+83)** | 35,056 (+80) | 2,240 (no step) |
 
-The bob arms are the only difference between the two trees' parts; image and
-bss unchanged; no shipped course, demo or identity moves (no shipped course
-names water).
+Image and bss unchanged; no shipped course, demo or identity moves (no shipped
+course names water).
