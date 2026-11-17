@@ -11532,8 +11532,8 @@ class GlassFamily(Family):
     """GLASS (SPEC.md 128.25.8, 128.25.18): the CRACKED TILE and the GLASS PATH.  A crack's state is a BYTE
     of bz_fst (its FSB a multiple of 8): CR_WHOLE, CR_IMPACT (one glass landing), 2 - T + 1 counting down
     to the break (T = CRACK_TS steel, CRACK_TR rubber; glass never counts), CR_BROKEN.  A glass tile's is
-    a bit, REVEALED.  The slot's +0 is the number of cracks counting (STEP walks nothing while it is 0).
-    A TOUCH is the centre in the element's cell having begun step 6 grounded (bz_fair 0) or a contact
+    a bit, REVEALED.  The slot's +0 is the number of cracks counting (STEP walks nothing while it is 0),
+    its +1 the number BROKEN (CELL walks nothing while it is 0, SPEC.md 128.19.10 item 8).  A TOUCH is the centre in the element's cell having begun step 6 grounded (bz_fair 0) or a contact
     this step (bz_nland moved from bz_fnl): an IMPACT is the latter"""
     row = FAM_BY_NAME["glass"]
 
@@ -11543,7 +11543,10 @@ class GlassFamily(Family):
 
     def reset(self, p, slot, cls):
         p.fsl[slot][0] = 0                  # (every crack is RESPAWN: cleared at either class; the lanes
-                                            # of both kinds marked, bz_latt: the display's)
+                                            # of both kinds marked, bz_latt: the display's) - and the BROKEN
+        p.fsl[slot][1] = sum(1 for pr in p.props    # counted again (+1: 0 once the engine cleared them; a
+                             if pr["kind"] == FK_CRACK and not pr.get("comp")   # class that kept one, the
+                             and p.fst[pr["fsb"] >> 3] == CR_BROKEN) & 255      # NO TRAP preset's, keeps it)
 
     def contact(self, p, slot, i):
         pr = p.props[i]
@@ -11565,6 +11568,7 @@ class GlassFamily(Family):
             if v >= 2:
                 p.fsl[slot][0] -= 1
             p.fst[k] = CR_BROKEN
+            p.fsl[slot][1] = p.fsl[slot][1] + 1 & 255
             p.fref = 1
         elif p.mat != MAT_GLASS and v < 2:
             p.fst[k] = 1 + (CRACK_TS if p.mat == MAT_STEEL else CRACK_TR)
@@ -11583,6 +11587,7 @@ class GlassFamily(Family):
             if v == 2:
                 p.fst[k] = CR_BROKEN
                 p.fsl[slot][0] -= 1
+                p.fsl[slot][1] = p.fsl[slot][1] + 1 & 255
                 p.fref = 1
             else:
                 p.fst[k] = v - 1
@@ -11595,6 +11600,8 @@ class GlassFamily(Family):
         return crack_pose(p.fst[pr["fsb"] >> 3])
 
     def cell(self, p, slot, win):
+        if not p.fsl[slot][1]:
+            return                                  # (nothing broken: the guest walks nothing either)
         for pr in p.props:
             if pr["kind"] == FK_CRACK and pr["at"] in win and p.fst[pr["fsb"] >> 3] == CR_BROKEN:
                 c = win[pr["at"]]

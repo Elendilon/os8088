@@ -12,7 +12,8 @@
 ; COUNTING to its break (T = BZ_CRACK_TS steel, BZ_CRACK_TR rubber), 0FFh
 ; BROKEN - which the CELL hook makes a VOID in the window, its kill the floor
 ; less 3 units.  A glass tile's is a bit, REVEALED.  The slot's +0 counts the
-; cracks counting, so STEP walks nothing while it is 0.  A TOUCH is the
+; cracks counting, so STEP walks nothing while it is 0; its +1 the cracks
+; BROKEN, so CELL walks nothing while that is 0 (SPEC.md 128.19.10 item 8).  A TOUCH is the
 ; centre in the element's cell having begun step 6 grounded (bz_fair 0) or a
 ; contact this step (bz_nland moved from bz_fnl); the latter is an IMPACT.
 ; =============================================================================
@@ -42,12 +43,14 @@ GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the co
 %endif
 
 ; RESET (either class: every crack is RESPAWN, cleared by the engine): no
-; crack counting; every crack's and glass tile's lane MARKED (its pose may
+; crack counting; the cracks BROKEN COUNTED again (+1: 0 when the engine has
+; cleared them, the right count for a class that would keep one, SPEC.md
+; 128.19.10 item 8); every crack's and glass tile's lane MARKED (its pose may
 ; have gone back) - every RECORD's, not every lane's: a GROUP MEMBER has no
 ; lane of its own and bz_fmark marks its group's (SPEC.md 128.32.5)
 gl_reset:
     call gl_slot
-    mov byte [di], 0
+    mov word [di], 0            ; (+0 none counting, +1 none broken)
     mov cl, [bz_nprop]
     xor ch, ch
     jcxz .out
@@ -59,7 +62,17 @@ gl_reset:
     sub al, BZ_FK_CRACK
     cmp al, 1
     ja .n
-    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark)
+    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark,
+    or al, al                   ; which preserves everything)
+    jnz .n                      ; a crack, not a companion (its byte is its
+    cmp byte [es:si + GL_COMP], 0 ; crack's), BROKEN: counted
+    jne .n
+    push si
+    call gl_byte
+    cmp byte [si], GL_BROKEN
+    pop si
+    jne .n
+    inc byte [di + 1]
 .n:
     add si, 32
     inc bx
@@ -100,6 +113,7 @@ gl_contact:
     dec byte [di]
 .brk2:
     mov byte [si], GL_BROKEN
+    inc byte [di + 1]           ; (one more broken: CELL walks)
     mov byte [bz_fref], 1
     jmp short .mark
 .roll:                          ; rolled on: steel and rubber start counting
@@ -153,6 +167,7 @@ gl_step:
     jne .keep
     mov al, GL_BROKEN           ; its last step: broken
     dec byte [di]
+    inc byte [di + 1]
     mov byte [bz_fref], 1
     jmp short .mk
 .keep:
@@ -201,8 +216,12 @@ gl_pose:
 
 ; CELL: every BROKEN crack in the window made a VOID there - its z0 less 6
 ; half units (3 units: the kill), kind and surface 0, its flags kept - once
-; (a cell bz_win9i kept from the last window is already VOID)
+; (a cell bz_win9i kept from the last window is already VOID).  Nothing
+; broken (the slot's +1 0, most refills): nothing walked
 gl_cell:
+    call gl_slot
+    cmp byte [di + 1], 0
+    je .x
     mov es, [bz_cseg]
     mov si, [bz_poff]
     mov cl, [bz_nprop]
@@ -244,6 +263,7 @@ gl_cell:
     add si, 32
     inc bx
     loop .r
+.x:
     retf
 
 ; BX = an element -> its lane MARKED (bz_fmark), and its PARTNER's: a
