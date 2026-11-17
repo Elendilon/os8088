@@ -219,7 +219,7 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       while a ball is in the column (`ripple`) or always (`always`, a FAST
       lane), marked on change only; the FLOAT LINE (rubber and glass ride a
       half unit under the top, their lower half behind the water); steel's
-      WOBBLE while sinking (`WA_BOB`, 15 bytes, one constant); a 6-unit
+      WOBBLE while sinking (`WA_BOB`, 15 bytes, one constant - turned OFF after the owner saw it: the straight fall reads better); a 6-unit
       DEEP column on the test course; unicorn scenes and red arms; LOOKED AT
       on both cards.  The float line's own bob NOT built (a moving floor is
       the lift's carry; a gvz kick lands every time).
