@@ -341,7 +341,7 @@ def pres_snap(g):
     w = Snap(g, WIN)
     h = Snap(g, WHL)
     cnt = Snap(g, ("bz_frames", "bz_wcom", "bz_wover", "bz_wlate", "bz_wlead", "bz_wskip", "bz_wtmin"))
-    ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube"))
+    ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube", "bz_estp"))
     n = h.b("bz_nlane")
     pn = R.guest_propmax()                      # (128.19.10: the guest's tables)
     out = {"frames": cnt.w("bz_frames"), "R0": w.w("bz_R0"), "c0": w.w("bz_c0"), "S": w.w("bz_S"),
@@ -349,6 +349,9 @@ def pres_snap(g):
            "pkick": [ph.w("bz_pkick", k) for k in range(pn)], "drawn": list(h.bytes("bz_ldrw", n)),
            "hold": list(h.bytes("bz_lhold", pn)), "wcn": h.b("bz_wcn"), "wskip": cnt.w("bz_wskip"),
            "heavy": h.b("bz_heavy"), "ctype": h.b("bz_ctype"), "cln": h.b("bz_cln"), "mustp": g.b("bz_mustp")}
+    # THE EARLY STEP (SPEC.md 128.4) runs after the walk and the boxes, in the retrace wait: bz_estp says one
+    # did, so the step count the frame was DRAWN at (the walk's, and the gate's) is bz_nstep less it
+    out["ndraw"] = out["nstep"] - ph.b("bz_estp")
     out["tsec"] = g.w("bz_tsec") if "bz_tsec" in g.sym else None   # wave 7: the clocks' seconds left
     if "bz_lnext" in g.sym:                     # (13): the walk's range and bz_lnext (SPEC.md 128.13.5.3)
         out["lnext"] = list(struct.unpack("<%dH" % n, g.m.read(g.a("bz_lnext"), 2 * n))) if n else []
@@ -414,13 +417,13 @@ def lnext_check(frames, recs, fails, rep, label=""):
             if not (pr["lrw"][i] < rb and pr["lrw"][i] + pr["lhh"][i] > ra):
                 continue                        # (outside the range's exact test: not walked)
             nj += 1
-            want = rotor_next(recs[i], pr["nstep"] & 0xFFFF)
+            want = rotor_next(recs[i], pr["ndraw"] & 0xFFFF)
             if pr["lnext"][i] != want:
                 nbad += 1
                 if nbad <= 4:
                     fails.append("(13)%s frame %d: rotor %d's bz_lnext %d after the walk, the model's next change "
-                                 "step %d (bz_nstep %d)" % (label, fi + 1, i, pr["lnext"][i], want,
-                                                            pr["nstep"] & 0xFFFF))
+                                 "step %d (drawn at bz_nstep %d)" % (label, fi + 1, i, pr["lnext"][i], want,
+                                                                  pr["ndraw"] & 0xFFFF))
     if not nj:
         fails.append("(13)%s no rotor was in the walk's range at a presented frame: bz_lnext never judged" % label)
     rep.append("(13)%s %d rotor-frames in the walk's range judged, bz_lnext the model's next change step on %d" % (
@@ -1795,7 +1798,7 @@ def gate_leg(g, scen):
                 continue
             if k != "pr":
                 continue
-            n = g.d("bz_nstep")
+            n = g.d("bz_nstep") - g.b("bz_estp")      # (the steps the frame was drawn at: not the early step's)
             ev = P.advance(p, n, s["keys"])
             drawn = list(m.read(g.a("bz_ldrw"), g.b("bz_nlane")))
             for e in ev:

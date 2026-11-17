@@ -898,6 +898,7 @@ class Bz:
         under it, bonanza_exit); otherwise the base is banked once and
         check_base() says if it moved."""
         self.ui, self.m, self.tag, self.sym, self.live = ui, ui.m, tag, sym, live
+        self.pre = None                         # the ball's state AT bz_tv (Walker): see look()
         self.win = ui.window("Bounce Bonanza")
         self.base = self.wseg() << 4
         assert self.base, "the window has no package segment"
@@ -974,14 +975,17 @@ class Bz:
         if grid is None:
             grid = crs._grid = BB.Grid(crs.cga, crs.wcga)
         lo = self.sym["bz_phs"]
-        raw = self.m.read(self.base + lo, self.sym["bz_phe"] - lo)
+        # THE EARLY STEP (SPEC.md 128.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
+        # a step ahead of the picture on such a frame.  A Walker stopped at bz_tv banks the state as drawn.
+        raw, px, py, mat = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
+                                        self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"))
 
         def f(n, fmt):
             return struct.unpack_from(fmt, raw, self.sym[n] - lo)[0]
         lk = Look(grid=grid, gx=f("bz_gx", "<I"), gy=f("bz_gy", "<I"), gz=f("bz_gz", "<i"), air=f("bz_air", "B"),
                   mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
-                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0,
+                  mat=mat, px=px, py=py, y0=grid.y0,
                   stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 128.16.4.4)
         lk.zb = lk.gz >> 8
         # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
@@ -1109,6 +1113,8 @@ class Walker:
     def __init__(self, g, t0=False, extra=()):
         self.g, self.m = g, g.m
         self.tf, self.pr = g.a("bz_tf"), g.a("bz_presented")
+        self.tv = g.a("bz_tv")                  # (the ball as drawn, before the early step: Bz.look)
+        g.pre = None
         self.t0 = g.a("bz_t0") if t0 else None
         self.extra = {}
         for n in extra:
@@ -1118,17 +1124,25 @@ class Walker:
                 self.extra[g.a(n)] = n
 
     def arm(self):
-        self.m.bp_exec(*([a for a in (self.t0, self.tf, self.pr) if a is not None] + list(self.extra)))
+        self.m.bp_exec(*([a for a in (self.t0, self.tv, self.tf, self.pr) if a is not None] + list(self.extra)))
 
     def next(self):
         """Run to the next mark; -> 't0', 'tf', 'pr' or an EXTRA name."""
-        m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        r = m.regs()
+        m, g = self.m, self.g
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv:                 # bank the ball as drawn: bz_early runs next
+                lo = g.sym["bz_phs"]
+                g.pre = (m.read(g.base + lo, g.sym["bz_phe"] - lo), g.w("bz_px"), g.w("bz_py"), g.b("bz_mat"))
+                continue
+            break
         self.r = r
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        if flat == self.t0:
+            g.pre = None
         if flat == self.tf:
             return "tf"
         if flat == self.t0:
