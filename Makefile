@@ -22080,20 +22080,15 @@ BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPAT
 # and the BZREC knob were deleted. bbcourse.py still writes both strides
 # (the stride is data, and the identity is over the 8-byte layout); its
 # default, 4, is the shipped one, and bzcourse.inc's BZ_REC says which.
-#> [Knobs] BZPARTZ=lzb|lz4 :: Bounce Bonanza's parts' format, LZB the default; a single-format COMPRESS= kernel forces its own (SPEC.md 128.15.9)
-# BZPARTZ is the format of BONANZA.O88's compressed PARTS (os88pkg's
+# BZPARTZF is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
-# balls, the sound, the songs and the demos go together). LZB is the owner's
-# decision (2026-11-14, SPEC.md 128.15.9). BZPARTZF is the EFFECTIVE one: a
-# `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only (SPEC.md
-# 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an image. The
-# courses' compile does not read it (the course budget is LZ4's whatever this
-# says, 128.15.8): changing it re-packs BONANZA.O88 and recompiles nothing.
-BZPARTZ ?= lzb
-ifeq ($(filter $(BZPARTZ),lz4 lzb),)
-$(error BZPARTZ=$(BZPARTZ) is not one of lz4, lzb)
-endif
-BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),$(BZPARTZ))
+# balls, the sound, the songs and the demos go together): LZB, the owner's
+# decision (2026-11-14, SPEC.md 128.15.9; the LZ4/LZB knob that measured it is
+# removed). A `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only
+# (SPEC.md 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an
+# image. The courses' compile does not read it (the course budget is LZ4's,
+# 128.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
+BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),lzb)
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzpartz-*

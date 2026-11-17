@@ -4156,7 +4156,7 @@ def part_fmt(o88=None):
     parts TABLE's format byte (OP_T_FMT, os88pkg's PART_FMT_AT) read out of
     build/bonanza.o88 (O88 another package).  Every private tree a row builds
     packs its parts in it (SPEC.md 128.15.9), never in os88pkg's default, so a
-    red arm runs the decoder the shipped package runs (BZPARTZ=lzb, or the
+    red arm runs the decoder the shipped package runs (LZB, or the
     format a single-format COMPRESS= kernel forces)"""
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     import os88pkg
