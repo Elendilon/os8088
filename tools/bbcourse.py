@@ -7496,14 +7496,35 @@ def group_lanes(lanes, props, cv, fname, hack=None):
             d = tuple(k for k, L in enumerate(Ls) if len({marks(L, q, b) for q in L["poses"]}) > 1)
             if d:
                 dep.setdefault(d, set()).add(b)
-        taken = set()
+        # SPEC.md 128.31.3 item 4: the dependent blocks cut WHOLE into the fewest boxes (a lane's members the
+        # union of its blocks' sets) while every lane keeps the caps - else, per dependency set
+        allb = set().union(*dep.values())
+        dof = {b: d for d, v in dep.items() for b in v}
+
+        def lanes_ok(rs):
+            for _rc, d in rs:
+                if len(d) > GRP_MMAX:
+                    return False
+                n_ = 1
+                for k in d:
+                    n_ *= len({frozenset(m for b in _rect_blocks(_rc) for m in marks(Ls[k], q, b))
+                               for q in Ls[k]["poses"]})
+                if n_ > min(GRP_PMAX, hack.get("grp_pmax", GRP_PMAX)):
+                    return False
+            return True
         rects = []
-        for d in sorted(dep, key=lambda d: (min((b[1], b[0]) for b in dep[d]), d)):
-            other = set().union(*[v for k, v in dep.items() if k != d])
-            for rc in cover_blocks(dep[d], lambda b: (b[1], b[0]), taken | other,
-                                   "%s:%d" % (fname, Ls[d[0]]["line"])):
-                taken |= _rect_blocks(rc)
-                rects.append((rc, d))
+        if not hack.get("grp_split"):
+            for rc in cover_blocks(allb, lambda b: (b[1], b[0]), set(), "%s:%d" % (fname, Ls[0]["line"])):
+                rects.append((rc, tuple(sorted({k for b in _rect_blocks(rc) if b in dof for k in dof[b]}))))
+        if not rects or not lanes_ok(rects):
+            taken = set()
+            rects = []
+            for d in sorted(dep, key=lambda d: (min((b[1], b[0]) for b in dep[d]), d)):
+                other = set().union(*[v for k, v in dep.items() if k != d])
+                for rc in cover_blocks(dep[d], lambda b: (b[1], b[0]), taken | other,
+                                       "%s:%d" % (fname, Ls[d[0]]["line"])):
+                    taken |= _rect_blocks(rc)
+                    rects.append((rc, d))
         rects.sort(key=lambda t: (t[0][1], t[0][0]))
         for rc, d in rects:
             bx, by, w, h = rc
