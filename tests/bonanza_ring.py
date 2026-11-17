@@ -4014,7 +4014,8 @@ def end_replay(g, what):
 
 def replay_end(g):
     """at bz_t0: the replay's end (this bz_t0 leaves the bracket)"""
-    return g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))
+    # (an early step's frame is presented first, bz_t0's `bz_estp` test: the step that ended the run drew its frame)
+    return (g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))) and not g.b("bz_estp")
 
 
 def w4_replay(g, ref, label, log=None, poke=None, windows=()):
