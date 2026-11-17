@@ -4560,5 +4560,7 @@ the HUMPS (the round fixed its ID, 14, its kinds, 80 on, its knob and SPEC.md
 byte for byte as before: `cmp`), `make BUILD=build/tilt BZTILT=1
 bonanzadisk`, `--selfcheck --only tilt` (nine refusals, records, reach,
 art, six model scenes, two model red arms red), `tilt_host` under unicorn
-(seven scenes equal at every step, six red arms red). **Not run**: soak rows,
-`test-full`; the per-step cost is PREDICTED.
+(seven scenes equal at every step, six red arms red), `make` (the fast tier
+green; `t_bits` wanted the part's flag equates local), and one MartyPC look on
+the CGA and the Hercules (rubber tipping the LEDGE's plate and back). **Not
+run**: soak rows, `test-full`; the per-step cost is PREDICTED.
