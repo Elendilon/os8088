@@ -3092,3 +3092,54 @@ WireArena's undescribed package - older than this wave and outside it - and
 `test-full`, `budget-check`, and the host checks at every merge. **Not
 tested:** the owner's play of PLAYGROUND's new sections, and the pickups
 yard in its new place on real glass.
+
+## 2026-11-17 (the tour and the face stop counting the courses)
+
+**The story.** BONANZA is about to go from six tour courses to about
+twenty, and a seventh would not even have assembled. Two things tied the
+face to the course count. The tour was every course but BENCH, and MAIN,
+the old text face, gave each tour course a scorecard line. Six courses
+made thirteen lines, exactly what a CGA window holds, and `bzface.inc`
+refused to build unless the line count was seven plus the tour. Since the
+window became pictures and a Play Game button (SPEC.md 128.26), MAIN and
+the tour only answer while a test row sets `bz_dev`. They are
+instruments. The owner: *"1 and 2 seem good; those are both knob/test
+only now"*: drop the scorecard, and stop making every course a tour
+course.
+
+**What was done (SPEC.md 128.26.8).**
+- MAIN is seven lines: the tour line, then the six it always had. The
+  scorecard builder, its columns, its strings and its fit check went from
+  the shell part. RESULTS still uses all thirteen lines.
+- The tour is a named list in the course tool, `TOUR`. The tool turns the
+  names into course numbers, refuses a bad list, and writes `BZ_TOUR` and
+  `BZ_NTOUR` beside `BZ_CRS_TOURX`. Its content is the same six courses,
+  so the save file's tour identity is unchanged (B0E5h before and after).
+- `[bz_tour]` still counts the tour's steps. Two places used the step as
+  the course number: launching the next course and the `ENTER next:` line.
+  Both now look the course up in a small table. The package's table has
+  BENCH at byte 0, so kern_small's refused `G` asks for the same course
+  as before.
+
+**Measured.** The package image went from 47,097 to 47,110 bytes (+13:
+the table and the lookup), with bss unchanged. The shell part shrank
+from 12,259 to 12,072 bytes (-187), and `BONANZA.O88` from 117,724 to
+117,612.
+
+**The seventh course.** I copied FIRST as `SEVEN`, with its pit moved one
+tile so it has its own identity, and passed eight courses to the
+Makefile's `BZ_COURSES` in a private tree. The whole package built: 34
+part rows instead of 32 (a course part and its shipped demo). With SEVEN
+added to the tour too, the package and the shell part still assemble.
+Before this change, `bzface.inc`'s assertion stopped both.
+`bbcourse.py --selfcheck` passes on the eight-course list. `--sizes`
+accepts it too, but its BONANZA.O88 figure fails the same way on the
+shipped list. That figure packs only the balls, courses, sound, songs and
+demos against `build/bonanza.bin`. It leaves out the shell, the pathway,
+the title and the family rows, which are 32 parts against its 26. That is
+older than this change, not a course cap.
+
+**Tested:** host only - `make`, `bbcourse.py --selfcheck`, `checkdocs`,
+the scratch builds. **Not run:** the emulator rows that walk the tour
+(`bonanzagame`, `bonanzaexit`), which were updated to read `BZ_TOUR`.
+
