@@ -5765,6 +5765,49 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         path_keymap(pth, fname)
         pth["verdicts"] = path_graph_proofs(pth, fname)
     # ---- the lanes (SPEC.md 128.12.4): a rotor stood on its house, a post ----
+    # EXPLORATORY round 3 (SPEC.md 128.27.2.1, the owner's): a BRIDGE cell is DRAWN only inside its 2 x 3-block
+    # lane rectangle (glass look 11's) - a narrow walkway; what it would draw outside (its top's side corners,
+    # their faces) is the picture WITHOUT the bridge there.  bwalk: {cell: rect}; bown: {(x, y): its bridge cell}
+    bwalk, bown, balt = {}, {}, None
+    cv_rows_base = [bytes(r) for r in cv.rows]      # (the full render: round 1's column vanish diffs against it)
+    if bridges and not hack.get("nowalk"):
+        for (bx_, by_) in bridges:
+            if (bx_, by_) in tiles:
+                t_ = tiles[(bx_, by_)]
+                ccx = 16 * (bx_ - by_) + x0
+                ccy = 8 * (bx_ + by_) + 8 - 4 * t_.z0 + y0
+                bwalk[(bx_, by_)] = ((ccx - 8) >> 3, (ccy - 8) >> 3, 2, LANE_HMAX)
+        bkey = ("walk", hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
+            (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
+        if bkey not in _VANISH_MEMO:
+            ocv = render(tiles, ops, x0, y0, width, lines, True)
+            nt = {k: v for k, v in tiles.items() if k not in bridges and k not in gcells}
+            nops = draw_ops(nt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
+            if props:
+                nops = prop_ops(nt, nops, props, x0)
+            ncv = render(nt, nops, x0, y0, width, lines)
+            own_, alt_ = {}, {}
+            for y in range(lines):
+                ob, r1_ = ocv.obuf[y], ncv.rows[y]
+                for x in range(width):
+                    o = ob[x]
+                    if o >= 0 and (o >> 8, o & 255) in bwalk:
+                        own_[(x, y - y0)] = (o >> 8, o & 255)
+                        alt_[(x, y - y0)] = r1_[x]
+            _VANISH_MEMO[bkey] = (own_, alt_)
+        own_, alt_ = _VANISH_MEMO[bkey]
+        balt = {}                                   # (glass look 11's rule: a lane draws ALL of the bridge that
+        inrect = {}                                 # falls in its rectangle - a neighbour's tip too - so a straight
+        for c_, r in bwalk.items():                 # run keeps both its outer edges in every lane; what lies in
+            for yy in range(8 * r[1], 8 * (r[1] + 3)):      # no bridge lane's rectangle is not drawn)
+                for xx in range(8 * r[0], 8 * (r[0] + 2)):
+                    inrect.setdefault((xx, yy), c_)
+        for (x, y), c_ in own_.items():
+            xy = (x, y + y0)
+            bown[xy] = inrect.get(xy)
+            balt[xy] = alt_[(x, y)]
+            if xy not in inrect:
+                cv.rows[xy[1]][x] = balt[xy]        # (outside every walkway lane: not drawn)
     lanes = []
     cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
     for i, p in enumerate(props):
@@ -5885,6 +5928,10 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                     g_[(x, y - y0)] = r1_[x]
                     _VANISH_MEMO[vkey] = g_
                 gone = {(x, y + y0): c for (x, y), c in _VANISH_MEMO[vkey].items()}
+                if bwalk:                           # round 3: the walkway's own pixels go, to the picture with
+                    r_ = bwalk[p["at"]]             # no bridge at all: all of the bridge in ITS rectangle
+                    gone = {xy: balt[xy] for xy in bown if 8 * r_[0] <= xy[0] < 8 * (r_[0] + 2)
+                            and 8 * r_[1] <= xy[1] < 8 * (r_[1] + 3)}
                 rect = ((cx - 8) >> 3, ((cy - 12 + 4) >> 3), 2, LANE_HMAX)   # (its first line the multiple
                 inr = lambda xy, r=rect: 8 * r[0] <= xy[0] < 8 * (r[0] + 2) and 8 * r[1] <= xy[1] < 8 * (r[1] + 3)
                 marks = crack_poses(cx, cy, "small")                        # of 8 nearest cy - 12)
@@ -5910,13 +5957,15 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                     vcv = render(vt, vops, x0, y0, width, lines, owners)
                     g_ = {}
                     for y in range(lines):
-                        r0_, r1_ = cv_rows0[y], vcv.rows[y]
+                        r0_, r1_ = cv_rows_base[y], vcv.rows[y]
                         if r0_ != bytes(r1_):
                             for x in range(width):
                                 if r0_[x] != r1_[x]:
                                     g_[(x, y - y0)] = r1_[x]
                     _VANISH_MEMO[vkey] = g_
                 gone = {(x, y + y0): c for (x, y), c in _VANISH_MEMO[vkey].items()}
+                gone = {xy: c for xy, c in gone.items() if xy not in bown or bown[xy] is not None}
+                # (round 3: a bridge's undrawn corner stays undrawn)
                 marks = crack_poses(cx, cy, hole)
                 marks = {q: {(x, y): c for (x, y), c in marks[q].items()
                              if 0 <= y < lines and cv.sbuf[y][x] <= sF} for q in range(3)}
