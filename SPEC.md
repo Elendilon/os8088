@@ -281776,16 +281776,16 @@ clause stays per element; (3) the commit stagger - a pose change spanning
 `k` lanes under the ball can take `k` frames (at most 3 here); a same-frame
 group commit would be a walk change, not priced.
 
-#### 128.32.11 As merged (2026-11-17, with the crack options; MEASURED against origin/bounce-bonanza d7619a282)
+#### 128.32.11 As merged (2026-11-17, with the crack options; MEASURED against origin/bounce-bonanza a428af6d0, AV's tree)
 
 | | MEASURED |
 |---|---|
-| `bonanza.bin` image | 47,820 -> **47,943 (+123)**: group lanes' code alone; the hole sizes, the thin bridge and round 1's vanish add no image byte |
-| bss | 11,076 -> **11,560 (+484)**, all of it the per-lane and per-record tables following the largest course - PLAYGROUND, now 33 lanes (`BZ_PROPMAX` 34), 44 records (`BZ_PROPALL`), `BZ_FSTB` 19. The mechanisms add none; a build whose largest course had no lab would not pay it |
+| `bonanza.bin` image | 49,732 -> **49,855 (+123)**: group lanes' code alone; the hole sizes, the thin bridge and round 1's vanish add no image byte |
+| bss | 11,431 -> **11,915 (+484)**, all of it the per-lane and per-record tables following the largest course - PLAYGROUND, now 33 lanes (`BZ_PROPMAX` 34), 44 records (`BZ_PROPALL`), `BZ_FSTB` 19. The mechanisms add none; a build whose largest course had no lab would not pay it |
 | the GLASS part (in the resident bundle) | 553 -> **596 (+43)**: round 1's vanish (`gl_mark`'s partner mark, STEP's companion test); group lanes +0; the bundle 33,376 -> 33,424 |
-| PLAYGROUND | picture part 50,246 -> 54,702 RAM, 10,514 -> 12,330 packed; world part 14,979 -> 16,105, 3,034 -> 3,409 packed (+2,191 packed in all: the crack lab, the thin bridge, the group lab) |
-| `BONANZA.O88`, `bonanza360.img` | 123,096 -> 125,432 bytes; 129 -> 131 of 354 clusters |
-| `bz_fmark`, a NON-group element (MartyPC 8088, CGA twin, entry to `retf`) | **376 - 382 clk**, against the 52 - 54 of its two stores before group lanes: **about 325 clk (68 us) more a MARK** - the GRP flag's record read (four pushes and pops, `bz_lrecsi`). A mark is an element's pose CHANGE (a crack cracking, counting, breaking; a tile revealed; a pickup taken), never a step's routine |
+| PLAYGROUND | picture part 45,320 -> 49,746 RAM, 9,668 -> 11,474 packed; world part 14,979 -> 16,105, 3,039 -> 3,424 packed (+2,191 packed in all: the crack lab, the thin bridge, the group lab) |
+| `BONANZA.O88`, `bonanza360.img` | 118,615 -> 120,937 bytes; 124 -> 127 of 354 clusters |
+| `bz_fmark`, a NON-group element (MartyPC 8088, CGA twin, entry to `retf`) | **376 - 393 clk**, against the 52 - 54 of its two stores before group lanes: **about 325 clk (68 us) more a MARK** - the GRP flag's record read (four pushes and pops, `bz_lrecsi`). A mark is an element's pose CHANGE (a crack cracking, counting, breaking; a tile revealed; a pickup taken), never a step's routine |
 | `bz_fmark`, a group member | 602 - 702 clk (two or three group lanes marked) |
 | `bz_ltrue`, a non-group FAMILY lane | **23 - 28 clk more** (the `cmp dl, BZ_PK_GROUP` / `jne` pair), on a frame the walk visits a marked family lane |
 | GLASS's RESET | walks the records (`bz_nprop`) for the lanes: a few dozen clocks a non-lane record, once a reset |
