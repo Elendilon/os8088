@@ -30,6 +30,7 @@ top line or its left word inside it).
 + EA, 4.34 a byte), x 1.05; bonanza_dsplit's table), the AV part against the course compiled --occ off
 (today's records, GF_ANA clear: the model never runs) at the same positions - the fall frames' cost, PRICED.
 --red amodel: the guest with the right half's + 4 made + 12 (every right-half edge a line low) must fail.
+--red aneigh: the guest's neighbour reuse (SPEC.md 128.29.5) keeping the old shadows on the new row 1 must fail.
 --red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
 SPEC.md 128.29.5: the FALLS above are what reach it) must fail.
 """
@@ -48,6 +49,7 @@ import bonanza_dsplit as D     # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS = D.CS, D.PS
+PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 128.30)
 BOXD, BOXW = 20, 4
 LINES = 200
 CHKW = (0x3333, 0xCCCC)
@@ -57,6 +59,10 @@ REDS = {
                 "    add ax, 12                  ; RED amodel"),
                ("bzvideo.inc", "    add ax, 6                   ; (flat: 2 (2 d' + 1) + 4)",
                 "    add ax, 14                  ; RED amodel")],
+    "aneigh": [("bzvideo.inc", "    mov byte [bz_afl + 7], 0    ; row 1: no shadow",
+                "    nop                         ; RED aneigh"),
+               ("bzvideo.inc", "    mov byte [bz_afl + BZ_AFL + 7], 0\n",
+                "    nop\n")],
     "acache": [("bzvideo.inc", "    jl .count0                  ; a front cell counts that did not",
                 "    nop                         ; RED acache\n    nop")],
 }
@@ -78,16 +84,22 @@ class Pass:
         self.c, self.sym = c, sym
         self.g = D.Guest(binp, sym, c.cga)
         self.g.w("bz_cseg", PS, 2)
+        if getattr(c, "wcga", None):            # a TWO-PART course (SPEC.md 128.30): the picture part at PS
+            self.g.mu.mem_write(PS2 * 16, bytes(c.wcga))    # (bz_mseg: the walk, the masks, the lay), the
+            self.g.w("bz_cseg", PS2, 2)                     # world part at PS2 (bz_cseg: the grid, the model's
+        if "bz_mseg" in sym:                                # reads)
+            self.g.w("bz_mseg", PS, 2)
         self.g.call("bz_crshdr")
-        self.ag = BB.AGrid(c.cga)
+        self.ag = BB.AGrid(BB.world_of(c))
         self.g.w("bz_gfl", self.ag.gflags)
-        m = BB.decode_part(c.cga)
+        m = BB.course_model(c)
         self.recs = {}
         for br, col, s_, top, mi in m["recs"]:
             self.recs.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
-        info = BB.read_part(c.cga)
+        info = BB.read_parts(c.cga, c.wcga) if getattr(c, "wcga", None) else BB.read_part(c.cga)
         self.mapsh, self.mapoff = info["mapsh"], BB.HDR
         self.cols = info["cols"]
+        self.nneigh = 0
 
     def block_word(self, br, w, ly):
         p = self.c.cga
@@ -129,8 +141,11 @@ class Pass:
         buf0 = bytes(rnd.randrange(256) for _ in range(2 * BOXW * n))
         g.mu.mem_write(CS * 16 + bufoff, buf0)
         nl0, na0 = g.r("bz_nlay", 2), g.r("bz_namod", 2)
+        cp0 = g.r("bz_acptr", 2)
         g.trace = [] if trace else None
         g.call("bz_occ")
+        if g.r("bz_acptr", 2) != cp0 and g.r("bz_arue") != 0xFF:
+            self.nneigh += 1                    # (a new cell whose table came from its neighbour's)
         tr, g.trace = g.trace, None
         out = bytes(g.mu.mem_read(CS * 16 + bufoff, 2 * BOXW * n))
         # the host
@@ -182,12 +197,14 @@ def positions(c, ag, n, rnd):
             out.append(((16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096),
                         (z << 8) + rnd.randrange(256), 1, True))
             i += 1
-    for i in range(max(1, n // 30)):            # FALLS (the speed pass, SPEC.md 128.29.5): ten frames from a
+    for i in range(max(1, n // 15)):            # FALLS (the speed pass, SPEC.md 128.29.5): ten frames from a
         rc = rnd.choice(rcs) if rcs else None   # VOID position, the ball dropping 1 - 6 px a frame and drifting
         if rc is None:                          # up to an eighth of a cell, so that a run keeps its cell, its
             break                               # columns or its count set for a while and then leaves them
         gx, gy = (16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096)
         gz = (rnd.randrange(rc.zlo, rc.zhi + 1) << 8) + rnd.randrange(256)
+        fwd = i % 2                             # (every other fall runs FORWARD, a quarter of a cell a frame in
+        dx_, dy_ = rnd.choice(((1, 0), (0, 1)))     # x or in y: the next cell in front, the neighbour's table)
         for _ in range(10):
             px = ((gx - gy) >> 8) + c.x0 - 8
             py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
@@ -195,8 +212,8 @@ def positions(c, ag, n, rnd):
                 break                           # (off the picture: the run ends)
             out.append((gx, gy, gz, 1, True))
             gz -= rnd.randrange(256, 6 * 256)
-            gx += rnd.randrange(-512, 513)
-            gy += rnd.randrange(-512, 513)
+            gx += rnd.randrange(800, 1400) * dx_ if fwd else rnd.randrange(-512, 513)
+            gy += rnd.randrange(800, 1400) * dy_ if fwd else rnd.randrange(-512, 513)
     for i in range(max(1, n // 3)):
         rc = rnd.choice(c.reach)
         air = 1 if rc.kind == BB.KIND_VOID else rnd.randrange(2)
@@ -269,9 +286,10 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                     if r0 is not None and r0[1] == r0[0]:
                         pr.append((price_of(tr, lst), price_of(r0[6], lst), runs))
             if verbose:
-                print("bonanza_av %-6s GF_ANA %s: %d positions (%d VOID, the model ran at %d; %d clipped), %d records "
-                      "laid: %s" % (name, "set" if P.ag.gflags & BB.GF_ANA else "clear", nv + max(1, n // 3), nv, nmod,
-                                    clip, lays, "every buffer, laid count and model verdict the host's" if not bad
+                print("bonanza_av %-6s GF_ANA %s: %d positions (%d VOID, the model ran at %d, %d of them a new cell's "
+                      "table from its neighbour's; %d clipped), %d records laid: %s" % (
+                          name, "set" if P.ag.gflags & BB.GF_ANA else "clear", nv + max(1, n // 3), nv, nmod,
+                          P.nneigh, clip, lays, "every buffer, laid count and model verdict the host's" if not bad
                                     else "%d DIFFER, the first %s" % (bad, first)), flush=True)
             if bad:
                 out.append("bonanza_av %s: %d positions differ, the first %s" % (name, bad, first))

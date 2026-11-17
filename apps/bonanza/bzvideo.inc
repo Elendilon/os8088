@@ -460,7 +460,7 @@ bz_row:
     mov cx, ax                  ; CX = the words before it (at least 1)
     mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
     cmp byte [bz_herc], 0
-    mov ds, [bz_cseg]           ; DS = the course from here (MOV keeps the flags)
+    mov ds, [bz_mseg]           ; DS = the course from here (MOV keeps the flags; its PICTURE part, 128.30.5)
     jne .herc
 .cga:
     mov ax, 2000h               ; AX: back from bank 1 to bank 0's next word
@@ -612,7 +612,7 @@ bz_col:
     mov cx, ax                  ; CX = the run (at least 1, at most 103)
     mov bp, 2000h - 2           ; BP: from a bank's word to the next bank's
     cmp byte [bz_herc], 0
-    mov ds, [bz_cseg]           ; (MOV keeps the flags)
+    mov ds, [bz_mseg]           ; (MOV keeps the flags; the PICTURE part, 128.30.5)
     jne .herc
     mov si, [bx]
     add si, dx
@@ -837,7 +837,7 @@ bz_boxc:
     mov cx, [si + 4]            ; CX = the word columns
     mov ax, [si + 6]            ; AX = the lines
     push si                     ; (the descriptor, for the slab and the sprite)
-    mov ds, [bz_cseg]           ; DS = the course part until .filled
+    mov ds, [bz_mseg]           ; DS = the course's (PICTURE) part until .filled
     cmp dx, ax                  ; the first run: the block's lines, cut at the
     jbe .n                      ; box's foot
     mov dx, ax
@@ -942,29 +942,48 @@ bz_boxc:
 
 ; the cue's SPARKLES (bz_blit's .cwhole; SPEC.md 128.25.19): three, each
 ; HOPPING between its places round the ball (steps a b c b, bz_cuef's
-; bz_spq) - dx 0 - 15, dy 0 - 14, a 2 x 2 pair outside the 16 px silhouette
-; (round its four corners and the free columns at its right) - FULLY RESOLVED
-; (the owner's, 15:34): for each card, place and the sprite's shift s an
-; entry of 3 bytes - the byte off = 8 dy + W from the sprite's first byte
-; whose WORD holds pixels x and x + 1 (x = s + dx) at its pixels j and
-; j + 1, and the first line's mask for that word - so a pair in the blit is
-; two loads and two XORs and no arithmetic.  W is at most 3, so the word
-; XORed is inside the sprite's 5 bytes at every shift (byte 5 never touched:
-; a 32-line buffer's last byte is its 4th's bottom-right ball's byte 4).
-; The masks, pixel j alone 0C0h >> 2 j in a little-endian word (a byte on
-; past 3): the CGA both pixels on both lines (ink XOR 3, a pixel two bits:
-; the second line's mask is the first's); the Hercules pixel j on the first
-; and j + 1 on the second, which is the first's rotated right 2 - its
-; grounds are a checker of whole pixels (mono pairs), where a 2 x 2 XORed is
-; the checker shifted, unseen, and the diagonal is a solid square.  Each
-; card has its own copy of the three pairs' code (bz_blit's .cwhole).
+; bz_spq) - eight places, BALANCED left and right (the owner's pick, OVER:
+; the first set put six right of the centre and every double-time step b
+; there, 83% of the sparkles' pixel-time): the four corners, a side place
+; each side high and low (x = 16 the sprite's spare right column, x = -1
+; its spare LEFT one where the shift has one - at s = 0 one in, the ball
+; hiding a pixel), and two of them ON the ball's face (a BLINK style; a
+; DITHER style keeps the bottom corners there instead: its ball is drawn
+; after the sparkles) - a 2 x 2 pair each, FULLY RESOLVED (the owner's,
+; 15:34): for each card, place and the sprite's shift s an entry of 3 bytes
+; - the byte off = 8 dy + W from the sprite's first byte whose WORD holds
+; pixels x and x + 1 (x = s + dx) at its pixels j and j + 1, and the first
+; line's mask for that word - so a pair in the blit is two loads and two
+; XORs and no arithmetic.  W is at most 3, so the word XORed is inside the
+; sprite's 5 bytes at every shift (byte 5 never touched: a 32-line buffer's
+; last byte is its 4th's bottom-right ball's byte 4).  The masks, pixel j
+; alone 0C0h >> 2 j in a little-endian word (a byte on past 3): the CGA both
+; pixels on both lines (the ground's ink XOR 3, a pixel two bits: the second
+; line's mask is the first's; ON the face XOR 1, the ball's base to its ink,
+; a GLINT, where 3 would punch the ground's colour into it); the Hercules
+; pixel j on the first and j + 1 on the second, which is the first's rotated
+; right 2 - its grounds are a checker of whole pixels (mono pairs), where a
+; 2 x 2 XORed is the checker shifted, unseen, and the diagonal is a solid
+; square.  Each card has its own copy of the three pairs' code (bz_blit's
+; .cwhole), drawn AFTER the ball in a BLINK style (the face places; off the
+; ball the result is the same either way: the mask keeps the box there and
+; the frame is 0) and before it in a DITHER style.
 %define BZ_SPX(j) ((0C0h >> (2 * ((j) & 3))) << (8 * ((j) >> 2)))
 BZ_SPRE     equ 3               ; an entry's bytes
 BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
-%macro BZ_SPR 3                 ; dx, dy, card (0 the CGA, 1 the Hercules)
+; BZ_SPR dx, dy, card (0 the CGA, 1 the Hercules), on the face (1: the CGA's
+; XOR 1), and the place at a shift whose x = s + dx would be left of the
+; sprite (dx = -1 at s = 0): fdx, fdy
+%macro BZ_SPR 3-6 0, 0, 0
  %assign %%s 0
  %rep 4
-  %assign %%x %%s + %1
+  %assign %%dx %1
+  %assign %%dy %2
+  %if %%s + %%dx < 0
+   %assign %%dx %5
+   %assign %%dy %6
+  %endif
+  %assign %%x %%s + %%dx
   %assign %%b %%x >> 2
   %assign %%p %%x & 3
   %if %%p == 3
@@ -977,15 +996,17 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
    %assign %%w %%b
    %assign %%j %%p
   %endif
-  %if %1 > 15 || %2 > 14 || %%w > 3 || %%j > 6
+  %if %%x < 0 || %%dx > 15 || %%dy > 14 || %%w > 3 || %%j > 6
    %error "a sparkle's pair must stay inside the sprite's 5 bytes and 16 rows"
   %endif
   %if ((BZ_SPX(%%j) >> 2) | ((BZ_SPX(%%j) & 3) << 14)) != BZ_SPX(%%j + 1)
    %error "the Hercules' second line is the first's mask rotated right 2"
   %endif
-            db (%2) * BZ_BOXW * 2 + %%w
+            db %%dy * BZ_BOXW * 2 + %%w
   %if %3
             dw BZ_SPX(%%j)
+  %elif %4
+            dw (BZ_SPX(%%j) | BZ_SPX(%%j + 1)) & 5555h
   %else
             dw BZ_SPX(%%j) | BZ_SPX(%%j + 1)
   %endif
@@ -994,13 +1015,21 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
 %endmacro
 %macro BZ_SPRS 1                ; a card's eight places
             BZ_SPR 0, 0, %1             ; 0-2 sparkle 0's: the top left corner,
-            BZ_SPR 15, 2, %1            ; the right's top, the foot's right
-            BZ_SPR 13, 14, %1
-            BZ_SPR 13, 0, %1            ; 3-5 sparkle 1's: the top's right, the
-            BZ_SPR 15, 12, %1           ; right's foot, the bottom left corner
+            BZ_SPR 15, 2, %1            ; the right's top, the face's lower
+%if BZ_CFB                              ; left (a DITHER style: the bottom
+            BZ_SPR 4, 10, %1, 1         ; left corner)
+%else
             BZ_SPR 0, 14, %1
-            BZ_SPR 15, 14, %1           ; 6-7 sparkle 2's: the bottom right
-            BZ_SPR 15, 0, %1            ; corner, the top right (none shared)
+%endif
+            BZ_SPR 14, 0, %1            ; 3-5 sparkle 1's: the top right
+            BZ_SPR -1, 12, %1, 0, 0, 12 ; corner, the left's foot, the face's
+%if BZ_CFB                              ; upper right (DITHER: the bottom
+            BZ_SPR 9, 4, %1, 1          ; right corner)
+%else
+            BZ_SPR 14, 14, %1
+%endif
+            BZ_SPR -1, 2, %1, 0, 0, 2   ; 6-7 sparkle 2's: the left's top,
+            BZ_SPR 15, 12, %1           ; the right's foot (none shared)
 %endmacro
 bz_spr0:    BZ_SPRS 0
 BZ_SPRC     equ $ - bz_spr0     ; a card's table
@@ -1104,13 +1133,14 @@ bz_blit:
     jmp .wgo
     ; wave 9 (SPEC.md 128.25.19): THE PICKUP CUE, the ball whole in its box
     ; (bz_boxc's .bq: BX = the frame's distance + 8000h; DS still ours).  The
-    ; SPARKLES first, three 2 x 2 pairs XORed, each at its place's entry for
+    ; SPARKLES (in a BLINK style after the ball - two places are on its
+    ; face - in a DITHER style before it), three 2 x 2 pairs XORed, each at its place's entry for
     ; the sprite's shift s (bz_spq: the place's four in the card's table,
     ; bz_cuef's): a byte offset from the sprite's first byte and the word's
     ; first line's mask (the second's the same, or on the Hercules rotated
     ; 2) - two loads and two XORs a pair, a copy for each card, no transform,
-    ; no clip, no arithmetic but 3 s once: outside the silhouette, so the
-    ; ball's mask keeps them; then on a
+    ; no clip, no arithmetic but 3 s once (before the ball: outside the
+    ; silhouette, so the ball's mask keeps them); then on a
     ; FLASH frame (a DITHER style) the ball with its frame ANDed with the
     ; checker (bz_chk, NOT a row) - the ball's own pixels black on half of
     ; it, the box round it untouched: (box AND mask) OR (frame AND checker) is
@@ -1121,8 +1151,39 @@ bz_blit:
     and bh, 7Fh                 ; BX = the frame's distance
     test byte [bz_clook], BZ_CL_SP
     jz .cf
+%if BZ_CFB
+    ; a BLINK style: THE BALL FIRST - the ordinary loop, here - then
+    ; the sparkles XORed over it: where a place is outside the silhouette the
+    ; result is the same as before the ball (the mask keeps the box there and
+    ; the frame is 0), and a place on the face XORs the ball's own pixels
+    push di
+    mov cx, dx                  ; (BZ_BAL_ROWS: bz_boxc's .bd's)
+    mov ds, [bz_bseg]
+    dec bx
+    dec bx
+    mov dx, BZ_BOXW * 2 - BZ_BAL_RB
+.ow:
+    lodsw
+    and ax, [es:di]
+    or ax, [bx + si]
+    stosw
+    lodsw
+    and ax, [es:di]
+    or ax, [bx + si]
+    stosw
+    lodsb
+    and al, [es:di]
+    or al, [bx + si + 1]
+    stosb
+    add di, dx
+    loop .ow
+    push es
+    pop ds                      ; DS = ours
+    pop di
+%else
     mov bp, si                  ; (the mask's row 0)
     mov dx, bx                  ; (the frame's distance)
+%endif
     mov cx, [bz_px]
     and cx, 3
     mov ax, cx
@@ -1153,9 +1214,13 @@ bz_blit:
 .sph:
     BZ_SPK3 1
 .spe:
+%if BZ_CFB
+    jmp .out                    ; (DS is ours)
+%else
     mov si, bp
     mov bx, dx
     mov dx, BZ_BAL_ROWS         ; (bz_boxc's .bd's: the one way here)
+%endif
 .cf:
     mov cx, dx                  ; CX = the rows
 %if BZ_CFB                      ; (a BLINK style has no checker: its flash
@@ -1470,7 +1535,7 @@ bz_occ:
     mov [bz_ozk], ax
     push ds
     pop es                      ; ES = ours
-    mov ds, [bz_cseg]           ; DS = the course part
+    mov ds, [bz_mseg]           ; DS = the course's PICTURE part (128.30.5: occluders, map, blocks)
 .brow:
     mov ax, [es:bz_ozk]         ; the row's key in a register first: CL = ks =
     BZ_OCLAMP                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
@@ -1887,6 +1952,8 @@ bz_amodel:
     mov [es:bz_awx], ax
     mov [es:bz_awy], si
     mov word [es:bz_avp], 0     ; (0: the model does not run here)
+    push ds                     ; the GRID: the course's WORLD part (128.30.5;
+    mov ds, [es:bz_cseg]        ; a one-part course's the same segment)
     mov bx, [es:bz_goff]        ; BX = BZG1
     mov di, ax
     add di, si                  ; s
@@ -1895,12 +1962,12 @@ bz_amodel:
     mov [es:bz_as], di
     sub di, [bx + BZG_SMIN]     ; r (a negative r is huge)
     cmp di, [bx + BZG_NROWS]
-    jae .no
+    jae .lno
     mov [es:bz_ar], di
     sub ax, [bx + BZG_AMIN]
     sar ax, 1                   ; k (a negative k is huge)
     cmp ax, [bx + BZG_KW]
-    jae .no
+    jae .lno
     shl di, 1
     add di, [bx + BZG_ROWTAB]
     mov si, [di]                ; ROWTAB[r]
@@ -1908,10 +1975,11 @@ bz_amodel:
     shl ax, 1
     add si, ax                  ; V's four bytes
     test byte [si + 2], 0fh
-    jnz .no                     ; not VOID: today's pass alone
+    jnz .lno                     ; not VOID: today's pass alone
     test byte [si + 3], BZ_FL_OBS
-    jnz .no                     ; (a lift's shaft is OBS)
+    jnz .lno                     ; (a lift's shaft is OBS)
     mov [es:bz_avp], si
+    pop ds
 .run:
     inc word [es:bz_namod]
     mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 4): H > K iff
@@ -1931,10 +1999,39 @@ bz_amodel:
     jmp .words                  ; THE SAME CELL AND COUNT SET: the cache's
 .count0:
     jmp .count
+.lno:
+    pop ds
 .no:
     ret
 .new:                           ; A NEW V: its front table, and the count set
-    mov [es:bz_acptr], si       ; read with it
+    mov dx, -1                  ; read with it, through the WORLD part.  DX:
+    cmp word [es:bz_acptr], -1  ; THE NEIGHBOUR (the speed pass, SPEC.md
+    je .nfull                   ; 128.29.5): a V one step in front of the
+    mov ax, [es:bz_awx]         ; table's own cell, (wx + 1, wy) or (wx, wy +
+    mov bx, [es:bz_awy]         ; 1), sees that cell's rows 2 - 4 as its rows
+    sub ax, [es:bz_atx]         ; 1 - 3, from i = 1 (DX = 1) or i = 0 (DX =
+    sub bx, [es:bz_aty]         ; 0); -1: the table read whole
+    or bx, bx
+    jnz .ny
+    cmp ax, 1
+    jne .nfull
+    mov dx, 1
+    jmp short .nfull
+.ny:
+    cmp bx, 1
+    jne .nfull
+    or ax, ax
+    jnz .nfull
+    xor dx, dx
+.nfull:
+    mov ax, [es:bz_awx]         ; (the table's cell from here)
+    mov [es:bz_atx], ax
+    mov ax, [es:bz_awy]
+    mov [es:bz_aty], ax
+    mov [es:bz_acptr], si
+    mov [es:bz_arue], dl        ; (FFh: read whole, the count set inline)
+    push ds
+    mov ds, [es:bz_cseg]
     mov bx, [es:bz_goff]
     mov ax, [bx + BZG_KW]
     mov [es:bz_akw], ax
@@ -1957,6 +2054,63 @@ bz_amodel:
     mov word [es:bz_alcol], -1
     mov di, bz_afl              ; ES:DI: the table
     mov word [es:bz_ad], 1      ; THE FRONT CELLS: d = 1 .. BZ_OCCDEPTH
+    or dx, dx
+    js .drow
+    ; THE NEIGHBOUR: rows 1 - 3 are the old rows 2 - 4 from i = DX (slots 2,
+    ; 5, 9 on), their bytes the same cells' (X, Y, H and the slopes are the
+    ; picture's).  A slot's shadows name its parents one row back at i and
+    ; i - 1 - the same cells in both tables - but for the slot at the row's
+    ; end that the old table's parent row had and the new one has not: i = 0
+    ; loses its left shadow (DX = 1) and i = d its right (DX = 0); row 1 has
+    ; no parents at all.  Then row 4 read, and the count set from the table.
+    push ds
+    push es
+    pop ds                      ; DS = ours
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1                   ; DX = 8 i0
+    mov ax, [bz_afe]            ; the old table's rows (its end: 16, 40, 72,
+    sub ax, bz_afl              ; 112 bytes for 1 - 4 rows) -> the new one's
+    mov si, bz_afl + 2 * BZ_AFL
+    add si, dx
+    mov cx, 2 * BZ_AFL / 2      ; row 1: the old row 2's [i0, i0 + 1]
+    rep movsw
+    mov si, bz_afl + 5 * BZ_AFL
+    add si, dx
+    mov cx, 3 * BZ_AFL / 2      ; row 2: the old row 3's [i0, i0 + 2]
+    rep movsw
+    mov si, bz_afl + 9 * BZ_AFL
+    add si, dx
+    mov cx, 4 * BZ_AFL / 2      ; row 3: the old row 4's [i0, i0 + 3]
+    rep movsw
+    mov byte [bz_afl + 7], 0    ; row 1: no shadow
+    mov byte [bz_afl + BZ_AFL + 7], 0
+    or dx, dx
+    jz .nb0
+    and byte [bz_afl + 2 * BZ_AFL + 7], 0fdh    ; i0 = 1: (2, 0) and (3, 0)
+    and byte [bz_afl + 5 * BZ_AFL + 7], 0fdh    ; lose the left shadow
+    jmp short .nb1
+.nb0:
+    and byte [bz_afl + 4 * BZ_AFL + 7], 0feh    ; i0 = 0: (2, 2) and (3, 3)
+    and byte [bz_afl + 8 * BZ_AFL + 7], 0feh    ; lose the right shadow
+.nb1:
+    pop ds                      ; (the world part)
+    cmp ax, 14 * BZ_AFL
+    jne .nshort
+    mov word [es:bz_ad], 4      ; all four rows: row 4 read as a full read's
+    mov di, bz_afl + 9 * BZ_AFL ; is (.drow's step: 8 (s + 4) + Y0 and Xv -
+    add word [es:bz_ayb], 3 * 8 ; 64)
+    sub word [es:bz_aan], 3 * 16
+    jmp short .drow
+.nshort:                        ; fewer: the new table one row shorter
+    mov di, bz_afl
+    cmp ax, 5 * BZ_AFL
+    jb .lst0                    ; (one row: none)
+    mov di, bz_afl + 2 * BZ_AFL
+    je .lst0
+    mov di, bz_afl + 5 * BZ_AFL
+.lst0:
+    jmp .listed
 .drow:
     mov bx, [es:bz_goff]
     mov ax, [es:bz_ar]
@@ -2108,7 +2262,13 @@ bz_amodel:
     jmp .drow
 .listed:
     mov [es:bz_afe], di
-    jmp short .words
+    pop ds                      ; (DS = the picture part again)
+    cmp byte [es:bz_arue], 0ffh
+    je .lwords                  ; read whole: the count set read with it
+    mov ax, [es:bz_akq]         ; a neighbour's: from the table
+    jmp .count
+.lwords:
+    jmp .words
 .count:                         ; THE COUNT SET from the table (AX = floor(K /
     mov byte [es:bz_avld], 0    ; 4)), the words dropped: BX the highest H / 4
     mov word [es:bz_alcol], -1

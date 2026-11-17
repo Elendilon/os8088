@@ -49,7 +49,10 @@ UNREGISTERED = {
                          "its red arms by hand, --reds",
     "bonanza_av.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) imports and "
                      "runs it - BONANZA's AV model (SPEC.md 128.29) in bz_occ under unicorn against bbcourse's, "
-                     "every course; its red arm by hand, --red amodel",
+                     "every course; its red arms by hand, --red amodel | acache | aneigh",
+    "bonanza_dfield.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) "
+                         "imports and runs it - BONANZA's FIELD cells under unicorn (SPEC.md 128.28, C3); "
+                         "its red arms by hand, --reds",
     "modkeep.py": "run by the `modcache` row (tests/modcache.py imports and "
                   "runs it): every on-demand module kept in RAM after its "
                   "drop, its tail zero in the file, its re-adoption free",

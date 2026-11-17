@@ -1,0 +1,28 @@
+# Pits and Banks - BONANZA's second FIELD-cell test course (SPEC.md 128.28), built only by the BZSHAPES=1
+# knob beside shapes.bbc (whose head says why there are two).  Not shipped; not on the TOUR; the pathway
+# reaches it from SHAPE's exit 1.
+#
+# The same level plate at 2 units:
+#  - at the back, a 1-WIDE `bank` chute 4 px deep (a flat bottom between straight banks), an S;
+#  - a SHALLOW 2-wide `round` chute 6 px deep with corners both ways: it carries less than row A's;
+#  - in front, two PITS: radius 3, 16 px deep, round a HOLE (roll at its middle and you drop through;
+#    come in off-centre with speed and the wall carries you round and throws you out over the far lip),
+#    and radius 2, 8 px, with NO hole - a dish to circle in.  A fall through the hole respawns on the
+#    plate beside it.
+course PITS "Pits and Banks"
+width  128
+origin 480
+ball   rubber
+
+floor rect   4  3 31 28  flat 2
+chute 1 bank  depth 4  way  6 6 2 way 13 6 way 13 9 way 20 9
+chute 2 round depth 6  way 24 4 2 way 24 8 way 29 8 way 29 13
+pit   11 21 2 radius 3 depth 16
+pit   23 21 2 radius 2 depth 8 hole 0
+
+start 5 4
+goal  tile 30 27  flat 2
+clock 28 27
+target 60
+way 5 4
+way 30 27
