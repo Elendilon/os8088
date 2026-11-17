@@ -194,8 +194,8 @@ when it was exercised. They are for sending us. If something does not work
 the way it should, boot the debug disk for that part in drive A and wait for
 it to finish. The sound disk shows its report on screen: photograph each page
 (the keys 1, 2 and 3 change page). The input disk (keyboard and mouse) writes
-its report to the disk itself, a new INPUTnn.TXT each boot: boot it several
-times, copy the files off and send them. Send what you saw and heard with
+its report to the disk itself, a new INPUTnnA/B.TXT pair each boot: boot it
+several times, copy the files off and send them. Send what you saw and heard with
 either. Each disk has a text file at its root that says the same thing, and
 carries the other debug programs and REDLINE in its APPS folder to start by
 hand. Use the size your drive takes; the four of each are the same disk."""),
@@ -336,7 +336,7 @@ ITEMS = [
      "not found: whether keystrokes reach the BIOS, what the keyboard "
      "controller says and what the system's PS/2 probe did to it, every "
      "serial port and the PS/2 mouse port - written to the disk as "
-     "INPUTnn.TXT, a new file each boot, so a good boot and a bad one can "
+     "INPUTnnA.TXT and INPUTnnB.TXT, new files each boot, so a good boot and a bad one can "
      "be sent side by side.",
      [("debug-input.img", "1.44MB", ""), ("debug-input-120.img", "1.2MB", ""),
       ("debug-input-720.img", "720KB", ""), ("debug-input-360.img", "360KB", "")]),

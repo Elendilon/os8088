@@ -15,8 +15,8 @@
 ;     bit 4 SET, so int 09h is never live behind the probe's back
 ;   - the command byte banked with bit 4 cleared, and that RAW byte is what
 ;     goes back - never one with bit 5 forced (SPEC.md 9.9.7)
-;   - waits in TICKS (OSAPI_GET_TICKS), 2 a step, the self-test's the same
-;     short wait retried 5 times - never a spin count
+;   - waits in TICKS (OSAPI_GET_TICKS), P2X_TMO a step, the self-test's the
+;     same wait retried P2X_BAT times - never a spin count
 ;   - flushes after 0xAD and 0xA8, and before 0xAE
 ;   - 0xF4 is NEVER sent and IRQ12 NEVER armed: the device is not ours, and a
 ;     reset leaves it with reporting off
@@ -30,8 +30,10 @@
 P2X_MAX     equ 42              ; trace entries kept
 P2X_ESZ     equ 9               ; bytes an entry
 P2X_STN     equ 20              ; bytes of per-probe state (p2x_st)
-P2X_TMO     equ 2               ; ticks a step may take (MOU_P2TMO)
-P2X_BAT     equ 5               ; ...retried for the self-test (MOU_P2BAT)
+P2X_TMO     equ 5               ; ticks a step may take (MOU_P2TMO, which was
+                                ; 2 until SPEC.md 9.9.1.1: leg 1 is the
+                                ; kernel's road, so it mirrors the kernel)
+P2X_BAT     equ 2               ; ...retried for the self-test (MOU_P2BAT)
 P2X_AGAIN   equ 182             ; ticks the BIOS leg stays on offer (~10 s)
 P2X_KEYW    equ 5               ; ticks the keyboard stays live first (~275 ms)
 

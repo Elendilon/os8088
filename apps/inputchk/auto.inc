@@ -9,12 +9,16 @@
 ;
 ;   1  AU_T1 ticks (~20 s): sample, and ask for keys on the screen. Whether a
 ;      keystroke reaches the BIOS on THIS boot is the first question.
-;   2  write the report, INPUTnn.TXT, the first free nn: a machine that hangs
-;      in step 3 still leaves this one on the disk.
+;   2  write the report, INPUTnnA.TXT, the first free nn: a machine that hangs
+;      in step 3 still leaves this one on the disk, and it is the boot as the
+;      machine left it, before anything here touched the controller.
 ;   3  the controller check (kbd.inc) and, where the kernel's own probe left
 ;      the port alone, Probe PS/2 (probe.inc).
 ;   4  AU_T2 ticks (~10 s) more for keys: did the keyboard survive the check?
-;   5  write the SAME file again, complete. Done; the window stays up.
+;   5  write INPUTnnB.TXT, complete. Done; the window stays up. The B file is
+;      a file of its own and not the A file rewritten: the 2026-11-17 field
+;      report's A state (port 64h at 7D, an AUX byte stuck) was the evidence,
+;      and the overwrite threw it away (SPEC.md 9.9.1.1).
 ;
 ; Commands typed during the run are counted and ignored (mc_onkey), so a user
 ; asked to press keys cannot close the window by pressing Q or Esc.
@@ -74,9 +78,10 @@ au_tick:
 .p1:
     call au_left
     jnc .r
-    call au_pick                    ; the first free INPUTnn.TXT
+    call au_pick                    ; the first free INPUTnnA.TXT
     inc byte [au_ph]                ; 2 BEFORE the write, so the report shows
-    call au_write                   ; this stage. The check runs on the NEXT
+    mov si, au_name                 ; this stage. The check runs on the NEXT
+    call au_write
     mov [au_e1], ax                 ; tick, so the screen says "saved" first
 .r:
     ret
@@ -97,7 +102,8 @@ au_tick:
     call au_left
     jnc .r
     inc byte [au_ph]                ; 4 BEFORE the write: the file is the
-    call au_write                   ; finished report
+    mov si, au_nameb                ; finished report, and a file of its own -
+    call au_write                   ; the A file keeps the boot UNTOUCHED
     mov [au_e2], ax
     mov si, au_t_done
     or ax, ax
@@ -130,7 +136,8 @@ au_left:
     stc
     ret
 
-; au_pick - [au_name] = the first INPUTnn.TXT that is not on the disk
+; au_pick - [au_name] = the first INPUTnnA.TXT that is not on the disk, and
+;           [au_nameb] its INPUTnnB.TXT
 au_pick:
     mov byte [au_n], 1
 .l:
@@ -158,7 +165,7 @@ au_pick:
 .free:
     ret
 
-; au_mkname - "INPUTnn.TXT" from [au_n]
+; au_mkname - "INPUTnnA.TXT" and "INPUTnnB.TXT" from [au_n]
 au_mkname:
     push ax
     push si
@@ -176,14 +183,22 @@ au_mkname:
     add ax, 0x3030
     mov [au_name+5], ah
     mov [au_name+6], al
+    mov si, au_name
+    mov di, au_nameb
+.d:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jnz .d
+    mov byte [au_nameb+7], 'B'
     pop di
     pop si
     pop ax
     ret
 
-; au_write - the report as it is now into [au_name]. out AX = 0 or a FERR_*
+; au_write - the report as it is now into SI's name. out AX = 0 or a FERR_*
 au_write:
-    mov si, au_name
     call mc_writerep
     jnc .ok
     or ax, ax
@@ -224,6 +239,7 @@ au_rows:
 .after1:
     mov si, au_rv_r1
     mov ax, [au_e1]
+    mov di, au_name
     call au_res
     cmp byte [au_ph], 3
     jb .x
@@ -249,6 +265,7 @@ au_rows:
 .done:
     mov si, au_rv_r2
     mov ax, [au_e2]
+    mov di, au_nameb
     call au_res
     mov si, au_l_fin
     call mc_line
@@ -257,11 +274,12 @@ au_rows:
 .x:
     ret
 
-; au_res - SI = a label, AX = 0 or an error: "INPUTnn.TXT" or "FAILED, nn"
+; au_res - SI = a label, DI = the name, AX = 0 or an error: the name, or
+;          the name and "FAILED, nn"
 au_res:
     push ax
     call mc_row
-    mov si, au_name
+    mov si, di
     call mc_put
     pop ax
     or ax, ax
@@ -277,7 +295,7 @@ au_res:
     ret
 
 ; --- data ----------------------------------------------------------------------
-au_stem:    db 'INPUT00.TXT', 0
+au_stem:    db 'INPUT00A.TXT', 0
 au_s_head:  db 'Automatic report (started by the debug disk)', 0
 au_s_sec:   db ' s', 0
 au_l_keys:  db 'PRESS SOME KEYS NOW: letters, Num Lock, Caps Lock.', 0
@@ -289,7 +307,7 @@ au_s_ran:   db 'done', 0
 au_s_prb:   db ', and Probe PS/2', 0
 au_l_again: db 'PRESS SOME KEYS AGAIN: did the keyboard survive it?', 0
 au_rv_r2:   db 'Final report', 0
-au_l_fin:   db 'Done. Photograph this screen; send the INPUT*.TXT files.', 0
+au_l_fin:   db 'Done. Send the INPUT*.TXT files: A before, B after.', 0
 au_l_fin2:  db 'Restart to run again: each boot writes a new file.', 0
 au_s_fail:  db ' - SAVE FAILED, error ', 0
     TOASTSTR au_t_done, 'Input report saved'
@@ -302,3 +320,4 @@ au_s_fail:  db ' - SAVE FAILED, error ', 0
     OS88_AWORD au_e1                ; the two writes' answers
     OS88_AWORD au_e2
     OS88_ABUF  au_name, 14
+    OS88_ABUF  au_nameb, 14

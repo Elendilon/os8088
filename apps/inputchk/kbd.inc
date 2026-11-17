@@ -97,10 +97,11 @@ kb_sample:
     mov [kb_s64], al
     cmp al, 0xFF
     je .bda
-    and al, 0x21                    ; OBF, and not the AUX side's byte
-    cmp al, 0x01
-    jne .noobf
-    inc byte [kb_obfn]              ; a keyboard byte, still there
+    test al, 0x01                   ; OBF: a byte, EITHER side's - an AUX
+    jz .noobf                       ; byte nobody reads blocks the keyboard
+    and al, 0x20                    ; exactly as a keyboard byte does
+    or  [kb_obfaux], al             ; (SPEC.md 9.9.1.1): bit 5 remembered
+    inc byte [kb_obfn]              ; still there
     jnz .obfmx
     dec byte [kb_obfn]
 .obfmx:
@@ -539,6 +540,11 @@ kb_rows:
     call mc_dec
     mov si, kb_s_obf
     call mc_put
+    cmp byte [kb_obfaux], 0
+    je .oa
+    mov si, kb_s_oaux               ; at least one of them was the AUX side's
+    call mc_put
+.oa:
     cmp byte [kb_obfmax], 3
     jb .boot
     mov al, LP_BAD
@@ -546,6 +552,10 @@ kb_rows:
     mov si, kb_l_stuck
     call mc_line
     mov si, kb_l_stuck2
+    cmp byte [kb_obfaux], 0
+    je .ok2
+    mov si, kb_l_stuck3             ; an aux byte: IRQ12, masked or not taken
+.ok2:
     call mc_line
 .boot:
     ; --- what the kernel's boot did to the controller (SPEC.md 9.9.1) -----
@@ -882,14 +892,16 @@ kb_rv_64:   db 'Port 64h now', 0
 kb_b_st:    db 'PTAKcsIO'                ; Parity Timeout Aux Kbd-free cmd sys IBF OBF
 kb_rv_obf:  db 'Byte left waiting', 0
 kb_s_obf:   db ' looks in a row (most)', 0
-kb_l_stuck: db 'A KEYBOARD byte sat unread in the 8042 across looks:', 0
-kb_l_stuck2: db 'IRQ 1 is not being taken, or nothing answers it.', 0
+kb_s_oaux:  db ', AUX seen', 0
+kb_l_stuck: db 'A byte sat unread in the 8042 across looks, and the', 0
+kb_l_stuck2: db 'keyboard is BLOCKED behind it: IRQ 1 is not taken.', 0
+kb_l_stuck3: db 'keyboard is BLOCKED behind an AUX byte (SPEC 9.9.1.1).', 0
 kb_rv_bcmd: db 'Command byte at boot', 0
 kb_s_nread: db 'never read', 0
 kb_rv_reset: db 'Boot sent D4 FF', 0
 kb_s_rsno:  db 'no: the PS/2 probe stopped before it', 0
 kb_s_rsyes: db 'yes, and a device answered', 0
-kb_s_rsfail: db 'yes - with no mouse, it may reach the KEYBOARD', 0
+kb_s_rsfail: db 'yes, and nothing answered it', 0
 kb_rv_bm1:  db 'IRQ 1 at boot probe', 0
 kb_l_nock:  db 'K runs the controller check (keyboard off ~0.3 s).', 0
 kb_rv_ckb:  db 'Check: 64h before', 0
@@ -901,7 +913,7 @@ kb_s_noans: db 'no answer', 0
 kb_l_noirq: db 'IRQ 1 is OFF in the 8042 command byte.', 0
 kb_rv_chg:  db 'Changed since boot', 0
 kb_s_auxchg: db ' (aux-port bits only)', 0
-kb_s_kchg:  db ' - a KEYBOARD bit (IRQ1 or xlate) moved', 0
+kb_s_kchg:  db ' - IRQ1/xlate, the KEYBOARD', 0
 kb_l_same:  db 'The same as at boot (bit 4 aside).', 0
 kb_rv_out:  db 'Output port (D0)', 0
 kb_b_out:   db 'DCUKcdAR'                ; kbd Data, kbd Clock, aUx irq, Kbd irq, aux c d, A20, Reset
@@ -914,10 +926,10 @@ kb_s_ab3:   db ' DATA stuck low', 0
 kb_s_ab4:   db ' DATA stuck high', 0
 kb_s_abx:   db ' (not a defined answer)', 0
 kb_rv_echo: db 'Keyboard echo (EE)', 0
-kb_s_noecho: db 'NO ANSWER: the keyboard is not reachable', 0
+kb_s_noecho: db 'NO ANSWER: keyboard unreachable', 0
 kb_s_eok:   db ' the keyboard answered', 0
-kb_s_eodd:  db ' (not EE: a key, or a confused keyboard)', 0
-kb_s_eaux:  db " (from the AUX side: echo went to the mouse port)", 0
+kb_s_eodd:  db ' (not EE: a key, or confused)', 0
+kb_s_eaux:  db ' (from the AUX side!)', 0
 kb_l_wedge: db 'The 8042 stopped taking writes during the check.', 0
 kb_rv_cka:  db 'Check: 64h after', 0
 kb_l_none:  db 'No keystroke has reached the BIOS since this started.', 0
@@ -932,6 +944,7 @@ kb_s_kdis:  db ', kbd DISABLED', 0
     OS88_ABYTE kb_lowok
     OS88_ABYTE kb_obfn              ; looks in a row with a keyboard byte waiting
     OS88_ABYTE kb_obfmax            ; ...the most
+    OS88_ABYTE kb_obfaux            ; 20h: one of them was the AUX side's
     OS88_ABYTE kb_s64               ; 64h at the last look
     OS88_ABYTE kb_imr               ; the master's mask at the last look
     OS88_ABYTE kb_irr               ; ...and its request register
