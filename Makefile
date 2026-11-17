@@ -21426,6 +21426,31 @@ BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps
 # wave 8b (SPEC.md 128.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
+#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 128.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
+# BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
+# can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
+# ones, so every shipped course keeps its K; not on the TOUR, bbcourse.TOUR) and compiles the pathway
+# from path.bbc with apps/bonanza/courses/pathshapes.sed applied: pad 0 becomes SHAPE (a new game rests
+# on it), PITS and FIRST get pads of their own beside it, so every course stays on the map.  STAMPED, so
+# turning it on or off recompiles the courses; without it the build is byte for byte the knob-less one.
+BZSHAPES ?=
+ifeq ($(filter $(BZSHAPES),1),)
+ifneq ($(BZSHAPES),)
+$(error BZSHAPES=$(BZSHAPES) is 1 or empty)
+endif
+endif
+ifeq ($(BZSHAPES),1)
+BZ_COURSES += apps/bonanza/courses/shapes.bbc apps/bonanza/courses/pits.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathshapes.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathshapes.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathshapes.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
+$(BZSHAPESTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzshapes-*
+	@touch $@
 # SPEC.md 128.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
@@ -21496,7 +21521,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(wildcard apps/bonanza/courses/icons/*.bba) \
+                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) \
                    $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
