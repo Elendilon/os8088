@@ -4,7 +4,7 @@
 # as built; replaced by the owner's recording the day one is committed.
 demo    PEAK
 ident   F7DA
-physics B1
+physics 23
 ball    rubber
 flags   complete
 steps   2172

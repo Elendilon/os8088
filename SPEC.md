@@ -263452,6 +263452,11 @@ and a pace of at least 0.425 s a row**, as the plan's CD3 says. The tool
 prints that line under every 90 s course.
 
 **The two-part course: the documented escape for a course past one part.**
+*Amended by 128.30 (2026-11-17): built, with a different split - the
+picture AND its occluders and the lanes' pose maps in one part, the grid,
+route and props in the other - because the split below costs clocks in
+the occluder lay and the wheel's commit on every frame (128.30.3); the
+estimate below is kept as it was written.*
 The owner asked (2026-11-14) whether a course could "make a larger claim,
 and split out art/sound from occlusion data", and said "we can look into
 the option if we actually need it". It is recorded here and NOT built in
@@ -271782,7 +271787,7 @@ not - D2's verify.)
 | byte | a split cell |
 |---|---|
 | +0, +1 | the WORD offset of its RECORDS in the part (absolute, as a map word is: 128.10.4.2) |
-| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 RESERVED for a CHANNEL** (128.24.13), 8 - 15 for 128.10.4.3's other non-planar floors |
+| +2 | low nibble the kind: **4 TB, 5 LR, 6 QUARTERED**; high nibble the cell's SURFACE: its floor records' (128.24.4), 0 if it has none. **7 is the FIELD cell** (128.28; reserved here as the CHANNEL, 128.24.13), 8 - 15 RESERVED for 128.10.4.3's other non-planar floors |
 | +3 | the flags: SAFE never; OCC and OCCG as derived for a ball anywhere in the cell (128.10.4.4); OBS never; bits 4 - 7 zero |
 
 ##### 128.24.5.2 The pair and section `D`
@@ -272474,27 +272479,18 @@ rails, and the ball slides along them (128.24.7). Wave D5's second course;
 it is NOT changed in D1 - D2. **BUILT (D5.3, 128.24.14)**: exactly those
 three boxes, and the demo's radial corners on the coast are 0.
 
-#### 128.24.13 Channels: the next core tile type (RESERVED, not built)
+#### 128.24.13 Channels: the next core tile type (SUPERSEDED: 128.28)
 
 R4, the owner: a CHANNEL is "a tile, or two tiles together, that cradle the
 ball ... one of the other core things we are missing, to make a ball
-game". It slots into this section's scheme without reworking it: **every
-cell kind from 4 up is a cell whose bytes +0 - +1 point into section `D`**,
-the kind saying how many records are there and how the step reads them (2
-for a halved cell, 4 for a quartered one), and the window's `bz_nbh` slot,
-`read_part`'s D tiling, the CELLS rule's per-kind reader and `GF_SPLIT`'s
-gate are already per kind. **Kind 7 is RESERVED for the channel** (`BZ_KCHANNEL`
-in `bzcourse.inc`; `read_part` refuses it until it is built): its D entry
-would be one 4-byte CHANNEL record - the axis (u, v, or a diagonal, TB or
-LR), the profile (a concave cross-section's depth in half units at its
-middle, its floor `z0` at the lip and the surface), and for a channel two
-cells wide which side of the pair this cell is - so a channel along a
-diagonal is one more kind of line inside a cell, as a half's is. Its floor
-replaces `bz_h4`'s plane by the profile's height (a quadratic or a two-slope
-V in the cross direction, the slope term of 128.11.8.2's step 2 its
-derivative), and its lips are edges the ball rolls over. Kinds 8 - 15 stay
-reserved for 128.10.4.3's other non-planar floors. Not designed further
-here: the owner's next design question.
+game". **Kind 7 was reserved for it here, and 128.28 builds it** - not as
+this paragraph sketched it (one CHANNEL record in section `D`, a profile
+formula evaluated in the step), but as a **FIELD cell**: the cell's own four
+bytes name a shape table in a new section `F` and one of the square's eight
+symmetries, so the floor is a table read (no multiply), and the same kind
+serves a chute's straight, its tapered end, its radial corner and a pit's
+bowl. `BZ_KCHANNEL` became `BZ_KFIELD`. Kinds 8 - 15 stay reserved for
+128.10.4.3's other non-planar floors.
 
 #### 128.24.14 The first courses: PLAYGROUND's diagonal section and MOON's coast (D5, BUILT)
 
@@ -274911,7 +274907,8 @@ There is **no per-course opt-out** statement; instead:
   stand; `ROOM`, `PLAN_SECS` and `budget(t)` stay as the report's
   arithmetic;
 - **the hard refusals that protect correctness stay**: a RAM form over
-  65,024 bytes (20.12.11), the occluder bounds (128.11.4.2), and every
+  65,024 bytes (20.12.11; *amended by 128.30: a course past it is two
+  parts, and each PART is held to it*), the occluder bounds (128.11.4.2), and every
   check the run makes on what it wrote (128.10.4);
 - the twenty-courses-on-one-disk goal of CD3 and 128.15.9's "one disk" is
   no longer binding; whether a second disk comes is the owner's when the
@@ -275004,3 +275001,836 @@ and occluders), `bonanzaphys` and `bonanzareplay` (the demos and the
 model, identities included), `bonanzaperf` (the frame cost: PEAK's picture
 grew 56 lines), `bonanzawheel` (MILL), `bonanzapath` and `bonanzamega`
 (kern_mega's Hercules) - named, run in the final pass.
+
+### 128.28 Shaped floors: chutes and the pit (kind 7, the FIELD cell)
+
+The owner, R4 (128.24.13): a CHANNEL is "a tile, or two tiles together, that
+cradle the ball ... one of the other core things we are missing, to make a
+ball game"; and, after it, "a pit made of curved sides that you have to
+enter with enough speed to make it around and over and fly up the other
+side, instead of falling through to the hole in the bottom". This section is
+both, as ONE mechanism: a cell whose floor is a small HEIGHTFIELD read from a
+table, so a chute's straight, its tapered end, its curved corner and every
+piece of a bowl are the same kind of cell with a different table.
+
+**This section is a CONTRACT, built wave by wave** (the plan:
+[docs/plans/BOUNCE-BONANZA-SHAPED.md](docs/plans/BOUNCE-BONANZA-SHAPED.md),
+waves C0 - C4). **Built so far: C0 - C4** - the tool (`tools/bbcourse.py`:
+`FieldTile`, `chute_cells`, `pit_cells`, `build_fields`, section `F`, the
+reader, the picture), the model (`Physics` on FIELD records, the lift, the
+field-to-field rule, `PHYS_REV` 13), the guest (`bzphys.inc`'s `bz_fhp` and
+`bz_fh4`, `bonanza.asm`'s launch rules) equal to the model under unicorn, and
+two TEST courses, SHAPE and PITS, in a knob build (128.28.9) - no shipped
+course has a FIELD cell (PLAYGROUND's C4 section left it at the merge with
+128.27: it no longer fits there, 128.28.8). Where building found this contract wrong it says so
+at the place ("BUILT ... a finding"). Every figure is PREDICTED unless it says
+MEASURED. It replaces 128.24.13's reservation: the
+channel there was sketched as a record in section `D` with a profile
+formula; building it as a table read is what keeps the step free of a
+multiply and lets one kind serve the corner and the pit too.
+
+**What the investigation found** (a throwaway prototype outside the tree:
+courses of planar ramps and halves rolled through `bbcourse.Physics`, and a
+grounded-only corner model):
+
+- A MITRED corner (two planar ramps folded along the cell's diagonal) does
+  NOT guide: at 384 with no key held the ball reflects back up the run and
+  stalls at 200 - 300. Only a RADIAL corner (the cross-section swept round
+  the corner's inner point) carries a ball round.
+- A ball that is too fast SHOULD leave over the lip: the owner wants it. A
+  lip is a CREST, and 128.10.7.3 step 6's take-off already lets a ball whose
+  floor falls away faster than its own rate leave the ground.
+- A pure V cross-section never comes to rest (the cross speed flips +-7 a
+  step for ever): the profile is ROUNDED or flat-bottomed, which settles.
+- A dead-end cap (a wall across the channel's end) broke 128.11.4.2's four
+  records a block: a chute's ends TAPER to its lip.
+- Planar V chutes are already expressible with ramps and halves; that is not
+  the goal.
+
+#### 128.28.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| what a shaped tile is | a **FIELD cell**, kind 7: its floor is `16 z0 + F[shape][T(u, v)]`, a 17 x 17 table of heights read through one of the square's 8 symmetries | one mechanism for straights, tapers, corners and the bowl; a table is shared by every cell that is the same shape in another orientation |
+| where the cell's data is | the cell's own 4 bytes; the tables in a new section `F`; no record in `D` | the shape index and the symmetry fit the slopes byte (+1), as 128.10.4.3 always planned; nothing per cell beyond the grid |
+| the floor's slopes | forward differences of the table at the centre's integer point, re-derived every step | no `MUL` or `IMUL` in the floor path: two more table reads and a subtraction each |
+| how steep | `abs(sx) + abs(sy) <= 7` quarter px a ground unit at every point of every table under every symmetry, refused by the tool | the floor rate `(sx gvx + sy gvy) >> 2` stays within 672 < `BZ_VZMAX` 768, inside `bz_smul`'s -8 .. 8; past the plane ramp's 4, which a lip needs |
+| a neighbour's wall | a FIELD centre LIFTS its edge and corner tests to its own height at the shared point, and a FIELD neighbour of a FIELD centre never blocks (128.28.5.3) | a cell's edges are axis-aligned and a corner's profile is radial: without it the bank of a corner blocks as a wall halfway up |
+| the grammar | `chute` (1- or 2-wide, `round` or `bank`, axis-aligned legs, radial corners and tapered ends placed by the tool) and `pit` (a bowl round a hole) | the author names a route, not cells (128.28.3) |
+| where the code is | RESIDENT in `BONANZA.O88` (the owner: about 1.4KB is worth it if it serves the remaining tile-shaping needs) | a family part (128.25.6) is the fallback if the segment runs short; 128.28.8 says what it cost |
+| the physics' version | `PHYS_REV` 13 | the step reads a kind it did not; nothing shipped yet depends on a version (the owner) |
+
+#### 128.28.2 The cell, the tables and section `F`
+
+**The FIELD cell** (kind 7; `BZ_KFIELD`, which replaces 128.24.13's
+`BZ_KCHANNEL`):
+
+| byte | a FIELD cell |
+|---|---|
+| +0 `z0` | signed, half units: the cell's BASE. No point of the cell is below `16 z0` quarter px (every table byte is unsigned) |
+| +1 | bits 0 - 3 the SHAPE, an index into section `F`; bits 4 - 6 the SYMMETRY (below); bit 7 zero |
+| +2 | low nibble 7; high nibble the SURFACE (`normal` only, as built: 128.28.3) |
+| +3 | flags: SAFE never, OBS never; OCC and OCCG as derived for any cell (128.10.4.4, 128.11.4.3); bits 4 - 7 zero |
+
+**The height** at the cell's integer point `(u, v)`, `0 <= u, v <= 16` (the
+far edges included, as 128.10.4.3's plane), in quarter px:
+
+    h4(u, v) = 16 z0 + F[shape][17 V + U]
+
+where `(U, V)` is `(u, v)` through the SYMMETRY: bit 4 MU mirrors `u` (`u' =
+16 - u`, else `u' = u`), bit 5 MV mirrors `v` the same way, then bit 6 SW
+swaps (`(U, V) = (v', u')`, else `(u', v')`). The eight values are the eight
+symmetries of the square; the tool stores one table for every set of cells
+that are the same shape up to one of them.
+
+**The slopes** at `(u, v)`, `0 <= u, v <= 15` (the centre's integer point),
+quarter px a ground unit - the plane's `sx` and `sy` by another name:
+
+    sx = h4(u + 1, v) - h4(u, v)        sy = h4(u, v + 1) - h4(u, v)
+
+In table terms each is one more byte read, `F[i + DU] - F[i]`, `DU` = +-1 or
++-17 by the symmetry (`DV` likewise), so the guest keeps per symmetry an
+origin and two strides (`BZ_FSYM`, 128.28.7) and never multiplies.
+
+**Section `F`**: tag `F`, form 0 PLAIN, **after `D` and before `T`** in RAM
+order (`D` absent on a course with no split cell), `NSHAPE` tables of 289
+bytes, `1 <= NSHAPE <= 16`; present if and only if the course has a FIELD
+cell. `BZG1 +28` gains **`GF_FIELD` = 32 (bit 5)**, set exactly when `F` is
+present. `read_part` adds: `F`'s length a multiple of 289, at most 16
+tables, every one named by at least one cell; every FIELD cell's shape under
+`NSHAPE`, its bit 7 clear, its flags as above; the slope bound and the SEAM
+rule (below) on every cell - which the guest then trusts, as it trusts the
+rest of a part the tool built.
+
+**A part is HOSTILE** (128.24.5.3's rule): `bz_cexp`'s bound makes a FIELD
+cell whose shape is not under `NSHAPE`, or whose bit 7 is set, OPEN, so the
+step reads `F` only inside `F`. Any byte of a table is a height, so nothing
+else needs bounding: a hostile table can make a ball fast (a slope of 255
+loops `bz_smul` eight times), never read or write outside the part.
+
+**The SEAM rule** (the tool's, refused naming both cells): two FIELD cells
+that share an edge have EQUAL heights at all 17 of its points. A chute and a
+pit as the tool generates them hold it by construction (one height function
+per piece, sampled at the shared points); it is what 128.28.5.3's
+field-to-field rule stands on.
+
+**CELLS** (128.15.6, 128.24.5.3): a FIELD cell's `V` is `z0 + 79h` (its +1
+is not slopes), so NEAR reads its base; its `rule_safe` is 0 (it is not a
+FLOOR); a FIELD edge neighbour is not VOID for a FLOOR's SAFE. `bz_cxcel`
+reads it the same way.
+
+#### 128.28.3 The text course
+
+    chute <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> [<z>] ...
+    pit   <x> <y> <z> radius <r> depth <px> [hole <h>]
+
+- **`chute`**: a channel 1 or 2 cells wide, its cross-section `round`
+  (curved throughout) or `bank` (a flat bottom between banks that ease into
+  the lip), `depth` px from its LIP to its bottom. The `way`s are points ON
+  ITS CREASE: for a 1-wide chute the CELLS its crease runs through the
+  centre of; for a 2-wide chute the cell CORNERS its crease (a cell edge)
+  runs through. Consecutive ways differ in one coordinate only (an
+  axis-aligned leg); every inner way is a 90-degree corner, which the tool
+  lays RADIAL; the first and last ways are the chute's ends, each laid as a
+  TAPER (the channel rising to its lip over one cell). `<z>` is the lip's
+  height in units (128.10.3's heights); a later way's, when given, makes the
+  leg before it a SLOPE, which must be a whole number of half units a tile
+  over the leg's straight cells (corners and tapers are level).
+- **`pit`**: a bowl centred on the cell corner `(x, y)`, `radius` `r` cells
+  (2 - 4), its lip at `<z>` and its bottom `depth` px below, round a HOLE:
+  the central `2h x 2h` cells (`h` 1 if left out, 0 for none) are VOID, so a
+  ball that does not carry round the bowl falls through to the kill below
+  it. The bowl's cells beyond its radius are flat at the lip.
+- A chute or a pit LAYS its cells after every room, surface and hole (it
+  overrides them); a pit's hole cells are VOID whatever was there. What lies
+  outside its lips is the author's: a floor at the lip's height for a chute
+  set in the ground, nothing for one on a bridge.
+- **Refused**, each at its line: a way that leaves the leg's axis or
+  doubles back; a leg too short for its corners and tapers (128.28.4's
+  lengths); a slope that is not a whole number of half units a tile; a depth
+  whose table passes 255 quarter px or the slope bound; two chutes or pits
+  on one cell; a pit radius outside 2 - 4 or a hole not under it; a FIELD
+  cell outside 3 .. 252; and on a FIELD cell, as on a split one: `start`, a
+  material `pad`, a pathway `pad`, `checkpoint`, `clock`, `cup`, `spring`, a
+  route's `gate`, every prop's cell, and a `way` (BUILT, C1, a finding: the
+  guest's WAYS form reads a plane's slopes out of the cell's +1 to place the
+  route's point, so a way on a FIELD cell would put it wrong); a split cell
+  in a FIELD cell's 3 x 3. `surface` is not applied to a FIELD cell (a later
+  wave may let a chute name one).
+
+#### 128.28.4 The shapes the tool lays
+
+All heights are generated in WORLD quarter px from one function per piece,
+sampled at each cell's 17 x 17 integer points and rounded half up; the tool
+then normalises each cell (`z0` = the floor of its lowest point / 16, the
+table its heights less `16 z0`) and finds, for each, a stored table and a
+symmetry that reproduce it exactly, adding a table when none does.
+
+- **The cross-section** `p(c)`, `c` the distance from the crease in ground
+  units, `W` the half width (8 a 1-wide chute, 16 a 2-wide), `D` the depth in
+  quarter px, `p(0) = 0`, `p(W) = D`. BUILT (C2, `bbcourse.fprofile`): a
+  quadratic from `c0` to `c1 = W / 2`, then a STRAIGHT bank at the slope `s`
+  the curve reached, to the lip - `round` with `c0 = 0`, `bank` with a flat
+  bottom to `c0 = W / 4`; `s = D / (W - (c0 + c1) / 2)`. The bank meets the
+  lip at its steepest, so the lip is a CREST (128.28.5.4); the curved bottom
+  rounds to slope 0 over its middle units, where a ball comes to rest with no
+  dither (MEASURED: `rest`, 128.28.5.5). The slope bound binds at the radial
+  corner's 45-degree points, where `|sx| + |sy|` is `s sqrt 2`, and rounding
+  half up is not symmetric under a mirror, so a depth is accepted by
+  orientation; the deepest every orientation of a corner accepts (MEASURED,
+  a ring of four corners each way): **2-wide `round` 10 px, `bank` 8 px;
+  1-wide `round` 5 px, `bank` 4 px**.
+- **A straight** cell: the depth below the lip `D - p(c)` across the leg,
+  the leg's slope along it.
+- **A taper** (an end): over the end cell the depth falls linearly to 0 at
+  the open edge.
+- **A radial corner**: a 1-wide chute's is its way's cell, the section swept
+  round the cell corner on the inside of the turn (`c = abs(r - 8)`, `r` the
+  distance from that point); a 2-wide chute's is the 2 x 2 cells round its
+  way's corner point, swept round the far corner of that block on the
+  inside of the turn (`c = abs(r - 16)`). Where `c > W` (the outer corner of
+  the block) the floor is the lip.
+- **A pit**: `lip - P(r)`, `r` the distance from its centre, `P` the depth
+  `D` at the hole's edge (`r = 16 h`) falling to 0 at `r = 16 radius`. BUILT
+  (C2, `bbcourse.pit_profile`): `P = D (1 - x^2)`, `x = (r - 16 h) / (16
+  (radius - h))` - steepest at the lip, so a fast ball is thrown up and over
+  and a slow one slides to the hole. Radius 3, hole 1: depth 16 px accepted,
+  20 refused (the bound at the 45-degree points).
+- **Lengths**: a 1-wide leg between two ways `n` cells apart has `n - 1`
+  cells between them (the ways' own cells are the corners or the end
+  tapers), so `n >= 1`; a 2-wide leg between crease points `n` apart has `n
+  - 2` straight cell pairs (a corner's block reaches one cell either side of
+  its point, an end's taper is the one pair after it), so `n >= 2`.
+
+#### 128.28.5 Physics (binding once built: the guest and `bbcourse.Physics` do exactly this)
+
+##### 128.28.5.1 The floor
+
+Wherever 128.11.8 reads the centre's record C's plane - step 6's floor
+`h4(u, v)` at the centre's integer point after the move, the landing's
+floor rate `fr = (sx gvx + sy gvy) >> 2` (128.11.8.5), `bz_gh` - a FIELD C
+reads its table at that point: the height, and the slopes 128.28.2 derives
+there. A FIELD cell is SOLID as a FLOOR is.
+
+**Step 2's slopes** are C's at the step's START point, as a plane's are: a
+FIELD C's at the integer point the ball is at when the step begins. The
+guest keeps them in `bz_tsx`, `bz_tsy`, written at step 6 (the point the
+step ends at, which the next one starts from) and at every refill.
+
+##### 128.28.5.2 What a FIELD cell is not
+
+Never SAFE (no respawn lands on one), never a GOAL, never FIRM LEVEL
+(128.16.4.1's rule 4 reads kind FLOOR or GOAL: no boost off a field, even at
+a flat bottom), never a prop's cell.
+
+##### 128.28.5.3 The edges and the corner
+
+Step 5's edge tests and its corner stand, sampled at today's points. A FIELD
+neighbour BLOCKS as a floor does, by its height at the point (`h4 > zs +
+BZ_CLIMB`), with two additions that apply when the CENTRE's cell C (the
+window's centre in step 5, after the move) is a FIELD:
+
+- **field to field**: a FIELD neighbour never blocks (the SEAM rule makes
+  the surface continuous across the edge; the ball's centre carries it);
+- **the lift**: a FLOOR or GOAL neighbour that would block blocks only if
+  its height at the point is also above C's own height at the SAME point (in
+  C's units: the neighbour's `(u, v)` plus 16 times its offset, 0 - 16) plus
+  `BZ_CLIMB` - so a floor laid at the lip's height is a lip, and a floor
+  standing above the lip is a wall. A WALL blocks and a VOID does not, as
+  ever.
+
+**The fallback is not lifted**: a centre that moved into a new cell is
+judged by that cell (a FIELD one by its height at the centre) against the
+step's start `z`, exactly as today, so a ball cannot roll from a low plane
+into a FIELD cell standing high above it.
+
+Why: a cell's edges are axis-aligned and a corner's profile is radial, so a
+ball 6 units inside a corner block meets a neighbour's height up to 6 units
+further up the bank - over `BZ_CLIMB` wherever the bank is steeper than 2.7
+quarter px a unit, which a guiding bank must be. Without the two rules the
+bank would be an invisible wall.
+
+##### 128.28.5.4 The lip, a crest
+
+A ball climbing a bank at speed has a floor rate step 2 derived from the
+steep bank; at the lip the floor flattens, `h < z + gvz - G - STICK` at step
+6, and it TAKES OFF (128.10.7.3) - over the lip, into the next cell or the
+void beyond. A slow one rolls back down. Nothing in this is new; the tables
+are shaped so the crest is where the take-off happens.
+
+##### 128.28.5.5 The tuning (MEASURED, the model: wave C2's runs)
+
+A rubber ball entering a corner at speed `v` along the leg's crease, 8 units
+before the corner's block (`/tmp` scripts, not in the tree; the runs that
+stand as checks are `--selfcheck`'s FIELD runs and `tests/bonanza_dfield.py`):
+
+| chute | coasting, no key | the turn held (the outgoing leg's direction) from the block on |
+|---|---|---|
+| 2-wide `round` 10 px | turns at 340 and 384; under that the drag stops it in the corner (the ordinary floor's drag: a coast is about `v / 4` units) | turns at every entry speed 150 - 384 (100 stops before) |
+| 2-wide `bank` 8 px | turns at 384 | turns at 150 - 384 |
+| 1-wide `round` 5 px | turns at 340; at 384 rolls OUT over the outer lip | turns at 150 - 340; 384 OUT |
+| 1-wide `bank` 4 px | 384 OUT | turns at 150 - 300; 340 and 384 OUT |
+
+So the 2-wide carries a ball that is steered round at anything up to the
+speed cap, and the 1-wide throws it out at the top of the range - the
+owner's "too fast flies out". A ball pushed STRAIGHT ON (Right and Down
+held through a 1-wide corner at 384) leaves it. A ball dropped beside a
+2-wide crease with a cross speed settles to rest, every speed 0, with no
+dither (400 steps). **The pit** (radius 3, hole 1, 16 px): entered along its
+centre line it falls into the hole at every speed 150 - 384; entered 24
+units off the centre line with the arrows held it rides 145 degrees round
+the wall and flies out over the far lip at 250 and 384, and falls at 150.
+The investigation's prototype chutes were deeper (14 px) because they did
+not hold the slope bound at the corner's 45-degree points; 128.28.4's
+profile keeps it, which is what caps the depth.
+
+#### 128.28.6 The picture
+
+- **The top** of a FIELD cell is drawn as 4 x 4 ground-unit FACETS (16 a
+  cell), back to front by `(i + j, i)` inside the cell, each a quad at its
+  four corners' heights. A facet that faces AWAY from the viewer (its screen
+  projection reversed: a bank rising toward the viewer more steeply than the
+  view, `sx + sy > 4` across it) is not drawn: what is behind it shows, as it
+  would, so the near bank of a deep channel is a lip with the channel's
+  floor seen over it.
+- **The ink** is the facet's shade by its gradient against a light from the
+  upper left: facing up and away is lit (white), level is the base (cyan),
+  facing the viewer is magenta, darker to the right (magenta and black),
+  with world-fixed 50% dithers between, so the blocks a chute makes repeat
+  along it. No outline is drawn between facets.
+- **The faces**: a FIELD cell hangs its `sw` and `se` faces as a whole cell
+  does, their top edges the table's 17 heights along that edge, down to the
+  neighbour's heights there (nothing against a FIELD neighbour, by the SEAM
+  rule) or, over the void, by 128.27's GROUND rule sample by sample: 3 units
+  below the edge or down to the course's ground plane, whichever is lower -
+  3 units exactly for a cell a `float` names (a FIELD cell with a face over
+  the void may be named, as any cell may).
+- **The occluder key**: a facet whose ground lies in the FRONT half of its
+  cell's row (`u + v >= 16` at its centre) is keyed `s + 1`, the rest `s`,
+  as 128.24.6.3 keys a split cell's front pieces, so a ball in the back of a
+  row (a channel's bottom) is laid under the near lip; its top is its LOWEST
+  corner, so a ball resting on a bank is never laid under the bank below it,
+  rounded DOWN to a multiple of `FTOPQ` = 16 px (BUILT, C1/C4, a finding:
+  with whole px a facet's records broke 128.11.4.2's four a block, and each
+  coarser step cut the records and their masks - 8 px kept the bound on the
+  test courses, 16 px saved PLAYGROUND 190 records and 110 masks; the cost
+  is a ball up to 15 px under a facet's true lowest corner drawn over it).
+- **The ink, as built**: `field_shade` takes the facet's normal against the
+  light `(-1, -0.3, 1.5)` relative to a level facet's and bands it at 1.12,
+  1.04, 0.96, 0.86 and 0.74 into WHITE, white/cyan, the cell's own parity
+  ink, the parity ink/magenta, MAGENTA, and magenta/black. Four bands were
+  tried to save blocks and saved none: a chute's blocks come from where its
+  facets' edges fall on the 8 x 8 grid, not from how many inks there are.
+
+#### 128.28.7 The guest
+
+- **The tables** (`bzphys.inc`): `BZ_FSYM`, for each symmetry the origin
+  `17 V + U` of `(0, 0)`, the strides `DU`, `DV` (+-1, +-17), and which of
+  four 17-entry word tables (`k`, `-k`, `17 k`, `-17 k`) walks `u` and which
+  `v`, so the index is two table reads and two adds; `bz_fsb` (bss), each
+  shape's table's offset in the course, filled once by `bz_pinit` from
+  section `F`'s directory entry.
+- **`bz_fhp`**: SI a FIELD cell, DL, DH = `(u, v)` -> AX = `h4`. **`bz_fh4`**:
+  the centre's after the move - its `h4` (BX, for step 6) and `bz_tsx`,
+  `bz_tsy`.
+- **The hooks**, none on a path a course without FIELD cells takes: step 6's
+  `.ngs` (a kind above GOAL) tests 7 before the split pick; step 8's goal test
+  leaves a FIELD centre at once; `bz_blocks`' `.other2` (a kind above GOAL)
+  tests 7 before the split dispatch, and its `.high` (a floor that would
+  block) tests the centre's kind for the lift; `bz_wtail`'s slopes for a
+  centre that is neither FLOOR nor GOAL test 7. A course with no FIELD cell
+  runs today's instructions on every path a FLOOR, a VOID, a WALL or a GOAL
+  takes, plus at most one compare on a refill whose centre is VOID or a WALL.
+- **The launch**: `bz_cxcel`'s `V` of kind 7, `bz_dval`'s bound, and
+  `bz_fsb` filled by `bz_fsbset`, which `bz_crshdr` calls (BUILT: at the
+  course header's read rather than `bz_pinit`, so a harness that hands the
+  package a RAM form - unicorn, never `bz_cexp` - has it too).
+- **BUILT (C3)**: as above, and `bz_blocks` keeps DI (`bz_corner` holds its
+  table index there across the call), so `bz_fhp`'s callers inside it save
+  DI; `bz_wsplit` skips kind 7 (a FIELD cell is no split). The guest equals
+  the model step for step under unicorn (`tests/bonanza_dfield.py`: the
+  stored forms' CELLS, a HOSTILE part, eleven scripted runs and 300 fuzz runs
+  of 160 steps near field cells; red arms `nolift`, `ffblock`, `symswap`,
+  `cellfield`, `nofbound` each go red), and `tests/bonanza_dsplit.py` still
+  passes (split cells untouched).
+
+#### 128.28.8 What it costs
+
+- **Clocks, MEASURED (C3, the one MartyPC measurement: a 5150 CGA machine,
+  logged breakpoints at `bz_step`'s entry and its `ret`, PLAYGROUND's
+  shaped-floor section, the ball poked at -300 up each chute's first leg and
+  coasting 70 steps into the corner)**: a step whose centre is a FIELD cell
+  costs **median 9,440 clk (mean 10,352) in the 2-wide chute and 8,504
+  (mean 9,237) in the 1-wide**, against **8,859 (mean 9,412)** coasting on
+  the apron's plane cells at 300 - so **about +0.4 - 0.9k clk a step on
+  the mean, +0.6k at the 2-wide's median**, the refill steps (a cell change,
+  with `bz_fh4` in `bz_wtail`) the largest (max 24.1k against the plane's
+  22.1k). Under the prediction below and the investigation's 2.6 - 3.5k: no
+  optimisation was needed. Instruction-priced under unicorn (128.11.15's
+  method, `bonanza_dsplit.price`) the same runs are median 4.2 - 6.6k against
+  TRIAL's plane 5.4k.
+- **Bytes, MEASURED (`make bonanzadisk`)**: BONANZA.O88's image **46,957 ->
+  47,637 (+680 resident)**, bss **10,974 -> 11,010 (+36**: `bz_fsb` 32, `bz_ffo`
+  and `bz_ffe`); the tables in the image (`BZ_FSYM` 128, the four walks 136,
+  `bz_fmap` 18) are 282 of the 680. Under the predicted 0.8 - 1.2KB.
+- **A course, MEASURED (`bbcourse.py`, RECB 4)**: a 2-wide chute set in the
+  ground, 10 cells of straight, about +282 occluder records (1.1KB of RAM, so
+  28 records a cell of run, as the investigation found) and +38 blocks; a
+  2-wide chute with one corner, +460 records and +84 blocks; the pit (radius 3,
+  hole 1) +288 records, +98 blocks, 5 tables (1,445 bytes of F). **A FIELD
+  section is dear on PLAYGROUND**: with a walkway behind the step ladder (4KB
+  of map and grid of its own, the picture's rows above it), the 2-wide chute
+  and the 1-wide one take it from 44,536 to 55,336 bytes of RAM (10 tables,
+  F 2,890; 518 blocks against 386; 2,338 records against 1,691) - and **its
+  RECB 8 layout, which the identity is taken over and which may not pass
+  65,024 bytes (128.15.7), to 64,564: 460 bytes short of the limit**. The
+  pit on top of it would be 73.7KB: it is not on PLAYGROUND (C4). **After the
+  merge with 128.27 and the pickups yard** the same two chutes take
+  PLAYGROUND's RECB 8 layout to 69.7KB, over the limit, so the section was
+  taken off again: the shapes live in the knob's own courses (128.28.9).
+  **Since 128.30.11 it is back**, with the radius-3 pit beside it: as one
+  part PLAYGROUND would be 65,513 bytes under D and 76,507 under C, so it
+  ships as a TWO-PART course (128.30), 15 of its 16 shape tables used.
+  (The per-second budget, 128.15.8, is REPORT-only since that merge, so
+  PLAYGROUND's `target` stayed 30.)
+- **Clocks, PREDICTED (C0)** (128.11.15's method, x 1.3): a step whose centre is a
+  FIELD cell and touches nothing - `bz_fh4` (the symmetry's entry, two index
+  reads, three table bytes, two subtractions) - about 250 - 350 raw; each
+  edge or corner test against a FIELD neighbour, `bz_fhp`, about 150 - 200;
+  the worst step in a channel (the centre, two edges and a corner) about 0.9
+  - 1.1k raw, 1.2 - 1.5k x 1.3, on top of today's ground step. The ONE
+  measurement wave C3 takes (MartyPC) decides it.
+- **Bytes, PREDICTED**: resident code about 0.8 - 1.2KB with the tables;
+  bss about 40 bytes. A course: 289 bytes of RAM a table, 3 - 14 tables for
+  a showcase; the picture's shading blocks about 12 - 20 a direction and
+  profile and 30 - 40 a 2-wide corner; the near lip's occluders about 110
+  bytes of RAM a 2-wide cell of run (none on a run straight down the screen).
+
+#### 128.28.9 The knob build: SHAPE and PITS (`BZSHAPES=1`)
+
+The owner, 2026-11-17: *"a knob build with various shapes on a course to
+try ... a course I can easily launch."* `make BUILD=<tree> BZSHAPES=1
+bonanzadisk` (a private tree; `make help` lists the knob) adds two TEST
+courses after the shipped ones, so every shipped course keeps its K and none
+is on the TOUR (`bbcourse.TOUR`):
+
+| course | file | what is on it (a level plate at 2 units, every shape set in it) |
+|---|---|---|
+| SHAPE "Shape Test" | `courses/shapes.bbc` | a 2-wide `round` chute 10 px deep, up, across and down (two corners the same way); a 2-wide `bank` chute 8 px deep, the same shape, its second leg CLIMBING a unit to a raised corner and its third FALLING back; a 1-wide `round` chute 5 px deep, an S (corners both ways). Three goals: exit 0 the far corner, 1 the left, 2 the back |
+| PITS "Pits and Banks" | `courses/pits.bbc` | a 1-wide `bank` chute 4 px deep, an S; a shallow 2-wide `round` chute 6 px deep with corners both ways; a PIT radius 3, 16 px, round a hole; a PIT radius 2, 8 px, no hole |
+
+**Two courses, not one**: a course holds 16 shape tables (128.28.2) and the
+pieces take 2 - 7 each (MEASURED: a 2-wide `round` chute with two corners 5,
+the climbing `bank` one 7, a 1-wide one 3, the radius-3 pit 5, radius-3 with
+no hole 6, radius-2 with no hole 3) - one course of them all needs 21 - 27.
+Each part fits easily (MEASURED, the knob build: RAM, the RECB 8 identity
+layout, LZ4: SHAPE 39,663 / 43,855 / 7,848 with 15 tables, 1,048 records,
+302 blocks; PITS 42,260 / 46,640 / 8,348 with 16 tables, 1,095 records, 348
+blocks). The knob build's BONANZA.O88 is image 47,793 and bss 11,211 against
+the shipped 47,713 and 11,031 - its per-course tables two rows wider.
+
+**The pathway** is compiled from `path.bbc` through
+`courses/pathshapes.sed` (the knob's only other input): pad 0 becomes SHAPE,
+so a new game rests on it - title, Play Game, Enter plays it; SHAPE's exit
+0 still goes up to TRIAL, its exit 1 straight right to PITS (pad 6), its exit
+2 straight left to FIRST (pad 7, FIRST's icon moved with it). PITS and FIRST
+are dead ends there, as PEAK is: a route into TRIAL from either would share
+an arrow at a pad (128.22.4.5). Without the knob nothing changes: the knob
+is make variables and two course files, and the knob-less build is byte for
+byte what it was (MEASURED, `cmp`).
+
+### 128.30 Two-segment courses (the owner's brief, 2026-11-17)
+
+**The brief.** A course must be able to pass ONE 64KB segment: the owner's
+unmerged work pushes even `PLAYGROUND` (49,422 bytes of RAM at this tree,
+MEASURED) over the 65,024 bytes one part may be (§20.12.11's `OP_PARTMAX`),
+and *"this must not hurt frame performance."* 128.15.8 recorded an escape,
+the TWO-PART COURSE, as an ESTIMATE that was never built or measured. This
+section is its contract, decided from a map of every reader rather than
+from the estimate - and it does NOT take the split 128.15.8 sketched
+(128.30.3 says why).
+
+#### 128.30.1 The decisions, in one table
+
+| question | decision |
+|---|---|
+| which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 128.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (128.30.6). The first shipped one is `PLAYGROUND` with its shaped-floor section (128.30.11) |
+| the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D F T W P`; `F`, the FIELD tables, 128.28.2): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (128.30.2) |
+| what it costs a frame or a step | **0 clk, on a two-part course and on a one-part one**: no routine reads both parts at once, and each site loads one segment word where it loads `bz_cseg` today (128.30.5) |
+| what it costs a launch | one more fetch and claim, one more directory walk, and the world part's 48-byte header and its directory (128.30.8) |
+| the guest's code | assembled only into a build that HAS a two-part course (`BZ_NCRS2` > 0): a build with none is today's package, byte for byte |
+| the pathway, the title | always ONE part (refused otherwise): the held pathway (128.22.7) and the title keep one row |
+| kern_mega | each part its own claim and LDT selector from `op_seg`; nothing computed between them (128.15.11) |
+| kern_small | refuses on the desktop, as for every course (128.1) |
+
+#### 128.30.2 The reader map (this tree)
+
+Every place the guest reads the course part, by section, with the segment
+register it reads through. "Frame" is per frame, "step" per physics step,
+"launch" once a fetch.
+
+| routine | when | reads | through |
+|---|---|---|---|
+| `bz_row`, `bz_col` (`bzvideo.inc`) | frame | `M` (a block row's map words), `B` (their lines), the header's `ROWB` | DS |
+| `bz_boxc`'s fill | frame | `M`, `B`, `ROWB` | DS |
+| `bz_occ`, `bz_oprep`, `bz_oand`, `bz_olay` | frame | `I`, `R` (the walk), `O` (`MTAB`), `K` (the masks, ANDed and laid), `M` (the laid word's map entry) and `B` (its lines), in ONE pass: `bz_olay`'s line loop is `lodsw` (the block), `xor ax, [es:di]` (the box), `and ax, [bx]` (the mask) | DS (ES = ours) |
+| `bz_wprect`, `bz_wpc`, `bz_wph` (the wheel's commit) | frame | a lane's POSE MAP word (in `P`), written into `M`, then that block's lines (`B`), all in one column loop | DS (ES = the card) |
+| `bz_lsync`, `bz_lmap` | frame | a pose map (in `P`) copied into `M` (`rep movsw`) | DS -> ES |
+| `bz_pblit` (the lift's slab) | frame | the lift's sprite (in `P`) into a box | DS (ES = ours) |
+| the wheel's lane state (`bz_ltrue`, `bz_nset`, the gate test) | frame | prop records (`P`) | ES |
+| `bz_step` and what it calls (`bz_win9i`, `bz_fill`, `bz_blocks`, `bz_wsplit`, `bz_prule`, `bz_circle`, `bz_ppos`, `bz_owner`, ...) | step | `G`, `C`, `T`, `D`, `F` (cells, ROWTAB, the split pairs, the FIELD tables) and `P` (records, tube segments), interleaved | ES |
+| the families' parts (`fam/*.asm`, `bzfam.inc`) | step | `P` (records, the family list) | ES |
+| `bz_auto`, `bz_lexit` | step | `W`, `P` | ES |
+| the pathway (`bz_ppose`, `bz_follow`, `bz_pwkey`, ...) | step | `P` (the pathway's tables) | ES |
+| the identity check (`bz_launch`, `bz_play`) | launch | `G` (`BZG1` +18) | ES |
+| `bz_cload`'s balls | launch | `G` (+29 the pad mask), `P` | ES |
+| `bz_crshdr` | launch | the header, `G`; its `bz_osmake` reads `I` and `R` | ES |
+| `bz_cexp` and its forms | launch | each section's own slot; ROWPLANES, COUNTS, WDIFF and MASKTAB read only the header and their own section; ROWTAB reads `G`; WAYS `G`, `C`, `T`; CELLS `G`, `C`, `D` | ES, DS |
+| `bz_hxlat` (the Hercules) | launch | `B`, and the lifts' sprites (`P`) | ES |
+| the replays, `bz_dev` | - | nothing of the part but the identity word | - |
+
+What the map says:
+- **Three couplings sit in hot loops, and they chain every section
+  together**: the occluder lay reads the picture (`M`, `B`) and the masks
+  (`K`, `O`) in one line loop; the wheel's commit reads the pose maps (in
+  `P`) with `M` and `B` in one column loop; physics reads the cells and the
+  prop records in one step through one ES.
+- **So any split cuts one of them unless something moves across it.** The
+  chosen split moves ONE thing: the lanes' pose maps leave `P` for the
+  picture part (`L`). They are block offsets into `B`, and only the three
+  wheel routines that write them into `M` read them; nothing in a step
+  does.
+- **The header is read by both kinds of reader**, so both parts carry it
+  (128.30.4.2).
+
+#### 128.30.3 The options, priced
+
+PREDICTED from the instructions, at max(EU + EA, 4.34 a byte) (128.13's
+way). A frame at 60 Hz is about 79,500 clk at 4.77 MHz.
+
+| option | the parts | what crosses | clk | verdict |
+|---|---|---|---|---|
+| **(a) 128.15.8's sketch**: the picture alone | `M B` / `I R K O G C D T W P` | the occluder lay reads `M`, `B` and `K` in its line loop: each laid GROUP's mask lines copied into `bz_omsk` first (up to 8 words, about 250 clk), DS switched to the picture round its boxes (about 46), its lines on the ES path (+2 clk and a byte a line, about 100 for two boxes); the wheel's commit reads a pose word from `P` for every block, a DS switch each way (about 40 a block, up to 12 blocks a lane). And it is paid on EVERY course, unless the lay is assembled twice and chosen per group (about +150 bytes, about 20 clk a group) | **about 400 a laid group** (at most 9 a frame: about **3,600 worst**, 4.5% of a frame) **and about 500 a committed lane** | refused: never 0 |
+| (b) the masks with the picture | `M B K O` / `I R` + the world | the walk reads `I` and `R`; a laid record's `MTAB` and mask are read across (two DS switches, about 92, at a group's first record and in `bz_oand`); the lay itself is all picture | about **100 - 150 a laid group**, plus (a)'s wheel cost | refused: never 0 |
+| (c) the grid alone (story 11.6's "the grid in a claim of its own") | `M B I R K O P` / `G C D T W` | physics reads the cells and the props through ONE ES all step: every prop routine (eleven, and the families') switches ES and back, about 44 clk a call | tens to hundreds **a step** | refused |
+| **(d) CHOSEN: the picture with its occluders and the pose maps** | `M B I R K O L` / `G C D T W P` | nothing: the occluder pass, the writers and the wheel's commit read only the picture part; physics, the families and the wheel's record reads only the world part | **0** | taken |
+| (e) three parts | (d) with `I R K O` apart | (b)'s cost, and a third claim | as (b) | the next lever, only if (d)'s picture part outgrows 65,024 (128.30.10) |
+
+**What (d) holds** (MEASURED, `PLAYGROUND` at this tree, D): its picture
+part's sections are 38,758 bytes (`M` 24,064, `B` 6,160, `I` 190, `R`
+7,408, `K` 832, `O` 104) plus `L`, its header and its directory, so about
+**26KB of room**; the world part's are 10,520 less `L`, so about **54KB of
+room**. Every other course's picture part is smaller (`PEAK`'s about
+39KB). (a) balances the parts better (about 30KB and 19KB), at the clocks
+above; the owner's constraint decides it.
+
+#### 128.30.4 The format
+
+##### 128.30.4.1 When a course is two parts
+
+- **One part** when its D RAM form and its C RAM form are each at most
+  65,024 bytes: exactly 128.15.8's acceptance today, so nothing that builds
+  today changes.
+- **Otherwise two parts**, each D part at most 65,024 (refused past it,
+  naming the part: *"the course's picture part is N bytes, over the 65,024
+  one part may be"*). Under `--rec 8` (C, 128.15.5.3) each C part is held to
+  65,024 as well; a D build does not require the C parts to fit.
+- **The pathway and the title are always one part** (`--path`,
+  `--title`): refused as two.
+
+##### 128.30.4.2 The two parts
+
+Each part is a `BZC2` part (128.15.4) of its own: a 48-byte header, its
+sections from +48 in RAM order, each at the end of its own slot when
+stored (128.15.4.3), and its directory last.
+
+| | the PICTURE part, `BZ<K>.BIN` | the WORLD part, `BZ<K>W.BIN` |
+|---|---|---|
+| +0 | `BZP2` | `BZW2` |
+| its sections, RAM order | `M` (at +48: `BZC_MAP` as ever), `B`, `I`, `R`, `K`, `O`, `L` | `G` (at +48), `C`, `D`, `F`, `T`, `W`, `P` |
+| +38 `DIROFF`, +40 `NSEC` | its own directory | its own directory |
+
+- **Every other header field (+4 - +37, +42 - +47) is the SAME in both
+  headers**, and each offset field is its section's offset IN THE PART
+  THAT HOLDS IT: `BLKOFF`, `OCCIDX`, `OCCREC`, `MASKOFF` and `MTAB` in the
+  picture part; `GRIDOFF`, `PROPOFF`, `PTHOFF` and `FAMOFF` in the world
+  part. So a header field reads the same through either segment, and none
+  of the guest's header reads moves.
+- **`L`, the lanes' pose maps** (tag `L`, form 0 PLAIN), in the picture
+  part when the course has a lane: the pose maps a one-part course keeps in
+  `P` straight after its records (128.12.3.1), in the same order. A lane
+  record's pose-map offset (+14) is then an offset into the PICTURE part;
+  `P` holds the records, the tube segments, the lifts' sprites, the family
+  list and the pathway's tables, and its +20 and +22 offsets stay the world
+  part's. A one-part course has no `L`.
+- **No form reads across the parts**: ROWPLANES, COUNTS, WDIFF and MASKTAB
+  read the header and the picture part; ROWTAB, WAYS and CELLS read `G`,
+  `C`, `T` and `D`, all in the world part, so 128.15.4.5's order holds in
+  each. `bz_dfind` and `bz_dval` (D3, 128.24.5.2) find `C` and `D` in the
+  world part's directory and nothing in the picture part's.
+- **`read_part`'s rules** (128.15.4.2) hold in each part over the sections
+  it holds; the canonical-layout check is over the two together.
+
+##### 128.30.4.3 The identity
+
+**A two-part course's identity is Fletcher's pair (128.12.8) over its
+picture part's D RAM form and then its world part's**, with 128.15.7's
+fields taken as 0 in each (the world part's `BZG1` +18; every directory
+entry's FORM byte and STORED LENGTH). Over D, not over C as 128.15.7 takes
+one part: a two-part course's C form need not lay out in 16-bit offsets,
+and a C build's parts are re-encoded as D to take it. A one-part course's
+identity is 128.15.7's, unchanged. The guest compares the word at `GRIDOFF
++ 18`, in the world part, through `bz_cseg` as today.
+
+##### 128.30.4.4 The rows and the files
+
+- The picture part is course K's row, as today: `BZ_P_CRS + K`.
+- The world parts follow the courses' rows, in course order:
+  `BZ_P_CRS + BZ_NCRS + j` for the j-th two-part course, each `OP_ASSET,
+  OP_LAZY | OP_COMP`. The sound part's row and every later one move up by
+  `BZ_NCRS2`.
+- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses, 0 for none) and,
+  only when it is not 0, `BZ_CRS_WROW`: a byte a course, its world part's
+  row (0: one part).
+- The tool writes `bzcrs2.lst`, the world parts' `--part` arguments in row
+  order (empty for none), and the Makefile passes them after the courses'.
+
+#### 128.30.5 The guest
+
+**Two segment words.** `bz_cseg` stays the WORLD part's - what physics,
+the families (whose parts link against it), the wheel's record reads, the
+route, the identity, the pathway and the balls read - so none of those
+sites changes. `bz_mseg` is the PICTURE part's, read by the eight sites
+that read the picture - `bz_row`, `bz_col`, `bz_boxc`, `bz_occ`,
+`bz_wprect`, `bz_lsync`, `bz_lmap` and `bz_hxlat`'s blocks - and
+`bz_crshdr` loads it for `bz_osmake`. Each loads `[bz_mseg]` where it
+loads `[bz_cseg]` today: **the same instruction, the same length, 0 clk**.
+
+**A build with no two-part course** (`BZ_NCRS2` = 0) defines `bz_mseg equ
+bz_cseg`, so every one of those sites assembles to today's bytes, and
+nothing below is assembled.
+
+**With one**:
+- `bz_cload` stores the first fetch's segment in both words and expands it
+  (`bz_cexp`, through `bz_cseg` as today); then `bz_cload2` fetches the
+  course's world part when `BZ_CRS_WROW` names one, stores its segment in
+  `bz_cseg` and expands it, before the balls, `bz_crshdr` and the families,
+  which read the world. A refusal is CF = 1, as any fetch's.
+- `bz_cexp` runs once on each part, each after the fetch that decoded it
+  (128.15.4.5's rule, per part); the world part's last, so `bz_dfind`'s
+  bounds are the world part's when `bz_dval` reads them.
+- `bz_cdrop` drops every world row (a row not here is a no-op) beside the
+  course's own, and zeroes `bz_mseg`.
+- `bz_hxlat` translates the picture's blocks through `bz_mseg` and the
+  lifts' sprites through `bz_cseg`.
+- **The heap**: one more claim while a two-part course is held - the
+  region, the two parts, the arena and a held pathway, five of
+  `MEM_OWNER_MAX`'s eight (§20.12.15). `BZ_CRS_MAXCLAIM` (128.22.7) counts
+  both parts, each its RAM form's granule-rounded claim with
+  `CLAIM_SLACK`, so `bz_phrel` keeps the pathway only beside room for both.
+- **kern_mega**: both parts are the package's claims and LDT selectors from
+  `op_seg`; nothing adds to a segment and nothing is written through CS, so
+  no `PKG_MEGA` arm (128.15.11 holds for each part).
+- **kern_small**: `bz_launch` refuses every course there (128.1).
+
+#### 128.30.6 What stays exactly as it is
+
+For every course that is one part (every shipped course but `PLAYGROUND`,
+128.30.11): its part's bytes, its identity, its demos and `BZ_PHYSV`; in a
+build with no two-part course, the package's bytes (`BZ_NCRS2` = 0); in
+every build, every frame's and step's instructions. The proof is a
+`cmp` of the build's parts and `BONANZA.O88` against the base's (128.30.9).
+
+#### 128.30.7 The tool
+
+- `encode_parts`, `decode_parts`, `read_parts` and `expand` per part: the
+  model (128.15.4's, offset-free) is the same for one part or two, the
+  split is a serialisation of it, and `decode_parts` gives back the model
+  a one-part compile has.
+- A Course keeps `.cga` and `.stored` as its (picture) part's forms and
+  adds `.wcga` and `.wstored` (None for one part); `Grid` and the physics
+  model read the world part, and the picture's readers (the oracle, the
+  visibility audit, the Hercules translation) read both.
+- `--sizes` prints each part's sections, its headroom under 65,024 and its
+  packed sizes, and the course's total.
+- **`--selfcheck` item 15, TWO PARTS**: a course made for it from
+  `PLAYGROUND` (`TWOSEG`: its diagonal lane run on down the screen until
+  the one-part form is refused) compiles as two parts; each part's stored
+  form expands in place to its RAM form (the in-place simulation,
+  128.15.4.4); `read_parts` takes them and `decode_parts` gives the model
+  back; the identity is the two-part rule's; the model's autopilot reaches
+  the goal through the world part; **a shipped course is two parts only
+  when its one-part form is refused** (128.30.4.1: `PLAYGROUND` since
+  128.30.11, every other shipped course one part). Its negative controls
+  run inside the item, each a pair of parts (or a compile) that must be
+  REFUSED and is (MEASURED): a lane's pose map pointed back into `P`, the
+  world header's `GRIDOFF` a picture offset, the identity taken over the
+  world part alone, a picture part with no `L`, a two-part pathway - and
+  the shipped courses' rule's own red arm, the smallest shipped course
+  compiled with the split forced, which the rule must CATCH.
+- **The other items read a two-part course whole** (128.30.11): item 1's
+  identity is 128.30.4.3's and its stored-form check covers `BZ<K>W.BIN`;
+  item 3's reader controls change the world part and re-read the pair;
+  item 10 checks each part's in-place expansion, `read_parts`, the
+  records' compares, the identity (a picture byte and a world byte each
+  move it) and `CELLS`; item 11 decodes the pair.
+- **The test course is not shipped**: `bbcourse.py twoseg` writes its
+  text, and `make bonanzatwoseg` builds a private package and floppy with
+  it added as course 7 (`$(BUILD)/bztwoseg/`), on no shipped disk and not
+  in the tour.
+
+#### 128.30.8 Costs
+
+- **A frame, a step: 0 clk** on every course (128.30.5: the same
+  instructions).
+- **A two-part launch** (PREDICTED): one more `op_fetch` - a claim and the
+  world part's packed bytes read, bytes the one part would have held
+  anyway, so about one more `int 13h` run, under 0.4 s - and the world
+  part's forms, already priced in 128.15.4.6.
+- **Bytes**: the shipped package 0. A build with a two-part course: the
+  guest's code above (MEASURED, 128.30.9), and per two-part course the
+  world part's header (48), its directory (8 a section) and `L`'s entry
+  (8).
+
+#### 128.30.9 As built (2026-11-17)
+
+Everything here is MEASURED unless it says otherwise.
+
+- **The shipped build is today's, byte for byte**: `make BUILD=<tree>
+  bonanzadisk` before and after - `bonanza.bin`, `bzshell.bin`,
+  `BONANZA.O88`, `bonanza.img`, `bonanza360.img` and every course, demo
+  and ball part `cmp` equal. Only two generated TEXT files differ:
+  `bzcourse.inc` (`BZ_NCRS2 equ 0` and the macro's comment) and the shell
+  part's `bzlink.inc` (which lists that constant and `bz_mseg`, at
+  `bz_cseg`'s address). `bzcrs2.lst` is empty.
+- **The test course** (`TWOSG`, course 7 of `make bonanzatwoseg`): one
+  part would be **67,264** bytes under D and 75,720 under C, so two: the
+  picture part **51,956** (`M` 35,584, `B` 6,192, `I` 280, `R` 8,568, `K`
+  832, `O` 104, `L` 292 - 14 lanes' pose maps; 13,068 of room) and the
+  world part **15,364** (`G` 32, `C` 13,688, `D` 712, `T` 236, `W` 12, `P`
+  588; 49,660 of room). Packed: the picture part 8,145 LZ4 / 6,636 LZB, the
+  world part 1,801 / 1,433. Its C parts lay out (60,412 and 15,364), so its
+  identity is the same from either (1551h). (TWOSG is PLAYGROUND's text and
+  its extension, so it grew with 128.30.11: 83,515 bytes as one part, the
+  picture part 63,392 and the world part 20,179, identity 1337h, its C
+  parts no longer laid out.)
+- **The guest's code with a two-part course**: the package grows 87 bytes
+  against the same course set assembled with `BZ_NCRS2` 0 - one part row
+  (8), `BZ_CRS_WROW` (a byte a course, 8), and 71 of code: `bz_cload2`,
+  `bz_cload` +11, `bz_cdrop` +13, `bz_crshdr` +4, `bz_hxlat` +4; and 2
+  bytes of bss (`bz_mseg`).
+- **0 clk a frame and a step, by construction and checked**: every routine
+  a frame or a step runs (`bz_row`, `bz_col`, `bz_boxc`, `bz_frun`,
+  `bz_blit`, `bz_occ`, `bz_oprep`, `bz_oand`, `bz_olay`, `bz_boxw`,
+  `bz_wprect`, `bz_wpc`, `bz_wph`, `bz_lsync`, `bz_lmap`, `bz_pblit`,
+  `bz_step`, `bz_win9i`, `bz_fill`, `bz_wheel`, `bz_ldesc`, `bz_lsrcp`)
+  assembles to the same length from the same source lines with and
+  without two-part support (the two listings compared); the only change
+  inside any of them is which word a `mov sreg, [word]` names. No frame
+  cost was measured on MartyPC: there is no difference to measure, and a
+  one-part twin of `TWOSG` does not exist to compare it with.
+- **It plays** (MartyPC, `os8088_5150_cga_gla` and `os8088_5150_herc_gla`,
+  one look boot each of the `bonanzatwoseg` floppy): at `OSAPI_FSX_RUN`
+  `bz_cseg` and `bz_mseg` are two claims, the picture part `BZP2` and the
+  world part `BZW2` equal the tool's RAM forms byte for byte (the
+  Hercules': `herc_translate_parts`'), the identity read through the world
+  part is 1551h; the autopilot (`bz_apilot`) reaches the goal in **235
+  steps on both cards**, the model's count; and after the bracket both
+  words are 0, both parts dropped.
+- `--selfcheck` passes whole, item 15 included (5 min 26 s on the host).
+
+#### 128.30.10 Open questions for the owner
+
+1. **The picture part's own cap.** (d) puts the picture and its occluders
+   in one 65,024-byte part, and `PLAYGROUND` fills about 39KB of it (50,590
+   bytes since 128.30.11: 14,434 of room). If the
+   owner's growth is mostly picture and occluders past that, the next
+   lever is (e), a third part for the occluders, at (b)'s clocks - or a
+   split inside the picture (the map apart from the blocks, a DS switch a
+   block in every writer), which this section does not price further.
+2. **A two-part pathway** is refused: the held pathway (128.22.7) would
+   need both its parts held. Say if the pathway is expected to grow past
+   one part.
+
+#### 128.30.11 PLAYGROUND, the first shipped two-part course (2026-11-17)
+
+PLAYGROUND takes back wave C4's shaped-floor section (128.28.8: the
+walkway behind the step ladder, the 2-wide climbing `round` chute and the
+1-wide one) and adds the radius-3 pit on a plate at the apron's height.
+As one part it would be **65,513 bytes under D and 76,507 under C**, so it
+is two (128.30.4.1): the picture part **50,590** (`M` 25,856, `B` 9,872 -
+617 blocks, `I` 204, `R` 11,328 - 2,832 records, `K` 2,608, `O` 326, `L`
+292; 14,434 of room) and the world part **14,979** (`G` 32, `C` 9,360, `D`
+392, `F` 4,335 - 15 of the 16 shape tables, `T` 156, `W` 12, `P` 588;
+50,045 of room). Its C parts lay out (61,584 and 14,979); its identity is
+8E1Bh, and its authored demo's `ident` line was re-stamped to it (the
+same keys, 1,504 steps to the cup).
+
+**What it costs, MEASURED** - three private trees at one build number:
+**A** the owner's shaped-floor branch (PLAYGROUND one part, no two-part
+support), **B** this one, and **C** this one with PLAYGROUND's text and
+demo put back to A's (two-part support present, no course using it).
+MartyPC `os8088_5150_cga_gla`, 640KB, guest cycles; reads are the floppy
+controller's READ commands.
+
+| | A | C | B |
+|---|---|---|---|
+| `bonanza.bin` image / bss | 47,713 / 11,031 | **= A, `cmp`-equal** | 47,796 / 11,033 (+83 / +2) |
+| `bzshell.bin` | 12,072 | = A | 12,072 (its bytes link `bz_mseg`) |
+| `BONANZA.O88` | 117,933 | = A | 124,383 (+6,450) |
+| PLAYGROUND RAM | 49,422 | = A | 50,590 + 14,979 = 65,569 (+16,147) |
+| PLAYGROUND LZ4 / LZB | 9,483 / 7,715 | = A | 13,383 + 3,888 / 11,057 + 3,026 = 14,083 LZB (+6,368) |
+| `bonanza360.img` clusters | 124 of 354 | = A | 130 of 354 (224 free) |
+| 720KB, 1.2MB, 1.44MB | 124 of 713, 243 of 2,371, 243 of 2,847 | = A | 130, 255, 255 |
+| PLAYGROUND's launch, `bz_launch` to the first `bz_t0`: the first / the second | 3.90 s / 3.12 s, 6 / 3 reads | = A (the same package) | **4.80 s / 3.75 s (+0.90 / +0.63)**, 6 / 3 reads |
+| ...the course's own share (the second launch): fetch, expand | 1.37 s, 0.85 s | = A | picture 1.83 s, 0.51 s; world 0.38 s, 0.43 s (+0.93 s) |
+| PLAYGROUND's demo through D, sound off, 1,649 frames: busy mean / p95 | 40,455 / 60,507 clk | = A | 40,224 / 61,188 clk |
+| ...misses (missed refreshes a second), runs of two | 3 (0.11), 0 | = A | 3 (0.11), 0 |
+| ...the occluder pass, a frame it runs (23 frames) | 4,142 clk | = A | 5,083 clk (+941: the course's own records) |
+| free heap in PLAYGROUND's play | 22,912 paragraphs (358.0KB) | = A | 21,888 (342.0KB, -16KB) |
+| claims in the play: BONANZA's / the heap's | 3 / 8 | = A | 4 / 9 (region, arena, picture, world) |
+
+- **The mechanism costs nothing until a course uses it**: C is A byte for
+  byte - `bonanza.bin`, `bzshell.bin`, `BONANZA.O88` and every disk image.
+- **A frame and a step: the same instructions.** The listings of A and B
+  compared routine by routine (762 routines): 653 identical in source,
+  length and unrelocated bytes; every routine a frame or a step runs
+  (`bz_row`, `bz_col`, `bz_boxc`, `bz_occ`, `bz_wprect`, `bz_lsync`,
+  `bz_lmap`) differs only in which word a `mov sreg, [word]` names, at the
+  same length, and the rest only in near-call displacements and one bss
+  difference (`bz_nst - bz_tdig`, 2 less) - the code after `bz_cload`
+  moved 73 bytes and the bss after `bz_cseg` 2. Only `bz_cload` (+8),
+  `bz_cdrop` (+13), `bz_crshdr` (+4), `bz_hxlat` (+4) and the new
+  `bz_cload2` (37) and `bz_cwrow` (7) grow. The demo's figures above agree:
+  the busy mean is within 0.6% and the misses the same in number (on
+  other frames: the larger course moves the camera's limits, 301 rows
+  panned against 321).
+- **The launch** pays for the course's bytes more than for the second
+  part: 6.4KB more LZB read and decoded and 16KB more RAM expanded.
+  The floppy controller's READ commands were the same count in both (6 at
+  the first launch, 3 at the second); why the extra fetch adds none was
+  not traced.
+- **kern_small** refuses every launch before any fetch (`bz_small`, from
+  `OSAPI_WM_CREATE`'s class slots), the same code in A and B; the window's
+  region is 3,680 paragraphs in both (image and bss round to the same
+  claim). Checked in the source and the listings, not booted.
+- **kern_mega**: both parts are claims named by `op_seg`'s selectors and
+  nothing adds to either word (128.30.5); `bonanzamega`'s PLAYGROUND leg
+  (its item 10) is the check, not run here.
+- **The tool's early refusal is per part now.** Before the occluders are
+  cut, a compile refused a course whose least size (map, blocks, grid,
+  tables, route) passed 65,024 bytes - a one-part rule, which refused
+  TWOSG once PLAYGROUND grew (68,613) although its two parts fit. It now
+  refuses only when the picture part's least or the world part's passes
+  65,024 (naming the part), and keeps the one-part sum for the pathway and
+  the title.
+- **The emulator rows read a two-part course whole**: every row's
+  `Grid(c.cga)` became `Grid(c.cga, c.wcga)` (the same for a one-part
+  course), and `bonanzaexit`'s claim leg compares the picture part at
+  `[bz_mseg]` and the world part at `[bz_cseg]` with the tool's RAM forms
+  (`herc_translate_parts`' on the Hercules). Not run here: the final
+  pass's.
+- **A 256KB machine** (PREDICTED): PLAYGROUND's play needs 1,024
+  paragraphs more heap than A's, as two claims (3,168 and 960) where A
+  had one of 3,104 - the largest claim 64 paragraphs larger. Every other
+  course is unchanged.

@@ -298,7 +298,7 @@ def check(fails, ok, n, line, why):
 
 def void_cell(crs):
     """a VOID cell of the course (a ball under its kill height there respawns, in play)"""
-    grid = BB.Grid(crs.cga)
+    grid = BB.Grid(crs.cga, crs.wcga)
     for y in range(1, 64):
         for x in range(1, 64):
             try:
