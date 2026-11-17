@@ -61,6 +61,11 @@ Windows do not - is what differs.
   (so in `$(SHIPIMGS)` and the release zip), `make debugdisks` builds all
   eight debug images, and every per-image gate lists them. *Seen:*
   `t_debugdisk` 54 checks, red with the parameter removed from the link.
+- [x] **S5b. Every debug disk carries the other diagnostics** (the owner,
+  2026-11-17; SPEC.md 127.1 rule 6): `APPS\` holds REDLINE.O88 and the other
+  debug disk's program, started by hand; only the disk's own program
+  autostarts. 360KB: 29 and 30 clusters left. *Seen:* `t_debugdisk` 78
+  checks, red with REDLINE removed from one image.
 - [ ] **S6. Upstream's soak row ported** (`tests/mousechk.py` →
   `tests/inputchk.py`, its `EXPECT` table extended with the keyboard rows and
   an `AUTO` leg). Not done: this round's evidence is the QEMU boot below.

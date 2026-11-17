@@ -24,6 +24,10 @@ Two claims, each with nothing else checking it:
    and \\AUTOSTRT\\INPUTCHK.LNK a link to INPUTCHK.O88 on its own volume
    carrying the parameter AUTO - a link without it opens the interactive
    program and writes nothing. Its drivers are the SHIPPED ones: no swap.
+
+4. EVERY DEBUG DISK CARRIES THE OTHER DIAGNOSTICS IN APPS\\ (127.1 rule 6):
+   REDLINE.O88 and every other debug disk's program, byte for byte as built,
+   and only its OWN program in \\AUTOSTRT.
 """
 import os
 import re
@@ -217,6 +221,28 @@ def main():
               "own volume with the parameter AUTO (SPEC.md 129.12)" % n,
               got=(os88lnk.parse(lnk) + (os88lnk.param(lnk),)) if lnk
               else None)
+    # --- 4: the other diagnostics, by hand (SPEC.md 127.1 rule 6) ----------
+    tools = {"REDLINE.O88": "redline.o88", "SNDDIAG.O88": "snddiag.o88",
+             "INPUTCHK.O88": "inputchk.o88"}
+    own = {"debug-sound": ("SNDDIAG.O88", "SNDDIAG.LNK"),
+           "debug-input": ("INPUTCHK.O88", "INPUTCHK.LNK")}
+    for n in DEBUG + INPUT:
+        p = os.path.join(BUILD, n)
+        if not os.path.exists(p):
+            continue
+        fat = Fat12(p)
+        mine, lnk = own[n[:11]]
+        for name, src in tools.items():
+            if name == mine:
+                continue
+            want = open(os.path.join(BUILD, src), "rb").read()
+            check(find(fat, "APPS/" + name) == want,
+                  "%s: APPS\\%s is build/%s" % (n, name, src))
+        for other in own.values():
+            if other[1] != lnk:
+                check(find(fat, "AUTOSTRT/" + other[1]) is None,
+                      "%s: \\AUTOSTRT holds no %s (one program at boot)"
+                      % (n, other[1]))
     done("t_debugdisk")
 
 

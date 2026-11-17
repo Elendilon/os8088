@@ -45,3 +45,10 @@ another copy anywhere you choose.
 
 Keys after the run: K checks the keyboard controller again, P probes the
 PS/2 mouse port, R refreshes, S saves, C copies, Q quits.
+
+OTHER CHECKS ON THIS DISK
+-------------------------
+The APPS folder also holds the other diagnostics, to start by hand:
+SNDDIAG.O88 (Sound Debug) and REDLINE.O88 (the benchmark, whose Inspect
+page lists the machine's hardware). Sound Debug here can only say that the
+sound driver kept no record: for a sound report, boot the sound debug disk.
