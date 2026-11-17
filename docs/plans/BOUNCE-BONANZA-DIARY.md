@@ -4103,3 +4103,12 @@ magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 scenes on both arms (equal at every step, every red arm red); the selfcheck's
 water section; frame sequences in `build/water-cb/bobframes-cga/` and
 `build/water-e/bobframes-cga/`. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (WATER: the owner picks B)
+
+The owner played both arms: *"E looks better, but it can't exit the water, and
+I don't want another round; B is good enough."* The hover sits lower than a
+climb under the walkway for most of its bob, so the edge bumps it back - the
+reason it was set aside, written into SPEC.md 128.36.10. E's code, its red arm
+and the `BZWATERBOB` knob are deleted; B is the only surface bob, its period in
+water's FAMV. The part is B's 684 bytes again.
