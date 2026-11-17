@@ -1,0 +1,61 @@
+# Boost Test - BONANZA's BOOST PADS test course (SPEC.md 128.37), built only by the BZBOOST=1 knob
+# (make BUILD=<tree> BZBOOST=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
+# the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A pad pushes
+# every ball the same (strength 24 unless written), along its chevrons, while the ball rolls on it.
+#
+# START is a plate at 2 units with a pad for each ball.  From it:
+#  - THE CHAIN (east, row 7): three +x pads in a row down a runway, then two +y pads at its end that turn the
+#    ball south onto the GOAL plate (exit 0) - hold nothing and the pads carry it round the corner;
+#  - THE RAMP (back, -y): a one-wide corridor north from the start plate into a POCKET (12, 3) against a wall;
+#    a -x pad in the pocket drives the ball up a 3-tile ramp to the LEDGE at 5 units and its goal (exit 1).
+#    From the pocket's one tile of run-up rubber and steel cannot climb it; glass's own push beats the slope;
+#  - THE GAP (front, +y): a corridor south from the start plate into a POCKET (8, 14) against a wall; a +x pad
+#    there throws the ball across a 2-cell gap onto the LOW plate (0 units) - without it the ball rolls off
+#    into the gap.  The low plate has a way back up to the goal plate.
+course BOOS "Boost Test"
+width 128
+origin 256
+ball rubber
+uses boost
+
+floor rect 6 9 12 15 flat 2  # the start plate
+pad rubber 7 13
+pad steel 8 13
+pad glass 9 13
+start 7 10
+
+# THE CHAIN: the runway (x 10 - 18, y 7 - 8), three +x pads, then two +y pads into the goal plate
+floor rect 12 10 21 12 flat 2
+prop boost 13 10 face +x
+prop boost 14 10 face +x
+prop boost 15 10 face +x
+prop boost 16 10 face +x
+prop boost 17 10 face +x
+prop boost 19 10 face +y
+prop boost 19 11 face +y
+floor rect 17 12 23 17 flat 2  # the goal plate
+goal tile 20 14 flat 2
+
+# THE RAMP: the corridor (x 12, y 3 - 5) into the pocket (12, 3), its wall (12, 2); the ramp x 9 - 11 rising
+# to the ledge (x 5 - 8, y 1 - 5) at 5 units
+floor rect 14 6 15 9 flat 2
+wall rect 14 5 15 6 flat 4
+prop boost 14 6 face -x strength 40
+floor rect 12 4 14 8 ramp x 12 14 4 2
+floor rect 7 4 12 9 flat 4
+goal tile 8 6 flat 4 exit 1
+
+# THE GAP: the corridor (x 8, y 12 - 14) into the pocket (8, 14), its wall (8, 15); the gap x 9 - 10; the low
+# plate (x 11 - 15, y 12 - 16) at 0, a ramp up to the goal plate
+floor rect 10 15 11 17 ramp y 15 17 2 4
+floor rect 10 17 11 18 flat 4
+wall rect 10 18 11 19 flat 6
+prop boost 10 17 face +x
+floor rect 13 15 18 20 flat 0
+floor rect 17 17 19 18 ramp x 17 19 0 2
+clock 18 15
+clock 9 7
+target 60
+way 7 10
+way 17 10
+way 20 14
