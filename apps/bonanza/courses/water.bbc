@@ -1,0 +1,42 @@
+# Water Test - BONANZA's WATER test course (SPEC.md 128.32), built only by the BZWATER=1 knob, as
+# shapes.bbc is by BZSHAPES=1.  It is NOT a shipped course: the knob adds it to BZ_COURSES and makes it the
+# pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
+#
+# The owner's sketch (docs/plans/bounce-bonanza/water-sketch.png): a WALKWAY of floor cells 3 units up, one
+# of them WATER, flush with it, its ripples drawn; under it a glass-walled column 3 units deep; at the bottom
+# of the column's FRONT face an ARCH, out onto a lower path running toward the viewer.  Rubber and glass roll
+# across the water at the walkway's level; steel sinks down the column and rolls out of the front.
+#  - the start on the walkway, a RUBBER pad beside it, a STEEL pad beside the first column (its window holds
+#    the water cell: the swap refills it);
+#  - the sketch's column at (8, 8), on the walkway's front row, its arch +y onto the lower yard;
+#  - a ROW of four columns (11 - 14, 8), one arch at the far end ((14, 8) +y); in front of the other three a
+#    ledge a unit up, which seals them at the bed (and shows their glass); steel walks the bed under the row;
+#  - a TOWER 7 units up behind the row, its front edge one cell from the water, a GLASS pad on it: glass
+#    rolled off it falls 4 units - a shatter on stone, landed whole on the water;
+#  - the finish (exit 0) on the yard below the first arch; exit 1, the walkway's far end, goes on to FIRST.
+course WATER "Water Test"
+width  128
+ball   rubber
+uses   water
+
+floor rect  3  3 18  9 flat 3        # the walkway, 3 units up
+floor rect  3  9 18 15 flat 0        # the lower yard in front of it
+floor rect 11  9 14 10 flat 1        # the ledge sealing the row's three closed columns at their bed
+floor rect 11  3 15  7 flat 7        # the glass drop's tower, its front edge one cell behind the row
+water tile  8  8      top 3 bed 0    # the sketch's column
+water rect 11  8 15 9 top 3 bed 0    # the row of four
+arch  8  8 +y
+arch 14  8 +y
+
+pad steel   7  7
+pad rubber  6  6
+pad glass  13  5
+start 5 6
+goal tile  8 14 flat 0
+goal tile 17  6 flat 3 exit 1
+clock  5 13
+clock 16  4
+target 60
+way 5 6
+way 8 6
+way 8 14
