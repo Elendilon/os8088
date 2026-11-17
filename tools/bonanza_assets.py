@@ -286,22 +286,16 @@ SHD_ROWS = 6                  # the shadow: a 16 x 6 ellipse, AND only
 NST = 1                       # rubber's STRETCH frames (wave 6, the boost's cue)
 ST_W = 12                     # the stretch: an ellipse 12 wide, 16 tall, centred
 ENT = 2 * D * RB              # a squash or shatter entry: mask 80 + frame 80
-# THE DEATH AND SQUASH FRAMES' COPIES (SPEC.md 128.11.9.1 as 128.38.10 amends it, the owner's A and B):
-# a squash, shatter, stretch or pop FRAME is EPAR line-parity copies of ESH shifts of an entry.  EPAR 2, ESH 4
-# is the layout as it was (1,280 bytes a frame); B, EPAR 1: one parity copy (the Hercules' mid colours a
-# checker phase off on alternate lines, as drawn), 640; A, ESH 1 as well: the entry at shift 0 alone, shifted
-# by the guest as it draws (bz_sprite's bz_eshift into the ball part's scratch, B2_SCROFF), 160.  The
-# switches: these two constants (the guest reads BZ_BAL_EPAR, BZ_BAL_ESH)
-EPAR = 1
-ESH = 1
-ENTS = ESH * EPAR * ENT       # a frame's bytes
+# THE DEATH AND SQUASH FRAMES (SPEC.md 128.11.9.1 as 128.38.10 amends it, the owner's B): a squash, shatter,
+# stretch or pop FRAME is its entry at each of the 4 shifts, ONE line-parity copy each (it was two: the same
+# bytes on the CGA; on the Hercules the one copy's mid colours are a checker phase off on odd lines) - 640
+# bytes a frame.  A (one shift, shifted at the draw) is parked: docs/plans/bounce-bonanza/patches/
+ENTS = SHIFTS * ENT           # a frame's bytes
 B2_MASKOFF = HDR                                   # 16
 B2_FRMOFF = B2_MASKOFF + SHIFTS * D * RB           # 336
 B2_SQOFF = B2_FRMOFF + NFRAMES * D * RB            # 5,456
 B2_SHDOFF = B2_SQOFF + NSQ * ENTS                  # 8,016 as it was
-B2_SCRN = ENT if ESH == 1 else 0                   # A: the shifted entry's SCRATCH, after the shadow
-B2_SCROFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # (every ball's, at the same offset)
-B2_SHAOFF = B2_SCROFF + B2_SCRN                    # 8,256 as it was
+B2_SHAOFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # 8,256 as it was
 B2_STROFF = B2_SHAOFF                              # 8,256: rubber's stretch, where glass's shatter is
 NPOP = 3                      # rubber's POP frames (SPEC.md 128.38): its shatter entries 1 - 3, after its stretch
                               # (entry 0, which a pop shows first: the ball bulging), BZB2 +12
@@ -312,33 +306,20 @@ assert NST + NPOP == NSH      # (the sprite's SHATTER k reads entry k of the one
 
 def ent_at(base, k, s, p):
     """the STORED entry of frame k of the table at BASE that a sprite drawn at shift s on a line of parity p
-    reads (SPEC.md 128.38.10): its copy p & (EPAR - 1) of its shift s (A: shift 0, shifted at the draw)"""
-    return base + ((k * ESH + (s if ESH > 1 else 0)) * EPAR + (p if EPAR > 1 else 0)) * ENT
-
-
-def shift_row(row, s, fill):
-    """a 5-byte row at shift 0 moved s pixels right (2 bits each), FILL (3: a mask's keep, 0: a frame's) in at
-    the left - the guest's bz_eshift"""
-    v = int.from_bytes(bytes(row), "big") >> (2 * s)
-    if fill:
-        v |= ((1 << 2 * s) - 1) << (40 - 2 * s)
-    return v.to_bytes(5, "big")
+    reads (SPEC.md 128.38.10): its shift s's one copy, whatever the parity"""
+    return base + (k * SHIFTS + s) * ENT
 
 
 def ent_rows(part, base, k, s, p):
     """(mask 80, frame 80): what the guest DRAWS for frame k of the table at BASE at shift s on a line of
-    parity p - the stored entry, shifted at the draw under A"""
+    parity p - the composites', the checks' and the ring oracle's one reader of the layout"""
     e = ent_at(base, k, s, p)
-    m, f = bytes(part[e:e + D * RB]), bytes(part[e + D * RB:e + ENT])
-    if ESH > 1 or not s:
-        return m, f
-    return (b"".join(shift_row(m[i:i + RB], s, 3) for i in range(0, D * RB, RB)),
-            b"".join(shift_row(f[i:i + RB], s, 0) for i in range(0, D * RB, RB)))
+    return bytes(part[e:e + D * RB]), bytes(part[e + D * RB:e + ENT])
 
 
 def _ent_out(enc_of_shift):
-    """a frame's stored bytes: ESH shifts of EPAR copies, enc_of_shift(s) -> the entry's 160 bytes"""
-    return b"".join(enc_of_shift(s) * EPAR for s in range(ESH))
+    """a frame's stored bytes: its 4 shifts, enc_of_shift(s) -> the entry's 160 bytes"""
+    return b"".join(enc_of_shift(s) for s in range(SHIFTS))
 
 
 def nshatter(mat):
@@ -643,13 +624,12 @@ def build_ball2(mat):
     def ringed(rows, s):
         enc = [_encode(sl) for sl in _ring_slots([_slots(rows[r], s) for r in range(D)])]
         return b"".join(e[0] for e in enc) + b"".join(e[1] for e in enc)
-    for k in range(NSQ):                           # SQUASH: 2 x ESH shifts x EPAR parities
+    for k in range(NSQ):                           # SQUASH: 2 x 4 shifts, one copy each
         rows = _rows_of(squash_frame(mat, k))
         out += _ent_out(lambda s, rows=rows: plain(rows, s))
     for p in range(2):                             # the SHADOW: AND only
         for s in range(SHIFTS):
             out += shadow_mask(p, s)
-    out += bytes(B2_SCRN)                          # (A: the shifted entry's scratch, the guest's)
     for k in range(nsh if mat == MAT_GLASS else 0):    # SHATTER (glass)
         pix = shatter_frame(k)
         rows = [{x: c for (x, y), c in pix.items() if y == r} for r in range(D)]
@@ -702,13 +682,12 @@ def herc_translate_ball(part, table=None):
                 b[o + i] = t[256 * (((f >> 3) + r) & 1) + b[o + i]]
     for base, n in ((B2_SQOFF, NSQ), (B2_SHAOFF, nsh)):
         for k in range(n):
-            for s in range(ESH):
-                for p in range(EPAR):
-                    e = base + ((k * ESH + s) * EPAR + p) * ENT + D * RB
-                    for r in range(D):
-                        for i in range(RB):
-                            o = e + r * RB + i
-                            b[o] = t[256 * ((p + r) & 1) + b[o]]
+            for s in range(SHIFTS):
+                e = base + (k * SHIFTS + s) * ENT + D * RB
+                for r in range(D):
+                    for i in range(RB):
+                        o = e + r * RB + i
+                        b[o] = t[256 * (r & 1) + b[o]]
     return bytes(b)
 
 
@@ -928,11 +907,11 @@ def model_ball3(stored):
             chk = (chk >> 1 | chk << 15) & 0xFFFF
             sy = 15 - (15 - y) * 16 // h
             pl.append((s_ ^ k, qlo[sy] & (i ^ k), qhi[sy] & (i ^ k)))
-        for s in range(ESH):
+        for s in range(SHIFTS):
             e = b"".join(_put5(_spread(~p[0] & 0xFFFF), s, True) for p in pl)
             e += b"".join(_put5(_inter(p[2], p[1]), s, False) for p in pl)
-            out[o:o + EPAR * len(e)] = e * EPAR
-            o += EPAR * len(e)
+            out[o:o + len(e)] = e
+            o += len(e)
         return o
 
     o = entry(tabs[0], o)
@@ -975,9 +954,6 @@ def emit_const():
         "BZ_BAL_SQOFF    equ %d      ; squash: frame x shift x parity x (mask, frame)" % B2_SQOFF,
         "BZ_BAL_NSQ      equ %d" % NSQ,
         "BZ_BAL_ENT      equ %d       ; a squash or shatter entry: mask 80 + frame 80" % ENT,
-        "BZ_BAL_EPAR     equ %d         ; its line-parity copies (SPEC.md 128.38.10: B keeps 1)" % EPAR,
-        "BZ_BAL_ESH      equ %d         ; its shifts stored (A: 1, shifted as drawn into the scratch)" % ESH,
-        "BZ_BAL_SCROFF   equ %d      ; A's scratch: the drawn entry, shifted (B2_SCRN bytes, 0 without A)" % B2_SCROFF,
         "BZ_BAL_SQ0ROWS  equ %d        ; squash 0's height, bottom-anchored" % SQ_ROWS[0],
         "BZ_BAL_SQ1ROWS  equ %d" % SQ_ROWS[1],
         "BZ_BAL_SHDOFF   equ %d      ; the shadow: parity x shift x 6 rows x 5 bytes, AND only" % B2_SHDOFF,
@@ -1226,15 +1202,12 @@ def _check_ball2(mat, part, results, tag=None):
             m0, f0 = ent_rows(part, sbase, k, s, 0)
             got = [_decode_pix(m0[r * RB:r * RB + RB], f0[r * RB:r * RB + RB]) for r in range(D)]
             pix = shatter_frame(k) if mat == MAT_GLASS else pop_frame(k + 1)   # the piece's shape (SEE is a piece's
-            shp = [_slots({x: c for (x, y), c in pix.items() if y == r}, s if ESH > 1 else 0) for r in range(D)]
-            if ESH == 1:                            # (A: the shift-0 entry moved s right as drawn)
-                shp = [([None] * s + sl)[:RB * 4] for sl in shp]
+            shp = [_slots({x: c for (x, y), c in pix.items() if y == r}, s) for r in range(D)]
             for r in range(D):                      # see-through interior, not its outside)
                 for j, c in enumerate(shp[r]):
                     if c is not None and got[r][j] != BLK and any(
-                            (not (0 <= j + dx < RB * 4 and 0 <= r + dy < D) or shp[r + dy][j + dx] is None)
-                            and not (ESH == 1 and s and j + dx >= RB * 4)   # (A: a piece the shift pushes past the
-                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):    # right edge is cut there, unringed)
+                            not (0 <= j + dx < RB * 4 and 0 <= r + dy < D) or shp[r + dy][j + dx] is None
+                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
                         ring = False
     results.append(("%s squash%s: the two line-parity copies of every entry identical, mask and frame consistent"
                     % (name, " and shatter" if nsh else ""), same))
@@ -1356,14 +1329,12 @@ def selfcheck():
     _check_ball2(MAT_GLASS, bytes(gl), sub, "glass, interior mask SOLID")
     results.append(("negative control: glass's interior mask made solid is caught", not all(g for _, g in sub)))
     sq = bytearray(a_files["BZBALS.BIN"])
-    if EPAR > 1:
-        sq[B2_SQOFF + ENT + D * RB + 40] ^= 0x30
-    else:                                       # (one copy, SPEC.md 128.38.10: a mask pixel made half-kept)
-        sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40
+    sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40     # (one copy, SPEC.md 128.38.10: a mask pixel
+                                                                # made half-kept)
     sub = []
     _check_ball2(MAT_STEEL, bytes(sq), sub, "steel, a squash parity copy altered")
-    results.append(("negative control: a squash %s on the CGA is caught" % (
-        "parity copy altered" if EPAR > 1 else "entry's mask made half-kept"), not all(g for _, g in sub)))
+    results.append(("negative control: a squash entry's mask made half-kept on the CGA is caught",
+                    not all(g for _, g in sub)))
     st = bytearray(a_files["BZBALS.BIN"])
     f, r = 9, 0
     x = next(x for x in range(D) if _rim(x, r))
@@ -1381,8 +1352,6 @@ def selfcheck():
         hit = next((j for j, v in enumerate(got) if v == BLK), None)
         if hit is not None:
             gs[e0 + D * RB + r * RB + (hit >> 2)] |= CYN << (6 - 2 * (hit & 3))
-            if EPAR > 1:
-                gs[e0 + ENT + D * RB + r * RB + (hit >> 2)] |= CYN << (6 - 2 * (hit & 3))
             break
     sub = []
     _check_ball2(MAT_GLASS, bytes(gs), sub, "glass, a burst shard's ring pixel cyan")
