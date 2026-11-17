@@ -4073,3 +4073,48 @@ magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 **Tested**: `make bonanza`, the knob tree's `bonanzadisk`, the selfcheck's
 `water` section, `bonanza_phys --check`'s water scenes (six) and red arms
 (six), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (SPIKES and the crystal membrane)
+
+The props round's P5 and P8 as ONE family (SPEC.md 128.38, branch
+`bb-spike`): a spike floor, pop-up spikes on a timer, and a membrane only
+glass can stand on. All three are WATER's trick - a flat floor in the grid,
+rewritten in the 9-cell window for whichever ball is rolling.
+
+- **Killing a ball with no new code.** The engine already has a death: the
+  hard landing's SHATTER, judged in `bz_land` from `bz_mrec`'s HARD, HSTEPS
+  and HTHR, the material record's working copy. So the family writes those
+  three (SHATTER, 24 steps, threshold 0) while the window's centre is a spike
+  and the ball is not steel, and puts them back after. A kill needs a
+  LANDING, though, and a ball rolling onto a floor at its own height never
+  lands - so rubber's and glass's spike floor is a half unit BELOW the base:
+  every ball that reaches the spikes drops 4 px onto them. Steel's is a half
+  unit above (the tips), exactly a climb, so it rolls up and on. Which gave
+  the one refusal that matters: a floor beside the spikes LOWER than their
+  base would reach that half-unit-down floor level, with no landing - so the
+  tool refuses it.
+- **Rubber's pop for free in code, not in bytes.** The sprite reads shatter
+  entry k of the ball's OWN part, and rubber's stretch already sits at entry
+  0 of that table; `bz_hxlat` already translates `+12 + +14` entries. So
+  three POP frames after the stretch (burst, shreds, the skin) need no
+  resident byte - but the table is fixed-layout, so they cost 3,840 bytes of
+  the bundle's RAM, and two frames would cost the same (the last is entry 3).
+  The first draft's shreds were 2 x 2 and came out all black once the black
+  ring went round them; they are 4 px wide now.
+- **Pop-up spikes** are a timed lane like WIND's gusts, so the window's
+  one-change-a-step check now covers both (`_wind_turns`); the rows on the
+  test course are a half period and three steps apart. A spike rising under a
+  resting rubber ball refills the window, its floor drops a half unit and the
+  landing pops it; under steel it lifts the ball 4 px.
+- **Two families on one record.** WATER keeps the HTHR it replaced exactly
+  the way SPIKES do, so a refill moving straight from one to the other would
+  keep the other's value. Rather than a protocol, the tool refuses a spiked
+  cell touching a water cell; the owner's pairing (water over spikes) puts
+  the arch's exit cell between them.
+- **Bytes.** The part 455; the image +2 (`BZ_FTAB`'s rows for 10 and 11); bss
+  0; the bundle +4,304 RAM (+620 packed), most of it the pop.
+
+**Tested**: `make bonanza`, `make bonanza-check`, the knob tree's
+`bonanzadisk`, `--selfcheck --only spike`, `bonanza_phys`'s spike scenes
+(eleven, the guest equal to the model at every step) and red arms (six, all
+red), one MartyPC look on each card. **Not run**: soak rows, `test-full`.

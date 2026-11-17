@@ -3,14 +3,14 @@
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #
 # START is a plate at 2 units with a pad for each ball and the finish (exit 0) beside the start.  From it:
-#  - east, the SPIKE CORRIDOR (wy 3 - 5): six cells of spikes the whole width, on to a goal (exit 1).
+#  - east, the SPIKE CORRIDOR (wy 5 - 7): six cells of spikes the whole width, on to a goal (exit 1).
 #    Steel is pushed up onto the tips and rolls on; rubber POPS and glass SHATTERS (and respawns) - too long
 #    to Hop;
-#  - south, the POPSPIKE LANE (wx 3 - 5): two rows of pop-up spikes, 64 steps up in every 128, the rows
-#    half a period apart and each row's three cells a step apart (one pose change a step): cross a row
-#    while it is down; a goal (exit 1) at its end;
-#  - south-east, the MEMBRANE BRIDGE (wy 7): four cells of crystal film over the void to a plate with a goal
-#    (exit 1): glass rolls across it, rubber and steel fall through;
+#  - south, the POPSPIKE LANE (wx 5 - 7): two rows of pop-up spikes, 64 steps up in every 128, the rows
+#    half a period and three steps apart, each row's three cells a step apart (one pose change a step): cross a row
+#    while it is down (a dead end: the finish clock rule keeps the goals by the one clock);
+#  - south-east, the MEMBRANE BRIDGE (wy 9): four cells of crystal film over the void to a plate
+#    (a dead end): glass rolls across it, rubber and steel fall through;
 #  - north-east, the WATER PAIRING (the owner's: two steel-only mechanisms): a walkway 2 units up, past the spike corridor, whose one
 #    water cell sinks steel down its column and out of the arch onto spikes - steel rides them to the yard.
 course SPIKE "Spike Test"
@@ -48,10 +48,9 @@ pad glass 5 7
 start 6 7
 goal tile 8 8 flat 2
 goal tile 18 6 flat 2 exit 1
-goal tile 6 18 flat 2 exit 1
-goal tile 15 10 flat 2 exit 1
-goal tile 22 12 flat 0 exit 1
 clock 9 4
+clock 17 7
+limit 99
 target 60
 way 6 7
 way 8 8

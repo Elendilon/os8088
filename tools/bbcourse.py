@@ -4770,10 +4770,10 @@ def build_props(src, tiles, fname):
         props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                       "num": lb["num"], "label": lb})
     nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                     or _pennant(p) or _famart(p) or p.get("art") == "magnet"))
+                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes")))
     if nlane > PROP_MAX:
         lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                   or _pennant(p) or _famart(p) or p.get("art") == "magnet")]
+                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes"))]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -8318,7 +8318,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             else:
                 pix = spike_pix(cx, cy, SPIKE_FEET if p["kind"] == SP_K else SPIKE_POPFEET,
                                 SPIKE_BLADE if p["kind"] == SP_K else SPIKE_SLIT)
-            for (x, y), ink in pix.items():
+            for (x, y), ink in (pix.items() if not hack.get("nospikeart") else ()):    # (--selfcheck's control)
                 if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sF:
                     cv.rows[y][x] = ink
             if p["kind"] != SP_KP:
@@ -25193,6 +25193,133 @@ def _water_checks(res):
                 "(WATER_FLOAT 0): %d" % (len(fl), wf, len(fl0)), len(fl) > len(fl0)))
 
 
+_SPK = ('course S "s"\nwidth 64\norigin 224\nuses spike\nfloor rect 4 4 12 8 flat 2\nstart 5 5\n')
+SP_TEST = os.path.join(COURSE_DIR, "spike.bbc")
+
+
+def _spike_cases():
+    """(what, text, the refusal's words): SPEC.md 128.38's refusals"""
+    return (("spikes on sand", _SPK + "surface sand rect 9 5 10 6\nprop spikes 9 5\n", "NORMAL ground"),
+            ("spikes beside a lower floor (rubber would roll on without landing)",
+             _SPK + "floor rect 9 8 10 9 flat 1.5\nprop spikes 9 7\n", "lower than its base"),
+            ("spikes beside water", _SPK.replace("uses spike", "uses spike water") + "floor rect 4 8 12 10 flat 0\n"
+             "water tile 7 7 top 2 bed 0\narch 7 7 +y\nprop spikes 8 6\n", "beside the water"),
+            ("a popspike's period not a power of two of 32 - 256", _SPK + "prop popspikes 9 5 period 100 on 50\n",
+             "period is"),
+            ("a popspike up its whole period", _SPK + "prop popspikes 9 5 period 64 on 64\n", "`on`"),
+            ("a popspike's seed past its period", _SPK + "prop popspikes 9 5 period 64 on 32 seed 64\n", "seed 64"),
+            ("an empty spikes rect", _SPK + "prop spikes 9 5 9 6\n", "is empty"),
+            ("a membrane on ice", _SPK + "surface ice rect 9 5 10 6\nprop membrane 9 5\n", "NORMAL ground"),
+            ("spikes with no `uses spike`", _SPK.replace("uses spike\n", "") + "prop spikes 9 5\n", "does not name"),
+            ("two popspikes in one window turning on one step", _SPK + "prop popspikes 9 5 period 64 on 32\n"
+             "prop popspikes 9 7 period 64 on 32\n", "turn on the same step"))
+
+
+class _SpArm(SpikeFamily):
+    """SPIKES' red arms ON THE MODEL (--selfcheck `spike`): "nokill" (the centre's kill never written: rubber and
+    glass land on the spikes whole), "allfloor" (a membrane a floor for every ball)"""
+    arm = None
+
+    def cell(self, p, slot, win):
+        if _SpArm.arm == "allfloor" and p.mat != MAT_GLASS:
+            m = p.mat
+            p.mat = MAT_GLASS
+            try:
+                hard = (p.hard, p.hsteps, p.hthr)
+                SpikeFamily.cell(self, p, slot, win)
+                return
+            finally:
+                p.mat = m
+        if _SpArm.arm == "nokill":
+            hard = (p.hard, p.hsteps, p.hthr)
+            SpikeFamily.cell(self, p, slot, win)
+            p.hard, p.hsteps, p.hthr = hard
+            return
+        SpikeFamily.cell(self, p, slot, win)
+
+
+SP_SC = (("steel", MAT_STEEL, (10, 6, 300, 0), 100), ("rubber", MAT_RUBBER, (10, 6, 200, 0), 60),
+         ("glass", MAT_GLASS, (10, 6, 200, 0), 60), ("mglass", MAT_GLASS, (9, 9, 250, 0), 60),
+         ("mrubber", MAT_RUBBER, (9, 9, 250, 0), 60), ("popdown", MAT_RUBBER, (6, 14, 0, 250), 60))
+
+
+def sp_model_scenes(c, arm=None):
+    """each of SP_SC on SPIKE's model (ARM: _SpArm's) -> {name: (shatters, falls, the end's cell, z px)}"""
+    out = {}
+    old = FAM_MODEL["spike"]
+    if arm:
+        _SpArm.arm = arm
+        FAM_MODEL["spike"] = _SpArm()
+        FAM_MODEL["spike"].row = old.row
+    try:
+        for name, mat, (wx, wy, gx, gy), n in SP_SC:
+            p = Physics(c, play=True, mat=mat).poke(wx, wy, gx, gy)
+            for _ in range(n):
+                p.step(K_D if name == "popdown" else 0)
+            out[name] = (p.nshat, p.nfall, (p.gx >> 12, p.gy >> 12), p.gz >> 8)
+    finally:
+        FAM_MODEL["spike"] = old
+        _SpArm.arm = None
+    return out
+
+
+def _sc_spike(X, res):
+    """--selfcheck's section `spike` (SPEC.md 128.38): the refusals, the test course's records, cells, lanes,
+    reach and art, the scenes on the model and its red arms"""
+    for what, text, want in _spike_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders="turn" in want)    # (the lanes' bounds: the
+            fired, msg = False, "compiled"                                          # occluders' pass)
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (spikes, 128.38): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(SP_TEST)
+    g = Grid(c.cga)
+    recs = [r for r in c.part["props"] if r["kind"] in (SP_K, SP_KP, SP_KM)]
+    sk = [r for r in recs if r["kind"] == SP_K]
+    pk = [r for r in recs if r["kind"] == SP_KP]
+    mk = [r for r in recs if r["kind"] == SP_KM]
+    cok = all(g.cell(*r["at"])[3] == KIND_FLOOR and g.cell(*r["at"])[5] == SURF_NORMAL
+              and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS
+              and (r["mz"] == g.cell(*r["at"])[0] if r["kind"] == SP_KM else
+                   (r["low"], r["tip"]) == (g.cell(*r["at"])[0] - 1, g.cell(*r["at"])[0] + 1)) for r in recs)
+    lok = all(bool(r["lane"]) == (r["kind"] == SP_KP) for r in recs) and all(r["lane"]["poses"] == 2 for r in pk)
+    res.append(("3 spikes (128.38): SPIKE's %d spikes, %d popspikes and %d membrane cells are normal FLAT FLOORs at "
+                "their base with OBS and not SAFE, +18 LOW and +19 TIP a half unit either side of it (a membrane's +18 "
+                "its z0); a popspike alone has a lane, of 2 poses (timers %s)" % (
+                    len(sk), len(pk), len(mk), sorted(set((r["on"], r["smask"] + 1) for r in pk))),
+                cok and lok and len(sk) == 24 and len(pk) == 6 and len(mk) == 4))
+    by = dict(((q.wx, q.wy), q) for q in c.reach)
+    c0 = compile_course(open(SP_TEST).read(), fname=SP_TEST + " (noforms)", _hack={"noforms": True})
+    by0 = dict(((q.wx, q.wy), q) for q in c0.reach)
+    sp_ = [r for r in sk + pk if r["at"] in by]
+    res.append(("6 spikes (128.38): the reach takes the BED form at LOW and the TIP form, and a membrane's VOID - "
+                "the spike cells' zlo %s px and zhi at least the tips %s, a membrane's zlo %s; with `noforms` the "
+                "base %s" % (sorted({by[r["at"]].zlo for r in sp_}), sorted({4 * r["tip"] for r in sp_}),
+                             sorted({by[r["at"]].zlo for r in mk if r["at"] in by}),
+                             sorted({by0[r["at"]].zlo for r in sp_})),
+                sp_ and all(by[r["at"]].zlo == 4 * r["low"] and by[r["at"]].zhi >= 4 * r["tip"]
+                            and by0[r["at"]].zlo == 4 * r["low"] + 4 for r in sp_)
+                and all(by[r["at"]].zlo == 4 * (r["mz"] - 6) for r in mk if r["at"] in by)))
+    # the art: the corridor's blades in the picture (white and black on its tops); a membrane cell undrawn but
+    # its film; a popspike's slits in the picture and its blades the lane's pose 1
+    cn = compile_course(open(SP_TEST).read(), fname=SP_TEST + " (no art)", _hack={"nospikeart": True})
+    res.append(("10 spikes (128.38): the corridor's blades, the popspikes' slits and the membrane's film are in the "
+                "picture (the course part %d bytes; %d with the art's control `nospikeart`, the part differing)"
+                % (len(c.cga), len(cn.cga)), c.cga != cn.cga))
+    good = sp_model_scenes(c)
+    want = {"steel": lambda v: v[0] == 0 and v[1] == 0 and v[3] == 20,
+            "rubber": lambda v: v[0] == 1 and v[1] == 1, "glass": lambda v: v[0] == 1 and v[1] == 1,
+            "mglass": lambda v: v[1] == 0, "mrubber": lambda v: v[1] == 1 and v[0] == 0,
+            "popdown": lambda v: v[0] == 0 and v[1] == 0 and v[2][1] >= 18}
+    res.append(("11 spikes (128.38): on the model - %s" % ", ".join("%s %s" % (k, v) for k, v in good.items()),
+                all(want[k](v) for k, v in good.items())))
+    for arm, scn in (("nokill", "rubber"), ("allfloor", "mrubber")):
+        bad = sp_model_scenes(c, arm)
+        res.append(("11 spikes red %s: %s %s (it must part from %s)" % (arm, scn, bad[scn], good[scn]),
+                    bad[scn] != good[scn]))
+
+
 def _sc_water(X, res):
     """--selfcheck's section `water` (SPEC.md 128.36)"""
     _water_checks(res)
@@ -25863,7 +25990,8 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20}
+           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20,
+           "spike": 20}
 
 
 def _av_floats_want(c):
@@ -26390,7 +26518,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_cache",
-             "_sc_magnet", "_sc_water")
+             "_sc_magnet", "_sc_water", "_sc_spike")
 
 
 def _selfcheck(paths, res, skipped, S):

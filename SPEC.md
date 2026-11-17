@@ -278635,3 +278635,191 @@ arms `waact` (the ACTIVE ripple's flip unmarked) and `waalw` (an ALWAYS one's)
 go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
+
+### 128.38 SPIKES and the crystal MEMBRANE, a family (the owner's designs P5 and P8, 2026-11-17; BUILT on `bb-spike`)
+
+The props plan's P5 (the SPIKE PIT, and POP-UP SPIKES on a timer) and P8 (a
+GLASS-ONLY crystal MEMBRANE), [BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md).
+One family on WATER's per-ball trick (128.36.2): every cell is a FLAT FLOOR of
+the grid, OBS and never SAFE, and the CELL hook rewrites it in the 9-cell
+window for the ball that is rolling. **No resident engine code, no surface,
+`BZ_PHYSV` unmoved**; the image's two new bytes are `BZ_FTAB`'s rows for IDs
+10 (BOOST's, a gap on this branch) and 11. BUILT and MEASURED where marked.
+
+#### 128.38.1 The decisions, in one table
+
+| | decision |
+|---|---|
+| the family | `spike`, ID **11**, kinds **56** `spikes`, **57** `popspikes`, **58** `membrane` (`FAM_K0 + 40` on, the round's fixed assignment), hooks RESET, STEP, POSE, CELL, home **`resident`** (the owner's default) |
+| the spikes | the cell's grid floor is its BASE B; the record's +18 **LOW** = B less a half unit, +19 **TIP** = B plus a half unit (4 px, `BZ_CLIMB`: steel rolls up onto the tips from a floor at B) |
+| steel | its window holds TIP: pushed up onto the tips, it rolls on (a material GATE) |
+| rubber and glass | their window holds LOW, a 4 px drop - so a ball rolling on LANDS - and while the window's CENTRE is a spike cell `bz_mrec`'s HARD, HSTEPS and HTHR are **SHATTER, `BZ_SHA_STEPS` (24), 0**: any landing there is 128.11's hard landing's SHATTER, then the respawn as today. Glass shows its four shatter frames, rubber its **POP** (128.38.5). The three values replaced are kept once, on the way in, and put back on the way out (WATER's HTHR rule) |
+| a Hop | an airborne ball over spikes is not killed; rubber Hops one row, so a GATE covers most of the floor (the owner's reading, the plan's P1 note) |
+| pop-up spikes | the same on a timer: UP while `((n + SEED) AND MASK) < ON` (n `bz_nstep`'s low byte; the period `MASK + 1` 32, 64, 128 or 256 steps); UP as spikes, DOWN an ordinary floor at B for every ball. Two poses, a SLOW timed lane, marked on change |
+| the membrane | FLOOR for glass alone; every other ball's window holds a NEAR VOID there (z0 less 6 half units, kind and surface 0, its flags kept: a broken crack's, 128.25.18), so it falls through to the kill 3 units down and respawns |
+| visibility | the spikes and the film are PAINTED into the picture - never an occluder - so they never hide the ball (the owner's rule allows partial occlusion; this hides nothing) |
+
+#### 128.38.2 The statements (BUILT)
+
+    uses spike
+    prop spikes <wx> <wy> [<x1> <y1>]
+    prop popspikes <wx> <wy> period <32|64|128|256> on <N> [seed <S>]
+    prop membrane <wx> <wy> [<x1> <y1>]
+
+`spikes` and `membrane` take a cell or a RECT (as a floor's `rect`: x1, y1
+past its last cell) and lay ONE ELEMENT A CELL (a record each, 32 bytes of the
+course part and its row of the per-prop tables), each on a FLAT FLOOR the
+course already laid. Decided by bytes: one record a rect would cut the course
+bytes and the CELL walk, but every family rule (the claim, OBS, the owner
+scan, the lanes, the reach forms) is a cell's, a gate is a few cells, and a
+record a cell costs no resident byte. A `popspikes` is one cell (its seed is
+its own: the window's one-change-a-step rule). `1 <= N < period`,
+`0 <= S < period`.
+
+#### 128.38.3 The record, the slot and the hooks (BUILT: `fam/spike.asm`, `bbcourse.SpikeFamily`)
+
+Records: +16 FSB 0 and +17 the class `ATTEMPT` (no state bits: STATELESS);
+spikes +18 LOW, +19 TIP (signed half units), +20 - +31 zero; a popspike the
+same and +20 ON, +21 MASK, +22 SEED, +23 - +31 zero; a membrane +18 its
+floor's z0, +19 - +31 zero. `read_part` refuses any other, and a cell that is
+not a NORMAL flat FLOOR at B with OBS, not SAFE. The slot (7 of `BZF_SLOT`'s
+8): +0 the material STEP last saw, +1 IN (the centre a killing spike at the
+last refill), +2 HARD and +3 HSTEPS as they were, +4 HTHR (word) as it was,
++6 the course's popspikes.
+
+- **RESET** counts the popspikes (+6), so STEP walks the records only on a
+  course that has one.
+- **CELL**, every refill, per ball and idempotent (written from the record):
+  a spike or an UP popspike TIP for steel and LOW for any other ball; a DOWN
+  popspike B (TIP less one) for every ball; a membrane, for every ball but
+  glass, the near void. Then by the CENTRE: a spike or UP popspike and the
+  ball not steel - the kill values (kept on the way in); otherwise, IN set -
+  put back.
+- **STEP**: a changed material (a pad's swap, a respawn's flag ball) sets
+  `bz_fref` (WATER's rule); each popspike whose pose differs between n and
+  n + 1 is MARKED (`bz_fmark`) and refills the window (`bz_fref`) when its
+  cell is in it - so a spike that rises under a resting rubber ball drops its
+  floor a half unit and the landing pops it, and one that rises under steel
+  lifts it 4 px (the grounded step's `z = h`).
+- **POSE**: a popspike 1 while UP.
+
+**Two families on `bz_mrec`.** WATER keeps the HTHR it replaced the same way,
+so a refill whose centre moved straight from a water cell to a spike (or the
+reverse) would keep the other's value: the tool REFUSES a spiked cell beside
+a water cell, edge or corner (128.38.4). PICKUPS' jump writes HOP, a
+different word.
+
+`Physics` gains two working values beside WATER's `hthr`: **`hard`** and
+**`hsteps`** (what step 6's hard landing reads, where `MATERIALS[mat]` was
+read), reset by `_setmat` as `bz_setmat`'s copy is; a course without the
+family runs exactly the code it ran.
+
+#### 128.38.4 The refusals and the reach (BUILT)
+
+Refused, naming the line (`--selfcheck` section `spike`, item 2): a spike,
+popspike or membrane on a surface other than NORMAL; a spiked cell whose
+FLOOR or GOAL edge neighbour is LOWER than its base at their shared edge (a
+ball rolling on from it would meet LOW level, with no landing to kill it); a
+spiked cell beside water; a popspike period that is not 32, 64, 128 or 256,
+an `on` not under it, a seed past it; an empty rect; the family's kinds
+without `uses spike`; and, among the TIMED lanes meeting one window
+(popspikes and WIND's gusting pennants and wisps, `_wind_turns`), two that
+turn on the same step. **The reach** takes a spike cell's LOW (the `bed`
+form, read off `low`) and its TIP (a new `tip` form) unioned with the grid's
+base, and a membrane's near VOID (GLASS's `void` form); `_hack noforms` is the
+control (item 6).
+
+#### 128.38.5 The art and rubber's POP (BUILT; LOOKED AT in the tool's previews, both cards)
+
+- **Spikes**: white blades 5 rows tall outlined black, each on a black foot,
+  eight feet spread over the top (`SPIKE_BLADE`, `SPIKE_FEET`), painted into
+  the picture clipped by what is in front (a pennant's rule). Black on white
+  and white on black, so they read on the CGA's tiles and the Hercules'
+  dither alike.
+- **Popspikes**: the picture holds four black SLITS round the top's centre
+  (DOWN); the lane (the crack's 2 x 2 blocks round the top's centre, so a row
+  of them shares no block) draws the four blades at pose 1 (UP).
+- **The membrane**: its tile is NOT DRAWN (a glass tile's rule: the ground
+  beyond shows, neighbours' faces hang into the gap), and over it a film -
+  the revealed glass's white pane outline and dashed glint (`glass_pane_ink`
+  over the run of membrane cells) and a sparse white stipple, one pixel in
+  32: thin, fragile, white on whatever lies behind on both cards.
+- **Rubber's POP** (`bonanza_assets.pop_frame`): the ball part's shatter
+  table is the one at `B2_SHAOFF`, where rubber's STRETCH is entry 0; the
+  pop adds entries **1 - 3** after it - the BURST (the skin torn into eight
+  jagged shreds round a white flash), the SHREDS flung out and falling, the
+  SKIN (a crumpled magenta rag) - each outlined black (`_ring_slots`), so a
+  shatter's 24 steps show the stretch (the ball bulging) and then the three.
+  BZB2 +12 for rubber is 3 (+14 its stretch, 1): `bz_hxlat` already sums the
+  two to translate one table, so the Hercules needs nothing. The stored BZB3
+  keeps the three literal (as glass's shatter). **No resident change**: the
+  sprite reads entry k of the ball's own part.
+
+#### 128.38.6 What it costs (MEASURED: `make bonanza`, against `250fd0933`)
+
+| | before | after | |
+|---|---|---|---|
+| the part `bzf-spike.bin` | - | **455 bytes**, `paras` 29 | 419 packed |
+| BONANZA's image | 49,898 | 49,900 | **+2**: `bz_ftab`'s rows for IDs 10 (a gap) and 11 |
+| its bss | 11,915 | 11,915 | 0 |
+| rubber's ball part, RAM | 9,536 | 13,376 | **+3,840**: three POP entries of 1,280 (4 shifts x 2 parities x 160) |
+| ...stored (BZB3), packed | 327 | 693 | +366 |
+| the RESIDENT BUNDLE, RAM | 34,976 | 39,280 | **+4,304, every play's RAM and the window's** (the balls +3,840, the part 464) |
+| the bundle, packed (lzb) | 4,357 | 4,977 | +620 |
+| `BONANZA.O88` | 122,032 | 122,658 | +626 |
+| every shipped course part, demo and identity | | | unchanged, byte for byte (`cmp`) |
+
+**Per step (PREDICTED, not measured on MartyPC):** a course that does not
+name the family pays nothing new. Naming it: STEP the material compare, about
+40 clocks, and on a course with popspikes a walk of the records - about 30
+clocks a record and 80 a popspike, about 1.5k clocks a step on SPIKE (35
+records); CELL on a refill, about 35 clocks a record and 100 a family cell in
+the window, and the kill's four words when the centre is a spike.
+
+#### 128.38.7 The test course: `BZSPIKE=1` (BUILT)
+
+`apps/bonanza/courses/spike.bbc`, SPIKE "Spike Test", on no shipped disk: the
+knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathspike.sed`; refused with BZSHAPES, BZMAGNET, BZWIND, BZRAIL and
+BZWATER), so Play Game, Enter plays it:
+
+    make BUILD=build/spike BZSPIKE=1 bonanzadisk
+
+A start plate at 2 units with a pad for each ball and the finish (exit 0);
+the SPIKE CORRIDOR (six cells by three, the whole width) east to exit 1
+(steel through, rubber pops, glass shatters); the POPSPIKE LANE south, two
+rows of three, 64 steps up in 128, the rows half a period and three steps
+apart (one pose change a step); the MEMBRANE BRIDGE, four cells over the void
+to a plate, glass's alone; past the corridor a walkway with a WATER column
+(`uses spike water`) whose arch opens onto a patch of spikes - the owner's
+pairing of the two steel-only mechanisms. No shipped course, demo or identity
+moves.
+
+#### 128.38.8 The proofs (BUILT, MEASURED red)
+
+`tests/bonanza_phys.py --check`'s unicorn half (`spike_host`): the guest's
+`bz_step` with the build's bundle against the model at EVERY step - the
+ball, the slots, `bz_fref`, the window, the popspike poses through
+`bz_ltrue` and their marks, and the working values (`bz_mrec`'s HARD, HSTEPS,
+HTHR, `bz_mst`, `bz_mct`) - on SPIKE compiled from the tree: `spike-steel`,
+`spike-rubber`, `spike-glass`, `pop-down`, `pop-up`, `pop-steel`,
+`pop-rise`, `pop-rise-steel`, `mem-glass`, `mem-rubber`, `water-spike`, each
+also judged on the model for what it is for. Red arms, the part assembled
+from a patched `spike.asm`: `spcell` (CELL's entry 0: the window), `spkill`
+(the kill never set: the working values), `spput` (never put back: the
+working values after the respawn), `spmark` (a flip unmarked: never drawn),
+`spfref` (no refill on a flip), `spmem` (the membrane a floor for all: the
+window) - all six go red. `--selfcheck --only spike`: the ten refusals, the
+records and cells (item 3), the reach and its control (item 6), the art and
+its control `nospikeart` (item 10), the scenes on the model and two model red
+arms (`nokill`, `allfloor`; item 11).
+
+#### 128.38.9 Open questions for the owner
+
+1. The POP's 3,840 bytes of RAM: the ball part's fixed shatter layout puts
+   the last frame at entry 3, so two frames cost the same RAM as three; a
+   cheaper pop needs a resident change (a frame table) - not taken.
+2. The spikes' height is fixed at a half unit (a climb). Taller tips would
+   need steel to arrive from a level approach; not built (no `up` clause).
+3. The art on both cards, and whether the membrane should differ more from
+   the revealed glass path.
