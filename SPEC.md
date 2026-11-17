@@ -280538,3 +280538,44 @@ L), and those overlaps group by the same rule with no case of their own.
 - `bonanzaring` (MartyPC, the final pass): its glass leg reads the group's
   lanes and decodes the card against the oracle's map, whose drawn poses
   the oracle takes from `bz_ldrw` as for any lane.
+
+#### 128.31.10 As built (2026-11-17, branch `w9/grouplane`; EXPERIMENTAL - the owner decides from these numbers)
+
+| | MEASURED |
+|---|---|
+| `bonanza.bin` image | 47,957, **+123** against the base's 47,834: `bz_fmark`'s member branch +44, `bz_ltrue`'s GROUP case +79 (`cmp`/`jne`/`jmp` into it 7, the case 72) |
+| bss | **+0 for the mechanism** (no table; they follow the largest course). With PLAYGROUND's GROUP LAB: 11,093, **+28** - `BZ_PROPMAX` stays 24 (PLAYGROUND 21 lanes: seven elements' own lanes became 8 group lanes), `BZ_PROPALL` 24 -> 32 (records: 3 bytes each), `BZ_FSTB` 5 -> 9 (the lab's three crack bytes and three glass bits) |
+| the GLASS part | 553 bytes, +0 (RESET reads `bz_nprop` for `bz_nlane`) |
+| every shipped course | **byte-identical** (all 18 parts and the six demos `cmp`-equal; only `bzcourse.inc` gained its four equates) - until a course writes `full` |
+| a group lane's `bz_ltrue`, MartyPC's 8088 (`os8088_5150_cga_gla` and `_herc_gla`, guest cycles, entry to the case's `ret`) | **2,790 clk a 1-member lane, 4,880 a 2-member lane** (about 2,100 a member: `bz_fone`'s slot scan, far call and GLASS's POSE), paid only on a frame the walk visits a MARKED group lane |
+| the course, `full` cracks in a row on the test course, RAM part against the same cracks 2 x 2 | 2: 2 lanes (4 x 3 of 16 poses, 2 x 2 of 4) **+592**; 3: 2 lanes (two 4 x 3 of 16) **+1,024**; one alone (a wide hole, no group) +80 |
+| PLAYGROUND with the lab (three `full` cracks, an L of three `full` glass tiles; its Y0 alignment moved too, 108 -> 112) | picture part 50,070 -> 51,834, world 14,979 -> 15,431; packed 13,474 -> 14,368 (+894) |
+| the tool | the group pass 0.2 s a test course |
+
+**SEEN** (MartyPC, CGA and Hercules twins, the ball poked; strips in the
+session's log directory): rubber rolled slowly along the lab's three cracks
+from `(5, 23)`: each went cracked, cracking and broken on its own frame, the
+holes widening behind the ball one tile at a time, the shared lanes passing
+through combined poses (4, 5, 8, 9, 10, 11 of 16) - and a fall restored all
+three. The glass L revealed tile by tile; one reveal spanning two lanes was
+committed over two frames (the stagger of 128.31.6). Those frames were the
+per-set cut's (5 - 8 lanes); the whole-first cut was looked at again on the
+CGA: the three cracks' 4 lanes (poses up to 15 of 16) and the L's, every
+change on the glass within ONE frame of the next lane's, and every group
+lane's `bz_ltrue` 4,800 - 4,930 clk (each holds two members).
+
+**The unicorn found a real bug on the way**: a RESET at `bz_pinit` runs
+before `bz_pread` sets `bz_nlane`, so the first `bz_fmark` (testing the
+index against `bz_nlane`) read a LANE record's +8 as a member's list and
+marked past the table, into `bz_nstep`. The test is the record's `GRP` flag.
+
+**Not done**: the ring row's oracle on a group (MartyPC, the final pass's -
+the oracle reads pose maps through `bz_ldrw` as for any lane, so no code was
+needed); a vanishing floating path (128.31.8) and PICKUPS' icons as members.
+
+**For the owner**: (1) take it or not, at +123 resident bytes, about 2.1k clk
+a member on a walked group lane, and +600 - 1,000 part bytes a pair or row
+of wide cracks; (2) whether `full` (the wide hole) is the crack art, or the
+clause stays per element; (3) the commit stagger - a pose change spanning
+`k` lanes under the ball can take `k` frames (at most 3 here); a same-frame
+group commit would be a walk change, not priced.
