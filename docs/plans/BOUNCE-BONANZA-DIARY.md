@@ -4073,3 +4073,53 @@ magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 **Tested**: `make bonanza`, the knob tree's `bonanzadisk`, the selfcheck's
 `water` section, `bonanza_phys --check`'s water scenes (six) and red arms
 (six), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (BOOST PADS: chevrons that push)
+
+The props plan's P4, built as a family beside SPIKES and the ARCH (the round
+fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.37 beforehand); branch
+`bb-boost`.
+
+- **Which hook.** WIND pushes from STEP and so walks a list of blowers every
+  step. A pad only acts on the ball standing on it, and the engine already
+  knows that cell's owner: CONTACT (`bz_prule`'s family dispatch) hands the
+  part the element. So the part keeps no list, and the push is five
+  instructions after the record's address. The push goes into the working
+  velocity and the next step's force block clamps it to the caps, as wind's
+  does: a pad never takes a ball past a speed the reach already allows, so it
+  adds nothing to the reach.
+- **No weighting.** Wind weighs glass double because a wind is felt by
+  weight. A pad is a floor's, and the cap is the same for every ball, so the
+  pad pushes them all the same; the balls then differ in what they do with
+  the speed. Measured on the test course: glass's own push (6 an arrow, 12 a
+  pair) beats the steepest ramp a ball can roll up (1 unit a tile, a pull of 8)
+  and climbs it without the pad; rubber (8 against 8, less its drag) and steel
+  (4) do not. A weighted pad is one byte of shifts if the owner wants pads to
+  matter as much for glass (SPEC.md 128.37.10).
+- **The steepest ramp.** A 1.5-unit-a-tile ramp is a WALL partway up: the
+  next cell's edge stands more than a climb (4 px) above the ball's leading
+  edge. So "a ramp a ball could not climb otherwise" is a 1-unit ramp from a
+  POCKET with one tile of run-up - not a steeper ramp.
+- **The art.** First three thin chevrons per pad: in the isometric view they
+  read as horizontal stripes. Two thicker ones read as arrows on all four
+  faces (the tool's previews, four variants side by side). The flash swaps
+  the plate to white and the chevrons to black, the pair that reads on the
+  Hercules, where magenta and cyan are both the grey checker.
+- **One pose change a step.** A chain of pads edge to edge would put one out
+  and light the next on the same step. So a pad met while another is lit
+  only puts that one out, and lights on its next step's contact, 1/55 s
+  later. `--selfcheck`'s `twolit` arm (lighting at once) breaks the count.
+- **The gap.** A 2-cell gap from 4 units down to 1 shattered glass on landing
+  (552, exactly its threshold), so the low plate is 1.5 units; a one-tile
+  pocket did not reach the cap before the edge, so the pocket is two pads
+  long. Without the pads every ball falls short.
+- **Bytes.** The part 166 (CONTACT 91), 11 paragraphs: the bundle +176 RAM,
+  `BONANZA.O88` +180, the image +1 (`BZ_FTAB`); every shipped course, demo,
+  the pathway and the title byte for byte as before.
+
+**Tested**: `make`, `make bonanzadisk`, the knob tree `make BUILD=build/boost
+BZBOOST=1` (all and `bonanzadisk`), `bbcourse.py --selfcheck --only boost`
+(18 items, four red arms red), `bonanza_phys`'s `bp_host` (twelve scenes equal
+at every step, five red arms red), one MartyPC look on each card (the chain's
+lit pad under a rolling ball, the ramp pocket's lit pad, the gap). **Not
+run**: soak rows, `test-full`; the per-step cost is PREDICTED.
