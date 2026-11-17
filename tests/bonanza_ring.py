@@ -1189,15 +1189,25 @@ def glass(g, ref):
     assert g.b("bz_mode") == 0, "Enter started the benchmark, not play"
     assert g.b("bz_crs") == CRS_K["first"], "F played course %d, not FIRST" % g.b("bz_crs")
     m.bp_exec(g.a("bz_presented"))
-    seen = None
-    for _ in range(4):                  # three presents with nothing moving: every refresh since
+    seen, same, ball = None, 0, None
+    for _ in range(200):                # four presents with nothing moving: every refresh since
         m.run()                         # the first of them scanned the one picture
         assert m.wait_stop(60) == "breakpoint", "play mode stopped presenting"
         st = g.state()
-        assert seen in (None, st), ("the ball moved with no key held", seen, st)
+        assert ball in (None, st), ("the ball moved with no key held", ball, st)
+        ball = st
+        # (FIRST's CLOCKS count in free play, wave 7: a digit lane redrawn on the last present is in card
+        # memory but not yet on the refresh already scanned - the glass a second's digit behind, 21 pairs on
+        # the Hercules.  So the LANES as drawn are part of "nothing moving", and the stop waits a change out)
+        nl = g.b("bz_nlane")
+        st = st + (bytes(g.m.read(g.a("bz_ldrw"), nl)) if nl else b"",)
+        same = same + 1 if st == seen else 1
         seen = st
+        if same == 4:
+            break
+    assert same == 4, "no four presents running with the picture still (the lanes as drawn: %r)" % (seen[5],)
     m.bp_exec()
-    S, R0, c0, px, py = seen
+    S, R0, c0, px, py = seen[:5]
     lk, why = g.look(ref.c)
     assert why is None, "play mode's resting frame: %s" % why
     # (wave 7, SPEC.md 128.18.5: FIRST has clocks - the lanes as the guest DREW them, its digits the seconds left)
