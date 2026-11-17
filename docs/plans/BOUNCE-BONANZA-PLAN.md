@@ -1481,6 +1481,8 @@ From docs/FIELD-MACHINES.md, the owner's 5150 #1 has:
 
 - **CPU and RAM:** an 8088 at 4.77 MHz and **640 KB** (256 KB on the
   board, plus an AST SixPakPlus).
+  *The target is 640 KB (the owner, 2026-11-17); 256 KB is checked once at
+  the end, for a possible limited build - SPEC.md 128.7.*
 - **Video:** a **Hercules GB101 and an IBM CGA, both live**. It boots on the
   Hercules, and Control Panel → Display moves the desktop to the CGA.
 - **Input:** a serial mouse on COM1.
