@@ -292,8 +292,53 @@ B2_SQOFF = B2_FRMOFF + NFRAMES * D * RB            # 5,456
 B2_SHDOFF = B2_SQOFF + NSQ * SHIFTS * 2 * ENT      # 8,016
 B2_SHAOFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # 8,256
 B2_STROFF = B2_SHAOFF                              # 8,256: rubber's stretch, where glass's shatter is
-B2_SIZE = (B2_STROFF + NST * SHIFTS * 2 * ENT, B2_SHAOFF,
-           B2_SHAOFF + NSH * SHIFTS * 2 * ENT)     # 9,536, 8,256, 13,376
+NPOP = 3                      # rubber's POP frames (SPEC.md 128.38): its shatter entries 1 - 3, after its stretch
+                              # (entry 0, which a pop shows first: the ball bulging), BZB2 +12
+B2_POPOFF = B2_STROFF + NST * SHIFTS * 2 * ENT     # 9,536
+B2_SIZE = (B2_POPOFF + NPOP * SHIFTS * 2 * ENT, B2_SHAOFF,
+           B2_SHAOFF + NSH * SHIFTS * 2 * ENT)     # 13,376, 8,256, 13,376
+assert NST + NPOP == NSH      # (the sprite's SHATTER k reads entry k of the one table at B2_SHAOFF)
+
+
+def nshatter(mat):
+    """BZB2 +12: the material's shatter frames - glass's four, rubber's POP (SPEC.md 128.38: three, after its
+    stretch), steel none"""
+    return NSH if mat == MAT_GLASS else NPOP if mat == MAT_RUBBER else 0
+
+
+def pop_frame(k):
+    """rubber's POP frame k (1 - 3; SPEC.md 128.38), {(x, y): index} in footprint slots x = -2 .. 17: 1 the BURST
+    (the skin torn into eight jagged shreds round a white flash), 2 the SHREDS flung out and falling, 3 the
+    SKIN, a crumpled magenta rag on the ground.  Every piece gets its black ring at the entry (_ring_slots)"""
+    out = {}
+    cx, cy = 7.5, 7.5
+    if k == 1:
+        for y in range(D):
+            for x in range(D):
+                dx, dy = x - cx, y - cy
+                r = math.hypot(dx, dy)
+                a = math.atan2(dy, dx)
+                if 4.6 <= r <= 7.4 and math.cos(8 * a) > -0.2:
+                    out[(x, y)] = MAG if r > 5.4 else WHT
+                elif r < 2.6 and (abs(dx) < 0.8 or abs(dy) < 0.8):
+                    out[(x, y)] = WHT
+        return out
+    if k == 2:
+        for i in range(8):
+            a = math.pi * (i + 0.5) / 4
+            px, py = cx + 8.0 * math.cos(a), cy + 6.0 * math.sin(a) + 2
+            for ddx, ddy in ((0, 0), (1, 0), (0, 1), (1, 1)) if i % 2 == 0 else ((0, 0), (1, 0)):
+                x, y = int(round(px)) + ddx, int(round(py)) + ddy
+                if 0 <= y < D:
+                    out[(x, y)] = MAG
+        return out
+    for y in range(12, D):                          # 3: the skin
+        for x in range(D):
+            dx = x - cx
+            w = 6.5 if y >= 14 else 4.5 if y == 13 else 2.5
+            if abs(dx) <= w:
+                out[(x, y)] = WHT if (y == 13 and -2 <= dx <= 1) else MAG
+    return out
 
 
 def nstretch(mat):
@@ -537,7 +582,7 @@ def _rows_of(frame):
 
 def build_ball2(mat):
     """BZB2, the CGA's (SPEC.md 128.11.9.1); the Hercules one is made at the fetch"""
-    nsh = NSH if mat == MAT_GLASS else 0
+    nsh = nshatter(mat)
     nst = nstretch(mat)
     hdr = b"BZB2" + struct.pack("<HHHBBBBBB", NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, nst, 0)
     assert len(hdr) == HDR
@@ -559,7 +604,7 @@ def build_ball2(mat):
     for p in range(2):                             # the SHADOW: AND only
         for s in range(SHIFTS):
             out += shadow_mask(p, s)
-    for k in range(nsh):                           # SHATTER (glass)
+    for k in range(nsh if mat == MAT_GLASS else 0):    # SHATTER (glass)
         pix = shatter_frame(k)
         rows = [{x: c for (x, y), c in pix.items() if y == r} for r in range(D)]
         for s in range(SHIFTS):
@@ -572,6 +617,14 @@ def build_ball2(mat):
         for s in range(SHIFTS):
             for p in range(2):
                 enc = [_encode(_slots(rows[r], s)) for r in range(D)]
+                out += b"".join(e[0] for e in enc) + b"".join(e[1] for e in enc)
+    for k in range(1, nsh + 1 if mat == MAT_RUBBER else 1):  # POP (rubber, SPEC.md 128.38): shatter entries 1 - 3
+        pix = pop_frame(k)
+        rows = [{x: c for (x, y), c in pix.items() if y == r} for r in range(D)]
+        for s in range(SHIFTS):
+            ringed = _ring_slots([_slots(rows[r], s) for r in range(D)])
+            for p in range(2):
+                enc = [_encode(sl) for sl in ringed]
                 out += b"".join(e[0] for e in enc) + b"".join(e[1] for e in enc)
     if len(out) != B2_SIZE[mat]:
         raise AssetError("%s ball part is %d bytes, not %d" % (MAT_NAMES[mat], len(out), B2_SIZE[mat]))
@@ -765,6 +818,8 @@ def build_ball3(mat):
     out[BG_BLK:BG_BLK + BG_LEN] = blk
     if mat == MAT_GLASS:
         out[B2_SHAOFF:] = ref[B2_SHAOFF:]
+    if mat == MAT_RUBBER:                           # (rubber's POP entries as they are, after its stretch: 128.38)
+        out[B2_POPOFF:] = ref[B2_POPOFF:]
     return bytes(out)
 
 
@@ -1059,8 +1114,9 @@ def _decode_pix(maskrow, frmrow):
 def _check_ball2(mat, part, results, tag=None):
     """BZB2's own checks for one material (SPEC.md 128.11.17.2's bonanzaassets)"""
     name = tag or "%s (%s)" % (BALL_FILES[mat], MAT_NAMES[mat])
-    nsh = NSH if mat == MAT_GLASS else 0
+    nsh = nshatter(mat)
     nst = nstretch(mat)
+    sbase = B2_POPOFF if mat == MAT_RUBBER else B2_SHAOFF   # (rubber's POP entries follow its stretch, 128.38)
     hdr = struct.unpack_from("<HHHBBBBBB", part, 4)
     results.append(("%s header: BZB2, 64 frames, 16 rows, 5 bytes, material %d, %d squash, %d shatter, %d shadow "
                     "rows, %d stretch, %d bytes" % (name, mat, NSQ, nsh, SHD_ROWS, nst, B2_SIZE[mat]),
@@ -1104,7 +1160,7 @@ def _check_ball2(mat, part, results, tag=None):
                     "pixel (%d stray)" % (name, MAT_NAMES[mat], stray), good and stray == 0))
     # squash and shatter: parity copies identical, frame bits only under the
     # entry's own clear mask, a black outer ring
-    entries = [(B2_SQOFF, NSQ, "squash"), (B2_SHAOFF, nsh, "shatter")]
+    entries = [(B2_SQOFF, NSQ, "squash"), (sbase, nsh, "shatter")]
     same = True
     for base, n, what in entries:
         for k in range(n):
@@ -1130,10 +1186,10 @@ def _check_ball2(mat, part, results, tag=None):
                     ring = False
     for k in range(nsh):                            # every shatter entry, every shift: a
         for s in range(SHIFTS):                     # kept pixel beside a clear one is BLACK
-            e0 = B2_SHAOFF + ((k * SHIFTS + s) * 2) * ENT
+            e0 = sbase + ((k * SHIFTS + s) * 2) * ENT
             got = [_decode_pix(part[e0 + r * RB:e0 + r * RB + RB], part[e0 + D * RB + r * RB:e0 + D * RB + r * RB + RB])
                    for r in range(D)]
-            pix = shatter_frame(k)                  # the piece's shape (SEE is a piece's
+            pix = shatter_frame(k) if mat == MAT_GLASS else pop_frame(k + 1)   # the piece's shape (SEE is a piece's
             shp = [_slots({x: c for (x, y), c in pix.items() if y == r}, s) for r in range(D)]
             for r in range(D):                      # see-through interior, not its outside)
                 for j, c in enumerate(shp[r]):
@@ -1575,7 +1631,7 @@ def previews(out):
             if herc:
                 part = herc_translate_ball(part)
             for si, spn in enumerate(sprites):
-                if (spn.startswith("shatter") and m != MAT_GLASS) or (spn.startswith("stretch") and not nstretch(m)):
+                if (spn.startswith("shatter") and not nshatter(m)) or (spn.startswith("stretch") and not nstretch(m)):
                     continue
                 for g in range(len(GROUNDS)):
                     ox, oy = g * cw, (m * len(sprites) + si) * ch
