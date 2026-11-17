@@ -4262,3 +4262,41 @@ surplus clock samples (O2: about 1k a frame and no bytes), and the second
 box (O3, which changes what the shadow looks like, so it is the owner's
 call). The kernel's per-tick task switch inside a full-screen bracket (O4)
 is about 0.8k a frame for every game, and that one is a kernel decision.
+## 2026-11-17 (WATER, round three: the surface bob, B and E behind a knob)
+
+- **C was priced, not built.** The lift's carry is the engine's, keyed to one
+  platform record a course, with a sprite layer of its own; a family only has
+  the window's cells, whose heights move 4 px at a time. A pixel-a-step floor
+  needs a resident offset in the floor function and the carry - outside the
+  owner's rule (no resident change, about 100 part bytes).
+- **B, measured, and why the dip is shallower than the mock.** The mock
+  dipped from the float line to a unit under the top; 8 px is more than a
+  climb, so the ball could not roll out for half of every cycle. B bobs from
+  the top to the float line instead. A 4 px floor drop under a resting ball
+  is a short fall and a landing every cycle (about lvz 216, over the landing
+  sound's 48), so STEP carries the resting ball down with its floor; on the
+  unicorn, 110 steps at rest: heights 20 and 24, no landing, no takeoff.
+  16 steps each way (the mock's 24 was "slightly" slow).
+- **E, built as the owner asked ("no jump on water probably fine").** The
+  ball hovers: buoyancy twice gravity under the float line, damped, and a
+  kick each way every 16 steps. The first kick (40) disappeared into the
+  damping (a 1 px bob); 112 gives about 17 - 22 px. Its handling is the
+  report's: no Hop, no Grip, the air's steering, drag by hand, silent on and
+  off the water, one landing on a hard fall.
+- **The look (MartyPC, CGA frames).** B: whole at the top, the ghost in the
+  dip. E: the ghost throughout - the hovering ball stays under the water
+  top's raised tops. Both for the owner to judge.
+
+**Tested**: `make bonanza`; both knob trees' `bonanzadisk`; the unicorn water
+scenes on both arms (equal at every step, every red arm red); the selfcheck's
+water section; frame sequences in `build/water-cb/bobframes-cga/` and
+`build/water-e/bobframes-cga/`. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (WATER: the owner picks B)
+
+The owner played both arms: *"E looks better, but it can't exit the water, and
+I don't want another round; B is good enough."* The hover sits lower than a
+climb under the walkway for most of its bob, so the edge bumps it back - the
+reason it was set aside, written into SPEC.md 128.36.10. E's code, its red arm
+and the `BZWATERBOB` knob are deleted; B is the only surface bob, its period in
+water's FAMV. The part is B's 684 bytes again.

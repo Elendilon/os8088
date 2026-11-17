@@ -278767,6 +278767,75 @@ go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
 
+#### 128.36.10 The third round: the floating ball's SURFACE BOB - B ships (the owner, 2026-11-17; BUILT)
+
+The owner watched a host mock of four bobs on the sketch column (A none; B the
+float floor 4 px deeper for a while and back; C a 4 px dip the ball falls into
+and is lifted out of a pixel a step, the lift's carry; D a draw offset, ruled
+out) - *"B would work, at a slightly faster cadence. C is better, but we'll only
+do it if the cost isn't too high"* - and then, offered E, *"'No jump on water'
+probably would be fine. Build it, and make an a/b for me to play with."* The
+rule given: C only with NO resident change and at most about 100 part bytes.
+
+**C's price (NOT built: it needs a resident change).** The lift's carry is the
+engine's and is keyed to ONE `PK_PLATFORM` record a course: `bz_onp` names the
+platform, step 6's floor substitutes the slab's height from the platform's
+phase (`bz_ptop`, `plat_pos`), step 3 carries `gz` by the phase's delta
+(`bz_carry`), and the slab is drawn as a sprite layer of its own (`bz_pfull`,
+`bz_pstrip`). A family has only the window's cells, whose z0 moves in half
+units (4 px), so a floor rising a pixel a step under a resting ball is not
+reachable from a part: it needs a resident FLOOR OFFSET the floor function
+adds for the centre (a word in `bz_h4`'s centre path, read on every floor and
+wall test) and the carry taught that offset - PREDICTED 40 - 70 resident bytes
+in the hot floor path (about 10 - 20 cycles every `bz_h4` call), plus about
+60 - 80 part bytes; and a ball moving a pixel a step while "at rest" draws a
+box every frame of the bob (the idle test no longer quiet), as a lift's rider
+does. The occluder pass needs nothing new (the BED reach already spans it).
+
+**E, the HOVER: built, tried and SET ASIDE.** For the owner's A/B it was built
+as a second arm behind a build knob (`BZWATERBOB=b|e`, since removed), held
+equal to the model on the unicorn: rubber and glass kept AIRBORNE on the water
+over a safety floor a unit under the top - a buoyancy of 48 under the float
+line, damped (gvz less gvz >> 3), a kick of 112 each way every 16 steps, the
+water's drag by hand (>> 4); no Hop, no Grip, the air's steering; heights 16
+- 24 px, no landing while floating; part +109 bytes, no resident change. The
+owner played both: *"E looks better, but it can't exit the water, and I don't
+want another round; B is good enough."* **Why it was set aside: the hover
+cannot leave the water** - the walkway is 4 px over the float line, and for
+most of a bob the ball is lower than a climb under it, so the walkway's edge
+bumps it back. The arm, its knob and its red arm (`wahover`) are deleted; this
+paragraph is its record.
+
+**B, the float floor: WHAT SHIPS.** CELL writes rubber's and glass's
+water at the TOP and at the float line (a half unit under it) on alternate
+halves of a 2^`WA_FBSH` = 16-step period (32 steps a cycle, 1.7 a second -
+the owner's "slightly faster" than the mock's 24 each way). The dip is from
+the top to the float line, not from the float line a unit down as the mock
+had it: a floor 8 px under the walkway is more than a climb, and the ball
+could not roll out of the water for half of every cycle. STEP at each flip
+(the next count's low bits 0, a water cell in the window - slot +1 bit 1,
+CELL's - and not steel) asks for the refill (`bz_fref`), and into the dip
+moves a ball RESTING on the water down with its floor (`gz` less 4 px), so it
+never takes off: a 4 px drop is a 9-step fall and a landing at lvz about 216 (computed), a
+landing SOUND every cycle (`BZS_LMIN` 48), which the snap removes. Out of the
+dip the floor rises under the ball and step 6 sets it on it, as on any floor
+it is on. MEASURED (`water-float`, 110 steps at rest): heights 20 and 24 px
+only, no landing, no takeoff. Red arms: `wabsnap` (no snap: the ball) and
+`wabflip` (no refill at the flip: `bz_fref`). `WA_FBSH` 0 is the round-two
+float line, fixed.
+
+Steel's stop and cap test the material first (only steel sinks under the
+float line). The look, SEEN on MartyPC (CGA, a frame sequence): the ball whole
+at the top and the ghost in the dip. Water's `FAMV` folds `WA_FBSH` (item 3:
+a retune moves it).
+
+| | the part | the bundle, RAM | the pinned claim |
+|---|---|---|---|
+| before (`10aa359d1`, the wobble off) | 601 | 34,976 | 2,240 paragraphs |
+| **B, as shipped** | **684 (+83)** | 35,056 (+80) | 2,240 (no step) |
+
+Image and bss unchanged; no shipped course, demo or identity moves (no shipped
+course names water).
 ### 128.37 The standard kit (the owner, 2026-11-17)
 
 The owner's idea, priced by `docs/reports/BONANZA-KIT-2026-11-17.md` (the

@@ -489,7 +489,7 @@ FAMILIES = (
     # `resident` (the owner's default, 2026-11-17); kind 26.  CONSTS fold WA_SINK, WA_HTHR and WA_ESH
     {"name": "water", "id": 7, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "WA",
      "kinds": ({"name": "water", "kind": FAM_K0 + 10, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 39,
+                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 43,
      "home": HOME_RESIDENT},
     # MAGNETS (SPEC.md 128.33): a magnet on a post pulls STEEL along its FIELD (`range` cells out from the post
     # along `face`) toward the post, S >> (k - 1) at the k-th cell; a magnet `face down` hangs over its field
@@ -546,6 +546,10 @@ WA_BOB = 0                    # the sink's WOBBLE (OFF: the owner, 2026-11-17, "
 WATER_FLOAT = 4               # px: a water top's TOPS (the canvas's tbuf) above its floor, so a ball riding the
                               # float line (a half unit, 4 px, under the top) is laid under the top while grounded
 WA_RSH = 3                    # a RIPPLE's phase: its pose flips every 2^WA_RSH steps
+# SPEC.md 128.36.10: the floating ball's SURFACE BOB (the owner's B): the float floor itself alternating, flush with
+# the top and a half unit under it, 2^WA_FBSH steps each - a ball resting on it carried down with it and climbing
+# back up, grounded throughout (E, the hover, was built and set aside: 128.36.10)
+WA_FBSH = 4                   # the bob's half period, 2^WA_FBSH steps (0: no bob, the float line always)
 WR_RIPPLE, WR_ALWAYS = 1, 2   # a water record's +20: a ripple lane, and ANIMATED ALWAYS (else while the ball is in it)
 # MAGNETS' constants (SPEC.md 128.33): every one in its FAMV (famv's "MG")
 K_MAGNET = FAM_K0 + 16        # its kind
@@ -696,7 +700,8 @@ def famv(f):
     elif f.get("consts") == "MG":               # MAGNETS' (128.33)
         b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
     elif f.get("consts") == "WA":               # WATER's (128.36): the sink, the raised HTHR, the restitution's
-        b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)  # shift, the bob, the ripple's phase,
+        b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)
+        b += bytes((WA_FBSH,))                  # (128.36.10's bob)  # shift, the bob, the ripple's phase,
         b += bytes(x for mt in range(len(MATERIALS)) for x in water_entry(mt))     # every ball's entry on water
     else:
         b += bytes(f.get("consts", ()))         # (GLASS's constants; the probe has none: its FAMV as before)
@@ -11900,21 +11905,27 @@ class WaterFamily(Family):
         sb = p.fsl[slot]
         cx, cy = min(k[0] for k in win) + 1, min(k[1] for k in win) + 1
         cen = None
+        anyw = 0
+        # SPEC.md 128.36.10: rubber's and glass's floor - the float line a half unit under the top, or the top
+        # itself on the other half of the bob's period
+        dz = p.nstep >> WA_FBSH & 1 if WA_FBSH else 1
         for pr in p.props:
             if pr["kind"] == FK_WATER and pr["at"] in win:
-                win[pr["at"]][0] = pr["bed"] if p.mat == MAT_STEEL else pr["top"] - 1    # (the FLOAT LINE)
+                win[pr["at"]][0] = pr["bed"] if p.mat == MAT_STEEL else pr["top"] - dz
+                anyw = 2
                 if pr["at"] == (cx, cy):
                     cen = pr
+        sb[1] = (sb[1] & 1) | anyw                  # (bit 1: a water cell in the window)
         if cen is not None:
             sb[4] = (cen["top"] - 1) & 255
-            if not sb[1]:
-                sb[1] = 1
+            if not sb[1] & 1:
+                sb[1] |= 1
                 sb[2], sb[3] = p.hthr & 255, (p.hthr >> 8) & 255
             p.hthr = WA_HTHR
             p._surfset(SURF_SAND)                   # (bz_dmask, the remainders cut, bz_surf: sand's)
             p.wef = water_entry(p.mat)[3]
-        elif sb[1]:
-            sb[1] = 0
+        elif sb[1] & 1:
+            sb[1] &= 2
             p.hthr = sb[2] | sb[3] << 8
             p.wef = None
             p.surf = 0xFF                           # (the window's test then rebuilds bz_se: bz_surfset)
@@ -11924,10 +11935,10 @@ class WaterFamily(Family):
 
     def step(self, p, slot):
         sb = p.fsl[slot]
-        if sb[1] and p.air:
-            top = 4 * (sb[4] - 256 if sb[4] & 0x80 else sb[4])
-            if p.gz >> 8 < top:                     # under the float line: no way across (it sinks STRAIGHT down,
-                p.gvx = p.gvy = 0                   # never out of an arch above its sill), the WOBBLE, the fall capped
+        top = 4 * (sb[4] - 256 if sb[4] & 0x80 else sb[4])
+        if sb[1] & 1 and p.air and p.mat == MAT_STEEL:
+            if p.gz >> 8 < top:                     # steel under the float line: no way across (it sinks STRAIGHT
+                p.gvx = p.gvy = 0                   # down, never out of an arch above its sill), the WOBBLE, the cap
                 if WA_BOB and not p.nstep & 31:
                     p.gvz = WA_BOB
                 elif p.gvz < -WA_SINK:
@@ -11935,6 +11946,11 @@ class WaterFamily(Family):
         if sb[0] != p.mat:
             sb[0] = p.mat
             p.fref = 1
+        if WA_FBSH and sb[1] & 2 and p.mat != MAT_STEEL \
+                and not (p.nstep + 1) & ((1 << WA_FBSH) - 1):         # SPEC.md 128.36.10: the bob's flip -
+            p.fref = 1                              # the next window rewritten; into the dip a ball resting on the
+            if (p.nstep + 1) >> WA_FBSH & 1 and sb[1] & 1 and not p.air:   # water goes down with its floor
+                p.gz -= 4 << 8                      # (no fall, no landing)
 
     def pose(self, p, slot, i):
         pr = p.props[i]
@@ -15325,6 +15341,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_WA_SANDK     equ %d        ; sand's drag shift (BZ_SURFTAB's), every ball" % SAND_K,
               "BZ_WA_BOB       equ %d       ; the sink's wobble: gvz every 32 steps under the water" % WA_BOB,
               "BZ_WA_RSH       equ %d        ; a ripple's pose flips every 2^WA_RSH steps" % WA_RSH,
+              "BZ_WA_FBSH      equ %d        ; the surface bob's half period, 2^WA_FBSH steps" % WA_FBSH,
               "BZ_WR_RIPPLE    equ %d        ; a water record's +20: a ripple lane" % WR_RIPPLE,
               "BZ_WR_ALWAYS    equ %d        ; ...animated always (else while the ball is in it)" % WR_ALWAYS] + [
               "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
@@ -25146,9 +25163,25 @@ def _water_checks(res):
                 "(WATER_FLOAT 0): %d" % (len(fl), wf, len(fl0)), len(fl) > len(fl0)))
 
 
+def _water_bob_checks(res):
+    """SPEC.md 128.36.10: the surface bob's period is in water's FAMV (a retune moves the identity of every course
+    that names water), and it fits the part's code (a byte's shift)"""
+    global WA_FBSH
+    was = WA_FBSH
+    try:
+        f0 = famv(FAM_BY_NAME["water"])
+        WA_FBSH = was + 1
+        f1 = famv(FAM_BY_NAME["water"])
+    finally:
+        WA_FBSH = was
+    res.append(("3 water (128.36.10): the surface bob's half period 2^%d steps folds into water's FAMV (%02Xh; "
+                "%02Xh at 2^%d)" % (was, f0, f1, was + 1), f0 != f1 and 0 <= was <= 7))
+
+
 def _sc_water(X, res):
     """--selfcheck's section `water` (SPEC.md 128.36)"""
     _water_checks(res)
+    _water_bob_checks(res)
 
 
 def _sc_palette(X, res):
