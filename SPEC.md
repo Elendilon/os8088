@@ -279902,3 +279902,214 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
    ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
    one thing it cannot do today.
+
+### 128.42 The SEE-SAW: a tilt plate the ball's weight tips (the props round's P9, 2026-11-17; BUILT on `bb-tilt`)
+
+The props plan's P9 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)):
+*"the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a
+resting ball is the lift's carry adapted, not new physics"*. The props round
+fixed this family's ID (14), its kinds (from `FAM_K0 + 64`, 80), its knob
+(`BZTILT=1`), its art code (14) and this section's number; 13 (the GATES and
+the DRAWBRIDGE, 128.41) is another branch's, so on this branch ID 13 is a GAP
+`BZ_FTAB` fills with 0FFh. Figures are MEASURED unless marked PREDICTED.
+
+#### 128.42.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `seesaw`, ID 14, two kinds: **80** `seesaw` (the PLATE, a record a plate) and **81** `seesawlane` (a LANE of one, made by the tool), hooks RESET, STEP, POSE, CELL, home **`resident`** | the owner's default for a new family (128.25.6.9) |
+| D2 | **three POSES**: 0 its REST (one end down), 1 FLAT, 2 its other end down; each a set of SLOPE cells (sx or sy 1 or -1, z0 continuous across the plate) written into the window by CELL | the plan's "2 - 3 poses"; FLAT is a real pose, not only a transit, so the tip is SEEN (two lane changes, never one jump of 2 units) and a plate the ball leaves mid-tip simply stays level |
+| D3 | **what tips it: the ball's WEIGHT**, the classic see-saw - grounded on one HALF of the plate, that half goes DOWN. From an END pose after `TL_DW[ball]` steps on the half: **steel 2 (0.04 s), rubber 8 (0.15 s), glass 28 (0.51 s)** - steel is heavy, glass is light; from FLAT on after `TL_TS` = 4 steps (0.07 s), any ball | the brief's own suggestion ("steel tips it faster, glass lighter"), and affordable: the slot's count and a compare. A TIMER see-saw was the other choice; weight makes it a puzzle the player solves with the ball they carry (128.42.7: glass reaches a ledge the others tip away) |
+| D4 | **nothing feels slow**: the whole tip, end to end, is 6 steps for steel (0.11 s), 16 for rubber (0.29 s), 36 for glass (0.66 s) - glass's lag is the point of glass, and is felt as lightness, not as waiting | the owner's rule |
+| D5 | **the ball when the pose changes under it: CARRIED, always** - the step that changes the pose sets the grounded ball's z to the new floor at its point (16 z0 + s w, in quarter px), up or down. Never a fall, never a landing, never through the floor | the lift's carry (128.12.6.4) adapted: the lift adds its rise to z; a plate's floor is known exactly at the ball's point, so z is SET. MEASURED on the unicorn: `gate-glass` rides the plate 8 px down in one step with no landing event; `tlcarry` (the carry left out) goes red |
+| D6 | only a GROUNDED, whole ball tips a plate (`bz_air` 0, not shattering); an airborne ball weighs nothing; a ball exactly on the pivot line tips nothing | so every pose change has the ball ON the plate, which is what makes D5's carry always defined |
+| D7 | a plate's state is a BYTE of `bz_fst` (its pose), class **RESPAWN**: a respawn (a fall, a shatter, a RETURN) puts every plate back at rest, and RESET marks every lane | a puzzle the player can always restart; and NO TRAP never meets a plate left tipped the wrong way |
+| D8 | **the lanes are the picture's CHANGE**: the tool renders the whole picture with the plate in each pose (every other plate at rest), takes the pixels that differ from the rest picture, and cuts their blocks into lanes (`cover_blocks`, none on another prop's lane block); each lane a record of kind 81 naming its plate, of 3 poses | a plate is 2 - 6 cells, far past one 32 x 24 lane; the change is exact by construction (the same renderer draws every pose), on both cards |
+| D9 | **a plate's lanes all turn on one step**: at most `TL_LANES` (6) a plate, and the window bound counts them all (`_tilt_chg`: the most of one plate's lanes meeting a window, in place of the 1 the event lanes count, 128.19.10) | the window's `WIN_CHG` 6; the test course's plates cut into 5, 6 and 4 lanes - so a course with clock digits in the same window refuses a 6-lane plate there (the TILT course carries no clock for that reason) |
+| D10 | **the art**: the plate a THIN slab (its faces 4 px over the void, `float`'s machinery), the floor's own tiles at their slopes; under its pivot's front end a FULCRUM, a white wedge outlined black, drawn just behind the plate's pivot cell so the plate in any pose lies over it | readable on both cards: the slab is the floor's tile inks (the course's own), the fulcrum white on black. LOOKED AT in the previews (`--png`) |
+| D11 | **visibility** (the owner's rule): the plate is a floor, drawn whole in every pose; the fulcrum is the one part that never moves, so the mechanic is seen with the ball nowhere near | nothing new hides the ball |
+
+#### 128.42.2 The statement
+
+    uses seesaw
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+]
+
+The plate covers `x0 <= wx < x1`, `y0 <= wy < y1` (a floor rect's
+convention), tilting ALONG its axis; its length along it is **2, 4 or 6**
+(even: the pivot lies on a cell edge, so FLAT is a whole half unit) and its
+width across **1 or 2**. `pivot` is the plate's height at the pivot (the FLAT
+pose's), in units; `rest -` (the default) rests it with its MINUS end (low
+x or y) down, `rest +` its plus end. Pose P's slope is
+s = (1 - P), negated for `rest +`; its cell k along the axis is a slope cell
+at z0 = PZ + s (k - L/2) half units - so each cell rises half a unit along
+it, and an end moves a unit between REST and FLAT and two between the ends.
+
+The statement LAYS its own cells (at rest, NORMAL surface): a cell another
+statement lays, or another plate's, is refused.
+
+#### 128.42.3 The records and the slot
+
+| at | the plate (kind 80) | a lane (kind 81) |
+|---|---|---|
+| +2, +3 | its first cell (x0, y0) | its plate's first cell |
+| +16, +17 | FSB (a byte, a multiple of 8), class 1 RESPAWN | 0, class 0 |
+| +18 | NX, its cells along x | its PLATE's record |
+| +19 | NY | 0 |
+| +20 | `TL_FAXY` (1: its axis is y) OR `TL_FPLUS` (2: `rest +`) | 0 |
+| +21 | PZ (signed half units) | 0 |
+| +22 - +31 | 0 | 0 |
+
+Neither kind owns a cell: no OBS, no owner (the archway's precedent,
+128.39.3), and nothing else may be placed on a plate. The reader refuses any
+other class, an FSB not a byte's, a length that is not 2, 4 or 6 or a width
+not 1 - 2, a plate with a lane, a lane that is not 3 poses or names no plate
+on its anchor, and a plate cell in the grid that is not its FLOOR at rest
+(z0 and slopes) or carries OBS or SAFE.
+
+**The SLOT** (2 of `BZF_SLOT`'s 8): +0 the plate the count is for (its
+element + 1, 0 none), +1 the COUNT.
+
+#### 128.42.4 The hooks (binding: the guest and `bbcourse.TiltFamily` do exactly this)
+
+- **RESET**: the slot zeroed; every lane MARKED (`bz_fmark`) - the engine has
+  just cleared every plate's byte (RESPAWN), so each is back at rest.
+- **CELL**, every refill: every plate cell in the window written from its
+  plate's pose - +0 its z0 and +1 its slopes byte; kind, surface and flags
+  kept. Idempotent (written from the record), as a kept cell needs.
+- **STEP**, every step: the ball grounded and not shattering, its cell a
+  plate's - else +0 = 0. A plate not +0's: +0 it, the count 0. The ball's
+  place along the axis (whole gu) against the pivot's (16 x0 + 8 L): equal,
+  nothing; below, the TARGET is the pose with the minus end down (0 at
+  `rest -`, 2 at `rest +`), above, the plus end's. At the target: the count
+  0. Else the count one more, and at `TL_TS` (the plate FLAT) or `TL_DW[the
+  ball]` (at an end): the count 0 and the pose ONE toward the target - its
+  byte written, `bz_fref` set (the next step's window rewritten), every lane
+  of the plate MARKED, and the ball CARRIED: z = 16 z0 + s w quarter px (w
+  its gu in the cell along the axis), the fraction its quarter pixels.
+- **POSE**: a lane's plate's pose.
+
+`Physics` needs nothing new: the carry is z, which the grounded step 6
+already takes as the floor (`gz = h`), and the window is the family
+snapshot `_FamPhysics` already keeps.
+
+#### 128.42.5 The picture, the lanes and the bounds
+
+The compile draws the whole op list once more for the plates in FLAT and in
+their other end (`_ops_of`, every op family the picture has, so a pose is
+drawn exactly as the rest is), and the picture's top and bottom take all
+three. `tl_lanes`, after every other lane is placed: for each plate the
+picture in poses 1 and 2 against the rest picture, the changed pixels, their
+blocks cut into lanes of at most 4 x 3 blocks (`cover_blocks`, the
+pathway's reveal cutter) refusing a block another prop's lane holds; more
+than `TL_LANES` lanes refused ("a shorter plate"). `check_bounds` counts a
+plate's lanes meeting a window as that many pose changes on one step.
+
+The fulcrum (`tilt_post_pix`): a wedge 12 px tall, 3 px wide at the apex and
+11 at the foot, white outlined black, under the pivot line's FRONT end, its
+apex at the FLAT plate's underside (`TL_THICK` = 4 px under PZ); a 'post' op
+keyed just before the plate's pivot cell (`tilt_ops`). `_hack notiltpost` is
+its control.
+
+#### 128.42.6 The reach and the refusals
+
+The reach takes every plate in its FLAT pose and in its other end's as well
+as at rest (the `tilt` form, `reach_forms`), unioned cell by cell: the
+occluders, the bounds and every proof see all three. `_hack noforms` is the
+control (`--selfcheck` item 6: the ledge plate's high end's `zlo` 16 px with
+the forms, 28 without).
+
+Refused, naming the line (`--selfcheck` section `tilt`, item 2): a length
+other than 2, 4 or 6; a width other than 1 - 2; a cell already laid; two
+plates on one cell; no `along`; a `rest` that is neither `-` nor `+`; a plate
+without `uses seesaw`; a plate whose change cuts into more than `TL_LANES`
+lanes. (Nothing else may be placed on a plate's cell: the one-prop-a-cell
+claim.)
+
+#### 128.42.7 The test course: `BZTILT=1`, TILT
+
+`apps/bonanza/courses/tilt.bbc`, TILT "See-saw Test", on no shipped disk: the
+knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathtilt.sed`: FIRST moves to pad 6, TILT's exit 1 goes to it), refused
+with every other pad-0 knob (`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`,
+`BZWATER`, `BZARCH`, `BZSPIKE`, `BZBOOST`, and the round's `BZGATE`,
+`BZTURN`, `BZHUMP`):
+
+    make BUILD=build/tilt BZTILT=1 bonanzadisk
+
+A start plate at 2 units with a pad for each ball; then
+
+- **THE LEDGE** (east): a 4 x 1 plate along x, pivot 3, resting with its near
+  end at the start plate's 2 units and its far end at 4, beside a LEDGE at
+  3.5 units and its goal (exit 1). Steel and rubber tip it as soon as they are
+  past the pivot, and the ledge becomes a 1.5-unit wall; GLASS, light, rolls
+  off the top onto the ledge first (the plate FLAT by then: the ledge 4 px up,
+  a climb). One see-saw used to reach a ledge, and a glass-only gate.
+- **THE GATE** (south): a 1 x 4 plate along y, pivot 3, resting with its far end
+  UP, 2 units over the far plate - a wall to roll at. Roll up it (steel needs
+  a run-up: it does not climb a slope from rest) and past the pivot the plate
+  lays its far end down at the far plate's height, the ball carried down
+  with it, on to the goal (exit 0). Every ball; glass tips it late, near the
+  top, and rides it down.
+- **THE ROCKER** (west): a 2 x 2 plate across a gap to a one-cell dead end,
+  `rest +`: every ball rocks it, each way.
+
+No clock: a 6-lane plate and a clock's digits in one window are over
+`WIN_CHG` (D9). No shipped course, demo or identity moves (MEASURED, `cmp`).
+
+#### 128.42.8 The proofs (BUILT, MEASURED red)
+
+`--selfcheck --only tilt`: the nine refusals (item 2); TILT's records, cells
+at rest and lanes - 3 plates, 15 lanes, 5 / 6 / 4 a plate, each 3 poses
+(item 3); the reach and its control (item 6); the fulcrum and its control
+(item 10); six scenes on the model - glass reaches the ledge's goal, rubber
+and steel tip the plate and do not, steel and rubber through the gate to its
+goal, the rocker taking all three poses (item 11) - and two model red arms,
+`nocarry` (the carry left out: steel lands on the gate) and `wrong` (the
+weight read off the other half: the ledge plate LIFTS steel onto the ledge).
+
+`tests/bonanza_phys.py --check`'s unicorn half (`tilt_host`): the guest's
+`bz_step` with the build's bundle against the model at EVERY step - the
+ball, the slot, `bz_fst`, `bz_fref`, the window, each lane's pose through
+`bz_ltrue` and its mark - on TILT compiled from the tree: `ledge-glass`,
+`ledge-steel`, `ledge-rubber`, `gate-steel`, `gate-glass`, `rocker`,
+`rest-respawn`, each also judged for what it is for. Red arms, the part
+assembled from a patched `seesaw.asm`: `tlcell` (CELL's entry 0: the window),
+`tlcarry` (the carry's z not written: the ball), `tlmark` (no lane marked:
+never drawn), `tlfref` (no refill asked), `tlweight` (glass weighed as steel:
+the ball), `tlrst` (RESET's entry 0: the respawn's lanes never marked) - all
+six go red.
+
+#### 128.42.9 What it costs (MEASURED: `make bonanzadisk` against `cdb248a06`)
+
+| | |
+|---|---|
+| the part `bzf-seesaw.bin` | **648 bytes**, `paras` 41 |
+| BONANZA's image | 50,036 -> **50,038 (+2)**: `BZ_FTAB`'s rows for IDs 13 (a gap) and 14 |
+| its bss | **+0** (the slot is `bz_fsl`'s; the state `bz_fst`'s) |
+| the RESIDENT BUNDLE, RAM | 30,864 -> **31,520 (+656)**: every play's RAM, a course naming it or not |
+| `BONANZA.O88` | 121,892 -> **122,298 (+406)** |
+| every shipped course part, demo and the title | unchanged, byte for byte (`cmp`) |
+| a step, a course naming it (PREDICTED, counted at the 8088's clocks, not measured) | STEP: the dispatch and the airborne test about 0.1k on an airborne ball; grounded, a walk of the records - about 35 clocks a record, about 0.8k on TILT's 22 - and about 0.3k more on a plate, 0.6k on the step it tips (the marks, the carry). CELL, a refill: about 35 clocks a record and about 0.5k a plate whose cells it tests, about 2k on TILT |
+| a course without it | nothing (no hook is called for a family the course does not name) |
+
+The final pass measures the per-step cost (`bonanzaphys` / `bonanzaperf` on
+a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
+
+#### 128.42.10 Open questions for the owner
+
+1. **The weights**: steel 2, rubber 8, glass 28 steps on a half before a plate
+   moves (and 4 from FLAT). Glass's 28 is what the LEDGE needs (24 left it 2
+   gu short of the ledge on the model); the owner's to judge on TILT.
+2. **The look**: the plate is the floor's own tiles on a thin slab, with a
+   white fulcrum; a plate of its own colour (a crystal plank?) is an art
+   choice.
+3. **Steel and slopes**: steel does not climb a 1-in-1 plate from rest (its
+   force is under the slope's), so a see-saw it must cross wants a run-up -
+   the GATE has one. A gentler slope is the tool's one constant if wanted.
+4. **The lanes**: a 4-cell plate is 5 - 6 lanes turning on one step, a whole
+   `WIN_CHG`; a clock's digits in the same window are refused with it. A
+   lighter picture (no faces on a tilting plate) would cut lanes.
+5. **A tilting plate and the occluders**: the occluder records are cut from
+   the rest picture and the three poses' reach; a ball BEHIND a plate whose
+   near end has risen could be drawn over it for a frame or two (not seen on
+   the test course, whose plates have nothing behind them).
