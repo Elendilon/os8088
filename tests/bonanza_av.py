@@ -20,14 +20,18 @@ guest lays in cannot show.  ASSERTED at every position: the buffer EXACTLY the h
 records the host's verdicts lay, [bz_namod] by 1 exactly where the model runs, the stack balanced.
 
 The positions, per course (every BZ_COURSES course, the pathway and the title): --n VOID positions (a reach
-cell the model runs in, a random point of it, a random height of its range and fraction, airborne) and n / 3
-others (any reach cell, grounded or airborne); one in five with the window clipping the footprint (its top
-line or its left word inside it).
+cell the model runs in, a random point of it, a random height of its range and fraction, airborne), n / 30
+FALLS of ten consecutive frames from a VOID position (the ball dropping 1 - 6 px a frame and drifting up to an
+eighth of a cell: the guest's cell cache, SPEC.md 128.29.5, used, re-counted and left as a fall uses it) and
+n / 3 others (any reach cell, grounded or airborne); one in five with the window clipping the footprint (its
+top line or its left word inside it).
 
 --price: the pass's executed instructions at the VOID positions priced by 128.11.15's method (each at max(EU
 + EA, 4.34 a byte), x 1.05; bonanza_dsplit's table), the AV part against the course compiled --occ off
 (today's records, GF_ANA clear: the model never runs) at the same positions - the fall frames' cost, PRICED.
---red amodel: the guest with F's +3 made +2 (one edge entry off) must fail.
+--red amodel: the guest with the right half's + 4 made + 12 (every right-half edge a line low) must fail.
+--red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
+SPEC.md 128.29.5: the FALLS above are what reach it) must fail.
 """
 import argparse
 import os
@@ -49,8 +53,12 @@ LINES = 200
 CHKW = (0x3333, 0xCCCC)
 
 REDS = {
-    "amodel": [("bzvideo.inc", "    imul dl                     ; AX = kr (2 d' + 1)\n    add ax, 4 ",
-                "    imul dl                     ; AX = kr (2 d' + 1)\n    add ax, 12                  ; RED amodel\n ")],
+    "amodel": [("bzvideo.inc", "    add ax, 4                   ; (the right half's + 4)",
+                "    add ax, 12                  ; RED amodel"),
+               ("bzvideo.inc", "    add ax, 6                   ; (flat: 2 (2 d' + 1) + 4)",
+                "    add ax, 14                  ; RED amodel")],
+    "acache": [("bzvideo.inc", "    jl .count0                  ; a front cell counts that did not",
+                "    nop                         ; RED acache\n    nop")],
 }
 
 
@@ -174,6 +182,21 @@ def positions(c, ag, n, rnd):
             out.append(((16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096),
                         (z << 8) + rnd.randrange(256), 1, True))
             i += 1
+    for i in range(max(1, n // 30)):            # FALLS (the speed pass, SPEC.md 128.29.5): ten frames from a
+        rc = rnd.choice(rcs) if rcs else None   # VOID position, the ball dropping 1 - 6 px a frame and drifting
+        if rc is None:                          # up to an eighth of a cell, so that a run keeps its cell, its
+            break                               # columns or its count set for a while and then leaves them
+        gx, gy = (16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096)
+        gz = (rnd.randrange(rc.zlo, rc.zhi + 1) << 8) + rnd.randrange(256)
+        for _ in range(10):
+            px = ((gx - gy) >> 8) + c.x0 - 8
+            py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
+            if px < 0 or py < 0 or px + 24 > c.width or py + 16 > c.lines:
+                break                           # (off the picture: the run ends)
+            out.append((gx, gy, gz, 1, True))
+            gz -= rnd.randrange(256, 6 * 256)
+            gx += rnd.randrange(-512, 513)
+            gy += rnd.randrange(-512, 513)
     for i in range(max(1, n // 3)):
         rc = rnd.choice(c.reach)
         air = 1 if rc.kind == BB.KIND_VOID else rnd.randrange(2)
