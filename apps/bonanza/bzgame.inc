@@ -496,6 +496,26 @@ VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
+VAR bz_aE,48                    ; bz_amodel (SPEC.md 128.29): each footprint
+VAR bz_atb,16                   ; column's least edge line (24 at most), the
+VAR bz_acol,2                   ; word's line table, the columns (DL, DH), the
+VAR bz_aa,2                     ; ball's a and grid row, the key, the first and
+VAR bz_ar,2                     ; last column, d, the front cell's a, 8 (s + d)
+VAR bz_akey,2                   ; + Y0, X0, and the frames it ran (the rows')
+VAR bz_axlo,2
+VAR bz_axhi,2
+VAR bz_ad,2
+VAR bz_aan,2
+VAR bz_ayb,2
+VAR bz_ax0,2
+VAR bz_namod,2
+VAR bz_awlo,6                   ; bz_amodel: each word's least and greatest
+VAR bz_awhi,6                   ; edge line, the column table's end, the
+VAR bz_aend,2                   ; block row's laid lines [rs, re) and whether
+VAR bz_ars,2                    ; its bz_oprep ran
+VAR bz_are,2
+VAR bz_aprep,1
+VAR bz_akq,2                    ; bz_amodel: floor(K / 4)
 VAR bz_okt,1                    ; the 4-byte record (SPEC.md 128.15.5): bz_ozk
                                 ; holds s_b + SB; kt = clamp(z_b + m - TB) (bz_occ)
 VAR bz_osbias,2                 ; SB sign-extended, TB, MTAB (bz_crshdr)
