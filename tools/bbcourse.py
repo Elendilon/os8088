@@ -13026,7 +13026,9 @@ class TurnFamily(Family):
     """THE TURNTABLE (SPEC.md 128.43.4).  An element is a SWITCHING cell (tt_pose: 0 floor, 1 the warning, 2 a gap,
     from the step's low byte).  No slot.  CELL: each element in the window that is a gap at n - or is the window's
     CENTRE with the ball's whole-px z under its top (4 TZ: fallen into its hole, so a closing hole never lifts it)
-    - a NEAR VOID (TZ less TT_VOID half units, kind and surface 0, its flags kept: the membrane's).  STEP: an
+    - a NEAR VOID (TZ less TT_VOID half units, kind and surface 0, its flags kept: the membrane's); every other
+    element the grid's FLOOR (the guest writes it back: its window keeps cells when it moves, bz_win9i; this
+    window is always refilled from the grid, so it already holds it).  STEP: an
     element whose pose differs between n and n + 1 MARKS its lane (the guest's bz_fmark) and, in the window, asks
     for the refill (bz_fref).  POSE: tt_pose"""
     row = FAM_BY_NAME["turntable"]
