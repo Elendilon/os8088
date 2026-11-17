@@ -256580,6 +256580,13 @@ record each would lay the same pixels on the same verdicts.) Nothing is
 refused for its shape: every pixel is keyed, and what the tool refuses is the
 BOUNDS below.
 
+*Amended by 128.28.6: on a FIELD cell "reachable" means the ball's REAL
+poses - its centre at each integer point of the cell, at the floor there and
+above it, and its lit circle rather than the footprint's box - not the whole
+cell's area at its lowest point: a ball at a channel's bottom height under
+its lip is not a pose a FIELD cell can give it (128.28.6, the occluder
+cut).*
+
 *Amended by 128.15.5: this 8-byte record was idea C's RAM record
 (128.15.5.3), and it did not ship: 128.15.5.4's second measurement shipped
 D, whose RAM record is 4 bytes (128.15.5.1). The tool still lays this one
@@ -279426,14 +279433,14 @@ grounded-only corner model):
 | byte | a FIELD cell |
 |---|---|
 | +0 `z0` | signed, half units: the cell's BASE. No point of the cell is below `16 z0` quarter px (every table byte is unsigned) |
-| +1 | bits 0 - 3 the SHAPE, an index into section `F`; bits 4 - 6 the SYMMETRY (below); bit 7 zero |
+| +1 | bits 0 - 3 and 7 the SHAPE, an index into section `F` (0 - 31; bit 7 its FIFTH bit, 16); bits 4 - 6 the SYMMETRY (below) |
 | +2 | low nibble 7; high nibble the SURFACE (`normal` only, as built: 128.28.3) |
 | +3 | flags: SAFE never, OBS never; OCC and OCCG as derived for any cell (128.10.4.4, 128.11.4.3); bits 4 - 7 zero |
 
 **The height** at the cell's integer point `(u, v)`, `0 <= u, v <= 16` (the
 far edges included, as 128.10.4.3's plane), in quarter px:
 
-    h4(u, v) = 16 z0 + F[shape][17 V + U]
+    h4(u, v) = 16 z0 + F[shape][17 V + U]      shape = (+1 & 0Fh) | ((+1 & 80h) >> 3)
 
 where `(U, V)` is `(u, v)` through the SYMMETRY: bit 4 MU mirrors `u` (`u' =
 16 - u`, else `u' = u`), bit 5 MV mirrors `v` the same way, then bit 6 SW
@@ -279452,17 +279459,26 @@ origin and two strides (`BZ_FSYM`, 128.28.7) and never multiplies.
 
 **Section `F`**: tag `F`, form 0 PLAIN, **after `D` and before `T`** in RAM
 order (`D` absent on a course with no split cell), `NSHAPE` tables of 289
-bytes, `1 <= NSHAPE <= 16`; present if and only if the course has a FIELD
-cell. `BZG1 +28` gains **`GF_FIELD` = 32 (bit 5)**, set exactly when `F` is
-present. `read_part` adds: `F`'s length a multiple of 289, at most 16
-tables, every one named by at least one cell; every FIELD cell's shape under
-`NSHAPE`, its bit 7 clear, its flags as above; the slope bound and the SEAM
-rule (below) on every cell - which the guest then trusts, as it trusts the
-rest of a part the tool built.
+bytes, `1 <= NSHAPE <= 32` (at most 9,248 bytes, inside a part); present if
+and only if the course has a FIELD cell. `BZG1 +28` gains **`GF_FIELD` = 32
+(bit 5)**, set exactly when `F` is present. `read_part` adds: `F`'s length a
+multiple of 289, at most 32 tables, every one named by at least one cell;
+every FIELD cell's shape under `NSHAPE`, its flags as above; the slope bound
+and the SEAM rule (below) on every cell - which the guest then trusts, as it
+trusts the rest of a part the tool built.
+
+**Thirty-two, not sixteen** (the owner, 2026-11-17): the shape was four bits
+and bit 7 had to be zero, so a course held 16 tables and the knob's test
+shapes needed two courses (128.28.9). Bit 7 became the shape's fifth bit:
+the cell's other bytes and the symmetry are untouched, a course of 16 or
+fewer tables stores exactly the bytes it did, and the guest's two readers
+(`bz_fhp`, `bz_dval`) fold the bit in with no branch (MEASURED, `make
+bonanza`: image **47,713 -> 47,718** (+5), bss **11,031 -> 11,063** (+32:
+`bz_fsb` holds 32 offsets)).
 
 **A part is HOSTILE** (128.24.5.3's rule): `bz_cexp`'s bound makes a FIELD
-cell whose shape is not under `NSHAPE`, or whose bit 7 is set, OPEN, so the
-step reads `F` only inside `F`. Any byte of a table is a height, so nothing
+cell whose shape (all five bits) is not under `NSHAPE` OPEN, so the step
+reads `F` only inside `F`. Any byte of a table is a height, so nothing
 else needs bounding: a hostile table can make a ball fast (a slope of 255
 loops `bz_smul` eight times), never read or write outside the part.
 
@@ -279554,6 +279570,19 @@ symmetry that reproduce it exactly, adding a table when none does.
   (radius - h))` - steepest at the lip, so a fast ball is thrown up and over
   and a slow one slides to the hole. Radius 3, hole 1: depth 16 px accepted,
   20 refused (the bound at the 45-degree points).
+- **The STANDARD profiles** (the owner's design rule, 2026-11-17): a table is
+  shared by every cell that is the same shape in another orientation, and a
+  cell of one chute shares its tables with a cell of another only when the
+  two have the same width, profile, depth and slope there. So courses draw
+  their chutes from a small set of STANDARD profiles and depths - the
+  deepest every corner accepts (2-wide `round` 10 px, `bank` 8 px; 1-wide
+  `round` 5 px, `bank` 4 px) and the pit's radius 3, 16 px, hole 1 - so that
+  a second chute of a standard profile costs no table its first did not. A
+  one-off "special" shape stays allowed: it simply costs its own tables, out
+  of the 32 (128.28.2). The tool prints, for every course with a FIELD
+  cell, how many tables each `chute` and `pit` statement ADDED and which it
+  SHARES with an earlier one (`bbcourse.field_tables_by_statement`, in the
+  course's report).
 - **Lengths**: a 1-wide leg between two ways `n` cells apart has `n - 1`
   cells between them (the ways' own cells are the corners or the end
   tapers), so `n >= 1`; a 2-wide leg between crease points `n` apart has `n
@@ -279673,6 +279702,56 @@ profile keeps it, which is what caps the depth.
   coarser step cut the records and their masks - 8 px kept the bound on the
   test courses, 16 px saved PLAYGROUND 190 records and 110 masks; the cost
   is a ball up to 15 px under a facet's true lowest corner drawn over it).
+- **The occluder CUT: a FIELD cell's ball at its REAL poses** (BUILT, after
+  the knob build, a finding). 128.10.4.4 cuts a pixel when some reachable
+  ball would be laid under it, and took a cell's ball anywhere in its area at
+  its LOWEST point - for a FIELD cell its base, a channel's bottom. Under the
+  lip that pose does not exist: step 6 leaves a ball whose centre is in a
+  FIELD cell at or above the floor at its integer point (128.28.5.1;
+  `--selfcheck` checks it over the scripted runs and 60 seeded ones, and its
+  red arm, that floor read 1 px high, is broken by a grounded ball). So the
+  tool (`bbcourse._field_occ`) takes a FIELD cell's ball at its real poses:
+  its centre at each integer point `(u, v)` with any fraction (its footprint
+  column `u - v` or one less, its line the floor or the ceiling of `(u + v)
+  / 2`), at every whole height from the floor there to the cell's `zhi`, a
+  line higher with a height fraction - and its LIT CIRCLE, not the
+  footprint's 16 x 16 box. A pixel is an occluder when it lays over a lit
+  pixel of such a pose. Every other cell, and the merge's queries (128.11.4.1:
+  a FIELD cell's are its 4 x 4-unit squares, `FOCC`, each at its lowest
+  floor - a superset, so the merge stays exact), are as before.
+  MEASURED (the knob build's SHAPE and PITS, merged records before the
+  dither's drop; the same plate with no shapes has 524 and 568, every one of
+  them for a ball behind the edge), each record by the balls whose poses
+  need its pixels - on the surface first, then the hole, then behind:
+
+  | | SHAPE | PITS |
+  |---|---|---|
+  | records, the whole-cell cut -> the real-pose cut | 1,049 -> 870 | 1,095 -> 891 |
+  | ... needed by a ball ON a FIELD cell (or the plate too) | 462 -> 269 | 485 -> 259 |
+  | ... only by a ball in the PIT's HOLE (the bowl's near side over a ball dropping through) | - | 26 -> 44 |
+  | ... only by a ball BEHIND the course's edge or falling behind it | 587 -> 601 | 584 -> 588 |
+
+  The 179 and 204 records the cut drops were cut for the impossible pose
+  (390 of SHAPE's were the plate's top, cut over a ball "at the chute's
+  bottom" under the near lip); they could hide no reachable ball. A record
+  moves between the rows as its pixels' needs change, which is why the
+  behind-the-edge rows grow by a few: those are the ones the owner hands to
+  the edge's own occlusion work, and the FIELD cells add 77 (SHAPE) and 20
+  (PITS) of them over the plate's 524 and 568 - a facet keyed and topped
+  unlike the plate round it cannot share the plate's record. What stays ON the surface is
+  REAL by the rule (`--selfcheck`, a sample of real poses: every lit pixel
+  the rule hides is laid, and the cut's floor 3 px high leaves poses short):
+  the uphill of a leg that CLIMBS toward the viewer, as any ramp in front of
+  a ball hides it (SHAPE's `bank` chute: up to 48 lit px of a GROUNDED ball);
+  a deep chute's near lip over the bottom lines of a ball on its crease (the
+  2-wide `round` 10 px lip stands 2 px over the crease on the screen), which
+  a grounded ball's 4 px margin mostly keeps whole and an airborne one
+  within 4 px of the floor does not; and the pit's bowl round a ball near
+  its hole. **`FTOPQ` stays 16 px**: with the real-pose cut, exact tops (1
+  px) and 4 px still put 5 records in a block (over 128.11.4.2's four) on
+  both courses, and 8 px holds the bound but costs SHAPE 1,033 records and
+  157 masks against 869 and 90 (PITS 962 and 150 against 891 and 85), so
+  the up-to-15-px show-through stays the price of the bound.
 - **The ink, as built**: `field_shade` takes the facet's normal against the
   light `(-1, -0.3, 1.5)` relative to a level facet's and bands it at 1.12,
   1.04, 0.96, 0.86 and 0.74 into WHITE, white/cyan, the cell's own parity
@@ -279688,7 +279767,9 @@ profile keeps it, which is what caps the depth.
   `v`, so the index is two table reads and two adds; `bz_fsb` (bss), each
   shape's table's offset in the course, filled once by `bz_pinit` from
   section `F`'s directory entry.
-- **`bz_fhp`**: SI a FIELD cell, DL, DH = `(u, v)` -> AX = `h4`. **`bz_fh4`**:
+- **`bz_fhp`**: SI a FIELD cell, DL, DH = `(u, v)` -> AX = `h4`; the shape is
+  the +1's bits 0 - 3 with bit 7 folded in as 16 (`cbw`, `and ax, 100fh`,
+  `or al, ah`: no branch). **`bz_fh4`**:
   the centre's after the move - its `h4` (BX, for step 6) and `bz_tsx`,
   `bz_tsy`.
 - **The hooks**, none on a path a course without FIELD cells takes: step 6's
@@ -279709,7 +279790,9 @@ profile keeps it, which is what caps the depth.
   the model step for step under unicorn (`tests/bonanza_dfield.py`: the
   stored forms' CELLS, a HOSTILE part, eleven scripted runs and 300 fuzz runs
   of 160 steps near field cells; red arms `nolift`, `ffblock`, `symswap`,
-  `cellfield`, `nofbound` each go red), and `tests/bonanza_dsplit.py` still
+  `cellfield`, `nofbound` each go red; and, with 32 tables, a fourth course
+  MANY of 17 whose shape-16 cells carry bit 7 - the HOSTILE leg runs on it,
+  and `nofifth`, the bit not read, goes red), and `tests/bonanza_dsplit.py` still
   passes (split cells untouched).
 
 #### 128.28.8 What it costs
@@ -279774,10 +279857,11 @@ is on the TOUR (`bbcourse.TOUR`):
 | SHAPE "Shape Test" | `courses/shapes.bbc` | a 2-wide `round` chute 10 px deep, up, across and down (two corners the same way); a 2-wide `bank` chute 8 px deep, the same shape, its second leg CLIMBING a unit to a raised corner and its third FALLING back; a 1-wide `round` chute 5 px deep, an S (corners both ways). Three goals: exit 0 the far corner, 1 the left, 2 the back |
 | PITS "Pits and Banks" | `courses/pits.bbc` | a 1-wide `bank` chute 4 px deep, an S; a shallow 2-wide `round` chute 6 px deep with corners both ways; a PIT radius 3, 16 px, round a hole; a PIT radius 2, 8 px, no hole |
 
-**Two courses, not one**: a course holds 16 shape tables (128.28.2) and the
-pieces take 2 - 7 each (MEASURED: a 2-wide `round` chute with two corners 5,
-the climbing `bank` one 7, a 1-wide one 3, the radius-3 pit 5, radius-3 with
-no hole 6, radius-2 with no hole 3) - one course of them all needs 21 - 27.
+**Two courses, not one**: a course held 16 shape tables when these were
+built (128.28.2 has since made it 32) and the pieces take 2 - 7 each
+(MEASURED: a 2-wide `round` chute with two corners 5, the climbing `bank`
+one 7, a 1-wide one 3, the radius-3 pit 5, radius-3 with no hole 6, radius-2
+with no hole 3) - one course of them all needs 21 - 27.
 Each part fits easily (MEASURED, the knob build: RAM, the RECB 8 identity
 layout, LZ4: SHAPE 39,663 / 43,855 / 7,848 with 15 tables, 1,048 records,
 302 blocks; PITS 42,260 / 46,640 / 8,348 with 16 tables, 1,095 records, 348
