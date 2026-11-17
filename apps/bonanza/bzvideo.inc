@@ -992,7 +992,9 @@ bz_boxc:
 %endif
 BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
 ; BZ_SPR dx, dy, card (0 the CGA, 1 the Hercules), size (0 a 2 x 2, 1 one
-; pixel: dx's, or dx + 1's right of the centre), and the place at a shift
+; pixel: dx's, or dx + 1's right of the centre; 2 a 2 x 2 ON the ball, which
+; the CGA XORs with 1 a pixel - the ball's base to its ink, a GLINT - where
+; 3 would turn it to the ground's colour), and the place at a shift
 ; whose x = s + dx would be left of the sprite (dx < 0 at s = 0): fdx, fdy
 %macro BZ_SPR 3-6 0, 0, 0
  %assign %%s 0
@@ -1003,7 +1005,7 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
    %assign %%dx %5
    %assign %%dy %6
   %endif
-  %if %4
+  %if %4 == 1
    %if %%dx >= 8
     %assign %%x %%s + %%dx + 1
    %else
@@ -1014,7 +1016,7 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
   %endif
   %assign %%b %%x >> 2
   %assign %%p %%x & 3
-  %if %%p == 3 && %4 == 0
+  %if %%p == 3 && %4 != 1
    %assign %%w %%b
    %assign %%j 3
   %elif %%b == 4
@@ -1024,23 +1026,25 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
    %assign %%w %%b
    %assign %%j %%p
   %endif
-  %if %%x < 0 || %%dx > 15 || %%dy > 14 || %%w > 3 || %%j > 6 + %4
+  %if %%x < 0 || %%dx > 15 || %%dy > 14 || %%w > 3 || %%j > 6 + (%4 == 1)
    %error "a sparkle's pair must stay inside the sprite's 5 bytes and 16 rows"
   %endif
-  %if ((BZ_SPX(%%j) >> 2) | ((BZ_SPX(%%j) & 3) << 14)) != BZ_SPX(%%j + 1) && %4 == 0
+  %if ((BZ_SPX(%%j) >> 2) | ((BZ_SPX(%%j) & 3) << 14)) != BZ_SPX(%%j + 1) && %4 != 1
    %error "the Hercules' second line is the first's mask rotated right 2"
   %endif
             db %%dy * BZ_BOXW * 2 + %%w
   %if BZ_SPRE == 3
-   %if %4
+   %if %4 == 1
     %error "a one-pixel place needs the 5-byte entry (BZ_SPARKSET 3)"
    %endif
    %if %3
             dw BZ_SPX(%%j)
+   %elif %4 == 2
+            dw (BZ_SPX(%%j) | BZ_SPX(%%j + 1)) & 5555h
    %else
             dw BZ_SPX(%%j) | BZ_SPX(%%j + 1)
    %endif
-  %elif %4
+  %elif %4 == 1
             dw BZ_SPX(%%j), 0
   %elif %3
             dw BZ_SPX(%%j), BZ_SPX(%%j + 1)
@@ -1074,14 +1078,14 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
             BZ_SPR 0, 0, %1, %%t        ; 0-2 sparkle 0's: the top left corner,
             BZ_SPR 15, 2, %1, %%t       ; the right's top, the bottom left
   %if BZ_SPARKSET == 4
-            BZ_SPR 4, 10, %1            ; (OVER: the face's lower left)
+            BZ_SPR 4, 10, %1, 2         ; (OVER: the face's lower left)
   %else
             BZ_SPR 0, 14, %1
   %endif
             BZ_SPR 14, 0, %1, %%t       ; 3-5 sparkle 1's: the top right
             BZ_SPR -1, 12, %1, 0, 0, 12 ; corner, the left's foot, the bottom
   %if BZ_SPARKSET == 4                  ; right
-            BZ_SPR 9, 4, %1             ; (OVER: the face's upper right)
+            BZ_SPR 9, 4, %1, 2          ; (OVER: the face's upper right)
   %else
             BZ_SPR 14, 14, %1
   %endif
