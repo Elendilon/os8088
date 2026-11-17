@@ -566,6 +566,18 @@ def shell_static():
     for nm, ev in (("PAD", "ARRIVE"), ("GATE", "GATE"), ("LIFE", "LIFE"), ("OVER", "OVER")):
         if not re.search(r"^BZS_EV_%s\s+equ\s+BZS_E_%s\b" % (nm, ev), inc, re.M):
             out.append("BZS_EV_%s is not BZS_E_%s" % (nm, ev))
+    # 2026-11-17: the finish's call was under an %ifdef of an EQU, so it was never assembled and the
+    # fanfare never played; the listing's ASSEMBLED call (an address and bytes) is the proof it is in
+    lst = R.at("build/bonanza.lst")
+    if os.path.exists(lst):
+        ln = open(lst).read().split("\n")
+        # `call` is the SDK's macro: the bytes are on its expansion (E8 rel16), a few lines under the source
+        # line; a call in a false conditional is listed with no expansion at all
+        ok = any(re.search(r"\scall bzs_victory\b", t) and
+                 any(re.match(r"^\s*\d+ [0-9A-F]{8} E8[0-9A-F]{4}\s", u) for u in ln[i + 1:i + 12])
+                 for i, t in enumerate(ln))
+        if not ok:
+            out.append("bonanza.lst has no ASSEMBLED call bzs_victory: the finish never plays the fanfare")
     art = R.at("build/bonanza-art")
     g = os.path.join(art, "bzsnd.inc")
     if os.path.exists(g):
