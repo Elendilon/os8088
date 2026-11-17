@@ -267197,9 +267197,11 @@ knob and carrying a `#> [Knobs]` line for `make help`. *(Deleted with D's
 arm at the first verdict, 128.15.5.4, and RESTORED on 2026-11-14 when the
 owner re-opened the decision under the smoothness rule, with the default
 `BZREC ?= 8` until the re-measurement decided. It decided D, and the knob
-was deleted with C's arm: `bbcourse.py`'s `--rec` defaults to 4, D, and
-`--rec 8` remains for the host checks. The paragraphs below describe the
-knob while it stood.)*
+was deleted with C's arm, and the tool's `--rec 4|8` choice with it
+(2026-11-17): the compiler writes 4-byte records only, `bzcourse.inc`'s
+`BZ_REC` is 4, and the identity is still taken over the 8-byte layout
+derived from the model (`identity_form`, 128.15.7). The paragraphs below
+describe the knob while it stood.)*
 - It reaches the tool as `--rec $(BZREC)`, and the tool writes `BZ_REC
   equ 4` or `8` into `bzcourse.inc`. The course stamp (`.bz-crs`) carries
   `BZREC`, so changing it recompiles the courses.
@@ -268348,14 +268350,15 @@ lattice, identities, mask counts and `nodither` where they differ.*
     `RECB` 8 from its model (`ram_identity`).
 - **`--rec 4|8`** comes from `BZREC`, and `bzcourse.inc` gains `BZ_REC`
   and `BZ_FORMS`. The tool takes no format flag (128.15.8). *(After
-  128.15.5.4's second verdict the knob is gone: `--rec` defaults to 4, D,
-  the shipped stride, and `--rec 8` remains for the host checks.)*
+  128.15.5.4's second verdict the knob is gone, and `--rec` with it
+  (2026-11-17): records are 4 bytes.)*
 - *As built*: the tool compiles each course to a MODEL with no offset in it
-  (`c.model`), and every form is a serialisation of it - `encode_part(m, 4|8)`
-  the RAM forms (`c.cga4`, `c.cga8`), `stored_form` the stored ones
-  (`c.stored4`, `c.stored8`), and `encode_bzc1` wave 4's `BZC1`, which item 1
-  compares with the last `BZC1` tree's parts (128.15.12.3). `c.cga` and
-  `c.stored` are the build's `RECB`'s. `compile_course` itself checks
+  (`c.model`), and every form is a serialisation of it - `encode_part(m, 4)`
+  the RAM form (`c.cga`), `stored_form` the stored one (`c.stored`),
+  `identity_form(c)` the 8-byte layout the identity is taken over (never a
+  shipped form), and `encode_bzc1` wave 4's `BZC1`, which item 1
+  compares with the last `BZC1` tree's parts (128.15.12.3).
+  `compile_course` itself checks
   `expand(c.stored) == c.cga` on every compile.
 - **The packed size** of each shipped course, packed as LZ4, is computed
   when the courses are compiled, for 128.15.8's refusal: about 3 s a
@@ -280092,8 +280095,8 @@ above; the owner's constraint decides it.
   today changes.
 - **Otherwise two parts**, each D part at most 65,024 (refused past it,
   naming the part: *"the course's picture part is N bytes, over the 65,024
-  one part may be"*). Under `--rec 8` (C, 128.15.5.3) each C part is held to
-  65,024 as well; a D build does not require the C parts to fit.
+  one part may be"*). The identity of a two-part course is over its D parts
+  (128.30.4.3), so no 8-byte layout of them is made.
 - **The pathway and the title are always one part** (`--path`,
   `--title`): refused as two.
 

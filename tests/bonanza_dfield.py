@@ -159,7 +159,7 @@ def hostile(binp, sym, c):
     of 1 - 15 to 17 - 31 -> OPEN; the good ones (shape 16, bit 7, among them) untouched; nothing read or
     written outside the part"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
-    st = bytearray(c.stored4)
+    st = bytearray(c.stored)
     diroff, nsec = struct.unpack_from("<HH", st, 38)
     sec = {}
     for j in range(nsec):
