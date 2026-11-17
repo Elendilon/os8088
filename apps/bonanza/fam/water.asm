@@ -96,8 +96,20 @@ wa_reset:
 ; CELL: the window's water cells for this ball, then the centre's rules
 wa_cell:
     call wa_slot                ; DI = the slot
+%if BZ_WA_MODE                  ; BP = rubber's and glass's floor under the
+    mov bp, 2                   ; top, half units: E the safety floor; B the
+%elif BZ_WA_FBSH                ; bob's phase (the top, or the float line)
+    mov al, [bz_nstep]
+    mov cl, BZ_WA_FBSH
+    shr al, cl
+    and ax, 1
+    mov bp, ax
+%else
+    mov bp, 1
+%endif
     call wa_walk                ; ES:SI the records, CX their count
     xor dx, dx                  ; DX = the centre's element's record, 0 none
+    and byte [di + WA_IN], 1    ; (bit 1: a water cell in the window, below)
     jcxz .done
 .r:
     cmp byte [es:si], BZ_FK_WATER
@@ -119,8 +131,9 @@ wa_cell:
     xor bh, bh
     shl bx, 1
     shl bx, 1
-    mov al, [es:si + WA_HTOP]   ; the float line, H less a half unit ...
-    dec ax
+    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less BP
+    sub ax, bp                  ; (SPEC.md 128.36.10) ...
+    or byte [di + WA_IN], 2
     cmp byte [bz_mat], BZ_MAT_STEEL
     jne .h
     mov al, [es:si + WA_BED]    ; ... steel's the bed
@@ -149,9 +162,9 @@ wa_cell:
     inc ax
     mov bl, al
 .nr:
-    cmp byte [di + WA_IN], 0    ; (on the way in: the HTHR kept)
-    jne .in
-    mov byte [di + WA_IN], 1
+    test byte [di + WA_IN], 1   ; (on the way in: the HTHR kept)
+    jnz .in
+    or byte [di + WA_IN], 1
     mov ax, [bz_mrec + BZM_HTHR]
     mov [di + WA_HTHR], ax
 .in:
@@ -196,9 +209,9 @@ wa_cell:
     pop bx
     jmp short .act
 .out:                           ; the centre not water: on the way out,
-    cmp byte [di + WA_IN], 0    ; HTHR back and bz_surf 0FFh (the window's
-    je .act                     ; test rebuilds bz_se, bz_surfset)
-    mov byte [di + WA_IN], 0
+    test byte [di + WA_IN], 1   ; HTHR back and bz_surf 0FFh (the window's
+    jz .act                     ; test rebuilds bz_se, bz_surfset)
+    and byte [di + WA_IN], 2
     mov ax, [di + WA_HTHR]
     mov [bz_mrec + BZM_HTHR], ax
     mov byte [bz_surf], 0FFh
@@ -229,15 +242,22 @@ wa_cell:
 ; ripples' marks
 wa_step:
     call wa_slot
-    cmp byte [di + WA_IN], 0
-    je .m
-    cmp byte [bz_air], 0
-    je .m
-    mov al, [di + WA_TOP]       ; z's whole px under the float line:
-    cbw                         ; no way across (it sinks STRAIGHT down,
-    shl ax, 1                   ; never out of an arch above its sill),
+    test byte [di + WA_IN], 1
+    jz .m
+    mov al, [di + WA_TOP]       ; DX = the float line, px
+    cbw
     shl ax, 1
-    cmp [bz_gz + 1], ax
+    shl ax, 1
+    xchg ax, dx
+    cmp byte [bz_mat], BZ_MAT_STEEL
+%if BZ_WA_MODE
+    jne .hov
+%else
+    jne .m
+%endif
+    cmp byte [bz_air], 0        ; STEEL, airborne under the float line:
+    je .m                       ; no way across (it sinks STRAIGHT down,
+    cmp [bz_gz + 1], dx         ; never out of an arch above its sill),
     jge .m
     xor ax, ax                  ; the wobble, the fall capped
     mov [bz_gvx], ax
@@ -252,12 +272,76 @@ wa_step:
     cmp word [bz_gvz], -BZ_WA_SINK
     jge .m
     mov word [bz_gvz], -BZ_WA_SINK
+%if BZ_WA_MODE
+    jmp short .m
+.hov:                           ; E (SPEC.md 128.36.10): THE HOVER - rubber
+    cmp byte [bz_air], 0        ; and glass kept airborne (off the safety
+    jne .ha                     ; floor again with no event)
+    mov byte [bz_air], 1
+    mov ax, [bz_gz + 1]
+    mov [bz_ztop], ax
+.ha:
+    mov ax, [bz_gvz]            ; buoyancy under the float line, damped,
+    cmp [bz_gz + 1], dx         ; the bob's kick each way every 16 steps
+    jge .hd
+    add ax, BZ_WE_LIFT
+.hd:
+    mov cl, BZ_WE_DAMP
+    mov bx, ax
+    sar bx, cl
+    sub ax, bx
+    mov bl, [bz_nstep]
+    and bl, 31
+    jnz .k1
+    add ax, BZ_WE_KICK
+.k1:
+    cmp bl, 16
+    jne .k2
+    sub ax, BZ_WE_KICK
+.k2:
+    mov [bz_gvz], ax
+    mov si, bz_gvx              ; the water's drag by hand, gvx and gvy
+    mov cl, BZ_WE_DRAG
+.dr:
+    mov ax, [si]
+    mov bx, ax
+    sar bx, cl
+    sub ax, bx
+    mov [si], ax
+    inc si
+    inc si
+    cmp si, bz_gvx + 4
+    jne .dr
+%if bz_gvy != bz_gvx + 2
+ %error "the hover's drag walks bz_gvx, bz_gvy as two words"
+%endif
+%endif
 .m:
     mov al, [bz_mat]
     cmp al, [di]
-    je .rp
+    je .bb
     mov [di], al
     mov byte [bz_fref], 1
+.bb:
+%if BZ_WA_MODE == 0 && BZ_WA_FBSH
+    test byte [di + WA_IN], 2   ; B (SPEC.md 128.36.10): the bob's flip, a
+    jz .rp                      ; water cell in the window and not steel -
+    cmp byte [bz_mat], BZ_MAT_STEEL ; the next window rewritten; into the
+    je .rp                      ; dip a ball resting on the water goes down
+    mov al, [bz_nstep]          ; with its floor (no fall, no landing)
+    inc ax
+    test al, (1 << BZ_WA_FBSH) - 1
+    jnz .rp
+    mov byte [bz_fref], 1
+    test al, 1 << BZ_WA_FBSH
+    jz .rp
+    test byte [di + WA_IN], 1
+    jz .rp
+    cmp byte [bz_air], 0
+    jne .rp
+    sub word [bz_gz], 4 << 8
+    sbb word [bz_gz + 2], 0
+%endif
 .rp:                            ; the ripples' marks: AL = the count's next
     mov al, [bz_nstep]          ; value's phase
     inc ax
