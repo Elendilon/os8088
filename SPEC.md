@@ -251628,6 +251628,13 @@ camera mode a play will start in.
 
 ### 128.7 Memory
 
+**The target machine (the owner, 2026-11-17): 640KB.** *"256k is not the
+target now. It's a 'we look at it at the end, and see if a special limited
+build might run at all'."* Every "256KB 5150" figure in the waves below
+(about 156KB of heap beside kern_big) is a record of what was checked at the
+time, not a requirement: a design decision is held to a 640KB machine, and
+whether a limited build runs on 256KB is asked once, at the end.
+
 The image and bss stay under one segment. The parts are fetched on the
 DESKTOP before the bracket (a refusal can then toast), the two for the adapter
 in use: the course part (16 + 25,600 + 16N bytes, at most 42,000) and the
