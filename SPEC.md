@@ -280391,10 +280391,22 @@ frame. The set of box-sized lanes costs no bss and no rule.
    block (the marks as a set of (x, y, ink)) are not all equal. A block no
    member depends on is the picture's (static: in no lane). Its
    **dependency set** is the members that depend on it.
-4. **The lanes.** The blocks are grouped by dependency set, and each set's
-   blocks cut into rectangles of at most 4 x 3 holding no other set's
-   block (greedy, `cover_blocks`, the cutter the pathway's reveal groups use,
-   128.22.4.1); a static block may ride inside one. Each rectangle is a GROUP LANE.
+4. **The lanes.** The dependent blocks are cut WHOLE into the fewest
+   rectangles of at most 4 x 3 (greedy, `cover_blocks`, the cutter the
+   pathway's reveal groups use, 128.22.4.1), each lane's members the union of
+   its blocks' dependency sets - while every lane keeps the caps (item 7).
+   Otherwise the blocks are grouped by dependency set and each set cut on
+   its own, holding no other set's block (`_hack grp_split` forces it: the
+   comparison). A static block may ride inside a lane. **Why whole first**
+   (MEASURED, 2026-11-17, the test course's row of `full` cracks against the
+   same cracks 2 x 2): per set, two cracks are 5 lanes and +416 bytes of
+   part, three are 8 lanes and +672, and an element is in up to 6 lanes -
+   which put `TWOSEG` (PLAYGROUND at another Y0) over 128.19.10's change
+   bound (7 > 6) and makes a tile under the ball take up to 6 frames to
+   finish; whole, two cracks are 2 lanes (4 x 3 of 16 poses, 2 x 2 of 4)
+   and +592, three are 2 lanes (two 4 x 3 of 16) and +1,024, and an element
+   is in at most 3 lanes. The part's bytes go up by 176 / 352; the bss's per
+   lane on the largest course (about 41 bytes) goes down by 123 / 246. Each rectangle is a GROUP LANE.
 5. **Classes.** In a group lane, member `m`'s poses are partitioned by
    their marks inside the lane's rectangle (equal marks, one class),
    numbered in order of first appearance from pose 0; `class_m(p)` is the
