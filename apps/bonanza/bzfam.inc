@@ -42,7 +42,7 @@ BZ_PQ_CAPTURE equ 1             ; drain, a capture, step 1's transit; the ROTOR
 BZ_PQ_TRANSIT equ 2             ; family's doorway at step 5
 BZ_PQ_DOOR  equ 3
 %if BZF_HL != 32 || BZF_HE != 8
- %error "bz_fh0 and bz_ffetch find a hook's list with a shift: BZF_HL 32 (BZ_FAMMAX 4)"
+ %error "the dispatch and bz_ffetch find a hook's list with a shift: BZF_HL 32 (BZ_FAMMAX 4)"
 %endif
 %if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZ_FH_PROP != 1 << BZ_HK_PROP || BZF_HDR != 12 + 2 * 6
  %error "bzfam.inc's shifts and the hooks' numbering are the tool's (bbcourse.FSLOT, H_*, FAM_HDR)"
