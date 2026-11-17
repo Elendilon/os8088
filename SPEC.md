@@ -277495,7 +277495,43 @@ held after it, in the same claim. What changes is the positive control
 inside the bracket: the BUNDLE's row fetched and the three `bz_bsegs`
 non-zero, in place of each ball row the course's pads name; and
 `bonanzaexit`'s `padleak` red arm, whose ball row no longer exists, is
-re-aimed (128.25.5.2's commit names it).
+re-aimed: the SOUND PART's row kept at the cup (`bzsound.inc`'s
+`bzs_gdrop0`), its want `BZ_P_SND`'s row.
+
+**BUILT, MEASURED** (`make bonanza`, against the base `c279be758`):
+BONANZA's image **47,097 -> 47,020 (-77)**: `bz_bget` +62 and `bz_bsload`
++49 in; `bz_cload` 278 -> 144 (-134: no ball mask, no ball loop, no
+generation call), `bz_cdrop` 68 -> 50, `bz_arload` 63 -> 53, `bz_hxlat` 123
+-> 128 (the form byte), `bz_fbfind` +1 (the walk's start), the part table
+three rows shorter (-24); bss **unchanged at 10,995** (`bz_pb` and `bz_pbm`
+out, `bz_bform` in). The bundle **32,320 bytes RAM** (the balls 31,168, the
+families 1,152), **2,480 packed** against 2,600 for the four parts it
+replaces (327 + 177 + 1,268 + 828: -120); BONANZA.O88 **117,724 ->
+117,552 (-172)**.
+
+MEASURED on MartyPC (CGA 5150, GLaBIOS, one boot each build, guest cycles at
+4.77 MHz; reads are the floppy controller's READ commands, `m.disk()`):
+
+| | before (`c279be758`) | now |
+|---|---|---|
+| the open, double-click to the window | 8.64 s, 6 reads (87 sectors) | **9.07 s (+0.44)**, 6 reads (87 sectors) |
+| PLAYGROUND (all three balls), `bz_launch` -> `fsx_run`, the first launch | 5.18 s, 8 reads (51 sectors) | **3.79 s (-1.38)**, 5 reads (38 sectors) |
+| ...the second launch | 4.04 s, 5 reads (26 sectors) | **2.47 s (-1.57)**, 1 read (8 sectors) |
+| title -> course demo (`bz_tlog` -> its `bz_vinit`), MILL (rubber) | 2.11 s and 2.14 s, 3 reads | **1.83 s (-0.3)**, 2 reads; TRIAL 1.04 s, 1 read |
+
+The open pays the generation (about 0.35 s) and the bundle's larger read
+once; every launch after it reads no ball and generates none. SEEN (one
+look on each card, `ballkeep-look.py`: an F play of PLAYGROUND, the window,
+the title, the pathway, a pad's course twice with a life between, Alt+Enter
+to the window with the course suspended, the resume, and out): at all ten
+stops the bundle row fetched and the three balls' bytes equal to their RAM
+form - the CGA's on the CGA; on the Hercules the CGA's at the open and the
+translated form (`bz_bform` 1) from the first launch on, never translated
+twice - the arena moved once (the first launch's growth) and `bz_bsegs`
+followed it; the pictures drawn right. The window holds the region, the
+shell part and the arena of 2,048 paragraphs (the bundle's 2,020). NOT
+driven: the two-card re-read (a CGA launch after a Hercules one), which no
+MartyPC machine has (`xt-multimon` is 86Box's).
 
 #### 128.25.6 Families
 
