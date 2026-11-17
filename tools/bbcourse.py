@@ -2914,7 +2914,7 @@ def path_prepare(src, fname, crsinfo):
     for lv in lives:
         room({lv["at"]: ("flat", 0)}, lv["line"], src.rooms)
         rail.add(lv["at"])
-        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "crystal"})
+        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "lives"})
     return {"pads": pads, "routes": routes, "icons": icons, "lives": lives, "rail": rail,
             "secret_rooms": secret_rooms, "npages": src.pages[0] if src.pages else 1,
             "crystal": rail_crystal(src), "surf": (SURFACES.index(src.rail[0]) if src.rail and
@@ -4021,7 +4021,7 @@ def build_props(src, tiles, fname):
         claim(at, ln, "clock")
         for place in range(ndig):                   # (128.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
-                          "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0,
+                          "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
     for lb in src.labels:                           # SPEC.md 128.23.2: a LABEL - a SIGN (wave 8R, 128.22.4.1,
         # the lead's D9), its number the label's N: a lane and nothing else, anchored at SIGN_AT, a cell no
@@ -5464,9 +5464,81 @@ def clock_face_geom(p, x0, y0):
 
 def clock_digit_block(p, x0, y0):
     """the canvas block (column, row) of digit PLACE (0 the units, the rightmost)"""
+    if p.get("frame") == "lives":
+        cx, cy = lives_anchor(p, x0, y0)
+        return (cx >> 3) + 1, (cy - LIVES_DUP) >> 3
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
+
+
+# the pathway's LIVES counter (the owner, 2026-11-17: option C of four - "LIVES" in the map's own label face
+# over the player's MARBLE on a little plinth, "x" and the digit beside it; the other three and the marble
+# rack that breaks a marble a life are docs/plans/BOUNCE-BONANZA-LIVES.md).  The tile's centre at (cx, cy)
+# on its floor line; the digit's block right of the "x" block at cx, LIVES_DUP px up; the caption
+# LIVES_CUP px up, centred
+LIVES_DUP = 16
+LIVES_CUP = 34
+
+
+def lives_anchor(p, x0, y0):
+    """the lives counter's tile centre (x, floor line), on blocks (x0 and the floor lines are)"""
+    wx, wy = p["at"]
+    return 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+
+
+def lives_marble(cx, cy, r):
+    """the player's marble, small: a black rim, magenta, a white rim of light to the upper left, a dither
+    of shade to the lower right and a glint -> {(x, y): ink}"""
+    out = {}
+    for y in range(int(cy - r) - 1, int(cy + r) + 2):
+        for x in range(int(cx - r) - 1, int(cx + r) + 2):
+            ux, uy = (x + 0.5 - cx) / r, (y + 0.5 - cy) / r
+            d = ux * ux + uy * uy
+            if d > 1.0:
+                continue
+            if d > 0.62:
+                ink = BLK
+            elif ux + uy < -0.55 and d > 0.18:
+                ink = WHT
+            else:
+                ink = MAG
+            out[(x, y)] = ink
+    out[(int(cx - 0.35 * r), int(cy - 0.4 * r))] = WHT
+    return out
+
+
+def lives_face_pix(p, x0, y0):
+    """the LIVES counter's static art (its digit is the lane's): a dithered shadow on the tile, a plinth
+    (white top, magenta faces, black edges, as the clocks'), the marble on it, the "x" left of the
+    digit's block and "LIVES" above, both in the map's label face -> {(x, y): ink}"""
+    cx, cy = lives_anchor(p, x0, y0)
+    out = {}
+    for y in range(cy - 2, cy + 5):                 # the shadow, cast to the lower right
+        for x in range(cx - 10, cx + 12):
+            e = ((x - cx) / 12.0) ** 2 + ((y - cy - 1) / 3.6) ** 2
+            if e <= 1.0 and (x + y) & 1:
+                out[(x, y)] = BLK
+    px, ph, pw, pt = cx - 8, 4, 9, 4                 # the plinth
+    top_y = cy - ph
+    for x in range(px - pw, px + pw + 1):
+        half = pt * (pw - abs(x - px)) / float(pw)
+        y_lo, y_hi = top_y - half, top_y + half
+        for y in range(int(math.floor(y_lo)), int(math.ceil(y_hi)) + 1):
+            if y_lo - 0.5 <= y <= y_hi + 0.5:
+                out[(x, y)] = BLK if (y <= y_lo + 0.5 or y >= y_hi - 0.5) else WHT
+        for y in range(int(math.ceil(y_hi)) + 1, int(math.ceil(y_hi)) + ph + 1):
+            if x == px - pw or x == px + pw or y == int(math.ceil(y_hi)) + ph or x == px:
+                out[(x, y)] = BLK
+            elif x < px:
+                out[(x, y)] = MAG
+            else:
+                out[(x, y)] = MAG if (x + y) & 1 else BLK
+    out.update(lives_marble(px + 0.5, top_y - 5.5, 6.2))
+    bx, by = clock_digit_block(p, x0, y0)
+    out.update(label_glyph("x", bx - 1, by, WHT))
+    out.update(text_pixels("LIVES", cx - 20, cy - LIVES_CUP, WHT))
+    return out
 
 
 def clock_face_pix(p, x0, y0, style="crystal"):
@@ -5479,6 +5551,8 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     magenta dither, a white rim of light to the upper left, a glint and a
     finial - with the digits' window left plain cyan.  -> {(x, y): ink},
     later layers over earlier"""
+    if p.get("frame") == "lives":
+        return lives_face_pix(p, x0, y0)
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     out = {}
@@ -6640,8 +6714,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   and q["place"] == 0)
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
-            for d in range(10):
-                poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+            if p.get("frame") == "lives":           # the map's label face, WHITE, on the sky beside the "x"
+                for d in range(10):
+                    poses[1 + d] = {k: v for k, v in label_glyph(str(d), bx, by, WHT).items()
+                                    if cv.sbuf[k[1]][k[0]] <= sC}
+            else:
+                for d in range(10):
+                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): a sign, path_signs's lane
@@ -20547,8 +20626,9 @@ def _path_checks(courses, res):
     except CourseError as e:
         why = str(e)
     res.append(("8R refused: a route left with no arrow (%s)" % why[:80], "has no arrow" in why))
-    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal)
-    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 23 28"), courses, "a lives counter's digit",
+    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal); (22, 27) puts the
+    # `lives` frame's digit, right of its marble, on pad 0's lane (the crystal ball's was (23, 28)'s, above it)
+    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 22 27"), courses, "a lives counter's digit",
                                "a lane over a lives digit", ex)
     res.append(("8R refused: a pad's lane over a lives counter's digit%s" % ("" if fired else " -- got: " + msg[:160]),
                 fired))
