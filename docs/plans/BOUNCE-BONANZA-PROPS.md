@@ -39,7 +39,7 @@ px, and at most 6 FAST lanes meet a window.
 |---|---|---|
 | P9 | **SEE-SAW / TILT PLATE** | the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a resting ball is the lift's carry adapted, not new physics |
 | P10 | **ARCH to roll under** (also: a ball forced under it cannot boost over a pad, so rubber must take a pad) | ~~the reserved UNDERSIDE flag: resident~~ - **BUILT as a family with no resident change** (the ARCHWAY, SPEC.md 128.39, branch `bb-arch`): CELL walls the arch above the ball's clearance, STEP caps the ball under it; below |
-| P11 | **TURNTABLE, quarter-turn**: half filled, a quarter turn every second or so, the cells switching; it does not carry the ball (a cell that turns to a gap drops you) | several SLOW lanes |
+| P11 | **TURNTABLE, quarter-turn**: half filled, a quarter turn every second or so, the cells switching; it does not carry the ball (a cell that turns to a gap drops you) | several SLOW lanes - **BUILT** on `bb-turn` (SPEC.md 128.43, the section below): a family, no resident change; a turn SWEEPS one cell a step, so a table is one pose change a step |
 
 ### Chosen - art only
 
@@ -366,6 +366,48 @@ hidden at most a ball length; the pad seen) is a REFUSAL the tool measures.
       mark BELOW, 50% against 75%; posts at the corners would show it), the
       default height, 2-deep low arches.
 - [ ] **A.8** A shipped course that uses it.
+
+## P11 THE QUARTER-TURN TURNTABLE - built (branch `bb-turn`, SPEC.md 128.43)
+
+Family ID 15, kind 88, home `resident`, a 315-byte part; no resident engine
+byte (the image's +3 are `BZ_FTAB`'s rows for 13 - 15), `BZ_PHYSV` and every
+shipped course, demo and identity unchanged (MEASURED, `cmp`). `prop turntable
+<wx> <wy> size 2|3 fill <cells> [quarter 32|64] [seed S] [warn W] [turn
+cw|ccw]`: a 2 x 2 or 3 x 3 table (a 3 x 3 turns round a fixed PIVOT), HALF
+FILLED, a quarter turn every 64 steps (1.07 s) by default; each switching cell
+a FLOOR or a NEAR VOID by its rotation, so a cell that turns to a gap drops
+the ball, rolling or at rest. The decisions (SPEC.md 128.43.1): the turn
+SWEEPS round the ring one cell a step (67 - 133 ms: it reads as turning, and
+a table costs the window's `WIN_CHG` one change a step - a 3 x 3 turning at
+once could not share a screen with a clock); a floor about to open shows its
+SEAM for 16 steps (fair play); a hole that closes over a fallen ball does not
+lift it; the art is black and white only - a ring and a hub painted on the
+table (it reads as one round thing on both cards), a black hole or a dotted
+seam in each cell's lane.
+
+- [x] **T.1** SPEC.md 128.43: the contract (written PLANNED with the code,
+      then as built and measured).
+- [x] **T.2** The tool: the statement, its refusals (16 string cases and the
+      window bound), the records, the reader, `TurnFamily`, the sweep, the
+      ring/hub art and the hole/seam lanes, the exact turntable share of a
+      window's pose changes; `--selfcheck` section `turn` with model red arms
+      `novoid`, `fallen` (MEASURED red).
+- [x] **T.3** The part `fam/turntable.asm` (315 bytes), in the bundle, equal
+      to the model at every step of eight unicorn scenes; red arms `ttcell`,
+      `ttfallen`, `ttkept`, `ttmark`, `ttwarn`, `ttfast`, `ttfref` (all
+      MEASURED red).
+- [x] **T.4** The knob course TURN (`BZTURN=1`, pad 0): the CHAIN (two 2 x 2
+      dominoes out of phase with an island between) to exit 1, the DISC (a 3 x 3
+      half disc crossed by waiting on its pivot); every ball crosses on the turn
+      and falls off it (the model, the unicorn scenes).
+- [x] **T.5** LOOKED AT on MartyPC, CGA and Hercules (the knob tree) - see the
+      diary's entry.
+- [ ] **T.6** The per-step cost MEASURED (the final pass's `bonanzaphys` /
+      `bonanzaperf` on a `BZTURN=1` tree; about 2.3k clocks a step on TURN
+      PREDICTED).
+- [ ] **T.7** The owner's answers (SPEC.md 128.43.10): the hole's size (a lens,
+      not the whole cell, without group lanes), the period and the warning.
+- [ ] **T.8** A shipped course that uses it.
 
 ## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
 
