@@ -2137,7 +2137,8 @@ def fam_host():
     o_, f_ = mg_host(binp, lst, sym)
     o2, f2 = wind_host(binp, lst, sym, fam)
     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
-    return out + o_ + o2 + wo, fails + f_ + f2 + wf
+    ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 128.39)
+    return out + o_ + o2 + wo + ao, fails + f_ + f2 + wf + af
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2447,6 +2448,109 @@ def water_host(binp, lst, sym, fam):
             ff = fam_parts({"water": open(o, "rb").read()})
         mat, pk, keys = sc[scn]
         _p, bad = urun(binp, lst, sym, "water", mat, keys, ff, poke=pk)
+        ok = any(want in b for b in bad)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    return out, fails
+
+
+# THE ARCHWAY (SPEC.md 128.39.7): its scenarios on the ARCH test course (apps/bonanza/courses/arches.bbc, the
+# BZARCH=1 knob's course), compiled here from the tree whatever the build, as WATER's are: the family's part is
+# in every build's resident bundle
+def _arch_course():
+    R.COURSES["bench"]                          # (fills both tables)
+    R.CRS_K["bench"]
+    if "arch" not in dict.keys(R.COURSES):
+        dict.__setitem__(R.COURSES, "arch", "apps/bonanza/courses/arches.bbc")
+        dict.__setitem__(R.CRS_K, "arch", R.CRS_K["play"])
+
+
+def arch_poke(wx, wy, mat, gvx=0, gvy=0):
+    _arch_course()
+    return poke_of(BB.Physics(R.course("arch"), play=True, mat=mat).poke(wx, wy, gvx, gvy))
+
+
+def arch_scenarios():
+    """[(name, material, poke, keys)]: rubber rolled through A's 2-unit arch over the steel pad (it leaves steel);
+    rubber Hopping and boosting into A (the face stops it, the underside caps it, it still takes the pad); rubber
+    Hopping and boosting into B's bare arch; rubber Hopping under C's 3-unit two-wide arch"""
+    H, X, Y = BB.K_HOP, BB.K_R | BB.K_D, BB.K_L | BB.K_D
+    return [("arch-roll", BB.MAT_RUBBER, arch_poke(10, 6, BB.MAT_RUBBER), [X] * 80),
+            ("arch-boost", BB.MAT_RUBBER, arch_poke(10, 6, BB.MAT_RUBBER),
+             [X] * 6 + [X | H] + [X] * 15 + [X | H] + [X] * 137),
+            ("arch-hop", BB.MAT_RUBBER, arch_poke(20, 12, BB.MAT_RUBBER),
+             [Y] * 4 + [Y | H] + [Y] * 13 + [Y | H] + [Y] * 101),
+            ("arch-tall", BB.MAT_RUBBER, arch_poke(23, 6, BB.MAT_RUBBER), [X] * 14 + [X | H] + [X] * 45),
+            ("arch-under", BB.MAT_STEEL, arch_poke(12, 6, BB.MAT_STEEL, 120, 0), [X | H] + [X] * 3 + [X | H] + [X] * 35)]
+
+
+def arch_verdict(name, p, trace):
+    """what an arch scenario is for, on the model's trace [(cell, z, air)] -> (ok, what)"""
+    clr = dict((pr["at"], pr["clr"]) for pr in p.props if pr["kind"] == BB.FK_ARCH)
+    above = [k for k, (cell, z, _a) in enumerate(trace) if cell in clr and z > clr[cell]]
+    if name == "arch-under":
+        hops = p.nhop
+        ok = not above and hops and max(z for _c, z, _a in trace) == 16 and (p.gx >> 12) >= 13
+        return ok, "Hops UNDER A's arch: %d Hop(s), the contact never past the floor's 16 px (the clearance)" % hops
+    if name in ("arch-roll", "arch-boost"):
+        ok = not above and p.mat == BB.MAT_STEEL and (p.gx >> 12) >= (13 if name == "arch-roll" else 12) \
+            and (name == "arch-roll" or p.nboost)
+        return ok, "through A's arch: steel %s at (%d, %d), %d boost(s), above a clearance at %s" % (
+            p.mat == BB.MAT_STEEL, p.gx >> 12, p.gy >> 12, p.nboost, above[:3])
+    if name == "arch-hop":
+        hi = max(z for _c, z, _a in trace[:30])
+        ok = not above and hi > 16 + 2 and p.nfall == 0
+        return ok, "Hops into B's arch: up to %d px before it, above a clearance at %s" % (hi, above[:3])
+    under = [z for cell, z, air in trace if cell in clr and air and z > 16]
+    ok = not above and under and max(under) <= 24
+    return ok, "a Hop under C's 3-unit arch, its contact up to %s px inside it (clearance 24)" % (
+        max(under) if under else None)
+
+
+def arch_reds():
+    """the ARCHWAY's red arms on the unicorn, each the part assembled from a patched archway.asm: arwall (the CELL
+    hook's WALL write gone: the window), arcap (STEP's ceiling gone: the ball), arref (no refill when z leaves the
+    band: bz_fref), arcell (the CELL entry 0: the slot never written, so STEP caps the ball at a clearance of 0)"""
+    return (("arwall", ("    or byte [bz_nbr + bx + 2], BZ_AR_WALL\n", ""), "arch-boost", "the window"),
+            ("arcap", ("    cmp ax, [di + 4]\n    jle .b\n", "    cmp ax, [di + 4]\n    jmp .b\n"), "arch-under",
+             "the ball"),
+            ("arref", ("    mov byte [bz_fref], 1\n", ""), "arch-boost", "bz_fref"),
+            ("arcell", ("    dw 0, 0, 0, ar_step, 0, ar_cell\n", "    dw 0, 0, 0, ar_step, 0, 0\n"), "arch-boost",
+             "the ball"))
+
+
+def arch_host(binp, lst, sym, fam):
+    """the ARCHWAY scenarios under unicorn, every step against the model, and their red arms -> (lines, fails)"""
+    import shutil
+    import subprocess
+    out, fails = [], []
+    sc = dict((n, (m, pk, k)) for n, m, pk, k in arch_scenarios())
+    for name, (mat, pk, keys) in sc.items():
+        p, bad = urun(binp, lst, sym, "arch", mat, keys, fam, poke=pk)
+        q = model("arch", mat, pk)
+        trace = []
+        for k in keys:
+            q.step(k)
+            trace.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+        ok, what = arch_verdict(name, q, trace)
+        out.append("%s, %d steps: %s; %s" % (name, len(keys), "; ".join(bad) or "the guest is the model at every "
+                                             "step", what))
+        fails += bad + ([] if ok else ["%s: %s" % (name, what)])
+    src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "archway.asm")).read()
+    for arm, (a_, b_), scn, want in arch_reds():
+        assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+            open(os.path.join(src, "fam", "archway.asm"), "w").write(src0.replace(a_, b_))
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", "archway.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"archway": open(o, "rb").read()})
+        mat, pk, keys = sc[scn]
+        _p, bad = urun(binp, lst, sym, "arch", mat, keys, ff, poke=pk)
         ok = any(want in b for b in bad)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
