@@ -6707,8 +6707,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             xy = (x, y + y0)
             bown[xy] = inrect.get(xy)
             balt[xy] = alt_[(x, y)]
-            # (round 4, the owner's: a walkway tile's corner outside every walkway lane is DRAWN, for good -
-            # at a run's end it is the full tile's neighbour, and stays as that tile's edge when the crack goes)
+            if xy not in inrect:                    # outside every walkway lane: not drawn - but (round 4, the
+                bx_, by_ = c_                       # owner's) a corner that meets a FULL tile is drawn for good,
+                ccx = 8 * bwalk[c_][0] + 8          # with it, and stays as that tile's edge when the crack goes
+                side = ((bx_ - 1, by_), (bx_, by_ + 1)) if x < ccx else ((bx_ + 1, by_), (bx_, by_ - 1))
+                if not any(n_ in tiles and n_ not in bwalk and n_ not in gcells for n_ in side):
+                    cv.rows[xy[1]][x] = balt[xy]
     lanes = []
     cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
     for i, p in enumerate(props):
