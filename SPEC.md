@@ -281809,3 +281809,292 @@ along the group lab's three wide cracks - each cracked and broke on its own,
 the shared lanes through poses up to 15 of 16, solid rims and no specks,
 the drawn pose within one frame of the true one, and a fall restoring all
 three.
+### 128.33 MAGNETS, a family (the owner's design, 2026-11-17; BUILT on `bb-magnet`)
+
+The props plan's P2 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)).
+A family by 128.25.6.8's recipe: `apps/bonanza/fam/magnet.asm` the part,
+`bbcourse.MagnetFamily` the model. Written PLANNED before the code; the
+figures below are MEASURED where marked, the rest PREDICTED. Sections 128.32
+(WATER) and 128.34 (WIND) are other branches'.
+
+#### 128.33.1 The decisions
+
+| | the owner's | as built |
+|---|---|---|
+| who | STEEL only; rubber and glass unaffected | STEP tests `bz_mat` first |
+| what | a magnet with a facing and a range; pulls the ball OFF the course (a hazard) or keeps it ON (along a rail or an edge); the pull grows as the ball nears; a cheap integer law, no square root | a FIELD of N cells in a line from its post; `S >> (k - 1)` at the k-th cell (128.33.3) |
+| the wiggle | a 2 - 3 frame lane animation while it pulls, marked only on a change | poses 0 / 1 / 2, `MG_WIG` = 8 steps a pose (128.33.5) |
+| vertical | facing DOWN from a mount, pulling up at about the fall rate, so steel HOVERS across a gap under a row of them; check first that a ball over VOID is not killed early | it hovers (128.33.4: nothing blocks it) |
+| visibility | the mounts must not hide the ball's path | a thin arm high above, on a post at the side (128.33.6) |
+| determinism | a family's state is physics state | the slot is compared every step (128.33.10) |
+| the ID | the lead's: 8 (WATER 7, WIND 9) | `BZ_FID_MAGNET` 8; `BZ_FTAB` holds 0FFh for an ID a build lacks |
+
+#### 128.33.2 The statement and the record
+
+    uses magnet
+    prop magnet <wx> <wy> face +x|-x|+y|-y [range <1-8>] [strength <1-127>]
+    prop magnet <wx> <wy> face down <+x|-x|+y|-y> [range <1-8>] [strength <1-127>]
+
+The element stands on its POST cell, a flat FLOOR (128.25.6.4's rule; a
+post the ball must stop at is a cell higher than `BZ_CLIMB`, as the test
+course's are). A SIDE magnet's field runs from the post along `face`; a
+HANGING one (`face down`) carries an ARM out along the named way, and its
+field is the cells under the arm. Range 1 by default; strength `MG_SH` = 6
+(side) or `MG_SV` = 27 (hanging) by default. The class is the kind's,
+ATTEMPT (no `reset`). Kind **32**, one state bit an element (reserved, 0:
+the recipe's minimum).
+
+| record | what |
+|---|---|
+| +16, +17 | FSB, the class (128.25.6.4) |
+| +18 | the WAY: 0 +x, 1 -x, 2 +y, 3 -y (`DIR_NAMES`' codes: bit 1 the y axis, bit 0 the negative way) |
+| +19 | bit 0 DOWN (hanging: +18 is its arm's way) |
+| +20 | N, the range, 1 - 8 |
+| +21 | S, the strength, 1 - 127 |
+| +22 | a hanging magnet's CEILING, signed px: its post's floor + `MG_CEIL` (4); 0 for a side one |
+| +23 - +31 | 0 |
+
+#### 128.33.3 The field and the force law
+
+The field is a LINE: cell `post + k way` for k = 1 - N. Who is in range is
+the ball's CELL (`gx >> 12`, `gy >> 12`) against each magnet's line - two
+byte subtractions, an `xchg` for a y-axis field, a `neg` for the negative
+way, the across difference 0 and `k - 1` below N (unsigned): no multiply,
+no division, no distance. **The force is a cell's, not a point's**: a side
+magnet adds to the ball's velocity on its axis, toward its post,
+
+    pull = S >> (k - 1)           (k = 1 the cell beside the post)
+
+every step the ball's centre is in its field - halving a cell outward, so
+the pull grows as the ball nears (an exponential, steeper than 1/d and with
+no square root; one `shr al, cl`). The ball's own clamp (step 2's,
+`VMAXG + bz_vup`) bounds what it reaches, since the pull is added at STEP
+and the next step clamps before it moves. Steel's arrows give 2 a step on
+the ground and 1 in the air (`ftg_table` of ACC 2), so S = 8 at k = 1 is
+four times the player: a pull to respect, which speed beats (the time in a
+cell is what a pull acts for). **One field a cell** (the tool refuses two
+fields meeting, 128.33.7), so a cell has at most one magnet and the slot
+caches it (128.33.5).
+
+#### 128.33.4 The hanging magnet, and the hover (the investigation)
+
+**What the engine does with an airborne ball over VOID** (step 4 and step
+6, `bbcourse.Physics.step`, and `bzphys.inc` the same): an OPEN void
+(`Z_OPEN`, no floor near) kills at step 4 at once; a NEAR void (a gap
+between floors) carries a KILL height, the near floors' lowest less 3
+units, and step 6 kills only once `gz` is BELOW it. So a ball held up over
+a gap is never killed, and **nothing blocks hovering**: no resident change.
+(A hover's gap must be NEAR - between floors - which a gap is.)
+
+**The lift.** On an AIRBORNE ball (a grounded one's `gvz` is step 2's)
+below the magnet's ceiling, at STEP (the end of the step):
+
+    gvz += S;  gvz -= gvz >> 3        (the >> arithmetic, as sar)
+
+Without the damping, S = G (24) cancels gravity exactly but keeps whatever
+vertical speed the ball came in with (a hop rises for ever, a fall falls on
+at its speed); the damping takes 1/8 of it a step, so the ball settles. With
+S = 27 the integer rounding gives fixed points at `gvz` 24 - 28 after STEP:
+**a ball that rolls off a level edge hovers at its height, rising at most
+4/256 px a step** (MEASURED on the model: 47 steps over the test gap, z 16.0
+-> 16.6 px), and lands on the far floor with no stun. S below about 27
+sinks (S = 26 settles at 8/256 px a step down); above, it rises to the
+ceiling (the post's floor + 4 px), where the lift stops and gravity brings
+it back: steel pulled up toward the magnet. A hanging magnet cannot lift a
+ball off a floor (step 6's take-off reads step 2's `gvz`).
+
+#### 128.33.5 The hooks and the slot
+
+Hooks **STEP and POSE** only. The slot (`BZF_SLOT`, 8 bytes):
+
+| slot | what |
+|---|---|
+| +0 +1 | the cell the cache is of |
+| +2 +3 | the pull on `gvx`, `gvy` (signed bytes) |
+| +4 +5 | a hanging magnet's lift and ceiling |
+| +6 | the magnet: its element + 1, 0 none |
+| +7 | the WIGGLE's count: 0 idle; 1 - 2 `MG_WIG` while it pulls |
+
+**STEP**: not steel, in a tube or holed (`bz_tube`, `bz_hid`): the wiggle
+stopped, nothing else. Else the ball's cell against +0 +1; when it moved,
+the wiggle stopped, +2 - +6 zeroed and **`mg_scan`** walks the records for
+the one field holding the cell and caches its force; then, with a magnet,
+**`mg_apply`** (the pull, the lift) and the wiggle's count (1 .. 16, round
+again), marking the lane through `bz_fmkp` where the pose changes (counts 1
+and 9) and where it stops. **POSE**: 0, or 1 / 2 for the cached magnet
+while the count runs. **No RESET**: a play's start zeroes the slot - a TRUE
+cache of cell (0, 0) with no magnet, since no field can hold (0, 0) (the
+solid cells are 3 - 252, and the tool refuses it besides) - and a respawn
+moves the ball's cell, which the same step's STEP sees (its own `_end`).
+**THE FORCE-FIELD CORE** is `mg_scan` and `mg_apply` in the part,
+`MagnetFamily.mg_scan`, `mg_force` and `mg_apply` in the model:
+self-contained, so wind can share them (128.33.11). **kern_mega** needs
+nothing of its own: the part only LOADS `[bz_cseg]` (a selector there) and
+never adds to a segment, and marks through `bz_fmkp` - GLASS's precedent
+(128.25.18); a `fetch` row is an `OP_ARENA` code row as the probe's is.
+
+#### 128.33.6 The art
+
+A HORSESHOE (11 x 9 px; a hanging one's 9 x 8), two-pixel magenta arms
+with WHITE tips and a black outline, on a post white on its left and black
+on its right (the Hercules turns magenta into its grey checker, so the
+outline and the tips carry it there; a black post alone vanished against
+the void behind the hover's posts, SEEN in the tool's preview): a side
+magnet sits `MG_POST` (6) px up its post, open toward its field's side of
+the screen; a hanging one's post rises `MG_ARM` (32) px, its arm (a white
+line over a black one) runs out along its way over every cell of its
+field, a horseshoe open DOWN hanging under each. GEOMETRY keyed to the
+post's cell (a "post" op, as a flag's pole is). **Visibility**: the arm is
+32 px over the post's floor and the heads end 23 px up, above any ball
+under its ceiling; the test course stands the posts BEHIND the ball's row,
+so nothing of them is in front of its path. **The WIGGLE**: a
+lane of three poses, 0 nothing, 1 and 2 sparks off the open end (a hanging
+magnet's first head), white with a black edge; a MARK at the post's depth,
+clipped by what is drawn in front, refused when more than half of a pose
+is hidden (the pennant's rule).
+
+#### 128.33.7 The refusals
+
+The statement's words (no `face`, a face of no way, `face down` with no
+arm's way, a range outside 1 - 8, a strength outside 1 - 127, a `reset`, a
+word of no meaning), a post off a flat floor (128.25.6.4's), **two fields
+meeting** (one field a cell), a field over another magnet's post, a field
+cell off the grid's bytes (and (0, 0), 128.33.5), and a hanging magnet's
+ceiling outside the signed byte. Each a `--selfcheck` case (section
+`magnet`) but (0, 0), which no post can reach.
+
+#### 128.33.8 What it costs (MEASURED unless marked)
+
+| | |
+|---|---|
+| the part `bzf-magnet.bin` | **408 bytes** RAM (`paras` 26), an `OP_COMP` row of its own (376 as first built; +32 the bobble and the one-change-a-step rule, 128.33.13) |
+| BONANZA's image | **+12** (49,732 -> 49,744: the part row, `BZ_FTAB`'s IDs 7 and 8); bss **+0** (11,431) |
+| `BONANZA.O88` | +400 (118,615 -> 119,015; +368 as first built) |
+| the shipped courses, demos, identities | **unchanged**: every `BZ*.BIN` byte for byte (`cmp` against the base build) |
+| a step, the part's own (unicorn: instructions / their bytes) | not steel 17 / 38; steel, no field 28 / 65; in a side field 48 - 50 / 111 - 117; in a hanging field 63 - 65 / 150 - 156; a cell change (the scan, 11 magnets on the test course) about 200 / 530 |
+| a step, in clocks (PREDICTED: about 4.5 a byte on the 8088, plus the dispatch's 0.1k) | about 0.3k idle steel, **0.6k** in a side field, 0.8k under a hanging one, about 2.5k on the step the ball's cell changes (a record about 0.2k) - over the plan's 0.3 - 0.5k in a field; `mg_slot`'s call is 8 of the instructions |
+| a frame | 0 while idle; a SLOW lane's commit at a wiggle's pose change (every 8 steps while a magnet pulls) |
+
+#### 128.33.9 Its HOME: `fetch`
+
+By bytes: `resident` (the owner's default) puts its 376 bytes (24
+paragraphs, rounded into `OP_ARQUANT`) on the arena's floor and a part in
+the bundle every open reads, for every course - and no shipped course
+names it. `fetch` costs the image 12 bytes and a read at the launch of a
+course that names it (the test course alone), and counts in that course's
+3-a-course limit and arena reserve. **So `fetch` until a shipped course
+names magnets; then moving it is its `FAMILIES` row's `home`, one field
+(128.25.6.9).**
+
+#### 128.33.10 The test course, the knob and the proofs
+
+`make BUILD=<tree> BZMAGNET=1 bonanzadisk` (BZSHAPES's precedent, 128.28.9;
+refused together with it, since both claim pad 0) adds
+`apps/bonanza/courses/magnets.bbc`, MAGS "Magnet Test", after the shipped
+courses and makes it the pathway's pad 0 (`pathmagnet.sed`: Play Game,
+Enter plays it; its exit 1 goes to FIRST on pad 6). A steel ball at the
+start, a STEEL pad and a RUBBER pad; the PULL (a 2-wide walkway past a
+magnet on a post across a gap, strength 48 range 4: slow steel is pulled
+off, fast steel and rubber pass); the RAIL (a 1-wide rail tilted half a
+unit toward its open side, a fence of seven range-1 strength-8 magnets
+along its high side: steel rides it, rubber slides off); the HOVER (a
+3-cell gap, three hanging magnets over row 22 on posts behind it: steel
+rolls off the edge and hovers to the goal's plate, rubber falls); and a
+plain way round. Without the knob nothing changes.
+
+**The proofs.** `bbcourse.py --selfcheck` section `magnet`: the refusals,
+the records and lanes (3 poses each), the seven scenes on the model
+(`mg_scenes`: hover-steel crosses 47 steps airborne at z >= 16 px; rubber
+falls; slow steel is pulled off, fast steel and rubber are not; steel holds
+the rail and its magnets' poses cycle 0 / 1 / 2; rubber falls off), and
+three red arms ON THE MODEL - `nolift`, `anyball`, `sign` - each failing
+them (MEASURED). `tests/bonanza_phys.py --check`'s unicorn half (`mg_host`):
+the guest's `bz_step` with the magnet part equals the model at EVERY step
+of the seven scenes (the ball, `bz_fst`, the slots, `bz_fref`, the window,
+each element's POSE and the lanes' marks; a RETURN while a magnet wiggles),
+MEASURED equal; and five red arms on the PART, each a patched copy
+assembled and run, MEASURED red: `mgstep` (no STEP entry), `mgsteel` (the
+material's test inverted), `mgdamp` (no damping: parts at the hover's 36th
+step), `mgscan` (the across test gone), `mgmark` (a pose change unmarked:
+"never drawn").
+
+**SEEN** (one look on MartyPC, `os8088_5150_cga_gla` and `_herc_gla`, the
+knob build's disk, a launch with `bz_crs` poked to MAGS, the ball put on
+the steel pad and then poked at the gap and on the rail): steel hovers
+over cells 18 - 20 of row 22 at z 16 airborne, the slot caching each
+hanging magnet in turn, and rides the rail at (20, 12 - 13) with the fence
+magnet's wiggle drawn beside it, on both cards. Not measured there: a
+frame's cost. **Seen against it**: the hovering ball passes IN FRONT of the
+posts' pillar faces, which on the Hercules' checker it barely stands out
+from - a layout question (lower or thinner posts) for the owner, 128.33.12.
+
+#### 128.33.11 Folding MAGNETS and WIND into one family
+
+WIND (128.34) is the same mechanism with the sign reversed and a weight by
+the ball. Folded, ONE part keeps `mg_scan` (who is in range: a line of
+cells from a post, one field a cell) and `mg_apply` (the force), and the
+record's +19 grows a bit, BLOW: the pull's sign flipped (away from the
+post), and the STEEL-only test becomes a WEIGHT read by the material,
+`S x w(mat) >> 2` (glass x2, rubber x1, steel x1/4 - three shifts from a
+table, no `mul`), a magnet's weights steel 1 and the others 0. The cache,
+the wiggle and the lane are shared (a gust's poses are the same lane). The
+bytes saved are one part's header, slot routine, scan and walk (about 250
+of the 376) and one part row. The one difference to keep: a blower acts
+over a REGION, likely wider than a line; the line's `across` test grows to
+`|across| <= width`.
+
+#### 128.33.12 Open questions for the owner
+
+1. The law: `S >> (k - 1)` steps at each cell edge (a cell-granular pull),
+   chosen for the cache; a pull that varied INSIDE a cell would need the
+   point's distance every step (about +0.2k).
+2. The hover's damping holds a ball at the height it entered (a hop under
+   a magnet floats high): wanted, or should a hanging magnet pull toward
+   one HEIGHT (its ceiling) instead?
+3. The wiggle is at a hanging magnet's FIRST head only (a lane is at most
+   32 x 24 px); a long arm's other heads stay still.
+4. Home `fetch` until a shipped course uses it (128.33.9).
+5. The hover's posts: a post must be a raised cell (or the ball rolls onto
+   it), so the hovering ball is drawn against the posts' pillar faces; on
+   the Hercules it is hard to pick out there. Posts set back a cell (a
+   longer arm, `range` 2) or on the far side would clear it.
+
+#### 128.33.13 The owner's answers (2026-11-17), as built
+
+| | the answer | as built (MEASURED) |
+|---|---|---|
+| 1 the law | the owner plays the test course to judge | no change |
+| 2 the hover | holding the height it came in at is fine; a slight BOBBLE preferred if cheap and safe | built, **+20 bytes** of the part (below) |
+| 3 the wiggle | each head that pulls wiggles - the owner, playing the knob build: every hanging magnet of the test course already does, each its own element | **one head an element**: `face down` with a range other than 1 is REFUSED (a row of them is a magnet a cell); no multi-head lanes |
+| 4 the Hercules | the hovering ball reads fine | no change; open question 5 withdrawn |
+
+**The BOBBLE.** In the lift (128.33.4), on a step whose `bz_nstep` (the step
+being run: STEP runs before the count) has its low four bits 0, the lift
+gets a KICK, `+MG_BOB` (48) when bit 4 is set and `-MG_BOB` when it is clear,
+before the damping: `gvz += S +- 48; gvz -= gvz >> 3`. The damping turns
+each kick into a smooth rise or dip of about 0.8 px, so the hovering ball
+bobs about 1.7 px top to bottom with a period of 32 steps (MEASURED on the
+model over the test gap: z 16.0 - 17.7 px). Safe: the kicks are equal and
+opposite, so the bobble adds no drift (a 4,000-step hover on the model's
+arithmetic dips at most 1.1 px under its entry height, against a kill 24 px
+below; the rise stays under the ceiling, 128.33.4, and the heads 23 px up).
+`MG_BOB` and `MG_BOBP` (16) are in the `FAMV`. The part's code: six
+instructions, 20 bytes; nothing per step when the ball is not under a
+hanging magnet.
+
+**One pose change a step.** The tool's rate rule (128.19.10, `check_bounds`)
+counts every SLOW event lane of a window as ONE pose change a step. A
+magnet's wiggle first changed two on a cell change (the old magnet's stop
+and the new one's start). Now the step that refreshes the cache applies the
+force and does not count: the old stops on that step, the new starts on the
+next (`mg_one`, about 12 bytes). So a row of N hanging magnets costs **N
+SLOW lanes, no FAST lane, and at most one pose change a step** in any window
+(one field a cell: only the magnet over the ball's cell wiggles); SLOW lanes
+are unbounded in a window. `--selfcheck` checks the scenes' worst at 1.
+
+**The proofs added.** `--selfcheck` `magnet`: the refusal of a hanging
+magnet's range 2; the bobble's span (at least 1 px) and the one-change rule
+in the scenes. `mg_host`: two more red arms on the part, both MEASURED red -
+`mgbob` (the up kick gone: the ball parts at the hover's 48th step) and
+`mgfresh` (a cell change's step counting the wiggle: the slot parts at
+step 36). The seven scenes stay equal at every step.

@@ -3777,3 +3777,67 @@ its red arms `amodel`, `acache` and `aneigh` red; `make`, `make
 bonanzadisk`; the three authored demos' `ident` lines; the MartyPC fall legs,
 both cards. **Not run**: the soak rows (the final pass's).
 
+
+## 2026-11-17 (MAGNETS: steel pulled off, held on, and hovering)
+
+The props plan's P2, built beside WATER and WIND on a branch of its own
+(`bb-magnet`; the IDs were handed out first: WATER 7, MAGNET 8, WIND 9, so
+`bbcourse.FAMILIES` learned to carry a GAP - an ID another branch builds -
+and `BZ_FTAB` holds 0FFh for it). SPEC.md 128.33 is the record.
+
+- **The hover was the question to answer first.** The owner's vertical
+  magnets only work if a ball held up over a gap is not killed on the way.
+  Reading step 4 and step 6 settled it: an OPEN void kills at once, a NEAR
+  one (a gap between floors) only below its kill height, the near floors
+  less 3 units. Nothing to change in the engine.
+- **The law came out of the cache.** A magnet's field is a line of cells
+  from its post, and its pull is the CELL's, `S >> (k - 1)` at the k-th:
+  no square root, no multiply, and a cell has at most one magnet (the tool
+  refuses two fields meeting), so STEP keeps the ball's cell's force in the
+  slot and walks the records only when the cell changes.
+- **The hover needed damping.** A lift equal to gravity keeps whatever
+  vertical speed the ball came in with - a hop rises for ever. `gvz += S;
+  gvz -= gvz >> 3` settles it, and with S = 27 the integer rounding turns
+  out to make the ball's height a fixed point: steel rolled off a level
+  edge crosses the test gap 47 steps in the air, rising 0.6 px.
+- **RESET went away.** The slot is keyed by the ball's cell, a respawn moves
+  the cell, and a play's start zeroes the slot - which is a TRUE cache of
+  cell (0, 0) with no magnet, since no post can sit near enough for a field
+  to reach it. The first build had a RESET; its red arm stayed green, which
+  is what showed it was doing nothing.
+- **Home `fetch`, by bytes**: no shipped course names a magnet, so the 376
+  bytes stay off the arena's floor until one does.
+- **Tested** (host only): `make`, `make bonanzadisk`, the knob build
+  (`make BUILD=build/magnet BZMAGNET=1 bonanzadisk`), `bbcourse.py
+  --selfcheck`'s `magnet` section (12 refusals, records and lanes, seven
+  scenes, three red arms on the model), and `bonanza_phys`'s unicorn half on
+  the magnet scenes: the guest equal to the model at every step, five red
+  arms on the part red. Every shipped `BZ*.BIN` byte for byte as before.
+  **Looked at once on MartyPC** (CGA and Hercules): steel hovers and rides
+  the rail on the real guest, the wiggle drawn; on the Hercules the hovering
+  ball is hard to pick out against the posts' pillar faces (an open
+  question). **Not run**: the soak rows; the per-step clocks are PREDICTED
+  from unicorn's instruction counts (about 0.6k a step in a field - over the
+  plan's 0.3 - 0.5k - and 2.5k on a cell change).
+
+## 2026-11-17 (MAGNETS: the owner's answers - a bobble, and one change a step)
+
+- **The bobble.** The owner liked the hover and asked for a slight bob if it
+  was cheap. Varying the lift itself (26 / 28 in turn) crept upward: the
+  damping's integer rounding has a band of fixed points, and switching
+  between them ratchets. A KICK every 16 steps, +48 and -48 in turn, before
+  the damping, does not: equal and opposite, it bobs the ball about 1.7 px
+  with no drift. 20 bytes of the part (408 now).
+- **Two changes on one step.** Checking the tool's rate rule for the
+  wiggle found that a cell change could stop one magnet's wiggle and start
+  the next on the same step - two pose changes where the window's budget
+  counts slow event lanes as one. The refreshing step now only stops; the
+  next one starts. The selfcheck counts the worst step (1), and red arm
+  `mgfresh` puts the old order back and goes red.
+- **One head an element.** The owner, playing the knob build, saw every
+  hanging magnet wiggle already - each is its own element there. Rather
+  than build lanes for several heads on one element, a hanging magnet's
+  range other than 1 is refused.
+- **Tested**: the default and knob builds, `--selfcheck`'s `magnet` section
+  (18 items), `mg_host`'s seven scenes equal at every step and seven red
+  arms red (`mgbob`, `mgfresh` new). Not run: the soak rows, MartyPC.
