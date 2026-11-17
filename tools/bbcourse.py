@@ -12858,7 +12858,7 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
+    packed as LZ4 - whatever the parts' format is - against its budget.  The part read
     is the RECB 4 stored form whatever --rec is, which is the shipped form
     since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
     2026-11-16): the budget and its 1.5 times are REPORTED, never refused -

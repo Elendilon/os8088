@@ -262131,7 +262131,7 @@ where the zeros go and the map's stored form (128.15.4.3).
 | the identity | over the RAM form **as `RECB` = 8 lays it out**, whatever the build's `RECB`, with the directory's disk-only fields taken as 0 | a stored form, or the record's stride, can change without moving it, so C and D share every identity and every demo (128.15.7) |
 | `BZ_PHYSV` | **unchanged**, A0h | physics reads the same values (128.15.7) |
 | the course budget | a `target 30|60|90` statement; a packed budget of about 209 bytes a target second, refused past 1.5 times it; RAM refused past 65,024 as now | CD3 (128.15.8) |
-| the parts' format | **LZB**, decided by the owner on 2026-11-14 (`BZPARTZ=lzb|lz4`, `lzb` the default); measured both ways; the course budget is read in LZ4 whatever the knob | the table's format byte covers every part; `PEAK`'s launch cost is an upper bound the final pass measures (128.15.9) |
+| the parts' format | **LZB**, decided by the owner on 2026-11-14; measured both ways (the `BZPARTZ=lzb|lz4` knob that did it is removed, 128.15.9); the course budget is read in LZ4 whatever the parts' format | the table's format byte covers every part; `PEAK`'s launch cost is an upper bound the final pass measures (128.15.9) |
 | the image's format | LZ4; LZB **offered** through the existing `LZBPKGS`, not taken | 128.15.9 |
 | a "Worlds" disk | not built: the target is 18 - 20 courses on ONE disk, and a second disk (story 8b.11) is a last resort, only if one disk cannot hold the final set (the owner, 2026-11-14) | 128.15.9 |
 | a course past one part | the **two-part course**, documented and not built: the picture in one part, everything else in another | 128.15.8 |
@@ -263394,12 +263394,12 @@ seconds (CD3).
 - a course whose packed part (*as built*: its `RECB` 4 stored form, which
   is the shipped form since 128.15.5.4 shipped D - C's 8-byte records pack
   larger, and `MILL`'s C form, 9,439 bytes before the follow-up, was over
-  its 9,412 cap), **packed as LZ4** whatever `BZPARTZ` is, is
+  its 9,412 cap), **packed as LZ4** whatever the parts' format is, is
   over **1.5 x** its budget (`floor`, so 9,412 for 30 s). That is R4's
   ratio of 16KB to 10.5KB. LZ4 is the larger of the two formats, so a
   course that passes fits under either, and whether the tree builds never
   depends on a knob: the tool takes no format flag, and neither
-  `bzcourse.inc` nor the course stamp depends on `BZPARTZ`;
+  `bzcourse.inc` nor the course stamp depends on the parts' format;
 - as now, a RAM form over 65,024 bytes (§20.12.11's `OP_PARTMAX`).
 
 **Printed against each course's budget** ("over" is printed, not refused),
@@ -263486,16 +263486,18 @@ the planned courses still to come at their budgets, against `ROOM`.
 
 #### 128.15.9 The disk plan (story 5b.5)
 
-**The parts' format is one switch**, `BZPARTZ ?= lzb`, a `#> [Knobs]`
-line in the Makefile, stamp-tracked.
+**The parts' format is LZB**, the Makefile's `BZPARTZF`, stamp-tracked.
+(It was a `BZPARTZ=lzb|lz4` knob while the format was measured both ways;
+the decision made, the knob was removed, 2026-11-17: A/Bs decided against
+are not kept.)
 - `BONANZA.O88`'s rule passes `--part-compress` (os88pkg's existing flag,
   §20.12.7) with the EFFECTIVE format, `BZPARTZF`, and the stamp names
   that.
 - `BZPARTZF` follows the kernel when the kernel reads one format only
   (§20.13.6): `lz4` on a `COMPRESS=lz4` build and `lzb` on a
-  `COMPRESS=lzb` one, whatever `BZPARTZ` says, as `$(OS88PKGB)` falls back
-  for the image (§20.13.5). Otherwise it is `BZPARTZ`. So no build ships a
-  part its own kernel refuses.
+  `COMPRESS=lzb` one, as `$(OS88PKGB)` falls back for the image
+  (§20.13.5). Otherwise it is `lzb`. So no build ships a part its own
+  kernel refuses.
 - The courses' compile does not read it (128.15.8), so changing it re-packs
   `BONANZA.O88` and recompiles nothing.
 - **The rows' private trees pack with the shipped build's format.** Every
@@ -263509,7 +263511,7 @@ line in the Makefile, stamp-tracked.
   sound part, the songs and the demos.
 - **LZB is decided** (the owner, 2026-11-14): "'a stronger compression
   mode for the courses': lzb I assume? That would be fine." So
-  `BZPARTZ=lzb` is the default and the shipped format. **The owner was
+  LZB is the shipped format. **The owner was
   quoted +0.9 s** on a long course's launch (the report's figure, the
   course alone), and this contract's finding is higher: `PEAK`'s LZB launch
   is an UPPER BOUND of about +1.6 s over LZ4 (about 5.2 s against about
@@ -263572,7 +263574,7 @@ streams (128.15.12.2), and the final pass MEASURES it.
   and it is not proposed here.
 
 **MEASURED both ways in the final pass**, at one commit, the second arm in a
-private tree (`make BUILD=<dir> BZPARTZ=lz4`):
+private tree (`make BUILD=<dir> BZPARTZ=lz4`, a knob since removed):
 - `bonanza360.img`'s clusters;
 - `PEAK`'s and `MOON`'s launch to the bracket on MartyPC's CGA and
   Hercules (`bonanzaperf`, 128.15.13).
