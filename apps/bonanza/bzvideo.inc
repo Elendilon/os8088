@@ -1878,6 +1878,29 @@ bz_amodel:
     ret
 .run:
     inc word [es:bz_namod]
+    mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 4): H > K iff
+    cmp byte [es:bz_air], 0     ; H / 4 > it
+    jne .air
+    add ax, BZ_CLIMB
+.air:
+    mov [es:bz_akey], ax
+    sar ax, 1
+    sar ax, 1
+    mov [es:bz_akq], ax
+    ; THE CELL'S TOP TEST (the owner's, 2026-11-17): bz_acptr is the cell the
+    ; model last read the front of, bz_amaxq the highest H / 4 among its
+    ; readable front cells.  The same cell, and the ball at or over that top:
+    ; nothing in front of it can hide it - one compare, and out.  bz_crshdr
+    ; empties it (FFFFh: no cell's offset).
+    cmp si, [es:bz_acptr]
+    jne .new
+    cmp ax, [es:bz_amaxq]
+    jl .new
+    ret
+.new:
+    mov [es:bz_acptr], si
+    mov word [es:bz_amaxq], 8000h
+    mov byte [es:bz_ainit], 0
     shl cx, 1                   ; 8 s + Y0: the row d's Y before - 4 z0 is
     shl cx, 1                   ; this plus 8 d
     shl cx, 1
@@ -1885,15 +1908,6 @@ bz_amodel:
     mov [es:bz_ayb], cx
     mov ax, [bx + BZG_X0]
     mov [es:bz_ax0], ax
-    mov ax, [es:bz_gz + 1]      ; K = z_b + m
-    cmp byte [es:bz_air], 0
-    jne .air
-    add ax, BZ_CLIMB
-.air:
-    mov [es:bz_akey], ax
-    sar ax, 1
-    sar ax, 1
-    mov [es:bz_akq], ax         ; floor(K / 4): H > K iff H / 4 > it
     mov al, dl                  ; the columns [8 DL, 8 DH + 7]: bz_aE[j]
     xor ah, ah                  ; for x = 8 DL + j, every one "none" (7FFFh)
     mov cl, 3
@@ -1909,14 +1923,7 @@ bz_amodel:
     add ax, cx
     dec ax
     mov [es:bz_axhi], ax
-    mov di, bz_aE
-    mov ax, 7fffh
-    rep stosw                   ; (ES:DI: ours)
-    mov [es:bz_aend], di        ; (the table's end: the words' walk stops there)
-    mov di, bz_atb              ; the line table: 8 words of 0
-    xor ax, ax
-    mov cx, 8
-    rep stosw
+    mov [es:bz_ancol], cx       ; (bz_aE is filled at the first counting cell)
     mov word [es:bz_ad], 1      ; THE FRONT CELLS: d = 1 .. BZ_OCCDEPTH
 .drow:
     mov bx, [es:bz_goff]
@@ -1977,12 +1984,31 @@ bz_amodel:
     mov al, [di]
     cbw
     add ax, dx
+    cmp ax, [es:bz_amaxq]       ; (the highest top read, for the next frame)
+    jle .cmx
+    mov [es:bz_amaxq], ax
+.cmx:
     cmp ax, [es:bz_akq]
     mov ax, bp
     jle .cnext
     push ax                     ; it counts: its edge, bz_acell
     push cx
     push si
+    cmp byte [es:bz_ainit], 0   ; the first that counts: every column "none"
+    jne .cini                   ; (7FFFh) and the line table zero
+    inc byte [es:bz_ainit]
+    mov cx, [es:bz_ancol]
+    mov ax, 7fffh
+    push di
+    mov di, bz_aE
+    rep stosw                   ; (ES:DI: ours)
+    mov [es:bz_aend], di        ; (the table's end: the words' walk stops there)
+    mov di, bz_atb
+    xor ax, ax
+    mov cx, 8
+    rep stosw
+    pop di
+.cini:
     mov si, di
     call bz_acell
     pop si
@@ -1992,13 +2018,21 @@ bz_amodel:
 .cnext:
     add word [es:bz_aan], 2
     inc ax
-    loop .cell
+    loop .clp
+    jmp short .cend
+.clp:
+    jmp .cell
+.cend:
     mov ax, [es:bz_ad]
     inc ax
     mov [es:bz_ad], ax
     cmp ax, BZ_OCCDEPTH
     jbe .drow
-.edges:                         ; EACH WORD'S least and greatest edge line
+.edges:
+    cmp byte [es:bz_ainit], 0   ; no front cell counts: nothing to lay
+    jne .wmm0
+    ret
+.wmm0:                          ; EACH WORD'S least and greatest edge line
     mov si, bz_aE               ; (bz_awlo, bz_awhi), and the least of all:
     xor bx, bx                  ; a footprint whose every edge is under its
     mov bp, 7fffh               ; last line lays nothing, and is left here

@@ -2606,6 +2606,7 @@ bz_bsload:
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_crshdr:
+    mov word [bz_acptr], -1     ; (SPEC.md 128.29: the model's cell, emptied)
     push es
     mov es, [bz_cseg]
     mov ax, [es:BZC_COLS]

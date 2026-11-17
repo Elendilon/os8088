@@ -515,7 +515,11 @@ VAR bz_aend,2                   ; block row's laid lines [rs, re) and whether
 VAR bz_ars,2                    ; its bz_oprep ran
 VAR bz_are,2
 VAR bz_aprep,1
-VAR bz_akq,2                    ; bz_amodel: floor(K / 4)
+VAR bz_akq,2                    ; bz_amodel: floor(K / 4), the columns'
+VAR bz_ancol,2                  ; count, whether bz_aE is filled this frame,
+VAR bz_ainit,1                  ; and THE CELL'S TOP TEST: the cell last read
+VAR bz_acptr,2                  ; (its offset in the part) and the highest
+VAR bz_amaxq,2                  ; H / 4 among its readable front cells
 VAR bz_okt,1                    ; the 4-byte record (SPEC.md 128.15.5): bz_ozk
                                 ; holds s_b + SB; kt = clamp(z_b + m - TB) (bz_occ)
 VAR bz_osbias,2                 ; SB sign-extended, TB, MTAB (bz_crshdr)
