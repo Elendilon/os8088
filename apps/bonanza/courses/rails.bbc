@@ -1,0 +1,63 @@
+# Guard Rails - BONANZA's GUARD RAIL test course (SPEC.md 128.35), built only by the BZRAIL=1 knob (the owner,
+# 2026-11-17: a thin rail that "blocks anything from getting over", high enough that rubber cannot boost over it
+# from flat ground, and SEE-THROUGH, so it never hides the ball's path).  NOT a shipped course: the knob adds it
+# to BZ_COURSES after the shipped ones and makes it the pathway's pad 0, so a new game rests on it (title, Play
+# Game, Enter).  Not on the TOUR.
+#
+# Everything is at 4 units but the two LOWER PATHS at 2.  Back to front:
+#  - L, a lower path BEHIND the back walkway's rail, reached down the ramp off C's back: roll along it and the
+#    ball is seen THROUGH the rail in front of it (and the walkway's face under it);
+#  - A, the back walkway, 2 wide, its BACK edge guarded (the rail stands on A's far edge, the gap and L behind
+#    it).  Push Up (into the rail) from A, Hop, boost, take the JUMP pickup at A's left end: nothing crosses;
+#  - the gap between A and B (open: a ball falls in it and respawns);
+#  - B, the front walkway, 2 wide, its FRONT edge guarded (the rail stands on B's near edge, in front of the
+#    ball, the gap and F in front of it): rolling along B the ball is seen through the rail;
+#  - F, a lower path in FRONT, reached down the ramp off C's front;
+#  - C, the platform joining A and B on the right, its right edge guarded too (the other slope's rail);
+#  - P, the start plate on the left, with a pad for each ball.
+# Goals: exit 0 at F's left end, exit 1 at L's left end.
+course RAIL "Guard Rails"
+width  128
+origin 384
+ball   rubber
+uses   pickups
+
+# P, the start plate, and its pads
+floor rect   4  8  8 14  flat 4
+pad rubber 5 12
+pad steel  6 12
+pad glass  6 9
+start 5 10
+
+# A, the back walkway, and its rail on the far edge
+floor rect   8  8 22 10  flat 4
+guard rect   8  7 22  8
+prop jump   10  9 for 3
+
+# B, the front walkway, and its rail on the near edge
+floor rect   8 12 22 14  flat 4
+guard rect   8 14 22 15
+
+# C, the platform on the right, its right edge guarded
+floor rect  22  8 26 14  flat 4
+guard rect  26  9 27 13
+
+# L, the lower path behind A's rail, down the ramp off C's back
+floor rect  23  4 26  8  ramp y 4 8 2 4
+floor rect   8  3 26  4  flat 2
+floor rect   8  4 23  5  flat 2
+goal  tile   8  3  flat 2 exit 1
+
+# F, the lower path in front of B's rail, down the ramp off C's front
+floor rect  23 14 26 18  ramp y 14 18 4 2
+floor rect   8 18 26 19  flat 2
+floor rect   8 17 23 18  flat 2
+goal  tile   8 18  flat 2
+
+clock 4 8
+target 60
+way 5 10
+way 20 13
+way 24 13
+way 24 18
+way 8 18
