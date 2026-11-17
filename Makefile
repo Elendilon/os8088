@@ -154,7 +154,7 @@ ARCRELIMG120  := $(BUILD)/arcrel120.img
 ARCRELIMG720  := $(BUILD)/arcrel720.img
 ARCRELIMG360  := $(BUILD)/arcrel360.img
 
-# ...and all twenty-five in one list, because it appeared in FOUR places (`all`
+# ...and every one of them in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
 # time a disk was added. A shipped image that is in `all` and in none of the
 # tiers is one no gate ever reads, which is the failure this prevents rather
