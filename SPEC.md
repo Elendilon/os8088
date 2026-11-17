@@ -274326,6 +274326,20 @@ the skip's kinds, three taken jumps) - item 6 below.
    element's state (`gl_byte`, `pr_bit`) only for an element in it. This
    moves bytes in the parts only, never in the image.
 
+8. **(wave 9, 2026-11-17, the owner's F4) GLASS's CELL in O(1) while
+   nothing is broken.** Item 7 left `gl_cell` walking every prop of the
+   course on every window refill, about 110 clk a prop (4.9k a refill at
+   PLAYGROUND's 44 props) to find no broken crack on almost every refill
+   of a play. The glass slot's +1 now COUNTS the cracks BROKEN (128.25.18:
+   RESET clears it with +0, CONTACT's break and STEP's break add one) and
+   `gl_cell` returns at once while it is 0. `bbcourse.GlassFamily` keeps
+   the same byte (`Physics.statef` compares every slot byte with the
+   guest's at every step). The image is unchanged; the glass part is 16
+   bytes longer. The PROBE keeps its walk: its slot has one byte free and
+   its TOUCHED bit is cleared by the course's RESPAWN mask rather than by
+   the part, so a count there is not the trivial change (it is a test
+   family).
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
@@ -278621,7 +278635,8 @@ REVEALED. **The tool lays BYTE elements first** (whole bytes, in record order),
 then every other element's bits in record order, so no byte is split and
 none is wasted: on PLAYGROUND the four cracks are bytes 0 - 3, the probe bit
 32, the glass tiles 33 - 36 (`BZ_FSTB` 5). The slot's +0 counts the cracks
-COUNTING, so STEP walks the records only while one is.
+COUNTING, so STEP walks the records only while one is; its +1 counts the
+cracks BROKEN (128.19.10 item 8), so CELL walks them only while one is.
 
 **One counter an element, not one in the slot** (the brief's choice, made):
 the limit "one crack counting at a time" would refuse the owner's own
@@ -278642,12 +278657,12 @@ it ran.
 
 | hook | GLASS |
 |---|---|
-| RESET (either class) | the slot's count 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
-| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
+| RESET (either class) | the slot's counts (+0, +1) 0 (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1; the broken count +1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
-| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
+| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1, the broken count +1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
 | POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
-| CELL | every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
+| CELL | nothing while the broken count is 0; else every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
 
 **The reach (`reach_forms`).** For a course with an element whose `forms` hold
 `void`, the tool takes `build_reach` a second time over the grid with each
