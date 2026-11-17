@@ -300,6 +300,15 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ;                  glyphcost row red, LOG O5)
 ;   KHP_STRRUN     font_str_run, a transparent string in one pass (text-6)
 ;   KHP_LAZYEND    cur_lazyend's early "not moved" (pointer-6; pays with O4)
+;
+; ...and one ON IN EVERY KERNEL, kern_small included, because it is a fix to
+; the scheduler rather than a trade (SPEC.md 53.2.4):
+;
+;   KHP_FSXSOLO    an IRQ0 inside an fsx bracket with one eligible task
+;                  resumes it without sch_switch (+40 .text, +34 on
+;                  kern_small; ~400 cycles off every IRQ0 of a full-screen
+;                  game with no kept worker)
+%define KHP_FSXSOLO
 %ifdef KERN_MEGA
  %define KHP_FRAME
  %define KHP_FPG
