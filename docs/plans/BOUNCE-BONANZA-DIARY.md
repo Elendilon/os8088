@@ -3813,6 +3813,9 @@ and `BZ_FTAB` holds 0FFh for it). SPEC.md 128.33 is the record.
   scenes, three red arms on the model), and `bonanza_phys`'s unicorn half on
   the magnet scenes: the guest equal to the model at every step, five red
   arms on the part red. Every shipped `BZ*.BIN` byte for byte as before.
-  **Not run**: the soak rows and MartyPC; the per-step clocks are PREDICTED
+  **Looked at once on MartyPC** (CGA and Hercules): steel hovers and rides
+  the rail on the real guest, the wiggle drawn; on the Hercules the hovering
+  ball is hard to pick out against the posts' pillar faces (an open
+  question). **Not run**: the soak rows; the per-step clocks are PREDICTED
   from unicorn's instruction counts (about 0.6k a step in a field - over the
   plan's 0.3 - 0.5k - and 2.5k on a cell change).

@@ -195,7 +195,11 @@ there is no resident change.
 - [x] **M.5** The proofs: `--selfcheck` section `magnet` (12 refusals, the
       records, the scenes, three red arms on the model) and `bonanzaphys`'s
       `mg_host` (seven scenes, five red arms on the part), all MEASURED.
-- [ ] **M.6** LOOKED AT on the CGA and the Hercules on MartyPC, and the
-      wiggle's frames measured (`bonanzaperf`-style) - the final pass's.
+- [x] **M.6a** LOOKED AT once on MartyPC, CGA and Hercules: steel hovers
+      and rides the rail on the guest, the wiggle drawn (SPEC.md 128.33.10;
+      the hovering ball is hard to see against the posts' pillars on the
+      Hercules - open question 5).
+- [ ] **M.6b** The wiggle's frames and a step's clocks MEASURED on MartyPC
+      (`bonanzaperf`-style) - the final pass's.
 - [ ] **M.7** The owner's open questions (SPEC.md 128.33.12), and a shipped
       course that uses magnets (then home `resident`).
