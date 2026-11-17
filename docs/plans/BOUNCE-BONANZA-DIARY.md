@@ -3143,3 +3143,83 @@ older than this change, not a course cap.
 the scratch builds. **Not run:** the emulator rows that walk the tour
 (`bonanzagame`, `bonanzaexit`), which were updated to read `BZ_TOUR`.
 
+
+## 2026-11-17 (two-segment courses: a course past 64KB, at no cost a frame)
+
+The owner's brief: unmerged work pushes even PLAYGROUND past the 65,024
+bytes one part may be, so a course needs a second segment - and *"this
+must not hurt frame performance. Be smart about it."* Plan story 11.9,
+SPEC.md 128.28.
+
+**The escape on file was the wrong one.** 128.15.8 had sketched the
+two-part course in wave 5b: the picture (map and blocks) in one part,
+everything else in the other, "a segment switch per laid group in the
+occluder lay, tens of clocks". It was an estimate nobody had built. So
+this round started by reading every place the guest touches the course
+part and writing down which sections each one reads, and through which
+segment register (128.28.2). Three hot loops each read two kinds of
+section at once:
+- the occluder lay's line loop reads a block line (the picture), the box,
+  and a mask (the occluders) - three segments in one loop;
+- the wheel's commit reads a lane's pose word (kept in the props), writes
+  it into the map and then reads that block's lines, per block;
+- physics holds ES on the course for the whole step and reads cells and
+  prop records in turn.
+
+Those three chain every section together, so the sketch's split cuts the
+first one. Priced from the instructions (PREDICTED), it costs about 400
+clk a laid occluder group - up to about 3,600 on a heavy frame - and about
+500 a committed lane, and since the code cannot tell a one-part course
+from a two-part one for free, every course would pay.
+
+**The split that costs nothing.** Keep the occluders WITH the picture, and
+move the one thing that crosses: the lanes' pose maps. They are block
+offsets, only the wheel's three map writers read them, and nothing in a
+step does. So the PICTURE part is `M B I R K O` plus `L` (the pose maps),
+and the WORLD part is `G C D T W P`. Every hot routine then reads one part,
+and each just loads a different segment word (`bz_mseg` for the picture,
+`bz_cseg` kept for the world, so physics, the families' parts and the
+wheel's record reads did not change at all). Both parts carry the same
+48-byte header, each offset field naming its section in the part that
+holds it, so no header read moved either. A build with no two-part course
+assembles `bz_mseg` as an alias of `bz_cseg` and none of the new code, so
+the shipped package is byte for byte today's.
+
+The price of choosing it: the picture part has less room than the
+sketch's would. PLAYGROUND's picture plus occluders are about 39KB of the
+65,024, so about 26KB of growth; past that the next lever is a third part
+for the occluders, at clocks (128.28.10, an open question for the owner).
+
+**What was measured.**
+- The shipped `bonanzadisk`, built before and after in private trees:
+  `bonanza.bin`, `BONANZA.O88`, every disk image and every part `cmp`
+  equal. Only `bzcourse.inc` and the shell's `bzlink.inc` text differ.
+- A test course, `TWOSG`: PLAYGROUND with its diagonal lane run on off
+  the platform's foot (`bbcourse.py twoseg`). One part would be 67,264
+  bytes; as two, a picture part of 51,956 and a world part of 15,364.
+  `make bonanzatwoseg` builds it as course 7 into a private tree.
+- The guest's code with a two-part course: 71 bytes, plus a part row and
+  a byte a course of table, plus 2 of bss.
+- The hot routines (the writers, the box fill and blit, the occluder
+  pass, the wheel's commit and map writers, the slab, the step and its
+  window fill) are the same length from the same lines with and without
+  the support - the two listings compared. No frame was timed: there is
+  no difference to time, and there is no one-part twin of TWOSG to time
+  against.
+- One look boot on each card (MartyPC, `_gla` machines): at the bracket's
+  start the two parts sit in two claims and equal the tool's RAM forms
+  byte for byte (the Hercules' after its translation), the identity is
+  the tool's 1551h, and the autopilot rolls to the goal in 235 steps on
+  both cards - exactly the model's 235 - with both parts dropped after.
+- `bbcourse.py --selfcheck` passes whole, with the new item 15 and its
+  five negative controls, all refused as they should be.
+
+**Predicted, not measured.** A two-part launch costs one more fetch and
+claim - about one more `int 13h` run, under 0.4 s - and nothing else
+worth timing.
+
+**Not run** (named for the final pass): the emulator rows. Because the
+shipped package is byte-identical, those rows would run yesterday's bytes;
+the ones that do read the changed tool or Makefile are `bonanzacourse` and
+`bonanzaassets` on the host and `bonanzaring` (its part list now reads
+`bzcrs2.lst`).
