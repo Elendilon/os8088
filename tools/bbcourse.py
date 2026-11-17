@@ -21214,6 +21214,98 @@ def _sc_budget(X, res):
     _ground_checks(courses, res)              # SPEC.md 128.27.6
 
 
+def _sc_twoseg(X, res):
+    """--selfcheck's section `twoseg`: item 15, TWO PARTS (SPEC.md 128.28.7)"""
+    _twoseg_checks(X.courses, res)
+
+
+def _twoseg_checks(courses, res):
+    """SPEC.md 128.28.7, item 15: TWOSEG compiles as two parts, each expands in place, read_parts takes them
+    and decode_parts gives the model back, the identity is 128.28.4.3's, the route demo reaches the goal on
+    the model through the world part, every shipped course is one part - and the negative controls: a pose map
+    pointed back into P, the world header carrying a picture offset, the identity over one part, a picture
+    part with no L, and a two-part pathway, each REFUSED"""
+    if any(c.split for c in courses):
+        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.28.6): %s"
+                    % ", ".join(c.name for c in courses if c.split), False))
+    else:
+        res.append(("15 TWO PARTS: every shipped course is ONE part (SPEC.md 128.28.6), %s" % ", ".join(
+            "%s %d" % (c.name, len(c.cga)) for c in courses), True))
+    c = compile_course(twoseg_text(), "<TWOSEG>")
+    m = c.model
+    one = one_part_len(m, 4)
+    la, lb = len(c.cga), len(c.wcga or b"")
+    res.append(("15 TWOSEG is TWO parts: one part would be %d bytes, over %d; the picture part (%s) %d, the world part "
+                "(%s) %d, each under it" % (one, PARTMAX, bytes(c.cga[:4]).decode(), la,
+                                             bytes((c.wcga or b"????")[:4]).decode(), lb),
+                c.split and one > PARTMAX and la <= PARTMAX and 0 < lb <= PARTMAX
+                and c.cga[:4] == MAGIC_PIC and c.wcga[:4] == MAGIC_WORLD))
+    ok_exp = True
+    for st, ram in ((c.stored, c.cga), (c.wstored, c.wcga), (c.stored8, c.cga8), (c.wstored8, c.wcga8)):
+        if st is None:
+            continue
+        try:
+            ok_exp = ok_exp and expand(st, "<TWOSEG>", sim=True) == ram
+        except CourseError:
+            ok_exp = False
+    res.append(("15 TWOSEG: each part's STORED form expands IN PLACE to its RAM form (the simulation of 128.15.4.4, "
+                "each part alone: no form reads across them), RECB 4%s" % (" and 8" if c.cga8 else ""), ok_exp))
+    pt = c.part
+    tags = ["".join(e["tag"] for e in pt["dir"] if e["part"] == k) for k in (0, 1)]
+    lanes = [d for d in pt["props"] if d["lane"]]
+    loff = next((e["off"] for e in pt["dir"] if e["tag"] == "L"), None)
+    lend = loff + next(e["len"] for e in pt["dir"] if e["tag"] == "L") if loff is not None else None
+    res.append(("15 TWOSEG: read_parts takes it - the picture part's sections %s, the world part's %s; the two headers "
+                "the same but the magic and the directory; %d lanes' pose maps in L, the picture part's [%s, %s)" % (
+                    tags[0], tags[1], len(lanes), loff, lend),
+                tags[0] in ("MBIRKOL", "MBIRKO") and tags[1] in ("GCDTWP", "GCTWP", "GCDTW", "GCTW")
+                and c.cga[4:38] == c.wcga[4:38] and c.cga[42:HDR] == c.wcga[42:HDR]
+                and all(loff <= d["lane"]["off"] < lend for d in lanes) and bool(lanes)))
+    res.append(("15 TWOSEG: decode_parts gives back the model the compile serialised (the pose maps back in the "
+                "props blob after the records)", models_equal(decode_parts(c.cga, c.wcga), m)))
+    idw = struct.unpack_from("<H", c.wcga, pt["gridoff"] + 18)[0]
+    id8 = ram_identity2(c.cga8, c.wcga8) if c.cga8 else idw
+    res.append(("15 TWOSEG: its identity %04Xh is 128.28.4.3's - Fletcher's pair over the picture part's D RAM form "
+                "and then the world part's - at the world part's BZG1 +18, and the same from its RECB 8 parts "
+                "(%04Xh)" % (c.ident, id8), idw == c.ident == ram_identity2(c.cga, c.wcga) == id8))
+    p_ = Physics(c, play=True)
+    n = 0
+    while n < DEMO_STEPS and not p_.goal and not p_.tout:
+        p_.step(p_.auto())
+        n += 1
+    res.append(("15 TWOSEG: the model reads its cells, route and props through the WORLD part, and its autopilot "
+                "reaches the goal in %d steps" % n, bool(p_.goal)))
+    # the negative controls: each a pair of parts that must be refused
+    ctl = []
+    b = bytearray(c.wcga)                           # a lane's pose map pointed back into P (the world part)
+    r0 = pt["propoff"] + PROPREC * lanes[0]["i"]
+    struct.pack_into("<H", b, r0 + 14, pt["propoff"] + PROPREC * len(pt["props"]))
+    ctl.append(("a pose map in P", c.cga, bytes(b)))
+    b = bytearray(c.wcga)                           # the world header with a picture offset (GRIDOFF as MASKOFF)
+    struct.pack_into("<H", b, 26, pt["maskoff"])
+    ctl.append(("the world header's GRIDOFF a picture offset", c.cga, bytes(b)))
+    ctl.append(("the identity over the world part alone",) + encode_parts(m, c.rec, "<TWOSEG>", _hack={"ident1": 1}))
+    a = bytearray(c.cga)                            # a picture part with no L: its directory's last entry gone
+    da, na = struct.unpack_from("<HH", a, 38)
+    struct.pack_into("<H", a, 40, na - 1)
+    ctl.append(("a picture part with no L", bytes(a[:da + DIRENT * (na - 1)]), c.wcga))
+    out = []
+    for what, a_, b_ in ctl:
+        try:
+            read_parts(a_, b_, "<TWOSEG, %s>" % what)
+            out.append((what, False))
+        except (CourseError, struct.error, IndexError, ValueError):
+            out.append((what, True))
+    try:
+        compile_course(os.path.join(COURSE_DIR, "path.bbc"), _hack={"split": True},
+                       crsinfo=[(x.name, x.title) for x in courses])
+        out.append(("a two-part pathway", False))
+    except CourseError as e:
+        out.append(("a two-part pathway", "always ONE part" in str(e)))
+    res.append(("15 TWO PARTS negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
+                                                                     for w, g in out), all(g for _w, g in out)))
+
+
 def _sc_title(X, res):
     """--selfcheck's section `title` (selfcheck(): a fork of its state after the compile)"""
     _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
@@ -21450,7 +21542,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palet
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
-             "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
+             "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -21587,6 +21679,12 @@ def _o88_arms(courses, demo_files):
             with open(p, "wb") as f:
                 f.write(c.stored)
             parts.append(p)
+        for k, c in enumerate(courses):             # SPEC.md 128.28.4.4: the WORLD parts after the courses'
+            if c.split:
+                p = os.path.join(td, "BZ%dW.BIN" % k)
+                with open(p, "wb") as f:
+                    f.write(c.wstored)
+                parts.append(p)
         parts += [need[3]] + [os.path.join(art, n) for n in songs]
         for name in sorted(demo_files, key=lambda n: int(n[3:-4])):
             p = os.path.join(td, name)
@@ -21642,16 +21740,23 @@ def sizes(paths):
           "(os88lz, the near-call filter tried); KiB = 1,024 bytes" % (REC, "D" if REC == 4 else "C"))
     for k, c in enumerate(courses):
         pt = c.part
-        whole = {f: packed_len(c.stored, f) for f, _ in fmts}
+        stores = [c.stored] + ([c.wstored] if c.split else [])     # (a two-part course's both, 128.28)
+        pw = [{f: packed_len(st, f) for f, _ in fmts} for st in stores]
+        whole = {f: sum(q[f] for q in pw) for f, _ in fmts}
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
-            k, c.name, os.path.basename(c.fname), len(c.cga), len(c.stored),
-            sum(e["len"] - e["dlen"] for e in pt["dir"]), pt["nsec"]))
+            k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores), sum(len(st) for st in stores),
+            sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
+        if c.split:
+            print("    TWO PARTS (SPEC.md 128.28): the picture part %d bytes (%d of headroom under %d), LZ4 %d, LZB %d; "
+                  "the world part %d (%d), LZ4 %d, LZB %d" % (
+                      len(c.cga), PARTMAX - len(c.cga), PARTMAX, pw[0]["lz4"], pw[0]["lzb"], len(c.wcga),
+                      PARTMAX - len(c.wcga), pw[1]["lz4"], pw[1]["lzb"]))
         print("    %-3s %-18s %-10s %7s %7s %9s %9s" % ("tag", "section", "form", "RAM", "stored", "LZ4 share",
                                                        "LZB share"))
         for e in pt["dir"]:
-            z = bytearray(c.stored)
+            z = bytearray(stores[e["part"]])
             z[e["off"] + e["len"] - e["dlen"]:e["off"] + e["len"]] = bytes(e["dlen"])
-            sh = {f: whole[f] - packed_len(bytes(z), f) if e["dlen"] else 0 for f, _ in fmts}
+            sh = {f: pw[e["part"]][f] - packed_len(bytes(z), f) if e["dlen"] else 0 for f, _ in fmts}
             print("    %-3s %-18s %-10s %7d %7d %9d %9d" % (e["tag"], SEC_NAMES[e["tag"]], FORM_NAMES[e["form"]],
                                                          e["len"], e["dlen"], sh["lz4"], sh["lzb"]))
         print("    header %d, directory %d x %d = %d" % (HDR, pt["nsec"], DIRENT, DIRENT * pt["nsec"]))
@@ -21684,7 +21789,7 @@ def sizes(paths):
                       whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
         tot["lz4"] += whole["lz4"]
         tot["lzb"] += whole["lzb"]
-        tot["ram"] += len(c.cga)
+        tot["ram"] += len(c.cga) + len(c.wcga or b"")
     print("\n  the %d courses: LZ4 %d, LZB %d packed; RAM %d" % (len(courses), tot["lz4"], tot["lzb"], tot["ram"]))
     planned = 0
     have = {}
@@ -22000,6 +22105,38 @@ def main_demo(argv):
     return 0
 
 
+# SPEC.md 128.28.7: THE TWO-PART TEST COURSE - the PLAYGROUND with its diagonal lane run on down the screen off the
+# platform's foot (s 81 - 121), which takes its one-part form past 65,024 bytes (67,320 at the commit that made it,
+# a picture part of 51,956 and a world part of 15,364).  Off every route: the route, the start and the goal are the
+# PLAYGROUND's.  Not shipped and not in the tour: --selfcheck item 15 compiles it, `make bonanzatwoseg` adds it to a
+# private build as course 7
+TWOSEG_EXT = ("\n# SPEC.md 128.28.7: the lane run on down the screen off the platform's foot, until one part refuses "
+              "the course\nfloor box 15 17 81 121 flat 2.5\n")
+
+
+def twoseg_text():
+    """the TWOSEG course's text (SPEC.md 128.28.7), from the PLAYGROUND's"""
+    with open(os.path.join(COURSE_DIR, "playground.bbc"), "r", encoding="ascii") as f:
+        t = f.read()
+    t = _swap(t, 'course PLAY "Playground"', 'course TWOSG "Two segments"')
+    return ("# TWOSG - GENERATED by `python3 tools/bbcourse.py twoseg` (SPEC.md 128.28.7): a test course, never "
+            "shipped\n" + t + TWOSEG_EXT)
+
+
+def main_twoseg(argv):
+    """bbcourse.py twoseg [-o OUT.bbc]: the two-part test course's text (SPEC.md 128.28.7)"""
+    ap = argparse.ArgumentParser(prog="bbcourse.py twoseg")
+    ap.add_argument("-o", "--out")
+    a = ap.parse_args(argv)
+    t = twoseg_text()
+    if a.out:
+        with open(a.out, "w", newline="\n") as f:
+            f.write(t)
+    else:
+        sys.stdout.write(t)
+    return 0
+
+
 def main_author(argv):
     """bbcourse.py author COURSE.bbc [-o OUT.bzd]: play the course's AUTHOR
     script with the model and write its .bzd (MOON's and PEAK's demos until
@@ -22038,9 +22175,10 @@ def main():
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
-    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor", "twoseg"):
         try:
-            return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor}[sys.argv[1]](sys.argv[2:])
+            return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor,
+                    "twoseg": main_twoseg}[sys.argv[1]](sys.argv[2:])
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
