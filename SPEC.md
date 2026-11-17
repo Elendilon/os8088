@@ -258696,7 +258696,13 @@ new position alone, not on the box, so it walks the new footprint's blocks
 once (128.10.8 item 1) and lays each laid record into EVERY box it meets
 (as built: `bz_occ` runs once a frame after every box is composed, its
 lines and columns the footprint's clipped to the WINDOW, and `bz_olay` lays
-a group into each box that holds its word and lines; `bz_nocf` now counts
+a group into each box that holds its word and lines - wave 10's O1: a pass
+with ONE box that holds every line of the pass (`bz_o1`, decided once a pass
+at the gate: on PEAK's demo 96% of the lays) lays a group with no box loop
+and no clip, from that box's x0 and w and its word 0 for the block row
+(`bz_orw`, made by the row's `bz_oprep`), 1.69k clocks a lay down to 1.26k
+on MartyPC's 5150, MEASURED; any other pass clips box by box as before;
+`bz_nocf` now counts
 the FRAMES the pass ran, not the boxes). **Its gate** (`bz_ogate`, set by
 `bz_mkboxes`) is the centre cell's `OCC` for an AIRBORNE ball and its `OCCG`
 for a GROUNDED one (128.11.4.3: the same rule over grounded positions, so
