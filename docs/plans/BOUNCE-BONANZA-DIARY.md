@@ -4145,3 +4145,14 @@ equal to the tool, all three balls), `bz_eshift` under unicorn equal to the
 tool's `ent_rows` on all 42 entry-shifts with a red arm, the knob tree, `make
 mega small`, one MartyPC look per step per card. **Not run**: soak rows,
 `test-full`.
+
+## 2026-11-17 (B ships, A becomes a patch)
+
+The owner chose B alone for now: *"B+A might get us to a 256k system, barely,
+at the end, with only short courses and some other cuts."* So the source
+keeps B's layout with no switch left in it, and A lives as
+`docs/plans/bounce-bonanza/patches/death-frames-a-one-shift.patch`. That is
+the diff from the B-only commit to the A commit (code, tool and its unicorn
+proof), with a README table in the khp1 style: what it costs, what it saves,
+and when it is worth re-applying. The B-only build matches B's, byte for byte,
+in the ball parts and the image (49,870).

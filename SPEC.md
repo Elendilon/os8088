@@ -258542,13 +258542,11 @@ bytes on the CGA and pack to almost nothing on the disk; the second copy
 costs the heap 1,280 bytes (rubber, steel) and 2,560 more for glass's
 shatter frames (2,560 and 5,120 bytes with both copies).
 
-**AMENDED (128.38.10, the owner's A and B, 2026-11-17):** the squash,
-shatter, stretch and pop entries are now ONE parity copy (B) of ONE shift
-(A), 160 bytes a frame where this table has 1,280: the guest shifts the entry
-at the draw into a 160-byte SCRATCH that follows the shadow masks
-(`BZ_BAL_SCROFF`), and every offset after the roll frames moves with it.
-128.38.10 is the layout and the record; this table is the layout as it was
-(`bonanza_assets.EPAR` 2 and `ESH` 4 build it again).
+**AMENDED (128.38.10, the owner's B, 2026-11-17):** the squash, shatter,
+stretch and pop entries are now ONE line-parity copy of each of the four
+shifts, 640 bytes a frame where this table has 1,280, and every offset after
+the roll frames moves with them. 128.38.10 is the layout and the record. This
+table is the layout as it was.
 
 **Every material has a BLACK OUTER RIM** - the silhouette's outermost ring of
 pixels is colour 0 in every roll, squash and shatter frame - because the
@@ -283186,16 +283184,25 @@ records and cells (item 3), the reach and its control (item 6), the art and
 its control `nospikeart` (item 10), the scenes on the model and two model red
 arms (`nokill`, `allfloor`; item 11).
 
-#### 128.38.10 The death and squash frames made cheaper: B and A (the owner, 2026-11-17; BUILT, MEASURED)
+#### 128.38.10 The death and squash frames made cheaper: B and A (the owner, 2026-11-17; BUILT, MEASURED; B SHIPS)
+
+**The owner's decision** (after the numbers below): *"B+A might get us to a
+256k system, barely, at the end, with only short courses and some other cuts.
+B only for now but keep A as a patch next to the others that we might use for
+speed/size/finalization later."* So **B ships** and nothing of A is left in the
+source: no `bz_eshift`, no scratch, no switch. **A is parked** as
+[docs/plans/bounce-bonanza/patches/death-frames-a-one-shift.patch](docs/plans/bounce-bonanza/patches/README.md),
+against `ed1890431`. It is a reference to re-apply, not a drop-in.
+What follows is the record of both as they were built and measured.
 
 The brief: every squash, shatter, stretch and pop FRAME was 4 shifts x 2 line
 parities x (mask 80 + frame 80) = 1,280 bytes, all of it RAM in every play
 (the balls live in the resident bundle, 128.25.5.2). The owner: *"~90 for A
 and B, to save that much, seems great. If they don't end up that
-proportional, then we can redecide; but try both."* Both are built, as two
-SWITCHES in `tools/bonanza_assets.py` (`EPAR`, `ESH`; the guest reads
-`BZ_BAL_EPAR`, `BZ_BAL_ESH` from `bzconst.inc` and assembles the matching
-code), and as two commits.
+proportional, then we can redecide; but try both."* Both were built as two
+switches in `tools/bonanza_assets.py` (`EPAR`, `ESH`) and as two commits. The
+shipped tree keeps B's layout alone, with no switch: `ENTS = SHIFTS * ENT`,
+and `ent_at` / `ent_rows` are its one reader.
 
 - **B, `EPAR = 1`: one line-parity copy.** On the CGA the two copies were
   the same bytes; they differed only after `bz_hxlat`'s Hercules translation,
@@ -283223,8 +283230,8 @@ frame's entry is stored for a shift and a parity) and `ent_rows` (the entry
 AS DRAWN: under A, shifted by `shift_row`, the guest's rule) are what
 `bonanzaassets`' checks, the composites and `bonanza_ring`'s draw oracle read;
 `make bonanza-check` still runs `bz_ballgen` under unicorn against
-`build_ball2`, every byte, all three balls. `tests/bonanza_phys.py --check`
-runs `bz_eshift` under unicorn on every frame of every ball at shifts 1 - 3
+`build_ball2`, every byte, all three balls. With A applied (the patch),
+`tests/bonanza_phys.py --check` runs `bz_eshift` under unicorn on every frame of every ball at shifts 1 - 3
 against `ent_rows` (42 entries, equal, BX kept), with a red arm (`eshfill`:
 the mask's fill 0, the kept pixels shifted in as holes) that goes red.
 
@@ -283264,9 +283271,8 @@ read on either layout).
 
 #### 128.38.9 Open questions for the owner
 
-1. The POP's RAM: 3,840 bytes at first; with B and A (128.38.10) the three
-   frames are 480. Keep A (113 resident bytes, 2 - 4 ms a dying frame), B
-   alone (-30 bytes, 8,960 of RAM back), or both - the owner's call.
+1. The POP's RAM: 3,840 bytes at first, and 1,920 with B (128.38.10, shipped).
+   A's patch would make it 480 (decided: parked for a 256KB build).
 2. The spikes' height is fixed at a half unit (a climb). Taller tips would
    need steel to arrive from a level approach; not built (no `up` clause).
 3. The art on both cards, and whether the membrane should differ more from
