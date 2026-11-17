@@ -3247,3 +3247,60 @@ script: SHAPE on pad 0, so Play Game then Enter plays it, PITS and FIRST on pads
 Getting there took six tries against the pathway's own rules - a pad must sit inside a page's window,
 a route needs room for its gate's lane, and no two routes leaving one pad may share an arrow key - and
 the answer was routes leaving pad 0 straight left and straight right on the screen, both dead ends.
+
+## 2026-11-17 (shaped floors, the picture: magenta, and the floor's grid bending into the shape)
+
+*SPEC.md 128.28.6.* The owner, looking at the knob build: "We might work on the dither visuals a bit."
+The first ink shaded each facet against a light from the upper left in six bands - white, white/cyan,
+the parity ink, parity/magenta, magenta, magenta/black - and on the glass the chute walls were a dark
+checker with lighter speckled edges: noise. The picture blocks were also the largest packed cost of a
+shaped course (SHAPE 302 against a flat plate's 85), so the first round of options was asked to say
+what each cost as well as how it looked.
+
+**Round 1: eight options, one question about colour nobody had asked.** Solid inks in four bands; a
+light from the VIEWER (far wall white, near bank black); the dark band as scanlines instead of a
+checker; contours where the band changes; the floor's cell checker carried down the walls a step
+darker (`chkdark`); an ordered 4 x 4 dither; and two "Hercules-safe" mixes. Every one was looked at in
+2x crops on both cards. The sizes came out within a few hundred bytes of each other (the best saved 56
+blocks of the roughly 220 the shapes add): a chute leg one cell along moves exactly a whole number of
+8 x 8 blocks, so the straights already repeat, and what does not is where facet edges cut the grid -
+which no ink moves. The finding that mattered was in the Hercules column: the card translates by
+colour, magenta and cyan are the same half grey there, and a shape drawn in floor colours with black
+contours vanished on it.
+
+**The owner's verdict on round 1** turned the question round: "Herc reads well on most of these, so
+I'm thinking my 'reading the curve' issue is more color. Of these options, chkdark reads the best,
+and, weirdly, outline the second best, with today's the third. Lets try using magenta (in this
+palette) only, for the shapes ... All of those sizes were within spitting distance of each other, so
+it looks like size savings may be minimal here."
+
+**Round 2: magenta only.** Eleven options, every tone magenta mixed with black or white. The one new
+mechanism was a per-pixel map from the screen back to the ground for each facet (three corners give
+an affine map), which let the floor's black cell LATTICE be carried over the shape - a pixel is black
+where its ground point is in another cell than the pixel above's, exactly as a floor cell outlines the
+top edges of its diamond - and let iso-height contours be drawn every few px of depth. What read: the
+lattice (the curve shows as the grid bending), contours in a pit (a topographic bowl). What did not:
+light-graded tones (the magenta/white and the quarter-magenta mixes turned back into speckle),
+scanlines beside horizontal contours (they merge), and a white lip line (too few lip pixels have a
+FIELD facet above them for it to show). The owner: "Every single one of those reads much better; it
+was the colors. ... mchkgrid2 is the winner of them; it reads clearly, it fits our art style."
+
+**The winner, and its one bug.** `mchkgrid2` is the floor's own checker in two magentas - a white
+cell solid magenta, a cyan cell magenta with a black line every other line - with no light at all,
+and the lattice over it. The bug the owner found: "There are still blue corners within the bowl, and
+sometimes around odd places." The cause was the test for "this facet is the floor": level-ish and at
+the CELL's highest point. A cell wholly inside a bowl has a highest point of its own, below the plate,
+so its top facets were drawn in floor cyan and white inside the bowl; and gentle facets just under the
+lip at chute corners and tapers passed too. The fix gives every FIELD tile its LIP heights beside its
+real ones - the piece's own function with the depth taken out (a chute's lip with its legs' climb, a
+pit's plate), sampled on the same 17 x 17 points - and a facet is the floor only when all three of its
+corners lie exactly on the lip. Those take the plain floor cell's ink by the same parity, so a pit's
+square remainder outside its radius is indistinguishable from the tiles round it; everything below
+the lip is magenta.
+
+**Measured** (against the first ink at 295a993, after the occluder-cut work): SHAPE 302 -> 243 blocks,
+whole part LZB 6,378 -> 5,590, LZ4 7,778 -> 6,990; PITS 348 -> 291, 6,848 -> 5,989, 8,448 -> 7,489.
+Every section but the map, the blocks and the offsets into them is byte-identical: the records, masks,
+grid and tables did not move. **Tested**: the tool's previews on CGA and Hercules (bowl, dish, chute
+corners, tapers, the S), `--selfcheck`, `tests/bonanza_dfield.py`, the shipped and knob builds; no
+emulator rows - the picture is the tool's, and no shipped course has a FIELD cell.

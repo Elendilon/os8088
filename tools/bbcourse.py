@@ -1818,11 +1818,12 @@ class FieldTile:
     (an index into the course's tables) and symmetry.  .piece names what laid it (the refusals' and the
     picture's)."""
     __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "h", "shape", "sym", "piece",
-                 "hmin", "hmax")
+                 "hmin", "hmax", "lip")
 
-    def __init__(self, h, line, piece):
+    def __init__(self, h, line, piece, lip=None):
         self.kind = KIND_FIELD
         self.h = h
+        self.lip = lip if lip is not None else h    # the LIP's heights there (the picture's, 128.28.6)
         self.hmin = min(min(r) for r in h)
         self.hmax = max(max(r) for r in h)
         self.z0 = self.hmin // 16
@@ -1951,10 +1952,10 @@ def chute_cells(f, where):
                     cell = (rx + (side if d[0] == 0 else 0), ry + (side if d[1] == 0 else 0))
                 t0 = 8 if wide == 1 else 16             # the run at the straights' start
 
-                def fn(gx, gy, ox=ox, oy=oy, d=d, za=za, rate=rate, t0=t0):
+                def fn(gx, gy, ox=ox, oy=oy, d=d, za=za, rate=rate, t0=t0, lip=False):
                     t = (gx - ox) * d[0] + (gy - oy) * d[1]
                     c = (gy - oy) if d[0] else (gx - ox)
-                    return za + rate * (t - t0) - depth_at(c)
+                    return za + rate * (t - t0) - (0 if lip else depth_at(c))
                 put(cell, "straight", fn)
     # the ends: a taper over one cell, open at its outer edge
     for end in (0, n):
@@ -1973,10 +1974,10 @@ def chute_cells(f, where):
             base = (px_ if dd[0] >= 0 else px_ - 1, py_ if dd[1] >= 0 else py_ - 1)
             cells = [(base[0] + (s_ if dd[0] == 0 else 0), base[1] + (s_ if dd[1] == 0 else 0)) for s_ in (-1, 0)]
 
-        def tfn(gx, gy, e0=e0, dd=dd, zl=zl, ox=ox, oy=oy):
+        def tfn(gx, gy, e0=e0, dd=dd, zl=zl, ox=ox, oy=oy, lip=False):
             t = min(1.0, max(0.0, ((gx - e0[0]) * dd[0] + (gy - e0[1]) * dd[1]) / 16.0))
             c = (gy - oy) if dd[0] else (gx - ox)
-            return zl - t * depth_at(c)
+            return zl - (0 if lip else t * depth_at(c))
         for cell in cells:
             put(cell, "taper", tfn)
     # the corners: radial round the far corner of the block (2-wide) or of the cell (1-wide) inside the turn
@@ -1991,9 +1992,9 @@ def chute_cells(f, where):
             cx, cy = 16 * px_ - 16 * di[0] + 16 * do[0], 16 * py_ - 16 * di[1] + 16 * do[1]
             cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0) for b in (-1, 0)], 16
 
-        def cfn(gx, gy, cx=cx, cy=cy, zl=zl, R0=R0):
+        def cfn(gx, gy, cx=cx, cy=cy, zl=zl, R0=R0, lip=False):
             c = math.hypot(gx - cx, gy - cy) - R0
-            return zl if abs(c) > W else zl - depth_at(c)
+            return zl if lip or abs(c) > W else zl - depth_at(c)
         for cell in cells:
             put(cell, "corner", cfn)
     return out
@@ -2005,8 +2006,8 @@ def pit_cells(f, where):
     cx, cy, zl = 16 * x, 16 * y, 16 * z2
     out, hole = {}, set()
 
-    def fn(gx, gy):
-        return zl - pit_profile(math.hypot(gx - cx, gy - cy), 16 * R, 16 * H, D)
+    def fn(gx, gy, lip=False):
+        return zl if lip else zl - pit_profile(math.hypot(gx - cx, gy - cy), 16 * R, 16 * H, D)
     for wx in range(x - R, x + R):
         for wy in range(y - R, y + R):
             if x - H <= wx < x + H and y - H <= wy < y + H:
@@ -2021,7 +2022,8 @@ def field_tile(cell, piece, fn, line, where):
     checked against the table's range and the slope bound under every symmetry"""
     wx, wy = cell
     h = [[_fround(fn(16 * wx + u, 16 * wy + v)) for u in range(17)] for v in range(17)]
-    t = FieldTile(h, line, piece)
+    lip = [[_fround(fn(16 * wx + u, 16 * wy + v, lip=True)) for u in range(17)] for v in range(17)]
+    t = FieldTile(h, line, piece, lip)
     if t.hmax - 16 * t.z0 > 255:
         raise CourseError("%s: the %s cell (%d, %d) spans %d quarter px from its base, over a table byte's 255 "
                           "(SPEC.md 128.28.2): a shallower depth" % (where, piece, wx, wy, t.hmax - 16 * t.z0))
@@ -4549,36 +4551,53 @@ def _fpt(gx, gy, h4, x0):
 
 FTOPQ = 16                    # SPEC.md 128.28.6: a facet's occluder top, whole px rounded down to a multiple
 FACET = 4                     # SPEC.md 128.28.6: a FIELD top's facets, ground units a side
-_FLIGHT = (-1.0, -0.3, 1.5)   # ...the light: from the upper left (toward -gx), and above
-_FLAT_B = _FLIGHT[2] / math.sqrt(sum(c * c for c in _FLIGHT))
+def field_ms(x, y):
+    """SPEC.md 128.28.6: the second shape tone, magenta with a black line every other line (Hercules reads
+    it a quarter grey, solid magenta a half)"""
+    return MAG if (y & 1) == 0 else BLK
 
 
-def field_shade(dzx, dzy):
-    """a facet's shade level by its gradient (px a ground unit): -3 (darkest, facing the viewer's right)
-    .. 0 (level) .. 2 (lit, facing up and away)"""
-    n = (-dzx, -dzy, 1.0)
-    b = sum(a * l for a, l in zip(n, _FLIGHT)) / math.sqrt(sum(a * a for a in n)) / math.sqrt(
-        sum(c * c for c in _FLIGHT)) / _FLAT_B
-    for lim, lv in ((1.12, 2), (1.04, 1), (0.96, 0), (0.86, -1), (0.74, -2)):
-        if b >= lim:
-            return lv
-    return -3
+class FieldInk:
+    """SPEC.md 128.28.6: a FIELD facet's ink - the TONE (a colour or an (x, y) ink) under the floor's black
+    cell LATTICE carried over it: a pixel is black when the ground point at its centre lies in another cell
+    than the one at the centre of the pixel above, by the facet's own map from the screen back to the ground
+    (its three corners' quarter-pixel points P and ground points G), as a plain floor cell outlines the top
+    edges of its diamond.  bind(y0) -> the ink at the picture's Y0 (render's)"""
+    __slots__ = ("tone", "P", "G", "k")
+
+    def __init__(self, tone, P, G, k=None):
+        self.tone, self.P, self.G, self.k = tone, P, G, k
+
+    def bind(self, y0):
+        (X0, Y0), (X1, Y1), (X2, Y2) = self.P
+        Y0, Y1, Y2 = Y0 + 4 * y0, Y1 + 4 * y0, Y2 + 4 * y0
+        det = float((X1 - X0) * (Y2 - Y0) - (X2 - X0) * (Y1 - Y0))
+        k = []
+        for c in (0, 1):                            # gx, then gy (gu) = ax X + ay Y + a0, X, Y quarter px
+            g0, g1, g2 = self.G[0][c], self.G[1][c], self.G[2][c]
+            ax = ((g1 - g0) * (Y2 - Y0) - (g2 - g0) * (Y1 - Y0)) / det
+            ay = ((X1 - X0) * (g2 - g0) - (X2 - X0) * (g1 - g0)) / det
+            k.append((ax, ay, g0 - ax * X0 - ay * Y0))
+        return FieldInk(self.tone, self.P, self.G, k)
+
+    def __call__(self, x, y):
+        X, Y = 4 * x + 2, 4 * y + 2
+        for ax, ay, a0 in self.k:
+            g = ax * X + ay * Y + a0
+            if math.floor(g / 16.0) != math.floor((g - 4 * ay) / 16.0):
+                return BLK
+        t = self.tone
+        return t(x, y) if callable(t) else t
 
 
-def field_ink(level, base):
-    """SPEC.md 128.28.6: a shade level's ink, world-fixed dithers (x + y) & 1 between the levels' colours;
-    base the cell's parity colour for a level facet"""
-    if level == 0:
+def field_tone(base, plate):
+    """SPEC.md 128.28.6: a facet's tone - at the floor's own height (plate: every corner on the lip's
+    surface) the plain floor cell's ink there, so the shape's level rim is that floor; anything below it
+    magenta only, by the cell's parity as the floor's checker: a white cell solid magenta, a cyan one
+    field_ms"""
+    if plate:
         return base
-    if level >= 2:
-        return WHT
-    if level == 1:
-        return WHT if base == WHT else (lambda x, y: WHT if (x + y) & 1 else CYN)
-    if level == -1:
-        return lambda x, y, b=base: MAG if (x + y) & 1 else b
-    if level == -2:
-        return MAG
-    return lambda x, y: MAG if (x + y) & 1 == 0 else BLK
+    return MAG if base == WHT else field_ms
 
 
 def _poly_top_fn(pts):
@@ -4644,11 +4663,8 @@ def _field_ops(tiles, t, wx, wy, s, x0, ground=None):
                     continue
                 (ua, va), (ub, vb), (uc, vc) = tri
                 ha, hb, hc = h[va][ua], h[vb][ub], h[vc][uc]
-                # the plane through the three: dz/du, dz/dv in px a ground unit
-                det = (ub - ua) * (vc - va) - (uc - ua) * (vb - va)
-                dzx = ((hb - ha) * (vc - va) - (hc - ha) * (vb - va)) / (4.0 * det)
-                dzy = ((ub - ua) * (hc - ha) - (uc - ua) * (hb - ha)) / (4.0 * det)
-                ink = field_ink(field_shade(dzx, dzy), base)
+                plate = all(h[v_][u_] == t.lip[v_][u_] for u_, v_ in tri)    # every corner on the lip
+                ink = FieldInk(field_tone(base, plate), P, [(gx0 + u_, gy0 + v_) for u_, v_ in tri])
                 topv = (min(ha, hb, hc) // (4 * FTOPQ)) * FTOPQ   # (whole px, in steps of FTOPQ: fewer records)
                 mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
                 ops.append((spans(P), "facet", key, mk, ink, t, (wx, wy)))
@@ -4864,7 +4880,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.fill(sp, ink, s, top, own)
             continue
         if which == "facet":                        # SPEC.md 128.28.6: a FIELD top's facet, its ink in `left`
-            cv.fill(sp, left, s, mk(y0), own)
+            cv.fill(sp, left.bind(y0), s, mk(y0), own)
             continue
         top = mk(y0)
         if t.rail and which in ("sw", "se", "front"):   # wave 8R: the crystal rail's dark side (128.22.8)
@@ -20627,7 +20643,7 @@ def _field_checks(res):
     tl = dict(c.tiles)
     cell = next(cl for cl, t in sorted(tl.items()) if isinstance(t, FieldTile) and isinstance(
         tl.get((cl[0] + 1, cl[1])), FieldTile))
-    bad = FieldTile([r[:] for r in tl[cell].h], tl[cell].line, tl[cell].piece)
+    bad = FieldTile([r[:] for r in tl[cell].h], tl[cell].line, tl[cell].piece, tl[cell].lip)
     bad.h[8][16] += 1
     tl[cell] = bad
     try:

@@ -279680,11 +279680,30 @@ profile keeps it, which is what caps the depth.
   view, `sx + sy > 4` across it) is not drawn: what is behind it shows, as it
   would, so the near bank of a deep channel is a lip with the channel's
   floor seen over it.
-- **The ink** is the facet's shade by its gradient against a light from the
-  upper left: facing up and away is lit (white), level is the base (cyan),
-  facing the viewer is magenta, darker to the right (magenta and black),
-  with world-fixed 50% dithers between, so the blocks a chute makes repeat
-  along it. No outline is drawn between facets.
+- **The ink** (the owner's choice, 2026-11-17, of eleven: "it reads clearly,
+  it fits our art style") is the FLOOR'S OWN CHECKER AND LATTICE CARRIED INTO
+  THE SHAPE, in MAGENTA only, so the curve reads from the grid bending into
+  it rather than from a light:
+  - **The tone** is the cell's parity, as the floor's checker: a cell a
+    plain floor would draw WHITE is solid MAGENTA, one it would draw CYAN is
+    `field_ms`, magenta with a black line every other line (`y & 1`). No
+    light, no slope bands, no dither between tones.
+  - **The lattice**: every pixel whose ground point (at its centre, by the
+    facet's own map from the screen back to the ground) lies in another
+    cell than the pixel above's is BLACK - a plain floor cell's outline of
+    the top edges of its diamond, so the cell lines run on from the plate
+    over the rim and bend down the walls.
+  - **The plate**: a facet whose three corners all lie ON the lip's surface
+    (the height the piece's function gives with no depth: a chute's lip
+    with its legs' climb, a pit's plate) IS the floor there and takes the
+    plain floor cell's ink - white or cyan by the same parity - so the
+    shape's square remainder outside a pit's radius and a chute's level
+    edge are indistinguishable from the tiles round them. Every other facet
+    - anything below the lip, however gentle - is magenta: no cyan or white
+    inside a shape.
+  - **On Hercules** (128.11.3's translation) solid magenta is the half grey
+    the cyan floor is and `field_ms` a quarter, so the checker and the
+    lattice carry the shape there too.
 - **The faces**: a FIELD cell hangs its `sw` and `se` faces as a whole cell
   does, their top edges the table's 17 heights along that edge, down to the
   neighbour's heights there (nothing against a FIELD neighbour, by the SEAM
@@ -279752,12 +279771,25 @@ profile keeps it, which is what caps the depth.
   both courses, and 8 px holds the bound but costs SHAPE 1,033 records and
   157 masks against 869 and 90 (PITS 962 and 150 against 891 and 85), so
   the up-to-15-px show-through stays the price of the bound.
-- **The ink, as built**: `field_shade` takes the facet's normal against the
-  light `(-1, -0.3, 1.5)` relative to a level facet's and bands it at 1.12,
-  1.04, 0.96, 0.86 and 0.74 into WHITE, white/cyan, the cell's own parity
-  ink, the parity ink/magenta, MAGENTA, and magenta/black. Four bands were
-  tried to save blocks and saved none: a chute's blocks come from where its
-  facets' edges fall on the 8 x 8 grid, not from how many inks there are.
+- **The ink, as built** (`FieldInk`, `field_tone`, `field_ms`; a FIELD
+  tile's `lip` is its 17 x 17 lip heights, sampled beside `h`). The road to
+  it (the diary, "shaped floors, the picture"): the first ink, a light from
+  the upper left banded at 1.12, 1.04, 0.96, 0.86 and 0.74 into white,
+  white/cyan, the parity ink, parity/magenta, magenta and magenta/black,
+  read as noise - and the owner's verdict on two rounds of options was "it
+  was the colors": every magenta-only option read better than every
+  cyan-and-white one, the bending checker best and contours second. The
+  plate rule replaced a test against the cell's own highest point, which
+  left cyan facets INSIDE a bowl (a cell wholly below the plate has a
+  highest point of its own) and white and cyan specks at chute corners and
+  tapers. MEASURED against the first ink (blocks; the whole part packed,
+  LZB and LZ4): SHAPE 302 -> 243, 6,378 -> 5,590, 7,778 -> 6,990; PITS 348
+  -> 291, 6,848 -> 5,989, 8,448 -> 7,489 - a saving, but never the aim: a
+  chute's blocks come from where its facets' edges fall on the 8 x 8 grid,
+  and no ink of the two rounds moved that by more than a fifth. Every
+  section but the map, the blocks and the offsets into them (`G`, `P`) is
+  byte-identical to the first ink's: the picture moved, the grid, the
+  records and the masks did not (the identity moves with the picture).
 
 #### 128.28.7 The guest
 

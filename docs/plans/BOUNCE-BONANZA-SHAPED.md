@@ -101,6 +101,18 @@ pose that does not exist. And: "32 shape tables", approved.*
 | C6.4 [x] | 32 tables: the +1's bit 7 the shape's fifth bit - SPEC first, then the tool, `read_part`, the guest (`bz_fhp`, `bz_dval`, `bz_fsb`), the harness (a course MANY of 17 tables; `nofifth` red) | `make bonanza` +5 image, +32 bss; `tests/bonanza_dfield.py` |
 | C6.5 [x] | the STANDARD profiles (the owner's design rule): courses reuse a small set of chute profiles and depths so tables are shared, a one-off special shape still allowed at its own tables' cost; the tool prints each shape statement's tables added and shared | the course report |
 
+### Wave C7: the picture (the owner, 2026-11-17)
+
+*The owner: "We might work on the dither visuals a bit"; after two rounds of options, "it was the
+colors ... mchkgrid2 is the winner of them".*
+
+| # | story | verified by |
+|---|---|---|
+| C7.1 [x] | two rounds of shading options (eight, then eleven magenta-only) previewed on both cards with their sizes, for the owner to choose | the diary's account; the owner's choice |
+| C7.2 [x] | the chosen ink: the cell's parity as two magentas (solid, and black every other line) under the floor's black cell lattice carried over the shape, by a per-facet screen-to-ground map; no light | SPEC.md 128.28.6; the previews, CGA and Hercules |
+| C7.3 [x] | no floor ink inside a shape: a facet is the floor only when its three corners lie on the LIP (each FIELD tile's lip heights, the piece's function without its depth) - the cyan corners inside a bowl and at chute corners and tapers gone | before/after crops of the bowl, the dish, the corners and the tapers |
+| C7.4 [x] | picture only: every section but `M`, `B` and the offsets into them byte-identical to the first ink's | the sections' hashes, both test courses |
+
 ## The rows (named, run once in the final pass)
 
 - `bonanzacourse` (`--selfcheck`): the field items.
