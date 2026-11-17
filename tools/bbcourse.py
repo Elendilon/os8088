@@ -14124,15 +14124,18 @@ TITLE_AUTHOR = {
         "script": [("wait", 110), ("until", "respawn", ((9, 15), (11, 15), (14, 15))), ("wait", 75),
                    ("until", "capture", ((10, 14), (10, 13), (10, 12))), ("wait", 10),
                    ("go", ((16, 7), (17, 7), (19, 8))), ("off", ((20, 11), (18, 14))), ("to", ((18, 15),))]},
-    3: {"what": "the glass ball rolled in onto LL, down the step, through the brown tube, to the ramp's edge, "
-                "round UR until it falls off the front and shatters, its shatter ending on the glass (the owner, "
-                "2026-11-16: LC's corner by the pit taken out, so it goes down the step)",
+    3: {"what": "the glass ball rolled in along LL's back row, a pause, on over the pit on the hidden GLASS BRIDGE "
+                "(revealed as it rolls) and down onto LC; a run at the ramp from below, a third of the way up and "
+                "back; down to spring 2 and a long look at it; up off it, short of UR by its lip, back down onto "
+                "the spring and shattered, its shatter ending on the glass (the owner, 2026-11-17: no tube, no "
+                "waiting on UR, no circles)",
         "ball": "glass", "at": (7.3, 14.5, 28), "vel": (200, 0, 0), "air": 0, "respawn": (23, 16),
-        "expects": (("capture", 1), ("shatter", 1)),
-        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((11, 14), (11, 13))),
-                   ("until", "capture", ((11, 12), (10, 12))), ("to", ((17, 7),)),
-                   ("wait", 124), ("go", ((16, 7), (15, 7), (16, 6), (17, 7), (16, 8))),
-                   ("until", "shatter", ((15, 9), (15, 11)))]},
+        "expects": (("spring", 1), ("shatter", 1)),
+        "script": [("to", ((9, 14),)), ("wait", 45), ("go", ((10.0, 14.5), (11.0, 14.5))),
+                   ("keys", K_R | K_D, 45), ("keys", K_R, 140),
+                   ("keys", K_L | K_U, 30), ("keys", 0, 25), ("keys", K_L | K_D, 30), ("keys", K_L | K_U, 45),
+                   ("to", ((15.6, 11.2),)), ("wait", 50), ("keys", K_R | K_U, 22),
+                   ("keys", 0, TITLE_STEPS)]},
     4: {"what": "the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto "
                 "LC, on along the front and off the bottom right into the hidden tube; out on UR, a run at the "
                 "back rail and a Hop and boost - its highest bounce, well short of the rail's top - back off the "

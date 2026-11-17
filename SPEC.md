@@ -271500,8 +271500,9 @@ Five tiers and four features, after the sketch:
 | the PILLAR | a tall wall between UR and the strip, the windmill's house: its tube runs down through it onto the strip |
 | LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit; it runs off the glass to the left, and a STEP (a half-unit tier, 9 - 11 x 13) takes a ball down to it from LL, so a ball on LL can reach the brown tube without jumping |
 | LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT (128.23.2's waiver) |
-| the PIT | two cells wide (x 12 - 13) from LS's step to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16) |
-| LC, the lower centre | the key hints painted above it; joined to LS behind (a strip in front of the pillar) and to the ramp's foot on the right |
+| the PIT | two cells wide (x 12 - 13) from LS's back wall to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16), and the strip in front of the pillar that joined LS to LC went too (2026-11-17), so the gap is a real one on that side |
+| the GLASS BRIDGE | LL's back row carried over the pit to LC at LL's height (x 12 - 13, y 14; floor 3.5, a 1.5-unit drop onto LC), two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, its first tile's jagged edge at LL the only hint. Demo 3's glass ball enters along that row and finds it; steel (demo 2) falls through the pit on row 15 and never touches it. The family is home `fetch`, the title's first fetched family (128.25.6.9) |
+| LC, the lower centre | the key hints painted above it; joined to the ramp's foot on the right, and to LL only by the glass bridge |
 | the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
 | the hidden tube | its mouth at (23, 11), beside the east rail just past the glass's bottom right corner, its body up the rail and along the back one to UR, so a ball that bounces off the bottom right comes back on UR |
 | the windmill | its doorway on the pillar's +x face at UR's level; its tube runs down inside the pillar and out of an arch in the same face at the channel's floor (14, 11), heading +x, so the ball comes out rolling the way it went in, in full view |
@@ -271518,9 +271519,16 @@ the sketch, and the built course is a different shape):
    gap, falls in the pit; respawns on LL, the side it fell from, so it never
    seems to jump the gap by dying; rolls down the step to LS and into the brown tube,
    comes out on UR, and down the ramp off the glass.
-3. **Glass**: off LL down the step, through the brown tube onto UR, round
-   UR until it falls and shatters. Its shatter finishes on the glass and the
-   respawn is off it.
+3. **Glass** (the owner, 2026-11-17: no tube, no waiting on UR, no circles):
+   rolls in along LL's back row and pauses, then on over the pit, where the
+   GLASS BRIDGE appears under it tile by tile, and down onto LC; a run at the
+   ramp from below gets a third of the way up and rolls back (glass cannot
+   climb it); it goes down to spring 2, looks at it a long beat, and tries
+   it: the spring throws it level with UR's edge, it catches the lip and
+   drops back onto the spring, and the landing (768, over glass's 552)
+   shatters it at the cliff's foot, on the glass. No launch can break it ON
+   UR: the cap BZ_VZMAX 768 lands it there at 443. Its respawn is off the
+   glass.
 4. **Rubber at speed** (the owner's drawn path, 2026-11-16): flies in from
    the left, bounces on LS's step, over the pit's corner onto LC and on
    along the front, off the bottom right into the hidden tube; out on UR, a
@@ -273980,7 +273988,7 @@ demos were re-authored again, `ident` alone: MOON 3A07h -> 2953h, PEAK EFF3h
 - **A windmill is a tube with a door**: its capture and its transit ARE the
   tube's routines. So ROTOR holds only the DOOR (the touch test and the gate),
   and with the tube a family a course that places a windmill names TUBE as
-  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`). All three
+  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`; the title names `glass` too since 2026-11-17, 128.23.5). All three
   are home `resident` (128.25.6.9), so they cost no fetch at a launch and
   none of the 3 a course.
 
