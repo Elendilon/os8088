@@ -2,8 +2,8 @@
 ; apps/bonanza/fam/bzthunk.inc - THE TUBE AS A FAMILY (SPEC.md 128.25.20.2): the
 ; engine's side of bztube.inc's routines when the TUBE family's part holds
 ; them - each the PROP hook (bit 6) of the family whose key is BZ_FK_TUBE, asked
-; through bz_fone with AH the question.  Included by bzphys.inc unless the
-; package is built with BZ_TUBE_RESIDENT.  ES = the course; every thunk
+; through bz_fone with AH the question.  Included by bzphys.inc (SPEC.md
+; 128.25.20.3: the tube's home superseded a resident switch).  ES = the course; every thunk
 ; preserves all the routine it replaces did, and more.
 ; =============================================================================
 
