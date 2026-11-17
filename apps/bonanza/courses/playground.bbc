@@ -164,3 +164,14 @@ floor rect   3  8  6 13  flat 6
 prop hourglass 3 18
 prop speed     5 14 for 3
 prop jump      6 17 for 3
+
+# SCRATCH (bounce-shaped-twoseg, SPEC.md 128.30): the SHAPED-FLOOR SECTION of wave C4 (ff8eabb29), put back behind
+# the step ladder, and the radius-3 PIT that did not fit beside it (128.28.8), on a plate at the apron's height
+# joined to the walkway's left end.  As one part this course is 65,513 bytes under D and 76,507 under C: it is a
+# TWO-PART course (128.30.4.1)
+floor rect  16  9 29 10  flat 4
+floor rect  21 10 22 14  flat 4
+chute 2 round depth 10 way 18 9 4 way 18 5 way 24 5 6 way 24 9 4
+chute 1 round depth 5 way 26 8 4 way 26 4 way 28 4 way 28 8
+floor rect   8  3 17 10  flat 4
+pit   12 6 4 radius 3 depth 16

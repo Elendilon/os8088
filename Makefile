@@ -22176,15 +22176,11 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-<<<<<<< HEAD
-BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
-=======
 # SPEC.md 128.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
-BZ_PARTS1 := $(BZ_BALLS) $(BZ_CRSPARTS)
+BZ_PARTS1 := $(BZ_CRSPARTS)
 BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
->>>>>>> bounce-bonanza-twoseg
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
