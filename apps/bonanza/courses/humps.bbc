@@ -33,7 +33,9 @@ hump 11 14 2 along x 3
 # over the void, so no ball rolls round it)
 floor rect 16 6 27 8 flat 2
 hump 22 6 2 along y 2 height 10 open
+floor rect 24 4 28 6 flat 2                     # (a landing beside the bridge's end, for its clock)
 goal tile 26 6 flat 2
+clock 26 4
 
 # THE HIDE: a HIGH dome at (13, 18), a glass pad behind it at (11, 16)
 hump 13 18 2 height 10
@@ -42,9 +44,10 @@ floor rect 16 16 20 20 flat 2
 goal tile 18 17 flat 2 exit 1
 
 clock 14 5
+clock 17 18
 target 60
+limit 99
 way 5 16
 way 10 10
 way 14 7
-way 20 7
 way 26 6

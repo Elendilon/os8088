@@ -279902,3 +279902,193 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
    ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
    one thing it cannot do today.
+
+### 128.44 HUMPS: FIELD cells raised over the plate (the props round's P12, 2026-11-17; BUILT on `bb-hump`, tool only)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P12): *"HUMPS - fits the
+theme; cheap to make, expensive to USE, as shapes are ... the FIELD cell's
+height tables (128.28) already describe any height pattern; a hump rises ABOVE
+the lip, so it hides what is behind it - occluders the pit never needed. A
+standard hump (one shared table set, 128.28.4's STANDARD PROFILES rule) keeps
+its data down."* The props round fixed this section's number and the knob
+(`BZHUMP=1`), and reserved family ID 16 (kinds from `FAM_K0 + 80`, art code 16)
+**if** a hump needed a family. **It needs none**: a hump is FIELD cells, laid by
+the tool, run by the guest's FIELD code as it stands. Figures are MEASURED
+unless marked PREDICTED.
+
+#### 128.44.1 The decisions, the statement and its refusals
+
+| | decision | why |
+|---|---|---|
+| H1 | a hump is FIELD cells (128.28) whose tables rise ABOVE the cell's base: `z0` the plate's height, every table byte the height over it | 128.28.2's cell has always allowed it (no point below `16 z0`, any byte a height); the guest reads a table, never a shape, so a dome is a chute's corner by another table - **no resident byte, no family, no `BZ_PHYSV` or `PHYS_REV` change** (H6) |
+| H2 | the profile is a RAISED COSINE, `H (1 + cos(pi d / 16)) / 2` at `d` gu from the crest, 0 from 16 gu out | zero slope at the crest and at the foot: the plate meets it with no edge (no step for 128.28.5.3's edge tests to catch) and a ball resting on the crest is not on a corner |
+| H3 | two shapes: a round DOME on the 2 x 2 cells round a cell CORNER, and a RIDGE along an axis (the crest a segment `n` cells long), its ends the dome's halves (caps) or, `open`, cut square | a dome is one table under the square's symmetries (its four cells are one shape); a ridge's middle is one more (its two sides mirror), its caps the dome's |
+| H4 | two STANDARD heights, LOW 6 px (the default) and HIGH 10 px; any of 2 - 11 px allowed, costing its own tables | 128.28.4's STANDARD PROFILES rule: a course drawing from the two standards pays one table a dome height and one a ridge height. 11 px is the dome's slope bound (`abs(sx) + abs(sy) <= 7` at the 45-degree points, 12 refused); MEASURED: the HUMP course's six humps use 4 tables |
+| H5 | a hump's RIM is level with every floor or goal it touches; an `open` ridge's end meets a WALL or the VOID | a hump is a bump IN a floor, never a step: the rim refusal keeps every edge test a FIELD-to-floor one at equal heights, and a square end against a floor would be a cliff its height (a wall a ball could not see) |
+| H6 | no physics of its own: rubber does NOT bounce off a hump's face, steel is not special-cased | a hump is a hill, not a wall: its steepest face (7 quarter px a gu at the dome's diagonal, 4.3 along an axis at 10 px) is a ramp's, so every ball CLIMBS it against the step's own slope force (`BZ_GSL`) - and the materials already differ where it matters (steel's arrow force, `ACC` 2, is the least of the three, its drag the least too), so steel needs the speed and stalls without it (128.44.5) with no rule written for it |
+| H7 | the ink: the shapes' two magentas (128.28.6) in BANDS of height - a third of the hump's height each, `field_ms` the outer and the crest, solid magenta between - under the bending cell lattice; a facet at the floor's own height keeps the floor's ink (the JOIN rule) | the owner's shape colours, magenta only; bands turn a dome into rings and a ridge into stripes, which reads as RAISED where the parity checker alone read as a flat diamond (four inks tried on the preview: parity checker, black contours, contours on solid magenta, bands - bands the only one that reads on both cards: on the Hercules a quarter and a half grey against the floor's white and half grey; black contours vanished into the stripes) |
+| H8 | a RAISED facet (any corner above the lip) is topped at its LOWEST corner in 2 px steps (`HTOPQ`), not 128.28.6's 16 px (`FTOPQ`) | `FTOPQ` rounds a 10 px hump's top down to the plate's height, so no ball behind it would ever be laid under it - the very occlusion the plan named. 1 px steps put a fifth record in a block (over 128.11.4.2's four); 2 px meet the bound on HUMP |
+
+    hump <x> <y> <z> [along x|y <n> [open]] [height <px>]
+
+- `<x> <y>`: a cell CORNER - the dome's crest, or the ridge's first end;
+  `<z>` the base (the plate's height, units, 128.10.3). A dome lays the cells
+  `x - 1 .. x` by `y - 1 .. y`; `along x <n>` the crest from `(x, y)` to
+  `(x + n, y)` and the cells `x - 1 .. x + n` by `y - 1 .. y` (`open`: `x ..
+  x + n - 1`, no caps), and `along y` likewise.
+- **Laid** with the chutes and pits, after every room, surface and hole
+  (128.28.3): its cells REPLACE what was there, as a chute's do.
+- **Refused**, each at its line (`--selfcheck` section `hump`, 15 cases): a
+  missing or unknown word, a word given twice; a height outside 2 - 11 px; a
+  ridge outside 1 - 12 cells; `open` on a dome; an open end that meets a floor;
+  a rim off the floor round it; two humps (or a hump and a chute or pit) on one
+  cell; and every FIELD-cell refusal of 128.28.3 on a hump's cell (`start`, a
+  `pad`, a `spring`, a `way`, every prop) - the visibility rule's two refusals
+  are 128.44.4's.
+
+#### 128.44.2 The cells and the tables
+
+`bbcourse.hump_cells` gives each cell its piece (`hump` for a dome's or a cap's,
+`ridge` for a ridge's middle) and the height function; 128.28.4's sampling,
+rounding, normalising and table search do the rest unchanged. A cell's `z0` is
+the base (no point under it); its table's largest byte is `4 H` at the crest's
+corner or edge. **The tables, MEASURED** (HUMP, `field_tables_by_statement`):
+the three LOW domes and the LOW ridge's four caps share ONE table; the LOW
+ridge's middle adds one; the HIGH open ridge one; the HIGH dome one - **4 of
+32**, 1,156 bytes of section `F`.
+
+#### 128.44.3 The picture
+
+The FIELD picture (128.28.6) unchanged - facets, back to front, culled when
+facing away, the faces against the void by the ground rule - with `HumpInk`
+(H7) for a hump's facets. The back slope of a hump steeper than the view is
+culled, as a pit's near bank is: what is behind shows over the crest. An open
+ridge's end over the void hangs its face to the ground plane like any FIELD
+cell's.
+
+#### 128.44.4 Occluders and the visibility rule
+
+- **The records**: a raised facet keyed as any FIELD facet (`s`, or `s + 1` in
+  the front half of its row) and topped by H8, so 128.10.4.4's rule lays the
+  hump over a ball BEHIND it lower than the facet. MEASURED on HUMP (a grounded
+  ball at every second gu, 4 cells behind a hump to one past it): the HIGH
+  dome lays up to **42 lit px** of a grounded ball (53 poses lose some), the
+  HIGH ridge **29** (69 poses); a LOW hump lays **none** over a grounded ball -
+  6 px is within the margin (`BZ_CLIMB`, 4 px) once the depth is counted - its
+  records are for an airborne ball. Red `hmtop` (the facets topped by `FTOPQ`):
+  the HIGH humps lay 1 and 0 px.
+- **OCCG** (128.11.4.3) follows by its own derivation: the plate cells behind a
+  HIGH hump gain it (HUMP: 11 OCCG cells, 2 without the humps' raised tops).
+- **The visibility rule** (the owner's, the props plan's item 4: partial
+  occlusion fine; a mechanic seen when the ball is not on it; the BALL wholly
+  hidden for at most a ball length, 16 px of travel), MEASURED by
+  `bbcourse.hump_vis` on every hump of every course: a ball rolled grounded
+  along every lane (a cell's middle and 4 gu either side) of the rows and
+  columns from `HUMP_BACK` (4) cells behind the hump to one past it, a gu at a
+  time, through the records - the longest run of positions where EVERY lit
+  pixel is laid over **and the hump is why** (with the hump's cells flat at its
+  base the ball would not be wholly hidden) may not pass `HUMP_HIDE` (16 gu);
+  and every mechanic - a prop on a whole flat floor, a goal - up to `HUMP_BACK`
+  cells behind it keeps a third of its top's pixels (`HUMP_SEE`, the archway's
+  third, 128.39.1 A10), again only where the hump is why. Both are refusals.
+  **By construction a hump cannot break them**: it stands at most 11 px over a
+  rim level with the floor behind it, and a ball is 16 px tall, so a ball at
+  that floor always shows its top, and a lower floor behind is first hidden by
+  the plate's own edge (`--selfcheck`: a floor 3 units under the plate two
+  cells behind a HIGH dome compiles, the dome adding 0 gu; red `hmnoattr`, the
+  sweep blind to WHO hides, refuses it at 96 gu). HUMP: 0 gu for all six; the
+  glass pad behind the HIGH dome shows 256 of its 256 px.
+
+#### 128.44.5 Physics: what a hump does to each ball (the model; the guest equal)
+
+No rule of its own (H6): every figure here is 128.11.8's step on FIELD cells.
+**MEASURED** (the model, the arrows held along the crest's normal from REST at
+a distance from the hump's foot; LOW 6 px, HIGH 10 px):
+
+| run-up from rest | rubber | steel | glass |
+|---|---|---|---|
+| LOW, at its foot | over | **stalls** | over |
+| LOW, a cell (16 gu) | over | over | over |
+| HIGH, at its foot | stalls | stalls | stalls |
+| HIGH, half a cell | over | **stalls** | over |
+| HIGH, a cell | over | stalls | over |
+| HIGH, three cells (48 gu) | over | over | over |
+
+So a hump is a RUN-UP gate, and a material one where it is placed: the HIGH
+bump in front of a pocket with no room to run lets rubber and glass out and
+holds steel. Coasting (no key) from its foot, the least speed that crests a
+LOW hump is 320 (rubber), 256 (steel, the least drag) and 384 (glass); a HIGH
+one, 384, 320 and none. A ball does NOT take off over the HIGH bump's crest even at the speed cap (MEASURED, all three)
+(the raised cosine's crest is too round for 128.28.5.4's take-off at 384), and
+nothing ever meets a wall at a rim (the scenes count none). Dropped onto a
+hump's flank, a ball lands on the slope as on any FIELD cell (rubber bounces).
+
+**The guest equals the model** (tests/bonanza_dfield.py, the host half of
+`bonanzaphys`'s field leg, now with HUMP among its courses): CELLS on HUMP's
+stored form; seven scripted runs (a LOW dome rolled over from rest; steel
+stalled at its foot; steel over the HIGH bump from the bridge's start and at
+the speed cap; glass across the HIGH dome off its crest line; rubber along the
+LOW ridge's crest; rubber dropped onto the HIGH dome's flank) and the fuzz's
+share of its 150 runs near HUMP's cells - **every step equal**. The existing
+arm `symswap` goes red on six of the seven hump runs (the symmetries a dome's
+four cells are laid by); no hump-only arm exists because no hump-only code
+does.
+
+#### 128.44.6 The knob build: HUMP (`BZHUMP=1`)
+
+`make BUILD=<tree> BZHUMP=1 bonanzadisk` (a private tree; `make help` lists it)
+adds `apps/bonanza/courses/humps.bbc` after the shipped courses (not on the
+TOUR) and compiles the pathway through `courses/pathhump.sed`: pad 0 becomes
+HUMP, so title, Play Game, Enter plays it; its exit 0 goes up to TRIAL, its
+exit 1 to FIRST on pad 6 (pathboost.sed's shape). It is refused with every
+other pad-0 knob (`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`, `BZWATER`,
+`BZARCH`, `BZSPIKE`, `BZBOOST`, and the round's `BZGATE`, `BZTILT`, `BZTURN`).
+
+HUMP "Hump Test", a plate at 2 units: the start with a pad for each ball;
+THE LOW HUMPS - three LOW domes and a LOW ridge every ball rolls over (steel
+with a cell of run-up); THE SPEED BUMP - a bridge 2 wide east of the plate, a
+HIGH `open` ridge across it (its ends over the void, so nothing rolls round
+it), the bridge's five cells of run-up enough for steel, and its goal (exit 0)
+past it beside a landing that carries its clock (a clock post ON the bridge kicks a ball off it); THE HIDE - a HIGH dome in front of a glass pad, a ball rolled behind
+it laid under, the exit 1 goal beyond. `limit 99` (a test course: the tool's own limit is
+short). Its route demo (no demo file) reaches the goal in 494 steps with no fall.
+**LOOKED AT once on MartyPC**, CGA and Hercules (`os8088_5150_cga_gla`, `os8088_5150_herc_gla`, the knob tree): the domes, the ridge and the bump drawn as the previews draw them, rubber rolled east past the glass pad behind the HIGH dome and north to the bridge; on the Hercules the humps read as quarter-grey patches with a half-grey ring. The look was of the layout before the clock moved off the bridge; the humps were the same.
+
+#### 128.44.7 The proofs
+
+- `bbcourse.py --selfcheck --only hump`: the 15 refusals; HUMP's cells (based
+  on the plate, crests `4 H`) and its 4 tables (which statement adds and
+  shares which); the scenes on the model (128.44.5's table, no wall at any rim;
+  red `slope`, the slope force reversed: the stalls cross); the occluders (red
+  `hmtop`); the visibility rule on HUMP and its attribution (red `hmnoattr`).
+  Every red arm MEASURED red.
+- tests/bonanza_dfield.py (128.44.5); `symswap` red on the hump runs.
+- No shipped course, demo or identity moved: every file `bbcourse.py -o`
+  writes for the shipped build (`BZ0` - `BZ6.BIN`, `BZ6W.BIN`, `BZD1` -
+  `BZD6.BIN`, the pathway, the title and its demo, the kit, `bzcourse.inc`) is
+  byte for byte the base tree's (MEASURED, `cmp`, 20 of 20); no `.asm` or
+  `.inc` moved, so `BONANZA.O88` is the same bytes.
+
+#### 128.44.8 What it costs
+
+| | |
+|---|---|
+| resident | **0 bytes**: no code, no table, no bss; no family (ID 16 stays free) |
+| the bundle, the package, the shipped disks | **nothing**: the shipped build is byte-identical (128.44.7) |
+| the knob build | `bonanza.bin` image 50,036 -> 50,077 and bss 12,145 -> 12,147: the eighth course's per-course table rows, the knob's alone; `BONANZA.O88` 121,892 -> 125,795 (HUMP's part, LZB 3,253 of 25,716 RAM) |
+| a course, MEASURED (HUMP against itself with no hump statements) | RAM 19,732 -> 25,716 (+5,984 for six humps, about 1KB each), blocks 128 -> 217, records 45 -> 183, masks 8 -> 80, 4 tables (1,156 bytes of `F`); LZ4 1,916 -> 3,983. A hump's crest is a LAUNCH (the reach's apex, 128.10.4.1): on an earlier layout one LOW dome at the back alone cost +2,401, raising the picture's first line, against +1,199 for a HIGH dome in front |
+| a step | the FIELD step's own (128.28.8: +0.4 - 0.9k clk a step on a FIELD cell, MEASURED on chutes; PREDICTED the same on a hump - the same instructions, a different table) and, behind a HIGH hump, the occluder pass on `OCCG` cells (128.10.9's 55 clk a record passed, 1.4k a record laid); MartyPC NOT run on it |
+
+#### 128.44.9 Open questions for the owner
+
+1. The two standard heights (6 and 10 px) and the run-ups they ask
+   (128.44.5): the owner's to judge on HUMP. 11 px is the ceiling the slope
+   bound allows; a taller hump would want a 3 x 3 dome (radius 24 gu, three
+   tables), not built.
+2. The ink: bands (H7) against the parity checker the other shapes use - the
+   preview reads as raised on both cards; the owner's eye decides.
+3. A ball does not take off over a crest (128.44.5): a sharper crest (a
+   "kicker") would launch a fast ball, at the cost of a profile the slope
+   bound allows only low.
+4. Rubber does not bounce off a hump (H6). A BUMPER hump (a `bounce` surface
+   on a FIELD cell) is not built: 128.28.3 applies no surface to a FIELD cell.
