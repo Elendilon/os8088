@@ -4513,3 +4513,78 @@ hardly help it"), glass x1.25 ("or it's an uncontrollable rocket").
 bonanzadisk`, `--selfcheck` section `boost` (22 items, six model red arms
 red), `bp_host` (twelve scenes equal, seven red arms red). **Not run**: soak
 rows, `test-full`, a MartyPC look (the art did not change).
+
+## 2026-11-17 (SWITCHES, KEYS, GATES and the DRAWBRIDGE: one family)
+
+The props plan's P6 and P7 built together as ONE family (the round fixed its
+ID, 13, its kinds, 72 on, and SPEC.md 128.41 beforehand); branch `bb-gate`.
+
+- **One family, not two.** A plate, a key, a gate and a bridge all read or
+  write one thing - whether a switch has been thrown - and all draw the same
+  thing, the switch's mark. Two families would each need the other's state.
+- **Channels, not per-element bits.** The plan offered the pickups' COLLECTED
+  bit for keys. But a gate does not care which key opened it; it cares about
+  its CHANNEL. So the state is four bits of the family's slot, a channel each,
+  and no element has a state bit at all: a key's pose is "its channel is
+  shut", a plate's "its channel is open". The slot is zeroed by a play's start
+  and kept by a respawn - which is exactly LATCHING for the attempt, for free.
+- **Latching, and the question it removes.** A momentary plate is useless
+  with one ball (you cannot stand on it and walk through its gate). With
+  latching, a gate never closes during an attempt, so "a gate closing on the
+  ball" has no case to handle; the tool refuses a gate or bridge on the
+  start's cell, the one place a play could begin inside one. Timing lives in
+  the drawbridge instead.
+- **The bridge coming down over a falling ball.** The one real hazard: a
+  floor appearing round a ball that has dropped below the deck would lift it
+  back up (the engine sees a floor above the ball's feet). The CELL hook keeps
+  the window's centre a void while the ball's z is under the deck. The
+  `under` scene holds it, and its red arm `lift` was watched teleporting the
+  ball onto the deck (the unicorn: "the ball" parts at step 253).
+- **Absolute writes.** The incremental refill keeps six of the nine window
+  cells, already rewritten. Glass's crack guards its subtract against that; a
+  bridge goes both ways (void and back), so it writes both forms whole from
+  its record - the deck and the grid's +2 byte live in the record for that.
+  The unicorn half compares the guest's window with the model's at every
+  step, which is what would catch a stale kept cell.
+- **Pairing on a 1bpp card.** Magenta and cyan are one grey on the Hercules
+  and CGA, so colour cannot say which plate opens which gate. Every element of
+  a channel carries the channel's GLYPH (ring, plus, box, cross) black on a
+  7 x 7 white plaque; the previews on both cards read cleanly. The channel's
+  ink stays as a second cue for VGA-era eyes.
+- **The bridge's lane.** First drawn as the whole top black (the crack's
+  `wide` 4-block lane): a 2 x 3 bridge's lanes grouped and one cell's change
+  marked seven group lanes, over the window's six (128.32.7). The crack's
+  2 x 2 band instead - each bridge cell its own lane, none shared - and a timed
+  rectangle's cells a step apart (seeds S, S + 1, ...), so the timed lanes turn
+  one a step, the popspikes' rule. It reads as the bridge folding cell by cell.
+- **Scenes that steer.** The model's scenes steer to waypoints one axis at a
+  time, braking into each turn (`gt_keys`); the first version overshot every
+  corner and drove off the corridors' ends. Each scene has a control: the same
+  route from a tile that presses nothing (the gates stop it, the bridge drops
+  it) or at the wrong time (the timed bridge goes up under it).
+- **Measured.** The part is 515 bytes (33 paragraphs of the resident bundle,
+  +528 bytes of RAM every play pays), the image +1 (`BZ_FTAB`), bss +0; every
+  shipped course part, demo, the pathway and the title byte for byte as
+  before. The guest equal to the model in all 27 unicorn scenes first time; the
+  five unicorn red arms and three model arms each went red (`gtwall` only once
+  its patch took both of the WALL's writes: with the OR alone the cell became
+  a VOID and parted at "the window", not "the ball" the arm was waiting for).
+- **Not measured:** the per-step cost (PREDICTED in 128.41.9: the final pass's
+  rows on a `BZGATE=1` tree).
+- **LOOKED AT** once on MartyPC (the `BZGATE=1` tree, `build/gate`, CGA and
+  Hercules; the ball POKED onto each switch through `bz_pokd`, as the phys
+  harness does, rather than steered by held keys): at the start the ring
+  grilles shut across the corridor, the plus grilles across the lane, the key
+  floating in its nook, the box bridge's cells black with their plaques; a
+  ball rolled east stopped at the shut ring gates. The ring plate pressed
+  (`bz_fsl` 1, its plaque inverted), the plus key taken and the box plate
+  pressed (`bz_fsl` 7): the key gone, both pairs of gates gone, the box bridge
+  down. The timed bridge seen both up and down. Shots in `build/gate/shots/`
+  (kept out of git).
+
+**Tested**: `make` (the fast tier: 44 passed), `make bonanzadisk`, `make
+BUILD=build/gate BZGATE=1 bonanzadisk`; `bbcourse.py --selfcheck --only gate`
+(green, its three model arms red); `bonanza_phys`'s `gt_host` under unicorn
+(27 scenes equal at every step; red arms `gtwall`, `gtmark`, `gtstep`,
+`gtlift`, `gtup` red); one MartyPC look on each card. **Not run**: soak rows,
+`test-full`, the per-step cost.
