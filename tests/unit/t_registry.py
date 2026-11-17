@@ -48,7 +48,7 @@ UNREGISTERED = {
                          "imports and runs it - BONANZA's split cells under unicorn (SPEC.md 128.24, D3); "
                          "its red arms by hand, --reds",
     "bonanza_dfield.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) "
-                         "imports and runs it - BONANZA's FIELD cells under unicorn (SPEC.md 128.27, C3); "
+                         "imports and runs it - BONANZA's FIELD cells under unicorn (SPEC.md 128.28, C3); "
                          "its red arms by hand, --reds",
     "modkeep.py": "run by the `modcache` row (tests/modcache.py imports and "
                   "runs it): every on-demand module kept in RAM after its "

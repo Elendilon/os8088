@@ -11,7 +11,7 @@ bz_face:
     jc .out
     cmp byte [bz_page], 0
     jne .res
-    xor ax, ax                  ; MAIN: lines 0 - 12, each by its builder
+    xor ax, ax                  ; MAIN: lines 0 - 6, each by its builder
 .main:
     push ax
     call bz_fline
@@ -97,7 +97,7 @@ bz_fclip:
 .out:
     ret
 
-; MAIN's line AL (0 - 12) drawn at its place.  Preserves nothing.
+; MAIN's line AL (0 - 6) drawn at its place.  Preserves nothing.
 bz_fline:
     xor ah, ah
     mov bx, ax
@@ -107,9 +107,8 @@ bz_fline:
     shl bx, 1
     jmp [cs:bz_ftab + bx]
 bz_ftab:    dw bz_ltour, bz_l1, bz_l2, bz_l3, bz_l4, bz_l5, bz_l6
-            dw bz_sc, bz_sc, bz_sc, bz_sc, bz_sc, bz_sc
-%if ($ - bz_ftab) / 2 != BZ_NLINE || BZ_NLINE != 7 + BZ_NTOUR
- %error "MAIN is the tour's line, six more and a scorecard line a tour course (SPEC.md 128.14.3.2, 128.16.8)"
+%if ($ - bz_ftab) / 2 != BZ_NLINE
+ %error "MAIN is the tour's line and six more - no scorecard, whatever the tour (SPEC.md 128.26.8)"
 %endif
 
 ; MAIN's lines in the 0FFh-ended list at SI, redrawn outside a paint (the clip
@@ -372,67 +371,9 @@ bz_l6:
 .l:
     jmp bz_line
 
-; lines 7 - 12: THE SCORECARD, tour course K = line - 6: `K NAME  <time>
-; f<falls>  lim <l>  best <b>` (SPEC.md 128.14.3.1 - 128.14.3.3, 128.18.3): the
-; tour's time (`-` none), its falls, the time limit, BONANZA.DAT's best.
-; The NAME, not the title: the title's 24 cells and the rest are 61.
-bz_sc:
-    mov ax, [bz_fy]
-    mov cl, BZ_LH
-    div cl
-    sub al, 6                   ; K, 1 - 6
-    xor ah, ah
-    mov si, ax
-    shl si, 1                   ; SI = 2K
-    call bz_lbeg
-    push ax
-    add al, '0'
-    call bz_lch
-    mov cx, bz_lbuf + BZ_SC_NAME
-    call bz_lto
-    pop ax
-    push si
-    call bz_lname
-    pop si
-    mov cx, bz_lbuf + BZ_SC_TIME
-    call bz_lto
-    mov ax, [bz_ttime - 2 + si] ; steps, 0 none
-    or ax, ax
-    jnz .t
-    mov al, '-'
-    call bz_lch
-    jmp short .par
-.t:
-    call bz_ltimew              ; (wave 7: no star - a finish is always inside
-    mov cx, bz_lbuf + BZ_SC_FALL ; its limit, 128.18.3)
-    call bz_lto
-    mov al, 'f'
-    call bz_lch
-    mov ax, [bz_tfall - 2 + si]
-    call bz_lnumw
-.par:
-    mov cx, bz_lbuf + BZ_SC_LIM
-    call bz_lto
-    push si
-    mov si, bz_s_lim
-    call bz_lcat
-    pop si
-    mov ax, [cs:bz_clims + si]
-    call bz_lnumz
-    mov cx, bz_lbuf + BZ_SC_BEST
-    call bz_lto
-    mov bx, si                  ; entry K: bz_dat + BZD_ENT + 6K
-    shl si, 1
-    add bx, si
-    mov si, bz_s_best
-    call bz_lcat
-    mov ax, [bz_dat + BZD_ENT + 2 + bx]
-    call bz_lbest
-    jmp bz_line
-
 ; line 0 (BZ_LTOUR; the title's until the PLAYGROUND made the tour six, SPEC.md
 ; 128.16.8 - RESULTS keeps the title there): the tour.  During one `ENTER
-; next: <title>`; stopped `Tour
+; next: <title>`, the tour's next course (BZ_TOUR, SPEC.md 128.26.8); stopped `Tour
 ; stopped`; else `Tour <total>  best <b>` (`-` for none).  A refused replay's
 ; reason takes it (SPEC.md 128.12.8): R is not offered in a tour.
 bz_ltour:
@@ -458,11 +399,11 @@ bz_ltour:
     dec al
     cmp al, BZ_NTOUR
     jae .card
-    inc ax
-    push ax
+    cbw                         ; (AL < BZ_NTOUR: AH = 0)
+    mov bx, ax
     mov si, bz_s_tnext
     call bz_lstr
-    pop ax
+    mov al, [cs:bz_ctour + bx]  ; the tour's course k + 1 (BX = k)
     call bz_ltitle
     jmp bz_line
 .card:
@@ -520,8 +461,8 @@ bz_lmeas:
 .l:
     jmp bz_line
 
-; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s five; BL = 1 when
-; one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
+; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s BZ_NTOUR; BL = 1
+; when one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
 ; Preserves all else.
 bz_ttotal:
     push cx
@@ -800,16 +741,6 @@ bz_lbeg:
     inc di
     ret
 
-; CX = bz_lbuf + a column: spaces to it (none when DI is there or past it)
-bz_lto:
-    cmp di, cx
-    jae .o
-    mov byte [di], ' '
-    inc di
-    jmp bz_lto
-.o:
-    ret
-
 ; AL = a course K: its title (bz_ctitles) or its NAME (bz_cnames) appended.
 ; Clobbers AX, SI.
 bz_ltitle:
@@ -824,22 +755,6 @@ bz_lname:
     add ax, bz_cnames
     xchg ax, si
     jmp bz_lcat
-
-; AX = a best in steps, 0 none (`-`), appended as a time
-bz_lbest:
-    or ax, ax
-    jnz bz_ltimew
-    jmp short bz_ldash
-; AX = a number, 0 none (`-`)
-bz_lnumz:
-    or ax, ax
-    jnz bz_lnumw
-bz_ldash:
-    push ax
-    mov al, '-'
-    call bz_lch
-    pop ax
-    ret
 
 ; AX = a course time in steps: `20:00+` for the clamp (SPEC.md 128.14.3.1),
 ; else as bz_ltime.  Preserves all.
@@ -1038,11 +953,11 @@ bz_fillrect:
 
 
 ; the course tables the face reads, through CS (the package keeps its own
-; bz_cnames and bz_clims for its own code: a few bytes a course)
+; bz_cnames and bz_ctour for its own code: a few bytes a course)
 bz_ctitles: BZ_CRS_TITLES
 bz_cnames:  BZ_CRS_NAMES
 bz_cncks:   BZ_CRS_NCKS
-bz_clims:   BZ_CRS_LIMS
+bz_ctour:   BZ_TOUR             ; the tour's courses, a byte each (SPEC.md 128.26.8)
 
 ; the face's strings: BZS measures each (<label>_n), for BZ_FIT below
 %macro BZS 2
@@ -1098,8 +1013,6 @@ BZS bz_s_ecup,  'cup'
 BZS bz_s_etime, 'TIME'
 BZS bz_s_falls, ' falls '
 BZS bz_s_flags, ' flags '
-BZS bz_s_lim,   'lim '
-BZS bz_s_best,  'best '
 BZS bz_s_tnext, 'ENTER next: '
 BZS bz_s_tstop, 'Tour stopped'
 BZS bz_s_tour,  'Tour '
@@ -1173,10 +1086,6 @@ BZ_FIT 6m, 1 + bz_s_mhint_n
 BZ_FIT 6f, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + 1 + 12
 BZ_FIT 6l, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + bz_s_estop_n + bz_s_falls_n + 4 + bz_s_flags_n + 3
 BZ_FIT 6t, 1 + BZ_CRS_NAMEW + 1 + BZ_TIMEW + bz_s_secs_n + bz_s_etime_n + bz_s_falls_n + 4 + bz_s_flags_n + 3
-BZ_FIT 7, BZ_SC_BEST + bz_s_best_n + BZ_TIMEW
-%if BZ_SC_NAME + BZ_CRS_NAMEW >= BZ_SC_TIME || BZ_SC_TIME + BZ_TIMEW + 1 >= BZ_SC_FALL || BZ_SC_FALL + 5 >= BZ_SC_LIM || BZ_SC_LIM + bz_s_lim_n + BZ_CRS_LIMW >= BZ_SC_BEST
- %error "the scorecard's fields overrun their columns (bz_sc)"
-%endif
 BZ_FIT 12, 1 + bz_s_tnext_n + BZ_CRS_TITLEW
 BZ_FIT 12t, 1 + bz_s_tour_n + BZ_TIMEW + bz_s_best2_n + BZ_TIMEW
 BZ_FIT 12e, 1 + bz_s_err3_n

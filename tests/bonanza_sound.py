@@ -125,9 +125,10 @@ def parts(art=None):
     art = art or R.at("build/bonanza-art")
     snd = open(os.path.join(art, "BZSND.BIN"), "rb").read()
     songs = [open(os.path.join(art, "BZM%d.BIN" % i), "rb").read() for i in range(len(BM.SONGS))]
-    ncrs = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(),
-                         re.M).group(1))
-    return snd, songs, 3 + ncrs                 # ... and BZ_P_SND's row
+    inc = open(os.path.join(art, "bzcourse.inc")).read()
+    ncrs = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", inc, re.M).group(1))
+    pcrs = int(re.search(r"^BZ_P_CRS\s+equ\s+(\d+)", inc, re.M).group(1))   # (0 since SPEC.md 128.25.5.2: the
+    return snd, songs, pcrs + ncrs              # ... and BZ_P_SND's row       # balls ride the bundle; 3 before)
 
 
 def stop(g, label="bzs_tp", guest=10):

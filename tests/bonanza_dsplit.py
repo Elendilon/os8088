@@ -147,6 +147,8 @@ def start(binp, sym, c, mat):
     g = Guest(binp, sym, c.cga)
     g.w("bz_cseg", PS, 2)
     g.call("bz_crshdr")
+    p = BB.Physics(c, play=True, mat=mat)
+    fam_load(g, p)
     g.w("bz_mode", 0)
     g.w("bz_mat", mat)
     g.w("bz_crs", 0)
@@ -158,6 +160,26 @@ def start(binp, sym, c, mat):
     p = BB.Physics(c, play=True, mat=mat)
     p.tsec = 0
     return g, p
+
+
+FS = 0x6000                                     # story 9.8: the family parts, one a 100h paragraphs from here
+
+
+def fam_load(g, p):
+    """story 9.8 (SPEC.md 128.25.20): the course's FAMILY PARTS (the build's bzf-<name>.bin) in memory and
+    bz_frec / bz_fhk / bz_fnf as bz_ffetch leaves them (its own fetch is bonanza_phys's unicorn half's to
+    prove): the windmill's doorway and the tube are the ROTOR and TUBE families' code now"""
+    fhk, rec = 0, bytearray()
+    for j, (fid, fv) in enumerate(p.grid.fams):
+        f = BB.FAM_BY_ID[fid]
+        seg = FS + 0x100 * j
+        g.mu.mem_write(seg * 16, open(R.at("build/bzf-%s.bin" % f["name"]), "rb").read())
+        rec += struct.pack("<HHBB", seg, seg, fid, fv)
+        fhk |= f["hooks"]
+    if rec:
+        g.mu.mem_write(CS * 16 + g.sym["bz_frec"], bytes(rec))
+    g.w("bz_fhk", fhk)
+    g.w("bz_fnf", len(p.grid.fams))
 
 
 def gstate(g):
@@ -265,9 +287,15 @@ def scripted():
 
 
 def courses():
-    return {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
-            for k, t in (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS),
-                         ("edge", EDGE), ("mills", mills()))}
+    """the six test courses, compiled (independent of each other: a core each, BB.par_map; the first refusal
+    in this order raised)"""
+    kt = (("split", BB._SPLIT), ("rail", BB._RAIL), ("notch", NOTCH), ("steps", STEPS), ("edge", EDGE),
+          ("mills", mills()))
+    got = BB.par_map(lambda kt_: BB.compile_course(kt_[1], "<%s>" % kt_[0].upper(), _hack={"no_finish": True}), kt)
+    for _c, e in got:
+        if e is not None:
+            raise e
+    return {k: c for (k, _t), (c, _e) in zip(kt, got)}
 
 
 def cells_check(binp, sym, cs):

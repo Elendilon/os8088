@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA's FIELD CELLS in the guest (SPEC.md 128.27, wave C3): the package's
+"""BONANZA's FIELD CELLS in the guest (SPEC.md 128.28, wave C3): the package's
 own routines under unicorn against tools/bbcourse.py's model, on courses with
 chutes and pits - the host half of bonanzaphys's field leg.  It is
 tests/bonanza_dsplit.py's method, and borrows its harness (Guest, start, poke,
@@ -150,7 +150,7 @@ def fuzz(binp, sym, cs, n, seed):
 
 
 def hostile(binp, sym, c):
-    """128.27.2's bound: one FIELD cell's shape past F, one's +1 bit 7 set -> OPEN, nothing read or written
+    """128.28.2's bound: one FIELD cell's shape past F, one's +1 bit 7 set -> OPEN, nothing read or written
     outside the part"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
     st = bytearray(c.stored4)
@@ -185,17 +185,17 @@ def hostile(binp, sym, c):
 
 
 REDS = {
-    # 128.27.5.3: no lift - a FIELD centre's plane neighbour blocks by the start z alone
+    # 128.28.5.3: no lift - a FIELD centre's plane neighbour blocks by the start z alone
     "nolift": [("bzphys.inc", "    cmp bl, BZ_KFIELD\n    je .lift\n", "    cmp bl, BZ_KFIELD  ; RED nolift\n")],
-    # 128.27.5.3: field to field blocks
+    # 128.28.5.3: field to field blocks
     "ffblock": [("bzphys.inc", "    cmp bl, BZ_KFIELD\n    je .no\n.fpl:",
                  "    cmp bl, BZ_KFIELD\n    je .yes  ; RED ffblock\n.fpl:")],
-    # 128.27.2: a symmetry's stride swapped (DU for DV)
+    # 128.28.2: a symmetry's stride swapped (DU for DV)
     "symswap": [("bzphys.inc", "    add di, [bz_fsymt + bx + 2]\n", "    add di, [bz_fsymt + bx + 4]  ; RED symswap\n")],
-    # 128.27.2: CELLS reads a FIELD edge neighbour as VOID
-    "cellfield": [("bonanza.asm", "    cmp ah, BZ_KFIELD           ; SPEC.md 128.27.2: a FIELD neighbour is not VOID\n"
+    # 128.28.2: CELLS reads a FIELD edge neighbour as VOID
+    "cellfield": [("bonanza.asm", "    cmp ah, BZ_KFIELD           ; SPEC.md 128.28.2: a FIELD neighbour is not VOID\n"
                    "    jne .vs2\n", "    jmp .vs2  ; RED cellfield\n")],
-    # 128.27.2: the hostile bound dropped
+    # 128.28.2: the hostile bound dropped
     "nofbound": [("bonanza.asm", "    cmp ax, [bz_ffe]\n    ja .co\n", "    cmp ax, [bz_ffe]  ; RED nofbound\n")],
 }
 

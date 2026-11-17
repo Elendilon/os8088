@@ -22,6 +22,8 @@ music  fairway                              # (8b.10 gives the pathway its own)
 rail   crystal                              # the route material (SPEC.md 128.22.8)
 view   0 340                                # page 0's CGA window, centred at projection (0, 340)
 pages  2
+float  rect 0 0 64 64                       # the whole map FLOATS (the owner, 2026-11-16): crystal islands
+                                            # with short icicle faces are the pathway's look (SPEC.md 128.27.2)
 
 # pad N COURSE WX WY
 pad 0 FIRST  22 26

@@ -93,10 +93,7 @@ way 20 30
 # AUTHOR demo tours every rung (27 s), past the tool's 15 s from the autopilot's route
 limit 40
 # The design time (CD3); the course budget reads it (SPEC.md 128.15.8).
-# SPEC.md 128.27 (C4): 60, not 30 - the shaped-floor section packs it to about 13.9KB, over a 30 s
-# course's 9,412-byte cap; the owner has ruled that per-second budget wrong (128.15.8), and the branch
-# reworking it decides this course's figure.  `target` moves the budget alone (nothing in the part)
-target 60
+target 30
 
 # the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
@@ -113,6 +110,10 @@ floor box 15 17 59 67 flat 3
 floor box 15 17 67 69 flat 2.5
 # the platform: 224 x 96 px, its corners cut two cells deep along cell edges
 floor box 9 23 69 81 chamfer 2 flat 2.5
+# ...and it FLOATS (SPEC.md 128.27.2): a dead end out over the void, its straight edges hanging 3 units
+# (today's faces) where every other face over the void reaches the course's ground, the basin's floor less
+# 3 units - the tour's one `float` (the pathway floats whole), so the statement is exercised and previewed
+float box 9 23 69 81 chamfer 2
 # the rails, 16 px each, 1.5 units over the lane beside them; the funnel s 49 .. 55 is open both sides
 wall  box 13 15 55 57 flat 5.5
 wall  box 13 15 57 59 ramp s 57 59 5.5 4.5
@@ -125,7 +126,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass
+uses probe glass pickups
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -145,15 +146,21 @@ prop glass 7 27
 prop glass 6 27
 pad steel 4 25
 
-# SPEC.md 128.27 (wave C4): the SHAPED-FLOOR SECTION, behind the step ladder, off every route: a one-tile
-# corridor between the second and third rungs (one tile of void clear of each) onto a WALKWAY at the apron's
-# height, and off it, over the void, two chutes of FIELD cells: a 2-WIDE one turning twice - up its first
-# leg, round a radial corner, along a second leg that CLIMBS a unit to a raised corner, round it and back
-# down the third to its tapered end - which, taken with the turn held, carries a ball round at any speed;
-# and a 1-WIDE one, 5 px deep, turning twice, tighter: too fast and you leave it over a lip and fall.  The
-# PIT is not here: with it the part is over the 65,024 bytes its RECB 8 layout may be (SPEC.md 128.27.8;
-# this section leaves 460 of them)
-floor rect  16  9 29 10  flat 4
-floor rect  21 10 22 14  flat 4
-chute 2 round depth 10 way 18 9 4 way 18 5 way 24 5 6 way 24 9 4
-chute 1 round depth 5 way 26 8 4 way 26 4 way 28 4 way 28 8
+# wave 9 (SPEC.md 128.25.9, 128.25.19, moved here at integration: glass's section holds FF's left edge): the
+# PICKUPS YARD, left of the mat at the apron's level - an
+# hourglass, a speed and a jump - joined to the apron's left end by a row above the mat and a row below
+# it (wy 14 and 18; wy 19 - 22 stay void, so the yard is no way round the gap ladder's 1-tile notch and
+# no step towards the glass section's far platform), and behind it the RIDGE, 2 units up, the step
+# ladder's "nobody's" height: over a Hop (5.7 px and the 4 px climb) and over rubber's boost (9.3 px);
+# the jump's own Hop (13.8 px) climbs it, and a jump with rubber's boost STACKED on its contact (18.0
+# px) clears it with room.  Nothing is up there but the view, and it is no trap: its front edge is open,
+# so a ball rolls off it back into the yard.  Every timed pickup is short (3 s each), so their reach
+# regions stay off the 2-unit rung (wx 31).  The ridge is 3 tiles wide with FOUR of void between it
+# and the 1.5-unit rung (wx 6 - 9), so no ball reaches it from that ledge
+floor rect   3 13  7 19  flat 4
+floor rect   7 14 10 15  flat 4
+floor rect   7 18 10 19  flat 4
+floor rect   3  8  6 13  flat 6
+prop hourglass 3 18
+prop speed     5 14 for 3
+prop jump      6 17 for 3

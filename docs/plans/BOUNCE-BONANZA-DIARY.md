@@ -2950,9 +2950,202 @@ merge cut a row's second leg. And the attribution of a red is a run at the
 base, not an argument: `bonanzapath`'s red was already there, and
 `bonanzaring`'s MILL coverage was not.
 
+## 2026-11-16 (grounded faces: the courses stop floating)
+
+*SPEC.md 128.27; the plan's story 9.10.* The owner looked at the courses and
+asked why everything floated. Every face over the void hung three units
+(24 px, the tool's `FACE8`) and stopped, so a terrace six units up and a
+field at the bottom read the same: thin slabs in the dark. The question was
+what deeper faces would cost, since a face is picture, picture is blocks, and
+blocks are bytes on a disk that was already being counted to the byte.
+
+**Priced first, on MOON, MILL and PEAK** (a scratch hook in `draw_ops`, each
+variant compiled whole; LZ4 bytes of the stored part against today's):
+
+| variant | the face over the void hangs | MOON | MILL | PEAK | picture lines |
+|---|---|---|---|---|---|
+| today | 3 units | 10,157 | 9,406 | 12,552 | - |
+| fix9 | 9 units, everywhere | +233 | +224 | +74 | +16 each |
+| near3 | to the lowest floor within 3 tiles, less 3 units | +107 | +143 | +1 | 0 |
+| **ground3** | **to ONE plane a course: its lowest floor less 3 units** | **+47** | **+102** | **+78** | PEAK +56 |
+| fade3_2_2 | 3 units solid, then 2 at half and 2 at a quarter dither | +667 | +384 | +494 | 0 |
+
+The surprise was that the deepest look was among the cheapest: a column's
+interior repeats, and the block pool shares it, so a taller face is often
+fewer blocks (`FIRST`, `TRIAL` and `MOON` came out SMALLER in RAM). The
+dithered fade, which looked like the gentle option, was the most expensive by
+far - every dither row a block of its own.
+
+**The owner chose ground3**, with three riders: floating stays possible but
+only on purpose; there is no per-course opt-out; and the course budget, not
+the look, is what gives. MILL at 9,508 LZ4 was 96 bytes over its 1.5 x line
+of 9,412, and the owner's words settled it: "we wanted to hit 'seconds per
+course for one 360k disk for 20 courses' but it is very obvious that is not
+going to happen now. So that limit is the thing wrong; we'll end up with less
+courses, or two disks." The 1.5 x refusal became a reported figure; the
+65,024-byte part and the occluder bounds stayed refusals.
+
+**Decisions.**
+- `float <shape>` is a region statement in the grain of `surface`: whole
+  cells (a cell's faces float together, so `half` is refused), applied after
+  every room and hole, refused when it floats nothing. The PLAYGROUND's
+  chamfered platform floats - a dead end out over the void - which also kept
+  its picture from growing 40 lines.
+- The ground is one plane for the whole course, counted over the secret
+  routes and glass tiles too, so a reveal draws to the same floor.
+- The kill height did not move: it was always a separate "3 units" of its
+  own (`_near_low - 6` half units), and the physics, the grid and
+  `BZ_PHYSV` are untouched. The finish-sequence fall drawing over a deep face
+  is accepted.
+
+**Observed.**
+- Every grid section decoded byte-identical, but for five PLAYGROUND cells
+  whose `OCCG` flag came on: the brake strip's column now really stands in
+  front of the basin's back corner, so a ball there can be hidden - the
+  picture changed what can occlude, and the flag followed. Not physics.
+- Every identity moved (the identity covers the picture), so the three
+  authored demos were written again with `bbcourse.py author`. Their runs
+  came out identical; only the `ident` lines changed, which is the replay's
+  own proof that nothing physical moved. PEAK's demo had been the last one
+  shipping RE-STAMPED from its pre-clock course; it now carries its own
+  identity and the re-stamp has nobody left to serve.
+- Wave 5b's cross-commit check (the old tool run from git on today's texts)
+  still holds byte for byte with the ground rule switched off - the
+  cleanest evidence that the rule touches the faces and nothing else.
+- The tour's six courses: +266 bytes LZ4, +110 LZB; PEAK's picture +56 lines.
+
+**Tested:** host only - `make`, the bonanza disk, `bbcourse.py --selfcheck`
+with its new item 14 and the red arms (each broken on purpose, each seen
+red), previews on both cards. The emulator rows are the final pass's.
+
+### Wave 9: the recipe corrected, and the checks made fast (story 9.7)
+
+**What the recipe missed.** SPEC.md 128.25.6.8 was written before any family
+existed, as six steps. GLASS took it first, PICKUPS second, and the crack
+bug a third time; story 9.7 rewrote it as eight. The new steps are the ones
+nobody thought of until a family needed them:
+- **the reach** - a family that changes where a ball can go needs a pass
+  after the tool's reach, or the compiler proves a course against a ball
+  that cannot do what the family lets it;
+- **the marks** - a hook that changes a tile's pose has to WAKE the walk,
+  not only mark the lane. The owner saw what that costs: steel sank through
+  a cracked tile with no hole ever drawn, because a still camera skipped the
+  walk that would have drawn it. Now there is one resident door,
+  `bz_fmark`, and the unicorn half of the physics check fails any step that
+  moves a pose without it.
+
+Smaller corrections:
+- the family ID is the table's order, not a choice;
+- physics changes go in working values, never the shared material table;
+- what a part cannot do itself (a cue every frame) is resident bytes, priced
+  as such.
+
+**A layout change can disarm a test.** Moving the pickups yard on
+PLAYGROUND (and then grounding its faces) left the camera's hysteresis
+control - `camhyst` in the ring check, `nohyst` in the self-check - with a
+scenario where even a camera with no hysteresis never reverses. The camera
+was fine; the test had stopped being able to fail. It was found because the
+whole chain ran at a merge, and is now a line in the recipe's proofs step.
+
+**The checks.** The owner: *"when every action invokes another action that
+takes this long ... it slows everything to a crawl."* Measured first:
+- 69% of the self-check was course compiles, and wave 9's own alignment
+  search was 1,287 of its 1,896;
+- the ring and physics checks spent 72 - 94% compiling the shipped courses
+  again.
+
+A compile cache keyed on everything a compile reads, forked sections a core
+each, and one shared reach for the eight alignment probes took the chain
+from **23 minutes to 5.5**. Every output matched line for line, and the built
+art and package were byte-identical. Nothing that ships is built from the
+cache. docs/TESTING.md now says which checks each kind of change owes: a
+guest-only change about 75 s, a merge of verified branches under a minute.
+
+### Wave 9: the final pass (story 9.9)
+
+**What one pass found that no wave did.** The BONANZA rows ran once, scoped,
+in the background: 18 rows in 32 minutes. Fourteen passed. Each of the four
+failures was a different kind of thing:
+- **A real bug on kern_mega.** The family lookup adds a segment distance to
+  the part's base. In real mode that distance is 0; on kern_mega it is the
+  selector pair's -8 (FFF8h), so the sum always carried. The leftover carry
+  read as "not found", and every course with a resident family - MILL,
+  MOON, SUMMIT - silently refused to start. No MartyPC row could see it,
+  and no wave had run families on kern_mega. One `clc`, one byte.
+- **A test that had been wrong since 9.4.** The ring's reference still read
+  the ball files raw, but since the ball generator they ship compressed. So
+  its expected frame drew every resting ball as a black hole. The glass leg
+  is the row's first check, which is why it showed now.
+- **A test disarmed by a layout change.** The camera hysteresis control's
+  PLAYGROUND scenario no longer reversed even without hysteresis. It was
+  re-anchored to a column at step 1028, now on both cards (the
+  self-check's version used to require only the CGA).
+- **A registry with no lines for wave 9's claims.** Three of the five claims
+  were older than the wave. The honest verdict on the arena is debt: it is
+  pinned for as long as the window is open.
+
+The four re-run green. `test-full` failed only `guidelock-full`, on
+WireArena's undescribed package - older than this wave and outside it - and
+`budget-check` was under on every kernel.
+
+**Tested:** the scoped soak and its re-run (MartyPC, 86Box for kern_mega),
+`test-full`, `budget-check`, and the host checks at every merge. **Not
+tested:** the owner's play of PLAYGROUND's new sections, and the pickups
+yard in its new place on real glass.
+
+## 2026-11-17 (the tour and the face stop counting the courses)
+
+**The story.** BONANZA is about to go from six tour courses to about
+twenty, and a seventh would not even have assembled. Two things tied the
+face to the course count. The tour was every course but BENCH, and MAIN,
+the old text face, gave each tour course a scorecard line. Six courses
+made thirteen lines, exactly what a CGA window holds, and `bzface.inc`
+refused to build unless the line count was seven plus the tour. Since the
+window became pictures and a Play Game button (SPEC.md 128.26), MAIN and
+the tour only answer while a test row sets `bz_dev`. They are
+instruments. The owner: *"1 and 2 seem good; those are both knob/test
+only now"*: drop the scorecard, and stop making every course a tour
+course.
+
+**What was done (SPEC.md 128.26.8).**
+- MAIN is seven lines: the tour line, then the six it always had. The
+  scorecard builder, its columns, its strings and its fit check went from
+  the shell part. RESULTS still uses all thirteen lines.
+- The tour is a named list in the course tool, `TOUR`. The tool turns the
+  names into course numbers, refuses a bad list, and writes `BZ_TOUR` and
+  `BZ_NTOUR` beside `BZ_CRS_TOURX`. Its content is the same six courses,
+  so the save file's tour identity is unchanged (B0E5h before and after).
+- `[bz_tour]` still counts the tour's steps. Two places used the step as
+  the course number: launching the next course and the `ENTER next:` line.
+  Both now look the course up in a small table. The package's table has
+  BENCH at byte 0, so kern_small's refused `G` asks for the same course
+  as before.
+
+**Measured.** The package image went from 47,097 to 47,110 bytes (+13:
+the table and the lookup), with bss unchanged. The shell part shrank
+from 12,259 to 12,072 bytes (-187), and `BONANZA.O88` from 117,724 to
+117,612.
+
+**The seventh course.** I copied FIRST as `SEVEN`, with its pit moved one
+tile so it has its own identity, and passed eight courses to the
+Makefile's `BZ_COURSES` in a private tree. The whole package built: 34
+part rows instead of 32 (a course part and its shipped demo). With SEVEN
+added to the tour too, the package and the shell part still assemble.
+Before this change, `bzface.inc`'s assertion stopped both.
+`bbcourse.py --selfcheck` passes on the eight-course list. `--sizes`
+accepts it too, but its BONANZA.O88 figure fails the same way on the
+shipped list. That figure packs only the balls, courses, sound, songs and
+demos against `build/bonanza.bin`. It leaves out the shell, the pathway,
+the title and the family rows, which are 32 parts against its 26. That is
+older than this change, not a course cap.
+
+**Tested:** host only - `make`, `bbcourse.py --selfcheck`, `checkdocs`,
+the scratch builds. **Not run:** the emulator rows that walk the tour
+(`bonanzagame`, `bonanzaexit`), which were updated to read `BZ_TOUR`.
+
 ## 2026-11-16 (shaped floors, C0: chutes and the pit as one table-driven cell)
 
-*Branch `bounce-shaped`; the contract SPEC.md 128.27, the plan
+*Branch `bounce-shaped`; the contract SPEC.md 128.28, the plan
 [BOUNCE-BONANZA-SHAPED.md](BOUNCE-BONANZA-SHAPED.md).* The owner had
 reserved kind 7 for a CHANNEL (128.24.13) and asked next for a pit "made of
 curved sides that you have to enter with enough speed to make it around and
@@ -3034,3 +3227,23 @@ a light from the upper left, in the 4 colours, world-fixed dithers.
 8.5k in the 1-wide, against 8.9k coasting on the apron - about +0.4 - 0.9k a
 step on the mean, against 2.6 - 3.5k predicted; nothing to optimise.
 BONANZA.O88 +680 bytes resident, +36 bss.
+
+## 2026-11-17 (shaped floors, C5: grounded faces merged in, and a knob build to play)
+
+*SPEC.md 128.28 (renumbered from 128.27, which bounce-bonanza's GROUNDED FACES took first).* The
+owner asked for "a knob build with various shapes on a course to try ... a course I can easily
+launch". Merging bounce-bonanza first moved three things. A FIELD cell's faces over the void now follow
+the ground rule (and `float`) sample by sample along the profile, as `draw_ops` does for a plane. The
+per-second budget became report-only, so PLAYGROUND's `target` went back to 30. And PLAYGROUND, with
+the pickups yard and the ridge, no longer had room for the C4 chutes: its RECB 8 layout came to 69.7KB
+against 65,024, so the section came off and no shipped course has a FIELD cell now.
+
+**Decisions.** The knob (`BZSHAPES=1`) adds TWO courses, because a course holds 16 shape tables and
+the shapes the owner asked for need 21 - 27 (a climbing bank chute alone takes 7). SHAPE carries the
+2-wide chutes in both profiles and the 1-wide round one; PITS the 1-wide bank chute, a shallow 2-wide
+one and two pits, one round a hole and one a dish. Both are a level plate with the shapes set in, so a
+ball that leaves one lands on SAFE ground beside it. The pathway is the shipped one put through a sed
+script: SHAPE on pad 0, so Play Game then Enter plays it, PITS and FIRST on pads either side of it.
+Getting there took six tries against the pathway's own rules - a pad must sit inside a page's window,
+a route needs room for its gate's lane, and no two routes leaving one pad may share an arrow key - and
+the answer was routes leaving pad 0 straight left and straight right on the screen, both dead ends.

@@ -185,6 +185,13 @@ CRS_MAX = 23                  # BZ_CRS_MAX: the courses a build may have, the wi
                               # table and of BONANZA.DAT's BZS4 (SPEC.md 128.22.5: 80 + 18 x 23 = 494 bytes,
                               # under one sector - 24 would be 512, a whole one, and os88data.inc's
                               # od_write then never takes its one-sector arm); more is refused
+# THE TOUR (SPEC.md 128.26.8, the owner 2026-11-17): a short NAMED list of courses, a TEST FIXTURE the
+# rows drive through G and Enter (bz_dev, 128.26.6) - no longer every course but BENCH.  Course NAMEs (the
+# `course` statement's), played in this order; each must be a course of BZ_COURSES, never BENCH (course 0),
+# none twice.  bzcourse.inc carries it as BZ_NTOUR and BZ_TOUR (a byte a tour course, its K), and
+# BZ_CRS_TOURX (BONANZA.DAT +146) is the XOR of THESE courses' identities.  A course not named here is
+# still a course: N cycles it, the pathway's pads reach it, a free play plays it.
+TOUR = ("FIRST", "TRIAL", "MILL", "MOON", "PEAK", "PLAY")
 KW_MAX = 33                   # CELLS' scratch rows, KW + 2 <= bz_cxcel's 36-byte stride (128.15.6)
 # the course budget (SPEC.md 128.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
@@ -210,7 +217,8 @@ Z_OPEN = -128                 # an OPEN cell's z0
 
 # --- the world (SPEC.md 128.10.2) ---------------------------------------------
 TILE = 16                     # ground units a tile
-FACE8 = 24                    # a face over the void hangs 3 units (24 px)
+FACE8 = 24                    # a FLOATING face over the void hangs 3 units (24 px); every other one hangs to the
+                              # course's ground plane, its lowest floor less FACE8 (SPEC.md 128.27.1)
 BALL_D = BA.D                 # 16
 FOOT_W, FOOT_H = 20, 16       # the footprint the boxes cover (SPEC.md 128.4)
 
@@ -366,11 +374,13 @@ FSLOT = 8                     # BZF_SLOT: a family's slot, bytes
 FST_MAXBITS = 256             # a course's state bits: FSB is a byte (BZ_FSTB <= 32)
 FAM_HDR = 24                  # BZF_HDR: 'BF', ID, FAMV, the stamp, the mask, the kinds, 0, six entries
 H_RESET, H_ENTER, H_CONTACT, H_STEP, H_POSE, H_CELL = 1, 2, 4, 8, 16, 32
-HOOK_NAMES = ("RESET", "ENTER", "CONTACT", "STEP", "POSE", "CELL")
+H_PROP = 64                   # story 9.8 (SPEC.md 128.25.20.2): a prop's physics question, through bz_fone only
+HOOK_NAMES = ("RESET", "ENTER", "CONTACT", "STEP", "POSE", "CELL", "PROP")
+HOME_FETCH, HOME_RESIDENT = "fetch", "resident"   # a family's HOME (SPEC.md 128.25.6.9)
 CL_ATTEMPT, CL_RESPAWN, CL_FLAG = 0, 1, 2      # a family element's RESET CLASS (record +17, 128.25.7.1)
 CLASS_NAMES = ("attempt", "respawn", "flag")
-# Each row: its NAME (the `uses` word and the part's file), its ID (1 - 254: part row BZ_P_FAM + ID - 1,
-# in this order), REV (its rules' revision: a change to a rule that moves no constant bumps it, as
+# Each row: its NAME (the `uses` word and the part's file), its ID (1 - 254, in this order; its part ROW
+# follows its HOME, fam_row below), REV (its rules' revision: a change to a rule that moves no constant bumps it, as
 # PHYS_REV does), the HOOKS it implements, its SLOT's bytes, and its KINDS: each a name (the `prop` word),
 # its kind number, its state BITS an element, its reset CLASS (None: the line states it, `reset ...`),
 # its ART ("pennant": the flag's two poses; None: no lane), its cell FORMS (128.25.7.3: "own" is the
@@ -381,10 +391,18 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 # built after bzcourse.inc, so the ARENA reserve (crs_arena, SPEC.md 128.25.4.2) counts this.  Every
 # family's row is OP_COMP: one plain lazy row would assemble the parts standard's plain-row path, 86
 # resident bytes (os88parts.inc), so a part too small to pack carries zeros until it packs (the probe).
+#
+# Story 9.8 (SPEC.md 128.25.20): today's props as families - each an OWN-LAYOUT kind ("own"): the
+# record keeps its wave-3/4 layout and statement (`tube`, `prop windmill`, `spring`), with no state bits,
+# no reset class and no `prop <kind>` line; the tool and its model keep the kind's own number (PK_TUBE,
+# PK_WINDMILL, PK_SPRING, "of"), in the record too: the family's kind is only the engine's bz_fone key.
+# HOME (SPEC.md 128.25.6.9): "fetch", a course's launch fetches the part, or "resident", fetched once when
+# the package starts and never dropped (outside the 3-a-course limit and the arena reserve).
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
-                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20},
+                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20,
+     "home": HOME_FETCH},
     # GLASS (SPEC.md 128.25.8, 128.25.18): the CRACKED TILE (a byte an element: 0 whole, 1 cracked by one
     # glass impact, 2 - T + 1 COUNTING to its break, FFh broken - a VOID in the window, its kill 3 units under
     # the floor) and the GLASS PATH tile (a bit: REVEALED).  CONSTS fold into its FAMV: CRACK_TS, CRACK_TR,
@@ -394,25 +412,147 @@ FAMILIES = (
      "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
-                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40},
+                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40,
+     "home": HOME_FETCH},
+    {"name": "rotor", "id": 3, "rev": 1, "hooks": H_PROP, "slot": 0,
+     "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_WINDMILL},), "paras": 16,
+     "home": HOME_RESIDENT},
+    {"name": "spring", "id": 4, "rev": 1, "hooks": H_CONTACT, "slot": 0,
+     "kinds": ({"name": "spring", "kind": 24, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_SPRING},), "paras": 20,
+     "home": HOME_RESIDENT},
+    {"name": "tube", "id": 5, "rev": 1, "hooks": H_PROP, "slot": 0,
+     "kinds": ({"name": "tube", "kind": 25, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
+                "states": (0,), "pickup": False, "own": True, "of": PK_TUBE},), "paras": 48,
+     "home": HOME_RESIDENT},
+    # wave 9 (SPEC.md 128.25.9, 128.25.19): PICKUPS - the hourglass (+PU_HGSEC on the limit, once per attempt,
+    # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
+    # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
+    # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `fetch`; kinds 19 - 21
+    {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
+     "consts": "PU",
+     "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},
+               {"name": "speed", "kind": FAM_K0 + 4, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},
+               {"name": "jump", "kind": FAM_K0 + 5, "bits": 1, "cls": CL_RESPAWN, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True}), "paras": 40,
+     "home": HOME_FETCH},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
 FK_CRACK, FK_GLASS = FAM_K0 + 1, FAM_K0 + 2
 CR_WHOLE, CR_IMPACT, CR_BROKEN = 0, 1, 0xFF     # a crack's byte; 2 - T + 1 counting (T + 1 - v steps gone)
+# PICKUPS' constants (SPEC.md 128.25.19): every one in its FAMV (famv's "consts"), so a retune moves the
+# identity of every course that names the family
+PU_HGSEC = 10                 # the hourglass: seconds added to the limit (bz_tsec)
+PU_SACC = 2                   # speed: added to every surface's force and to the air's ACC (bz_wacc)
+PU_SVUP = 64                  # ...and to the cap BZ_VMAXG on both axes (bz_vup): 384 -> 448, 1.75 px a step
+PU_JHOP = 400                 # jump: the Hop for ANY ball (rubber's 252 raised; apex 13.8 px, 18.0 with
+                              # rubber's boost stacked on its contact)
+K_HOURGLASS, K_SPEED, K_JUMP = FAM_K0 + 3, FAM_K0 + 4, FAM_K0 + 5
+PU_OVERWRITE = 1              # record +19 bit 0: taking it ENDS the other timed effect (SPEC.md 128.25.9)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
-FKIND_BY_NAME = dict((k["name"], (f, k)) for f in FAMILIES for k in f["kinds"])
+FKIND_BY_NAME = dict((k["name"], (f, k)) for f in FAMILIES for k in f["kinds"] if not k.get("own"))
 for _k, (_f, _r) in FKIND.items():
-    PK_NAMES[_k] = _r["name"]
+    if not _r.get("own"):
+        PK_NAMES[_k] = _r["name"]
+# story 9.8: an OWN-LAYOUT kind's family by its record's kind (OWN_FAM).  Its record keeps the kind it
+# always had (PK_TUBE, PK_WINDMILL, PK_SPRING): the family kind (22, 24, 25) is only the KEY the engine
+# hands bz_fone (bzcourse.inc's BZ_FK_<NAME>), so no course byte moves but its family list
+OWN_FAM = dict((k["of"], f) for f in FAMILIES for k in f["kinds"] if k.get("own"))
+OWN_KEY = dict((k["of"], k["kind"]) for f in FAMILIES for k in f["kinds"] if k.get("own"))
+
+
+def prop_fam(p):
+    """the family a placed prop belongs to (a family element's, or an own-layout kind's), or None"""
+    return p.get("fam") or OWN_FAM.get(p["kind"])
 assert [f["id"] for f in FAMILIES] == list(range(1, len(FAMILIES) + 1)), "family IDs are 1 - n in order"
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
+assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
+assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
 assert all(k["forms"] in (("own",), ("own", "void")) for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form the reach does not take: own, and (GLASS's crack, 128.25.18) its broken VOID"
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
 assert all(k["bits"] in (1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())
 assert all(0 in k["states"] and all(0 <= v < 1 << k["bits"] for v in k["states"]) for _f, k in FKIND_BY_NAME.values())
+
+# THE RESIDENT BUNDLE (the owner, 2026-11-16; SPEC.md 128.25.6.9): every home-`resident` family's part
+# rides ONE part row, BZFBUN.BIN, fetched once when the package starts (one read, not one a family) and
+# never dropped.  The family part ROWS are the `fetch` families' own, in ID order, from BZ_P_FAM, and
+# then the bundle's, the last (BZ_P_FBUN); BZ_FTAB maps an ID to its row.  Inside the bundle the parts
+# lie back to back, each from a paragraph, each byte for byte its own build but its header's +11 (0 in a
+# part of its own), which holds its PARAGRAPHS there: the step to the next header, so bz_ffetch finds a
+# family by walking the headers for its ID.  A family's home moves between the two by its row's `home`
+# alone: the rows, the table, the bundle and the --part list (`famparts`) all follow FAMILIES.
+FAM_FETCH = tuple(f for f in FAMILIES if f["home"] == HOME_FETCH)
+FAM_RES = tuple(f for f in FAMILIES if f["home"] == HOME_RESIDENT)
+FAM_HDR_PARAS = 11                  # a part's header byte: 0 alone, its paragraphs inside the bundle
+FBUN_FILE = "bzfbun.bin"
+
+
+def fam_row(f):
+    """a family's part row, past BZ_P_FAM: its own (the fetch families', ID order), or the bundle's"""
+    return FAM_FETCH.index(f) if f["home"] == HOME_FETCH else len(FAM_FETCH)
+
+
+def fam_nrows():
+    """the family part rows: one a fetch family, and the bundle's, which every build has: it carries
+    the balls (SPEC.md 128.25.5.2)"""
+    return len(FAM_FETCH) + 1
+
+
+def fam_balls(art):
+    """the three balls' stored BZB3 parts out of art directory ART, back to back (rubber, steel, glass):
+    the RESIDENT BUNDLE's head (SPEC.md 128.25.5.2), each its RAM size, a whole number of paragraphs"""
+    out = b"".join(open(os.path.join(art, n), "rb").read() for n in BA.BALL_FILES)
+    assert [len(open(os.path.join(art, n), "rb").read()) for n in BA.BALL_FILES] == list(BA.B2_SIZE) \
+        and not any(n % 16 for n in BA.B2_SIZE), "the balls' stored parts are not their RAM sizes in paragraphs"
+    return out
+
+
+def fam_bundle(parts, balls):
+    """the RESIDENT BUNDLE's bytes (SPEC.md 128.25.6.9, 128.25.5.2): BALLS (fam_balls: the three balls'
+    BZB3 parts, which the guest generates in place once, at the open), then from BZ_BALB on FAM_RES's
+    parts out of PARTS ({name: the part's own bytes}) in ID order, each padded to a paragraph, its
+    header's +11 its paragraphs.  BALLS None: the layout before 128.25.5.2 (a harness's older tree)"""
+    assert balls is None or len(balls) == sum(BA.B2_SIZE), "the bundle's head is the three balls' RAM forms"
+    out = bytearray(balls or b"")
+    for f in FAM_RES:
+        b = bytearray(parts[f["name"]])
+        assert b[:2] == b"BF" and b[2] == f["id"] and b[FAM_HDR_PARAS] == 0, \
+            "%s: not a family part of this build ('BF', its ID, +11 zero)" % f["name"]
+        n = (len(b) + 15) >> 4
+        assert 0 < n < 256, "%s: %d paragraphs, the bundle's step is a byte" % (f["name"], n)
+        b[FAM_HDR_PARAS] = n
+        out += b + bytes(16 * n - len(b))
+    return bytes(out)
+
+
+def fam_partfiles(d):
+    """the family rows' files under build directory D, in row order (the Makefile's --part list's tail)"""
+    return [os.path.join(d, "bzf-%s.bin" % f["name"]) for f in FAM_FETCH] + [os.path.join(d, FBUN_FILE)]
+
+
+def main_fbundle(argv):
+    """bbcourse.py fbundle DIR [ART]: DIR/bzfbun.bin out of ART's three balls (default DIR/bonanza-art,
+    SPEC.md 128.25.5.2) and DIR/bzf-<name>.bin; bbcourse.py famparts DIR: the --part arguments of the
+    family rows, in row order"""
+    if len(argv) not in (2, 3) or argv[0] not in ("fbundle", "famparts"):
+        raise CourseError("usage: bbcourse.py fbundle|famparts DIR [ART]")
+    d = argv[1]
+    if argv[0] == "famparts":
+        print(" ".join("--part %s" % p for p in fam_partfiles(d)))
+        return 0
+    b = fam_bundle(dict((f["name"], open(os.path.join(d, "bzf-%s.bin" % f["name"]), "rb").read()) for f in FAM_RES),
+                   fam_balls(argv[2] if len(argv) > 2 else os.path.join(d, "bonanza-art")))
+    with open(os.path.join(d, FBUN_FILE), "wb") as fo:
+        fo.write(b)
+    return 0
 
 
 def famv(f):
@@ -422,9 +562,13 @@ def famv(f):
     b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
-                    {None: 0, "pennant": 1, "crack": 2, "glass": 3}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                    {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4}[k["art"]], len(k["forms"]),
+                    int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
-    b += bytes(f.get("consts", ()))             # (GLASS's constants; the probe has none: its FAMV as before)
+    if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
+        b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
+    else:
+        b += bytes(f.get("consts", ()))         # (GLASS's constants; the probe has none: its FAMV as before)
     crc = 0xFFFF
     for x in b:
         crc ^= x << 8
@@ -435,7 +579,14 @@ def famv(f):
 
 
 def is_fam(kind):
+    """a family ELEMENT (128.25.6.4's record: FSB, its class): a family kind that is not own-layout (story
+    9.8's are never seen here - the tool keeps their own numbers)"""
     return kind >= FAM_K0
+
+
+def fam_fetched(fams):
+    """the families of a list a course's launch FETCHES (home `fetch`): the ones the 3-a-course limit counts"""
+    return [f for f in fams if f.get("home", HOME_FETCH) == HOME_FETCH]
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (128.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 128.19.5): the pathway's nodes - an exit's 4 bits
 LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
@@ -524,6 +675,8 @@ LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 128.18.1): the clock's second, steps (1.0070 s)
+PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball DITHER-FLASHED (about 1 s)
+PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
 LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit limit neither
@@ -531,7 +684,7 @@ FALL_S = 8                    # ...plus one fall's allowance, seconds (a constan
 PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
 GF_SPLIT = 16                 # BZG1 +28 bit 4: the course has a SPLIT cell, its pairs in section D (SPEC.md 128.24.5.2)
-GF_FIELD = 32                 # BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F (SPEC.md 128.27.2)
+GF_FIELD = 32                 # BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F (SPEC.md 128.28.2)
 PAIR = 8                      # a split cell's PAIR: half A's four bytes, then half B's
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
 TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
@@ -603,6 +756,7 @@ class Source:
         self.start = None           # ((wx, wy), line)
         self.ways = []              # [((wx, wy), line)]
         self.surfaces = []          # [(surface, frozenset of tiles, line)], after every room
+        self.floats = []            # SPEC.md 128.27.2: [(frozenset of cells, line)], the FLOATING cells
         self.ball = None            # (material, line); rubber when there is none
         self.tubes = []             # wave 3: [dict], in file order (SPEC.md 128.12.3.3)
         self.props = []             # [dict]: windmill, bumper, platform
@@ -634,7 +788,7 @@ class Source:
         self.labels = []            # [dict num col row glyphs ink line]
         self.halves = None          # SPEC.md 128.24.4: the line of the first statement that lays a HALF
         self.uses = []              # wave 9 (SPEC.md 128.25.6.4): [(family row, line)], the families named
-        self.fields = []            # SPEC.md 128.27.3: [dict] chutes and pits, in file order
+        self.fields = []            # SPEC.md 128.28.3: [dict] chutes and pits, in file order
 
 
 def _int(tok, where, what):
@@ -1019,7 +1173,33 @@ def glass_first(tiles, props, start):
 def _pennant(p):
     """a prop drawn as a FLAG (a pole and two poses, furled and flying): a
     checkpoint, or a family kind whose art is "pennant" (wave 9: the PROBE's)"""
-    return p["kind"] == PK_CHECKPOINT or p.get("art") == "pennant"
+    return p["kind"] == PK_CHECKPOINT or p.get("art") in ("pennant", "icon")
+
+
+# wave 9 (SPEC.md 128.25.19): a PICKUP's ICON, its lane's pose 1 (pose 0 the ground: taken, or the hourglass
+# hidden with no limit) - 7 x 8 px over the cell's centre, its foot PU_ICON_UP px above the floor, black
+# outlined; '#' the outline, 'o' the kind's ink
+PU_ICON_UP = 3
+PU_ICONS = {
+    FAM_K0 + 3: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
+    FAM_K0 + 4: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
+    FAM_K0 + 5: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
+}
+PU_INK = {FAM_K0 + 3: WHT, FAM_K0 + 4: CYN, FAM_K0 + 5: MAG}
+
+
+def _icon_pix(p, x0):
+    """a pickup's icon, {(x, y at Y0 = 0): ink}, centred on its cell's centre, PU_ICON_UP px above the floor"""
+    wx, wy = p["at"]
+    cx = 16 * (wx - wy) + x0
+    cy = 8 * (wx + wy) + 8 - p["z4"]
+    rows = PU_ICONS[p["kind"]]
+    out = {}
+    for j, row in enumerate(rows):
+        for i, ch in enumerate(row):
+            if ch != " ":
+                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else PU_INK[p["kind"]]
+    return out
 
 
 def _parse_fprop(toks, where, ln):
@@ -1027,6 +1207,8 @@ def _parse_fprop(toks, where, ln):
     [reset attempt|respawn|flag] - the class only where the kind's row has
     none, and `flag` written but not built"""
     fam, kr = FKIND_BY_NAME[toks[1][1]]
+    if fam.get("consts") == "PU":
+        return _parse_pickup(toks, where, ln, fam, kr)
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -1046,6 +1228,40 @@ def _parse_fprop(toks, where, ln):
                           "128.25.7.1: every element declares how it resets)" % (where, kr["name"]))
     return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
             "cls": cls, "seed": None}
+
+
+def _parse_pickup(toks, where, ln, fam, kr):
+    """a PICKUP (SPEC.md 128.25.9, 128.25.19): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy> [for <S>]
+    [overwrite] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's steps / 4), 5 by
+    default, 1 - 255 of the byte; `overwrite` ends the OTHER timed effect when this one is taken.  The
+    class is the kind's (ATTEMPT the hourglass, RESPAWN the timed two): no `reset`"""
+    if len(toks) < 4:
+        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], "" if kr["kind"] == K_HOURGLASS
+                                                              else " [for <seconds>] [overwrite]"))
+    dur, ow, i = PU_DUR, 0, 4
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if kr["kind"] != K_HOURGLASS and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
+            try:
+                sec = float(toks[i + 1][1])
+            except ValueError:
+                raise CourseError("%s: %s's `for` takes seconds, not %r" % (where, kr["name"], toks[i + 1][1]))
+            dur = int(sec * SEC_STEPS / 4 + 0.5)
+            if not 1 <= dur <= 255:
+                raise CourseError("%s: a %s for %s s: the duration is a byte of steps / 4, 1 - 255 (0.07 - "
+                                  "18.5 s)" % (where, kr["name"], toks[i + 1][1]))
+            i += 2
+        elif kr["kind"] != K_HOURGLASS and t == "overwrite" and not ow:
+            ow, i = PU_OVERWRITE, i + 1
+        elif t == "reset":
+            raise CourseError("%s: a %s's reset class is its family's (%s): it takes no `reset`"
+                              % (where, kr["name"], CLASS_NAMES[kr["cls"]]))
+        else:
+            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (
+                where, kr["name"], "" if kr["kind"] == K_HOURGLASS else " [for <seconds>] [overwrite]",
+                toks[i][1]))
+    return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
+            "cls": kr["cls"], "seed": None, "dur": 0 if kr["kind"] == K_HOURGLASS else dur, "ow": ow}
 
 
 def _pow2(v):
@@ -1181,7 +1397,7 @@ def parse(text, fname="<course>"):
             if src.ball is not None:
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
-        elif st == "chute":                         # SPEC.md 128.27.3: a channel of FIELD cells
+        elif st == "chute":                         # SPEC.md 128.28.3: a channel of FIELD cells
             if len(toks) < 5 or toks[1][1] not in ("1", "2") or toks[2][1] not in F_PROFILES \
                     or toks[3][1] != "depth":
                 raise CourseError("%s: chute takes <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> "
@@ -1206,7 +1422,7 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: a chute's first way gives the lip's height: way <x> <y> <z>" % where)
             src.fields.append({"what": "chute", "wide": int(toks[1][1]), "prof": toks[2][1], "depth": dep,
                                "ways": ways, "line": ln})
-        elif st == "pit":                           # SPEC.md 128.27.3: a bowl of FIELD cells round a hole
+        elif st == "pit":                           # SPEC.md 128.28.3: a bowl of FIELD cells round a hole
             if len(toks) not in (8, 10) or toks[4][1] != "radius" or toks[6][1] != "depth" \
                     or (len(toks) == 10 and toks[8][1] != "hole"):
                 raise CourseError("%s: pit takes <x> <y> <z> radius <r> depth <px> [hole <h>]" % where)
@@ -1222,6 +1438,16 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: a pit's depth is 1 - 60 px, not %d" % (where, dep))
             src.fields.append({"what": "pit", "at": at, "z2": z, "radius": rad, "hole": hole, "depth": dep,
                                "line": ln})
+        elif st == "float":                         # SPEC.md 128.27.2: cells whose faces over the void hang
+            if len(toks) > 1 and toks[1] in (('w', "half"), ('w', "quarter")):   # 3 units, not to the ground
+                raise CourseError("%s: float takes whole cells, never a half or a quarter: a cell's faces "
+                                  "float together (SPEC.md 128.27.2)" % where)
+            if len(toks) < 2:
+                raise CourseError("%s: float takes a shape and nothing else" % where)
+            tiles, _half, i = _shape_h(toks, 1, where, halves=False)
+            if i != len(toks):
+                raise CourseError("%s: float takes a shape and nothing else" % where)
+            src.floats.append((tiles, ln))
         elif st == "hole":
             tiles, half, i = _shape_h(toks, 1, where)
             if i != len(toks):
@@ -1382,9 +1608,10 @@ def parse(text, fname="<course>"):
                 if any(f is FAM_BY_NAME[t[1]] for f, _l in src.uses):
                     raise CourseError("%s: uses: the family %s is named twice" % (where, t[1]))
                 src.uses.append((FAM_BY_NAME[t[1]], ln))
-            if len(src.uses) > FAM_MAX:
-                raise CourseError("%s: uses: a %dth family, over the %d a course may name (SPEC.md 128.25.6.5)"
-                                  % (where, len(src.uses), FAM_MAX))
+            if len(fam_fetched([f for f, _l in src.uses])) > FAM_MAX:
+                raise CourseError("%s: uses: a %dth family to FETCH, over the %d a course may name (SPEC.md "
+                                  "128.25.6.5; a RESIDENT family is not counted, 128.25.6.9)"
+                                  % (where, len(fam_fetched([f for f, _l in src.uses])), FAM_MAX))
         else:
             raise CourseError("%s: unknown statement '%s'" % (where, st))
     if src.pathway is None:                         # wave 8R: the pathway's statements are refused elsewhere
@@ -1445,7 +1672,7 @@ _KIND = {"floor": KIND_FLOOR, "wall": KIND_WALL, "goal": KIND_GOAL}
 # 8 - 15 for 128.10.4.3's other non-planar floors: every kind from 4 up is "a cell whose +0 - +1 point into
 # section D", the kind saying how many records are there and how they are read
 KIND_TB, KIND_LR, KIND_Q = 4, 5, 6
-KIND_FIELD = 7                # SPEC.md 128.27: a FIELD cell (128.24.13 reserved it as the CHANNEL)
+KIND_FIELD = 7                # SPEC.md 128.28: a FIELD cell (128.24.13 reserved it as the CHANNEL)
 SPLIT_KINDS = (KIND_TB, KIND_LR, KIND_Q)
 NREC = {KIND_TB: 2, KIND_LR: 2, KIND_Q: 4}        # the records a split cell's offset names in D
 Q_N, Q_E, Q_S, Q_W = 0, 1, 2, 3
@@ -1535,7 +1762,7 @@ def has_split(tiles):
     return any(isinstance(t, Split) for t in tiles.values())
 
 
-# --- SPEC.md 128.27: the FIELD cell (kind 7) - a 17 x 17 HEIGHTFIELD in section F read through one of the
+# --- SPEC.md 128.28: the FIELD cell (kind 7) - a 17 x 17 HEIGHTFIELD in section F read through one of the
 # square's eight symmetries.  A cell's +1 is the shape (bits 0 - 3) and the symmetry (bits 4 - 6): MU mirrors
 # u (u' = 16 - u), MV mirrors v, then SW swaps; the table index of the world point (u, v) is 17 V + U
 FSYM_MU, FSYM_MV, FSYM_SW = 1, 2, 4
@@ -1546,7 +1773,7 @@ F_PROFILES = ("round", "bank")
 
 
 def fidx(sym, u, v):
-    """SPEC.md 128.27.2: the world point (u, v) of a FIELD cell (0 - 16 each) -> its table index 17 V + U"""
+    """SPEC.md 128.28.2: the world point (u, v) of a FIELD cell (0 - 16 each) -> its table index 17 V + U"""
     if sym & FSYM_MU:
         u = 16 - u
     if sym & FSYM_MV:
@@ -1569,13 +1796,13 @@ def fworld(tab, sym):
 
 
 def fslopes(h, u, v):
-    """SPEC.md 128.27.2's slopes at the integer point (u, v), 0 - 15: forward differences of the world
+    """SPEC.md 128.28.2's slopes at the integer point (u, v), 0 - 15: forward differences of the world
     heights h[v][u] (anything that adds a constant to every point gives the same)"""
     return h[v][u + 1] - h[v][u], h[v + 1][u] - h[v][u]
 
 
 class FieldTile:
-    """SPEC.md 128.27: a FIELD cell's tile - its world heights h[v][u] (0 - 16 each, ABSOLUTE quarter px),
+    """SPEC.md 128.28: a FIELD cell's tile - its world heights h[v][u] (0 - 16 each, ABSOLUTE quarter px),
     its base z0 (the floor of its lowest point / 16, half units), and once build_fields has run its shape
     (an index into the course's tables) and symmetry.  .piece names what laid it (the refusals' and the
     picture's)."""
@@ -1608,7 +1835,7 @@ class FieldTile:
     def corners(self):
         """(top, right, bottom, left) in half units - as a plane's, for the readers that take the lowest
         or the highest: the lowest point for each low corner, the highest for each high, so the range
-        is the cell's whole range (128.27.2's z0 is its floor)"""
+        is the cell's whole range (128.28.2's z0 is its floor)"""
         lo, hi = self.z0, -((-self.hmax) // 16)
         return (lo, hi, hi, lo)
 
@@ -1618,12 +1845,12 @@ def _fround(x):
 
 
 def fprofile(name, c, W, D):
-    """SPEC.md 128.27.4's cross-section: the height above the channel's bottom at distance c from the
+    """SPEC.md 128.28.4's cross-section: the height above the channel's bottom at distance c from the
     crease (ground units, 0 - W), in quarter px, 0 at the crease and D at the lip; a float"""
     c = min(float(W), abs(c))
     c0 = 0.0 if name == "round" else 0.25 * W   # round: curved from the crease; bank: a flat bottom first
     c1 = 0.5 * W                                # ...curved to half the width, then a straight bank at the
-    s = D / (W - (c0 + c1) / 2.0)               # slope s to the lip, which is a crest (128.27.5.4)
+    s = D / (W - (c0 + c1) / 2.0)               # slope s to the lip, which is a crest (128.28.5.4)
     if c <= c0:
         return 0.0
     if c <= c1:
@@ -1632,7 +1859,7 @@ def fprofile(name, c, W, D):
 
 
 def pit_profile(r, R, H, D):
-    """SPEC.md 128.27.4's pit: depth below the lip at distance r (gu) from the centre, R the radius and H
+    """SPEC.md 128.28.4's pit: depth below the lip at distance r (gu) from the centre, R the radius and H
     the hole's half side in gu: D at the hole's edge, 0 at the rim, steepest at the rim"""
     if r >= R:
         return 0.0
@@ -1645,7 +1872,7 @@ def _sgn(v):
 
 
 def chute_cells(f, where):
-    """SPEC.md 128.27.3 - 128.27.4: a parsed `chute` -> ({(wx, wy): (piece name, world height function
+    """SPEC.md 128.28.3 - 128.28.4: a parsed `chute` -> ({(wx, wy): (piece name, world height function
     (gx, gy) -> quarter px)}).  f: {"wide", "prof", "depth", "ways": [((x, y), z2 or None, line)], "line"}"""
     wide, prof, D = f["wide"], f["prof"], 4 * f["depth"]
     W = 8 * wide                                    # the half width, gu
@@ -1687,7 +1914,7 @@ def chute_cells(f, where):
         nstr = L - 1 if wide == 1 else L - 2
         if nstr < 0:
             raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, under the %d its "
-                              "corners and ends take (SPEC.md 128.27.4)" % (where, i + 1, ax, ay, bx, by, L,
+                              "corners and ends take (SPEC.md 128.28.4)" % (where, i + 1, ax, ay, bx, by, L,
                                                                           "cells" if wide == 1 else "units",
                                                                           1 if wide == 1 else 2))
         if za != zb:
@@ -1762,7 +1989,7 @@ def chute_cells(f, where):
 
 
 def pit_cells(f, where):
-    """SPEC.md 128.27.3 - 128.27.4: a parsed `pit` -> ({(wx, wy): (piece, fn)}, {hole cells})"""
+    """SPEC.md 128.28.3 - 128.28.4: a parsed `pit` -> ({(wx, wy): (piece, fn)}, {hole cells})"""
     (x, y), z2, R, H, D = f["at"], f["z2"], f["radius"], f["hole"], 4 * f["depth"]
     cx, cy, zl = 16 * x, 16 * y, 16 * z2
     out, hole = {}, set()
@@ -1786,19 +2013,19 @@ def field_tile(cell, piece, fn, line, where):
     t = FieldTile(h, line, piece)
     if t.hmax - 16 * t.z0 > 255:
         raise CourseError("%s: the %s cell (%d, %d) spans %d quarter px from its base, over a table byte's 255 "
-                          "(SPEC.md 128.27.2): a shallower depth" % (where, piece, wx, wy, t.hmax - 16 * t.z0))
+                          "(SPEC.md 128.28.2): a shallower depth" % (where, piece, wx, wy, t.hmax - 16 * t.z0))
     for v in range(16):
         for u in range(16):
             sx, sy = fslopes(h, u, v)
             if abs(sx) + abs(sy) > FSLOPE_MAX:
                 raise CourseError("%s: the %s cell (%d, %d) has slopes (%d, %d) at its point (%d, %d), over the "
-                                  "bound |sx| + |sy| <= %d (SPEC.md 128.27.2): a shallower depth"
+                                  "bound |sx| + |sy| <= %d (SPEC.md 128.28.2): a shallower depth"
                                   % (where, piece, wx, wy, sx, sy, u, v, FSLOPE_MAX))
     return t
 
 
 def build_fields(tiles):
-    """SPEC.md 128.27.4: every FIELD tile's shape and symmetry - a stored table and a symmetry that reproduce
+    """SPEC.md 128.28.4: every FIELD tile's shape and symmetry - a stored table and a symmetry that reproduce
     its relative heights exactly, a new table when none does (in the order the cells sort) -> [tables, each
     289 bytes].  Refuses more than FSHAPE_MAX."""
     tabs = []
@@ -1818,7 +2045,7 @@ def build_fields(tiles):
         if found is None:
             if len(tabs) == FSHAPE_MAX:
                 raise CourseError("%s:%d: a %dth shape table (cell (%d, %d), a %s), over the %d a course may "
-                                  "have (SPEC.md 128.27.2)" % ("<course>", t.line, FSHAPE_MAX + 1, cell[0],
+                                  "have (SPEC.md 128.28.2)" % ("<course>", t.line, FSHAPE_MAX + 1, cell[0],
                                                                cell[1], t.piece, FSHAPE_MAX))
             tab = bytearray(FTAB)
             for v in range(17):
@@ -1835,7 +2062,7 @@ def has_field(tiles):
 
 
 def field_seams(tiles, fname):
-    """SPEC.md 128.27.2's SEAM rule: two FIELD cells sharing an edge are equal at all 17 of its points"""
+    """SPEC.md 128.28.2's SEAM rule: two FIELD cells sharing an edge are equal at all 17 of its points"""
     for (wx, wy), t in sorted(tiles.items()):
         if not isinstance(t, FieldTile):
             continue
@@ -1848,7 +2075,7 @@ def field_seams(tiles, fname):
                 b = n.h[k][0] if dx else n.h[0][k]
                 if a != b:
                     raise CourseError("%s:%d: FIELD cells (%d, %d) and (%d, %d) differ at their shared edge's "
-                                      "point %d (%d against %d quarter px): the SEAM rule (SPEC.md 128.27.2)"
+                                      "point %d (%d against %d quarter px): the SEAM rule (SPEC.md 128.28.2)"
                                       % (fname, t.line, wx, wy, wx + dx, wy + dy, k, a, b))
 
 
@@ -1983,7 +2210,7 @@ def build_tiles(src):
                 del tiles[cell]
             else:
                 tiles[cell] = t
-    # SPEC.md 128.27.3: the chutes and pits LAY their FIELD cells after every room, surface and hole; a
+    # SPEC.md 128.28.3: the chutes and pits LAY their FIELD cells after every room, surface and hole; a
     # pit's hole is VOID whatever was there.  Two of them on one cell, or a split cell in a FIELD cell's 3 x 3,
     # are refused
     laid = {}
@@ -2013,7 +2240,7 @@ def build_tiles(src):
                     n = tiles.get((wx + dx, wy + dy))
                     if isinstance(n, Split):
                         raise CourseError("%s:%d: the split cell (%d, %d) is in the 3 x 3 of the FIELD cell (%d, %d) "
-                                          "(SPEC.md 128.27.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
+                                          "(SPEC.md 128.28.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
         field_seams(tiles, f)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
@@ -2098,7 +2325,7 @@ def build_cells(tiles):
         if isinstance(t, Split):
             cells[(wx, wy)] = [0, 0, t.diag | (t.surf << 4), 0]
             continue
-        if isinstance(t, FieldTile):                # SPEC.md 128.27.2: the base, the shape and the symmetry
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.2: the base, the shape and the symmetry
             cells[(wx, wy)] = [t.z0, t.shape | (t.sym << 4), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
@@ -2293,10 +2520,13 @@ PADREC, ROUTEREC, KEYREC = 10, 8, 4             # the tables' records (SPEC.md 1
 SIGN_AT = (255, 255)          # a sign's anchor: no cell (record +2 / +3), never a prop's
 # the follower (SPEC.md 128.22.4.2): 8.8 ground px a step, PROVISIONAL
 FOL_VMAX, FOL_ACC, FOL_VMIN = 768, 192, 128     # 3.0, 0.75, 0.5
-FOL_VMAXD = 384                                # 1.5: the top speed on a segment whose two axes move OPPOSITE
+FOL_VMAXD = 256                                # 1.0: the top speed on a segment whose two axes move OPPOSITE
                                               # ways (screen-HORIZONTAL: px 2 a ground px), so px is at most 3 a
                                               # step there as on a straight - the ball art's roll reads 1:1 only
                                               # under 4 px a frame (its texture's period is 8; SPEC.md 128.22.4.2)
+FOL_VMAXV = 512                                # 2.0: the top speed on a segment whose two axes move the SAME way
+                                              # (screen-VERTICAL: G 1 line a ground px), 2 lines a step, so the
+                                              # up/down routes read close to the sideways 2 px (round 3, the owner)
 FOL_SEGMAX, FOL_DZMAX = 127, 127              # a ramp's follower segment: ground px long, px high (the
                                               # guest's word imul/idiv, class Follow; tool-side only)
 # screen directions of a route's first step (128.22.4.5): (dx, dy) in ground cells -> its name and arrows
@@ -3341,7 +3571,8 @@ class Follow:
         if left <= D:  v = max(v - FOL_ACC, FOL_VMIN)  (braking)
         else:          v = v + FOL_ACC
         v = min(v, FOL_VMAXD if the segment holding s moves its two axes
-                   OPPOSITE ways (screen-horizontal) else FOL_VMAX)
+                   OPPOSITE ways (screen-horizontal), FOL_VMAXV if the SAME
+                   way (screen-vertical), else FOL_VMAX)
         s = s + v
         if s >= 256 L: s = 256 L, ARRIVED (the pad's cell exactly; RESTING)
 
@@ -3354,11 +3585,15 @@ class Follow:
 
     with the ball GROUNDED.  FOL_VMAX 768 (3.0), FOL_ACC 192 (0.75),
     FOL_VMIN 128 (0.5), PROVISIONAL: full speed in four steps.  FOL_VMAXD
-    384 (1.5) on a segment whose axes move opposite ways (wave 8R round 2,
-    8R.10): px moves 2 a ground px there, so 3.0 was 6 px a step - past the
-    ball art's roll, whose texture's period is 8 px (a 1:1 roll needs under
-    4 a frame) - and showed as a SKID; at 1.5 it is 3 px a step, a
-    straight's screen speed.
+    256 (1.0) on a segment whose axes move opposite ways (wave 8R round 2,
+    8R.10, and round 3): px moves 2 a ground px there, so 3.0 was 6 px a step
+    and showed as a SKID, and 1.5 (3 px, 1:1) still read as a slide with a
+    flicker - the texture's period is 8 px, so a 3 px step lands the spots in
+    the gaps and every second frame 2 px BEHIND (6 = -2 mod 8); at 1.0 it is
+    2 px a step, a quarter period, which the eye reads as a roll.  FOL_VMAXV
+    512 (2.0) on a segment whose axes move the same way (screen-vertical, G 1
+    line a ground px): 2 lines a step, so the up/down routes keep pace with
+    the sideways ones (the owner, round 3: speed, not roll, which was fine).
 
     SIGNED WORDS suffice for the height: a segment that changes height is a
     ramp's, which the tool keeps at most FOL_SEGMAX (127) ground px long and
@@ -3388,7 +3623,8 @@ class Follow:
             else:
                 self.v += FOL_ACC
             (ax, ay, _), (bx, by, _) = self.pts[self.seg()], self.pts[self.seg() + 1]
-            self.v = min(self.v, FOL_VMAXD if (bx - ax) * (by - ay) < 0 else FOL_VMAX)
+            dd = (bx - ax) * (by - ay)
+            self.v = min(self.v, FOL_VMAXD if dd < 0 else FOL_VMAXV if dd > 0 else FOL_VMAX)
             self.s += self.v
             if self.s >= 256 * self.L:
                 self.s = 256 * self.L
@@ -3497,7 +3733,7 @@ def split_anchors(src, tiles, f):
                               "is on the diagonal (SPEC.md 128.24.4)" % (f, ln, what, cell[0], cell[1]))
         if isinstance(tiles.get(tuple(cell)), FieldTile):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is a FIELD cell (a %s): it stands on a flat "
-                              "cell's centre (SPEC.md 128.27.3)" % (f, ln, what, cell[0], cell[1],
+                              "cell's centre (SPEC.md 128.28.3)" % (f, ln, what, cell[0], cell[1],
                                                                    tiles[tuple(cell)].piece))
 
 
@@ -3707,9 +3943,22 @@ def build_props(src, tiles, fname):
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, kr["name"], at[0], at[1]))
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
-                      "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0})
-    for fm, ln in src.uses:
-        if not any(p_.get("fam") is fm for p_ in props):
+                      "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
+                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0)})
+    for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
+        fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
+        need = [fm] if fm else []                   # and transit are the tube's)
+        if p_["kind"] == PK_WINDMILL:
+            need.append(OWN_FAM[PK_TUBE])
+        for fm in need:
+            if "famuses" in _CHECKS_OFF:            # (item 1's cross-commit compile: that grammar had no uses)
+                break
+            if not any(f_ is fm for f_, _l in src.uses):
+                raise CourseError("%s:%d: a %s needs the %s family, which the course does not name (`uses %s`, "
+                                  "SPEC.md 128.25.20)" % (f, p_.get("wline", p_["line"]), PK_NAMES[p_["kind"]],
+                                                          fm["name"], fm["name"]))
+    for fm, ln in src.uses:                         # (a windmill is the TUBE family's element too)
+        if not any(prop_fam(p_) is fm or (p_["kind"] == PK_WINDMILL and fm is OWN_FAM[PK_TUBE]) for p_ in props):
             raise CourseError("%s:%d: uses %s, and no element of it is placed: a family a course names costs "
                               "a fetch every launch (SPEC.md 128.25.6.4)" % (f, ln, fm["name"]))
     # wave 7 (SPEC.md 128.18.5): a CLOCK - a record and a lane for each digit (two, three when the limit
@@ -3876,6 +4125,59 @@ class Reach:
         self.wx, self.wy = wx, wy
         self.s, self.a = wx + wy, wx - wy
         self.zlo, self.zhi, self.kind, self.src = zlo, zhi, kind, src
+
+
+def pickup_region(e):
+    """the cells a timed pickup's effect can reach (SPEC.md 128.25.19): every cell within its duration's
+    travel at the raised cap, Chebyshev, of the element's, plus one"""
+    return -(-(4 * e["dur"] * (VMAXG + PU_SVUP)) // (256 * TILE)) + 1
+
+
+def pickup_reach(tiles, cells, fname, props, reach, hack=None):
+    """wave 9 (SPEC.md 128.25.9, 128.25.19): the reach with PICKUPS' raised values WHERE ONE IS REACHABLE.
+    For each timed kind the course places, the reach is taken again with its values - jump: every launch at
+    PU_JHOP (its contact's boost, round 3b's add, stacks on that bounce inside build_reach, up to VZMAX);
+    speed: the cap VMAXG + PU_SVUP (every floor's rate and every carry) - and each cell within the effect's
+    REGION (pickup_region of an element of that kind) takes the higher zhi.  A course placing both, with
+    any one of them not marked `overwrite`, takes ONE reach with BOTH raised over both kinds' regions (the
+    pair can be held at once); every one marked `overwrite`, each alone.  build_reach is called as it is,
+    the cap swapped round the call (VMAXG is the module's)."""
+    global VMAXG
+    pk = [p for p in props if p.get("fam") is not None and p["fam"].get("consts") == "PU"
+          and p["kind"] in (K_SPEED, K_JUMP)]
+    if not pk:
+        return reach
+    S = [p for p in pk if p["kind"] == K_SPEED]
+    J = [p for p in pk if p["kind"] == K_JUMP]
+    if S and J and not all(p["ow"] & PU_OVERWRITE for p in pk):
+        runs = [(S + J, True, True)]
+    else:
+        runs = [(g, g is S, g is J) for g in (S, J) if g]
+    by = dict(((r.wx, r.wy), r) for r in reach)
+    for els, spd, jmp in runs:
+        v0 = VMAXG
+        try:
+            if spd:
+                VMAXG = v0 + PU_SVUP
+            r2, _rounds, _e = build_reach(tiles, cells, fname, props, _hopmax=PU_JHOP if jmp else None)
+        finally:
+            VMAXG = v0
+        for q in r2:
+            c = (q.wx, q.wy)
+            if c in by and q.zhi > by[c].zhi and any(
+                    max(abs(c[0] - e["at"][0]), abs(c[1] - e["at"][1])) <= pickup_region(e) for e in els):
+                by[c].zhi, by[c].src = q.zhi, (q.src[0] if q.src else c, "pickup " + (
+                    "speed and jump" if spd and jmp else "speed" if spd else "jump"))
+    return reach
+
+
+def _pairnote(reach):
+    """a bound's refusal on a course whose speed and jump pickups are held TOGETHER (SPEC.md 128.25.9): the
+    pair the tool cannot bound - the author separates them or marks them `overwrite`"""
+    if any(r.src and r.src[1] == "pickup speed and jump" for r in reach):
+        return (" - the speed and jump pickups held together raise the reach this bound is taken over: "
+                "separate them, or mark them `overwrite` (SPEC.md 128.25.9: the latest then replaces the other)")
+    return ""
 
 
 def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hopmax=None, _boost=None):
@@ -4214,12 +4516,12 @@ def _cell_pieces(tiles):
 
 
 def _fpt(gx, gy, h4, x0):
-    """SPEC.md 128.27.6: a world point (gu) at height h4 (quarter px) -> the quarter-pixel screen, Y0 = 0"""
+    """SPEC.md 128.28.6: a world point (gu) at height h4 (quarter px) -> the quarter-pixel screen, Y0 = 0"""
     return (4 * (gx - gy) + 4 * x0, 2 * (gx + gy) - h4)
 
 
-FTOPQ = 16                    # SPEC.md 128.27.6: a facet's occluder top, whole px rounded down to a multiple
-FACET = 4                     # SPEC.md 128.27.6: a FIELD top's facets, ground units a side
+FTOPQ = 16                    # SPEC.md 128.28.6: a facet's occluder top, whole px rounded down to a multiple
+FACET = 4                     # SPEC.md 128.28.6: a FIELD top's facets, ground units a side
 _FLIGHT = (-1.0, -0.3, 1.5)   # ...the light: from the upper left (toward -gx), and above
 _FLAT_B = _FLIGHT[2] / math.sqrt(sum(c * c for c in _FLIGHT))
 
@@ -4237,7 +4539,7 @@ def field_shade(dzx, dzy):
 
 
 def field_ink(level, base):
-    """SPEC.md 128.27.6: a shade level's ink, world-fixed dithers (x + y) & 1 between the levels' colours;
+    """SPEC.md 128.28.6: a shade level's ink, world-fixed dithers (x + y) & 1 between the levels' colours;
     base the cell's parity colour for a level facet"""
     if level == 0:
         return base
@@ -4268,8 +4570,8 @@ def _poly_top_fn(pts):
     return top
 
 
-def _field_ops(tiles, t, wx, wy, s, x0):
-    """SPEC.md 128.27.6: a FIELD cell's ops - its sw and se faces (their tops the table's heights along the
+def _field_ops(tiles, t, wx, wy, s, x0, ground=None):
+    """SPEC.md 128.28.6: a FIELD cell's ops - its sw and se faces (their tops the table's heights along the
     edge, down to the neighbour's heights there or FACE8 into the void, nothing against a FIELD neighbour),
     then its top as FACET x FACET triangles back to front, each culled when it faces away, inked by its
     shade and keyed s + 1 when its ground is in the front half of the row"""
@@ -4283,7 +4585,9 @@ def _field_ops(tiles, t, wx, wy, s, x0):
             continue
         tops = [h[v][u] for u, v in pts]
         if nb is None or isinstance(nb, Split):     # (a split neighbour is refused in the 3 x 3)
-            bots = [q - 4 * FACE8 for q in tops]
+            # over the void: 3 units below the edge, and down to the GROUND plane (px) unless the cell floats
+            # (ground None) - draw_ops' rule (SPEC.md 128.27), sample by sample along the profile
+            bots = [q - 4 * FACE8 if ground is None else min(q - 4 * FACE8, 4 * ground) for q in tops]
         else:
             bots = []
             for u, v in pts:
@@ -4324,30 +4628,25 @@ def _field_ops(tiles, t, wx, wy, s, x0):
     return ops
 
 
-def draw_ops(tiles, x0, deep=()):
-    """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
-    to front: each tile's two front faces, then its top (128.3's order).
-    deep: cells (a tube's body, SPEC.md 128.12.6.1) whose face over the void
-    hangs as deep as its other front face reaches at their shared corner, so
-    a pipe's wall standing on a lower tier reads as one column, not a column
-    with a bite out of one side.
-    SPEC.md 128.24.6, a SPLIT cell's PIECE (a half or a quarter): its top is
-    its TRIANGLE; it hangs the sw face if it owns the south edge (L to B) and
-    the se face if it owns the east edge (B to R), each down to the record
-    across that edge (the piece that owns it, or a whole cell) or 3 units; a
-    piece whose line inside the cell faces the viewer (an LR split's UP half,
-    a quartered cell's W and N) hangs a FRONT face from it down to the piece in
-    front (or 3 units); a TB line inside the cell, where its sides differ, a
-    1 px black line ("tline", a paint op after the top).  The order and the
-    keys: _cell_pieces"""
-    ops = []
-    for _key, (wx, wy), t, h, s in _cell_pieces(tiles):
+def ground_z(tiles):
+    """SPEC.md 128.27.1: the course's GROUND PLANE, px - its lowest floor (the
+    least corner of every solid record, a whole cell's or a piece's) less 3
+    units (FACE8), the depth every face over the void hangs to"""
+    return 4 * min(min(r.corners()) for t in tiles.values() for r in tile_recs(t)) - FACE8
+
+
+def _cell_faces(tiles):
+    """each piece's front faces, back to front (draw_ops' walk): [(key, (wx, wy), t, h, s, ent, faces)], faces
+    [(p, zp, q, zq, the neighbour's heights at p and q or None for the VOID, which)]"""
+    out = []
+    for key, (wx, wy), t, h, s in _cell_pieces(tiles):
         ent = tiles[(wx, wy)]
-        if isinstance(t, FieldTile):                # SPEC.md 128.27.6: a FIELD cell's faces and facets
-            ops += _field_ops(tiles, t, wx, wy, s, x0)
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.6: a FIELD cell's faces are _field_ops'; here
+            faces = [(None, 0, None, 0, None if tiles.get(n) is None else 0, w)  # only which edge is over the
+                     for n, w in (((wx, wy + 1), "sw"), ((wx + 1, wy), "se"))]   # void (void_face_cells)
+            out.append((key, (wx, wy), t, h, s, ent, faces))
             continue
         zt, zr, zb, zl = (4 * c for c in t.corners())
-        T = (2 * wx, 2 * wy)
         R = (2 * wx + 2, 2 * wy)
         B = (2 * wx + 2, 2 * wy + 2)
         L = (2 * wx, 2 * wy + 2)
@@ -4363,10 +4662,61 @@ def draw_ops(tiles, x0, deep=()):
             dn = ent.halves[fp]                     # (heights in px: _z2 is quarter units, x 2)
             faces.append(((2 * wx + p0[0], 2 * wy + p0[1]), 2 * _z2(t, p0), (2 * wx + p1[0], 2 * wy + p1[1]),
                           2 * _z2(t, p1), (2 * _z2(dn, p0), 2 * _z2(dn, p1)) if dn else None, "front"))
+        out.append((key, (wx, wy), t, h, s, ent, faces))
+    return out
+
+
+def void_face_cells(tiles):
+    """the cells with a face over the VOID (SPEC.md 128.27.1): the ones the ground rule moves, and the only
+    ones a `float` may name (128.27.2)"""
+    return {cell for _k, cell, _t, _h, _s, _e, faces in _cell_faces(tiles) if any(f[4] is None for f in faces)}
+
+
+GROUND_AUTO = object()          # draw_ops' default: the ground plane of the tiles it is given
+
+
+def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
+    """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
+    to front: each tile's two front faces, then its top (128.3's order).
+    SPEC.md 128.27: a face over the void hangs to the GROUND plane, px
+    (default ground_z(tiles); the compile passes the course's), never less
+    than 3 units - or 3 units exactly for a cell in `floats` (a `float`
+    statement's) or for every cell with ground=None (today's look before
+    128.27: --selfcheck's cross-commit check and its negative controls).
+    deep: cells (a tube's body, SPEC.md 128.12.6.1) whose face over the void
+    hangs as deep as its other front face reaches at their shared corner, so
+    a pipe's wall standing on a lower tier reads as one column, not a column
+    with a bite out of one side.
+    SPEC.md 128.24.6, a SPLIT cell's PIECE (a half or a quarter): its top is
+    its TRIANGLE; it hangs the sw face if it owns the south edge (L to B) and
+    the se face if it owns the east edge (B to R), each down to the record
+    across that edge (the piece that owns it, or a whole cell) or 3 units; a
+    piece whose line inside the cell faces the viewer (an LR split's UP half,
+    a quartered cell's W and N) hangs a FRONT face from it down to the piece in
+    front (or 3 units); a TB line inside the cell, where its sides differ, a
+    1 px black line ("tline", a paint op after the top).  The order and the
+    keys: _cell_pieces"""
+    ops = []
+    if ground is GROUND_AUTO:
+        ground = ground_z(tiles) if tiles else None
+    for _key, (wx, wy), t, h, s, ent, faces in _cell_faces(tiles):
+        if isinstance(t, FieldTile):                # SPEC.md 128.28.6: a FIELD cell's faces and facets, its
+            ops += _field_ops(tiles, t, wx, wy, s, x0,  # faces over the void by the ground rule (or `float`)
+                              None if ground is None or (wx, wy) in floats else ground)
+            continue
+        zt, zr, zb, zl = (4 * c for c in t.corners())
+        T = (2 * wx, 2 * wy)
+        R = (2 * wx + 2, 2 * wy)
+        B = (2 * wx + 2, 2 * wy + 2)
+        L = (2 * wx, 2 * wy + 2)
         bots = []
+        floating = ground is None or (wx, wy) in floats
         for p, zp, q, zq, nb, which in faces:
-            if nb is None:
-                bots.append([zp - FACE8, zq - FACE8])
+            if nb is None:                          # over the void: 3 units (FLOATING), else to the ground
+                if floating:
+                    bots.append([zp - FACE8, zq - FACE8])
+                else:
+                    bots.append([min(zp - FACE8, ground), min(zq - FACE8, ground)])
             else:
                 bots.append([min(zp, nb[0]), min(zq, nb[1])])
         if (wx, wy) in deep and h is None:          # B is the sw face's q and the se face's p
@@ -4486,7 +4836,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             ink, top = mk(y0)
             cv.fill(sp, ink, s, top, own)
             continue
-        if which == "facet":                        # SPEC.md 128.27.6: a FIELD top's facet, its ink in `left`
+        if which == "facet":                        # SPEC.md 128.28.6: a FIELD top's facet, its ink in `left`
             cv.fill(sp, left, s, mk(y0), own)
             continue
         top = mk(y0)
@@ -4879,6 +5229,9 @@ def prop_ops(tiles, ops, props, x0):
                 pix = _top_mark(tiles, ops, p, x0)
                 p["mark_pix"] = pix                 # the visibility audit's mark (128.15.10.4)
                 add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
+            if p.get("art") == "icon":              # wave 9: a PICKUP - no pole, its icon its lane's (128.25.19)
+                p["geo"], p["furl"], p["fly"] = {}, {}, _icon_pix(p, x0)
+                continue
             geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
             p["geo"] = geo
             top = 4 * t.z0 + FLAG_H
@@ -5626,11 +5979,26 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     _hack: --selfcheck's negative controls' switches, and nothing else's.
     _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec).
     crsinfo: the pathway's [(NAME, title)] of BZ_COURSES, in order (its pads'
-    courses; default the shipped list's, read off their `course` lines)"""
-    global _FAST_EXTRA, _DOWN_S0
+    courses; default the shipped list's, read off their `course` lines)
+    Every compile is looked up in the compile cache (build/bbcache/, docs/TESTING.md *BONANZA's host
+    checks*), and one of a course FILE or one that took a second or more is written to it: cache_key() is
+    every input the compile reads, so a hit is the compile it stands for"""
+    key = cache_key(source, fname, occluders, _hack, _rec, crsinfo)
+    c = cache_get(key)
+    if c is None:
+        t0 = time.time()
+        c = _compile_y0(source, fname, occluders, _hack, _rec, crsinfo)
+        if fname is None or time.time() - t0 >= 1.0:
+            cache_put(key, c)
+    return c
+
+
+def _compile_y0(source, fname, occluders, _hack, _rec, crsinfo):
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO
     hack = _hack or {}
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
+    saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
     try:
         counts, order = None, [None]
         if occluders and "y0add" not in hack:        # SPEC.md 128.25.3: the Y0 search
@@ -5651,6 +6019,24 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None, cr
     finally:
         _FAST_EXTRA = ()
         _DOWN_S0 = False
+        _REACH_MEMO = saved
+
+
+_REACH_MEMO = None      # one compile_course's (or a bare y0_search's): {inputs: the reach}, shared by its 8
+                        # probes and its compiles - the reach is computed before Y0 exists (2026-11-16)
+
+
+def _reach_once(key, make):
+    """make() -> the reach (build_reach's, then reach_forms'), once per KEY inside one compile_course or
+    y0_search: a later probe or compile of the SAME course text, name and hack (Y0's alignment and the probe
+    flag aside, which nothing before the reach reads) gets a deep copy - the compile goes on to change the
+    Reach records it is handed, and a copy is exactly what a second build would have made"""
+    import copy
+    if _REACH_MEMO is None:
+        return make()
+    if key not in _REACH_MEMO:
+        _REACH_MEMO[key] = copy.deepcopy(make())
+    return copy.deepcopy(_REACH_MEMO[key])
 
 
 class _Y0Probe(Exception):
@@ -5668,6 +6054,18 @@ def y0_search(source, fname, hack, _rec, crsinfo):
     records are merged.  -> [(records, most a block, most a row) or None for an
     alignment a compile refused before its records], or None for a course with
     a `view` (its alignment is the view's)."""
+    global _REACH_MEMO
+    own = _REACH_MEMO is None                       # (a bare search, as --selfcheck's MOON control: its own memo)
+    if own:
+        _REACH_MEMO = {}
+    try:
+        return _y0_search(source, fname, hack, _rec, crsinfo)
+    finally:
+        if own:
+            _REACH_MEMO = None
+
+
+def _y0_search(source, fname, hack, _rec, crsinfo):
     counts = []
     for k in range(8):
         try:
@@ -5725,13 +6123,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             if v:
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
-    ftabs = build_fields(tiles)                     # SPEC.md 128.27.4: the FIELD cells' tables (section F)
+    ftabs = build_fields(tiles)                     # SPEC.md 128.28.4: the FIELD cells' tables (section F)
     cells = build_cells(tiles)
     pairs = build_pairs(tiles)                      # SPEC.md 128.24.5.2: the split cells' halves
     pcell = prop_cells(props)
-    for c_ in pcell:                                  # SPEC.md 128.27.3: no prop's cell is a FIELD cell
+    for c_ in pcell:                                  # SPEC.md 128.28.3: no prop's cell is a FIELD cell
         if isinstance(tiles.get(c_), FieldTile):
-            raise CourseError("%s:%d: cell (%d, %d) belongs to a prop and is a FIELD cell (a %s, SPEC.md 128.27.3)"
+            raise CourseError("%s:%d: cell (%d, %d) belongs to a prop and is a FIELD cell (a %s, SPEC.md 128.28.3)"
                               % (fname, tiles[c_].line, c_[0], c_[1], tiles[c_].piece))
     for c_ in pcell:                                  # no prop's cell is SAFE (a respawn lands in no drain)
         if c_ in cells:
@@ -5742,9 +6140,16 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
-                                      _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
-    reach = reach_forms(reach, tiles, cells, fname, props, hack)
+    def _reach():
+        r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                 _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+        r_ = reach_forms(r_, tiles, cells, fname, props, hack)
+        if not hack.get("nopickreach"):             # (a red arm's switch: the pickups' reach not taken)
+            r_ = pickup_reach(tiles, cells, fname, props, r_, hack)
+        return r_, n_, e_
+    reach, rounds, emax = _reach_once((hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
+        (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))), tuple(sorted(_CHECKS_OFF)),
+        _FAST_EXTRA, _DOWN_S0, _rec, repr(crsinfo)), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -5772,8 +6177,22 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
+    # SPEC.md 128.27: the GROUND plane, one a course - its lowest floor (a secret route's and a glass tile's
+    # counted) less 3 units - and the FLOATING cells, whose faces over the void hang 3 units instead
+    gtiles = dict(tiles)
+    for ri in (sorted(pth["secret_rooms"]) if pth is not None else ()):
+        gtiles.update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
+    ground = None if hack.get("noground") else ground_z(gtiles)
+    floats = set()
+    vface = void_face_cells({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles)
+    for fcells, fln in src.floats:
+        if not fcells & vface:
+            raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
+                              "(SPEC.md 128.27.2)" % (fname, fln))
+        floats |= fcells
+    floats = frozenset(floats)
     ops = draw_ops({k: v for k, v in tiles.items() if k not in gcells} if gcells else tiles, x0,
-                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]})
+                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
     if props:
         ops = prop_ops(tiles, ops, props, x0)
     gtop = min(min(sp) for sp, *_ in ops if sp)
@@ -5787,7 +6206,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         for ri in sorted(pth["secret_rooms"]):
             rtiles[ri] = dict(tiles)
             rtiles[ri].update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
-            rops[ri] = draw_ops(rtiles[ri], x0, set())
+            rops[ri] = draw_ops(rtiles[ri], x0, set(), ground, floats)
             if props:
                 rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
             gtop = min(gtop, min(min(sp) for sp, *_ in rops[ri] if sp))
@@ -5908,7 +6327,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                 return {(x, y + y0): c for (x, y), c in q.items()
                         if not clip or (0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF)}
             q0, q1 = seen(p["furl"]), seen(p["fly"])
-            if 2 * len(q1) < len(p["fly"]) or not q0:
+            if 2 * len(q1) < len(p["fly"]) or (not q0 and p.get("art") != "icon"):   # (a pickup's pose 0 is empty)
                 hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
                 raise CourseError("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
                                   "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
@@ -6048,12 +6467,12 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     for key in sorted(per_block):
         if per_block[key] > REC_BLOCK_MAX:
             raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
-                              "over %d" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
-                                           8 * key[1] + 7, per_block[key], REC_BLOCK_MAX))
+                              "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
+                                             8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
     for br in sorted(per_row):
         if per_row[br] > REC_ROW_MAX:
-            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d"
-                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX))
+            raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
+                              % (fname, br, 8 * br, 8 * br + 7, per_row[br], REC_ROW_MAX, _pairnote(reach)))
     by_block = {}
     for r in records:
         by_block.setdefault((r["brow"], r["col"]), []).append(r)
@@ -6232,7 +6651,8 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rec += struct.pack("<12xB3x", p["num"])
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             p["fsb"] = fsbs[i]
-            rec += struct.pack("<BB14x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"])
+            rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p.get("dur", 0),
+                               p.get("ow", 0))         # (+18, +19: PICKUPS' duration and OVERWRITE, 128.25.19)
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -6315,8 +6735,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     c = Course()
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
-    c.pairs = pairs                                 # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
-    c.ftabs = ftabs                                 # SPEC.md 128.27.2: section F's tables
+    c.ground, c.floats = ground, floats             # SPEC.md 128.27: the ground plane (px), the FLOATING cells
+    c.pairs = pairs                                # SPEC.md 128.24.5.2: {split cell: (half A's bytes, B's)}
+    c.ftabs = ftabs                                 # SPEC.md 128.28.2: section F's tables
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
     c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
@@ -6946,7 +7367,7 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         for i in range(0, len(m["cells"]), 4):
             if m["cells"][i + 2] & 15 in SPLIT_KINDS:
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
-    if m.get("ftabs"):                              # SPEC.md 128.27.2: F after D, PLAIN
+    if m.get("ftabs"):                              # SPEC.md 128.28.2: F after D, PLAIN
         b[sec["F"][0]:sec["F"][0] + len(m["ftabs"])] = m["ftabs"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
@@ -7035,7 +7456,7 @@ def decode_part(p):
     pairs = ftabs = b""
     for j in range(nsec):                           # SPEC.md 128.24.5.2: section D, if there is one
         tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
-        if tag == ord("F"):                         # SPEC.md 128.27.2: section F, the FIELD tables
+        if tag == ord("F"):                         # SPEC.md 128.28.2: section F, the FIELD tables
             ftabs = bytes(p[off:off + ln])
         if tag == ord("D"):
             pairs = bytes(p[off:off + ln])
@@ -7157,7 +7578,7 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
         if kd & 15 == KIND_VOID:
             V.append(0xFF)
-        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.27.2: its base (its +1 is no slopes)
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.28.2: its base (its +1 is no slopes)
             V.append(vrec(_s8(z0), 0))
         elif kd & 15 in SPLIT_KINDS and not _no_halves:
             hs = pair(cells[4 * i] | cells[4 * i + 1] << 8, NREC[kd & 15])
@@ -7457,7 +7878,7 @@ def read_part(p, fname="<part>"):
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
     dlen = flen = 0                                 # SPEC.md 128.24.5.2: section D's length, its entry's alone
-    for j in range(nsec):                           # (and 128.27.2: F's)
+    for j in range(nsec):                           # (and 128.28.2: F's)
         if p[diroff + DIRENT * j] == ord("D"):
             dlen = struct.unpack_from("<H", p, diroff + DIRENT * j + 4)[0]
         if p[diroff + DIRENT * j] == ord("F"):
@@ -7570,7 +7991,7 @@ def read_part(p, fname="<part>"):
     cellend = doff = celloff + 4 * nrows * kw
     if rowtab != cellend + dlen + flen:
         bad("ROWTAB", "offset %d" % rowtab)
-    foff = cellend + dlen                           # SPEC.md 128.27.2: section F, after D
+    foff = cellend + dlen                           # SPEC.md 128.28.2: section F, after D
     if flen % FTAB or flen > FTAB * FSHAPE_MAX or bool(gflags & GF_FIELD) != bool(flen):
         bad("F", "%d bytes (tables of %d, at most %d), GF_FIELD %s" % (flen, FTAB, FSHAPE_MAX,
                                                                         "set" if gflags & GF_FIELD else "clear"))
@@ -7618,7 +8039,7 @@ def read_part(p, fname="<part>"):
             floors = {h[2] >> 4 for h in hs if h[2] & 15 in (KIND_FLOOR, KIND_GOAL)}
             if kd >> 4 != (floors.pop() if len(floors) == 1 else 0) or len(floors) > 0:
                 bad("cell %d" % i, "surface %d is not its floor halves' one surface" % (kd >> 4))
-        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.27.2: a FIELD cell names a table of F
+        elif kd & 15 == KIND_FIELD:                 # SPEC.md 128.28.2: a FIELD cell names a table of F
             if (sl & 15) * FTAB >= flen or sl & 0x80 or kd >> 4 != SURF_NORMAL or fl & ~(FL_OCC | FL_OCCG) \
                     or (fl & FL_OCCG and not fl & FL_OCC):
                 bad("cell %d" % i, "a FIELD cell's shape %d of %d, symmetry byte %02Xh, surface %d, flags %02Xh"
@@ -7646,7 +8067,7 @@ def read_part(p, fname="<part>"):
                     "outside the grid" % (r, k))
     if len(fnamed) * FTAB != flen:
         bad("F", "%d tables, %d of them named by a cell (every table is)" % (flen // FTAB, len(fnamed)))
-    for (fx, fy), h in sorted(fcells.items()):      # SPEC.md 128.27.2: the slope bound and the SEAM rule
+    for (fx, fy), h in sorted(fcells.items()):      # SPEC.md 128.28.2: the slope bound and the SEAM rule
         for v in range(16):
             for u in range(16):
                 sx_, sy_ = fslopes(h, u, v)
@@ -7665,7 +8086,7 @@ def read_part(p, fname="<part>"):
     # pathway's tables: NFAM (ID, FAMV) pairs of distinct known families, NFST and the RESPAWN mask
     nfam, famoff = struct.unpack_from("<BH", p, 45)
     fams, nfst, rmask = [], 0, b""
-    if bool(nfam) != bool(famoff) or nfam > FAM_MAX:
+    if bool(nfam) != bool(famoff) or nfam > len(FAMILIES):
         bad("+45", "NFAM %d with FAMOFF %d" % (nfam, famoff))
     if famoff:
         fend = pthoff or diroff
@@ -7679,6 +8100,9 @@ def read_part(p, fname="<part>"):
         for fid, fv in fams:
             if fid not in FAM_BY_ID or [x for x, _v in fams].count(fid) != 1:
                 bad("FAMOFF", "family ID %d unknown or named twice" % fid)
+        if len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])) > FAM_MAX:
+            bad("FAMOFF", "%d fetched families, over the %d a course may name" % (
+                len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])), FAM_MAX))
     props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or diroff) if nprop else []
     fk = [k for fid, _v in fams for k in FKIND if FKIND[k][0]["id"] == fid]
     for d in props:                                 # wave 9: every family element's family is listed, its
@@ -7834,11 +8258,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
         elif is_fam(d["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             fam, kr = FKIND[d["kind"]]
             fsb_, cls = p[r + 16], p[r + 17]
-            if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 18:r + 32] != bytes(14) \
+            dur_, ow_ = p[r + 18], p[r + 19]
+            pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 128.25.19)
+            if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 20:r + 32] != bytes(12) \
                     or bool(d["lane"]) != (kr["art"] is not None) \
-                    or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2}[kr["art"]]):
+                    or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2, "icon": 2}[kr["art"]]) \
+                    or (not pu and (dur_ or ow_)) or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
+                    or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
+                    or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
-            d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"])
+            d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -7894,7 +8323,7 @@ class Grid:
         self.gflags, self.padmask = g["gflags"], g["padmask"]
         self.props = info["props"]
         self.fams, self.nfst, self.rmask = info["fams"], info["nfst"], info["rmask"]   # wave 9 (128.25.6.4)
-        self.ftabs = g["ftabs"]                     # SPEC.md 128.27.2: section F
+        self.ftabs = g["ftabs"]                     # SPEC.md 128.28.2: section F
         self._fw = {}                               # (shape, symmetry) -> its world table, relative
 
     def cell(self, wx, wy):
@@ -7908,7 +8337,7 @@ class Grid:
         z0, sl, kd, fl = struct.unpack_from("<bBBB", self.p, self.rowtab[r] + 4 * k)
         if kd & 15 in SPLIT_KINDS:
             return (0, 0, 0, kd & 15, fl, kd >> 4)
-        if kd & 15 == KIND_FIELD:                   # SPEC.md 128.27.2: (z0, 0, 0, 7, flags, surface, h[v][u] the
+        if kd & 15 == KIND_FIELD:                   # SPEC.md 128.28.2: (z0, 0, 0, 7, flags, surface, h[v][u] the
             return (z0, 0, 0, KIND_FIELD, fl, kd >> 4, self.fworld(z0, sl))     # ABSOLUTE heights, quarter px)
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
 
@@ -8231,8 +8660,103 @@ class GlassFamily(Family):
                     c[3] = KIND_VOID
                     c[5] = 0
 
+class PickupFamily(Family):
+    """PICKUPS (SPEC.md 128.25.9, 128.25.19).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4 the
+    Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
+    one bit is COLLECTED.  CONTACT takes an element whose bit is clear (an hourglass only while there is a
+    limit, bz_tsec not 0: hidden otherwise); STEP counts the timers down, puts the jump's Hop back over a
+    pad's swap, ends an effect at 0 and writes the cue byte; RESET (a respawn; a play's start finds all
+    zero) ends both effects.  Every change of bz_wacc rebuilds BOTH force tables, as the part does"""
+    row = FAM_BY_NAME["pickups"]
 
-FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily()}
+    @staticmethod
+    def _tables(p):
+        p.fta = fta_table(p.m["ACC"] + p.wacc)      # (the ground's: the model's per step, from wacc)
+
+    def _speed_off(self, p, sb):
+        sb[0] = sb[1] = 0
+        p.wacc = p.vup = 0
+        self._tables(p)
+
+    def _jump_off(self, p, sb):
+        sb[2] = sb[3] = 0
+        p.hop = sb[4] | sb[5] << 8
+
+    def reset(self, p, slot, cls):
+        sb = p.fsl[slot]
+        if sb[0] | sb[1]:
+            self._speed_off(p, sb)
+        if sb[2] | sb[3]:
+            self._jump_off(p, sb)
+        p.cue = 0
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1:
+            return
+        k = pr["kind"]
+        if k == K_HOURGLASS and not p.tsec:
+            return                                  # hidden: no limit to add to
+        p.fst[b >> 3] |= 1 << (b & 7)
+        p.nfev = p.nfev + 1 & 0xFFFF
+        sb = p.fsl[slot]
+        if k == K_HOURGLASS:
+            p.tsec += PU_HGSEC
+        elif k == K_SPEED:
+            if pr["ow"] & PU_OVERWRITE and sb[2] | sb[3]:
+                self._jump_off(p, sb)
+            sb[0], sb[1] = (4 * pr["dur"]) & 255, (4 * pr["dur"]) >> 8
+            p.wacc, p.vup = PU_SACC, PU_SVUP
+            self._tables(p)
+        else:
+            if pr["ow"] & PU_OVERWRITE and sb[0] | sb[1]:
+                self._speed_off(p, sb)
+            if not sb[2] | sb[3]:
+                sb[4], sb[5] = p.hop & 255, p.hop >> 8
+                p.hop = PU_JHOP
+            sb[2], sb[3] = (4 * pr["dur"]) & 255, (4 * pr["dur"]) >> 8
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        ts, tj = sb[0] | sb[1] << 8, sb[2] | sb[3] << 8
+        if ts:
+            ts -= 1
+            sb[0], sb[1] = ts & 255, ts >> 8
+            if not ts:
+                self._speed_off(p, sb)
+        if tj:
+            if p.hop != PU_JHOP:                    # a pad's swap copied its own Hop: keep it, put ours back
+                sb[4], sb[5] = p.hop & 255, p.hop >> 8
+                p.hop = PU_JHOP
+            tj -= 1
+            sb[2], sb[3] = tj & 255, tj >> 8
+            if not tj:
+                self._jump_off(p, sb)
+        p.cue = (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1 or (pr["kind"] == K_HOURGLASS and not p.tsec):
+            return 0
+        return 1
+
+
+class OwnFamily(Family):
+    """story 9.8 (SPEC.md 128.25.20): ROTOR, SPRING and TUBE - the guest's parts
+    hold today's rules (the doorway, the spring, the tube), which the model
+    keeps where they always were (Physics: _capture, _transit, the gate, the
+    spring): moving the guest's code moved no rule.  So the model's family has
+    no hook of its own; its row is the identity's (FAMV) and the list's"""
+
+    def __init__(self, name):
+        self.row = FAM_BY_NAME[name]
+
+
+FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
+             "tube": OwnFamily("tube"),
+             "pickups": PickupFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -8292,6 +8816,11 @@ class Physics:
         self.mst = self.mct = self.sqf = 0
         self.gh = self.ghv = 0
         self.nbnc = self.nstun = self.nshat = self.nhop = 0
+        # wave 9 (SPEC.md 128.25.19): the WORKING values a family may raise - bz_wacc (added to every force
+        # table's AL, bz_ramp), bz_vup (added to the cap BZ_VMAXG, bz_gax.clamp) and bz_mrec's HOP (the
+        # material's copy the step reads) - and PICKUPS' sound counter and cue byte (bz_nfev, bz_cue)
+        self.wacc = self.vup = self.nfev = self.cue = 0
+        self.hop = self.m["HOP"]
         self.fta = fta_table(self.m["ACC"])
         # wave 3's state (SPEC.md 128.12.6.6) and the prop table it reads
         self._gate_late, self._kick_k, self._no_carry = _gate_late, _kick_k, _no_carry
@@ -8357,7 +8886,7 @@ class Physics:
         self._ray_inv, self._all_radial = _ray_inv, _all_radial
         self._inner_on = _inner_on                  # (a red arm: a quartered cell's second line after a push out)
         self.wsplit = False                         # bz_ps bit 3 (128.24.7.6)
-        self._fc = None                             # SPEC.md 128.27.5.3: step 5's FIELD centre (C, wx, wy)
+        self._fc = None                             # SPEC.md 128.28.5.3: step 5's FIELD centre (C, wx, wy)
         self._nolift, self._ffblock = _nolift, _ffblock     # (red arms: no lift; field neighbours blocking)
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
@@ -8392,7 +8921,7 @@ class Physics:
 
     @staticmethod
     def h4(c, u, v):
-        if c[3] == KIND_FIELD:                      # SPEC.md 128.27.2: a FIELD record carries its world heights
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.28.2: a FIELD record carries its world heights
             return c[6][v][u]
         return 16 * c[0] + c[1] * u + c[2] * v
 
@@ -8413,7 +8942,7 @@ class Physics:
             marg = 0 if (self.air and self._no_airclimb) else CLIMB << 8
             if not h > self.zs + marg:
                 return False
-            fc = self._fc                           # SPEC.md 128.27.5.3: a FIELD centre's edges and corner
+            fc = self._fc                           # SPEC.md 128.28.5.3: a FIELD centre's edges and corner
             if fc is not None and at is not None and not self._nolift:
                 C, cx, cy = fc
                 if c[3] == KIND_FIELD:              # field to field: never (the SEAM rule)
@@ -8438,7 +8967,7 @@ class Physics:
     def prec(self, wx, wy):
         """the RECORD the centre (gx, gy) is in, its cell (wx, wy): the cell, or its PICKED half (128.24.7.1)"""
         c = self.cell(wx, wy)
-        if c[3] == KIND_FIELD:                      # SPEC.md 128.27.5.1: a FIELD cell's slopes at the point
+        if c[3] == KIND_FIELD:                      # SPEC.md 128.28.5.1: a FIELD cell's slopes at the point
             sx, sy = fslopes(c[6], (self.gx >> 8) & 15, (self.gy >> 8) & 15)
             return (c[0], sx, sy, KIND_FIELD, c[4], c[5], c[6])
         if c[3] in SPLIT_KINDS:
@@ -8738,8 +9267,8 @@ class Physics:
             t = max(pr["K"], ((E_BUMPER * -d) >> 8) + pr["KA"])
         else:
             t = max(pr["K"], d)
-        self.gvx = _clamp(self.gvx + (((t - d) * nx) >> 6), VMAXG)
-        self.gvy = _clamp(self.gvy + (((t - d) * ny) >> 6), VMAXG)
+        self.gvx = _clamp(self.gvx + (((t - d) * nx) >> 6), VMAXG + self.vup)
+        self.gvy = _clamp(self.gvy + (((t - d) * ny) >> 6), VMAXG + self.vup)
         self.pkick[pr["i"]] = n
         self.nkick += 1
         self.events.append(("kick", self.nstep + 1, pr["i"], d, t, nx, ny))
@@ -8801,8 +9330,9 @@ class Physics:
         model's per step, from surf_entry): a pad's swap and a respawn's"""
         self.mat = mat
         self.m = MATERIALS[mat]
+        self.hop = self.m["HOP"]                    # (bz_setmat copies the record: the working Hop too)
         if not self._pad_noftg:
-            self.fta = fta_table(self.m["ACC"])
+            self.fta = fta_table(self.m["ACC"] + self.wacc)
         self._surfset(self.surf)                    # bz_setmat calls bz_surfset: k may change
 
     def _respawn(self, ret=False):
@@ -9027,7 +9557,7 @@ class Physics:
         if not self.air:
             force, dk, brake, _ = surf_entry(self.mat, Cs[5], self._iceplain)
             if not stun:
-                fx, fy = self._forces(K, ftg_table(force))
+                fx, fy = self._forces(K, ftg_table(force + self.wacc))
                 self.gvx += fx
                 self.gvy += fy
             sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL, KIND_FIELD) else (0, 0)
@@ -9042,16 +9572,16 @@ class Physics:
             if K & K_GRIP and not stun:
                 self.gvx = _brake(self.gvx, brake)
                 self.gvy = _brake(self.gvy, brake)
-            self.gvx = _clamp(self.gvx, VMAXG)
-            self.gvy = _clamp(self.gvy, VMAXG)
+            self.gvx = _clamp(self.gvx, VMAXG + self.vup)
+            self.gvy = _clamp(self.gvy, VMAXG + self.vup)
             self.gvz = (sx * self.gvx + sy * self.gvy) >> 2
         else:
             if not stun:
                 fx, fy = self._forces(K, self.fta)
                 self.gvx += fx
                 self.gvy += fy
-            self.gvx = _clamp(self.gvx, VMAXG)
-            self.gvy = _clamp(self.gvy, VMAXG)
+            self.gvx = _clamp(self.gvx, VMAXG + self.vup)
+            self.gvy = _clamp(self.gvy, VMAXG + self.vup)
             self.gvz = _clamp(self.gvz - G, VZMAX)
         # 3. move
         sgx, sgy, sgz = self.gx, self.gy, self.gz   # the undo's start: before the carry too
@@ -9093,7 +9623,7 @@ class Physics:
                     cwx, cwy = self.gx >> 12, self.gy >> 12        # tip): the window refilled round it
                     self._fill(cwx, cwy)
                 C = self.cell(cwx, cwy)
-        self._fc = (C, cwx, cwy) if C[3] == KIND_FIELD else None    # SPEC.md 128.27.5.3: the lift's centre
+        self._fc = (C, cwx, cwy) if C[3] == KIND_FIELD else None    # SPEC.md 128.28.5.3: the lift's centre
         pu, pv = self.gx & 0xFFF, self.gy & 0xFFF
         u, v = pu >> 8, pv >> 8
         lo = RAD << 8
@@ -9218,7 +9748,7 @@ class Physics:
                 self._circle(pr, n)
         if self.wol and (self.gx >> 12, self.gy >> 12) != self.wcell:
             self._fill(self.gx >> 12, self.gy >> 12)
-        # the fallback (SPEC.md 128.27.5.3: never lifted)
+        # the fallback (SPEC.md 128.28.5.3: never lifted)
         self._fc = None
         cwx, cwy = self.gx >> 12, self.gy >> 12
         if (cwx, cwy) != scell:
@@ -9253,7 +9783,7 @@ class Physics:
             if self.hopw and not stun and solid:
                 # 128.11.8.6: the Hop from the ground
                 self.air = 1
-                self.gvz = min(VZMAX, self.gvz + m["HOP"])
+                self.gvz = min(VZMAX, self.gvz + self.hop)
                 self.ztop = self.zoff = self.gz >> 8
                 self.gz += self.gvz
                 self.hopw = 0
@@ -9405,7 +9935,7 @@ class Physics:
             return "boost"
         elif self.hopw and not stun:
             rr = r if r >= bmin else 0
-            self.gvz = (m["HOP"] + rr if self._hop_add else max(m["HOP"], rr)) + base
+            self.gvz = (self.hop + rr if self._hop_add else max(self.hop, rr)) + base
             self.ztop = self.gz >> 8
             self.hopw = 0
             self.nhop += 1
@@ -9664,7 +10194,7 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # the constants before it.
 PHYS_REV = 12                 # SPEC.md 128.24.7 (story D2.4): the step reads split cells (the half pick,
                               # the diagonal inside a cell, the edges by their owning half, the corner's rays)
-PHYS_REV = 13                 # SPEC.md 128.27.5 (story C2): the step reads FIELD cells (the table's floor and
+PHYS_REV = 13                 # SPEC.md 128.28.5 (story C2): the step reads FIELD cells (the table's floor and
                               # slopes, the field-to-field edge, the lift)
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
@@ -11192,7 +11722,28 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
+def tour_ks(courses, tour=None):
+    """the TOUR (SPEC.md 128.26.8) as course numbers K, in its order: every NAME a course of COURSES, never
+    BENCH (K 0), none twice, at least one -> [K]; else CourseError naming the fault"""
+    tour = TOUR if tour is None else tour
+    byname = {c.name: k for k, c in enumerate(courses)}
+    if not tour:
+        raise CourseError("the tour is empty: G would have nothing to play (SPEC.md 128.26.8)")
+    if len(set(tour)) != len(tour):
+        raise CourseError("the tour names a course twice: %s" % ", ".join(tour))
+    ks = []
+    for n in tour:
+        if n not in byname:
+            raise CourseError("the tour names %s, which is not a course of BZ_COURSES (%s)"
+                              % (n, ", ".join(c.name for c in courses)))
+        if byname[n] == 0:
+            raise CourseError("the tour names %s, course 0 - the benchmark's, never a tour course" % n)
+        ks.append(byname[n])
+    return ks
+
+
 def emit_inc(courses, path=None, title=None):
+    tks = tour_ks(courses)
     allc = courses + ([path] if path is not None else [])   # wave 8b (128.19.5): the pathway's entry LAST
     if title is not None:                           # SPEC.md 128.23.1: the TITLE's after the pathway's
         if path is None:
@@ -11201,13 +11752,13 @@ def emit_inc(courses, path=None, title=None):
     lines = [
         "; bzcourse.inc - GENERATED by tools/bbcourse.py (SPEC.md 128.10.4, 128.11.3.1).",
         "; Do not edit: change a course under apps/bonanza/courses/ (the Makefile's",
-        "; BZ_COURSES, in order) and rebuild.  Course K's part is row 3 + K, after",
-        "; the three balls' (bonanza.asm); ONE part a course, the CGA's blocks - the",
+        "; BZ_COURSES, in order) and rebuild.  Course K's part is row K, the first",
+        "; rows (the balls ride the resident bundle, SPEC.md 128.25.5.2); ONE part a course, the CGA's blocks - the",
         "; Hercules translates them in place at the fetch (SPEC.md 128.11.3).",
         "",
         "BZ_NCRS         equ %d        ; courses, BZ_COURSES's order" % len(courses),
         "BZ_CRS_MAX      equ %d       ; the most courses (SPEC.md 128.22.5): every per-course table's width" % CRS_MAX,
-        "BZ_P_CRS        equ 3        ; course 0's row; course K's is BZ_P_CRS + K",
+        "BZ_P_CRS        equ 0        ; course 0's row; course K's is BZ_P_CRS + K (no ball rows: 128.25.5.2)",
         "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
         "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
         "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 128.15.4.5)"
@@ -11265,11 +11816,17 @@ def emit_inc(courses, path=None, title=None):
               "; the face's field widths (SPEC.md 128.14.17 item 2: every face line fits",
               "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
               "; title and NAME, the widest par in digits, and the TOUR's identity - the",
-              "; XOR of courses 1 .. BZ_NCRS - 1's (BONANZA.DAT +56, 128.14.3.3)",
+              "; XOR of the tour's courses' (BZ_TOUR below; BONANZA.DAT +146, 128.22.5)",
               "BZ_CRS_TITLEW   equ %d" % max(len(c.title) for c in courses),
               "BZ_CRS_NAMEW    equ %d" % max(len(c.name) for c in courses),
               "BZ_CRS_LIMW     equ %d" % max(len(str(c.limit)) for c in courses),
-              "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, c: a ^ c.ident, courses[1:], 0),
+              "BZ_CRS_TOURX    equ %05Xh" % functools.reduce(lambda a, k: a ^ courses[k].ident, tks, 0),
+              "; THE TOUR (SPEC.md 128.26.8): a short NAMED list (bbcourse.py's TOUR), a test",
+              "; fixture - not every course.  BZ_TOUR is a byte a tour course, its K, in order",
+              "BZ_NTOUR        equ %d        ; %s" % (len(tks), " ".join(courses[k].name for k in tks)),
+              "%macro BZ_TOUR 0",
+              "    db " + ", ".join(str(k) for k in tks),
+              "%endmacro",
               "BZ_PHYSV        equ %03Xh      ; the PHYSICS identity: CRC-16 of BZ_MATTAB, PHYS_CONSTS and the "
               "step's tables, folded (128.14.7.2, 128.14.25 item 4)" % PHYSV,
               "",
@@ -11290,9 +11847,9 @@ def emit_inc(courses, path=None, title=None):
               "BZ_KLR          equ %d        ; split along L - R (screen-horizontal): half A up, B down" % KIND_LR,
               "BZ_GF_SPLIT     equ %d       ; BZG1 +28 bit 4: the course has a split cell" % GF_SPLIT,
               "BZ_KQ           equ %d        ; QUARTERED (R4): records N, E, S, W" % KIND_Q,
-              "BZ_KFIELD       equ %d        ; a FIELD cell: a heightfield table in section F (SPEC.md 128.27)" % KIND_FIELD,
+              "BZ_KFIELD       equ %d        ; a FIELD cell: a heightfield table in section F (SPEC.md 128.28)" % KIND_FIELD,
               "BZ_GF_FIELD     equ %d       ; BZG1 +28 bit 5: the course has a FIELD cell, its tables in section F" % GF_FIELD,
-              "BZ_FTAB         equ %d      ; a FIELD table: 17 x 17 heights (SPEC.md 128.27.2)" % FTAB,
+              "BZ_FIELDTAB     equ %d      ; a FIELD table: 17 x 17 heights (SPEC.md 128.28.2)" % FTAB,
               "BZ_FSHAPE_MAX   equ %d       ; ...at most this many a course" % FSHAPE_MAX,
               "BZ_PAIR         equ %d        ; a pair: half A's cell record, then half B's" % PAIR,
               "BZ_QUAD         equ %d       ; a quartered cell's four records" % (2 * PAIR),
@@ -11473,25 +12030,36 @@ def emit_inc(courses, path=None, title=None):
               "BZF_SLOT        equ %d        ; a family's slot, bytes (bz_fsl: three of them)" % FSLOT,
               "BZF_HDR         equ %d       ; the family part's header: 'BF', ID, FAMV, the stamp, the mask, the "
               "kinds, 0, six entries" % FAM_HDR,
-              "BZ_NFAM         equ %d        ; the families the build has: rows BZ_P_FAM .. + BZ_NFAM - 1, ID 1 - "
-              "BZ_NFAM" % len(FAMILIES),
-              "BZ_FAMMAX       equ %d        ; families a course" % FAM_MAX,
+              "BZ_NFAM         equ %d        ; the families the build has: ID 1 - BZ_NFAM" % len(FAMILIES),
+              "BZ_NFFETCH      equ %d        ; ...home `fetch`: a part row each, BZ_P_FAM on, ID order" % len(FAM_FETCH),
+              "BZ_NFRES        equ %d        ; ...home `resident`: ONE row between them, the BUNDLE, after those "
+              "(SPEC.md 128.25.6.9)" % len(FAM_RES),
+              "BZ_NFROW        equ %d        ; the family part rows" % fam_nrows(),
+              "BZF_HPARAS      equ %d       ; a part's header byte: its paragraphs inside the bundle (0 alone)"
+              % FAM_HDR_PARAS,
+              "BZ_FAMMAX       equ %d        ; families a course's list holds at most: FETCHED ones (3) and "
+              "RESIDENT ones (SPEC.md 128.25.6.9), the courses' longest, never under 3" % max(
+                  [len(getattr(getattr(c_, "src", None), "uses", ())) for c_ in allc] + [FAM_MAX]),
               "BZ_FH_RESET     equ %d        ; the hook mask's bits (bz_fhk, the part's +8)" % H_RESET,
               "BZ_FH_ENTER     equ %d" % H_ENTER,
               "BZ_FH_CONTACT   equ %d" % H_CONTACT,
               "BZ_FH_STEP      equ %d" % H_STEP,
               "BZ_FH_POSE      equ %d" % H_POSE,
               "BZ_FH_CELL      equ %d" % H_CELL,
-              "BZC_NFAM        equ 45       ; BZC2 +45: the course's families, 0 - 3",
+              "BZ_FH_PROP      equ %d       ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone only, entry +24" % H_PROP] + [
+              "BZ_FK_%-9s equ %d       ; story 9.8: the %s's family KEY (bz_fone's DL; its record keeps kind %d)"
+              % (PK_NAMES[k].upper(), v, PK_NAMES[k], k) for k, v in sorted(OWN_KEY.items())] + [
+              "BZC_NFAM        equ 45       ; BZC2 +45: the course's families (its resident ones and up to 3 fetched)",
               "BZC_FAMOFF      equ 46       ; BZC2 +46: its FAMILY LIST (ID, FAMV pairs; NFST; the RESPAWN mask)",
               "BZP_FSB         equ 16       ; a FAMILY ELEMENT: its first state bit in bz_fst",
               "BZP_FCLS        equ 17       ; ...its reset class: 0 ATTEMPT, 1 RESPAWN",
               "; each family's FAMV (bbcourse.famv), its part's +3 and the courses' lists'"] + [
               "BZ_FAMV_%-8s equ %03Xh" % (f["name"].upper(), famv(f)) for f in FAMILIES] + [
               "; each family's ID and each family kind (a part names these, never a literal: IDs are FAMILIES'"
-              " order)"] + [
+              " order; an OWN-LAYOUT kind's key is BZ_FK_<NAME> above, story 9.8)"] + [
               "BZ_FID_%-9s equ %d" % (f["name"].upper(), f["id"]) for f in FAMILIES] + [
-              "BZ_FK_%-10s equ %d" % (k["name"].upper(), k["kind"]) for f in FAMILIES for k in f["kinds"]] + [
+              "BZ_FK_%-10s equ %d" % (k["name"].upper(), k["kind"]) for f in FAMILIES for k in f["kinds"]
+              if not k.get("own")] + [
               "; GLASS's constants (SPEC.md 128.25.18; its FAMV folds them)",
               "BZ_CRACK_TS     equ %d" % CRACK_TS, "BZ_CRACK_TR     equ %d" % CRACK_TR,
               "BZ_CRACK_LATE   equ %d" % CRACK_LATE,
@@ -11500,9 +12068,22 @@ def emit_inc(courses, path=None, title=None):
               "; each family part's RAM ceiling, paragraphs (FAMILIES' paras): the arena reserve counts it, and",
               "; the part's assembly refuses to pass it"] + [
               "BZ_FAMP_%-8s equ %d" % (f["name"].upper(), f["paras"]) for f in FAMILIES] + [
-              "; the family part rows: one a family, ID order, after every other row",
-              "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; BZF%d.BIN, %s (ID %d, FAMV %02Xh)"
-                                         % (f["id"], f["name"], f["id"], famv(f)) for f in FAMILIES] + [
+              "; PICKUPS' constants (SPEC.md 128.25.19; bbcourse PU_*)",
+              "BZ_PU_HGSEC     equ %d" % PU_HGSEC, "BZ_PU_SACC      equ %d" % PU_SACC,
+              "BZ_PU_SVUP      equ %d" % PU_SVUP, "BZ_PU_JHOP      equ %d" % PU_JHOP,
+              "BZ_PU_WARN      equ %d" % PU_WARN, "BZ_PU_OVER      equ %d" % PU_OVERWRITE,
+              "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
+              "BZ_K_JUMP       equ %d" % K_JUMP] + [
+              "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
+              "; RESIDENT BUNDLE's (SPEC.md 128.25.6.9)",
+              "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; bzf-%s.bin (ID %d, FAMV %02Xh)"
+                                         % (f["name"], f["id"], famv(f)) for f in FAM_FETCH] + [
+              "    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; %s: the three balls%s, held from the start"
+              % (FBUN_FILE, "".join(" + " + f["name"] for f in FAM_RES))] + [
+              "%endmacro",
+              "; BZ_FTAB: a family ID's part row (bz_ftab - 1 + ID, bz_ffetch's XLAT)",
+              "%macro BZ_FTAB 0"] + ["    db BZ_P_FAM + %d      ; %d %s (%s)" % (fam_row(f), f["id"], f["name"], f["home"])
+                                     for f in FAMILIES] + [
               "%endmacro",
               "",
               "; BZ_MATTAB (SPEC.md 128.11.5.1), %d bytes a material, bbcourse.MATERIALS" % MATREC,
@@ -11539,7 +12120,7 @@ def emit_inc(courses, path=None, title=None):
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN",
               " %endrep",
               "%endmacro", "",
-              "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a tour course, K 1 - BZ_NCRS - 1,",
+              "; wave 4's shipped demos (SPEC.md 128.14.7.4): one a course but BENCH, K 1 - BZ_NCRS - 1,",
               "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
               "; rows follow the songs': demo K at BZ_P_DEMO + K - 1 (bonanza.asm defines",
               "; BZ_P_DEMO = BZ_P_SONG + BZS_NSONG)",
@@ -11595,6 +12176,7 @@ def emit_path(path, courses, title=None):
            "BZ_FOL_VMIN     equ %d" % FOL_VMIN,
            "BZ_FOL_VMAXD    equ %d        ; the top speed on a screen-HORIZONTAL segment (px 2 a ground px)"
            % FOL_VMAXD,
+           "BZ_FOL_VMAXV    equ %d        ; ...on a screen-VERTICAL one (G 1 line a ground px)" % FOL_VMAXV,
            "BZ_PAD_POSES    equ %d        ; a pad's sign: 0 OPEN, 1 DONE, 2 SILVER, 3 GOLD" % PAD_POSES,
            "BZ_GATE_POSES   equ %d        ; a gate's: 0 closed, 1 - 4 sinking, 5 open" % GATE_POSES,
            "BZ_GF_PAGED     equ %d        ; BZG1 +28 bit 3: a PAGED window, +30 page 0's (as BZ_GF_VIEW's)"
@@ -11670,8 +12252,8 @@ def _music():
 
 def crs_arena(c, k, ncrs):
     """SPEC.md 128.25.4.2: course K's ARENA RESERVE, paragraphs - what bz_cload
-    fetches into the arena (20.12.15) for it, in its order: its balls
-    (crs_mats), the sound part, its song and, for a course (K < ncrs; not the
+    fetches into the arena (20.12.15) for it, in its order: (its balls until
+    128.25.5.2: now held in the bundle under op_artop, not counted) the sound part, its song and, for a course (K < ncrs; not the
     pathway, not the title), the victory fanfare bzs_gfetch fetches beside it
     and (wave 9) each family part it names, at FAMILIES' paras ceiling
     - each its RAM form's paragraphs, which is where the arena's top advances
@@ -11680,14 +12262,15 @@ def crs_arena(c, k, ncrs):
     part's fetch over everything before it.  A part of a play that wants less
     (a replay, sound OFF) leaves the reserve unused and bz_arload fits it"""
     snd, songs, vic = _music()
-    n = sum(_para(BA.B2_SIZE[m]) for m in crs_mats(c)) + _para(len(snd))
+    n = _para(len(snd))                 # (no ball: the balls are the arena's floor, held, 128.25.5.2)
     sk = course_song(c, k)
     if sk < len(songs):
         n += _para(len(songs[sk]))
     if k < ncrs and vic is not None and vic < len(songs):
         n += _para(len(songs[vic]))
     src = getattr(c, "src", None)                   # wave 9 (128.25.6.2): its FAMILIES' parts, the batch's
-    n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ()))   # last fetches, each at its ceiling
+    n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
+             if fm.get("home", HOME_FETCH) == HOME_FETCH)           # RESIDENT one is the arena's floor already (128.25.6.9)
     return n + CLAIM_SLACK
 
 
@@ -11758,9 +12341,29 @@ def budget(t):
     return ROOM * t // PLAN_SECS
 
 
+# NAMED exceptions to the cap, bytes (the lead's decision for the owner, 2026-11-16, story 9.8): MILL - an
+# OLD course the owner plans to drop as the new courses land - packed 9,406 against its 9,412 cap, and naming
+# the families its props now belong to (`uses rotor tube`, SPEC.md 128.25.20) adds 12 packed bytes.  It is
+# waived for MILL ALONE by exactly what that costs; no other course's cap moves.
+CAP_WAIVE = {"MILL": 6}
+
+
+def course_cap(c):
+    """course C's cap: budget_cap's, plus its NAMED waiver (CAP_WAIVE) if it has one"""
+    return budget_cap(c.target) + CAP_WAIVE.get(c.name, 0)
+
+
 def budget_cap(t):
-    """the refusal: 1.5 times the budget (R4's ratio)"""
+    """1.5 times the budget (R4's ratio): the refusal until SPEC.md 128.27.5, a REPORTED figure since"""
     return 3 * budget(t) // 2
+
+
+def budget_note(c, n):
+    """SPEC.md 128.15.8 as 128.27.5 amends it: the budget and its 1.5 times, REPORTED (never refused)"""
+    cap = budget_cap(c.target)
+    return "target %d s: budget %d, 1.5x %d - %s (reported, not refused: SPEC.md 128.27.5)" % (
+        c.target, budget(c.target), cap, "OVER 1.5x by %d" % (n - cap) if n > cap else
+        "over the budget by %d" % (n - budget(c.target)) if n > budget(c.target) else "under")
 
 
 _PACKED = {}
@@ -11778,24 +12381,20 @@ def packed_len(data, fmt="lz4"):
 
 def check_budget(c, k):
     """128.15.8: a course's `target` (every course but course 0), and its part
-    packed as LZ4 - whatever BZPARTZ is - at most 1.5 times its budget.  The
-    part read is the RECB 4 stored form whatever --rec is, which is the
-    shipped form since 128.15.5.4's verdict shipped D (C's 8-byte records pack
-    larger: MILL's 9,439 against its 9,412 cap before the follow-up).
-    -> the packed bytes, or
-    None for a course 0 with no target"""
+    packed as LZ4 - whatever BZPARTZ is - against its budget.  The part read
+    is the RECB 4 stored form whatever --rec is, which is the shipped form
+    since 128.15.5.4's verdict shipped D.  SPEC.md 128.27.5 (the owner,
+    2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
+    "that limit is the thing wrong; we'll end up with less courses, or two
+    disks".  What protects correctness stays refused where it always was (one
+    part's 65,024 bytes, the occluder bounds).  -> the packed bytes, or None
+    for a course 0 with no target"""
     if c.target is None:
         if k:
             raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
         return None
-    n = packed_len(c.stored4, "lz4")
-    cap = budget_cap(c.target)
-    if n > cap:
-        raise CourseError("%s:%d: the course packs to %d bytes (LZ4), over its cap of %d, 1.5 times the %d-byte "
-                          "budget of a %d s course (ROOM %d x %d / %d, SPEC.md 128.15.8)"
-                          % (c.fname, c.src.target[1], n, cap, budget(c.target), c.target, ROOM, c.target, PLAN_SECS))
-    return n
+    return packed_len(c.stored4, "lz4")
 
 
 def finish_points(c):
@@ -11881,13 +12480,415 @@ def finish_reach_rule(c, _hack=None, _posts=()):
         c.name, n, "s" * (n != 1), len(posts), "s" * (len(posts) != 1))
 
 
+# =============================================================================
+# the host checks' speed (2026-11-16, docs/TESTING.md *BONANZA's host checks*): independent work in FORKED
+# children, a core each.  Nothing here changes what a compile or a check computes - a child is a fork of
+# this process at the point the work would have run, so it sees exactly the state the sequential run would
+# have, and only its RESULT (pickled) and its OUTPUT (captured) come back, spliced in where the sequential
+# run would have printed and appended them.  BB_JOBS=1 (or --jobs 1) is the sequential run.
+# =============================================================================
+
+def jobs_default():
+    """BB_JOBS, else the cores this process may use, at most 4 (each child is a fork of a process that holds
+    every compiled course: four is what the 15 GB hosts here hold beside everything else they run)"""
+    v = os.environ.get("BB_JOBS")
+    if v:
+        return max(1, int(v))
+    try:
+        n = len(os.sched_getaffinity(0))
+    except AttributeError:
+        n = os.cpu_count() or 1
+    return max(1, min(4, n))
+
+
+JOBS = [None]                   # main()'s --jobs; None: jobs_default()
+
+
+def _jobs():
+    return JOBS[0] if JOBS[0] is not None else jobs_default()
+
+
+def _mkfn(code, mod, name, qual, defaults, kwdefaults, cells):
+    import marshal
+    import types
+    f = types.FunctionType(marshal.loads(code), sys.modules[mod].__dict__, name, defaults,
+                           None if cells is None else tuple(types.CellType(v) for v in cells))
+    f.__kwdefaults__, f.__qualname__ = kwdefaults, qual
+    return f
+
+
+def _dump(obj, f, gids=None):
+    """pickle OBJ to F, a compile's closures included (draw_ops' top-makers, in Course.ops): a nested
+    function goes as its code and its cells' values and comes back the same function.  The code is this
+    interpreter's (the cache's key holds its version).  GIDS: {id: (path, object)} of module-level objects
+    pickled by name (_globals_ids)"""
+    import marshal
+    import pickle
+    import types
+
+    class _P(pickle.Pickler):
+        def persistent_id(self, o):
+            g = gids.get(id(o)) if gids else None
+            return g[0] if g is not None and g[1] is o else None
+
+        def reducer_override(self, o):
+            if isinstance(o, types.FunctionType) and "<locals>" in o.__qualname__:
+                return (_mkfn, (marshal.dumps(o.__code__), o.__module__, o.__name__, o.__qualname__,
+                                o.__defaults__, o.__kwdefaults__,
+                                None if o.__closure__ is None else tuple(c.cell_contents for c in o.__closure__)))
+            return NotImplemented
+    _P(f, protocol=pickle.HIGHEST_PROTOCOL).dump(obj)
+
+
+# ---- the compile cache (build/bbcache/<tool>/<key>.pkl) ----
+# A compile of a course FILE (the shipped courses, a red tree's copies) is pickled under a key that is a hash
+# of everything the compile reads: the course's bytes and the name it is compiled under, every argument, the
+# tools' source (this file and every tools/ module it has imported) and the interpreter, every file under
+# apps/bonanza/courses/ (the art a course names) and demos/, the font, the Makefile (the course list), and
+# this module's and bonanza_assets' module-level data as it stands at the call (a control that switches a
+# refusal off or tunes a material is a different key).  A key that names any input wrong is a MISS, never a
+# stale hit.  BB_CACHE=0 turns it off; compile_all (the build's, and --selfcheck item 1's two) compiles
+# fresh every time and only WRITES it.
+
+CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
+_CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
+_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS"))
+# (memo tables whose contents are a function of their keys, and this machinery's own state)
+
+
+def _fp(o, depth=0):
+    """a stable rendering of module data for the key: containers by content (sets sorted), objects by their
+    class and attributes - never by address, so two processes agree"""
+    if depth > 8:
+        return "..."
+    if o is None or isinstance(o, (bool, int, float, str, bytes, bytearray, Fraction)):
+        return repr(o)
+    if isinstance(o, dict):
+        return "{%s}" % ",".join(sorted("%s:%s" % (_fp(k, depth + 1), _fp(v, depth + 1)) for k, v in o.items()))
+    if isinstance(o, (list, tuple)):
+        return "%s[%s]" % (type(o).__name__, ",".join(_fp(v, depth + 1) for v in o))
+    if isinstance(o, (set, frozenset)):
+        return "set{%s}" % ",".join(sorted(_fp(v, depth + 1) for v in o))
+    if callable(o) and not hasattr(o, "__dict__") or isinstance(o, type) or hasattr(o, "__code__"):
+        return "<%s>" % getattr(o, "__qualname__", type(o).__name__)
+    d = getattr(o, "__dict__", None)
+    return "<%s %s>" % (type(o).__qualname__, _fp(d, depth + 1) if d is not None else repr(o))
+
+
+def _state_fp():
+    """this module's and bonanza_assets' module-level DATA, and the data attributes of this module's
+    classes, as they stand now"""
+    import types
+    out = []
+    for mod in (sys.modules[__name__], BA):
+        for k, v in sorted(vars(mod).items()):
+            if k.startswith("__") or k in _FP_SKIP or isinstance(v, (types.ModuleType, types.FunctionType,
+                                                                     types.BuiltinFunctionType)):
+                continue
+            if isinstance(v, type):
+                if v.__module__ == mod.__name__:
+                    out.append("%s:%s" % (k, _fp({a: b for a, b in vars(v).items() if not a.startswith("__")
+                                                  and not callable(b) and not isinstance(b, (staticmethod,
+                                                                                             classmethod,
+                                                                                             property))})))
+                continue
+            out.append("%s=%s" % (k, _fp(v)))
+    return hashlib.sha256("\n".join(out).encode()).hexdigest()
+
+
+def _tool_hash():
+    """this file and every tools/ module it imports, at any depth and wherever the import stands (a lazy
+    one inside a function too), and the interpreter's version - hashed ONCE, as this process starts, so
+    the key names the source this process runs even if the file is edited under it"""
+    td = os.path.dirname(TOOL)
+    h = hashlib.sha256(sys.version.encode())
+    seen, todo = set(), ["bbcourse"]
+    while todo:
+        m = todo.pop()
+        if m in seen:
+            continue
+        seen.add(m)
+        with open(os.path.join(td, m + ".py"), "rb") as f:
+            b = f.read()
+        h.update(m.encode() + b"\0" + hashlib.sha256(b).digest())
+        todo += [n for n in re.findall(rb"^\s*(?:import|from)\s+(\w+)", b, re.M)
+                 for n in [n.decode()] if os.path.exists(os.path.join(td, n + ".py"))]
+    return h.hexdigest()[:20], tuple(sorted(seen))
+
+
+TOOL_HASH, TOOL_MODULES = _tool_hash()
+
+
+def tool_hash():
+    """the cache's directory: _tool_hash()'s, taken as this process started"""
+    return TOOL_HASH
+
+
+def _inputs_hash():
+    """every file under apps/bonanza/courses/ and apps/bonanza/demos/, the font and the Makefile, by content
+    (read again at every key: a file edited while a process runs is a new key)"""
+    h = hashlib.sha256()
+    fs = [LABEL_FONT, os.path.join(ROOT, "Makefile")]
+    for d in (COURSE_DIR, os.path.join(ROOT, "apps", "bonanza", "demos")):
+        for dp, dn, fn in os.walk(d):
+            dn.sort()
+            fs += [os.path.join(dp, n) for n in sorted(fn)]
+    for p in fs:
+        try:
+            with open(p, "rb") as f:
+                h.update(os.path.relpath(p, ROOT).encode() + b"\0" + hashlib.sha256(f.read()).digest())
+        except OSError:
+            h.update(p.encode() + b"\0missing")
+    return h.hexdigest()
+
+
+def _cache_on():
+    m = _CACHE["mode"]
+    if m is not None:
+        return None if m == "off" else m
+    return "rw" if os.environ.get("BB_CACHE", "1") != "0" else None
+
+
+def cache_key(source, fname, occluders, _hack, _rec, crsinfo, _tool=None, _inputs=None, _state=None):
+    """the compile's key (None when the cache is off).  _tool, _inputs, _state: --selfcheck's proof that
+    each of them moves the key"""
+    if not _cache_on():
+        return None
+    if fname is not None:                           # (the text itself)
+        text, name = source.encode("utf-8", "surrogateescape"), "text:" + fname
+    else:
+        try:
+            with open(source, "rb") as f:
+                text = f.read()
+        except OSError:
+            return None                             # (the compile says why)
+        ab = os.path.abspath(source)
+        name = os.path.relpath(ab, ROOT) if ab.startswith(ROOT + os.sep) else source
+    h = hashlib.sha256()
+    for part in (_tool or tool_hash(), _inputs or _inputs_hash(), _state or _state_fp(), name,
+                 hashlib.sha256(text).hexdigest(), repr(bool(occluders)), _fp(_hack or {}),
+                 repr(REC if _rec is None else _rec), _fp(crsinfo)):
+        h.update(part.encode() + b"\0")
+    return (_tool or tool_hash(), h.hexdigest())
+
+
+def _cache_path(key):
+    return os.path.join(CACHE_DIR, key[0], key[1] + ".pkl")
+
+
+def _globals_ids():
+    """module-level objects a Course may point at (a family's row, a material): pickled BY NAME, so a cached
+    course points at the live object, as a fresh compile's does"""
+    out = {}
+    for mn, mod in (("bb", sys.modules[__name__]), ("ba", BA)):
+        for k, v in vars(mod).items():
+            if k.startswith("__") or isinstance(v, (int, float, str, bytes, bool)) or v is None:
+                continue
+            todo = [((mn, k), v, 0)]
+            while todo:
+                path, o, d = todo.pop()
+                if isinstance(o, (int, float, str, bytes, bool)) or o is None or id(o) in out:
+                    continue
+                out[id(o)] = (path, o)
+                if d < 3 and isinstance(o, dict):
+                    todo += [(path + (("k", kk),), vv, d + 1) for kk, vv in o.items()
+                             if isinstance(kk, (int, str))]
+                elif d < 3 and isinstance(o, (list, tuple)):
+                    todo += [(path + (("i", i),), vv, d + 1) for i, vv in enumerate(o)]
+    return out
+
+
+def _resolve(path):
+    o = vars(sys.modules[__name__] if path[0] == "bb" else BA)[path[1]]
+    for kind, k in path[2:]:
+        o = o[k]
+    return o
+
+
+def cache_get(key):
+    if key is None or _CACHE["mode"] == "w":
+        return None
+    import pickle
+    try:
+        with open(_cache_path(key), "rb") as f:
+            up = pickle.Unpickler(f)
+            up.persistent_load = _resolve
+            return up.load()
+    except Exception:                               # (missing, or a torn file: a miss)
+        return None
+
+
+def cache_put(key, c):
+    if key is None:
+        return
+    import tempfile
+    try:
+        d = os.path.dirname(_cache_path(key))
+        os.makedirs(d, exist_ok=True)
+        for old in os.listdir(CACHE_DIR):           # (another tool's entries can never hit again)
+            if old != key[0]:
+                import shutil
+                shutil.rmtree(os.path.join(CACHE_DIR, old), ignore_errors=True)
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        with os.fdopen(fd, "wb") as f:
+            _dump(c, f, _globals_ids())
+        os.replace(tmp, _cache_path(key))
+    except OSError:
+        pass
+
+
+class _Kid:
+    """one forked child running FN(*A): .wait() -> (value, its captured output, the exception or None).
+    The child's stdout and stderr (file descriptors 1 and 2, so a subprocess's too) go to a file read back
+    by the parent; the result goes through a file, not a pipe, so a large one never blocks the child's exit"""
+    def __init__(self, fn, a):
+        import tempfile
+        fd, self.res = tempfile.mkstemp(prefix="bbkid", suffix=".pkl")
+        os.close(fd)
+        fd, self.out = tempfile.mkstemp(prefix="bbkid", suffix=".out")
+        os.close(fd)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self.status = None
+        self.pid = os.fork()
+        if self.pid == 0:                               # the child
+            try:
+                sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__     # (not a parent's capture)
+                o = os.open(self.out, os.O_WRONLY)
+                os.dup2(o, 1)
+                os.dup2(o, 2)
+                os.close(o)
+                try:
+                    val, exc = fn(*a), None
+                except BaseException as e:          # (the parent re-raises it where the sequential run would)
+                    import traceback
+                    traceback.print_exc()
+                    val, exc = None, e
+                sys.stdout.flush()
+                sys.stderr.flush()
+                with open(self.res, "wb") as f:
+                    try:
+                        _dump((val, exc), f, _globals_ids())
+                    except Exception as e2:         # (an unpicklable result or exception: said, not lost)
+                        f.seek(0)
+                        f.truncate()
+                        _dump((None, RuntimeError("bbcourse: a child's result did not pickle: %r (%r)"
+                                                  % (e2, exc))), f)
+            finally:
+                os._exit(0)
+
+    def wait(self):
+        import pickle
+        if self.status is None:
+            _pid, self.status = os.waitpid(self.pid, 0)
+        try:
+            with open(self.out, encoding="utf-8", errors="replace") as f:
+                out = f.read()
+            with open(self.res, "rb") as f:
+                data = f.read()
+        finally:
+            for p_ in (self.out, self.res):
+                try:
+                    os.unlink(p_)
+                except OSError:
+                    pass
+        if not data:
+            return None, out, RuntimeError("bbcourse: a child died (status %d) with no result:\n%s"
+                                           % (self.status, out[-2000:]))
+        import io
+        up = pickle.Unpickler(io.BytesIO(data))
+        up.persistent_load = _resolve
+        val, exc = up.load()
+        return val, out, exc
+
+
+class _Pool:
+    """at most N children at once: start() blocks while N are running"""
+    def __init__(self, n):
+        self.n, self.live = n, {}
+
+    def start(self, fn, *a):
+        while len([k for k in self.live.values() if k.status is None]) >= self.n:
+            for k in self.live.values():            # (our own children only: never another's exit status)
+                if k.status is None:
+                    pid, st = os.waitpid(k.pid, os.WNOHANG)
+                    if pid:
+                        k.status = st
+            else:
+                time.sleep(0.05)
+        k = _Kid(fn, a)
+        self.live[k.pid] = k
+        return k
+
+    def wait(self, k):
+        r = k.wait()
+        self.live.pop(k.pid, None)
+        return r
+
+    def kill(self):
+        import signal
+        for pid, k in list(self.live.items()):
+            if k.status is None:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            k.wait()
+        self.live.clear()
+
+
+def par_map(fn, args, jobs=None):
+    """[(fn(a), None) or (None, its CourseError)] for each A of ARGS, in order: each in a forked child when
+    there is more than one job and more than one A, else here, one after the other.  Any other exception is
+    raised; the children's output is printed in ARGS' order"""
+    n = _jobs() if jobs is None else jobs
+    if n <= 1 or len(args) <= 1 or not hasattr(os, "fork"):
+        out = []
+        for a in args:
+            try:
+                out.append((fn(a), None))
+            except CourseError as e:
+                out.append((None, e))
+        return out
+    pool = _Pool(n)
+    try:
+        kids = [pool.start(fn, a) for a in args]
+        out = []
+        for k in kids:
+            val, text, exc = pool.wait(k)
+            sys.stdout.write(text)
+            if exc is not None and not isinstance(exc, CourseError):
+                raise exc
+            out.append((val, exc))
+        return out
+    finally:
+        pool.kill()
+
+
 def compile_all(paths, demo_dir=None, path=None, title=None):
+    """every course, the pathway and the title, each compiled FRESH: the compile cache is written and never
+    read here - what the build ships and what --selfcheck item 1's determinism compares are compiles, never
+    a cache's"""
+    mode, _CACHE["mode"] = _CACHE["mode"], ("w" if _cache_on() else "off")
+    try:
+        return _compile_all(paths, demo_dir, path, title)
+    finally:
+        _CACHE["mode"] = mode
+
+
+def _compile_all(paths, demo_dir=None, path=None, title=None):
     check_boosts()
     check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     if len(paths) > CRS_MAX:
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
                           "BONANZA.DAT's BZS4 (SPEC.md 128.22.5)" % (len(paths), CRS_MAX))
-    courses = [compile_course(p) for p in paths]
+    # (the courses and the title, a core each: no compile reads another's; the first refusal in the
+    # sequential order is the one raised, and the title's where the sequential run compiled it)
+    got = par_map(compile_course, list(paths) + ([title] if title else []))
+    for _c, e in got[:len(paths)]:
+        if e is not None:
+            raise e
+    courses = [c_ for c_, _e in got[:len(paths)]]
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
@@ -11903,7 +12904,9 @@ def compile_all(paths, demo_dir=None, path=None, title=None):
                 raise CourseError("%s: --path names a course with no `pathway` statement" % path)
         pc = compile_course(path, crsinfo=[(c.name, c.title) for c in courses])
         compile_all.proofs = path_proofs(pc, courses)
-    tc = compile_course(title) if title else None   # SPEC.md 128.23: THE TITLE, beside them
+    if title and got[-1][1] is not None:             # SPEC.md 128.23: THE TITLE, beside them
+        raise got[-1][1]
+    tc = got[-1][0] if title else None
     if tc is not None and tc.src.title_ln is None:
         raise CourseError("%s: --title names a course with no `title` statement" % title)
     if any(c.src.title_ln is not None for c in courses) or (pc is not None and pc.src.title_ln is not None):
@@ -12106,13 +13109,21 @@ def check_demo(c, K, log, idents, where):
 # demo carrying one of these may be re-stamped by clock_restamp, and no other identity ever is
 # (MOON's 5E25h and PLAYGROUND's 9D5Eh left it in wave D5, SPEC.md 128.24.9: their demos were written again on
 # the courses with their diagonal sections, whose identities are their own)
-CLOCK_RESTAMP = {"PEAK": 0x0562}
+# (story 9.8, SPEC.md 128.25.20.4: PEAK's demo was written again when PEAK named its families - its identity
+# moved - so NO shipped demo carries a pre-clock identity now and nothing is re-stamped; the rule stays for
+# the record and its proof is item 8R's note.  It was {"PEAK": 0x0562} with CLOCK_BARE {"PEAK": 0x6814})
+# the courses with their diagonal sections, whose identities are their own; and PEAK's 0562h left it in SPEC.md
+# 128.27.8: the grounded faces moved every identity, so PEAK's demo was written again by `bbcourse.py author`,
+# and no shipped demo carries a pre-clock identity any more - the re-stamp has no user, and is kept, empty)
+CLOCK_RESTAMP = {}
 # ...and the course THAT identity was: its source today with its trailing finish clock(s) left out,
 # compiled with no occluders (occluders=False: the identity of the grid alone, a fraction of a second
 # where the shipped one's cut costs PEAK 13 s), must give this identity - so a course edited in any
 # other way is never re-stamped, however its demo replays (an edit, or a tool change that moves it,
 # fails the build as an earlier build's demo, naming `record it again`: the safe side)
-CLOCK_BARE = {"PEAK": 0x6814}
+# fails the build as an earlier build's demo, naming `record it again`: the safe side).  PEAK's was 6814h
+# until SPEC.md 128.27.8
+CLOCK_BARE = {}
 
 
 def clock_restamp(c, log):
@@ -13237,8 +14248,7 @@ def report(c, k=None):
               (pt["propoff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR, 2 * g["nrows"],
               4 * len(c.route), ", props %d" % (pt["diroff"] - pt["propoff"]) if pt["nprop"] else "",
               pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"]),
-              "; LZ4 %d as RECB 4 (target %d s: budget %d, cap %d)" % (c.packed4, c.target, budget(c.target),
-                                                              budget_cap(c.target))
+              "; LZ4 %d as RECB 4 (%s)" % (c.packed4, budget_note(c, c.packed4))
               if getattr(c, "packed4", None) else ""))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
           "dithered left out of the part); most in a block %d -> %d (bound "
@@ -14062,20 +15072,24 @@ def _cam_controls(courses, demos, by, res):
     mill = by["MILL"]
     # nohyst: the ramp bottom and the dither map (the CGA's)
     rb = [x for herc in (0, 1) for x in ramp_reversals(mill, herc, _nohyst=True) if x[1]]
-    dn = {}
-    for K, c in enumerate(courses):
-        d = cam_dither(c, 0, demos[K]["log"] if K in demos else None, _nohyst=True)
-        for t, v in d.items():
-            n = sum(1 for x in v if x[2] > x[3])
-            if n:
-                dn.setdefault(t, []).append("%s %d" % (c.name, n))
+    dn = {}                                     # tap -> ["COURSE card n", ...]; PLAY's tap 60 is the ring arm's scenario
+    for herc in (0, 1):
+        for K, c in enumerate(courses):
+            d = cam_dither(c, herc, demos[K]["log"] if K in demos else None, taps=(CAM_TAPS_P[-1],), _nohyst=True)
+            for t, v in d.items():
+                n = sum(1 for x in v if x[2] > x[3])
+                if n:
+                    dn.setdefault(t, []).append("%s %s %d" % (c.name, ("CGA", "Herc")[herc], n))
     # (round 3b, SPEC.md 128.17.17: the larger reach moved MILL's occluders and so the heavy rule's frames, and
     # with Hr 0 no ramp-bottom pattern reverses any more - about 50 searched on both cards - so the ramp
-    # bottom is PRINTED and the control is held red at the dither map)
+    # bottom is PRINTED and the control is held red at the dither map.  Wave 9 (the pickups yard, glass tiles,
+    # grounded faces) moved PLAY's demo again: taps of 8 - 25 reverse nowhere on the CGA now, so the control
+    # reads the 60-step taps, on BOTH cards, and is red only when each card has a reversing sample)
     print("    control `nohyst` at the ramp bottom: %s" % (
         ", ".join("%s reverses %d" % (x[0], x[1]) for x in rb) or "no reversal (round 3b's tree)"))
-    res.append(("8 control `nohyst` (Hr 0): red at the dither map (the CGA's reversing samples: %s)" % (
-        "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"), bool(dn)))
+    res.append(("8 control `nohyst` (Hr 0): red at the dither map on both cards (the reversing samples: %s)" % (
+        "; ".join("%d steps %s" % (t, ", ".join(dn[t])) for t in sorted(dn)) or "none"),
+        bool(dn) and all(any(" %s " % cd in x for x in dn[t]) for t in dn for cd in ("CGA", "Herc"))))
 
     def every(**kw):
         return [("%s %s %s" % (k[0], ("CGA", "Hercules")[k[1]], k[2]), k[1], rows)
@@ -14291,6 +15305,12 @@ def _grammar_cases():
         ("an unknown ball", F + "ball wood\n", "unknown ball 'wood'"),
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
         ("a part over 65,024 bytes", BIG, "one part may be"),
+        # SPEC.md 128.27.2: `float`'s refusals
+        ("a float on a half", F + "float half up tile 4 5\n", "float takes whole cells"),
+        ("a float with a height", F + "float rect 3 4 7 7 flat 4\n", "float takes a shape and nothing else"),
+        ("a float with no shape", F + "float\n", "float takes a shape and nothing else"),
+        ("a float on cells with no face over the void", F + "float tile 4 5\n", "float floats nothing"),
+        ("a float on the void", F + "float rect 20 20 22 22\n", "float floats nothing"),
         # (wave 6: this course trips the block bound under wave 5b's reach inputs, HOPMAX 224 and no BOOST
         # launch, and its records swing under 252's with Y0's alignment, 128.11.4.4 - so the case pins them:
         # it proves the REFUSAL, which the reach's inputs do not touch)
@@ -14304,11 +15324,11 @@ def _grammar_cases():
 
 
 # wave 3's malformed props (SPEC.md 128.12.13.1 item 2), every one a string here
-_W3W = ('course P "p"\nwidth 64\nfloor rect 6 9 11 14 flat 16\nwall rect 6 5 12 9 flat 22\n'
+_W3W = ('course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\nwall rect 6 5 12 9 flat 22\n'
         'floor rect 12 5 16 9 flat 20\ntube keep 9 9 12 6 via 9 6\nprop windmill 9 9\nstart 9 12\n')
 _W3P = ('course Q "q"\nwidth 64\nfloor rect 6 6 10 10 flat 4\nfloor rect 11 7 13 10 flat 1\nstart 7 7\n'
         'prop platform 10 8 3\n')
-_W3H = ('course H "h"\nwidth 64\nfloor rect 6 9 16 14 flat 16\nwall rect 6 5 16 9 flat 22\n'
+_W3H = ('course H "h"\nwidth 64\nuses rotor tube\nfloor rect 6 9 16 14 flat 16\nwall rect 6 5 16 9 flat 22\n'
         'floor rect 6 3 14 5 flat 20\nstart 9 12\ntube keep 7 9 7 4\ntube keep 10 9 10 4\n'
         'tube keep 13 9 13 4\nprop windmill 7 9 seed %d\nprop windmill 10 9 seed %d\nprop windmill 13 9 seed %d\n')
 _W3F = 'course F "f"\nwidth 64\nfloor band -10 10 26 %d flat 0\nstart %d %d\n'
@@ -14376,7 +15396,7 @@ def _wave3_cases():
          "floor tile 7 15 flat 16\ntube keep 7 12 7 14\nprop windmill 7 12\n", "entered along +y"),
         ("a windmill without a wall behind its doorway", W + "tube keep 10 12 10 11\nprop windmill 10 12\n",
          "without a wall behind its doorway"),
-        ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nfloor rect 6 9 11 14 flat 16\n'
+        ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\n'
          'wall rect 7 8 12 9 flat 17\nfloor rect 7 5 12 8 flat 16.5\ntube keep 9 9 9 7\nprop windmill 9 9\n'
          'start 9 12\n', "cannot hold its rotor"),
         ("a doorway in the shade", W + "wall tile 11 10 flat 30\n", "is in the shade"),
@@ -15030,7 +16050,7 @@ def _boost_checks(res, mill=None):
     # taken on a spring's cell rides the spring, and Space at that flight's
     # first contact (a floor a unit above) is a contact Hop, never a boost
     spc = compile_course('course SPR "s"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\n'
-                         'floor rect 9 10 40 14 flat 5\nspring 6 12 300\nstart 5 12\n', "<a Hop on a spring>",
+                         'floor rect 9 10 40 14 flat 5\nuses spring\nspring 6 12 300\nstart 5 12\n', "<a Hop on a spring>",
                          occluders=False)
 
     def spring_hop(**kw):
@@ -16367,7 +17387,8 @@ def _mouth_checks(c, res, tag):
             bad.append("the tube on line %d: the ball leaves %+d lines off its mouth" % (p["line"], off))
         if rec["sub"] == TK_DROP:                       # the preview's: the mouth on the floor line
             w, face, xm, rows, half, sill = mo
-            ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]})
+            ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]},
+                           c.ground, c.floats)
             low, _l, _w = _arch(_op_spans(ops, w, face), xm, rows, half, 0)
             if stands(low)[0]:
                 bad.append("negative control: the DROP's mouth on the floor line still passes (b)")
@@ -16385,8 +17406,12 @@ def _mouth_checks(c, res, tag):
         if a is None or b is None:
             return True
         return (a >= b - 1) if void_sw else (b >= a - 1)     # the void face no shallower: no bite
-    ops_deep = draw_ops(c.tiles, c.x0, deep)
-    ops_flat = draw_ops(c.tiles, c.x0)
+    # (SPEC.md 128.27: the course's own look, grounded or floating, must not bite; the deep rule itself is
+    # held on the FLOATING look, every face over the void 3 units - ground None - where it is what keeps the
+    # column whole, and its negative control, that look without the rule, must bite)
+    ops_deep = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+    ops_fdeep = draw_ops(c.tiles, c.x0, deep, None)
+    ops_flat = draw_ops(c.tiles, c.x0, (), None)
     nctl = 0
     for cell in sorted(deep):
         sw_n, se_n = c.tiles.get((cell[0], cell[1] + 1)), c.tiles.get((cell[0] + 1, cell[1]))
@@ -16395,6 +17420,8 @@ def _mouth_checks(c, res, tag):
         ncol += 1
         if not column(ops_deep, cell, sw_n is None):
             cbad.append(cell)
+        if not column(ops_fdeep, cell, sw_n is None):
+            cbad.append("%s floating" % (cell,))
         if not column(ops_flat, cell, sw_n is None):
             nctl += 1
     res.append(("3 %s: the exit MOUTHS (the owner's preview) - %d tube%s leaving by a face the viewer sees, each "
@@ -16500,7 +17527,7 @@ def top_hole_verdict(marks, cell, t, x0, R):
 def _square_hole(c, cell):
     """wave 3's IN hole (a square in ground units, max(|du|, |dv|) <= 5): the negative control"""
     t = c.tiles[cell]
-    ops = draw_ops(c.tiles, c.x0)
+    ops = draw_ops(c.tiles, c.x0, (), c.ground, c.floats)
     sp0 = _op_spans(ops, cell, "top")
     wf = _top_world(t, cell[0], cell[1], c.x0)
     out = set()
@@ -16524,7 +17551,7 @@ def _opening_checks(c, res, tag):
     (one side a larger circle's) fails (b); the rim's pixels put back to the
     checker fail the rim; wave 3's square IN hole fails the circle"""
     deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
-    ops = draw_ops(c.tiles, c.x0, deep)
+    ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
     narch = nrim = nhole = 0
     bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
     want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
@@ -17369,6 +18396,11 @@ class _famtest:
             d.pop(k, None)
 
 
+def _mill_text():
+    """MILL's text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE)"""
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read()
+
+
 def _w9_cases():
     """(what, text, the refusal's substring): 128.25.6.4's statements and rules"""
     C = _W4C
@@ -17378,6 +18410,11 @@ def _w9_cases():
         ("a family named twice", C + "uses probe probe\nprop probe 6 6 reset respawn\n", "named twice"),
         ("a probe of a family not named", C + "prop probe 6 6 reset respawn\n", "does not name"),
         ("a family named, none placed", C + "uses probe\n", "no element of it is placed"),
+        # story 9.8 (SPEC.md 128.25.20.4): today's props name their families
+        ("a spring, its family not named", C + "spring 6 6 300\n", "needs the spring family"),
+        ("a windmill, ROTOR not named", _mill_text().replace("uses rotor tube", "uses tube"), "needs the rotor family"),
+        ("a windmill, TUBE not named", _mill_text().replace("uses rotor tube", "uses rotor"), "needs the tube family"),
+        ("a tube, its family not named", _mill_text().replace("uses rotor tube", ""), "needs the"),
         ("an element with no reset class", C + "uses probe\nprop probe 6 6\n", "needs its reset class"),
         ("reset flag (written, not built)", C + "uses probe\nprop probe 6 6 reset flag\n", "written, not built"),
         ("reset of no class", C + "uses probe\nprop probe 6 6 reset never\n", "reset takes attempt or respawn"),
@@ -17395,6 +18432,13 @@ def _w9_cases():
          "which is SPLIT"),
         ("a crack whose top is not on a block (origin 228)", C.replace("origin 224", "origin 228")
          + "uses glass\nprop crack 6 6\n", "not on a block"),
+        # PICKUPS (SPEC.md 128.25.19): the element's own syntax
+        ("an hourglass with a duration", C + "uses pickups\nprop hourglass 6 6 for 3\n", "not 'for'"),
+        ("a speed for 0 s", C + "uses pickups\nprop speed 6 6 for 0\n", "the duration is a byte"),
+        ("a jump for 20 s", C + "uses pickups\nprop jump 6 6 for 20\n", "the duration is a byte"),
+        ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
+        ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
+        ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
     ]
 
 
@@ -17495,6 +18539,52 @@ def _w9_checks(res):
                 "records against %d" % ([lo[c] for c in cr], want, [lo0[c] for c in cr], len(g.records),
                                          len(g0.records)),
                 [lo[c] for c in cr] == want and all(lo0[c] > lo[c] for c in cr)))
+    _pickup_checks(res)
+
+
+def _pickup_checks(res):
+    """PICKUPS (SPEC.md 128.25.9, 128.25.19): the records, FAMV over the constants, and the reach with the
+    raised values where a pickup is reachable - its red arm `nopickreach`, the pair taken together unless
+    every one is marked `overwrite`, and a bound's refusal naming the pair"""
+    t = _W4C + "uses pickups\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite\nprop jump 8 6\n"
+    c = compile_course(t, fname="<pickups>", occluders=False)
+    recs = sorted((r["kind"], r["cls"], r["dur"], r["ow"]) for r in c.part["props"] if is_fam(r["kind"]))
+    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0), (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE),
+            (K_JUMP, CL_RESPAWN, PU_DUR, 0)]
+    j0 = globals()["PU_JHOP"]
+    f0 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0 + 4
+    f1 = famv(FAM_BY_NAME["pickups"])
+    globals()["PU_JHOP"] = j0
+    res.append(("3 PICKUPS' records (128.25.19): (kind, class, +18 duration, +19 flags) %s; FAMV %02Xh, %02Xh with "
+                "PU_JHOP + 4 (the constants are in it)" % (recs, f0, f1), recs == want and f0 != f1))
+    # the reach: the jump raises the reach where it is reachable; the arm without it raises nothing
+    # (on SAND, where no boost launches: on a firm level floor rubber's boosted bounce chain already
+    # reaches VZMAX's cap in the reach, so a jump there raises nothing - the owner's "bounded only by VZMAX")
+    S = _W4C + ("surface sand rect 4 4 12 9\nsurface sand rect 13 4 14 9\nsurface sand rect 12 4 13 6\n"
+                "surface sand rect 12 7 13 9\n")      # (every floor sand but the cup's own cell)
+    base = compile_course(S, fname="<no pickup>", occluders=False)
+    tj = S + "uses pickups\nprop jump 8 6\n"
+    cj = compile_course(tj, fname="<jump>", occluders=False)
+    cr = compile_course(tj, fname="<jump, nopickreach>", occluders=False, _hack={"nopickreach": True})
+    zb = dict(((r.wx, r.wy), r.zhi) for r in base.reach)
+    up = sorted((r.wx, r.wy) for r in cj.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi))
+    upr = [r for r in cr.reach if r.zhi > zb.get((r.wx, r.wy), r.zhi)]
+    res.append(("6 PICKUPS' reach (128.25.19): a jump raises zhi on %d cells (its Hop %d and the boost stacked); "
+                "the red arm nopickreach raises %d" % (len(up), PU_JHOP, len(upr)), len(up) > 0 and not upr))
+    # the pair: held together unless every one is `overwrite` - and a bound's refusal says so
+    both = S + "uses pickups\nprop speed 6 6\nprop jump 8 6%s\n"
+    cp = compile_course(both % "", fname="<pair>", occluders=False)
+    co = compile_course((both % " overwrite").replace("prop speed 6 6", "prop speed 6 6 overwrite"),
+                        fname="<pair overwrite>", occluders=False)
+    sp = {r.src[1] for r in cp.reach if r.src and r.src[1].startswith("pickup")}
+    so = {r.src[1] for r in co.reach if r.src and r.src[1].startswith("pickup")}
+    note = _pairnote(cp.reach)
+    res.append(("6 PICKUPS' pair (128.25.9): unmarked, the reach's raised cells come from %s; every one "
+                "`overwrite`, from %s; a bound's refusal on the pair names `overwrite`: %s" % (
+                    sorted(sp), sorted(so), bool(note)),
+                sp == {"pickup speed and jump"} and "pickup speed and jump" not in so and "overwrite" in note
+                and not _pairnote(co.reach)))
 
 
 def _w4_records(c, res):
@@ -17527,7 +18617,7 @@ def _w4_records(c, res):
     ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
     # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
     wf |= GF_SPLIT if any(isinstance(t_, Split) for t_ in c.tiles.values()) else 0
-    wf |= GF_FIELD if any(isinstance(t_, FieldTile) for t_ in c.tiles.values()) else 0     # (SPEC.md 128.27.2)
+    wf |= GF_FIELD if any(isinstance(t_, FieldTile) for t_ in c.tiles.values()) else 0     # (SPEC.md 128.28.2)
     ok = ok and pt["grid"]["gflags"] == wf
     res.append(("3 %s: every flag, pad, cup and spring record as its statement wrote it (a flag's ball at +17, a "
                 "two-pose lane, first with the lanes), BZG1 +28 FLAGS %02Xh and +29 PAD MASK %02Xh the records'"
@@ -17690,7 +18780,7 @@ def _w4_physics(byname, res):
     """item 7 (wave 4): each prop's rule and RETURN by the model, on the shipped
     courses and on the fixture course (SPEC.md 128.14.4.3 - 128.14.4.7), and
     the tilt's cap (128.14.8.2)"""
-    W = compile_course(_W4C + "spring 8 7 512\npad steel 6 7\ncheckpoint 9 5 ball glass\n", "<w4>")
+    W = compile_course(_W4C + "uses spring\nspring 8 7 512\npad steel 6 7\ncheckpoint 9 5 ball glass\n", "<w4>")
     cup = next(r for r in W.part["props"] if r["kind"] == PK_CUP)
     # the cup: 128 holes out, 256 lips out and pops, rolls on
     a = Physics(W, play=True).poke(11, 6, 128, 0)
@@ -18323,6 +19413,93 @@ def _w5_dither(courses, res, demos=None):
                 % "; ".join(sums), all(c.vis["ghost"] for c in courses)))
 
 
+# SPEC.md 128.27.6: the ground rule's course - a field at 0 and an island 6 units up across the void
+GROUND_TEST = ('course GR "Ground"\nwidth 64\nfloor rect 4 4 10 10 flat 0\nfloor rect 12 4 15 7 flat 6\n'
+               'start 5 5\n')
+
+
+def _face_bottoms(c, ops):
+    """SPEC.md 128.27.6: every whole cell's sw and se face over the VOID in `ops`, read off its spans:
+    [(cell, which, the face's last line, the corners' heights (zp, zq) in px)] - the cells the picture draws
+    (a glass tile's is not one, 128.25.18)"""
+    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
+    drawn = {k: v for k, v in c.tiles.items() if k not in gc}
+    out = []
+    for _k, cell, _t, h, _s, _e, faces in _cell_faces(drawn):
+        if h is not None or isinstance(_t, FieldTile):  # (a FIELD cell's faces follow its profile: 128.28.6)
+            continue
+        for fp, zp, fq, zq, nb, which in faces:
+            if nb is not None:
+                continue
+            sp = _op_spans(ops, cell, which)
+            if sp:
+                out.append((cell, which, max(sp), (fp, zp), (fq, zq)))
+    return out
+
+
+def _face_verdict(c, ops, floats, ground):
+    """-> (faces checked, faces whose last line DECIDES grounded from floating, [what is wrong]): each face's
+    last line is the lower of its two bottom corners' - a FLOATING cell's 3 units under its top, any other's
+    the ground plane's or 3 units, whichever is lower (SPEC.md 128.27.1)"""
+    n = dec = 0
+    bad = []
+    for cell, which, last, (fp, zp), (fq, zq) in _face_bottoms(c, ops):
+        n += 1
+        flo = cell in floats
+        bp, bq = (zp - FACE8, zq - FACE8) if flo else (min(zp - FACE8, ground), min(zq - FACE8, ground))
+        want = max(4 * (fp[0] + fp[1]) - bp, 4 * (fq[0] + fq[1]) - bq) - 1
+        if min(zp, zq) - FACE8 > ground + 2:
+            dec += 1
+        if last != want:
+            bad.append("%s %s face's last line %d, not %d (%s)" % (cell, which, last, want,
+                                                                   "floating" if flo else "grounded"))
+    return n, dec, bad
+
+
+def _ground_checks(courses, res):
+    """item 14 (SPEC.md 128.27.6): the grounded faces - the rule on a course made for it and its FLOATING twin,
+    each with its negative control, and every course's faces over the void held to the rule"""
+    try:
+        cg = compile_course(GROUND_TEST, "<GROUND>", _hack={"no_finish": True})
+        cf = compile_course(GROUND_TEST + "float rect 12 4 15 7\n", "<GROUND, floating>", _hack={"no_finish": True})
+        cn = compile_course(GROUND_TEST, "<GROUND, the rule off>", _hack={"no_finish": True, "noground": True})
+    except CourseError as e:
+        res.append(("14 GROUND: the ground rule's course compiles (%s)" % e, False))
+        return
+    isl = [(cell, w, last) for cell, w, last, *_r in _face_bottoms(cg, cg.ops) if cell[0] >= 12]
+    want = 8 * (13 + 6 + 2) - cg.ground - 1          # the island's sw face at (13, 6): corner B (28, 14), the ground
+    got = dict(((cell, w), last) for cell, w, last in isl).get(((13, 6), "sw"))
+    ff = dict(((cell, w), last) for cell, w, last, *_r in _face_bottoms(cf, cf.ops)).get(((13, 6), "sw"))
+    fn = dict(((cell, w), last) for cell, w, last, *_r in _face_bottoms(cn, cn.ops)).get(((13, 6), "sw"))
+    wantf = 8 * (13 + 6 + 2) - (48 - FACE8) - 1      # ... 3 units under its top, 6 units (48 px) up
+    res.append(("14 GROUND: the island 6 units up hangs its face over the void to the ground plane (%d px, the "
+                "field's 0 less 3 units): (13, 6)'s sw face ends on line %s, the ground's %d; FLOATING (`float rect "
+                "12 4 15 7`) it ends on line %s, 3 units down (%d); negative control, the rule off: line %s" % (
+                    cg.ground, got, want, ff, wantf, fn),
+                cg.ground == -FACE8 and got == want and ff == wantf and fn == wantf and cf.floats
+                and not cg.floats))
+    for nm, cc, fl, gr, good in (("the course", cg, cg.floats, cg.ground, True),
+                                 ("its floating twin", cf, cf.floats, cf.ground, True),
+                                 ("negative control: the floating twin read as grounded", cf, frozenset(),
+                                  cf.ground, False),
+                                 ("negative control: the course with the rule off read as grounded", cn,
+                                  frozenset(), cg.ground, False)):
+        n, dec, bad = _face_verdict(cc, cc.ops, fl, gr)
+        res.append(("14 GROUND: %s - %d faces over the void, %d of them deciding: %s" % (
+            nm, n, dec, "every one on its line" if not bad else "%d off (%s)" % (len(bad), "; ".join(bad[:3]))),
+            (not bad) == good and dec > 0))
+    for c in courses:
+        n, dec, bad = _face_verdict(c, c.ops, c.floats, c.ground)
+        res.append(("14 GROUND %s: the ground plane %d px (%s units); %d faces over the void, %d deciding, %d "
+                    "FLOATING cells: %s" % (c.name, c.ground, c.ground / 8.0, n, dec, len(c.floats),
+                                            "every one on its line" if not bad else
+                                            "%d off: %s" % (len(bad), "; ".join(bad[:4]))), not bad))
+    play = next((c for c in courses if c.name == "PLAY"), None)
+    if play is not None:
+        res.append(("14 GROUND: PLAYGROUND uses `float` (%d floating cells), so the statement ships exercised"
+                    % len(play.floats), bool(play.floats)))
+
+
 def _w5_budget(courses, res):
     """item 12 (SPEC.md 128.15.12.3): the `target` statement and the budget"""
     import copy
@@ -18331,13 +19508,15 @@ def _w5_budget(courses, res):
         cc = copy.copy(peak)
         cc.src = copy.copy(peak.src)
         cc.target, cc.src.target = 30, (30, peak.src.target[1])
+        # (SPEC.md 128.27.5: the 1.5x line is REPORTED, never refused - PEAK as a 30 s course, over it, is
+        # accepted and its note says OVER; the red arm, the refusal put back, fails this)
         try:
-            check_budget(cc, 1)
-            got, caught = "accepted", False
+            n_ = check_budget(cc, 1)
+            got, ok_ = budget_note(cc, n_), n_ is not None and "OVER 1.5x" in budget_note(cc, n_)
         except CourseError as e:
-            got, caught = str(e), "budget" in str(e) and "cap" in str(e)
-        res.append(("12 refused: PEAK as a 30 s course (its %d LZ4 bytes over the %d cap) - %s" % (
-            packed_len(peak.stored4), budget_cap(30), got), caught))
+            got, ok_ = "refused: %s" % e, False
+        res.append(("12 reported, not refused (128.27.5): PEAK as a 30 s course (its %d LZ4 bytes over the 1.5x "
+                    "line of %d) - %s" % (packed_len(peak.stored4), budget_cap(30), got), ok_))
     first = _first_text()
     for what, text, want in (("target 45", _swap(first, "target 30", "target 45"), "target takes 30, 60 or 90"),
                              ("target given twice", first + "target 60\n", "target given twice")):
@@ -18359,9 +19538,10 @@ def _w5_budget(courses, res):
             continue
         n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
         bg = budget(c.target)
-        res.append(("12 %s: target %d s, budget %d, cap %d: RECB 4's stored form LZ4 %d (%s), LZB %d (%s); RAM %d of %d" % (
-            c.name, c.target, bg, budget_cap(c.target), n, "over" if n > bg else "under", z,
-            "over" if z > bg else "under", len(c.cga), PARTMAX), n <= budget_cap(c.target)))
+        res.append(("12 %s: target %d s, budget %d, 1.5x %d (REPORTED, 128.27.5): RECB 4's stored form LZ4 %d (%s), "
+                    "LZB %d (%s); RAM %d of %d" % (
+                        c.name, c.target, bg, budget_cap(c.target), n, "over" if n > bg else "under", z,
+                        "over" if z > bg else "under", len(c.cga), PARTMAX), len(c.cga) <= PARTMAX))
 
 
 # =============================================================================
@@ -18632,8 +19812,8 @@ def _path_checks(courses, res):
                     ss, mid[0], mid[1], mid[2], bmid[0], bmid[1], bmid[2]),
                 ss == want_s and mid == (20 * 256, 8 * 256, 512) and end == (40 * 256, 8 * 256, 8 * 256)
                 and bmid == (36 * 256, 8 * 256, 8 * 256)))
-    # 8R.10 (round 2): a screen-HORIZONTAL segment (its axes OPPOSITE ways) is held at FOL_VMAXD - px 3 a step,
-    # the ball art's 1:1 roll - and a straight before it at FOL_VMAX, the cap taken from the segment holding s
+    # 8R.10 (round 2): a screen-HORIZONTAL segment (its axes OPPOSITE ways) is held at FOL_VMAXD - px 2 a step,
+    # a quarter of the ball art's 8 px period: the roll the eye reads (round 3) - and a straight before it at FOL_VMAX, the cap taken from the segment holding s
     def _vs(pts):
         f = Follow(pts)
         out = []
@@ -18642,12 +19822,18 @@ def _path_checks(courses, res):
             out.append(f.v)
         return out
     vd, vsd = _vs([(8, 8, 0), (24, -8, 0)]), _vs([(8, 8, 0), (24, 8, 0), (40, -8, 0)])
+    vv, vsv = _vs([(8, 8, 0), (24, 24, 0)]), _vs([(8, 8, 0), (24, 8, 0), (40, 24, 0)])
     res.append(("8R.10 bbcourse.Follow on a screen-horizontal diagonal (16 ground px each axis, opposite ways): v %s "
-                "(0.75, then FOL_VMAXD 1.5 a step - 3 px - braking to 0.75 into the pad on step 12); a 16 px straight "
-                "then the diagonal: v %s (3.0 on the straight, 1.5 from the step after s enters the diagonal)" % (
+                "(0.75, then FOL_VMAXD 1.0 a step - 2 px - braking to 0.5 into the pad on step 17); a 16 px straight "
+                "then the diagonal: v %s (3.0 on the straight, 1.0 from the step after s enters the diagonal)" % (
                     vd, vsd),
-                vd == [192] + [384] * 10 + [192]
-                and vsd == [192, 384, 576, 768, 768, 768, 768] + [384] * 10 + [192]))
+                vd == [192] + [256] * 15 + [128]
+                and vsd == [192, 384, 576, 768, 768, 768, 768] + [256] * 15 + [128]))
+    res.append(("8R.10 round 3: bbcourse.Follow on a screen-VERTICAL diagonal (16 ground px each axis, the same way): "
+                "v %s (FOL_VMAXV 2.0 a step - 2 lines - braking 1.25, 0.5 into the pad); a 16 px straight then the "
+                "diagonal: v %s (3.0, then 2.0 from the step after s enters it)" % (vv, vsv),
+                vv == [192, 384] + [512] * 6 + [320, 128]
+                and vsv == [192, 384, 576, 768, 768, 768, 768] + [512] * 7 + [320, 128]))
     # every shipped route walked both ways arrives on its pad's cell exactly
     arr = all(Follow(r["gpts"], rev).run()[-1] == (256 * (r["gpts"][-1 if not rev else 0][0]),
                                                   256 * (r["gpts"][-1 if not rev else 0][1]),
@@ -18667,7 +19853,19 @@ def _clock_rule_checks(courses, res, paths=None):
     paths = paths or default_paths()
     byk = {c.name: k for k, c in enumerate(courses)}
     RN = "PEAK"
-    if RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
+    if not CLOCK_RESTAMP:                   # SPEC.md 128.27.8: PEAK's demo written again on its grounded course
+        idents = [q.ident for q in courses]
+        stamped = []
+        for k, c in enumerate(courses):
+            if os.path.exists(demo_path(paths[k])):
+                with open(demo_path(paths[k]), encoding="ascii") as f:
+                    lg = bzd_log(parse_bzd(f.read(), "<%s demo>" % c.name), k)
+                stamped.append((c.name, struct.unpack_from("<H", lg, 14)[0] == c.ident))
+        res.append(("8R the clock rule's re-stamp is RETIRED (SPEC.md 128.27.8): no shipped demo is recorded on a "
+                    "pre-clock course, every one carries its course's own identity (%s)" % ", ".join(
+                        "%s %s" % (n, "yes" if g else "NO") for n, g in stamped), bool(stamped) and
+                    all(g for _n, g in stamped)))
+    elif RN in byk and os.path.exists(demo_path(paths[byk[RN]])):
         K = byk[RN]
         c = courses[K]
         with open(demo_path(paths[K]), encoding="ascii") as f:
@@ -19176,7 +20374,7 @@ def _split_physics(res):
     return cs, cr
 
 
-# SPEC.md 128.27's FIELD courses (stories C1 - C2): THE CHUTES - a 2-wide chute set in the ground (a straight,
+# SPEC.md 128.28's FIELD courses (stories C1 - C2): THE CHUTES - a 2-wide chute set in the ground (a straight,
 # two radial corners, its tapered ends), a 1-wide one with a sloped leg, a floor raised beside the 2-wide's
 # lip (the lift's wall); THE PIT - a bowl round a hole; THE BRIDGE - a chute over the void.  tests/
 # bonanza_dfield.py runs the guest on the same three
@@ -19210,7 +20408,7 @@ goal tile 24 28 flat 2
 
 
 def _field_cases():
-    """SPEC.md 128.27.3's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    """SPEC.md 128.28.3's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
     S = _FCHUTE
     return [
         ("a leg off the axis", S + "chute 1 round depth 4 way 8 29 2 way 12 30\n", "not along one axis"),
@@ -19235,7 +20433,7 @@ def _field_cases():
 
 
 def _field_checks(res):
-    """SPEC.md 128.27's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
+    """SPEC.md 128.28's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
     cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
     seam broken, red); the reader's refusals; the stored form; the model's scripted runs and their red arms"""
     for what, text, want in _field_cases():
@@ -19244,7 +20442,7 @@ def _field_checks(res):
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
-        res.append(("2 refused (128.27.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+        res.append(("2 refused (128.28.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     cs = {k: compile_course(t, "<%s>" % k, _hack={"no_finish": True})
           for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE))}
     for k, c in cs.items():
@@ -19257,7 +20455,7 @@ def _field_checks(res):
         pieces = {}
         for t in ft.values():
             pieces[t.piece] = pieces.get(t.piece, 0) + 1
-        print("    %s (SPEC.md 128.27): %d FIELD cells (%s), %d tables (F %d bytes), part %d, %d blocks, %d records"
+        print("    %s (SPEC.md 128.28): %d FIELD cells (%s), %d tables (F %d bytes), part %d, %d blocks, %d records"
               % (k, len(ft), ", ".join("%s %d" % kv for kv in sorted(pieces.items())), len(c.ftabs),
                  FTAB * len(c.ftabs), len(c.cga), len(c.blocks), len(c.records)))
         res.append(("2 %s: every FIELD cell's heights read back through the grid (its table, its symmetry); red: "
@@ -19298,7 +20496,7 @@ def _field_checks(res):
         for kk in keys(p_) if callable(keys) else keys:
             p_.step(kk)
         good = ok(p_)
-        res.append(("7 FIELD run (128.27.5): %s" % what, good))
+        res.append(("7 FIELD run (128.28.5): %s" % what, good))
         if arm:
             q = Physics(cs[k], play=True, mat=mat, **{arm: True})
             q.tsec = 0
@@ -19325,7 +20523,7 @@ def _field_steer(turn_x, before, after, n):
 
 
 def _field_runs():
-    """SPEC.md 128.27.5's scripted runs (story C2.3): (what, course, material, poke, keys, the outcome, a red
+    """SPEC.md 128.28.5's scripted runs (story C2.3): (what, course, material, poke, keys, the outcome, a red
     arm that must break it or None)"""
     rub, stl = MAT_RUBBER, MAT_STEEL
     U, D, L, Rt = K_U, K_D, K_L, K_R
@@ -19441,7 +20639,7 @@ def _split_checks(res, t):
              "are cell"),
             ("a split VOID-VOID", _vv, "all VOID"),
             ("a SAFE split cell", lambda b: b.__setitem__(co + i0 + 3, b[co + i0 + 3] | FL_SAFE), "flags"),
-            ("a kind 7 (FIELD) cell with no section F (SPEC.md 128.27.2)",
+            ("a kind 7 (FIELD) cell with no section F (SPEC.md 128.28.2)",
              lambda b: b.__setitem__(co + i0 + 2, (b[co + i0 + 2] & 0xF0) | 7), "FIELD cell's shape"),
             ("GF_SPLIT clear", lambda b: b.__setitem__(c.part["gridoff"] + 28, b[c.part["gridoff"] + 28] & ~GF_SPLIT),
              "GF_SPLIT"))
@@ -19588,7 +20786,7 @@ def _course_items(c, k, res, t):
                             okp = False
             continue
         tl = ent
-        if isinstance(tl, FieldTile):               # SPEC.md 128.27.2: its heights, all 17 x 17, the tile's
+        if isinstance(tl, FieldTile):               # SPEC.md 128.28.2: its heights, all 17 x 17, the tile's
             if cl[3] != KIND_FIELD or cl[6] != tl.h or cl[4] & FL_SAFE:
                 okp = False
             continue
@@ -19806,28 +21004,9 @@ def _course_items(c, k, res, t):
                     % (tag, ", ".join("%s apex %d px, zhi %d, footprint line %d" % o for o in sb)), sok))
 
 
-def selfcheck(paths=None):
-    paths = paths or default_paths()
-    res = []
-    skipped = []
-    # 1. determinism
-    a = compile_all(paths)
-    b = compile_all(paths)
-    same = all(a[1][k] == b[1][k] for k in a[1]) and a[2] == b[2] and sorted(a[1]) == sorted(b[1])
-    res.append(("1 two compiles byte-identical, file for file (%s, bzcourse.inc)" % ", ".join(sorted(a[1])), same))
-    courses = a[0]
-    byname = {c.name: c for c in courses}
-    for k, c in enumerate(courses):
-        report(c, k)
-    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
-               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
-    res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
-                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
-                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
-    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
-        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
-    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
-                "compared above)", st1))
+def _sc_seeds(X, res):
+    """--selfcheck's section `seeds` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:                    # the negative control: two windmills' seeds exchanged
         src = open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
                    else os.path.join(ROOT, byname["MILL"].fname)).read()
@@ -19846,6 +21025,11 @@ def selfcheck(paths=None):
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
             res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
+
+
+def _sc_crosscommit(X, res):
+    """--selfcheck's section `crosscommit` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 6 (SPEC.md 128.16.13): item 1's cross-commit check RE-ANCHORED on 503031d4.  That commit's tool,
     # run from git in a temporary tree on THIS tree's course texts (the PLAYGROUND, which that tree lacks,
     # excluded by name), and this tool with the reach's wave 5b inputs (HOPMAX 224, no BOOST launch) give the
@@ -19863,7 +21047,11 @@ def selfcheck(paths=None):
     for c in w5:
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
-            kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"])]
+            kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"],
+                                                                                 ["uses"], ["float"])]
+            # (story 9.8, SPEC.md 128.25.20: `uses` left out too - that grammar lacks it, and a family list is
+            # not in that commit's parts; this tool compiles the text with the family rule off, "famuses";
+            # and 128.27.2's `float`, which that grammar lacks too)
             # (wave 8b, 128.19.4: a goal's or a cup's `exit E` and `hidden` left out too - the grammar's new
             # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
             kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
@@ -19879,16 +21067,35 @@ def selfcheck(paths=None):
     else:
         diff = []
         for c, txt in zip(w5, w5txt):
-            c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0})  # (that tool had no Y0 search)
+            _CHECKS_OFF.add("famuses")
+            try:
+                # (that tool had no Y0 search; and SPEC.md 128.27's ground plane is a picture rule that tool lacks:
+                # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
+                c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True})
+            finally:
+                _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
                     "stored part byte for byte, that commit's tool run from git on this tree's course texts (%s): "
-                    "wave 6 moved the reach's inputs and nothing else in a part%s" % (
+                    "wave 6 moved the reach's inputs and nothing else in a part (128.27's ground rule off)%s" % (
                         W5_HOPMAX, W5_COMMIT, ", ".join(c.name for c in w5), "" if not diff else
                         " -- DIFFER: %s" % diff), not diff))
+
+
+def _sc_grammar(X, res, part=(0, 1)):
+    """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
+    the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases())
+    lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
+
+    def mine():
+        n_[0] += 1
+        return lo <= n_[0] < hi
     # 2. the grammar and the bounds
     for case in _grammar_cases():
+        if not mine():
+            continue
         what, text, want = case[:3]
         try:
             compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
@@ -19897,6 +21104,8 @@ def selfcheck(paths=None):
             fired, msg = want in str(e), str(e)
         res.append(("2 refused: %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     for case in _wave3_cases():
+        if not mine():
+            continue
         what, text, want = case[:3]
         try:
             compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
@@ -19912,6 +21121,8 @@ def selfcheck(paths=None):
                        ("seventeen lanes in a course",
                         big_ + _posts([_sa(s_, a) for s_ in (30, 36, 42, 48) for a in (-6, -2, 2, 6)]
                                       + [_sa(54, 0)]))):
+        if not mine():
+            continue
         try:
             cx = compile_course(text, fname="<%s>" % what, _hack={"no_finish": True})
             ok_, msg = True, "%d lanes" % sum(1 for r in cx.part["props"] if r["lane"])
@@ -19919,13 +21130,24 @@ def selfcheck(paths=None):
             ok_, msg = False, str(e)
         res.append(("2 accepted (128.19.10): %s (%s)" % (what, msg), ok_))
     for what, text, want in _w4_cases():
+        if not mine():
+            continue
         try:
             compile_course(text, fname="<%s>" % what)
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+
+
+def _sc_w9(X, res):
+    """--selfcheck's section `w9` (selfcheck(): a fork of its state after the compile)"""
     _w9_checks(res)
+
+
+def _sc_palette(X, res):
+    """--selfcheck's section `palette` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 6 (SPEC.md 128.16.6): the palette statement's refusals, and its byte
     ft = _first_text()
     for what, text, want in (("palette given twice", ft + "palette 1\npalette 0\n", "palette given twice"),
@@ -19971,6 +21193,10 @@ def selfcheck(paths=None):
                 fired = "UNDERSIDE" in str(e)
             res.append(("2 refused: %s's first record with the UNDERSIDE flag (the reader's own check)" % c.name, fired))
             break
+
+
+def _sc_tables(X, res):
+    """--selfcheck's section `tables` (selfcheck(): a fork of its state after the compile)"""
     # 4. the tables the guest reads, against 128.11.6.2's table written out here
     # (wave 6, SPEC.md 128.16.3: the Grips 8, 5, 3 - so ice's brakes 2, 1, 1 - the Hops 252, 160, 224, and
     # BZ_MATTAB +12 rubber's BOOST 350 as a word)
@@ -20007,12 +21233,29 @@ def selfcheck(paths=None):
     res.append(("4 a rule-only change moves BZ_PHYSV: PHYS_REV %d -> %d gives %02Xh against %02Xh" % (
         PHYS_REV, PHYS_REV + 1, phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)), PHYSV),
         phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)) != PHYSV))
-    t = htab()
+
+
+def _sc_courses(X, res):
+    """--selfcheck's section `courses` (selfcheck(): a fork of its state after the compile)"""
+    courses, t = X.courses, X.t
     for k, c in enumerate(courses):
         _course_items(c, k, res, t)
+
+
+def _sc_split(X, res):
+    """--selfcheck's section `split` (selfcheck(): a fork of its state after the compile)"""
+    t = X.t
     split = _split_checks(res, t)                   # SPEC.md 128.24.11: THE SPLIT COURSE (stories D1 - D2)
+
+
+def _sc_splitphys(X, res):
+    """--selfcheck's section `splitphys` (selfcheck(): a fork of its state after the compile)"""
     _split_physics(res)                             # ...and the model's runs on its halves (story D2)
-    _field_checks(res)                              # SPEC.md 128.27: the FIELD courses (stories C1 - C2)
+    _field_checks(res)                              # SPEC.md 128.28: the FIELD courses (stories C1 - C2)
+
+
+def _sc_gaps(X, res):
+    """--selfcheck's section `gaps` (selfcheck(): a fork of its state after the compile)"""
     # 7. physics, 8. the routes
     t0 = __import__("time").time()
     gaps = ledge_gaps()
@@ -20037,30 +21280,80 @@ def selfcheck(paths=None):
     print("    glass's ledge-gap table (SPEC.md 128.16.5.3), printed beside rubber's:")
     for line in gap_table_text(gg, MAT_GLASS).split("\n"):
         print("      " + line)
+
+
+def _sc_physics(X, res):
+    """--selfcheck's section `physics` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "FIRST" in byname:
         _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
+
+
+def _sc_props(X, res):
+    """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:
         _props_physics(byname["MILL"], res)
+
+
+def _sc_routes(X, res):
+    """--selfcheck's section `routes` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "BENCH" in byname:
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
+
+
+def _sc_millroute(X, res):
+    """--selfcheck's section `millroute` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
+
+
+def _sc_camcheck(X, res):
+    """--selfcheck's section `camcheck` (selfcheck(): a fork of its state after the compile)"""
+    courses, byname = X.courses, X.byname
     if {"BENCH", "MILL"} <= set(byname):        # wave 6b (SPEC.md 128.17.9): item 8 runs --camcheck whole
         camcheck(courses, compile_all.demos, res)
+
+
+def _sc_play(X, res):
+    """--selfcheck's section `play` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if "PLAY" in byname:                        # wave 6 (SPEC.md 128.16.8)
         _play_checks(byname["PLAY"], res)
         _trigger_checks(byname["PLAY"], res)    # wave 6b (SPEC.md 128.17.4)
+
+
+def _sc_launch(X, res):
+    """--selfcheck's section `launch` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 128.17.17)
         _launch_checks(byname, res)
+
+
+def _sc_clockvis(X, res):
+    """--selfcheck's section `clockvis` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # wave 7 (SPEC.md 128.18.5, CD1): each course's clocks, how often one shows on the route - PRINTED
     for c in courses:
         cv_ = clock_visibility(c)
         if cv_ is not None:
             print("    %s's clocks (SPEC.md 128.18.5): a digit in the window on %s of the autopilot route's frames "
                   "(CGA, Hercules)" % (c.name, ", ".join("%d%%" % round(100 * v) for v in cv_)))
+
+
+def _sc_gap3(X, res):
+    """--selfcheck's section `gap3` (selfcheck(): a fork of its state after the compile)"""
+    byname = X.byname
     # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
     # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
     _gap3_report(byname)
+
+
+def _sc_w4(X, res):
+    """--selfcheck's section `w4` (selfcheck(): a fork of its state after the compile)"""
+    courses, byname = X.courses, X.byname
     # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the demos
     _w4_physics(byname, res)
     for c in courses:
@@ -20072,6 +21365,11 @@ def selfcheck(paths=None):
         if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
             _w4_course_report(c, res)
             _w4_route(c, res)
+
+
+def _sc_flags(X, res):
+    """--selfcheck's section `flags` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     # item 5, the flags (128.14.25 item 1): a pennant is clipped by what is drawn in front of its flag, and
     # a flag the player cannot see is refused - every shipped flag's two poses clear of nearer geometry
     def _pfront(c):
@@ -20096,7 +21394,7 @@ def selfcheck(paths=None):
                 "units tall keeps %d pennant pixels under the wall with the clip taken out, 0 with it" % _pfront(raw),
                 hid and _pfront(half) == 0 and _pfront(raw) > 0))
     # item 6's control (128.14.17 item 5): a spring's launch left out of zhi fails item 6's spring test
-    fx = _W4C + "spring 8 7 512\n"
+    fx = _W4C + "uses spring\nspring 8 7 512\n"
     # (round 3b, SPEC.md 128.17.17: both without the boost's launch, whose added bounce now covers the
     # spring's flight on this small course by itself)
     cs = compile_course(fx, "<a spring, not in the reach>", _hack={"no_spring_reach": True, "boost": 0})
@@ -20105,6 +21403,10 @@ def selfcheck(paths=None):
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
                 not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
+
+
+def _sc_y0moon(X, res):
+    """--selfcheck's section `y0moon` (selfcheck(): a fork of its state after the compile)"""
     # item 6's Y0 control (SPEC.md 128.25.3, docs/reports/BONANZA-APEX-2026-11-16.md): MOON with every Hop at
     # 366 (a 12 px apex) at the alignment wave 6 met it at refuses on the block bound, and the search finds an
     # alignment that compiles - the height was never the limit
@@ -20121,6 +21423,10 @@ def selfcheck(paths=None):
                     "the block bound" if "occluder records, over" in forced else "got: " + forced, len(mok),
                     ", ".join("+%d" % k for k in mok)),
                 "occluder records, over" in forced and len(mok) > 0))
+
+
+def _sc_hud(X, res):
+    """--selfcheck's section `hud` (selfcheck(): a fork of its state after the compile)"""
     # item 8 (SPEC.md 128.15.3): NOTHING UNDER THE HUD went with the HUD, and its `underhud` control (which had
     # to MOVE the rect onto a cup) with it. No compilable cup reached the real rect: the reach's two-cell moat
     # keeps a cup's mark at least 41 px from the picture's left edge (the rect ended at 24) and the fall margin
@@ -20134,7 +21440,17 @@ def selfcheck(paths=None):
     except CourseError as e:
         why, cok = "refused: %s" % e, False
     res.append(("8 no HUD refusal: a cup on the green's front-left cell compiles (%s)" % why, cok))
+
+
+def _sc_demos4(X, res):
+    """--selfcheck's section `demos4` (selfcheck(): a fork of its state after the compile)"""
+    paths, courses = X.paths, X.courses
     _w4_demos(courses, paths, res)
+
+
+def _sc_inc(X, res):
+    """--selfcheck's section `inc` (selfcheck(): a fork of its state after the compile)"""
+    a, courses, byname = X.a, X.courses, X.byname
     # the tables bzcourse.inc carries (128.14.4.2, 128.14.7.2): BZ_CRS_PARS, BZ_CRS_IDS, BZ_PHYSV - the
     # physics identity recomputed with the standard library's own CRC-CCITT (binascii.crc_hqx)
     import binascii
@@ -20149,6 +21465,23 @@ def selfcheck(paths=None):
                 and "    dw " + ", ".join("%05Xh" % c.ident for c in courses) in inc
                 and PHYSV == (crc >> 8) ^ (crc & 0xFF) and "BZ_PHYSV        equ %03Xh" % PHYSV in inc
                 and all(c.ident for c in courses)))
+    # SPEC.md 128.26.8: THE TOUR is TOUR's named list, not every course but BENCH - BZ_TOUR, BZ_NTOUR and
+    # BZ_CRS_TOURX are its; and tour_ks refuses an empty list, BENCH, a name twice and a name not a course
+    tks = tour_ks(courses)
+    tx = functools.reduce(lambda x, k: x ^ courses[k].ident, tks, 0)
+    tbad = []
+    for what, t in (("empty", ()), ("BENCH", ("BENCH",) + TOUR), ("twice", TOUR + TOUR[:1]),
+                    ("unknown", TOUR + ("NOSUCH",))):
+        try:
+            tour_ks(courses, t)
+            tbad.append(what)
+        except CourseError:
+            pass
+    res.append(("4 the TOUR (SPEC.md 128.26.8) is TOUR's named list %s = K %s: bzcourse.inc's BZ_NTOUR %d, BZ_TOUR "
+                "and BZ_CRS_TOURX %04Xh are its, and an empty, BENCH, repeated or unknown tour is refused (%s)" % (
+                    " ".join(TOUR), tks, len(tks), tx, ", ".join(tbad) or "all four"),
+                "BZ_NTOUR        equ %d " % len(tks) in inc and "%macro BZ_TOUR 0\n    db " + ", ".join(
+                    str(k) for k in tks) + "\n" in inc and "BZ_CRS_TOURX    equ %05Xh" % tx in inc and not tbad))
     # wave 7 (SPEC.md 128.18.3): each course's limit by the rule (or explicit and over its floor), printed
     # with its 55-step seconds against real time; `par` refused; a limit under the floor refused
     lrows, lbad = [], []
@@ -20222,18 +21555,305 @@ def selfcheck(paths=None):
         res.append(("5 MILL negative control: a rotor whose blades are drawn IN FRONT of the doorway (a moving part "
                     "before the ball in one pose and not another) is REFUSED by the pose check", caught))
     # wave 5b (SPEC.md 128.15.12.3): item 10, the compact form; item 12, the budget
+
+
+def _sc_compact(X, res):
+    """--selfcheck's section `compact` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_compact(courses, res)
+
+
+def _sc_dither(X, res):
+    """--selfcheck's section `dither` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_dither(courses, res, getattr(compile_all, "demos", None))
+
+
+def _sc_budget(X, res):
+    """--selfcheck's section `budget` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _w5_budget(courses, res)
+    _ground_checks(courses, res)              # SPEC.md 128.27.6
+
+
+def _sc_title(X, res):
+    """--selfcheck's section `title` (selfcheck(): a fork of its state after the compile)"""
     _title_checks(res)                        # SPEC.md 128.23.6: the title's statements and demos
+
+
+def _sc_clockrule(X, res):
+    """--selfcheck's section `clockrule` (selfcheck(): a fork of its state after the compile)"""
+    paths, courses = X.paths, X.courses
     _clock_rule_checks(courses, res, paths)         # wave 8R (SPEC.md 128.22.6, 128.22.10)
+
+
+def _sc_path(X, res):
+    """--selfcheck's section `path` (selfcheck(): a fork of its state after the compile)"""
+    courses = X.courses
     _path_checks(courses, res)
+
+
+class _Slot:
+    """a section's place in --selfcheck's items: filled at the end, in the sequential order"""
+    def __init__(self, name, post):
+        self.name, self.post, self.kid, self.val, self.items = name, post, None, None, None
+
+
+class _Sections:
+    """--selfcheck's SECTIONS (2026-11-16, docs/TESTING.md *BONANZA's host checks*): each a block of items
+    that reads the compiled courses and appends to the items.  JOBS 1: each runs here, in order, as the
+    sequential selfcheck always did.  More: each is a forked child of this process taken once the courses
+    are compiled (so each sees exactly that state, whatever ran before it), started longest first
+    (SC_COST), a core each; its items and its output come back and are spliced in at its place, so the
+    report is the sequential one, line for line.  ONLY: the section names to run (--only), the rest left
+    out and said so"""
+    def __init__(self, res, jobs, only):
+        import io
+        self.res, self.only, self.left, self.times = res, only, [], {}
+        self.par = jobs > 1 and hasattr(os, "fork")
+        self.pool = _Pool(jobs) if self.par else None
+        self.todo, self.segs, self.slots = [], [], []
+        self.real = sys.stdout
+        if self.par:
+            self.buf = io.StringIO()
+            sys.stdout = self.buf
+
+    def want(self, name):
+        if self.only is None or name in self.only:
+            return True
+        if name not in self.left:
+            self.left.append(name)
+        return False
+
+    def _slot(self, name, post):
+        s = _Slot(name, post)
+        self.res.append(s)
+        self.slots.append(s)
+        if self.par:
+            self.segs += [self.buf.getvalue(), s]
+            self.buf.seek(0)
+            self.buf.truncate()
+        return s
+
+    def _child(self, fn, a, post):
+        n0, t0 = len(self.res), time.time()
+        v = fn(*a)
+        return (v if post else self.res[n0:]), time.time() - t0
+
+    def add(self, name, fn, *a, post=None, now=False):
+        """the section NAME: fn(*a) appends its items to the list it is handed (or, with POST, returns a
+        value that post(value) turns into items, at the end).  NOW: started at once (in a child when
+        parallel), not with the rest"""
+        if not self.want(name):
+            return
+        if not self.par:
+            t0 = time.time()
+            if post:
+                s = self._slot(name, post)
+                s.val = fn(*a)
+            else:
+                fn(*a)
+            self.times[name] = time.time() - t0
+            return
+        s = self._slot(name, post)
+        if now:
+            s.kid = self.pool.start(self._child, fn, a, post)
+        else:
+            self.todo.append((s, fn, a))
+
+    def finish(self):
+        """every section run and its items in place (res, in order); its output printed in order"""
+        if self.par:
+            sys.stdout = self.real
+            self.segs.append(self.buf.getvalue())
+            for s, fn, a in sorted(self.todo, key=lambda t_: -SC_COST.get(t_[0].name, 30)):
+                s.kid = self.pool.start(self._child, fn, a, s.post)
+            self.todo = []
+            err = None
+            for seg in self.segs:
+                if isinstance(seg, str):
+                    sys.stdout.write(seg)
+                    continue
+                val, text, exc = self.pool.wait(seg.kid)
+                sys.stdout.write(text)
+                if exc is not None:
+                    err = err or exc
+                    seg.items = []
+                    continue
+                seg.val, self.times[seg.name] = val
+            if err is not None:
+                raise err
+        for s in self.slots:
+            if s.items is None:
+                s.items = s.post(s.val) if s.post else s.val
+        self.res[:] = [r for x in self.res for r in (x.items if isinstance(x, _Slot) else [x])]
+
+    def close(self):
+        """on the way out of a failure: this process's output back, no child left running"""
+        if self.par and sys.stdout is self.buf:
+            sys.stdout = self.real
+            sys.stdout.write("".join(x for x in self.segs if isinstance(x, str)) + self.buf.getvalue())
+        if self.pool is not None:
+            self.pool.kill()
+
+
+# --selfcheck's sections' seconds (BB_TIMES=1), measured 2026-11-16 on four cores: only the order the
+# parallel run starts them in, longest first - a section missing here is started as if 30 s
+SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
+           "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
+           "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
+           "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
+           "seeds": 1, "tables": 1, "title": 1}
+
+
+def _sc_cache(X, res):
+    """--selfcheck's section `cache`: the compile cache's key (cache_key) names every input, so a hit is the
+    compile it stands for - each input moved by itself moves the key, and an entry comes back as the
+    compile it was"""
+    import copy
+    import tempfile
+    p = os.path.join(COURSE_DIR, "first.bbc")
+    mode, _CACHE["mode"] = _CACHE["mode"], "rw"     # (on, whatever BB_CACHE says: this is the key's proof)
+    try:
+        k0 = cache_key(p, None, True, None, None, None)
+        moved = {}
+        with tempfile.TemporaryDirectory() as td:
+            q = os.path.join(td, "first.bbc")
+            with open(p, "rb") as f:
+                txt = f.read()
+            with open(q, "wb") as f:
+                f.write(txt)
+            kq = cache_key(q, None, True, None, None, None)
+            with open(q, "wb") as f:                # one byte of the course
+                f.write(txt.replace(b"course ", b"course  ", 1))
+            moved["the course's text (one byte)"] = cache_key(q, None, True, None, None, None) != kq
+        moved["the course's name"] = kq != k0
+        moved["the tools' source (TOOL_HASH)"] = cache_key(p, None, True, None, None, None,
+                                                           _tool="0" * 20) != k0
+        moved["a file under courses/ or demos/, the font or the Makefile"] = cache_key(
+            p, None, True, None, None, None, _inputs="0") != k0
+        moved["occluders"] = cache_key(p, None, False, None, None, None) != k0
+        moved["a _hack"] = cache_key(p, None, True, {"y0add": 0}, None, None) != k0
+        moved["RECB"] = cache_key(p, None, True, None, 8, None) != k0
+        moved["crsinfo"] = cache_key(p, None, True, None, None, [("X", "x")]) != k0
+        moved["the course as text, not a file"] = cache_key(open(p).read(), "first", True, None, None, None) != k0
+        _CHECKS_OFF.add("flat")
+        try:
+            moved["a refusal switched off (_CHECKS_OFF)"] = cache_key(p, None, True, None, None, None) != k0
+        finally:
+            _CHECKS_OFF.discard("flat")
+        keep = copy.deepcopy(MATERIALS[MAT_RUBBER])
+        MATERIALS[MAT_RUBBER]["HOP"] += 1
+        try:
+            moved["a material's field (MATERIALS, as --tune)"] = cache_key(p, None, True, None, None, None) != k0
+        finally:
+            MATERIALS[MAT_RUBBER].update(keep)
+        back = cache_key(p, None, True, None, None, None) == k0
+        with _famtest():                            # (last: its class attribute stays set, a later key's miss)
+            moved["a family row registered (FAM_BY_NAME)"] = cache_key(p, None, True, None, None, None) != k0
+        imp = {"bbcourse", "bonanza_assets", "os88lz", "os88font", "bbmusic"} <= set(TOOL_MODULES)
+        res.append(("1 the compile cache's key moves with each input by itself (%s), comes back when they do, and "
+                    "TOOL_HASH covers %s" % ("; ".join("%s %s" % (w, "moves" if v else "DOES NOT MOVE")
+                                                       for w, v in moved.items()), ", ".join(TOOL_MODULES)),
+                    all(moved.values()) and back and imp))
+        # an entry is the compile it was: FIRST compiled fresh, written, read back - the same part, picture
+        # and records - and a FALSE entry under another key is never what a lookup returns
+        global CACHE_DIR
+        keepdir = CACHE_DIR
+        with tempfile.TemporaryDirectory() as td:
+            CACHE_DIR = td
+            try:
+                c = _compile_y0(p, None, True, None, None, None)
+                cache_put(k0, c)
+                h = cache_get(k0)
+                same = h is not None and (h.cga, h.stored, h.ident, h.pic, [r["mask"] for r in h.records]) == (
+                    c.cga, c.stored, c.ident, c.pic, [r["mask"] for r in c.records])
+                cache_put((k0[0], "f" * 64), X.courses[0])
+                other = cache_get((k0[0], "e" * 64)) is None and cache_get(k0).cga == c.cga
+                ops = all(callable(o[3]) for o in h.ops if len(o) > 3 and o[3] is not None)
+            finally:
+                CACHE_DIR = keepdir
+        res.append(("1 a cache entry is its compile: FIRST written and read back has the same RAM and stored "
+                    "parts, identity, picture and records (its closures restored), and a lookup under another "
+                    "key misses", same and other and ops))
+    finally:
+        _CACHE["mode"] = mode
+
+
+SC_SPLIT = {"grammar": 4}      # a section run as N slices in the parallel run (its function takes part=(k, n))
+
+
+def _sc_files(paths):
+    """item 1's SECOND compile (its files and bzcourse.inc), beside the first"""
+    _c, files, inc = compile_all(paths)
+    return files, inc
+
+
+def selfcheck(paths=None, only=None, jobs=None):
+    """the course compiler's selfcheck (SPEC.md 128.10.4.6): the courses compiled, then every section
+    (selfcheck_sections()), each a forked child when JOBS > 1 (the default: jobs_default(); _Sections
+    says why the report is the sequential one).  ONLY: the sections to run, by name (--only)"""
+    paths = paths or default_paths()
+    res = []
+    skipped = []
+    S = _Sections(res, _jobs() if jobs is None else jobs, only)
+    try:
+        return _selfcheck(paths, res, skipped, S)
+    finally:
+        S.close()
+
+
+def selfcheck_sections():
+    """--selfcheck's section names, in the report's order"""
+    return ["determinism"] + [n[4:] for n in _SC_ORDER]
+
+
+_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_palette", "_sc_tables", "_sc_courses",
+             "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
+             "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
+             "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
+             "_sc_title", "_sc_clockrule", "_sc_path", "_sc_cache")
+
+
+def _selfcheck(paths, res, skipped, S):
+    # 1. determinism: the second compile is a child's, beside the first - two compiles, two processes
+    A = {}
+    S.add("determinism", _sc_files, paths, now=True, post=lambda b: [(
+        "1 two compiles byte-identical, file for file (%s, bzcourse.inc)" % ", ".join(sorted(A["a"][1])),
+        all(A["a"][1][k] == b[0][k] for k in A["a"][1]) and A["a"][2] == b[1] and sorted(A["a"][1]) == sorted(b[0]))])
+    a = A["a"] = compile_all(paths)
+    courses = a[0]
+    byname = {c.name: c for c in courses}
+    for k, c in enumerate(courses):
+        report(c, k)
+    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
+               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
+    res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
+                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
+                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
+    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
+        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
+    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
+                "compared above)", st1))
+    import types
+    X = types.SimpleNamespace(paths=paths, a=a, courses=courses, byname=byname, t=htab())
+    for fn in _SC_ORDER:
+        n = SC_SPLIT.get(fn[4:], 1) if S.par else 1
+        for k in range(n):
+            S.add(fn[4:], globals()[fn], X, res, *([(k, n)] if n > 1 else []))
+    S.finish()
     ok = True
     for what, good in res:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
         ok = ok and good
     for what in skipped:
         print("  SKIP %s" % what)
+    if S.left:                                  # (--only: what was left out is said, never a silent pass)
+        print("  ONLY %d of %d sections ran (%s); left out: %s" % (
+            len(selfcheck_sections()) - len(S.left), len(selfcheck_sections()),
+            ", ".join(n for n in selfcheck_sections() if n not in S.left), ", ".join(S.left)))
+    if os.environ.get("BB_TIMES"):              # (each section's seconds, for SC_COST and the policy's table)
+        print("  times: " + ", ".join("%s %.1f" % kv for kv in sorted(S.times.items(), key=lambda kv: -kv[1])))
     print("bbcourse selfcheck: %s" % ("ok" if ok and not skipped else "FAILED" if not ok else
                                       "ok, but %d item%s SKIPPED (exit 77)" % (len(skipped), "s" if len(skipped) > 1
                                                                                else "")))
@@ -20323,7 +21943,7 @@ def _o88_arms(courses, demo_files):
         readme = os.path.join(ROOT, "apps", "bonanza", "README.md")
     out = {}
     with tempfile.TemporaryDirectory() as td:
-        parts = need[:3]
+        parts = []                      # (the balls ride the resident bundle since SPEC.md 128.25.5.2: added
         for k, c in enumerate(courses):
             p = os.path.join(td, "BZ%d.BIN" % k)
             with open(p, "wb") as f:
@@ -20335,6 +21955,9 @@ def _o88_arms(courses, demo_files):
             with open(p, "wb") as f:
                 f.write(demo_files[name])
             parts.append(p)
+        bun = os.path.join(bdir, FBUN_FILE)     # ...last, as the family rows are, when it is built)
+        if os.path.exists(bun):
+            parts.append(bun)
         for fmt in ("lz4", "lzb"):
             o88 = os.path.join(td, "BONANZA.O88")
             r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"), "--compress-if=lz4", binf,
@@ -20412,16 +22035,18 @@ def sizes(paths):
         if c.target is None:
             print("    no target (course 0, the benchmark's): no budget")
         else:
-            bg, cap = budget(c.target), budget_cap(c.target)
+            bg, cap = budget(c.target), course_cap(c)
             pace = c.target / float(c.brows)
             rows = int((PARTMAX - HDR) / (len(c.cga) / float(c.brows)))
             print("    target %d s: %.3f s a block row; one part holds about %d rows at this density, about %.0f s at "
                   "this pace" % (c.target, pace, rows, rows * pace))
             if c.target == 90:
                 print("    a 90 s course needs wave 11's levers (story 11.6) and a pace of at least 0.425 s a row")
-            print("    budget %d bytes (ROOM %d x %d / %d), cap %d (LZ4): LZ4 %d, %s; LZB %d, %s" % (
-                bg, ROOM, c.target, PLAN_SECS, cap, whole["lz4"], "OVER" if whole["lz4"] > bg else "under",
-                whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
+            print("    budget %d bytes (ROOM %d x %d / %d), 1.5x %d (LZ4), REPORTED, never refused (SPEC.md "
+                  "128.27.5): LZ4 %d, %s; LZB %d, %s" % (
+                      bg, ROOM, c.target, PLAN_SECS, cap, whole["lz4"],
+                      "OVER 1.5x" if whole["lz4"] > cap else "OVER" if whole["lz4"] > bg else "under",
+                      whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
         tot["lz4"] += whole["lz4"]
         tot["lzb"] += whole["lzb"]
         tot["ram"] += len(c.cga)
@@ -20772,6 +22397,12 @@ def main_author(argv):
 
 def main():
     global REC
+    if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
+        try:
+            return main_fbundle(sys.argv[1:])
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author", "tauthor"):
         try:
             return {"demo": main_demo, "author": main_author, "tauthor": main_tauthor}[sys.argv[1]](sys.argv[2:])
@@ -20787,6 +22418,12 @@ def main():
     ap.add_argument("--title", metavar="BBC", help="THE TITLE's source (SPEC.md 128.23): compiled beside the "
                     "courses as BZTITLE.BIN, its entry after the pathway's in every BZ_CRS_ table")
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--only", metavar="SECTIONS",
+                    help="--selfcheck: only these sections, comma-separated (`--only list` names them); the "
+                         "courses are compiled whatever is named (docs/TESTING.md, *BONANZA's host checks*)")
+    ap.add_argument("--jobs", "-j", type=int, metavar="N",
+                    help="processes at once: the courses' compiles and --selfcheck's sections (default BB_JOBS, "
+                         "else the cores, at most 4); 1 is the sequential run")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
                     help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
@@ -20806,10 +22443,21 @@ def main():
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 128.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck):
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
     REC = a.rec
+    JOBS[0] = a.jobs
     paths = a.courses or default_paths()
+    only = None
+    if a.only:
+        if a.only == "list":
+            print("\n".join(selfcheck_sections()))
+            return 0
+        only = [n.strip() for n in a.only.split(",") if n.strip()]
+        bad = [n for n in only if n not in selfcheck_sections()]
+        if bad or not a.selfcheck:
+            ap.error("--only takes --selfcheck's sections (%s)%s" % (", ".join(selfcheck_sections()),
+                                                                     ": not %s" % ", ".join(bad) if bad else ""))
     if a.camcheck:
         if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans:
             ap.error("--camcheck writes nothing and runs alone")
@@ -20837,7 +22485,7 @@ def main():
     try:
         rc = 0
         if a.selfcheck:
-            rc |= selfcheck(paths)
+            rc |= selfcheck(paths, only=only)
         if a.out:
             write_out(a.out, paths, a.path, a.title)
         if a.sizes:
@@ -20851,4 +22499,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import bbcourse                             # (run as the MODULE, so what this run pickles - the compile cache's
+    sys.exit(bbcourse.main())                   # courses - names bbcourse.Course, as a test that imports it reads)

@@ -21,7 +21,7 @@ org 0
 %include "bzcourse.inc"         ; the course tables' equates (BZ_FK0, BZP_FSB, ...)
 %include "bzlink.inc"           ; the package's constants and bss (pxlink)
 
-PR_ID       equ 1
+PR_ID       equ BZ_FID_PROBE    ; (bzcourse.inc's: never a literal, SPEC.md 128.25.6.2)
 PR_KIND     equ BZ_FK0
 
     db 'BF'
@@ -51,7 +51,7 @@ pr_reset:
 .l:
     cmp byte [es:si], PR_KIND
     jne .n
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]          ; (its lane MARKED, the walk made: bz_fmark)
 .n:
     add si, 32
     inc bx
@@ -69,7 +69,7 @@ pr_enter:
     test [si], al
     jnz .out
     or [si], al
-    mov byte [bz_latt + bx], 1
+    call far [bz_fmkp]
     mov byte [bz_fref], 1
 .out:
     retf

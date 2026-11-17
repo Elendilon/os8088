@@ -22,7 +22,13 @@ the bracket, and in that one bracket:
   6. P plays THE GAME: the pathway, the slot shown (2); its Esc is the title
      again;
   7. Esc on the title leaves the bracket; the instance's claims are as before
-     Enter.
+     Enter;
+  8. the title again (Enter), its demo run out to the COURSE DEMO, and there
+     Alt+Enter is the WINDOW, never the title (SPEC.md 128.23.4.1: the owner,
+     2026-11-16, "esc/alt enter will sometimes return to the title screen").
+
+Red arm `chain`: the course demo's leave not read (bz_tround goes round to
+the title after it whatever the key) - red at check 8.
 
 Red arm `view`: bz_camera's first frame centred on the ball as a course's is
 (the fixed window's placement taken out) - red at check 2.
@@ -51,8 +57,12 @@ REDS = {
     # every-frame hold then keeps it there), never the header's
     "view": [("bzgame.inc", "    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window is the\n",
               "    cmp byte [bz_fixed], 1      ; RED view: the first frame centred as a course's\n")],
+    # SPEC.md 128.23.4.1: Esc, F and Alt+Enter in the chain's COURSE demo leave the bracket - the
+    # leave taken out, so the title comes round again (the owner's report, 2026-11-16)
+    "chain": [("bonanza.asm", "    cmp byte [bz_twhy], 27      ; Esc, F or Alt+Enter leave the bracket as\n",
+               "    cmp byte [bz_twhy], 26      ; RED chain: the course demo's leave not read\n")],
 }
-RED_WANT = {"view": "2. "}
+RED_WANT = {"view": "2. ", "chain": "8. "}
 
 
 def title_k():
@@ -217,6 +227,26 @@ def run(tag, apps=None, src=None):
             tag, after, "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("7. after the title the claims are %s, before %s" % (after, base))
+        # --- 8. Alt+Enter in the chain's course demo: the window, not the title ----------------
+        ui.settle()
+        g.key("Enter")
+        M.until(m, lambda _: on_title(g), "the title (Enter, again)", guest=60)
+        m.bp_exec(g.a("bz_tlog"))
+        st = m.wait_stop(120)
+        assert st == "breakpoint", "the title demo never ended (state %r)" % st
+        m.bp_exec()
+        m.run()
+        M.until(m, lambda _: g.b("bz_tmode") == 2 and g.b("bz_crs") < title_k() - 1 and g.w("bz_cseg") != 0,
+                "a course demo (again)", guest=60)
+        X.at_t0(g, lambda g_: None)
+        X.leave(g, "altenter")
+        M.until(m, lambda _: on_title(g) or (g.b("bz_fs") == 0 and g.w("bz_cseg") == 0),
+                "the title or the window (Alt+Enter in the course demo)", guest=60)
+        ok = not on_title(g)
+        print("%s 8. Alt+Enter in the course demo: %s: %s" % (
+            tag, "the title" if on_title(g) else "the window", "yes" if ok else "NO"), flush=True)
+        if not ok:
+            fails.append("8. Alt+Enter in the title's course demo went to the title, not the window")
     return fails
 
 
