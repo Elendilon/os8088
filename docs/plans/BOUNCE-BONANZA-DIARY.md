@@ -3823,3 +3823,27 @@ nothing else moved.
   lines the only change.
 - **Found on the way**: item 1's cross-commit compile against `503031d4`
   needed `nokit`, as it already needed `y0add` 0 - that tool predates both.
+
+## 2026-11-17 (the standard kit: the guest)
+
+The guest's half is small: the kit's row, `bz_kget` (fetch, keep the segment),
+a ninth form in `bz_cexp`'s table, and `bz_phrel` counting the kit when it is
+not here. +184 bytes of image, +2 of bss, nothing in the kernel.
+
+- **Seen under unicorn, not on MartyPC**: the package's own `bz_cexp` on every
+  shipped course part equals the tool's expand byte for byte, and the copy
+  prices at 11 - 21 ms a part. The FIELD and split harnesses needed the kit
+  placed where `bz_kget` leaves it before they passed again.
+- **A slip the review caught**: `bz_cload` called `bz_kget` between
+  choosing the course's row and fetching it, and `bz_kget` spends AL - the
+  row. Unicorn could not see it (it calls `bz_cexp`, not `bz_cload`); a
+  launch would have fetched the wrong part. AL is read back from `bz_pc`
+  now. The first launch of the final pass is what proves it.
+- **The open costs about 0.6 s more**, once (PREDICTED: nine sectors and the
+  decode of 14.6KB); every launch after is shorter by 50 ms to a quarter
+  second.
+
+**Tested**: `make`, `make bonanzadisk`, the `BZSHAPES` knob build,
+`bbcourse.py --selfcheck` (775 ok), `--sizes`, `tests/bonanza_dfield.py` and
+`tests/bonanza_dsplit.py` (PASS), `tests/unit/t_pins.py`, `checkdocs`.
+**Not run**: every emulator row - the owner's final pass.

@@ -4306,7 +4306,7 @@ def after_shell(src=None):
         nf = BB.fam_nrows()
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + nf
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf   # (128.33: the kit)
 
 
 def fam_parts(td, src, art):
@@ -4364,6 +4364,8 @@ def part_args(art, src=None, shell=None, fams=None):
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
     if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
+    if "BZ_P_KIT" in asm:                       # SPEC.md 128.33: the kit, after the title's rows
+        out += ["--part", os.path.join(art, "BZKIT.BIN")]
     if "BZ_P_FBUN" in asm:                      # 128.25.6.9: the family ROWS - the fetch families' and
         for p in fams or BB.fam_partfiles(at("build")):     # the RESIDENT BUNDLE, the last
             out += ["--part", p]

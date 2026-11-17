@@ -54,6 +54,7 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS, SS, STUB = 0x1000, 0x3000, 0x7000, 0xFFF0
+KS = 0x5000                                     # SPEC.md 128.33: THE KIT's part (BZKIT.BIN), held: bz_kseg
 
 # THE NOTCH (R7, verify-dtool's): a floor N quarter between WALL W and E quarters; a ball rolled down the W
 # quarter's line from the cell above is pushed out of the cell by the FIRST line (nothing more of C's then)
@@ -104,6 +105,9 @@ class Guest:
         self.mu.mem_write(CS * 16 + STUB, b"\xf4")
         self.trace = None
         self.mu.hook_add(UC_HOOK_CODE, self._hook)
+        if "bz_kseg" in sym:                    # SPEC.md 128.33.5: the kit HELD, as bz_kget leaves it
+            self.mu.mem_write(KS * 16, BB.kit_part(BB.kit_load()))
+            self.w("bz_kseg", KS, 2)
 
     def _hook(self, mu, addr, size, ud):
         if self.trace is not None:
@@ -344,7 +348,7 @@ def hostile(binp, sym, c):
     """128.24.5.2's bound on a HOSTILE part: the stored form with one split cell's offset pointed past the part's
     end, one aligned wrong and one record's kind made a split's; bz_cexp under unicorn with every read and write
     of the course's segment watched -> [complaints]"""
-    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_MEM_READ
     st = bytearray(c.stored)
     g0 = struct.unpack_from("<H", st, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", st, g0 + 4)
@@ -366,7 +370,8 @@ def hostile(binp, sym, c):
 
     def watch(mu, access, addr, size, value, ud):
         if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
-                and not SS * 16 <= addr < SS * 16 + 0x10000:
+                and not SS * 16 <= addr < SS * 16 + 0x10000 \
+                and not (access == UC_MEM_READ and KS * 16 <= addr < KS * 16 + 0x10000):    # (the kit, 128.33)
             bad.append("an access at %05Xh, outside the part" % addr)
     g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
     g.w("bz_cseg", PS, 2)

@@ -158,7 +158,7 @@ def hostile(binp, sym, c):
     """128.28.2's bound, on MANY (17 tables): one FIELD cell's shape 31, one's +1 bit 7 set taking a shape
     of 1 - 15 to 17 - 31 -> OPEN; the good ones (shape 16, bit 7, among them) untouched; nothing read or
     written outside the part"""
-    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_MEM_READ
     st = bytearray(c.stored)
     diroff, nsec = struct.unpack_from("<HH", st, 38)
     sec = {}
@@ -179,7 +179,8 @@ def hostile(binp, sym, c):
 
     def watch(mu, access, addr, size, value, ud):
         if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
-                and not SS * 16 <= addr < SS * 16 + 0x10000:
+                and not SS * 16 <= addr < SS * 16 + 0x10000 \
+                and not (access == UC_MEM_READ and DS.KS * 16 <= addr < DS.KS * 16 + 0x10000):    # (the kit, 128.33)
             bad.append("an access at %05Xh, outside the part" % addr)
     g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
     g.w("bz_cseg", PS, 2)
