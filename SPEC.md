@@ -277804,9 +277804,32 @@ flag is clear by the package's convention (no `cld` is spent). The
 dispatcher is ONE routine with two entries (bzfam.inc): `bz_fall` (AL = the
 hook's bit NUMBER: every family of the course with an entry for it, in slot
 order) and `bz_fone` (DL = a kind: the family whose run holds it); both skip
-a hook whose entry is 0 (so a site need not test the hook's own bit), answer
-AX as the last hook left it (0 none), and call through `call far [bz_ffp]`,
-the entry and the slot's code segment written there first. **BUILT.**
+a hook whose entry is 0 (so a site need not test the hook's own bit) and
+answer AX as the last hook left it (0 none). **BUILT.**
+
+**THE HOOK LISTS (the owner's F6, 2026-11-17: "everything has some family
+now").** The dispatch used to walk every slot of the course on every call:
+the slot's part head read through its data segment, its run of kinds
+tested, its entry fetched and copied into a far pointer, about 470 clk a
+family on each STEP. `bz_ffetch` now builds, as it takes each slot, ONE
+LIST PER HOOK (`bz_fhl`, `BZ_NHOOK` 7 lists of `BZ_FAMMAX` 8-byte entries;
+`bz_fhn` each list's length, a word): for every hook whose bit the part's
+mask (+8) has and whose entry (+12 + 2b) is not 0, an entry of +0 that
+entry and the slot's CODE segment (a far pointer, on kern_mega the code
+selector `op_cseg` gave), +4 the slot, +5 the part's kinds' count and +6
+its first kind (+9, +10). `bz_fall` walks the hook's list and calls `call
+far [si]` where the entry lies; `bz_fone` walks it with DL's kind against
+each entry's run and stops at the first family it calls (the runs are
+disjoint). A family without the hook costs a dispatch nothing; the site's
+register contract above, the slot order and `bz_fmkp`'s write per dispatch
+are as they were. The lists are rebuilt from nothing by every `bz_ffetch`
+(the second call after the arena's batch re-takes every segment, so no list
+holds a segment across a fetch), and `bz_fhz` empties them with `bz_fhk`
+and `bz_fnf` at `bz_ffetch`'s start and `bz_cdrop`. A harness that writes
+the slot records itself writes the lists too (`bonanza_dsplit.fam_load`).
+MEASURED: image +64 (the dispatch 17 shorter, `bz_ffetch`'s list build +70,
+`bz_fhz` 14, `bz_cdrop` -3), bss +234 (`bz_fhl` 224, `bz_fhn` 14, `bz_ffp`'s 4
+gone); the cycles are in 128.19.10 item 9.
 
 **PINNED (story 9.1): the sites, exactly.**
 

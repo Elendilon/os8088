@@ -169,7 +169,7 @@ FS = 0x6000                                     # story 9.8: the family parts, o
 
 def fam_load(g, p):
     """story 9.8 (SPEC.md 128.25.20): the course's FAMILY PARTS (the build's bzf-<name>.bin) in memory and
-    bz_frec / bz_fhk / bz_fnf as bz_ffetch leaves them (its own fetch is bonanza_phys's unicorn half's to
+    bz_frec / bz_fhk / bz_fnf and the hook lists (bz_fhn, bz_fhl) as bz_ffetch leaves them (its own fetch is bonanza_phys's unicorn half's to
     prove): the windmill's doorway and the tube are the ROTOR and TUBE families' code now"""
     fhk, rec = 0, bytearray()
     for j, (fid, fv) in enumerate(p.grid.fams):
@@ -182,6 +182,19 @@ def fam_load(g, p):
         g.mu.mem_write(CS * 16 + g.sym["bz_frec"], bytes(rec))
     g.w("bz_fhk", fhk)
     g.w("bz_fnf", len(p.grid.fams))
+    if "bz_fhl" in g.sym:                       # SPEC.md 128.25.6.3: the hook LISTS a dispatch walks, as
+        fhn, fhl = [0] * 7, bytearray(7 * 32)   # bz_ffetch builds them - per hook, in slot order, each
+        for j, (fid, _fv) in enumerate(p.grid.fams):  # family whose mask has it: its far entry (the part's
+            img = open(R.at("build/bzf-%s.bin" % BB.FAM_BY_ID[fid]["name"]), "rb").read()   # 12 + 2b),
+            seg = FS + 0x100 * j                # the slot and its run of kinds (+9, +10)
+            for b in range(7):
+                if img[8] >> b & 1 and img[12 + 2 * b] | img[13 + 2 * b]:
+                    o = 32 * b + fhn[b]
+                    fhl[o:o + 8] = struct.pack("<HHBBBB", img[12 + 2 * b] | img[13 + 2 * b] << 8, seg, j, img[9],
+                                               img[10], 0)
+                    fhn[b] += 8
+        g.mu.mem_write(CS * 16 + g.sym["bz_fhn"], struct.pack("<7H", *fhn))
+        g.mu.mem_write(CS * 16 + g.sym["bz_fhl"], bytes(fhl))
 
 
 def gstate(g):

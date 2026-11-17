@@ -2531,8 +2531,9 @@ bz_cdrop:
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
-    mov word [bz_fhk], 0        ; wave 9 (SPEC.md 128.25.6.2): no hook active
-%if BZ_NFFETCH                  ; (and bz_fnf 0), the FETCHED families' parts
+    call bz_fhz                 ; wave 9 (SPEC.md 128.25.6.2): no hook active
+%if BZ_NFFETCH                  ; (bz_fhk, bz_fnf 0, every list empty), the
+                                ; FETCHED families' parts
     mov ax, BZ_P_FAM + BZ_NFFETCH ; first, the reverse of the fetch's order (a
 .dfam:                          ; row not here is a no-op, so a course with none
     dec ax                      ; drops none; a build with none has no loop) -
