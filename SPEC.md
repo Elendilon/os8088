@@ -251539,6 +251539,20 @@ The instruments' "flip+columns" part is `bz_tf`..`bz_tb` plus
 `bz_tc`..`bz_presented`; "box write" is `bz_tb`..`bz_tc`, or
 `bz_tb`..`bz_presented` when no column rows follow the boxes.
 
+**The early step** (`bz_early`, at `bz_tv`: the wheel is done and the frame
+would now idle until the retrace): a physics step already due by the loop's
+own rule (a sub-tick sampled past `bz_lsubs`, never a predicted one) runs in
+the wait when at least `BZ_EROOM` PIT counts of it remain, and `bz_lsubs`
+takes it, so the next frame's top has one fewer to run: the same steps in the
+same order, only earlier. It never runs on a full-write frame, after the
+goal, a timeout or a wheel load, in `bz_mode` 4, or on a replay whose log is
+spent. The one difference from stepping at the frame's top: in live play it
+reads the keys as last sampled. It is unconditional. History: it shipped in
+the 2026-11-15 speed pass behind `BZ_NOEARLYSTEP` and a runtime `bz_noearly`
+byte, both retired 2026-11-17 once the shipped state was the only one under
+test (no row stated the two states as an equivalence; replays and
+demos end where they did by construction).
+
 **A retrace wait that times out** is counted (`bz_tos`) and the frame is
 finished anyway; it is not rolled back. A full-write frame skips the wait and
 is left out of the means.

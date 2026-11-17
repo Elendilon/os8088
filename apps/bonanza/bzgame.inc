@@ -238,12 +238,9 @@ BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 BZ_SPR_STR  equ 72              ; ...and rubber's stretch 72 (wave 6, 128.16.4.4)
 BZ_NBOXMAX  equ 4
 ; THE EARLY STEP (bz_early): a step that is already due by the clock runs in
-; the retrace wait's idle time instead of at the next frame's top.  On unless
-; the build defines BZ_NOEARLYSTEP (`nasm -DBZ_NOEARLYSTEP`: the A/B, and the
-; bytes of the tree before it).
-%ifndef BZ_NOEARLYSTEP
- %define BZ_EARLYSTEP
-%endif
+; the retrace wait's idle time instead of at the next frame's top (SPEC.md
+; 128.4; shipped 2026-11-15, the A/B knob and the harness's off switch
+; retired 2026-11-17).
 BZ_EROOM    equ 8000            ; PIT counts (32k clk) the wait must still hold: the
                                 ; worst step MEASURED (21.8k clk, a bz_win9f refill
                                 ; and a tick's ISR in it), the 16 lines the last
@@ -509,7 +506,6 @@ VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a
                                 ; Hercules launch, before the bracket (128.11.3)
 BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
-%ifdef BZ_EARLYSTEP
 VAR bz_estp,1                   ; 1: an early step ran and its frame is not presented yet
 VAR bz_ersp,1                   ; ...and it respawned the ball (the next frame's bz_resp)
 VAR bz_nearly,2                 ; early steps this play (an instrument: nothing reads it)
@@ -520,10 +516,6 @@ VAR bz_sskl,1                   ; frame's call was skipped, this frame's steps,
 VAR bz_ssst,1                   ; and the frames and the calls skipped
 VAR bz_ssf,2
 VAR bz_ssn,2
-%endif
-VAR bz_noearly,1                ; a harness's: no early step (a row whose oracle reads the
-                                ; ball at bz_tf / bz_presented needs the state AS DRAWN there;
-                                ; nothing in the package writes it, bss is 0)
 %endif
 %if bz_rframes - bz_frames != BZ_LIVE || bz_npwt + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
  %error "bz_play copies the instruments and the footprints as blocks: their layout moved"
@@ -726,10 +718,8 @@ bz_play:
     cmp byte [bz_rsm], 0
     jne .rs1
     mov [bz_rn], al             ; the log: no current run, from its first pair
-%ifdef BZ_EARLYSTEP
     mov [bz_estp], ax           ; (and bz_ersp)
     mov [bz_nearly], ax
-%endif
     mov word [bz_rptr], bz_rlog + BZR_RUNS
 .rs1:
     mov di, bz_frames
@@ -804,10 +794,9 @@ bz_play:
 bz_t0:
     call bz_exitchk
     jc .out
-%ifdef BZ_EARLYSTEP
     cmp byte [bz_estp], 0       ; an early step ran in the last wait: this frame
     jne .on                     ; presents it before the goal or a log's end
-%endif                          ; ends the run, as the frame it was due in would
+                               ; ends the run, as the frame it was due in would
     cmp word [bz_goal], 0       ; the frame after the step whose centre is on
     je .live                    ; a GOAL cell, in play or a replay: the run is
     cmp byte [bz_fcnt], 1       ; over (SPEC.md 128.10.6.2) - but a PLAY runs
@@ -861,14 +850,10 @@ bz_t0:
     je .nohold                  ; 128.12.5.6): a spin before the steps
     call bz_hspin
 .nohold:
-%ifdef BZ_EARLYSTEP
     xor ax, ax                  ; (a respawn in this frame's steps: the cut) -
     xchg al, [bz_ersp]          ; the early step is this frame's first, and its
     mov [bz_resp], al           ; respawn this frame's
     mov [bz_estp], ah
-%else
-    mov byte [bz_resp], 0       ; (a respawn in this frame's steps: the cut)
-%endif
     mov cx, [bz_subs]           ; (sampled at the last frame's end mark)
     sub cx, [bz_lsubs]
     add [bz_lsubs], cx
@@ -879,13 +864,11 @@ bz_t0:
 %ifdef BZS_SKIPTEST
     mov [bz_ssst], cl           ; (the audition's rule: this frame's steps)
 %endif
-%ifdef BZ_EARLYSTEP
     cmp word [bz_goal], 0       ; the early step was the GOAL step: the last
     je .nogl                    ; (a play's finish sequence runs its steps on,
     cmp byte [bz_fcnt], 0       ; 128.22.6)
     je .camera
 .nogl:
-%endif
     jcxz .camera
 .step:
     cmp byte [bz_mode], 2       ; a replay (R, D) steps while its log lasts
@@ -994,9 +977,7 @@ bz_tw:
     mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2
 bz_tv:                          ; parts keep their numbers)
     call bz_mark
-%ifdef BZ_EARLYSTEP
     call bz_early               ; a due step, in the wait's time (after the wheel)
-%endif
     mov byte [bz_wvok], 0       ; (no rise to reckon from: bz_vr sets it)
     pushf                       ; IF, for the row-0 box's critical section:
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
@@ -1161,7 +1142,6 @@ bz_presented:
 .next:
     jmp bz_t0
 
-%ifdef BZ_EARLYSTEP
 ; -----------------------------------------------------------------------------
 ; bz_early - THE EARLY STEP, at bz_tv: the wheel is done and the frame would
 ; now idle until the retrace.  If a step is ALREADY DUE by the loop's own rule
@@ -1195,7 +1175,6 @@ bz_early:
     or al, [bz_goal]
     or al, [bz_tout]            ; (wave 7: the timeout's step ends it too)
     or al, [bz_wld]
-    or al, [bz_noearly]         ; (a harness's poke)
     jnz .no
     cmp [bz_wvok], al
     je .no
@@ -1204,7 +1183,6 @@ bz_early:
 %if BZ_PATH_NPAD
     cmp byte [bz_mode], 4       ; (the pathway's follower steps no early step)
     je .no
-%endif
     call bz_rleft
     jz .no
 .room:

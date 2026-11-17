@@ -884,6 +884,7 @@ class Bz:
         under it, bonanza_exit); otherwise the base is banked once and
         check_base() says if it moved."""
         self.ui, self.m, self.tag, self.sym, self.live = ui, ui.m, tag, sym, live
+        self.pre = None                         # the ball's state AT bz_tv (Walker): see look()
         self.win = ui.window("Bounce Bonanza")
         self.base = self.wseg() << 4
         assert self.base, "the window has no package segment"
@@ -949,6 +950,27 @@ class Bz:
         """(S, R0, c0, px, py) as the package holds them now."""
         return (self.w("bz_S"), self.w("bz_R0"), self.w("bz_c0"), self.w("bz_px"), self.w("bz_py"))
 
+    def bank_pre(self):
+        """at bz_tv (the loop's marks): the ball as the frame's boxes drew it, before bz_early's step"""
+        lo = self.sym["bz_phs"]
+        self.pre = (self.m.read(self.base + lo, self.sym["bz_phe"] - lo), self.w("bz_px"), self.w("bz_py"),
+                    self.b("bz_mat"), self.b("bz_hidn") if "bz_hidn" in self.sym else None)
+
+    def nd(self):
+        """bz_nstep AS THE FRAME WAS DRAWN, at bz_tf or bz_presented: less the early step bz_estp says ran in the wait"""
+        return self.d("bz_nstep") - self.b("bz_estp")
+
+    def dpx(self):
+        """(bz_px, bz_py) as drawn: the bank at bz_tv, else live"""
+        return (self.pre[1], self.pre[2]) if self.pre else (self.w("bz_px"), self.w("bz_py"))
+
+    def drawn(self, n, k=0):
+        """a byte of the ball's state (bz_phs .. bz_phe) as the frame DREW it: the bank at bz_tv when a loop made
+        one, else the live byte"""
+        if self.pre is None:
+            return self.m.read(self.a(n) + k, 1)[0]
+        return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
+
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
         bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
@@ -960,19 +982,23 @@ class Bz:
         if grid is None:
             grid = crs._grid = BB.Grid(crs.cga, crs.wcga)
         lo = self.sym["bz_phs"]
-        raw = self.m.read(self.base + lo, self.sym["bz_phe"] - lo)
+        # THE EARLY STEP (SPEC.md 128.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
+        # a step ahead of the picture on such a frame.  A Walker stopped at bz_tv banks the state as drawn.
+        raw, px, py, mat, hidn = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
+                                              self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"),
+                                              self.b("bz_hidn") if "bz_hidn" in self.sym else None)
 
         def f(n, fmt):
             return struct.unpack_from(fmt, raw, self.sym[n] - lo)[0]
         lk = Look(grid=grid, gx=f("bz_gx", "<I"), gy=f("bz_gy", "<I"), gz=f("bz_gz", "<i"), air=f("bz_air", "B"),
                   mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
-                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0,
+                  mat=mat, px=px, py=py, y0=grid.y0,
                   stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 128.16.4.4)
         lk.zb = lk.gz >> 8
         # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
-        lk.tube = self.b("bz_hidn") if "bz_hidn" in self.sym else f("bz_tube", "B") if "bz_tube" in self.sym else 0
+        lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
@@ -1095,6 +1121,8 @@ class Walker:
     def __init__(self, g, t0=False, extra=()):
         self.g, self.m = g, g.m
         self.tf, self.pr = g.a("bz_tf"), g.a("bz_presented")
+        self.tv = g.a("bz_tv")                  # (the ball as drawn, before the early step: Bz.look)
+        g.pre = None
         self.t0 = g.a("bz_t0") if t0 else None
         self.extra = {}
         for n in extra:
@@ -1104,17 +1132,24 @@ class Walker:
                 self.extra[g.a(n)] = n
 
     def arm(self):
-        self.m.bp_exec(*([a for a in (self.t0, self.tf, self.pr) if a is not None] + list(self.extra)))
+        self.m.bp_exec(*([a for a in (self.t0, self.tv, self.tf, self.pr) if a is not None] + list(self.extra)))
 
     def next(self):
         """Run to the next mark; -> 't0', 'tf', 'pr' or an EXTRA name."""
-        m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        r = m.regs()
+        m, g = self.m, self.g
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv:                 # bank the ball as drawn: bz_early runs next
+                g.bank_pre()
+                continue
+            break
         self.r = r
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        if flat == self.t0:
+            g.pre = None
         if flat == self.tf:
             return "tf"
         if flat == self.t0:
@@ -3166,7 +3201,7 @@ def ground_replay(g, s, mode, art=None):
             continue
         tal["frames"] += 1                      # bz_presented
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"])
         R0, c0 = g.w("bz_R0"), g.w("bz_c0")
         if mode == 0:
@@ -3175,7 +3210,7 @@ def ground_replay(g, s, mode, art=None):
                 fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
                              "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
                 break
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
                          "%d)" % (label, fr, n, px, py, R0, c0))
@@ -3190,7 +3225,7 @@ def ground_replay(g, s, mode, art=None):
                                  "void (SPEC.md 128.16.7's latch)" % (label, fr, n))
                     break
         R0p = R0
-        if s["stretch"] and g.b("bz_stf"):
+        if s["stretch"] and g.drawn("bz_stf"):
             S_, R0_, c0_ = g.state()[:3]
             lk, why = g.look(ref.c)
             if why:
@@ -3200,7 +3235,7 @@ def ground_replay(g, s, mode, art=None):
             tal["stretch"] += 1
             if lk.spr != ("stretch", 0):
                 fails.append("%s frame %d: bz_stf %d with the model's sprite %s, not the stretch" % (
-                    label, fr, g.b("bz_stf"), lk.spr))
+                    label, fr, g.drawn("bz_stf"), lk.spr))
             elif nd:
                 fails.append("%s frame %d (the stretch) at bz_presented: card != oracle: %d px, lines %d-%d, x %d-%d"
                              % (label, fr, nd, *box))
@@ -3625,7 +3660,7 @@ def camera_replay(g, s, art=None):
             continue
         tal["frames"] += 1
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"], s.get("tilts"))
         R0m = gl.R0
         gl.camera()
@@ -3650,7 +3685,7 @@ def camera_replay(g, s, art=None):
         tal["withheld"] += dw["x"] + dw["y"]
         what = "%s frame %d (step %d)" % (label, fr, n)
         # 1. the footprint inside the window (outside tubes; a holed-out ball is not drawn)
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not tube and not g.b("bz_hid") and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s: the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 %d; SPEC.md "
                          "128.17.6.5 item 3)" % (what, px, py, R0, c0))
@@ -3776,8 +3811,6 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = Bz(ui, tag, sym)
-        if "bz_noearly" in g.sym:
-            g.putb("bz_noearly", 1)     # the oracle reads the ball at bz_tf / bz_presented: the state as drawn
         ui.settle()
         if "glass" in parts:
             glass(g, Ref(tag, course("first", art=art), art))
@@ -3893,6 +3926,10 @@ class Loop:
     def __init__(self, g, names, io=None, kernel=()):
         self.g, self.m = g, g.m
         self.ex = {g.a(n): n for n in names}
+        self.names = names
+        self.tv = g.a("bz_tv")                   # (banks the ball as drawn, before the early step: Bz.look)
+        self.ex.setdefault(self.tv, "bz_tv")
+        g.pre = None
         self.ex.update({g.m.sym(n): n for n in kernel})     # (KERNEL names: the int 08h handler's sch_isr)
         self.io = io
 
@@ -3904,14 +3941,18 @@ class Loop:
 
     def next(self):
         m = self.m
-        m.run()
-        st = m.wait_stop(60)
-        assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
-        self.r = r = m.regs()
-        flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
-        if flat in self.ex:
-            return self.ex[flat]
-        return "io"
+        while True:
+            m.run()
+            st = m.wait_stop(60)
+            assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
+            self.r = r = m.regs()
+            flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+            if flat == self.tv and self.ex.get(flat) == "bz_tv" and "bz_tv" not in self.names:
+                self.g.bank_pre()
+                continue
+            if flat in self.ex:
+                return self.ex[flat]
+            return "io"
 
 
 def load_demo(g, kd):
@@ -3959,7 +4000,8 @@ def end_replay(g, what):
 
 def replay_end(g):
     """at bz_t0: the replay's end (this bz_t0 leaves the bracket)"""
-    return g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))
+    # (an early step's frame is presented first, bz_t0's `bz_estp` test: the step that ended the run drew its frame)
+    return (g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))) and not g.b("bz_estp")
 
 
 def w4_replay(g, ref, label, log=None, poke=None, windows=()):
@@ -4025,11 +4067,11 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             fails.append("%s frame %d: the frame after a full write presented still DARK (bz_unblank, SPEC.md "
                          "128.14.5.6)" % (label, fr))
         lastfull, fullfr, infull = fullfr, False, False
-        hid = g.b("bz_hid") if "bz_hid" in g.sym else 0
+        hid = g.drawn("bz_hid") if "bz_hid" in g.sym else 0
         if hid and not hid0:
             why.append("capture")
         hid0 = hid
-        nlip = g.w("bz_nlip") if "bz_nlip" in g.sym else 0
+        nlip = g.drawn("bz_nlip") + 256 * g.drawn("bz_nlip", 1) if "bz_nlip" in g.sym else 0
         if nlip != nlip0:
             why.append("lip")
         nlip0 = nlip
@@ -4038,11 +4080,12 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
         if flags0 is not None and fl != flags0:
             why.append("flag")
         flags0 = fl
-        if g.b("bz_mat") != mat0:
+        matd = g.pre[3] if g.pre else g.b("bz_mat")      # (as drawn: the early step may have swapped it since)
+        if matd != mat0:
             why.append("pad")
-        mat0 = g.b("bz_mat")
+        mat0 = matd
         if windows:
-            n_ = g.d("bz_nstep")
+            n_ = g.nd()
             if any(a_ <= n_ <= b_ for a_, b_ in windows):
                 why.append("stretch")
         if not why and fr % W4_EVERY:

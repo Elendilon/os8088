@@ -341,7 +341,7 @@ def pres_snap(g):
     w = Snap(g, WIN)
     h = Snap(g, WHL)
     cnt = Snap(g, ("bz_frames", "bz_wcom", "bz_wover", "bz_wlate", "bz_wlead", "bz_wskip", "bz_wtmin"))
-    ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube"))
+    ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube", "bz_estp"))
     n = h.b("bz_nlane")
     pn = R.guest_propmax()                      # (128.19.10: the guest's tables)
     out = {"frames": cnt.w("bz_frames"), "R0": w.w("bz_R0"), "c0": w.w("bz_c0"), "S": w.w("bz_S"),
@@ -349,6 +349,9 @@ def pres_snap(g):
            "pkick": [ph.w("bz_pkick", k) for k in range(pn)], "drawn": list(h.bytes("bz_ldrw", n)),
            "hold": list(h.bytes("bz_lhold", pn)), "wcn": h.b("bz_wcn"), "wskip": cnt.w("bz_wskip"),
            "heavy": h.b("bz_heavy"), "ctype": h.b("bz_ctype"), "cln": h.b("bz_cln"), "mustp": g.b("bz_mustp")}
+    # THE EARLY STEP (SPEC.md 128.4) runs after the walk and the boxes, in the retrace wait: bz_estp says one
+    # did, so the step count the frame was DRAWN at (the walk's, and the gate's) is bz_nstep less it
+    out["ndraw"] = out["nstep"] - ph.b("bz_estp")
     out["tsec"] = g.w("bz_tsec") if "bz_tsec" in g.sym else None   # wave 7: the clocks' seconds left
     if "bz_lnext" in g.sym:                     # (13): the walk's range and bz_lnext (SPEC.md 128.13.5.3)
         out["lnext"] = list(struct.unpack("<%dH" % n, g.m.read(g.a("bz_lnext"), 2 * n))) if n else []
@@ -375,7 +378,7 @@ def enter_check(g, ref, prev, out, rects, recs):
         now = clip(q, (out["R0"], out["R0"] + H, out["c0"], out["c0"] + Wc))
         if was or not cells(now):
             continue
-        tq = R.true_pose(recs[i], out["nstep"], out["pkick"], out["hold"], out.get("tsec"))
+        tq = R.true_pose(recs[i], out["ndraw"], out["pkick"], out["hold"], out.get("tsec"))
         lk, _ = g.look(crs)
         lanes = dict(enumerate(out["drawn"]))
         lanes[i] = tq
@@ -414,13 +417,13 @@ def lnext_check(frames, recs, fails, rep, label=""):
             if not (pr["lrw"][i] < rb and pr["lrw"][i] + pr["lhh"][i] > ra):
                 continue                        # (outside the range's exact test: not walked)
             nj += 1
-            want = rotor_next(recs[i], pr["nstep"] & 0xFFFF)
+            want = rotor_next(recs[i], pr["ndraw"] & 0xFFFF)
             if pr["lnext"][i] != want:
                 nbad += 1
                 if nbad <= 4:
                     fails.append("(13)%s frame %d: rotor %d's bz_lnext %d after the walk, the model's next change "
-                                 "step %d (bz_nstep %d)" % (label, fi + 1, i, pr["lnext"][i], want,
-                                                            pr["nstep"] & 0xFFFF))
+                                 "step %d (drawn at bz_nstep %d)" % (label, fi + 1, i, pr["lnext"][i], want,
+                                                                  pr["ndraw"] & 0xFFFF))
     if not nj:
         fails.append("(13)%s no rotor was in the walk's range at a presented frame: bz_lnext never judged" % label)
     rep.append("(13)%s %d rotor-frames in the walk's range judged, bz_lnext the model's next change step on %d" % (
@@ -1406,6 +1409,9 @@ def stale_leg(g, ref):
 
         def on_hit(mm, rec_):
             a = rec_["addr"]
+            if a == A["bz_tv"]:                   # the ball as drawn, before the early step (Bz.look)
+                g.bank_pre()
+                return None
             if a == A["bz_t0"]:
                 st["k"] += 1
                 k = st["k"]
@@ -1443,8 +1449,8 @@ def stale_leg(g, ref):
                 st["enter"] += enter_check(g, ref, st["pr"], out, rects, recs)
             st["pr"] = out
             return None
-        A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
-        with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=4000):
+        A = {n: g.a(n) for n in ("bz_t0", "bz_tv", "bz_presented")}
+        with M.bp_trace(m, A["bz_t0"], A["bz_tv"], A["bz_presented"], on_hit=on_hit, cap=4000):
             m.run()
             M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + STALE_AFTER) or
                     st["k"] >= STALE_MAX, "the STALE scene's frames", guest=60 + 10 * STALE_RETRY)
@@ -1603,6 +1609,9 @@ def side_leg(g, ref):
               "seen": 0}
 
         def on_hit(mm, rec_):
+            if rec_["addr"] == A["bz_tv"]:        # the ball as drawn, before the early step (Bz.look)
+                g.bank_pre()
+                return None
             if rec_["addr"] == A["bz_t0"]:
                 st["k"] += 1
                 k = st["k"]
@@ -1644,8 +1653,8 @@ def side_leg(g, ref):
                 st["enter"] += enter_check(g, ref, st["pr"], out, rects, recs)
             st["pr"] = out
             return None
-        A = {n: g.a(n) for n in ("bz_t0", "bz_presented")}
-        with M.bp_trace(m, A["bz_t0"], A["bz_presented"], on_hit=on_hit, cap=6000):
+        A = {n: g.a(n) for n in ("bz_t0", "bz_tv", "bz_presented")}
+        with M.bp_trace(m, A["bz_t0"], A["bz_tv"], A["bz_presented"], on_hit=on_hit, cap=6000):
             m.run()
             M.until(m, lambda _: (st["step"] is not None and st["k"] >= st["step"] + abs(c0w - c0g) + SIDE_AFTER)
                     or st["k"] >= SIDE_MAX, "the SIDE scene's frames", guest=90 + 10 * SIDE_RETRY)
@@ -1790,12 +1799,12 @@ def gate_leg(g, scen):
         while True:
             k = wk.next()
             if k == "t0":
-                if g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns")):
-                    break
+                if (g.b("bz_goal") or g.b("bz_tout") or not (g.b("bz_rn") or g.w("bz_rruns"))) and not g.b("bz_estp"):
+                    break                       # (an early step's frame is presented first)
                 continue
             if k != "pr":
                 continue
-            n = g.d("bz_nstep")
+            n = g.d("bz_nstep") - g.b("bz_estp")      # (the steps the frame was drawn at: not the early step's)
             ev = P.advance(p, n, s["keys"])
             drawn = list(m.read(g.a("bz_ldrw"), g.b("bz_nlane")))
             for e in ev:
@@ -1817,6 +1826,7 @@ def gate_leg(g, scen):
                                                                     e[1] - 1, dq, "closed" if shut else "open",
                                                                     n0 + 1, n))
             n0 = n
+        g.pre = None
         m.bp_exec()
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the %s replay ends" % s["name"], guest=60)
@@ -1846,8 +1856,6 @@ def run(tag, legs=LEGS, apps=None, src=None):
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = R.Bz(ui, tag, sym)
-        if "bz_noearly" in g.sym:
-            g.putb("bz_noearly", 1)     # (9), (13) read bz_nstep at bz_presented
         ui.settle()
         if "bzs_mode" in sym:
             # THE WHEEL AT EQUAL CONTENT: the sound OFF (S's own choice, SPEC.md 128.20.4). Its idle time is
