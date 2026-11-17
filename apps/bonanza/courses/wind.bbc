@@ -1,0 +1,52 @@
+# Wind Test - BONANZA's WIND test course (SPEC.md 128.34), built only by the BZWIND=1 knob.  NOT a shipped
+# course: the knob adds it to BZ_COURSES and makes it the pathway's pad 0, so a new game rests on it (title,
+# Play Game, Enter).  Not on the TOUR.
+#
+# START is a wide plate at 2 units with a pad for each ball.  From it, east to the GOAL plate:
+#  - the WALKWAY (wy 6): plain floor, the route;
+#  - the CRUMBLING BRIDGE (wy 9): five cracked tiles, a GUSTING blower beside it at (9, 8) blowing +y across
+#    the bridge - 64 steps on in every 256 (about 1.2 s in 4.7): cross between gusts, glass above all, which
+#    it blows twice as hard as rubber;
+#  - the THIN LOWER PATH (wy 12): down a ramp to 1 unit, three cells one wide, up again; a STEADY blower on
+#    its first cell blows +y, hard - rubber and glass go over the side, steel holds its line.
+# Behind the start (wy 3 - 4) a LEDGE 2.5 units up: an UPDRAFT at (5, 7) lifts an AIRBORNE ball (Hop into it)
+# and only glass rises - to the ledge and its finish, exit 1, the glass-only way out.
+course WIND "Wind Test"
+width  128
+origin 256
+ball   rubber
+
+uses glass wind
+
+floor rect   4  6 10 14  flat 2
+floor rect  10  6 17  7  flat 2
+floor rect  10  9 17 10  flat 2
+floor rect  10 12 12 13  ramp x 10 12 2 1
+floor rect  12 12 15 13  flat 1
+floor rect  15 12 17 13  ramp x 15 17 1 2
+floor rect  17  6 23 14  flat 2
+floor rect   4  3  8  5  flat 4.5
+
+pad rubber  5 10
+pad steel   5 12
+pad glass   7 12
+
+prop crack 11 9
+prop crack 12 9
+prop crack 13 9
+prop crack 14 9
+prop crack 15 9
+
+prop blower  9  8  face +y  region 10 8 16 10  strength 8  gust 64 192
+prop blower 12 12  face +y  region 11 12 15 12  strength 10
+prop blower  5  7  face up  region 4 5 6 7  strength 16  top 4
+
+start 7 10
+goal  tile 21  9  flat 2
+goal  tile  5  3  flat 4.5 exit 1
+clock 20 12
+target 60
+way 7 10
+way 10 6
+way 17 6
+way 21 9

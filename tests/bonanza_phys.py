@@ -1377,6 +1377,105 @@ def pickup_ok(p, marks):
             and p.nfev == 6 and p.nboost >= 1)
 
 
+# WIND (SPEC.md 128.34): the knob build's test course, compiled here from its source (the default build
+# ships no course that names the family, so the scenes ride the WIND course under the default build's
+# image and parts: the course part is the tool's, its family list WIND's own)
+WIND_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "wind.bbc")
+
+
+def _wd_blowing(p, at):
+    pr = next(q for q in p.props if q["kind"] == BB.WD_K and q["at"] == at)
+    return BB.wind_blowing(pr, p.nstep & 0xFFFF)
+
+
+def _wd_at(wx, wy):
+    """a goto's end: the ball's centre in cell (WX, WY), grounded, at under 100 on each axis (steel's slow
+    brake never settles _pu_goto's own 60)"""
+    return lambda q: (q.gx >> 12, q.gy >> 12) == (wx, wy) and not q.air and abs(q.gvx) < 100 and abs(q.gvy) < 100
+
+
+def _wd_cross(p, keys, wy, stop, lean=False, n=260):
+    """from (9, WY), R + D held (straight down +x) - LEAN: R alone (+x and -y, into the wind) from wx 11 -
+    until the ball is past wx STOP or has fallen -> 'crossed' or 'blown off'"""
+    f0 = p.nfall
+    for _ in range(n):
+        k = K.K_R if lean and p.gx >> 12 >= 11 else K.K_R | K.K_D
+        keys.append(k)
+        p.step(k)
+        if p.nfall > f0:
+            return "blown off"
+        if p.gx >> 12 >= stop and not p.air:
+            return "crossed"
+    raise AssertionError("the wind scene at wy %d neither crossed nor fell" % wy)
+
+
+def wind_keys(leg, mat):
+    """THE WIND SCENES (SPEC.md 128.34.8), steered on the model from WIND's start with ball MAT:
+      path     onto the THIN PATH from (9, 12) and across under its steady +y wind (strength 10), leaning
+               into it (R alone, from the wind's first cell): steel crosses, rubber and glass are blown off
+               (a fall, the respawn) - rubber's best counter-push on one axis (8) is under its 10
+      gust     (rubber and glass: steel from rest breaks the cracks under it, CRACK_TS) to the CRUMBLING
+               BRIDGE's end (9, 9); waited for a GUST to begin and across in it (strength 8, gust 64 of 256):
+               blown off; back, waited for the gust to END and across between gusts: crossed
+      updraft  onto the UPDRAFT's fan (5, 7), a Hop, and up-left (R + U, -y) for the ledge: glass rises
+               onto it and finishes there (exit 1); rubber and steel never rise past their own Hop
+    -> (keys, [(mark, step)])"""
+    c = R.course("wind", WIND_SRC)
+    p = BB.Physics(c, play=True, mat=mat)
+    keys, marks = [], []
+    if leg == "path":
+        _pu_goto(p, keys, 9, 12, vmax=200, n=1500)
+        marks.append((_wd_cross(p, keys, 12, 17, lean=True), len(keys)))
+    elif leg == "gust":
+        _pu_goto(p, keys, 9, 10, vmax=200, n=1500, until=_wd_at(9, 10))
+        _pu_goto(p, keys, 9, 9, vmax=120, n=1500, until=_wd_at(9, 9))
+        while _wd_blowing(p, (9, 8)) or not BB.wind_blowing(          # (the gust's first step)
+                next(q for q in p.props if q["kind"] == BB.WD_K and q["at"] == (9, 8)), (p.nstep + 1) & 0xFFFF):
+            keys.append(0)
+            p.step(0)
+        marks.append(("gust on, " + _wd_cross(p, keys, 9, 17), len(keys)))
+        if marks[-1][0].endswith("blown off"):
+            _pu_goto(p, keys, 9, 10, vmax=200, n=1500, until=_wd_at(9, 10))
+            _pu_goto(p, keys, 9, 9, vmax=120, n=1500, until=_wd_at(9, 9))
+            while not _wd_blowing(p, (9, 8)):
+                keys.append(0)
+                p.step(0)
+            while _wd_blowing(p, (9, 8)):                           # (to the gust's END)
+                keys.append(0)
+                p.step(0)
+            marks.append(("gust off, " + _wd_cross(p, keys, 9, 17), len(keys)))
+    else:
+        _pu_goto(p, keys, 5, 8, vmax=200, n=1500, until=_wd_at(5, 8))
+        _pu_goto(p, keys, 5, 7, vmax=100, n=1500, until=_wd_at(5, 7))
+        top = 0
+        for i in range(260):
+            k = K.K_HOP if i < 2 else (K.K_R | K.K_U) if (p.gz >> 8) >= 40 or i > 150 else 0
+            keys.append(k)
+            p.step(k)
+            top = max(top, p.gz >> 8)
+            if p.goal or p.nfall:
+                break
+        marks.append(("%s, apex %d px" % ("the ledge's finish (exit %d)" % p.exit if p.goal else "no ledge", top),
+                      len(keys)))
+    for _ in range(12):                         # (a few steps on: a respawn's or the finish's)
+        keys.append(0)
+        p.step(0)
+    return keys, marks
+
+
+WIND_WANT = {("path", BB.MAT_STEEL): ("crossed",), ("path", BB.MAT_RUBBER): ("blown off",),
+             ("path", BB.MAT_GLASS): ("blown off",),
+             ("gust", BB.MAT_RUBBER): ("gust on, blown off", "gust off, crossed"),
+             ("gust", BB.MAT_GLASS): ("gust on, blown off", "gust off, crossed"),
+             ("updraft", BB.MAT_GLASS): ("the ledge's finish (exit 1)",),
+             ("updraft", BB.MAT_RUBBER): ("no ledge",), ("updraft", BB.MAT_STEEL): ("no ledge",)}
+
+
+def wind_ok(leg, mat, marks):
+    """what the scene is for: each mark's verdict the one the weighting says"""
+    return tuple(m.split(", apex")[0] for m, _n in marks) == WIND_WANT[(leg, mat)]
+
+
 # the unicorn half (--check): bz_step itself, on the host, against the model -------
 UCS, UPS, UFS, USS, USTUB = 0x1000, 0x3000, 0x6000, 0x8000, 0xFFF0
 UMS = 0x9000                    # a TWO-PART course's PICTURE part (SPEC.md 128.30.5: [bz_mseg]; UPS its world part)
@@ -1516,20 +1615,23 @@ def _cellb(c):
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
-def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
     bz_fst, the slots, bz_fref, the window bz_nbr against the model's
-    snapshot and each element's POSE through bz_ltrue.  -> (model, failures)"""
-    c = R.course(crs)
+    snapshot and each element's POSE through bz_ltrue.  SRC: a course file
+    the build does not ship (a knob build's: WIND, SPEC.md 128.34.8),
+    compiled here and played as course K PLAYGROUND's, its time limit the
+    model's.  -> (model, failures)"""
+    c = R.course(crs, src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
     g.w("bz_cseg", UPS, 2)
     if c.split:                                 # (a TWO-PART course, SPEC.md 128.30.5: the world part in
         g.mu.mem_write(UMS * 16, bytes(c.cga))  # [bz_cseg], the picture part in [bz_mseg]; one part is in
     if "bz_mseg" in sym:                        # both words, as bz_cload leaves them)
         g.w("bz_mseg", UMS if c.split else UPS, 2)
-    g.w("bz_crs", R.CRS_K[crs], 1)
+    g.w("bz_crs", R.CRS_K["play" if src else crs], 1)
     g.w("bz_mat", mat, 1)
     g.w("bz_mode", 0, 1)
     g.call("bz_crshdr")
@@ -1537,6 +1639,9 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
     assert not cf, "bz_ffetch refused the family part"
     g.call("bz_pinit")
     p = BB.Physics(c, play=True, mat=mat) if poke is None else model(crs, mat, poke)
+    if src:                                     # (the borrowed K's limit replaced by the course's own)
+        g.w("bz_tsec", p.tsec, 2)
+        g.w("bz_t55", p.t55, 1)
     if poke:                                    # story 9.8: a scenario's POKE, as replay() makes it
         for n in ("gx", "gy", "gz"):
             g.w("bz_" + n, poke[n], 4)
@@ -1796,6 +1901,60 @@ def fam_host():
                                   ("purst", fam_parts({"pickups": _noentry(pick, BB.H_RESET)}), (), "slots"),
                                   ("puvup", fam, ((vup + 3, b"\x90" * 4),), "the ball")):
         p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, ff, patch)
+        ok = any(want in b for b in bad)
+        out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    o2, f2 = wind_host(binp, lst, sym, fam)
+    return out + o2, fails + f2
+
+
+def wind_host(binp, lst, sym, fam):
+    """WIND (SPEC.md 128.34.8): the scenes on the knob build's WIND course, compiled from its source, with
+    the build's image and parts - each ball's push by its weight on the thin path, the gust on and off on
+    the crumbling bridge, the updraft only glass rises on - the guest's bz_step equal to the model at every
+    step (the ball, the slots, every pennant's POSE and its marks), what each scene is for asserted on the
+    model; and the red arms, each of which must part from the model: `wdstep` (STEP's entry 0: no push),
+    `wdglass` (glass's shift NOPed: glass pushed as rubber), `wdmark` (the gust's lane marks NOPed: a pennant
+    that turns never drawn), `wdlift` (the updraft's gvz test NOPed: glass climbs past the lift speed)"""
+    out, fails = [], []
+    c = R.course("wind", WIND_SRC)
+    nfst = (sum(pr["bits"] for pr in c.props if BB.is_fam(pr["kind"])) + 7) // 8
+    if nfst > sym["bz_fsl"] - sym["bz_fst"]:
+        return out, ["the WIND course's %d state bytes are over the build's bz_fst (%d): its scenes cannot run on "
+                     "this image" % (nfst, sym["bz_fsl"] - sym["bz_fst"])]
+    sc = {}
+    for leg, mat in sorted(WIND_WANT):
+        keys, marks = sc[(leg, mat)] = wind_keys(leg, mat)
+        p, bad = urun(binp, lst, sym, "wind", mat, keys, fam, src=WIND_SRC)
+        ok = wind_ok(leg, mat, marks)
+        out.append("the wind %s scene, %s, %d steps (%s): %s%s" % (
+            leg, BB.MAT_NAMES[mat], len(keys), "; ".join("%s at %d" % m_ for m_ in marks),
+            "; ".join(bad) or "the guest is the model at every step", "" if ok else " - NOT WHAT IT IS FOR"))
+        fails += ["the wind %s scene, %s: %s" % (leg, BB.MAT_NAMES[mat], b) for b in bad]
+        if not ok:
+            fails.append("the wind %s scene, %s: %s, not %s" % (leg, BB.MAT_NAMES[mat], marks, WIND_WANT[(leg, mat)]))
+    part = open(R.at("build/bzf-wind.bin"), "rb").read()
+
+    def nop(b, pat, k=0, n=None):
+        """PART with the K-th occurrence of PAT made NOPs (N bytes of it: all)"""
+        i = -1
+        for _ in range(k + 1):
+            i = b.find(pat, i + 1)
+        assert i >= 0, "a red arm's pattern is not in the wind part: %s" % pat.hex()
+        b = bytearray(b)
+        b[i:i + (n or len(pat))] = b"\x90" * (n or len(pat))
+        return bytes(b)
+    gvz = sym["bz_gvz"]
+    lift = b"\x81\x3e" + struct.pack("<HH", gvz, BB.WD_LIFT) + b"\x7d"   # cmp word [bz_gvz], LIFT; jge
+    for name, ff, leg, mat, want in (
+            ("wdstep", fam_parts({"wind": _noentry(part, BB.H_STEP)}), "path", BB.MAT_STEEL, "the ball"),
+            ("wdglass", fam_parts({"wind": nop(part, b"\xd1\xe0")}), "path", BB.MAT_GLASS, "the ball"),
+            ("wdmark", fam_parts({"wind": nop(part, b"\xff\x1e" + struct.pack("<H", sym["bz_fmkp"]))}),
+             "gust", BB.MAT_RUBBER, "never drawn"),
+            ("wdlift", fam_parts({"wind": nop(part, lift, 0, len(lift) + 1)}), "updraft", BB.MAT_GLASS,
+             "the ball")):
+        _p, bad = urun(binp, lst, sym, "wind", mat, sc[(leg, mat)][0], ff, src=WIND_SRC)
         ok = any(want in b for b in bad)
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
