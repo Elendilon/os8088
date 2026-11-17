@@ -1107,7 +1107,7 @@ CRACK_LINES = (
 CRACK_HOLE = 5.0              # the hole: |u| / 2 + |v| under this (and a ragged rim), black
 
 
-CRACK_HOLE_FULL = 7.0         # SPEC.md 128.31.8: a `full` crack's hole, |u| / 2 + |v| under this (the top is 8)
+CRACK_HOLE_FULL = 6.5         # SPEC.md 128.31.8: a `full` crack's hole, |u| / 2 + |v| under this less its rag (the top is 8)
 
 
 def crack_poses(cx, cy, full=False):
@@ -1126,12 +1126,19 @@ def crack_poses(cx, cy, full=False):
                 if on(u, v):
                     acc[(cx + u, cy + v)] = BLK
         out[q] = dict(acc)
-    hole = dict(acc)
+    hole = {} if full else dict(acc)                # (`full`: no hairline left in the rim to cut it into specks)
     lim = CRACK_HOLE_FULL if full else CRACK_HOLE
     for v in range(-8, 8):
         for u in range(-um, um):
-            if on(u, v) and abs(u) / 2.0 + abs(v) < lim + ((u * 7 + v * 3) % 5) / (8.0 if full else 4.0):
+            rag = ((u * 7 + v * 3) % 5) / 4.0
+            if on(u, v) and abs(u) / 2.0 + abs(v) < (lim - rag if full else lim + rag):    # (`full`: the rag cuts
+                # INTO the hole, so the rim is a SOLID ring 1 - 2 units wide - grown outward it left lone specks of
+                # floor round the hole, the owner's "spattering of green dots outside the rim")
                 hole[(cx + u, cy + v)] = BLK
+    if full:                                        # (and no lone pixel of rim left INSIDE the hole's edge)
+        for (x, y) in [(cx + u, cy + v) for v in range(-8, 8) for u in range(-um, um)]:
+            if on(x - cx, y - cy) and (x, y) not in hole and (x - 1, y) in hole and (x + 1, y) in hole:
+                hole[(x, y)] = BLK
     out[3] = hole
     return out
 
