@@ -425,6 +425,12 @@ VAR bz_bsegs,2 * BZ_NMAT        ; wave 4 (SPEC.md 128.14.4.7): each material's
                                 ; ball part, 0 when this launch did not fetch it
 VAR bz_hidn,1                   ; the frame's HIDDEN ball: bz_tube OR bz_hid
                                 ; (the display's test, set after the steps)
+VAR bz_clook,1                  ; wave 9 (SPEC.md 128.25.19): the pickup cue's
+                                ; LOOK this frame (bz_cuef), RIGHT AFTER bz_hidn
+                                ; (bz_boxc tests the two as one word)
+%if bz_clook != bz_hidn + 1
+ %error "bz_boxc tests bz_hidn and bz_clook as one word: keep them adjacent"
+%endif
 VAR bz_vseg,2
 VAR bz_fsi,FSI_SIZE
 VAR bz_W,2
@@ -475,6 +481,11 @@ VAR bz_fbp,2                    ; line, line word in a block, lines left
 VAR bz_flo,2
 VAR bz_fln,2
 VAR bz_kmin,2
+VAR bz_spq,6                    ; wave 9 (SPEC.md 128.25.19): the cue's three
+                                ; sparkles' PLACES, each a pointer to its
+                                ; entries in the card's bz_spr0 (bz_cuef)
+VAR bz_chk,2                    ; wave 9 (SPEC.md 128.25.19): the cue's FLASH checker,
+                                ; the sprite's row 0's (bz_cuef; bz_blit's .cwhole)
 VAR bz_olo,2                    ; bz_occ (SPEC.md 128.10.8 item 1, 128.11.10.2):
 VAR bz_ohi,2                    ; the lines [lo, hi) of the footprint inside the
 VAR bz_ozk,2                    ; window, z_b + m, the block row's first line,
@@ -1496,18 +1507,18 @@ bz_exitchk:
     mov byte [bz_towin], 1      ; F and Alt+Enter ask for the WINDOW (128.26.4)
     jmp short .leave
 %if BZ_TITLE
-.title:                         ; a course demo of the title's chain: any key
-    add [bz_tlfsr], ax          ; (a key stirs the title's LFSR)
-    or byte [bz_tlfsr], 1
-    mov ah, 1
-    cmp byte [bz_tmode], 2      ; is the title again
-    je .tk
-    mov ah, 27                  ; a title demo: Esc leaves the bracket, P
-    cmp al, ah                  ; plays, S and 1 2 3 the slot, the rest
-    je .tk                      ; nothing
+.title:                         ; THE TITLE'S CHAIN (title demo or course
+    add [bz_tlfsr], ax          ; demo alike): Esc leaves the bracket, F the
+    or byte [bz_tlfsr], 1       ; window (as Alt+Enter, above) - the owner,
+    mov ah, 27                  ; 2026-11-16: the course demo is the title's
+    cmp al, ah                  ; too, never a way back to it (SPEC.md
+    je .tk                      ; 128.23.4.1); (a key stirs the LFSR)
     or al, 20h
-    cmp al, 'f'                 ; (F: the window, SPEC.md 128.26.4)
+    cmp al, 'f'
     je .towin
+    mov ah, 1                   ; a course demo: any other key is the title
+    cmp byte [bz_tmode], 2      ; again; a title demo: P plays, S and 1 2 3
+    je .tk                      ; the slot, the rest nothing
     mov ah, al
     cmp al, 'p'
     je .tk
@@ -2515,8 +2526,9 @@ bz_pgtgt:
 ; -----------------------------------------------------------------------------
 ; bz_fold - the PATHWAY's roll phases FOLDED (wave 8R round 2, SPEC.md
 ; 128.22.4.2), bz_sprite's in bz_mode 4 alone: DISPLAY ONLY, no step reads
-; them.  The follower moves at most 3 px a step (FOL_VMAXD), but a frame of
-; two steps moves 6, where px & 7 would step the texture BACK 2.  A frame's
+; them.  The follower moves at most 2 px a step sideways (FOL_VMAXD) and 3
+; on a straight, but a frame of two straight steps moves 6, where px & 7 would
+; step the texture BACK 2 (two sideways steps, 4 px, are HELD below).  A frame's
 ; move d in px (from bz_opx, last frame's) and in G (bz_fog) is folded to d' =
 ; d mod 4, 0 - 3 with d's sign: the phase's low two bits stay px's (the shift a
 ; frame is stored at), its bit 2 flips by (|d| AND 4), kept in bz_fox (and
@@ -3265,7 +3277,9 @@ bz_mkboxes:
     mov al, [bz_air]
     xchg al, [bz_oair]
     xor al, [bz_oair]
-    mov ah, [bz_spr]            ; ...the same sprite (128.11.10.4)
+    mov ah, [bz_spr]            ; ...the same sprite (128.11.10.4; bit 7 the
+                                ; dissolve's density; bz_cuef sets bz_ospr
+                                ; unlike it when the cue's look changed: R1)
     xchg ah, [bz_ospr]
     xor ah, [bz_ospr]
     or bp, ax

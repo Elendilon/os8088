@@ -414,6 +414,17 @@ def build_rec(art=None):
     return int(m_.group(1)) if m_ else 8
 
 
+def prefetch(names):
+    """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
+    course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
+    rec = build_rec()
+    todo = [n for n in names if (os.path.join(ROOT, COURSES[n]), rec) not in _COURSE]
+    for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _rec=rec),
+                                          todo)):
+        if e is None:
+            _COURSE[(os.path.join(ROOT, COURSES[n]), rec)] = c
+
+
 def course(name, src=None, art=None):
     """bbcourse's compile of a course, once a process (a few seconds each),
     its RAM form (c.cga, c.part's offsets) under the ART's RECB (build_rec).
@@ -443,6 +454,13 @@ def ball_part(mat, tag, art=None):
     if key not in _BALL:
         with open(os.path.join(ROOT, art, A.BALL_FILES[mat]), "rb") as f:
             part = f.read()
+        # wave 9 (SPEC.md 128.25.5): the file is the STORED form BZB3 - BZB2's header, zeros, a
+        # block - and the card holds what bz_ballgen expands it to at the fetch.  Read raw, the
+        # frames are zeros and every resting ball is drawn as a hole.  BZB3 is told by its mask
+        # rows (zeros there; BZB2's first mask row is never empty) and expanded through the
+        # tool's host model of the generator, which --selfcheck proves equal to build_ball2.
+        if not any(part[A.B2_MASKOFF:A.B2_MASKOFF + A.RB]):
+            part = A.model_ball3(part)
         _BALL[key] = A.herc_translate_ball(part, BB.htab()) if tag == "herc" else part
     return _BALL[key]
 
@@ -583,6 +601,20 @@ def guest_propmax(art=None):
     build's largest course's lanes - not the tool's ceiling, bbcourse.PROP_MAX"""
     t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
     return int(re.search(r"^BZ_PROPMAX\s+equ\s+(\d+)", t, re.M).group(1))
+
+
+def tour_ks(art=None):
+    """THE TOUR (SPEC.md 128.26.8): its courses' K in order, BZ_TOUR's bytes out of the
+    GENERATED bzcourse.inc - a short NAMED list (bbcourse.py's TOUR), not every course
+    but BENCH, so a row never derives it from BZ_COURSES.  BZ_NTOUR is its length."""
+    t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^%macro BZ_TOUR 0\n\s+db ([^\n]+)", t, re.M)
+    if not m:
+        raise SystemExit("bonanza rows: bzcourse.inc has no BZ_TOUR (built before SPEC.md 128.26.8)")
+    ks = [int(x) for x in m.group(1).split(",")]
+    n = int(re.search(r"^BZ_NTOUR\s+equ\s+(\d+)", t, re.M).group(1))
+    assert n == len(ks), "bzcourse.inc's BZ_NTOUR %d is not BZ_TOUR's %d bytes" % (n, len(ks))
+    return ks
 
 
 def medals(crs):
@@ -3287,13 +3319,16 @@ def _ramp_keys(pname):
 # no RAMP_PATTERNS pattern from the green reverses any more (128.17.17.4: about 50 searched), so the arm's model
 # stayed green at the climb try and --check-reds failed.  bbcourse's own `nohyst` control moved to the DITHER MAP
 # then (cam_dither: a branch off the demo brakes, taps against the ball's travel, along it, against it), and
-# so does this arm: DITHER_SCEN is one of that map's samples, made a log - PLAY's demo for its first 14 steps
-# (the ball rolling left across (21, 16), gvx -74), then the map's branch with taps of 60 steps.  On the model
-# the branch is CLEAN (no fall, no RETURN, no goal, no tube frame), the shipped camera never reverses on it and
-# Hr 0 reverses on both cards at every pacing from 0.8x to 1.25x the nominal step rate (forks 10 - 19 all do at
-# taps of 60), so the arm does not ride on one frame's timing.  (A ramp search from RAMP_POKE found Hr 0
-# reversing only on runs that fell and respawned into the chute: not a hysteresis scene.)
-DITHER_SCEN = ("play", 14, 60)
+# so does this arm: DITHER_SCEN is one of that map's samples, made a log.  Re-anchored (wave 9: the pickups
+# yard, glass tiles and grounded faces moved PLAY's demo, and the old fork, step 14 at taps of 60, reversed
+# nowhere): PLAY's demo for its first 1028 steps (the ball grounded, rolling down the column at tile
+# (28, 19)), then the map's branch with taps of 60 steps.  On the model the branch is CLEAN (no fall, no
+# RETURN, no goal, no tube frame, never airborne), the shipped camera never reverses on it and Hr 0 reverses
+# 1 - 4 times on both cards at every pacing from 0.8x to 1.25x the nominal step rate (CGA 1, 3, 3, 4, 4;
+# Hercules 2, 2, 3, 3, 3 at 0.8, 0.9, 1.0, 1.1, 1.25), and forks 1010 - 1042 all reverse on both cards at the
+# nominal rate, so the arm does not ride on one frame's timing.  bbcourse's `nohyst` control reads the same
+# map (taps of 60, both cards).
+DITHER_SCEN = ("play", 1028, 60)
 
 
 def _dither_scen():
@@ -4223,17 +4258,23 @@ def shell_part(td, src, art, binp):
 
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
-    8b, 128.19.5) and the title's two (SPEC.md 128.23), where SRC's package
-    carries them"""
+    8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
+    one a family, where SRC's package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm)
+    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: a row a FETCH family, and the bundle's
+        nf = BB.fam_nrows()
+    else:
+        nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + nf
 
 
 def fam_parts(td, src, art):
     """wave 9 (SPEC.md 128.25.6.2): a tree's FAMILY PARTS, bbcourse.FAMILIES' order,
     each assembled from the tree's fam/<name>.asm against the bzlink.inc
     shell_part wrote for the tree's package (its stamp that package's).  -> the
-    paths, or None for a tree with no family rows (an earlier wave's)"""
+    paths, or None for a tree with no family rows (an earlier wave's); a tree
+    with the RESIDENT BUNDLE (SPEC.md 128.25.6.9) gets the ROWS' files instead,
+    the fetch families' parts and the bundle (bbcourse.fam_bundle)"""
     inc = os.path.join(td, "bzlink-inc", "bzlink.inc")
     if not os.path.exists(os.path.join(src, "bzfam.inc")) or not os.path.exists(inc):
         return None
@@ -4244,17 +4285,26 @@ def fam_parts(td, src, art):
                         "-I", os.path.dirname(inc) + "/", "-I", art + "/", "-o", o,
                         os.path.join(src, "fam", f["name"] + ".asm")], cwd=ROOT, check=True)
         out.append(o)
+    if "BZ_P_FBUN" in open(os.path.join(src, "bonanza.asm")).read():
+        byname = dict((f["name"], open(p, "rb").read()) for f, p in zip(BB.FAMILIES, out))
+        bun = os.path.join(td, BB.FBUN_FILE)
+        with open(bun, "wb") as fo:             # (the balls at its head, SPEC.md 128.25.5.2)
+            fo.write(BB.fam_bundle(byname, BB.fam_balls(art)) if "BZ_BALB" in open(os.path.join(src, "bonanza.asm")).read()
+                     else BB.fam_bundle(byname, None))
+        out = [p for f, p in zip(BB.FAMILIES, out) if f in BB.FAM_FETCH] + [bun]
     return out
 
 
 def part_args(art, src=None, shell=None, fams=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
-    rows 0 - 2 the rubber, steel and glass balls, then course K's one part
+    rows 0 - 2 the rubber, steel and glass balls (before SPEC.md 128.25.5.2:
+    the bundle carries them since), then course K's one part
     (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
     them - the sound part and one part a song (SPEC.md 128.20.3)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
-    files = list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
+    files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
+                                                # ride the bundle since SPEC.md 128.25.5.2)
     if "BZS_NSONG" in asm:
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
@@ -4270,7 +4320,10 @@ def part_args(art, src=None, shell=None, fams=None):
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
     if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
-    if "BZ_P_FAM" in asm:                       # wave 9 (128.25.6.2): the family parts, the last rows
+    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: the family ROWS - the fetch families' and
+        for p in fams or BB.fam_partfiles(at("build")):     # the RESIDENT BUNDLE, the last
+            out += ["--part", p]
+    elif "BZ_P_FAM" in asm:                     # wave 9 (128.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
     return out
@@ -4278,10 +4331,15 @@ def part_args(art, src=None, shell=None, fams=None):
 
 def check_reds(reds, label):
     """the HOST half of a red arm: every patch's anchor is still there once, and
-    the broken copy ASSEMBLES (nasm -w+error into a temporary file).  -> lines"""
-    out = []
+    the broken copy ASSEMBLES (nasm -w+error into a temporary file).  -> lines
+    (in the arms' order; the arms are independent - each its own copy of the
+    tree - so they run BB.jobs_default() at once, threads over nasm; the first
+    arm in that order that fails is the one raised)"""
+    import concurrent.futures
     art = at("build/bonanza-art")
-    for name, patches in sorted(reds.items()):
+
+    def one(item):
+        name, patches = item
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "bonanza")
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
@@ -4290,9 +4348,22 @@ def check_reds(reds, label):
             except AssertionError as e:
                 raise AssertionError("%s --red %s: %s" % (label, name, e))
             assemble(src, art, os.path.join(td, "bonanza.bin"))
-            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes)" % (
-                label, name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
-    return out
+            fp = sorted({f for f, _o, _n in patches if f.startswith("fam/")})
+            for f in fp:                        # story 9.8: an arm whose code is a FAMILY PART's - each
+                fams = [n["name"] for n in BB.FAMILIES]     # part that includes the patched file assembled,
+                for nm in fams:                 # against this build's bzlink.inc (the package is the same)
+                    pa = os.path.join(src, "fam", nm + ".asm")
+                    if f != "fam/%s.asm" % nm and '"%s"' % f not in open(pa).read():
+                        continue
+                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                                    src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
+                                   cwd=ROOT, check=True)
+            return "%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
+                label, name, os.path.getsize(os.path.join(td, "bonanza.bin")),
+                ", and its family part" if fp else "")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=BB.jobs_default()) as ex:
+        futs = [ex.submit(one, it) for it in sorted(reds.items())]
+        return [f.result() for f in futs]
 
 
 # the pass's six map stores (bz_wprect.col and .sl, the CGA's and the Hercules' column writers' block heads
@@ -4407,8 +4478,8 @@ REDS = {
     "hidden": [("bzgame.inc", "    cmp byte [bz_hidn], 0       ; a HIDDEN ball (in a tube, or holed) has no\n"
                 "    jne .hid                    ; new footprint: its old one alone, restored\n",
                 "    nop                         ; RED hidden: a hidden ball boxed as any\n"),
-               ("bzvideo.inc", "    cmp byte [bz_hidn], 0\n    jne .nob\n    mov ax, [bz_py]\n",
-                "    mov ax, [bz_py]             ; RED hidden: its sprite composed in a tube\n")],
+               ("bzvideo.inc", "    cmp byte [bz_hidn], 0       ; hidden: nothing\n    jne .nob\n",
+                "    nop                         ; RED hidden: its sprite composed in a tube\n")],
 }
 # wave 6 (SPEC.md 128.16.14): the camera's ground line broken five ways, and the stretch never drawn
 REDS["camz"] = [("bzgame.inc", ".cgl:\n    add bp, ax                  ; BP = cy + 8\n",
@@ -4490,12 +4561,19 @@ def nodither_art(td):
     shutil.copytree(at("build/bonanza-art"), art)
     rec = build_rec()
     CRS_K["bench"]                              # (fills the table)
-    for name, k in sorted(CRS_K.items(), key=lambda kv: kv[1]):
+    order = sorted(CRS_K.items(), key=lambda kv: kv[1])
+    # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
+    und = dict(zip([n for n, _k in order], BB.par_map(
+        lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}, _rec=rec),
+        [n for n, _k in order])))
+    for name, k in order:
         f = os.path.join(art, "BZ%d.BIN" % k)
         c = course(name)
         if open(f, "rb").read() != c.stored:
             raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (f, name))
-        u = BB.compile_course(os.path.join(ROOT, COURSES[name]), _hack={"no_dither": True}, _rec=rec)
+        u, e = und[name]
+        if e is not None:
+            raise e
         ram = bytearray(u.cga)
         g = struct.unpack_from("<H", ram, 26)[0]
         struct.pack_into("<H", ram, g + 18, c.ident)
@@ -4558,6 +4636,8 @@ def main():
                     help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
     if a.check_reds:
+        COURSES["bench"]                        # (fills the table)
+        prefetch(sorted(COURSES))               # (the host half reads every shipped course)
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)
         gbad, gsay = ground_check()             # wave 6: the GROUND leg's host half

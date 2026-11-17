@@ -223,6 +223,12 @@ sfx lifelost inst rubber prio 6 sens 255 : t=4 n=e5 v=14 d=6 ; t=4 n=c5 v=13 d=6
 sfx gameover inst bumper prio 7 sens 255 : t=8 n=a4 v=14 ; t=8 n=e4 v=14 ;
              t=8 n=c4 v=14 ; t=8 n=a3 v=14 ; t=50 n=a2 v=15 d=4
 
+; WAVE 9 (SPEC.md 128.25.19): a PICKUP taken - a quick rising sparkle, three
+; glock notes up a major triad with a shimmer, 10 sub-ticks; above a Hop, below
+; a flag
+sfx pickup   inst glock  prio 3 sens 255 : t=2 n=e6 v=13 ; t=2 n=g+6 v=13 ;
+             t=6 n=b6 v=14 d=12 j=3
+
 ; --- THE EVENT MAP: which effect an event plays, a ball at a time -------------
 
 event LAND    rubber=r_land   steel=s_land   glass=g_land
@@ -249,3 +255,4 @@ event ARRIVE  all=chime
 event GATE    all=gate
 event LIFE    all=lifelost
 event OVER    all=gameover
+event PICKUP  all=pickup
