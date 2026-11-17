@@ -3143,3 +3143,38 @@ older than this change, not a course cap.
 the scratch builds. **Not run:** the emulator rows that walk the tour
 (`bonanzagame`, `bonanzaexit`), which were updated to read `BZ_TOUR`.
 
+
+## 2026-11-17 (occlusion: what it costs, and computing it instead)
+
+The owner: *"Course size is too big, and most of it seems to be occlusion ...
+It does not need to be pixel-perfect or the same as today. Can we just store
+less?"* A host-only deep-dive answered it.
+[BONANZA-OCCLUSION-2026-11-17](../reports/BONANZA-OCCLUSION-2026-11-17.md)
+is the measurement, and
+[BOUNCE-BONANZA-OCCLUSION.md](BOUNCE-BONANZA-OCCLUSION.md) is the proposal.
+
+- **Occlusion is a third, not most.** Over the seven courses it is 31% of the
+  packed parts and 25% of their RAM: 14,656 bytes LZB and 58,762 of RAM, in
+  context. The picture is 52% and 57%. The map alone is 41% of course RAM.
+- **58% of the records exist only for a ball in a VOID cell**: falls and
+  flights over gaps.
+- **Most records can be computed.** Since every face reaches the ground
+  plane (128.27), the picture under a front cell's top edge is that cell's.
+  A model that reads up to 14 cells in front of the ball hides at most 0.1%
+  of the ball's pixels that the rule does not. "Residual" records cover
+  what it cannot see: props, split cells, cells further away. Everywhere
+  (A4R), that takes the records from 12,403 to 1,958, the parts' LZB down
+  9,862 and their RAM down 46,046. In the VOID cells alone (AV) it is -5,154
+  and -25,552.
+- **CPU is the cost, not a saving.** The lay dominates the pass whatever
+  stores the masks, and computing a mask costs more than reading one: +0.4k
+  to +3.1k clocks a gated frame, PREDICTED. The proposal ships AV first,
+  which only touches fall frames, and A4R only if the measured routine passes
+  the owner's smoothness rule.
+- **The ghost (V)** was priced too. It is cheaper and smaller than AV, and
+  the pictures show its fault: the ball dims a few frames before it goes
+  behind the edge.
+
+**Tested**: host only, the tool's own pipeline, a Monte Carlo of about 2
+million positions of the binding physics, and the fall pictures in
+`bounce-bonanza/`. **Not run**: any emulator row (nothing shipped changed).

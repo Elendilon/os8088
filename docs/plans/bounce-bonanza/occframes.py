@@ -43,7 +43,7 @@ LAY_LINE = 105          # bz_olay's .line: lodsw, mov, xor [es:di], and [bx], xo
 GHOST = 520             # option V's ghosted ball: the sprite drawn through the checker, +2 ops a word,
                         # 2.5 words a line, 16 lines, and the decision (ESTIMATED)
 LINECLIP = 40           # option X's per-group range read and clip (ESTIMATED)
-# option A's model on the guest (ESTIMATED from a sketch, not from code: SPEC.md 128.29's story A.2 measures it)
+# option A's model on the guest (ESTIMATED from a sketch, not from code: the plan's story A1.2 measures it)
 A_CELL = 80             # a front cell read through ROWTAB, its highest corner against z_b + m (most leave here)
 A_OCC = 750             # an occluding front cell: its corners on the screen, and per footprint line its span
                         # (two adds and a clamp a line, 16 lines) merged into the line's coverage
