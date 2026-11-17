@@ -6,11 +6,15 @@
 # of them WATER, flush with it, its ripples drawn; under it a glass-walled column 3 units deep; at the bottom
 # of the column's FRONT face an ARCH, out onto a lower path running toward the viewer.  Rubber and glass roll
 # across the water at the walkway's level; steel sinks down the column and rolls out of the front.
-#  - the start on the walkway, a RUBBER pad beside it, a STEEL pad beside the first column (its window holds
-#    the water cell: the swap refills it);
-#  - the sketch's column at (8, 8), on the walkway's front row, its arch +y onto the lower yard;
+#  - a DECK 6 units up at the left, a ramp up to it from the walkway: in it a DEEP column (4, 8), 6 units to its
+#    bed - steel sinks the whole way and leaves by a front arch; its ripples animate ALWAYS (a lone column);
+#  - the start on the deck, a RUBBER pad on the walkway, a STEEL pad beside the first column (its window holds
+#    the water: the swap refills it);
+#  - the sketch's column at (8, 8), on the walkway's front row, its arch +y onto the lower yard; its ripples
+#    animate while a ball is in it;
 #  - a ROW of four columns (11 - 14, 8), one arch at the far end ((14, 8) +y); in front of the other three a
 #    ledge a unit up, which seals them at the bed (and shows their glass); steel walks the bed under the row;
+#    (12, 8) ripples while a ball is in it;
 #  - a TOWER 7 units up behind the row, its front edge one cell from the water, a GLASS pad on it: glass
 #    rolled off it falls 4 units - a shatter on stone, landed whole on the water;
 #  - the finish (exit 0) on the yard below the first arch; exit 1, the walkway's far end, goes on to FIRST.
@@ -19,12 +23,16 @@ width  128
 ball   rubber
 uses   water
 
-floor rect  3  3 18  9 flat 3        # the walkway, 3 units up
-floor rect  3  9 18 15 flat 0        # the lower yard in front of it
+floor rect  6  3 18  9 flat 3        # the walkway, 3 units up
+floor rect  6  3  8  5 ramp x 6 8 6 3   # its ramp up to the deck
+floor rect  3  3  6  9 flat 6        # the deck, 6 units up
+floor rect  3  9 18 15 flat 0        # the lower yard in front of them
 floor rect 11  9 14 10 flat 1        # the ledge sealing the row's three closed columns at their bed
 floor rect 11  3 15  7 flat 7        # the glass drop's tower, its front edge one cell behind the row
-water tile  8  8      top 3 bed 0    # the sketch's column
-water rect 11  8 15 9 top 3 bed 0    # the row of four
+water tile  4  8      top 6 bed 0 always 4 8    # the DEEP column, 6 units, ripples always
+water tile  8  8      top 3 bed 0 ripple 8 8    # the sketch's column, ripples while a ball is in it
+water rect 11  8 15 9 top 3 bed 0 ripple 12 8   # the row of four
+arch  4  8 +y
 arch  8  8 +y
 arch 14  8 +y
 
@@ -38,5 +46,8 @@ clock  5 13
 clock 16  4
 target 60
 way 5 6
-way 8 6
+way 7 4
+way 9 4
+way 9 6
+way 8 7
 way 8 14

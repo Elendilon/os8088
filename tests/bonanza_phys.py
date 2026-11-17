@@ -1844,6 +1844,8 @@ def water_scenarios():
     rubber onto the steel pad beside the column - the swap refills the window, and it sinks"""
     D, R_ = BB.K_D, BB.K_R
     return [("water-steel", BB.MAT_STEEL, water_poke(8, 7, BB.MAT_STEEL, 0, 200), [0] * 60 + [D] * 80 + [0] * 20),
+            ("water-deep", BB.MAT_STEEL, water_poke(4, 7, BB.MAT_STEEL, 0, 200), [0] * 110 + [D] * 80 + [0] * 10),
+            ("water-roll", BB.MAT_RUBBER, water_poke(7, 8, BB.MAT_RUBBER, 160, 0), [0] * 150),
             ("water-rubber", BB.MAT_RUBBER, water_poke(8, 8, BB.MAT_RUBBER, dz=24), [0] * 80),
             ("water-glass", BB.MAT_GLASS, water_poke(8, 8, BB.MAT_GLASS, dz=40), [0] * 60),
             ("water-pad", BB.MAT_RUBBER, water_poke(7, 6, BB.MAT_RUBBER, 0, 160), [0] * 20 + [R_ | D] * 100)]
@@ -1853,19 +1855,26 @@ def water_verdict(name, p, ctl=None):
     """what a water scenario is for, on the model at its end -> (ok, what)"""
     ev = p.events
     kinds = [e[0] for e in ev]
-    if name == "water-steel":
+    if name in ("water-steel", "water-deep"):
         t0 = next((e[1] for e in ev if e[0] == "takeoff"), None)
         land = next((e for e in ev if e[0] == "land"), None)
+        x_ = 8 if name == "water-steel" else 4
         ok = t0 is not None and land is not None and "stun" not in kinds and p.nfall == 0 \
-            and (p.gx >> 12, p.gy >> 12) == (8, 9) and not p.air and p.gz == 0
+            and (p.gx >> 12, p.gy >> 12) == (x_, 9) and not p.air and p.gz == 0 \
+            and (name == "water-steel" or land[1] - t0 > 60)
         return ok, "steel sank from step %s to its landing at step %s (lfall, lvz %s), no stun, out of the arch " \
             "to (%d, %d) z %d" % (t0, land and land[1], land and land[2], p.gx >> 12, p.gy >> 12, p.gz >> 8)
+    if name == "water-roll":                    # rubber across the walkway's water: one landing a column entered
+        lands = [e for e in ev if e[0] in ("land", "bounce")]   # (its float line a half unit down), never chatter
+        ok = len(lands) <= 2 and p.nfall == 0 and "stun" not in kinds
+        return ok, "rubber rolled across the sketch's column: %d landing(s) (%s), the float line's step" % (
+            len(lands), [e[1] for e in lands])
     if name == "water-rubber":
         b = next((e for e in ev if e[0] == "bounce"), None)
         we, se = BB.water_entry(BB.MAT_RUBBER)[3], BB.surf_entry(BB.MAT_RUBBER, BB.SURF_SAND)[3]
-        ok = b is not None and b[3] == (we * b[2]) >> 8 < (se * b[2]) >> 8
-        return ok, "rubber's first bounce on the water: lvz %s, rebound %s (sand's would be %s)" % (
-            b and b[2], b and b[3], b and (se * b[2]) >> 8)
+        ok = b is not None and b[3] == (we * b[2]) >> 8 < (se * b[2]) >> 8 and not p.air and p.gz >> 8 == 4 * 6 - 4
+        return ok, "rubber's first bounce on the water: lvz %s, rebound %s (sand's would be %s); at rest on the " \
+            "float line, z %d px (the top 24)" % (b and b[2], b and b[3], b and (se * b[2]) >> 8, p.gz >> 8)
     if name == "water-glass":
         lv = max([e[2][1] for e in ev if e[0] == "land"] + [e[2] for e in ev if e[0] == "bounce"] + [0])
         ok = "shatter" not in kinds and p.nfall == 0 and (lv or 0) >= BB.MATERIALS[BB.MAT_GLASS]["HTHR"] \
@@ -1874,7 +1883,7 @@ def water_verdict(name, p, ctl=None):
             "the walkway: %s" % (lv, BB.MATERIALS[BB.MAT_GLASS]["HTHR"], "shattered" if ctl and "shatter" in [
                 e[0] for e in ctl.events] else "NOT shattered")
     pad = next((e[1] for e in ev if e[0] == "pad"), None)
-    land = next((e for e in ev if e[0] == "land" and e[2][0] >= 16), None)
+    land = next((e for e in ev if e[0] == "land" and pad is not None and e[1] > pad), None)
     ok = pad is not None and p.mat == BB.MAT_STEEL and land is not None and "stun" not in kinds
     return ok, "the steel pad at step %s, then sank into the column (landing at step %s)" % (pad, land and land[1])
 
@@ -1883,13 +1892,22 @@ def water_reds():
     """WATER's red arms on the unicorn, each the part assembled from a patched water.asm: (name, the patch, the
     scenario, what must part).  wacell: the CELL entry 0 (steel's window keeps the water at its top); wahthr:
     HTHR never put back on the way out (the working values, once steel leaves by the arch); warefill: no
-    refill on a changed material (the pad's swap leaves rubber's window: the window)"""
-    return (("wacell", ("    dw 0, 0, 0, wa_step, 0, wa_cell\n", "    dw 0, 0, 0, wa_step, 0, 0\n"), "water-steel",
+    refill on a changed material (the pad's swap leaves rubber's window: the window); wafloat: rubber's
+    window at the top, not the float line; waact: the ACTIVE ripple's flip unmarked; waalw: an ALWAYS
+    ripple's flip unmarked (each a pose that changed with its lane never drawn)"""
+    return (("wacell", ("    dw wa_reset, 0, 0, wa_step, wa_pose, wa_cell\n", "    dw wa_reset, 0, 0, wa_step, wa_pose, 0\n"), "water-steel",
              "the window"),
             ("wahthr", ("    mov [bz_mrec + BZM_HTHR], ax\n    mov byte [bz_surf], 0FFh\n",
                         "    mov byte [bz_surf], 0FFh\n"), "water-steel", "working values"),
             ("warefill", ("    mov [di], al\n    mov byte [bz_fref], 1\n", "    mov [di], al\n"), "water-pad",
-             "the window"))
+             "the window"),
+            ("wafloat", ("    mov al, [es:si + WA_HTOP]   ; the float line, H less a half unit ...\n    dec ax\n",
+                         "    mov al, [es:si + WA_HTOP]   ; the float line, H less a half unit ...\n"),
+             "water-rubber", "the window"),
+            ("waact", ("    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n    call far [bz_fmkp]\n.x:\n    retf\n\n"
+                       "; POSE", "    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n.x:\n    retf\n\n; POSE"),
+             "water-rubber", "never drawn"),
+            ("waalw", ("    jz .wn\n    call far [bz_fmkp]\n", "    jz .wn\n"), "water-deep", "never drawn"))
 
 
 def water_host(binp, lst, sym, fam):
