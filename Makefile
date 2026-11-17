@@ -21565,8 +21565,8 @@ BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
 $(BZWATERSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwater-*
 	@touch $@
-#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 128.37): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
-# BZBOOST=1 (SPEC.md 128.37.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
+#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 128.40): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
+# BZBOOST=1 (SPEC.md 128.40.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
 # every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathboost.sed applied: pad 0 becomes BOOS, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the

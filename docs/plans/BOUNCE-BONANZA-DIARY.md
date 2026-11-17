@@ -4077,7 +4077,7 @@ magenta palette courses) and asked for four things; SPEC.md 128.36.9.
 ## 2026-11-17 (BOOST PADS: chevrons that push)
 
 The props plan's P4, built as a family beside SPIKES and the ARCH (the round
-fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.37 beforehand); branch
+fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.40 beforehand); branch
 `bb-boost`.
 
 - **Which hook.** WIND pushes from STEP and so walks a list of blowers every
@@ -4095,7 +4095,7 @@ fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.37 beforehand); branch
   pair) beats the steepest ramp a ball can roll up (1 unit a tile, a pull of 8)
   and climbs it without the pad; rubber (8 against 8, less its drag) and steel
   (4) do not. A weighted pad is one byte of shifts if the owner wants pads to
-  matter as much for glass (SPEC.md 128.37.10).
+  matter as much for glass (SPEC.md 128.40.10).
 - **The steepest ramp.** A 1.5-unit-a-tile ramp is a WALL partway up: the
   next cell's edge stands more than a climb (4 px) above the ball's leading
   edge. So "a ramp a ball could not climb otherwise" is a 1-unit ramp from a

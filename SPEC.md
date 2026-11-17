@@ -278636,7 +278636,7 @@ go red as "never drawn"; the selfcheck's item 2 (a ripple outside the shape, a
 cell both, seven ALWAYS lanes in one window), item 3 (the three lanes and
 their +20) and item 10's float line.
 
-### 128.37 BOOST PADS, a family (the props round's P4, 2026-11-17; BUILT on `bb-boost`)
+### 128.40 BOOST PADS, a family (the props round's P4, 2026-11-17; BUILT on `bb-boost`)
 
 The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P4): *"BOOST PADS
 (chevrons): before full courses are built, not post-release ... a family pad
@@ -278654,7 +278654,7 @@ every ball along the ground. They share nothing - no variable, no constant,
 no code - and the pad's names carry `BP` (`BP_K`, `BZ_BP_FLASH`, `bp_contact`)
 so that a grep for the one never finds the other.
 
-#### 128.37.1 The decisions
+#### 128.40.1 The decisions
 
 | | decision | why |
 |---|---|---|
@@ -278665,7 +278665,7 @@ so that a grep for the one never finds the other.
 | D5 | the art: a plate of CHEVRONS on the tile's top - a black rim, magenta plate, two white chevrons pointing the way it pushes; LIT, white plate and black chevrons | on the Hercules magenta is the grey checker and cyan the same grey, so the readable pair is white on grey, then black on white; LOOKED AT in the tool's previews (`--png`) and once on MartyPC, both cards (the `BZBOOST=1` tree: the chain's pads lit in turn under a rolling ball, the ramp pocket's pad lit) |
 | D6 | a FLASH lane: the chevrons LIT while the ball rolls on the pad and `BP_FLASH` (12) steps after, ONE pad lit at a time, marked on change only | the hint that a pad has the ball; one lit pad keeps a chain of pads to one pose change a step (the window's event lanes, 128.19.10) |
 
-#### 128.37.2 The statement
+#### 128.40.2 The statement
 
     uses boost
     prop boost <wx> <wy> face +x|-x|+y|-y [strength <S>] [flat]
@@ -278673,10 +278673,10 @@ so that a grep for the one never finds the other.
 `face` is the way it pushes (world axes) and the way its chevrons point;
 `strength` is S, 1 - 127, in 1/256 gu a step a step (24 when not written:
 `BP_SDEF`, the arrows' force is 2 - 6 a level), WEIGHTED by the ball
-(128.37.4); `flat` pushes every ball S (round 2). The pad is a family element
+(128.40.4); `flat` pushes every ball S (round 2). The pad is a family element
 (128.25.6.4): a FLAT FLOOR cell with OBS, rolled over.
 
-#### 128.37.3 The record and the slot
+#### 128.40.3 The record and the slot
 
 | at | what |
 |---|---|
@@ -278693,7 +278693,7 @@ zero, or a lane that is not 2 poses.
 none), +1 its steps left. A play's start zeroes it; nothing else does (no
 RESET hook: a respawn lets a flash run out).
 
-#### 128.37.4 The rule (binding: the guest and `bbcourse.BoostFamily` do exactly this)
+#### 128.40.4 The rule (binding: the guest and `bbcourse.BoostFamily` do exactly this)
 
 CONTACT on pad `i`, the ball grounded and not shattering:
 
@@ -278711,7 +278711,7 @@ STEP (every step): a lit pad's count one less; at 0 it is put out (+0 0, its
 lane MARKED). POSE: 1 for the lit pad, else 0. So at most ONE pad's pose
 changes on any step (`--selfcheck`'s `twolit` arm counts it).
 
-#### 128.37.5 The art
+#### 128.40.5 The art
 
 `_bp_mark` paints the plate on the top in ground units round the cell's
 centre, along the face (a) and across it (b): `max(|a|, |b|)` under 6.5 gu
@@ -278725,7 +278725,7 @@ by what stands in front of it is REFUSED (the player must see where the ball
 goes). Its top's centre must be on a block, which every legal origin (a
 multiple of 16) gives: the check is a guard.
 
-#### 128.37.6 The knob build: BOOS (`BZBOOST=1`)
+#### 128.40.6 The knob build: BOOS (`BZBOOST=1`)
 
 `make BUILD=<tree> BZBOOST=1 bonanzadisk` (a private tree; refused with
 `BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL` or `BZWATER`, each of which makes its
@@ -278750,7 +278750,7 @@ but the family itself.
   onto a LOW plate at 1.5 units (the drop under glass's shatter threshold);
   without them every ball falls short. A ramp climbs back to the goal plate.
 
-#### 128.37.7 The refusals
+#### 128.40.7 The refusals
 
 Each a `--selfcheck` string case (section `boost`, item 2): no `face`; a face
 that is not one of four; a strength outside 1 - 127, or written twice; `flat`
@@ -278758,7 +278758,7 @@ written twice; a `reset` (the class is the kind's); a word of no meaning; a pad 
 a FLAT FLOOR); on another prop's cell; with no `uses boost`; `uses boost` and
 no pad; a pad hidden behind a wall in front of it.
 
-#### 128.37.8 The proofs
+#### 128.40.8 The proofs
 
 **Round 2 (the weighting)**: `--selfcheck` adds `flat` twice to the
 refusals, the record's `BP_FFLAT` (BOOS's two `flat` pads) and FAMV moving
@@ -278793,7 +278793,7 @@ ball), what each is for asserted on the model; red arms, each red: `bpstep`
 putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 (the air test gone: the Hop over the chain pushed - the ball parts at step 6).
 
-#### 128.37.9 What it costs, and its home (MEASURED: `make bonanzadisk` against `250fd0933`)
+#### 128.40.9 What it costs, and its home (MEASURED: `make bonanzadisk` against `250fd0933`)
 
 | | |
 |---|---|
@@ -278804,7 +278804,7 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 | a course without BOOST | nothing (no hook is called for a family the course does not name) |
 | the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway and the title byte for byte as before (MEASURED, `cmp`): no identity and no demo moved |
 
-#### 128.37.10 Open questions for the owner
+#### 128.40.10 Open questions for the owner
 
 1. The default strength (24, a pad cell takes a ball from rest to the cap)
    and the flash (12 steps after the ball leaves): the owner's to judge on

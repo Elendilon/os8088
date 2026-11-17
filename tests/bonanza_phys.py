@@ -2137,7 +2137,7 @@ def fam_host():
     o_, f_ = mg_host(binp, lst, sym)
     o2, f2 = wind_host(binp, lst, sym, fam)
     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
-    bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.37)
+    bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.40)
     return out + o_ + o2 + wo + bo, fails + f_ + f2 + wf + bf
 
 
@@ -2260,7 +2260,7 @@ def mg_host(binp, lst, sym):
     return out, fails
 
 
-# ---- BOOST PADS (SPEC.md 128.37.8): the BZBOOST=1 knob's test course BOOS, compiled from its source and played on
+# ---- BOOST PADS (SPEC.md 128.40.8): the BZBOOST=1 knob's test course BOOS, compiled from its source and played on
 # the default build's image and parts (the family's part is in every build's resident bundle) -------------------
 BP_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "boost.bbc")
 
@@ -2361,7 +2361,7 @@ def bp_parts(src):
 
 
 def bp_host(binp, lst, sym):
-    """BOOST PADS' unicorn half (SPEC.md 128.37.8): every scene for every ball equal at every step (the ball, the
+    """BOOST PADS' unicorn half (SPEC.md 128.40.8): every scene for every ball equal at every step (the ball, the
     slot, every pad's POSE and its marks), what each is for asserted on the model, and the red arms, each
     assembled from a broken copy of the part's source and each of which must part from the model:
     `bpstep` (STEP's entry 0: a flash never goes out), `bpsign` (the minus sign's `neg` gone: a -x pad pushes
@@ -2394,7 +2394,7 @@ def bp_host(binp, lst, sym):
              ("gap", BB.MAT_GLASS)),
             ("bpout", mk, "    pop bx\n", "never drawn", ("chain", BB.MAT_STEEL)),
             ("bpair", "    cmp byte [bz_air], 0\n    jne .out\n", "", "the ball", ("hop", BB.MAT_RUBBER)),
-            # round 2 (SPEC.md 128.37.4): glass's x1.25 gone (glass pushed as rubber); `flat` ignored (the gap's
+            # round 2 (SPEC.md 128.40.4): glass's x1.25 gone (glass pushed as rubber); `flat` ignored (the gap's
             # flat pads weight steel)
             ("bpweight", "    add al, ah\n", "", "the ball", ("ramp", BB.MAT_GLASS)),
             ("bpflat", "    test bl, BZ_BP_FFLAT\n    jnz .w\n", "", "the ball", ("gap", BB.MAT_STEEL)))
