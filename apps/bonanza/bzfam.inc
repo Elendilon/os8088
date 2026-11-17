@@ -129,11 +129,36 @@ bz_fh0:
 ; so a mark alone, with the camera still, was never walked: a crack broken by
 ; a landing fell the ball through an undrawn hole (the owner, 2026-11-16).  A
 ; family part reaches it by `call far [bz_fmkp]`, which every dispatch points
-; here, BX the element (its lane).  Preserves everything.
+; here, BX the element (its lane).  A GROUP MEMBER (SPEC.md 128.31.5: an
+; element at or past bz_nlane, its record's +8 - +15 its group lanes, 0FFh
+; after the last) marks every lane it lists.  Preserves everything.
 ; -----------------------------------------------------------------------------
 bz_fmark:
-    mov byte [bz_latt + bx], 1
     mov byte [bz_lqt], 0
+    cmp bl, [bz_nlane]
+    jae .grp
+    mov byte [bz_latt + bx], 1
+    retf
+.grp:
+    push bx
+    push cx
+    push si
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    mov cx, BZ_GRP_LMAX
+.l:
+    mov bl, [es:si + BZP_LROW]  ; (BH 0: an element's index is a byte)
+    cmp bl, 0ffh
+    je .d
+    mov byte [bz_latt + bx], 1
+    inc si
+    loop .l
+.d:
+    pop es
+    pop si
+    pop cx
+    pop bx
     retf
 
 ; -----------------------------------------------------------------------------
