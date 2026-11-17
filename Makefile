@@ -22089,7 +22089,7 @@ BZ_FAMS := probe glass rotor spring tube pickups
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/bzcrs2.lst
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -22122,7 +22122,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZFSHOWSTAMP) \
+                   fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
@@ -22170,6 +22170,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
 # since SPEC.md 128.25.5.2), then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
+# SPEC.md 128.33: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
+# apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
@@ -22178,7 +22180,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_CRSPARTS)
 BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
-            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
+            $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the

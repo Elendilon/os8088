@@ -282081,3 +282081,76 @@ held pathway both ways, beside a held kit), `bonanzagame`, `bonanzademo`
 (the re-stamped demos), `bonanzaring`, `bonanzaphys` (its field leg runs
 `bz_cexp` under unicorn), `bonanzamega` (the kit's selector), and
 `bonanzaperf` for the launch.
+
+#### 128.33.11 As built: the tool (wave K1, 2026-11-17)
+
+**The kit as cut** (`bbcourse.py kit`, the nine pool courses at this tree):
+**190 blocks, 71 masks, 36 tables**; `BZKIT.BIN` **14,612 bytes** of RAM,
+**4,509 LZB** on the disk (packed alone: the blocks 1,208, the masks 282, the
+tables 3,082). The report's small kit was 177 blocks and 61 masks over eight
+courses; BENCH, in the pool here, adds the rest.
+
+**Each course, MEASURED** (LZB as `os88pkg` packs a part; "kit-less" is the
+same course compiled with `nokit` at the same alignment; the kit's pieces
+are the ones its sections name):
+
+| course | `Y0` (mod 8), `+k` | B from the kit / all | K | F | its kit pieces' RAM | LZB before (shipped base) | kit-less | with the kit | the kit's share |
+|---|---|---|---|---|---|---|---|---|---|
+| BENCH | 4, +4 (was +6) | 59 / 234 | 39 / 68 | - | 1,568 | 4,754 | 4,315 | **4,031** | -284 |
+| FIRST | 4, +4 | 84 / 134 | 17 / 20 | - | 1,616 | 1,868 | 1,868 | **1,411** | -457 |
+| TRIAL | 4, +0 | 107 / 231 | 21 / 30 | - | 2,048 | 3,427 | 3,427 | **2,840** | -587 |
+| MILL | 4, +4 | 140 / 520 | 29 / 50 | - | 2,704 | 6,890 | 6,890 | **6,221** | -669 |
+| MOON | 4, +4 | 128 / 386 | 45 / 91 | - | 2,768 | 7,587 | 7,587 | **7,042** | -545 |
+| PEAK | 4, +4 | 126 / 423 | 43 / 75 | - | 2,704 | 8,984 | 8,984 | **8,414** | -570 |
+| PLAYGROUND (two parts) | 4, +2 | 154 / 709 | 61 / 186 | 15 / 15 | 7,775 | 14,898 | 14,898 | **12,655** | -2,243 |
+| SHAPE (knob) | 4, +7 | 95 / 245 | 31 / 69 | 15 / 15 | 6,351 | 5,140 | 5,140 | **3,304** | -1,836 |
+| PITS (knob) | 4, +7 | 94 / 291 | 37 / 80 | 16 / 16 | 6,720 | 5,762 | 5,762 | **3,888** | -1,874 |
+
+- **The alignment changed ONE course: BENCH**, `Y0` 190 -> 188 (+6 -> +4):
+  its blocks 300 -> 234, its records 1,270 -> 1,307 (+37), its RAM 34,200 ->
+  33,292, its LZB 4,754 -> 4,315 before the kit. Every other play course was
+  already at 4 (mod 8) and its RAM form keeps its length. BENCH meets both
+  bounds there; no course needed an edit. BENCH's benchmark figures move with
+  its records.
+- **The classes priced apart** (each compiled against a kit of one class
+  only):
+
+| | the kit's LZB | saves the 7 shipped courses | saves the 9 pool courses |
+|---|---|---|---|
+| blocks and masks | 1,456 | 3,876 (**2.66x**) | 4,866 (**3.34x**, the report's 3.4x) |
+| the F library (36 tables) | 3,082 | 1,479 (**0.48x**: PLAYGROUND's 15 tables alone) | 4,196 (1.36x: PLAYGROUND, SHAPE and PITS) |
+| the whole kit | 4,509 | 5,355 (**1.19x**) | 9,062 (2.0x) |
+
+  So on today's SHIPPED courses the F library costs more than it saves: 21
+  of its 36 tables are the knob courses' (SHAPE's and PITS'). It pays for
+  itself once standard chutes reach shipped courses (K3); until then it is
+  1.6KB of disk the shipped build carries for them (128.33.12's question 1).
+- **The package** (`make bonanzadisk`): `BONANZA.O88` 120,937 -> **119,822**
+  bytes (-1,115); `bonanza360.img` **127 -> 126** of 354 clusters. The
+  `BZSHAPES` knob build: 133 of 354, its shipped courses' parts byte for
+  byte the plain build's.
+- **The identities** moved once (every play course's: the order of its
+  pieces); the authored demos were written again by `bbcourse.py author`
+  (MOON 06C6h -> E4C6h, PEAK 4FA4h -> CE41h, PLAYGROUND 50E0h -> 01A1h:
+  their `ident` lines alone changed); the route demos re-stamped themselves.
+- **`--selfcheck`**: 775 items ok, item 16's five among them; the in-place
+  red arm writes over an unread bitmap byte on all 15 `KITREF` sections.
+- **Host time**: `bbcourse.py kit` about 32 s; `--selfcheck` about 4.5 min
+  (four jobs); `--sizes` about 5 min (it compiles each play course twice).
+
+#### 128.33.12 Open questions for the owner
+
+1. **The F library on the shipped build.** 21 of its 36 tables are the
+   `BZSHAPES` knob's courses' (SHAPE, PITS), so on the seven shipped courses
+   it costs 3,082 LZB and saves 1,479 (128.33.11). Keep it whole (the
+   library for the standard chutes to come, K3), or cut the shipped kit's
+   tables to the shipped courses' own until those chutes ship? The latter is
+   a pool rule (the F library from the shipped courses only), about 1.6KB
+   of disk, and makes the knob's two courses carry their own tables again.
+2. **When the kit is re-cut.** It is generated text the build reads, so a
+   course edit that changes which pieces are shared leaves it stale (bytes,
+   never correctness). Re-cut at every ship (the plan here), or at every
+   course edit (every play course's identity and the authored demos then
+   move each time)?
+3. **BENCH's benchmark figures** move with its alignment (+37 records):
+   `bonanzaperf`'s BENCH rows are against a new course, not the old one.

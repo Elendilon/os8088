@@ -3802,3 +3802,24 @@ freely (every ship rebuilds every course), and settle on ONE alignment -
 - **Why the bitmap is copied out first**: the pieces written from a slot's
   start reach the bitmap at the slot's end whenever a course's last named piece
   is early in the kit; the copy costs 45 clocks a bitmap byte.
+
+## 2026-11-17 (the standard kit: the tool)
+
+`bbcourse.py kit` cut the kit from the nine play courses: 190 blocks, 71
+masks, 36 tables, 14,612 bytes held, 4,509 LZB on the disk. Every play course
+now names its kit pieces with a bitmap (form 8), and `--selfcheck` item 16
+proves the RAM form is the kit-less compile's with the pieces reordered and
+nothing else moved.
+
+- **What it bought, MEASURED**: the seven shipped courses -5,355 LZB against
+  the kit's 4,509; `BONANZA.O88` -1,115 bytes, `bonanza360.img` 127 -> 126
+  clusters. Priced class by class, the blocks and masks are 2.66x on the
+  shipped courses (3.34x over all nine, the report's 3.4x) and the F library
+  0.48x on the shipped build, because 21 of its 36 tables belong to the knob's
+  SHAPE and PITS. That one is put to the owner rather than decided here.
+- **The one alignment moved one course**: BENCH, from +6 to +4 (37 more
+  records, 66 fewer blocks); every other course already sat at 4 (mod 8).
+- **The demos**: MOON's, PEAK's and PLAYGROUND's re-authored, their `ident`
+  lines the only change.
+- **Found on the way**: item 1's cross-commit compile against `503031d4`
+  needed `nokit`, as it already needed `y0add` 0 - that tool predates both.
