@@ -277064,20 +277064,26 @@ solid cells are 3 - 252, and the tool refuses it besides) - and a respawn
 moves the ball's cell, which the same step's STEP sees (its own `_end`).
 **THE FORCE-FIELD CORE** is `mg_scan` and `mg_apply` in the part,
 `MagnetFamily.mg_scan`, `mg_force` and `mg_apply` in the model:
-self-contained, so wind can share them (128.33.11).
+self-contained, so wind can share them (128.33.11). **kern_mega** needs
+nothing of its own: the part only LOADS `[bz_cseg]` (a selector there) and
+never adds to a segment, and marks through `bz_fmkp` - GLASS's precedent
+(128.25.18); a `fetch` row is an `OP_ARENA` code row as the probe's is.
 
 #### 128.33.6 The art
 
-A HORSESHOE, magenta with WHITE tips and a black outline, on a black post
-(the Hercules turns magenta into its grey checker, so the outline and the
-tips carry it there): a side magnet sits `MG_POST` (6) px up its post, open
-toward its field's side of the screen; a hanging one's post rises `MG_ARM`
-(32) px, its arm (black, a white top line) runs out along its way over
-every cell of its field, a horseshoe open DOWN hanging under each. GEOMETRY
-keyed to the post's cell (a "post" op, as a flag's pole is). **Visibility**:
-the arm is 32 px over the post's floor and the heads end 25 px up, above
-any ball under its ceiling; the test course stands the posts BEHIND the
-ball's row, so nothing of them is in front of its path. **The WIGGLE**: a
+A HORSESHOE (11 x 9 px; a hanging one's 9 x 8), two-pixel magenta arms
+with WHITE tips and a black outline, on a post white on its left and black
+on its right (the Hercules turns magenta into its grey checker, so the
+outline and the tips carry it there; a black post alone vanished against
+the void behind the hover's posts, SEEN in the tool's preview): a side
+magnet sits `MG_POST` (6) px up its post, open toward its field's side of
+the screen; a hanging one's post rises `MG_ARM` (32) px, its arm (a white
+line over a black one) runs out along its way over every cell of its
+field, a horseshoe open DOWN hanging under each. GEOMETRY keyed to the
+post's cell (a "post" op, as a flag's pole is). **Visibility**: the arm is
+32 px over the post's floor and the heads end 23 px up, above any ball
+under its ceiling; the test course stands the posts BEHIND the ball's row,
+so nothing of them is in front of its path. **The WIGGLE**: a
 lane of three poses, 0 nothing, 1 and 2 sparks off the open end (a hanging
 magnet's first head), white with a black edge; a MARK at the post's depth,
 clipped by what is drawn in front, refused when more than half of a pose

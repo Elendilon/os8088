@@ -5837,14 +5837,18 @@ def label_glyph(ch, bx, by, ink):
     return out
 
 
-# MAGNETS' art (SPEC.md 128.33.6): a HORSESHOE, magenta with WHITE tips and a black outline (the Hercules turns
-# magenta into its grey checker, so the outline and the tips carry it there), on a black post.  A side magnet
-# sits MG_POST px up its post, open toward its field's side of the screen; a HANGING one's arm runs MG_ARM px
-# up, out along its way over every cell of its field, a horseshoe open DOWN under each.  The WIGGLE lane is two
-# poses of sparks off the open end (the first head's, a hanging one's), pose 0 nothing: drawn while it pulls
+# MAGNETS' art (SPEC.md 128.33.6): a HORSESHOE, two-pixel magenta arms with WHITE tips and a black outline (the
+# Hercules turns magenta into its grey checker, so the outline and the tips carry it there), on a post white on
+# its left and black on its right (a black post alone vanishes against the void behind a hanging one).  A side
+# magnet sits MG_POST px up its post, open toward its field's side of the screen; a HANGING one's post rises
+# MG_ARM px, its arm (a white line over a black one) out along its way over every cell of its field, a
+# horseshoe open DOWN under each.  The WIGGLE lane is two poses of sparks off the open end (the first head's, a
+# hanging one's), pose 0 nothing: drawn while it pulls
 MG_POST, MG_ARM = 6, 32
-MG_SIDE = (" ####### ", "#mmmmmww#", "#m###### ", "#m#      ", "#m###### ", "#mmmmmww#", " ####### ")
-MG_HANG = (" ##### ", "#mmmmm#", "#m###m#", "#m# #m#", "#w# #w#", "### ###")
+MG_SIDE = (" ######### ", "#mmmmmmmww#", "#mmmmmmmww#", "#mm####### ", "#mm#       ", "#mm####### ",
+           "#mmmmmmmww#", "#mmmmmmmww#", " ######### ")
+MG_HANG = (" ####### ", "#mmmmmmm#", "#mmmmmmm#", "#mm###mm#", "#mm# #mm#", "#ww# #ww#", "#ww# #ww#",
+           "#### ####")
 MG_SCR = ((16, 8), (-16, -8), (-16, 8), (16, -8))   # a cell along +x, -x, +y, -y on the screen
 MG_INK = {"#": BLK, "m": MAG, "w": WHT}
 
@@ -5867,22 +5871,21 @@ def magnet_pix(p, x0):
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"]
     out = {}
+    top = MG_POST if not fl & MG_DOWN else MG_ARM
+    for y in range(cy - top, cy + 1):
+        out[(cx - 1, y)], out[(cx, y)] = WHT, BLK
     if not fl & MG_DOWN:
-        for y in range(cy - MG_POST, cy + 1):
-            out[(cx - 1, y)] = out[(cx, y)] = BLK
-        out.update(_mg_glyph(MG_SIDE, cx - 4, cy - MG_POST - 7, MG_SCR[d][0] < 0))
-        return out, MG_POST + 7
+        out.update(_mg_glyph(MG_SIDE, cx - 5, cy - MG_POST - len(MG_SIDE), MG_SCR[d][0] < 0))
+        return out, MG_POST + len(MG_SIDE)
     sx, sy = MG_SCR[d]
     ya = cy - MG_ARM
-    for y in range(ya, cy + 1):
-        out[(cx - 1, y)] = out[(cx, y)] = BLK
     for x, y in _raster((cx, ya), (cx + n * sx, ya + n * sy)):
         out[(x, y)] = BLK
         out.setdefault((x, y - 1), WHT)
     for k in range(1, n + 1):
         hx, hy = cx + k * sx, ya + k * sy
         out[(hx, hy + 1)] = BLK
-        out.update(_mg_glyph(MG_HANG, hx - 3, hy + 2))
+        out.update(_mg_glyph(MG_HANG, hx - 4, hy + 2))
     return out, MG_ARM + 1
 
 
@@ -5896,19 +5899,21 @@ def magnet_poses(p, x0):
     q1, q2 = {}, {}
     if not fl & MG_DOWN:
         s = -1 if MG_SCR[d][0] < 0 else 1
-        ex, y0_ = cx + (-5 if s < 0 else 5), cy - MG_POST - 7     # (the column past the tips' outline)
+        ex, y0_ = cx + 5 * s, cy - MG_POST - len(MG_SIDE)      # (the column of the tips' outline)
         for q, off in ((q1, 1), (q2, 3)):
-            for yy in (1, 5):
+            for yy in (1, 2, 6, 7):
                 q[(ex + s * off, y0_ + yy)] = WHT
-                q[(ex + s * (off + 1), y0_ + yy)] = BLK
-            q[(ex + s * (off + 1), y0_ + 3)] = WHT
+            for yy in (0, 3, 5, 8):
+                q[(ex + s * off, y0_ + yy)] = BLK
+            q[(ex + s * (off + 1), y0_ + 4)] = WHT
         return {0: {}, 1: q1, 2: q2}
     sx, sy = MG_SCR[d]
-    hx, hy = cx + sx, cy - MG_ARM + sy + 8          # (the first head's tips' last row)
-    for q, off in ((q1, 1), (q2, 3)):
-        for xx in (-2, 2):
+    hx, hy = cx + sx, cy - MG_ARM + sy + 2 + len(MG_HANG)       # (the row under the first head)
+    for q, off in ((q1, 0), (q2, 2)):
+        for xx in (-3, -2, 2, 3):
             q[(hx + xx, hy + off)] = WHT
-            q[(hx + xx, hy + off + 1)] = BLK
+        for xx in (-4, -1, 1, 4):
+            q[(hx + xx, hy + off)] = BLK
         q[(hx, hy + off + 1)] = WHT
     return {0: {}, 1: q1, 2: q2}
 

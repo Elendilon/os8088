@@ -53,6 +53,8 @@ goal  tile   5 25  flat 2 exit 1         # the middle plate's: the knob's pathwa
 clock 26 24
 clock  7 25
 target 60
-way 5 4
+way 5 4                                         # (the route demo's: a loop on the start plate, so its log
+way 28 6                                        # is long enough for LZB to shrink - os88pkg refuses a
+way 6 7                                         # compressed row it would grow)
 way 28 6
 way 28 24
