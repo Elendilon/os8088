@@ -275231,6 +275231,73 @@ PRICED after them: +8.6k to +15.2k a fall frame in the mean, a median of
 +8.8k to +10.1k, +34k to +54k at worst (60 VOID positions a course). MEASURED:
 128.29.9.
 
+*As built - the speed pass (branch `bounce-bonanza-av2`, an independent
+review of both the code and the approach).* **Why the contract's +1k to +4k
+was wrong**: it priced ONE frame's work on the assumption that a fall frame
+reads the front cells, builds 4 - 6 words and lays them - and it priced a
+front cell at 60 - 90 clocks and an edge column at about 30. Measured from the
+instructions on MILL's and PEAK's real fall frames (`tests/bonanza_av.py`'s
+pricing, AVFALL's falls replayed on the host), the routine as built spent
+**9.4k a frame reading the 14 front cells** (about 670 a cell: an 8088 pays 15
+- 20 clocks an instruction and every one of those touched memory through a
+segment override), **6.7k computing edges** (about 100 a column a cell, 2 - 12
+cells counting) and 2.9k taking each word's least and greatest - **about 19k
+of a PEAK fall frame's 22k recomputed EVERY frame**, though none of it changes
+while the ball falls straight down through one cell. Keeping the shape of the
+plan (read, compute, mask, lay) was not keeping its price: the plan's +1k -
++4k was a per-frame price for work that only needs doing once a cell.
+
+So the routine now **computes the model once a cell and keeps it** - exact,
+the binding model unchanged, no part byte and no tool change:
+- **the cell's cache.** The edges are picture columns and lines; they depend
+  on the ball only through its cell V and the SET of front cells that count
+  (`H > K`). A new V reads its 14 cells once into a front table (`bz_afl`,
+  8 bytes a cell: `H / 4`, X, Y, the slopes byte, the shadow flags); the
+  count set is an interval of `floor(K / 4)` (`bz_amaxnc`, `bz_aminc`: the
+  highest `H / 4` that does not count, the least that does), so a `K` that
+  leaves it re-counts from the table, no grid byte read; and each footprint
+  WORD's eight columns' least edge, its least and its greatest are computed
+  the first frame the word is in the footprint (`bz_arange`, every new word
+  in one pass a half) and kept, 8 words from `W0 = (Xv - 24) >> 3` - which
+  hold every footprint of a ball centred in V - in `bz_aE`. The owner's
+  cell's TOP TEST is the case of the interval with no cell counting. The
+  grid cell itself is kept too (`bz_awx`, `bz_awy`, `bz_avp`), so a frame in
+  the same cell reads no ROWTAB. Over AVFALL's falls 80 - 90% of the model's
+  frames change neither the cell nor the count set (MEASURED on the host);
+- **the parent's shadow.** A front cell N = (d, i), d >= 2, has two parents
+  at d - 1 whose halves cover its halves' columns exactly: P1 = (d - 1, i)'s
+  left half N's right half's, P2 = (d - 1, i - 1)'s right half N's left
+  half's. Both halves FLAT, the parent's edge is at or over N's in all 16
+  columns exactly when `Y_P + 8 <= Y_N` (F runs 0 .. 8 along a flat half, the
+  two in opposite directions), and with `H_P >= H_N` the parent counts
+  whenever N does - so that half of N is never the least in any column and is
+  never computed. Three compares a half at the read. Over AVFALL's falls it
+  leaves 68% of the counting halves on MILL and 63% on PEAK, the worst frame's
+  28 halves 13 (MEASURED on the host, every column checked equal); the general
+  test (any slopes, the closest column) would leave 51% and 10, for a
+  multiply a half - not taken;
+- **the masks and the lay** as before, with the row loop's keys in registers,
+  a row whose lines are all over every edge passed by, the same footprint's
+  words and least edge kept from the last frame (`bz_alcol`, `bz_aemin`), and
+  a word every pixel of which is hidden laid under a constant checker
+  (`bz_achk`, through `bz_omp`, bz_olay's mask pointer in our segment)
+  instead of building one; a flat half's edge needs no multiply.
+
+PRICED (the instructions, the falls of MILL and PEAK and PEAK's demo replayed
+on the host, one box) against today's records: the AV head +12.2k / +0.7k /
++51.7k (mean / median / worst) on MILL's falls, +22.5k / +19.0k / +41.7k on
+PEAK's, +9.1k / +11.8k / +27.5k on PEAK's demo; the speed pass **+3.8k / +0.5k
+/ +35.7k, +7.0k / +3.9k / +34.5k and +2.4k / +0.5k / +17.4k**. What is left:
+the frame that enters a new cell (about 15k of reads, edges and words with 10
+or more cells counting) and the model's own lays where a residual record lays
+the same word. MEASURED: 128.29.9.
+
+*Bytes, as built after the speed pass* (MEASURED): code 1,648 bytes
+(`bz_amodel` 1,214, `bz_arange` 388, `bz_ahalf` 30, `bz_achk` 16) against
+1,126, so the image grows 48,162 -> **48,703 (+541)**; bss 11,109 -> **11,345
+(+236)**: the edge cache 128 bytes, the front table 112, the word bounds 32;
+`BONANZA.O88` **+448 bytes** (lz4), `bonanza360.img` 118 -> 119 clusters.
+
 #### 128.29.6 The bytes (PREDICTED from the prototype; MEASURED as built)
 
 The prototype (`occproto.py`'s `avoidR4`, the owner-render edge, the report's
@@ -275316,7 +275383,14 @@ lowered-record control takes a cell the model does not run in.
 positions on each of the nine parts, 300 of them VOID (68 - 96 a part with
 the window clipping the footprint): every buffer byte, laid count and model
 verdict equal (MEASURED). Its red arm `amodel` (the right half's `+ 4` made
-`+ 12`: every right-half edge a line low) is red.
+`+ 12`: every right-half edge a line low) is red. *After the speed pass*: 500
+positions a part, 100 of them FALLS - ten consecutive frames from a VOID
+position, the ball dropping 1 - 6 px a frame and drifting up to an eighth of
+a cell - so the cell's cache is used, re-counted and left as a fall uses it;
+every buffer, laid count and verdict equal on all nine parts (MEASURED). The
+red arm `amodel` patches the flat half's `+ 6` as well as the general `+ 4`,
+and a second red arm, `acache` (the cache not dropped when a front cell
+starts to count), is red.
 
 **The guest against the host** (A1, not a row): `bz_occ` built from this
 tree, under unicorn, on every course's RAM form, at 300 VOID positions a
@@ -275407,6 +275481,38 @@ What is left is the cost of a ball really going behind something: PEAK's
 scripted falls drop behind its terrain, where front cells count and the model
 lays, and the worst frames are those. A fall in front of an edge, or a flight
 high over a gap, is now within about 1k of today's pass.
+
+*The speed pass (128.29.5's cell cache and parent shadow), MEASURED once*
+(MartyPC, the same legs and logs; this build's spans paired with the stored
+spans of today's build and the AV head, which the legs' fixed logs and
+emulated cycles reproduce exactly). AV - today, mean / median / worst, the
+worst as a share of a refresh; the frames each run PRESENTED (today / the AV
+head / the speed pass):
+
+| card, run | AV head | speed pass | worst, AV head -> speed pass | frames presented |
+|---|---|---|---|---|
+| CGA, MILL falls | +11.2k / +0.9k / +57.2k | **+4.6k / +0.8k / +36.5k** | 72% -> **46%** of 79.6k | 1,056 / 1,039 / 1,042 |
+| CGA, PEAK falls | +22.8k / +20.7k / +41.2k | **+7.9k / +3.3k / +43.3k** | 52% -> 54% | 1,179 / 1,179 / 1,175 |
+| CGA, PEAK's demo | +9.0k / +0.9k / +35.1k | **+3.2k / +0.8k / +18.9k** | 44% -> **24%** | 2,375 / 2,352 / 2,367 |
+| Hercules, MILL falls | +11.7k / +1.7k / +70.9k | **+4.7k / +0.8k / +41.3k** | 75% -> **44%** of 94.0k | 907 / 888 / 885 |
+| Hercules, PEAK falls | +23.8k / +20.8k / +49.4k | **+8.4k / +3.9k / +38.0k** | 53% -> **40%** | 1,012 / 1,006 / 1,014 |
+| Hercules, PEAK's demo | +8.7k / +6.4k / +34.9k | **+3.4k / +0.8k / +21.6k** | 37% -> **23%** | 2,020 / 2,016 / 2,021 |
+
+The mean falls by 2.5 - 2.9 times and PEAK's scripted falls' median from
++21k to under +4k; every other gated frame is today's (-0.0k to +0.3k in the
+mean on PEAK, pairing noise; MILL's runs have one or two such frames, +14k and
++19k, as the AV head's had). The worst frames are the ones that ENTER a cell deep behind
+the terrain - ten or more front cells counting, every word of the footprint
+computed and laid - and at one of them (CGA, PEAK's falls, step 386, a frame
+the AV head's run never presented) the pass still costs +43k, half a
+refresh. MILL's falls still present 14 - 22 frames fewer than today's over 977
+steps; PEAK's demo now presents all but 8 of today's on the CGA. The levers
+not taken, PREDICTED: reusing nine of the front table's 14 slots when the ball
+moves to a neighbouring cell (an entering frame's reads, about 10k, to about
+4k; about 120 bytes of code); folding the model's mask into a residual
+group's lay of the same word, which lays it once instead of twice (about 1k
+on a PEAK fall frame and twice that on a two-box frame; it touches the walk);
+and the general shadow test (the worst frame's halves 13 -> 10).
 
 **The rows** (the final pass's, named, not run here): `bonanzacourse` (item
 15 and every item the records reach), `bonanzaassets`, `bonanzaring` (its

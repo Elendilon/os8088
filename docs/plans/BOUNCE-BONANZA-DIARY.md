@@ -3234,3 +3234,56 @@ rows (the final pass's: `bonanzacourse`, `bonanzaassets`, `bonanzaring`,
 `bonanzapath`, `bonanzatitle`, `bonanzaexit`, `bonanzamega`).
 
 **Later the same day: the cell's top test.** The owner pointed out that a ball jumping high over a gap is above every front tile, so one test against the tile tops should end the model. It skipped a cell whose top was not above the ball but read all 14 cells every frame anyway. It now remembers the last cell and the highest top in front of it: the same cell with the ball at or over that top costs one compare. TRIAL's gap jump went from +10.6k a frame to +713 after the frame that enters each cell (PRICED). MEASURED on MartyPC, the median fall frame on MILL and PEAK's demo dropped from +12k to under +2k on the CGA; PEAK's scripted falls, which really go behind its terrain, still cost about +21k in the median.
+
+## 2026-11-17 (AV: an independent speed pass)
+
+The owner, on AV's fall frames costing four to ten times the prediction:
+*"half the time when these come in so much higher it's because someone did it
+totally differently, and there is a cheaper way to do it after all."* An
+independent pass over the code and the approach (branch
+`bounce-bonanza-av2`, SPEC.md 128.29.5 and 128.29.9).
+
+- **Why the estimate missed (PRICED from the instructions on the real fall
+  frames).** The plan priced one frame's work: read the front cells, build 4
+  - 6 words, lay them - at 60 - 90 clocks a cell and about 30 a column. The
+  routine as built spent 9.4k a PEAK fall frame reading the 14 cells (670 a
+  cell: an 8088 pays 15 - 20 clocks an instruction, and each one touched
+  memory through a segment override), 6.7k on edges and 2.9k on each word's
+  bounds - **19k of 22k recomputed every frame, though none of it changes
+  while the ball falls straight down through one cell.** The work was the
+  right work; it was done once a frame where it needs doing once a cell.
+- **What was priced and dropped.** A coarser model - each edge taken at its
+  least over 4 or 8 columns - saves no byte at all (the records do not move)
+  and hides 0.24 - 0.76% of the ball's pixels that the rule does not, past the
+  0.25% bound on most courses (MEASURED on the host). Per-word or per-span
+  mask building would cost about the same per column on an 8088 (ESTIMATED
+  from the instruction counts); the general shadow test
+  needs a multiply a half for three more halves dropped on the worst frame.
+- **What was built.** The model is now computed once a cell and kept: the
+  front cells read once into a table, the count set as an interval of the
+  key, each footprint word's edges computed the first frame it is needed.
+  80 - 90% of the model's frames over the scripted falls change neither the
+  cell nor the count set (the host's replay). A cell's half that its flat parent covers is never
+  computed (three compares; the worst frame's 28 halves become 13). Exact: no
+  part byte, no tool change; the unicorn proof now drives ten-frame FALLS
+  through the cache and has a second red arm for it.
+- **MEASURED on MartyPC** (the same legs, once; AV - today's pass on the fall
+  frames). Mean +11.2k -> **+4.6k** on the CGA's MILL falls, +22.8k ->
+  **+7.9k** on PEAK's, +9.0k -> **+3.2k** on PEAK's demo; the Hercules the
+  same shape. PEAK's falls' median **+20.7k -> +3.3k**. The worst frame,
+  72% -> 46% of a refresh on MILL and 44% -> 24% on PEAK's demo - but one
+  frame entering a cell deep behind PEAK's terrain still costs +43k.
+- **The bytes**: +541 of code and +236 of bss over the AV head; `BONANZA.O88`
+  +448, `bonanza360.img` 118 -> 119 clusters. That is 8% of what AV saves on
+  the disk, bought for a mean fall frame two and a half times cheaper.
+- **Left, PREDICTED**: reusing nine of the 14 front cells when the ball moves
+  to a neighbouring cell (the entering frame's reads about 10k -> 4k), and
+  folding the model's mask into a residual group's lay of the same word.
+
+**Tested**: `tests/bonanza_av.py` (nine parts, 500 positions each, falls
+included; both red arms red), `make`, `make bonanzadisk`, the MartyPC fall
+legs on both cards. **Not run**: the soak rows (the final pass's:
+`bonanzacourse`, `bonanzaassets`, `bonanzaring`, `bonanzaphys`,
+`bonanzareplay`, `bonanzaperf`, `bonanzawheel`, `bonanzapath`,
+`bonanzatitle`, `bonanzaexit`, `bonanzamega`); `bbcourse.py --selfcheck`
+(the tool did not change).
