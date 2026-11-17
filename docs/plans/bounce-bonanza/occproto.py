@@ -471,6 +471,7 @@ VARIANTS = (("base", v_base), ("novoid", v_novoid), ("pits", v_pits), ("vlow", v
             ("res2", lambda c: ("res", residual(c, 2), c.reach)), ("res3", lambda c: ("res", residual(c, 3), c.reach)),
             ("res4", lambda c: ("res", residual(c, 4), c.reach)),
             ("res3+V", lambda c: ("res", residual(c, 3, v_vghost(c)), c.reach)),
+            ("res4+V", lambda c: ("res", residual(c, 4, v_vghost(c)), c.reach)),
             ("avoidR3", lambda c: ("res", avoid_r(c, 3), c.reach)), ("avoidR4", lambda c: ("res", avoid_r(c, 4), c.reach)))
 
 
