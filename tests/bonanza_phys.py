@@ -2918,7 +2918,7 @@ def tl_verdict(name, p, zs):
     if name == "rocker":
         ok = (2, 2) in tipped and (2, 0) in tipped
         return ok, "the rocker took the poses %s" % [q for q in tipped if q[0] == 2]
-    ok = (1, 2) in tipped and poses[-1][1] == 0 and any(e[0] == "respawn" for e in p.events)
+    ok = (1, 2) in tipped and poses[-1][1] == 0 and p.nret >= 1
     return ok, "the gate tipped (%s), back at rest after the RETURN: %s" % (tipped, poses[-1])
 
 
