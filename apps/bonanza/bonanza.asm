@@ -2606,7 +2606,9 @@ bz_bsload:
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_crshdr:
-    mov word [bz_acptr], -1     ; (SPEC.md 128.29: the model's cell, emptied)
+    mov word [bz_acptr], -1     ; (SPEC.md 128.29: the model's cell, emptied,
+    mov word [bz_awx], -1       ; its grid cell,
+    mov word [bz_omp], bz_omsk  ; and bz_olay's mask in our segment)
     push es
     mov es, [bz_cseg]
     mov ax, [es:BZC_COLS]
