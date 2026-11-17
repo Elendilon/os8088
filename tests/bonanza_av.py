@@ -166,11 +166,14 @@ def positions(c, ag, n, rnd):
     """-> [(gx, gy, gz, air, void)]: n VOID positions and n / 3 others"""
     rcs = BB.av_positions(c.reach, ag, c.slabcells) if ag.gflags & BB.GF_ANA else []
     out = []
-    for i in range(n if rcs else 0):
+    i = 0
+    while i < (n if rcs else 0):
         rc = rnd.choice(rcs)
-        z = rnd.randrange(rc.zlo, rc.zhi + 1)
-        out.append(((16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096),
-                    (z << 8) + rnd.randrange(256), 1, True))
+        for _ in range(1 + rnd.randrange(3)):       # (one to three a cell in a row: the guest's cell-top test
+            z = rnd.randrange(rc.zlo, rc.zhi + 1)   # remembers the cell, SPEC.md 128.29.5)
+            out.append(((16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096),
+                        (z << 8) + rnd.randrange(256), 1, True))
+            i += 1
     for i in range(max(1, n // 3)):
         rc = rnd.choice(c.reach)
         air = 1 if rc.kind == BB.KIND_VOID else rnd.randrange(2)
