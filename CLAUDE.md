@@ -1453,6 +1453,13 @@ The rule:
 - **A bisect or a re-soak is background work too.** `os88bisect.py
   classify` and a re-run of the failing rows belong to the same one-at-a-time
   lane as the soak, never in front of the next change.
+- **Sub-agents do not soak** (the owner, 2026-11-17). An agent handed one
+  piece of a larger set runs only the VERY scoped, specific checks of its own
+  change - its selfcheck section, its own host or unicorn scenes, the builds,
+  and at most one boot to LOOK - and never a soak row: not `os88test.py soak`,
+  not `os88soak.py`, not a soak row's script run by hand against an emulator.
+  The lead runs ONE scoped soak when a whole set of work completes, over the
+  union of what landed. A brief handed to a sub-agent says so.
 
 This **narrows the Testing section's "after the last batch" on this fork**:
 there, the soak union runs once after the final batch. Here, "final" means
