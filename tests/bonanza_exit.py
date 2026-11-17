@@ -80,7 +80,7 @@ MILL, MOON, PEAK, BENCH (B), the tour's (FIRST, and MOON at the cup), D's
 stops at the kernel's fsx_run (a kernel address: the package's region may
 move while the launch claims), and there the course claim ([bz_cseg], found
 in the heap map, at least the part's length) must equal byte for byte the
-tool's RAM form under the build's RECB (bbcourse's cga4 / cga8; the art's
+tool's RAM form (bbcourse's cga; the art's
 BZ<K>.BIN checked to be the same compile's stored form) on the CGA, or its
 htab() translation on the Hercules; a difference names the first offset and
 its BZC2 section.  The full run must have compared all six shipped courses.
@@ -205,11 +205,54 @@ def bsegs(g):
     return list(struct.unpack("<3H", bytes(g.m.read(g.a("bz_bsegs"), 6))))
 
 
-def shell_row():
-    """the SHELL PART's row (SPEC.md 128.19.2): the last, after the demos -
-    held on the desktop, never inside a bracket"""
+def ncrs2():
+    """the two-part courses' WORLD part rows (SPEC.md 128.30.4.4): one a line of
+    the build's bzcrs2.lst, in row order after the courses' own - 0 for a tree
+    with none (empty) or older than 128.30 (no file)"""
+    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
+    if not os.path.exists(p):
+        return 0
+    return sum(1 for ln in open(p) if ln.strip())
+
+
+def link_row(name):
+    """a BZ_P_* row constant as the package assembled it (bzlink.inc, the shell
+    part's link, which lists the package's BZ constants), or None"""
+    import re
+    link = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzlink.inc")).read()
+    m_ = re.search(r"^%s\s+equ\s+(0x[0-9A-Fa-f]+|\d+)" % name, link, re.M)
+    return int(m_.group(1), 0) if m_ else None
+
+
+def world_row(k):
+    """course K's WORLD part's row (SPEC.md 128.30.4.4): the j-th line of the
+    build's bzcrs2.lst is row BZ_P_CRS + BZ_NCRS + j - or None, K one part"""
+    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
+    names = open(p).read().split() if os.path.exists(p) else []
+    if "BZ%dW.BIN" % k not in names:
+        return None
     R.CRS_K["bench"]
-    return CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong() + ndemo()
+    return CRS_ROW0 + dict.__len__(R.CRS_K) + names.index("BZ%dW.BIN" % k)
+
+
+def snd_row():
+    """BZ_P_SND, the sound part's row (SPEC.md 128.20.3): after the courses'
+    rows and the two-part courses' WORLD rows (128.30.4.4)"""
+    R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
+    return CRS_ROW0 + dict.__len__(R.CRS_K) + ncrs2()
+
+
+def shell_row():
+    """the SHELL PART's row (SPEC.md 128.19.2): after the demos - held on the
+    desktop, never inside a bracket.  Counted from the build's own lists (the
+    courses, bzcrs2.lst's world parts, the sound, the songs, the demos) and
+    held to the package's BZ_P_SHELL, so a row the table gains that this count
+    does not know of is a refusal here rather than a wrong row read quietly"""
+    k = snd_row() + 1 + nsong() + ndemo()
+    pk = link_row("BZ_P_SHELL")
+    assert pk is None or pk == k, ("the shell part's row: the build's lists count %d, the package's "
+                                   "BZ_P_SHELL is %d - a part row this row does not know of" % (k, pk))
+    return k
 
 
 def rows(g):
@@ -258,32 +301,41 @@ def leave(g, way):
 CLAIMED = {}                    # tag -> the courses whose claim was compared, by name
 
 
-def build_rec(art=None):
-    """the build's RECB (bonanza_ring.build_rec: one reader of bzcourse.inc)"""
-    return R.build_rec(art)
-
-
 _RAM = {}
 
 
-def ram_form(k, tag, art=None):
-    """course K's part as the card holds it between bz_cexp (and bz_hxlat on
+def ram_forms(k, tag, art=None):
+    """course K's part(s) as the card holds them between bz_cexp (and bz_hxlat on
     the Hercules) and OSAPI_FSX_RUN (SPEC.md 128.15.4.5): THE TOOL'S RAM FORM
-    under the build's RECB (bbcourse's cga4 / cga8), or its htab() translation
-    (herc_translate_course).  The art's BZ<K>.BIN must be the same compile's
-    STORED form, or the comparison would be with another tree's courses."""
+    (bbcourse's cga), or its htab() translation
+    (herc_translate_course) -> (the part, None) - or for a TWO-PART course
+    (SPEC.md 128.30) (the picture part, the world part), herc_translate_parts'
+    on the Hercules.  The art's BZ<K>.BIN (and BZ<K>W.BIN) must be the same
+    compile's STORED forms, or the comparison would be with another tree's
+    courses."""
     art = art or R.at("build/bonanza-art")
     key = (k, tag, art)
     if key not in _RAM:
         c = R.course_k(k)
-        rec = build_rec(art)
-        ram, stored = (c.cga4, c.stored4) if rec == 4 else (c.cga8, c.stored8)
-        with open(os.path.join(ROOT, art, "BZ%d.BIN" % k), "rb") as f:
-            if f.read() != stored:
-                raise SystemExit("%s/BZ%d.BIN is not this tree's course %s as stored under RECB %d: the art is "
-                                 "stale (`make bonanzadisk`)" % (art, k, c.name, rec))
-        _RAM[key] = BB.herc_translate_course(ram) if tag == "herc" else bytes(ram)
+        ram, stored = c.cga, c.stored
+        wram, wstored = (c.wcga, c.wstored) if c.split else (None, None)
+        for f_, want in (("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)):
+            if want is None:
+                continue
+            with open(os.path.join(ROOT, art, f_), "rb") as f:
+                if f.read() != want:
+                    raise SystemExit("%s/%s is not this tree's course %s as stored: the art is "
+                                     "stale (`make bonanzadisk`)" % (art, f_, c.name))
+        if wram is not None:
+            _RAM[key] = BB.herc_translate_parts(ram, wram) if tag == "herc" else (bytes(ram), bytes(wram))
+        else:
+            _RAM[key] = (BB.herc_translate_course(ram) if tag == "herc" else bytes(ram), None)
     return _RAM[key]
+
+
+def ram_form(k, tag, art=None):
+    """course K's ONE part, or a two-part course's picture part (ram_forms)"""
+    return ram_forms(k, tag, art)[0]
 
 
 def section_at(ram, off):
@@ -308,24 +360,36 @@ def claim_check(g, what):
     k = g.b("bz_crs")
     R.CRS_K["bench"]                            # (fills the course table)
     name = [n for n in R.CRS_K if R.CRS_K[n] == k][0]
-    want = ram_form(k, g.tag)
-    seg = g.w("bz_cseg")
+    pic, world = ram_forms(k, g.tag)
+    cpic, cworld = ram_forms(k, "cga")
     mp = heapmap.Map(Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
-    cl = [c for c in mp.claims if c.seg == seg]
-    if not cl:
-        return ["%s: claim leg, %s: [bz_cseg] %04X is no claim of the heap map" % (what, name.upper(), seg)]
-    if cl[0].para * 16 < len(want):
-        return ["%s: claim leg, %s: the course claim at %04X is %d bytes, the RAM form %d" % (
-            what, name.upper(), seg, cl[0].para * 16, len(want))]
-    got = bytes(m.read(seg * 16, len(want)))
-    CLAIMED.setdefault(g.tag, set()).add(name)
-    if got == want:
-        return []
-    bad = [i for i in range(len(want)) if got[i] != want[i]]
-    return ["%s: claim leg, %s: the course claim differs from the tool's RAM form%s at %d byte(s), the first at "
-            "offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 128.15.13" % (
-                what, name.upper(), " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
-                section_at(want if g.tag == "cga" else ram_form(k, "cga"), bad[0]), got[bad[0]], want[bad[0]])]
+    # a TWO-PART course (SPEC.md 128.30.5): the picture part in [bz_mseg], the world part in [bz_cseg]
+    legs = [("bz_cseg", pic, cpic, "")] if world is None else [("bz_mseg", pic, cpic, "picture "),
+                                                               ("bz_cseg", world, cworld, "world ")]
+    out = []
+    for word, want, cwant, which in legs:
+        seg = g.w(word)
+        cl = [c for c in mp.claims if c.seg == seg]
+        if not cl:
+            out.append("%s: claim leg, %s: [%s] %04X is no claim of the heap map" % (what, name.upper(), word, seg))
+            continue
+        if cl[0].para * 16 < len(want):
+            out.append("%s: claim leg, %s: the course's %sclaim at %04X is %d bytes, the RAM form %d" % (
+                what, name.upper(), which, seg, cl[0].para * 16, len(want)))
+            continue
+        got = bytes(m.read(seg * 16, len(want)))
+        if got == want:
+            continue
+        bad = [i for i in range(len(want)) if got[i] != want[i]]
+        out.append("%s: claim leg, %s: the course's %sclaim differs from the tool's RAM form%s at %d byte(s), the "
+                   "first at offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 128.15.13" % (
+                       what, name.upper(), which, " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
+                       section_at(cwant, bad[0]), got[bad[0]], want[bad[0]]))
+    if world is not None and not out and g.w("bz_mseg") == g.w("bz_cseg"):
+        out.append("%s: claim leg, %s: a two-part course with [bz_mseg] = [bz_cseg]" % (what, name.upper()))
+    if not out:
+        CLAIMED.setdefault(g.tag, set()).add(name)
+    return out
 
 
 def at_fsx(g, what, fails):
@@ -393,7 +457,7 @@ def goal(g, crs="first"):
     elif cup:                                   # wave 4: the CUP, the ball at rest in its mouth
         (wx, wy), gvx, gvy = cup[0]["at"], 0, 0
     else:
-        grid = BB.Grid(R.course(crs).cga)
+        grid = BB.Grid(R.course(crs).cga, R.course(crs).wcga)
         wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] == BB.KIND_GOAL)
         gvx = gvy = 0
     p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
@@ -431,7 +495,8 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     # SPEC.md 128.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
     # fetched since the open), so the control is the course's row and the bundle's FETCHED, the three
     # ball segments (bz_bsegs) set, and the sprite's (bz_bseg) the material's
-    for i in [pc, fbun_row()]:
+    wrow = world_row(g.b("bz_crs"))            # SPEC.md 128.30.5: a two-part course's WORLD part, a row and a
+    for i in [pc, fbun_row()] + ([wrow] if wrow is not None else []):      # claim of its own beside the picture's
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
             fails.append("%s: inside the bracket row %d is not fetched (flags %02X zkb %04X): the control cannot "
@@ -449,10 +514,16 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     # so a play holds the course and the arena - the shell gone, the desktop title's arena (if it had one)
     # become the play's: two claims however many balls, and no fanfare term
     ar_in = 1 if g.w("op_arena") else 0
-    if len(c_in) != len(base_claims) - 1 + 1 - g.ar0 + ar_in or not ar_in:
+    np = 1 if wrow is None else 2               # (128.30.5: the picture part and the world part, a claim each)
+    if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in or not ar_in:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + the "
-                     "course + the arena (%d on the desktop, %d here): %s" % (way, len(c_in), len(base_claims),
-                                                                         g.ar0, ar_in, c_in))
+                     "course's %d part(s) + the arena (%d on the desktop, %d here): %s" % (
+                         way, len(c_in), len(base_claims), np, g.ar0, ar_in, c_in))
+    if "bz_mseg" in g.sym:                      # the two words: one part's both the course's, two parts' apart
+        cs, ms = g.w("bz_cseg"), g.w("bz_mseg")
+        if not cs or (ms != cs) != (wrow is not None):
+            fails.append("%s: inside the bracket [bz_cseg] %04X and [bz_mseg] %04X - a %d-part course's (SPEC.md "
+                         "128.30.5)" % (way, cs, ms, np))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
@@ -521,9 +592,13 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     if c_out != base_claims:
         fails.append("%s: the instance's claims after the launch %s, before it %s" % (way, c_out, base_claims))
     m.run()
-    line = "%s %s (%s): rows %d,%d fetched inside; %d floppy reads to the bracket; after it every row as before " \
-           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, fbun_row(), reads,
-                                             "yes" if not fails else "NO")
+    if "bz_mseg" in g.sym and g.w("bz_mseg"):
+        fails.append("%s: [bz_mseg] %04X after the launch: bz_cdrop zeroes it (SPEC.md 128.30.5)"
+                     % (way, g.w("bz_mseg")))
+    line = "%s %s (%s): rows %s fetched inside; %d floppy reads to the bracket; after it every row as before " \
+           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat],
+                                             ",".join(str(i) for i in [pc] + ([wrow] if wrow is not None else [])
+                                                      + [fbun_row()]), reads, "yes" if not fails else "NO")
     return fails, line
 
 
@@ -870,9 +945,11 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         g.ar0 = 1 if g.w("op_arena") else 0     # the title's arena (128.25.4): one claim on the desktop
         m.run()
         nlazy = sum(1 for f, _ in base_rows if f & OP_LAZY)
-        print("%s: %d part rows (%d lazy), none fetched on the desktop: %s; the instance's claims %s" % (
-            tag, len(base_rows), nlazy, all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
         title = title_rows() | {shell_row()}
+        print("%s: %d part rows (%d lazy), fetched on the desktop: %s (the held ones: the bundle's and the "
+              "shell's, %s); the instance's claims %s" % (
+                  tag, len(base_rows), nlazy, [i for i, (f, _) in enumerate(base_rows) if f & OP_FETCHED],
+                  sorted(title), base_claims), flush=True)
         if any(f & OP_FETCHED for i, (f, _) in enumerate(base_rows) if i not in title):
             fails.append("a part row is fetched on the desktop before any launch")
         if any(not base_rows[i][0] & OP_FETCHED for i in title):
@@ -880,10 +957,10 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                          % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
         if len(base_rows) != shell_row() + 1 + R.after_shell():
-            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs, %d "
-                         "shipped demos, the shell, the pathway and the title's two (SPEC.md 128.11.3.1, "
-                         "128.20.3, 128.14.7.4, 128.19.2, 128.19.5, 128.23)" % (
-                             len(base_rows), dict.__len__(R.CRS_K), nsong(), ndemo()))
+            fails.append("the package has %d part rows, not %d courses, %d world parts, the sound, %d songs, "
+                         "%d shipped demos, the shell, the pathway, the title's two and the families' "
+                         "(SPEC.md 128.11.3.1, 128.30.4.4, 128.20.3, 128.14.7.4, 128.19.2, 128.19.5, 128.23)" % (
+                             len(base_rows), dict.__len__(R.CRS_K), ncrs2(), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)
             for way in ways:
@@ -993,7 +1070,7 @@ for _r in RED_RUN:                              # (only the full run covers all 
     RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch; only the palette
     RED_RUN[_r].setdefault("trial", False)      # reds' the palette leg)
     RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
-RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % (CRS_ROW0 + dict.__len__(R.CRS_K)),  # BZ_P_SND "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
+RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % snd_row(),  # BZ_P_SND "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
             "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
             "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT"}
 RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card

@@ -217,3 +217,38 @@ A box is ticked only for what was built AND checked as its line says.
 - [x] **R3.4** Demo 4 on the owner's red line, a smooth windmill entry, off
       the bottom right at the end; demo 3 down the step. *Host: every expect;
       MEASURED: `bonanzatitle` replayed demo 4 on the CGA equal to the model.*
+
+### Round 4: demo 3, the glass ball, again (the owner, 2026-11-17)
+
+The owner kept the entry, the short pause and the ending on a shattered
+ball, and dropped the rest: the steel ball's tube, the waiting on UR, the
+circles and the roll off the edge that did not look like an accident.
+The middle was designed with the owner: glass finds a hidden bridge steel
+never saw, cannot climb the ramp, and tries the spring.
+
+- [x] **R4.1** The pit a real gap: the strip in front of the pillar
+      (12 - 13, 12) taken out. *Host: demos 1, 2 and 4 replay step for
+      step identical on the model against the course before.*
+- [x] **R4.2** The GLASS BRIDGE (moved, R4.5): LL's back row over the pit at LL's height,
+      two `glass` tiles (128.25.8); `uses ... glass`. *Looked at: the
+      course preview (the gap, the jagged-edge hint at LL).*
+- [x] **R4.3** Demo 3 re-authored (`tauthor -n 3`): the bridge, a run at
+      the ramp that fails, the spring tried, short of UR by its lip, the
+      shatter on the spring (128.23.5). *Host: its expects (spring 1,
+      shatter 1) met by the build's replay; a host preview GIF looked at.*
+      Breaking ON UR was asked for and is not reachable: the launch cap
+      BZ_VZMAX 768 lands glass there at 443, under its 552; the owner chose
+      the lip.
+- [x] **R4.5** The owner's notes on R4.2 (2026-11-17): the bridge moved to
+      the strip's row (12 - 13, 12) at LS's height, half a step above the
+      channel - no row of the pit is level both sides, and this is the
+      least drop; the hint only ever joins LEVEL ground (`glass_first`), so
+      it is at LS's end, not hanging over the channel; demo 3 re-authored
+      down the step and across. *Host: demos 1, 2, 4 identical to the
+      original course step for step; PLAYGROUND's glass path keeps its
+      hint; demo 3's expects met; the poses looked at on the host preview.*
+      If the half step does not look good enough, the owner's next try is
+      LS lowered to 2 (fully level; demos 2 and 4 re-authored).
+- [ ] **R4.4** Looked at on the guest (MartyPC, both cards): the bridge
+      revealing tile by tile, the jump and the shards; `bonanzatitle`'s
+      replay equal to the model.

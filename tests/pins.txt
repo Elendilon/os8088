@@ -308,7 +308,10 @@ X apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
                                          # the page is up
 C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
                                          # inside wf_pcm_open's one call
-C apps/bonanza/bonanza.asm bz_cseg       # the course part (one a course, its grid inside it):
+C apps/bonanza/bonanza.asm bz_cseg       # the course part (one a course, its grid inside it;
+                                         # a TWO-PART course's world part here and its picture
+                                         # part in bz_mseg too, both fetched by bz_cload,
+                                         # SPEC.md 128.30.5):
                                          # fetched on the desktop, held in DS or
                                          # ES by every frame of the fsx bracket
                                          # and dropped as it returns, all inside
@@ -358,7 +361,9 @@ X apps/bonanza/bonanza.asm op:BZ_P_SHELL # the shell part's CODE, far-called thr
                                          # does not assemble, and a CS on the stack
                                          # across a call that can claim is a wrong
                                          # return, so it stays pinned: bounded by the face
-C apps/bonanza/bzfam.inc @bz_ffetch      # a family part, fetched into the arena (an
+C apps/bonanza/bzfam.inc @bz_ffetch      # a family part (the resident ones inside the
+                                         # bundle, below; a fetch one - the probe - fetched
+                                         # into the arena, an
                                          # OP_ARENA row: the arena is the claim) for a
                                          # course's play: BZF_RDSEG/BZF_RCSEG and the
                                          # far pointers bz_ftab/bz_fmkp name its segment

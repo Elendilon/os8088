@@ -146,6 +146,8 @@ def start(binp, sym, c, mat):
     Guest; and the model's Physics on the same course"""
     g = Guest(binp, sym, c.cga)
     g.w("bz_cseg", PS, 2)
+    if "bz_mseg" in g.sym:                      # (one part: in both words, as bz_cload leaves them, SPEC.md
+        g.w("bz_mseg", PS, 2)                   # 128.30.5 - bz_crshdr's bz_osmake reads the picture's)
     g.call("bz_crshdr")
     p = BB.Physics(c, play=True, mat=mat)
     fam_load(g, p)
@@ -302,7 +304,7 @@ def cells_check(binp, sym, cs):
     """D3.1: the package's bz_cexp on each split course's STORED form -> its RAM form"""
     bad = []
     for k, c in cs.items():
-        g = Guest(binp, sym, c.stored4)
+        g = Guest(binp, sym, c.stored)
         g.w("bz_cseg", PS, 2)
         g.call("bz_cexp")
         got = bytes(g.mu.mem_read(PS * 16, len(c.cga)))
@@ -343,7 +345,7 @@ def hostile(binp, sym, c):
     end, one aligned wrong and one record's kind made a split's; bz_cexp under unicorn with every read and write
     of the course's segment watched -> [complaints]"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
-    st = bytearray(c.stored4)
+    st = bytearray(c.stored)
     g0 = struct.unpack_from("<H", st, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", st, g0 + 4)
     diroff, nsec = struct.unpack_from("<HH", st, 38)
@@ -406,7 +408,7 @@ REDS = {
 
 def near_split(c, rnd):
     """a random cell within one of a split cell (its RAM form's), and an in-cell point"""
-    grid = BB.Grid(c.cga)
+    grid = BB.Grid(c.cga, c.wcga)
     cells = []
     for wx in range(64):
         for wy in range(64):
@@ -656,7 +658,7 @@ def check(n=200, seed=1124, verbose=True, patches=()):
         while len(keys) < 2000:
             keys += [rnd.choice((0, BB.K_U, BB.K_D, BB.K_L, BB.K_R, BB.K_HOP))] * rnd.randrange(1, 40)
         err, ns, _ = run(g, p, keys[:2000], "TRIAL (no split cell)", stop_goal=True)
-        never = g.r("bz_psp") == 0 and not BB.Grid(c.cga).gflags & BB.GF_SPLIT
+        never = g.r("bz_psp") == 0 and not BB.Grid(c.cga, c.wcga).gflags & BB.GF_SPLIT
         print("bonanza_dsplit TRIAL, no split cell: %d steps %s; bz_psp %d" % (
             ns, "every step equal" if not err else err, g.r("bz_psp")))
         if err:
@@ -733,7 +735,7 @@ def price_report(n, seed):
                 g.w("bz_tilt", BB.TILT_KEYS)
                 g.trace = []
                 ps0 = g.r("bz_ps")
-                cq = BB.Grid(c.cga).cell(g.r("bz_gx", 2, k=1) >> 4, g.r("bz_gy", 2, k=1) >> 4)[3]
+                cq = BB.Grid(c.cga, c.wcga).cell(g.r("bz_gx", 2, k=1) >> 4, g.r("bz_gy", 2, k=1) >> 4)[3]
                 g.call("bz_step")
                 p.step(kk)
                 ev = {e[0] + (":" + e[2] if e[0] == "diag" else "") for e in p.events[e0:] if e[1] == p.nstep}

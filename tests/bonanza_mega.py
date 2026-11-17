@@ -310,16 +310,54 @@ class Q(object):
         return os88sym.tail(name, self.read, self.sym, self.equ)
 
 
-def claims(b, pkg, hs, equ):
+def claims(b, pkg, hs, equ, sels=False):
     """The instance's claims: [(where, paragraphs, pinned)], sorted - mem_tab's
     owned by its region selector, and the pool's (the region itself and its
-    OS88_HIGHMEM claims, whose MX_OWN heapmap.pool maps to that selector)"""
+    OS88_HIGHMEM claims, whose MX_OWN heapmap.pool maps to that selector).
+    SELS: their LINEAR bases instead - mem_tab's paragraph, the pool's
+    block through its selector - which is what a selector the package holds
+    (an LDT alias op_seg made, not mem_tab's own name) is compared by"""
     sel = sel_of(b)
     q = Q(b, equ)
     mp = heapmap.Map(q, hs)
+    if sels:
+        return [c.seg << 4 for c in mp.claims if c.own == sel] + \
+            [b.lin(c.sel) for c in heapmap.pool(q) if c.own == sel]
     out = [("low", c.para, c.pinned) for c in mp.claims if c.own == sel]
     out += [("pool", c.para, c.pinned) for c in heapmap.pool(q) if c.own == sel]
     return sorted(out)
+
+
+def crs_parts(k):
+    """course K's parts (SPEC.md 128.30.4): 2 when the build's bzcrs2.lst lists
+    its WORLD part (BZ<K>W.BIN), else 1"""
+    p = os.path.join(R.at("build/bonanza-art"), "bzcrs2.lst")
+    if not os.path.exists(p):
+        return 1
+    return 2 if "BZ%dW.BIN" % k in open(p).read().split() else 1
+
+
+def course_claims(what, b, pkg, hs, eq, k):
+    """inside a play of course K: its parts' claims are the package's - for a
+    two-part course (SPEC.md 128.30.5) the picture part's [bz_mseg] and the
+    world part's [bz_cseg] two distinct claims of the instance, for one part
+    [bz_cseg] alone (bz_mseg its alias or the same word's value).  Matched
+    by LINEAR base: the words hold op_seg's LDT selectors (b.lin reads their
+    descriptors), the claims are mem_tab's and the pool's"""
+    bases = claims(b, pkg, hs, eq, sels=True)
+    cs = pkg.word("bz_cseg")
+    ms = pkg.word("bz_mseg") if "bz_mseg" in pkg.sym else cs
+    lc, lm = (b.lin(cs) if cs else None), (b.lin(ms) if ms else None)
+    have = " ".join("%X" % x for x in bases)
+    if crs_parts(k) == 2:
+        want(cs and ms and lc != lm and lc in bases and lm in bases,
+             "%s: the two-part course's picture part ([bz_mseg] %04Xh, at %s) and world part ([bz_cseg] %04Xh, "
+             "at %s) are two claims of the instance (SPEC.md 128.30.5; its claims at %s)" % (
+                 what, ms, "%X" % lm if lm is not None else "-", cs, "%X" % lc if lc is not None else "-", have))
+    else:
+        want(cs and ms == cs and lc in bases, "%s: the course's one part ([bz_cseg] %04Xh, [bz_mseg] %04Xh, at "
+             "%s) a claim of the instance (its claims at %s)" % (
+                 what, cs, ms, "%X" % lc if lc is not None else "-", have))
 
 
 def nstep(b, pkg):
@@ -457,9 +495,11 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
         ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls (and the song) are
                                                     # ONE claim, the arena - the desktop title's (pkg.ar0)
                                                     # becomes the demo's, as play_case counts it
-        want(len(got) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "%s: inside, the course "
-             "and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the arena "
-             "%d on the desktop)" % (what, inside, len(got), len(base_claims), pkg.ar0))
+        np = crs_parts(R.CRS_K[crs])            # SPEC.md 128.30.5: a two-part course holds a claim a part
+        want(len(got) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "%s: inside, the course "
+             "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, "
+             "the arena %d on the desktop)" % (what, np, inside, len(got), len(base_claims), pkg.ar0))
+        course_claims(what, b, pkg, hs, eq, R.CRS_K[crs])
     b.until(lambda: pkg.byte("bz_fs") == 0, "%s to reach its end" % what, 480000, 250)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
     b.ui_done(limit_ms=30000)
@@ -690,9 +730,11 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
     ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls, the sound part, the song
                                                 # and the fanfare are ONE claim, the arena - the desktop title's
                                                 # (pkg.ar0) become the play's
-    want(len(inside) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "10. inside: the course and "
-         "the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the arena %d on the "
-         "desktop)" % (nballs, len(inside), len(base_claims), pkg.ar0))
+    np = crs_parts(k)                           # SPEC.md 128.30.11: PLAYGROUND is TWO parts, a claim each
+    want(len(inside) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "10. inside: the course "
+         "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the "
+         "arena %d on the desktop)" % (np, nballs, len(inside), len(base_claims), pkg.ar0))
+    course_claims("10. inside", b, pkg, hs, eq, k)
     steps(b, pkg, 5, "the PLAYGROUND's first steps")
     rd = _PkgS(b, pkg)
     boosted, tries = False, 0
@@ -789,8 +831,9 @@ def run(img_b, keep, tmp, cases=None):
              "from %d" % (x + w // 2, vx1))
         base_rows, base_claims = pkg.rows(), claims(b, pkg, hs, eq)
         pkg.ar0 = 1 if pkg.word("op_arena") else 0      # the title's arena (128.25.4)
-        print("   desktop: %d part rows, none fetched: %s; the instance's claims %s" % (
-            len(base_rows), all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
+        print("   desktop: %d part rows, fetched: %s (held: %s); the instance's claims %s" % (
+            len(base_rows), [i for i, (f, _) in enumerate(base_rows) if f & OP_FETCHED],
+            sorted(title_rows(len(base_rows))), base_claims), flush=True)
         if cases is not None:                           # (a red arm's run: its own case alone)
             if "play" in cases:
                 play_case(b, pkg, base_rows, base_claims, hs, eq)

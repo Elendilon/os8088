@@ -21426,6 +21426,31 @@ BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps
 # wave 8b (SPEC.md 128.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
+#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 128.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
+# BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
+# can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
+# ones, so every shipped course keeps its K; not on the TOUR, bbcourse.TOUR) and compiles the pathway
+# from path.bbc with apps/bonanza/courses/pathshapes.sed applied: pad 0 becomes SHAPE (a new game rests
+# on it), PITS and FIRST get pads of their own beside it, so every course stays on the map.  STAMPED, so
+# turning it on or off recompiles the courses; without it the build is byte for byte the knob-less one.
+BZSHAPES ?=
+ifeq ($(filter $(BZSHAPES),1),)
+ifneq ($(BZSHAPES),)
+$(error BZSHAPES=$(BZSHAPES) is 1 or empty)
+endif
+endif
+ifeq ($(BZSHAPES),1)
+BZ_COURSES += apps/bonanza/courses/shapes.bbc apps/bonanza/courses/pits.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathshapes.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathshapes.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathshapes.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
+$(BZSHAPESTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzshapes-*
+	@touch $@
 # SPEC.md 128.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
@@ -21443,43 +21468,23 @@ BZ_FAMS := probe glass rotor spring tube pickups
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/bzcrs2.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
 # (128.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
-# and the BZREC knob were deleted. bbcourse.py still writes both strides
-# (the stride is data, and the identity is over the 8-byte layout); its
-# default, 4, is the shipped one, and bzcourse.inc's BZ_REC says which.
-#> [Knobs] BZPARTZ=lzb|lz4 :: Bounce Bonanza's parts' format, LZB the default; a single-format COMPRESS= kernel forces its own (SPEC.md 128.15.9)
-# BZPARTZ is the format of BONANZA.O88's compressed PARTS (os88pkg's
+# and the BZREC knob were deleted, and bbcourse.py's `--rec` with them: records
+# are 4 bytes, and bzcourse.inc's BZ_REC says so. (The identity is still
+# taken over the 8-byte layout of the model, SPEC.md 128.15.7.)
+# BZPARTZF is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
-# balls, the sound, the songs and the demos go together). LZB is the owner's
-# decision (2026-11-14, SPEC.md 128.15.9). BZPARTZF is the EFFECTIVE one: a
-# `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only (SPEC.md
-# 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an image. The
-# courses' compile does not read it (the course budget is LZ4's whatever this
-# says, 128.15.8): changing it re-packs BONANZA.O88 and recompiles nothing.
-BZPARTZ ?= lzb
-ifeq ($(filter $(BZPARTZ),lz4 lzb),)
-$(error BZPARTZ=$(BZPARTZ) is not one of lz4, lzb)
-endif
-BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),$(BZPARTZ))
-#> [Knobs] BZ_CUEFLASH=DITHER2|DITHER4|BLINK2|BLINK4 :: Bounce Bonanza's pickup cue's flash style, BLINK4 the default (the owner's pick, SPEC.md 128.25.19)
-# BZ_CUEFLASH is the FLASH a speed or jump pickup shows in its last PU_WARN
-# steps (SPEC.md 128.25.19): DITHER2 the ball's pixels black on half a checker
-# every 2nd frame (the reference), DITHER4 every 4th; BLINK2 the ball not drawn
-# every 2nd frame, BLINK4 every 4th - the owner's pick and the default (BLINK2
-# reads as see-through on the CGA's 60 Hz). bzvideo.inc maps it; STAMPED, so a
-# change rebuilds the package (and the shell part's link, which re-assembles it).
-BZ_CUEFLASH ?= BLINK4
-ifeq ($(filter $(BZ_CUEFLASH),DITHER2 DITHER4 BLINK2 BLINK4),)
-$(error BZ_CUEFLASH=$(BZ_CUEFLASH) is not one of DITHER2, DITHER4, BLINK2, BLINK4)
-endif
-BZCUESTAMP := $(BUILD)/.bzcue-$(BZ_CUEFLASH)
-$(BZCUESTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzcue-*
-	@touch $@
+# balls, the sound, the songs and the demos go together): LZB, the owner's
+# decision (2026-11-14, SPEC.md 128.15.9; the LZ4/LZB knob that measured it is
+# removed). A `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only
+# (SPEC.md 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an
+# image. The courses' compile does not read it (the course budget is LZ4's,
+# 128.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
+BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),lzb)
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzpartz-*
@@ -21496,7 +21501,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(wildcard apps/bonanza/courses/icons/*.bba) \
+                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) \
                    $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
@@ -21536,8 +21541,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
-                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZCUESTAMP) | $(BUILD)
-	$(NASM) -f bin -w+error -DBZ_CUEFLASH=$(BZ_CUEFLASH) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
@@ -21547,8 +21552,13 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+# SPEC.md 128.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
+# bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
+# halves, so a build with none packs exactly the arguments it always did.
+BZ_PARTS1 := $(BZ_CRSPARTS)
+BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
+BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -21557,7 +21567,7 @@ BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $
 # (never a code label) into bzlink.inc, which the part assembles against.
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
-		-I $(BZ_ART)/ --prefix BZL --consts BZ -D BZ_CUEFLASH=$(BZ_CUEFLASH) -o $@
+		-I $(BZ_ART)/ --prefix BZL --consts BZ -o $@
 # The window's art (SPEC.md 128.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
@@ -21579,7 +21589,8 @@ $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part-compress $(BZPARTZF)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
@@ -21607,6 +21618,17 @@ $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
+# SPEC.md 128.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
+# diagonal lane run on until one part refuses it) as course 7, a package and floppy of their own in a private
+# tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
+BZ_TWOSEG := $(BUILD)/bztwoseg
+$(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
+	@mkdir -p $(BZ_TWOSEG)
+	python3 tools/bbcourse.py twoseg -o $@
+.PHONY: bonanzatwoseg
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 128.30.7); not shipped
+bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
+	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 128.1, 128.14.3.3)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
 # SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
