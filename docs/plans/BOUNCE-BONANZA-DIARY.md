@@ -3450,6 +3450,47 @@ red arm, `tests/bonanza_dfield.py`, the shipped and knob builds; no emulator row
 
 
 
+## 2026-11-17 (shaped floors: occlusion that happens, and the SHOW rule kept as a toggle)
+
+**What play found.** The owner, on the knob build: no part of the ball was ever hidden on a chute.
+The cut was right and the guest never used it: the occluder pass for a GROUNDED ball runs only on a
+cell with `OCCG`, and the tool derived `OCCG` over plain floors, goals and split floors - never a FIELD
+cell. Every record cut for a resting or rolling ball on a shape was carried, walked past for airborne
+frames, and never laid. Two ways out were built and played: **A** (the cut as it stood, plus `OCCG` on
+the FIELD cells - a scratch tool, the whole cell over its whole height range) and **B** (the SHOW rule:
+draw a ball on a shape whole and stop cutting for it). The owner: *"A is actually better, having now
+played with occlusion happening at all. B is still cheaper, in every way; so can we keep it around as a
+toggle we can turn on at will?"*
+
+**A, done properly.** `OCCG` on a FIELD cell is now taken at the ball's REAL grounded poses - each
+integer point at the floor there, a line higher when the height carries a quarter, margin `BZ_CLIMB`,
+over the blocks the guest's pass walks - rather than the scratch form's whole cell. **Observed**: it
+sets 80 of SHAPE's 81 reachable FIELD cells (the same as the scratch form: a chute's cells nearly all
+meet a lip record somewhere), 50 of PITS's 94 against 56, 55 of PLAYGROUND's 71 against 58 - fewer, and
+the same coverage, since the poses the whole-cell form adds are ones no grounded ball holds. Records,
+masks and RAM do not move; the packed forms move by a few bytes of flags (PITS LZB 5,989 -> 6,003), and
+PLAYGROUND's identity 8803h -> D427h, its demo re-authored. `--selfcheck` replays the model (the
+scripted runs and 60 seeded ones) and checks that every grounded step on a FIELD cell where a record
+hides a lit pixel is on an `OCCG` cell: 457 such steps of 2,712, none ungated, and all 457 ungated
+with the old derivation (the red arm).
+
+**B, kept.** 154aee730 came over whole (its tool code, SPEC bullet and self-check items) behind a
+switch: `make BZFSHOW=1` passes `bbcourse.py --fshow` (stamped, like `BZSHAPES`), and a course's own
+`fshow` statement turns it on for that course. With it on the parts are exactly 154aee730's - SHAPE 653
+records, PITS 668, PLAYGROUND 2,761 and identity 0BF2h - and no FIELD cell has `OCCG`. One thing the
+first B did not have to face: with the rule as a toggle, the committed PLAYGROUND demo names the
+default's identity, so a `BZFSHOW=1` build re-stamps it with its own (only when the demo's identity is
+the course compiled with the rule off; the rule moves the picture and never the physics, and the
+model's replay still checks the demo step for step) - otherwise the toggle would refuse to build.
+
+**What A costs, PREDICTED** (128.10.9's 55 clk a record passed over, 1.4k a record laid, on the
+model's grounded steps on FIELD cells): about 2.2k clk a grounded step on SHAPE's chutes (median 1.4k,
+worst 12.9k), 1.5k on PITS, 2.4k on PLAYGROUND - where B spends nothing. Not measured on a 5150; the
+final pass's `bonanzaperf` is where that number comes from. **Tested**: host only - `make`, the shipped
+and both knob builds (`BZSHAPES=1`, and with `BZFSHOW=1`), `--selfcheck`, `tests/bonanza_dfield.py`,
+`cmp` of every course part against the base tree (BENCH - PEAK, the pathway and the title identical);
+no emulator rows.
+
 ## 2026-11-17 (the pathway drops its occluders)
 
 The owner: "For pathway: yes, drop the occlusion." The pathway's ball is the follower - always grounded,
