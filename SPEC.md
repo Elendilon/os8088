@@ -14299,6 +14299,10 @@ should have been in the first place; it is no longer where the time is.
 final slice before the record is freed, and `.pick` will then charge a second
 slice of ~0 cycles to the same freed slot — harmless, once per task death, and
 cheaper than the reasoning needed to remove it safely.
+
+Inside an fsx bracket the WALK itself is skipped as well when the outgoing
+task is the only one §53.2's whitelist could pick (§53.2.4, `KHP_FSXSOLO`):
+the same no-change resume, reached without visiting `[sch_top]` slots first.
 - `sch_cycles` — MAX_TASKS dwords in .bss (lo word first): per-task CPU
   time in PIT cycles (1.19318 MHz), wrapping mod 2^32. Readers snapshot
   under `pushf`/`cli` … `popf` (the ISR writes them). `sch_pit_last`
@@ -113742,6 +113746,114 @@ pool unchanged), `.text` +6
 (the real-mode refusal, `tests/megaseg.txt` 3,754 -> 3,760), resident
 unchanged; kern_big and kern_small byte-identical. `megaparvb` and
 `megaparvp` are the gates (KERN-MEGA-PLAN 14.180 has the measurement).
+
+### 53.2.4 A bracket with ONE eligible task resumes it without the scan (`KHP_FSXSOLO`, every kernel)
+
+**What can run inside a bracket** is exactly §53.2's whitelist, and nothing
+else: the exclusive task (task 0, §53.1 refuses any other), **its kept
+worker** when `FSXF_KEEPWORKER` was passed and the instance has one (Tracker,
+Pixel's full-screen viewer, DOS's window, Telnet's text screen), **every
+`TF_SERVICE` driver worker** (a Sound Blaster's refill, a NIC's), and **the
+idle task**, which the fallback picks when task 0 itself is asleep in
+`task_sleep`. Every other task is frozen however ready it is. The Video
+Player and WireBall take `FSXF_RATE` and keep no worker; XTMP3 never opens a
+bracket at all.
+
+**What the tick did with that.** Every IRQ0 in a bracket still reached
+`sch_switch` (every sub-tick under `FSXF_FASTTICK`, every rate period with no
+sample ISR under `FSXF_RATE`, and the tick itself), and the switch walked all
+`[sch_top]` slots - each of them READY or asleep or frozen - to arrive back
+at the task it had interrupted whenever nothing on the whitelist was ready.
+That is the common case: a game with no kept worker and no driver worker has
+one eligible task, and the walk is pure cost. Measured on MartyPC's 4.77 MHz
+8088 (CGA, kern_big, BONANZA's demo 5 in play under `FSXF_FASTTICK`, 54.6
+IRQ0s a second): **`sch_switch` to `sch_resume` was 701 cycles of every
+IRQ0**, about 0.9 IRQ0s per 79.6k-cycle frame.
+
+**The rule.** Every switch `sch_isr` makes - the tick's fall-through and
+the sub-tick's or rate period's jump - now enters `sch_switch` through
+`sch_isr.sw`, which resumes the outgoing task where it stands when **all
+four** of these hold, after reloading the watchdog and checking that task's
+stack canary exactly as the switch would have. `task_yield` and `task_exit`
+still jump to `sch_switch` itself and never pay the test:
+
+1. the outgoing task IS `[fsx_task]` (so a bracket is armed: `[sch_cur]` is
+   never 0xFF, the OFF value);
+2. `[fsx_worker]` is 0xFF - no kept worker (tested FIRST, so a bracket
+   that keeps one pays the least: a load, an `inc` and a taken `jnz`);
+3. `[drv_wcnt]` is 0 - no driver worker exists, and so no `TF_SERVICE` task
+   (the count is raised before the spawn and lowered in the same IF = 0
+   window as the worker's death, §51; a driver worker is the only task the
+   bit is ever set on). A kernel without `OS88_DRIVERS` - `kern_small` - has
+   no driver worker at all, and assembles no test;
+4. the outgoing task's `T_STATE` is 1 (READY). A task 0 that called
+   `task_sleep` arrives with 2 and takes the scan, which picks the idle task
+   exactly as before - the fast path must never resume a sleeper.
+
+Conditions 1 and 4 and the canary are read at task 0's own addresses
+(`[sch_tasks+T_STATE]`, `[ss:STK0_BOT]`, which is `sch_stkbase`'s slot 0):
+`fsx_run` arms `[fsx_task]` with 0 and nothing else, having refused any
+other caller (§53.1), so "the outgoing task is `[fsx_task]`" IS "task 0".
+
+**It is exact, not an approximation.** Under those four the scan's only
+eligible slot is the outgoing one (the idle slot is never task 0, and is
+picked only when the scan finds nothing), so the old path ends at `.pick`
+with `DL` = `[sch_cur]`, skips the charge, and `.same` reloads the SP the
+park had just stored - the task resumed on the frame it came in on, which is
+what `sch_isr.tres` does. `[sch_hold]` is reloaded as the switch reloads it,
+and `[sch_idlewake]`, `sch_account`, `[sch_cur]` end the same. **One thing is
+not done: the park**, so the running task's `T_SP` is stale for the bracket
+- and nothing reads a running task's `T_SP`: `sch_switch` parks it before
+every real switch, and the two walks of the table (`mega_frames_fix`, the
+compaction's worker re-carve, §66) skip `[sch_cur]`. **The canary is still
+checked**, through `sch_stkbase` as the switch checks it; a dead canary
+falls into `sch_switch`, which checks again and stops the machine (§8.8), so
+the stack-overflow panel guards task 0 on every IRQ0 of a bracket as before.
+`sch_switch`'s stack test (§8.5) is not repeated: the fast path's only
+action is the one that test takes on failure, and a foreign SS that makes
+the canary read a wrong word sends the IRQ0 to `sch_switch`, whose test
+resumes.
+
+Any of the four failing takes `sch_switch` unchanged - its body is byte for
+byte what it was - so a kept worker, a Sound Blaster stream, a sleeping
+task 0 and every desktop switch behave as they did, paying only the tests
+that failed.
+
+**Not touched**: everything `sch_isr` does before the switch - the BIOS
+chain, `[ticks]`, `sch_account`, `snd_tick`, the wake scan, the `FSXF_RATE`
+hook and its accumulator, the sub-tick EOIs, `[sch_lock]`/`[sch_coop]`, the
+nested-chain guard - and the whole of `sch_switch`.
+
+**Cost: 40 bytes of `.text` on kern_big, kern_emu and kern_mega, 34 on
+kern_small** (no `[drv_wcnt]` test there), all resident, all in `sch_isr`.
+Even on purpose, so `sch_switch`, its scan loop and every hot routine after
+them keep their parity (`tests/unit/t_hotpar.py`; `tools/os88rdiff.py`
+reports no routine at an odd shift on any of the four, and every one of
+them byte-identical to the base with the knob undefined).
+
+**Measured** (MartyPC, 4.77 MHz 8088, CGA 5150, kern_big, BONANZA's demo 5 in
+play; 40 consecutive IRQ0s single-stepped from `sch_isr` to the `iret`, the
+switch timed from `sch_isr.sw`, which is `sch_switch`'s address before):
+
+| | before | after |
+|---|---|---|
+| the switch (`.sw` to `sch_resume`), one eligible task | 701 cycles (694-712) | 250 (246-254) |
+| ...with a kept worker (`[fsx_worker]` poked to a free slot: the slow path) | 701 | 755 (740-764) |
+| a sub-tick, whole IRQ0 | 1,389 | 945 |
+| a tick, whole IRQ0 (the BIOS chain inside) | 2,847 | 2,408 |
+| mean IRQ0, one eligible task | 1,863 | 1,457 |
+| outside a bracket: an ISR switch's extra (`.sw` to `sch_switch`, idle desktop) | - | 83 (81-88) |
+
+So **~406 cycles an IRQ0 inside a bracket with no kept worker, about 390 a
+BONANZA frame** at its 0.97 IRQ0s a frame (wave 10's profile) - time BONANZA
+spends waiting for the retrace rather than a shorter frame, its frames being
+locked to the 60 Hz refresh. A bracket that keeps a worker pays +54 an IRQ0
+(0.06% of the machine at 54.6 IRQ0s a second), and the desktop +83 on each
+of its 18.2 ISR switches a second (0.03%). The rest of an IRQ0 is the ISR's
+frame and the tick's duties, which a bracket still owes.
+
+It is behind `KHP_FSXSOLO` in `kernel/kernel.asm`'s KHP block, **defined on all four kernels**; undefined,
+`sch_switch` assembles to the body it replaced, byte for byte.
 
 ### 53.3 Entry silences what it strands (binding)
 
