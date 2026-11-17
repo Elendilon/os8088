@@ -6,11 +6,17 @@
 #  - the WALKWAY (wy 6): plain floor, the route;
 #  - the CRUMBLING BRIDGE (wy 9): five cracked tiles, a GUSTING blower beside it at (9, 8) blowing +y across
 #    the bridge - 64 steps on in every 256 (about 1.2 s in 4.7): cross between gusts, glass above all, which
-#    it blows twice as hard as rubber;
+#    it blows twice as hard as rubber.  Its squiggles (a WISP, SPEC.md 128.34.11) are over the bridge only
+#    while it blows, and its fan spins while the ball is in its wind;
 #  - the THIN LOWER PATH (wy 12): down a ramp to 1 unit, three cells one wide, up again; a STEADY blower on
-#    its first cell blows +y, hard - rubber and glass go over the side, steel holds its line.
-# Behind the start (wy 3 - 4) a LEDGE 2.5 units up: an UPDRAFT at (5, 7) lifts an AIRBORNE ball (Hop into it)
-# and only glass rises - to the ledge and its finish, exit 1, the glass-only way out.
+#    its first cell blows +y, hard - rubber and glass go over the side, steel holds its line.  Static
+#    squiggles; its fan spins as the ball passes.
+# Behind the start (wy 3 - 4) a LEDGE 2.5 units up: an UPDRAFT at (5, 7) (a flag: its streamer) lifts an
+# AIRBORNE ball (Hop into it) and only glass rises to it.  On the goal plate's east edge a PIT WIND: a `lift`
+# updraft over three of the plate's cells and a pit - glass rolled onto them is LAUNCHED with no Hop, up onto
+# the PLATFORM behind (2.5 units); rubber and steel stay down, and fall into the pit.  Exit 1 is the plate's
+# second goal (22, 7), so one clock serves both finishes (two clocks and two fans in one window are 7 pose
+# changes a step).
 course WIND "Wind Test"
 width  128
 origin 256
@@ -26,6 +32,7 @@ floor rect  12 12 15 13  flat 1
 floor rect  15 12 17 13  ramp x 15 17 1 2
 floor rect  17  6 23 14  flat 2
 floor rect   4  3  8  5  flat 4.5
+floor rect  23  6 27  9  flat 4.5
 
 pad rubber  5 10
 pad steel   5 12
@@ -39,13 +46,13 @@ prop crack 15 9
 
 prop blower  9  8  face +y  region 10 8 16 10  strength 8  gust 64 192
 prop blower 12 12  face +y  region 11 12 15 12  strength 10
-prop blower  5  7  face up  region 4 5 6 7  strength 16  top 4
+prop blower  5  7  face up  region 4 5 6 7  strength 16  top 4  flag
+prop blower 22 10  face up  region 22 9 24 11  strength 16  top 5  lift  flag
 
 start 7 10
 goal  tile 21  9  flat 2
-goal  tile  5  3  flat 4.5 exit 1
+goal  tile 22  7  flat 2 exit 1
 clock 20 12
-clock  7  4
 target 60
 way 7 10
 way 10 6

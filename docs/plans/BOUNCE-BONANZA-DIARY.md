@@ -3838,3 +3838,49 @@ arm `nowindreach`), `bonanza_phys.py --check` with `wind_host` (eight scenes
 equal at every step; red arms `wdstep`, `wdglass`, `wdmark`, `wdlift` red),
 the tool's previews and one MartyPC look on both cards. **Not run**: the
 soak rows, MartyPC measurements (the final pass's).
+
+## 2026-11-17 (WIND, round 2: a pit that lifts, squiggles in the air, fans that spin)
+
+The owner's answers on WIND (through the lead): strength per blower and
+power-of-two gusts are fine as they are; and three changes - an updraft that
+lifts WITHOUT a jump, squiggles drawn in the air as the hint, and ground fans
+that spin when the ball is in their wind, the pennant only as an option.
+SPEC.md 128.34.11 is the record.
+
+- **The launch is the take-off's three writes.** The grounded step rewrites
+  gvz from the slopes, so a push there was lost; a `lift` updraft whose push
+  beats gravity now sets `bz_air`, `bz_gvz` and the take-off z itself, in the
+  STEP hook, and the airborne rule does the rest. A PIT needed nothing: a ball
+  rolling into one is airborne already. Glass (32 against gravity's 24) is
+  launched; rubber (16) floats when it is in the air and drops into the pit
+  slowly; steel all but ignores it - the owner's "glass rises, rubber partly,
+  steel not" falls out of the weighting unchanged.
+- **One element is one lane.** A fan that spins is the blower's lane, so a
+  gusting blower's squiggles - which must come and go - needed a second
+  element: the tool makes a WISP at the region's centre, owning no cell, its
+  lane the cluster and its record naming its blower. Steady squiggles are
+  plain marks in the picture: no lane, no step, never over the ball.
+- **The window's budget decided the course.** A spinning fan is a FAST lane
+  and a pose change a step; the test course's two clocks (4 digits) and two
+  fans in one window were 7 changes a step, over 6, so the ledge's finish
+  moved beside the main goal and one clock serves both. With one clock and an
+  event lane in view, 3 fans can spin at once.
+- **Two timed lanes, one step.** The lead's note from the magnets: a window's
+  event lanes are one pose change a step. Gust turns are the one kind known
+  ahead, so the tool checks every step of the 1,024 the periods divide and
+  refuses two gusting lanes of one window turning together.
+- **The scenes needed a smaller course.** The default build's `bz_fst` is
+  the shipped courses' five bytes; five cracks and four fan bytes would not
+  fit, so the unicorn half plays WIND less its cracks (GLASS's own scenes
+  prove those).
+
+**Measured**: the part 525 bytes (+199); `BONANZA.O88` +157 on round 1 (+416
+on the base); image +3, bss 0. **Tested**: `make bonanzadisk`, the
+`BZWIND=1` build, `--selfcheck` section `wind` (32 items, red arms
+`nowindreach`, `fanfast`, the pit wind's without `lift`), `bonanza_phys`'s
+`wind_host` (eleven scenes equal at every step; red arms `wdstep`,
+`wdglass`, `wdfan`, `wdgust`, `wdspin`, `wdlift`, `wdpit`). **SEEN** on
+MartyPC, CGA and Hercules: the bridge's squiggles in a gust and gone after,
+the fan turning frame by frame under a poked ball, the static squiggles, the
+pit's plate and flag. **Not run**: the soak rows; the per-step cost on
+MartyPC.

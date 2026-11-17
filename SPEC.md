@@ -277195,3 +277195,95 @@ slot (about 90 MEASURED: RESET 46 less its kind test, STEP 88 less its field cal
    rolls as on any floor, so the player Hops into it.
 4. Whether a region should be DRAWN (faint streaks on its tiles): today only
    the fan and the pennant say where the wind is.
+
+**Answered (the owner, 2026-11-17, through the lead):** the strength is per
+blower already, no change; power-of-two gusts are fine; and three changes,
+128.34.11 - a PIT WIND that lifts with no jump, SQUIGGLES in the air as the
+wind's hint, and GROUND FANS that spin when the ball is in their wind, the
+pennant an option.
+
+#### 128.34.11 Round 2: pit wind, squiggles, spinning fans (BUILT)
+
+| | decision | why |
+|---|---|---|
+| R1 | `lift` (an updraft's): a GROUNDED ball in the region, below the top, whose push beats gravity (A > `BZ_G`, 24) is LAUNCHED - `bz_air` 1, `bz_gvz` = A, `bz_ztop` and `bz_zoff` its own z - in the STEP hook, as a take-off does; the next step's gravity leaves it A - G rising, and the airborne rule carries it on | the cheapest correct launch: the grounded step rewrites gvz from the slopes, so the launch is the take-off's three writes and no resident byte. A PIT (void cells in the region) needs nothing new: a ball rolling in is airborne and the updraft catches it. Without `lift` an updraft is the Hop-in one it was (D7) |
+| R2 | the weighting stays: at strength 16 glass (32) is LAUNCHED and rises; rubber (16) is not launched and in the air falls at a third of gravity (it floats, and drops into a pit slowly); steel (4) is all but unmoved | the owner's "glass rises, rubber partly, steel not" |
+| R3 | the hint is SQUIGGLES in the air over the region - two wavy white strokes over a black shade, along the wind's screen direction (an updraft's straight up), `WD_SQUP` (12) px over the floor under them, an updraft's halfway to its top. A STEADY blower paints a cluster over every other cell of its region (wx + wy even) into the PICTURE, as MARKS after that cell's top (over a void, the blower's): no key, so they never hide the ball or cut an occluder, and what stands in front covers them | static art costs no lane and no step |
+| R4 | a GUSTING blower without a flag gets a WISP: a second element of the family (kind 41, `wisp`) the TOOL makes at its region's centre - no cell of its own (never OBS, never an owner), a lane (pose 0 the picture, 1 the cluster) and +18 its blower's record. STEP marks it on its blower's gust's turns; POSE is its blower's state | one element is one lane, and the fan is the blower's: the squiggles need their own. A wisp more than half hidden is refused, as a flag is |
+| R5 | a ground FAN spins: the blower's state is a BYTE (its kind's `bits` 8), its SPIN counter - `WD_SPIN` (160 steps, 2.9 s) while it blows with the ball in its region, one less a step after - and its lane is the fan, 4 poses (the blades at 0, 22.5, 45 and 67.5 degrees), the frame `(n >> 2) AND 3` while the counter is not 0, 0 at rest. STEP marks the lane where the frame moves | a lane that runs while it is active and costs nothing (no mark, no walk) at rest |
+| R6 | a spinning fan's lane is FAST (`lane_fan`): counted against the window's 6 FAST lanes (`WIN_LANES`) and as ONE pose change a step in its `WIN_CHG` (6), beside the rotors', the clock digits' and the event lanes' 1 | a fan turns every 4 steps on its own while active. So at most 6 fans spin in one window, fewer with a clock (2 digits each) or an event lane in it: with one clock and one event lane, 3 |
+| R7 | the PENNANT is an option, `flag`: the blower's lane is then the pennant (a gust shows on it), its fan does not spin, and it has no wisp | the owner's weather-on-a-bridge use; a flag and a fan in one lane would pass 4 x 3 blocks |
+| R8 | the window's TIMED event lanes - every wisp and every flagged gusting blower meeting one window - may not turn on the same step: the tool checks every step of the 1,024 every period divides and refuses two, naming them (`_wind_turns`; give one a `seed`) | the window's event lanes are one pose change a step (128.19.10); the gusts are the one kind of event lane whose steps are known ahead |
+
+**The statement** grows two words: `[lift]` (an updraft's alone; refused on
+any other face) and `[flag]`. `prop wisp` is refused (the tool's). The 7 the
+slot lists are now WIND ELEMENTS: a gusting blower without a flag is two.
+**The record**: +16 a blower's FSB, a byte's (a multiple of 8, byte elements
+laid first, as cracks are); +18 the face in bits 0 - 2 with `BZ_WD_FLIFT`
+(8) and `BZ_WD_FFLAG` (16) over it; a wisp's +18 its blower's record, +19 -
++31 zero. The reader holds both (a fan lane 4 poses, a flag's 2; a wisp's
+blower a gusting one without a flag). The slot's list holds the wisps too.
+`FAMV` folds `WD_SPIN` (consts (1, 2, 128, 160)) and REV 2.
+
+**STEP, each element of the list** (the guest and `WindFamily` do exactly
+this): a WISP - its lane marked when its blower's state on n + 1 differs from
+n; a BLOWER - a flagged gusting one's lane marked the same way; when it blows
+on n, `wd_field` (CF: the cell in its region; the push, the updraft, the
+launch); without a flag its byte `v` becomes `WD_SPIN` if it blew with the
+cell in its region, else `v - 1` (0 stays 0), and its lane is marked when
+`frame(old, n) != frame(new, n + 1)`, `frame(v, n)` = `(n >> 2) AND 3` while
+`v`, else 0. POSE: a wisp 1 while its blower blows on `bz_nstep`; a flagged
+blower the same of its own; a fan `frame(byte, bz_nstep)`. RESET still marks
+nothing: a respawn leaves n, and the spin bytes are ATTEMPT (a play's start
+zeroes them).
+
+**The knob course WIND** (`BZWIND=1`) now shows: the bridge's GUSTING fan
+(no flag) with its WISP over the bridge - squiggles there only in a gust; the
+thin path's STEADY fan with two static squiggle clusters; the hop updraft at
+(5, 7) with `flag` (its streamer) and vertical squiggles; and the PIT WIND -
+a `lift` updraft at the goal plate's edge (22, 10), strength 16, top 5
+units, its region three of the plate's cells and a 2 x 3 pit, a PLATFORM 2.5
+units up behind it (23 - 26, 6 - 8), the blower flagged. The ledge's finish
+moved to the goal plate as exit 1 (22, 7), so one clock serves both
+finishes - two clocks put 4 digits in some windows, and with two fans and an
+event lane that was 7 pose changes a step, over `WIN_CHG`. The course part
+MEASURED 22,834 bytes of RAM, LZ4 4,818; the knob's image 49,776, bss 11,525.
+
+**MEASURED on the model** (`bonanza_phys`'s scenes, below): on the pit
+wind's plate cells glass is LAUNCHED with no Hop, rises to 56 px and lands
+on the platform; rubber and steel stay on the ground and, rolled on into the
+pit, fall (rubber slowly). A course's `lift` fan: glass airborne at 46 px
+after 40 steps at rest, rubber and steel at 32 (the floor).
+
+**Bytes (MEASURED)**: the part **525** (+199 on round 1's 326: the wisp, the
+fan's byte and frames, the launch), 33 paragraphs in the bundle; `bzfbun.bin`
+33,712 -> **33,904** (+192), `BONANZA.O88` 118,874 -> **119,031** (+157) -
+against the base before WIND, the bundle +528 and the package +416; the image
+**+3** as before, bss **+0** in the default build (`BZ_FSTB` is the shipped
+courses'). **A step** (PREDICTED, counted): a spinning-capable fan about
+0.15k more (its byte, two frames, a compare), a wisp about 0.3k (two gust
+tests), a launch about 0.1k on its one step.
+
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`, 32
+items: the new refusals (`lift` on a horizontal blower, `prop wisp`, a
+clause twice, the 7 elements); the records with the flags, the FSB and the
+wisp's blower, FAMV over `WD_SPIN`; two gusting blowers in one window
+turning on the same step refused and seeded apart compiled; the PIT WIND on
+the model with its red arm (without `lift` glass stays on the ground); seven
+fans in one window refused (FAST lanes) with the red arm `fanfast` (fans not
+counted) compiling them. `bonanza_phys --check`'s `wind_host` now plays the
+WIND course LESS ITS CRACKS (the default build's `bz_fst` is the shipped
+courses' 5 bytes, and five cracks and four blower bytes would not fit; the
+cracks are GLASS's own scenes'): eleven scenes equal at every step - the thin
+path for each ball (and its fan spinning, then stopped), the gust on and off
+for rubber and glass, the hop updraft for each ball, the PIT WIND for each
+ball - and red arms `wdstep`, `wdglass`, `wdfan` (the fan's mark NOPed:
+"never drawn" when it turns), `wdgust` (the wisp's mark NOPed), `wdspin` (the
+spin byte never set: `bz_fst`), `wdlift`, `wdpit` (the launch NOPed: the
+ball parts at its first step on the plate), each red.
+
+**SEEN on MartyPC** (`BZWIND=1`, CGA and Hercules twins): the bridge's
+squiggles there in a gust and gone between; the thin path's static
+squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
+fan turning frame by frame with the ball poked into its gust; the pit wind's
+plate, flag and squiggles over the pit.
