@@ -5922,9 +5922,12 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if least > PARTMAX:
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
-    # the occluders: cut (128.10.4.4) from pose 0's picture, merged (128.11.4.1), bounded (128.11.4.2)
-    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows) if occluders else ([], {})
-    q = block_queries(reach, x0, y0, width) if occluders else {}
+    # the occluders: cut (128.10.4.4) from pose 0's picture, merged (128.11.4.1), bounded (128.11.4.2).
+    # SPEC.md 128.31: THE PATHWAY CARRIES NONE - its ball is the follower, always grounded, and no cell of it
+    # is ever OCCG, so the guest's pass never runs there; _hack pathocc: --selfcheck's red arm, cut anyway
+    cutocc = occluders and (pth is None or hack.get("pathocc"))
+    raw, occpix = _occluders(cv, reach, x0, y0, cols, brows) if cutocc else ([], {})
+    q = block_queries(reach, x0, y0, width) if cutocc else {}
     records = merge_records(raw, q)
     per_row, per_block = {}, {}
     for r in records:
@@ -5953,7 +5956,7 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         if n:
             cells[(wx, wy)][3] |= FL_OCC | FL_OCCG
     # wave 3's occlusion refusals (SPEC.md 128.12.4.5, 128.12.15 item 2)
-    if occluders:
+    if cutocc:
         for L in lanes:
             bad = lane_pose_verdicts(L, reach, x0, y0, cv)
             if bad:
@@ -18996,6 +18999,18 @@ def _path_checks(courses, res):
     proofs = path_proofs(pc, courses)
     pth, part = pc.pth, pc.part
     rt = part["path"]
+    # SPEC.md 128.31: THE PATHWAY CARRIES NO OCCLUDERS - no record, no mask, no OCC or OCCG cell, no R, K or
+    # O section; the red arm compiles it with the records cut anyway (_hack pathocc) and must find them
+    red = compile_course(shipped, crsinfo=[(c.name, c.title) for c in courses], _hack={"pathocc": 1})
+    tags = {e["tag"] for e in part["dir"]}
+    nocc = sum(1 for v in pc.cells.values() if v[3] & (FL_OCC | FL_OCCG))
+    res.append(("8R the shipped pathway carries NO occluders (SPEC.md 128.31): %d records, %d masks, %d OCC/OCCG "
+                "cells, sections %s; RAM %d (with them it would be %d, %d records); negative control, the records "
+                "cut anyway: %d records" % (part["nocc"], part["nmask"], nocc, "".join(sorted(tags & set("RKO")))
+                                            or "none of R K O", len(pc.cga), len(red.cga), red.part["nocc"],
+                                            red.part["nocc"]),
+                part["nocc"] == 0 and part["nmask"] == 0 and nocc == 0 and not tags & set("RKO")
+                and red.part["nocc"] > 0 and len(red.cga) > len(pc.cga)))
     print("    the pathway: %d pads, %d routes, %d signs, %d pages; part %d bytes in RAM (%d stored), LZ4 %d" % (
         len(pth["pads"]), len(pth["routes"]), pth["nsign"], pth["npages"], len(pc.cga), len(pc.stored),
         packed_len(pc.stored4, "lz4")))
