@@ -22144,14 +22144,14 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 	$(NASM) -f bin -w+error -DBZ_CUEFLASH=$(BZ_CUEFLASH) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
-# order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: rows
-# 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
-# BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
+# order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
+# K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
+# since SPEC.md 128.25.5.2), then the sound part and one part a song (SPEC.md 128.20.3), then
 # one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+BZ_PARTS := $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN
 
 # THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
@@ -22176,10 +22176,11 @@ $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bona
 $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# THE RESIDENT BUNDLE (SPEC.md 128.25.6.9): the home-`resident` families' parts back to back, each from a
-# paragraph, its header's +11 its paragraphs (empty with none resident, and then not a row)
-$(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) tools/bbcourse.py
-	python3 tools/bbcourse.py fbundle $(BUILD)
+# THE RESIDENT BUNDLE (SPEC.md 128.25.6.9, 128.25.5.2): the three balls' stored BZB3 parts first (generated
+# in place once, at the open), then the home-`resident` families' parts back to back, each from a
+# paragraph, its header's +11 its paragraphs - a row in every build
+$(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
+	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \

@@ -268,7 +268,8 @@ bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.i
 %if BZ_NFRES
 ; -----------------------------------------------------------------------------
 ; bz_fbfind - record SI's family inside the RESIDENT BUNDLE (SPEC.md 128.25.6.9),
-; whose segments the record holds: the bundle's headers walked from its start,
+; whose segments the record holds: the bundle's headers walked from BZ_BALB
+; (the balls are its head, SPEC.md 128.25.5.2),
 ; each a part's own but its +11, its PARAGRAPHS there (the step to the next),
 ; to the one whose +2 is the record's ID; the record's data segment is then
 ; OSAPI_SEG's SEG_SUBC over the bundle's at that paragraph, its reach the
@@ -288,7 +289,8 @@ bz_fbfind:
     mov es, dx
     sub [si + BZF_RCSEG], dx    ; ...its code segment's distance from it
     mov dl, [si + BZF_RIDV]     ; DL = the ID
-    xor bx, bx                  ; BX = a header's byte, from the first
+    mov bx, BZ_BALB             ; BX = a header's byte, from the first: past
+                                ; the three balls at the bundle's head (128.25.5.2)
     xor cx, cx
 .w:
     cmp word [es:bx], 'BF'
