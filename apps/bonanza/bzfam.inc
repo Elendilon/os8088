@@ -5,7 +5,10 @@
 ; fetched each one's part, checked its stamp and filled a SLOT RECORD here; the
 ; hook SITES (bzphys.inc, bzwheel.inc) test bz_fhk and call the two
 ; dispatchers below, which far-call the part's entries.  A course with no
-; family has bz_fhk = 0, bz_fnf = 0, and reaches none of this code.
+; family has bz_fhk = 0, bz_fnf = 0, and reaches none of this code.  THE HOOK
+; LISTS (SPEC.md 128.25.6.3, the owner's F6): bz_ffetch builds, per hook, the
+; far entries of only the families that have it, so a dispatch walks those and
+; nothing else.
 ;
 ; THE CONTRACT A HOOK SEES (SPEC.md 128.25.6.3): entered by `call far` with
 ; DS = ES = the package, SS the task's, CLD; AL = its slot (0 - 2), AH = the
@@ -28,10 +31,19 @@ BZ_HK_POSE  equ 4
 BZ_HK_CELL  equ 5
 BZ_HK_PROP  equ 6               ; story 9.8 (SPEC.md 128.25.20.2): through bz_fone
                                 ; only, its entry at the part's +24
+BZ_NHOOK    equ 7               ; the hooks: one LIST each (bz_fhl)
+BZF_HE      equ 8               ; a list's ENTRY: +0 the hook's far entry (its
+BZF_HESLOT  equ 4               ; offset, the part's code segment), +4 the slot,
+BZF_HEKN    equ 5               ; +5 the family's kinds (the part's +9), +6 its
+BZF_HEKF    equ 6               ; first kind (+10), +7 unused
+BZF_HL      equ BZ_FAMMAX * BZF_HE ; a hook's list (bz_fhn its length)
 BZ_PQ_DRAIN equ 0               ; ...its questions (AH): the TUBE family's step-4
 BZ_PQ_CAPTURE equ 1             ; drain, a capture, step 1's transit; the ROTOR
 BZ_PQ_TRANSIT equ 2             ; family's doorway at step 5
 BZ_PQ_DOOR  equ 3
+%if BZF_HL != 32 || BZF_HE != 8
+ %error "bz_fh0 and bz_ffetch find a hook's list with a shift: BZF_HL 32 (BZ_FAMMAX 4)"
+%endif
 %if BZF_SLOT != 8 || BZ_FH_RESET != 1 << BZ_HK_RESET || BZ_FH_ENTER != 1 << BZ_HK_ENTER || BZ_FH_CONTACT != 1 << BZ_HK_CONT || BZ_FH_STEP != 1 << BZ_HK_STEP || BZ_FH_POSE != 1 << BZ_HK_POSE || BZ_FH_CELL != 1 << BZ_HK_CELL || BZ_FH_PROP != 1 << BZ_HK_PROP || BZF_HDR != 12 + 2 * 6
  %error "bzfam.inc's shifts and the hooks' numbering are the tool's (bbcourse.FSLOT, H_*, FAM_HDR)"
 %endif
@@ -41,8 +53,9 @@ BZ_PQ_DOOR  equ 3
 VAR bz_fhk,1                    ; the ACTIVE HOOKS: every fetched part's mask, ORed
 VAR bz_fnf,1                    ; ...the families fetched, 0 - 3 (the slots; one word
                                 ; with bz_fhk)
-VAR bz_ffp,4                    ; the far pointer a dispatch calls through
-VAR bz_fmkp,4                   ; ...and bz_fmark's, which every dispatch writes:
+VAR bz_fhn,2 * BZ_NHOOK         ; THE HOOK LISTS (bz_ffetch's): each hook's
+VAR bz_fhl,BZ_NHOOK * BZF_HL    ; length, bytes (a word), and its list
+VAR bz_fmkp,4                   ; bz_fmark's far pointer, which every dispatch writes:
                                 ; a hook MARKS a lane by `call far [bz_fmkp]`
 VAR bz_frec,BZ_FAMMAX * BZF_REC ; the slot records
 %endmacro
@@ -52,7 +65,9 @@ VAR bz_frec,BZ_FAMMAX * BZF_REC ; the slot records
 ; entry for it, in slot order; bz_fone - of the one family whose run of kinds
 ; (the part's +9 count, +10 first) holds kind DL.  AH the hook's argument, BX
 ; the element, both passed through.  -> AX as the last hook called left it
-; (POSE's AL the pose), 0 when none was called.  Preserves all but AX.
+; (POSE's AL the pose), 0 when none was called.  Preserves all but AX.  Each
+; walks the hook's LIST (bz_ffetch's): only the families that have the hook,
+; each entry's far pointer called where it lies (SPEC.md 128.25.6.3).
 ; -----------------------------------------------------------------------------
 bz_fall:
     push dx
@@ -67,50 +82,46 @@ bz_fh0:
     push di
     push bp
     push es
-    mov cx, ax                  ; CL the hook, CH its argument
     mov word [bz_fmkp], bz_fmark ; (the hooks' MARK, at the package's CS now:
     mov [bz_fmkp + 2], cs       ; a region can move between plays)
     xor bp, bp                  ; (the answer: none yet)
-    xor dh, dh                  ; DH the slot
-    mov si, bz_frec
+    mov dh, ah                  ; DH the argument
+    xor ah, ah
+    shl ax, 1
+    xchg ax, si
+    mov di, [bz_fhn + si]
+    mov cl, 4
+    shl si, cl
+    add si, bz_fhl              ; SI = the hook's list, DI its end
+    add di, si
 .s:
-    cmp dh, [bz_fnf]
+    cmp si, di
     jae .done
-    mov es, [si + BZF_RDSEG]    ; (the part's head, read through its data
-    or dl, dl                   ; segment)
+    or dl, dl
     jz .call
     mov al, dl                  ; kind - first < count: its family's
-    sub al, [es:10]
-    cmp al, [es:9]
+    sub al, [si + BZF_HEKF]
+    cmp al, [si + BZF_HEKN]
     jae .next
 .call:
-    mov al, cl
-    cbw
-    shl ax, 1
-    xchg ax, di
-    mov di, [es:di + 12]        ; the entry (0: none)
-    or di, di
-    jz .next
-    mov [bz_ffp], di
-    mov ax, [si + BZF_RCSEG]
-    mov [bz_ffp + 2], ax
-    push cx
     push dx
     push si
-    mov al, dh                  ; AL the slot, AH the argument
-    mov ah, ch
+    push di
     push bx
+    mov al, [si + BZF_HESLOT]   ; AL the slot, AH the argument
+    mov ah, dh
     push ds                     ; (the package keeps the direction flag clear:
     pop es                      ; bz_pinit's rep stosw)
-    call far [bz_ffp]
+    call far [si]
     pop bx
+    pop di
     pop si
     pop dx
-    pop cx
     xchg ax, bp
+    or dl, dl                   ; (bz_fone: the one family called - the runs of
+    jnz .done                   ; kinds are disjoint)
 .next:
-    add si, BZF_REC
-    inc dh
+    add si, BZF_HE
     jmp short .s
 .done:
     xchg ax, bp
@@ -225,7 +236,9 @@ bz_frst:
 ; -----------------------------------------------------------------------------
 bz_ffetch:
     push es
-    mov word [bz_fhk], 0        ; (and bz_fnf)
+    push ds
+    pop es
+    call bz_fhz                 ; no hook, no slot, every hook's list empty
     mov si, bz_frec
 .f:
     mov es, [bz_cseg]
@@ -273,11 +286,35 @@ bz_ffetch:
     cmpsw
     pop si
     jne .bad
-    mov al, [es:8]              ; its hooks
-    or [bz_fhk], al
+    mov ah, [es:8]              ; its hooks, each one's LIST given its entry
+    or [bz_fhk], ah             ; (SPEC.md 128.25.6.3): the hook's far entry
+    xor bx, bx                  ; (the part's word at 12 + 2b), its code
+.h:                             ; segment, the slot, the run of kinds (+9,
+    shr ah, 1                   ; +10); BX = 2b.  A bit whose entry is 0 has
+    jnc .hn                     ; none (a red arm's)
+    mov dx, [es:bx + 12]
+    or dx, dx
+    jz .hn
+    mov di, bx
+    mov cl, 4
+    shl di, cl
+    add di, [bz_fhn + bx]
+    add word [bz_fhn + bx], BZF_HE
+    mov [bz_fhl + di], dx
+    mov cx, [si + BZF_RCSEG]
+    mov [bz_fhl + di + 2], cx
+    mov cl, [bz_fnf]
+    mov [bz_fhl + di + BZF_HESLOT], cl
+    mov cx, [es:9]
+    mov [bz_fhl + di + BZF_HEKN], cx
+.hn:
+    inc bx
+    inc bx
+    or ah, ah
+    jnz .h
     inc byte [bz_fnf]
     add si, BZF_REC
-    jmp short .f
+    jmp .f
 .bads:
     pop si
 .bad:
@@ -285,6 +322,16 @@ bz_ffetch:
     call op_say                 ; op_say: OP_SAYGATE (bz_fs) holds it quiet in a
 .out:                           ; game round's bracket (SPEC.md 53.7); CF = 1
     pop es
+    ret
+
+; bz_fhz - no hook active, no slot (bz_fhk, bz_fnf 0) and every hook's LIST
+; empty: bz_ffetch's start, bz_cdrop's.  ES = DS = ours.  Clobbers AX, CX, DI.
+bz_fhz:
+    xor ax, ax
+    mov [bz_fhk], ax
+    mov di, bz_fhn
+    mov cx, BZ_NHOOK
+    rep stosw
     ret
 
 bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.inc)
