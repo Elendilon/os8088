@@ -263728,6 +263728,13 @@ to its finish or until Esc. Its log is held (128.11.12), its time is
 written on the face, and a time under the course's best is kept when the
 play started with the course's own ball (128.14.3.3).
 
+*The owner, 2026-11-17 (128.26.8): the tour is no longer every course but
+`BENCH` - it is a short NAMED list, `tools/bbcourse.py`'s `TOUR`, emitted as
+`BZ_TOUR` and `BZ_NTOUR` into `bzcourse.inc`, and a TEST FIXTURE (`G` answers
+only under `bz_dev`, 128.26.6). Read "courses 1 - 5" and "five" below as
+"the tour's `BZ_NTOUR` courses, in `BZ_TOUR`'s order"; the scorecard the
+paragraph names is gone from the face.*
+
 **THE TOUR** is `G`: the courses 1 - 5 in `BZ_COURSES`'s order (`FIRST`,
 `TRIAL`, `MILL`, `MOON`, `SUMMIT`), each with ITS OWN ball (`bz_cballs`,
 so a tour's times compare with each other and with par). `G` clears the
@@ -263794,6 +263801,11 @@ beats it.
 
 ##### 128.14.3.2 The face: the MAIN page and the RESULTS page
 
+*The owner, 2026-11-17 (128.26.8): MAIN's scorecard lines are DROPPED. MAIN
+is lines 0 - 6 (`BZ_NLINE` 7), whatever the courses or the tour; RESULTS
+still draws all thirteen. The table's rows 7 - 11 / 7 - 12 below are
+history.*
+
 The CGA's content holds thirteen lines (128.10.6.2) of 42 cells; every line
 is one opaque `OSAPI_FONT_RUN` padded to the content's width, as now, and
 only the lines whose content changed are redrawn. The face has TWO pages
@@ -263811,7 +263823,7 @@ open):
 | 4 | the sound (128.20.4, unchanged) |
 | 5 | the demo keys: `B BENCH  L LOAD  V DEMO`, and when a log is held `  R PLAY  D TIME  W SAVE`; during a tour `W SAVE` alone |
 | 6 | the HELD LOG: `<NAME> <s.hh> s  falls <n> stuns <n> broke <n>` after a play or replay to its finish; `<NAME> <s.hh> s  <8.3 name>` after `L`; `<NAME> <s.hh> s  demo` after `V`; with no log, the keys' hint (`Arrows roll  Space hop  L.Shift grip`, or `Mouse tilts  left hop  right grip` under `T MOUSE`) |
-| 7 - 11 (*7 - 12 from wave 6, six tour courses*) | the SCORECARD, a line a tour course: `<K> <title> <time> <*> f<falls> par <p> best <b>`, a time `-` where there is none |
+| 7 - 11 (*7 - 12 from wave 6, six tour courses; GONE since 128.26.8 - MAIN ends at line 6*) | the SCORECARD, a line a tour course: `<K> <title> <time> <*> f<falls> par <p> best <b>`, a time `-` where there is none |
 | 12 (*line 0 from wave 6*) | `Tour <total>  best <b>`; or during a tour `ENTER next: <title>`; or `Tour stopped`; or, after a refused replay, `Another course's log` (128.12.8) or `Other physics' log` (128.14.7.2) |
 
 **RESULTS** (after `B` or `D`, until the next key, which is then acted on
@@ -263859,7 +263871,7 @@ session; a READ that fails is the first-run case, silent.
 | +0 | `BZT1` |
 | +4 | the course count it was written with, byte; +5 three zero bytes (*wave 6, 128.16.9: +5 `BZ_PHYSV`, +6 two zero bytes*) |
 | +8 | 8 entries of 6 bytes, `K` 0 - 7 (`BENCH`'s unused): +0 the course's IDENTITY (`BZG1` +18, 128.12.8), +2 its best time in STEPS (0 none), +4 its best time's falls |
-| +56 | the TOUR: +0 the XOR of the five tour courses' identities (*six from wave 6, the PLAYGROUND last*), +2 its best total in steps, DWORD, +6 two zero bytes |
+| +56 | the TOUR: +0 the XOR of the five tour courses' identities (*six from wave 6, the PLAYGROUND last; since 128.26.8 the `BZ_TOUR` list's, `BZ_CRS_TOURX`*), +2 its best total in steps, DWORD, +6 two zero bytes |
 
 **Who posts a best.** Only a PLAY (`bz_mode` 0) that reached the course's
 finish, started with the course's OWN ball (`bz_cballs[K]`, which every
@@ -275107,7 +275119,7 @@ laid out for 23 courses and three slots:
 | +0 | `BZS4` |
 | +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | as `BZS3`'s |
 | +8 | **23 entries** of 6 bytes (+8 - +145), K 0 - 22 (BENCH's and those past the courses all zero): +0 the course's IDENTITY, +2 its best in STEPS (0 none), +4 its best's falls - 128.14.3.3's, unchanged |
-| +146 | the TOUR, **6 bytes**: +0 the XOR of the tour's courses' identities, +2 its best total in steps, DWORD (*the two zero bytes `BZS3` kept after it are gone*) |
+| +146 | the TOUR, **6 bytes**: +0 the XOR of the tour's courses' identities (*the `BZ_TOUR` list's, `BZ_CRS_TOURX`, 128.26.8: a course off the tour moves nothing here*), +2 its best total in steps, DWORD (*the two zero bytes `BZS3` kept after it are gone*) |
 | +152 | three SLOTS of **114 bytes** (+152, +266, +380) |
 
 A slot: +0 - +21 `BZS3`'s (+0 lives, +1 the mode, +2 the pad, +3 zero, +4 open,
@@ -279067,6 +279079,58 @@ door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
 `F or Alt+Enter: window`, `Esc map or quit`, and last `Contributed by
 Elendilon` (the owner, 2026-11-16: the description line goes - launching
 the game says what it is).
+
+#### 128.26.8 MAIN and the tour, test fixtures (the owner, 2026-11-17)
+
+Since 128.26 the player's window shows pictures and Play Game; MAIN
+(128.14.3.2) and the TOUR (128.14.3.1) answer only under `bz_dev`
+(128.26.6), so both are TEST INSTRUMENTS. The tour courses were every
+course but `BENCH` and MAIN carried a scorecard line for each, so a
+seventh course would have needed a fourteenth face line - a CGA content
+holds thirteen - and `bzface.inc` refused to assemble unless `BZ_NLINE`
+= 7 + `BZ_NTOUR`. With the courses going from six to about twenty, the
+owner: *"1 and 2 seem good; those are both knob/test only now"* - the
+scorecard dropped, and the tour no longer all the courses. BUILT:
+
+- **MAIN is seven lines**, `BZ_NLINE` 7, independent of the courses:
+
+  | line | holds |
+  |---|---|
+  | 0 | the tour (`BZ_LTOUR`): `Tour <total>  best <b>`, `ENTER next: <title>` (the tour's next course, `BZ_TOUR`), `Tour stopped`; a refused replay's reason; with no tour the slot keys (128.19.8.3) |
+  | 1 - 6 | as 128.14.3.2: Enter's keys, the adapter, the settings, the sound, the demo keys, the held log |
+
+  The scorecard's builder (`bz_sc`), its columns (`BZ_SC_*`), its
+  strings and its 42-cell assertion are gone from the shell part; every
+  remaining line keeps 128.14.17 item 2's `BZ_FIT`. RESULTS is unchanged:
+  lines 0 - 3, its eight results lines 4 - 11 and `Any key: back` on
+  line 12 (`bz_face` draws it whole, not through `bz_ftab`). A course's
+  times are still `bz_ttime`/`bz_tfall` (the tour) and BONANZA.DAT's
+  bests: a row reads them there, not off the face.
+- **The tour is a short NAMED list**: `tools/bbcourse.py`'s `TOUR`, course
+  NAMEs in play order, today `FIRST TRIAL MILL MOON PEAK PLAY` (the six it
+  always was, so nothing a row measures moves). The tool resolves it
+  against `BZ_COURSES` (`tour_ks`) and REFUSES an empty list, `BENCH`, a
+  name twice and a name that is not a course; `bzcourse.inc` carries
+  `BZ_NTOUR`, `%macro BZ_TOUR` (a byte a tour course, its K) and
+  `BZ_CRS_TOURX`, the XOR of THOSE courses' identities (BONANZA.DAT +146,
+  128.22.5). `[bz_tour]` keeps its meaning, the tour's STEP (1 -
+  `BZ_NTOUR`, + 1 finished, + 2 stopped); `bz_tgo` and the tour line map a
+  step to its course through the table (`bz_ctour`, in the package with
+  `BENCH` at byte 0 for kern_small's refused `G`, and a copy in the shell
+  part). `bonanza.asm` asserts 1 <= `BZ_NTOUR` <= `BZ_NCRS` - 1.
+- **A course off the tour is still a course**: `N` (`bz_crskey`) still
+  cycles every course but `BENCH`, a free play plays it, the pathway's
+  pads reach it (128.22), its best is BONANZA.DAT's entry K and its
+  shipped demo is `BZD<K>` - the demos stay one a course but `BENCH`
+  (`BZ_NDEMO` = `BZ_NCRS` - 1), which is not a tour rule.
+- **Bytes (MEASURED, `make bonanza` at c279be758 and after)**: the package
+  image 47,097 -> **47,110** (+13: the 7-byte table and `bz_tgo`'s
+  lookup), its bss 10,995 unchanged; the shell part 12,259 -> **12,072**
+  (-187), 6,591 -> 6,458 packed; `BONANZA.O88` 117,724 -> **117,612**.
+- **The rows**: `bonanza_ring.tour_ks()` reads `BZ_TOUR` out of the
+  generated `bzcourse.inc`; `bonanzagame`'s tour, stop and check halves
+  and `bonanzaexit`'s tour legs walk it (the cup leg pokes MOON's tour
+  STEP, not its K) instead of deriving the tour from `BZ_COURSES`.
 
 ### 128.27 Grounded faces (the owner's decision, 2026-11-16)
 
