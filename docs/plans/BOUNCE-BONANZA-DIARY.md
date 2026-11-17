@@ -4118,3 +4118,30 @@ rewritten in the 9-cell window for whichever ball is rolling.
 `bonanzadisk`, `--selfcheck --only spike`, `bonanza_phys`'s spike scenes
 (eleven, the guest equal to the model at every step) and red arms (six, all
 red), one MartyPC look on each card. **Not run**: soak rows, `test-full`.
+
+## 2026-11-17 (the death frames, cheaper: B and A)
+
+Every squash, shatter, stretch and pop frame was 1,280 bytes of RAM: four
+shifts, each twice, once for each line parity. The two copies were the same
+bytes on the CGA - they differ only once the Hercules translation ties a mid
+colour to its line - so **B** keeps one (8,960 bytes of the bundle back, and
+the image 30 bytes SMALLER: `bz_sprite` stops adding the parity, `bz_ballgen`
+stops copying). **A** keeps one shift too and shifts it at the draw into a
+160-byte scratch in the ball part: a further 6,240 back for 113 bytes of
+image, nearly all of it `bz_eshift`, and 11 - 19k clocks (2.3 - 3.9 ms,
+priced under unicorn) on a frame where the ball squashes or dies at a shift
+other than 0. More than the brief's 40 - 80 bytes and "a few thousand
+clocks", so it is the owner's to keep or drop: both are switches
+(`EPAR`, `ESH` in `bonanza_assets.py`) and separate commits.
+
+The one trap was the scratch's home: the blit reads its sprite through
+`bz_bseg`, and the finish's dissolve copies it from `bz_bsegs[bz_mat]` - so
+the shifted entry lives in the ball part itself, after the shadow masks,
+where both find it with no new segment juggling. Storing shift 0 loses the
+two columns of shards left of the sprite at shifts 1 - 3, for a frame or two.
+
+**Tested**: `make bonanza`, `make bonanza-check` (`bz_ballgen` under unicorn
+equal to the tool, all three balls), `bz_eshift` under unicorn equal to the
+tool's `ent_rows` on all 42 entry-shifts with a red arm, the knob tree, `make
+mega small`, one MartyPC look per step per card. **Not run**: soak rows,
+`test-full`.

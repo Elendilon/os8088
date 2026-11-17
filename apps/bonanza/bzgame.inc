@@ -2630,8 +2630,7 @@ bz_eshift:
     push bp
     push es
     mov si, ax
-    mov bh, bl
-    shl bh, 1                   ; BH = the bits, 2 s
+    mov bh, bl                  ; BH = s, the pixels
     mov bl, [bz_mat]
     push bx
     xor bh, bh
@@ -2639,7 +2638,7 @@ bz_eshift:
     mov es, [bz_bsegs + bx]
     pop bx
     mov di, BZ_BAL_SCROFF
-    mov ch, 80h                 ; the mask's fill, a bit at a time
+    mov ch, 0C0h                ; the mask's fill, a pixel at a time
     mov bp, 2 * BZ_BAL_ROWS
 .r:
     cmp bp, BZ_BAL_ROWS
@@ -2651,6 +2650,11 @@ bz_eshift:
     mov cl, [es:si + 4]
     mov bl, bh
 .b:
+    shr al, 1
+    rcr ah, 1
+    rcr dl, 1
+    rcr dh, 1
+    rcr cl, 1
     shr al, 1
     rcr ah, 1
     rcr dl, 1

@@ -293,7 +293,7 @@ ENT = 2 * D * RB              # a squash or shatter entry: mask 80 + frame 80
 # by the guest as it draws (bz_sprite's bz_eshift into the ball part's scratch, B2_SCROFF), 160.  The
 # switches: these two constants (the guest reads BZ_BAL_EPAR, BZ_BAL_ESH)
 EPAR = 1
-ESH = 4
+ESH = 1
 ENTS = ESH * EPAR * ENT       # a frame's bytes
 B2_MASKOFF = HDR                                   # 16
 B2_FRMOFF = B2_MASKOFF + SHIFTS * D * RB           # 336
@@ -1232,8 +1232,9 @@ def _check_ball2(mat, part, results, tag=None):
             for r in range(D):                      # see-through interior, not its outside)
                 for j, c in enumerate(shp[r]):
                     if c is not None and got[r][j] != BLK and any(
-                            not (0 <= j + dx < RB * 4 and 0 <= r + dy < D) or shp[r + dy][j + dx] is None
-                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                            (not (0 <= j + dx < RB * 4 and 0 <= r + dy < D) or shp[r + dy][j + dx] is None)
+                            and not (ESH == 1 and s and j + dx >= RB * 4)   # (A: a piece the shift pushes past the
+                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):    # right edge is cut there, unringed)
                         ring = False
     results.append(("%s squash%s: the two line-parity copies of every entry identical, mask and frame consistent"
                     % (name, " and shatter" if nsh else ""), same))
