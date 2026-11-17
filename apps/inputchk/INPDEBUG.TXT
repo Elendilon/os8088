@@ -15,13 +15,14 @@ WHAT HAPPENS WHEN IT BOOTS
 1. Input Check opens and asks you to PRESS SOME KEYS for about 20 seconds:
    letters, Num Lock, Caps Lock. If the keyboard is dead, that is fine -
    leave it, and the report says so.
-2. It saves a report to this disk: INPUT01.TXT on the first boot, INPUT02.TXT
-   on the next, and so on. Nothing is overwritten.
+2. It saves a report to this disk: INPUT01A.TXT on the first boot,
+   INPUT02A.TXT on the next, and so on. Nothing is overwritten.
 3. It checks the keyboard controller (the keyboard switches off for about a
    third of a second) and, if no PS/2 mouse was found at boot, runs the PS/2
    mouse probe again.
-4. It asks for keys AGAIN for about 10 seconds, then saves the same file
-   once more, complete. The window says "Done".
+4. It asks for keys AGAIN for about 10 seconds, then saves a second report
+   beside the first, INPUT01B.TXT (B for "after the check"). The window
+   says "Done".
 
 Q and Esc do nothing while it runs, so pressing keys cannot close it.
 
@@ -31,7 +32,7 @@ Boot this disk SEVERAL times - ideally until you have caught at least one
 boot where the keyboard works and one where it does not. Each boot writes
 its own file. Then send:
 
-  - every INPUT??.TXT from this disk (it is a normal FAT floppy: copy them
+  - every INPUT???.TXT from this disk (the A and B of each boot) (it is a normal FAT floppy: copy them
     off on any PC), and
   - for each boot, whether the keyboard worked, and which mouse (if any)
     was plugged in where.

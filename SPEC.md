@@ -18278,13 +18278,61 @@ that succeeds.
 **The timeouts are ticks, not spins**, and that is CLAUDE.md's third
 performance rule rather than a preference: a spin count sized against a 286 is
 some fifty times too short on a 486, and one sized against a 486 is minutes on
-a 286, while `[ticks]` is the same quantity on both. `MOU_P2TMO` is 2 ticks
-(~110 ms) for every handshake step, and the reset's BAT — which the device is
-allowed half a second for — **retries that short wait** `MOU_P2BAT` times
+a 286, while `[ticks]` is the same quantity on both. `MOU_P2TMO` is 5 ticks
+(~275 ms) for every handshake step, and the reset's BAT — which the device is
+allowed half a second for — **retries that wait** `MOU_P2BAT` (2) times
 rather than being a second timeout to size. The only machine that pays a
 timeout at all is one with a working aux port and nothing plugged into it: the
-`0xA9` answer is instant, the reset's missing `0xFA` costs ~110 ms, and that
-is the whole bill.
+reset's missing `0xFA` costs ~275 ms, then §9.9.1.1's drain at least
+`MOU_P2QUIET` ticks more, and that is the whole bill.
+
+#### 9.9.1.1 A late answer is still an answer: the drain, and why 2 ticks was too short
+
+**The field defect** (the owner's reporter, 2026-11-17: an STPC 486 SBC,
+Phoenix BIOS, a Winbond W83977 super I/O whose keyboard controller runs AMI's
+MEGAKEY firmware, a PS/2 keyboard and NOTHING in the aux port). On some boots
+the keyboard was dead for the whole session - no keys, no LEDs - and on others
+it worked, with nothing changed. Input Check's automatic run (§129.12) caught
+both halves on one disk:
+
+- the controller check (§129.11.2) found port 64h at `7D` - output buffer
+  FULL, the byte an AUX byte, the TIMEOUT bit set - and the byte waiting was
+  `FE`;
+- every keystroke the BIOS stored that boot was stored AFTER the check took
+  that byte, and the user saw the LEDs come back at that moment;
+- Probe PS/2's own leg 1 showed the shape directly: `D4 FF` with no reply in
+  the 2-tick wait, then `FE` from the aux side one step later.
+
+So the controller's own *no device* answer to `D4 FF` arrived just past
+`MOU_P2TMO`. The probe had already given up and gone down `.fail`, which
+leaves IRQ12 masked at the slave (§9.9.1); with IRQ12 enabled in the command
+byte the BIOS had left (`67`), that FE raised a line nobody listens to, so no
+handler ever read 60h. **The 8042 has one output buffer: while an aux byte
+sits in it, the keyboard can deliver nothing.** A wait that measures 55 to 110
+ms by where in a tick it starts, against a controller timeout near the same
+figure, is a coin toss per boot - which is exactly "sometimes".
+
+The fix is two lines of defence, both in the boot overlay (no resident byte):
+
+1. **`MOU_P2TMO` 2 -> 5 ticks** (and `MOU_P2BAT` 5 -> 2, so the self-test's
+   window stays ~550 ms). The wait is spent only when a step FAILS; a device
+   that answers is not slowed. The same short wait is the likeliest reason this
+   board found only one particular PS/2 mouse: a reply forwarded through this
+   controller arrives late.
+2. **`mou_p2drain` on `.fail`, after `0xA7` and before the command byte goes
+   back**: read and discard whatever arrives until the output buffer has stayed
+   empty for `MOU_P2QUIET` (3) ticks, at most `MOU_P2DMAX` (18, ~1 s) in all.
+   It runs while the keyboard interface is still disabled (bit 4 of every byte
+   written inside the window, above), so nothing it takes is a keystroke. A
+   late answer to ANY step is then taken before the keyboard is handed back,
+   however late it is within that second.
+
+**Not done, and held in reserve** (the owner, 2026-11-17): skipping the probe
+when the BIOS's equipment word says no pointing device at POST (`int 11h` bit
+2), which is DOS's and Windows 3.x's rule and would have kept this board's
+controller untouched. It costs a working PS/2 mouse on any BIOS that never
+sets the bit, so it waits until another way this probe breaks a machine is
+found.
 
 #### 9.9.2 Nothing here touches port 64h on the target machine
 
@@ -251584,7 +251632,7 @@ plus `INPUTCHK.O88` and `INPDEBUG.TXT` at the root and
 `\AUTOSTRT\INPUTCHK.LNK`, a link to `INPUTCHK.O88` on its own volume
 (`LNK_SELF`) carrying the parameter **`AUTO`** (§26.10.7, written by
 `tools/os88lnk.py --arg AUTO`). It boots into Input Check's automatic run
-(§129.12): keys asked for, a numbered report `INPUTnn.TXT` written to the
+(§129.12): keys asked for, a numbered report `INPUTnnA.TXT` written to the
 root, the keyboard controller checked, keys asked for again, the report
 written again. Each boot writes its own file, so a user who boots until the
 fault shows sends the good boot and the bad one together.
@@ -252804,7 +252852,7 @@ bytes the keyboard section reads PAST the published span (§129.11.1):
 **Upstream's soak row is not ported yet.** `tests/mousechk.py` (soak row
 `mousechkgate` there) drives seven QEMU legs against the window's own row list;
 renaming it is mechanical, and its `EXPECT` table would gain the keyboard
-section's rows and an `AUTO` leg that reads `INPUT01.TXT` back off the
+section's rows and an `AUTO` leg that reads `INPUT01A.TXT` back off the
 floppy. Until then the evidence for this section is the QEMU boot recorded in
 docs/plans/INPUTCHK-PLAN.md: the automatic run on `debug-input.img`, both
 writes, the controller check's rows and keystrokes counted.
@@ -252905,14 +252953,16 @@ the entry proc's FIRST call, because `OSAPI_ARG_TEXT` is valid there only.
 | stage | what | the screen |
 |---|---|---|
 | 1 | `AU_T1` ticks (about 20 s) of sampling | *PRESS SOME KEYS NOW*, and a countdown |
-| 2 | the report written to **`INPUTnn.TXT`**, the first `nn` (01-99) with no file of that name in the instance's folder - the root of the disk it was started from; existence is asked with a zero-capacity `OSAPI_FILE_READ`, which answers from the directory entry alone. All 99 taken, the 99th is rewritten | *First report INPUTnn.TXT* |
+| 2 | the report written to **`INPUTnnA.TXT`**, the first `nn` (01-99) with no A file of that name in the instance's folder - the root of the disk it was started from; existence is asked with a zero-capacity `OSAPI_FILE_READ`, which answers from the directory entry alone. All 99 taken, the 99th is rewritten | *First report INPUTnnA.TXT* |
 | 3 | on the next tick: the controller check (§129.11.2) and, where `p2_canprobe` allows (the kernel found no PS/2 mouse), Probe PS/2 (§129.8) | *Controller check done* |
 | 4 | `AU_T2` ticks (about 10 s) more | *PRESS SOME KEYS AGAIN: did the keyboard survive it?* |
-| 5 | the SAME file written again, complete; a toast | *Final report*, and what to send |
+| 5 | the report written to **`INPUTnnB.TXT`**, complete; a toast | *Final report*, and what to send |
 
-**Two writes, on purpose.** The first is before anything touches the
-controller, so a machine that hangs in stage 3 still leaves a report of its
-untouched state. **The stage is advanced before each write**, so each file
+**Two writes, two files, on purpose.** The first is before anything touches
+the controller, so a machine that hangs in stage 3 still leaves a report of
+its untouched state - and it is KEPT: until 2026-11-17 the final write
+replaced it, and the first field report lost exactly the reading that mattered
+(port 64h at `7D` before the check, §9.9.1.1) to that overwrite. **The stage is advanced before each write**, so each file
 says which stage it was written at. **A new file per boot**, so the boots a
 user makes until the fault shows are all kept, the good one and the bad one
 side by side - which is the comparison the field case needs.
