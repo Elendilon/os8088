@@ -8,8 +8,8 @@
 ; the plus end down; its cell k along the axis is a slope cell at
 ; z0 = PZ + s (k - L / 2) half units, its slopes byte s along the axis.
 ;   the PLATE's record: +16 FSB (a BYTE of bz_fst, the pose: RESPAWN class, so
-;          a respawn puts it at rest), +18 NX, +19 NY, +20 BZ_TL_FAXY (its axis
-;          is y) | BZ_TL_FPLUS (its rest has the plus end down), +21 PZ; its
+;          a respawn puts it at rest), +18 NX, +19 NY, +20 TLF_AXY (its axis
+;          is y) | TLF_PLUS (its rest has the plus end down), +21 PZ; its
 ;          anchor (+2, +3) its first cell.  No OBS: no owner.
 ;   a LANE's record (the second kind): +18 its plate's record.
 ; Hooks: RESET (the slot zeroed, every lane MARKED: the engine has put every
@@ -37,6 +37,11 @@ TL_NY       equ 19
 TL_FL       equ 20
 TL_PZ       equ 21
 TL_PLATE    equ 18              ; a lane's: its plate
+TLF_AXY     equ 1               ; +20's flags: the axis is y,
+TLF_PLUS    equ 2               ; ...the rest has the plus end down
+%if TLF_AXY != BZ_TL_FAXY || TLF_PLUS != BZ_TL_FPLUS
+ %error "the plate's +20 flags are bbcourse's TL_FAXY and TL_FPLUS"
+%endif
 %if BZ_FK_SEESAWLANE != BZ_FK_SEESAW + 1
  %error "the see-saw family's kinds are consecutive: the plate, its lane"
 %endif
@@ -160,7 +165,7 @@ tl_step:
     mov ax, [bz_gx + 1]         ; AX = the ball's place along the axis, gu;
     mov bl, [es:si + 2]         ; BL its anchor, CL its length
     mov cl, [es:si + TL_NX]
-    test byte [es:si + TL_FL], BZ_TL_FAXY
+    test byte [es:si + TL_FL], TLF_AXY
     jz .a
     mov ax, [bz_gy + 1]
     mov bl, [es:si + 3]
@@ -179,7 +184,7 @@ tl_step:
     jb .t                       ; half down (0 below the pivot at a minus
     mov ah, 2                   ; rest, 2 above it; the other way round at
 .t:                             ; a plus rest)
-    test byte [es:si + TL_FL], BZ_TL_FPLUS
+    test byte [es:si + TL_FL], TLF_PLUS
     jz .t2
     xor ah, 2
 .t2:
@@ -224,7 +229,7 @@ tl_step:
     pop ax
     call tl_cellz               ; ...and the ball CARRIED: z = the new floor
     mov bl, [bz_gx + 1]         ; at its point, 16 z0 + s w (w its gu in the
-    test byte [es:si + TL_FL], BZ_TL_FAXY   ; cell along the axis), h4 in
+    test byte [es:si + TL_FL], TLF_AXY   ; cell along the axis), h4 in
     jz .w2                      ; quarter px
     mov bl, [bz_gy + 1]
 .w2:
@@ -275,14 +280,14 @@ tl_cellz:
     push bx
     mov ah, 1                   ; AH = s = 1 - the pose, negated at a plus
     sub ah, al                  ; rest
-    test byte [es:si + TL_FL], BZ_TL_FPLUS
+    test byte [es:si + TL_FL], TLF_PLUS
     jz .s
     neg ah
 .s:
     mov bl, dl                  ; BL = k, BH = L, along the axis
     sub bl, [es:si + 2]
     mov bh, [es:si + TL_NX]
-    test byte [es:si + TL_FL], BZ_TL_FAXY
+    test byte [es:si + TL_FL], TLF_AXY
     jz .k
     mov bl, dh
     sub bl, [es:si + 3]
@@ -301,7 +306,7 @@ tl_cellz:
 .z:
     mov cl, ah                  ; CL = s; AH = its nibble, the high one for y
     and ah, 15
-    test byte [es:si + TL_FL], BZ_TL_FAXY
+    test byte [es:si + TL_FL], TLF_AXY
     jz .y
     shl ah, 1
     shl ah, 1
