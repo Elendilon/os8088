@@ -970,6 +970,14 @@ class Bz:
         self.pre = (self.m.read(self.base + lo, self.sym["bz_phe"] - lo), self.w("bz_px"), self.w("bz_py"),
                     self.b("bz_mat"), self.b("bz_hidn") if "bz_hidn" in self.sym else None)
 
+    def nd(self):
+        """bz_nstep AS THE FRAME WAS DRAWN, at bz_tf or bz_presented: less the early step bz_estp says ran in the wait"""
+        return self.d("bz_nstep") - self.b("bz_estp")
+
+    def dpx(self):
+        """(bz_px, bz_py) as drawn: the bank at bz_tv, else live"""
+        return (self.pre[1], self.pre[2]) if self.pre else (self.w("bz_px"), self.w("bz_py"))
+
     def drawn(self, n, k=0):
         """a byte of the ball's state (bz_phs .. bz_phe) as the frame DREW it: the bank at bz_tv when a loop made
         one, else the live byte"""
@@ -3207,7 +3215,7 @@ def ground_replay(g, s, mode, art=None):
             continue
         tal["frames"] += 1                      # bz_presented
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"])
         R0, c0 = g.w("bz_R0"), g.w("bz_c0")
         if mode == 0:
@@ -3216,7 +3224,7 @@ def ground_replay(g, s, mode, art=None):
                 fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
                              "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
                 break
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
                          "%d)" % (label, fr, n, px, py, R0, c0))
@@ -3666,7 +3674,7 @@ def camera_replay(g, s, art=None):
             continue
         tal["frames"] += 1
         fr = tal["frames"]
-        n = g.d("bz_nstep")
+        n = g.nd()
         P.advance(p, n, s["keys"], s.get("tilts"))
         R0m = gl.R0
         gl.camera()
@@ -3691,7 +3699,7 @@ def camera_replay(g, s, art=None):
         tal["withheld"] += dw["x"] + dw["y"]
         what = "%s frame %d (step %d)" % (label, fr, n)
         # 1. the footprint inside the window (outside tubes; a holed-out ball is not drawn)
-        px, py = g.w("bz_px"), g.w("bz_py")
+        px, py = g.dpx()
         if not tube and not g.b("bz_hid") and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s: the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 %d; SPEC.md "
                          "128.17.6.5 item 3)" % (what, px, py, R0, c0))
@@ -4090,7 +4098,7 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             why.append("pad")
         mat0 = matd
         if windows:
-            n_ = g.d("bz_nstep")
+            n_ = g.nd()
             if any(a_ <= n_ <= b_ for a_, b_ in windows):
                 why.append("stretch")
         if not why and fr % W4_EVERY:
