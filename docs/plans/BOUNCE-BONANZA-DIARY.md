@@ -3132,6 +3132,12 @@ Makefile's `BZ_COURSES` in a private tree. The whole package built: 34
 part rows instead of 32 (a course part and its shipped demo). With SEVEN
 added to the tour too, the package and the shell part still assemble.
 Before this change, `bzface.inc`'s assertion stopped both.
+`bbcourse.py --selfcheck` passes on the eight-course list. `--sizes`
+accepts it too, but its BONANZA.O88 figure fails the same way on the
+shipped list. That figure packs only the balls, courses, sound, songs and
+demos against `build/bonanza.bin`. It leaves out the shell, the pathway,
+the title and the family rows, which are 32 parts against its 26. That is
+older than this change, not a course cap.
 
 **Tested:** host only - `make`, `bbcourse.py --selfcheck`, `checkdocs`,
 the scratch builds. **Not run:** the emulator rows that walk the tour
