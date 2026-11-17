@@ -55,3 +55,6 @@ goal tile 4 11 flat 2
 
 target 60
 way 10 11
+way 12 11
+way 12 9
+way 21 9
