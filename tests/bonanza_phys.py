@@ -1137,15 +1137,17 @@ def glass_keys(leg):
         d.go(22.5, 24.5)
         across(384)
         mark("fast")
-    elif leg == "crack-lab":                    # EXPLORATORY (SPEC.md 128.25.18.1): the CRACK LAB
+    elif leg == "crack-lab":                    # SPEC.md 128.25.18.1: the CRACK LAB
         d.go(31.5, 18.5)                        # (steel from the lab's pad; the floating bridge wy 16, its
-        d.k(0, 2)                               # cracks 35, 37, 39 VANISH; the wide holes at 38, 40 wy 19)
+        d.k(0, 2)                               # cracks 35, 37, 39 VANISH; the band holes at 43, 44 wy 19)
         d.go(33.5, 18.5)
         d.go(33.5, 16.5)
         d.line(1, 80, 99)
         mark("vslow")
         d.go(33.5, 19.5)
-        d.line(1, 80, 99)
+        d.go(42.5, 19.5)                        # (along wy 19 to the end platform, then slowly onto 43's
+        nf = d.p.nfall                          # band hole: line() aims at x 40, behind it)
+        d.go(90, 19.5, 80, until=lambda: d.p.nfall > nf)
         mark("wslow")
         d.go(33.5, 19.5)
         d.go(33.5, 17.5)
@@ -1221,7 +1223,7 @@ def glass_verdict(leg, ms, rev, p):
     elif leg == "crack-lab":
         checks = [("steel slow onto a vanishing crack: a fall, restored", ms["vfast"]["mat"] == BB.MAT_STEEL
                    and ms["vslow"]["nfall"] == 1 and lab("vslow") == bytes(3)),
-                  ("steel slow onto a wide hole: a fall, all restored", ms["wslow"]["nfall"] == 2
+                  ("steel slow onto a band hole: a fall, all restored", ms["wslow"]["nfall"] == 2
                    and lab("wslow") == bytes(3)),
                   ("steel fast across the floating bridge: all three vanished behind it", ms["vfast"]["nfall"] == 2
                    and ms["vfast"]["cell"][0] >= 40 and lab("vfast") == b"\xff" * 3)]
@@ -1241,6 +1243,63 @@ def glass_verdict(leg, ms, rev, p):
                    and cr("hop2") == bytes(4))]
     bad = [w for w, ok in checks if not ok]
     return not bad, ("; ".join(w for w, _ok in checks) if not bad else "NOT: " + "; ".join(bad))
+
+
+GROUP_CRACKS = ((3, 23), (4, 23), (5, 23))      # SPEC.md 128.32.8: PLAYGROUND's GROUP LAB
+GROUP_GLASS = ((4, 27), (5, 27), (4, 26))
+
+
+def group_keys():
+    """the GROUP LAB scenario (SPEC.md 128.32.8, PLAYGROUND's far platform): across the crack path at
+    speed, then the glass TURN tile by tile ((4, 27), (5, 27), (4, 26): one more revealed each time,
+    the group's lanes through every combination on the way), then slowly onto the lab's last crack and
+    along its row at speed (each crack counted and broken on its own, behind the ball), off it before the
+    last breaks - and on until a fall restores them -> (material, keys)"""
+    d = _Drv(R.course("play"), BB.MAT_RUBBER)
+    d.go(20.5, 24.5)
+    d.line(-1, 384, 5.6)
+    d.go(3.5, 24.5)
+    d.go(3.5, 27.5)
+    d.go(4.5, 27.5)
+    d.go(5.5, 27.5)
+    d.go(4.5, 26.5)
+    d.go(5.5, 24.6)
+    d.go(5.5, 23.5, vcap=60)
+    d.line(-1, 300, 3.5)
+    d.go(3.5, 24.5)
+    d.k(0, 60)
+    d.go(4.5, 23.5)
+    d.k(0, 80)
+    return BB.MAT_RUBBER, d.keys
+
+
+def group_verdict(urun_p, seen):
+    """-> (ok, a line): the lab's cracks broken INDEPENDENTLY (a step with some broken and some whole),
+    the glass turn revealed one at a time, and the group lanes through at least six combinations"""
+    p = urun_p
+    pr = dict((q["at"], q) for q in p.props if q["kind"] in (BB.FK_CRACK, BB.FK_GLASS))
+    ok1 = any(0 < sum(1 for c in GROUP_CRACKS if st[0][c] == 0xFF) < 3 for st in seen)
+    ok2 = any(st[1] == (1, 0, 0) for st in seen) and any(st[1] == (1, 1, 0) for st in seen) \
+        and any(st[1] == (1, 1, 1) for st in seen)
+    combos = len({st[2] for st in seen})
+    checks = [("a lab crack broken while another stays whole", ok1),
+              ("the glass turn revealed tile by tile", ok2),
+              ("the group lanes' poses through %d distinct states" % combos, combos >= 6)]
+    bad = [w for w, ok in checks if not ok]
+    return not bad, ("; ".join(w for w, _ok in checks) if not bad else "NOT: " + "; ".join(bad))
+
+
+def group_seen(p, mat, keys):
+    """the model stepped through KEYS: each step's (lab cracks' bytes, glass turn's bits, group lane poses)"""
+    m = BB.Physics(R.course("play"), play=True, mat=mat)
+    pr = dict((q["at"], q) for q in m.props if q["kind"] in (BB.FK_CRACK, BB.FK_GLASS))
+    gl = [q for q in m.props if q["kind"] == BB.PK_GROUP]
+    out = []
+    for k in keys:
+        m.step(k)
+        out.append(({c: m.fst[pr[c]["fsb"] >> 3] for c in GROUP_CRACKS},
+                    tuple(m.fpose(pr[c]) for c in GROUP_GLASS), tuple(m.fpose(q) for q in gl)))
+    return m, out
 
 
 def w9_replays():
@@ -1612,6 +1671,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
                                                                      p.fhk, len(p.fam)))
     elem = [pr for pr in p.props if BB.is_fam(pr["kind"])]
     lanes = [pr for pr in elem if pr.get("lane")]
+    lanes += [pr for pr in p.props if pr["kind"] == BB.PK_GROUP]     # SPEC.md 128.32: the GROUP lanes too
     if lanes:                                   # (bz_pread's count, which a RESET's marks walk: the lane
         g.w("bz_nlane", sum(1 for pr in p.props if pr.get("lane")), 1)  # records are the first)
     for i, k in enumerate(keys):
@@ -1657,11 +1717,14 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
                 if gv != mv:
                     bad.append("step %d: the working values (wacc, vup, Hop, cue, nfev, fta, tsec) %s, the "
                                "model's %s" % (i, gv, mv))
-            for pr in elem:
+            for pr in elem + [pr for pr in lanes if pr["kind"] == BB.PK_GROUP]:
+                if not pr.get("lane"):          # (a group MEMBER has no lane: its group lanes are checked)
+                    continue
                 g.w("bz_lknd", pr["kind"], 1, pr["i"])
                 ax, _cf = g.call("bz_ltrue", bx=pr["i"])
                 if ax & 255 != p.fpose(pr):
-                    bad.append("step %d: element %d's POSE %d, the model's %d" % (i, pr["i"], ax & 255, p.fpose(pr)))
+                    bad.append("step %d: %s %d's POSE %d, the model's %d" % (
+                        i, "group lane" if pr["kind"] == BB.PK_GROUP else "element", pr["i"], ax & 255, p.fpose(pr)))
         if len(bad) > 3:
             break
     return p, bad
@@ -1704,6 +1767,23 @@ def fam_host():
             leg, len(gk), p.nfall, "; ".join(bad) or "the guest is the model at every step", gwhat))
         fails += bad + ([] if gok else ["the %s scenario: %s" % (leg, gwhat)])
     gm, gk = gl["crack-rubber"][0], gl["crack-rubber"][1]
+    # GROUP LANES (SPEC.md 128.32): the lab's cracks and glass turn, every step, every group lane's pose; and
+    # red grpcomb, bz_ltrue's GROUP case summing the classes without their MULT
+    grm, grk = group_keys()
+    _m, seen = group_seen(None, grm, grk)
+    p, bad = urun(binp, lst, sym, "play", grm, grk, fam)
+    gok, gwhat = group_verdict(_m, seen)
+    out.append("the GROUP LAB scenario, %d steps (%d respawns, %d group lanes): %s; %s" % (
+        len(grk), p.nfall, sum(1 for q in p.props if q["kind"] == BB.PK_GROUP),
+        "; ".join(bad) or "the guest is the model at every step", gwhat))
+    fails += bad + ([] if gok else ["the GROUP LAB scenario: %s" % gwhat])
+    mulat = open(binp, "rb").read().find(b"\x26\xf6\x64\x13", sym["bz_ltrue"])
+    assert 0 < mulat - sym["bz_ltrue"] < 400, "red grpcomb: bz_ltrue's MULT not found"
+    _p, bad = urun(binp, lst, sym, "play", grm, grk, fam, ((mulat, b"\x90" * 4),))
+    ok = any("group lane" in b and "POSE" in b for b in bad)
+    out.append("red grpcomb: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
+    if not ok:
+        fails.append("red grpcomb stayed green on the unicorn: %s" % bad[:1])
     # story 9.8 (SPEC.md 128.25.20): every MILL, MOON and PEAK scenario of the replays (the windmills'
     # knocks and doorways, the tubes' KEEP, DROP and LAUNCH - the cannon - the bumpers, the springs), the
     # guest's bz_step under unicorn with the three families' parts against the model at every step

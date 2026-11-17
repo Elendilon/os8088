@@ -145,6 +145,16 @@ prop glass 8 27
 prop glass 7 27
 prop glass 6 27
 pad steel 4 25
+# SPEC.md 128.32.8: the GROUP LAB, on the far platform - three `hole wide` cracks edge to edge along its back
+# row (wy 23: their 4-block lanes share blocks, so their art is GROUP lanes posed by the three together, and
+# each breaks on its own), and a TURN of three glass tiles (4, 27) - (5, 27) - (4, 26), glass look 11 in its
+# 2 x 3 lanes, whose corner pair (4, 26) - (5, 27) shares a block row and so groups (refused before 128.32)
+prop crack 3 23 hole wide
+prop crack 4 23 hole wide
+prop crack 5 23 hole wide
+prop glass 4 27
+prop glass 5 27
+prop glass 4 26
 
 # wave 9 (SPEC.md 128.25.9, 128.25.19, moved here at integration: glass's section holds FF's left edge): the
 # PICKUPS YARD, left of the mat at the apron's level - an
@@ -165,25 +175,23 @@ prop hourglass 3 18
 prop speed     5 14 for 3
 prop jump      6 17 for 3
 
-# EXPLORATORY (SPEC.md 128.25.18.1, the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
+# SPEC.md 128.25.18.1 (the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
 # CRACK LAB, off the apron's right edge in the start's rows - roll +x (right and down the screen) from the
 # start.  A rubber pad and a steel pad on the apron by the lab (30, 18), (31, 18), off the run-ups.  Two rows out to an end platform and back:
-#  - wy 19, grounded, the HOLE sizes: two `wide` cracks (one cell apart, their 4-block lanes), then past
-#    the end platform two `band` cracks edge to edge (the 2 x 2 lane's tallest hole), a dead end
+#  - wy 19, grounded, a run-up and past the end platform two `band` cracks edge to edge (the 2 x 2 lane's
+#    tallest hole), a dead end (the `wide` hole is the GROUP LAB's, on the glass section's far platform)
 #  - wy 16, a FLOATING bridge (`float`): three cracks among plain floating tiles that VANISH - the tile
 #    and its faces gone, the void showing - one cell apart (a vanishing crack's lanes are 4 blocks across)
 floor rect  34 19 45 20  flat 4
 floor rect  34 16 41 17  flat 4
 floor rect  41 16 43 20  flat 4
 float rect  34 16 41 17
-prop crack 38 19 hole wide
-prop crack 40 19 hole wide
 prop crack 43 19 hole band
 prop crack 44 19 hole band
 prop crack 35 16
 prop crack 37 16
 prop crack 39 16
-# rounds 2 - 4 (SPEC.md 128.27.2.1, the owner's): a THIN BRIDGE at wy 14, off the apron's back row - `float
+# rounds 2 - 4 (SPEC.md 128.27.2.1, the owner's; THE recommended cracked tile, 128.25.18.1): a THIN BRIDGE at wy 14, off the apron's back row - `float
 # ... thick`: half a unit thick (wx 34 - 37), then one unit (38 - 40), stepping down at (40, 15) onto the
 # 3-unit bridge at wy 16.  Its FIVE cracks 35 - 39, edge to edge, are a narrow walkway drawn in their 2 x 3
 # lanes, each vanishing on its own; it starts and ends on FULL tiles (34, 14) and (40, 14) (plain `thick` cells,
