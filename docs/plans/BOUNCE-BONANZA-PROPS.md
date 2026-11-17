@@ -27,7 +27,7 @@ px, and at most 6 FAST lanes meet a window.
 | P1 | **WATER** (the owner's design, below) | one family; the tool's depth key draws the ball behind the glass | its own section; the first to build |
 | P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
 | P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
-| P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it. **BUILT** on branch `bb-boost`: SPEC.md 128.37, below |
+| P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it. **BUILT** on branch `bb-boost`: SPEC.md 128.40, below |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5) |
 | P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
 | P7 | **DRAWBRIDGE** | cells VOID <-> FLOOR on a timer or a switch, a lane a bridge cell | pairs with P6 |
@@ -204,7 +204,7 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
 
 ## P4 BOOST PADS - as built (branch `bb-boost`, 2026-11-17)
 
-SPEC.md 128.37 is the contract and the record; the diary's 2026-11-17 entry
+SPEC.md 128.40 is the contract and the record; the diary's 2026-11-17 entry
 "BOOST PADS: chevrons that push" is how it went. In short: one family (ID 10,
 kind 48 `boost`, home `resident`, a 166-byte part, no resident code but
 `BZ_FTAB`'s byte); `prop boost X Y face +x|-x|+y|-y [strength S]`, 24 by
@@ -218,7 +218,7 @@ pad lit at a time. Not rubber's BOOST (SPEC.md 128.16.4, the Hop's rebound):
 the names are kept apart (`BP_*`, `bp_*`). The knob build `BZBOOST=1` puts the
 BOOS test course on the pathway's pad 0.
 
-- [x] **P4.1** SPEC.md 128.37 (written as built, in one pass with the code).
+- [x] **P4.1** SPEC.md 128.40 (written as built, in one pass with the code).
 - [x] **P4.2** The tool: the statement and its refusals, the record, the
       reader, `BoostFamily`, the chevrons and the flash lane, `--selfcheck`
       section `boost` (12 refusals, the records, the scenes on the model
@@ -243,7 +243,7 @@ BOOS test course on the pathway's pad 0.
       glass x1.25 (`BP_SSH`, `BP_GSH` in the FAMV, to retune with use), `flat` per pad turning it off
       (record +18 bit 2). BUILT: the part 166 -> 192 bytes; BOOS's chain turn at strength 32 and its gap
       pads `flat`; selfcheck item 6's weighting with red arms `noweight`, `noflat`; `bp_host`'s red
-      arms `bpweight`, `bpflat` (SPEC.md 128.37.1 D3, 128.37.4).
+      arms `bpweight`, `bpflat` (SPEC.md 128.40.1 D3, 128.40.4).
 - [ ] **P4.9** A shipped course that uses pads.
 
 ## Stories

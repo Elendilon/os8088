@@ -508,7 +508,7 @@ FAMILIES = (
                {"name": "wisp", "kind": FAM_K0 + 25, "bits": 0, "cls": CL_ATTEMPT, "art": "wisp",
                 "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
      "home": HOME_RESIDENT},
-    # BOOST PADS (SPEC.md 128.37, the props round's P4): a pad of CHEVRONS on a flat floor that pushes a GROUNDED
+    # BOOST PADS (SPEC.md 128.40, the props round's P4): a pad of CHEVRONS on a flat floor that pushes a GROUNDED
     # ball whose centre is on it along its FACE (+18: +x -x +y -y) by its STRENGTH (+19), the SAME for every ball
     # - CONTACT adds it to the working velocity and the next step's clamps hold it to the caps.  NOT rubber's
     # BOOST (SPEC.md 128.16.4: the Hop's rebound converted into height, bz_btok / bz_nboost): this is a floor
@@ -575,7 +575,7 @@ WD_K2 = FAM_K0 + 25           # the WISP: the squiggles of a gusting blower with
 WD_SPIN = 160                 # a fan spins this many steps (2.9 s) after the ball was last in its blowing region
 WD_FLIFT, WD_FFLAG = 8, 16    # record +18's flags over the face: `lift` (an updraft launches a grounded ball),
                               # `flag` (the pennant is the lane; the fan does not spin)
-# BOOST PADS' constants (SPEC.md 128.37): both in its FAMV (its row's consts)
+# BOOST PADS' constants (SPEC.md 128.40): both in its FAMV (its row's consts)
 BP_K = FAM_K0 + 32            # the pad's kind (48: the props round's run for BOOST)
 BP_FLASH = 12                 # the chevrons' FLASH: steps lit after the ball's last step on the pad (0.22 s)
 BP_SDEF = 24                  # the default strength: 1/256 gu a step a step, every ball (G is 24 on z)
@@ -1553,7 +1553,7 @@ BP_SYNTAX = "<wx> <wy> face +x|-x|+y|-y [strength <1-%d>] [flat]" % BP_SMAX
 
 
 def bp_push(mat, s, flat):
-    """a pad's push of strength S on a ball of material MAT (SPEC.md 128.37.4): WEIGHTED (glass S + (S >>
+    """a pad's push of strength S on a ball of material MAT (SPEC.md 128.40.4): WEIGHTED (glass S + (S >>
     BP_GSH), x1.25; rubber S; steel S - (S >> BP_SSH), x3/4) unless the pad is `flat`"""
     if flat:
         return s
@@ -1561,7 +1561,7 @@ def bp_push(mat, s, flat):
 
 
 def _parse_boost(toks, where, ln, fam, kr):
-    """a BOOST PAD (SPEC.md 128.37.2): prop boost <wx> <wy> face +x|-x|+y|-y [strength S] - a grounded ball on
+    """a BOOST PAD (SPEC.md 128.40.2): prop boost <wx> <wy> face +x|-x|+y|-y [strength S] - a grounded ball on
     it pushed S (1/256 gu a step a step) along FACE, weighted by the ball (bp_push) unless `flat`; BP_SDEF when
     not written.  The class is the kind's (ATTEMPT): no `reset`.  -> "bp": (+18: the face OR BP_FFLAT, S)"""
     if len(toks) < 6 or toks[4] != ('w', "face"):
@@ -4620,7 +4620,7 @@ def build_props(src, tiles, fname):
         if sp["kind"] == FK_WATER:                  # (SPEC.md 128.36: a ripple's lane, `ripple` or `always`)
             props[-1].update(bed=sp["bed"], top=sp["top"], rip=sp["rip"], always=bool(sp["rip"] & WR_ALWAYS),
                              art="ripple" if sp["rip"] else None)
-        if "bp" in sp:                              # BOOST PADS (SPEC.md 128.37.3): +18 the face, +19 S
+        if "bp" in sp:                              # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
             props[-1]["bp"] = sp["bp"]
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
             props[-1]["mg"] = sp["mg"] + (4 * t.z0 + MG_CEIL if sp["mg"][1] & MG_DOWN else 0,)
@@ -6169,7 +6169,7 @@ def prop_ops(tiles, ops, props, x0):
             p["geo"] = geo
             mk = (lambda d, tp: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: tp))(geo, 4 * t.z0 + h)
             add(p["at"], "top", (_spans_of(geo), "post", wx + wy, mk, False, t, p["at"]))
-        elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.37.5): the plate and its chevrons
+        elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.40.5): the plate and its chevrons
             t = tiles[p["at"]]                      # a MARK on the top (pose 0, in the picture); the FLASH's
             p["bp_pix"] = [_bp_mark(tiles, ops, p, x0, q) for q in (0, 1)]      # lit pose the lane's
             add(p["at"], "top", _paint_op(p["bp_pix"][0], p["at"][0] + p["at"][1], t, p["at"]))
@@ -6253,7 +6253,7 @@ BP_CHEV = ((-4.5, -2.0), (1.5, 4.0))  # the two CHEVRONS: along + |across| in ea
 
 
 def _bp_mark(tiles, ops, p, x0, lit=0):
-    """BOOST PADS (SPEC.md 128.37.5): a pad's plate on its tile's top, in ground units round the cell's centre
+    """BOOST PADS (SPEC.md 128.40.5): a pad's plate on its tile's top, in ground units round the cell's centre
     along its FACE (a) and across it (b): a black rim, the plate MAGENTA with two WHITE chevrons pointing the
     way it pushes (a + |b| in BP_CHEV's bands); LIT (the flash, its lane's pose 1) the plate WHITE and the
     chevrons BLACK - on the Hercules, where magenta is the grey checker, white on grey and then black on white.
@@ -8259,12 +8259,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             p["fpix"] = poses = {0: {}, 1: q1}
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
-        elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.37.5): the FLASH - a crack's 2 x 2
+        elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.40.5): the FLASH - a crack's 2 x 2
             wx, wy = p["at"]                        # blocks round the top's centre (no neighbour's lane shares
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0     # one: a chain of pads lies edge
             if cx & 7:                              # to edge), pose 0 the plate as the picture has it, 1 LIT;
                 raise CourseError("%s:%d: a boost pad at (%d, %d): its top's centre x %d is not on a block (the "
-                                  "origin's x must be a multiple of 8, SPEC.md 128.37.5)" % (fname, p["line"], wx, wy,
+                                  "origin's x must be a multiple of 8, SPEC.md 128.40.5)" % (fname, p["line"], wx, wy,
                                                                                             cx))
             rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)  # MARKS at the tile's depth, clipped by what is in front
             sF = wx + wy
@@ -8767,7 +8767,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 128.36)
                 rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["bed"], p["top"],
                                    p["rip"])               # (+20: WR_RIPPLE, WR_ALWAYS)
-            elif "bp" in p:                         # BOOST PADS (SPEC.md 128.37.3): +18 the face, +19 S
+            elif "bp" in p:                         # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
                 rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["bp"])
             elif "mg" in p:                           # MAGNETS (128.33.2): +18 the way, +19 DOWN, +20 the range,
                 rec += struct.pack("<BBBBBBb9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["mg"])
@@ -11065,7 +11065,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     bad("prop %d" % d["i"], "a wisp's record (its blower %d)" % wb)
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, wblower=wb)
                 continue
-            if kr["kind"] == BP_K:                  # BOOST PADS (SPEC.md 128.37.3): +18 the face, +19 S
+            if kr["kind"] == BP_K:                  # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
                 bd, bs = p[r + 18], p[r + 19]
                 if cls != CL_ATTEMPT or fsb_ or bd & ~(3 | BP_FFLAT) or not 1 <= bs <= BP_SMAX \
                         or p[r + 20:r + 32] != bytes(12) or not d["lane"] or d["lane"]["poses"] != 2:
@@ -11784,7 +11784,7 @@ class WindFamily(Family):
 
 
 class BoostFamily(Family):
-    """BOOST PADS (SPEC.md 128.37.4): CONTACT - the ball GROUNDED on a pad and not shattering - adds the pad's
+    """BOOST PADS (SPEC.md 128.40.4): CONTACT - the ball GROUNDED on a pad and not shattering - adds the pad's
     push along its face to gvx or gvy, S weighted by the ball (bp_push: glass x1.25, steel x3/4; a `flat` pad's S for
     every ball; the next step's clamps hold it to the caps), and keeps the FLASH: the slot's +0 the lit pad (its element + 1, 0 none), +1 its steps left.  The
     pad already lit: its count back to BP_FLASH; none lit: this one lit (its pose 0 -> 1); ANOTHER lit: that
@@ -15251,7 +15251,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_WD_FFLAG     equ %d       ; ...and `flag`, the pennant" % WD_FFLAG,
               "BZ_WD_SPIN      equ %d      ; a fan spins this many steps after the ball's last in its wind" % WD_SPIN,
               "BZ_WD_FANP      equ %d        ; a fan's frames" % WD_FANP,
-              "; BOOST PADS' constants (SPEC.md 128.37; bbcourse BP_*)",
+              "; BOOST PADS' constants (SPEC.md 128.40; bbcourse BP_*)",
               "BZ_BP_FLASH     equ %d       ; the chevrons' flash: steps lit after the ball's last on the pad" % BP_FLASH,
               "BZ_BP_GSH       equ %d        ; the push's weighting: glass S + (S >> this)" % BP_GSH,
               "BZ_BP_SSH       equ %d        ; ...steel S - (S >> this)" % BP_SSH,
@@ -26252,7 +26252,7 @@ def _sc_magnet(X, res):
 
 
 BP_TEST = os.path.join(ROOT, "apps", "bonanza", "courses", "boost.bbc")    # the BZBOOST=1 knob's course
-# BOOST PADS' scenes on it (SPEC.md 128.37.8): (name, the poke: tile and ground velocity, steps), each ball - the
+# BOOST PADS' scenes on it (SPEC.md 128.40.8): (name, the poke: tile and ground velocity, steps), each ball - the
 # same scenes tests/bonanza_phys.py's bp_host holds the guest to (its keys the same functions of the ball)
 BP_SC = (("ramp", (14, 6, 0, 0), 120), ("gap", (10, 16, 0, 200), 130), ("chain", (12, 10, 120, 0), 160))
 
@@ -26268,7 +26268,7 @@ def _bp_keys(name, p):
 
 
 def _bp_cases():
-    """(what, text, the refusal's substring): 128.37.7's refusals"""
+    """(what, text, the refusal's substring): 128.40.7's refusals"""
     C = _W4C + "uses boost\n"
     return [
         ("a pad with no face", C + "prop boost 6 6\n", "takes <wx> <wy> face"),
@@ -26347,7 +26347,7 @@ def bp_scenes(c, arm=None, drop=False):
 
 
 def bp_ok(s, s0):
-    """the scenes show what they are for (SPEC.md 128.37.8), S with the pads and S0 the course less them"""
+    """the scenes show what they are for (SPEC.md 128.40.8), S with the pads and S0 the course less them"""
     ok = True
     for mat in (MAT_RUBBER, MAT_STEEL, MAT_GLASS):
         r, r0 = s[("ramp", mat)], s0[("ramp", mat)]
@@ -26360,7 +26360,7 @@ def bp_ok(s, s0):
 
 
 def _sc_boost(X, res):
-    """--selfcheck's section `boost` (SPEC.md 128.37.8): the refusals, the test course's records and lanes, the
+    """--selfcheck's section `boost` (SPEC.md 128.40.8): the refusals, the test course's records and lanes, the
     scenes on the model (against the course less its pads), and the model's red arms"""
     for what, text, want in _bp_cases():
         try:
@@ -26368,7 +26368,7 @@ def _sc_boost(X, res):
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
-        res.append(("2 refused (boost pads, 128.37.7): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+        res.append(("2 refused (boost pads, 128.40.7): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     c = compile_course(BP_TEST)
     src = parse(open(BP_TEST).read(), BP_TEST)
     want = sorted((sp["at"], sp["bp"]) for sp in src.props if "bp" in sp)
@@ -26380,7 +26380,7 @@ def _sc_boost(X, res):
         and famv(dict(row, consts=(BP_FLASH, BP_SDEF + 1, BP_GSH, BP_SSH))) != fv
     moved = moved and famv(dict(row, consts=(BP_FLASH, BP_SDEF, BP_GSH + 1, BP_SSH))) != fv \
         and famv(dict(row, consts=(BP_FLASH, BP_SDEF, BP_GSH, BP_SSH + 1))) != fv
-    res.append(("3 BOOST PADS' records (128.37.3): %d pads, +18 the face (OR BP_FFLAT on the %d `flat` ones) and "
+    res.append(("3 BOOST PADS' records (128.40.3): %d pads, +18 the face (OR BP_FFLAT on the %d `flat` ones) and "
                 "+19 the strength the source's (the default %d where none is written), each a lane of 2 poses (the "
                 "flash), no state bit, class ATTEMPT; FAMV %02Xh moves with BP_FLASH, BP_SDEF, BP_GSH and BP_SSH" % (
                     len(recs), sum(1 for r in recs if r["bp"][0] & BP_FFLAT), BP_SDEF, fv),
@@ -26390,7 +26390,7 @@ def _sc_boost(X, res):
     s0 = bp_scenes(compile_course("\n".join(ln for ln in open(BP_TEST).read().split("\n")
                                              if not ln.startswith("prop boost") and ln.split()[:1] != ["uses"]),
                                   fname=BP_TEST + " (less its pads)"))
-    res.append(("6 BOOST PADS' scenes on the model (128.37.8), every ball, against the course less its pads: %s; at "
+    res.append(("6 BOOST PADS' scenes on the model (128.40.8), every ball, against the course less its pads: %s; at "
                 "most %d pad pose change a step" % ("; ".join(
                     "%s %s %s%s" % (n_, MAT_NAMES[m_], "fell at %d" % v[0] if v[0] is not None else "ended on %s" % (
                         v[1],), "" if v[2] is None else " (met the low plate at %d)" % v[2])
@@ -26400,7 +26400,7 @@ def _sc_boost(X, res):
         res.append(("6 BOOST PADS' red arm %s on the model: the scenes no longer show what they are for" % arm,
                     not bp_ok(sa, s0) or (arm == "air" and _bp_hop(c, arm) != _bp_hop(c))))
     w = bp_weights(c)
-    res.append(("6 BOOST PADS' WEIGHTING on the model (128.37.4, round 2): one step at rest on a weighted pad (13, 10, "
+    res.append(("6 BOOST PADS' WEIGHTING on the model (128.40.4, round 2): one step at rest on a weighted pad (13, 10, "
                 "S 24) pushes rubber, steel, glass %s; on a `flat` one (10, 17, S 24) %s - the owner's x1, x3/4, "
                 "x1.25 and S for every ball" % (w[0], w[1]), w == bp_want(24)))
     global bp_push
