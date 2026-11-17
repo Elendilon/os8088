@@ -145,6 +145,16 @@ prop glass 8 27
 prop glass 7 27
 prop glass 6 27
 pad steel 4 25
+# SPEC.md 128.31.8: the GROUP LAB, on the far platform - three `full` cracks edge to edge along its back row
+# (wy 23: their wide holes share blocks, so their art is GROUP lanes posed by the three together, and each
+# breaks on its own), and an L of three `full` glass tiles (5, 26) - (5, 27) - (4, 27), whose crystal
+# joins into one pane across both shared edges as each is revealed
+prop crack 3 23 full
+prop crack 4 23 full
+prop crack 5 23 full
+prop glass 5 26 full
+prop glass 5 27 full
+prop glass 4 27 full
 
 # wave 9 (SPEC.md 128.25.9, 128.25.19, moved here at integration: glass's section holds FF's left edge): the
 # PICKUPS YARD, left of the mat at the apron's level - an
