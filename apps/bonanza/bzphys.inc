@@ -4660,16 +4660,19 @@ bz_wtail.nfs:
 ; bz_fhp - SI = a FIELD cell's 4 bytes (DS), DL = u, DH = v (0 .. 16), ES =
 ; the course -> AX = h4 there, 16 z0 + F[17 V + U] (quarter px); DI = that
 ; byte's offset in ES, BX = 16 x the symmetry (bz_fh4's).  Preserves CX, DX,
-; SI, BP.
+; SI, BP.  The shape is the +1's bits 0 - 3 with bit 7 its fifth (0 - 31).
 bz_fhp:
     push si
-    mov bl, [si + 1]            ; shape : symmetry
-    xor bh, bh
-    mov di, bx
-    and di, 0fh
-    shl di, 1
+    mov al, [si + 1]            ; shape (bits 0 - 3, 7) : symmetry (4 - 6)
+    mov bl, al
+    cbw                         ; AH = FFh when bit 7, the shape's fifth bit
+    and ax, 100fh
+    or al, ah                   ; AL = the shape, 0 - 31 (SPEC.md 128.28.2)
+    cbw
+    shl ax, 1
+    mov di, ax
     mov di, [bz_fsb + di]       ; the table
-    and bl, 70h                 ; BX = 16 x the symmetry: its BZ_FSYM entry
+    and bx, 70h                 ; BX = 16 x the symmetry: its BZ_FSYM entry
     add di, [bz_fsymt + bx]     ; + the origin
     mov si, [bz_fsymt + bx + 6] ; + u's walk: u DU
     mov al, dl
