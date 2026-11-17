@@ -274340,6 +274340,49 @@ the skip's kinds, three taken jumps) - item 6 below.
    the part, so a count there is not the trivial change (it is a test
    family).
 
+9. **(wave 9, 2026-11-17, the owner's F6) The family dispatch walks a list
+   per hook** (128.25.6.3, THE HOOK LISTS): a family without the hook costs
+   a dispatch nothing, and one with it no head read, no entry copy and no
+   kind test through its data segment. MEASURED below, with item 10.
+
+10. **(wave 9, 2026-11-17, the owner's F3) The QUIET WALK's test is O(1).**
+   It compared, over the walk's whole row slice, every lane's kick with the
+   kick it last saw (`repe cmpsw`, `bz_pkick` against `bz_lkick`), its drawn
+   pose with its true one (`repe cmpsb`) and its lit frames with 0 (`repe
+   scasb`): about 60 clk a slice lane on EVERY quiet frame, 1.0k at
+   PLAYGROUND's 23. The compares are gone, with `bz_lkn`, `bz_lks` and
+   `bz_lkb` and their setup at a range move. In their place every writer
+   OUTSIDE the walk of something a lane's skip reads clears `bz_lqt` (makes
+   the next walk), as `bz_fmark` and `bz_nset` already did. **The hidden
+   cost is correctness, not cycles**: a writer that forgets the clear makes
+   a change that is never drawn - exactly the "steel falls through, the
+   hole never forms" defect of 128.25.6.3. So the write sites, every one:
+
+   | what a skip reads | written outside the walk by | how the next walk is made |
+   |---|---|---|
+   | `bz_pkick` (a post's kick) | `bz_phys`'s kick (bzphys.inc, `bz_circle`) | marks the lane and clears `bz_lqt` (+5 bytes, NEW) |
+   | | `bz_pinit` (every post dark, -6) | the play's start: `bz_pread` marks every lane, `bz_lfull` clears `bz_lqt` |
+   | | a harness poke (`bonanza_ring.defer_poke`, `bonanza_wheel.sweep_poke`) | `bonanza_ring.mark`, which now clears `bz_lqt` too |
+   | `bz_lhold` (lit frames) | `bz_pread` (0); `bz_ltrue` (a kick seen) | `bz_lfull`'s clear; `bz_ltrue` runs only in a walk that walks the lane (`.w0`) or in `bz_lfull` |
+   | | a harness poke (`bonanza_ring`'s LOW and DEFER scenes, `bonanza_wheel.sweep_poke`) | `bonanza_ring.mark` |
+   | `bz_ldrw` (the drawn pose) | `bz_pread` (0FFh), `bz_lfull`'s syncs | `bz_lfull`'s clear |
+   | | `bz_lsync` and `bz_wcommit` (the contact group's `bz_csync`, the wheel's commit), `bz_pyield` / `bz_pstrip` (a waiting lane's drawn pose put back) | the same frame as a walk that WALKED that lane (only a due lane is a candidate, and a due lane stays marked and is walked: `bz_lqt` is already 0) |
+   | | a harness poke (`bonanza_wheel`'s corner leg) | `bonanza_ring.mark` |
+   | `bz_ltru` (the true pose) | `bz_ltrue` (in a walk, `bz_lfull`), `.nxo` (an unwalked lane: = drawn) | inside the walk |
+   | `bz_lkick`, `bz_lnext` | `bz_ltrue` | inside the walk; a rotor's next change is `bz_lwake`, which the quiet test still reads |
+   | `bz_latt` (a mark) | a flag's first touch (`bz_cksn`) | the quiet test still compares `bz_cksn` with `bz_lcks` |
+   | | the finish sequence's clock flash (`bz_fflash`: every clock lane) | `bz_lcsec` set to NOT `bz_tsec`: the second's test is before the quiet one |
+   | | a family hook (`bz_fmark`), a sign (`bz_nset`) | each clears `bz_lqt` (128.25.6.3) |
+   | | a range move (`.mk`), a band move (`.cm`), a second (`.ck`) | those frames are never quiet (`.top`, `.walk0`) |
+   | | `bz_pread`, `bz_lfull` | `bz_lfull`'s clear |
+
+   `bonanzaphys`'s unicorn half holds the first row: every step of every
+   family scenario and of the 39 MILL / MOON / PEAK scenarios now starts
+   with EVERY lane unmarked and the walk quiet, and a step that writes a
+   lane's `bz_pkick` or `bz_lhold` must leave it marked and `bz_lqt` 0;
+   red `kickquiet` (the kick's clear NOPed) goes red on MILL's `kick`
+   scenario. MEASURED: image -84, bss -6.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
