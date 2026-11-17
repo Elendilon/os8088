@@ -3777,3 +3777,28 @@ its red arms `amodel`, `acache` and `aneigh` red; `make`, `make
 bonanzadisk`; the three authored demos' `ident` lines; the MartyPC fall legs,
 both cards. **Not run**: the soak rows (the final pass's).
 
+
+## 2026-11-17 (the standard kit: the contract)
+
+The owner took the kit report's recommendation (`docs/reports/BONANZA-KIT-2026-11-17.md`)
+with three decisions of his own: HOLD the kit for the session rather than
+dropping it after the copy (*"if no claim is made after the course loads, the
+high-water mark is the same whether the kit is dropped or not"*), let it change
+freely (every ship rebuilds every course), and settle on ONE alignment -
+`Y0` = 4 (mod 8) - so the Y0 search goes. SPEC.md 128.33 is the contract;
+`BOUNCE-BONANZA-KIT.md` the stories.
+
+- **The question the owner asked to have verified**: is any claim made after
+  a course loads? Read off the code: yes - the world part of a two-part
+  course, the arena's growth for the sound, songs and families, and on a
+  suspended play's desktop the shell part. So the kit is ordered to wall
+  nothing: fetched once at the OPEN, before the resident bundle, so it sits
+  under the arena on a first-fit heap and the arena still grows in place.
+- **Why a committed text source and not a kit cut in every build**: a kit
+  cut from whatever courses a run compiles would give the shipped courses
+  other bytes in the `BZSHAPES` knob build, in a one-course compile and in a
+  `--selfcheck` subset - and their identities with them. A generated file that
+  every compile reads gives one answer everywhere; `bbcourse.py kit` re-cuts it.
+- **Why the bitmap is copied out first**: the pieces written from a slot's
+  start reach the bitmap at the slot's end whenever a course's last named piece
+  is early in the kit; the copy costs 45 clocks a bitmap byte.
