@@ -2145,14 +2145,7 @@ def fam_host():
     o2, f2 = wind_host(binp, lst, sym, fam)
     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
     so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
-    eo, ef = eshift_host(binp, lst, sym)           # A (SPEC.md 128.38.10): the draw's shift; red: the mask's fill
-    if eo:                                          # 0, the kept pixels shifted in as holes
-        img = open(binp, "rb").read()
-        at = img.find(b"\xb5\xc0", sym["bz_eshift"])
-        ro, rf = eshift_host(binp, lst, sym, ((at + 1, b"\x00"),))
-        eo.append("red eshfill: %s" % ("red at %s" % rf[0][:120] if rf else "STAYED GREEN"))
-        ef += [] if rf else ["red eshfill stayed green on the unicorn"]
-    return out + o_ + o2 + wo + so + eo, fails + f_ + f2 + wf + sf + ef
+    return out + o_ + o2 + wo + so, fails + f_ + f2 + wf + sf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2584,40 +2577,6 @@ def spike_host(binp, lst, sym):
         if not hit:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     return out, fails
-
-
-def eshift_host(binp, lst, sym, patch=()):
-    """A (SPEC.md 128.38.10): bz_sprite's bz_eshift under unicorn - every squash, shatter, stretch and pop entry
-    of every ball (its BZB2, bonanza_assets.build_ball2) at shifts 1 - 3 moved into the part's scratch equal to
-    bonanza_assets.ent_rows, the entry as the tool's composites and the ring oracle draw it, with BX kept ->
-    (lines, failures); empty when the build stores its shifts (BZ_BAL_ESH 4, no bz_eshift)"""
-    A = R.A
-    if A.ESH != 1 or "bz_eshift" not in sym:
-        return [], []
-    UBS = 0xA000
-    g = UGuest(binp, lst, sym, bytes(16), None, patch)
-    bad, n = [], 0
-    for mat in range(3):
-        part = A.build_ball2(mat)
-        g.mu.mem_write(UBS * 16, part)
-        for m_ in range(3):
-            g.w("bz_bsegs", UBS if m_ == mat else 0, 2, 2 * m_)
-        g.w("bz_mat", mat, 1)
-        tabs = [(A.B2_SQOFF, A.NSQ), (A.B2_SHAOFF, part[12] + part[14])]
-        for base, nk in tabs:
-            for k in range(nk):
-                for s in (1, 2, 3):
-                    g.mu.mem_write(UBS * 16 + A.B2_SCROFF, b"\xa5" * A.ENT)
-                    from unicorn.x86_const import UC_X86_REG_BX
-                    ax, _cf = g.call("bz_eshift", ax=A.ent_at(base, k, 0, 0), bx=0x5A00 | s)
-                    got = bytes(g.mu.mem_read(UBS * 16 + A.B2_SCROFF, A.ENT))
-                    em, ef = A.ent_rows(part, base, k, s, 0)
-                    n += 1
-                    if ax != A.B2_SCROFF or got != em + ef or g.mu.reg_read(UC_X86_REG_BX) != 0x5A00 | s:
-                        bad.append("bz_eshift: %s, table %d, frame %d at shift %d: AX %04Xh, the scratch %s"
-                                   % (A.MAT_NAMES[mat], base, k, s, ax, "as drawn" if got == em + ef else "WRONG"))
-    return ["A: bz_eshift moved %d entries (every frame of the three balls at shifts 1 - 3): %s" % (
-        n, "; ".join(bad[:2]) or "each equal to ent_rows, the composites' and the oracle's")], bad
 
 
 def _noentry(part, h):

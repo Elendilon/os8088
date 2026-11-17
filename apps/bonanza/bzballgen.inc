@@ -425,8 +425,8 @@ bg_shape:
     ret
 
 ; bg_ent - an entry (squash 0 or 1, the stretch): SI = its shape table; ES:DI
-; gets its four shifts of two identical copies, each (16 mask rows, 16 frame
-; rows), and DI is left past it.  Row y of the shape: I = the interior (all
+; gets its four shifts, one line-parity copy each (SPEC.md 128.38.10), each
+; (16 mask rows, 16 frame rows), and DI is left past it.  Row y of the shape: I = the interior (all
 ; four neighbours in), the ring = S and not I is BLACK, glass's checker K = I
 ; and (x + y even) is see-through, so opaque = S xor K and coloured = I xor K;
 ; the colour of a coloured pixel is the Q pixel at row sy = 15 - ((15 - y) 16)
@@ -465,7 +465,8 @@ bg_ent:
     call bg_sp                  ; the mask row: the clear pixels kept
     mov cx, 0C0FFh
     mov di, [BG_EDI]
-    call bg_eput
+    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 128.38.10)
+    call bg_put4
     pop bp
     mov ax, bp
     shr ax, 1                   ; y
@@ -490,7 +491,8 @@ bg_ent:
     mov di, [BG_EDI]
     add di, BZ_BAL_FRMB
     push bp
-    call bg_eput
+    mov bp, BZ_BAL_ENT
+    call bg_put4
     pop bp
     add word [BG_EDI], BZ_BAL_RB
     inc bp
@@ -498,37 +500,8 @@ bg_ent:
     cmp bp, 32
     jb .y
     pop di
-%if BZ_BAL_EPAR > 1
-    push ds                     ; the second copies: each shift's, again
-    push es
-    pop ds
-    mov dx, BZ_BAL_SHIFTS
-.c:
-    mov si, di
-    add di, BZ_BAL_ENT
-    mov cx, BZ_BAL_ENT / 2
-    rep movsw
-    dec dx
-    jnz .c
-    pop ds
-%else
-    add di, BZ_BAL_ESH * BZ_BAL_ENT ; (SPEC.md 128.38.10: B, one parity copy)
-%endif
+    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 128.38.10)
     ret
-
-; bg_eput - an entry's row (AX, DX, CL at shift 0; CH the fill's field) to
-; ES:DI and, the entry's shifts stored (BZ_BAL_ESH 4), its shifts 1..3 one
-; entry copy apart; A (BZ_BAL_ESH 1, SPEC.md 128.38.10) stores shift 0 alone
-bg_eput:
-%if BZ_BAL_ESH > 1
-    mov bp, BZ_BAL_EPAR * BZ_BAL_ENT
-    jmp bg_put4
-%else
-    mov [es:di], ax
-    mov [es:di + 2], dx
-    mov [es:di + 4], cl
-    ret
-%endif
 
 ; bg_shd - the shadow masks: parity p, shift s, row r (6): the ellipse's row
 ; with the world checker (x + s + p + r even) cleared, AND only
