@@ -52,9 +52,11 @@ def falls(c, gh):
                 path.append((p.px, p.py, p.sb, p.zb, p.air, (p.gx >> 12, p.gy >> 12)))
             else:
                 continue
-            score = 0
-            for (px, py, sb, zb, air, cell) in path:
-                score += len(B.laid_at(c, px, py, sb, zb, air, card=True))
+            score = 0                       # the frames where the rule hides PART of the ball: what tells the
+            for (px, py, sb, zb, air, cell) in path:    # options apart
+                if c.cells.get(cell, [0, 0, 0])[2] & 15 == B.KIND_VOID:
+                    f = P.hidden_frac(c, sb, zb, px, py)
+                    score += 0.15 < f < 0.85
             out.append((score, (wx, wy), path))
     out.sort(key=lambda t: -t[0])
     return out
@@ -129,8 +131,8 @@ def main():
         score, at, path_ = fl[0]
         out = os.path.join(HERE, "occ-fall-%s.png" % c.name.lower())
         sel = draw(c, gh, path_, out, P.Analytic(c, 2))
-        print("%s: %d back-edge falls from pokes; drew the one off (%d, %d) (%d card pixels laid over its %d "
-              "steps), frames %s -> %s" % (c.name, len(fl), at[0], at[1], score, len(path_),
+        print("%s: %d back-edge falls from pokes; drew the one off (%d, %d) (%d frames of its %d steps partly hidden"
+              "), frames %s -> %s" % (c.name, len(fl), at[0], at[1], score, len(path_),
                                            ", ".join("z %d" % s[3] for s in sel), os.path.relpath(out, B.ROOT)))
 
 
