@@ -275232,9 +275232,15 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   `bz_input` nor the pause's P is read. The flash writes `bz_tdig` (zero or
   `bz_tdset`), sets `bz_lcsec` unequal to `bz_tsec` (the walk's clock skip
   would otherwise hold) and marks every clock lane of `bz_latt`. The
-  VICTORY tune is `bz_fvic`, assembled only under `%ifdef BZ_SONG_VICTORY`
-  (the sound story's): until that is defined the finish keeps `bzsound`'s
-  own goal effect and **this arm is unbuilt and untested**. MEASURED, `make
+  VICTORY tune is `bzs_victory` (128.22.9), called by `bz_fstep` on the
+  sequence's first step. **Until 2026-11-17 it never played**: the call sat
+  under `%ifdef BZ_SONG_VICTORY`, and the sound story defined that name as
+  an `equ` (`bzsnd.inc`), which `%ifdef` does not see - so the call was never
+  assembled and the course's song played on through every finish, while
+  every check of the fanfare passed (the routine and the index existed).
+  The guard is gone (the music tool refuses a song set with no `victory`),
+  and `bonanzasound`'s host half now reads the listing for an assembled
+  call. MEASURED, `make
   bonanza`: image 36,184 to 36,527 bytes (+343, the tune's arm excluded;
   the first cut's +302 and the verify's +41), bss +2 (`bz_fcnt`, `bz_ffl`);
   the pathway course is not excluded.
