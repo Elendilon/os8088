@@ -1598,6 +1598,14 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
                         gw[4 * q:4 * q + 2] = mw[4 * q:4 * q + 2]   # (0, 0) - its records are bz_nbh's)
                 if gw != mw:
                     bad.append("step %d: the window %s, the model's %s" % (i, gw.hex(), mw.hex()))
+            if any(fm.row["name"] == "water" for fm, _v in p.fam):       # SPEC.md 128.32: WATER's working values
+                gv = (g.r("bz_mrec", 2, False, 10), g.r("bz_surf", 1, False),
+                      g.r("bz_se", 1, False, 3) if p.surf != 0xFF else None)
+                mv = (p.hthr, p.surf, (p.wef if p.wef is not None else BB.surf_entry(p.mat, p.surf)[3])
+                      if p.surf != 0xFF else None)
+                if gv != mv:
+                    bad.append("step %d: water's working values (HTHR, bz_surf, the floor's e) %s, the model's %s"
+                               % (i, gv, mv))
             if any(fm.row["name"] == "pickups" for fm, _v in p.fam):     # wave 9: the WORKING values
                 gv = (g.r("bz_wacc", 1, False), g.r("bz_vup", 2), g.r("bz_mrec", 2, False, 6), g.r("bz_cue", 1, False), g.r("bz_nfev", 2, False), g.rb("bz_fta", 9),
                       g.r("bz_tsec", 2, False))
@@ -1800,6 +1808,123 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.32)
+    return out + wo, fails + wf
+
+
+# WATER (SPEC.md 128.32): its scenarios on the WATER test course (apps/bonanza/courses/water.bbc, the BZWATER=1
+# knob's course), compiled here from the tree whatever the build: the family's part is in every build's
+# resident bundle, and the course part is handed to the guest as any course's is (bz_crs borrowed from
+# PLAYGROUND's: bz_crshdr reads the part alone)
+WATER_STEPS = 160
+
+
+def _water_course():
+    R.COURSES["bench"]                          # (fills both tables)
+    R.CRS_K["bench"]
+    if "water" not in dict.keys(R.COURSES):
+        dict.__setitem__(R.COURSES, "water", "apps/bonanza/courses/water.bbc")
+        dict.__setitem__(R.CRS_K, "water", R.CRS_K["play"])
+
+
+def water_poke(wx, wy, mat, gvx=0, gvy=0, dz=0):
+    """a poke on WATER: the centre of (wx, wy) on its floor at (gvx, gvy), DZ px above it falling from rest"""
+    _water_course()
+    p = BB.Physics(R.course("water"), play=True, mat=mat).poke(wx, wy, gvx, gvy)
+    if dz:
+        p.gz += dz << 8
+        p.air, p.ztop = 1, p.gz >> 8
+    return poke_of(p)
+
+
+def water_scenarios():
+    """[(name, material, poke, keys, what it shows)]: steel off the walkway into the sketch's column - it sinks
+    (no stun) and rolls out of the arch; rubber dropped 3 units onto the water - its rebound water's, lower
+    than sand's; glass dropped 5 units onto the water - whole (the same drop onto the walkway shatters it);
+    rubber onto the steel pad beside the column - the swap refills the window, and it sinks"""
+    D, R_ = BB.K_D, BB.K_R
+    return [("water-steel", BB.MAT_STEEL, water_poke(8, 7, BB.MAT_STEEL, 0, 200), [0] * 60 + [D] * 80 + [0] * 20),
+            ("water-rubber", BB.MAT_RUBBER, water_poke(8, 8, BB.MAT_RUBBER, dz=24), [0] * 80),
+            ("water-glass", BB.MAT_GLASS, water_poke(8, 8, BB.MAT_GLASS, dz=40), [0] * 60),
+            ("water-pad", BB.MAT_RUBBER, water_poke(7, 6, BB.MAT_RUBBER, 0, 160), [0] * 20 + [R_ | D] * 100)]
+
+
+def water_verdict(name, p, ctl=None):
+    """what a water scenario is for, on the model at its end -> (ok, what)"""
+    ev = p.events
+    kinds = [e[0] for e in ev]
+    if name == "water-steel":
+        t0 = next((e[1] for e in ev if e[0] == "takeoff"), None)
+        land = next((e for e in ev if e[0] == "land"), None)
+        ok = t0 is not None and land is not None and "stun" not in kinds and p.nfall == 0 \
+            and (p.gx >> 12, p.gy >> 12) == (8, 9) and not p.air and p.gz == 0
+        return ok, "steel sank from step %s to its landing at step %s (lfall, lvz %s), no stun, out of the arch " \
+            "to (%d, %d) z %d" % (t0, land and land[1], land and land[2], p.gx >> 12, p.gy >> 12, p.gz >> 8)
+    if name == "water-rubber":
+        b = next((e for e in ev if e[0] == "bounce"), None)
+        we, se = BB.water_entry(BB.MAT_RUBBER)[3], BB.surf_entry(BB.MAT_RUBBER, BB.SURF_SAND)[3]
+        ok = b is not None and b[3] == (we * b[2]) >> 8 < (se * b[2]) >> 8
+        return ok, "rubber's first bounce on the water: lvz %s, rebound %s (sand's would be %s)" % (
+            b and b[2], b and b[3], b and (se * b[2]) >> 8)
+    if name == "water-glass":
+        lv = max([e[2][1] for e in ev if e[0] == "land"] + [e[2] for e in ev if e[0] == "bounce"] + [0])
+        ok = "shatter" not in kinds and p.nfall == 0 and (lv or 0) >= BB.MATERIALS[BB.MAT_GLASS]["HTHR"] \
+            and ctl is not None and "shatter" in [e[0] for e in ctl.events]
+        return ok, "glass dropped 5 units onto the water: whole (lvz %s, the threshold %d); the same drop onto " \
+            "the walkway: %s" % (lv, BB.MATERIALS[BB.MAT_GLASS]["HTHR"], "shattered" if ctl and "shatter" in [
+                e[0] for e in ctl.events] else "NOT shattered")
+    pad = next((e[1] for e in ev if e[0] == "pad"), None)
+    land = next((e for e in ev if e[0] == "land" and e[2][0] >= 16), None)
+    ok = pad is not None and p.mat == BB.MAT_STEEL and land is not None and "stun" not in kinds
+    return ok, "the steel pad at step %s, then sank into the column (landing at step %s)" % (pad, land and land[1])
+
+
+def water_reds():
+    """WATER's red arms on the unicorn, each the part assembled from a patched water.asm: (name, the patch, the
+    scenario, what must part).  wacell: the CELL entry 0 (steel's window keeps the water at its top); wahthr:
+    HTHR never put back on the way out (the working values, once steel leaves by the arch); warefill: no
+    refill on a changed material (the pad's swap leaves rubber's window: the window)"""
+    return (("wacell", ("    dw 0, 0, 0, wa_step, 0, wa_cell\n", "    dw 0, 0, 0, wa_step, 0, 0\n"), "water-steel",
+             "the window"),
+            ("wahthr", ("    mov [bz_mrec + BZM_HTHR], ax\n    mov byte [bz_surf], 0FFh\n",
+                        "    mov byte [bz_surf], 0FFh\n"), "water-steel", "working values"),
+            ("warefill", ("    mov [di], al\n    mov byte [bz_fref], 1\n", "    mov [di], al\n"), "water-pad",
+             "the window"))
+
+
+def water_host(binp, lst, sym, fam):
+    """the WATER scenarios under unicorn, every step against the model, and their red arms -> (lines, fails)"""
+    import shutil
+    import subprocess
+    out, fails = [], []
+    sc = dict((n, (m, pk, k)) for n, m, pk, k in water_scenarios())
+    for name, (mat, pk, keys) in sc.items():
+        p, bad = urun(binp, lst, sym, "water", mat, keys, fam, poke=pk)
+        ctl = None
+        if name == "water-glass":               # (the control, on the model: the same drop onto the walkway)
+            ctl = run_keys("water", BB.MAT_GLASS, water_poke(7, 7, BB.MAT_GLASS, dz=40), keys)
+        ok, what = water_verdict(name, p, ctl)
+        out.append("%s, %d steps: %s; %s" % (name, len(keys), "; ".join(bad) or "the guest is the model at every "
+                                             "step", what))
+        fails += bad + ([] if ok else ["%s: %s" % (name, what)])
+    src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "water.asm")).read()
+    for arm, (a_, b_), scn, want in water_reds():
+        assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+            open(os.path.join(src, "fam", "water.asm"), "w").write(src0.replace(a_, b_))
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", "water.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"water": open(o, "rb").read()})
+        mat, pk, keys = sc[scn]
+        _p, bad = urun(binp, lst, sym, "water", mat, keys, ff, poke=pk)
+        ok = any(want in b for b in bad)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     return out, fails
 
 

@@ -4534,7 +4534,9 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
     A kind whose FORMS hold "void" (GLASS's crack) is taken a second time BROKEN - a NEAR VOID whose kill is
     its floor less 3 units - and the two reaches are UNIONED cell by cell (the lower zlo, the higher zhi
     and its source; a cell's kind its whole form's), so the occluders, the bounds and every proof over the
-    reach see both.  _hack 'noforms': the whole forms alone (--selfcheck's control)"""
+    reach see both.  A kind whose FORMS hold "bed" (WATER's, SPEC.md 128.32) is taken again with each element's
+    cell a floor at its BED, as steel's window has it, unioned the same way.  _hack 'noforms': the whole forms
+    alone (--selfcheck's control)"""
     by = dict(((rc.wx, rc.wy), rc) for rc in reach)
     took = False
     for form in ("void", "bed"):
@@ -6840,7 +6842,8 @@ def _occg(reach, by_block, x0, y0, tiles, slab=None, field=True):
         if (rc.wx, rc.wy) in slab:
             return slab[(rc.wx, rc.wy)]
         rs = flo(rc)
-        return 4 * min(min(t.corners()) for t in rs), 4 * max(max(t.corners()) for t in rs)
+        return (4 * min(min(t.wbed if getattr(t, "wbed", None) is not None else t.z0, min(t.corners())) for t in rs),
+                4 * max(max(t.corners()) for t in rs))     # (SPEC.md 128.32: a WATER cell from its BED: steel's)
 
     def frac(rc, z):                    # a plane's height carries a fraction
         if (rc.wx, rc.wy) in slab:
@@ -23171,9 +23174,10 @@ def _water_checks(res):
     wat = [r for r in c.part["props"] if r["kind"] == FK_WATER]
     g = Grid(c.cga)
     cok = len(wat) == 5 and all(r["bed"] == 0 and r["top"] == 6 and g.cell(*r["at"])[:4] == (6, 0, 0, KIND_FLOOR)
-                                  and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS
+                                  and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE | FL_OCCG) == FL_OBS | FL_OCCG
                                   and g.cell(*r["at"])[5] == SURF_SAND for r in wat)
-    res.append(("3 water (128.32): WATER's five water cells are sand FLAT FLOORs at the top with OBS and not SAFE, "
+    res.append(("3 water (128.32): WATER's five water cells are sand FLAT FLOORs at the top with OBS, OCCG (a "
+                "grounded ball at the BED is behind the glass: _occg from the bed) and not SAFE, "
                 "their records +18 the bed and +19 the top (%s)" % ", ".join("(%d, %d)" % r["at"] for r in wat), cok))
     by = dict(((q.wx, q.wy), q) for q in c.reach)
     c0 = compile_course(open(wbbc).read(), fname=wbbc + " (noforms)", _hack={"noforms": True})
