@@ -374,7 +374,9 @@ X apps/bonanza/bonanza.asm op:BZ_P_SHELL # the shell part's CODE, far-called thr
                                          # does not assemble, and a CS on the stack
                                          # across a call that can claim is a wrong
                                          # return, so it stays pinned: bounded by the face
-C apps/bonanza/bzfam.inc @bz_ffetch      # a family part, fetched into the arena (an
+C apps/bonanza/bzfam.inc @bz_ffetch      # a family part (the resident ones inside the
+                                         # bundle, below; a fetch one - the probe - fetched
+                                         # into the arena, an
                                          # OP_ARENA row: the arena is the claim) for a
                                          # course's play: BZF_RDSEG/BZF_RCSEG and the
                                          # far pointers bz_ftab/bz_fmkp name its segment
