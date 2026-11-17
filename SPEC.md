@@ -274588,6 +274588,8 @@ game-over card, and the lanes at scale (128.19.10), which the pathway needs.
 
 #### 128.22.2 The pathway's source (BUILT, story 8R.1; the guest's half is 8R.2/8R.3's)
 
+*Amended by 128.31 (2026-11-17): the pathway's part carries no occluders - no record, mask or OCC cell.*
+
 `apps/bonanza/courses/path.bbc` keeps `pathway` (128.19.5: no limit, no
 countdown, no goal, cup, medals or `start` of its own - a new game rests on
 pad 0) and loses `node` and `edge` (refused, naming this section),
@@ -275864,8 +275866,9 @@ Five tiers and four features, after the sketch:
 | the PILLAR | a tall wall between UR and the strip, the windmill's house: its tube runs down through it onto the strip |
 | LS, the strip | a narrow tier left of the pillar under the lettering, the brown tube's ENTRY (the lower brown), the windmill tube's exit; it runs off the glass to the left, and a STEP (a half-unit tier, 9 - 11 x 13) takes a ball down to it from LL, so a ball on LL can reach the brown tube without jumping |
 | LL, the lower left platform | two units above LC, running off the glass to the left; a SPRING at its front edge over a PIT (128.23.2's waiver) |
-| the PIT | two cells wide (x 12 - 13) from LS's step to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16) |
-| LC, the lower centre | the key hints painted above it; joined to LS behind (a strip in front of the pillar) and to the ramp's foot on the right |
+| the PIT | two cells wide (x 12 - 13) from LS's back wall to the bottom of the glass, with nothing in it: a corner of LC and a stretch of the south rail beside it once made the gap read as floor (the owner, 2026-11-16), and the strip in front of the pillar that joined LS to LC went too (2026-11-17), so the gap is a real one on that side |
+| the GLASS BRIDGE | LL's back row carried over the pit to LC at LL's height (x 12 - 13, y 14; floor 3.5, a 1.5-unit drop onto LC), two `glass` tiles of the GLASS family (128.25.8): invisible until a ball rolls onto them, its first tile's jagged edge at LL the only hint. Demo 3's glass ball enters along that row and finds it; steel (demo 2) falls through the pit on row 15 and never touches it. The family is home `fetch`, the title's first fetched family (128.25.6.9) |
+| LC, the lower centre | the key hints painted above it; joined to the ramp's foot on the right, and to LL only by the glass bridge |
 | the RAMP and LR | from UR's front edge down to LR, the lower right floor running off the glass to the front and to the right, and BEHIND the ramp (a ball rolls behind it); a second SPRING at UR's front cliff, its power set to land a ball on UR |
 | the hidden tube | its mouth at (23, 11), beside the east rail just past the glass's bottom right corner, its body up the rail and along the back one to UR, so a ball that bounces off the bottom right comes back on UR |
 | the windmill | its doorway on the pillar's +x face at UR's level; its tube runs down inside the pillar and out of an arch in the same face at the channel's floor (14, 11), heading +x, so the ball comes out rolling the way it went in, in full view |
@@ -275882,9 +275885,16 @@ the sketch, and the built course is a different shape):
    gap, falls in the pit; respawns on LL, the side it fell from, so it never
    seems to jump the gap by dying; rolls down the step to LS and into the brown tube,
    comes out on UR, and down the ramp off the glass.
-3. **Glass**: off LL down the step, through the brown tube onto UR, round
-   UR until it falls and shatters. Its shatter finishes on the glass and the
-   respawn is off it.
+3. **Glass** (the owner, 2026-11-17: no tube, no waiting on UR, no circles):
+   rolls in along LL's back row and pauses, then on over the pit, where the
+   GLASS BRIDGE appears under it tile by tile, and down onto LC; a run at the
+   ramp from below gets a third of the way up and rolls back (glass cannot
+   climb it); it goes down to spring 2, looks at it a long beat, and tries
+   it: the spring throws it level with UR's edge, it catches the lip and
+   drops back onto the spring, and the landing (768, over glass's 552)
+   shatters it at the cliff's foot, on the glass. No launch can break it ON
+   UR: the cap BZ_VZMAX 768 lands it there at 443. Its respawn is off the
+   glass.
 4. **Rubber at speed** (the owner's drawn path, 2026-11-16): flies in from
    the left, bounces on LS's step, over the pit's corner onto LC and on
    along the front, off the bottom right into the hidden tube; out on UR, a
@@ -278343,7 +278353,7 @@ demos were re-authored again, `ident` alone: MOON 3A07h -> 2953h, PEAK EFF3h
 - **A windmill is a tube with a door**: its capture and its transit ARE the
   tube's routines. So ROTOR holds only the DOOR (the touch test and the gate),
   and with the tube a family a course that places a windmill names TUBE as
-  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`). All three
+  well (MILL, PEAK and the title: `rotor tube`, `rotor spring tube`; the title names `glass` too since 2026-11-17, 128.23.5). All three
   are home `resident` (128.25.6.9), so they cost no fetch at a launch and
   none of the 3 a course.
 
@@ -279721,6 +279731,37 @@ profile keeps it, which is what caps the depth.
     edge are indistinguishable from the tiles round them. Every other facet
     - anything below the lip, however gentle - is magenta: no cyan or white
     inside a shape.
+  - **The join** (the owner, 2026-11-17, of a raised chute corner: *"The red
+    circled corner looks 'see-through', because its elevated above the tile
+    below it. So, can we make a tool rule for 'only join into the corner if
+    another tile at the same elevation exists'? ... If its easy, we could
+    calculate it per touching side (so a theoretical corner with something
+    to the left, but nothing above, would still connect cleanly)."*). A
+    lip-level facet is the floor only where it JOINS real floor at its own
+    height; otherwise it is magenta like the rest of the shape. By triangle
+    (the facet's two, as drawn): a SEED is a lip-level triangle with an edge
+    on its cell's border whose neighbour across that edge is a plain floor
+    or goal record (a split cell's piece that owns that edge) at the same
+    height at all five of that edge's points; the join spreads from the
+    seeds across every edge two lip-level triangles share, inside a cell and
+    across FIELD cells (whose heights already agree there, by the SEAM rule).
+    So it is per touching SIDE: a corner with floor at its height to its
+    left and nothing above joins along the left, and its exposed top edge
+    takes the same ink; a corner standing proud of the plate (SHAPE's `bank`
+    chute's raised corner, PLAYGROUND's chute corners over the void) joins
+    nothing and is wholly magenta, while a plate-level corner with floor
+    round it is unchanged. A wall is not floor, and the diagonal neighbour
+    alone joins nothing (a facet that touches the floor only at a point
+    would show the floor's ink with no floor beside it). MEASURED on the
+    previews: SHAPE changes only its raised corner, PITS nothing (its pits'
+    plates and its chutes' tapers all join), PLAYGROUND only the two chute
+    corners at its back edge (blocks, and the whole part packed LZB and
+    LZ4: SHAPE 243 -> 245, 5,590 -> 5,596, 6,990 -> 7,000; PITS 291, 5,989,
+    7,489 unchanged; PLAYGROUND 588 blocks, 13,474 -> 13,454, 16,725 ->
+    16,709); every section but `M` and `B` (and the
+    offsets into them and the identity) is byte-identical (`bbcourse
+    field_joined`; `--selfcheck` checks a raised corner inks no floor and a
+    plate-level one still does, red: every lip-level triangle joined).
   - **On Hercules** (128.11.3's translation) solid magenta is the half grey
     the cyan floor is and `field_ms` a quarter, so the checker and the
     lattice carry the shape there too.
@@ -280328,3 +280369,65 @@ controller's READ commands.
   paragraphs more heap than A's, as two claims (3,168 and 960) where A
   had one of 3,104 - the largest claim 64 paragraphs larger. Every other
   course is unchanged.
+
+### 128.31 The pathway carries no occluders (the owner, 2026-11-17)
+
+The owner: *"For pathway: yes, drop the occlusion."* (Sections 128.28 -
+128.30 are other branches': the shaped floors, the occlusion work and the
+two-segment courses.)
+
+**Why it was dead weight.** The occluder pass runs only when the ball's
+cell carries the flag for its state (`bz_mkboxes`, 128.11.10.2): OCC for an
+airborne ball, OCCG for a grounded one. On the pathway the ball is the
+FOLLOWER: `bz_follow` moves it along the routes and no physics step runs,
+so `bz_air` stays 0 and only OCCG could open the pass - and the pathway had
+**no OCCG cell**. Its 452 records (cut for the reach the tool takes from a
+course's physics: 202 of its 257 reach positions airborne over the void)
+held 2,156 bytes of RAM that no frame read: 315 against the floating
+islands' hanging faces, 94 against the diagonal halves, 40 against the
+clocks' cells, 3 against walls.
+
+**The rule** (`tools/bbcourse.py`, a rule of the tool, not a statement in
+`path.bbc`): a course with a `pathway` statement is compiled with no
+occluders cut. Its part then has `NOCC` and `NMASK` 0 - no `R`, `K` or `O`
+section, `OCCIDX` (`I`) all the first record's offset, as the format allows
+for any course (128.15.4.2) - and no cell OCC or OCCG, so the gate can never
+open. Every other check of the pathway (its bounds, its pages' lanes, its
+routes) runs as before. **No guest code changes**: `bz_osmake` summarises
+empty rows, `bz_occ` is never entered.
+
+**What moved** (MEASURED, `bbcourse.py` at this tree):
+
+| the pathway | before | after |
+|---|---|---|
+| RAM | 24,150 | **21,994** (-2,156) |
+| LZ4 | 8,390 | **7,627** (-763) |
+| LZB | 7,153 | **6,551** (-602) |
+| records, masks, OCC cells | 452, 18, 106 | 0, 0, 0 |
+| identity | C78Ah | 98BAh |
+| `BONANZA.O88` (LZB parts) | 117,392 | **116,784** (-608) |
+| `bonanza360.img` | 123 of 354 clusters | 123 (no cluster freed) |
+
+Its Y0, map and blocks are unchanged (the picture is the same). **The
+identity moving has one effect**: a game SLOT of `BONANZA.DAT` keeps the
+pathway's identity (`BZD_SID`, 128.22.5), so a game in progress saved by an
+earlier build reads as another pathway's and the slot starts afresh
+(`bz_dslots`), as after any change to the pathway; the courses' bests are
+filed under the courses' own identities and stay. No demo names the
+pathway (the title's `.bzt` demos carry no identity, 128.23.3).
+`BZ_PATH_CLAIM` (128.22.7) falls with the RAM form, 1,510 -> 1,375
+paragraphs, and `bz_cids` carries the new identity - the package's only two
+moved words; `BZ_CRS_MAXCLAIM` counts the pad courses' claims and does not
+move.
+
+**`--selfcheck`** (the `path` section, item 8R): the shipped pathway has 0
+records, 0 masks, no OCC or OCCG cell and no `R`, `K` or `O` section; its
+negative control compiles it with the records cut anyway (`_hack` `pathocc`)
+and finds them (452). **Red arm** (MEASURED red, a patched copy of the tool
+with the rule removed): the item fails, 452 records.
+
+**The rows** (the final pass's; none run here): `bonanzacourse` (the
+selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
+`bonanzaring` (its oracle reads every part, the pathway's included),
+`bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
+a game), `bonanzamega`.

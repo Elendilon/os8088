@@ -3431,3 +3431,71 @@ Every section but the map, the blocks and the offsets into them is byte-identica
 grid and tables did not move. **Tested**: the tool's previews on CGA and Hercules (bowl, dish, chute
 corners, tapers, the S), `--selfcheck`, `tests/bonanza_dfield.py`, the shipped and knob builds; no
 emulator rows - the picture is the tool's, and no shipped course has a FIELD cell.
+
+## 2026-11-17 (shaped floors: the join rule)
+
+The owner, on the knob build's raised `bank` corner: "The red circled corner looks 'see-through',
+because its elevated above the tile below it ... only join into the corner if another tile at the same
+elevation exists ... per touching side". The plate rule drew a facet as floor whenever its corners lay
+on the lip, and a corner's lip stands a unit over the plate there, so a patch of floor checker hung in
+the air beside the raised side face. The rule now asks what the facet JOINS: a lip-level triangle with
+an edge on its cell's border against plain floor at the same heights all along that edge seeds the
+floor, and the floor spreads over shared edges of lip-level triangles, across FIELD cells too.
+**Observed**: SHAPE's raised corner turned wholly magenta and nothing else on SHAPE moved; PITS did not
+change at all (its pits' plates and chute tapers all join the plate round them); on PLAYGROUND the two
+chute corners at the back edge, over the void, lost their floor patches. SHAPE costs two blocks
+(243 -> 245, LZB 5,590 -> 5,596), PLAYGROUND none (LZB 13,474 -> 13,454); every section but the map, the blocks, the offsets into them and the identity is
+byte-identical on all three. **Tested**: previews (CGA, Hercules), `--selfcheck` with its new item and
+red arm, `tests/bonanza_dfield.py`, the shipped and knob builds; no emulator rows.
+
+
+
+## 2026-11-17 (the pathway drops its occluders)
+
+The owner: "For pathway: yes, drop the occlusion." The pathway's ball is the follower - always grounded,
+never a physics step - and none of its cells was OCCG, so its 452 occluder records were never laid. The
+tool now compiles a `pathway` course with no occluders (a rule, not a statement; no guest change). MEASURED:
+its part 24,150 -> 21,994 bytes of RAM, LZ4 8,390 -> 7,627, LZB 7,153 -> 6,551; identity C78Ah -> 98BAh,
+so a game in progress saved by an older build starts afresh (its slot names the old pathway). `--selfcheck` holds it at 0 records, with a negative control and a red arm (the rule
+removed: 452 records, red). The pathway's growth to 14 - 20 pads is parked. SPEC.md 128.31, plan 11.10.
+
+## 2026-11-17 (the glass demo, again: a bridge, a ramp and a spring)
+
+The owner liked three of the title's four demos and not the glass one:
+it reused the steel ball's tube, waited on UR, did circles that were not
+quite circles, and rolled off the edge on purpose. The brief this time
+was open: *find an interesting route, and things for the ball to do*.
+
+**What the stage really is.** The picture is wide, but the CGA window
+shows only a band of front floor in front of UR's cliff (about x 14 - 20,
+y 9 - 12) and a pocket behind the ramp; most of LC is below the glass. A
+route sketched on the whole picture runs off the bottom.
+
+**What glass can and cannot do,** found on the model rather than assumed:
+it cannot climb the ramp (it stalls a third of the way up), it is slow to
+get going under the autopilot (which lets go of the arrows near its
+target speed, so held keys drive the fast parts), and spring 2 throws any
+ball 6 units up (the cap, BZ_VZMAX 768). Landing on UR from there is 443,
+under glass's 552, so **no spring breaks glass on top of UR**; landing
+back on the floor is 768, which does.
+
+**The design, between the session and the owner.** The session's first
+route was a setup and a payoff: glass stops beside spring 2, backs off,
+and later skids onto it at speed. The owner had been about to propose the
+same path, and changed two things: glass should TRY the ramp and fail,
+then try the spring to get up; and it should enter over a hidden glass
+bridge (the GLASS family's path tiles, 128.25.8) that steel never found,
+which also lets the pit become a real gap. The bridge is on LL's back
+row, because spring 1 and steel's fall are on the centre row.
+
+**The lip.** Searching the approach speed for the spring found three
+outcomes: too slow and it goes straight up and down onto the spring;
+about right and it rises level with UR's edge, catches the lip, and
+drops back onto the spring (shattered); faster and it makes it onto UR.
+The demo uses the middle one, so it fails trying rather than by being
+pushed.
+
+**Tested:** host only - the model's replay of all four demos (1, 2 and 4
+identical step for step to the course before the change; 3's expects
+met), the course preview, a host GIF. **Not yet:** the guest
+(`bonanzatitle`), named for the phase's soak.
