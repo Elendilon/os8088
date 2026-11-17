@@ -239,8 +239,10 @@ puts the SPIKE test course on the pathway's pad 0.
 - [x] **S.9** The death and squash frames cheaper (the owner's A and B, SPEC.md
       128.38.10): B one parity copy (the bundle -8,960 RAM, the image -30), A
       one shift shifted at the draw (a further -6,240 RAM for +113 image bytes,
-      2.3 - 3.9 ms a dying frame, PRICED); both switches built, both LOOKED AT
-      on both cards. The owner keeps both, B alone, or neither.
+      2.3 - 3.9 ms a dying frame, PRICED); both LOOKED AT on both cards. The
+      owner's decision: **B ships**; A is parked as
+      docs/plans/bounce-bonanza/patches/death-frames-a-one-shift.patch (for a
+      256KB build at finalization, with short courses).
 
 ## Stories
 
