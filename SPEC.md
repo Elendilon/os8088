@@ -281446,27 +281446,40 @@ only finish).
 
 #### 128.34.6 The art
 
-- **The FAN**: a disc of radius 6.5 gu on the blower's top, its rim and hub
-  black, four WHITE blades on MAGENTA (`_top_mark`): on the Hercules white
-  blades on the grey checker magenta becomes, so both cards read it.
-- **The PENNANT**: the checkpoint's pole (two black columns, a unit and a
-  line high) on the fan's hub and its two poses as a lane: 0 FURLED, the
-  white roll down the pole; 1 FLYING, the pennant out DOWNWIND - east of the
-  pole for +x and -y (the screen's right), mirrored west for -x and +y, and
-  for an updraft a white streamer straight up off the pole's top. A SLOW
-  event lane, marked only on a gust's turn; a steady blower's lane never
-  changes after the play's start draws it (`bz_lfull`). A flag more than half
-  hidden is refused as a checkpoint's is.
+- **The FAN**: a disc of radius 6.5 gu on the blower's top, its rim, hub
+  and four blades BLACK on WHITE (`_top_mark`), a pinwheel under the pole.
+  LOOKED AT in the tool's previews: black on white reads on both cards and on
+  either tile of the checker (white blades on magenta, the first try, were
+  white specks on the grey checker the Hercules makes of magenta).
+- **The PENNANT**: a pole on the fan's hub (two black columns, `WD_POLE` =
+  15 px: taller than a checkpoint's unit) and its two poses as a lane
+  (`_wind_flag`): 0 FURLED, a white roll 8 px down the pole; 1 FLYING, a
+  pennant 12 x 7 px out DOWNWIND - east of the pole for +x and -y (the
+  screen's right), mirrored west for -x and +y - and for an updraft a
+  streamer 5 px wide straight up off the pole's top. STRIPED like a
+  windsock, magenta and white bands 3 px wide, outlined black where it ends:
+  one of the two shows on any ground (a white tile, a magenta face, the black
+  void under a thin path). A SLOW event lane, marked only on a gust's turn;
+  a steady blower's lane never changes after the play's start draws it
+  (`bz_lfull`). A flag more than half hidden is refused as a checkpoint's is.
+- **LOOKED AT** on MartyPC (the `BZWIND=1` build, `os8088_5150_cga_gla` and
+  `_herc_gla`, WIND's start window): the bridge's gust pennant flying west in
+  a gust and furled between gusts, the thin path's steady pennant and the
+  updraft's streamer, on both cards. Two looks before it were changed: the
+  checkpoint's own pennant (7 x 5, white, on a 9 px pole) was not readable at
+  320 x 200 on a white tile, and a plain magenta one vanished against the
+  magenta face behind the thin path's blower.
 
 #### 128.34.7 Costs (PREDICTED; MEASURED where marked)
 
 | | |
 |---|---|
-| the part, `bzf-wind.bin` | about 300 bytes |
-| resident | 0 bytes of code; `BZ_FTAB` one byte an ID (IDs 7 and 8 too on this branch alone: a gap the table fills) |
-| the bundle | the part's paragraphs |
-| a step, a course naming WIND | about 0.25k fixed; each steady blower about 0.2k with the ball outside its region, 0.45k inside; a gusting one about 0.35k more (two gust tests) |
+| the part, `bzf-wind.bin` | MEASURED **326 bytes** (the header 24; RESET 46, STEP 88, POSE 25, `wd_field` 104, the gust test `wd_on` 24, the slot 15), 21 paragraphs in the bundle; packed with the bundle |
+| resident | **0 bytes of code**; the image MEASURED 49,732 -> **49,735 (+3)**: `BZ_FTAB`'s bytes for IDs 7, 8 and 9 (a build with water and magnets owns the first two, so WIND's own is +1); bss **+0** (the slot is `bz_fsl`'s, sized by `BZ_FAMMAX`) |
+| the bundle and the package | MEASURED `bzfbun.bin` 33,376 -> **33,712 (+336)**, the arena's floor 2,086 -> 2,107 paragraphs (the pinned claim, rounded to `OP_ARQUANT`, 2,112 either way); `BONANZA.O88` 118,615 -> **118,874 (+259)**; `bonanza360.img` 125 clusters either way |
+| a step, a course naming WIND | PREDICTED (counted from the part at the 8088's clocks and its fetch floor, not measured): about **0.23k** fixed (the dispatch's far call is 128.25.12's); each STEADY blower about **0.2k** with the ball outside its region, **0.45k** inside; a GUSTING one about **0.33k** more (two gust tests); the updraft's tests about the same as a push. WIND's window with its three blowers and the ball under one: about 1.3k a step. Against the plan's "0.1 - 0.2k a step in its region": that was the push alone; the walk over the list and the gusts' marks are the rest. MartyPC is the final pass's (`bonanzaperf` on a WIND build) |
 | a course without WIND | nothing (no `STEP` entry is called for a family the course does not name) |
+| the home | `resident`, the owner's default: the bundle packs the part with its neighbours (+259 on the package, where its own `OP_COMP` row would also add the row's 8 bytes and a stream of its own) and costs no read at a launch; its price is 336 bytes of the arena's floor in every play, a shipped course naming it or not. Moving it to `fetch` is its row's `home` (128.25.6.9) |
 
 #### 128.34.8 The knob build: WIND (`BZWIND=1`) and the checks
 
@@ -281476,7 +281489,7 @@ the knob; not with `BZSHAPES=1`, which takes the same pad) adds
 course keeps its K and none is on the TOUR, and compiles the pathway through
 `courses/pathwind.sed`: pad 0 becomes WIND (a new game rests on it - title,
 Play Game, Enter plays it), its exit 0 still goes to TRIAL, its exit 1 to
-FIRST at pad 7. Without the knob nothing changes but the family itself.
+FIRST at pad 6. Without the knob nothing changes but the family itself.
 
 **WIND "Wind Test"**: a start plate at 2 units with a pad for each ball, and
 east to the goal plate - the WALKWAY (wy 6, the route); the CRUMBLING BRIDGE
@@ -281484,17 +281497,36 @@ east to the goal plate - the WALKWAY (wy 6, the route); the CRUMBLING BRIDGE
 strength 8, 64 steps on in every 256; the THIN LOWER PATH (wy 12, down a ramp
 to 1 unit, three cells one wide, up again) under a STEADY blower on its first
 cell, +y, strength 10; and behind the start a LEDGE 2.5 units up with the
-second finish (exit 1), over an UPDRAFT at (5, 7), strength 16, top 4 units.
+second finish (exit 1), over an UPDRAFT at (5, 7), strength 16, top 4 units;
+a clock on the ledge (7, 4) besides the goal plate's (20, 12): every finish has a
+clock in its window (128.22.6). The course part: 21,838 bytes of RAM, LZ4
+4,230 (MEASURED, the knob build); the knob's image 49,776 and bss 11,521 -
+its per-course tables a row wider, as `BZSHAPES`' are.
 
-**Checks.** `--selfcheck` section `wind` (item 2's string cases for every
-refusal in 128.34.2; item 3, the records' fields and FAMV over the
-constants; item 6, the updraft's reach and its red arm). `tests/bonanza_phys.py
---check`'s unicorn half: the WIND course compiled from its source and played
-on the default build's image and parts, the guest's `bz_step` equal to the
-model at every step (the ball, the slots, every pennant's POSE and its marks)
-in scenes for each ball - the thin path, the gust on and off on the bridge,
-the updraft - and what each is for asserted on the model; red arms that NOP
-the push, glass's weighting, the gust's marks and the updraft's LIFT test.
+**Checks (MEASURED green on the host).** `--selfcheck` section `wind`
+(25 items): item 2's string cases for every refusal in 128.34.2 (22); item
+3, the records' fields and FAMV over the constants (`WD_LIFT` + 1 moves it),
+and the pennant's side for each face; item 6, the updraft's reach - 172 cells
+raised over the same course with a horizontal blower, the column's zhi 83 px
+against its 80 px top - and its red arm `nowindreach` (the updraft's sources
+off: 0 raised). `tests/bonanza_phys.py --check`'s unicorn half, `wind_host`:
+the WIND course compiled from its source and played on the default build's
+image and parts (as PLAYGROUND's K, its limit the model's), the guest's
+`bz_step` equal to the model at every step (the ball, the slots, every
+pennant's POSE and its marks) in eight scenes, what each is for asserted on
+the model:
+
+| scene | rubber | steel | glass |
+|---|---|---|---|
+| the thin path, leaning into the wind (R) | blown off (189) | crossed (263) | blown off (174) |
+| the bridge, met in a gust / between gusts | blown off / crossed (707 steps) | (steel from rest breaks the cracks: `CRACK_TS`) | blown off / crossed (705) |
+| the updraft: a Hop on the fan, then R + U | no ledge, apex 23 px | no ledge, 18 px | **the ledge's finish, exit 1**, apex 49 px |
+
+Red arms, each red at its own check: `wdstep` (STEP's entry 0: no push, no
+mark), `wdglass` (glass's `shl` NOPed: glass pushed as rubber - the ball
+parts at step 132), `wdmark` (the gust's `call far [bz_fmkp]` NOPed: "never
+drawn" at the gust's turn, step 63), `wdlift` (the updraft's `gvz` test
+NOPed: the ball parts at step 123).
 
 #### 128.34.9 Folding magnets and wind into one family
 
@@ -281512,7 +281544,7 @@ part:
   pennant's lane path with its own poses.
 
 Its bytes: one header (24) and one copy of the walk, the gust test and the
-slot (about 120) saved against two parts, for perhaps 30 more in
+slot (about 90 MEASURED: RESET 46 less its kind test, STEP 88 less its field call, `wd_on` 24, the slot 15) saved against two parts, for perhaps 30 more in
 `wd_field`. Not done here: the magnets' contract is theirs.
 
 #### 128.34.10 Open questions for the owner

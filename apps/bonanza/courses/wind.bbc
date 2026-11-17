@@ -45,6 +45,7 @@ start 7 10
 goal  tile 21  9  flat 2
 goal  tile  5  3  flat 4.5 exit 1
 clock 20 12
+clock  7  4
 target 60
 way 7 10
 way 10 6

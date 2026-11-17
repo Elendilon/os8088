@@ -5544,7 +5544,7 @@ def prop_ops(tiles, ops, props, x0):
                 continue
             geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
             p["geo"] = geo
-            top = 4 * t.z0 + FLAG_H
+            top = 4 * t.z0 + (WD_POLE if p.get("art") == "wind" else FLAG_H)
             mk = (lambda d, tp: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: tp))(geo, top)
             add(p["at"], "top", (_spans_of(geo), "post", wx + wy, mk, False, t, p["at"]))
             if _pennant(p):
@@ -5582,10 +5582,10 @@ def _top_mark(tiles, ops, p, x0):
                 elif p["kind"] == PK_SPRING:
                     if d <= 6.5:
                         ink = BLK if (d <= 1.5 or 3.0 < d <= 4.0 or d > 5.5) else MAG
-                elif p["kind"] == WD_K:                 # WIND (SPEC.md 128.34.6): a FAN - four white blades on
-                    if d <= 6.5:                        # magenta, a black rim and hub (the Hercules: white on grey)
+                elif p["kind"] == WD_K:                 # WIND (SPEC.md 128.34.6): a FAN - four black blades on
+                    if d <= 6.5:                        # white, a black rim and hub (both cards: black on white)
                         a = (math.degrees(math.atan2(gy - cyg, gx - cxg)) + 360.0) % 90.0
-                        ink = BLK if (d <= 1.5 or d > 5.5) else WHT if a < 45.0 else MAG
+                        ink = BLK if (d <= 1.5 or d > 5.5 or a < 40.0) else WHT
                 elif d <= MOUTH_HW + 1.0:                # the cup
                     ink = BLK
                 if ink is not None:
@@ -5602,7 +5602,7 @@ def _staff_pix(p, x0):
     cy = 8 * (wx + wy) + 8 - p["z4"]
     out = {}
     if _pennant(p):
-        for y in range(cy - FLAG_H - 1, cy + 1):
+        for y in range(cy - (WD_POLE if p.get("art") == "wind" else FLAG_H) - 1, cy + 1):   # (a blower's taller)
             out[(cx - 1, y)] = BLK
             out[(cx, y)] = BLK
     elif p["kind"] == PK_CUP:
@@ -5870,28 +5870,46 @@ def _pennants(p, x0):
     for k in range(5):
         for i in range(7 - 3 * abs(k - 2) if k != 2 else 7):
             fly.add((cx + 1 + i, ytop + k))
-    if p.get("art") == "wind":                      # WIND (SPEC.md 128.34.6): the pennant flies DOWNWIND - out to the
-        d = p["wdir"]                               # east for +x and -y (the screen's right), the west for -x and +y,
-        if d == WD_UP:                              # and an UPDRAFT's straight up off the pole's top, a streamer
-            fly = set((cx - 1 + i, ytop - 1 - k) for k in range(8) for i in range(-1, 2) if abs(i) + k // 3 <= 2
-                      and not (i == -1 and k > 3) and not (i == 1 and k > 5))
-            fl = {}
-            for (x, y) in fly:
-                edge = any((x + dx, y + dy) not in fly for dx, dy in ((1, 0), (-1, 0), (0, -1)))
-                fl[(x, y)] = BLK if edge else WHT
-            return furl, fl
-        if d in (1, 2):                             # (mirrored about the pole: x -> 2 cx - 1 - x)
-            furl = dict(((2 * cx - 1 - x, y), c) for (x, y), c in furl.items())
-            fly = set((2 * cx - 1 - x, y) for (x, y) in fly)
-            fl = {}
-            for (x, y) in fly:
-                edge = any((x + dx, y + dy) not in fly for dx, dy in ((-1, 0), (0, 1), (0, -1)))
-                fl[(x, y)] = BLK if edge else WHT
-            return furl, fl
+    if p.get("art") == "wind":
+        return _wind_flag(p, cx, cy)
     fl = {}
     for (x, y) in fly:
         edge = any((x + dx, y + dy) not in fly for dx, dy in ((1, 0), (0, 1), (0, -1)))
         fl[(x, y)] = BLK if edge else WHT
+    return furl, fl
+
+
+WD_POLE = 15                  # a blower's pole, px: taller than a flag's FLAG_H, its pennant bigger (SPEC.md 128.34.6)
+
+
+def _wind_flag(p, cx, cy):
+    """WIND (SPEC.md 128.34.6): a blower's two poses on its pole (WD_POLE high, centre (cx, floor line cy)) -
+    FURLED (0) a white roll 6 px down the pole's downwind side; FLYING (1) a long pennant (12 x 7 px) out DOWNWIND,
+    east of the pole for +x and -y (the screen's right), mirrored west for -x and +y; an UPDRAFT's a streamer
+    5 px wide and 8 high straight up off the pole's top, narrowing (the lane: 15 lines at most, so 3 block rows
+    whatever the alignment).  STRIPED like a windsock, magenta and white bands 3
+    px wide across its length (one of the two shows on any ground: a white tile, a magenta face, the black
+    void), outlined black where the shape ends (not at the pole).  -> ({(x, y at Y0 = 0): ink}, {...})"""
+    ytop = cy - WD_POLE - 1
+    d = p["wdir"]
+    furl = {}
+    for y in range(ytop + 1, ytop + 7):
+        furl[(cx + 1, y)] = WHT
+        furl[(cx + 2, y)] = BLK
+    if d == WD_UP:
+        fly = set((x, ytop - 1 - k) for k in range(8) for x in range(cx - 1 - (2 - k // 3), cx + 1 + (2 - k // 3)))
+        out = ((1, 0), (-1, 0), (0, -1))
+    else:
+        fly = set((cx + 1 + i, ytop + k) for k in range(7) for i in range(12 - 3 * abs(k - 3)))
+        out = ((1, 0), (0, 1), (0, -1))
+        if d in (1, 2):                             # (mirrored about the pole: x -> 2 cx - 1 - x)
+            furl = dict(((2 * cx - 1 - x, y), c) for (x, y), c in furl.items())
+            fly = set((2 * cx - 1 - x, y) for (x, y) in fly)
+            out = ((-1, 0), (0, 1), (0, -1))
+    fl = {}
+    for (x, y) in fly:
+        band = (ytop - y) // 3 if d == WD_UP else abs(x - cx) // 3
+        fl[(x, y)] = BLK if any((x + dx, y + dy) not in fly for dx, dy in out) else WHT if band & 1 else MAG
     return furl, fl
 
 
@@ -23119,12 +23137,25 @@ def _wind_checks(res):
     for face in WD_DIRS:
         p = {"kind": WD_K, "art": "wind", "at": (6, 6), "z4": 32, "wdir": WD_DIRS.index(face)}
         furl, fly = _pennants(p, 224)
-        cx, ytop = 224, 8 * 12 + 8 - 32 - FLAG_H - 1
+        cx, ytop = 224, 8 * 12 + 8 - 32 - WD_POLE - 1
         xs, ys = [x for x, _ in fly], [y for _, y in fly]
         side = "up" if max(ys) < ytop else "east" if min(xs) > cx else "west" if max(xs) < cx - 1 else "?"
         seen.append("%s %s" % (face, side))
-        ok = ok and side == {"+x": "east", "-y": "east", "-x": "west", "+y": "west", "up": "up"}[face] and furl
+        ok = ok and side == {"+x": "east", "-y": "east", "-x": "west", "+y": "west", "up": "up"}[face] and bool(furl)
     res.append(("3 WIND's pennant flies downwind (128.34.6): %s" % ", ".join(seen), ok))
+    # ...and its lane fits LANE_WMAX x LANE_HMAX blocks at every alignment (a floor's height in half units, the
+    # origin's x by 4): the tool can never refuse a blower for its own flag's size
+    worst = (0, 0)
+    for face in WD_DIRS:
+        for z4 in range(0, 64, 4):
+            for x0_ in (224, 228):
+                fu, fy = _pennants({"kind": WD_K, "art": "wind", "at": (6, 6), "z4": z4, "wdir": WD_DIRS.index(face)},
+                                   x0_)
+                xs, ys = [x for x, _ in list(fu) + list(fy)], [y + 300 for _, y in list(fu) + list(fy)]
+                worst = (max(worst[0], (max(xs) >> 3) - (min(xs) >> 3) + 1),
+                         max(worst[1], (max(ys) >> 3) - (min(ys) >> 3) + 1))
+    res.append(("3 WIND's pennant's lane at every alignment: at most %d x %d blocks (the limit %d x %d)"
+                % (worst + (LANE_WMAX, LANE_HMAX)), worst[0] <= LANE_WMAX and worst[1] <= LANE_HMAX))
     # the updraft's reach (128.34.5): the cells round the column take its top's height; the arm without it does not
     base = _W4C + "floor rect 4 10 8 12 flat 4\nuses wind\n"
     up = base + "prop blower 6 10 face up region 5 10 7 11 strength 16 top 6\n"

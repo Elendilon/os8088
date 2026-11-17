@@ -22058,7 +22058,7 @@ $(BZSHAPESTAMP): | $(BUILD)
 #> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 128.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
 # BZWIND=1 (SPEC.md 128.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
 # the shipped ones: every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
-# with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 7 (WIND's exit 1).
+# with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 6 (WIND's exit 1).
 # STAMPED; without it the build is byte for byte the knob-less one.  Not with BZSHAPES=1 (both take pad 0).
 BZWIND ?=
 ifeq ($(filter $(BZWIND),1),)
