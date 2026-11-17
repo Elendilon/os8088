@@ -1377,15 +1377,34 @@ def pickup_ok(p, marks):
             and p.nfev == 6 and p.nboost >= 1)
 
 
-# WIND (SPEC.md 128.34): the knob build's test course, compiled here from its source (the default build
-# ships no course that names the family, so the scenes ride the WIND course under the default build's
-# image and parts: the course part is the tool's, its family list WIND's own)
+# WIND (SPEC.md 128.34): the knob build's test course, compiled here from its source WITHOUT its cracks (the
+# default build ships no course that names the family, so the scenes ride the WIND course under the default
+# build's image and parts, whose bz_fst is the shipped courses' largest: five cracks and four blower bytes
+# would not fit it; the cracks are GLASS's, which its own scenes prove)
 WIND_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "wind.bbc")
+_WIND_SCENE = []
+
+
+def wind_scene_src():
+    """the WIND course less its cracks and GLASS, in a file of its own (made once a process)"""
+    if not _WIND_SCENE:
+        txt = open(WIND_SRC).read()
+        txt = "\n".join(ln for ln in txt.split("\n") if not ln.startswith("prop crack"))
+        assert "uses glass wind" in txt
+        txt = txt.replace("uses glass wind", "uses wind")
+        fd, path = tempfile.mkstemp(suffix=".bbc", prefix="bzwind-")
+        with os.fdopen(fd, "w") as f:
+            f.write(txt)
+        _WIND_SCENE.append(path)
+    return _WIND_SCENE[0]
+
+
+def _wd_el(p, at):
+    return next(q for q in p.props if q["kind"] == BB.WD_K and q["at"] == at)
 
 
 def _wd_blowing(p, at):
-    pr = next(q for q in p.props if q["kind"] == BB.WD_K and q["at"] == at)
-    return BB.wind_blowing(pr, p.nstep & 0xFFFF)
+    return BB.wind_blowing(_wd_el(p, at), p.nstep & 0xFFFF)
 
 
 def _wd_at(wx, wy):
@@ -1410,28 +1429,41 @@ def _wd_cross(p, keys, wy, stop, lean=False, n=260):
 
 
 def wind_keys(leg, mat):
-    """THE WIND SCENES (SPEC.md 128.34.8), steered on the model from WIND's start with ball MAT:
+    """THE WIND SCENES (SPEC.md 128.34.8, 128.34.11), steered on the model from WIND's start with ball MAT:
       path     onto the THIN PATH from (9, 12) and across under its steady +y wind (strength 10), leaning
                into it (R alone, from the wind's first cell): steel crosses, rubber and glass are blown off
-               (a fall, the respawn) - rubber's best counter-push on one axis (8) is under its 10
-      gust     (rubber and glass: steel from rest breaks the cracks under it, CRACK_TS) to the CRUMBLING
-               BRIDGE's end (9, 9); waited for a GUST to begin and across in it (strength 8, gust 64 of 256):
-               blown off; back, waited for the gust to END and across between gusts: crossed
-      updraft  onto the UPDRAFT's fan (5, 7), a Hop, and up-left (R + U, -y) for the ledge: glass rises
-               onto it and finishes there (exit 1); rubber and steel never rise past their own Hop
+               (a fall, the respawn) - rubber's best counter-push on one axis (8) is under its 10; the path's
+               FAN spins while the ball is in its wind and WD_SPIN steps after (its counter, its frames)
+      gust     (rubber and glass) to the BRIDGE's end (9, 9); waited for a GUST to begin and across in it
+               (strength 8, gust 64 of 256): blown off; back, waited for the gust to END and across between
+               gusts: crossed - the WISP's squiggles turning with the gust, the bridge's fan spinning
+      updraft  onto the hop UPDRAFT's fan (5, 7), a Hop, and up-left (R + U, -y) for the LEDGE: glass rises
+               onto it; rubber and steel never rise past their own Hop
+      lift     PIT WIND: onto the GRATING's wind (22, 11), a `lift` updraft (strength 16) over the pit, and held
+               there: glass is LAUNCHED with no Hop and, once high, R then R + U onto the PLATFORM; rubber
+               (16 under gravity's 24) and steel stay on the ground, then roll on into the pit: they fall
     -> (keys, [(mark, step)])"""
-    c = R.course("wind", WIND_SRC)
+    c = R.course("windscene", wind_scene_src())
     p = BB.Physics(c, play=True, mat=mat)
     keys, marks = [], []
     if leg == "path":
         _pu_goto(p, keys, 9, 12, vmax=200, n=1500)
-        marks.append((_wd_cross(p, keys, 12, 17, lean=True), len(keys)))
+        fan = _wd_el(p, (12, 12))
+        res = _wd_cross(p, keys, 12, 17, lean=True)
+        marks.append((res, len(keys)))
+        if res == "crossed":                    # (on, off the ramp that would roll it back into the wind)
+            _pu_goto(p, keys, 19, 12, vmax=200, n=1500, until=lambda q: (q.gx >> 12, q.gy >> 12) == (19, 12))
+        if p.fst[fan["fsb"] >> 3]:
+            marks.append(("the fan spinning", len(keys)))
+        for _ in range(BB.WD_SPIN + 8):         # (on, until it stops)
+            keys.append(0)
+            p.step(0)
+        marks.append(("the fan %s" % ("stopped" if not p.fst[fan["fsb"] >> 3] else "still spinning"), len(keys)))
     elif leg == "gust":
         _pu_goto(p, keys, 9, 10, vmax=200, n=1500, until=_wd_at(9, 10))
         _pu_goto(p, keys, 9, 9, vmax=120, n=1500, until=_wd_at(9, 9))
-        while _wd_blowing(p, (9, 8)) or not BB.wind_blowing(          # (the gust's first step)
-                next(q for q in p.props if q["kind"] == BB.WD_K and q["at"] == (9, 8)), (p.nstep + 1) & 0xFFFF):
-            keys.append(0)
+        while _wd_blowing(p, (9, 8)) or not BB.wind_blowing(_wd_el(p, (9, 8)), (p.nstep + 1) & 0xFFFF):
+            keys.append(0)                      # (to the gust's first step)
             p.step(0)
         marks.append(("gust on, " + _wd_cross(p, keys, 9, 17), len(keys)))
         if marks[-1][0].endswith("blown off"):
@@ -1444,31 +1476,61 @@ def wind_keys(leg, mat):
                 keys.append(0)
                 p.step(0)
             marks.append(("gust off, " + _wd_cross(p, keys, 9, 17), len(keys)))
-    else:
+    elif leg == "updraft":
         _pu_goto(p, keys, 5, 8, vmax=200, n=1500, until=_wd_at(5, 8))
         _pu_goto(p, keys, 5, 7, vmax=100, n=1500, until=_wd_at(5, 7))
-        top = 0
-        for i in range(260):
-            k = K.K_HOP if i < 2 else (K.K_R | K.K_U) if (p.gz >> 8) >= 40 or i > 150 else 0
+        top, res = 0, "no ledge"
+        for i in range(300):
+            k = K.K_HOP if i < 2 else (K.K_L | K.K_D) if p.gy < 0x4C00 and (p.air or abs(p.gvy) > 40) \
+                else (K.K_R | K.K_U) if (p.gz >> 8) >= 40 or i > 150 else 0     # (over the ledge: braked)
             keys.append(k)
             p.step(k)
             top = max(top, p.gz >> 8)
-            if p.goal or p.nfall:
+            if not p.air and (p.gy >> 12) <= 4 and (p.gz >> 8) >= 36:
+                res = "the ledge"
                 break
-        marks.append(("%s, apex %d px" % ("the ledge's finish (exit %d)" % p.exit if p.goal else "no ledge", top),
-                      len(keys)))
-    for _ in range(12):                         # (a few steps on: a respawn's or the finish's)
+            if p.nfall:
+                break
+        marks.append(("%s, apex %d px" % (res, top), len(keys)))
+    else:
+        for wp in ((8, 7), (9, 6), (16, 6), (17, 7), (18, 12)):    # (by the walkway: the thin path's wind would blow it off)
+            _pu_goto(p, keys, *wp, vmax=250, n=1500, until=lambda q, wp=wp: (q.gx >> 12, q.gy >> 12) == wp)
+        _pu_goto(p, keys, 18, 12, vmax=150, n=1500, until=_wd_at(18, 12))     # (clear of both finishes)
+        _pu_goto(p, keys, 21, 11, vmax=200, n=1500, until=_wd_at(21, 11))
+        _pu_goto(p, keys, 22, 11, vmax=100, n=1500, until=lambda q: (q.gx >> 12, q.gy >> 12) == (22, 11))
+        top, res, f0 = 0, "?", p.nfall
+        for i in range(400):
+            fly = (K.K_R if p.gx < 0x17800 else K.K_R | K.K_U) if p.gy >= 0x8800 else K.K_L | K.K_D   # (R, R + U;
+            if i < 120:                                             # over the platform braked)
+                k = fly if (p.gz >> 8) >= 44 else 0
+            else:
+                k = fly if p.air else K.K_R | K.K_D
+            keys.append(k)
+            p.step(k)
+            top = max(top, p.gz >> 8)
+            if not p.air and (p.gy >> 12) <= 8 and (p.gx >> 12) >= 23 and (p.gz >> 8) >= 36:
+                res = "the platform"
+                break
+            if p.nfall > f0:
+                res = "not lifted, fell in the pit"
+                break
+        marks.append(("%s, apex %d px" % (res, top), len(keys)))
+    for _ in range(12):                         # (a few steps on: a respawn's)
         keys.append(0)
         p.step(0)
     return keys, marks
 
 
-WIND_WANT = {("path", BB.MAT_STEEL): ("crossed",), ("path", BB.MAT_RUBBER): ("blown off",),
-             ("path", BB.MAT_GLASS): ("blown off",),
+WIND_WANT = {("path", BB.MAT_STEEL): ("crossed", "the fan spinning", "the fan stopped"),
+             ("path", BB.MAT_RUBBER): ("blown off", "the fan spinning", "the fan stopped"),
+             ("path", BB.MAT_GLASS): ("blown off", "the fan spinning", "the fan stopped"),
              ("gust", BB.MAT_RUBBER): ("gust on, blown off", "gust off, crossed"),
              ("gust", BB.MAT_GLASS): ("gust on, blown off", "gust off, crossed"),
-             ("updraft", BB.MAT_GLASS): ("the ledge's finish (exit 1)",),
-             ("updraft", BB.MAT_RUBBER): ("no ledge",), ("updraft", BB.MAT_STEEL): ("no ledge",)}
+             ("updraft", BB.MAT_GLASS): ("the ledge",),
+             ("updraft", BB.MAT_RUBBER): ("no ledge",), ("updraft", BB.MAT_STEEL): ("no ledge",),
+             ("lift", BB.MAT_GLASS): ("the platform",),
+             ("lift", BB.MAT_RUBBER): ("not lifted, fell in the pit",),
+             ("lift", BB.MAT_STEEL): ("not lifted, fell in the pit",)}
 
 
 def wind_ok(leg, mat, marks):
@@ -1910,23 +1972,27 @@ def fam_host():
 
 
 def wind_host(binp, lst, sym, fam):
-    """WIND (SPEC.md 128.34.8): the scenes on the knob build's WIND course, compiled from its source, with
-    the build's image and parts - each ball's push by its weight on the thin path, the gust on and off on
-    the crumbling bridge, the updraft only glass rises on - the guest's bz_step equal to the model at every
-    step (the ball, the slots, every pennant's POSE and its marks), what each scene is for asserted on the
-    model; and the red arms, each of which must part from the model: `wdstep` (STEP's entry 0: no push),
-    `wdglass` (glass's shift NOPed: glass pushed as rubber), `wdmark` (the gust's lane marks NOPed: a pennant
-    that turns never drawn), `wdlift` (the updraft's gvz test NOPed: glass climbs past the lift speed)"""
+    """WIND (SPEC.md 128.34.8, 128.34.11): the scenes on the knob build's WIND course (less its cracks),
+    compiled from its source, with the build's image and parts - each ball's push by its weight on the thin
+    path and its fan spinning and stopping, the gust on and off on the bridge with its wisp, the hop
+    updraft only glass rises on, the PIT WIND's grating launching glass alone - the guest's bz_step equal to
+    the model at every step (the ball, the spin bytes, the slots, every wind lane's POSE and its marks), what
+    each scene is for asserted on the model; and the red arms, each of which must part from the model:
+    `wdstep` (STEP's entry 0), `wdglass` (glass's shift NOPed: glass pushed as rubber), `wdfan` (the fan's
+    mark NOPed: a fan that turns never drawn), `wdgust` (the gust's marks NOPed: the wisp never drawn),
+    `wdspin` (the spin byte never set: bz_fst), `wdlift` (the updraft's gvz test NOPed), `wdpit` (the
+    launch NOPed: glass stays on the grating)"""
     out, fails = [], []
-    c = R.course("wind", WIND_SRC)
+    src = wind_scene_src()
+    c = R.course("windscene", src)
     nfst = (sum(pr["bits"] for pr in c.props if BB.is_fam(pr["kind"])) + 7) // 8
     if nfst > sym["bz_fsl"] - sym["bz_fst"]:
-        return out, ["the WIND course's %d state bytes are over the build's bz_fst (%d): its scenes cannot run on "
-                     "this image" % (nfst, sym["bz_fsl"] - sym["bz_fst"])]
+        return out, ["the WIND scenes' %d state bytes are over the build's bz_fst (%d): they cannot run on this "
+                     "image" % (nfst, sym["bz_fsl"] - sym["bz_fst"])]
     sc = {}
     for leg, mat in sorted(WIND_WANT):
         keys, marks = sc[(leg, mat)] = wind_keys(leg, mat)
-        p, bad = urun(binp, lst, sym, "wind", mat, keys, fam, src=WIND_SRC)
+        p, bad = urun(binp, lst, sym, "windscene", mat, keys, fam, src=src)
         ok = wind_ok(leg, mat, marks)
         out.append("the wind %s scene, %s, %d steps (%s): %s%s" % (
             leg, BB.MAT_NAMES[mat], len(keys), "; ".join("%s at %d" % m_ for m_ in marks),
@@ -1945,16 +2011,20 @@ def wind_host(binp, lst, sym, fam):
         b = bytearray(b)
         b[i:i + (n or len(pat))] = b"\x90" * (n or len(pat))
         return bytes(b)
-    gvz = sym["bz_gvz"]
-    lift = b"\x81\x3e" + struct.pack("<HH", gvz, BB.WD_LIFT) + b"\x7d"   # cmp word [bz_gvz], LIFT; jge
+    lift = b"\x81\x3e" + struct.pack("<HH", sym["bz_gvz"], BB.WD_LIFT) + b"\x7d"   # cmp word [bz_gvz], LIFT; jge
+    mk = b"\xff\x1e" + struct.pack("<H", sym["bz_fmkp"])                          # call far [bz_fmkp]
+    launch = b"\xc6\x06" + struct.pack("<HB", sym["bz_air"], 1)                    # mov byte [bz_air], 1
     for name, ff, leg, mat, want in (
             ("wdstep", fam_parts({"wind": _noentry(part, BB.H_STEP)}), "path", BB.MAT_STEEL, "the ball"),
             ("wdglass", fam_parts({"wind": nop(part, b"\xd1\xe0")}), "path", BB.MAT_GLASS, "the ball"),
-            ("wdmark", fam_parts({"wind": nop(part, b"\xff\x1e" + struct.pack("<H", sym["bz_fmkp"]))}),
-             "gust", BB.MAT_RUBBER, "never drawn"),
+            ("wdfan", fam_parts({"wind": nop(part, mk, 0)}), "path", BB.MAT_STEEL, "never drawn"),
+            ("wdgust", fam_parts({"wind": nop(part, mk, 1)}), "gust", BB.MAT_RUBBER, "never drawn"),
+            ("wdspin", fam_parts({"wind": nop(part, b"\xb5" + bytes((BB.WD_SPIN,)))}), "path", BB.MAT_STEEL,
+             "bz_fst"),
             ("wdlift", fam_parts({"wind": nop(part, lift, 0, len(lift) + 1)}), "updraft", BB.MAT_GLASS,
-             "the ball")):
-        _p, bad = urun(binp, lst, sym, "wind", mat, sc[(leg, mat)][0], ff, src=WIND_SRC)
+             "the ball"),
+            ("wdpit", fam_parts({"wind": nop(part, launch)}), "lift", BB.MAT_GLASS, "the ball")):
+        _p, bad = urun(binp, lst, sym, "windscene", mat, sc[(leg, mat)][0], ff, src=src)
         ok = any(want in b for b in bad)
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
