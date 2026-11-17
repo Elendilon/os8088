@@ -281308,3 +281308,220 @@ selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
 `bonanzaring` (its oracle reads every part, the pathway's included),
 `bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
 a game), `bonanzamega`.
+
+### 128.32 WATER, a family (the owner's design P1, 2026-11-17)
+
+The owner's sketch (`docs/plans/bounce-bonanza/water-sketch.png`) and answers
+W1 - W8 are [BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)'s
+"P1 WATER"; this is the contract they were built to. A walkway of floor cells
+with one cell of it WATER, flush with it, ripples drawn; below the water a
+glass-walled column; an ARCH at the foot of the column's FRONT face, onto a
+lower path. Rubber and glass roll across the water at the walkway's level;
+steel sinks down the column and rolls out of the front. A family by
+128.25.6.8's recipe: **no resident engine change, no surface added,
+`BZ_PHYSV` unmoved.** BUILT and MEASURED where marked; PREDICTED otherwise.
+
+#### 128.32.1 The statements (BUILT)
+
+    uses water
+    water <shape> top <H> bed <B> [ripple <wx> <wy> ...]
+    arch <wx> <wy> +x|+y
+
+- **`water`** lays every cell of the shape (`tile`, `rect`, as a floor's)
+  AFTER every room, surface, hole and FIELD cell: a FLAT `sand` FLOOR at `H`
+  (units, halves allowed), its bed `B` kept on the tile (`Tile.wbed`), and one
+  `water` ELEMENT a cell (kind 26, `BZ_FK_WATER`) - OBS, and never SAFE (every
+  prop cell's rule), so no respawn, start or flag stands on water. `ripple`
+  (the owner's W7, ANIMATED ripples on some columns) is WRITTEN, NOT BUILT:
+  refused by name; every water top carries its ripples drawn (128.32.5).
+- **`arch`** names a water cell and the FRONT face (`+x` the se face, `+y`
+  the sw face; W3: the ball leaves out of the front) its opening is cut in. It
+  is the TOOL's alone: no element, no record, no grid byte (the plan made it
+  an element whose cell was a WALL for rubber and glass; nothing needs it -
+  from the exit at B the column is a floor at H for them, a wall). Its exit,
+  the cell across that face, is the lower path.
+- **The record** (128.25.6.4's): +16 FSB (no state bits: 0), +17 the class
+  (`ATTEMPT`: nothing to reset), **+18 the bed `B`, +19 the top `H`** (signed
+  half units), +20 - +31 zero. `read_part` refuses any other, and a water
+  cell whose grid cell is not a sand flat FLOOR at +19 with OBS and not SAFE.
+
+#### 128.32.2 The family (BUILT)
+
+ID **7** (`BZ_FID_WATER`), one kind, hooks **CELL and STEP**, home
+**`resident`** (128.32.7). No RESET: a play's start finds the slot zero and
+`bz_mrec` fresh, and a respawn's place refills the window (CELL), which puts
+back what CELL raised before any flag's material is copied (`.resp` places,
+then `bz_rflag` calls `bz_setmat`). No state bits. Its `FAMV` folds
+`WA_SINK`, `WA_HTHR`, `WA_ESH` and every material's water entry (`famv`'s
+"WA"). The slot, 6 bytes of `BZF_SLOT`'s 8:
+
+| at | what |
+|---|---|
+| +0 | the material STEP last saw |
+| +1 | IN: the window's centre was a water cell at the last refill |
+| +2 | the HTHR it replaced (word), kept once, on the way in |
+| +4 | that centre's top, whole px (word) |
+
+| constant | value | what |
+|---|---|---|
+| `WA_SINK` | 160 | below a water cell's top, gvz is at least -160 after STEP; with the next step's G a fall of 184 - **0.72 px a step, a 3-unit column in 37 steps, 0.67 s** (W6: faster than water, slow enough to read; MEASURED, `water-steel`) |
+| `WA_HTHR` | 7FFFh | `bz_mrec`'s HTHR while the centre is water: no landing's lvz reaches it, so glass never shatters and steel never stuns on water |
+| `WA_ESH` | 2 | the floor's restitution on water: sand's less a quarter, `e - (e >> 2)` - rubber 77 against sand's 102, steel 15, glass 39 (W1: less bounce than sand) |
+
+**CELL** (`bz_wtail`'s first act, every refill), **per ball**: for steel every
+water cell of the window takes z0 = its record's bed (+18); for rubber and
+glass it stays at the top, one continuous floor. The rewrite keeps the cell's
+other three bytes and is IDEMPOTENT, as it must be (`bz_win9i` keeps cells of
+the last window, already rewritten). Then, by the window's CENTRE:
+
+- **the centre a water cell**: +4 = its top in px; IN set (HTHR kept at +2
+  when IN was clear); HTHR = `WA_HTHR`; and `bz_surfset`'s work for the ball on
+  water, written again in the part (a part never calls the package): `bz_se` =
+  force max(2, ACC >> 1), sand's drag shift, GRIP, and (EF >> 1) less its
+  >> `WA_ESH` - read from `bz_mrec`, the numbers `bbcourse.water_entry`
+  derives from `MATERIALS` and asserts are sand's row - `bz_surf` = sand,
+  `bz_dmask` sand's with both drag remainders cut to it, `bz_ftg` rebuilt
+  (`bz_ramp`'s arithmetic, `bz_wacc` added, as PICKUPS' speed needs). The
+  window's own surface test that follows sees sand and makes no `bz_surfset`,
+  so the lowered e reaches step 6's landing - on the step the ball enters the
+  cell too, which a STEP-time override could not.
+- **the centre not water and IN set**: IN cleared, HTHR = +2, `bz_surf` =
+  0FFh, so that test makes a `bz_surfset` for the new centre.
+
+**STEP** (`.count`, every step): IN, airborne and z (`[bz_gz + 1]`) below
++4: **gvx = gvy = 0** and gvz at least `-WA_SINK`. The horizontal stop is NOT
+in the plan's design, and the code proved it needed: with the cap alone a
+steel ball entering at walkway speed drifted across the column as it sank,
+crossed into the arch's exit cell 12 px above its floor - out through the
+glass over the arch - and stunned landing on the yard (the model, before the
+fix). Stopped, it sinks straight down onto the bed, where the arrows roll it
+out. Then `bz_mat` against +0: changed (a pad's swap, a respawn's flag
+ball), +0 = it and **`bz_fref`** set, so the next step's head refills the
+window for the new ball (a swap refills nothing of its own). A material
+changes only off water (a pad and a flag are cells of their own), so IN is
+always clear when one does, and the HTHR kept at +2 is never a stale one.
+
+**Two families on `bz_mrec`.** PICKUPS' jump writes its HOP and WATER its
+HTHR: different words, never meeting. Both rebuild `bz_ftg` from the `bz_se`
+the centre left (PICKUPS' `pu_tab` reads WATER's force, the same as sand's).
+The rule for a later family that writes HTHR: it is WATER's while IN.
+
+#### 128.32.3 The model (BUILT)
+
+`bbcourse.WaterFamily`, step for step the part. `Physics` gains two working
+values (128.25.6.8 step 2): **`hthr`** (what step 6's hard landing compares,
+where `MATERIALS[mat]["HTHR"]` was read) and **`wef`** (the floor e CELL
+wrote, None for the surface's own), both reset by `_setmat` as `bz_setmat`'s
+copy and `bz_surfset` reset the guest's. A course without water runs exactly
+the code it ran (`hthr` the material's, `wef` None).
+
+#### 128.32.4 The tool's refusals and the reach (BUILT)
+
+Refused, naming the line (`--selfcheck`'s section `water`, item 2): a bed
+not more than a climb (4 px) under the top; a water cell not SEALED at its
+bed - every edge neighbour must be water, its arch's exit, a WALL, or a floor
+whose two corners on the shared edge are both more than a climb above the
+bed (never VOID, a FIELD cell, or a floor too low: steel at the bed would roll
+out through the glass); an arch on a cell that is not water, in a back face,
+twice in one face, or onto an exit that is not a flat non-water FLOOR exactly
+at the bed; `ripple`; water with no `uses water` (the family rule); water on
+a FIELD or split cell or laid twice. W2 needs no rule: from the exit the
+column is a wall to rubber and glass, which bump at its face as at the
+windmill's doorway. **The reach** takes a BED form (`reach_forms`, beside
+GLASS's void): every water cell a floor at B, unioned, so the occluders, OCC
+and the bounds see a ball in a column at every height; `_hack noforms` is
+its control (item 6: the water cells' zlo 0 px, 24 with it).
+
+#### 128.32.5 The art and the DEPTH KEY (BUILT; LOOKED AT on the host previews)
+
+A water cell's top and its two front faces are drawn and KEYED **s + 1**
+(`draw_ops`): a ball INSIDE the cell (s_b = s) below its top is then behind
+its own column's art by 128.10.4.4's rule, the records cut there lay the
+glass over it, and the ghost checker every mask carries (128.15.10.1) shows
+it as a 50% ghost behind the glass, on both cards (W8). A ball ON the water
+(at H grounded, with the margin, or above it) is never covered. FLUSH (W5)
+means a column's side faces are walkway-high on every side but the front.
+**An arch** is GEOMETRY after its face (`water_ops`: `_arch` on the face, 18
+rows x 14 px, fewer rows on a shallower column), black, keyed the cell's
+TRUE s with the face's tops: steel passing it at the bed is drawn whole, and
+out on the exit (s + 1) it is in front of everything of the column. AV
+(128.29) runs only over VOID, so a ball in a column uses these records. The
+inks: the top cyan with two white RIPPLE rings round its centre (world gu 2.5
+- 3.5 and 5.5 - 6.5: every top the same blocks); the sw face cyan, the se
+face a cyan and black checker, each crossed by white 2:1 GLINTS every 12 px.
+`_WATER_S0` is the red arm (item 10: steel at the bed of the test course's
+first column under 110 laid footprint pixels with the key, 96 without it -
+the column's own glass the difference; the rest is the walkway's).
+
+A nuance, not refused: a ball in a cell BESIDE a column in its own row
+(`(wx + 1, wy - 1)`), lower than the column's top - one falling past a
+walkway's end - is laid under the column's s + 1 art where the two overlap.
+
+#### 128.32.6 The test course: `BZWATER=1` (BUILT)
+
+`apps/bonanza/courses/water.bbc`, WATER "Water Test", on no shipped disk: the
+knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathwater.sed`; BZSHAPES's precedent, the two refused together), so Play
+Game, Enter plays it:
+
+    make BUILD=build/water BZWATER=1 bonanzadisk
+
+A walkway 3 units up over a yard at 0: the sketch's column at (8, 8), its
+arch +y; a ROW of four columns (11 - 14, 8) with one arch at the far end, a
+ledge a unit up sealing the other three (steel walks the bed under the row);
+a STEEL pad beside the first column (its window holds the water: the swap
+refills it), a RUBBER pad, and a GLASS pad on a tower 7 units up behind the
+row. The finish (exit 0) on the yard, exit 1 on the walkway's far end, to
+FIRST. No shipped course, demo or identity moves.
+
+#### 128.32.7 What it costs, and its home (MEASURED: `make bonanza`, against `3ba74532a`)
+
+**Home `resident`**, the owner's default (2026-11-17), kept although no
+shipped course names water yet: as `fetch` it would add a part row and a read
+at every water course's launch, for 352 bytes of the arena's floor that every
+play pays as `resident`. Moving it is its `FAMILIES` row's `home` alone.
+
+| | before | after | |
+|---|---|---|---|
+| the part `bzf-water.bin` | - | 341 bytes, `paras` 22 | spans: header 24, CELL 239, STEP 61, the slot routine 17 |
+| BONANZA's image | 49,732 | 49,733 | +1: `bz_ftab`'s byte for ID 7 |
+| its bss | 11,431 | 11,431 | 0 (the slot fits `BZF_SLOT`; no state bits) |
+| the RESIDENT BUNDLE, RAM | 33,376 | 33,728 | **+352, every play's RAM**; 2,086 -> 2,108 paragraphs, the pinned claim still 2,112 (`OP_ARQUANT`) |
+| the bundle, packed (lzb) | 3,223 | 3,458 | +235 |
+| `BONANZA.O88` | 118,615 | 118,882 | +267 |
+| every shipped course part, demo and identity | | | unchanged, byte for byte |
+
+**Per step (PREDICTED, not measured on MartyPC):** a course without water
+pays nothing new (the hook-byte tests it already paid). With water, STEP is
+about 20 instructions and the dispatch, ~0.3k cycles a step; CELL runs only
+on a refill (the centre's cell changed): a walk of the course's records,
+about 30 cycles each, and about 0.5k more when the centre is water (`bz_se`,
+the ramp's nine bytes).
+
+#### 128.32.8 The proofs (BUILT)
+
+`tests/bonanza_phys.py --check`'s unicorn half (`water_host`): the guest's
+`bz_step`, with the build's bundle, against the model at EVERY step - the
+ball, the slots, `bz_fref`, the window and water's working values (HTHR,
+`bz_surf`, the floor's e) - on WATER compiled from the tree whatever the
+build (the part is in every build's bundle; `bz_crs` borrowed from
+PLAYGROUND's, as `bz_crshdr` reads the part alone). `water-steel` (off the
+walkway into the column: sinking from step 11 to its landing at step 48, lvz
+184, no stun, then out of the arch to (8, 9)); `water-rubber` (dropped 3
+units onto the water: lvz 552, rebound 166 where sand's is 219);
+`water-glass` (dropped 5 units: lvz 696, over the threshold 552, whole - the
+same drop onto the walkway shatters it, on the model); `water-pad` (rubber
+onto the steel pad: the swap's refill, then it sinks). Red arms, each the
+part assembled from a patched `water.asm`: `wacell` (CELL's entry 0: the
+window), `wahthr` (HTHR not put back: the working values once steel leaves),
+`warefill` (no refill on a changed material: `bz_fref`). `--selfcheck`'s
+section `water`: the refusals, the cells and records, the BED reach and its
+control, the depth key and its red arm.
+
+**Open, the owner's:** keeping the column steel's (the plan's five ideas -
+none chosen; the test course leaves the yard open to every ball); ANIMATED
+ripples (W7: a lane posed by a POSE hook and marked by STEP, at most two a
+window - not built); the BOB of a floating ball (W1: not nearly free - a bob
+the physics does not have is the ball's drawn z leaving its physics z, a
+resident display change - future); the art on the glass of both cards (LOOKED
+AT on the host previews alone).
