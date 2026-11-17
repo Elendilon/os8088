@@ -21451,6 +21451,32 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
+#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 128.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
+# BZWIND=1 (SPEC.md 128.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
+# the shipped ones: every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
+# with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 7 (WIND's exit 1).
+# STAMPED; without it the build is byte for byte the knob-less one.  Not with BZSHAPES=1 (both take pad 0).
+BZWIND ?=
+ifeq ($(filter $(BZWIND),1),)
+ifneq ($(BZWIND),)
+$(error BZWIND=$(BZWIND) is 1 or empty)
+endif
+endif
+ifeq ($(BZWIND),1)
+ifeq ($(BZSHAPES),1)
+$(error BZWIND=1 and BZSHAPES=1 both make their course the pathway's pad 0: build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/wind.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathwind.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathwind.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathwind.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
+$(BZWINDSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzwind-*
+	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
 # it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
@@ -21481,7 +21507,7 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
-BZ_FAMS := probe glass rotor spring tube pickups
+BZ_FAMS := probe glass rotor spring tube pickups wind
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
@@ -21518,7 +21544,7 @@ $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
-                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZFSHOWSTAMP) \
+                   fonts/tallx.f8 $(BZ_COURSES) $(BZ_PATH) $(BZSHAPESTAMP) $(BZWINDSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
