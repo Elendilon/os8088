@@ -43,11 +43,12 @@ GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the co
 
 ; RESET (either class: every crack is RESPAWN, cleared by the engine): no
 ; crack counting; every crack's and glass tile's lane MARKED (its pose may
-; have gone back)
+; have gone back) - every RECORD's, not every lane's: a GROUP MEMBER has no
+; lane of its own and bz_fmark marks its group's (SPEC.md 128.32.5)
 gl_reset:
     call gl_slot
     mov byte [di], 0
-    mov cl, [bz_nlane]
+    mov cl, [bz_nprop]
     xor ch, ch
     jcxz .out
     mov es, [bz_cseg]

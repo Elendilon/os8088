@@ -669,7 +669,7 @@ bz_ltrue:
     cmp byte [bz_lknd + bx], BZ_PK_SIGN
     je .sign
     cmp byte [bz_lknd + bx], BZ_FK0 ; wave 9 (128.25.6.3): a FAMILY kind's POSE
-    jae .fam
+    jae .fam                    ; (or a GROUP's, 128.32.5: past BZ_FK0)
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -695,7 +695,11 @@ bz_ltrue:
 .fam:
     push dx
     mov dl, [bz_lknd + bx]      ; DL the kind, BX the element (a lane's index is
-    mov ah, dl                  ; its record's), AH the kind
+    cmp dl, BZ_PK_GROUP         ; its record's), AH the kind
+    jne .fam1
+    jmp .grp
+.fam1:
+    mov ah, dl
     mov al, BZ_HK_POSE
     call bz_fone                ; -> AL the pose
     pop dx
@@ -744,6 +748,46 @@ bz_ltrue:
     mov al, [bz_tdig + bx]
     pop bx
     jmp short .out
+; a GROUP lane (SPEC.md 128.32.5): the sum over its entries (+16, four bytes
+; each: the member, its kind - 0 no more -, its CLASS MAP, its MULT) of the
+; member's POSE's class x MULT
+.grp:
+    push bx
+    push cx
+    push si
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    mov cx, BZ_GRP_MMAX         ; CH the sum (0), CL the entries left
+.ge:
+    mov dl, [es:si + BZP_GENT + 1]
+    or dl, dl
+    jz .gd
+    mov bl, [es:si + BZP_GENT]  ; (BH 0: a lane's index is a byte)
+    mov ah, dl
+    mov al, BZ_HK_POSE
+    call bz_fone                ; -> AL the member's pose
+    push cx
+    mov cl, al
+    shl cl, 1
+    mov al, [es:si + BZP_GENT + 2]
+    shr al, cl
+    and al, 3                   ; its class
+    mul byte [es:si + BZP_GENT + 3]
+    pop cx
+    add ch, al
+    add si, 4
+    dec cl
+    jnz .ge
+.gd:
+    mov al, ch
+    pop es
+    pop si
+    pop cx
+    pop bx
+    pop dx
+    mov [bz_ltru + bx], al      ; (.out's, out of a short jump's reach)
+    ret
 
 ; -----------------------------------------------------------------------------
 ; bz_nset - SIGN BL's pose AL (wave 8R, SPEC.md 128.22.4.1): bz_nst[BL]

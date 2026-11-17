@@ -278632,10 +278632,11 @@ below two rows down, so A PATH OF THEM SHARES NO BLOCK (a full-tile lane, 4
 x 3, would: two lanes sharing blocks is refused, 128.19.10). A GLASS tile's
 lane is THREE rows, from `(cy - 8) >> 3` (`glass_lane_rect`, below): its
 neighbours along `wx` and `wy` are still two columns away, but the tile
-diagonally below, `(wx + 1, wy + 1)`, would share a row - so **two glass
-tiles touching at that corner are REFUSED** by name ("touch at a corner ...
-a glass path may not turn or run two wide; break it with a solid tile"), and
-a crack lane that would meet a glass one is the generic refusal. The top's centre
+diagonally below, `(wx + 1, wy + 1)`, would share a row. Those two tiles
+were REFUSED by name until group lanes merged (2026-11-17); now they GROUP
+(128.32), as a crack lane that meets a glass one does, so a glass path may
+turn either way and run two wide. A lane of any other kind that meets them
+is still the generic refusal ("two lanes share blocks"). The top's centre
 must be on a block column (`x0` a multiple of 8, else refused). SLOW event
 lanes. Poses are MARKS clipped to what is drawn in front of the tile (as a
 pennant's), CGA inks (the Hercules translates them as every lane's):
@@ -278728,13 +278729,32 @@ GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
 red arm (item 7: a crack path as the only bridge past a flag compiles under
 its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
 
-##### 128.25.18.1 EXPLORATORY: a bigger hole, and floating cracks that vanish (the owner, 2026-11-17)
+##### 128.25.18.1 The hole's size, and floating cracks that vanish (the owner, 2026-11-17; MERGED)
+
+**THE RECOMMENDED CRACKED TILE IS THE FLOATING THIN BRIDGE** (the owner,
+2026-11-17: *"Floating thin bridge will be our default 'cracked' tile
+go-to."*): a crack on a `float <shape> thick <units>` cell (128.27.2.1), a
+2 x 3-block walkway tile that vanishes on breaking, run between FULL tiles.
+Reach for it first; the rest of this section is the other options, kept
+because the owner asked: *"Smaller holes/larger holes that require a tile
+between them can stay in as long as they are not huge, or having an effect
+when not used."* Merged with group lanes (128.32) the same day, which
+changed two answers below: `wide` cracks edge to edge now GROUP rather than
+being refused, and so do bridge cracks touching at a corner down the
+screen. **What an unused option costs** (MEASURED at the merge, int5's
+report): the hole sizes and the thin bridge are the course tool's alone -
+no resident byte, no part byte, no clock; round 1's whole-column vanish is
+43 bytes of the GLASS part (`gl_mark`'s partner and STEP's companion test,
+in the resident bundle since GLASS went resident) and a few dozen clocks a
+mark and a counting step on every course with cracks, whether or not one
+floats.
+
+The original brief:
 
 *"For cracked tile art/mechanics: let's try making the hole in the center
 bigger, and maybe one other option: cracked tiles have the option to float,
 and when they do, they can completely disappear instead of still existing
-with a hole in the center."* Built to be PLAYED, nothing merges until the
-owner likes the look and feel. Both options are the course tool's picture
+with a hole in the center."* Both options are the course tool's picture
 and GLASS's part: no resident byte, no physics constant, no new hook.
 
 **A - THE HOLE'S SIZE, a crack clause**: `prop crack <wx> <wy> [hole
@@ -278748,11 +278768,16 @@ compares the sizes side by side on one course.
 - `band`: the same lane, the hole as tall as its 16 px band holds (`< 7`): a
   path of them still shares no block.
 - `wide`: a lane 4 blocks across (the top's 32 px) and the 2 - 3 block rows
-  the top spans; the hole the top's diamond less a ragged rim of about a
-  quarter (about 24 x 12 px: wider than the ball, its sides show round a
-  ball sinking through it), and the hairlines drawn twice as long. Two wide
-  cracks edge to edge share blocks and are REFUSED by the lanes' rule
-  (128.19.10): wide cracks stand alone or one cell apart.
+  the top spans; the hairlines drawn twice as long, and the hole the whole
+  top less a SOLID rim 1.5 - 2.5 units wide (`|u| / 2 + |v| < 6.5` LESS the
+  rag, no hairline inside it, a lone rim pixel between two hole pixels
+  filled: about 26 x 12 px, wider than the ball, its sides show round a ball
+  sinking through it). The rim is group lanes' `full` art (128.32.8), which
+  fixed round 1's outward rag leaving lone specks of floor round the hole
+  (the owner's "spattering of green dots"); `wide` and `full` were two
+  spellings of one hole and the merge kept one, `hole wide`. Two wide
+  cracks edge to edge share blocks and GROUP (128.32): each breaks on its
+  own and two broken neighbours are one opening with the rims between.
 
 The physics needs nothing: the size is the picture's, a broken crack's CELL
 is the NEAR void whatever its art (128.25.18's CELL row), and
@@ -278788,17 +278813,23 @@ over ...`: float its neighbours too, or keep a hole).
   changes (the reach already takes the broken cell as a NEAR void).
 - A path of vanishing cracks edge to edge shares blocks (4 columns each)
   and is refused: one cell apart, or a crack among plain floating tiles.
+  They never GROUP (128.32.1): a companion shares its crack's byte, and a
+  group member has no lane of its own (*"two lanes share blocks ...: a
+  vanishing crack's two lanes never group"*). A thin bridge is the floating
+  path that falls away tile by tile.
 
 **Round 2 (a thin bridge)**: `float <shape> thick <units>` (128.27.2.1)
 makes a floating slab thinner than 3 units, a BRIDGE; a crack on it
 vanishes inside a 2 x 3-block lane of its own, its side corners left as
 jagged leftovers, so bridge cracks may lie edge to edge.
 
-**Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge,
+**Where to play them**: PLAYGROUND's CRACK LAB (and, for `wide` cracks that
+group, the GROUP LAB on the glass section's far platform, 128.32.8), off the apron's right edge,
 in the start's rows (roll +x from the start): a FLOATING bridge at `wy` 16
-(`wx` 34 - 40, its cracks 35, 37 and 39 vanish) and a grounded row at `wy`
-19 (`wide` holes at 38 and 40, `band` holes at 43 and 44 past an end
-platform, `wx` 41 - 42), a rubber pad (30, 18) and a steel pad (31, 18) on
+(`wx` 34 - 40, its cracks 35, 37 and 39 vanish), the THIN BRIDGE at `wy` 14
+(128.27.2.1) and a grounded row at `wy` 19 (`band` holes at 43 and 44 past
+an end platform, `wx` 41 - 42; its two lone `wide` holes, at 38 and 40, left
+at the merge, the group lab's three showing the size), a rubber pad (30, 18) and a steel pad (31, 18) on
 the apron beside it, off both rows' run-ups. The demo replays as before
 (1,504 steps, to the cup), its identity alone moved.
 
@@ -278814,15 +278845,17 @@ pose, so a `small` or `band` crack 32 + its record's 32, a `wide` one 96 +
 32, a vanishing one 192 + two records 64 (the rest is new blocks).
 
 **Proved on the host**: `tests/bonanza_phys.py --check`'s `crack-lab` leg
-(steel slowly onto a vanishing crack: a fall, restored; slowly onto a wide
-hole: a fall, restored; at speed across the floating bridge: all three
+(steel slowly onto a vanishing crack: a fall, restored; slowly onto a band
+hole: a fall, restored - a wide one until the merge; at speed across the floating bridge: all three
 vanished behind it, the companions' lanes among them) - the guest under
 unicorn equal to the model at every step, every pose change drawn - and
 its red arm `glspart` (`gl_mark` without the partner's mark: red, "never
 drawn"); `--selfcheck` item 2 (a floating crack's two lanes and one byte,
 its control `_hack novanish` one holed lane; refused: a hole of no size,
-two wide cracks edge to edge, a vanishing crack whose grounded neighbours'
-faces would show past its lanes).
+`hole` on a probe, two vanishing cracks edge to edge, a vanishing crack
+whose grounded neighbours' faces would show past its lanes; GROUPED, each
+group lane re-rendered from its members' own art: two wide cracks edge to
+edge, two bridge cracks touching at a corner).
 
 #### 128.25.19 PICKUPS as built (story 9.6)
 
@@ -279410,12 +279443,13 @@ the apron; `BENCH` at 11.
   `float rect 0 0 64 64`, the whole map, so every route and pad it gains
   later floats too. The title and every tour course stay grounded.
 
-##### 128.27.2.1 EXPLORATORY: a THIN floating slab, `float <shape> thick <units>` (the owner, 2026-11-17)
+##### 128.27.2.1 A THIN floating slab, `float <shape> thick <units>` (the owner, 2026-11-17; MERGED: the recommended cracked tile)
 
 *"The crack-then-disappear looks great. Can that have an option to 'float'
 and not have its pillar? Aka, a 'bridge' of cracked tiles that disappears
-rather than an entire 'column' that does."* Built to be played; nothing
-merges until the owner likes it.
+rather than an entire 'column' that does."* Round 4 *"looks right"*, and the
+owner made it the default: *"Floating thin bridge will be our default
+'cracked' tile go-to"* (128.25.18.1).
 
 - **The clause**: `float <shape> thick <units>` - the cells float, and their
   faces over the void hang `<units>` deep (a multiple of 0.25, 2 px, from
@@ -279445,17 +279479,34 @@ merges until the owner likes it.
   edge neighbours' 2-wide lanes are two block columns away: a run of them
   edge to edge is accepted and each vanishes on its own (a neighbour's
   corner left in the other's lane is drawn from a picture with that
-  neighbour whole - which is the leftover). What is still REFUSED: two
-  bridge cracks touching at a corner DOWN the screen (`wx + 1, wy + 1`: the
-  same columns, 16 lines lower, one block row shared - "two lanes share
-  blocks"); corner neighbours ACROSS the screen (`wx + 1, wy - 1`) are four
-  columns apart and fine. No GROUP LANES are needed (another agent's
-  experimental work).
+  neighbour whole - which is the leftover). Two bridge cracks touching at a
+  corner DOWN the screen (`wx + 1, wy + 1`: the same columns, 16 lines
+  lower, one block row shared) were refused until group lanes merged; now
+  they GROUP (128.32), the shared row's lane posed by the two together.
+  Corner neighbours ACROSS the screen (`wx + 1, wy - 1`) are four columns
+  apart and need nothing.
+- **Drawn only in its lanes** (rounds 3 and 4, the owner: *"actually 2x3
+  (like glass 11), THIN, drawn only inside the lane"*, then *"connect it to
+  a FULL tile"*): a crack on a bridge is a narrow WALKWAY tile, drawn only
+  inside the 2 x 3 lane rectangles of the bridge's cracks - each rectangle
+  draws all of the walkway that falls in it, a neighbour's tip included, so
+  a straight run reads as one continuous thin walkway - and its pose 3
+  removes all of the walkway in its own rectangle. A plain `thick` cell (no
+  crack) is a FULL tile, drawn whole; a walkway tile's corner that falls in
+  no walkway lane is drawn only where it meets a full tile, for good, as
+  that tile's edge. So a bridge runs from full tile to full tile; while
+  whole it is one walkway, and with every crack broken nothing is left
+  between the two full tiles but their own edge corners. Physics is
+  unchanged (full-tile cells; a broken crack the NEAR void), and on a
+  straight run drawing and cells agree everywhere. One known nick: where a
+  one-unit face runs below the lanes' 24 lines (PLAYGROUND's (40, 14) /
+  (40, 15) junction) a notch of it is cut.
 - A 3-unit float (no `thick`) keeps round 1's whole-column vanish
   (128.25.18.1: two lanes, a companion) for comparison.
-- **Shipped on**: PLAYGROUND's crack lab, a thin bridge at `wy` 14 (wx 34 -
-  37 at half a unit, 38 - 40 at one unit, stepping down at (40, 15) onto
-  the 3-unit bridge), its five cracks 35 - 39 EDGE TO EDGE.
+- **Shipped on**: PLAYGROUND's crack lab, a thin bridge at `wy` 14 (full
+  tiles at 34 and 40, the walkway 35 - 39 at half a unit then one unit,
+  stepping down at (40, 15) onto the 3-unit bridge), its five cracks 35 - 39
+  EDGE TO EDGE.
   `tests/bonanza_phys.py --check`'s `crack-bridge` leg: rubber slowly onto
   the first (a fall, restored), then at speed across all five (every one
   vanished behind it), guest = model at every step and every pose drawn.
@@ -280805,3 +280856,273 @@ selfcheck), `bonanzapath` (the pathway played, held and re-fetched),
 `bonanzaring` (its oracle reads every part, the pathway's included),
 `bonanzatitle` (the title enters the game), `bonanzaexit` (the claims around
 a game), `bonanzamega`.
+
+### 128.32 Group lanes (the owner, 2026-11-17; MERGED)
+
+*Merged with the crack options (128.25.18.1, 128.27.2.1) on 2026-11-17 -
+the owner: "Keep group lanes, I don't want to lose the option if it turns
+out we immediately need it for something else, and 123 bytes of game code
+is worth having." Written on branch `w9/grouplane` as 128.31, renumbered
+here (128.31 is the pathway's, merged first). What the merge changed: the
+`full` clause is gone - a crack's whole-top hole is `hole wide`
+(128.25.18.1), drawn with `full`'s rim, and glass has one look, 11, in its
+2 x 3 lanes; groups now also form where crack2's rules used to refuse
+(wide cracks edge to edge, a thin bridge's or a glass path's corner pair);
+a vanishing crack (round 1's companion form) never groups.*
+
+*"This is bigger levels again; but it bites the tiles that need them most
+... Not really looking to overlap too many props, but for tiles, it will be
+useful."* Until this section a lane was a rectangle of the block map of at
+most one box (128.12.4.1: 4 word columns x 3 block rows, 32 x 24 px), and
+two lanes might not share a block (128.19.10's refusal, *"two lanes share
+blocks"*). So a crack or a glass tile got only the 2 x 2-block centre of its
+top (128.25.18), a wider hole or a taller patch could not sit beside its
+neighbour, a floating tile with its faces needed a hand-built companion lane,
+and look-2 glass could not join into one pane (the exploratory branches'
+reports: `glassart2`, `crack2`). A **GROUP** is the elements whose lanes
+would share blocks; it is drawn by lanes that each depend on the members'
+COMBINED state.
+
+#### 128.32.1 The decisions, in one table
+
+| question | answer |
+|---|---|
+| what forms a group | the TOOL, automatically: elements whose lane rectangles overlap, transitively (a connected component). A course with no overlap has no group and compiles to the same bytes as before |
+| one lane a group? | **No - a group is a SET of box-sized lanes** (128.32.2: the union of two edge-adjacent tops is 48 x 24 px, past the box every lane path is built on). The union's blocks are cut by DEPENDENCY: each block belongs to the members whose art changes in it, and each such class is cut into lanes of at most one box |
+| a group's lane's pose | `sum over its members m of class_m(pose_m) x mult_m`: each member's pose reduced to its CLASS inside that lane (poses whose pixels there are equal are one class), mixed radix. The guest computes it in `bz_ltrue` from the record; nothing else in the walk, the wheel, the contact box or the lead changes |
+| who may be a member | a family element whose family is `group`-able (its part walks EVERY record, not only the lanes: 128.32.5): GLASS's crack and glass tile today - but never a crack that VANISHES over two lanes (a 3-unit `float`'s, 128.25.18.1: its companion shares its byte and a member has no lane), refused as *"a vanishing crack's two lanes never group"*. A resident prop's lane (a rotor, a post, a flag, a clock, a sign) and a PICKUP's icon still REFUSE to share blocks |
+| caps, refused at build time | members a lane **4**; a member's poses **4** (its class map is 2 bits a pose); a lane's poses (the product of its members' classes) **64**; lanes one element is in **8** |
+| larger than a box | yes: a group is any number of lanes. The price is that its lanes commit on their own frames (128.32.6) |
+| the art | no clause of its own: whatever art overlaps groups. As merged, `prop crack <wx> <wy> hole wide` (128.25.18.1) is the whole-top hole, and edge-adjacent wide cracks overlap and group; glass look 11's 2 x 3 lanes overlap at a corner pair `(wx, wy)` - `(wx + 1, wy + 1)`, as a thin bridge's crack lanes do (128.27.2.1). (As first built the art was a `full` clause on a crack or a glass tile; the merge folded it into `hole wide` and look 11.) A course whose lanes do not overlap is byte-identical |
+
+#### 128.32.2 Why not one lane: the box is structural
+
+A lane is drawn by one of four ways (128.12.4.2) and three of them are a
+box: the CONTACT group is composed in a `bz_boxbuf` buffer (`BZ_BOXW` 4
+words x `BZ_BOXL` 32 lines, four of them, 1,024 bytes) and merged with the
+ball's group only when the union fits `BZ_BOXW` x `BZ_BOXH`; the WHEEL's
+commit is priced and placed by the beam as one rectangle in the retrace
+wait (128.12.5.3); the LEAD writes one rectangle ahead of the beam. Two
+edge-adjacent tile tops are 16 px apart across and 8 down, so their union is
+**6 words x 3 - 4 block rows**, and a straight path of `n` tiles 2n + 2
+words. No union of two neighbours fits a box.
+
+Lifting the box was priced and not taken: `BZ_BOXW` 6 makes each buffer
+384 bytes (**+512 bss**), every compose and merge rule that tests the
+union against 4 words takes the new width, and a 6-word union is still
+past a straight path of three; the wait's commit of a 6 x 4 rectangle is
+about twice a 4 x 3's (128.12.5.4's 71 clk a word-line), so fewer fit a
+frame. The set of box-sized lanes costs no bss and no rule.
+
+#### 128.32.3 The rule (the tool, `bbcourse.py`)
+
+1. **Each lane is built as before** (128.12.4, 128.25.18, its kind's
+   rectangle and poses: MARKS over the picture). Lanes whose rectangles
+   share a block are joined, transitively: a COMPONENT. A component of one
+   lane is that lane, as before.
+2. **A component's members must be groupable** (128.32.1). Otherwise the
+   compile is refused as before, naming both lanes: *"two lanes share
+   blocks"*.
+3. **Dependency.** For every block of the union of the members'
+   rectangles, a member DEPENDS on it when its poses' pixels inside that
+   block (the marks as a set of (x, y, ink)) are not all equal. A block no
+   member depends on is the picture's (static: in no lane). Its
+   **dependency set** is the members that depend on it.
+4. **The lanes.** The dependent blocks are cut WHOLE into the fewest
+   rectangles of at most 4 x 3 (greedy, `cover_blocks`, the cutter the
+   pathway's reveal groups use, 128.22.4.1), each lane's members the union of
+   its blocks' dependency sets - while every lane keeps the caps (item 7).
+   Otherwise the blocks are grouped by dependency set and each set cut on
+   its own, holding no other set's block (`_hack grp_split` forces it: the
+   comparison). A static block may ride inside a lane. **Why whole first**
+   (MEASURED, 2026-11-17, the test course's row of `full` cracks against the
+   same cracks 2 x 2): per set, two cracks are 5 lanes and +416 bytes of
+   part, three are 8 lanes and +672, and an element is in up to 6 lanes -
+   which put `TWOSEG` (PLAYGROUND at another Y0) over 128.19.10's change
+   bound (7 > 6) and makes a tile under the ball take up to 6 frames to
+   finish; whole, two cracks are 2 lanes (4 x 3 of 16 poses, 2 x 2 of 4)
+   and +592, three are 2 lanes (two 4 x 3 of 16) and +1,024, and an element
+   is in at most 3 lanes. The part's bytes go up by 176 / 352; the bss's per
+   lane on the largest course (about 41 bytes) goes down by 123 / 246. Each rectangle is a GROUP LANE.
+5. **Classes.** In a group lane, member `m`'s poses are partitioned by
+   their marks inside the lane's rectangle (equal marks, one class),
+   numbered in order of first appearance from pose 0; `class_m(p)` is the
+   CLASS MAP. A member with one class there is not a member of that lane.
+   The members are ordered by record, `mult` of the first is 1 and each
+   next is the product of the classes before it; the lane's poses are the
+   product of every member's classes.
+6. **The pictures.** The lane's pose `q` is the picture under it WITHOUT
+   any member's marks (the bare region, as every lane's) and over it every
+   member of the COMPONENT in painter's order - row `s = wx + wy`, then the
+   file's line - each at the pose `q` gives it (a member not in this lane
+   at its pose 0). Pose 0 (every member at 0) is what the picture holds.
+   Its blocks join the course's one pool, deduplicated (128.10.4.2).
+7. **Refused** (each naming the line): a member of more than 4 poses; a
+   lane of more than 4 members or more than 64 poses; an element in more
+   than 8 lanes.
+
+#### 128.32.4 The format
+
+- **The GROUP record**, kind **255** (`BZ_PK_GROUP`, never a family's: the
+  families own 16 - 254), flags `LANE`, its anchor `(255, 255)` (no cell,
+  as a SIGN's: `bz_owner` never finds it), no clock, its lane at +8 - +15
+  as any lane's, and at **+16, +20, +24, +28 four ENTRIES**:
+
+  | +0 | +1 | +2 | +3 |
+  |---|---|---|---|
+  | the member's record index | its kind (0: no more entries) | its CLASS MAP: pose `p`'s class at bits `2p`, `2p + 1` | its MULT |
+
+- **A MEMBER** is its family record as built (128.25.6.4: FSB, class) with
+  flags bit 2 **`GRP`** and NO lane: +8 - +15 hold the indices of the group
+  lanes that depend on it, `0FFh` after the last.
+- **The order.** The group lanes are lanes: they sort among the lanes by
+  first block row (128.12.3.1), then by their first member's line, then by
+  the cut's order. The members are non-lane records, in the file's order
+  with the rest. So a course with a group numbers its records differently
+  from the same course without one; a course with none is unchanged.
+
+#### 128.32.5 The guest
+
+- **`bz_fmark`** (the hooks' MARK, 128.25.6.3): an element whose record
+  carries `GRP` - a member - marks every lane its record lists at +8 (the
+  list ends at `0FFh` or after eight); any other element marks itself, as
+  before. The test is the record's flag and never `bz_nlane`: RESET runs at
+  `bz_pinit`, BEFORE `bz_pread` counts the lanes (the unicorn found a
+  member's list read out of a lane record with `bz_nlane` still 0). The hooks are unchanged: they mark the element.
+- **`bz_ltrue`'s GROUP case**: for each entry, the member's POSE through
+  `bz_fone` (the family's hook, BX the member), its class from the map, x
+  MULT, summed. A family lane's case is unchanged.
+- **The walk** (128.12.5.2): a group lane's kind (255) is past `BZ_FK0`, so
+  it is walked when marked, as a family lane is (128.25.18's skip). The
+  wheel, the contact group, the lead, `bz_lsync`, `bz_lfull` and every
+  writer see a lane. No table grows: `BZ_PROPMAX` counts the course's
+  lanes (fewer elements' own, plus the group's) and `BZ_PROPALL` its
+  records.
+- **GLASS's part**: RESET marks every crack and glass tile of the RECORDS
+  (`bz_nprop`), not of the lanes (`bz_nlane`): a member is not a lane.
+  STEP, CONTACT, POSE and CELL already walk every record or take one.
+- **kern_mega**: everything is read through `[bz_cseg]` as every record
+  read; no segment word is added to.
+
+#### 128.32.6 What a group costs
+
+- **Resident**: `bz_fmark`'s member branch and `bz_ltrue`'s GROUP case
+  (PREDICTED about 70 bytes; MEASURED in 128.32.10). No bss.
+- **A step**: nothing. A family's hooks mark as before.
+- **A walk**: a marked group lane's `bz_ltrue` makes one `bz_fone` per
+  member (PREDICTED about 400 - 600 clk each at 4.77 MHz: the slot scan,
+  the far call, the family's POSE) - a lane's walk is otherwise the same.
+  It is walked only when a member marked it.
+- **On the glass**: a member's change marks every lane of its group that
+  depends on it, and each is committed as any lane: by the wheel when it
+  misses the ball's boxes, else one contact lane a frame (128.12.4.3). So
+  a tile under the ball whose art spans `k` lanes can take up to `k`
+  frames to be whole (the other lanes WAIT, display only; never a wrong
+  pixel - the card is always the map's). MEASURED in 128.32.10.
+- **The course**: per group lane a 32-byte record and its pose maps,
+  `2 x w x h x poses` bytes, and the blocks its poses add to the pool; per
+  member nothing (its record exists, its own lane is gone).
+- **The tool**: per group lane one overlay a pose over its rectangle (no
+  render).
+
+#### 128.32.7 The bounds (128.12.4.6, 128.19.10)
+
+The window's change bound counted the EVENT lanes as 1 together (*"a ball
+touches one thing at a time"*). One event now changes every lane its
+element is in: the term is the most window lanes any one element is in
+(1 for a course with no group). Every other bound counts lanes, and a
+group lane is a SLOW lane.
+
+#### 128.32.8 What uses it
+
+**The primary case is CRACKS** (the owner, 2026-11-17, after this section
+was first written: glass's look is settled without groups - look 11, 2 x 3
+lanes - *"but we still probably need the grouping, for the breaks that sit
+next to each other"*). As merged:
+
+- **`hole wide` cracks edge to edge** (128.25.18.1): the hole is the whole
+  top less a SOLID ragged rim (`|u| / 2 + |v| < 6.5` less the rag; the first
+  `full` art grew the rag outward and left lone floor pixels round the hole,
+  the owner's *"spattering of green dots outside the rim"* - fixed on the
+  branch, kept by the merge), so two broken neighbours are one opening with
+  the rims between. A lone `wide` crack, or two one cell apart, groups
+  nothing.
+- **A thin bridge's corner pair** (128.27.2.1): two bridge cracks at `(wx,
+  wy)` and `(wx + 1, wy + 1)` share a block row of their 2 x 3 lanes.
+- **A glass path that turns** (128.25.18): look 11's lanes of a corner pair
+  share a row the same way; the pane's outline is drawn per tile (its edge
+  neighbours'), the group lane overlays the two in painter's order.
+- **A floating crack that vanishes** (round 1's 3-unit `float`): NOT a
+  member, refused if its lanes would share blocks (128.32.1). The thin
+  bridge is the floating path that falls away tile by tile.
+- **Today's props**: none groups. A rotor, a post, a flag, a clock and a
+  sign keep their refusal; PICKUPS' icons and the probe's flag could be
+  members once their parts walk every record (their RESET walks the
+  lanes).
+
+**PLAYGROUND's GROUP LAB**, on the glass section's far platform: three
+`hole wide` cracks edge to edge along its back row (`wy` 23, each breaking
+on its own, the shared lanes through their combinations) and a glass TURN
+`(4, 27)` - `(5, 27)` - `(4, 26)`, whose corner pair `(4, 26)` - `(5, 27)`
+groups. `tests/bonanza_phys.py --check`'s GROUP LAB scenario drives both.
+
+#### 128.32.9 The proofs
+
+- `--selfcheck`: every shipped course byte-identical (their parts are the
+  same bytes); refusals: a component with a resident lane (a wide crack
+  beside a pickup's icon), two vanishing cracks edge to edge, a lane past
+  its poses (the cap lowered, a control); a group's poses equal to the
+  overlay of its members' (every combination re-rendered from the members'
+  own art and compared) on three courses: three wide cracks and a glass
+  turn, two wide cracks edge to edge, two bridge cracks touching at a
+  corner.
+- `tests/bonanza_phys.py --check`: a GROUP leg on PLAYGROUND - the guest's
+  `bz_step` under unicorn equals the model at every step, every group
+  lane's `bz_ltrue` equals the model's combination, and every lane whose
+  combination changed was marked and its walk made; red `grpcomb` (the
+  classes summed without their MULT) goes red at the first step two
+  members are not both at pose 0.
+- `bonanzaring` (MartyPC, the final pass): its glass leg reads the group's
+  lanes and decodes the card against the oracle's map, whose drawn poses
+  the oracle takes from `bz_ldrw` as for any lane.
+
+#### 128.32.10 As built (2026-11-17, branch `w9/grouplane`; EXPERIMENTAL - the owner decides from these numbers)
+
+| | MEASURED |
+|---|---|
+| `bonanza.bin` image | 47,957, **+123** against the base's 47,834: `bz_fmark`'s member branch +44, `bz_ltrue`'s GROUP case +79 (`cmp`/`jne`/`jmp` into it 7, the case 72) |
+| bss | **+0 for the mechanism** (no table; they follow the largest course). With PLAYGROUND's GROUP LAB: 11,093, **+28** - `BZ_PROPMAX` stays 24 (PLAYGROUND 21 lanes: seven elements' own lanes became 8 group lanes), `BZ_PROPALL` 24 -> 32 (records: 3 bytes each), `BZ_FSTB` 5 -> 9 (the lab's three crack bytes and three glass bits) |
+| the GLASS part | 553 bytes, +0 (RESET reads `bz_nprop` for `bz_nlane`) |
+| every shipped course | **byte-identical** (all 18 parts and the six demos `cmp`-equal; only `bzcourse.inc` gained its four equates) - until a course writes `full` |
+| a group lane's `bz_ltrue`, MartyPC's 8088 (`os8088_5150_cga_gla` and `_herc_gla`, guest cycles, entry to the case's `ret`) | **2,790 clk a 1-member lane, 4,880 a 2-member lane** (about 2,100 a member: `bz_fone`'s slot scan, far call and GLASS's POSE), paid only on a frame the walk visits a MARKED group lane |
+| the course, `full` cracks in a row on the test course, RAM part against the same cracks 2 x 2 | 2: 2 lanes (4 x 3 of 16 poses, 2 x 2 of 4) **+592**; 3: 2 lanes (two 4 x 3 of 16) **+1,024**; one alone (a wide hole, no group) +80 |
+| PLAYGROUND with the lab (three `full` cracks, an L of three `full` glass tiles; its Y0 alignment moved too, 108 -> 112) | picture part 50,070 -> 51,834, world 14,979 -> 15,431; packed 13,474 -> 14,368 (+894) |
+| the tool | the group pass 0.2 s a test course |
+
+**SEEN** (MartyPC, CGA and Hercules twins, the ball poked; strips in the
+session's log directory): rubber rolled slowly along the lab's three cracks
+from `(5, 23)`: each went cracked, cracking and broken on its own frame, the
+holes widening behind the ball one tile at a time, the shared lanes passing
+through combined poses (4, 5, 8, 9, 10, 11 of 16) - and a fall restored all
+three. The glass L revealed tile by tile; one reveal spanning two lanes was
+committed over two frames (the stagger of 128.32.6). Those frames were the
+per-set cut's (5 - 8 lanes); the whole-first cut was looked at again on the
+CGA: the three cracks' 4 lanes (poses up to 15 of 16) and the L's, every
+change on the glass within ONE frame of the next lane's, and every group
+lane's `bz_ltrue` 4,800 - 4,930 clk (each holds two members).
+
+**The unicorn found a real bug on the way**: a RESET at `bz_pinit` runs
+before `bz_pread` sets `bz_nlane`, so the first `bz_fmark` (testing the
+index against `bz_nlane`) read a LANE record's +8 as a member's list and
+marked past the table, into `bz_nstep`. The test is the record's `GRP` flag.
+
+**Not done**: the ring row's oracle on a group (MartyPC, the final pass's -
+the oracle reads pose maps through `bz_ldrw` as for any lane, so no code was
+needed); a vanishing floating path (128.32.8) and PICKUPS' icons as members.
+
+**For the owner**: (1) take it or not, at +123 resident bytes, about 2.1k clk
+a member on a walked group lane, and +600 - 1,000 part bytes a pair or row
+of wide cracks; (2) whether `full` (the wide hole) is the crack art, or the
+clause stays per element; (3) the commit stagger - a pose change spanning
+`k` lanes under the ball can take `k` frames (at most 3 here); a same-frame
+group commit would be a walk change, not priced.
