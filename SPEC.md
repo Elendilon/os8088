@@ -276070,10 +276070,12 @@ frame. The set of box-sized lanes costs no bss and no rule.
 
 #### 128.31.5 The guest
 
-- **`bz_fmark`** (the hooks' MARK, 128.25.6.3): an element at or past
-  `bz_nlane` - a member - marks every lane its record lists at +8 (the
-  list ends at `0FFh` or after eight). A lane element marks itself, as
-  before. The hooks are unchanged: they mark the element.
+- **`bz_fmark`** (the hooks' MARK, 128.25.6.3): an element whose record
+  carries `GRP` - a member - marks every lane its record lists at +8 (the
+  list ends at `0FFh` or after eight); any other element marks itself, as
+  before. The test is the record's flag and never `bz_nlane`: RESET runs at
+  `bz_pinit`, BEFORE `bz_pread` counts the lanes (the unicorn found a
+  member's list read out of a lane record with `bz_nlane` still 0). The hooks are unchanged: they mark the element.
 - **`bz_ltrue`'s GROUP case**: for each entry, the member's POSE through
   `bz_fone` (the family's hook, BX the member), its class from the map, x
   MULT, summed. A family lane's case is unchanged.
@@ -276120,7 +276122,14 @@ group lane is a SLOW lane.
 
 #### 128.31.8 What uses it
 
-- **GLASS `full`.** The crystal over the whole top (`crystal_top_ink`'s
+**The primary case is CRACKS** (the owner, 2026-11-17, after this section
+was first written: glass's look is settled without groups - look 11, 2 x 3
+lanes - *"but we still probably need the grouping, for the breaks that sit
+next to each other"*). Look 11's lanes overlap where a glass path turns (an
+L), and those overlaps group by the same rule with no case of their own.
+
+- **CRACK `full`** - the WIDE hole beside its neighbours, below.
+- **GLASS `full`** (built for the lab's L; glass ships look 11). The crystal over the whole top (`crystal_top_ink`'s
   diamond, 32 x 16), so a run of revealed tiles is ONE pane with no gap at
   any edge - along a path, at an L-turn and on a two-wide path alike: the
   shared edge is in the two members' group lane. A hidden neighbour shows
