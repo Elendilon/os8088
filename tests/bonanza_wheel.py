@@ -334,6 +334,18 @@ def launch_mill(g, key, hvoff, crs="mill"):
 
 
 # ---- the BENCH leg ---------------------------------------------------------------
+def kicks_now(g):
+    """bz_pkick's words now (at bz_tv: as the frame's walk drew them, before the early step)"""
+    pn = R.guest_propmax()
+    return list(struct.unpack("<%dH" % pn, g.m.read(g.a("bz_pkick"), 2 * pn))) if pn else []
+
+
+def pdrawn(pr):
+    """the posts' kicks the frame was DRAWN with: bz_tv's read when the leg made one (bench), else
+    bz_presented's (a leg whose kicks are the harness's pokes at bz_presented)"""
+    return pr.get("pkdrawn") or pr["pkick"]
+
+
 def pres_snap(g):
     """at bz_presented: the window, the lanes' drawn poses, the posts' kicks and
     lit frames, the contact group, and (13)'s walk - its range and each lane's
@@ -453,7 +465,7 @@ def post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, label="", cuts=Fals
             if not pr or i >= len(pr["drawn"]):
                 prk = None
                 continue
-            k = pr["pkick"][i]
+            k = pdrawn(pr)[i]
             if prk is not None and k != prk:
                 nk += 1
                 f1 = next((f for f in range(fi, len(frames)) if frames[f].get("pr")
@@ -495,7 +507,7 @@ def post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, label="", cuts=Fals
                 p0 = frames[fi - 1]["pr"]
                 if p0["hold"][i] and not pr["hold"][i] and p0["drawn"][i] == 1 and shown(fr, i):
                     f3 = next((f for f in range(fi, len(frames)) if not frames[f].get("pr")
-                               or frames[f]["pr"]["drawn"][i] != 1 or frames[f]["pr"]["pkick"][i] != k
+                               or frames[f]["pr"]["drawn"][i] != 1 or pdrawn(frames[f]["pr"])[i] != k
                                or not shown(frames[f], i)), None)
                     lag = None if f3 is None else f3 - fi
                     if f3 is None and len(frames) - fi <= BB.WPRF + 1:
@@ -508,11 +520,16 @@ def post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, label="", cuts=Fals
                                          "drawn dark only %d frames later" % lag, BB.WPRF + 1))
     if not nk:
         fails.append("(12)%s no post was kicked on the leg: the lit rule was never judged" % label)
+    # (the kicks an EARLY STEP made, after the frame's walk: bz_pkick at bz_presented ahead of bz_tv's)
+    nek = sum(1 for fr in frames if fr.get("pr") and fr["pr"].get("pkdrawn") is not None
+              and fr["pr"]["pkdrawn"] != fr["pr"]["pkick"])
+    nes = sum(1 for fr in frames if fr.get("pr") and fr["pr"]["nstep"] != fr["pr"]["ndraw"])
     rep.append("(12)%s %d kicks: each post drawn LIT on its kick's frame or (by reason) the next - lags %s, the "
                "next frame's reasons %s - and lit for %s presented frames (at least %d); %d posts' lit frames ran "
-               "out while shown, drawn dark within %s frames (at most %d)" % (
+               "out while shown, drawn dark within %s frames (at most %d); kicks in an early step, judged on the next "
+               "frame's walk: %d (frames presented with an early step in them: %d of %d)" % (
                    label, nk, sorted(set(lags)), why1 or "none", sorted(set(runs)), BB.PLITF, len(darks),
-                   sorted(set(d for d in darks if d is not None)), BB.WPRF + 1))
+                   sorted(set(d for d in darks if d is not None)), BB.WPRF + 1, nek, nes, len(frames)))
 
 
 def commit_snap(g, r):
@@ -546,7 +563,9 @@ def bench_leg(g, ref, wr):
                              "bz_wnow")}
     # bz_wnow's entry: the instruction after the clock sample a commit's TEST is made on (bz_wtest's, bz_lead's)
     # - where the calibration's span starts too, so (5) times what the price covers (the review of wave 3b, C5)
-    logged = [A["bz_tw"], A["bz_tv"], A["bz_tf"], A["bz_vr.rose"], A["bz_vr.high"], wc + 1, wc + 2, wc + 5, wc + 8,
+    # (bz_tv is a STOP, not logged: the posts' kicks as the frame's walk DREW them are read there, before the
+    # early step - a kick in the early step is drawn by the NEXT frame's walk, SPEC.md 128.4: (12))
+    logged = [A["bz_tw"], A["bz_tf"], A["bz_vr.rose"], A["bz_vr.high"], wc + 1, wc + 2, wc + 5, wc + 8,
               A["bz_wnow"]]
     Wc, H = BB.CARDS[tag == "herc"][:2]
     st = {"pr": None, "holds": {}, "enter": []}
@@ -559,8 +578,12 @@ def bench_leg(g, ref, wr):
                     "site": wa.index(a)}
         if a == A["bz_wcommit"]:
             return commit_snap(g, r)
+        if a == A["bz_tv"]:
+            st["pkv"] = kicks_now(g)
+            return None
         # bz_presented
         out = pres_snap(g)
+        out["pkdrawn"] = st.pop("pkv", None) or out["pkick"]
         prev = st["pr"]
         # (9): a lane brought onto the glass by an entering strip shows its TRUE pose
         st["enter"] += enter_check(g, ref, prev, out, rects, recs)
@@ -574,7 +597,7 @@ def bench_leg(g, ref, wr):
         return out
 
     launch_mill(g, "KeyB", 0)
-    stops = wa + [A["bz_wcommit"], A["bz_presented"]]
+    stops = wa + [A["bz_wcommit"], A["bz_tv"], A["bz_presented"]]
     with M.bp_trace(m, *(stops + logged), log=logged, regs=True, on_hit=on_hit, cap=BENCH * 60 + 40000) as tr:
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 1, "the MILL benchmark starts", guest=60)
