@@ -164,3 +164,24 @@ floor rect   3  8  6 13  flat 6
 prop hourglass 3 18
 prop speed     5 14 for 3
 prop jump      6 17 for 3
+
+# EXPLORATORY (SPEC.md 128.25.18.1, the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
+# CRACK LAB, off the apron's right edge in the start's rows - roll +x (right and down the screen) from the
+# start.  A rubber pad and a steel pad at the lab's door.  Two rows out to an end platform and back:
+#  - wy 19, grounded, the HOLE sizes: two `wide` cracks (one cell apart, their 4-block lanes), then two
+#    `band` cracks edge to edge (the 2 x 2 lane's tallest hole)
+#  - wy 16, a FLOATING bridge (`float`): three cracks among plain floating tiles that VANISH - the tile
+#    and its faces gone, the void showing - one cell apart (a vanishing crack's lanes are 4 blocks across)
+floor rect  34 19 41 20  flat 4
+floor rect  34 16 41 17  flat 4
+floor rect  41 16 43 20  flat 4
+float rect  34 16 41 17
+prop crack 35 19 hole wide
+prop crack 37 19 hole wide
+prop crack 39 19 hole band
+prop crack 40 19 hole band
+prop crack 35 16
+prop crack 37 16
+prop crack 39 16
+pad rubber 32 16
+pad steel  32 19

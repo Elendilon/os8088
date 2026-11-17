@@ -274259,6 +274259,70 @@ GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
 red arm (item 7: a crack path as the only bridge past a flag compiles under
 its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
 
+##### 128.25.18.1 EXPLORATORY: a bigger hole, and floating cracks that vanish (the owner, 2026-11-17)
+
+*"For cracked tile art/mechanics: let's try making the hole in the center
+bigger, and maybe one other option: cracked tiles have the option to float,
+and when they do, they can completely disappear instead of still existing
+with a hole in the center."* Built to be PLAYED, nothing merges until the
+owner likes the look and feel. Both options are the course tool's picture
+and GLASS's part: no resident byte, no physics constant, no new hook.
+
+**A - THE HOLE'S SIZE, a crack clause**: `prop crack <wx> <wy> [hole
+small|band|wide]`. A choice per element rather than a build knob, because
+the size is a LANE's geometry and the course's bytes, and so that the owner
+compares the sizes side by side on one course.
+
+- `small` (the default, as built): the hole `|u| / 2 + |v| < 5` and a ragged
+  rim, inside the 2 x 2-block lane: 16 px across by about 11 down, the size
+  of the ball, so a slow ball breaking it hides most of it.
+- `band`: the same lane, the hole as tall as its 16 px band holds (`< 7`): a
+  path of them still shares no block.
+- `wide`: a lane 4 blocks across (the top's 32 px) and the 2 - 3 block rows
+  the top spans; the hole the top's diamond less a ragged rim of about a
+  quarter (about 24 x 12 px: wider than the ball, its sides show round a
+  ball sinking through it), and the hairlines drawn twice as long. Two wide
+  cracks edge to edge share blocks and are REFUSED by the lanes' rule
+  (128.19.10): wide cracks stand alone or one cell apart.
+
+The physics needs nothing: the size is the picture's, a broken crack's CELL
+is the NEAR void whatever its art (128.25.18's CELL row), and
+`tests/bonanza_phys.py --check` proves model = guest unchanged.
+
+**B - A FLOATING CRACK VANISHES.** Authored by the `float` statement over
+its cell (128.27.2), not by a crack clause: a vanish needs its faces SHORT
+(a grounded crack's faces hang to the ground plane, tens of lines no lane
+covers), and `float` is already the statement that says "these cells hang 3
+units", so the look follows the cell and no word is added. A crack on a
+floating cell breaks to NOTHING: its pose 3 is the picture drawn WITHOUT the
+tile (`draw_ops` and `render` over the tiles less it, the course's ground
+and floats unchanged), so its top and its faces go, the void shows, and a
+neighbour's face the tile hid hangs into the gap, as at any edge. The
+difference from the picture must lie in at most 4 blocks across and 6 block
+rows (two lanes' worth), else REFUSED (`a vanishing crack's picture changes
+over ...`: float its neighbours too, or keep a hole).
+
+- **Two lanes, one element.** A floating tile and its 3-unit faces are 32 x
+  40 px, five or six block rows, and a lane is one box (3 rows, 128.12.4.1).
+  So the tool lays a COMPANION record after the crack's: the same anchor
+  (`bz_owner` takes the FIRST record of a cell, so physics never meets it,
+  as a clock's tens digit), the same state byte (its FSB the crack's, so
+  its POSE is the crack's with no code), a lane of the rows below the
+  crack's (poses 0 - 2 the bare picture, 3 the vanished one). Record +18 is
+  the partner's index + 1 (each names the other), +19 bit 0 marks the
+  companion.
+- **The part**: every mark of a crack also marks its partner (`gl_mark`),
+  and STEP counts a companion's shared byte not at all (+19). RESET marks
+  every crack's lane, the companion's among them, so the respawn restores
+  the whole tile. The CELL hook meets the cell twice and is idempotent.
+- **The model**: `GlassFamily.step` skips a companion; nothing else
+  changes (the reach already takes the broken cell as a NEAR void).
+- A path of vanishing cracks edge to edge shares blocks (4 columns each)
+  and is refused: one cell apart, or a crack among plain floating tiles.
+
+**Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge
+(the start's row, `wx` 35 on): see the course's comments.
+
 #### 128.25.19 PICKUPS as built (story 9.6)
 
 The second family, built by the recipe (128.25.6.8, with what it found).

@@ -1090,27 +1090,42 @@ CRACK_LINES = (
     (((0, 5), (-4, 7)), ((4, -5), (1, -7)), ((-2, 2), (3, 0)), ((0, 4), (2, 6)), ((7, 0), (7, 3))),
 )
 CRACK_HOLE = 5.0              # the hole: |u| / 2 + |v| under this (and a ragged rim), black
+# EXPLORATORY (SPEC.md 128.25.18.1): the hole's size, a crack's `hole` clause - small (as built), band (the
+# 2 x 2 lane's band as tall as it holds), wide (a 4-block lane: the top's diamond less a ragged rim)
+CRACK_HOLES = ("small", "band", "wide")
+CRACK_BAND = 7.0              # band: |u| / 2 + |v| under this
+CRACK_WIDE = 0.72             # wide: the diamond's |u| / 16 + |v| / 8 under this (and a ragged rim)
 
 
-def crack_poses(cx, cy):
+def crack_poses(cx, cy, hole="small"):
     """a crack's four poses, {pose: {(x, y): ink}} round the top's centre (cx, cy), picture pixels: 0 whole
     (a black hairline), 1 cracked, 2 cracking (its last CRACK_LATE steps), 3 broken (the hole drawn).
-    Only on its top (crystal_top_ink's diamond, the tile's top footprint) and inside |u| < 8"""
+    Only on its top (crystal_top_ink's diamond, the tile's top footprint) and inside |u| < 8 - or, a `wide`
+    hole's, |u| < 16, its hairlines twice as long across"""
+    hw, us = (16, 2) if hole == "wide" else (8, 1)
+
     def on(u, v):
-        return -8 <= u < 8 and BA.crystal_top_ink(u, v) is not None
+        return -hw <= u < hw and BA.crystal_top_ink(u, v) is not None
     out, acc = {}, {}
     for q in range(3):
         for a, b in CRACK_LINES[q]:
-            for (u, v) in _raster(a, b):
+            for (u, v) in _raster((a[0] * us, a[1]), (b[0] * us, b[1])):
                 if on(u, v):
                     acc[(cx + u, cy + v)] = BLK
         out[q] = dict(acc)
-    hole = dict(acc)
+    h = dict(acc)
     for v in range(-8, 8):
-        for u in range(-8, 8):
-            if on(u, v) and abs(u) / 2.0 + abs(v) < CRACK_HOLE + ((u * 7 + v * 3) % 5) / 4.0:
-                hole[(cx + u, cy + v)] = BLK
-    out[3] = hole
+        for u in range(-hw, hw):
+            if not on(u, v):
+                continue
+            rag = ((u * 7 + v * 3) % 5) / 4.0
+            if hole == "wide":
+                inside = abs(u) / 16.0 + abs(v) / 8.0 < CRACK_WIDE + rag / 10.0
+            else:
+                inside = abs(u) / 2.0 + abs(v) < (CRACK_BAND if hole == "band" else CRACK_HOLE) + rag
+            if inside:
+                h[(cx + u, cy + v)] = BLK
+    out[3] = h
     return out
 
 
@@ -1206,6 +1221,12 @@ def _parse_fprop(toks, where, ln):
     fam, kr = FKIND_BY_NAME[toks[1][1]]
     if fam.get("consts") == "PU":
         return _parse_pickup(toks, where, ln, fam, kr)
+    if kr["kind"] == FK_CRACK and len(toks) >= 5 and toks[4] == ('w', "hole"):
+        # EXPLORATORY (SPEC.md 128.25.18.1): prop crack <wx> <wy> hole small|band|wide - the hole's size
+        if len(toks) != 6 or toks[5][1] not in CRACK_HOLES:
+            raise CourseError("%s: prop crack's hole takes %s" % (where, "|".join(CRACK_HOLES)))
+        return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"),
+                _int(toks[3], where, "wy")), "cls": kr["cls"], "seed": None, "hole": toks[5][1]}
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -3542,7 +3563,7 @@ def build_props(src, tiles, fname):
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                       "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
-                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0)})
+                      "dur": sp.get("dur", 0), "ow": sp.get("ow", 0), "hole": sp.get("hole", "small")})
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -5564,6 +5585,9 @@ def y0_order(counts):
     return [k for _n, k in ok] or [0]
 
 
+_VANISH_MEMO = {}       # EXPLORATORY (SPEC.md 128.25.18.1): a vanishing crack's picture change, y0-free
+
+
 def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     if fname is None:
         ab = os.path.abspath(source)
@@ -5728,7 +5752,10 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         pth["verdicts"] = path_graph_proofs(pth, fname)
     # ---- the lanes (SPEC.md 128.12.4): a rotor stood on its house, a post ----
     lanes = []
+    cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
     for i, p in enumerate(props):
+        if p.get("comp") is not None:               # (a vanishing crack's companion: its lane laid with it)
+            continue
         if p["kind"] == PK_WINDMILL:
             ln = p["wline"]
             fl = p["flast"] + y0                     # the face's last line at the hub's column
@@ -5820,11 +5847,71 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
                                   "x must be a multiple of 8, SPEC.md 128.25.18)" % (fname, p["line"],
                                                                                     p["frow"]["name"], wx, wy, cx))
             sF = wx + wy
-            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
-            poses = crack_poses(cx, cy) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
+            hole = p.get("hole", "small") if p["art"] == "crack" else "small"
+            if p["art"] == "crack" and p["at"] in floats and not hack.get("novanish"):
+                # EXPLORATORY (SPEC.md 128.25.18.1): a FLOATING crack VANISHES - its pose 3 the picture drawn
+                # without the tile (its top and faces gone, a neighbour's face it hid hanging into the gap),
+                # over at most 4 blocks by 6 block rows: the crack's lane (3 rows) and a COMPANION's below
+                vkey = (hashlib.sha256(text.encode()).digest(), fname, p["at"], repr(sorted(
+                    (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
+                if vkey not in _VANISH_MEMO:        # (the Y0 search compiles nine times: the picture's change
+                    vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}  # is y0's shift)
+                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
+                                    ground, floats)
+                    if props:
+                        vops = prop_ops(vt, vops, props, x0)
+                    vcv = render(vt, vops, x0, y0, width, lines, owners)
+                    g_ = {}
+                    for y in range(lines):
+                        r0_, r1_ = cv_rows0[y], vcv.rows[y]
+                        if r0_ != bytes(r1_):
+                            for x in range(width):
+                                if r0_[x] != r1_[x]:
+                                    g_[(x, y - y0)] = r1_[x]
+                    _VANISH_MEMO[vkey] = g_
+                gone = {(x, y + y0): c for (x, y), c in _VANISH_MEMO[vkey].items()}
+                marks = crack_poses(cx, cy, hole)
+                marks = {q: {(x, y): c for (x, y), c in marks[q].items()
+                             if 0 <= y < lines and cv.sbuf[y][x] <= sF} for q in range(3)}
+                xs = [x for x, _ in gone] + [x for x, _ in marks[2]]
+                ys = [y for _, y in gone] + [y for _, y in marks[2]]
+                c0, r0 = min(xs) >> 3, min(ys) >> 3
+                w_, h_ = (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1
+                if w_ > LANE_WMAX or h_ > 2 * LANE_HMAX:
+                    raise CourseError("%s:%d: a vanishing crack at (%d, %d) (its cell floats, SPEC.md 128.25.18.1): "
+                                      "its picture changes over %d x %d blocks, over the %d x %d its two lanes hold - "
+                                      "float its neighbours too (a grounded face hangs to the ground), or keep a "
+                                      "hole (no float)" % (fname, p["line"], wx, wy, w_, h_, LANE_WMAX,
+                                                           2 * LANE_HMAX))
+                parts = [(c0, r0, w_, min(h_, LANE_HMAX))]
+                if h_ > LANE_HMAX:
+                    parts.append((c0, r0 + LANE_HMAX, w_, h_ - LANE_HMAX))
+                for k_, rect in enumerate(parts):
+                    def inr(xy, rect=rect):
+                        return 8 * rect[0] <= xy[0] < 8 * (rect[0] + rect[2]) \
+                            and 8 * rect[1] <= xy[1] < 8 * (rect[1] + rect[3])
+                    poses = {q: {xy: c for xy, c in marks[q].items() if inr(xy)} for q in range(3)}
+                    poses[3] = {xy: c for xy, c in gone.items() if inr(xy)}
+                    j_ = i
+                    if k_:
+                        comp = dict(p, comp=i, bits=0)
+                        props.append(comp)
+                        j_ = len(props) - 1
+                        p["partner"], comp["partner"] = j_, i
+                    else:
+                        p["fpix"] = poses
+                    lanes.append({"prop": j_, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                                  "line": p["line"]})
+                p["vanish"] = True
+                continue
+            if hole == "wide":
+                rect = ((cx - 16) >> 3, (cy - 8) >> 3, 4, ((cy + 7) >> 3) - ((cy - 8) >> 3) + 1)
+            else:
+                rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
+            poses = crack_poses(cx, cy, hole) if p["art"] == "crack" else glass_poses(cx, cy, p.get("jag"))
             for q in poses:
                 poses[q] = {(x, y): c for (x, y), c in poses[q].items()
-                            if 8 * rect[0] <= x < 8 * rect[0] + 16 and 8 * rect[1] <= y < 8 * rect[1] + 16
+                            if 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
                             and 0 <= y < lines and cv.sbuf[y][x] <= sF}
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
@@ -5867,6 +5954,9 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): a sign, path_signs's lane
             lanes.append({"prop": i, "rect": p["spec"]["rect"], "poses": p["spec"]["poses"], "st": {},
                           "kind": PK_SIGN, "line": p["line"]})
+    if len(lanes) > PROP_MAX or len(props) > PROP_ALL:  # (a vanishing crack's companion, 128.25.18.1)
+        raise CourseError("%s: %d lanes and %d props with the vanishing cracks' companions, over the %d and %d a "
+                          "course holds" % (fname, len(lanes), len(props), PROP_MAX, PROP_ALL))
     for L in lanes:
         bx, by, w, h = L["rect"]
         if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX and 2 <= len(L["poses"]) <= LANE_PMAX):
@@ -6061,9 +6151,13 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
     fsbs = {}
     for bytes_ in (True, False):
         for i in order:
-            if is_fam(props[i]["kind"]) and (props[i]["bits"] == 8) == bytes_:
+            if is_fam(props[i]["kind"]) and (props[i]["bits"] == 8) == bytes_ and props[i].get("comp") is None:
                 fsbs[i] = fsb
                 fsb += props[i]["bits"]
+    jof = {i: j for j, i in enumerate(order)}
+    for i in order:                                 # (a vanishing crack's companion: the crack's byte, 128.25.18.1)
+        if props[i].get("comp") is not None:
+            fsbs[i] = fsbs[props[i]["comp"]]
     spo = spoff
     pmo = pmoff
     slab_b = slab_bytes(slab) if slab else b""
@@ -6119,8 +6213,12 @@ def _compile_course(source, fname, occluders, hack, _rec, crsinfo=None):
             rec += struct.pack("<12xB3x", p["num"])
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 128.25.6.4): +16 FSB, +17 the class
             p["fsb"] = fsbs[i]
-            rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p.get("dur", 0),
-                               p.get("ow", 0))         # (+18, +19: PICKUPS' duration and OVERWRITE, 128.25.19)
+            if p.get("partner") is not None:       # (a vanishing crack and its companion: +18 the other's
+                d18, d19 = jof[p["partner"]] + 1, int(p.get("comp") is not None)  # index + 1, +19 the companion)
+            else:
+                d18, d19 = p.get("dur", 0), p.get("ow", 0)
+            rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], d18,
+                               d19)                    # (+18, +19: PICKUPS' duration and OVERWRITE, 128.25.19)
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
             selfp.append(PROPREC * j + 22)
@@ -7687,11 +7785,21 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
             if cls not in (CL_ATTEMPT, CL_RESPAWN) or p[r + 20:r + 32] != bytes(12) \
                     or bool(d["lane"]) != (kr["art"] is not None) \
                     or (d["lane"] and d["lane"]["poses"] != {"pennant": 2, "crack": 4, "glass": 2, "icon": 2}[kr["art"]]) \
-                    or (not pu and (dur_ or ow_)) or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
+                    or (not pu and (dur_ or ow_) and not (kr["kind"] == FK_CRACK and 1 <= dur_ <= nprop
+                                                          and ow_ in (0, 1))) \
+                    or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
                     or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
                     or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
             d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
+            if kr["kind"] == FK_CRACK:              # EXPLORATORY (SPEC.md 128.25.18.1): a vanishing crack's
+                d.update(partner=dur_ - 1 if dur_ else None, comp=bool(ow_))   # partner; +19 its companion
+    for d in out:                                   # (each names the other, one is the companion, one byte)
+        if d.get("partner") is not None:
+            q = out[d["partner"]] if d["partner"] < len(out) else None
+            if q is None or q.get("partner") != d["i"] or q.get("comp") == d.get("comp") or q["at"] != d["at"] \
+                    or q["fsb"] != d["fsb"] or (d["comp"] and d["i"] < q["i"]):
+                bad("prop %d" % d["i"], "a vanishing crack's partner %d" % d["partner"])
     if sorted(nums) != list(range(len(nums))):
         bad("props", "checkpoints numbered %s, not 0 - %d" % (sorted(nums), len(nums) - 1))
     if sum(1 for d in out if d["kind"] == PK_CUP) > CUP_MAX and "cupmax" not in _CHECKS_OFF:
@@ -8042,7 +8150,7 @@ class GlassFamily(Family):
         if not p.fsl[slot][0]:
             return
         for pr in p.props:
-            if pr["kind"] != FK_CRACK:
+            if pr["kind"] != FK_CRACK or pr.get("comp"):     # (a companion's byte is its crack's, 128.25.18.1)
                 continue
             k = pr["fsb"] >> 3
             v = p.fst[k]
