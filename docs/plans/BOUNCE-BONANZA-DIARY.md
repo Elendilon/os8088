@@ -3947,3 +3947,57 @@ MartyPC, CGA and Hercules: the bridge's squiggles in a gust and gone after,
 the fan turning frame by frame under a poked ball, the static squiggles, the
 pit's plate and flag. **Not run**: the soak rows; the per-step cost on
 MartyPC.
+## 2026-11-17 (the see-through guard rail)
+
+The owner asked for a thin GUARD RAIL: one that "blocks anything from getting
+over", high enough that rubber cannot boost over it from flat ground, and
+see-through, so it never hides where the ball goes. Its first job is the
+water column's: a rail along the walkway so only steel, sinking through the
+water, reaches the lower path. SPEC.md 128.35 is the contract.
+
+- **The physics needed nothing.** A WALL cell is already impassable at every
+  height: the ball's circle stops at the cell's near edge, however high it
+  flies. So a guard is a WALL, and "nothing gets over" is literal, the jump
+  pickup included. The reserved thin-wall `edge` bits would have saved the
+  cell the rail stands in, but at the price of new resident blocking code, a
+  `BZ_PHYSV` move and every demo re-authored. The cell beside a walkway is the
+  open edge anyway, so the WALL won.
+- **The picture is the whole feature.** The guard cell is not drawn: its
+  neighbours' faces hang into it as into the void (the glass tile's trick),
+  and on each edge it shares with the floor it guards the tool draws posts
+  and two bars. Those pixels are geometry at the guard cell's depth key, so
+  the existing occluder rule lays exactly them - and nothing else of the cell
+  - over a ball behind. The ball shows through the gaps without a line of new
+  occluder code.
+- **AV was the one trap.** The occlusion model of 128.29 counts a front WALL
+  and hides everything under its top edge, gaps and all. Setting the
+  "floating" flag on every guard cell makes the model pass over it, and the
+  rail's pixels become residual records like a prop's drawing. No physics
+  step reads that flag.
+- **The height.** 2 units (16 px) by default: over rubber's Hop (5.7 px), its
+  boost (9.3) and the jump pickup's Hop (13.8). The jump with the boost
+  stacked rises to 18 px - about 2 px over the drawn bar - and is stopped
+  there, the one place the column shows as "a wall nobody can see".
+- **The art took two tries.** White posts with a CYAN shade (a crystal tint)
+  vanished on the cyan tiles and into the Hercules grey checker; a BLACK
+  shade reads on every background on both cards.
+- **A geometric surprise.** A lower path BEHIND a back-edge rail is only
+  behind it on the screen if it is low enough: each row back lifts a ball 8
+  lines and each unit down lowers it 8. Two rows back at 2 units, the path is
+  drawn above the rail and is simply seen whole.
+- **The grammar** is `guard <shape> [height <units>]`. The rail edges follow
+  from the floors the cell touches, so there is no `side`; everything that
+  would leave an invisible wall (a floor across an edge with no rail, a floor
+  at a corner with no rail through it, two heights, a slope) is refused.
+
+**MEASURED**: the knob-less `make bonanzadisk` byte-identical to the tree
+before the change (every part, `bzcourse.inc`, `BONANZA.O88`, the four
+images); the test course RAIL (`BZRAIL=1`): RAM 24,538 and LZ4 4,456 bytes,
+against 23,874 and 4,024 with its guards compiled as solid walls; resident 0.
+
+**Tested**: `bbcourse.py --selfcheck` in full, with the new `guard` section
+(item 16) and its four red arms each MEASURED red; the eight refusals in
+item 2; `make bonanzadisk` and the knob build `make BUILD=build/rail BZRAIL=1
+bonanzadisk`; make's refusal of `BZRAIL=1 BZSHAPES=1`; `checkdocs.py`. The
+course LOOKED AT in the tool's CGA and Hercules previews. **Not run**: the
+soak rows (the final pass's).
