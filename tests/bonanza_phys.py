@@ -1138,18 +1138,21 @@ def glass_keys(leg):
         across(384)
         mark("fast")
     elif leg == "crack-lab":                    # EXPLORATORY (SPEC.md 128.25.18.1): the CRACK LAB
-        d.go(31.5, 19.5)                        # (steel from the lab's pad; the floating bridge wy 16, its
-        d.go(32.5, 19.5)                        # cracks 35, 37, 39 VANISH; the wide holes at 38, 40 wy 19)
-        d.k(0, 2)
+        d.go(31.5, 18.5)                        # (steel from the lab's pad; the floating bridge wy 16, its
+        d.k(0, 2)                               # cracks 35, 37, 39 VANISH; the wide holes at 38, 40 wy 19)
+        d.go(33.5, 18.5)
         d.go(33.5, 16.5)
         d.line(1, 80, 99)
         mark("vslow")
-        d.go(33.5, 16.5)
-        d.line(1, 384, 40.8)
-        mark("vfast")
-        d.go(41.5, 19.5)
-        d.line(-1, 80, -99)
+        d.go(33.5, 19.5)
+        d.line(1, 80, 99)
         mark("wslow")
+        d.go(33.5, 19.5)
+        d.go(33.5, 17.5)
+        d.go(26.5, 16.5)
+        nf = d.p.nfall                          # (line() aims at x 40, so it would brake for the platform)
+        d.go(90, 16.5, 384, until=lambda: d.p.nfall > nf or d.pos()[0] >= 40.8)
+        mark("vfast")
     else:
         pad((22.5, 27.5))
         d.go(11.5, 24.5)
@@ -1197,12 +1200,12 @@ def glass_verdict(leg, ms, rev, p):
                   ("steel fast: across, all four broken", ms["fast"]["nfall"] == 2 and ms["fast"]["cell"] == (4, 24)
                    and cr("fast") == b"\xff" * 4)]
     elif leg == "crack-lab":
-        checks = [("steel slow onto a vanishing crack: a fall, restored", ms["vslow"]["mat"] == BB.MAT_STEEL
+        checks = [("steel slow onto a vanishing crack: a fall, restored", ms["vfast"]["mat"] == BB.MAT_STEEL
                    and ms["vslow"]["nfall"] == 1 and lab("vslow") == bytes(3)),
-                  ("steel fast across the floating bridge: all three vanished behind it", ms["vfast"]["nfall"] == 1
-                   and ms["vfast"]["cell"][0] >= 40 and lab("vfast") == b"\xff" * 3),
                   ("steel slow onto a wide hole: a fall, all restored", ms["wslow"]["nfall"] == 2
-                   and lab("wslow") == bytes(3))]
+                   and lab("wslow") == bytes(3)),
+                  ("steel fast across the floating bridge: all three vanished behind it", ms["vfast"]["nfall"] == 2
+                   and ms["vfast"]["cell"][0] >= 40 and lab("vfast") == b"\xff" * 3)]
     else:
         checks = [("glass across and back: never broken", ms["rolled"]["mat"] == BB.MAT_GLASS
                    and ms["rolled"]["nfall"] == ms["at"]["nfall"] and cr("rolled") == bytes(4)),
