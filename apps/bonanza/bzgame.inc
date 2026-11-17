@@ -496,6 +496,11 @@ VAR bz_on,2                     ; its map row, and the block being laid
 VAR bz_ofl2,2
 VAR bz_omrow,2
 VAR bz_oblk,2
+VAR bz_o1,1                     ; wave 10's O1 (bz_occ): 1 when the pass has ONE
+VAR bz_ox0,1                    ; box and it holds every line of the pass; its
+VAR bz_ow,1                     ; x0 and w (bytes), its buffer less 8 y0, and
+VAR bz_obias,2                  ; that plus 8 x the block row's first line
+VAR bz_orw,2                    ; (bz_oprep)
 VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
 VAR bz_aE,128                   ; bz_amodel (SPEC.md 128.29.5): THE CELL'S CACHE -
 VAR bz_atb,16                   ; 8 words' 8 columns' least edge line (7FFFh
@@ -601,6 +606,7 @@ bz_clk_sample:
 bz_mark:
     test byte [bz_mode], 1
     jz bz_clk_sample            ; a play, a replay: the sample, no base
+.meas:
     push ax
     pushf                       ; (bz_clk_sample, inline: a benchmark's frame
     cli                         ; has six or seven marks)
@@ -639,6 +645,18 @@ bz_mark:
     mov ax, [bz_subs]
     mov [bz_msubs], ax
     pop ax
+    ret
+
+; bz_markm - a MEASURING mark (wave 10's O2): bz_mark in a benchmark (B, D),
+; NOTHING in a play, a replay or the pathway's - whose clock needs a sample at
+; most one sub-tick apart (BZ_SUB counts, 87k clocks), and gets it from
+; bz_ts's, bz_tv's and bz_presented's marks and the samples the rows, the
+; wheel, the retrace wait and the lead take of their own: bz_tr, bz_tw, bz_tf,
+; bz_tb, bz_tc and the lead's are a benchmark's parts and nothing else
+; (~0.2k clocks each).  Preserves all but the flags.
+bz_markm:
+    test byte [bz_mode], 1
+    jnz bz_mark.meas
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1005,7 +1023,7 @@ bz_ts:
     call bz_pover               ; into every box (SPEC.md 128.11.10.2); then the
 bz_tr:                          ; slab when it is OVER the ball (128.12.4.5)
     mov bx, 1 * 4
-    call bz_mark
+    call bz_markm
     cmp byte [bz_full], 0
     jne bz_tw
     call bz_rows
@@ -1014,7 +1032,7 @@ bz_tw:
     mov byte [bz_wld], 0        ; or, with no candidate, runs on to bz_tv's
     cmp byte [bz_wcn], 0        ; mark: no wheel and no mark of its own (a
     je bz_tv                    ; benchmark's mark is 1.0k clk, MEASURED)
-    call bz_mark
+    call bz_markm
     call bz_wheel               ; RULE 1a: the wheel, in the wait's time
     mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2
 bz_tv:                          ; parts keep their numbers)
@@ -1028,7 +1046,7 @@ bz_tv:                          ; parts keep their numbers)
     call bz_vr
 bz_tf:
     mov bx, 3 * 4
-    call bz_mark
+    call bz_markm
     cmp byte [bz_full], 0       ; S = (W*R0 + c0) mod 4096, KEPT (SPEC.md
     jne .whole                  ; 128.9 item 4): a step adds W a row and the
     mov ax, [bz_S]              ; column step to the shown S, the row's W*dr
@@ -1082,7 +1100,7 @@ bz_tf:
     call bz_col
 bz_tb:
     mov bx, 4 * 4
-    call bz_mark
+    call bz_markm
     mov bx, 5 * 4               ; (the part the next mark closes: the box write)
     mov si, bz_boxes            ; THE BOXES, in the order of their first lines,
     xor di, di                  ; each after the column's rows that end above
@@ -1109,7 +1127,7 @@ bz_tb:
     sub cx, [bz_cdone]
     jbe bz_tc.lead
 bz_tc:
-    call bz_mark                ; BX = 5*4: the box write ends here
+    call bz_markm               ; BX = 5*4: the box write ends here
     mov ax, [bz_ccol]
     mov bx, [bz_cdone]
     call bz_col
