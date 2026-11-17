@@ -128,7 +128,10 @@ def parts(art=None):
     inc = open(os.path.join(art, "bzcourse.inc")).read()
     ncrs = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", inc, re.M).group(1))
     pcrs = int(re.search(r"^BZ_P_CRS\s+equ\s+(\d+)", inc, re.M).group(1))   # (0 since SPEC.md 128.25.5.2: the
-    return snd, songs, pcrs + ncrs              # ... and BZ_P_SND's row       # balls ride the bundle; 3 before)
+                                                                                # balls ride the bundle; 3 before)
+    n2 = re.search(r"^BZ_NCRS2\s+equ\s+(\d+)", inc, re.M)  # SPEC.md 128.30.4.4: the two-part courses' WORLD
+    ncrs2 = int(n2.group(1)) if n2 else 0                    # rows come between the courses' and the sound's
+    return snd, songs, pcrs + ncrs + ncrs2      # ... and BZ_P_SND's row
 
 
 def stop(g, label="bzs_tp", guest=10):
