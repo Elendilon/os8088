@@ -253526,6 +253526,12 @@ author's cue to move the geometry, or the owner's to price a bound of 5
 A course that needs more in a row gets the second `OCCIDX` level, not a
 higher bound.
 
+**Since the kit (128.33.6) the alignment is fixed** - every play course at
+`Y0` = 4 (mod 8) - so the tool no longer searches for an alignment that
+meets the 4-a-block bound: **respecting it is the author's** (the owner,
+2026-11-17). The bound stays as it is: it bounds the worst frame's occluder
+tests, 9 blocks x 4 = 36.
+
 ##### 128.11.4.3 `OCCG`
 
 Grid flags bit 2, **`OCCG`**: some GROUNDED ball in this cell - at the
@@ -262546,6 +262552,10 @@ the hole, `n = COLS BROWS` the cells and `C = COLS`.
     (`bonanzagame`'s tour, `bonanzaexit`), and the route costs about 200
     bytes packed over the six.
 - **7 CELLS**: the follow-up's form (128.15.6).
+- **8 KITREF** (128.33.4): sections `B`, `K` and `F` of a play course whose
+  head is THE KIT's pieces: stored as a bitmap of the kit's pieces and then
+  the course's own; the bitmap is copied to scratch first, because the
+  pieces copied in from the slot's start overtake it.
 
 ##### 128.15.4.5 Where the expansion runs, its order and its bounds
 
@@ -271068,7 +271078,10 @@ replaced the sum**: it omitted the victory fanfare's claim, and the play's
 small parts are one ARENA claim now, so `bz_phrel` holds the pathway when the
 largest run takes `BZ_CRS_MAXCLAIM` (the course's own claim) plus
 `BZ_CRS_ARMAX` (the largest arena a pad's course reserves) - 5,376 paragraphs
-today against the sum's 5,993.
+today against the sum's 5,993. **128.33.5 adds THE KIT**: the run must also
+take `BZ_KIT_CLAIM` while the kit is not here (only when the open's fetch of
+it was refused) - the pathway is the part dropped, never the kit or the
+course.
 
 #### 128.22.8 The art (BUILT - generators, files and previews; not yet seen in the guest. PROVISIONAL: the owner's to refine)
 
@@ -272728,6 +272741,11 @@ with it on 2026-11-16 (relayed by the owner):
    diagonal's. Wave 9 takes none of the cell's spare bits (128.25.6.4).
 
 #### 128.25.3 The Y0 search (story 9.0)
+
+**Superseded by 128.33.6 (the owner, 2026-11-17)**: there is no search any
+more. Every play course compiles at `Y0` = 4 (mod 8), the alignment THE KIT's
+pieces are drawn at, and a course that then meets a bound is edited.
+`y0_search` survives as a function, for item 6's MOON control below.
 
 **The defect.** `compile_course` sets the picture's top margin `Y0` from the
 highest footprint and the picture's top (`y0 = max(-gtop, -ftop)`), and the
@@ -277445,3 +277463,257 @@ along the group lab's three wide cracks - each cracked and broke on its own,
 the shared lanes through poses up to 15 of 16, solid rims and no specks,
 the drawn pose within one frame of the true one, and a fall restoring all
 three.
+
+### 128.33 The standard kit (the owner, 2026-11-17)
+
+The owner's idea, priced by `docs/reports/BONANZA-KIT-2026-11-17.md` (the
+report): standard picture blocks, occluder masks and FIELD shape tables held
+ONCE, in a part of their own, instead of once a course. A course NAMES the
+kit's pieces; at its load they are COPIED into the course's own part, so the
+RAM form - and every frame, step and writer that reads it - is exactly
+today's. The disk is "a priority; one of many": real courses will be denser
+than today's testbeds, and the goal is 14 - 20 courses, possibly on one disk.
+The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
+
+#### 128.33.1 The decisions, in one table
+
+| decision | chosen | why (the owner's, 2026-11-17, unless marked) |
+|---|---|---|
+| what the kit holds | every block and every mask at least **3** courses hold (`KIT_MIN`), and **every FIELD table** any course holds (the F library) | the report's small kit (its section 1.2: 3.4x on today's courses) plus the library its section 5 recommends |
+| how a course names a piece | a BITMAP of the kit's pieces, one a class (`B`, `K`, `F`), in a new stored form, 8 `KITREF` | the report's explicit variant (1.1): no change to the decoder, the parts standard or the claim layout |
+| where the pieces live in RAM | COPIED into the course's own part at its load, at the head of their section, in kit order; the course's own pieces after them | 0 clk a frame and a step: the RAM form's layout is today's. Referenced in place is refused (the report's 3.1: +40 - 55% on every writer's word) |
+| the kit in RAM | **HELD for the session**, never dropped after the copy | the high-water mark (128.33.5); fetched once, before the first course |
+| append-only | **no**: every ship rebuilds every course, so the kit may change freely | only loadable external courses would need care, and they can simply not use the kit |
+| the alignment | **ONE**: `Y0` = 4 (mod 8) for every play course; the Y0 search (128.25.3) is removed | all of today's courses but BENCH already ship there (the report's section 4), and 0 and 4 make the fewest blocks |
+| the 4-records-a-block bound (128.11.4.2) | unchanged | it bounds the worst frame's occluder tests, 9 x 4 = 36; with a fixed alignment, respecting it is the author's |
+| not now | relocatable occluder records, the LZ dictionary, kit-global numbering and map runs, in-place referencing | the report's sections 2, 1.4, 1.5 and 3.1 |
+
+#### 128.33.2 The kit: its source, its generator and its part
+
+- **The source** is `apps/bonanza/courses/kit.bzk`, TEXT: a line a piece, `B`,
+  `K` or `F` and the piece's bytes in hex (a block's 16 CGA bytes, a mask's
+  16, a table's 289), in KIT ORDER; `#` starts a comment. No binary is
+  committed. A compile READS it (`kit_load`), so a course compiles the same
+  whatever else is compiled beside it - a single course, a `--selfcheck`
+  subset, the `BZSHAPES` knob build and the shipped build all give the
+  shipped courses the same bytes. No file is an empty kit (every course
+  then carries its own pieces, as before).
+- **It is GENERATED, never written by hand**: `python3 tools/bbcourse.py kit`
+  compiles `KIT_POOL`'s courses (every play course under
+  `apps/bonanza/courses/`: BENCH, FIRST, TRIAL, MILL, MOON, PEAK, PLAYGROUND,
+  SHAPE, PITS - the knob's two included, the pathway and the title not)
+  WITHOUT the kit (`_hack` `nokit`), and keeps:
+  - **B**: every block at least `KIT_MIN` = 3 of them hold, the black block
+    first (every course's block 0, 128.10.4);
+  - **K**: every mask on the same rule;
+  - **F**: every FIELD table any of them holds (the F library, 128.28.2).
+
+  Each class is in FIRST APPEARANCE over the pool in its order, a course's
+  pieces in its own order, so one course's pieces tend to sit together.
+- **When to re-cut it**: after a change to a course's art, before a ship.
+  The kit may lag the courses - a stale kit costs bytes and nothing else (a
+  piece no course holds any more is carried for nothing, a newly shared one
+  by each course) - so a stale kit is REPORTED by `--selfcheck`, never
+  refused. A re-cut moves every play course's identity (the order of its
+  pieces changes), and the demos re-stamp with it (128.15.7: the route demos
+  do themselves; `bbcourse.py author` writes MOON's, PEAK's and
+  PLAYGROUND's again).
+- **The kit's rules** (`kit_check`): no piece twice in a class; block 0 the
+  black block; each class's bitmap at most 512 bytes (`KIT_BMMAX`: 4,096
+  pieces, the guest's scratch, 128.33.4); the part within one part's 65,024.
+- **The part**, `BZKIT.BIN` (`BZK1`), its RAM form its stored form (nothing
+  expands it; `os88pkg` packs it LZB as it packs every row):
+
+| at | |
+|---|---|
+| +0 | `BZK1` |
+| +4 | `NCLS`, 3 |
+| +6 | an 8-byte entry a class, in the order `B`, `K`, `F`: the tag (ASCII), 0, a piece's bytes (word), the pieces (word), the first piece's offset in the part (word) |
+| +30 | zeros to +32 |
+| +32 | the classes' pieces, back to back, each in kit order |
+
+Its row, `BZ_P_KIT`, is the one after the title's demos and before the
+family rows (`OP_ASSET`, `OP_LAZY | OP_COMP`; NOT `OP_ARENA`, 128.33.5).
+
+#### 128.33.3 How a course names the kit's pieces: kit order
+
+A PLAY course (no `view`: never the pathway or the title, whose alignment
+their windows fix, 128.23.2) is compiled exactly as before, and then each
+class's pieces are put in **kit order**: the pieces the kit holds first,
+sorted by their kit index, then the course's own pieces in the order the
+compile made them. Nothing else moves:
+- **B**: the map's words and the lanes' pose maps follow their blocks
+  (`kit_order` after the lanes' poses join the pool); block 0 stays the black
+  block, which is kit piece 0;
+- **K**: each record's mask index follows its mask;
+- **F**: each FIELD cell's shape (its +1's bits 0 - 3 and 7) follows its
+  table; its symmetry does not change.
+
+A piece the kit holds is ALWAYS named, never carried: a `KITREF` section's
+own pieces are none of the kit's (`read_part` refuses one that is). The
+model records, per class, the kit indices it names (`m["kit"]`), and the
+RAM form is the kit-less compile's with the pieces reordered -
+`--selfcheck` item 16 proves that on every play course (128.33.7).
+
+#### 128.33.4 The form `KITREF` (8), and why it expands in place
+
+A section `B`, `K` or `F` whose kit pieces outweigh their bitmap
+(`size x nk > ceil(NKIT / 8)`: the slot's hole is then at least one byte) is
+stored as form 8; one that does not stays PLAIN. The directory's rules
+(128.15.4.2) do not change: `B` is still (`BLKOFF`, `16 N`), `K` (`MASKOFF`,
+`16 NMASK`), `F` its 128.28.2 place. Only the stored length is the form's:
+
+- **stored**: the class's BITMAP, `ceil(NKIT / 8)` bytes (bit `i` of byte
+  `i >> 3`, low bit first: kit piece `i`), then the course's own pieces;
+- `dlen = ceil(NKIT / 8) + size x (N - nk)`, so `H = size x nk - ceil(NKIT / 8)`.
+
+**The expander** (`bz_cxkit`): the class is found by the entry's TAG in the
+kit's header (the dispatch now passes the tag in DL); the bitmap is copied
+to scratch (`bz_boxbuf`: at most 512 bytes, `BZ_KIT_BMB` asserted against
+`4 BZ_BOXB` at assembly); then for each bit set, in order, the kit's piece
+is copied to the slot from its start (`rep movsw`, and a `movsb` for a
+table's odd 289). The course's own pieces are the slot's TAIL, at `S + size
+x nk` - where the stored form already put them - so they never move.
+
+- **Why the bitmap is copied out first**: the pieces written from `S` reach
+  the bitmap at `S + H` before the walk has read it whenever a course's last
+  named piece comes early in the kit and its bitmap runs on past it. Read in
+  place, the writer passes unread bitmap bytes; `--selfcheck` item 16 keeps
+  that order as a negative control.
+- **Bounded**: the walk counts with the kit's own count of the class, the
+  copy with the kit's piece size; the tool proves the pieces named fill the
+  slot's head exactly (`expand` refuses otherwise), and each class's bitmap
+  within `KIT_BMMAX`.
+- **Order**: `KITREF` reads only the kit and its own slot, so it depends on
+  no other section; the expansion stays exactly once a decoding fetch
+  (128.15.4.5).
+- **Two-part courses** (128.30): `B` and `K` are in the picture part, `F` in
+  the world part; each part's `bz_cexp` expands its own.
+
+#### 128.33.5 The hold, and memory
+
+**The owner's rule**: hold the kit; do not drop it after the copy. *"If no
+claim is made after the course loads, the high-water mark is the same
+whether the kit is dropped or not, so there is no point dropping it."*
+
+**Every claim and fetch after a course part is loaded and expanded**
+(`bz_cload` after the course's `op_fetch` and `bz_cexp`, read off the code;
+sizes MEASURED at this tree's build):
+
+| when | what | its size |
+|---|---|---|
+| the load, a two-part course | the WORLD part (`bz_cload2`) | PLAYGROUND's 16,105 bytes |
+| the load | the RESIDENT BUNDLE (`bz_bget`) - held since the open, so normally NO claim; a claim only when the open's fetch was refused, or when a CGA launch finds it Hercules-translated (a two-card machine: dropped and fetched again) | 33,424 bytes |
+| the load | the ARENA's regrow (`op_areserve`, `BZ_CRS_ARENA`): the arena claim grown in place, or MOVED | 298 - 332 paragraphs (about 4.8 - 5.3KB) a course |
+| the load | into the arena: the sound part, the song, the fanfare (`bzs_gfetch`), the fetch families (`bz_ffetch`: PROBE) | inside that reserve |
+| the load | `bz_arload`'s `op_areserve 0` | a shrink, never a claim |
+| the play, the finish, the results card | none: no fetch in `bzgame.inc`, `bzwheel.inc`, `bzphys.inc` or `bzcard.inc`; the victory fanfare was fetched at the load | - |
+| a SUSPENDED course (128.26.4: F or Alt+Enter in a course) | the SHELL part when the face paints (`bz_shcall`), dropped before the resume | 12,072 bytes |
+| the same, on the desktop | a demo file's staging (L, a double-clicked `.BZR`: `bz_lfile`) and a shipped demo's part (V: `bz_vkey`), each claimed and freed inside one call | the file's size; 44 - 878 bytes |
+| a demo, a replay, the title's rounds, the return to the pathway | fetched only after the course before them is DROPPED (`bz_tlog`, `bz_tdemo`, the pathway's fetch) | - |
+
+So claims DO follow a course's load: the world part, the arena's growth,
+and the shell part on the desktop of a suspended play. **The kit is held
+anyway, ordered so that holding it walls nothing**:
+- **fetched ONCE, at the OPEN**, before the resident bundle (`bz_entry`:
+  `bz_kget0`, QUIET through `OP_SAYGATE`, because a launch tries again and
+  says why), so its claim sits UNDER the arena: the heap is first fit from
+  the bottom (SPEC.md 50.2), the arena above it still grows in place, and no
+  claim a launch makes is ever walled by the kit;
+- **held for the instance**, as the bundle is; only the close gives it back;
+- **again at a play course's load** if the open's fetch was refused
+  (`bz_cload`: `bz_kget`, aloud): no play course without it. The pathway and
+  the title never need it;
+- **kern_small** (which refuses every launch, 128.1) gives it back right
+  after the open, once `bz_small` is known;
+- **memory short**: the pathway is the part dropped, never the kit or the
+  course. `bz_phrel` (128.22.7, 128.25.4.3) keeps the pathway when the
+  largest free run takes `BZ_CRS_MAXCLAIM` + `BZ_CRS_ARMAX`, **and now
+  `BZ_KIT_CLAIM` as well while the kit is not here** (the tool emits it: the
+  kit's RAM form's paragraphs, `CLAIM_SLACK` and a granule). With the kit
+  held since the open - every session on a 640KB machine - the test is
+  today's.
+
+**The cost**: the kit's RAM form held for the session, one more claim (a
+course play holds the course, the arena, the kit and, when held, the
+pathway: 4 of `MEM_OWNER_MAX`'s 8 on the real-mode kernels; a two-part
+course and a suspended play's shell 6), and the open's one more fetch. The
+target machine is 640KB (128.7); 256KB is the end-of-project check.
+
+#### 128.33.6 The one alignment
+
+`compile_course` no longer searches `Y0`'s eight alignments (128.25.3): a
+play course's `Y0` is the least that holds its footprints plus `(KIT_Y0 -
+Y0) mod 8`, `KIT_Y0` = 4, so every kit piece is drawn at the alignment the
+kit was cut at. A compile with no occluders keeps +0, as the search left it,
+and `_hack` `y0add` still pins an alignment for the refusals that need one.
+A course that meets the 4-a-block or 128-a-row bound at the kit's alignment
+is REFUSED, and edited (128.11.4.2). PREDICTED (the report's section 4):
+every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
+
+#### 128.33.7 The tool
+
+- `kit_load`, `kit_check`, `kit_part`, `kit_order`, `kit_ref` and
+  `kit_decode`; `sec_form` and `stored_len` take the model's `kit`;
+  `stored_form`, `expand` (its `kit=` the red arms'), `decode_part(s)` and
+  `read_part(s)` know form 8. `read_part` checks a `KITREF` section: a
+  bitmap and whole pieces, the kit's share larger than its bitmap, each head
+  piece the kit's and in kit order, and no own piece the kit holds.
+- `bbcourse.py kit [-o FILE] [--min N]`: the generator (128.33.2).
+- The build writes `BZKIT.BIN`; `bzcourse.inc` carries `BZ_FORMS` with bit
+  8, `BZ_KIT_CLAIM` and `BZ_KIT_BMB`.
+- **`--sizes`**: per play course, the pieces it takes from the kit and its
+  own (bytes of RAM each), and its LZB against its kit-less compile; then
+  the kit's RAM and LZB, and the play courses' saving against it.
+- **`--selfcheck` item 16** (section `kit`):
+  - the kit's part names each class where it lies, block 0 black, and the
+    build ships it;
+  - every play course's `Y0` is 4 (mod 8);
+  - every play course's RAM form is its kit-less compile's with the pieces
+    in kit order and NOTHING else moved (the map, the pose maps, the
+    records' masks and the FIELD cells' tables name the same bytes);
+  - every stored form expands IN PLACE (the simulation) to its RAM form;
+  - **red arms**, on every `KITREF` section: a bitmap bit cleared expands to
+    another RAM form; a kit one piece short of the last one named is
+    refused; a kit with a named piece changed is refused by `read_part`;
+    and the bitmap read in place, not copied out first, writes over a byte
+    it has not read;
+  - the kit's source is REPORTED (its counts and size), never refused for
+    lagging the courses.
+- Item 1's cross-commit compile against `503031d4` takes `nokit` (that tool
+  had no kit), as it takes `y0add` 0.
+
+#### 128.33.8 kern_mega, kern_small, the Hercules
+
+- **kern_mega**: the kit is a claim like any other; `op_seg` answers its LDT
+  selector, which `bz_kget` keeps in `bz_kseg` (the claim is pinned and
+  held, so the word stays good) and `bz_cxkit` loads into DS. Nothing goes
+  through CS and no segment arithmetic is done, so no `PKG_MEGA` arm.
+- **kern_small**: today's policy for parts there - the open fetches, a
+  launch refuses - with the kit given back right after the open.
+- **The Hercules**: the kit is the CGA's and is never translated; `bz_hxlat`
+  translates the course's blocks AFTER `bz_cexp`, the kit's pieces among
+  them, as it always has (128.15.4.5).
+
+#### 128.33.9 Bytes and clocks (PREDICTED: the report's figures)
+
+| | PREDICTED |
+|---|---|
+| the frame and the step | **0 clk**: the RAM form's layout is today's |
+| the kit on the disk | the small kit 1,341 LZB, the F library 3,055 |
+| what it saves today's 8 study courses | 4,508 LZB (3.4x the small kit) |
+| a new course (leave-one-out) | about -530 LZB |
+| the copy at a load, 4.77 MHz | about 15 - 30 ms a course |
+| a launch with the kit held | about 0.1 - 0.2 s SHORTER than today (fewer sectors read and decoded) |
+| guest code | about 150 - 200 bytes of image, about 4 of bss, 0 kernel bytes |
+| RAM held | 3.8KB (the small kit) plus 10.4KB (the F library) |
+
+#### 128.33.10 The rows
+
+Named, run by the owner in the final pass (fork rule 9): `bonanzacourse`
+(item 16 among `--selfcheck`'s), `bonanzaexit` (the claim compare: the RAM
+form after `bz_cexp`, the kit's pieces now copied in), `bonanzapath` (the
+held pathway both ways, beside a held kit), `bonanzagame`, `bonanzademo`
+(the re-stamped demos), `bonanzaring`, `bonanzaphys` (its field leg runs
+`bz_cexp` under unicorn), `bonanzamega` (the kit's selector), and
+`bonanzaperf` for the launch.
