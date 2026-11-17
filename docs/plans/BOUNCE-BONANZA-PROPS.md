@@ -25,7 +25,7 @@ px, and at most 6 FAST lanes meet a window.
 | | what | how | notes |
 |---|---|---|---|
 | P1 | **WATER** (the owner's design, below) | one family; the tool's depth key draws the ball behind the glass | its own section; the first to build |
-| P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops) |
+| P2 | **MAGNETS**, pulling on or off the course; a 2 - 3 frame WIGGLE lane while active | STEP pulls steel toward each magnet in range (plan: 0.3 - 0.5k a step in range; PREDICTED as built about 0.6k in a field, 2.5k on a cell change) | **VERTICAL magnets**: an upward pull about gravity, so steel HOVERS across a gap under a row of them on an overhang (check: airborne over VOID is not a fall until it drops). **BUILT** on `bb-magnet`, below and SPEC.md 128.33 |
 | P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (plan: 0.1 - 0.2k a step) | a GUST lane on the blower or a FLAG as the hint; across the crumbling bridge (cracked tiles) the owner's favourite; an UPDRAFT that lifts only glass to a ledge is a glass-only gate for free |
 | P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5) |
@@ -168,4 +168,42 @@ draws it, blowing hard to one side; the HEIGHT gates glass.
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
       cards.
-- [ ] P2 - P12 as the owner orders them.
+- [ ] P3 - P12 as the owner orders them.
+
+## P2 MAGNETS - built (branch `bb-magnet`, SPEC.md 128.33)
+
+Family ID 8, kind 32, home `fetch` (no shipped course names it yet:
+128.33.9). A magnet on a post pulls STEEL along a FIELD of N cells out from
+it, `S >> (k - 1)` at the k-th cell toward the post; a HANGING magnet (`face
+down`) lifts an airborne steel ball, `gvz += S; gvz -= gvz >> 3`, so with S
+= 27 against G = 24 steel rolled off a level edge HOVERS at its height. The
+investigation: an airborne ball over a NEAR void dies only below the kill
+height (the near floors less 3 units), so nothing blocked hovering and
+there is no resident change.
+
+- [x] **M.1** SPEC.md 128.33, the contract, before the code.
+- [x] **M.2** The tool: the statement (`prop magnet ... face ... [range]
+      [strength]`), the record (+18 - +22), `MagnetFamily` (the force-field
+      core `mg_scan` / `mg_force` / `mg_apply`), the refusals, the art (a
+      magenta horseshoe, white tips, black outline: readable on the
+      Hercules) and the WIGGLE lane (3 poses).
+- [x] **M.3** The part `fam/magnet.asm` (376 bytes), STEP and POSE, equal to
+      the model at every step of seven scenes (MEASURED under unicorn).
+- [x] **M.4** The `BZMAGNET=1` knob's test course MAGS (the pathway's pad
+      0): the PULL, the RAIL, the HOVER; no shipped course, demo or identity
+      moved (MEASURED, `cmp`).
+- [x] **M.5** The proofs: `--selfcheck` section `magnet` (12 refusals, the
+      records, the scenes, three red arms on the model) and `bonanzaphys`'s
+      `mg_host` (seven scenes, five red arms on the part), all MEASURED.
+- [x] **M.6a** LOOKED AT once on MartyPC, CGA and Hercules: steel hovers
+      and rides the rail on the guest, the wiggle drawn (SPEC.md 128.33.10;
+      the hovering ball is hard to see against the posts' pillars on the
+      Hercules - open question 5).
+- [ ] **M.6b** The wiggle's frames and a step's clocks MEASURED on MartyPC
+      (`bonanzaperf`-style) - the final pass's.
+- [x] **M.7** The owner's answers (SPEC.md 128.33.13): the hover BOBBLES
+      (+20 bytes, about 1.7 px, no drift); one head an element (a hanging
+      magnet's range other than 1 refused); at most one wiggle pose change a
+      step (N hanging magnets: N SLOW lanes, no FAST one); the law judged by
+      the owner on the test course.
+- [ ] **M.8** A shipped course that uses magnets (then home `resident`).

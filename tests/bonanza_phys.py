@@ -774,13 +774,13 @@ def poke_of(p):
     return d
 
 
-def model(crs, mat, poke, **kw):
+def model(crs, mat, poke, src=None, **kw):
     """the model of a replay: the course's start, poked as the guest will be -
     the window refilled round the poked cell (the guest's bz_pokd refill) and,
     on a slab, carried (bz_onp); wave 4: the ball's state (EXTRA: mst, mct) and
     a prop record's field (RECPOKE: (record, field, value) - the spring's
     launch lowered to where max and sum differ, 128.14.19 item 6) as poked"""
-    p = BB.Physics(R.course(crs), play=True, mat=mat, **kw)
+    p = BB.Physics(R.course(crs, src=src), play=True, mat=mat, **kw)
     if poke and poke.get("recpoke"):
         import copy
         i, fld, v = poke["recpoke"]
@@ -1627,27 +1627,27 @@ def _cellb(c):
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
-def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None):
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
     bz_fst, the slots, bz_fref, the window bz_nbr against the model's
     snapshot and each element's POSE through bz_ltrue.  -> (model, failures)"""
-    c = R.course(crs)
-    g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
+    c = R.course(crs, src=src)                  # (SRC, K: a course the build does not list - MAGNETS' test
+    g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)    # course, SPEC.md 128.33.10)
     g.w("bz_cseg", UPS, 2)
     if c.split:                                 # (a TWO-PART course, SPEC.md 128.30.5: the world part in
         g.mu.mem_write(UMS * 16, bytes(c.cga))  # [bz_cseg], the picture part in [bz_mseg]; one part is in
     if "bz_mseg" in sym:                        # both words, as bz_cload leaves them)
         g.w("bz_mseg", UMS if c.split else UPS, 2)
-    g.w("bz_crs", R.CRS_K[crs], 1)
+    g.w("bz_crs", R.CRS_K[crs] if k is None else k, 1)
     g.w("bz_mat", mat, 1)
     g.w("bz_mode", 0, 1)
     g.call("bz_crshdr")
     _ax, cf = g.call("bz_ffetch")
     assert not cf, "bz_ffetch refused the family part"
     g.call("bz_pinit")
-    p = BB.Physics(c, play=True, mat=mat) if poke is None else model(crs, mat, poke)
+    p = BB.Physics(c, play=True, mat=mat) if poke is None else model(crs, mat, poke, src=src)
     if poke:                                    # story 9.8: a scenario's POKE, as replay() makes it
         for n in ("gx", "gy", "gz"):
             g.w("bz_" + n, poke[n], 4)
@@ -1950,6 +1950,127 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
+    # MAGNETS (SPEC.md 128.33.10): the test course's scenes and their red arms
+    o_, f_ = mg_host(binp, lst, sym)
+    return out + o_, fails + f_
+
+
+# ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
+# a RETURN at a step (None none), and what it is for, judged on the model's own trace -----------------------
+MG_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "magnets.bbc")
+MG_SCENES = (
+    # name          material         poke (wx, wy, gvx, gvy)  steps  RETURN  what
+    ("hover-steel", BB.MAT_STEEL,  (15, 22, 300, 0),   120, None, "steel rolls off the gap's edge and HOVERS under the "
+                                                                  "hanging magnets to the goal's plate"),
+    ("hover-rubber", BB.MAT_RUBBER, (15, 22, 300, 0),  120, None, "rubber falls into the same gap"),
+    ("pull-steel", BB.MAT_STEEL,   (11, 12, 0, 160),   140, None, "slow steel is pulled off the walkway by the "
+                                                                  "magnet across the gap"),
+    ("pull-fast", BB.MAT_STEEL,    (11, 12, 0, 384),   60, None, "fast steel rolls past it"),
+    ("pull-rubber", BB.MAT_RUBBER, (11, 12, 0, 160),   140, None, "rubber rolls on past it"),
+    ("rail-steel", BB.MAT_STEEL,   (20, 10, 0, 200),   170, 150, "steel rides the tilted rail held by its fence of "
+                                                                 "magnets (a RETURN while one wiggles)"),
+    ("rail-rubber", BB.MAT_RUBBER, (20, 10, 0, 200),   170, None, "rubber slides off the tilted rail"),
+)
+
+
+def mg_poke(mat, at):
+    wx, wy, gvx, gvy = at
+    return poke_of(BB.Physics(R.course("mags", src=MG_SRC), play=True, mat=mat).poke(wx, wy, gvx, gvy))
+
+
+def mg_keys(n, ret):
+    return [BB.K_RET if i == ret else 0 for i in range(n)]
+
+
+def mg_verdict(name, mat, poke, keys):
+    """what a magnet scene is for, on the model's trace -> (ok, what it saw)"""
+    p = model("mags", mat, poke, src=MG_SRC)
+    xs, zs, fell, pulled, wig = [], [], None, 0, 0
+    for i, k in enumerate(keys):
+        g0 = (p.gvx, p.gvy)
+        p.step(k)
+        if p.respawned and fell is None and not k:
+            fell = i
+        if fell is None:
+            xs.append((p.gx >> 12, p.gy >> 12, p.air))
+            zs.append((p.gz >> 8, p.gx >> 12) if p.air else None)
+        wig += p.fsl[0][7] != 0
+    if name == "hover-steel":
+        over = [z for z, x in filter(None, zs) if 18 <= x <= 20]
+        ok = fell is None and xs[-1][0] >= 21 and len(over) > 20 and min(over) >= 15
+        return ok, "%d steps over the gap, z %s - %s px, ended on (%d, %d)%s" % (
+            len(over), min(over or [0]), max(over or [0]), xs[-1][0], xs[-1][1], "" if fell is None else
+            ", FELL at %d" % fell)
+    if name in ("hover-rubber", "pull-steel", "rail-rubber"):
+        return fell is not None, "fell at step %s (%d steps a magnet wiggled)" % (fell, wig)
+    if name in ("pull-rubber", "pull-fast"):            # (the field's row is 14: rubber stops IN it, unpulled)
+        return fell is None and xs[-1][1] >= 14 + (name == "pull-fast"), "ended on (%d, %d), no fall" % xs[-1][:2]
+    if name == "rail-steel":
+        ok = fell is None and max(y for _x, y, _a in xs) >= 15 and wig > 100
+        return ok, "no fall, reached row %d; a magnet wiggled %d steps" % (max(y for _x, y, _a in xs), wig)
+    raise AssertionError(name)
+
+
+def mg_parts(over=None, src=None):
+    """the build's family rows with the MAGNET part replaced by OVER (bytes), or assembled from SRC (text)"""
+    if src is not None:
+        import shutil
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+            open(os.path.join(d, "fam", "magnet.asm"), "w").write(src)
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "magnet.asm")],
+                           cwd=ROOT, check=True)
+            over = open(o, "rb").read()
+    return fam_parts({"magnet": over}) if over is not None else fam_parts()
+
+
+def mg_host(binp, lst, sym):
+    """MAGNETS' unicorn half (SPEC.md 128.33.10): every scene equal at every step, what each is for, and the red
+    arms -> (lines, failures)"""
+    out, fails = [], []
+    fam = fam_parts()
+    sc = []
+    for name, mat, at, n, ret, what in MG_SCENES:
+        poke, keys = mg_poke(mat, at), mg_keys(n, ret)
+        sc.append((name, mat, poke, keys))
+        p, bad = urun(binp, lst, sym, "mags", mat, keys, fam, poke=poke, src=MG_SRC, k=0)
+        ok, saw = mg_verdict(name, mat, poke, keys)
+        out.append("magnet %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
+        fails += ["magnet %s: %s" % (name, b) for b in bad] + ([] if ok else ["magnet %s is not what it is "
+                                                                             "for: %s" % (name, saw)])
+    msrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "magnet.asm")).read()
+    # the red arms, each assembled from a broken copy of the part's source: the STEP entry 0 (no magnet acts),
+    # the material's test inverted (rubber pulled, steel not), the hover's damping gone, the scan's ACROSS test
+    # gone (a field a whole band of rows), the wiggle's pose change left unmarked (never drawn)
+    arms = (("mgstep", "    dw 0, 0, 0, mg_step, mg_pose, 0\n", "    dw 0, 0, 0, 0, mg_pose, 0\n", None,
+             ("hover-steel",)),
+            ("mgsteel", "    jne .stop\n", "    je .stop\n", None, ("pull-rubber", "rail-rubber")),
+            ("mgdamp", "    sar dx, 1\n    sar dx, 1\n    sar dx, 1\n", "    xor dx, dx\n", "the ball",
+             ("hover-steel",)),
+            ("mgscan", "    or ah, ah\n    jnz .n\n", "    or ah, ah\n", None, ("pull-fast", "hover-steel")),
+            ("mgmark", "    call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)\n", "",
+             "never drawn", ("rail-steel",)),
+            # (the hover's BOBBLE gone; a cell change's step counting the wiggle on - two pose changes a step)
+            ("mgbob", "    add ax, BZ_MG_BOB\n", "    nop\n", "the ball", ("hover-steel",)),
+            ("mgfresh", "    call mg_one                 ; (a cell change's step: the force, no count -\n"
+             "    jmp short .out              ; it may have STOPPED a wiggle: one change a step)\n", "", None,
+             ("hover-steel", "rail-steel")))
+    for arm, a_, b_, want, scs in arms:
+        assert msrc.count(a_) == 1, "red %s: its patch does not apply" % arm
+        ff = mg_parts(src=msrc.replace(a_, b_))
+        hit = None
+        for name, mat, poke, keys in sc:
+            if name in scs and hit is None:
+                _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=0)
+                hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn" % arm)
     return out, fails
 
 
