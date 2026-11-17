@@ -281518,6 +281518,16 @@ material's test inverted), `mgdamp` (no damping: parts at the hover's 36th
 step), `mgscan` (the across test gone), `mgmark` (a pose change unmarked:
 "never drawn").
 
+**SEEN** (one look on MartyPC, `os8088_5150_cga_gla` and `_herc_gla`, the
+knob build's disk, a launch with `bz_crs` poked to MAGS, the ball put on
+the steel pad and then poked at the gap and on the rail): steel hovers
+over cells 18 - 20 of row 22 at z 16 airborne, the slot caching each
+hanging magnet in turn, and rides the rail at (20, 12 - 13) with the fence
+magnet's wiggle drawn beside it, on both cards. Not measured there: a
+frame's cost. **Seen against it**: the hovering ball passes IN FRONT of the
+posts' pillar faces, which on the Hercules' checker it barely stands out
+from - a layout question (lower or thinner posts) for the owner, 128.33.12.
+
 #### 128.33.11 Folding MAGNETS and WIND into one family
 
 WIND (128.34) is the same mechanism with the sign reversed and a weight by
@@ -281544,3 +281554,7 @@ over a REGION, likely wider than a line; the line's `across` test grows to
 3. The wiggle is at a hanging magnet's FIRST head only (a lane is at most
    32 x 24 px); a long arm's other heads stay still.
 4. Home `fetch` until a shipped course uses it (128.33.9).
+5. The hover's posts: a post must be a raised cell (or the ball rolls onto
+   it), so the hovering ball is drawn against the posts' pillar faces; on
+   the Hercules it is hard to pick out there. Posts set back a cell (a
+   longer arm, `range` 2) or on the far side would clear it.
