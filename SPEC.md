@@ -38793,6 +38793,76 @@ before. `fmv_ishere` leaves DL = the drive beside AX = the folder for it,
 at the same size. **3 bytes of `.cold`**, which is the whole of kern_big's
 cold rung. `tests/imgswap.py` is the gate.
 
+### 18.9.1.3 …and nor had the package's FILE CELLS, which is where it wrote
+
+Reported from the field on 86Box, and then reproduced without 86Box: BONANZA
+running on B:, the disk swapped for another build of BONANZA, back to the
+desktop (the part fetches fail - correct), close, Refresh, launch: **"Cannot
+read my parts"** on every launch after, and the disk itself now damaged.
+
+`inst_vol_enter` (§19.2.1) stands the machine in the calling instance's folder
+before every file cell, and its "already here" arm was the bare `(drive,
+folder)` compare in front of `dsk_chdir_q` - §18.9.1.1's defect a fourth time,
+and the one with the widest reach, because it is under EVERY package file
+cell. A package standing where the machine stood reached the platter with no
+media test at all, so §18.9.1's premise - the first transfer after a human
+pause re-validates, and the motor then vouches for the next two seconds -
+was broken at its first half, and the second half then made it worse:
+
+1. the first call after the swap (BONANZA's part fetch, a `READ_SEQ`) was
+   answered through the OLD disk's FAT window and cursor, off the NEW disk's
+   sectors, and **spun the motor**;
+2. BONANZA's save (`BONANZA.DAT`, §128.14.3.3) moved to APPDATA with
+   `GOTO_QM`, whose `dsk_goto` DOES ask `dsk_media_ok` - and was told the
+   medium could not have changed, because the motor step 1 started was
+   still turning;
+3. `OSAPI_FILE_WRITE` allocated off the old disk's free map, wrote the data
+   into a cluster of the new disk's `BONANZA.O88`, and flushed the old disk's
+   FAT over the new one.
+
+MEASURED twice. On 86Box, an `int 13h` breakpoint across the Esc: two
+reads (cylinders 12 and 11) and four writes - LBA 248, a data cluster of the
+new `BONANZA.O88`, then LBAs 1, 3 and 16, both FATs and APPDATA - and no
+LBA 0 among them, `[dsk_sigcur]` the old disk's throughout. On MartyPC with
+a real mount (`m.mount`, no emulator cache in the way): the same, and
+`os88disk.py --verify` on the result *"BONANZA.O88: chain has 115
+cluster(s), size implies 121"*, README's chain cut to one cluster and four
+lost clusters. That is a 360KB floppy and an XT,
+so it is a real machine's failure too: a user who swaps the disk under a
+package and lets it save corrupts the disk they put in.
+
+**The fix is a deletion.** `inst_vol_enter` calls `dsk_chdir_q` always, and
+the compare is `dsk_chdir_q`'s own - `dsk_here_ok`, the identity AND the
+medium - so the arm that does no I/O is taken only when the floppy's motor is
+still turning from the last transfer. 12 bytes of `.text` fewer (the span 25
+-> 13), and a far call into `.cold` on every file cell where it was six
+compares.
+
+The cost is §18.9.1's, the one it priced and accepted: a package file cell
+on a FLOPPY whose motor has stopped since the last transfer pays a quiet
+mount - LBA 0, one `int 13h` and a seek to cylinder 0 and back; the FAT
+window is kept when the signature matches (§18.8.1) - and that mount bumps
+`[dsk_mgen]`, so a `READ_SEQ` cursor re-seeds from the name once (§18.4.8).
+A fixed disk, a driver volume and a redirected one answer the media half
+with no I/O, as before. **What to watch**: a reader that refills from a
+floppy less often than every two seconds - a streaming player on a slow
+file - now pays that revolution per refill, and a package that polls a file
+cell while idle on a floppy keeps the drive turning.
+
+**What 86Box adds on top, which no guest can fix.** Its `.img` driver
+(`src/floppy/fdd_img.c`) holds ONE CYLINDER of the image in RAM, re-read from
+the file only on a seek to a different cylinder, and holds the file OPEN. So
+a host program that rewrites the image file in place is invisible on the
+cylinder the head is parked on - parked on cylinder 0, the boot sector, the
+FAT and the root are all the old disk's, the signature matches, and Refresh
+honestly lists the old disk until something seeks away (the field's "nothing
+changes, launch, exit, Refresh, then it does"). Replacing the file (a new
+inode) is invisible for good: 86Box goes on reading the deleted one (both
+measured). And a write on a stale cylinder writes the WHOLE buffered
+cylinder back (`write_back`; read in the source, not measured). Swapping
+an image under 86Box is done with its own media menu (eject and load), which
+re-opens the file.
+
 ### 18.9.2 …and a FIXED disk validates its BPB once, ever
 
 `disk_mount` re-read LBA 0 on every switch to a volume, to validate the BPB
@@ -45166,11 +45236,14 @@ Seven things hold it up:
   dialog's `fdlg_home_go`) is the routine that decides where a *dialog* opens, and a volume switch underneath it would
   pre-empt that decision.
 - **The compare is what makes it free.** `inst_vol_enter` loads the
-  instance's pair, compares it against the globals and returns — six
-  compares — when they agree, which on a machine with one app doing file
-  work is every call. A mount is paid only when something really did move
-  the volume underneath this app: exactly the case that used to lose the
-  file.
+  instance's pair and hands it to `dsk_chdir_q`, whose `dsk_here_ok` returns
+  with no I/O when they agree with the globals AND the medium cannot have
+  changed (§18.9.1.3: the compare used to be `inst_vol_enter`'s own, without
+  the medium half), which on a machine with one app doing file work is every
+  call within a floppy's motor time. A mount is paid only when something
+  really did move the volume underneath this app — exactly the case that
+  used to lose the file — or when a floppy's motor has stopped since the
+  last transfer.
 - **It is a QUIET mount** (§18.9). A file operation reads no listing, so the
   scan, the sort and one icon-harvest read per file would all be bought for
   nothing. The `[dsk_lstale]` debt it leaves is deliberately never
