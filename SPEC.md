@@ -264842,7 +264842,14 @@ count.
 
 **What D's numbers are.** D pays the instruments a play does not: a mark
 is about 1.0k clk on a measured frame against 0.4k in play (`bz_tcmid`'s
-note) at about seven a frame, and `bz_wbox`'s TIMED `bz_latechk` pair about
+note) at about seven a frame - and since wave 10's O2 only three of a
+play's marks are clock samples at all (`bz_ts`, `bz_tv`, `bz_presented`;
+`bz_tr`, `bz_tw`, `bz_tf`, `bz_tb`, `bz_tc` and the lead's are `bz_markm`,
+nothing outside B and D, the rows, the wheel, the retrace wait and the lead
+sampling on their own: the longest gap between two samples of a demo's
+play MEASURED 74.6k clk on MOON's CGA (80.0k without O1's lighter
+occluder lay), 62.7k on PEAK's and 48.5k on MILL's, under a sub-tick's
+87.4k; a stretch over it would lose a sub-tick, never a step of a log), and `bz_wbox`'s TIMED `bz_latechk` pair about
 1.65k a box, which a play never times - PREDICTED **about 4 - 9k a frame**
 over the play it replays (`bz_mark`'s own note measured "~4-5k" on B). So
 **D's busy is a play's plus that, and its misses are an UPPER BOUND on a
