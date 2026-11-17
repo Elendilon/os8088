@@ -228,6 +228,14 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
       DEEP column on the test course; unicorn scenes and red arms; LOOKED AT
       on both cards.  The float line's own bob NOT built (a moving floor is
       the lift's carry; a gvz kick lands every time).
+- [x] **W.6** The third round (SPEC.md 128.36.10): the floating ball's
+      SURFACE BOB - B ships: the float floor alternating top / float line
+      every 16 steps, a resting ball carried down with it (no landing:
+      MEASURED), +83 part bytes.  E (the hover) was built for the owner's
+      A/B and SET ASIDE ("it can't exit the water": the walkway's edge bumps
+      it back) - its arm and the `BZWATERBOB` knob deleted.  C priced and NOT
+      built (a resident floor offset and carry).  Unicorn scenes equal, red
+      arms `wabsnap`, `wabflip`.
 - [x] **P13 / the guard rail** (SPEC.md 128.35, branch `bb-rail`): the
       contract; the tool's `guard` statement, its refusals, art, occluders and
       `FL_FLOAT`; `--selfcheck` item 16 with four red arms (MEASURED red); the
