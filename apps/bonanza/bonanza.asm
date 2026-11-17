@@ -3671,7 +3671,7 @@ bz_hxball:
 ; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS x 2 parity copies,
 ; every copy's frame half 16 rows from table p (copies alternate p = 0, 1)
 bz_hxents:
-    mov ah, BZ_BAL_SHIFTS * 2
+    mov ah, BZ_BAL_ESH * BZ_BAL_EPAR ; (SPEC.md 128.38.10: A and B store fewer)
     mul ah
     or ax, ax
     jz .out
@@ -3681,7 +3681,9 @@ bz_hxents:
     add si, BZ_BAL_ENT / 2      ; past the mask half to the frame half
     mov cx, BZ_BAL_ROWS
     call bz_hxrows              ; (even: back on the copy's own table)
+%if BZ_BAL_EPAR > 1
     xor bx, bp                  ; the next copy is the other parity
+%endif
     dec dh
     jnz .ent
 .out:

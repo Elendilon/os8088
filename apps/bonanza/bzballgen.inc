@@ -465,8 +465,7 @@ bg_ent:
     call bg_sp                  ; the mask row: the clear pixels kept
     mov cx, 0C0FFh
     mov di, [BG_EDI]
-    mov bp, 2 * BZ_BAL_ENT
-    call bg_put4
+    call bg_eput
     pop bp
     mov ax, bp
     shr ax, 1                   ; y
@@ -491,16 +490,16 @@ bg_ent:
     mov di, [BG_EDI]
     add di, BZ_BAL_FRMB
     push bp
-    mov bp, 2 * BZ_BAL_ENT
-    call bg_put4
+    call bg_eput
     pop bp
     add word [BG_EDI], BZ_BAL_RB
     inc bp
     inc bp
     cmp bp, 32
     jb .y
-    pop di                      ; the second copies: each shift's, again
-    push ds
+    pop di
+%if BZ_BAL_EPAR > 1
+    push ds                     ; the second copies: each shift's, again
     push es
     pop ds
     mov dx, BZ_BAL_SHIFTS
@@ -512,7 +511,24 @@ bg_ent:
     dec dx
     jnz .c
     pop ds
+%else
+    add di, BZ_BAL_ESH * BZ_BAL_ENT ; (SPEC.md 128.38.10: B, one parity copy)
+%endif
     ret
+
+; bg_eput - an entry's row (AX, DX, CL at shift 0; CH the fill's field) to
+; ES:DI and, the entry's shifts stored (BZ_BAL_ESH 4), its shifts 1..3 one
+; entry copy apart; A (BZ_BAL_ESH 1, SPEC.md 128.38.10) stores shift 0 alone
+bg_eput:
+%if BZ_BAL_ESH > 1
+    mov bp, BZ_BAL_EPAR * BZ_BAL_ENT
+    jmp bg_put4
+%else
+    mov [es:di], ax
+    mov [es:di + 2], dx
+    mov [es:di + 4], cl
+    ret
+%endif
 
 ; bg_shd - the shadow masks: parity p, shift s, row r (6): the ellipse's row
 ; with the world checker (x + s + p + r even) cleared, AND only
