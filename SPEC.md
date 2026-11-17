@@ -274320,8 +274320,35 @@ over ...`: float its neighbours too, or keep a hole).
 - A path of vanishing cracks edge to edge shares blocks (4 columns each)
   and is refused: one cell apart, or a crack among plain floating tiles.
 
-**Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge
-(the start's row, `wx` 35 on): see the course's comments.
+**Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge,
+in the start's rows (roll +x from the start): a FLOATING bridge at `wy` 16
+(`wx` 34 - 40, its cracks 35, 37 and 39 vanish) and a grounded row at `wy`
+19 (`wide` holes at 38 and 40, `band` holes at 43 and 44 past an end
+platform, `wx` 41 - 42), a rubber pad (30, 18) and a steel pad (31, 18) on
+the apron beside it, off both rows' run-ups. The demo replays as before
+(1,504 steps, to the cup), its identity alone moved.
+
+**Bytes (MEASURED).** `BONANZA.O88`'s image 47,033 either way (no code
+moved; its bytes differ only in `bzcourse.inc`'s identities); the bss
+10,995 -> 11,021 (+26: the per-lane and per-prop tables follow the largest
+course, and PLAYGROUND's lab takes its lanes to 22 and its props to 30,
+`BZ_FSTB` 5 -> 12). The GLASS part 553 -> 596 bytes (+43: `gl_mark` and
+STEP's companion test), 452 -> 479 packed. PLAYGROUND's part 49,422 ->
+52,875 in RAM, 9,483 -> 10,869 LZ4 (+1,386 for the whole lab: 21 cells, 7
+cracks, 2 companions, 2 pads): a lane's pose maps are 2 bytes a block a
+pose, so a `small` or `band` crack 32 + its record's 32, a `wide` one 96 +
+32, a vanishing one 192 + two records 64 (the rest is new blocks).
+
+**Proved on the host**: `tests/bonanza_phys.py --check`'s `crack-lab` leg
+(steel slowly onto a vanishing crack: a fall, restored; slowly onto a wide
+hole: a fall, restored; at speed across the floating bridge: all three
+vanished behind it, the companions' lanes among them) - the guest under
+unicorn equal to the model at every step, every pose change drawn - and
+its red arm `glspart` (`gl_mark` without the partner's mark: red, "never
+drawn"); `--selfcheck` item 2 (a floating crack's two lanes and one byte,
+its control `_hack novanish` one holed lane; refused: a hole of no size,
+two wide cracks edge to edge, a vanishing crack whose grounded neighbours'
+faces would show past its lanes).
 
 #### 128.25.19 PICKUPS as built (story 9.6)
 
