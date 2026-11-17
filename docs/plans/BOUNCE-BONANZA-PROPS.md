@@ -145,14 +145,16 @@ the walkway to the lower path. Ideas:
 
 ## Stories
 
-- [ ] **W.1** SPEC.md: water's contract (statements, the family, the draw,
-      the refusals) before the code.
-- [ ] **W.2** The model and the tool: `WaterFamily`, the statements, the
-      `bed` form, the refusals, the depth key and the art; a test course.
-- [ ] **W.3** The guest family part (`fam/water.asm`), held equal to the
-      model.
-- [ ] **W.4** Rows: `bonanzaphys`'s water scene (steel sinks, no stun, out
+- [x] **W.1** SPEC.md: water's contract (statements, the family, the draw,
+      the refusals) before the code - SPEC.md 128.32 (family ID 7).
+- [x] **W.2** The model and the tool: `WaterFamily`, the statements, the
+      `bed` form, the refusals, the depth key and the art; a test course
+      (`BZWATER=1`, `courses/water.bbc`).  Animated ripples (W7) and the bob
+      (W1) NOT built: 128.32.8.
+- [x] **W.3** The guest family part (`fam/water.asm`, 341 bytes, resident),
+      held equal to the model.
+- [x] **W.4** Rows: `bonanzaphys`'s water scene (steel sinks, no stun, out
       the arch; rubber skims lower; glass lands from height whole; a pad
       refills) with red arms; the selfcheck's cases; LOOKED AT on both
-      cards.
+      cards (one MartyPC boot of the knob tree; the soak rows not run).
 - [ ] P2 - P12 as the owner orders them.
