@@ -274364,6 +274364,102 @@ GLASS's refusals (item 2), the reach over the superset (item 6) and NO TRAP's
 red arm (item 7: a crack path as the only bridge past a flag compiles under
 its `RESPAWN`, and forced `ATTEMPT` with BROKEN among its states is refused).
 
+##### 128.25.18.1 EXPLORATORY: a bigger hole, and floating cracks that vanish (the owner, 2026-11-17)
+
+*"For cracked tile art/mechanics: let's try making the hole in the center
+bigger, and maybe one other option: cracked tiles have the option to float,
+and when they do, they can completely disappear instead of still existing
+with a hole in the center."* Built to be PLAYED, nothing merges until the
+owner likes the look and feel. Both options are the course tool's picture
+and GLASS's part: no resident byte, no physics constant, no new hook.
+
+**A - THE HOLE'S SIZE, a crack clause**: `prop crack <wx> <wy> [hole
+small|band|wide]`. A choice per element rather than a build knob, because
+the size is a LANE's geometry and the course's bytes, and so that the owner
+compares the sizes side by side on one course.
+
+- `small` (the default, as built): the hole `|u| / 2 + |v| < 5` and a ragged
+  rim, inside the 2 x 2-block lane: 16 px across by about 11 down, the size
+  of the ball, so a slow ball breaking it hides most of it.
+- `band`: the same lane, the hole as tall as its 16 px band holds (`< 7`): a
+  path of them still shares no block.
+- `wide`: a lane 4 blocks across (the top's 32 px) and the 2 - 3 block rows
+  the top spans; the hole the top's diamond less a ragged rim of about a
+  quarter (about 24 x 12 px: wider than the ball, its sides show round a
+  ball sinking through it), and the hairlines drawn twice as long. Two wide
+  cracks edge to edge share blocks and are REFUSED by the lanes' rule
+  (128.19.10): wide cracks stand alone or one cell apart.
+
+The physics needs nothing: the size is the picture's, a broken crack's CELL
+is the NEAR void whatever its art (128.25.18's CELL row), and
+`tests/bonanza_phys.py --check` proves model = guest unchanged.
+
+**B - A FLOATING CRACK VANISHES.** Authored by the `float` statement over
+its cell (128.27.2), not by a crack clause: a vanish needs its faces SHORT
+(a grounded crack's faces hang to the ground plane, tens of lines no lane
+covers), and `float` is already the statement that says "these cells hang 3
+units", so the look follows the cell and no word is added. A crack on a
+floating cell breaks to NOTHING: its pose 3 is the picture drawn WITHOUT the
+tile (`draw_ops` and `render` over the tiles less it, the course's ground
+and floats unchanged), so its top and its faces go, the void shows, and a
+neighbour's face the tile hid hangs into the gap, as at any edge. The
+difference from the picture must lie in at most 4 blocks across and 6 block
+rows (two lanes' worth), else REFUSED (`a vanishing crack's picture changes
+over ...`: float its neighbours too, or keep a hole).
+
+- **Two lanes, one element.** A floating tile and its 3-unit faces are 32 x
+  40 px, five or six block rows, and a lane is one box (3 rows, 128.12.4.1).
+  So the tool lays a COMPANION record after the crack's: the same anchor
+  (`bz_owner` takes the FIRST record of a cell, so physics never meets it,
+  as a clock's tens digit), the same state byte (its FSB the crack's, so
+  its POSE is the crack's with no code), a lane of the rows below the
+  crack's (poses 0 - 2 the bare picture, 3 the vanished one). Record +18 is
+  the partner's index + 1 (each names the other), +19 bit 0 marks the
+  companion.
+- **The part**: every mark of a crack also marks its partner (`gl_mark`),
+  and STEP counts a companion's shared byte not at all (+19). RESET marks
+  every crack's lane, the companion's among them, so the respawn restores
+  the whole tile. The CELL hook meets the cell twice and is idempotent.
+- **The model**: `GlassFamily.step` skips a companion; nothing else
+  changes (the reach already takes the broken cell as a NEAR void).
+- A path of vanishing cracks edge to edge shares blocks (4 columns each)
+  and is refused: one cell apart, or a crack among plain floating tiles.
+
+**Round 2 (a thin bridge)**: `float <shape> thick <units>` (128.27.2.1)
+makes a floating slab thinner than 3 units, a BRIDGE; a crack on it
+vanishes inside a 2 x 3-block lane of its own, its side corners left as
+jagged leftovers, so bridge cracks may lie edge to edge.
+
+**Where to play them**: PLAYGROUND's CRACK LAB, off the apron's right edge,
+in the start's rows (roll +x from the start): a FLOATING bridge at `wy` 16
+(`wx` 34 - 40, its cracks 35, 37 and 39 vanish) and a grounded row at `wy`
+19 (`wide` holes at 38 and 40, `band` holes at 43 and 44 past an end
+platform, `wx` 41 - 42), a rubber pad (30, 18) and a steel pad (31, 18) on
+the apron beside it, off both rows' run-ups. The demo replays as before
+(1,504 steps, to the cup), its identity alone moved.
+
+**Bytes (MEASURED).** `BONANZA.O88`'s image 47,033 either way (no code
+moved; its bytes differ only in `bzcourse.inc`'s identities); the bss
+10,995 -> 11,021 (+26: the per-lane and per-prop tables follow the largest
+course, and PLAYGROUND's lab takes its lanes to 22 and its props to 30,
+`BZ_FSTB` 5 -> 12). The GLASS part 553 -> 596 bytes (+43: `gl_mark` and
+STEP's companion test), 452 -> 479 packed. PLAYGROUND's part 49,422 ->
+52,875 in RAM, 9,483 -> 10,869 LZ4 (+1,386 for the whole lab: 21 cells, 7
+cracks, 2 companions, 2 pads): a lane's pose maps are 2 bytes a block a
+pose, so a `small` or `band` crack 32 + its record's 32, a `wide` one 96 +
+32, a vanishing one 192 + two records 64 (the rest is new blocks).
+
+**Proved on the host**: `tests/bonanza_phys.py --check`'s `crack-lab` leg
+(steel slowly onto a vanishing crack: a fall, restored; slowly onto a wide
+hole: a fall, restored; at speed across the floating bridge: all three
+vanished behind it, the companions' lanes among them) - the guest under
+unicorn equal to the model at every step, every pose change drawn - and
+its red arm `glspart` (`gl_mark` without the partner's mark: red, "never
+drawn"); `--selfcheck` item 2 (a floating crack's two lanes and one byte,
+its control `_hack novanish` one holed lane; refused: a hole of no size,
+two wide cracks edge to edge, a vanishing crack whose grounded neighbours'
+faces would show past its lanes).
+
 #### 128.25.19 PICKUPS as built (story 9.6)
 
 The second family, built by the recipe (128.25.6.8, with what it found).
@@ -274949,6 +275045,56 @@ the apron; `BENCH` at 11.
   look is part of what separates pathway"*): `path.bbc` carries
   `float rect 0 0 64 64`, the whole map, so every route and pad it gains
   later floats too. The title and every tour course stay grounded.
+
+##### 128.27.2.1 EXPLORATORY: a THIN floating slab, `float <shape> thick <units>` (the owner, 2026-11-17)
+
+*"The crack-then-disappear looks great. Can that have an option to 'float'
+and not have its pillar? Aka, a 'bridge' of cracked tiles that disappears
+rather than an entire 'column' that does."* Built to be played; nothing
+merges until the owner likes it.
+
+- **The clause**: `float <shape> thick <units>` - the cells float, and their
+  faces over the void hang `<units>` deep (a multiple of 0.25, 2 px, from
+  0.25 to 3) instead of 3 units. Without `thick`, 3 units as before. A cell
+  named by two `float` statements takes the LATER one's depth.
+- **Why a clause on `float`, not a `float bridge` word**: the thing being
+  chosen is one number, the slab's depth, and the owner asked to try "a few
+  px or about 1 unit"; a word would fix one depth and a second word would be
+  needed for the next. It stays the picture's alone (no grid byte, no
+  physics, no route), exactly as `float`.
+- **Refused**: a `thick` that is not a multiple of 0.25 or is outside 0.25 -
+  3 (`float's thick takes units ...`).
+- **A crack on a BRIDGE** (a cell a `thick` names; the owner, 2026-11-17:
+  *"it could do the same 2x3 thing glass did and just leave the 'spare
+  corners' drawn (little jagged leftovers on the two connecting sides). No
+  columns going down, smaller visible area to go across"*) VANISHES inside a
+  lane of its own of **2 x 3 blocks** (glass look 11's, `w9/glassart`): the
+  two block columns round its top's centre and the three block rows from
+  the multiple of 8 nearest `cy - 12`, so the whole of its middle - the top's
+  band and the thin face under it - goes. Its pose 3 is the picture drawn
+  without the tile (128.25.18.1's render) CLIPPED to that lane; what of the
+  tile lies outside it, the top's left and right corners and their faces,
+  stays drawn: small jagged leftovers on the connecting sides. ONE lane,
+  so no companion record and no one-frame stagger; no refusal by size (the
+  clip is the look).
+- **Adjacent bridge cracks** each have their own lane, because a tile's
+  edge neighbours' 2-wide lanes are two block columns away: a run of them
+  edge to edge is accepted and each vanishes on its own (a neighbour's
+  corner left in the other's lane is drawn from a picture with that
+  neighbour whole - which is the leftover). What is still REFUSED: two
+  bridge cracks touching at a corner DOWN the screen (`wx + 1, wy + 1`: the
+  same columns, 16 lines lower, one block row shared - "two lanes share
+  blocks"); corner neighbours ACROSS the screen (`wx + 1, wy - 1`) are four
+  columns apart and fine. No GROUP LANES are needed (another agent's
+  experimental work).
+- A 3-unit float (no `thick`) keeps round 1's whole-column vanish
+  (128.25.18.1: two lanes, a companion) for comparison.
+- **Shipped on**: PLAYGROUND's crack lab, a thin bridge at `wy` 14 (wx 34 -
+  37 at half a unit, 38 - 40 at one unit, stepping down at (40, 15) onto
+  the 3-unit bridge), its five cracks 35 - 39 EDGE TO EDGE.
+  `tests/bonanza_phys.py --check`'s `crack-bridge` leg: rubber slowly onto
+  the first (a fall, restored), then at speed across all five (every one
+  vanished behind it), guest = model at every step and every pose drawn.
 
 #### 128.27.3 Everything else that draws down into the void
 
