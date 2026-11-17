@@ -4605,6 +4605,88 @@ def field_tone(base, plate):
     return MAG if base == WHT else field_ms
 
 
+def _field_tris(i, j):
+    """a facet's two triangles (in-cell ground points), the order _field_ops draws them"""
+    u0, v0, u1, v1 = FACET * i, FACET * j, FACET * (i + 1), FACET * (j + 1)
+    return (((u0, v0), (u1, v0), (u1, v1)), ((u0, v0), (u1, v1), (u0, v1)))
+
+
+def _floor_h4(nb, u, v):
+    """a plain floor record's height (quarter px) at its in-cell point (u, v), gu; None for anything that is
+    not floor (the void, a wall)"""
+    if nb is None or not isinstance(nb, Tile) or nb.kind not in (KIND_FLOOR, KIND_GOAL):
+        return None
+    return 16 * nb.z0 + nb.sx * u + nb.sy * v
+
+
+def field_joined(tiles, _seed_all=False):
+    """SPEC.md 128.28.6, the JOIN rule (the owner, 2026-11-17): a FIELD triangle at its lip level takes the
+    floor's ink only where it JOINS real floor at the same elevation.  The seeds are the lip-level triangles
+    with an edge on their cell's border whose neighbour across it is a plain floor (or goal) record - a
+    split's owning piece - at the SAME heights at both ends of that edge; the join spreads from them across
+    every edge two lip-level triangles share, inside a cell and across FIELD cells (the same heights at the
+    shared points, which the SEAM rule already holds).  So a corner joins through whichever SIDE has floor at
+    its height, and a lip standing proud of the plate round it (a raised corner, a climbing leg's rim) joins
+    nothing and is magenta.  -> {(wx, wy, i, j, k)}, k the triangle; _seed_all: the rule before it (every
+    lip-level triangle joined), --selfcheck's red arm"""
+    side = {}                                       # a ground edge (sorted global points) -> its triangles
+    lipt = []
+    for (wx, wy), t in tiles.items():
+        if not isinstance(t, FieldTile):
+            continue
+        h, lip = t.h, t.lip
+        for i in range(16 // FACET):
+            for j in range(16 // FACET):
+                for k, tri in enumerate(_field_tris(i, j)):
+                    if not all(h[v][u] == lip[v][u] for u, v in tri):
+                        continue
+                    node = (wx, wy, i, j, k)
+                    lipt.append(node)
+                    for a in range(3):
+                        (ua, va), (ub, vb) = tri[a], tri[(a + 1) % 3]
+                        e = tuple(sorted(((16 * wx + ua, 16 * wy + va, h[va][ua]),
+                                          (16 * wx + ub, 16 * wy + vb, h[vb][ub]))))
+                        side.setdefault(e, []).append(node)
+    if _seed_all:
+        return set(lipt)
+    seen = set()
+    todo = []
+    for (wx, wy), t in tiles.items():
+        if not isinstance(t, FieldTile):
+            continue
+        h = t.h
+        for nb_cell, nb_edge, line in (((wx, wy - 1), "S", [(u, 0, u, 16) for u in range(17)]),
+                                       ((wx, wy + 1), "N", [(u, 16, u, 0) for u in range(17)]),
+                                       ((wx - 1, wy), "E", [(0, v, 16, v) for v in range(17)]),
+                                       ((wx + 1, wy), "W", [(16, v, 0, v) for v in range(17)])):
+            nb = tiles.get(nb_cell)
+            if nb is None or isinstance(nb, FieldTile):
+                continue
+            rec = edge_rec(nb, nb_edge)
+            ok = [_floor_h4(rec, nu, nv) == h[v][u] for u, v, nu, nv in line]
+            for a in range(0, 16, FACET):           # a facet's edge joins when the floor meets it all along
+                if not all(ok[a:a + FACET + 1]):
+                    continue
+                (u, v), (u2, v2) = line[a][:2], line[a + FACET][:2]
+                e = tuple(sorted(((16 * wx + u, 16 * wy + v, h[v][u]), (16 * wx + u2, 16 * wy + v2, h[v2][u2]))))
+                for node in side.get(e, ()):
+                    if node not in seen:
+                        seen.add(node)
+                        todo.append(node)
+    by_node = {}
+    for e, nodes in side.items():
+        for n in nodes:
+            by_node.setdefault(n, []).append(e)
+    while todo:
+        n = todo.pop()
+        for e in by_node[n]:
+            for m in side[e]:
+                if m not in seen:
+                    seen.add(m)
+                    todo.append(m)
+    return seen
+
+
 def _poly_top_fn(pts):
     """the top edge of a face whose top is a polyline of quarter-pixel points (X4, h4): at a pixel column,
     whole px (floor), interpolated between the polyline's points"""
@@ -4621,7 +4703,7 @@ def _poly_top_fn(pts):
     return top
 
 
-def _field_ops(tiles, t, wx, wy, s, x0, ground=None):
+def _field_ops(tiles, t, wx, wy, s, x0, ground=None, joined=None):
     """SPEC.md 128.28.6: a FIELD cell's ops - its sw and se faces (their tops the table's heights along the
     edge, down to the neighbour's heights there or FACE8 into the void, nothing against a FIELD neighbour),
     then its top as FACET x FACET triangles back to front, each culled when it faces away, inked by its
@@ -4653,22 +4735,24 @@ def _field_ops(tiles, t, wx, wy, s, x0, ground=None):
         mk = (lambda ln_: lambda y0: _poly_top_fn(ln_))(line)
         ops.append((spans(poly), which, s, mk, True, t, (wx, wy)))
     base = WHT if (wx + wy) & 1 else CYN
+    if joined is None:
+        joined = field_joined(tiles)
     n = 16 // FACET
     for k in range(2 * n - 1):                      # back to front: i + j, then i
         for i in range(n):
             j = k - i
             if not 0 <= j < n:
                 continue
-            u0, v0, u1, v1 = FACET * i, FACET * j, FACET * (i + 1), FACET * (j + 1)
+            u0, v0 = FACET * i, FACET * j
             key = s + (1 if u0 + v0 + FACET >= 16 else 0)
-            for tri in (((u0, v0), (u1, v0), (u1, v1)), ((u0, v0), (u1, v1), (u0, v1))):
+            for kt, tri in enumerate(_field_tris(i, j)):
                 P = [_fpt(gx0 + u, gy0 + v, h[v][u], x0) for u, v in tri]
                 area = (P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])
                 if area <= 0:                       # facing away (or edge-on): what is behind it shows
                     continue
                 (ua, va), (ub, vb), (uc, vc) = tri
                 ha, hb, hc = h[va][ua], h[vb][ub], h[vc][uc]
-                plate = all(h[v_][u_] == t.lip[v_][u_] for u_, v_ in tri)    # every corner on the lip
+                plate = (wx, wy, i, j, kt) in joined    # on the lip AND joined to floor at its height
                 ink = FieldInk(field_tone(base, plate), P, [(gx0 + u_, gy0 + v_) for u_, v_ in tri])
                 topv = (min(ha, hb, hc) // (4 * FTOPQ)) * FTOPQ   # (whole px, in steps of FTOPQ: fewer records)
                 mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
@@ -4747,10 +4831,13 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
     ops = []
     if ground is GROUND_AUTO:
         ground = ground_z(tiles) if tiles else None
+    joined = None
     for _key, (wx, wy), t, h, s, ent, faces in _cell_faces(tiles):
         if isinstance(t, FieldTile):                # SPEC.md 128.28.6: a FIELD cell's faces and facets, its
+            if joined is None:                      # (the JOIN rule's set, once a course)
+                joined = field_joined(tiles)
             ops += _field_ops(tiles, t, wx, wy, s, x0,  # faces over the void by the ground rule (or `float`)
-                              None if ground is None or (wx, wy) in floats else ground)
+                              None if ground is None or (wx, wy) in floats else ground, joined)
             continue
         zt, zr, zb, zl = (4 * c for c in t.corners())
         T = (2 * wx, 2 * wy)
@@ -21130,6 +21217,49 @@ def _field_cases():
     ]
 
 
+# SPEC.md 128.28.6's JOIN rule: SHAPE's `bank` chute alone - a plate-level corner at (20, 5), a corner RAISED
+# a unit over the plate at (26, 5)
+_FRAISE = """course RAISE "Raised"
+width 128
+origin 480
+floor rect 4 3 31 24 flat 2
+chute 2 bank depth 8 way 20 9 2 way 20 5 way 26 5 4 way 26 9 2
+start 5 4
+goal tile 30 23 flat 2
+"""
+
+
+def _field_join_checks(res):
+    """SPEC.md 128.28.6, the JOIN rule: a raised FIELD corner over a lower plate draws no floor ink at its
+    lip; a plate-level one still does (both by the facets _field_ops inks); red: every lip-level triangle
+    joined, the rule before it, inks the raised one's"""
+    c = compile_course(_FRAISE, "<RAISE>", _hack={"no_finish": True})
+    tiles = c.tiles
+    plate = _floor_h4(tiles[(5, 4)], 0, 0)          # the plate's height, quarter px
+
+    def inked(joined):
+        """lip-level triangles drawn in the floor's ink: (raised, at the plate's height)"""
+        up = flat = 0
+        for (wx, wy), t in tiles.items():
+            if not isinstance(t, FieldTile):
+                continue
+            for op in _field_ops(tiles, t, wx, wy, 0, 0, None, joined):
+                if op[1] == "facet" and op[4].tone in (WHT, CYN):
+                    G = [(gx - 16 * wx, gy - 16 * wy) for gx, gy in op[4].G]
+                    hs = [t.h[v][u] for u, v in G]
+                    if min(hs) > plate:
+                        up += 1
+                    elif max(hs) == plate:
+                        flat += 1
+        return up, flat
+    up, flat = inked(field_joined(tiles))
+    rup, rflat = inked(field_joined(tiles, _seed_all=True))
+    res.append(("2 the JOIN rule (128.28.6): a FIELD corner raised over a lower plate draws no floor ink at its "
+                "lip (%d triangles) and a plate-level corner still does (%d); red: every lip-level triangle "
+                "joined inks %d of the raised corner's" % (up, flat, rup),
+                up == 0 and flat > 0 and rup > 0 and rflat >= flat))
+
+
 def _field_checks(res):
     """SPEC.md 128.28's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
     cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
@@ -21172,6 +21302,7 @@ def _field_checks(res):
                     len(c.ftabs), len(hi), FSHAPE_MAX, drop),
                 len(c.ftabs) > 16 and hi and all(c.cells[cl][1] & 0x80 for cl, _t in hi) and drop == len(hi)))
     _field_occ_checks(cs, res)
+    _field_join_checks(res)
     # the SEAM rule's red arm, and the reader's
     c = cs["CHUTE"]
     tl = dict(c.tiles)

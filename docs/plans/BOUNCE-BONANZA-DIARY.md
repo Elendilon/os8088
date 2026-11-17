@@ -3431,3 +3431,20 @@ Every section but the map, the blocks and the offsets into them is byte-identica
 grid and tables did not move. **Tested**: the tool's previews on CGA and Hercules (bowl, dish, chute
 corners, tapers, the S), `--selfcheck`, `tests/bonanza_dfield.py`, the shipped and knob builds; no
 emulator rows - the picture is the tool's, and no shipped course has a FIELD cell.
+
+## 2026-11-17 (shaped floors: the join rule)
+
+The owner, on the knob build's raised `bank` corner: "The red circled corner looks 'see-through',
+because its elevated above the tile below it ... only join into the corner if another tile at the same
+elevation exists ... per touching side". The plate rule drew a facet as floor whenever its corners lay
+on the lip, and a corner's lip stands a unit over the plate there, so a patch of floor checker hung in
+the air beside the raised side face. The rule now asks what the facet JOINS: a lip-level triangle with
+an edge on its cell's border against plain floor at the same heights all along that edge seeds the
+floor, and the floor spreads over shared edges of lip-level triangles, across FIELD cells too.
+**Observed**: SHAPE's raised corner turned wholly magenta and nothing else on SHAPE moved; PITS did not
+change at all (its pits' plates and chute tapers all join the plate round them); on PLAYGROUND the two
+chute corners at the back edge, over the void, lost their floor patches. SHAPE costs two blocks
+(243 -> 245, LZB 5,590 -> 5,596), PLAYGROUND none (LZB 13,474 -> 13,454); every section but the map, the blocks, the offsets into them and the identity is
+byte-identical on all three. **Tested**: previews (CGA, Hercules), `--selfcheck` with its new item and
+red arm, `tests/bonanza_dfield.py`, the shipped and knob builds; no emulator rows.
+
