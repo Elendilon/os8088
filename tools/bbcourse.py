@@ -508,6 +508,21 @@ FAMILIES = (
                {"name": "wisp", "kind": FAM_K0 + 25, "bits": 0, "cls": CL_ATTEMPT, "art": "wisp",
                 "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
      "home": HOME_RESIDENT},
+    # SPIKES (SPEC.md 128.38, the props round's P5 and P8): ID 11 (BOOST 10 another branch's: a GAP here, BZ_FTAB
+    # fills it), kinds SP_K (56) on.  Each a FLAT FLOOR cell rewritten PER BALL by CELL (WATER's trick): a SPIKE
+    # floor is steel's at its tips (+19, a climb above the base) and every other ball's a half unit under the
+    # base (+18), where the landing it must make is the hard landing's SHATTER (glass's pieces, rubber's POP:
+    # bz_mrec's HARD, HSTEPS and HTHR while the window's centre is one); a POPSPIKE the same on a timer (+20 ON,
+    # +21 MASK, +22 SEED), an ordinary floor while down, its lane the spikes; a MEMBRANE floor for glass alone,
+    # a NEAR VOID (a broken crack's) for the others.  STATELESS; home `resident`; CONSTS SP_*
+    {"name": "spike", "id": 11, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 7, "consts": "SP",
+     "kinds": ({"name": "spikes", "kind": FAM_K0 + 40, "bits": 0, "cls": CL_ATTEMPT, "art": None,
+                "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
+               {"name": "popspikes", "kind": FAM_K0 + 41, "bits": 0, "cls": CL_ATTEMPT, "art": "spikes",
+                "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
+               {"name": "membrane", "kind": FAM_K0 + 42, "bits": 0, "cls": CL_ATTEMPT, "art": None,
+                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 29,
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6      # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
@@ -559,6 +574,10 @@ WD_K2 = FAM_K0 + 25           # the WISP: the squiggles of a gusting blower with
 WD_SPIN = 160                 # a fan spins this many steps (2.9 s) after the ball was last in its blowing region
 WD_FLIFT, WD_FFLAG = 8, 16    # record +18's flags over the face: `lift` (an updraft launches a grounded ball),
                               # `flag` (the pennant is the lane; the fan does not spin)
+# SPIKES' constants (SPEC.md 128.38): all in its FAMV (famv's "SP")
+SP_K, SP_KP, SP_KM = FAM_K0 + 40, FAM_K0 + 41, FAM_K0 + 42   # spikes, popspikes, membrane
+SP_PERIODS = (32, 64, 128, 256)  # a popspike's period, steps (0.58 - 4.65 s): a power of two, its MASK a byte
+SP_KINDS = (SP_K, SP_KP)        # the spiked kinds (the membrane is not one)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -583,7 +602,8 @@ assert [f["id"] for f in FAMILIES] == sorted(set(f["id"] for f in FAMILIES)) and
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
 assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
 assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
-assert all(k["forms"] in (("own",), ("own", "void"), ("own", "bed")) for _f, k in FKIND_BY_NAME.values()), \
+assert all(k["forms"] in (("own",), ("own", "void"), ("own", "bed"), ("own", "bed", "tip"))
+           for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form the reach does not take: own, (GLASS's crack, 128.25.18) its broken VOID and " \
     "(WATER's, 128.36) its BED"
 assert FAM_BY_NAME["wind"]["consts"] == (WD_GSH, WD_SSH, WD_LIFT, WD_SPIN) and [
@@ -676,12 +696,14 @@ def famv(f):
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
-                     "wisp": 7}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                     "wisp": 7, "spikes": 11}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
     elif f.get("consts") == "MG":               # MAGNETS' (128.33)
         b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
+    elif f.get("consts") == "SP":               # SPIKES' (128.38): the kill's HSTEPS and state, the near void's
+        b += bytes((SHA_STEPS, HARD_SHATTER, 6)) + struct.pack("<4H", *SP_PERIODS)    # depth, the periods
     elif f.get("consts") == "WA":               # WATER's (128.36): the sink, the raised HTHR, the restitution's
         b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)  # shift, the bob, the ripple's phase,
         b += bytes(x for mt in range(len(MATERIALS)) for x in water_entry(mt))     # every ball's entry on water
@@ -1269,6 +1291,44 @@ def crack_poses(cx, cy, hole="small"):
     return out
 
 
+# SPIKES (SPEC.md 128.38): a spike's pixels round its foot (du, dv, ink) - a white blade 5 rows tall outlined
+# black, its point black, standing on a black foot 5 px wide (both cards read white on black); a SPIKE floor's feet
+# spread over the top, a POPSPIKE's clustered inside the crack's 2 x 2-block lane round the top's centre; a
+# popspike's picture (its pose 0, DOWN) its feet's black slits alone
+SPIKE_BLADE = ((0, -4, BLK), (-1, -3, BLK), (0, -3, WHT), (1, -3, BLK), (-1, -2, BLK), (0, -2, WHT), (1, -2, BLK),
+               (-2, -1, BLK), (-1, -1, WHT), (0, -1, WHT), (1, -1, WHT), (2, -1, BLK),
+               (-2, 0, BLK), (-1, 0, BLK), (0, 0, BLK), (1, 0, BLK), (2, 0, BLK))
+SPIKE_FEET = ((0, -4), (-8, 0), (8, 0), (0, 4), (-5, -2), (5, -2), (-5, 2), (5, 2))   # a spike floor's
+SPIKE_POPFEET = ((0, -1), (-5, 1), (5, 1), (0, 3))                                   # a popspike's (its lane)
+SPIKE_SLIT = ((-1, 0, BLK), (0, 0, BLK), (1, 0, BLK))
+
+
+def spike_pix(cx, cy, feet, blade=SPIKE_BLADE):
+    """the spikes on a top centred at (cx, cy), back to front -> {(x, y): ink}"""
+    out = {}
+    for fu, fv in sorted(feet, key=lambda f: f[1]):
+        for du, dv, ink in blade:
+            out[(cx + fu + du, cy + fv + dv)] = ink
+    return out
+
+
+def membrane_pix(cx, cy, nb):
+    """the MEMBRANE (SPEC.md 128.38): a crystal FILM over the void - the revealed glass's pane outline and its
+    dashed glint (glass_pane_ink, over the top and its membrane neighbours `nb`), and inside it a sparse white
+    stipple, one pixel in 32 - thin, and readable on both cards (white on whatever lies behind)"""
+    out = {}
+    for v in range(-8, 9):
+        for u in range(-16, 17):
+            if BA._diamond(u, v) > 1.0:
+                continue
+            ink = glass_pane_ink(u, v, cx, nb)
+            if ink is None and v % 4 == 2 and (cx + u + 4 * ((cy + v) // 4)) % 8 == 0:
+                ink = WHT
+            if ink is not None:
+                out[(cx + u, cy + v)] = ink
+    return out
+
+
 GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
 
 
@@ -1419,6 +1479,8 @@ def _parse_fprop(toks, where, ln):
         return _parse_magnet(toks, where, ln, fam, kr)
     if kr["kind"] == WD_K:
         return _parse_blower(toks, where, ln, fam, kr)
+    if kr["kind"] in (SP_K, SP_KP, SP_KM):
+        return _parse_spike(toks, where, ln, fam, kr)
     if kr["kind"] == WD_K2:
         raise CourseError("%s: a wisp is the tool's: a gusting blower without a `flag` makes its own (SPEC.md "
                           "128.34.11)" % where)
@@ -1441,6 +1503,91 @@ def _parse_fprop(toks, where, ln):
                           "128.25.7.1: every element declares how it resets)" % (where, kr["name"]))
     return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
             "cls": cls, "seed": None}
+
+
+SP_SYNTAX = {SP_K: "<wx> <wy> [<x1> <y1>]", SP_KM: "<wx> <wy> [<x1> <y1>]",
+             SP_KP: "<wx> <wy> period <%s> on <steps> [seed <s>]" % "|".join(map(str, SP_PERIODS))}
+
+
+def _parse_spike(toks, where, ln, fam, kr):
+    """SPIKES (SPEC.md 128.38): prop spikes|membrane <wx> <wy> [<x1> <y1>] - one element a cell of the cell or
+    the rectangle (as a floor's `rect`, x1 and y1 past its last cell); prop popspikes <wx> <wy> period P on N [seed S] - UP while ((n + S) AND (P - 1)) < N, P a
+    power of two of SP_PERIODS, 1 <= N < P, 0 <= S < P.  The class is the kind's (ATTEMPT): no `reset`"""
+    k = kr["kind"]
+    use = "prop %s takes %s" % (kr["name"], SP_SYNTAX[k])
+    if len(toks) < 4:
+        raise CourseError("%s: %s" % (where, use))
+    at = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))
+    if k != SP_KP:
+        if len(toks) not in (4, 6):
+            raise CourseError("%s: %s" % (where, use))
+        b = (_int(toks[4], where, "x1"), _int(toks[5], where, "y1")) if len(toks) == 6 else (at[0] + 1, at[1] + 1)
+        if b[0] <= at[0] or b[1] <= at[1]:
+            raise CourseError("%s: %s's rect %d %d %d %d is empty" % (where, kr["name"], at[0], at[1], b[0], b[1]))
+        return [{"line": ln, "kind": k, "fam": fam, "at": (x, y), "cls": CL_ATTEMPT, "seed": None}
+                for y in range(at[1], b[1]) for x in range(at[0], b[0])]
+    d = {"line": ln, "kind": k, "fam": fam, "at": at, "cls": CL_ATTEMPT, "seed": None, "per": None, "on": None,
+         "sseed": 0}
+    i = 4
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if t not in ("period", "on", "seed") or i + 1 >= len(toks):
+            raise CourseError("%s: %s" % (where, use))
+        d[{"period": "per", "on": "on", "seed": "sseed"}[t]] = _int(toks[i + 1], where, t)
+        i += 2
+    if d["per"] not in SP_PERIODS:
+        raise CourseError("%s: a popspike's period is %s steps, not %s" % (
+            where, ", ".join(map(str, SP_PERIODS)), d["per"]))
+    if d["on"] is None or not 1 <= d["on"] < d["per"]:
+        raise CourseError("%s: a popspike's `on` (steps up) is 1 - %d of its period %d" % (
+            where, d["per"] - 1, d["per"]))
+    if not 0 <= d["sseed"] < d["per"]:
+        raise CourseError("%s: a popspike's seed %d is not under its period %d" % (where, d["sseed"], d["per"]))
+    return d
+
+
+def sp_up(pr, n):
+    """SPIKES (SPEC.md 128.38): a popspike UP on step n (its low byte): ((n + seed) AND mask) < on; a spikes
+    element always"""
+    if pr["kind"] != SP_KP:
+        return True
+    return ((n + pr["sseed"]) & 255 & pr["smask"]) < pr["on"]
+
+
+def _sp_check(f, props, tiles):
+    """SPIKES' refusals (SPEC.md 128.38) over the course's elements: a spike, popspike or membrane on a NORMAL
+    surface; a spiked cell's FLOOR or GOAL edge neighbour never LOWER than its base at their shared edge (a ball
+    rolling on from it would meet rubber's and glass's spike floor, a half unit under the base, without the
+    landing that kills); and no spiked cell beside a WATER cell, edge or corner (each family keeps the HTHR it
+    replaced: a refill moving the centre from one to the other would keep the other's)"""
+    sp = dict((p["at"], p) for p in props if p["kind"] in (SP_K, SP_KP, SP_KM))
+    wat = set(p["at"] for p in props if p["kind"] == FK_WATER)
+    for at, p in sorted(sp.items(), key=lambda kv: kv[1]["line"]):
+        nm = PK_NAMES[p["kind"]]
+        if p["surf"] != SURF_NORMAL:
+            raise CourseError("%s:%d: %s on (%d, %d), %s: it stands on NORMAL ground (SPEC.md 128.38)"
+                              % (f, p["line"], nm, at[0], at[1], SURFACES[p["surf"]]))
+        if p["kind"] == SP_KM:
+            continue
+        base = tiles[at].z0
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            c = (at[0] + dx, at[1] + dy)
+            n = tiles.get(c)
+            if c in sp and sp[c]["kind"] != SP_KM or not isinstance(n, Tile) or n.kind not in (KIND_FLOOR, KIND_GOAL):
+                continue
+            lo = min(n.corner(cx, cy) for cx in (0, 1) for cy in (0, 1)
+                     if (not dx or cx == (0 if dx > 0 else 1)) and (not dy or cy == (0 if dy > 0 else 1)))
+            if lo < base:
+                raise CourseError("%s:%d: %s on (%d, %d) beside (%d, %d), lower than its base (%s against %s units): "
+                                  "rubber and glass would roll onto the spikes without the landing that kills "
+                                  "(SPEC.md 128.38)" % (f, p["line"], nm, at[0], at[1], c[0], c[1], _units(lo),
+                                                        _units(base)))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if (at[0] + dx, at[1] + dy) in wat:
+                    raise CourseError("%s:%d: %s on (%d, %d) beside the water at (%d, %d): a spiked cell and a "
+                                      "water cell never touch, edge or corner (SPEC.md 128.38)"
+                                      % (f, p["line"], nm, at[0], at[1], at[0] + dx, at[1] + dy))
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
@@ -2041,7 +2188,8 @@ def parse(text, fname="<course>"):
         elif st == "tube":
             src.tubes.append(_parse_tube(toks, where, ln))
         elif st == "prop":
-            src.props.append(_parse_prop(toks, where, ln))
+            pp = _parse_prop(toks, where, ln)
+            src.props.extend(pp if isinstance(pp, list) else [pp])     # (SPEC.md 128.38: a rect of spikes)
         elif st == "uses":                          # wave 9 (SPEC.md 128.25.6.4): the families it names
             if len(toks) < 2:
                 raise CourseError("%s: uses takes one or more family names: %s" % (
@@ -4555,6 +4703,10 @@ def build_props(src, tiles, fname):
         if sp["kind"] == FK_WATER:                  # (SPEC.md 128.36: a ripple's lane, `ripple` or `always`)
             props[-1].update(bed=sp["bed"], top=sp["top"], rip=sp["rip"], always=bool(sp["rip"] & WR_ALWAYS),
                              art="ripple" if sp["rip"] else None)
+        if sp["kind"] in (SP_K, SP_KP, SP_KM):      # SPIKES (SPEC.md 128.38): LOW and TIP round the base; a
+            props[-1].update(low=t.z0 - 1, tip=t.z0 + 1, mz=t.z0, surf=t.surf)    # popspike's timer
+            if sp["kind"] == SP_KP:
+                props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
             props[-1]["mg"] = sp["mg"] + (4 * t.z0 + MG_CEIL if sp["mg"][1] & MG_DOWN else 0,)
         if sp["kind"] == WD_K and sum(1 for q in props if q["kind"] in (WD_K, WD_K2)) + (2 if sp["won"] and not
@@ -4578,6 +4730,7 @@ def build_props(src, tiles, fname):
                               "frow": wk, "cls": CL_ATTEMPT, "art": "wisp", "bits": 0, "z4": 4 * t.z0, "dur": 0,
                               "ow": 0, "wof": props[-1], "noclaim": True})
     _mg_check(f, props, tiles)
+    _sp_check(f, props, tiles)
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -5006,7 +5159,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
     alone (--selfcheck's control)"""
     by = dict(((rc.wx, rc.wy), rc) for rc in reach)
     took = False
-    for form in ("void", "bed"):
+    for form in ("void", "bed", "tip"):
         brk = [p for p in props if form in p.get("frow", {}).get("forms", ())]
         if not brk or hack.get("noforms"):
             continue
@@ -5019,9 +5172,10 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
                 cells2[p["at"]] = [c[0] - 6, 0, KIND_VOID, c[3] & ~FL_SAFE]
                 tiles2.pop(p["at"], None)
             else:                                   # SPEC.md 128.36: WATER's BED - the cell a floor at B, as
-                cells2[p["at"]] = [p["bed"]] + list(c[1:])      # steel's window has it
+                zf = p["low" if p["kind"] in SP_KINDS and form == "bed" else form]  # steel's window has it;
+                cells2[p["at"]] = [zf] + list(c[1:])    # SPIKES' (128.38) LOW, rubber's and glass's, and TIP, steel's
                 t2 = _tile_copy(tiles[p["at"]])
-                t2.z0 = p["bed"]
+                t2.z0 = zf
                 tiles2[p["at"]] = t2
         r2, _r, _e = build_reach(tiles2, cells2, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                  _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
@@ -7854,7 +8008,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                               % (fname, rc.wx, rc.wy, xl, xh, width))
     # GLASS (SPEC.md 128.25.18): a glass tile is SOLID and INVISIBLE - the picture is drawn as if it were not
     # there (its neighbours' faces hang into the gap), and its lane draws it once revealed
-    gcells = {p["at"] for p in props if p.get("art") == "glass"}
+    gcells = {p["at"] for p in props if p.get("art") == "glass" or p["kind"] == SP_KM}   # (128.38: a membrane too)
     rails = guard_cells(tiles)                      # SPEC.md 128.35: a GUARD RAIL's cell is drawn as its rail
     for c_ in rails:                                # alone: not drawn as a wall, its neighbours' faces hanging
         if c_ in pcell:                             # into it as into the void
@@ -8150,6 +8304,32 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     if 0 <= y < lines and cv.sbuf[y][x] == wx + wy + 1 and cv.tbuf[y][x] == p["z4"] + WATER_FLOAT \
                             and cv.rows[y][x] == i0(x, y) and i1(x, y) != i0(x, y):
                         q1[(x, y)] = i1(x, y)
+            p["fpix"] = poses = {0: {}, 1: q1}
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                          "line": p["line"]})
+        elif p["kind"] in (SP_K, SP_KP, SP_KM):     # SPIKES (SPEC.md 128.38): a spike floor's blades and a
+            wx, wy = p["at"]                        # membrane's film PAINTED in the picture (clipped by what is in
+            sF = wx + wy                            # front, as a pennant is); a popspike's slits in the picture,
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0     # its blades its lane's pose 1
+            if p["kind"] == SP_KM:
+                mm = set(q["at"] for q in props if q["kind"] == SP_KM)
+                nb = tuple((dx, dy, 0) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (wx + dx, wy + dy) in mm)
+                pix = membrane_pix(cx, cy, nb)
+            else:
+                pix = spike_pix(cx, cy, SPIKE_FEET if p["kind"] == SP_K else SPIKE_POPFEET,
+                                SPIKE_BLADE if p["kind"] == SP_K else SPIKE_SLIT)
+            for (x, y), ink in pix.items():
+                if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sF:
+                    cv.rows[y][x] = ink
+            if p["kind"] != SP_KP:
+                continue
+            if cx & 7:
+                raise CourseError("%s:%d: a popspike at (%d, %d): its top's centre x %d is not on a block (the "
+                                  "origin's x must be a multiple of 8, SPEC.md 128.38)" % (fname, p["line"], wx, wy, cx))
+            rect = ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
+            q1 = {(x, y): c for (x, y), c in spike_pix(cx, cy, SPIKE_POPFEET).items()
+                  if 8 * rect[0] <= x < 8 * (rect[0] + 2) and 8 * rect[1] <= y < 8 * (rect[1] + 2)
+                  and 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
             p["fpix"] = poses = {0: {}, 1: q1}
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
@@ -8641,6 +8821,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 128.36)
                 rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["bed"], p["top"],
                                    p["rip"])               # (+20: WR_RIPPLE, WR_ALWAYS)
+            elif p["kind"] in (SP_K, SP_KP):        # SPIKES (128.38): +18 LOW, +19 TIP; a popspike's +20 ON,
+                rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["low"], p["tip"],
+                                   p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
+            elif p["kind"] == SP_KM:                # ...a membrane's +18 its floor's z0
+                rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["mz"])
             elif "mg" in p:                           # MAGNETS (128.33.2): +18 the way, +19 DOWN, +20 the range,
                 rec += struct.pack("<BBBBBBb9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["mg"])
             elif p["kind"] == WD_K:                 # WIND (SPEC.md 128.34.3): +18 - +31 the blower's fields
@@ -9136,18 +9321,20 @@ def _wind_turns(c, recs, where):
         b = by.get(r["wblower"]) if r["kind"] == WD_K2 else r if (r["kind"] == WD_K and r.get("wflags", 0) & WD_FFLAG
                                                                   and r["won"]) else None
         if b is not None:
-            gust.append((r, b))
+            gust.append((r, lambda n, b=b: wind_blowing(b, n)))
+        elif r["kind"] == SP_KP:                    # SPIKES (SPEC.md 128.38): a POPSPIKE's lane turns on its timer
+            gust.append((r, lambda n, r=r: sp_up(r, n)))
     if len(gust) < 2:
         return
     seen = {}
-    for r, b in gust:
+    for r, up in gust:
         for n in range(1024):
-            if wind_blowing(b, n) != wind_blowing(b, (n + 1) & 0xFFFF):
+            if up(n) != up((n + 1) & 0xFFFF):
                 if n in seen and seen[n] is not r:
-                    raise CourseError("%s: the %s: two gusting blowers' lanes turn on the same step (%d of 1,024: "
-                                      "the records %d and %d) - one pose change a step among a window's event "
-                                      "lanes; give one a `seed` (SPEC.md 128.34.11)" % (c.fname, where, n, seen[n]["i"],
-                                                                                        r["i"]))
+                    raise CourseError("%s: the %s: two timed lanes (gusting blowers', popspikes') turn on the same "
+                                      "step (%d of 1,024: the records %d and %d) - one pose change a step among a "
+                                      "window's event lanes; give one a `seed` (SPEC.md 128.34.11, 128.38)"
+                                      % (c.fname, where, n, seen[n]["i"], r["i"]))
                 seen[n] = r
 
 
@@ -10747,6 +10934,15 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd != KIND_FLOOR | SURF_SAND << 4 or sl or not fl & FL_OBS or fl & FL_SAFE or z0 != d["top"]:
                 bad("prop %d" % d["i"], "a water cell's grid cell is not a sand FLAT FLOOR at its top with OBS")
+        elif d["kind"] in (SP_K, SP_KP, SP_KM):     # SPIKES (SPEC.md 128.38): NORMAL FLAT FLOOR, OBS, not SAFE
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
+                                                 + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
+                if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
+                else (0, 0, 0, 0)
+            if kd != KIND_FLOOR or sl or not fl & FL_OBS or fl & FL_SAFE \
+                    or z0 != (d["mz"] if d["kind"] == SP_KM else d["low"] + 1):
+                bad("prop %d" % d["i"], "a %s's grid cell is not a normal FLAT FLOOR at its base with OBS, not "
+                    "SAFE" % PK_NAMES[d["kind"]])
     # the identity, over C's RAM form (128.15.7) - or a two-part course's over its D parts (128.30.4.3) - and
     # the canonical layout
     if split:
@@ -10913,6 +11109,26 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     bad("prop %d" % d["i"], "a water cell's record (bed %d, top %d, +20 %02Xh)" % (bed_, top_, rip_))
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art="ripple" if rip_ else None, dur=0, ow=0,
                          bed=bed_, top=top_, rip=rip_, always=bool(rip_ & WR_ALWAYS))
+                continue
+            if kr["kind"] in (SP_K, SP_KP, SP_KM):  # SPIKES (SPEC.md 128.38): LOW, TIP, a popspike's timer;
+                low_, tip_, on_, sm_, ss_ = struct.unpack_from("<bbBBB", p, r + 18)    # a membrane's z0
+                pop = kr["kind"] == SP_KP           # (its grid cell: the caller's check, below)
+                if cls != CL_ATTEMPT or fsb_ \
+                        or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or d["lane"])) \
+                        or (kr["kind"] != SP_KM and (tip_ != low_ + 2
+                                                     or p[r + (23 if pop else 20):r + 32] != bytes(9 if pop else 12)
+                                                     or bool(d["lane"]) != pop
+                                                     or (pop and (sm_ + 1 not in SP_PERIODS or not 1 <= on_ <= sm_
+                                                                  or ss_ > sm_ or d["lane"]["poses"] != 2)))):
+                    bad("prop %d" % d["i"], "a %s's record or cell (+18 %d, +19 %d, timer %d / %d / %d)"
+                        % (kr["name"], low_, tip_, on_, sm_, ss_))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0)
+                if kr["kind"] == SP_KM:
+                    d.update(mz=low_)
+                else:
+                    d.update(low=low_, tip=tip_)
+                if pop:
+                    d.update(on=on_, smask=sm_, sseed=ss_)
                 continue
             if kr["kind"] == WD_K:                  # WIND (SPEC.md 128.34.3, 128.34.11): the blower's fields
                 wd, ws, x0_, y0_, x1_, y1_, won, wmask, wseed, wtop = struct.unpack_from("<BB4BHHHH", p, r + 18)
@@ -11721,6 +11937,70 @@ class WaterFamily(Family):
         return 0
 
 
+class SpikeFamily(Family):
+    """SPIKES (SPEC.md 128.38): the SPIKE floor, the POPSPIKE (its spikes on a timer, sp_up) and the glass-only
+    MEMBRANE, each a FLAT FLOOR cell at its base in the grid rewritten PER BALL by CELL.  Slot: +0 the material
+    STEP last saw, +1 IN (the window's centre a killing spike at the last refill), +2 HARD, +3 HSTEPS and +4
+    HTHR (word) as they were before it, +6 the course's popspikes (RESET's count).
+    CELL: a spike (or a popspike UP) holds TIP for steel, LOW for every other ball; a popspike DOWN its base for
+    every ball; a membrane, for every ball but glass, a NEAR VOID (z0 less 6 half units, kind and surface 0, its
+    flags kept).  With the centre a spike or an UP popspike and the ball not steel, HARD SHATTER, HSTEPS
+    SHA_STEPS and HTHR 0 (kept once, on the way in); with it not and IN set, put back.  STEP: a material that
+    changed asks for a refill; a popspike whose pose flips between n and n + 1 MARKS its lane (the guest's
+    bz_fmark) and refills the window when it is in it.  POSE: a popspike 1 up"""
+    row = FAM_BY_NAME["spike"]
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][6] = sum(1 for pr in p.props if pr["kind"] == SP_KP) & 255
+
+    def cell(self, p, slot, win):
+        sb = p.fsl[slot]
+        cx, cy = min(k[0] for k in win) + 1, min(k[1] for k in win) + 1
+        kill = False
+        n = p.nstep & 255
+        for pr in p.props:
+            if pr["kind"] not in (SP_K, SP_KP, SP_KM) or pr["at"] not in win:
+                continue
+            c = win[pr["at"]]
+            if pr["kind"] == SP_KM:
+                if p.mat != MAT_GLASS:
+                    c[0], c[3], c[5] = pr["mz"] - 6, KIND_VOID, 0
+                continue
+            if not sp_up(pr, n):
+                c[0] = pr["tip"] - 1
+            elif p.mat == MAT_STEEL:
+                c[0] = pr["tip"]
+            else:
+                c[0] = pr["low"]
+                if pr["at"] == (cx, cy):
+                    kill = True
+        if kill:
+            if not sb[1]:
+                sb[1] = 1
+                sb[2], sb[3], sb[4], sb[5] = p.hard, p.hsteps, p.hthr & 255, (p.hthr >> 8) & 255
+            p.hard, p.hsteps, p.hthr = HARD_SHATTER, SHA_STEPS, 0
+        elif sb[1]:
+            sb[1] = 0
+            p.hard, p.hsteps, p.hthr = sb[2], sb[3], sb[4] | sb[5] << 8
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        if sb[0] != p.mat:
+            sb[0] = p.mat
+            p.fref = 1
+        if not sb[6]:
+            return
+        n = p.nstep & 255
+        wx, wy = p.wcell
+        for pr in p.props:
+            if pr["kind"] == SP_KP and sp_up(pr, n) != sp_up(pr, n + 1) \
+                    and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
+                p.fref = 1
+
+    def pose(self, p, slot, i):
+        return int(sp_up(p.props[i], p.nstep & 255))
+
+
 class OwnFamily(Family):
     """story 9.8 (SPEC.md 128.25.20): ROTOR, SPRING and TUBE - the guest's parts
     hold today's rules (the doorway, the spring, the tube), which the model
@@ -11734,7 +12014,8 @@ class OwnFamily(Family):
 
 FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
              "tube": OwnFamily("tube"),
-             "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily()}
+             "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily(),
+             "spike": SpikeFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -11802,6 +12083,7 @@ class Physics:
         # WATER (SPEC.md 128.36): bz_mrec's HTHR as the step reads it (the family raises it while the centre is
         # a water cell), and the floor restitution its CELL hook wrote into bz_se (None: the surface's own)
         self.hthr, self.wef = self.m["HTHR"], None
+        self.hard, self.hsteps = self.m["HARD"], self.m["HSTEPS"]  # (bz_mrec's: SPIKES' CELL writes them, 128.38)
         self.fta = fta_table(self.m["ACC"])
         # wave 3's state (SPEC.md 128.12.6.6) and the prop table it reads
         self._gate_late, self._kick_k, self._no_carry = _gate_late, _kick_k, _no_carry
@@ -12313,6 +12595,7 @@ class Physics:
         self.m = MATERIALS[mat]
         self.hop = self.m["HOP"]                    # (bz_setmat copies the record: the working Hop too, and
         self.hthr, self.wef = self.m["HTHR"], None  # HTHR; its bz_surfset rewrites bz_se, WATER's e with it)
+        self.hard, self.hsteps = self.m["HARD"], self.m["HSTEPS"]  # (and HARD, HSTEPS: SPIKES' 128.38)
         if not self._pad_noftg:
             self.fta = fta_table(self.m["ACC"] + self.wacc)
         self._surfset(self.surf)                    # bz_setmat calls bz_surfset: k may change
@@ -12888,19 +13171,19 @@ class Physics:
         self.gz = h
         self.nland += 1
         mat = surf == SURF_BOUNCE
-        hard = m["HARD"] if not mat else HARD_NONE
+        hard = self.hard if not mat else HARD_NONE
         base = min(fr, 0)
         if hard == HARD_STUN and lvz >= self.hthr and not self._no_stun:
             self.air = 0
             self.gvx = self.gvy = self.gvz = 0
-            self.mst, self.mct = ST_STUN, m["HSTEPS"]
+            self.mst, self.mct = ST_STUN, self.hsteps
             self.nstun += 1
             self.events.append(("stun", self.nstep + 1, lvz))
             out = "stun"
         elif hard == HARD_SHATTER and lvz >= self.hthr:
             self.air = 0
             self.gvx = self.gvy = self.gvz = 0
-            self.mst, self.mct = ST_SHATTER, m["HSTEPS"]
+            self.mst, self.mct = ST_SHATTER, self.hsteps
             self.nshat += 1
             self.events.append(("shatter", self.nstep + 1, lvz))
             out = "shatter"
