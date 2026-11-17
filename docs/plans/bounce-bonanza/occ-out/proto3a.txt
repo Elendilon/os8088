@@ -16,3 +16,21 @@ FIRST (first.bbc): 64 cols x 37 block rows; RAM 10140, LZ4 2693, LZB 2194; with 
   res3+V           0      0      0     0    0    0    8340      76   1883   1570    -810    -624
   avoidR3        131    129    129    34    2   14    9492    1204   2435   2014    -258    -180
   avoidR4         88     88     88    23    2   10    9130     842   2273   1892    -420    -302
+
+TRIAL (trial.bbc): 64 cols x 56 block rows; RAM 16880, LZ4 4636, LZB 3798; with NO occluders RAM 13326, LZ4 3379, LZB 2806  [17s]
+  variant        raw   rule   part masks  blk  row     RAM  occRAM    LZ4    LZB    dLZ4    dLZB
+  base           919    707    707    39    4   45   16880    3644   4636   3798      +0      +0
+  res3           251    223    222    39    2   23   14940    1704   4089   3377    -547    -421
+  res4           142    123    123    31    2   13   14400    1164   3917   3253    -719    -545
+  res3+V           1      1      1     1    1    1   13372     136   3421   2845   -1215    -953
+  avoidR3        472    433    432    49    4   31   15960    2724   4405   3628    -231    -170
+  avoidR4        367    337    337    44    4   23   15490    2254   4264   3526    -372    -272
+
+ALL: variant, part records, RAM, occluder RAM (I R K O), LZ4, LZB
+  base           3658    67176    18018    14936    12003
+  res3            722    55180     6022    12207     9877
+  res4            322    52428     3270    11129     9044
+  res3+V            3    49652      518     9791     7965
+  avoidR3        2077    61068    11910    13468    10876
+  avoidR4        1732    59094     9936    12633    10223
+  (none)            0    49538        0     9704     7880
