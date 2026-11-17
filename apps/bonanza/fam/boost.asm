@@ -1,8 +1,10 @@
 ; =============================================================================
 ; apps/bonanza/fam/boost.asm - BONANZA's BOOST PADS (SPEC.md 128.37): a plate of
 ; CHEVRONS on a flat floor that pushes a GROUNDED ball whose centre is on it
-; along its FACE (+x, -x, +y, -y) by its STRENGTH S, the SAME for every ball:
-; CONTACT adds S to bz_gvx or bz_gvy, and the next step's force block clamps
+; along its FACE (+x, -x, +y, -y) by its STRENGTH S WEIGHTED BY THE BALL (the
+; owner's defaults: glass S + (S >> 2), rubber S, steel S - (S >> 2)), or S on
+; a `flat` pad (record +18 bit 2, BZ_BP_FFLAT): CONTACT adds the push to
+; bz_gvx or bz_gvy, and the next step's force block clamps
 ; what it left to the caps (VMAXG + bz_vup), as WIND's push relies on.  Not
 ; rubber's BOOST (SPEC.md 128.16.4: the Hop's rebound turned into height, the
 ; token bz_btok and bz_nboost) - that is a ball's, in the air; this is a
@@ -18,7 +20,8 @@
 ; bbcourse.BoostFamily is the model, step for step.
 ;
 ; A pad's record (SPEC.md 128.37.3): +18 the face (0 +x, 1 -x, 2 +y, 3 -y:
-; bit 1 the y axis, bit 0 the minus sign), +19 S, +20 - +31 zero.
+; bit 1 the y axis, bit 0 the minus sign) OR BZ_BP_FFLAT, +19 S, +20 - +31
+; zero.
 ;
 ; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Entered by `call far` with DS = ES = the
@@ -46,6 +49,12 @@ BP_STR      equ 19
 %endif
 %if BZF_SLOT != 8
  %error "bp_slot's three shifts are BZF_SLOT = 8 (bbcourse.FSLOT)"
+%endif
+%if BZ_MAT_STEEL != 1 || BZ_MAT_GLASS != 2
+ %error "bp_contact's weighting reads the material as rubber 0, steel 1, glass 2"
+%endif
+%if BZ_BP_GSH != 2 || BZ_BP_SSH != 2 || BZ_BP_FFLAT != 4
+ %error "bp_contact's weighting is S >> 2 added for glass and taken for steel; flat is +18 bit 2"
 %endif
 %if bz_gvy != bz_gvx + 2
  %error "bp_contact indexes bz_gvx by the axis: bz_gvy must follow it"
@@ -85,14 +94,27 @@ bp_contact:
     shl bx, cl
     add bx, [bz_poff]
     mov es, [bz_cseg]
-    mov al, [es:bx + BP_STR]    ; AX = S, every ball the same
+    mov al, [es:bx + BP_STR]    ; AL = S, WEIGHTED: glass S + S / 4, rubber S,
+    mov bl, [es:bx + BP_DIR]    ; steel S - S / 4 - or S for every ball on a
+    mov ah, al                  ; `flat` pad (S <= 127: glass's 158 is a byte)
+    shr ah, 1                   ; AH = S >> 2 (BZ_BP_GSH = BZ_BP_SSH = 2)
+    shr ah, 1
+    test bl, BZ_BP_FFLAT
+    jnz .w
+    mov cl, [bz_mat]            ; (rubber 0, steel 1, glass 2)
+    dec cl
+    jl .w
+    jnz .add
+    neg ah                      ; (steel: S + -(S >> 2), a byte)
+.add:
+    add al, ah
+.w:
     xor ah, ah
-    mov bl, [es:bx + BP_DIR]
-    shr bl, 1                   ; BL 0 x, 1 y; CF the minus sign
+    shr bl, 1                   ; BL bit 0: 0 x, 1 y; CF the minus sign
     jnc .pos
     neg ax
 .pos:
-    xor bh, bh
+    and bx, 1                   ; (`flat`, now bit 1, and the address's BH gone)
     shl bx, 1
     add [bz_gvx + bx], ax       ; (bz_gvy follows bz_gvx)
 .out:

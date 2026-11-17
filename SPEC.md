@@ -278660,7 +278660,7 @@ so that a grep for the one never finds the other.
 |---|---|---|
 | D1 | one family, `boost`, ID 10 (`BZ_FID_BOOST`), one kind `boost` (`BP_K` = 48, `BZ_FK_BOOST`), home `resident` | the owner's default for a new family (128.25.6.9); the props round's assignment |
 | D2 | the push is the CONTACT hook's: while the ball's centre is on the pad's cell (`bz_prule`'s family dispatch, step 6), GROUNDED (`bz_air` 0) and not shattering, S is added to `bz_gvx` (+x, -x) or `bz_gvy` (+y, -y) | CONTACT is the one site that already knows the ball is ON this element, so the part keeps no list and walks nothing (WIND's STEP walks its slot's list, 128.34.3); the next step's force block clamps what the push left to the caps (`VMAXG + bz_vup` per axis), exactly as WIND's push relies on (128.34.1 D2) - a pad never carries a ball past a speed the reach is not already built on |
-| D3 | the push is the SAME for every ball - no weighting | the cap is the same for every ball, and a pad's job is to bring any ball to it; weighting would make a pad a material gate, which SPIKES, WATER and WIND already are. What differs per ball is what the ball does with the speed (steel's weak arrows hold it less on a slope; glass's strong ones need the pad least): the test course's scenes show it |
+| D3 | ~~the push is the SAME for every ball~~ - **round 2 (the owner, 2026-11-17): WEIGHTED BY BALL, ON BY DEFAULT**, "to keep the game feeling consistent": rubber S, steel S - (S >> 2) (x3/4), glass S + (S >> 2) (x1.25); a pad's `flat` turns it off (S for every ball) | the owner's own weights, not WIND's x2 / x1/4: *"Steel at 3/4, else it's going to hardly help it, and glass at 1.25x please or it's an uncontrollable rocket. These are defaults; we can retune as we actually use them."* So they are named constants in the FAMV (`BP_GSH`, `BP_SSH`, both 2), and a retune is one constant (the part refuses to assemble against any other shift until its arithmetic is changed with it) |
 | D4 | GROUNDED ONLY: an airborne ball over a pad is not pushed | a pad is a floor's; a Hop over a chain of pads is a way NOT to take them (`bpair`'s scene) |
 | D5 | the art: a plate of CHEVRONS on the tile's top - a black rim, magenta plate, two white chevrons pointing the way it pushes; LIT, white plate and black chevrons | on the Hercules magenta is the grey checker and cyan the same grey, so the readable pair is white on grey, then black on white; LOOKED AT in the tool's previews (`--png`) and once on MartyPC, both cards (the `BZBOOST=1` tree: the chain's pads lit in turn under a rolling ball, the ramp pocket's pad lit) |
 | D6 | a FLASH lane: the chevrons LIT while the ball rolls on the pad and `BP_FLASH` (12) steps after, ONE pad lit at a time, marked on change only | the hint that a pad has the ball; one lit pad keeps a chain of pads to one pose change a step (the window's event lanes, 128.19.10) |
@@ -278668,11 +278668,12 @@ so that a grep for the one never finds the other.
 #### 128.37.2 The statement
 
     uses boost
-    prop boost <wx> <wy> face +x|-x|+y|-y [strength <S>]
+    prop boost <wx> <wy> face +x|-x|+y|-y [strength <S>] [flat]
 
 `face` is the way it pushes (world axes) and the way its chevrons point;
 `strength` is S, 1 - 127, in 1/256 gu a step a step (24 when not written:
-`BP_SDEF`, the arrows' force is 2 - 6 a level). The pad is a family element
+`BP_SDEF`, the arrows' force is 2 - 6 a level), WEIGHTED by the ball
+(128.37.4); `flat` pushes every ball S (round 2). The pad is a family element
 (128.25.6.4): a FLAT FLOOR cell with OBS, rolled over.
 
 #### 128.37.3 The record and the slot
@@ -278680,12 +278681,13 @@ so that a grep for the one never finds the other.
 | at | what |
 |---|---|
 | +16, +17 | FSB 0 (no state bit), the class 0 (ATTEMPT) |
-| +18 | the FACE: 0 +x, 1 -x, 2 +y, 3 -y (bit 1 the y axis, bit 0 the minus sign) |
+| +18 | the FACE: 0 +x, 1 -x, 2 +y, 3 -y (bit 1 the y axis, bit 0 the minus sign), OR `BP_FFLAT` (4) for `flat` (round 2, as WIND's flags ride its face byte) |
 | +19 | S |
 | +20 - +31 | zero |
 
-The reader (`read_props`) refuses any other class, an FSB, a face past 3, S
-out of 1 - 127, a byte of +20 - +31 not zero, or a lane that is not 2 poses.
+The reader (`read_props`) refuses any other class, an FSB, a bit of +18 other
+than the face's two and `BP_FFLAT`, S out of 1 - 127, a byte of +20 - +31 not
+zero, or a lane that is not 2 poses.
 
 **The SLOT** (2 of `BZF_SLOT`'s 8 bytes): +0 the LIT pad (its element + 1, 0
 none), +1 its steps left. A play's start zeroes it; nothing else does (no
@@ -278699,7 +278701,10 @@ CONTACT on pad `i`, the ball grounded and not shattering:
    `BP_FLASH` (its lane MARKED, `bz_fmark`, when it was not lit); ANOTHER pad
    lit - that one put OUT (+0 0, its lane MARKED; its count is left), and `i`
    lights on its next step's contact;
-2. the PUSH: S added to `bz_gvx` (+x), subtracted (-x), to `bz_gvy` (+y),
+2. the PUSH, A = S WEIGHTED by the ball (`bz_mat`; round 2): rubber S, steel
+   S - (S >> `BP_SSH`), glass S + (S >> `BP_GSH`) (`bbcourse.bp_push`; the
+   part's byte arithmetic, S <= 127 so glass's 158 is a byte) - or S on a
+   `flat` pad - added to `bz_gvx` (+x), subtracted (-x), to `bz_gvy` (+y),
    subtracted (-y).
 
 STEP (every step): a lit pad's count one less; at 0 it is put out (+0 0, its
@@ -278748,14 +278753,25 @@ but the family itself.
 #### 128.37.7 The refusals
 
 Each a `--selfcheck` string case (section `boost`, item 2): no `face`; a face
-that is not one of four; a strength outside 1 - 127, or written twice; a
-`reset` (the class is the kind's); a word of no meaning; a pad on a ramp (not
+that is not one of four; a strength outside 1 - 127, or written twice; `flat`
+written twice; a `reset` (the class is the kind's); a word of no meaning; a pad on a ramp (not
 a FLAT FLOOR); on another prop's cell; with no `uses boost`; `uses boost` and
 no pad; a pad hidden behind a wall in front of it.
 
 #### 128.37.8 The proofs
 
-**`--selfcheck --only boost`** (18 items, green): the twelve refusals; item 3,
+**Round 2 (the weighting)**: `--selfcheck` adds `flat` twice to the
+refusals, the record's `BP_FFLAT` (BOOS's two `flat` pads) and FAMV moving
+with `BP_GSH` and `BP_SSH` to item 3, and item 6's WEIGHTING - one step at
+rest on a weighted pad pushes rubber, steel, glass (24, 18, 30), on a `flat`
+one (24, 24, 24) - with red arms `noweight` and `noflat`, each red;
+`bp_host` adds red arms `bpweight` (glass's x1.25 gone: the ramp's glass parts
+at step 0) and `bpflat` (`flat` ignored: the gap's steel parts at step 13).
+Every scene still shows its point for every ball with the course's chain
+turn at strength 32 (24 weighted left steel, x3/4, running off the plate past
+the bend) and the gap's pads `flat`.
+
+**`--selfcheck --only boost`** (round 1: 18 items, green): the twelve refusals; item 3,
 BOOS's ten records (+18, +19 the source's, 24 where none is written, a lane of
 2 poses, FSB 0, class ATTEMPT) and `FAMV` moving with `BP_FLASH` and
 `BP_SDEF`; item 6, the three scenes for every ball on the model against the
@@ -278781,10 +278797,10 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 
 | | |
 |---|---|
-| the part, `bzf-boost.bin` | **166 bytes** (the header 24; CONTACT 91, STEP 22, POSE 12, the slot 17), 11 paragraphs in the bundle |
+| the part, `bzf-boost.bin` | **192 bytes** after round 2's weighting (+26; round 1: 166 - the header 24, CONTACT 91, STEP 22, POSE 12, the slot 17), 12 paragraphs in the bundle |
 | resident | **0 bytes of code**; the image `bonanza.bin` 49,898 -> **49,899 (+1)**: `BZ_FTAB`'s byte for ID 10; bss **+0** (the slot is `bz_fsl`'s) |
-| the bundle and the package | `bzfbun.bin` 34,976 -> **35,152 (+176, the part's 11 paragraphs)**: the RAM every play pays, a course naming it or not; `BONANZA.O88` 122,032 -> **122,212 (+180)**; `bonanza360.img` 128 clusters either way |
-| a step, a course naming BOOST | PREDICTED (counted at the 8088's clocks and fetch floor, not measured): the STEP dispatch and its slot test about **0.2k** every step; on a pad, CONTACT about **0.35k** more (the tests, the flash, the record and the push) |
+| the bundle and the package | `bzfbun.bin` 34,976 -> **35,168 (+192, the part's 12 paragraphs; round 1 +176)**: the RAM every play pays, a course naming it or not; `BONANZA.O88` 122,032 -> **122,239 (+207; round 1 +180)**; `bonanza360.img` 128 clusters either way |
+| a step, a course naming BOOST | PREDICTED (counted at the 8088's clocks and fetch floor, not measured): the STEP dispatch and its slot test about **0.2k** every step; on a pad, CONTACT about **0.4k** more (the tests, the flash, the record, the weighting and the push) |
 | a course without BOOST | nothing (no hook is called for a family the course does not name) |
 | the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway and the title byte for byte as before (MEASURED, `cmp`): no identity and no demo moved |
 
@@ -278793,9 +278809,8 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 1. The default strength (24, a pad cell takes a ball from rest to the cap)
    and the flash (12 steps after the ball leaves): the owner's to judge on
    BOOS.
-2. Weighting: none (D3). Glass needs the pads least (its own push climbs the
-   ramp and, from a run-up, makes gaps); a weighted pad (glass less, steel
-   more) would make pads matter equally - a byte of shifts, as WIND's.
+2. ~~Weighting: none (D3).~~ ANSWERED (round 2): weighted by default, the
+   owner's x3/4 and x1.25, `flat` per pad; to retune as courses use them.
 3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
    ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
    one thing it cannot do today.
