@@ -2170,6 +2170,13 @@ bz_foot:
 bz_camera:
     cmp byte [bz_fcnt], 0       ; THE FINISH SEQUENCE (128.22.6): the camera
     je .nfs                     ; holds - no step, no scroll, no pan running
+    cmp byte [bz_vga], 0        ; (the VGA's own camera COASTS to rest, as a
+    je .fh                      ; smooth one stopped dead jerks: 128.45.12)
+    cmp byte [bz_cuse], 0
+    jne .fh
+    BZ_VCALL BZV_COAST
+    jmp .moved
+.fh:
     mov ax, [bz_R0]
     mov [bz_R0n], ax
     mov ax, [bz_c0]
@@ -2541,6 +2548,11 @@ bz_scyc:                        ; the script's cycle: (row, column), R DR D DL
 ; marble's footprint centre line leaves the target's window ---
 bz_camera.paged:
     call bz_pgtgt               ; AX = the target page's R0
+    cmp byte [bz_vga], 0        ; THE VGA: a planned move, its rows lines
+    je .pg0                     ; (128.45.12)
+    BZ_VCALL BZV_PAGE
+    jmp bz_camera.moved
+.pg0:
     mov dx, [bz_R0]
     sub ax, dx                  ; its distance, rows: at most BZ_MAXR of it
     cmp ax, BZ_MAXR

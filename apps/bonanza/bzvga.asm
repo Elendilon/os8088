@@ -53,6 +53,8 @@ bzv_v8: jmp near bzv_wprect         ; BZV_WPRECT
 bzv_v9: jmp near bzv_card           ; BZV_CARD
 bzv_v10: jmp near bzv_roll          ; BZV_ROLL
 bzv_v11: jmp near bzv_cam           ; BZV_CAM
+bzv_v12: jmp near bzv_coast         ; BZV_COAST
+bzv_v13: jmp near bzv_page          ; BZV_PAGE
     times BZV_VEC + BZV_VECB * BZV_NVEC - ($ - $$) db 0
     times ($ - $$) - BZV_VEC - BZV_VECB * BZV_NVEC db 0
 
@@ -1432,6 +1434,9 @@ bzv_conv:
 ; bz_vcx (the display's left px, for bz_vstart) and bz_vsm.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bzv_cam:
+    call .sync
+    jmp short .ys
+.sync:
     mov ax, [bz_vx0]            ; RESYNC: the camera holds what was shown
     cmp ax, [bz_vcx]
     je .xs
@@ -1442,11 +1447,13 @@ bzv_cam:
 .xs:
     mov ax, [bz_R0]
     cmp ax, [bz_vcy]
-    je .ys
+    je .yr
     mov [bz_vcy], ax
     xor ax, ax
     mov [bz_vvy], ax
     mov [bz_vcyf], al
+.yr:
+    ret
 .ys:
     mov al, [bz_vdiv]
 .tick:
@@ -1475,13 +1482,16 @@ bzv_cam:
     mov bx, BZV_MX
     mov cx, 320 - BZV_MX
     mov dl, BZV_SXM
+    call .xmax
     call .show
     mov ax, bp                  ; ...down, at most BZV_MAXR lines
     mov di, bz_vcy
     mov bx, BZV_MY
     mov cx, 200 - BZV_MY
     mov dl, BZV_SYM
+    mov si, [bz_rmax]
     call .show
+.win:
     mov ax, [bz_vcy]            ; the engine's window: R0 the camera's line,
     mov [bz_R0n], ax            ; c0 kept while vcx is in its 16 px of slack
     mov ax, [bz_vcx]
@@ -1579,13 +1589,205 @@ bzv_cam:
     jg .go
     jmp short .set
 .neg:
-    mov al, dh
+    mov al, [di + 4]            ; past the near margin: one more step back a
+    dec ax                      ; frame (never a jump to the most: 128.45.12)
+    cmp al, dh
+    jl .go
     jmp short .set
 .pos:
-    mov al, dl
+    mov al, [di + 4]            ; past the far one: one more on
+    inc ax
+    cmp al, dl
+    jg .go
 .set:
     mov [di + 4], al
 .go:
+    call .brake
+    mov al, [di + 4]
+    cbw
+    add [di], ax
+    ret
+; SI = the display's most left px on this course (its least is 0): the
+; window's last column, cmax, and its 16 px of slack
+.xmax:
+    mov si, [bz_cmax]
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, 16
+    ret
+; THE COURSE's EDGES (128.45.12): the step s shrinks by one a frame while
+; the edge it runs toward is nearer than its stopping distance s (s + 1) / 2,
+; and never passes it, so the camera arrives at an edge at rest rather than
+; being clamped there mid-pan.  DI as .axis, SI = the position's most (its
+; least 0).  Clobbers AX, CX.
+.brake:
+    mov al, [di + 4]
+    or al, al
+    jz .bk
+    jns .bp
+    neg al                      ; toward 0: the distance is the position
+    mov cx, [di]
+    call .bdist
+    neg al
+    jmp short .bset
+.bp:
+    mov cx, si                  ; toward the most
+    sub cx, [di]
+    call .bdist
+.bset:
+    mov [di + 4], al
+.bk:
+    ret
+; AL = |s| (1 - 8), CX = the distance to the edge -> AL = the |s| allowed
+.bdist:
+    or cx, cx
+    jg .bd1
+    xor al, al                  ; at it (or past): stopped
+    ret
+.bd1:
+    push bx
+    mov bl, al
+    xor bh, bh
+    mov bl, [cs:.tri + bx]      ; its stopping distance
+    cmp cx, bx
+    jae .bd2
+    dec al                      ; nearer: brake one
+.bd2:
+    xor ah, ah
+    cmp cx, ax
+    jae .bd3
+    mov al, cl                  ; never past it
+.bd3:
+    pop bx
+    ret
+.tri:   db 0, 1, 3, 6, 10, 15, 21, 28, 36, 45
+
+; -----------------------------------------------------------------------------
+; bzv_page - BZV_PAGE (SPEC.md 128.45.12): the pathway's PAGED camera on the
+; VGA.  The CGA's moves its rows BZ_MAXR a frame toward the target page - on
+; the VGA, whose rows are lines, a crawl.  Here each axis MOVES to its target
+; (the page's top line AX; across, page 0's columns with the display on their
+; middle) on a trapezoid: one more line a frame up to the most, held there,
+; and braked on its stopping distance so it arrives exactly.  Sets what
+; bzv_cam sets.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_page:
+    push ax
+    call bzv_cam.sync
+    pop dx
+    mov di, bz_vcy
+    mov cl, BZV_SYM
+    call .goto
+    mov dx, [bz_fixc]
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    add dx, 8
+    mov di, bz_vcx
+    mov cl, BZV_SXM
+    call .goto
+    jmp bzv_cam.win
+; DI as bzv_cam.axis, DX = the target position, CL = the most step
+.goto:
+    mov word [di + 2], 0
+    mov ax, dx
+    sub ax, [di]                ; AX = d
+    mov ch, [di + 4]            ; CH = s
+    or ax, ax
+    jnz .g1
+    mov byte [di + 4], 0        ; there: at rest
+    ret
+.g1:
+    js .gl
+    or ch, ch                   ; d > 0: a step back first slows by one
+    jns .gp
+    inc ch
+    jmp short .gs
+.gp:
+    call .pick
+    jmp short .gs
+.gl:
+    neg ax                      ; d < 0, |d| in AX
+    or ch, ch
+    jle .gq
+    dec ch
+    jmp short .gs
+.gq:
+    neg ch
+    call .pick
+    neg ch
+.gs:
+    mov [di + 4], ch
+    mov al, ch
+    cbw
+    add [di], ax
+    ret
+; AX = |d|, CH = n (the step's size, 0 - most), CL = the most -> CH = the
+; largest of n + 1, n, n - 1 (at most CL) whose stopping distance n (n + 1)
+; / 2 is within |d|: one more a frame, held, braked to arrive exactly
+.pick:
+    push bx
+    mov bl, ch
+    inc bx
+    cmp bl, cl
+    ja .p1
+    call .fits
+    jnc .p3
+.p1:
+    mov bl, ch
+    or bl, bl
+    jz .p2
+    call .fits
+    jnc .p3
+.p2:
+    mov bl, ch
+    dec bl
+    jns .p3
+    xor bl, bl
+.p3:
+    mov ch, bl
+    pop bx
+    ret
+; CF = 0 when BL's stopping distance is within AX
+.fits:
+    push bx
+    xor bh, bh
+    mov bl, [cs:bzv_cam.tri + bx]
+    cmp ax, bx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; bzv_coast - BZV_COAST (SPEC.md 128.45.12): the camera through the FINISH
+; SEQUENCE.  The CGA's camera holds there (128.22.6); a smooth one stopped in
+; a frame jerks, so the VGA's coasts: no ball, no zone, no margin - each
+; axis's step one nearer 0 a frame (and the edges braked), its velocity 0.
+; Sets what bzv_cam sets.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_coast:
+    call bzv_cam.sync
+    mov di, bz_vcx
+    call bzv_cam.xmax
+    call .dec
+    mov di, bz_vcy
+    mov si, [bz_rmax]
+    call .dec
+    jmp bzv_cam.win
+.dec:
+    mov word [di + 2], 0
+    mov al, [di + 4]
+    or al, al
+    jz .z
+    js .n
+    dec al
+    jmp short .s
+.n:
+    inc al
+.s:
+    mov [di + 4], al
+.z:
+    call bzv_cam.brake
     mov al, [di + 4]
     cbw
     add [di], ax

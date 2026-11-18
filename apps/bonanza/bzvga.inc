@@ -36,17 +36,21 @@ BZV_ROLL    equ 10              ; the roll's DISPLAYED phases (128.45.11): AL = 
                                 ; x phase, CX = G in, the shown AL, AH out; clobbers BX, DX
 BZV_CAM     equ 11              ; the VGA's camera (128.45.12): BP = bz_camera's centre
                                 ; line in; bz_R0n, bz_c0n, bz_vcx out; preserves nothing
-BZV_NVEC    equ 12
+BZV_COAST   equ 12              ; the camera through the finish (128.45.12): coasting
+                                ; to rest; sets what BZV_CAM sets
+BZV_PAGE    equ 13              ; the pathway's PAGED camera (128.45.12): AX = the
+                                ; target page's top line; sets what BZV_CAM sets
+BZV_NVEC    equ 14
 ; 128.45.12's constants: the dead zone, the most a tick, the hard margins
-BZV_ZXL     equ 128             ; px of the display's 320
-BZV_ZXR     equ 192
-BZV_ZYL     equ 84              ; lines of its 200
-BZV_ZYR     equ 116
+BZV_ZXL     equ 80              ; px of the display's 320 (LATTICE's band, 2 W)
+BZV_ZXR     equ 240
+BZV_ZYL     equ 66              ; lines of its 200 (LATTICE's 66)
+BZV_ZYR     equ 134
 BZV_VXM     equ 1024            ; 1/256 px a tick (4 px)
-BZV_VYM     equ 512             ; (2 lines)
+BZV_VYM     equ 1024            ; (4 lines)
 BZV_MX      equ 48
 BZV_MY      equ 40
-BZV_MAXR    equ 4               ; the VGA's rows a frame before a full write
+BZV_MAXR    equ 8               ; the VGA's rows a frame before a full write
 BZV_SXM     equ 8               ; the shown step's most a frame: a column across,
 BZV_SYM     equ BZV_MAXR        ; ...the rows' allowance down
 BZV_HYS     equ 192             ; its hysteresis, 1/256 px: the step moves one
