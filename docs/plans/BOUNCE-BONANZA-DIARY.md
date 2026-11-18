@@ -5237,3 +5237,38 @@ The two jumps are the pair the owner's lesson asks for.
 
 **Run**: the sketch script and `tools/checkdocs.py`. **Not run**: nothing
 in the engine; every time and the camera's behaviour are PREDICTED.
+
+## 2026-11-18 (FIRST ROLL, revision 2 of the pen-in)
+
+The owner, on revision 1's picture: *"This is a good start."* They marked it
+up, and wrote:
+
+> The first flag, lets move it to the middle of what I think I am reading as
+> T, right before the next segment. Lets add a shaped, double block, unfenced
+> but easily guided shape chute here, similar to the one already on the chute
+> test/playground. Fences come back up as they exit, but leave off the fence
+> on the end just like you have it; that way they can overshoot if they come
+> out full speed. Flag after the turn on E, before they set up for the
+> turn-then-jump. No flag right at the end - there is nothing to kill them
+> between there and the exit.
+>
+> Clock placement looks very good as far as readability and course position,
+> although if we do go with standard clocks we might need to keep clocks over
+> void, like the top one, so the standard part can be used.
+
+**Revision 2**
+([FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md), pictures redrawn):
+- flag 0 sits in T's middle at its exit, and T is railed but for the chute's
+  mouth;
+- the corners K1 and K2 are replaced by a two-wide `chute 2 round`, unfenced,
+  shaped as PLAYGROUND's is: along +x, down +y, along +x. D3's rails come
+  back up as it exits, and K3's end stays open;
+- flag 1 sits on E's last step, after the turn;
+- there is no flag past the leap;
+- all three clocks stand over the void.
+
+The sketch now draws a chute as a parabolic channel round its crease. That
+is an approximation of SPEC.md 130.28's tables, close enough to argue the
+shape over.
+
+**Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
