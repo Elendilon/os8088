@@ -39,10 +39,11 @@ This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
 **"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
-first commit and before any `git` question about ancestry.** Ten rules that
+first commit and before any `git` question about ancestry.** Eleven rules that
 are this fork's rather than the project's, kept in one section at the bottom
-so that a PR going upstream deletes them rather than hunting for them. The
-first of them fires in the first minute of a session.
+so that a PR going upstream deletes them rather than hunting for them. Two
+of them fire in the first minute of a session: rule 9 (`tools/session-sync.sh`)
+is the first command, and rule 0 (`make deps`) the second.
 
 | document | read it before |
 |---|---|
@@ -409,7 +410,9 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   are proved inside one page by guard 6 instead (SPEC.md 2.1.1).
 - **Memory is THREE rules and three quantities** (docs/KERNEL-MEMORY.md):
   **kern_big fully RESIDES in 100KB at the desktop**, **kern_small fully
-  RESIDES in 64KB** — every non-purgeable byte, no drivers, no XMS, on VGA
+  RESIDES in 64KB** — and its 128KB machine's heap is LOCKED at 70.5KB
+  (guard 1b, `HEAP_SEG` <= 0x0E60, no grace: the owner, 2026-11-15) —
+  every non-purgeable byte, no drivers, no XMS, on VGA
   (guard 1's `KERN_BUDGET`, DERIVED from those, plus `tests/kernresident.py`
   and `tests/small128.py` for the half an assembler cannot see) — and **BOTH
   BOOT on 128KB** (guard 5, `MIN_RAM_KB`, asserted by booting each kernel on a
@@ -1071,19 +1074,12 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Twenty-six images, not nine.** The system and apps disks in four geometries
-each, plus SEVEN more that exist at 360KB alone and ONE at 720KB alone -
-`build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
-what that disk had to leave off - and the 128KB machine's two system disks,
-`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
-which `all` builds through `make small`'s sub-make. The small 720KB disk is
-NOT the standard format: kern_small's two-sector FAT window refuses a
-standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
-720KB disk. And WIN16's own disk in four geometries, `win16*.img`
-(§124.18.1), which left the apps disks when it outgrew them, and ARCADE's
-release floppy in four, `arcrel*.img` (ARCADE-SPEC 1.6): the package and
-`ARCADE.TXT`, no ROM.
-`build/media360.img` — `BEVERLY.MOD` is data rather than software and
+**The 128KB machine's 720KB disk, `build/small720.img`, is NOT the standard
+format** (SPEC.md 24.5.7): kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no
+other 720KB disk.
+
+**`build/media360.img`** — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
@@ -1135,7 +1131,7 @@ branch-specific rule anywhere else in this file, precisely so that removing it
 is a deletion rather than a search — the one other thing to take with it is
 the pointer to it, five lines under the map sentence at the top.
 
-### 0. `make deps` IS THE FIRST COMMAND OF A SESSION — before `make`, before `make marty`
+### 0. `make deps` comes FIRST after `tools/session-sync.sh` (rule 9) — before `make`, before `make marty`
 
 A fresh container has `cargo` and `python3` and **has neither `nasm` nor
 `qemu` nor `libudev-dev`**. `make deps` installs the set in about half a
@@ -1251,7 +1247,7 @@ repository", which is where the branch already lives, and do nothing.
 the two 1.44MB main disks,
 `build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
-**No soak stands between a commit and its disks** (fork rule 9): build,
+**No soak stands between a commit and its disks** (fork rule 10): build,
 commit, send, then start the soak in the background.
 **And when the code being worked on ships on a disk OUTSIDE that set, send
 that disk too** - the owner wants the disks relevant to the work in hand,
@@ -1308,7 +1304,7 @@ note), so the tick and the hold are the same shape: a background task that
 waits up to fifteen minutes *or* until the run's marker appears, then prints
 the status. Poll `status` as often as you like on top of that — it reads a
 file and cannot perturb anything. **The hold is a BACKGROUND task, never a
-foreground wait** (fork rule 9): the work goes on while it ticks.
+foreground wait** (fork rule 10): the work goes on while it ticks.
 
     end=$((SECONDS+900))
     while [ $SECONDS -lt $end ] && [ ! -f build/soak/<run>/finished ]; do
@@ -1371,7 +1367,7 @@ and every image with them — which makes the shortcut answer "yes, a byte
 moved" across any commit and useless between two.
 
 **Either way the merge commits nothing under `build/`**, which is gitignored
-outright. And a merge's soak is fork rule 9's like any other: in the
+outright. And a merge's soak is fork rule 10's like any other: in the
 background, after the rebuild-and-boot, with the push and the disks not
 waiting on it.
 
@@ -1411,7 +1407,39 @@ not ask what it refers to, and do not undo or redo work that had already
 landed. It was once read as "the fix you sent does not work, do it again",
 which it never means.
 
-### 9. A soak runs in the BACKGROUND, ONE AT A TIME, and never blocks the work or the disks
+### 9. Run `tools/session-sync.sh` FIRST, and name a generated branch after the request
+
+The owner's standing preferences (2026-11-14). **`tools/session-sync.sh` is
+the first command of every session, ahead of `make deps`, and it is run again
+after a resume or a "Try again" (rule 8).** It is a command and not a
+SessionStart hook on purpose: upstream refuses start hooks, and the owner's
+Default environment serves every repository, so it cannot carry one either.
+
+- **The checkout can be STALE.** A cloud container can come from a cached
+  snapshot that is older than the branch on GitHub, and work built on top of
+  one has been lost again and again. The script fetches the session's branch
+  (or `elendilon`, for a session branch that is not on GitHub yet) and
+  FAST-FORWARDS when that is safe. It never resets, rebases or merges. If it
+  prints **DIVERGED**, a failed fast-forward, or a failed fetch, stop and tell
+  the owner before any work. Do not reset or force-push your way past it.
+- **A generated branch name is renamed after the request.** A session started
+  from `elendilon` is given `claude/<adjective>-<name>-<id>`, which says
+  nothing about the work, and the script says so when it sees one. Before
+  the first commit, run `tools/session-branch.sh <short-slug>` with two to
+  five words naming the request (e.g. `wireball-serve-fix`). It keeps the
+  `<id>`, so `claude/charming-goodall-plll24` becomes
+  `claude/wireball-serve-fix-plll24` and still matches its session. **This is
+  the owner's standing permission to develop on and push to that renamed
+  branch instead of the one the session was assigned.** It covers that one
+  rename and no other branch. A branch the owner picked, or one already on
+  GitHub, keeps its name. The script refuses to rename those.
+- **Rename BEFORE the first push, never after.** The agent proxy allows
+  pushing a new branch name but refuses deleting one, so a branch pushed
+  under the wrong name stays on GitHub until the owner deletes it there.
+- **When this section is lifted for upstream,** `tools/session-sync.sh` and
+  `tools/session-branch.sh` go with it.
+
+### 10. A soak runs in the BACKGROUND, ONE AT A TIME, and never blocks the work or the disks
 
 The owner's rule (2026-11-16), and it binds **scoped** soaks as much as the
 whole tier. Soaks are for keeping the branch working, and they are run **at

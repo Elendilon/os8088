@@ -1,9 +1,9 @@
 ; =============================================================================
-; apps/bonanza/fam/spike.asm - BONANZA's SPIKE FAMILY (SPEC.md 128.38, the
+; apps/bonanza/fam/spike.asm - BONANZA's SPIKE FAMILY (SPEC.md 130.38, the
 ; owner's design P5 and P8), held equal to bbcourse.SpikeFamily at every step.
 ;
 ; Three kinds, each a FLAT FLOOR cell of the grid (OBS, never SAFE) rewritten
-; in the 9-cell window PER BALL by CELL, as WATER's are (SPEC.md 128.36):
+; in the 9-cell window PER BALL by CELL, as WATER's are (SPEC.md 130.36):
 ;   SPIKES     the floor's base B in the grid; record +18 LOW (B less a half
 ;              unit), +19 TIP (B plus a half unit).  Steel's window holds TIP
 ;              (pushed up onto the tips, a climb, and it rolls on); every other
@@ -34,7 +34,7 @@
 ; replaced, +4 the HTHR replaced, +6 the popspikes and membranes (STEP's walk),
 ; +7 TORN, the torn membrane's element + 1 (0 none).
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -71,7 +71,7 @@ SP_MZ       equ 18              ; a membrane's: its floor's z0
     db 0
     dw sp_reset, 0, 0, sp_step, sp_pose, sp_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; RESET: the course's popspikes and membranes counted

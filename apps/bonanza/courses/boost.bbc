@@ -1,4 +1,4 @@
-# Boost Test - BONANZA's BOOST PADS test course (SPEC.md 128.40), built only by the BZBOOST=1 knob
+# Boost Test - BONANZA's BOOST PADS test course (SPEC.md 130.40), built only by the BZBOOST=1 knob
 # (make BUILD=<tree> BZBOOST=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
 # the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A pad pushes
 # the ball (strength 24 unless written; steel x3/4 and glass x1.25 unless the pad is `flat`) along its chevrons

@@ -1,4 +1,4 @@
-# BZWIND=1 (Makefile; SPEC.md 128.34.8): the pathway with the WIND test course - applied to path.bbc at build
+# BZWIND=1 (Makefile; SPEC.md 130.34.8): the pathway with the WIND test course - applied to path.bbc at build
 # time, so the knob's pathway is the shipped one with these lines changed and nothing else.  Pad 0 becomes
 # WIND (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to TRIAL.  WIND's exit 1 (the
 # goal plate's second goal) goes straight left to FIRST (pad 6), a dead end as PEAK is, so
