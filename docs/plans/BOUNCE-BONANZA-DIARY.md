@@ -6191,3 +6191,22 @@ worth more than this course:
   change the CGA runs - and was cleared by a build without it, then both
   failures were found at the last upstream commit before any VGA work. They
   are the course work's to fix.
+
+## 2026-11-18 (the Hercules' roll on a diagonal)
+
+- **The owner, on the Hercules after a long gap**: horizontal and vertical
+  rolls fine, a diagonal's roll "reversed? Wrong, somehow".
+- **Measured, not guessed**: FIRST's free play, two arrows held, the shown
+  phases against the ball each frame. The Hercules' vertical phase stepped
+  against the ball 7 times in 59 frames; the CGA's never. `py - G` was 23,
+  odd, and the Hercules' rule `(G & 6) | (py & 1)` then runs 1, 0, 3, 2,
+  5, 4 ... - SPEC.md 130.11.9.2 had called that "one line of wobble" and
+  left a second frame set (O16) as its cure.
+- **No frames needed**: `G - ((G ^ py) & 1)` keeps the parity the line pairs
+  need and is monotonic - G when the two agree, G less one when they do
+  not. The pathway's `bz_fold` already formed it that way. Guest and model
+  (`bbcourse.sprite`) changed together; all four diagonals 0 frames
+  against the ball, and bonanzaring's Hercules BENCH, which compares every
+  frame's ball with the model, agreed.
+- Not this branch's: the rule is wave 2's; the props round's recompiles
+  most likely moved FIRST's Y0 onto an odd offset.

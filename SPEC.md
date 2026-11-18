@@ -265073,15 +265073,19 @@ white tile, a ramp's checker and a magenta face, on both cards.
 
     f = PHY * 8 + (px & 7),   G = the integer part of (gx + gy) / 2 (the ground's screen line, no z)
     PHY = G & 7                    on the CGA
-    PHY = (G & 6) | (py & 1)       on the Hercules
+    PHY = (G - ((G ^ py) & 1)) & 7 on the Hercules
 
 The horizontal phase stays `px & 7` (its low two bits are the shift the frame
 is stored at, 130.10.5.3). The vertical phase follows the GROUND, so the
 ball turns as it rolls and not as it rises, falls or bounces in place - the
 route 130.10.5.3 left to wave 2. On the Hercules a frame's mid-level pixels
 are tied to the parity of its line (130.9 item 7), so the lowest bit is
-`py`'s: while the ball rolls at a height `z` with `Y0 - 13 - z` odd, its
-vertical phase steps 1, 0, 3, 2, ... - **one line of wobble in the turn**.
+`py`'s - G itself when the two agree, G less one when they differ, so the
+phase steps WITH the ball either way. *(Until 2026-11-18 it was `(G & 6) |
+(py & 1)`: with `Y0 - 13 - z` odd the phase stepped 1, 0, 3, 2, ... - the
+owner's "diagonal movement is reversed" on the Hercules, the roll turning
+back every other step. The same parity, kept monotonic, costs no frames;
+bz_fold already formed the pathway's this way.)*
 The alternative, a second Hercules frame set (5,120 bytes a claim), is open
 question O16. **As built** `G` is formed once a FRAME, not kept by
 `bz_derive` a step: `bz_sprite` (called by `bz_camera`) adds `gx` and `gy`

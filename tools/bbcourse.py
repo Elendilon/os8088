@@ -16579,12 +16579,12 @@ def sprite(p, herc):
     """bz_spr, SPEC.md 130.11.9.2: the sprite a frame draws from the state its
     last step left - ('shatter', k), ('squash', k), ('stretch', 0) or
     ('roll', f) - with the vertical phase off the GROUND line (the CGA's G &
-    7; the Hercules keeps py's parity: (G & 6) | (py & 1)).  Wave 6
+    7; the Hercules keeps py's parity: G - ((G ^ py) & 1), & 7).  Wave 6
     (130.16.4.4): the boost's STRETCH while stf > 0 and the ball is rubber
     (the only part with one), after the shatter and the squash; its entry is
     the table at bonanza_assets.B2_STROFF (= B2_SHAOFF), entry 0"""
     G8 = p.G8
-    phy = (G8 & 6) | (p.py & 1) if herc else G8 & 7
+    phy = (G8 - ((G8 ^ p.py) & 1)) & 7 if herc else G8 & 7   # (SPEC.md 130.11.9.2: py's parity, monotonic)
     if p.mst == ST_SHATTER:
         return ("shatter", (SHA_STEPS - p.mct) // SHA_FSTEPS)
     at_floor = not p.air or (p.ghv and (p.gz >> 8) <= (p.gh >> 2))
