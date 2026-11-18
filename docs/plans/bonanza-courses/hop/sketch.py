@@ -33,7 +33,7 @@ ROOMS_TXT, CHUTE_TXT = [], []
 def floor(sec, x0, y0, x1, y1, z, float_=True):
     ROOMS_TXT.append("floor rect %3d %3d %3d %3d  flat %g   # %s" % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, z, sec))
     if float_:
-        ROOMS_TXT.append("float rect %3d %3d %3d %3d" % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF))
+        ROOMS_TXT.append(("@float", x0, y0, x1, y1))     # resolved in bbc(): only if a face hangs
         FLOATS.update((x, y) for x in range(x0, x1) for y in range(y0, y1))
     for x in range(x0, x1):
         for y in range(y0, y1):
@@ -46,7 +46,7 @@ def ramp(sec, axis, x0, y0, x1, y1, z0, z1, float_=True):
     ROOMS_TXT.append("floor rect %3d %3d %3d %3d  ramp %s %d %d %g %g   # %s"
                      % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, axis, p0 + OFF, p1 + OFF, z0, z1, sec))
     if float_:
-        ROOMS_TXT.append("float rect %3d %3d %3d %3d" % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF))
+        ROOMS_TXT.append(("@float", x0, y0, x1, y1))     # resolved in bbc(): only if a face hangs
         FLOATS.update((x, y) for x in range(x0, x1) for y in range(y0, y1))
     n = (x1 - x0) if axis == "x" else (y1 - y0)
     for x in range(x0, x1):
@@ -102,6 +102,8 @@ def rail(x0, y0, x1, y1, style="block"):
 
 
 Z = 24                                   # the start's height, units
+THICK = float(os.environ.get("HOP_THICK", "1"))   # an island's faces over the void, units (130.27.2.1; 3 = plain float)
+THICKS = "" if THICK == 3 else " thick %g" % THICK
 # Every island FLOATS (faces 3 units deep): void between the levels, a gap you can see.  Teach, then test:
 #   A  the start island        T1 a 1-tile gap, LEVEL: the first Hop (a wide window, 549 ms)
 #   T2 a 1-tile gap, half a unit DOWN, then a ramp to L
@@ -111,56 +113,65 @@ Z = 24                                   # the start's height, units
 #      CD1) onto H, 6 units up, on the course's right where nothing earlier stands
 #   R  a long ramp down from H to D; then the TEST: a 1-unit step up (S) and a 2-tile gap (E), unrailed
 #   G  the goal
-floor("A", 4, 4, 8, 8, Z)                                    # the start island
-rail(4, 4, 8, 4); rail(4, 4, 4, 8)
-floor("T", 4, 9, 8, 13, Z)                                   # T1: a 1-tile gap (y 8), level
-rail(4, 13, 8, 13)                                           # (its far edge: an over-Hop is caught)
-floor("T", 9, 9, 13, 13, Z - 0.5)                            # T2: a 1-tile gap (x 8), half a unit down
-rail(13, 9, 13, 13)
-ramp("L", "y", 9, 13, 13, 15, Z - 0.5, Z - 2.5)              # down to L
-floor("L", 9, 15, 13, 19, Z - 2.5)                           # L
-rail(9, 19, 13, 19)
-floor("U", 13, 15, 17, 19, Z - 1.5)                          # U: ONE UNIT UP from L (its face is L's far edge)
-rail(17, 15, 17, 19); rail(13, 15, 17, 15)
-floor("V", 13, 21, 17, 25, Z - 1.5)                          # V: a 2-tile gap (y 19 - 20), level
-rail(13, 25, 17, 25); rail(13, 21, 13, 25)
-ramp("W", "x", 17, 21, 19, 25, Z - 1.5, Z - 3.5)             # W: down, and a run
-floor("W", 19, 21, 25, 25, Z - 3.5)
-rail(19, 25, 25, 25)
-floor("B", 25, 21, 29, 25, Z - 3.5)                          # B: the basin, the SPRING
-rail(25, 25, 29, 25); rail(29, 21, 29, 25)
-SPRINGS.append((27, 22, 768))                                # thrown -y, over the void row (y 20), onto H
-floor("H", 25, 15, 29, 20, Z + 2.5)                          # H: 6 units over the basin, BEHIND it
-rail(25, 15, 29, 15); rail(25, 15, 25, 20)                   # (its back edges: an over-throw is caught)
-ramp("R", "x", 29, 15, 33, 19, Z + 2.5, Z - 1.5)             # R: the long ramp down
-floor("D", 33, 15, 37, 19, Z - 1.5)                          # D: flag 2
-rail(37, 15, 37, 19); rail(33, 15, 37, 15)
-floor("S", 33, 19, 37, 23, Z - 0.5)                          # S: the TEST step, one unit up from D
-floor("E", 33, 25, 37, 29, Z - 0.5)                          # E: the TEST gap, 2 tiles (y 23 - 24), level
-ramp("G", "y", 33, 29, 37, 32, Z - 0.5, Z - 3.5)
-floor("G", 32, 32, 38, 37, Z - 3.5)                          # the goal plateau
-rail(32, 37, 38, 37); rail(38, 32, 38, 37); rail(32, 32, 32, 37)
-GOAL = {(x, y) for x in range(32, 38) for y in range(35, 37)}
+# THE READING RULE (revision 2): the camera sees only +x and +y faces, so a step or ledge UP is climbed moving
+# -x or -y (up the screen), its riser facing the player, and a DROP is taken moving +x or +y, the edge it leaves
+# showing its face.  The legs alternate left and right so the course fits the 1024 px picture.
+floor("A", 10, 30, 14, 34, Z)                                # the start island, rolling +x
+rail(10, 30, 14, 30); rail(10, 30, 10, 34)
+floor("T", 15, 30, 19, 34, Z)                                # T1: a 1-tile gap (x 14), level, +x
+rail(15, 30, 19, 30); rail(19, 30, 19, 34)                   # (its far edge: an over-Hop is caught)
+floor("T", 15, 35, 19, 39, Z)                                # T2: a 1-tile gap (y 34), level, +y
+rail(15, 39, 19, 39); rail(19, 35, 19, 39)
+# THE LESSON, climbing -x: the step's riser faces the player; see-through guards on the near side
+floor("L", 12, 35, 15, 39, Z)                                # L: the run-up turns -x (T2 and L: seven tiles)
+rail(13, 39, 15, 39, "guard")
+floor("U", 8, 35, 12, 39, Z + 1)                             # U: ONE UNIT UP (the "and again" lesson; a miss bounces back)
+rail(8, 39, 11, 39, "guard"); rail(8, 35, 12, 35)
+floor("V", 2, 35, 6, 39, Z + 1)                              # V: a 2-tile gap (x 6 - 7), level
+rail(2, 35, 2, 39); rail(2, 39, 6, 39, "guard")              # (its far edge: an over-Hop is caught)
+floor("W", 2, 33, 6, 35, Z + 1)                              # W: turning -y; then 2 units DOWN into the basin (a ramp
+#    here stacked its sloped left face into six occluder records a block)
+# (W unrailed: its rails stacked six occluder layers in one block with V, B and H)
+floor("B", 2, 28, 6, 33, Z - 1)                              # B: the basin, the SPRING
+rail(2, 28, 2, 33); rail(6, 28, 6, 33)
+SPRINGS.append((4, 29, 768))                                 # thrown -y, over the void row (y 27), onto H
+floor("H", 2, 22, 6, 27, Z + 5)                              # H: 6 units over the basin, behind it: its face in view
+rail(2, 22, 6, 22); rail(2, 22, 2, 27)                       # (its back edges: an over-throw is caught)
+ramp("R", "x", 6, 22, 8, 26, Z + 5, Z + 3)                   # R: a short ramp down, +x, to the LIP, for speed
+rail(6, 22, 8, 22)
+# THE DROP AND BOUNCE (TRIAL's), +x: off the lip six units down onto F, and rubber's rebound carries it over a
+# 2-tile gap onto K, TWO units above F - a ball with no speed falls short into the void
+floor("F", 8, 22, 12, 26, Z - 3)                             # F: SIX units under the lip, four tiles deep
+rail(8, 22, 12, 22)
+floor("K", 14, 22, 18, 26, Z - 1)                            # K: a 2-tile gap (x 12 - 13), a ledge 2 units over F
+rail(18, 22, 18, 26)
+# THE TEST, climbing -y: the step and the gap again, with no rail to catch an over-Hop
+floor("S", 14, 18, 18, 22, Z)                                # S: the TEST step, one unit up from K
+floor("E", 14, 12, 18, 16, Z)                                # E: the TEST gap, 2 tiles (y 16 - 17), level
+ramp("G", "x", 18, 12, 21, 16, Z, Z - 3)                     # G: down, +x, to the goal
+floor("G", 21, 11, 26, 17, Z - 3)                            # the goal plateau
+rail(21, 11, 26, 11); rail(26, 11, 26, 17); rail(21, 17, 26, 17)
+GOAL = {(x, y) for x in range(23, 26) for y in range(11, 17)}
 
-START = (5.5, 5.5)
+START = (11.5, 32.5)
 # a flag stands just BEFORE what can kill, so a fall never replays a long stretch
-FLAGS = [(14.5, 17.5, "flag 0"), (26.5, 23.5, "flag 1"), (34.5, 16.5, "flag 2")]
+FLAGS = [(13.5, 37.5, "flag 0"), (3.5, 31.5, "flag 1"), (3.5, 24.5, "flag 2"), (15.5, 24.5, "flag 3")]
 # clocks (the owner places them; these are first guesses): (wx, wy, the tile's floor z, name, kind)
-CLOCKS = [(8.5, 5.5, Z, "start", "tile"), (24.5, 17.5, Z - 2, "middle", "float"),
-          (31.5, 34.5, Z - 1.5, "finish", "block")]
+CLOCKS = [(19.5, 31.5, Z + 1.5, "start", "block"), (1.5, 37.5, Z + 2.5, "middle", "block"),
+          (26.5, 13.5, Z - 1.5, "finish", "block")]
 PLACED = {}
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
-ROUTE = [(5.5, 5.5), (6, 8.5), (6, 11), (8.5, 11), (11, 11), (11, 14), (11, 17), (15, 17), (15, 20),
-         (15, 23), (18, 23), (22, 23), (27.5, 23), (27.5, 22.5), (27.5, 19), (27, 17), (31, 17),
-         (35, 17), (35, 21), (35, 24), (35, 27), (35, 30), (35, 36)]
-LABELS = [(6, 6, "A start"), (6, 11, "T1 hop"), (11, 11, "T2 hop down"), (11, 17, "L"),
-          (15, 17, "U step+again"), (15, 23, "V 2-gap"), (21, 23, "W run"), (27, 23, "B spring"),
-          (27, 17, "H high"), (31, 17, "R ramp"), (35, 17, "D"), (35, 21, "S test step"),
-          (35, 27, "E test gap"), (35, 35, "G goal")]
+ROUTE = [(11.5, 32.5), (14, 32), (17, 32), (17, 34.5), (17, 37), (14, 37), (12, 37), (10, 37), (7, 37),
+         (4, 37), (4, 34), (4, 31), (4, 29), (4, 27), (4, 24), (7, 24), (10, 24), (13, 24), (16, 24),
+         (16, 21), (16, 18), (16, 15), (16, 13), (19, 14), (22, 14), (25, 14)]
+LABELS = [(12, 32, "A start"), (17, 32, "T1 hop"), (17, 37, "T2 hop"), (13, 37, "L run"),
+          (10, 37, "U step+again"), (4, 37, "V 2-gap"), (4, 33, "W"), (4, 30, "B spring"), (4, 24, "H high"),
+          (7, 24, "R lip"), (10, 24, "F drop 6"), (16, 24, "K bounce +2"), (16, 20, "S test step"),
+          (16, 14, "E test gap"), (24, 14, "G goal")]
 
 # --- drawing ----------------------------------------------------------------
-SECCOL = {"S": (150, 200, 240), "U": (150, 200, 240), "V": (240, 200, 150), "R": (200, 200, 120), "L": (160, 220, 160),
+SECCOL = {"K": (240, 160, 160), "S": (150, 200, 240), "U": (150, 200, 240), "V": (240, 200, 150), "R": (200, 200, 120), "L": (160, 220, 160),
           "A": (120, 200, 120), "B": (210, 190, 120), "C": (220, 150, 110), "T": (200, 200, 200),
           "D": (130, 170, 220), "E": (180, 140, 210), "F": (220, 150, 110), "G": (200, 200, 200), "W": (150, 210, 200),
           "H": (240, 240, 140)}
@@ -342,9 +353,14 @@ HEAD_TXT = """
 # layout moves; edited by hand once it settles.
 course HOP "Island Hop"
 guide                     # a REAL course: held to the course guide's checkable rules
-width 64
+width 128                 # the islands swing 30 tiles across, and a fall drifts 3 more each side (NEAR void): 1024 px, scrolled (G2)
+origin 688                # the reach's span is 60 tiles across: x0 centres it in the 1024 px
 uses spring
 ball rubber
+trap hop                  # NO TRAP presses the Hop and its "and again" too: the course is built on them (SPEC.md 130.14.4.1.1)
+# the PLAYTEST's limit, by hand: the autopilot cannot Hop, so its route stops at the first gap
+limit 70
+palette 0 ground 1       # the owner: "a different palette" - green, red, yellow islands on a BLUE sea (colour 0)
 target 30                 # the design class; the sheet aims at about 35 s
 """
 
@@ -355,7 +371,7 @@ def bbc(out):
                  "re-laid revision (every hand-made line is in HEAD_TXT below or is lost)" % out)
     L = HEAD_TXT.strip("\n").split("\n") + [""]
     L.append("# rooms (the sketch's sections)")
-    L += ROOMS_TXT
+    rooms_at = len(L)
     L.append("")
     L.append("# the chute (SPEC.md 130.28): unfenced, its shape guides")
     L += CHUTE_TXT
@@ -383,6 +399,17 @@ def bbc(out):
         for x in range(x0, x1):
             for y in range(y0, y1):
                 walls[(x, y)] = max(walls.get((x, y), -99), z)
+    solid = set(CELLS) | set(walls)
+    rooms = []
+    for r in ROOMS_TXT:                     # a float only where a visible (+x or +y) face hangs over the void
+        if isinstance(r, tuple):
+            _t, x0, y0, x1, y1 = r
+            if any((x + 1, y) not in solid or (x, y + 1) not in solid
+                   for x in range(x0, x1) for y in range(y0, y1)):
+                rooms.append("float rect %3d %3d %3d %3d%s" % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, THICKS))
+        else:
+            rooms.append(r)
+    L[rooms_at:rooms_at] = rooms
     taken = {(int(x), int(y)) for x, y, _z, _n, kind in CLOCKS if kind == "block"}
     for (x, y), z in sorted(walls.items()):
         if (x, y) in taken:                     # a clock stands on this block: its tile is the clock's
@@ -391,8 +418,9 @@ def bbc(out):
             L.append("guard tile %3d %3d                # see-through" % (x + OFF, y + OFF))
         else:
             L.append("wall  tile %3d %3d  flat %g" % (x + OFF, y + OFF, round(z * 2) / 2))
-            if any((x + a, y + b) in FLOATS for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))):
-                L.append("float tile %3d %3d                # (a floating island's rail)" % (x + OFF, y + OFF))
+            if (any((x + a, y + b) in FLOATS for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                    and ((x + 1, y) not in solid or (x, y + 1) not in solid)):
+                L.append("float tile %3d %3d%s                # (a floating island's rail)" % (x + OFF, y + OFF, THICKS))
     L.append("")
     for (x, y) in sorted(HOLES):
         L.append("hole  tile %d %d" % (x + OFF, y + OFF))
@@ -416,13 +444,14 @@ def bbc(out):
         L.append("floor tile %d %d  flat %g   # the %s clock's tile (%s)" % (px, py, z, name, {
             "tile": "level with the path, one block out", "block": "on top of the rail block it replaces",
             "float": "a lone floating pillar"}[kind]))
-        if kind == "float":
-            L.append("float tile %d %d" % (px, py))
+        if kind == "float" or (kind == "block" and THICKS and ((int(x) + 1, int(y)) not in solid
+                                                          or (int(x), int(y) + 1) not in solid)):
+            L.append("float tile %d %d%s" % (px, py, THICKS))
         L.append("clock %d %d" % (px, py))
     L.append("")
     L.append("# the autopilot's route")
     for x, y in ROUTE:
-        if (int(x), int(y)) not in CHUTE:
+        if (int(x), int(y)) not in CHUTE and (int(x), int(y)) in CELLS:   # (none on a chute or over a gap)
             L.append("way %d %d" % (int(x) + OFF, int(y) + OFF))
     open(out, "w").write("\n".join(L) + "\n")
 

@@ -1,7 +1,54 @@
-# COURSE 2, "Island Hop" (working name HOP): design sheet, attempt 1
+# COURSE 2, "Island Hop" (HOP): design sheet
 
-*Status: **PEN-IN**, on paper only (the guide's pipeline, section 3).
-Nothing is built. Distances are tiles, heights are units (8 px). Every
+*Status: **IN ENGINE, revision 2** (2026-11-18): `apps/bonanza/courses/hop.bbc`,
+written by `hop/sketch.py --bbc --force`, compiles with every check, and the
+BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
+is the next step; revision 2 below supersedes attempt 1's layout, which
+sections 1 - 4 still describe.*
+
+## Revision 2: what changed, and why
+
+The owner on attempt 1: *"visibility of when something is a gap, or ledge,
+will be critical ... we'll need to check visually that each gap, up or down,
+reads appropriately"*; *"missing ... the 'drop from high up on a ledge, then
+bounce to get across a gap' that trial bounce first demoed"*; *"Island Hop
+sounds like a good name, and theme"*; *"Lets go for a different palette.
+New song, new clocks, but lets get it in engine and closer to done before we
+set agents on those."*
+
+- **The reading rule.** The camera sees only an island's +x and +y faces. A
+  step UP climbed moving +x or +y shows no riser (attempt 1's L-to-U step
+  read as one flat slab in the engine's picture), so every climb is taken
+  moving **-x or -y** (up the screen), its riser facing the player, and every
+  drop moving +x or +y, the edge left behind showing its face. The legs
+  alternate left and right, which also keeps the course inside the 1024 px
+  picture (`width 128`, `origin 688`, the reach's 60 tiles exactly).
+- **The lesson climbs -x**: T2 and L give a seven-tile run-up, U is one unit
+  up, then the 2-tile gap to V. The test climbs -y: K, the step S, the gap E.
+- **TRIAL's drop and bounce is in**: off H's lip down a short ramp, six units
+  onto F, and rubber's rebound over a 2-tile gap onto K, two units above F.
+- **Thin islands, `thick 1`.** Three-unit faces hung over most of a 2-tile
+  gap; at one unit the void shows between the islands. `HOP_THICK=3` renders
+  the old look for comparison.
+- **The palette: `palette 0 ground 1`**, green, red and yellow islands on a
+  blue sea, as the proposal (colour 0 is every black pixel too: the clocks'
+  digits and the goal's dark squares turn blue).
+- **`trap hop`** (SPEC.md 130.14.4.1.1): NO TRAP never pressed Space, so a
+  course built on the Hop failed it at its first gap; the statement proves it
+  with a Hop and its "and again" pressed too. The compile takes about 25 s.
+- **Fitting the checks**: W became flat (its ramp's sloped face stacked six
+  occluder records in a block), B is two units down from W, and the clocks
+  moved apart (G10): the start on T1's far rail, the middle on V's left rail,
+  the finish on the goal plateau's far rail.
+
+Still to do: the owner's look at each gap and ledge on the glass, G3 (no pan
+during a jump) checked by a drive once played, the song and the clocks by
+agents once the course settles, and `limit 70` (hand-set: the autopilot
+cannot Hop).
+
+## Attempt 1 (superseded layout)
+
+*Pen-in, on paper. Distances are tiles, heights are units (8 px). Every
 window and time below is MEASURED from the tool's step and gap ladders
 (rubber at the cap with a chord) or PREDICTED from the route's length.*
 

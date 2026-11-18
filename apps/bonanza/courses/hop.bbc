@@ -1,0 +1,211 @@
+# Course 2, tutorial 2 (working name HOP; docs/plans/bonanza-courses/HOP.md): rubber, the Hop, rubber's "and
+# again", a spring.  Floating islands.  Written by docs/plans/bonanza-courses/hop/sketch.py --bbc while the
+# layout moves; edited by hand once it settles.
+course HOP "Island Hop"
+guide                     # a REAL course: held to the course guide's checkable rules
+width 128                 # the islands swing 30 tiles across, and a fall drifts 3 more each side (NEAR void): 1024 px, scrolled (G2)
+origin 688                # the reach's span is 60 tiles across: x0 centres it in the 1024 px
+uses spring
+ball rubber
+trap hop                  # NO TRAP presses the Hop and its "and again" too: the course is built on them (SPEC.md 130.14.4.1.1)
+# the PLAYTEST's limit, by hand: the autopilot cannot Hop, so its route stops at the first gap
+limit 70
+palette 0 ground 1       # the owner: "a different palette" - green, red, yellow islands on a BLUE sea (colour 0)
+target 30                 # the design class; the sheet aims at about 35 s
+
+# rooms (the sketch's sections)
+floor rect  14  34  18  38  flat 24   # A
+float rect  14  34  18  38 thick 1
+floor rect  19  34  23  38  flat 24   # T
+float rect  19  34  23  38 thick 1
+floor rect  19  39  23  43  flat 24   # T
+floor rect  16  39  19  43  flat 24   # L
+float rect  16  39  19  43 thick 1
+floor rect  12  39  16  43  flat 25   # U
+float rect  12  39  16  43 thick 1
+floor rect   6  39  10  43  flat 25   # V
+float rect   6  39  10  43 thick 1
+floor rect   6  37  10  39  flat 25   # W
+float rect   6  37  10  39 thick 1
+floor rect   6  32  10  37  flat 23   # B
+floor rect   6  26  10  31  flat 29   # H
+float rect   6  26  10  31 thick 1
+floor rect  10  26  12  30  ramp x 10 12 29 27   # R
+float rect  10  26  12  30 thick 1
+floor rect  12  26  16  30  flat 21   # F
+float rect  12  26  16  30 thick 1
+floor rect  18  26  22  30  flat 23   # K
+float rect  18  26  22  30 thick 1
+floor rect  18  22  22  26  flat 24   # S
+float rect  18  22  22  26 thick 1
+floor rect  18  16  22  20  flat 24   # E
+float rect  18  16  22  20 thick 1
+floor rect  22  16  25  20  ramp x 22 25 24 21   # G
+float rect  22  16  25  20 thick 1
+floor rect  25  15  30  21  flat 21   # G
+
+# the chute (SPEC.md 130.28): unfenced, its shape guides
+
+# rails: block rails (wall tiles) on the void side of each railed edge
+wall  tile   5  26  flat 31
+wall  tile   5  27  flat 31
+wall  tile   5  28  flat 31
+wall  tile   5  29  flat 31
+wall  tile   5  30  flat 31
+float tile   5  30 thick 1                # (a floating island's rail)
+wall  tile   5  32  flat 25
+wall  tile   5  33  flat 25
+wall  tile   5  34  flat 25
+wall  tile   5  35  flat 25
+wall  tile   5  36  flat 25
+float tile   5  36 thick 1                # (a floating island's rail)
+wall  tile   5  39  flat 27
+wall  tile   5  40  flat 27
+wall  tile   5  42  flat 27
+float tile   5  42 thick 1                # (a floating island's rail)
+wall  tile   6  25  flat 31
+guard tile   6  43                # see-through
+wall  tile   7  25  flat 31
+guard tile   7  43                # see-through
+wall  tile   8  25  flat 31
+guard tile   8  43                # see-through
+wall  tile   9  25  flat 31
+guard tile   9  43                # see-through
+wall  tile  10  25  flat 31
+wall  tile  10  32  flat 25
+float tile  10  32 thick 1                # (a floating island's rail)
+wall  tile  10  33  flat 25
+float tile  10  33 thick 1                # (a floating island's rail)
+wall  tile  10  34  flat 25
+float tile  10  34 thick 1                # (a floating island's rail)
+wall  tile  10  35  flat 25
+float tile  10  35 thick 1                # (a floating island's rail)
+wall  tile  10  36  flat 25
+float tile  10  36 thick 1                # (a floating island's rail)
+wall  tile  11  25  flat 30
+wall  tile  12  25  flat 23
+wall  tile  12  38  flat 27
+guard tile  12  43                # see-through
+wall  tile  13  25  flat 23
+wall  tile  13  34  flat 26
+wall  tile  13  35  flat 26
+wall  tile  13  36  flat 26
+wall  tile  13  37  flat 26
+wall  tile  13  38  flat 27
+guard tile  13  43                # see-through
+wall  tile  14  25  flat 23
+wall  tile  14  33  flat 26
+wall  tile  14  38  flat 27
+guard tile  14  43                # see-through
+wall  tile  15  25  flat 23
+float tile  15  25 thick 1                # (a floating island's rail)
+wall  tile  15  33  flat 26
+wall  tile  15  38  flat 27
+float tile  15  38 thick 1                # (a floating island's rail)
+wall  tile  16  33  flat 26
+wall  tile  17  33  flat 26
+float tile  17  33 thick 1                # (a floating island's rail)
+guard tile  17  43                # see-through
+guard tile  18  43                # see-through
+wall  tile  19  33  flat 26
+wall  tile  19  43  flat 26
+float tile  19  43 thick 1                # (a floating island's rail)
+wall  tile  20  33  flat 26
+wall  tile  20  43  flat 26
+float tile  20  43 thick 1                # (a floating island's rail)
+wall  tile  21  33  flat 26
+wall  tile  21  43  flat 26
+float tile  21  43 thick 1                # (a floating island's rail)
+wall  tile  22  26  flat 25
+float tile  22  26 thick 1                # (a floating island's rail)
+wall  tile  22  27  flat 25
+float tile  22  27 thick 1                # (a floating island's rail)
+wall  tile  22  28  flat 25
+float tile  22  28 thick 1                # (a floating island's rail)
+wall  tile  22  29  flat 25
+float tile  22  29 thick 1                # (a floating island's rail)
+wall  tile  22  33  flat 26
+float tile  22  33 thick 1                # (a floating island's rail)
+wall  tile  22  43  flat 26
+float tile  22  43 thick 1                # (a floating island's rail)
+wall  tile  23  34  flat 26
+float tile  23  34 thick 1                # (a floating island's rail)
+wall  tile  23  36  flat 26
+float tile  23  36 thick 1                # (a floating island's rail)
+wall  tile  23  37  flat 26
+float tile  23  37 thick 1                # (a floating island's rail)
+wall  tile  23  39  flat 26
+float tile  23  39 thick 1                # (a floating island's rail)
+wall  tile  23  40  flat 26
+float tile  23  40 thick 1                # (a floating island's rail)
+wall  tile  23  41  flat 26
+float tile  23  41 thick 1                # (a floating island's rail)
+wall  tile  23  42  flat 26
+float tile  23  42 thick 1                # (a floating island's rail)
+wall  tile  25  14  flat 23
+wall  tile  25  21  flat 23
+float tile  25  21 thick 1                # (a floating island's rail)
+wall  tile  26  14  flat 23
+wall  tile  26  21  flat 23
+float tile  26  21 thick 1                # (a floating island's rail)
+wall  tile  27  14  flat 23
+wall  tile  27  21  flat 23
+float tile  27  21 thick 1                # (a floating island's rail)
+wall  tile  28  14  flat 23
+wall  tile  28  21  flat 23
+float tile  28  21 thick 1                # (a floating island's rail)
+wall  tile  29  14  flat 23
+float tile  29  14 thick 1                # (a floating island's rail)
+wall  tile  29  21  flat 23
+float tile  29  21 thick 1                # (a floating island's rail)
+wall  tile  30  15  flat 23
+float tile  30  15 thick 1                # (a floating island's rail)
+wall  tile  30  16  flat 23
+float tile  30  16 thick 1                # (a floating island's rail)
+wall  tile  30  18  flat 23
+float tile  30  18 thick 1                # (a floating island's rail)
+wall  tile  30  19  flat 23
+float tile  30  19 thick 1                # (a floating island's rail)
+wall  tile  30  20  flat 23
+float tile  30  20 thick 1                # (a floating island's rail)
+
+spring 8 33 768                      # SPEC.md 130.14: thrown up, away from the camera
+goal  rect 27 15 30 21  flat 21
+start 15 36
+checkpoint 17 41 ball rubber   # flag 0
+checkpoint 7 35 ball rubber   # flag 1
+checkpoint 7 28 ball rubber   # flag 2
+checkpoint 19 28 ball rubber   # flag 3
+
+# clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
+floor tile 23 35  flat 25.5   # the start clock's tile (on top of the rail block it replaces)
+float tile 23 35 thick 1
+clock 23 35
+floor tile 5 41  flat 26.5   # the middle clock's tile (on top of the rail block it replaces)
+clock 5 41
+floor tile 30 17  flat 22.5   # the finish clock's tile (on top of the rail block it replaces)
+float tile 30 17 thick 1
+clock 30 17
+
+# the autopilot's route
+way 15 36
+way 21 36
+way 21 41
+way 18 41
+way 16 41
+way 14 41
+way 8 41
+way 8 38
+way 8 35
+way 8 33
+way 8 28
+way 11 28
+way 14 28
+way 20 28
+way 20 25
+way 20 22
+way 20 19
+way 20 17
+way 23 18
+way 26 18
+way 29 18
