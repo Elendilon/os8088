@@ -280202,10 +280202,11 @@ reads it the same way.
   on one cell; a pit radius outside 2 - 4 or a hole not under it; a FIELD
   cell outside 3 .. 252; and on a FIELD cell, as on a split one: `start`, a
   material `pad`, a pathway `pad`, `checkpoint`, `clock`, `cup`, `spring`, a
-  route's `gate`, every prop's cell, and a `way` (BUILT, C1, a finding: the
-  guest's WAYS form reads a plane's slopes out of the cell's +1 to place the
-  route's point, so a way on a FIELD cell would put it wrong); a split cell
-  in a FIELD cell's 3 x 3. `surface` is not applied to a FIELD cell (a later
+  route's `gate` and every prop's cell; a split cell in a FIELD cell's 3 x 3.
+  A `way` on a FIELD cell is ALLOWED since 128.28.10 (it was refused from C1
+  until then: the guest's WAYS form read a plane's slopes out of the cell's
+  +1, which a FIELD cell holds its shape in); a SPLIT cell still refuses
+  one. `surface` is not applied to a FIELD cell (a later
   wave may let a chute name one).
 
 #### 128.28.4 The shapes the tool lays
@@ -280759,6 +280760,83 @@ is make variables and two course files, and the knob-less build is byte for
 byte what it was (MEASURED, `cmp`). **`BZFSHOW=1` beside it** (`make
 BUILD=<tree> BZSHAPES=1 BZFSHOW=1 bonanzadisk`) builds the same disk with
 128.28.6's SHOW rule on: the owner's B, kept as a toggle.
+
+#### 128.28.10 The autopilot on shapes
+
+The owner, 2026-11-18: *"Bounce Bonanza's autopilot can't steer through
+shapes, and we're going to have those on our courses."* Two things stopped
+it, and both are fixed here without moving a byte or a step of any course
+whose route has no way on a FIELD cell (every shipped one: PLAYGROUND's
+chutes and pit are off its route):
+
+1. **A route could not name a FIELD cell** (128.28.3's old refusal), so a
+   route through a chute had no point inside it to aim at.
+2. **128.6's law steers on the SCREEN**: toward the way's picture point,
+   against the screen velocity `bz_vx`, `bz_vy`, and slowing in proportion
+   to the distance left. In a chute the ball's height is not the floor's at
+   the way: riding a bank or a taper moves it up the screen, so `dy` and
+   `bz_vy` say it is going somewhere it is not, and it brakes at every way.
+   MEASURED (the model, SHAPE with a route through its first chute): the
+   ball rolls the chute's three legs and then sits at the foot of the end
+   TAPER for ever, pushing Right alone - half of it into the bank - and
+   never climbs out to the plate.
+
+**A FIELD way** (the tool, `bbcourse`'s route; the guest's WAYS form,
+`bz_cxway`; the expander's model, `expand`): its point is the ball's
+picture top-left on the cell's centre at GROUND height - `y = 8 s + Y0 -
+5`, no `z0` and no slopes (a FIELD cell's +1 is its shape) - and it is
+MARKED by bit 0 of `x` flipped: a plane way's `x = 16 a + X0 - 8` has bit 0
+equal to `X0`'s, a FIELD way's differs. The RAM form keeps 4 bytes a way
+and the stored form 2; a way on a plane cell is written exactly as before.
+
+**The law while the TARGET is a FIELD way** (`bz_auto` and
+`bbcourse.Physics.auto`, equal step for step):
+
+| | a plane way (128.6, unchanged) | a FIELD way |
+|---|---|---|
+| `dx` | `x - bz_bx` | `(x XOR 1) - bz_bx` |
+| `dy` | `y - bz_by` | `y - (bz_by + bz_gz)`, the ball's GROUND point (32 bits, the integer word) |
+| the reach test, `BZ_REACH` | on those | on those |
+| the velocity compared | `bz_vx`, `bz_vy` | `bz_vx`, `(bz_gvx + bz_gvy) >> 1` (arithmetic): the ground's, no `dz` |
+| the velocity wanted | `8 d` clamped to `BZ_VMAX`, each axis | the same, then - unless it is the route's LAST way, or both are 0 - both DOUBLED until one is at least `BZ_FVMIN` 256 (1 px a step): a CRUISE floor along the same direction |
+| the keys | the arrow that closes each gap past `BZ_ACC / 2` | the same |
+
+The cruise floor is what carries a ball up a taper and out of a chute; it
+is a floor, not a cap, so the corners still see the proportional law's
+speed (MEASURED, the model: floors of 128 - 384 all drive SHAPE's chutes;
+384 flew out of a 1-wide corner in an early trial, so 256). Ground frame
+and floor apply only while the target is a FIELD way, so a route enters a
+shape on a plane way, names a FIELD way in each leg of it (a 2-wide chute's
+on either cell of the pair: its crease is their shared edge), names its end
+taper, and leaves on a plane way.
+
+**What it does** (MEASURED, the model; `--selfcheck` item 7's autopilot
+rows assert the first three and the red arm):
+
+- SHAPE's three chutes in one route (both 2-wide ones, the climbing and
+  falling `bank` legs, the 1-wide S) to the goal, no fall: the old law
+  sticks at the first chute's end taper (wp 8 of 28, for ever).
+- PITS's two chutes, the radius-2 DISH crossed through its middle, and the
+  radius-3 PIT crossed on a line that misses its hole, no fall.
+- **NOT a deep pit's rim**: a ball low in a 16 px bowl cannot climb its
+  steep lip on the arrows from rest (the pit's design, 128.28.4: speed
+  carries you round), and the law plans no run-up. A route that rides a
+  deep pit's ring stalls; the tool's route check (128.18.3: no limit, no
+  medals from a route that does not finish) is where an author finds that.
+
+**Cost** (MEASURED, `make bonanza`, symbol spans): `bz_auto` 133 -> 244
+bytes (+111), `bz_cxway` 101 -> 127 (+26), the image 50,178 -> 50,315
+(+137); no bss, no `BZ_PHYSV` or `PHYS_REV` change (the step is untouched:
+the autopilot only chooses keys), and every shipped course's part, demo and
+identity `cmp`-identical (the build's `bonanza-art`, all 35 files but the
+link table's image size).
+
+**Checked by**: `--selfcheck --only splitphys` (item 7's three autopilot
+rows above); `tests/bonanza_dfield.py` leg 6 - the guest's `bz_auto` under
+`bz_apilot` equal to `Physics.auto` at every step of SHAPE's 1,895 and
+PITS's 2,339, and the CELLS leg on their stored forms - with two red arms,
+`autoplane` (every way steered as a plane's) and `wayplane` (the WAYS form
+writing a FIELD way as a plane's), both red.
 
 ### 128.29 Occlusion computed in the VOID cells: AV (the owner's decision, 2026-11-17)
 
