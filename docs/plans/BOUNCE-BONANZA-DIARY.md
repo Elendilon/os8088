@@ -6097,3 +6097,32 @@ a Hop passes. The model still clears the leap: 36.2 s, no fall, no pan.
 
 **Run**: the tool and previews, the model's steered run, the playtest
 build. **Not run**: the guest (fork rule 5).
+
+## 2026-11-18 (First Roll's song; course 2 penned in)
+
+The owner: *"I think lets call First Roll's visuals good for now"*; a new
+song for it, *"The track it currently plays is one of my favorites, but I
+want to use that on course 3"*; *"50s is fine"* for the limit; demos stay
+the autopilot's until the courses are decided; custom clock art by an
+agent; *"Then move on to course 2 on paper, yourself."*
+
+- **First Roll's song**, `firstroll.bmu`, by a sub-agent:
+  - F major, 136.5 BPM, a 35.2 s loop, 1,202 bytes;
+  - written from the house style (it read the course songs as scores and
+    rendered them);
+  - in `NON_COURSE`, so no other course's default song moves.
+- **The limit** is the tool's: the autopilot, which steers chutes now,
+  takes 31.0 s, so the limit is 50 s.
+- **Course 2, "Island Hop"** (HOP.md, `hop/sketch.py`), attempt 1:
+  - floating islands;
+  - a 1-tile Hop, then a 1-tile Hop down;
+  - a 1-unit STEP that teaches "and again" without being able to kill
+    (531 ms with it against 128 ms without, from the step ladder);
+  - flag 0, then a 2-tile gap that needs it (348 ms against 73);
+  - a spring throwing the ball back up the screen, away from the camera,
+    onto a high island in space nothing else uses;
+  - a long ramp down, then the step and the gap again, unrailed, as the
+    test.
+
+  The first layout doubled back over itself after the spring and was
+  re-laid before it was shown.
