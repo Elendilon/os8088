@@ -75818,6 +75818,45 @@ before the reloc rebuilds the gates (`drv_hi_ivt`, KERN-MEGA-PLAN 14.130;
 kern_mega `.cold` +70, kern_big and kern_small byte-identical). And
 `SNDV_RMODE`'s door (AL = 2, §53.2.3) no longer runs the discovery it used
 to run for a real-mode bracket: that is `SBL_ONCE`'s now and not resident.
+#### 34.5.8 An 8237 that does not wrap: the auto-init probe (2026-11-18)
+
+**Found on an STPC 486 SBC with an ESS ES1868** (docs/FIELD-NOTES.md 70, by
+the sound debug disk's DMA lab, §127.4.1). At an auto-init terminal count the
+board's integrated 8237 reloads channel 1's ADDRESS and not its COUNT: from
+the first TC on the channel reads `base/0000` for good and moves one byte
+over and over, while the card's own block counter raises IRQs at the right
+rate as if it were playing. Every auto-init regime froze at its first wrap -
+`1Ch`, `90h`, demand mode, the driver's and Creative's register order, 4, 8
+and 16KB cycles, 8 and 16KB blocks, two buffers, the 8237 barely read - and
+`14h` re-armed per block played through. The driver's IRQ-counted bookkeeping
+(§34.5.2.2) could not see it: one ring of sound, then silence with nothing
+stopped.
+
+So **`sbl_find` asks, once a load** (`sbl_f_aiprobe`, attach-only with the
+rest of §34.5.7): with `[sbl_auto]` set, a line found and no PicoMEM, a
+32-byte auto-init cycle over `0000:0400` (the BIOS data area - read, never
+written: playback DMA is memory to card), `40h D3`, `48h 1F 00`, `1Ch`, the
+card's line masked at the PIC and the speaker never switched on; then 2,048
+samples of channel 1 after its first TC. **Every sample at `{base, 0000}` is
+the signature, and `[sbl_auto]` is cleared**: every stream from then on takes
+the single-cycle path a DSP below 2.00 takes - the double buffer, `14h` per
+2KB half, the ISR re-arming the 8237 (§34.5). A sample anywhere else is a
+reload, and auto-init stays; no TC at all is no answer and changes nothing.
+That is the conservative way round on purpose: a false "broken" costs a
+working card its auto-init regimes, a missed one costs what it cost.
+
+What a machine that fails the probe loses with auto-init: rates above
+22,222 Hz (wide and high-speed are both auto-init; err 2, never a clamp),
+stereo and 16-bit formats (err 7), ADPCM4, recording (`SND_CAP_PCM_IN` is not
+published) and direct rings (the copy path plays them). `snd_sb_pub` already
+derives the caps from `[sbl_auto]`, so a package greys what is gone rather
+than being refused it. The probe is ~150 bytes of attach-only code - nothing
+resident - and runs in about 10 ms on the board that needs it. The debug
+build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
+`(8237 no wrap)` beside `auto no`; the DMA lab still runs its auto-init runs
+there, by the DSP's version rather than the driver's regime, because the lab
+is how the fault is seen.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -251597,9 +251636,39 @@ Refusals are `CF=1` with `AX` = 1 no DSP, 2 busy, 3 no answer in
 touch is bounded. The hooks cost the diag build ~850 bytes; the shipped build
 nothing.
 
+#### 127.3.1 The 8237 snapshot, the DMA lab and the ESS registers (record v2)
+
+Added 2026-11-17 for docs/FIELD-NOTES.md 70 (an ES1868 on the STPC 486 board
+that plays one 16KB ring and stops while its block IRQs carry on). The play
+test's bytes-per-second could not see it: verb 9 adds the 8237's count to an
+IRQ-counted total, and a count that stands still while the IRQs run rounds
+to whole rings. So the record is now version 2 (`SDG_VER`) and five
+sub-functions follow:
+
+| AL | name | in | out |
+|---|---|---|---|
+| 4 | `SDGF_DMARD` | `ES:DI` | `SDD_LEN` (34) bytes: channels 0-3's current address and count, the status register `08h` (**read, so its TC bits clear** - a running lab's `SDL_ST` keeps what it saw), port `0Fh` read back, page registers `87h 83h 81h 82h`, the high pages `48xh`, the DSP's `2xCh`, the master PIC's mask, IRR and ISR, and the lab's and the stream's block-IRQ counts. Legal any time; one `cli` window |
+| 5 | `SDGF_LAB` | `ES:SI` an `LP_LEN` (11) block: offset, page, 8237 mode, cycle length - 1, DSP block - 1, time constant, start command (`1Ch`, `90h`, or `14h`), `LF_*` flags | a LAB RUN: the driver resets the DSP and drives it and channel 1 itself, outside the stream; `sbl_isr`'s unexpected path hands every IRQ to `sdg_lisr` while it runs. `AX` = DSP writes that timed out. Refused while a stream is open |
+| 6 | `SDGF_LABSTOP` | - | the ESS registers first if `LF_ESSRD`, then channel 1 masked, the DSP reset, `D3h`, and the ISR is the driver's again |
+| 7 | `SDGF_LABREC` | `ES:DI` | `SDL_LEN` bytes: IRQs, the status bits seen, the last ACK, timeouts, the ESS registers at the stop, and the 8237's address, count and status **at each of the first 48 block IRQs** |
+| 8 | `SDGF_ESS` | `ES:DI`, `AH` bit 0 | an ESS chip's controller registers `A1 A2 A4 A5 A8 B1 B2 B4 B5 B6 B7 B8 B9` by `C0h` (16 bytes, `FFh` where none answered, `CL` how many did); bit 0 sends `C6h` first and resets after. Refused with a stream or a lab run open |
+
+The lab's flags: `LF_REARM` (single-cycle: the ISR re-arms the 8237 and sends
+`14h` for the next block), `LF_SDK` (the 8237 in Creative's order - mode
+before address, page before count - rather than the driver's), `LF_SLOW` (two
+ISA reads after each 8237 write), `LF_QUIET` (the ISR reads nothing of the
+8237), `LF_DMA1ST` (the 8237 before `40h`/`D1h`), `LF_NOSPK`, `LF_NOACK` (no
+`2xEh` read: no SB-side ACK) and `LF_ESSRD`. The hook in `sbl_isr` is
+`SDG_LABHOOK`, nothing in the shipped build, so `SOUND.DRV` is byte for byte
+what it was.
+
+Record **v3** (2026-11-18) adds one byte at the end, `SDG_O_AIP`: what
+§34.5.8's auto-init probe answered (0 not run, 1 the 8237 wraps, 2 it does
+not and the driver plays single-cycle, 3 no terminal count seen).
+
 ### 127.4 SNDDIAG.O88 - Sound Debug (shipped)
 
-A window of 17 text rows; `1`, `2`, `3` choose the page, `P` runs the play
+A window of 17 text rows; `1` to `5` choose the page, `P` runs the play
 test again, `R` cycles its rate (22,050, 11,025, 8,000, 44,100 Hz), `V`
 turns the `D8h` reading off and on, `Esc` closes.
 
@@ -251623,6 +251692,65 @@ turns the `D8h` reading off and on, `Esc` closes.
 
 On kern_small, which refuses `OSAPI_WM_TIMER`, there is no play test and
 page 2 says so.
+
+Since record v2 the window has **five pages** - `4 Lab` and `5 More` - and
+`A` runs the play test and then the lab, `L` the lab alone and `S` saves the
+report; nothing but `V` is taken while a test plays. The play test samples
+the 8237 every tick (`SDGF_DMARD`): page 2 shows channel 1's count on each
+row, and its verdict says **DMA FROZE** first when the count stood still for
+three ticks while block IRQs rose.
+
+#### 127.4.1 The DMA lab (`apps/snddiag/sdlab.inc`)
+
+Sixteen runs of `SL_TICKS` (44) ticks, about 2.4 s - three passes of a 16KB
+cycle at 22,050 Hz, so every run that stalls at a wrap is caught - each played
+with a tone out of a 16KB page-safe buffer the program claims (`MEMP_CONV`
+with a 16KB head), from the bottom of the heap, or from the top for HIGHMEM:
+
+| run | what differs from BASE |
+|---|---|
+| BASE | nothing: the stream's regime (`59h`, 16KB cycle, `48h` 2KB, `1Ch`, TC `D3h`) in our buffer |
+| HIGHMEM | the buffer from the top of memory, where the driver's own ring lives |
+| SDKORDR | the 8237 programmed in Creative's order |
+| GAMEORD | ...slowed, and before the DSP's time constant |
+| RING4K, RING8K | a 4KB or 8KB DMA cycle |
+| BLK8K, BLK16K | an 8KB or 16KB DSP block |
+| DEMAND | 8237 demand mode (`19h`) |
+| NOAUTO | the 8237 not auto-init (`49h`): a control, which should stop at the first TC |
+| SINGLE | `14h` per block, the 8237 re-armed from the ISR |
+| HISPEED | `90h` (DSP 3 and up) |
+| 11KHZ | 11,025 Hz |
+| QUIET | the 8237 read one tick in eight and never from the ISR |
+| NOACK | no `2xEh` ACK |
+| ESSREGS | BASE, and the ESS registers read at the stop (an ESS only) |
+
+A run a card cannot do (no auto-init, no high-speed, no ESS) is skipped and
+says so. Each run is judged from its samples: the bytes channel 1's address
+register moved, and the first sample from which three in a row stood still
+(`FROZE at <bytes into the cycle> @<seconds>`), with `TC` when a status read
+saw a terminal count. kern_mega is refused (its claims are selectors).
+
+#### 127.4.2 Pages 4 and 5
+
+Page 4 is the first thirteen runs, a row each: cycle, block, mode, start,
+IRQs, bytes moved and the result. Page 5 is the other three, the two buffers'
+physical addresses and the stream's ring, the ESS registers (extended mode,
+compatibility mode, and at the ESSREGS stop), the 8237 after the play test,
+the runs that ran on and the runs that froze by name, and the report files.
+
+#### 127.4.3 The report is benchlib's
+
+The program saves a **benchlib text report** (`tests/benchlib.inc`: the
+banner, `bl_lcommit`'s arena, `bl_save` with `BL_NUMBERED`) - the standard
+every bench and REDLINE use, never a photograph. Started from a link whose
+parameter is `AUTO` (the sound debug disk's `\AUTOSTRT\SNDDIAG.LNK`), it
+writes **`SOUNDAn.TXT`** after the play test and **`SOUNDBn.TXT`** after the
+lab, `n` the first free; `S` writes `SOUNDSn.TXT` at any time. Each holds
+every page as text, then the record, the 8237 snapshots, the ESS registers,
+the play test's 8237 count a tick at a time, and per lab run its parameters,
+its address a tick at a time and the 8237 at its first eight block IRQs. The
+arena is `BL_ARENA_BYTES` 18,000 (a full report runs ~15.5KB); image plus bss is 64,688 of the 65,024 a
+package may have, so the next addition takes something out.
 
 ### 127.5 The input debug disk (`debug-input*.img`; shipped)
 

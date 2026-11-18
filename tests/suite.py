@@ -1453,16 +1453,20 @@ FAST = [
         "mem_regrow taken out, and red at 7K on the SB leg with snd_keep "
         "written unconditionally",
         wants=("build/covoxsys720.img", "build/mixer360.img")),
-    Row("snddiag", "soak", py("tests/snddiag.py"), 120.0,
-        "THE SOUND DEBUG DISK, BOOTED (SPEC.md 127.2-127.4): "
+    Row("snddiag", "soak", py("tests/snddiag.py"), 25.0,
+        "THE SOUND DEBUG DISK, BOOTED (SPEC.md 127.2-127.4.3): "
         "debug-sound-720.img on the SB 5150 with nobody at it. \\AUTOSTRT "
-        "opens SNDDIAG.O88, the play test starts by itself and runs ten "
+        "opens SNDDIAG.O88 AUTO, the play test starts by itself and runs ten "
         "seconds - every second from 2 to 9 within 10% of 22,050 bytes and "
         "taking block IRQs, no watchdog stop, a verdict that names nothing - "
         "and pages 1 and 3 show the probe record: the -DSNDDIAG driver "
-        "answering SNDV_DIAG, the DSP at 220h, a BLASTER= line, E1h in the "
-        "DSP write log. Read out of the package's own text buffer, which is "
-        "what its rows draw",
+        "answering SNDV_DIAG, the DSP at 220h, a BLASTER= line. Then the DMA "
+        "lab runs to Done: every run the card can do plays on except NOAUTO, "
+        "the control, which must FREEZE at its terminal count (red if the "
+        "lab stops seeing a frozen 8237), and the benchlib reports "
+        "SOUNDA1.TXT and SOUNDB1.TXT are read back off the guest's floppy - "
+        "the A one with E1h in its DSP log, the B one complete. Read out of "
+        "the package's own text buffer, which is what its rows draw",
         needs=("marty",),
         wants=("build/debug-sound-720.img", "build/apps720.img")),
     Row("sndonce", "soak", py("tests/unit/t_sndonce.py"), 1.0,

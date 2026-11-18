@@ -5954,10 +5954,10 @@ covoxtest: $(BUILD)/covoxsys720.img $(BUILD)/covoxsys360.img
 # is silent, so the guard below refuses the build if sound.drv ever leaves
 # $(DRIVERS) under another name - and t_debugdisk reads SOUND.DRV back off
 # each built image and compares it with build/snddiag/sound.drv.
-$(BUILD)/snddiag.bin: apps/snddiag/snddiag.asm apps/snddiag/sdtext.inc \
-                      drivers/sound/snddiag.inc drivers/sound/sndpkg.inc \
+$(BUILD)/snddiag.bin: apps/snddiag/snddiag.asm apps/snddiag/sdtext.inc apps/snddiag/sdlab.inc \
+                      drivers/sound/snddiag.inc drivers/sound/sndpkg.inc tests/benchlib.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88dec.inc $(BUILDINC) | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I drivers/sound/ -I $(BUILD)/ -o $@ apps/snddiag/snddiag.asm
+	$(NASM) -f bin -w+error -I apps/ -I drivers/sound/ -I tests/ -I $(BUILD)/ -o $@ apps/snddiag/snddiag.asm
 	@echo "snddiag: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/snddiag.o88: $(BUILD)/snddiag.bin tools/os88pkg.py $(PKGZSTAMP)
@@ -5993,7 +5993,7 @@ $(BUILD)/sdcfg/system.cfg: | $(BUILD)
 
 $(BUILD)/sdcfg/SNDDIAG.LNK: tools/os88lnk.py | $(BUILD)
 	@mkdir -p $(BUILD)/sdcfg
-	python3 tools/os88lnk.py $@ 'SNDDIAG.O88' --vol A
+	python3 tools/os88lnk.py $@ 'SNDDIAG.O88' --vol A --arg AUTO
 
 $(DEBUGSND): $(BUILD)/boot.bin $(SDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1440 \

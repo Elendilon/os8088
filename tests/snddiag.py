@@ -14,7 +14,12 @@ What it asserts is the whole promise of the disk with nobody at the machine:
 \\AUTOSTRT opened the program, the -DSNDDIAG driver answered SNDV_DIAG, the
 play test started by itself, ran ten seconds and named nothing as stopped,
 and pages 1 and 3 show the probe record (the DSP at 220h, a BLASTER= line,
-the version command in the DSP write log).
+the version command in the DSP write log). Then the DMA lab (SPEC.md 127.4.1)
+ran to Done by itself: on an emulated 8237 that wraps, every run that ran
+played on - except NOAUTO, the control, which must FREEZE at the end of its
+cycle, so a lab that can no longer see a frozen 8237 goes red here. And the
+two benchlib reports are on the disk, read back off the guest's floppy
+(os88flush), the B one complete.
 """
 import argparse
 import os
@@ -26,6 +31,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 os.chdir(ROOT)
 import os88marty as M          # noqa: E402
 import os88geom as G           # noqa: E402
+import os88flush as F          # noqa: E402
 
 IMG = "build/debug-sound-720.img"
 APPS = "build/apps720.img"
@@ -39,13 +45,16 @@ def page(m):
     wins = [w for w in G.windows(m) if str(w.title).startswith("Sound Debug")]
     if not wins:
         raise M.MartyError("no Sound Debug window: \\AUTOSTRT did not open it")
-    data = M.pkg_read(m, wins[0], 0, 0x6000)
-    hit = HDR.search(data)
-    if not hit:
-        raise M.MartyError("Sound Debug's text buffer has no header row")
-    o = hit.start()
-    return [data[o + i * LW:o + i * LW + LW - 1].decode("latin-1").rstrip()
-            for i in range(ROWS)]
+    data = M.pkg_read(m, wins[0], 0, 0xFE00)
+    # The FIRST header row laid out at the page stride, its keys row last: the
+    # benchlib report arena holds the same rows packed (no stride), and
+    # sd_shown follows sd_txt, which is the one built
+    for hit in HDR.finditer(data):
+        o = hit.start()
+        if data[o + (ROWS - 1) * LW:].startswith(b"Keys:"):
+            return [data[o + i * LW:o + i * LW + LW - 1].decode("latin-1")
+                    .rstrip() for i in range(ROWS)]
+    raise M.MartyError("Sound Debug's text buffer has no header row")
 
 
 def show(rows, what):
@@ -71,17 +80,47 @@ def main():
             return 1
     with M.launch(IMG, apps=APPS, machine=MACHINE) as m:
         rows = None
-        for _ in range(60):                 # ~a minute of guest time at most
+        for _ in range(240):                # the play test, then the lab
             m.advance(frames=50)
             try:
                 rows = page(m)
             except M.MartyError:
                 continue
-            if "Done." in rows[1] or "REFUSED" in rows[1]:
+            if "REFUSED" in rows[1] or "NOT RUN" in rows[1]:
+                break
+            if rows[1].startswith("DMA lab") and rows[1].endswith("Done."):
                 break
         if rows is None:
             print("snddiag: FAIL - the program never appeared")
             return 1
+        show(rows, "page 4, the lab, as the run left it")
+        check(rows[1].endswith("Done."), "the DMA lab ran to Done by itself")
+        lab = {}
+        for r in rows[3:16]:
+            f = r.split()
+            if len(f) >= 2 and f[0].isdigit():
+                lab[f[1]] = r[48:].strip()
+        m.key("Digit5")
+        m.advance(frames=25)
+        p5 = page(m)
+        show(p5, "page 5")
+        for r in p5[2:5]:
+            f = r.split()
+            if len(f) >= 2 and f[0].isdigit():
+                lab[f[1]] = r[48:].strip()
+        check(len(lab) == 16, "sixteen lab rows (%d)" % len(lab))
+        check(lab.get("NOAUTO", "").startswith("FROZE"),
+              "NOAUTO, the control, froze at its terminal count (%r)"
+              % lab.get("NOAUTO"))
+        for name, res in sorted(lab.items()):
+            if name == "NOAUTO" or res.startswith("skipped"):
+                continue
+            check(res.startswith("ran"), "lab %s ran on (%r)" % (name, res))
+        check("SOUNDA1.TXT saved" in p5[15] and "SOUNDB1.TXT saved" in p5[15],
+              "both reports saved (%r)" % p5[15])
+        m.key("Digit2")
+        m.advance(frames=25)
+        rows = page(m)
         show(rows, "page 2, as the play test left it")
         check("Done." in rows[1], "the play test started by itself and "
               "finished (row 1 says Done.)")
@@ -115,8 +154,26 @@ def main():
         p3 = page(m)
         show(p3, "page 3")
         check("DSP writes" in p3[10], "the DSP write log is shown")
-        check("E1" in (p3[11] + p3[12]).split(),
-              "the version command E1h is in the log")
+
+        m.pause()
+        vol = F.Flush(marty=m).volume(0)
+        names = set(vol.names())
+        for n in ("SOUNDA1.TXT", "SOUNDB1.TXT"):
+            check(n in names, "%s is on the guest's floppy" % n)
+        if "SOUNDA1.TXT" in names:
+            txta = vol.read("SOUNDA1.TXT").decode("latin-1")
+            log = txta[txta.find("DSP writes"):][:400].split()
+            check("E1" in log, "the A report's page 3 has the version "
+                  "command E1h in the DSP write log (the lab's own writes "
+                  "have pushed it out of the live log by the end)")
+        if "SOUNDB1.TXT" in names:
+            txt = vol.read("SOUNDB1.TXT").decode("latin-1")
+            check(txt.startswith("THIS REPORT SAVES AS A TEXT FILE"),
+                  "the B report opens with benchlib's banner")
+            check("== end of report" in txt and "TRUNCATED" not in txt,
+                  "the B report is complete (%d bytes)" % len(txt))
+            check(txt.count("DMA lab") >= 1 and "NOAUTO" in txt,
+                  "the B report carries the lab")
     if fails:
         print("snddiag: %d FAILED" % len(fails))
         return 1
