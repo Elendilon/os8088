@@ -34,6 +34,26 @@
 ;     (rwfsx.inc's rw_fscrv - the horizontal half is left stock, so the
 ;     probe's picture keeps its width) and measures again.
 ;
+; Added for BONANZA's VGA arm (docs/plans/BOUNCE-BONANZA-VGA.md, V0):
+;
+;  4. O switches the pair's ORDER. "together" is the sweep above. "split"
+;     writes the start address ALONE at the phase and the pel panning at the
+;     NEXT vsync's rise: the arm's order (that plan's 2.4). Still at a phase
+;     = the start was written before the card took it; so the split sweep
+;     reads off where the START is taken, whatever the panning model.
+;
+;  5. C measures what the arm's writers cost, in CPU clocks (PIT counts x 4,
+;     the least of 16 runs each, interrupts on), shown on the first status
+;     line until C again: B = 320 planar bytes stored (rep stosb), M = 320
+;     moved from RAM (rep movsb), RP = a 41-cell row from PLANAR blocks
+;     (two passes, map mask 1 then 2), RC = the same row from 2BPP blocks
+;     converted through two 256-word tables into a line buffer then two
+;     rep movsb, X = a 4-word box line converted and written to both planes,
+;     N = nothing at all: the measurement's own cost (two clock reads and a
+;     call), which every other figure includes and a reader subtracts. X is
+;     the plainest form (a call per word), not the arm's writer.
+;     VRAM 8000h up is the scratch; nothing shown is touched.
+;
 ; THE STATUS is at the bottom of the screen, below a LINE COMPARE split with
 ; AR10's pixel panning mode set, so it neither moves nor pans; it shows
 ; VRAM 0.
@@ -175,35 +195,55 @@ vp_main:
     mov byte [vp_rb], 0
     mov byte [vp_tog], 1
     mov byte [vp_wrap], 0
+    mov byte [vp_pend], 0
+    mov byte [vp_show], 0
     call vp_split
     call vp_measure
     call vp_status
 .frame:
-    call vp_vsrise                  ; vsync starts now
-    call pit_now
-    mov [vp_t0], ax
-    cmp byte [vp_wrap], 0
-    jne .keys
-.w:
-    call pit_now                    ; ...and the phase after it
-    sub ax, [vp_t0]
-    cmp ax, [vp_phase]
-    jb .w
-    cmp byte [vp_tog], 0
-    je .keys
-    xor byte [vp_ab], 1
-    call vp_pair
-.keys:
-    mov ah, 1
-    int 16h
-    jz .frame
+    pushf                           ; the rise and the panning owed to it
+    cli                             ;   with nothing in between: an IRQ0
+    call vp_vsrise                  ;   here would put the panning past the
+    call pit_now                    ;   frame's top (BONANZA's arm takes its
+    mov [vp_t0], ax                 ;   rise the same way, SPEC.md 128.4)
+    cmp byte [vp_pend], 0           ; split order: the panning the last
+    je .np                          ;   start went with, at the rise
+    mov byte [vp_pend], 0
+    mov al, [vp_ppan]
+    call vp_setpan
+.np:
+    popf
+    mov ah, 1                       ; keys after the rise's work, never
+    int 16h                         ;   between a start and its rise
+    jz .ph
     xor ah, ah
     int 16h
     cmp al, 27
     je .out
     call vp_key
     call vp_status
-    jmp short .frame
+    jmp .frame
+.ph:
+    cmp byte [vp_wrap], 0
+    jne .frame
+.w:
+    call pit_now                    ; ...and the phase after it
+    sub ax, [vp_t0]
+    cmp ax, [vp_phase]
+    jb .w
+    cmp byte [vp_tog], 0
+    je .frame
+    xor byte [vp_ab], 1
+    cmp byte [vp_order], 0
+    je .tg
+    call vp_pairsel                 ; split: the start alone, now
+    mov [vp_ppan], al
+    mov byte [vp_pend], 1
+    call vp_setstart
+    jmp .frame
+.tg:
+    call vp_pair
+    jmp .frame
 .out:
     call vp_report                  ; the numbers into the window's lines
     ret
@@ -263,8 +303,23 @@ vp_key:
     ret
 .t:
     cmp al, 't'
-    jne .r
+    jne .o
     jmp vp_measure
+.o:
+    cmp al, 'o'
+    jne .c
+    xor byte [vp_order], 1
+    mov byte [vp_pend], 0
+    mov byte [vp_ab], 1
+    jmp vp_pair
+.c:
+    cmp al, 'c'
+    jne .r
+    xor byte [vp_show], 1
+    jz .c0
+    jmp vp_cost
+.c0:
+    ret
 .r:
     cmp al, 's'
     je .sp
@@ -301,12 +356,45 @@ vp_key:
 ; vp_pair - the pair [vp_ab] names: A = page A, pan 4; B = page B, pan 0.
 ; They show the same image
 vp_pair:
+    call vp_pairsel
+    jmp short vp_setpair
+; vp_pairsel - BX, AL = the start and panning of the pair [vp_ab] names
+vp_pairsel:
     mov bx, VP_PAGEB
     xor al, al
     cmp byte [vp_ab], 0
-    je vp_setpair
+    je .r
     mov bx, VP_PAGEA
     mov al, 4
+.r:
+    ret
+; vp_setstart - BX = the start address, alone
+vp_setstart:
+    mov dx, 3D4h
+    pushf
+    cli
+    mov al, 0Ch
+    mov ah, bh
+    out dx, ax
+    inc al
+    mov ah, bl
+    out dx, ax
+    popf
+    ret
+; vp_setpan - AL = the pel panning, alone
+vp_setpan:
+    mov cl, al
+    mov dx, 3DAh
+    pushf
+    cli
+    in al, dx
+    mov dx, 3C0h
+    mov al, 33h
+    out dx, al
+    mov al, cl
+    out dx, al
+    popf
+    ret
 ; vp_setpair - BX = the start address, AL = the pel panning: written
 ; together, interrupts off, nothing between
 vp_setpair:
@@ -650,7 +738,17 @@ vp_status:
     shl bx, 1
     mov si, [vp_s_spl + bx]
     call vp_strcpy
+    mov si, vp_s_ord0
+    cmp byte [vp_order], 0
+    je .od
+    mov si, vp_s_ord1
+.od:
+    call vp_strcpy
     mov byte [di], 0
+    cmp byte [vp_show], 0
+    je .ns
+    call vp_costline
+.ns:
     cmp byte [vp_spl], 2
     je .pg
     xor di, di
@@ -803,18 +901,242 @@ vp_strcpy:
 .r:
     ret
 
+; =============================================================================
+; vp_cost - C: the arm's writers timed (header, 5). Each of the five is run
+; 16 times and the least kept, in CPU clocks (PIT counts x 4)
+; =============================================================================
+VP_SCR      equ 8000h               ; VRAM scratch, off every page
+vp_cost:
+    call vp_tables
+    mov es, [vp_seg]
+    mov si, vp_ctab
+    mov di, vp_cres
+    mov cx, 6
+.k:
+    push cx
+    push di
+    lodsw
+    mov bp, ax                      ; the routine
+    mov word [vp_cmin], 0FFFFh
+    mov cx, 16
+.r:
+    push cx
+    push si
+    call pit_now
+    mov [vp_t0], ax
+    call bp
+    call pit_now
+    sub ax, [vp_t0]
+    cmp ax, [vp_cmin]
+    jae .n
+    mov [vp_cmin], ax
+.n:
+    pop si
+    pop cx
+    loop .r
+    pop di
+    mov ax, [vp_cmin]
+    shl ax, 1
+    shl ax, 1
+    mov [di], ax                    ; (ES is the framebuffer here)
+    inc di
+    inc di
+    pop cx
+    loop .k
+    mov dx, 3C4h                    ; every plane writable again
+    mov ax, 0F02h
+    out dx, ax
+    ret
+
+; the five, each with ES = the framebuffer; any register but BP may go
+vp_cb:                              ; B: 320 bytes stored, one plane
+    mov dx, 3C4h
+    mov ax, 0102h
+    out dx, ax
+    mov di, VP_SCR
+    mov cx, 320
+    rep stosb
+    ret
+vp_cm:                              ; M: 320 bytes moved from RAM
+    mov dx, 3C4h
+    mov ax, 0102h
+    out dx, ax
+    mov si, vp_tl
+    mov di, VP_SCR
+    mov cx, 320
+    rep movsb
+    ret
+vp_crp:                             ; RP: a row from planar blocks
+    mov dx, 3C4h
+    mov ax, 0102h
+    out dx, ax
+    mov si, vp_fmap
+    mov di, VP_SCR
+    mov cx, 41
+.a:
+    lodsw                           ; the cell's block (a byte offset)
+    mov bx, ax
+    mov al, [bx + 6]                ; line 3, plane 0
+    stosb
+    loop .a
+    mov ax, 0202h
+    out dx, ax
+    mov si, vp_fmap
+    mov di, VP_SCR
+    mov cx, 41
+.b:
+    lodsw
+    mov bx, ax
+    mov al, [bx + 7]                ; line 3, plane 1
+    stosb
+    loop .b
+    ret
+vp_crc:                             ; RC: the row from 2bpp blocks, converted
+    push es
+    push ds
+    pop es
+    mov si, vp_fmap
+    mov di, vp_lbuf
+    mov cx, 41
+.a:
+    lodsw
+    push si
+    mov si, ax
+    call vp_cvt                     ; AL plane 0, AH plane 1
+    mov [di + 48], ah
+    stosb
+    pop si
+    loop .a
+    pop es
+    mov dx, 3C4h
+    mov ax, 0102h
+    out dx, ax
+    mov si, vp_lbuf
+    mov di, VP_SCR
+    mov cx, 41
+    rep movsb
+    mov ax, 0202h
+    out dx, ax
+    mov si, vp_lbuf + 48
+    mov di, VP_SCR
+    mov cx, 41
+    rep movsb
+    ret
+vp_cn:                              ; N: nothing - the measurement's own
+    ret                             ;   cost, to subtract from the five
+vp_cx:                              ; X: a 4-word box line
+    push es
+    push ds
+    pop es
+    mov si, vp_fblk
+    mov di, vp_lbuf
+    mov cx, 4
+.a:
+    push si
+    call vp_cvt
+    pop si
+    inc si
+    inc si
+    mov [di + 48], ah
+    stosb
+    loop .a
+    pop es
+    mov dx, 3C4h
+    mov ax, 0102h
+    out dx, ax
+    mov si, vp_lbuf
+    mov di, VP_SCR
+    movsw
+    movsw
+    mov ax, 0202h
+    out dx, ax
+    mov si, vp_lbuf + 48
+    mov di, VP_SCR
+    movsw
+    movsw
+    ret
+
+; vp_cvt - SI = a 2bpp word (8 pixels, left byte first) -> AL = plane 0's
+; byte, AH = plane 1's. Clobbers BX
+vp_cvt:
+    xor bh, bh
+    mov bl, [si]
+    shl bx, 1
+    mov ax, [vp_tl + bx]
+    mov bl, [si + 1]
+    xor bh, bh
+    shl bx, 1
+    or ax, [vp_tr + bx]
+    ret
+
+; vp_tables - vp_tr[b] = (plane 0 nibble, plane 1 nibble) of a 2bpp byte
+; whose four pixels are hl hl hl hl, leftmost in bits 7-6; vp_tl the same
+; nibbles in the top half
+vp_tables:
+    push ds
+    pop es
+    xor bx, bx
+.b:
+    xor ax, ax                      ; AL plane 0, AH plane 1
+    mov cx, 4
+    mov dl, bl
+.p:
+    shl al, 1
+    shl ah, 1
+    shl dl, 1                       ; the pixel's high bit -> plane 1
+    adc ah, 0
+    shl dl, 1                       ; its low bit -> plane 0
+    adc al, 0
+    loop .p
+    mov di, bx
+    shl di, 1
+    mov [vp_tr + di], ax
+    mov cl, 4
+    shl al, cl
+    shl ah, cl
+    mov [vp_tl + di], ax
+    inc bl
+    jnz .b
+    ret
+
+; vp_costline - the five into the first status line (C: in clocks)
+vp_costline:
+    mov di, vp_s_st1
+    mov si, vp_cres
+    mov bx, vp_s_cl
+    mov cx, 6
+.l:
+    push cx
+    push si
+    mov si, [bx]
+    call vp_strcpy
+    pop si
+    lodsw
+    push bx
+    push si
+    call vp_dec
+    pop si
+    pop bx
+    inc bx
+    inc bx
+    pop cx
+    loop .l
+    mov byte [di], 0
+    ret
+
 %include "os88pit.inc"
 
 vp_tpl:
     dw 100, 80, VP_CONT_W + 2, VP_CONT_H + TITLE_H + 2
     dw vp_ttl, vp_cls
-; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
+; its CLASS (SPEC.md 11.104), the form windows take since the probe was
+; written on RealDMG's branch
     OS88_CLASS vp_cls, 0, PAINT, vp_paint, ONKEY, vp_onkey
 vp_ttl:     db 'VGA Probe', 0
 vp_legend:  dw vp_l1, vp_l2, vp_l3, vp_l4, vp_l5, vp_l6, vp_s_res, 0
 vp_l1:      db 'Enter: run it (VGA, full screen). Inside:', 0
 vp_l2:      db 'Left/Right phase 1 line, Up/Down 10, PgUp/Dn 100', 0
-vp_l3:      db 'Space toggle, S split, W wrap, R RB timing, T time', 0
+vp_l3:      db 'Space, S split, W wrap, R RB, T time, O order, C cost', 0
 vp_l4:      db 'Still = both latched in one frame; shimmer =', 0
 vp_l5:      db 'a frame apart; shimmer below a row = per line', 0
 vp_l6:      db 'Last numbers (P F VS VA in us, L lines):', 0
@@ -838,9 +1160,24 @@ vp_regs:    db 10h, 11h, 12h, 15h, 16h
 vp_rbv:     db 6Eh, 00h, 33h, 68h, 8Bh   ; rwfsx.inc's rw_fscrv
 vp_phase:   dw 0
 vp_ab:      db 0
+vp_order:   db 0                    ; O: 0 together, 1 split (header, 4)
+vp_show:    db 0                    ; C: the costs on the first line
+vp_s_ord0:  db ' together', 0
+vp_s_ord1:  db ' split', 0
+vp_s_cl:    dw vp_s_cb, vp_s_cm, vp_s_crp, vp_s_crc, vp_s_cx, vp_s_cn
+vp_s_cb:    db 'C B', 0
+vp_s_cm:    db ' M', 0
+vp_s_crp:   db ' RP', 0
+vp_s_crc:   db ' RC', 0
+vp_s_cx:    db ' X', 0
+vp_s_cn:    db ' N', 0
+vp_ctab:    dw vp_cb, vp_cm, vp_crp, vp_crc, vp_cx, vp_cn
+vp_fmap:    times 41 dw vp_fblk     ; a row's map: every cell one block
+vp_fblk:    db 1Bh, 0E4h, 55h, 0AAh, 0FFh, 00h, 39h, 0C6h
+            db 1Bh, 0E4h, 55h, 0AAh, 0FFh, 00h, 39h, 0C6h
 vp_s_res:   times 48 db 0
 
-VP_BSS      equ 176                 ; (the bss below, summed)
+VP_BSS      equ 176 + 16 + 1024 + 96 ; (the bss below, summed)
     align 2, db 0
     OS88_BSS VP_BSS
     OS88_IMAGE_END
@@ -862,6 +1199,13 @@ vp_stock    equ vp_lines + 2        ; 6: CR10, 11, 12, 15, 16 as the mode set
 vp_info     equ vp_stock + 6        ; FSI_SIZE
 vp_s_st1    equ vp_info + FSI_SIZE  ; 64: the status's two lines
 vp_s_st2    equ vp_s_st1 + 64
-%if vp_s_st2 + 64 - vp_caps != VP_BSS
+vp_pend     equ vp_s_st2 + 64       ; byte: a split pair's panning is owed
+vp_ppan     equ vp_pend + 1         ; byte: ...and it
+vp_cmin     equ vp_ppan + 1         ; word: the least of a cost's runs
+vp_cres     equ vp_cmin + 2         ; 6 words: the costs, CPU clocks
+vp_tl       equ vp_cres + 12        ; 256 words: 2bpp -> planes, left byte
+vp_tr       equ vp_tl + 512         ; 256 words: ...the right byte
+vp_lbuf     equ vp_tr + 512         ; 96: a converted line, plane 1 at +48
+%if vp_lbuf + 96 - vp_caps != VP_BSS
 %error "VP_BSS is not the bss's sum"
 %endif

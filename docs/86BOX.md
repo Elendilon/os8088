@@ -369,6 +369,17 @@ MartyPC's namespace and which `tests/unit/t_machines.py` holds to its list.
 and the card, `_sb` and `_ne2k` tokens as in the kern_mega table below (an
 XT's card is an NE1000 at 300h on IRQ 3). `$OS88_86BOX_VM`, `$OS88_86BOX_SND`
 name another profile and another sound card.
+A name asking for a VGA keeps the profile's own VGA when it has one, and
+`$OS88_86BOX_CARD` names one outright (`pvga1a`, `oti067`, ...).
+
+**86Box's Paradise PVGA1A cannot stand in for the 5150 #2's** on the two
+questions VGA hardware scrolling asks (docs/plans/BOUNCE-BONANZA-VGA.md,
+V0). At this pin `vid_paradise.c` sets `svga->hoverride`, which zeroes the
+pel panning at every frame top, so it **never pans**, and in mode 0Dh it reads
+past 64KB rather than **wrapping**. The real chip does both (RealDMG's field
+probe). The OTI-067 pans (start and panning both taken at the frame's top,
+`svga_poll` at `vc == vtotal`) and wraps, so `vm/xt-vga` (8088, 4.77 MHz)
+and `vm/xt-v20-vga` (V20, 10 MHz), the VGA XTs on GLaBIOS, carry it.
 
 **An AT's CMOS is primed once per configuration** and cached under
 `build/86box/nvrcache/`, as below - the mr286's with its seed and MR BIOS's
