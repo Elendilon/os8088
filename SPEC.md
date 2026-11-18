@@ -14227,6 +14227,10 @@ should have been in the first place; it is no longer where the time is.
 final slice before the record is freed, and `.pick` will then charge a second
 slice of ~0 cycles to the same freed slot — harmless, once per task death, and
 cheaper than the reasoning needed to remove it safely.
+
+Inside an fsx bracket the WALK itself is skipped as well when the outgoing
+task is the only one §53.2's whitelist could pick (§53.2.4, `KHP_FSXSOLO`):
+the same no-change resume, reached without visiting `[sch_top]` slots first.
 - `sch_cycles` — MAX_TASKS dwords in .bss (lo word first): per-task CPU
   time in PIT cycles (1.19318 MHz), wrapping mod 2^32. Readers snapshot
   under `pushf`/`cli` … `popf` (the ISR writes them). `sch_pit_last`
@@ -112154,6 +112158,114 @@ pool unchanged), `.text` +6
 (the real-mode refusal, `tests/megaseg.txt` 3,754 -> 3,760), resident
 unchanged; kern_big and kern_small byte-identical. `megaparvb` and
 `megaparvp` are the gates (KERN-MEGA-PLAN 14.180 has the measurement).
+
+### 53.2.4 A bracket with ONE eligible task resumes it without the scan (`KHP_FSXSOLO`, every kernel)
+
+**What can run inside a bracket** is exactly §53.2's whitelist, and nothing
+else: the exclusive task (task 0, §53.1 refuses any other), **its kept
+worker** when `FSXF_KEEPWORKER` was passed and the instance has one (Tracker,
+Pixel's full-screen viewer, DOS's window, Telnet's text screen), **every
+`TF_SERVICE` driver worker** (a Sound Blaster's refill, a NIC's), and **the
+idle task**, which the fallback picks when task 0 itself is asleep in
+`task_sleep`. Every other task is frozen however ready it is. The Video
+Player and WireBall take `FSXF_RATE` and keep no worker; XTMP3 never opens a
+bracket at all.
+
+**What the tick did with that.** Every IRQ0 in a bracket still reached
+`sch_switch` (every sub-tick under `FSXF_FASTTICK`, every rate period with no
+sample ISR under `FSXF_RATE`, and the tick itself), and the switch walked all
+`[sch_top]` slots - each of them READY or asleep or frozen - to arrive back
+at the task it had interrupted whenever nothing on the whitelist was ready.
+That is the common case: a game with no kept worker and no driver worker has
+one eligible task, and the walk is pure cost. Measured on MartyPC's 4.77 MHz
+8088 (CGA, kern_big, BONANZA's demo 5 in play under `FSXF_FASTTICK`, 54.6
+IRQ0s a second): **`sch_switch` to `sch_resume` was 701 cycles of every
+IRQ0**, about 0.9 IRQ0s per 79.6k-cycle frame.
+
+**The rule.** Every switch `sch_isr` makes - the tick's fall-through and
+the sub-tick's or rate period's jump - now enters `sch_switch` through
+`sch_isr.sw`, which resumes the outgoing task where it stands when **all
+four** of these hold, after reloading the watchdog and checking that task's
+stack canary exactly as the switch would have. `task_yield` and `task_exit`
+still jump to `sch_switch` itself and never pay the test:
+
+1. the outgoing task IS `[fsx_task]` (so a bracket is armed: `[sch_cur]` is
+   never 0xFF, the OFF value);
+2. `[fsx_worker]` is 0xFF - no kept worker (tested FIRST, so a bracket
+   that keeps one pays the least: a load, an `inc` and a taken `jnz`);
+3. `[drv_wcnt]` is 0 - no driver worker exists, and so no `TF_SERVICE` task
+   (the count is raised before the spawn and lowered in the same IF = 0
+   window as the worker's death, §51; a driver worker is the only task the
+   bit is ever set on). A kernel without `OS88_DRIVERS` - `kern_small` - has
+   no driver worker at all, and assembles no test;
+4. the outgoing task's `T_STATE` is 1 (READY). A task 0 that called
+   `task_sleep` arrives with 2 and takes the scan, which picks the idle task
+   exactly as before - the fast path must never resume a sleeper.
+
+Conditions 1 and 4 and the canary are read at task 0's own addresses
+(`[sch_tasks+T_STATE]`, `[ss:STK0_BOT]`, which is `sch_stkbase`'s slot 0):
+`fsx_run` arms `[fsx_task]` with 0 and nothing else, having refused any
+other caller (§53.1), so "the outgoing task is `[fsx_task]`" IS "task 0".
+
+**It is exact, not an approximation.** Under those four the scan's only
+eligible slot is the outgoing one (the idle slot is never task 0, and is
+picked only when the scan finds nothing), so the old path ends at `.pick`
+with `DL` = `[sch_cur]`, skips the charge, and `.same` reloads the SP the
+park had just stored - the task resumed on the frame it came in on, which is
+what `sch_isr.tres` does. `[sch_hold]` is reloaded as the switch reloads it,
+and `[sch_idlewake]`, `sch_account`, `[sch_cur]` end the same. **One thing is
+not done: the park**, so the running task's `T_SP` is stale for the bracket
+- and nothing reads a running task's `T_SP`: `sch_switch` parks it before
+every real switch, and the two walks of the table (`mega_frames_fix`, the
+compaction's worker re-carve, §66) skip `[sch_cur]`. **The canary is still
+checked**, through `sch_stkbase` as the switch checks it; a dead canary
+falls into `sch_switch`, which checks again and stops the machine (§8.8), so
+the stack-overflow panel guards task 0 on every IRQ0 of a bracket as before.
+`sch_switch`'s stack test (§8.5) is not repeated: the fast path's only
+action is the one that test takes on failure, and a foreign SS that makes
+the canary read a wrong word sends the IRQ0 to `sch_switch`, whose test
+resumes.
+
+Any of the four failing takes `sch_switch` unchanged - its body is byte for
+byte what it was - so a kept worker, a Sound Blaster stream, a sleeping
+task 0 and every desktop switch behave as they did, paying only the tests
+that failed.
+
+**Not touched**: everything `sch_isr` does before the switch - the BIOS
+chain, `[ticks]`, `sch_account`, `snd_tick`, the wake scan, the `FSXF_RATE`
+hook and its accumulator, the sub-tick EOIs, `[sch_lock]`/`[sch_coop]`, the
+nested-chain guard - and the whole of `sch_switch`.
+
+**Cost: 40 bytes of `.text` on kern_big, kern_emu and kern_mega, 34 on
+kern_small** (no `[drv_wcnt]` test there), all resident, all in `sch_isr`.
+Even on purpose, so `sch_switch`, its scan loop and every hot routine after
+them keep their parity (`tests/unit/t_hotpar.py`; `tools/os88rdiff.py`
+reports no routine at an odd shift on any of the four, and every one of
+them byte-identical to the base with the knob undefined).
+
+**Measured** (MartyPC, 4.77 MHz 8088, CGA 5150, kern_big, BONANZA's demo 5 in
+play; 40 consecutive IRQ0s single-stepped from `sch_isr` to the `iret`, the
+switch timed from `sch_isr.sw`, which is `sch_switch`'s address before):
+
+| | before | after |
+|---|---|---|
+| the switch (`.sw` to `sch_resume`), one eligible task | 701 cycles (694-712) | 250 (246-254) |
+| ...with a kept worker (`[fsx_worker]` poked to a free slot: the slow path) | 701 | 755 (740-764) |
+| a sub-tick, whole IRQ0 | 1,389 | 945 |
+| a tick, whole IRQ0 (the BIOS chain inside) | 2,847 | 2,408 |
+| mean IRQ0, one eligible task | 1,863 | 1,457 |
+| outside a bracket: an ISR switch's extra (`.sw` to `sch_switch`, idle desktop) | - | 83 (81-88) |
+
+So **~406 cycles an IRQ0 inside a bracket with no kept worker, about 390 a
+BONANZA frame** at its 0.97 IRQ0s a frame (wave 10's profile) - time BONANZA
+spends waiting for the retrace rather than a shorter frame, its frames being
+locked to the 60 Hz refresh. A bracket that keeps a worker pays +54 an IRQ0
+(0.06% of the machine at 54.6 IRQ0s a second), and the desktop +83 on each
+of its 18.2 ISR switches a second (0.03%). The rest of an IRQ0 is the ISR's
+frame and the tick's duties, which a bracket still owes.
+
+It is behind `KHP_FSXSOLO` in `kernel/kernel.asm`'s KHP block, **defined on all four kernels**; undefined,
+`sch_switch` assembles to the body it replaced, byte for byte.
 
 ### 53.3 Entry silences what it strands (binding)
 
@@ -254338,7 +254450,13 @@ new position alone, not on the box, so it walks the new footprint's blocks
 once (128.10.8 item 1) and lays each laid record into EVERY box it meets
 (as built: `bz_occ` runs once a frame after every box is composed, its
 lines and columns the footprint's clipped to the WINDOW, and `bz_olay` lays
-a group into each box that holds its word and lines; `bz_nocf` now counts
+a group into each box that holds its word and lines - wave 10's O1: a pass
+with ONE box that holds every line of the pass (`bz_o1`, decided once a pass
+at the gate: on PEAK's demo 96% of the lays) lays a group with no box loop
+and no clip, from that box's x0 and w and its word 0 for the block row
+(`bz_orw`, made by the row's `bz_oprep`), 1.69k clocks a lay down to 1.26k
+on MartyPC's 5150, MEASURED; any other pass clips box by box as before;
+`bz_nocf` now counts
 the FRAMES the pass ran, not the boxes). **Its gate** (`bz_ogate`, set by
 `bz_mkboxes`) is the centre cell's `OCC` for an AIRBORNE ball and its `OCCG`
 for a GROUNDED one (128.11.4.3: the same rule over grounded positions, so
@@ -260478,7 +260596,14 @@ count.
 
 **What D's numbers are.** D pays the instruments a play does not: a mark
 is about 1.0k clk on a measured frame against 0.4k in play (`bz_tcmid`'s
-note) at about seven a frame, and `bz_wbox`'s TIMED `bz_latechk` pair about
+note) at about seven a frame - and since wave 10's O2 only three of a
+play's marks are clock samples at all (`bz_ts`, `bz_tv`, `bz_presented`;
+`bz_tr`, `bz_tw`, `bz_tf`, `bz_tb`, `bz_tc` and the lead's are `bz_markm`,
+nothing outside B and D, the rows, the wheel, the retrace wait and the lead
+sampling on their own: the longest gap between two samples of a demo's
+play MEASURED 74.6k clk on MOON's CGA (80.0k without O1's lighter
+occluder lay), 62.7k on PEAK's and 48.5k on MILL's, under a sub-tick's
+87.4k; a stretch over it would lose a sub-tick, never a step of a log), and `bz_wbox`'s TIMED `bz_latechk` pair about
 1.65k a box, which a play never times - PREDICTED **about 4 - 9k a frame**
 over the play it replays (`bz_mark`'s own note measured "~4-5k" on B). So
 **D's busy is a play's plus that, and its misses are an UPPER BOUND on a
@@ -266017,6 +266142,17 @@ MartyPC's cycle counter gives exactly (128.16.14's `bonanzaphys` and
 a frame, the size of 5b's measured D cost, which moved missed refreshes a
 second by -0.14 to +0.16; the larger term is the faster balls' pans, which
 the host predicts before the code.
+
+**`--baseline` reports R beside D (wave 10).** D times eight points a frame
+(about +4.7k clk of measuring), so on the CGA its missed refreshes read four
+to six times a play's. Every demo's runs are therefore repeated through `R`
+(a replay: a play's cost), and the report carries a second table of missed
+refreshes per 1,000 steps and the longest run of consecutive missed frames;
+D's table and its per-part breakdown are unchanged. A row over the PROPOSED
+per-course budget (the plan's wave 10 T11: CGA speaker ON at most 15 a 1,000
+steps, Hercules 5, no run of 3) is FLAGGED and fails nothing: **the budget is
+not yet adopted.** `--course NAME`, `--runs N` and `--sound` scope a run (its
+report is written as `-partial`).
 
 **The re-baseline is taken ONCE, at the FREEZE commit** (after gate 1's
 retune, 128.16.11), by `bonanzaperf --baseline`, in that commit's final
@@ -273546,10 +273682,13 @@ answer AX as the last hook left it (0 none). **BUILT.**
 now").** The dispatch used to walk every slot of the course on every call:
 the slot's part head read through its data segment, its run of kinds
 tested, its entry fetched and copied into a far pointer, about 470 clk a
-family on each STEP. `bz_ffetch` now builds, as it takes each slot, ONE
-LIST PER HOOK (`bz_fhl`, `BZ_NHOOK` 7 lists of `BZ_FAMMAX` 8-byte entries;
-`bz_fhn` each list's length, a word): for every hook whose bit the part's
-mask (+8) has and whose entry (+12 + 2b) is not 0, an entry of +0 that
+family on each STEP. `bz_ffetch` now builds, once every slot is taken, ONE
+LIST PER HOOK - hook by hook, each slot in order - PACKED into one pool
+(`bz_fhl`, `BZ_FHENT` 8-byte entries; `bz_fhs` `BZ_NHOOK` + 1 words, hook b's
+list running from `bz_fhs[b]` to `bz_fhs[b + 1]`, both absolute offsets;
+128.25.6.5 says why the pool is the family table's size): for every hook
+whose bit the part's mask (+8) has and whose entry (+12 + 2b) is not 0, an
+entry of +0 that
 entry and the slot's CODE segment (a far pointer, on kern_mega the code
 selector `op_cseg` gave), +4 the slot, +5 the part's kinds' count and +6
 its first kind (+9, +10). `bz_fall` walks the hook's list and calls `call
@@ -273564,7 +273703,13 @@ and `bz_fnf` at `bz_ffetch`'s start and `bz_cdrop`. A harness that writes
 the slot records itself writes the lists too (`bonanza_dsplit.fam_load`).
 MEASURED: image +64 (the dispatch 17 shorter, `bz_ffetch`'s list build +70,
 `bz_fhz` 14, `bz_cdrop` -3), bss +234 (`bz_fhl` 224, `bz_fhn` 14, `bz_ffp`'s 4
-gone); the cycles are in 128.19.10 item 9.
+gone); the cycles are in 128.19.10 item 9. **Since 128.25.6.5's NO FAMILY
+LIMIT (2026-11-18)** the lists are packed and the dispatch finds one by two
+loads (`bz_fhs[b]`, `bz_fhs[b + 1]`) where it took a load, `mov cl, 4`,
+`shl si, cl` and an add: about 64 clk where it was about 102 (each
+instruction its clocks or 4.34 x its bytes, PERFORMANCE.md Part 2), so
+-38 clk a dispatch; `bz_ffetch`'s build is a second loop, hook by hook over
+the slots (+10 image bytes in all, MEASURED).
 
 **PINNED (story 9.1): the sites, exactly.**
 
@@ -273654,12 +273799,54 @@ remainders; a refill request does not). Both bytes are cleared there.
 
 | limit | value | refused by |
 |---|---|---|
-| families | **3** | the tool |
+| families FETCHED (home `fetch`, 128.25.6.9) | **3** | the tool |
+| families in all (resident and fetched) | **none: every family of the build** (below) | `uses` refuses a family named twice or not in `FAMILIES`, which is the whole bound |
 | timed pickup kinds | **both may be used** (the owner, Q1): speed and jump together on one course, and at once on the ball; 128.25.9 says how they combine | the tool's proofs, not a count |
 | the lanes' RATE | 128.19.10's (rotors at most 6 a window; pose changes at most `WIN_CHG` 6 a step); a family's element lanes are SLOW lanes unless it declares them FAST | the tool, as today |
 | the family parts' bytes | summed into `BZ_CRS_ARENA` (128.25.4.2), so the held-pathway decision sees them | the tool |
 | the course part, the packed budget | 128.15.8's | the tool |
 | claims | none: families are arena parts | - |
+
+**NO FAMILY LIMIT (the owner, 2026-11-18: "Raise the family limit").** Until
+then a course named at most FOUR families in all: the hook lists (128.25.6.3)
+were `BZ_NHOOK` fixed lists of `BZ_FAMMAX` entries each, found with a SHIFT,
+so `BZF_HL` had to be 32 and `BZ_FAMMAX` exactly 4 (the courses' longest list,
+TITLE's). PLAYGROUND, the owner's stress test of the whole system, is meant
+to carry most of the props, and the reason for a small limit - disk reads per
+course load - went with the RESIDENT BUNDLE (128.25.6.9: a course load reads
+nothing per resident family). So the engine is sized to the WHOLE FAMILY
+TABLE, and a course may name every family of the build:
+
+- `BZ_FAMMAX` (bbcourse `fam_slots`) is the number of families in
+  `FAMILIES` - the slots (`bz_frec` 6 bytes, `bz_fsl` `BZF_SLOT` 8 each). It
+  is GENERATED from the family table, not from the courses' longest list: a
+  course edit never moves the package's bss (and with it every part's
+  `BZL_BSS` stamp), a harness scenario or a test course may name any family
+  without outgrowing the build, and the courses' longest list is headed for
+  the table's size anyway once PLAYGROUND carries the props.
+- `BZ_FHENT` (bbcourse `fam_hook_entries`) is every family's hooks summed,
+  the hook lists' POOL: a course names each family once, so its lists never
+  hold more. A built part whose mask (+8) has a hook its `FAMILIES` row lacks
+  would write past the pool, so the build's `fbundle` step refuses one
+  (`fam_maskcheck`, every part, fetched and resident).
+- bzfam.inc's `%error`s pin what the code assumes: a slot is a byte
+  (`bz_fnf`, an entry's +4: `BZ_FAMMAX` 1 - 255), a hook's mask bit is AH's in
+  the list build (`BZ_NHOOK` <= 8), and `BZ_FHENT` is at most `BZ_FAMMAX` x
+  `BZ_NHOOK`.
+
+MEASURED (the shipped build, twelve families, 36 hooks): bss **+178**
+(12,152 -> 12,330: `bz_fhl` 224 -> 288, `bz_fhs` 16 for `bz_fhn`'s 14,
+`bz_frec` 24 -> 72, `bz_fsl` 32 -> 96), image **+10** (50,165 -> 50,175),
+`BONANZA.O88` +1; each family added costs 14 + 8 x its hooks bytes of bss.
+The fixed-list layout raised instead, MEASURED by assembling it: a cap of 8
+**+280** bss (and +4 clk a dispatch, `mov cl, 5`), of 16 **+840** (+8 clk) -
+and the next cap to bite. The courses' and demos' compiled bytes are
+unchanged (the course format is untouched); every family part's bytes move,
+as on any bss change, by its `BZL_BSS` stamp. `--selfcheck` section `w9`
+compiles a course of five families; bonanza_phys's unicorn half fetches
+EVERY family onto one course and checks each slot and each hook's list
+against the parts' heads, its red `fam4` (the list build stopped at four
+slots) red.
 
 ##### 128.25.6.6 Physics determinism
 
@@ -273792,8 +273979,9 @@ fills its slot record (its `op_fetch` is a no-op - the part is here - and it
 takes the segments again, which a regrow may have moved), and its hooks are
 called exactly as a fetched family's. A course's family list holds its
 fetched families (at most 3) and its resident ones; the slots (`bz_frec`,
-`bz_fsl`) are sized to the longest list the courses have
-(`BZ_FAMMAX`, the tool's, never under 3).
+`bz_fsl`) are one for every family of the build (`BZ_FAMMAX`, the tool's,
+128.25.6.5's NO FAMILY LIMIT; until 2026-11-18 the longest list the courses
+had, never under 3).
 
 **Why the arena's floor, and not the carve.** The owner's words were "an EAGER
 code part loaded with the package in the carve". MEASURED (`62cdee325`, the
@@ -273810,7 +273998,8 @@ names the family fetches it then, and it stays (a hole the arena carries
 until the package ends).
 
 **BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FID_<NAME>`
-and `BZ_FAMMAX` (the courses' longest list, at least 3) - and, until the
+and `BZ_FAMMAX` (then the courses' longest list, at least 3; since 128.25.6.5's
+NO FAMILY LIMIT every family of the build) - and, until the
 bundle, `BZ_FHMASK` (bit ID - 1 a resident family's), which the bundle left
 with no reader and the tool no longer emits; the tool's 3-a-course count and `crs_arena` count
 only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe

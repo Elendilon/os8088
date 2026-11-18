@@ -4589,3 +4589,49 @@ thin path's wind blew the glass ball off (respawned at the start and on the
 hub), the pit wind lifted it to z 57 / 61, and it stood on the ledge at 52;
 fans, squiggles, pennant, pads, hourglasses and the rail all read on both
 cards. **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+## 2026-11-18 (the family limit raised: no limit at all)
+
+The owner: *"Raise the family limit."* A course could name at most FOUR
+families: the hook lists were seven fixed lists of `BZ_FAMMAX` entries,
+found with a SHIFT, so bzfam.inc pinned `BZF_HL` to 32 and `BZ_FAMMAX` to
+exactly 4 (TITLE's four). PLAYGROUND - the stress test of the whole system -
+is meant to carry most of twelve families, fifteen with the three on
+branches, and the small limit's old reason (a disk read per family at a
+course load) went with the resident bundle.
+
+- **What was weighed.** The fixed lists raised: a cap of 8 is +280 bss and
+  +4 clk a dispatch (`mov cl, 5`), of 16 +840 bss and +8 clk - MEASURED by
+  assembling both. Either is mostly empty space: a family has 1 - 6 hooks of
+  7, so most of each list never fills, and 16 is only the next cap to bite.
+- **What was built.** The lists PACKED into one pool, `bz_fhs[b]` to
+  `bz_fhs[b + 1]` hook b's, built hook by hook once every slot is fetched.
+  The pool is `BZ_FHENT` - every family's hooks summed (36) - and the slots
+  `BZ_FAMMAX` - every family (12): a course names each family once, so a
+  course naming them ALL fits, and there is no limit left to raise. Both
+  come from the family table rather than the courses' longest list, so a
+  course edit never moves the bss (and every part's `BZL_BSS` stamp with
+  it), and a test scene can name any family. The dispatch finds a list with
+  two loads instead of a load, a shift and an add: about 64 clk where it was
+  102 (arithmetic, Part 2's fetch floor).
+- **Bytes.** bss +178 (12,152 -> 12,330), image +10, `BONANZA.O88` +1; each
+  family added costs 14 + 8 x its hooks of bss. Every `BZ*.BIN` course and
+  demo part is byte for byte as before; the family parts and the bundle
+  move only by their stamped bss.
+- **A guard the pool needed.** The pool counts each `FAMILIES` row's hooks;
+  a part's mask is written by hand in its header. `fbundle` now refuses a
+  built part whose mask has a hook its row lacks.
+- **Natural merges noticed** (not done - the owner's separate question):
+  ROTOR + TUBE (both PROP-only, the story 9.8 own-layout props); MAGNET +
+  WIND (STEP force fields with a POSE wiggle - wind is "magnets reversed");
+  SPIKE + WATER (RESET, STEP, POSE, CELL: the CELL-per-ball material gate);
+  SPRING + BOOST (CONTACT pads); and on the branches, SEESAW + TURNTABLE
+  (a moving floor), GATE with PICKUPS' keys. A merge saves a slot, its
+  record and the shared hooks' entries (14 + 8 x shared hooks bytes) and a
+  part header.
+
+**Tested**: `make`, `make bonanzadisk`, the pad-0 knob builds (MAGNET, WIND,
+RAIL, WATER, ARCH, SPIKE, BOOST) one at a time, `--selfcheck` (section `w9`'s
+new five-family item and its red; the whole in the background),
+`bonanza_phys.py --check` (the new `every family` unicorn check - all twelve
+on PEAK's part - and its red `fam4` red), checkdocs. **Not run**: soak rows,
+`test-full`, a MartyPC look (nothing on the glass changed).

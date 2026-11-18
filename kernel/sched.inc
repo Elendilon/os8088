@@ -2167,7 +2167,11 @@ sch_isr:
     jne .sres                   ; transfer must not be pre-empted)
     cmp byte [sch_coop], 0      ; cooperative mode: only the watchdog
     jne .sres                   ; switches, and it counts TICKS, not these
+%ifdef KHP_FSXSOLO
+    jmp .sw                     ; through the fsx fast path (SPEC.md 53.2.4)
+%else
     jmp sch_switch
+%endif
 %ifdef KERN_BIG
 .rate:
     inc word [sch_rpend]        ; a period, owed to the hook until it runs
@@ -2419,6 +2423,40 @@ sch_isr:
 .wd:
     inc word [sch_wd_hits]      ; forced switch - diagnostic only
 .sw:
+%ifdef KHP_FSXSOLO
+    ; --- A BRACKET WITH ONE ELIGIBLE TASK (SPEC.md 53.2.4) -----------------
+    ; Every switch the ISR makes comes through here (the tick's fall-through
+    ; and the sub-tick's / rate period's jump; task_yield and task_exit go
+    ; to sch_switch itself and never pay this). No kept worker, the outgoing
+    ; task is [fsx_task], no driver worker (so no TF_SERVICE task) and it is
+    ; READY: sch_switch's scan could only come back to it, skip the charge
+    ; and resume it on the frame it came in on - which is .tres. So reload
+    ; the watchdog as the switch would, check the canary as the switch
+    ; would, and resume. Any test failing (a dead canary included: the
+    ; switch checks it again and stops the machine) is sch_switch as before.
+    ; [fsx_task] is only ever TASK 0 when armed (fsx_run: `mov dx, 0xFF00`
+    ; after refusing any other caller, SPEC.md 53.1), so its record and its
+    ; canary are slot 0's, by address. 40 bytes, 34 without OS88_DRIVERS:
+    ; EVEN on purpose, so sch_switch and everything after it keep their
+    ; parity (tests/unit/t_hotpar.py)
+    mov ax, [fsx_task]          ; AL = fsx_task (0xFF off, else 0), AH =
+    inc ah                      ; fsx_worker: 0xFF -> 0 iff no kept worker -
+    jnz sch_switch              ; FIRST, so a kept worker's bracket pays the
+    cmp al, [sch_cur]           ; least; the desktop passes it. Then task 0
+    jne sch_switch              ; is running and a bracket is armed
+                                ; ([sch_cur] is never 0xFF, the OFF value)
+ %ifdef OS88_DRIVERS            ; (kern_small loads no driver: no driver
+    cmp [drv_wcnt], ah          ; worker and no TF_SERVICE task)
+    jne sch_switch              ; ...no driver worker (AH = 0)...
+ %endif
+    cmp byte [sch_tasks+T_STATE], 1
+    jne sch_switch              ; ...and task 0 READY: asleep (task_sleep)
+                                ; is the scan's, which picks the idle task
+    cmp word [ss:STK0_BOT], SCH_MAGIC   ; task 0's canary, sch_stkbase's
+    mov byte [sch_hold], SCH_WD_TICKS   ; slot 0 (SS is not tested first: a
+    je .tres                    ; foreign SS reads a wrong word, goes to
+                                ; the switch, and its SS test resumes)
+%endif
     ; fall through into sch_switch
 
 ; -----------------------------------------------------------------------------
@@ -3024,6 +3062,11 @@ fsx_task:   resb 1                      ; the fsx freeze (SPEC.md 53.2):
                                         ; it, sched_init stores the OFF
                                         ; value (0 would mean task 0)
 fsx_worker: resb 1                      ; the kept worker's slot, 0xFF none
+%ifdef KHP_FSXSOLO
+ %if fsx_worker - fsx_task != 1
+  %error "sch_switch reads [fsx_task] and [fsx_worker] as ONE word (SPEC.md 53.2.4): they must stay adjacent, fsx_task first"
+ %endif
+%endif
 %ifndef NO_CHAINPRIV
 sch_chbusy: resb 1                      ; non-zero while the ROM has the chain
 %endif                                  ; (8.5, sch_chskip above)
