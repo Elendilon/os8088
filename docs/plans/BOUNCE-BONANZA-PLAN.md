@@ -1114,6 +1114,35 @@ C8's state; the props' move (R1 decision 8).
 
 #### Wave 10: Performance (L)
 
+**CLOSED (2026-11-18).** What wave 10 did, all MEASURED on MartyPC through
+R (play's cost), the CGA, the speaker ON, missed refreshes a 1,000 steps:
+
+| lever | the owner's call | bytes | result |
+|---|---|---|---|
+| O1, the occluder lay's fast path (one box, every line: 96% of PEAK's lays) | taken | image +121, bss +7 | `bz_olay` 1,687 -> 1,261 clk a lay, pixel-exact |
+| O2, a play's measurement-only clock samples dropped | taken | +8 | about -0.7k every play frame; the longest gap 74.6k < 87.4k |
+| O3, leaving the shadow out of a second box | **refused**: a shadow from any height must draw | - | - |
+| O4, the kernel tick in a solo FSX bracket skips the switch (`KHP_FSXSOLO`, SPEC.md 53.2.4) | taken | +40 big/emu/mega, +34 small | IRQ0 1,863 -> 1,457 clk; 26 rows incl. the video player, XTMP3, WireBall |
+| `bz_fmark`'s non-group trim (variant A) | taken (gain proportional to cost) | +1 | 387 -> 314 clk a mark |
+| `BZS_SKIPTEST` | **removed** (a decided A/B: no gain in play) | 0 | - |
+| `--baseline` reports R beside D | taken | test only | the play figures, flagged against the proposed budget |
+
+Before / after O1 + O2: PEAK 43.3 -> 22.6 - 25.8 (runs of 7 -> 4 - 6), MILL
+16.7 -> 12.9, MOON 7.1 -> 3.5, PLAYGROUND 2.7 -> 2.0; the Hercules PEAK 13.4 ->
+11.0. Wave 9's own speed pass (F3, F4, F6, the walk's `.nxo`/`.cm`) landed
+just before it.
+
+**T11, the per-course miss budget: NOT ADOPTED (the owner, 2026-11-18).** It
+is decided with the first REAL course: how it plays, what it drops, and
+whether it needs to be better - which decides whether there is another speed
+round. The proposal stands only as the flag `--baseline` prints (CGA speaker
+ON 15 a 1,000 steps and no run of 3; Hercules 5). Left on the list, not
+taken: O5 (the sound's fixed costs, -0.2 - -0.5k), O6 (a bit-exact pass over
+the step, high risk), the extra clock sample at `.amod` (3 bytes).
+
+The re-baseline as it was taken follows.
+
+
 **THE RE-BASELINE (2026-11-17, MEASURED at `bc5747112`; the owner: *"wave
 10's goal is SPEED, not the T-list; the list is input, not scope"*).** Every
 figure is MartyPC's 5150 (`_gla` twins), the CGA unless said, the speaker at
@@ -1186,11 +1215,11 @@ record):
 | T4 | **holds: the worst course** | PEAK D 64 / 147 - 152 (was 205 / 293), Hercules D ON 53 (was 96); R 24 - 32 / 72 - 83, Hercules 12 / 28. Its lever is the occluder pass (O1 below); its easing at wave 13 meets T11 |
 | T5 | **retired as written** | the Hercules' MILL B never reaches the lift in its 1,200 frames (0 lift frames: the leg asserts nothing); the CGA's lift stretch is 102 frames, 22 missed ON / 113, 6 OFF; MILL's demo on the Hercules 0 missed. Kept only if `bonanzaperf` rides the lift (the RIDE leg does) |
 | T6 | held | done in 7.1 |
-| T7 | **closed by measurement** | the sound is 3.5k a frame (5.3 - 8.1k on a missed frame: sub-ticks caught up) and costs PEAK about 45 missed refreshes, MILL 4 - 8. Both its levers measured NULL on play: the sound moved after `bz_early` (0 bytes) PEAK 116 / MILL 11, WORSE (the same work before the same deadline, and it eats the early step's room; `perf-snd2`'s half did not help either, BONANZA-SPEED-2026-11-15); the skip rule (`BZS_SKIPTEST`, 255, +73 bytes when on) PEAK 76 and 76 (it skips the frame after a miss, not the one that misses). What is left is fixed-cost trimming (O5) |
+| T7 | **closed by measurement** | the sound is 3.5k a frame (5.3 - 8.1k on a missed frame: sub-ticks caught up) and costs PEAK about 45 missed refreshes, MILL 4 - 8. Both its levers measured NULL on play: the sound moved after `bz_early` (0 bytes) PEAK 116 / MILL 11, WORSE (the same work before the same deadline, and it eats the early step's room; `perf-snd2`'s half did not help either, BONANZA-SPEED-2026-11-15); the skip rule (`BZS_SKIPTEST`, 255, +73 bytes when on) PEAK 76 and 76 (it skips the frame after a miss, not the one that misses). What is left is fixed-cost trimming (O5) **BZS_SKIPTEST removed 2026-11-18** (the owner: a decided A/B). |
 | T8 | **retired item by item** | box writes 5.4 - 6.1k a play frame, at the floor; the wheel 0.45 - 1.7k a frame, `bz_wover` / `bz_wlate` 0 (asserted by the rows, green); preparation and walk: `bz_props` 1.8 - 2.6k after F3; TRIAL on the Hercules: D ON 0 missed; the two-box rotor frame (A15, priced 88k): 65 - 76k busy, never missed |
 | T9 | **moved out** | a size budget, not speed: `bonanza.bin` 50,062 bytes |
 | T10 | done | in 5b |
-| T11 | **proposed, in R's units** | CGA speaker ON at most **15 missed refreshes a 1,000 steps and no run of 3 outside a cut**; Hercules 5. Today MILL 11.6 and PLAYGROUND 2.0 pass; MOON 5.5 passes the rate but fails the run (9 at one pan); PEAK 33 - 38 fails (wave 13 eases it). The agent building a course measures it once through R |
+| T11 | **proposed, in R's units** | CGA speaker ON at most **15 missed refreshes a 1,000 steps and no run of 3 outside a cut**; Hercules 5. Today MILL 11.6 and PLAYGROUND 2.0 pass; MOON 5.5 passes the rate but fails the run (9 at one pan); PEAK 33 - 38 fails (wave 13 eases it). The agent building a course measures it once through R. **`bonanzaperf --baseline` now reports R beside D** (missed refreshes a 1,000 steps, longest run) and FLAGS a course over this proposal; the budget is still NOT ADOPTED (PEAK CGA ON measured 22.6 - 26.7 a 1,000 steps over 3 runs, 49 - 58 misses in 2,172 steps) |
 | T12 | **answered: no on the CGA** | a second box costs +15 - 17k (measured on MILL's two-box frames, D), and MILL's two-box frames miss 19 - 22% against ~2%; a ghost is a second box EVERY frame. Q-L6 is the owner's |
 | T13 | held, folded into O1 | `bz_amodel` 1.0k on PEAK's missed frames (0.19k elsewhere); after O1, re-price |
 
@@ -1248,6 +1277,8 @@ measurements.
 
 #### Wave 11: The tutorial and the course pipeline (M)
 
+**NOTE (the owner, 2026-11-18):** the pipeline below is a DRAFT, worked out while the first real course is made; the courses are new (waves 12 and 13), not reworks - read 11.1 and 11.2 as "the first new courses teach this", FIRST and TRIAL themselves are reference courses.
+
 **The pipeline, per course:**
 1. **A design sheet**, `docs/plans/bonanza-courses/<NAME>.md`: the world,
    its families (at most 3), the start ball, its finishes and their exits
@@ -1293,22 +1324,39 @@ measurements.
 **Inventory:** D1, D2, D5 (as each course is retrofitted), D9, D10
 (watch items the tool enforces).
 
-#### Waves 12 and 13: Worlds 1 and 2, one course at a time (L each)
+#### Waves 12 and 13: Worlds 1 and 2, NEW courses (L each)
 
-Each course goes through wave 11's pipeline, and a family lands with the
-first course that uses it. Each world has a palette, a song, a clock frame
-and a family set (SUGGESTION: "worlds"; the owner may prefer a single
-graph without them).
+**REWORKED (the owner, 2026-11-18).** No existing course ships as it is, and
+none is "retrofitted": FIRST, TRIAL, MILL, MOON, PEAK, BENCH and PLAYGROUND
+stay as test and reference courses only, and the shipped courses are NEW,
+taking bits and lessons from them (MILL's windmill and chute, PEAK's
+cannon, the PLAYGROUND labs' cracks, bridge, glass and pickups). The name
+FIRST ROLL may stay for the first course, but that course is much longer
+and wholly different. The plan below is a sketch that is expected to change
+as each wave arrives.
 
-| world (SUGGESTION) | courses | arriving |
-|---|---|---|
-| 12: Meadow | FIRST and TRIAL (wave 11), then a course after TRIAL that teaches pads and the three balls' differences BEFORE the first branch (a review finding), and 1-2 more teaching flags and springs; the first branch at its end | hourglass and speed pickups; nothing else new |
-| 13: Windmill country | MILL rebuilt to the new physics with clocks and finishes (O27: the lift the autopilot cannot ride; O32: the lift carries a flight), 2-3 new courses, and **MOON and PEAK retrofitted as the world's two branch finales**, PEAK's chains eased then (O54) and measured against T11 | **wind** (weighted by mass: glass x2, rubber x1, steel x1/4), **cracked tiles** (break under steel or a hard landing; the tool proves every flag still reaches a finish with every crackable cell broken), **disappearing glass paths** (always floor to physics, drawn as void; a hint of static sparkle pixels in the picture; revealed by ROW, one lane holding several tiles' poses up to 16, and the tool bounds how many glass lanes meet one window; priced as a contact-box frame; needs red arm `contact`'s scene, I7), the jump pickup |
+- **The pipeline is settled in wave 11, while its first course is made** -
+  wave 11's steps are a draft, not a contract.
+- **The first real course decides the miss budget** (T11, wave 10): how it
+  plays and what it drops on the CGA and the Hercules says whether the
+  engine needs another speed round before more courses are built.
+- **Worlds** (a SUGGESTION, unchanged): a palette, a song, a clock frame and
+  a family set each; the owner may prefer one graph without them.
+- **Families are ready** for the first world: the resident bundle carries
+  rotor, spring, tube, glass (cracks, glass paths, the thin bridge - the
+  default cracked tile - and group lanes) and pickups (speed, jump,
+  hourglass). A new family (wind, conveyors ...) lands with the first
+  course that uses it, by the recipe (SPEC.md 128.25.6.8), resident by
+  default.
+- **Wave 12** builds world 1's courses one at a time through the pipeline,
+  each with a playtest disk to the owner; **wave 13** world 2's.
+- **What the old plan scheduled here and still holds:** the visibility rule
+  (11.5), the RAM levers for long courses (11.6), the demos as a bit stream
+  (11.7) and the routes/boost checks (11.8) - each taken when the first
+  course needs it.
 
-**Inventory:** D1, D3's courses, D5, D6 (O43: cups and flags on FIRST,
-TRIAL and MILL are re-decided by each course's sheet), D7, C6
-(conveyors, if a world-2 course wants one), C8, C9's groundwork, B9 (the
-elements tuned as the courses use them).
+**Inventory:** D1, D3, D5 - D7, C6 (conveyors, if a course wants one), C8,
+C9's groundwork, B9 (the elements tuned as the courses use them).
 
 #### Wave 14: The machines (M; the old wave 5)
 

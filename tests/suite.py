@@ -5404,7 +5404,7 @@ SOAK = [
         "frames; 3, 2 and S change the slot and its label lane is drawn at pose 1 + slot; the title demo's "
         "end (stopped at bz_tlog) equals the model's replay of the same .bzt - position, falls, tube rides, "
         "springs, BZ_TSTEPS steps; a course demo follows and a key brings the title back; P plays the game "
-        "in the slot shown and its Esc is the title again; Esc on the title leaves with the claims as "
+        "in the slot shown and its Esc is the title again, and Enter does the same (the owner, 2026-11-18); Esc on the title leaves with the claims as "
         "before; the title again, its course demo, and Alt+Enter there is the WINDOW, never the title (SPEC.md "
         "128.23.4.1, the owner's report; red arm chain: red at check 8 - the leg adds ~20 s guest, its secs "
         "NOT re-measured). Red arm view (the first frame centred on the ball, not the header's window): red at "

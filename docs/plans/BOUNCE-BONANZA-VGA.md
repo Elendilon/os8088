@@ -6,7 +6,7 @@
 recorded the idea as "**VGA Mode X arm**: pixel-smooth scrolling both ways
 (offset register plus pixel panning) and 256 colours ... **a later wave**,
 not the 5150's", and nothing more. Once the owner has reviewed it, the
-contract goes into SPEC.md as the next free 128.N subsection (128.41 today)
+contract goes into SPEC.md as the next free 128.N subsection (128.45 today)
 **before** any code, and this file becomes the story list.*
 
 Figures are tagged **MEASURED** (with where), **PREDICTED** (arithmetic from
@@ -659,9 +659,9 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   `box-vgaprobe`, `box-vgaprobe-v20`, `box-vgaprobe-286` (86Box), each seen
   red with `--red swap`, and MartyPC's with `--red split` too.
 
-### V1: the arm, playable at today's steps (M-L) - BUILT (SPEC.md 128.41.9)
+### V1: the arm, playable at today's steps (M-L) - BUILT (SPEC.md 128.45.9)
 
-- [x] The SPEC.md subsection written: **128.41**, before the code.
+- [x] The SPEC.md subsection written: **128.45**, before the code.
 - [x] `bz_cardk` (1 CGA, 2 Hercules, 3 VGA), `bz_vga`; `bz_adapter` accepts
       `VID_VGA` + `FSXM_VGA0D` in both copies; the face's adapter line, the
       refusal `CGA, HERC OR VGA ONLY`, and Play Game ungreyed on VGA.
@@ -689,7 +689,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   (busy 51.1k clocks, 410 misses in 1,200: V2's divisor). Rows named:
   `bonanzaring`, `bonanzaperf`, `bonanzaexit` (their VGA legs are V3's).
 
-### V2: smooth (M) - V2a BUILT (SPEC.md 128.41.10); V2b the roll (128.41.11)
+### V2: smooth (M) - V2a BUILT (SPEC.md 128.45.10); V2b the roll (128.45.11)
 
 - [x] The pixel camera, as a DISPLAY over LATTICE rather than inside it:
       the engine's window 42 columns (P 44), LATTICE unchanged, the display a
@@ -704,7 +704,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 - [x] **V2b: what the owner's look found** - not judder from the steps but
       the roll spinning BACKWARDS at speed (35 Hz aliasing of an 8-periodic
       texture). BZV_ROLL shows phases that never step against the ball and
-      at most 3 a frame (SPEC.md 128.41.11). Rule 3 (the ball between steps)
+      at most 3 a frame (SPEC.md 128.45.11). Rule 3 (the ball between steps)
       stays unbuilt: nothing on the glass asked for it.
 - *Checked*: the oracle on MartyPC - LATTICE 600 frames and the scripted
   camera 400, 0 pixels in card memory, the rendered glass (the panning

@@ -181,6 +181,11 @@ six shipped demos BZD1 - BZD6 through D):
     demos): BENCH's busy REPORTED against it (wave 6 moves BENCH's course:
     not like for like, so the +0.5k guard is not asserted until the freeze
     re-anchors it, 128.16.10), and its demos through D beside this build's.
+--baseline ALSO REPORTS THE PLAY FIGURES (wave 10): each demo's same runs again through R, a replay (D times
+8 points a frame, ~+4.7k clk a frame, so on the CGA it reads 4-6x a play): missed refreshes a 1,000 steps and
+the longest run of consecutive missed frames, flagged (never failed) against the PROPOSED per-course budget
+of the plan's T11 (CGA speaker ON 15 a 1,000 steps, Hercules 5, no run of 3), which is NOT YET ADOPTED.
+--course NAME (repeatable) and --runs N scope it (a -partial report).
 --baseline (THE RE-BASELINE, at the FREEZE commit only, 128.16.10 - not this
 wave's final pass): every shipped demo through D and B, both cards, speaker
 OFF and ON, six runs a configuration for MILL and PEAK and three for the rest
@@ -1444,19 +1449,46 @@ def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
 
 BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (128.16.10); 3 for the rest
 BASE_DEFAULT = 3
+# THE PLAY FIGURES' PROPOSED BUDGET (BOUNCE-BONANZA-PLAN wave 10 T11; NOT YET ADOPTED, so a course over it is
+# FLAGGED in the table and never fails the run): missed refreshes per 1,000 steps through R, CGA speaker ON /
+# Hercules; and no run of BUDGET_RUN consecutive missed frames (the plan's "outside a respawn" is not knowable
+# from the frames, so a run that long is flagged for a look)
+BUDGET_1K = {"cga": 15.0, "herc": 5.0}
+BUDGET_RUN = 3
 
 
-def baseline(tags):
+def play_run(fr, refresh):
+    """one replay's (R) PLAY figures off its frames: missed refreshes per 1,000 steps and the longest run of
+    consecutive missed frames (smooth()'s), with the misses and the steps"""
+    sm = smooth(fr, refresh)
+    steps = sum(r["steps"] for r in fr)
+    return {"missed": sm["missed"], "steps": steps, "per_1k": 1000.0 * sm["missed"] / max(1, steps),
+            "longest": sm["longest"], "runs2": sm["runs2"]}
+
+
+def over_budget(tag, snd, runs):
+    """-> the flags a configuration's R runs earn against the PROPOSED budget (reported, never asserted)"""
+    if tag == "cga" and snd != "on":
+        return []                               # the proposal is the CGA's speaker-ON figure
+    mx = max(r["per_1k"] for r in runs)
+    fl = ["%.1f > %.0f a 1,000 steps" % (mx, BUDGET_1K[tag])] if mx > BUDGET_1K[tag] else []
+    lg = max(r["longest"] for r in runs)
+    if lg >= BUDGET_RUN:
+        fl.append("a run of %d" % lg)
+    return fl
+
+
+def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
     """THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every
     shipped demo through D and B, both cards, speaker OFF and ON, each figure
     with its spread, keyed to its log; written to a new dated report.  -> its path"""
     import datetime
-    rows = []
+    rows, plays = [], []
     R.CRS_K["bench"]
     names = {v: n for n, v in dict.items(R.CRS_K)}
     for tag in tags:
         sym = R.symbols()
-        for snd in SOUNDS:
+        for snd in sounds:
             with os88ui.boot(R.at("build/os8088-360.img"), apps=R.at("build/bonanza360.img"),
                              machine=R.MACHINE[tag]) as ui:
                 ui.open_drive("B")
@@ -1466,7 +1498,9 @@ def baseline(tags):
                 set_snd(g, snd == "on")
                 for kd in [None] + list(range(1, len(R.CRS_K))):
                     name = "bench" if kd is None else names[kd]
-                    n = BASE_RUNS.get(name, BASE_DEFAULT)
+                    if only and name not in only:
+                        continue
+                    n = nruns or BASE_RUNS.get(name, BASE_DEFAULT)
                     runs, key = [], None
                     for _ in range(n):
                         if kd is None:
@@ -1485,11 +1519,24 @@ def baseline(tags):
                                      "per_s": sm["per_s"], "runs2": sm["runs2"], "longest": sm["longest"],
                                      "mode": "%d" % cols if name == "mill" else ""})
                     rows.append((tag, snd, name, key, runs))
+                    if kd is not None:          # the same demo through R: what a player gets (D measures, ~+4.7k clk a frame)
+                        pr = []
+                        for _ in range(n):
+                            load_demo(g, kd)
+                            set_snd(g, snd == "on")
+                            fr, _pkg, refresh, _np = measure(g, key="KeyR", frames_cap=DEMO_CAP)
+                            pr.append(play_run(fr, refresh))
+                        plays.append((tag, snd, name, key, pr))
+                        fl = over_budget(tag, snd, pr)
+                        print("  baseline %s %s %s R: per 1,000 steps %s, longest %s%s" % (
+                            tag, snd, name, ", ".join("%.1f" % r["per_1k"] for r in pr),
+                            ", ".join("%d" % r["longest"] for r in pr),
+                            "  FLAG (proposed budget): " + "; ".join(fl) if fl else ""), flush=True)
                     print("  baseline %s %s %s: %d runs, missed/s %s" % (tag, snd, name, n, ", ".join(
                         "%.2f" % r["per_s"] for r in runs)), flush=True)
                 set_snd(g, True)
     day = datetime.date.today().isoformat()
-    path = os.path.join(R.ROOT, "docs", "reports", "BONANZA-BASELINE-%s.md" % day)
+    path = os.path.join(R.ROOT, "docs", "reports", "BONANZA-BASELINE-%s%s.md" % (day, "-partial" if only or nruns or sounds != SOUNDS else ""))
     head = git("rev-parse", "--short", "HEAD").stdout.strip()
     with open(path, "w") as f:
         f.write("# BONANZA's re-baseline, %s (SPEC.md 128.16.10)\n\nA MEASUREMENT of one tree: commit %s, by "
@@ -1506,6 +1553,28 @@ def baseline(tags):
                 tag.upper(), snd.upper(), name.upper(), key, len(runs), sp("busy", "%.0f"), sp("misses", "%.1f"),
                 sp("per_s", "%.2f"), sp("runs2", "%.1f"), sp("longest", "%.1f"),
                 ", ".join(r["mode"] for r in runs) if name == "mill" else "-"))
+        f.write("\n## PLAY: the same demos through R (a replay, a play's cost: nothing measured)\n\n"
+                "D above times 8 points a frame (~+4.7k clk a frame of measuring), so on the CGA it reads four "
+                "to six times what a player gets; R is the play figure.  Missed refreshes are each frame's "
+                "period over the card's refresh, as D's.  **The proposed budget (the plan's wave 10 T11) is NOT "
+                "ADOPTED**: CGA speaker ON at most %.0f a 1,000 steps, Hercules %.0f, no run of %d consecutive "
+                "missed frames; a row over it is FLAGGED here and fails nothing.\n\n" % (
+                    BUDGET_1K["cga"], BUDGET_1K["herc"], BUDGET_RUN))
+        f.write("| card | speaker | demo | the log | runs | steps | missed refreshes | missed a 1,000 steps "
+                "| longest run | over the proposed budget |\n|---|---|---|---|---|---|---|---|---|---|\n")
+        for tag, snd, name, key, pr in plays:
+            def sp(k, fmt):
+                v = [r[k] for r in pr]
+                return (fmt + " - " + fmt + " (" + fmt + ")") % (min(v), max(v), sum(v) / len(v))
+            f.write("| %s | %s | %s | %s | %d | %d | %s | %s | %s | %s |\n" % (
+                tag.upper(), snd.upper(), name.upper(), key, len(pr), pr[0]["steps"], sp("missed", "%.0f"),
+                sp("per_1k", "%.1f"), sp("longest", "%.0f"), "; ".join(over_budget(tag, snd, pr)) or "-"))
+    print("\nR (PLAY) figures, missed refreshes a 1,000 steps (proposed budget NOT ADOPTED, flags are reports):")
+    for tag, snd, name, key, pr in plays:
+        fl = over_budget(tag, snd, pr)
+        print("  %-4s %-3s %-10s per 1k %s  longest %s  steps %d%s" % (
+            tag.upper(), snd.upper(), name.upper(), ", ".join("%.1f" % r["per_1k"] for r in pr),
+            ", ".join("%d" % r["longest"] for r in pr), pr[0]["steps"], "  FLAG: " + "; ".join(fl) if fl else ""))
     print("bonanza_perf --baseline: %d configurations, %d runs, written to %s" % (
         len(rows), sum(len(r[4]) for r in rows), os.path.relpath(path, R.ROOT)), flush=True)
     return path
@@ -1556,7 +1625,13 @@ def main():
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     ap.add_argument("--baseline", action="store_true",
                     help="THE RE-BASELINE (SPEC.md 128.16.10), at the FREEZE commit only: every demo through D and "
-                         "B, both cards, speaker OFF and ON, its runs' spreads written to a new dated report")
+                         "B, both cards, speaker OFF and ON, its runs' spreads written to a new dated report; "
+                         "ALSO the same demos through R (a play's cost): missed refreshes a 1,000 steps and the "
+                         "longest run, flagged against the PROPOSED, not yet adopted, budget")
+    ap.add_argument("--course", action="append", metavar="NAME",
+                    help="--baseline only: these courses only (BENCH, MILL ...) - the report is then written as -partial")
+    ap.add_argument("--runs", type=int, help="--baseline only: this many runs a configuration (default 6 for MILL "
+                                              "and PEAK, 3 for the rest)")
     a = ap.parse_args()
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.check:
@@ -1582,7 +1657,7 @@ def main():
             len(falls), n)
         return
     if a.baseline:
-        baseline(tags)
+        baseline(tags, [c.lower() for c in a.course] if a.course else None, a.runs, tuple(a.sound) if a.sound else SOUNDS)
         return
     if a.red:
         tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)

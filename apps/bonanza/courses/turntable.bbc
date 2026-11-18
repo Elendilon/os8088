@@ -1,0 +1,43 @@
+# Turntable Test - BONANZA's QUARTER-TURN TURNTABLE test course (SPEC.md 128.43), built only by the BZTURN=1
+# knob (make BUILD=<tree> BZTURN=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes
+# it the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A turntable is
+# HALF FILLED and turns a quarter turn every second (64 steps); it carries nothing: a cell that turns into a gap
+# drops the ball.  A floor about to open shows its seam for the last 16 steps of a quarter.
+#
+# START is a plate at 2 units with a pad for each ball and the finish (exit 0) beside the start.  From it:
+#  - east, THE CHAIN to exit 1: two 2 x 2 tables, a domino each, on either side of a one-tile ISLAND, the second
+#    a quarter and a half out of phase with the first - ride the first across on its turn, wait on the island
+#    while the second comes round, ride it to the goal plate;
+#  - south, THE DISC: a 3 x 3 table, its back half filled round its PIVOT - its middle row is never open end to
+#    end, so a crossing steps on, waits on the pivot for the turn and steps off (a dead end).
+course TURN "Turntable Test"
+width  128
+origin 320
+ball   rubber
+
+uses turntable
+
+floor rect 4 4 10 10 flat 2    # the start plate (x 4 - 9, y 4 - 9)
+floor rect 10 6 12 8 flat 2    # table A (x 10 - 11, y 6 - 7)
+floor rect 12 6 13 8 flat 2    # the island
+floor rect 13 6 15 8 flat 2    # table C (x 13 - 14)
+floor rect 15 4 20 10 flat 2   # the goal plate
+floor rect 5 10 8 13 flat 2    # the disc (x 5 - 7, y 10 - 12)
+floor rect 4 13 9 17 flat 2    # its far plate
+
+prop turntable 10 6 size 2 fill oo/..
+prop turntable 13 6 size 2 fill oo/.. seed 96
+prop turntable 5 10 size 3 fill ooo/.oo/... seed 32
+
+pad rubber 5 5
+pad steel 7 5
+pad glass 5 7
+start 6 7
+goal tile 8 8 flat 2
+goal tile 18 7 flat 2 exit 1
+clock 9 4
+clock 19 6
+limit 99
+target 60
+way 6 7
+way 8 8
