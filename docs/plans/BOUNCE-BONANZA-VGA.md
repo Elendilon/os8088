@@ -721,13 +721,18 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
       nearest column; the VGA's four rows a frame.
 - [x] LATTICE kept for the benchmark, the fixed and paged windows, the
       finish, cuts and the scripted camera.
-- [x] The A/B: `C`'s second mode on the VGA is LATTICE (temporary).
+- [x] The A/B: `C`'s second mode on the VGA was LATTICE while the owner
+      compared; removed once they had (`C` does nothing on the VGA).
 - [x] The owner's first look: stop-start microstutter, skips, a slow game
       on the 5150. Measured: 70 Hz held with one frame in 17 missed, a
       velocity rounded to 0, 1, 0, 1, and a snap that became a full write.
       Now whole steady steps with hysteresis, margins that push not snap,
       and 35 Hz latched at 2 late frames (misses counted).
-- [ ] The owner's feel: the zone, the spring, then drop the A/B.
+- [x] The owner's feel: the edges braked, the finish coasted, the pathway
+      faster (V2c); then the inching at a slow pace answered by framings and
+      tracking (V2d, SPEC.md 130.46.14): *"it basically always moves like
+      lattice, except for one section in MILL where it smoothly followed the
+      ball vertically ... which felt natural."* The A/B dropped.
 - *Checked*: MartyPC, BENCH's route on the camera 800 frames (0 px, glass
   exact, one full write, steps of at most 2 px), FIRST's free play 500.
 
