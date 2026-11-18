@@ -22249,6 +22249,33 @@ BZBOOSTSTAMP := $(BUILD)/.bzboost-$(or $(BZBOOST),0)
 $(BZBOOSTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzboost-*
 	@touch $@
+#> [Knobs] BZHUMP=1 :: Bounce Bonanza with its HUMPS test course, HUMP (SPEC.md 128.44): low and high domes, a ridge, a speed bump steel needs a run at - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/hump BZHUMP=1 bonanzadisk)
+# BZHUMP=1 (SPEC.md 128.44.6) adds apps/bonanza/courses/humps.bbc to BZ_COURSES (after the shipped ones, so
+# every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
+# apps/bonanza/courses/pathhump.sed applied: pad 0 becomes HUMP, FIRST gets pad 6 beside it.  Pad 0 is one
+# course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
+# knob-less one.
+BZHUMP ?=
+ifeq ($(filter $(BZHUMP),1),)
+ifneq ($(BZHUMP),)
+$(error BZHUMP=$(BZHUMP) is 1 or empty)
+endif
+endif
+ifeq ($(BZHUMP),1)
+ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZTURN)),)
+$(error BZHUMP=1 with BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT or BZTURN=1: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/humps.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathhump.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathhump.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathhump.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZHUMPSTAMP := $(BUILD)/.bzhump-$(or $(BZHUMP),0)
+$(BZHUMPSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzhump-*
+	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
 # it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
@@ -22318,7 +22345,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZFSHOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
