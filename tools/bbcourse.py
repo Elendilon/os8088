@@ -210,7 +210,8 @@ KIT_MIN = 3                   # a block or a mask joins the kit when this many p
 KIT_Y0 = 4                    # the ONE alignment (the owner, 2026-11-17): a play course's Y0 is 4 (mod 8)
 KIT_HDR = 32                  # BZK1's header: magic, NCLS, an 8-byte entry a class, padding
 KIT_BMMAX = 512               # a class's bitmap, bytes: bz_cxkit copies it to bz_boxbuf (4 BZ_BOXB >= 512)
-KIT_POOL = ("bench", "first", "trial", "mill", "moon", "summit", "playground", "shapes", "pits")
+KIT_POOL = ("first", "trial", "mill", "playground", "moon", "summit", "roll")   # the PATHWAY's courses and ROLL
+                              # (FIRST's successor on pad 0), in pad order: no test course (the owner, 2026-11-18)
 # the course budget (SPEC.md 130.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
 PLAN_SECS = 1170              # CD3's set: six of 30 s, nine of 60 s, five of 90 s
@@ -7794,8 +7795,8 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.outline(sp, left=True)
         else:
             if t.kind == KIND_WALL:
-                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else (LOOK_WALL if LOOK else WHT), s, top, own)
-                                                    # a bumper rail: magenta (130.47.3: THE LOOK's wall top)
+                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else WALL_INK, s, top, own)
+                                                    # a bumper rail: magenta (130.47.3: a wall's dither top)
             elif t.kind != KIND_GOAL and t.surf != SURF_NORMAL:
                 cv.fill(sp, _surface_ink(t.surf, x0, y0), s, top, own)
             elif t.kind == KIND_GOAL or t.sx or t.sy:
@@ -7810,15 +7811,15 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                             for x in range(a, b):
                                 row[x] = ink
             else:
-                cv.fill(sp, WHT if (wx + wy + (t.z0 // 4 if LOOK else 0)) & 1 else CYN, s, top, own)   # (130.47.2)
+                cv.fill(sp, WHT if (wx + wy + t.z0 // 4) & 1 else CYN, s, top, own)   # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
     if SHADOW and _SHADOW_OK:
         look_shadow(cv, tiles, x0, y0)
     return cv
 
 
-def LOOK_WALL(x, y):
-    """SPEC.md 130.47.3: a WALL top under THE LOOK - cyan and white, 50%"""
+def WALL_INK(x, y):
+    """SPEC.md 130.47.3: a WALL top - cyan and white, 50%, so a top the ball is not meant to roll on says so"""
     return CYN if (x + y) & 1 else WHT
 
 
@@ -9012,10 +9013,6 @@ def _ball_cols():
 
 FSHOW = 8                     # SPEC.md 130.28.6, the SHOW rule: the most lit ball px a FIELD cell's airborne pose may
 #                               show that the per-pixel rule hides, when nothing else needs those pixels
-# SPEC.md 130.47: THE LOOK (make's BZLOOK=1, the run's --look), OFF by default: a top's checker colour by its
-# height as well as its cell (130.47.2) and a WALL top in a cyan and white dither (130.47.3).  Off, today's
-# picture, byte for byte.
-LOOK = False
 # SPEC.md 130.47.5: CAST SHADOWS (make's BZSHADOW=1, the run's --shadow), OFF by default - the owner, 2026-11-18:
 # "good art, not good info", kept for a disk that can afford it.  Light from -x+y, a shadow 1 gu long for each
 # px of height
@@ -18971,7 +18968,7 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
-                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47: per-compile scratch; LOOK, SHADOW, _SHADOW_OK key it)
+                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
 
 
@@ -19512,12 +19509,11 @@ def check_demo(c, K, log, idents, where):
                                                                   idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
-    if bad and bad[0] == 4 and (LOOK or SHADOW):
-        # SPEC.md 130.47.4: THE LOOK or the shadows move the picture's ink and nothing the replay meets, so a knob
-        # build re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
-        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: %s moved the picture "
-                       "only (SPEC.md 130.47.4)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K],
-                                                    " + ".join((["the look"] if LOOK else []) + (["shadows"] if SHADOW else []))))
+    if bad and bad[0] == 4 and SHADOW:
+        # SPEC.md 130.47.5: the shadows move the picture's ink and nothing the replay meets, so a BZSHADOW build
+        # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
+        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the shadows moved the picture "
+                       "only (SPEC.md 130.47.5)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
     if bad:
@@ -32002,7 +31998,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, LOOK, SHADOW
+    global OCC_MODE, FSHOW_ALL, SHADOW
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -32050,9 +32046,6 @@ def main():
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 130.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
-    ap.add_argument("--look", action="store_true",
-                    help="SPEC.md 130.47's look (make's BZLOOK=1): a top's checker colour by its height, and WALL "
-                         "tops in a cyan and white dither; off by default (today's picture)")
     ap.add_argument("--shadow", action="store_true",
                     help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
                          "of height, a 50%% dither on the tops they fall on; off by default")
@@ -32069,7 +32062,6 @@ def main():
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
-    LOOK = a.look
     SHADOW = a.shadow
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
