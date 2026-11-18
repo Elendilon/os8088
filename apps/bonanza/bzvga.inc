@@ -47,6 +47,10 @@ BZV_VYM     equ 512             ; (2 lines)
 BZV_MX      equ 48
 BZV_MY      equ 40
 BZV_MAXR    equ 4               ; the VGA's rows a frame before a full write
+BZV_SXM     equ 8               ; the shown step's most a frame: a column across,
+BZV_SYM     equ BZV_MAXR        ; ...the rows' allowance down
+BZV_HYS     equ 192             ; its hysteresis, 1/256 px: the step moves one
+                                ; when the velocity is 3/4 px past it
 ; a ball part's copy: its 16-byte head, then every 5-byte row as 6 (SPEC.md
 ; 128.45.5); copy 0 then copy 1 (four pixels further right), each material's
 ; pair from a paragraph, in bz_bsegs' order (rubber, steel, glass)

@@ -5192,3 +5192,22 @@ owner's eye on the fix, soak rows (the V2a soak was running behind it).
 frames, FIRST's free play 500. **Not run**: the soak rows on this commit
 (the merge's soak is running in a worktree), a V20 at 70 Hz, the owner's
 eye.
+- **The owner's first look at it**: *"very unsmooth ... the same type of
+  microstutter the realdmg had initially. Smoothness is not 'few pixels'
+  but 'consistent timing and amount of pixels'"* - moves, stops, moves,
+  stops, skips of about 100 ms, and the game slow on the 5150.
+- **Measured before touching it**, BENCH on MartyPC: the camera build had
+  stayed at **70 Hz** and missed **69 frames in 1,200** - its scrolling was
+  spread so evenly that the divisor's test (8 late in 64) never fired, and
+  a frame that overran by a whole refresh was not even counted late. The
+  props merge was cleared the same way: V2b's build measures as the merged
+  LATTICE does.
+- **Three fixes**: the display moves in WHOLE steps that change by one at a
+  time with hysteresis (a velocity rounded per frame had been 0, 1, 0, 1 -
+  microstutter by construction); a ball past the hard margin gets the most
+  step instead of a snap (a big snap had been a full write - the skip); and
+  35 Hz latches at 2 late frames, misses counted.
+- **After**: 35 Hz, 27 misses in 1,200 (LATTICE 50), the same busy time,
+  the step changing in 30 of 800 frames across and 24 down. LATTICE, at
+  rest most of the time, changes in 8 and 8; whether the camera's runs now
+  read as smooth is the owner's to say.

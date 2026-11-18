@@ -281447,7 +281447,7 @@ CGA's and Hercules' pictures are untouched.
 
 **The held divisor** (the owner's D3): `bz_vstart` counts frames that ended
 late (past `BZ_VBAND`, or a refresh) in windows of 64; the first window
-with **8 or more** latches `[bz_vdiv]` 2 for the rest of the play - one
+with **8 or more** (2 since 128.45.12) latches `[bz_vdiv]` 2 for the rest of the play - one
 way, so the rate never alternates - and from then a frame done before the
 first rise after the last present waits that rise out (interrupts on) and
 presents at the second: **35 Hz**, a miss then 2.5 refreshes (`[bz_mlim]`
@@ -281520,14 +281520,20 @@ down):
   128 .. 192 px across, `BZV_ZYL` .. `BZV_ZYR` = 84 .. 116 lines down), 0
   inside it;
 - `v += 8 e; v -= v >> 2` (arithmetic), then `|v|` at most `BZV_VXM` (1,024:
-  4 px a tick) or `BZV_VYM` (512: 2 lines);
-- the position += `v`.
+  4 px a tick) or `BZV_VYM` (512: 2 lines).
 
-Inside the zone `e` is 0 and the camera coasts to rest; a ball running at
-full speed (2 px a step) holds about 8 px past the zone's edge. After the
-ticks, a HARD MARGIN: the ball centre at least `BZV_MX` (48) px and the
-centre line `BZV_MY` (40) lines inside the display, the position snapped
-and that axis's velocity zeroed if not.
+**The display moves in WHOLE, STEADY steps** (the owner's second look:
+*"smoothness is not 'few pixels' but 'consistent timing and amount of
+pixels'"*). The position is a whole px (line) and moves each frame by the
+axis's SHOWN STEP `s` (the byte after the velocity), signed, at most
+`BZV_SXM` (8 px, a column) or `BZV_SYM` (4 lines, the rows' allowance).
+After the ticks `s` moves ONE toward the frame's velocity `v [bz_vdiv]`
+(1/256 px) when that lies more than `BZV_HYS` (192, 3/4 px) past `s 256`,
+else stays: a run is uniform, never V2c's first 0, 1, 0, 1 of a velocity
+rounded each frame. A HARD MARGIN - the ball centre at least `BZV_MX`
+(48) px and the centre line `BZV_MY` (40) lines inside the display - sets
+`s` to the most step toward the ball at once; there is no snap (the first
+build's snap became a full write: the owner's "skip").
 
 **The engine's window from it**: `R0n` = `bz_vcy`'s whole line; `c0n` = c0
 while `bz_vcx` lies in [c0 8, c0 8 + 16] (the window's 16 px of slack,
@@ -281556,17 +281562,33 @@ the follower is only ever LATTICE's replacement in a play.
 back to back; the face still names TRICKLE. `bz_camera` resets LATTICE on
 any change of mode (it did on the change back to GLIDE alone).
 
+**The rate** (128.45.10's divisor, revised here): a window of 64 frames
+latches 35 Hz at `BZ_VLATE` = **2** late frames (it was 8), and at 70 Hz a
+frame that finds a whole refresh already past counts as late however early
+in the next one it lands (it did not count at all). The first camera build
+spread the scrolling so evenly that the 8088 stayed at 70 Hz under the old
+test and **missed one frame in 17** (69 in 1,200, BENCH): the owner's
+stop-start, and the "very slow" game on the 5150. A steady 35 Hz is the
+smoother picture there; a V20 holds 70.
+
 **Tuned on the host** (a full-speed run, stop, reverse and a wiggle at 35
-Hz, the integer rule above): the display's frame-to-frame step changes by
-at most 2 px (LATTICE's column pan by 2 - 4 against its rest), the ball's
-centre within 113 - 207 px of the display's 320.
+Hz, the follower above): all nine spring and damper pairs tried stayed
+smooth; 1/32 with 1/4 kept the ball's centre within 113 - 207 px of 320.
 
 **Measured** (MartyPC, the 8088 at 4.77 MHz, BENCH's autopilot route run
-on the camera - a scratch patch of the benchmark's LATTICE branch - 800
-frames): every presented frame's engine window 0 pixels off the host
-picture, the glass 40 of 40 exact; the display's steps a frame -2 .. 2 px
-across (596 of 799 still) and -1 .. 2 lines down; ONE full write (the
-first frame, as LATTICE's), 35 Hz held as under LATTICE. FIRST's free play
-with the arrows held, 500 frames: 0 pixels (the clock faces' digits, which
-that check does not draw, aside). **Cost**: 87 bytes resident, 11 of bss,
-284 in the part.
+on the camera - a scratch patch of the benchmark's LATTICE branch):
+
+| 800 frames (oracle), 1,200 (instruments) | the camera | LATTICE |
+|---|---|---|
+| engine window vs host picture; glass | 0 px; 20 of 20 exact | 0 px; exact |
+| rate; misses | 35 Hz; **27** | 35 Hz; 50 |
+| busy clocks a frame | 50.6k | 50.4k |
+| frames the display moves; its step CHANGES (x, y) | 256 of 799; 30, 24 | 66; 8, 8 |
+| full writes | 1 (the first) | 1 (the first) |
+
+FIRST's free play with the arrows held, 400 frames: 0 pixels (the clock
+faces' digits, which that check does not draw, aside), 35 Hz, the step
+never changing by more than 1 a frame. The props merge does not move these
+(V2b's build: 50.7k busy, 53 misses). **Cost** (against the merge before V2c): 97
+bytes resident (the hook, the rows' allowance, the start's multiply, the
+divisor's miss count), 11 of bss, 325 in the part.
