@@ -37,6 +37,41 @@ def ramp(sec, axis, x0, y0, x1, y1, z0, z1):
             SECTION[(x, y)] = sec
 
 
+CHUTE = {}          # (wx, wy) -> the height function of the chute it is part of
+
+
+def chute(sec, ways, depth):
+    """a 2-wide shaped channel: its crease through the cell corners `ways`
+    [(x, y, lip z)], its bottom `depth` units under the lip on the crease,
+    rising as a parabola to the lip one tile either side"""
+    segs, L = [], 0.0
+    for (ax, ay, az), (bx, by, bz) in zip(ways, ways[1:]):
+        n = abs(bx - ax) + abs(by - ay)
+        segs.append((ax, ay, az, bx, by, bz, L, n))
+        L += n
+
+    def near(px, py):
+        best = None
+        for ax, ay, az, bx, by, bz, l0, n in segs:
+            t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / (n * n)))
+            qx, qy = ax + (bx - ax) * t, ay + (by - ay) * t
+            dd = ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5
+            if best is None or dd < best[0]:
+                best = (dd, az + (bz - az) * t)
+        return best
+
+    def h(px, py):
+        dd, lip = near(px, py)
+        return lip - depth * (1 - min(dd, 1.0) ** 2)
+    xs = [w[0] for w in ways]; ys = [w[1] for w in ways]
+    for x in range(min(xs) - 1, max(xs) + 1):
+        for y in range(min(ys) - 1, max(ys) + 1):
+            if near(x + 0.5, y + 0.5)[0] <= 0.75:
+                CELLS[(x, y)] = (h(x, y), h(x + 1, y), h(x + 1, y + 1), h(x, y + 1))
+                SECTION[(x, y)] = sec
+                CHUTE[(x, y)] = h
+
+
 def rail(x0, y0, x1, y1):
     RAILS.append((x0, y0, x1, y1))
 
@@ -70,20 +105,16 @@ rail(23, 14, 23, 18)
 ramp("C", "y", 20, 18, 23, 20, Z - 6, Z - 7)                 # the lip ramp
 rail(20, 18, 20, 20); rail(23, 18, 23, 20)
 floor("T", 19, 20, 24, 25, Z - 10)                           # T, 3 units under the lip
-rail(19, 20, 19, 25); rail(19, 25, 24, 25)
+rail(19, 20, 19, 25); rail(19, 25, 24, 25); rail(24, 20, 24, 21); rail(24, 23, 24, 25)
 HOLES |= {(21, 22)}
-# D  three corners, each less forgiving: the first railed, the second half
-#    railed, the third open.  Gentle ramps on the legs
-ramp("D", "x", 24, 21, 27, 24, Z - 10, Z - 11)               # D1 leg
-rail(24, 21, 27, 21); rail(24, 24, 27, 24)
-floor("D", 27, 21, 30, 24, Z - 11)                           # K1, railed
-rail(27, 21, 30, 21); rail(30, 21, 30, 24)
-ramp("D", "y", 27, 24, 30, 27, Z - 11, Z - 12)               # D2 leg
-rail(27, 24, 27, 27); rail(30, 24, 30, 27)
-floor("D", 27, 27, 30, 30, Z - 12)                           # K2, half railed
-rail(27, 27, 27, 30); rail(27, 30, 28, 30)
-ramp("D", "x", 30, 27, 33, 30, Z - 12, Z - 13)               # D3 leg
-rail(30, 27, 33, 27); rail(30, 30, 33, 30)
+# D  the CHUTE: a shaped, two-wide channel (`chute 2 round`, SPEC.md
+#    130.28, like PLAYGROUND's), UNFENCED - its shape is the guide - from
+#    T's exit along +x, round a corner down +y, round a corner along +x into
+#    D3.  D3's rails come back up as it exits; K3's far end stays OPEN, so a
+#    ball out of the chute at full speed can overshoot into the void
+chute("D", [(24, 22, Z - 10), (28, 22, Z - 11), (28, 28, Z - 12), (31, 28, Z - 12)], 1.25)
+ramp("D", "x", 31, 27, 33, 30, Z - 12, Z - 13)               # D3, railed
+rail(31, 27, 33, 27); rail(31, 30, 33, 30); rail(31, 29, 31, 30)
 floor("D", 33, 27, 36, 30, Z - 13)                           # K3, open
 rail(33, 27, 36, 27)
 # E  the steps: one unit each, down onto floor (a drop onto floor is fine)
@@ -113,20 +144,19 @@ rail(45, 48, 45, 53); rail(45, 53, 51, 53); rail(51, 48, 51, 53)
 GOAL = {(x, y) for x in range(45, 51) for y in range(51, 53)}
 
 START = (5.5, 5.5)
-FLAGS = [(22.5, 24.0, "flag 0"), (48.5, 44.5, "flag 1")]
+FLAGS = [(23.0, 22.5, "flag 0"), (34.5, 35.5, "flag 1")]
 # clocks: (wx, wy, z of the face's foot, frame)
-CLOCKS = [(2.5, 8.5, Z, "pillar"), (31.5, 24.5, Z - 9, "pillar"), (52.5, 50.5, Z - 21, "pillar")]
-for x, y, z, _ in CLOCKS:
-    WALLS.append((int(x), int(y), int(x) + 1, int(y) + 1, z - 2))
+# every clock a STANDARD part standing over the void, beside the path (no tile under it)
+CLOCKS = [(2.5, 8.5, Z, "over void"), (31.5, 23.5, Z - 9, "over void"), (52.5, 50.5, Z - 21, "over void")]
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(5.5, 5.5), (6, 9), (6, 12.5), (9, 12), (12, 12.5), (12, 15), (12, 17),
          (13.5, 17), (17, 17), (21.5, 16), (21.5, 19), (21.5, 20.5), (22.6, 23.5),
-         (24, 22.5), (27, 22.5), (28.5, 23), (28.5, 26), (28.5, 28.5), (31, 28.5),
+         (23, 22.2), (25, 22), (27, 22.3), (27.8, 23.5), (28, 26), (28.4, 27.6), (30, 28), (32, 28.3),
          (34.5, 28.5), (34.5, 31), (35, 36), (35, 40), (35.5, 43), (38, 43),
          (41, 43.5), (45.5, 43.5), (47.5, 44), (48, 46), (48, 52)]
 LABELS = [(6, 6, "A start"), (12, 12, "A hill"), (17, 17, "B ledge"), (21.5, 16, "C lip"),
-          (21.5, 23, "T"), (28.5, 22.5, "K1"), (28.5, 28.5, "K2"), (34.5, 28.5, "K3"),
+          (21.5, 23, "T"), (26, 22, "D chute"), (34.5, 28.5, "K3 open"),
           (34.5, 33, "E steps"), (35, 40, "W walk"), (43, 43.5, "F leap"),
           (48, 51, "H goal")]
 
@@ -161,7 +191,10 @@ def plan(out):
         if (x, y) in GOAL:
             col = (255, 255, 255) if (x + y) % 2 else (40, 40, 40)
         d.rectangle([x * S, y * S, x * S + S - 1, y * S + S - 1], fill=col, outline=(60, 60, 70))
-        if c[0] != c[2] or c[1] != c[3]:
+        if (x, y) in CHUTE:
+            dep = min(c)
+            d.text((x * S + 5, y * S + 3), "~", fill=(0, 0, 0))
+        elif c[0] != c[2] or c[1] != c[3]:
             d.text((x * S + 4, y * S + 3), "v" if c[3] < c[0] else ">", fill=(0, 0, 0))
     for x0, y0, x1, y1, z in WALLS:
         d.rectangle([x0 * S, y0 * S, x1 * S - 1, y1 * S - 1], fill=(90, 70, 70))
@@ -216,7 +249,17 @@ def iso(out):
                   fill=tuple(v // 2 for v in base))
         d.polygon([Q(x + 1, y, ne), Q(x + 1, y + 1, se), Q(x + 1, y + 1, ground), Q(x + 1, y, ground)],
                   fill=tuple(v * 2 // 3 for v in base))
-        d.polygon(top, fill=base, outline=tuple(v * 3 // 4 for v in base))
+        if (x, y) in CHUTE and not wall:
+            hf, k = CHUTE[(x, y)], 4
+            for i in range(k):
+                for j in range(k):
+                    a0, b0, a1, b1 = x + i / k, y + j / k, x + (i + 1) / k, y + (j + 1) / k
+                    zz = [hf(a0, b0), hf(a1, b0), hf(a1, b1), hf(a0, b1)]
+                    sh = 0.75 + 0.25 * (zz[1] + zz[2] - zz[0] - zz[3] + 2) / 4
+                    col = tuple(min(255, int(v * sh)) for v in base)
+                    d.polygon([Q(a0, b0, zz[0]), Q(a1, b0, zz[1]), Q(a1, b1, zz[2]), Q(a0, b1, zz[3])], fill=col)
+        else:
+            d.polygon(top, fill=base, outline=tuple(v * 3 // 4 for v in base))
     for x0, y0, x1, y1 in RAILS:
         n = max(abs(x1 - x0), abs(y1 - y0)) * 2
         seg = []
@@ -244,13 +287,13 @@ def iso(out):
     # route's px span against the camera's dead zone (160 px on the CGA)
     rx = [Q(x, y, zat(x, y))[0] for x, y in ROUTE]
     mid = (min(rx) + max(rx)) // 2
-    for i, (x, y) in enumerate((ROUTE[0], ROUTE[16], ROUTE[-1])):
+    for i, (x, y) in enumerate((ROUTE[0], ROUTE[15], ROUTE[-1])):
         _, cy = Q(x, y, zat(x, y))
         d.rectangle([mid - 160, cy - 100, mid + 160, cy + 100], outline=(0, 255, 255))
     d.line([mid - 80, 0, mid - 80, H], fill=(70, 70, 120))
     d.line([mid + 80, 0, mid + 80, H], fill=(70, 70, 120))
     d.text((8, 8), "route px span %d (CGA dead zone 160); course %d lines tall; cyan boxes = one CGA "
-           "window at the start, K2's clock and the goal" % (max(rx) - min(rx), H - 220), fill=(220, 220, 220))
+           "window at the start, the chute's clock and the goal" % (max(rx) - min(rx), H - 220), fill=(220, 220, 220))
     im.save(out)
     return max(rx) - min(rx), H
 
