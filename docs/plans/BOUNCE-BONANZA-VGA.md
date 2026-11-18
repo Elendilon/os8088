@@ -755,8 +755,15 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 - [x] SPEC.md 130.1's adapter paragraph and the face's greying line were
       V1's; H5 closed in BOUNCE-BONANZA-PLAN.md (D4); `tools/bzprof.py`,
       the sampling profiler of 130.46.13, kept for the optimisation round.
-- [ ] The scoped soak over the union, in the background (fork rule 10), and
-      the rows' `secs` re-measured from it.
+- [x] The scoped soak over the union, in the background (fork rule 10):
+      `bonanza*` and `vgaprobe`, 14 of 16 green - every VGA leg among them.
+      `bonanzacourse` and `bonanzaring` red, neither the VGA's: the first is
+      PLAYGROUND's oversized course (the props round), and `bonanzaring`
+      timed out on CPU under four lanes (alone: 1,180 s, 566 CPU s) and,
+      alone, fails two CGA / Hercules checks - `voidfall`'s window margin and
+      TRIAL's three-box frame - that fail the same at the last upstream
+      commit before the VGA's work (6d1b64c46): the course work's, not
+      this arm's. The rows' `secs` re-measured from it.
 
 ### V4: the field run (owner's machine)
 

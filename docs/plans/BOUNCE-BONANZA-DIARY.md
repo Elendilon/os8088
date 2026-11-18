@@ -6185,3 +6185,9 @@ worth more than this course:
   on a 4-tile island the first layout's turn left no speed for the gap.
 - *Proposed, not yet seen on the glass*: `palette 0 ground 1`, islands on a
   blue sea. Recoloured previews only; the playtest disk is the first look.
+- **The soak, and whose its reds are.** 14 of 16 green. `bonanzaring`'s
+  timeout was contention (566 CPU s alone, against 900). Alone, it showed
+  two CGA / Hercules failures; the game-clock fix was the suspect - the one
+  change the CGA runs - and was cleared by a build without it, then both
+  failures were found at the last upstream commit before any VGA work. They
+  are the course work's to fix.
