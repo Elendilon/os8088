@@ -1,4 +1,4 @@
-# Hump Test - BONANZA's HUMP test course (SPEC.md 128.44), built only by the BZHUMP=1 knob (make BUILD=<tree>
+# Hump Test - BONANZA's HUMP test course (SPEC.md 130.44), built only by the BZHUMP=1 knob (make BUILD=<tree>
 # BZHUMP=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it the pathway's pad 0,
 # so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A hump is FIELD cells that rise ABOVE
 # the plate round them: a raised cosine, 6 px (LOW) or 10 px (HIGH) at its crest, the plate's own height at its
@@ -11,7 +11,7 @@
 #    from rest, rubber with a cell of run-up, steel only with a long run (the corridor's 5 cells) - from a
 #    standstill at its foot steel STALLS and rolls back.  Its goal is exit 0;
 #  - THE HIDE (front): a HIGH dome with a glass pad behind it and the exit 1 goal beyond: the dome hides part of
-#    the pad and of a ball rolling behind it, never all of either for more than a ball length (128.44.4).
+#    the pad and of a ball rolling behind it, never all of either for more than a ball length (130.44.4).
 course HUMP "Hump Test"
 width 128
 origin 448

@@ -144,8 +144,20 @@ def read_families():
     return {k: v for k, v in fams.items() if len(v) >= 2}
 
 
+# DELIBERATE SHARES: two flags on one bit whose meanings are told apart by
+# ANOTHER bit of the same field, so no row can carry both. Each one is a
+# decision written down in SPEC.md with its reason - and each is checked to
+# still be needed, so an entry cannot outlive the share it excuses.
+SHARED = {
+    # SPEC.md 20.12.16: bit 6 is OP_ZFILL on an EAGER parts row and OP_ARENA
+    # on a LAZY one (OP_LAZY says which) - OP_BIG took bit 7, the byte's last
+    ("OP_R_FLAG", frozenset(("OP_ARENA", "OP_ZFILL"))),
+}
+
+
 def main():
     vals = read_values()
+    used = set()
     fams = read_families()
     bad, masks = [], 0
     for (rel, field), syms in sorted(fams.items()):
@@ -166,12 +178,17 @@ def main():
             if n and (n & (n - 1)):
                 masks += 1                   # a named combination, not a flag
                 continue
-            if n in seen:
+            if n in seen and (field, frozenset((seen[n], sym))) in SHARED:
+                used.add((field, frozenset((seen[n], sym))))
+            elif n in seen:
                 bad.append("%s:%d  %s and %s are BOTH %d, and both are used "
                            "against %s - one byte, one bit, two meanings"
                            % (rel, line, seen[n], sym, n, field))
             else:
                 seen[n] = sym
+    for field, pair in sorted(SHARED - used, key=str):
+        bad.append("SHARED names %s on %s, and no code shares that bit any "
+                   "more - take the entry out" % (" and ".join(sorted(pair)), field))
     print("t_bits: %d flag field(s) across %s, %d named mask(s) skipped"
           % (len(fams), "/".join(TREES), masks))
     for b in bad:

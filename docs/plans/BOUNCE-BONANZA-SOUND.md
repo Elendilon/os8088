@@ -1,11 +1,11 @@
 # BOUNCE BONANZA — the sound (plan, stories and how it was built)
 
-The contract is SPEC.md 128.20; this is the plan it was built from, the story
+The contract is SPEC.md 130.20; this is the plan it was built from, the story
 list with what each story's evidence actually is, and the diary. It was
 built by a second session **in parallel** with the main game's waves (SPEC.md
-128.12, [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md) and its
+130.12, [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md) and its
 [diary](BOUNCE-BONANZA-DIARY.md)), so it touches their files only at a few
-named seams, and its SPEC section is numbered 128.20 to leave 128.13 - 128.19
+named seams, and its SPEC section is numbered 130.20 to leave 130.13 - 130.19
 to their waves.
 
 ## The brief (the owner, 2026-11-13)
@@ -34,7 +34,7 @@ to their waves.
 | D8 | The AdLib's vibrato is **the chip's VIB bit**; effects set their level **once a segment** | a written vibrato or decay is a register batch every sub-tick or two |
 | D8b | **No written vibrato on the speaker either**, and the speaker keys **no chord voice** | the counterfactual (below): the sound cost BENCH 7 refreshes and the windmills 2 rotor poses; a written vibrato was a tone every other sub-tick |
 | D9 | Patches **resumable** across frames (`H_PPOS`), cap 8 | no frame passes the cap, a note a frame or two late at most |
-| D10 | Physics is never touched for sound: **counters** it already keeps, one added (`bz_nwall`) | the main waves own physics; the counters were left for this (SPEC.md 128.11.5.2, 128.12.6.6) |
+| D10 | Physics is never touched for sound: **counters** it already keeps, one added (`bz_nwall`) | the main waves own physics; the counters were left for this (SPEC.md 130.11.5.2, 130.12.6.6) |
 | D11 | **A part a song**, the sound part shared | only one song in memory; ~2KB held at most; the floppy pays 4.9KB packed |
 | D12 | The five course themes composed by five parallel agents to one brief, the title and the bank here | each checked by the tool and reviewed bar by bar against its chords; one agent found the instrument carry-over bug (diary) |
 
@@ -70,7 +70,7 @@ to their waves.
 - [x] **S8 The cost**, measured and cut: speaker 8,900 -> 3,319 cycles a
       frame, AdLib 8,492 -> 6,433 (worst frames 13.4k and 29.9k), and what it
       costs the game measured against the same tree with the sound off
-      (SPEC.md 128.20.7). *Evidence: `bonanzasound`'s report; the
+      (SPEC.md 130.20.7). *Evidence: `bonanzasound`'s report; the
       counterfactual runs of `bonanzaperf` and `bonanzawheel`.*
 - [ ] **S9 The owner's ear.** Every patch, effect and song is PROVISIONAL
       until heard on the 5150s (#1's speaker, #2's PicoMEM AdLib).
@@ -94,7 +94,7 @@ Hz verbs. Bonanza's physics steps once a FASTTICK sub-tick, 21,845 PIT counts
 batch exist and ARCADE drives them from a bracket. Wave 2 left counters for
 "wave 4's sounds"; wave 3's contract added three more.
 
-**Decided** D1 - D4, D6, D10, D11 (above) and wrote SPEC.md 128.20 first.
+**Decided** D1 - D4, D6, D10, D11 (above) and wrote SPEC.md 130.20 first.
 
 ### The compositions
 
@@ -155,7 +155,7 @@ difference, ~3.4k cycles a BENCH frame. Two more cuts (no written vibrato on
 the speaker; no chord key-ons there) took the speaker from 4,296 to 3,319 a
 frame - not enough to pass both rows. **Decided**: those rows test the engine
 and the wheel at EQUAL content, so they run with S's OFF (poked), and the
-price is on the record in SPEC.md 128.20.7 for the owner to weigh, rather than
+price is on the record in SPEC.md 130.20.7 for the owner to weigh, rather than
 either row's threshold moved or the sound quietly thinned further.
 
 ### Merged onto wave 3

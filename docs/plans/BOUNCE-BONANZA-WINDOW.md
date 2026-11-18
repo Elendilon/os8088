@@ -1,9 +1,9 @@
-# Bounce Bonanza: the window (SPEC.md 128.26)
+# Bounce Bonanza: the window (SPEC.md 130.26)
 
 The owner's brief (2026-11-16), run beside wave 9 (mechanics as parts) on
 the same branch: bring the desktop window and its interactions up to spec,
 then remove or gate the development keys and decided experiments. SPEC.md
-128.26 is the contract; this file is the story list. Each story says what a
+130.26 is the contract; this file is the story list. Each story says what a
 player sees, and how it was checked. A box is ticked only when the story
 WORKS, not when its code exists.
 
@@ -80,7 +80,7 @@ rows) fail - and `bonanzaring` fails identically at wave 9's own tip
 
 `bonanzagame`, `bonanzaexit`, `bonanzapath`, `bonanzatitle`, `bonanzademo`,
 `bonanzareplay`, `bonanzasound`, `bonanzamusic`, `bonanzamega` - each
-launches through the window, so each needs `bz_dev` (128.26.6). A row of
+launches through the window, so each needs `bz_dev` (130.26.6). A row of
 its own for W1 - W6 (`bonanzawin`, the scratch drives above made a row) is
 NOT written yet: the next step. Run once, after the last batch (CLAUDE.md,
 Testing).

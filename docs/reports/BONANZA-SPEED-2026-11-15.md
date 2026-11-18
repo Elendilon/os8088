@@ -1,6 +1,6 @@
 # BONANZA: the speed pass of 2026-11-15 (a dated measurement)
 
-A report, not a contract: SPEC.md 128 is the authority on what BONANZA does,
+A report, not a contract: SPEC.md 130 is the authority on what BONANZA does,
 and this file is what one tree measured on one day. Base `621bdefb`; the
 pass is the merges and commits after it on `bounce-bonanza`.
 

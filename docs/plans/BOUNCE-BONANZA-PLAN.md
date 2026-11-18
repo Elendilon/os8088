@@ -1,24 +1,24 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
-**STATUS (2026-11-16): WAVE 8R's ROUNDS AND THE DIAGONAL TILES (SPEC.md 128.24) IN PROGRESS; WAVE 9's CONTRACT WRITTEN (SPEC.md 128.25), its story 9.0 next.** Earlier:
+**STATUS (2026-11-16): WAVE 8R's ROUNDS AND THE DIAGONAL TILES (SPEC.md 130.24) IN PROGRESS; WAVE 9's CONTRACT WRITTEN (SPEC.md 130.25), its story 9.0 next.** Earlier:
 
 **STATUS (2026-11-15): WAVES 5a TO 6b DONE, GATE 1 CLOSED AS A BASELINE
-(SPEC.md 128.17.18), THE SPEED PASS MERGED; WAVE 7 (TIME) IS NEXT.** Below,
+(SPEC.md 130.17.18), THE SPEED PASS MERGED; WAVE 7 (TIME) IS NEXT.** Below,
 the status as it stood at the regroup.
 
 **STATUS AT THE REGROUP: WAVES 0 TO 4 DONE AND MEASURED; THE REGROUP TOWARD
 A RELEASE IS NEXT (2026-11-14).** Wave 0 (the spike) was a GO (the owner, 2026-11-12:
 "we are good to continue"). Since then, each with its SPEC.md section:
-- wave 0b, the camera (SPEC.md 128.9);
-- wave 1, the text course and physics v1 (128.10);
-- wave 2, feel: three balls, replays (128.11);
-- wave 3, obstacles and the wheel (128.12);
-- wave 3b, the performance round (128.13);
-- the SOUND, built beside them by another session (128.20);
+- wave 0b, the camera (SPEC.md 130.9);
+- wave 1, the text course and physics v1 (130.10);
+- wave 2, feel: three balls, replays (130.11);
+- wave 3, obstacles and the wheel (130.12);
+- wave 3b, the performance round (130.13);
+- the SOUND, built beside them by another session (130.20);
 - wave 4, a game: the tour, flags, pads, springs, the cup, demos on the
-  disk, the mouse as a tilt stick, MOON and PEAK (128.14). Its HUD did not
+  disk, the mouse as a tilt stick, MOON and PEAK (130.14). Its HUD did not
   fit the frame and was removed. Its measured results and open items are
-  128.14.26-27.
+  130.14.26-27.
 
 **What comes next is [Toward a release](#toward-a-release)**, the roadmap
 built on the owner's end goal and eight further decisions of 2026-11-14.
@@ -63,7 +63,7 @@ The prototype pictures referred to below are in
 host-only script that `make` does not use and that ships nothing.
 
 **The title screen** (the owner, 2026-11-16) has a plan of its own:
-[BOUNCE-BONANZA-TITLE.md](BOUNCE-BONANZA-TITLE.md), contract SPEC.md 128.23.
+[BOUNCE-BONANZA-TITLE.md](BOUNCE-BONANZA-TITLE.md), contract SPEC.md 130.23.
 
 ---
 
@@ -81,19 +81,19 @@ built around two things:
 - the owner's EIGHT FURTHER DECISIONS of the same day, which bind it (R1).
 
 It was drafted from an inventory of everything still open in this plan,
-SPEC.md 128, the diary and the sound plan. Three reviewers then read the
+SPEC.md 130, the diary and the sound plan. Three reviewers then read the
 draft for the engine, the game design and the scope. They returned 49
 findings; R10 says which were taken, which were taken in part, and which
 were rejected.
 
 Figures are marked:
-- **MEASURED**: from SPEC.md 128's rows, or measured host-side at
+- **MEASURED**: from SPEC.md 130's rows, or measured host-side at
   `36fee621` by a scratch script (not a row) over the tool's own parts.
 - **PREDICTED**: arithmetic.
 - **SUGGESTION**: the planner's idea, not the owner's; R8 collects them.
 
 No SPEC.md section is written here. Each wave writes its contract into
-SPEC.md 128 before its code, as waves 1 to 4 did.
+SPEC.md 130 before its code, as waves 1 to 4 did.
 
 ### R1 The owner's decisions this roadmap is built on
 
@@ -166,7 +166,7 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
     ramp that ends in a drop hole.
   - Each design sheet (wave 11's pipeline, step 1) names its place on
     this curve and the one new demand it makes.
-- *Amended 2026-11-16 (SPEC.md 128.27.5): the budget below was sized for
+- *Amended 2026-11-16 (SPEC.md 130.27.5): the budget below was sized for
   twenty courses on one 360KB disk, and that goal is no longer binding -
   the owner: "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The budget is reported, never refused.*
 - **CD3. LONGER COURSES.** About **30 s** for the early courses, **60 s**
@@ -178,7 +178,7 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
   - so a 90 s course needs wave 11's RAM levers AND a slower pace, at
     least 0.425 s a block row, or the grid in a claim of its own (the
     report's section 6).
-  - **The documented escape is the TWO-PART COURSE** (SPEC.md 128.15.8;
+  - **The documented escape is the TWO-PART COURSE** (SPEC.md 130.15.8;
     the owner, 2026-11-14: "we can look into the option if we actually
     need it"): the picture (map and block pool) in one part, the
     occluders, masks, grid and props and lanes in another, each up to
@@ -204,11 +204,25 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
   intended route, and a rubber rung starts at 1.5 units down (7 points). A
   design sheet places one only where rubber crossing is intended or another
   ball is required, and says which; until wave 11's pipeline the tool only
-  LISTS them (`gap3_scan()`), it does not check a sheet (SPEC.md 128.17.5).
+  LISTS them (`gap3_scan()`), it does not check a sheet (SPEC.md 130.17.5).
 - **CD6. A boost spot** is a firm level floor (normal or ice, no prop)
   about 2 tiles past the take-off point at the cap, and less than about 1.2
   units below it; ramps, sand, mats and props refuse the boost (SPEC.md
-  128.17.5).
+  130.17.5).
+
+**The owner's review of the test courses (2026-11-18), binding from wave
+11 on.** The rules are G1 - G22 in the course design guide,
+[bonanza-courses/README.md](bonanza-courses/README.md), and the diary has
+the review verbatim. In short:
+- courses run 25 s at least, usually 35 s or more (this amends CD3's 30 s);
+- courses run mostly vertically, and no jump needs a horizontal pan;
+- no softlock, ever;
+- a main finish is always visible;
+- clocks: one in view from the start and from every finish, never two on one
+  screen, never on a main pathway, never more than about 15 s without one in
+  view, 2 - 5 a course;
+- rubber is the main ball, and steel and glass are mechanic stretches;
+- sand, ice, lifts, pads and flags each earn their place.
 
 ### R2 The disk question: a shared tile and prop map?
 
@@ -294,7 +308,7 @@ What it buys and costs:
 - **RAM.** Unchanged. The expansion writes today's BZC1 bytes exactly,
   byte for byte, so no writer, no compose and no row changes.
 - **Identity.** Unchanged too, because the course identity (SPEC.md
-  128.12.8) is computed over the expanded part. The shipped demos and the
+  130.12.8) is computed over the expanded part. The shipped demos and the
   players' bests survive the change.
 - **Code.** About 150-250 bytes, launch-only (PREDICTED).
 - **Load time.** About 50-80 clk a record: PEAK's 3,289 records take about
@@ -331,16 +345,16 @@ layout above is not the best form.
 - With the four small items in wave 5b, all six courses go from 83,152 to
   42,792 bytes packed.
 
-Wave 5b's stories follow the report, and **SPEC.md 128.15 is the
+Wave 5b's stories follow the report, and **SPEC.md 130.15 is the
 contract** (2026-11-14). It also corrects three statements above:
 - `OP_ZFILL` is refused on a LAZY row (SPEC.md 20.12.7.5), and a course
   part is lazy. So each section's zeros sit inside its own slot, inside
-  the stream (SPEC.md 128.15.4.3), at about 136 bytes of LZ4 for the six.
+  the stream (SPEC.md 130.15.4.3), at about 136 bytes of LZ4 for the six.
 - RAM is NOT unchanged: the 4-byte records free about 13KB of PEAK's part
-  (SPEC.md 128.15.14), unless the fallback C ships.
+  (SPEC.md 130.15.14), unless the fallback C ships.
 - The identity is NOT unchanged: it is taken over the RAM form, which 5b.2
   and 5b.6 change, so MOON's and PEAK's demos are re-authored and old
-  bests and logs no longer match (SPEC.md 128.15.7).
+  bests and logs no longer match (SPEC.md 130.15.7).
 
 **Recommendation:** take (b-prime) now, in wave 5b. Keep (b)'s world block
 pool as an option for when worlds exist and their art is drawn from a
@@ -386,7 +400,7 @@ owner play; R5 says when the scoped soak runs.
 | **8a** | The shell's code part (O46), proven on kern_mega | S-M | | 1 |
 | **8b** | The loop: one bracket, the pathway, several finishes, lives, save v2, the tour removed | L | | 1 |
 | **8c** | The front window, exploration, medals, intro and result cards, the pause overlay | M | **gate 2: the shell** | 1 |
-| **9** | Mechanics as parts (SPEC.md 128.25): the Y0 search, the hook table, per-play state and resets, the claim arena, the balls generated at fetch, GLASS and PICKUPS on PLAYGROUND, today's props as families | L | the owner plays PLAYGROUND's new sections | 1 |
+| **9** | Mechanics as parts (SPEC.md 130.25): the Y0 search, the hook table, per-play state and resets, the claim arena, the balls generated at fetch, GLASS and PICKUPS on PLAYGROUND, today's props as families | L | the owner plays PLAYGROUND's new sections | 1 |
 | **10** | Performance (the owner's "later"), the ghost measured | L | | 1 |
 | **11** | The tutorial (FIRST and TRIAL rebuilt) and the course pipeline | M | gate per course | 1 |
 | **12** | World 1, one course at a time | L | gate per course | 1 |
@@ -415,7 +429,7 @@ without rebuilding a shipped course. The owner's "about 20 courses, about
 - **Gate 1:** after wave 6, the physics on the playground course. Freezing
   O11 here is what lets demos be recorded.
   Round 1 was played on 2026-11-14; wave 6b is its retune, and round 2
-  plays wave 6b's disk before the freeze (SPEC.md 128.17.12).
+  plays wave 6b's disk before the freeze (SPEC.md 130.17.12).
 - **Gate 2:** after wave 8c, the shell.
 - **Per course** in waves 11-13, 16 and 17: a playtest disk.
 - **Gate 3:** before release 1, a field run on the 5150s.
@@ -423,7 +437,7 @@ without rebuilding a shipped course. The owner's "about 20 courses, about
 ### R4 Budgets: the frame, the disk, RAM, claims and the image
 
 **The frame.** A CGA refresh is 4.77 MHz / 59.92 Hz, about **79.6k clk**.
-Busy mean per frame and misses (MEASURED, SPEC.md 128.14.26, through `D`,
+Busy mean per frame and misses (MEASURED, SPEC.md 130.14.26, through `D`,
 HUD off):
 
 | demo | CGA, speaker OFF | CGA, speaker ON | Hercules OFF | Hercules ON |
@@ -460,7 +474,7 @@ owner's HUD rule: **at most 2 more misses a card with the speaker on.**
 | family dispatch | about 0 unused (a bit test); about 0.1k per active hook per step (a far call) | none | fits |
 | wind | 0.1-0.2k a step in its region | streak lanes, wheel-paced like a rotor | fits; each lane counts against the 6 per window (O24) |
 | magnet | 0.3-0.5k a step in range | none | fits |
-| cracked tile, glass reveal | about 30 clk a step | a lane commit next to the ball: a contact-box frame (SPEC.md 128.12.4.2), competing with springs, bumpers and the lift | fits once red arm `contact` has its scene; the tool bounds how many can meet one window |
+| cracked tile, glass reveal | about 30 clk a step | a lane commit next to the ball: a contact-box frame (SPEC.md 130.12.4.2), competing with springs, bumpers and the lift | fits once red arm `contact` has its scene; the tool bounds how many can meet one window |
 | rubber's boost | about 50 clk at a contact | none | fits; the bytes and bounds are priced by the tool (6.5) |
 | **a full GHOST sprite** | **+12-15k** (one more box); and two more footprints in a frame bounded to four boxes; and every box keeps lanes from committing, so rotors and clocks run late | none | **no on MILL and PEAK's CGA frames** (the mean would reach 73-76k of 79.6k with the speaker on). Wave 10 measures it (T12) |
 | pathway, front window, save | 0 (not in the play frame) | none | fits |
@@ -493,7 +507,7 @@ plan is:
   (PEAK-class);
 - the tool prints the budget and refuses past it (5b.4), as it refuses a
   part over 65,024 bytes. It is a design input, like the frame.
-  *Restated by SPEC.md 128.15.8: about 209 bytes a target second, so about
+  *Restated by SPEC.md 130.15.8: about 209 bytes a target second, so about
   6.1, 12.3 and 18.4 KiB for a 30, 60 and 90 s course, refused past 1.5
   times that.*
 
@@ -513,7 +527,7 @@ MOON's and PEAK's pace:
 So the shortlist does most of the work, and one large lever is still the
 owner's choice after 5b.1 reports the real figures:
 - LZB for the parts, at about +0.9 s on a long course's launch for the
-  course alone. *SPEC.md 128.15.9 adds the balls: the format byte is the
+  course alone. *SPEC.md 130.15.9 adds the balls: the format byte is the
   parts table's, so the three balls are LZB too, and PEAK's launch is
   PREDICTED at up to about +1.6 s over LZ4 until wave 9's ball V2, an
   upper bound that the final pass measures;*
@@ -524,9 +538,9 @@ owner's choice after 5b.1 reports the real figures:
 - 20 courses on ONE disk**, with the Worlds disk only as a last resort
 (story 8b.11). The 239 KiB above was sized for twenty; at 18 courses each
 budget would be about 11% looser, and the pinned budgets are not changed
-for that (SPEC.md 128.15.8).*
+for that (SPEC.md 130.15.8).*
 
-*Amended by the owner, 2026-11-16 (SPEC.md 128.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The 1.5 x
+*Amended by the owner, 2026-11-16 (SPEC.md 130.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The 1.5 x
 refusal is now a reported figure; one disk is no longer the plan's
 requirement.*
 
@@ -543,7 +557,7 @@ venue, because 130 clusters or more is too large a share of it. BONANZA
 keeps its own disk in all four geometries, and only the 360KB one binds.
 
 **RAM** was unchanged by the first form of BZC2, which expanded to
-today's form. *Wave 5b's 4-byte records change that (SPEC.md 128.15.14):
+today's form. *Wave 5b's 4-byte records change that (SPEC.md 130.15.14):
 PEAK's part falls to 47,796 bytes (MEASURED on the host) and its play leaves about 33.5KB
 free, unless the fallback C ships.* Today PEAK's play leaves about 20.5KB
 free on a 256KB 5150 (A18), and PEAK's part has 4,168 bytes left under
@@ -553,7 +567,7 @@ them. A SUGGESTION for wave 10 (T10): 4-byte records in RAM as well.
 
 **Claims** (a review finding). `MEM_OWNER_MAX` is 8 on kern_big
 (`kernel/memory.inc`) and 12 on kern_mega. A play already holds SEVEN
-(SPEC.md 128.14.11): the region, the course, three balls and the sound's
+(SPEC.md 130.14.11): the region, the course, three balls and the sound's
 two. So:
 - **all of a course's family parts go into ONE claim** (8 of 8);
 - the three ball parts move into one carved claim in wave 9 (story 9.1),
@@ -564,7 +578,7 @@ two. So:
 The tool and the framework state the count, and wave 9 adds it to the
 per-course limits.
 
-**The resident image** (SPEC.md 128.14.26 item 9): 32,640 bytes today,
+**The resident image** (SPEC.md 130.14.26 item 9): 32,640 bytes today,
 grown from 27,421 at wave 3b. Twenty courses add about 31 bytes each of
 names and titles, plus part rows for courses, demos, songs and families:
 **about 1-1.5KB resident** (PREDICTED). Wave 10's T9 is restated as a byte
@@ -577,7 +591,7 @@ bracket, and it stays resident.
 ### R5 Process, for every wave
 
 These follow CLAUDE.md's waves and testing rules:
-- Each wave writes its contract into SPEC.md 128 before its code, and keeps
+- Each wave writes its contract into SPEC.md 130 before its code, and keeps
   the diary.
 - Each batch verifies on the host (`make`, `make KERN_SMALL=1`, the image
   figures, `bbcourse.py --selfcheck`) and NAMES the rows it reaches.
@@ -624,13 +638,13 @@ These follow CLAUDE.md's waves and testing rules:
 
 **Goal:** remove the HUD's dead code and bring the records up to date.
 Host work and row edits only. **No byte of the package changes**, and
-`cmp` proves it. The contract is SPEC.md 128.15.3.
+`cmp` proves it. The contract is SPEC.md 130.15.3.
 
 | # | story | verified by |
 |---|---|---|
 | 5a.1 | **DONE.** **The dead HUD code leaves the rows** (I1). The HUD lines go from `bonanza_ring.py` (91), `bonanza_perf.py` (56), `bonanza_wheel.py` (50), `bonanza_game.py` (39) and `bonanza_mega.py` (7): 243 in all, MEASURED. The eight red arms that skip themselves go too: `hudinset`, `hudold`, `hudlane`, `hudfull`, `hudon`, `hudhold`, `hudtime`, `hudrect`. `noblank` stays: it is the full write's blank, not the HUD's. `tests/suite.py`'s texts for five rows lose their HUD sentences | `os88test.py --list` (the registry imports); `bonanza_ring.py --check-reds` and the other four's `--check`; the rows run once in 5b's final pass. *Done: the five rows carry no HUD code (a one-line pointer each in `ring` and `perf`); `--list`, `--check-reds` and the four `--check`s pass; the rows are 5b's final pass's* |
-| 5a.2 | **DONE.** **`bbcourse.py`'s NOTHING UNDER THE HUD goes** (I2): `HUD_COLS`, `HUD_LINE`, `HUD_LINES`, `hud_zones()`, `hud_conflicts()`, the `no_hud` hack, and `--selfcheck` item 8's two HUD lines and its `underhud` control. `c.prop_pix` STAYS: its only readers today go with the refusal, but it is the mark set 5b.6's audit counts. `tests/suite.py`'s `bonanzacourse` text loses NOTHING UNDER THE HUD | `--selfcheck`; a cup ~~inside the old panel's rect~~ on the green's front-left cell compiles (no compilable cup ever reached the rect, SPEC.md 128.14.18 item 6, 128.15.3); two private trees, one from 5a's commit and one from a worktree of its parent: `cmp` equal on `BONANZA.O88`, every `BZ<K>.BIN`, every `BZD<K>.BIN` and `bzcourse.inc` (none carries the build number). *Done: `--selfcheck` ok (item 8: the front-left cup compiles); `make BUILD=<dir> bonanzadisk` from a worktree of `0e5e46ca` and from the working tree - `bonanza.bin`, `BONANZA.O88`, `BZ0 - BZ5.BIN`, `BZD1 - BZD5.BIN`, the ball, sound and song parts and all three `.inc`s `cmp` EQUAL; only `.bz-crs` (the tool's hash) and the images' `README.MD` differ* |
-| 5a.3 | **DONE.** **The records**: `apps/bonanza/README.md` brought to wave 4 as built (N cycles the five courses 1 - 5, BENCH being B's; the "predates" line goes) (I3); `apps/RETIRED.txt`'s comment says wave 4 (I4); docs/HEAP-CLAIMS.md's course-part row with MOON (51,240) and PEAK (60,856), MILL at 33,858 and FIRST at 9,748 (I5); a pointer at SPEC.md 128.14.4.1's rule. **The README ships on BONANZA's disks**, so `bonanza*.img` change and are sent, though the package does not | `checkdocs`. *Done* |
+| 5a.2 | **DONE.** **`bbcourse.py`'s NOTHING UNDER THE HUD goes** (I2): `HUD_COLS`, `HUD_LINE`, `HUD_LINES`, `hud_zones()`, `hud_conflicts()`, the `no_hud` hack, and `--selfcheck` item 8's two HUD lines and its `underhud` control. `c.prop_pix` STAYS: its only readers today go with the refusal, but it is the mark set 5b.6's audit counts. `tests/suite.py`'s `bonanzacourse` text loses NOTHING UNDER THE HUD | `--selfcheck`; a cup ~~inside the old panel's rect~~ on the green's front-left cell compiles (no compilable cup ever reached the rect, SPEC.md 130.14.18 item 6, 130.15.3); two private trees, one from 5a's commit and one from a worktree of its parent: `cmp` equal on `BONANZA.O88`, every `BZ<K>.BIN`, every `BZD<K>.BIN` and `bzcourse.inc` (none carries the build number). *Done: `--selfcheck` ok (item 8: the front-left cup compiles); `make BUILD=<dir> bonanzadisk` from a worktree of `0e5e46ca` and from the working tree - `bonanza.bin`, `BONANZA.O88`, `BZ0 - BZ5.BIN`, `BZD1 - BZD5.BIN`, the ball, sound and song parts and all three `.inc`s `cmp` EQUAL; only `.bz-crs` (the tool's hash) and the images' `README.MD` differ* |
+| 5a.3 | **DONE.** **The records**: `apps/bonanza/README.md` brought to wave 4 as built (N cycles the five courses 1 - 5, BENCH being B's; the "predates" line goes) (I3); `apps/RETIRED.txt`'s comment says wave 4 (I4); docs/HEAP-CLAIMS.md's course-part row with MOON (51,240) and PEAK (60,856), MILL at 33,858 and FIRST at 9,748 (I5); a pointer at SPEC.md 130.14.4.1's rule. **The README ships on BONANZA's disks**, so `bonanza*.img` change and are sent, though the package does not | `checkdocs`. *Done* |
 | 5a.4 | **DONE.** The plan's ticks: wave 5's kern_mega, the refusals and the four geometries are DONE in practice (H2-H4, with `bonanzamega`'s and the Makefile's evidence); 3.12 and 3b.10 closed with pointers (A6, A17); wave 0b's leftovers (I13) recorded as resolved | `checkdocs`. *Done: section 11's wave 5 list, 3.12, 3b.10 and wave 0b's "Open" note* |
 
 **Rows reached:** `bonanzaring`, `bonanzaperf`, `bonanzawheel`,
@@ -644,16 +658,16 @@ between `0e5e46ca` and the working tree as it stood after 5a and BEFORE any
 follow-up and the dither now share one uncommitted tree, often in the same
 hunks (`tests/suite.py`'s row texts, `bonanza_ring.py`, `bonanza_perf.py`,
 `bbcourse.py`). So at the commit EITHER the work is split 5a / 5b / the
-follow-up and 128.15.3's two-tree `cmp` is re-made at 5a's own commit, OR it
+follow-up and 130.15.3's two-tree `cmp` is re-made at 5a's own commit, OR it
 lands as one commit and the 5a proof stands as what it compared - the
-working tree at 5a's end against `0e5e46ca` - and SPEC.md 128.15.6's "a
+working tree at 5a's end against `0e5e46ca` - and SPEC.md 130.15.6's "a
 commit of its own" for the follow-up is read as a section of that commit.
 Whoever commits says which in the commit message.
 
 #### Wave 5b: The compact course format and the disk plan (M)
 
 **Goal:** a disk format sized for twenty LONGER courses (R2, CD3), and the
-RAM to hold them. **The contract is SPEC.md 128.15**, written before the
+RAM to hold them. **The contract is SPEC.md 130.15**, written before the
 code.
 
 **The measurement this wave follows:**
@@ -662,17 +676,17 @@ host-side at `28b13cce` after the owner asked "what else is smaller but
 does the same thing at the same speed". Its section 5 is the shortlist,
 and the stories below are that shortlist. The six courses, measured
 together: **83,152 -> 42,792 bytes packed (-48.5%)**, and RAM 223,420 ->
-179,608. SPEC.md 128.15.14 restates it for the form chosen, MEASURED on
+179,608. SPEC.md 130.15.14 restates it for the form chosen, MEASURED on
 the host at `ef59209a` by the consistency check (the real header and
 directory, row planes high bits first, each section's own hole, the
 follow-up's zeroing, the dither in, P not taken; the ways modelled as zero
 pairs, so the real figures are slightly higher): **43,264 bytes packed
 (LZ4), 35,038 (LZB), 180,156 bytes of RAM** under D. *As built* (the real
 route, the follow-up, the dither on the odd lattice and its empty records
-left out, SPEC.md 128.15.14): **43,247 LZ4, 35,062 LZB, 179,680 bytes of
+left out, SPEC.md 130.15.14): **43,247 LZ4, 35,062 LZB, 179,680 bytes of
 RAM** under D.
 
-**How the stored part works** (SPEC.md 128.15.4), in one paragraph: the
+**How the stored part works** (SPEC.md 130.15.4), in one paragraph: the
 part `BZC2` keeps `BZC1`'s header fields and moves the map to +48. A tagged
 directory at its end lists each section's tag, form, RAM place and stored
 length. On the disk each section's stored bytes sit at the END of its own
@@ -682,12 +696,12 @@ no section ever moves. `op_fetch` is unchanged, and `OP_ZFILL` is not used
 
 | # | story | verified by |
 |---|---|---|
-| 5b.1 | **DONE.** **`bbcourse.py --sizes`** (SPEC.md 128.15.12.2). For every course it prints: each section's RAM bytes, stored bytes and packed share in LZ4 and LZB; the whole stored form packed as `os88pkg` packs it, both formats; the RAM form against 65,024; the target, pace and long-course line; the budget. Then the package: both formats' totals, `bonanza360.img`'s clusters both ways, the set against `ROOM`. Its figures replace SPEC.md 128.15.14's host measurement (43,264 LZ4 and 35,038 LZB for the six under D, taken by the consistency check at `ef59209a`) | host; equal to 128.15.14's within the ways (modelled there as zero pairs, so slightly higher for real), and within about 1% of the report's section 4 once P not taken (+313 against the report; counted once, never added on top of a measured part), the dither on this form (about -220 LZ4; the -710 was today's form's), the holes, the header and directory and the mask table are accounted for *Built, host-checked (`bbcourse.py --sizes`, `make bonanza-sizes`): at the review fixes' tree (SPEC.md 128.15.10.6) the six print 43,247 LZ4 and 35,062 LZB under D (45,918 and 37,409 under C), 179,680 bytes of RAM; `BONANZA.O88` with LZB parts at 81 of 354 clusters. The LZB decode price reads each match from the stream (SPEC.md 128.15.12.2)* *Final pass (SPEC.md 128.15.14): `--sizes` under both strides; the shipped C forms 45,918 LZ4 and 37,409 LZB, 221,764 bytes of RAM; `BONANZA.O88` 77,319 bytes, 83 clusters; `bonanzacourse` passes in the soak (188.1 s)* |
-| 5b.2 | **DONE.** **`BZC2` and the 4-byte records** (SPEC.md 128.15.4, 128.15.5; the report's idea D). The header, the directory, the stored form, and the expander `bz_cexp` in `bz_launch` after the course's fetch, before `bz_hgen`. The record is `[col, s - br + SB, top - TB, mask index]`, stored as word differences (WDIFF), with OCCIDX as count bytes (COUNTS) and the mask offsets in a computed table INSIDE the part (`MTAB`, read with DS = the part). The keys are clamped bytes, loaded into CL and CH for each block row (`ks` computed from that row's `br`, never carried), and DI holds `MTAB`. **Cost, ESTIMATED: about +280 clk on a typical occluder frame and about +1,200 at the worst position; 0 on frames whose gate is closed and 0 a step.** **The fallback C** is the same stored form with today's 8-byte RAM records and today's frame code, 0 clk. The switch is ONE knob, `BZREC=4|8`. The identity is taken over C's RAM form whatever the knob, so both arms build from the same demos. The decision's commit deletes the losing arm and the knob | `--selfcheck` item 10 (`expand == RAM` both strides; the in-place simulation; each directory entry's place and size against its header fields; the byte compares against the rule at every query and at poked keys; `MTAB`; the identity rule, equal under both strides; seven controls). `bonanzaexit`'s CLAIM leg: at `bz_launch`'s `OSAPI_FSX_RUN` call, every launch's claim (all six courses) equals the tool's RAM form, both cards. **`bonanzaperf`'s A/B at one commit: `BZD3` and `BZD5`, both cards, speaker ON, `D` injected on a frame boundary, six runs each; D ships only if it stays SMOOTH - the owner's smoothness rule, 2026-11-14, which replaced "at most 2 more misses a card": on each card, for `MILL` (each camera mode both builds reached) and `PEAK`, D's missed refreshes a second of play (read off each frame's flip) at most 1.0 over C's, and the median over D's runs of the longest run of consecutive missed refreshes and of the runs of two or more within C's largest. Red arm `occslow` (`bonanzaperf`) must fail the rate clause.** Red arms `expoff1`, `rowtab1` (`bonanzaexit`), `recstep` (`bonanzaring`, D only), `expcs` (`bonanzamega`) *Built, host-checked (SPEC.md 128.15.4.1, 128.15.4.6, 128.15.5.2, 128.15.14 as built): `bz_cexp` 342 bytes against about 225 predicted, D's image +432; ROWPLANES PRICED at about 158 clk a cell, not 75, so `PEAK`'s expansion about 0.40 s (D) and 0.51 s (C) without the follow-up and 0.58 s / 0.68 s with it; the occluder pass PRICED +320 typical and +1,300 worst under D; the package's `bz_cexp` equal to the tool's RAM form under unicorn on all six, both strides; `bz_occ`'s D arm equal to C's at 1,800 positions; the physics cross-check ALL OK on the expanded parts. The claim leg, the red arms and the D/C A/B are the final pass's* *Final pass (SPEC.md 128.15.5.4, 128.15.13): **C SHIPS** - the D/C A/B, six runs a build on each card, D +23.50 summed misses on the CGA (446.00 against 422.50, past +2; almost all MILL, falling out of its lower camera mode), -4.17 on the Hercules; like for like D's pass cost a median +380 - +448 clk a frame. D's arms, MASKTAB's handler and `BZREC` deleted, `cmp` EQUAL to the pre-deletion `BZREC=8` build; `recstep` and `--rec-ab` went with them; T10 held in wave 10.* *Re-opened (the owner, 2026-11-14: "Variance shouldn't break what we may need as a memory savings in order to do a course. Do try again. A few dropped frames at 50 or 60fps is not user noticeable; we just want to stay smooth."): D restored behind `BZREC` (`BZREC ?= 8`, C, the default), `recstep` back over its own D art, `--rec-ab` re-written to the smoothness rule (SPEC.md 128.15.5.4) with its red arm `occslow`; host-checked, the re-measurement owed to the next final pass.* *Re-measured under the smoothness rule (SPEC.md 128.15.5.4): **D SHIPS** - six runs a build on each card, missed refreshes a second D - C: CGA MILL -0.01 (low camera mode, D 2 runs, C 3) and -0.04 (high), PEAK +0.16; Hercules MILL -0.08, PEAK -0.14; the longest run and the runs of two or more within C's spread everywhere; like for like D's pass cost a median +382 - +438 clk a frame, worst +850; `occslow` red at its own check (+2.10 and +11.50 a second). C's arms and `BZREC` deleted, `cmp` EQUAL to the pre-deletion `BZREC=4` build; `--rec-ab` and `occslow` left `bonanzaperf`, `recstep` stays (over the shipped art). The six courses' RAM 179,680 bytes (C 221,764, -42,084); PEAK's claim 47,148, 17,876 under 65,024; T10 is done here.* *The first final pass:* The claim leg (`bonanzaexit`) passes on all six courses, both cards; `expoff1` and `rowtab1` red at FIRST, `expcs` red (a #GP) on kern_mega* |
-| 5b.3 | **DONE.** **The small course items** (SPEC.md 128.15.4.4), at 0 clk a frame and a step. The map as ROW PLANES, each block row's 2-bit high bits then its low bytes, the high bytes copied to `bz_boxbuf` first (-1,934 packed for whole planes; row planes, each section in its own hole, cost +34 over the six); ROWTAB computed (-852); the route as way tiles, kept on every course because the rows' autopilot drives every course (-316). **Then, as a follow-up once those are green, in a commit of its own** (SPEC.md 128.15.6): the grid's VOID kill heights, OPEN and SAFE stored as their DIFFERENCE from the rule and rebuilt at load (-1,791, about 0.15 s on PEAK). The RAM form does not change, so no identity moves. The follow-up lands before 5b's final pass | `--selfcheck` item 10: `expand == RAM` on every course, and after the follow-up every exception a lift's shaft cell (none on today's courses: the rule reproduces both shafts). `bonanzaexit`'s claim leg with red arm `cellsafe` (the guest's SAFE rule without `OBS`). *The follow-up built, host-checked (SPEC.md 128.15.6 as built): CELLS in `bbcourse.py` (`cells_rule`, `_cells`) and `bz_cxcel`/`bz_cxsafe` in the guest; RAM forms and identities unchanged (only `C`'s form byte moves); no exceptions; -1,803 LZ4 and -1,271 LZB on the six (D); +397 image bytes; PRICED 0.19 s on PEAK; the package's `bz_cexp` equal to the RAM form under unicorn on all six, both strides, and the `cellsafe` edit differing on MILL, MOON and PEAK only. The claim leg and its `cellsafe` arm are the final pass's* *Final pass (SPEC.md 128.15.13): the claim leg equal on all six courses, both cards; `cellsafe` red at MILL (7 bytes in `C`)* |
-| 5b.4 | **DONE.** **The course budget, re-derived for CD3** (SPEC.md 128.15.8). A `target 30|60|90` statement on every course but BENCH, tool-only, so no identity moves (FIRST, TRIAL, MILL 30; MOON, PEAK 60). The budget is `ROOM x t / 1,170 s` with `ROOM` = 239 KiB: 6,275 / 12,550 / 18,825 bytes. Refused past 1.5 x the budget packed as LZ4 whatever `BZPARTZ` is (the larger format, so no build depends on the knob); RAM refused past 65,024 as now. Printed: over or under; RAM, headroom, bytes a block row, pace and the longest course one part holds. MILL is printed OVER (7,127 LZB and 8,775 LZ4, against 6,275), under its 9,412 cap, the cue for its rebuild in wave 13. **PEAK is printed OVER in LZ4 only** (12,676 against 12,550), far under its 18,825 cap and under its budget in LZB (10,377); 128.15.8's printout shows it, and that is the right reading. The budgets were sized for twenty courses; at the owner's 18 each would be about 11% looser, and they are not changed for that | `--selfcheck` item 12: a course over its cap refused naming the budget; `target 45`, a missing and a doubled `target` refused *Built, host-checked (SPEC.md 128.15.8): the `target` lines (FIRST, TRIAL, MILL 30; MOON, PEAK 60) and their refusals in item 12. The budget reads the `RECB` 4 stored form whatever `BZREC` is, because MILL's C form (9,156 LZ4 as built) sits close to its 9,412 cap. As built: MILL OVER (7,153 LZB, 8,801 LZ4), PEAK 12,547 LZ4, 3 bytes UNDER its 12,550 (12,736, over, before the empty records left the part)* *Final pass: `--selfcheck` item 12 passes. Under the shipped C, PEAK's own form is 13,447 LZ4, over its 12,550 budget and under its cap; the budget still reads D's form - an owner's question, SPEC.md 128.15.15* *D shipped at the re-measurement (5b.2), so the budget reads the shipped form and the question is closed* |
-| 5b.5 | **DONE.** **The disk plan, DECIDED by the owner on 2026-11-14** (Q-L2; SPEC.md 128.15.9). `BZPARTZ=lzb|lz4`, a knob; **LZB for the course parts is decided and the default** ("'a stronger compression mode for the courses': lzb I assume? That would be fine."). The format byte is the parts TABLE's, so the balls, sound, songs and demos go LZB with the courses. The six courses: 43,264 bytes LZ4, 35,038 LZB (MEASURED on the host, SPEC.md 128.15.14); `bonanza360.img` 130 -> about 80 clusters (LZ4 parts: about 91). **PEAK's launch: an UPPER BOUND of about 5.2 s with LZB against about 3.6 s with LZ4 (3.9-4.0 s today; PRICED with the as-built expansion, first written 5.0 and 3.4), so about +1.6 s, above the +0.9 s the owner was quoted** (Calc's per-byte LZB cost, where a course part is match-heavy, and the balls are about 0.7 s of it until wave 9's ball V2); the final pass measures it and **the owner is told the measured figure**. The sound part and the title song add about 55 ms at each return to the desktop. A `COMPRESS=lz4` or `lzb` kernel forces the parts to its own format. **LZB for the image** is still offered through `LZBPKGS` (-3 clusters, +0.64 s at the window's opening), not taken; taking it also gives `t_lzbclust` a BONANZA entry with its parts. **One disk**: the target is 18 - 20 courses on `bonanza360.img` ("20 is a rough want, too; it could be 19, or 18 total"), and the "Worlds" disk is a last resort, story 8b.11, only if one disk cannot hold the final set. BENCH stays (O48) | **MEASURED both ways in the final pass**, at one commit, the LZ4 arm in a private tree: `bonanza360.img`'s clusters, and PEAK's and MOON's launch to the bracket on MartyPC's CGA and Hercules (`bonanzaperf`). The measured launch goes to the owner *Built, host-checked: `BZPARTZ ?= lzb` and `BZREC ?= 4` with their stamps; `BONANZA.O88` 75,063 bytes with LZB parts, 81 of 354 clusters on `bonanza360.img`. PEAK's launch, PRICED with the as-built expansion (SPEC.md 128.15.4.6): about 3.6 s with LZ4 parts and up to about 5.2 s with LZB - the final pass measures both* *MEASURED in the final pass (SPEC.md 128.15.9), three runs on the shipped C build: 83 clusters with LZB parts, 94 with LZ4; PEAK's launch 4.2 s (CGA) and 4.5 s (Hercules) with LZB, about +0.3 - 0.4 s over LZ4's 3.8 / 4.2 s, against the 5.2 s upper bound; the figure for the owner* |
-| 5b.6 | **DONE.** **The ghost dither** (CD1; SPEC.md 128.15.10). The tool ORs `3333h` (even picture lines) and `CCCCh` (odd) into every occluder mask after the merge - the kept lattice `x + y` ODD, the shadow's dark pixels' complement (SPEC.md 128.15.10.6; first built on the even lattice, which printed the shadow through a record in front of a low flight), then deduplicates again (PEAK 122 -> 108 masks). **0 clk and 0 guest bytes**: about -220 bytes packed LZ4 (-266 LZB) on the 5b form, MEASURED on the host; the report's -710 was on today's form. Not dithered: the ball's masks, the lift's slab sprite (opaque over the ball, and never under a laid record by 128.12.4.5's refusal), the pose maps. The RULE's models use the undithered pixels; the CARD's models (`composite(..., ghost=True)`, `laid_at`'s card count, `bonanzaring`'s oracle) lay a record's pixels less the checker's. **The visibility audit lands with it in REPORT mode** (SPEC.md 128.15.10.4): each prop mark against 75% or 50%, each hidden stretch over 0.5 s with its turn and what hides it, a summary line; story 11.5 turns it into a refusal | `--selfcheck` item 11 (every mask carries the checker; the ball's and slab's masks do not; the merge re-checked undithered; two controls). Look boots on MILL (the slab whole, over and under the ball) and on PEAK, both cards. `bonanzaring` with red arm `nodither`, made at the data: a copy of `build/bonanza-art` whose parts are the tool's UNDITHERED compiles with the shipped identities stamped in (SPEC.md 128.15.10.6). *Built, host-checked (SPEC.md 128.15.10.5): `--selfcheck` ok with item 11 (12 lines, both controls red at MILL); the six courses' masks 478 -> 422, -218 LZ4 and -269 LZB on D, -1,008 bytes of RAM; 0 guest bytes; the identities moved and MOON's and PEAK's demos re-authored (their `ident` lines only); the audit printed at compile and in item 11 (PEAK 7 of 12 marks BELOW, 3.00 s from route step 1396); `bonanzaring`'s oracle lays records less the checker and `nodither` is built and assembled by `--check-reds`. Look boot on PEAK, both cards: a ghost through every wall on the CGA, and on the Hercules over white, but barely over a magenta face (an owner's question, SPEC.md 128.15.15). Still owed: the look on MILL's slab, and `bonanzaring` with `nodither` in the final pass* *Review fixes (SPEC.md 128.15.10.6): the lattice moved to ODD; the records laying nothing once dithered left out of the part (BENCH 7, TRIAL 4, MILL 11, MOON 16, PEAK 162); `nodither` remade from the undithered compile; the identities and MOON's and PEAK's demos moved again (EA76h, 0F13h); `--selfcheck` ok, its item 11 with the new all-keep line* *Final pass: `bonanzaring` passes with the ghost-aware oracle and PEAK's hidden stretches; `nodither` red at card != oracle on BENCH. The look at MILL's slab taken on both cards (the ball riding the slab, and under it with the slab whole over it; scratch shots, not committed)* |
+| 5b.1 | **DONE.** **`bbcourse.py --sizes`** (SPEC.md 130.15.12.2). For every course it prints: each section's RAM bytes, stored bytes and packed share in LZ4 and LZB; the whole stored form packed as `os88pkg` packs it, both formats; the RAM form against 65,024; the target, pace and long-course line; the budget. Then the package: both formats' totals, `bonanza360.img`'s clusters both ways, the set against `ROOM`. Its figures replace SPEC.md 130.15.14's host measurement (43,264 LZ4 and 35,038 LZB for the six under D, taken by the consistency check at `ef59209a`) | host; equal to 130.15.14's within the ways (modelled there as zero pairs, so slightly higher for real), and within about 1% of the report's section 4 once P not taken (+313 against the report; counted once, never added on top of a measured part), the dither on this form (about -220 LZ4; the -710 was today's form's), the holes, the header and directory and the mask table are accounted for *Built, host-checked (`bbcourse.py --sizes`, `make bonanza-sizes`): at the review fixes' tree (SPEC.md 130.15.10.6) the six print 43,247 LZ4 and 35,062 LZB under D (45,918 and 37,409 under C), 179,680 bytes of RAM; `BONANZA.O88` with LZB parts at 81 of 354 clusters. The LZB decode price reads each match from the stream (SPEC.md 130.15.12.2)* *Final pass (SPEC.md 130.15.14): `--sizes` under both strides; the shipped C forms 45,918 LZ4 and 37,409 LZB, 221,764 bytes of RAM; `BONANZA.O88` 77,319 bytes, 83 clusters; `bonanzacourse` passes in the soak (188.1 s)* |
+| 5b.2 | **DONE.** **`BZC2` and the 4-byte records** (SPEC.md 130.15.4, 130.15.5; the report's idea D). The header, the directory, the stored form, and the expander `bz_cexp` in `bz_launch` after the course's fetch, before `bz_hgen`. The record is `[col, s - br + SB, top - TB, mask index]`, stored as word differences (WDIFF), with OCCIDX as count bytes (COUNTS) and the mask offsets in a computed table INSIDE the part (`MTAB`, read with DS = the part). The keys are clamped bytes, loaded into CL and CH for each block row (`ks` computed from that row's `br`, never carried), and DI holds `MTAB`. **Cost, ESTIMATED: about +280 clk on a typical occluder frame and about +1,200 at the worst position; 0 on frames whose gate is closed and 0 a step.** **The fallback C** is the same stored form with today's 8-byte RAM records and today's frame code, 0 clk. The switch is ONE knob, `BZREC=4|8`. The identity is taken over C's RAM form whatever the knob, so both arms build from the same demos. The decision's commit deletes the losing arm and the knob | `--selfcheck` item 10 (`expand == RAM` both strides; the in-place simulation; each directory entry's place and size against its header fields; the byte compares against the rule at every query and at poked keys; `MTAB`; the identity rule, equal under both strides; seven controls). `bonanzaexit`'s CLAIM leg: at `bz_launch`'s `OSAPI_FSX_RUN` call, every launch's claim (all six courses) equals the tool's RAM form, both cards. **`bonanzaperf`'s A/B at one commit: `BZD3` and `BZD5`, both cards, speaker ON, `D` injected on a frame boundary, six runs each; D ships only if it stays SMOOTH - the owner's smoothness rule, 2026-11-14, which replaced "at most 2 more misses a card": on each card, for `MILL` (each camera mode both builds reached) and `PEAK`, D's missed refreshes a second of play (read off each frame's flip) at most 1.0 over C's, and the median over D's runs of the longest run of consecutive missed refreshes and of the runs of two or more within C's largest. Red arm `occslow` (`bonanzaperf`) must fail the rate clause.** Red arms `expoff1`, `rowtab1` (`bonanzaexit`), `recstep` (`bonanzaring`, D only), `expcs` (`bonanzamega`) *Built, host-checked (SPEC.md 130.15.4.1, 130.15.4.6, 130.15.5.2, 130.15.14 as built): `bz_cexp` 342 bytes against about 225 predicted, D's image +432; ROWPLANES PRICED at about 158 clk a cell, not 75, so `PEAK`'s expansion about 0.40 s (D) and 0.51 s (C) without the follow-up and 0.58 s / 0.68 s with it; the occluder pass PRICED +320 typical and +1,300 worst under D; the package's `bz_cexp` equal to the tool's RAM form under unicorn on all six, both strides; `bz_occ`'s D arm equal to C's at 1,800 positions; the physics cross-check ALL OK on the expanded parts. The claim leg, the red arms and the D/C A/B are the final pass's* *Final pass (SPEC.md 130.15.5.4, 130.15.13): **C SHIPS** - the D/C A/B, six runs a build on each card, D +23.50 summed misses on the CGA (446.00 against 422.50, past +2; almost all MILL, falling out of its lower camera mode), -4.17 on the Hercules; like for like D's pass cost a median +380 - +448 clk a frame. D's arms, MASKTAB's handler and `BZREC` deleted, `cmp` EQUAL to the pre-deletion `BZREC=8` build; `recstep` and `--rec-ab` went with them; T10 held in wave 10.* *Re-opened (the owner, 2026-11-14: "Variance shouldn't break what we may need as a memory savings in order to do a course. Do try again. A few dropped frames at 50 or 60fps is not user noticeable; we just want to stay smooth."): D restored behind `BZREC` (`BZREC ?= 8`, C, the default), `recstep` back over its own D art, `--rec-ab` re-written to the smoothness rule (SPEC.md 130.15.5.4) with its red arm `occslow`; host-checked, the re-measurement owed to the next final pass.* *Re-measured under the smoothness rule (SPEC.md 130.15.5.4): **D SHIPS** - six runs a build on each card, missed refreshes a second D - C: CGA MILL -0.01 (low camera mode, D 2 runs, C 3) and -0.04 (high), PEAK +0.16; Hercules MILL -0.08, PEAK -0.14; the longest run and the runs of two or more within C's spread everywhere; like for like D's pass cost a median +382 - +438 clk a frame, worst +850; `occslow` red at its own check (+2.10 and +11.50 a second). C's arms and `BZREC` deleted, `cmp` EQUAL to the pre-deletion `BZREC=4` build; `--rec-ab` and `occslow` left `bonanzaperf`, `recstep` stays (over the shipped art). The six courses' RAM 179,680 bytes (C 221,764, -42,084); PEAK's claim 47,148, 17,876 under 65,024; T10 is done here.* *The first final pass:* The claim leg (`bonanzaexit`) passes on all six courses, both cards; `expoff1` and `rowtab1` red at FIRST, `expcs` red (a #GP) on kern_mega* |
+| 5b.3 | **DONE.** **The small course items** (SPEC.md 130.15.4.4), at 0 clk a frame and a step. The map as ROW PLANES, each block row's 2-bit high bits then its low bytes, the high bytes copied to `bz_boxbuf` first (-1,934 packed for whole planes; row planes, each section in its own hole, cost +34 over the six); ROWTAB computed (-852); the route as way tiles, kept on every course because the rows' autopilot drives every course (-316). **Then, as a follow-up once those are green, in a commit of its own** (SPEC.md 130.15.6): the grid's VOID kill heights, OPEN and SAFE stored as their DIFFERENCE from the rule and rebuilt at load (-1,791, about 0.15 s on PEAK). The RAM form does not change, so no identity moves. The follow-up lands before 5b's final pass | `--selfcheck` item 10: `expand == RAM` on every course, and after the follow-up every exception a lift's shaft cell (none on today's courses: the rule reproduces both shafts). `bonanzaexit`'s claim leg with red arm `cellsafe` (the guest's SAFE rule without `OBS`). *The follow-up built, host-checked (SPEC.md 130.15.6 as built): CELLS in `bbcourse.py` (`cells_rule`, `_cells`) and `bz_cxcel`/`bz_cxsafe` in the guest; RAM forms and identities unchanged (only `C`'s form byte moves); no exceptions; -1,803 LZ4 and -1,271 LZB on the six (D); +397 image bytes; PRICED 0.19 s on PEAK; the package's `bz_cexp` equal to the RAM form under unicorn on all six, both strides, and the `cellsafe` edit differing on MILL, MOON and PEAK only. The claim leg and its `cellsafe` arm are the final pass's* *Final pass (SPEC.md 130.15.13): the claim leg equal on all six courses, both cards; `cellsafe` red at MILL (7 bytes in `C`)* |
+| 5b.4 | **DONE.** **The course budget, re-derived for CD3** (SPEC.md 130.15.8). A `target 30|60|90` statement on every course but BENCH, tool-only, so no identity moves (FIRST, TRIAL, MILL 30; MOON, PEAK 60). The budget is `ROOM x t / 1,170 s` with `ROOM` = 239 KiB: 6,275 / 12,550 / 18,825 bytes. Refused past 1.5 x the budget packed as LZ4 whatever `BZPARTZ` is (the larger format, so no build depends on the knob); RAM refused past 65,024 as now. Printed: over or under; RAM, headroom, bytes a block row, pace and the longest course one part holds. MILL is printed OVER (7,127 LZB and 8,775 LZ4, against 6,275), under its 9,412 cap, the cue for its rebuild in wave 13. **PEAK is printed OVER in LZ4 only** (12,676 against 12,550), far under its 18,825 cap and under its budget in LZB (10,377); 130.15.8's printout shows it, and that is the right reading. The budgets were sized for twenty courses; at the owner's 18 each would be about 11% looser, and they are not changed for that | `--selfcheck` item 12: a course over its cap refused naming the budget; `target 45`, a missing and a doubled `target` refused *Built, host-checked (SPEC.md 130.15.8): the `target` lines (FIRST, TRIAL, MILL 30; MOON, PEAK 60) and their refusals in item 12. The budget reads the `RECB` 4 stored form whatever `BZREC` is, because MILL's C form (9,156 LZ4 as built) sits close to its 9,412 cap. As built: MILL OVER (7,153 LZB, 8,801 LZ4), PEAK 12,547 LZ4, 3 bytes UNDER its 12,550 (12,736, over, before the empty records left the part)* *Final pass: `--selfcheck` item 12 passes. Under the shipped C, PEAK's own form is 13,447 LZ4, over its 12,550 budget and under its cap; the budget still reads D's form - an owner's question, SPEC.md 130.15.15* *D shipped at the re-measurement (5b.2), so the budget reads the shipped form and the question is closed* |
+| 5b.5 | **DONE.** **The disk plan, DECIDED by the owner on 2026-11-14** (Q-L2; SPEC.md 130.15.9). `BZPARTZ=lzb|lz4`, a knob; **LZB for the course parts is decided and the default** ("'a stronger compression mode for the courses': lzb I assume? That would be fine."). The format byte is the parts TABLE's, so the balls, sound, songs and demos go LZB with the courses. The six courses: 43,264 bytes LZ4, 35,038 LZB (MEASURED on the host, SPEC.md 130.15.14); `bonanza360.img` 130 -> about 80 clusters (LZ4 parts: about 91). **PEAK's launch: an UPPER BOUND of about 5.2 s with LZB against about 3.6 s with LZ4 (3.9-4.0 s today; PRICED with the as-built expansion, first written 5.0 and 3.4), so about +1.6 s, above the +0.9 s the owner was quoted** (Calc's per-byte LZB cost, where a course part is match-heavy, and the balls are about 0.7 s of it until wave 9's ball V2); the final pass measures it and **the owner is told the measured figure**. The sound part and the title song add about 55 ms at each return to the desktop. A `COMPRESS=lz4` or `lzb` kernel forces the parts to its own format. **LZB for the image** is still offered through `LZBPKGS` (-3 clusters, +0.64 s at the window's opening), not taken; taking it also gives `t_lzbclust` a BONANZA entry with its parts. **One disk**: the target is 18 - 20 courses on `bonanza360.img` ("20 is a rough want, too; it could be 19, or 18 total"), and the "Worlds" disk is a last resort, story 8b.11, only if one disk cannot hold the final set. BENCH stays (O48) | **MEASURED both ways in the final pass**, at one commit, the LZ4 arm in a private tree: `bonanza360.img`'s clusters, and PEAK's and MOON's launch to the bracket on MartyPC's CGA and Hercules (`bonanzaperf`). The measured launch goes to the owner *Built, host-checked: `BZPARTZ ?= lzb` and `BZREC ?= 4` with their stamps; `BONANZA.O88` 75,063 bytes with LZB parts, 81 of 354 clusters on `bonanza360.img`. PEAK's launch, PRICED with the as-built expansion (SPEC.md 130.15.4.6): about 3.6 s with LZ4 parts and up to about 5.2 s with LZB - the final pass measures both* *MEASURED in the final pass (SPEC.md 130.15.9), three runs on the shipped C build: 83 clusters with LZB parts, 94 with LZ4; PEAK's launch 4.2 s (CGA) and 4.5 s (Hercules) with LZB, about +0.3 - 0.4 s over LZ4's 3.8 / 4.2 s, against the 5.2 s upper bound; the figure for the owner* |
+| 5b.6 | **DONE.** **The ghost dither** (CD1; SPEC.md 130.15.10). The tool ORs `3333h` (even picture lines) and `CCCCh` (odd) into every occluder mask after the merge - the kept lattice `x + y` ODD, the shadow's dark pixels' complement (SPEC.md 130.15.10.6; first built on the even lattice, which printed the shadow through a record in front of a low flight), then deduplicates again (PEAK 122 -> 108 masks). **0 clk and 0 guest bytes**: about -220 bytes packed LZ4 (-266 LZB) on the 5b form, MEASURED on the host; the report's -710 was on today's form. Not dithered: the ball's masks, the lift's slab sprite (opaque over the ball, and never under a laid record by 130.12.4.5's refusal), the pose maps. The RULE's models use the undithered pixels; the CARD's models (`composite(..., ghost=True)`, `laid_at`'s card count, `bonanzaring`'s oracle) lay a record's pixels less the checker's. **The visibility audit lands with it in REPORT mode** (SPEC.md 130.15.10.4): each prop mark against 75% or 50%, each hidden stretch over 0.5 s with its turn and what hides it, a summary line; story 11.5 turns it into a refusal | `--selfcheck` item 11 (every mask carries the checker; the ball's and slab's masks do not; the merge re-checked undithered; two controls). Look boots on MILL (the slab whole, over and under the ball) and on PEAK, both cards. `bonanzaring` with red arm `nodither`, made at the data: a copy of `build/bonanza-art` whose parts are the tool's UNDITHERED compiles with the shipped identities stamped in (SPEC.md 130.15.10.6). *Built, host-checked (SPEC.md 130.15.10.5): `--selfcheck` ok with item 11 (12 lines, both controls red at MILL); the six courses' masks 478 -> 422, -218 LZ4 and -269 LZB on D, -1,008 bytes of RAM; 0 guest bytes; the identities moved and MOON's and PEAK's demos re-authored (their `ident` lines only); the audit printed at compile and in item 11 (PEAK 7 of 12 marks BELOW, 3.00 s from route step 1396); `bonanzaring`'s oracle lays records less the checker and `nodither` is built and assembled by `--check-reds`. Look boot on PEAK, both cards: a ghost through every wall on the CGA, and on the Hercules over white, but barely over a magenta face (an owner's question, SPEC.md 130.15.15). Still owed: the look on MILL's slab, and `bonanzaring` with `nodither` in the final pass* *Review fixes (SPEC.md 130.15.10.6): the lattice moved to ODD; the records laying nothing once dithered left out of the part (BENCH 7, TRIAL 4, MILL 11, MOON 16, PEAK 162); `nodither` remade from the undithered compile; the identities and MOON's and PEAK's demos moved again (EA76h, 0F13h); `--selfcheck` ok, its item 11 with the new all-keep line* *Final pass: `bonanzaring` passes with the ghost-aware oracle and PEAK's hidden stretches; `nodither` red at card != oracle on BENCH. The look at MILL's slab taken on both cards (the ball riding the slab, and under it with the slab whole over it; scratch shots, not committed)* |
 
 **Not in 5b, placed by the report:**
 - the platform sprite shipped once (P, -313) waits for the first shared
@@ -699,7 +713,7 @@ no section ever moves. `op_fetch` is unchanged, and `OP_ZFILL` is not used
   runs at every course fetch and 8a's part is dropped before one;
 - the `bz_boxbuf` bss overlay (-170 bytes of RAM) can land any time.
 
-**Identity** (SPEC.md 128.15.7). The course identity is taken over the RAM
+**Identity** (SPEC.md 130.15.7). The course identity is taken over the RAM
 form as `RECB` = 8 lays it out, whatever the build's `RECB`, with the
 directory's form bytes and stored lengths taken as 0. So C and D share
 every identity and every demo, 5b.2 and 5b.6 move every identity, and 5b.3
@@ -712,14 +726,14 @@ Land 5b.2 and 5b.6 in one commit:
 - a wave 4 `.BZR` is refused as another course's log, and wave 4's bests
   no longer match. Nothing is migrated.
 
-**Rows reached** (SPEC.md 128.15.13), run once in the final pass with both
+**Rows reached** (SPEC.md 130.15.13), run once in the final pass with both
 A/B legs in it: `bonanzacourse`, `bonanzaring`, `bonanzaexit`,
 `bonanzaperf`, `bonanzamega`, `bonanzademo`, `bonanzawheel`,
 `bonanzagame`, `bonanzasound` (its parts go LZB), and `bonanzaphys` and
 `bonanzareplay` (their parts changed). `bonanzaperf`'s BENCH A/B stays
 anchored at 5a's commit in this pass.
 
-**Bytes** (PREDICTED, SPEC.md 128.15.14): under D about +310 image bytes
+**Bytes** (PREDICTED, SPEC.md 130.15.14): under D about +310 image bytes
 (+70 in the occluder pass, the rest launch-only), then about +510 with the
 follow-up, and +7 bytes of bss; under C about +210, then +410, and no
 bss. On the disk: 83,152 -> 43,264 bytes packed (LZ4) or 35,038 (LZB) for
@@ -732,9 +746,9 @@ relieve it by about 13KB on PEAK, and T10 is folded in).
 #### Wave 6: Feel. Three balls, one Hop, one boost (M-L)
 
 **Goal:** the owner's per-ball physics (decisions 1 and 2), with the reach
-still bounded. **The contract is SPEC.md 128.16**, written before the code.
+still bounded. **The contract is SPEC.md 130.16**, written before the code.
 
-**The facts the stories build on** (SPEC.md 128.11.5.3, and 128.16's design
+**The facts the stories build on** (SPEC.md 130.11.5.3, and 130.16's design
 figures, MEASURED on the host at `503031d4` with a scratch copy of the
 tool's reach and step):
 - A climb needs the Hop's apex plus `BZ_CLIMB`'s 4 px landing margin.
@@ -746,12 +760,12 @@ tool's reach and step):
   300, 2 units about 372. **A boost leaves at a CONTACT, which loses one
   step of gravity**: its apex is `UP(BOOST_V - 24)`, so 1.5 units needs
   about 326 and 2 units about 396. The 318 first written here rises only
-  7.6 px at a contact (SPEC.md 128.16.4.2).
+  7.6 px at a contact (SPEC.md 130.16.4.2).
 - **The occluder bound decides the Hop, not the feel alone**: `HOPMAX`
   joins every floor's launch in the reach, and the records are bounded at
   4 a block. Rubber's Hop at 256 refuses `MOON` (block row 23, column 29);
   240 - 248 refuse `PEAK` (block row 58 or 59, column 44); **252 compiles
-  all six** (SPEC.md 128.16.3.2).
+  all six** (SPEC.md 130.16.3.2).
 - The boost gains nothing after a real fall for two reasons, and neither
   is the rebound alone: a fall from rest carries no TOKEN (only a Hop from
   the ground sets it), and a Hop that drops 1.5 units or more rebounds at
@@ -762,24 +776,24 @@ tool's reach and step):
 - **The boost crosses gaps too**: a Hop and its boost cross a level 2-tile
   gap from a wide band of take-off points (item 7's ladder prints its width) (the Hop alone, from 4 take-off points),
   and at `BOOST_V` 350, of the four values tried, no 3-tile gap
-  (PREDICTED, the review's scratch step; SPEC.md 128.16.4.2).
+  (PREDICTED, the review's scratch step; SPEC.md 130.16.4.2).
 - **Glass's grip is inverted by its drag**: with `K` 5 glass coasts 2.8
   tiles against rubber's 5.4 and stops with Grip almost as soon as rubber,
-  against the end goal's "very little braking grip" (SPEC.md 128.16.3).
+  against the end goal's "very little braking grip" (SPEC.md 130.16.3).
 
 | # | story | verified by |
 |---|---|---|
-| 6.1 | **DONE.** **Space = Hop and Shift = Grip for every ball** (decision 2). Only the Hop's amount differs (SPEC.md 128.16.3): **rubber 252** (an apex of 5.7 px: 1 unit, a window of about 7 take-off points; Q-61's "about 256" moved to the nearest value every course compiles under), **glass 224** (wave 2's rubber: 1 unit, a hard window of about 4, "in between"), **steel 160**, unchanged (today's tiny hop) | `bonanzaphys`: guest equals model every frame; `bonanzacourse` item 7's ladder *Final pass (2026-11-14): `bonanzaphys` ok on both cards, guest = model every frame with wave 6's five new state values; item 7's step ladder printed and asserted: 1 unit rubber 7 points, glass 3, steel none; `steelglass` contact Hops, never a boost* |
-| 6.2 | **DONE.** **Rubber's "and again"** (decision 1, SPEC.md 128.16.4). A Hop FROM THE GROUND sets a token (`bz_btok`) that every contact clears. At that flight's first contact, with Space's window open, on a FIRM LEVEL floor (FLOOR or GOAL, `sx = sy = 0`, normal or ice, no prop's `OBS` cell), the rebound becomes `max(BOOST_V, rebound)`, **`BOOST_V` = 350**: a contact flight's apex of 9.3 px, 1.5 units on a 7-point window, never 2 units (12 px). So: once per Hop and never on a second contact (one boost a chain until the ball LANDS and Hops from the ground again; with Grip held through the boost's landing that is about a second, a repeating hopper the owner judges at gate 1); never on a ramp, a lip, sand, a mat or a moving floor (rule 4 reads the centre's GRID cell, so never on the lift's slab); never stacked with a jump pickup (9.3 raises `HOP`, not `BOOST_V`); and when the rebound is already at least `BOOST_V` (a Hop dropping 1.5 units or more) the contact is an ordinary contact Hop: no gain and no cue. A boosting contact sets no squash, so the stretch always shows. The tool asserts at import that every non-zero `BOOST` reaches 1.5 units and never 2. Its cue: a sound event of its own, `BZS_E_BOOST` (128.20's table extended in this wave, so the owner hears it at gate 1; story 7.6 re-voices it only if he asks), and a STRETCH frame in rubber's ball part (1,280 bytes, shown 4 steps) | `bonanzaphys` boost scenarios (`boost`, `boostclimb`, `boostdrop`, `boostfall`, `pumpchk`, `bouncefirst`, `gripchain`, `rampnot`, `sandnot`, `matnot`, `liftnot`, `steelglass`); red arms `pump` (the token re-armed by a contact Hop: a second boost in one chain), `rampboost` (the slope test left out: a boost on a ramp), `tokbst` (the token cleared only by a boost: a boost at a second contact) and `slabcell` (rule 4 on the slab's substituted cell: a boost on the lift); `bonanzacourse`'s import assertion, its item 7 assertions and its controls `boost400`, `boost300`, `boostrise`, `slabboost`, `noclear` and `gap3`; `bonanzasound` (red arm `noboost`); `bonanzaring` (red arm `nostretch`) *Final pass: `bonanzaphys`'s boost replays ok on both cards; red arms `pump`, `rampboost`, `tokbst`, `slabcell` and `springtok` red at their own checks; `bonanzacourse`'s controls `boost400`, `boost300`, `boostrise`, `slabboost`, `noclear` and `gap3` red at their items; `bonanzasound` ok, `noboost` red; `bonanzaring` ok with the stretch's card = oracle on every `bz_stf` frame, `nostretch` red. The 3-tile gap onto LOWER floors is a KNOWN CONFLICT, printed for gate 1 (SPEC.md 128.16.4.2)* |
-| 6.3 | **DONE.** **Grip per ball** (decision 2, Q-63): **rubber 8, steel 5, glass 3** (ice's brakes follow: 2, 1, 1). Acceleration stays rubber 4, steel 2 and glass 6, and the drag shifts 6, 8 and 5. PREDICTED: Grip stops each from the cap in 1.5, 2.9 and 1.7 tiles. **A KNOWN INVERSION, first on gate 1's list**: glass's own drag (`K` 5) does most of its stopping, so it coasts 2.8 tiles against rubber's 5.4 and is the slowest on one arrow (186), against the end goal's "light and fast ... very little braking grip"; `K` 6 is the lever (about 378 on one arrow, rubber's coast) and the owner's to choose in play | `bonanzaphys` (`gripglass`); the material table in SPEC.md 128.16.3, printed by item 7 and asserted against the axis model `axis_feel()` *Final pass: item 7's material table equals `axis_feel()` on normal, ice and sand for all three balls (Grip from 384: rubber 1.5 tiles, steel 2.9, glass 1.7); `gripglass` ok on both cards. The inversion stays first on gate 1's list* |
-| 6.4 | **DONE.** O2's **fractional drag** (SPEC.md 128.16.3.1): a remainder byte an axis, `d = max(1, (|v| + rem) >> k)`, so a one-arrow top speed is a property of the material and not of the ball's history (B7): rubber 252, steel the cap, glass 186, from rest and from above (every ball FASTER on one arrow from rest than wave 2: 189, 255, 155). The mask and the remainders' cut live in `bz_surfset`, the one writer of the surface entry (a pad's swap changes `k` too), and the model cuts at the same moments. PRICED at about 215 clk a grounded step (the fetch floor counted; the "about 30" first written here was the arithmetic alone) | `bonanzaphys` (`drag`, red arms `ceildrag` and `slowdrag`, `bz_gax`'s span ASSERTED); `bonanzacourse` item 7's drag figures against `axis_feel()` (control `remwide`); the table *Final pass: `drag-rest` and `drag-cap` ok on both cards; `bz_gax`'s dragged call MEASURED worst 335 clk, mean 325, under its as-built price of 428 (bound 535); `ceildrag` and `slowdrag` red at their own checks; `remwide` red at item 7* |
-| 6.5 | **DONE.** **The reach regenerated, not asserted** (SPEC.md 128.16.5). The boost enters the reach as ONE launch of `BOOST_V` from each firm level floor, never added to a floor's rate (so "every Hop raised to 366", which refuses `MOON` at block row 27, column 27, is not the model). `HOPMAX` becomes 252. RADIUS and the up-ramp distance per ball (rubber 6 tiles, glass and steel 5), `ledge_gaps()` for rubber (unchanged) and glass, and item 7's sweeps are regenerated. The tool PRINTS the STEP LADDER, each rung with its take-off window, and asserts its shape: half a unit every ball; 1 unit rubber (about 7) and glass (about 4), never steel; 1.5 units rubber's boost only (about 7); 2 units nobody. Beside it the GAP LADDER (1, 2 and 3 tiles, level and half a unit down, every window position of the boost), asserting that no ball crosses three tiles, the boost included. All six courses re-checked against their bounds: MEASURED by a scratch reach whose firm-floor test admitted sand (a superset's figures, which `--sizes` replaces), the six go from 43,247 to 43,024 bytes LZ4 (35,062 to 34,850 LZB) and 179,680 to 179,134 bytes of RAM; `PEAK` drops 1,145 LZ4 and is now well under its budget; `MOON` grows 793 | `--selfcheck` (item 7, item 6's bounds); `--sizes` against SPEC.md 128.16.5.4; the new `--tune` *Final pass: `bonanzacourse` ok (252.9 s): the ladders printed and their shapes asserted, all seven courses under their bounds and budgets, item 1 equal to `503031d4`'s parts; `--sizes`: the seven 48,395 LZ4 / 39,202 LZB, 213,158 bytes of RAM* |
-| 6.6 | **DONE.** **A CGA palette per course** (D8; SPEC.md 128.16.6). `BZ_CRS_PALS`, a byte a course in `bzcourse.inc` (bit 5 the palette, bit 4 bright, bits 0 - 3 the ground), from a `palette 0|1 [dim] [ground N]` statement, 30h (today's look) without one; NOT in the part, so no identity moves. One OUT to 3D9h in `bz_vinit` after the mode set (and, in wave 8b's single bracket, at each course's start); none on the Hercules. The port is safe because BONANZA plays only on a VID_CGA or VID_HERC display. Palette 0 recolours the balls (rubber red, steel and glass both green), so ball identity rests on PATTERN as on the Hercules: rubber's spots, steel's seams, glass's see-through checker, all already in the art. Q-64's per-world default arrives with the worlds; the per-course override ships now. The PLAYGROUND ships palette 0 | look boots on both palettes; `bonanzaexit`'s rendered colour (red arms `nopal`, `hercpal`); the Hercules unaffected *Final pass: `bonanzaexit` ok; the PLAYGROUND's ball rendered in palette 0's colour and FIRST's in palette 1's on the CGA, `bz_vinit.vpal` never hit on the Hercules, the desktop's colours kept; `nopal` and `hercpal` red at their own checks* |
-| 6.7 | **DONE.** O9: **the camera's vertical follows the GROUND line**, in GLIDE and TRICKLE (A21, Q-L5; SPEC.md 128.16.7): `cy = bz_py + z - zg`, `zg` the floor under the ball (held over a gap), with the ball's own line as a LATCHED fallback within 16 lines of the window's edge (held until the next contact, so the camera cannot judder over the void). GLIDE's travel ring stays on the ball's own line, so a step in the ground line is never a false "fast". A bounce or a boost no longer bobs the view. About 0.35 - 0.4k a frame | a look boot; `bonanzaring`'s GROUND leg (red arms `camz`, `nosafe`, `nolatch`, `ringcy`, `campad`); item 8's `BENCH` directions; `bonanzaperf` reports the rows panned per bounce against wave 2's 251 / 137 *Final pass: `bonanzaring`'s GROUND leg ok on both cards in GLIDE and TRICKLE (the window = `bbcourse.Glide`'s every GLIDE frame, the footprint inside, no reversal on the void fall); the block MEASURED worst 470 clk, means 360 - 436, under 527 (bound 658); `camz`, `nosafe`, `ringcy` and `campad` red at their own checks, `nolatch` at the window check (SPEC.md 128.16.14's final pass); TRIAL's bounces: GLIDE 219 rows against wave 2's 251, TRICKLE 139 against 137* |
-| 6.8 | **DONE.** **The PLAYGROUND course** (a review finding; SPEC.md 128.16.8): course 6, `PLAY`, "Playground", target 30 s, palette 0. The step ladder's four rungs (half, 1, 1.5, 2 units), each a dead end reached from the apron only (no staircase between them; the 2-unit top unreachable, asserted), a gap ladder (1, 2, 3 tiles), a Hop-and-boost chain onto the 1.5-unit ledge, a brake strip ending at the void (the camera's fallback case, its depth set on the model) with ice and sand beside it, a bounce mat, a pad for each ball, and a goal on a ROLLING route so the autopilot and the tour finish it; no up-ramp within 6 tiles of the rungs. PREDICTED about 15 - 20KB of RAM and 3 - 4.5KB LZ4, under its 6,275 budget. `BZ_NCRS` 7 moves the sound, song and demo rows up one (23 part rows); the tour gains it. It gets an **AUTHORED demo** (`BZ_NDEMO = BZ_NCRS - 1` is asserted, and the autopilot cannot Hop), whose script gains `hop`, `boost` (raising when its contact does not boost) and `grip` verbs: the only demo that boosts, which the tool asserts. The owner judges the freeze on it, and later it can be exploration's sandbox | `bonanzacourse`; `bonanzademo` (its demo `D`'d to the model's end); `bonanzaexit` (its launches and ways out); `bonanzamega` (a play with a boost on kern_mega, red arm `stretchcs`); the owner's play *Final pass: the PLAYGROUND in every row that names it - `bonanzademo` ok (BZD6 boosts and ends at the goal on both cards), `bonanzaexit` ok (its launches and every way out), `bonanzamega` ok (its Hop and boost on kern_mega's Hercules, the replay to the same end; `stretchcs` red), `bonanzareplay` ok; RAM 34,024, LZB 4,352; its demo misses 0.48 a second on the CGA and 0.07 on the Hercules, speaker ON* |
-| 6.9 | **DONE.** `BZ_PHYSV` moves (SPEC.md 128.16.9): `PHYS_REV` (6) joins `PHYS_CONSTS` so a rule-only change moves it too, and the tool refuses 00h and any EARLIER physics' value (`PHYSV_SHIPPED`: 00h, 9Ah, E6h, A0h; a commit that moves `BZ_PHYSV` appends the value it replaces). The ROUTE demos regenerate from the autopilot (a route the new drag breaks gets its `way` lines moved); `MOON`'s, `PEAK`'s and `PLAY`'s authored demos are written again by `bbcourse.py author` (I11): the build now REFUSES a shipped demo under other physics or one that would be demoted. A 5b `.BZR` is refused, mostly as "Damaged demo file" (its course's identity moved, which is checked first), "Demo from other physics" only where the identity did not. **`BONANZA.DAT` +5 carries `BZ_PHYSV`**: the hostile read accepts any +5, and a file under other physics keeps its identities and loses its bests | `bonanzademo`; `bonanzagame` (red arm `physdat`); `bonanzacourse` items 4 and 9 (controls `physv`, `physv0`, `stalebzd`, `noboostdemo`) *Final pass: `bonanzademo` ok (the hostile set's 18 files, H17 and H18 among them, each refused with its toast on both cards); `bonanzagame` ok with its `physdat` leg, `physdat` red; item 4 and item 9 ok with `physv`, `physv0`, `stalebzd` and `noboostdemo`; BZ_PHYSV 25h* |
-| 6.10 | **DEFERRED to wave 10** (the owner, 2026-11-15: *"Yes to defer performance baseline, moreso as the performance session made a bunch of performance changes."*; SPEC.md 128.17.18). The 108-run re-baseline below is taken by wave 10 on the tree it measures, not at gate 1: physics will move again with the props and mechanics still to come, and the speed pass ([BONANZA-SPEED-2026-11-15](../reports/BONANZA-SPEED-2026-11-15.md)) moved every frame's cost. Wave 10's targets, BENCH's A/B and story 7.7 are anchored on the speed pass's figures until then. **The re-baseline** (a review finding; SPEC.md 128.16.10; *waits for gate 1's round 2, SPEC.md 128.17.12*): `bonanzaperf --baseline`, taken ONCE at the FREEZE commit: every demo (six) through `D` and `B`, both cards, speaker OFF and ON, six runs a configuration for `MILL` (classified by its camera mode) and `PEAK`, three for the rest, 108 runs, each figure with its spread, runs of two or more misses among them, each row keyed to its demo's log (a demo the owner later replaces is re-measured), into a new dated report. Wave 6's own final pass asserts no end-to-end A/B (no like for like exists across a physics change) but ASSERTS the new routines' spans, and reports each demo against 5b's figures under the smoothness rule: PREDICTED about +0.65 - 0.75k a frame of instructions, plus the larger terms that move with the path, the faster balls' pans (`bbcourse.py --pans` predicts them before the code; more than about +1 missed refresh a second on `MILL` or `PEAK` is an owner conversation) and the occluder pass's records. Wave 10's targets, BENCH's A/B (Q-L8: +0.5k over three runs' spread) and story 7.7 are re-anchored on the re-baseline | `bonanzaperf` *Wave 6's half, the final pass (2026-11-14, SPEC.md 128.16.10): every demo through `D`, both cards, speaker OFF and ON, one run each, REPORTED against 5b: the rates inside +1 a second (CGA `MILL` 8.90, `PEAK` 8.76; Hercules 1.68, 3.24, speaker ON), but the misses now CLUSTER into half-rate runs (CGA `PEAK` 45 runs, the longest 43 frames, against 5b's 2 and 13), on gate 1's list; `BENCH` against `503031d4` +1,056 clk busy on the CGA, +47 on the Hercules (not like for like). The re-baseline itself is the freeze's* |
-| 6.11 | **DONE as a BASELINE, not a freeze** (the owner, 2026-11-15: *"Baseline is fine, instead of 'frozen' - I don't like 'frozen' when we haven't done any courses yet and still have to make half the game props and mechanics."*; SPEC.md 128.17.18). Gate 1 closed after round 3b (*"Tested, feels much better"*). The material table, `BOOST`, `BADD`, `PHYS_CONSTS` and the step's rules at `BZ_PHYSV` 11h are the GATE 1 BASELINE: the reference the courses are designed against, changed by an ordinary commit when a prop or mechanic needs it (a new `BZ_PHYSV`, the demos redone, bests cleared), not by a contract renegotiation. The original story follows. **Gate 1: the owner plays, then the physics FREEZE** (SPEC.md 128.16.11). *Round 1 played 2026-11-14; its retune is wave 6b (SPEC.md 128.17), and round 2 plays wave 6b's disk before the freeze.* The playtest disk (`bonanza360.img`, `bonanza.img`) with the PLAYGROUND and a diary note of what to try. The retune is a constants commit (`MATERIALS`' `HOP`, `GRIP`, `BOOST`, `K` or `ACC`, and `palette` lines), checked first with `bbcourse.py --tune` (which values every course compiles under, the step and gap ladders, and every route proof and `AUTHOR` script passed or failed; a retune that breaks a route becomes a route edit, which moves that course's identity), with the route demos regenerated, the authored ones re-authored and the rows the build moved re-run (a palette edit runs `bonanzaexit`). The disk's note puts the known questions first: glass's inverted grip, every ball faster on one arrow, the Grip chain's repeating boost, the easy two-tile gap. Then the freeze commit marks the material table, `BOOST_V`, `PHYS_CONSTS` and the step's rules BINDING (a later change is a contract change: the owner's decision, a new `BZ_PHYSV`, demos and bests redone, the re-baseline re-taken), runs 6.10, and records O3, O6, O14, O15, O17 and O45 (the mouse's buttons follow decision 2) as reviewed. Course geometry, palettes and the camera are not frozen. The owner's own demo recordings start after it | diary entry; the freeze commit's re-baseline |
+| 6.1 | **DONE.** **Space = Hop and Shift = Grip for every ball** (decision 2). Only the Hop's amount differs (SPEC.md 130.16.3): **rubber 252** (an apex of 5.7 px: 1 unit, a window of about 7 take-off points; Q-61's "about 256" moved to the nearest value every course compiles under), **glass 224** (wave 2's rubber: 1 unit, a hard window of about 4, "in between"), **steel 160**, unchanged (today's tiny hop) | `bonanzaphys`: guest equals model every frame; `bonanzacourse` item 7's ladder *Final pass (2026-11-14): `bonanzaphys` ok on both cards, guest = model every frame with wave 6's five new state values; item 7's step ladder printed and asserted: 1 unit rubber 7 points, glass 3, steel none; `steelglass` contact Hops, never a boost* |
+| 6.2 | **DONE.** **Rubber's "and again"** (decision 1, SPEC.md 130.16.4). A Hop FROM THE GROUND sets a token (`bz_btok`) that every contact clears. At that flight's first contact, with Space's window open, on a FIRM LEVEL floor (FLOOR or GOAL, `sx = sy = 0`, normal or ice, no prop's `OBS` cell), the rebound becomes `max(BOOST_V, rebound)`, **`BOOST_V` = 350**: a contact flight's apex of 9.3 px, 1.5 units on a 7-point window, never 2 units (12 px). So: once per Hop and never on a second contact (one boost a chain until the ball LANDS and Hops from the ground again; with Grip held through the boost's landing that is about a second, a repeating hopper the owner judges at gate 1); never on a ramp, a lip, sand, a mat or a moving floor (rule 4 reads the centre's GRID cell, so never on the lift's slab); never stacked with a jump pickup (9.3 raises `HOP`, not `BOOST_V`); and when the rebound is already at least `BOOST_V` (a Hop dropping 1.5 units or more) the contact is an ordinary contact Hop: no gain and no cue. A boosting contact sets no squash, so the stretch always shows. The tool asserts at import that every non-zero `BOOST` reaches 1.5 units and never 2. Its cue: a sound event of its own, `BZS_E_BOOST` (130.20's table extended in this wave, so the owner hears it at gate 1; story 7.6 re-voices it only if he asks), and a STRETCH frame in rubber's ball part (1,280 bytes, shown 4 steps) | `bonanzaphys` boost scenarios (`boost`, `boostclimb`, `boostdrop`, `boostfall`, `pumpchk`, `bouncefirst`, `gripchain`, `rampnot`, `sandnot`, `matnot`, `liftnot`, `steelglass`); red arms `pump` (the token re-armed by a contact Hop: a second boost in one chain), `rampboost` (the slope test left out: a boost on a ramp), `tokbst` (the token cleared only by a boost: a boost at a second contact) and `slabcell` (rule 4 on the slab's substituted cell: a boost on the lift); `bonanzacourse`'s import assertion, its item 7 assertions and its controls `boost400`, `boost300`, `boostrise`, `slabboost`, `noclear` and `gap3`; `bonanzasound` (red arm `noboost`); `bonanzaring` (red arm `nostretch`) *Final pass: `bonanzaphys`'s boost replays ok on both cards; red arms `pump`, `rampboost`, `tokbst`, `slabcell` and `springtok` red at their own checks; `bonanzacourse`'s controls `boost400`, `boost300`, `boostrise`, `slabboost`, `noclear` and `gap3` red at their items; `bonanzasound` ok, `noboost` red; `bonanzaring` ok with the stretch's card = oracle on every `bz_stf` frame, `nostretch` red. The 3-tile gap onto LOWER floors is a KNOWN CONFLICT, printed for gate 1 (SPEC.md 130.16.4.2)* |
+| 6.3 | **DONE.** **Grip per ball** (decision 2, Q-63): **rubber 8, steel 5, glass 3** (ice's brakes follow: 2, 1, 1). Acceleration stays rubber 4, steel 2 and glass 6, and the drag shifts 6, 8 and 5. PREDICTED: Grip stops each from the cap in 1.5, 2.9 and 1.7 tiles. **A KNOWN INVERSION, first on gate 1's list**: glass's own drag (`K` 5) does most of its stopping, so it coasts 2.8 tiles against rubber's 5.4 and is the slowest on one arrow (186), against the end goal's "light and fast ... very little braking grip"; `K` 6 is the lever (about 378 on one arrow, rubber's coast) and the owner's to choose in play | `bonanzaphys` (`gripglass`); the material table in SPEC.md 130.16.3, printed by item 7 and asserted against the axis model `axis_feel()` *Final pass: item 7's material table equals `axis_feel()` on normal, ice and sand for all three balls (Grip from 384: rubber 1.5 tiles, steel 2.9, glass 1.7); `gripglass` ok on both cards. The inversion stays first on gate 1's list* |
+| 6.4 | **DONE.** O2's **fractional drag** (SPEC.md 130.16.3.1): a remainder byte an axis, `d = max(1, (|v| + rem) >> k)`, so a one-arrow top speed is a property of the material and not of the ball's history (B7): rubber 252, steel the cap, glass 186, from rest and from above (every ball FASTER on one arrow from rest than wave 2: 189, 255, 155). The mask and the remainders' cut live in `bz_surfset`, the one writer of the surface entry (a pad's swap changes `k` too), and the model cuts at the same moments. PRICED at about 215 clk a grounded step (the fetch floor counted; the "about 30" first written here was the arithmetic alone) | `bonanzaphys` (`drag`, red arms `ceildrag` and `slowdrag`, `bz_gax`'s span ASSERTED); `bonanzacourse` item 7's drag figures against `axis_feel()` (control `remwide`); the table *Final pass: `drag-rest` and `drag-cap` ok on both cards; `bz_gax`'s dragged call MEASURED worst 335 clk, mean 325, under its as-built price of 428 (bound 535); `ceildrag` and `slowdrag` red at their own checks; `remwide` red at item 7* |
+| 6.5 | **DONE.** **The reach regenerated, not asserted** (SPEC.md 130.16.5). The boost enters the reach as ONE launch of `BOOST_V` from each firm level floor, never added to a floor's rate (so "every Hop raised to 366", which refuses `MOON` at block row 27, column 27, is not the model). `HOPMAX` becomes 252. RADIUS and the up-ramp distance per ball (rubber 6 tiles, glass and steel 5), `ledge_gaps()` for rubber (unchanged) and glass, and item 7's sweeps are regenerated. The tool PRINTS the STEP LADDER, each rung with its take-off window, and asserts its shape: half a unit every ball; 1 unit rubber (about 7) and glass (about 4), never steel; 1.5 units rubber's boost only (about 7); 2 units nobody. Beside it the GAP LADDER (1, 2 and 3 tiles, level and half a unit down, every window position of the boost), asserting that no ball crosses three tiles, the boost included. All six courses re-checked against their bounds: MEASURED by a scratch reach whose firm-floor test admitted sand (a superset's figures, which `--sizes` replaces), the six go from 43,247 to 43,024 bytes LZ4 (35,062 to 34,850 LZB) and 179,680 to 179,134 bytes of RAM; `PEAK` drops 1,145 LZ4 and is now well under its budget; `MOON` grows 793 | `--selfcheck` (item 7, item 6's bounds); `--sizes` against SPEC.md 130.16.5.4; the new `--tune` *Final pass: `bonanzacourse` ok (252.9 s): the ladders printed and their shapes asserted, all seven courses under their bounds and budgets, item 1 equal to `503031d4`'s parts; `--sizes`: the seven 48,395 LZ4 / 39,202 LZB, 213,158 bytes of RAM* |
+| 6.6 | **DONE.** **A CGA palette per course** (D8; SPEC.md 130.16.6). `BZ_CRS_PALS`, a byte a course in `bzcourse.inc` (bit 5 the palette, bit 4 bright, bits 0 - 3 the ground), from a `palette 0|1 [dim] [ground N]` statement, 30h (today's look) without one; NOT in the part, so no identity moves. One OUT to 3D9h in `bz_vinit` after the mode set (and, in wave 8b's single bracket, at each course's start); none on the Hercules. The port is safe because BONANZA plays only on a VID_CGA or VID_HERC display. Palette 0 recolours the balls (rubber red, steel and glass both green), so ball identity rests on PATTERN as on the Hercules: rubber's spots, steel's seams, glass's see-through checker, all already in the art. Q-64's per-world default arrives with the worlds; the per-course override ships now. The PLAYGROUND ships palette 0 | look boots on both palettes; `bonanzaexit`'s rendered colour (red arms `nopal`, `hercpal`); the Hercules unaffected *Final pass: `bonanzaexit` ok; the PLAYGROUND's ball rendered in palette 0's colour and FIRST's in palette 1's on the CGA, `bz_vinit.vpal` never hit on the Hercules, the desktop's colours kept; `nopal` and `hercpal` red at their own checks* |
+| 6.7 | **DONE.** O9: **the camera's vertical follows the GROUND line**, in GLIDE and TRICKLE (A21, Q-L5; SPEC.md 130.16.7): `cy = bz_py + z - zg`, `zg` the floor under the ball (held over a gap), with the ball's own line as a LATCHED fallback within 16 lines of the window's edge (held until the next contact, so the camera cannot judder over the void). GLIDE's travel ring stays on the ball's own line, so a step in the ground line is never a false "fast". A bounce or a boost no longer bobs the view. About 0.35 - 0.4k a frame | a look boot; `bonanzaring`'s GROUND leg (red arms `camz`, `nosafe`, `nolatch`, `ringcy`, `campad`); item 8's `BENCH` directions; `bonanzaperf` reports the rows panned per bounce against wave 2's 251 / 137 *Final pass: `bonanzaring`'s GROUND leg ok on both cards in GLIDE and TRICKLE (the window = `bbcourse.Glide`'s every GLIDE frame, the footprint inside, no reversal on the void fall); the block MEASURED worst 470 clk, means 360 - 436, under 527 (bound 658); `camz`, `nosafe`, `ringcy` and `campad` red at their own checks, `nolatch` at the window check (SPEC.md 130.16.14's final pass); TRIAL's bounces: GLIDE 219 rows against wave 2's 251, TRICKLE 139 against 137* |
+| 6.8 | **DONE.** **The PLAYGROUND course** (a review finding; SPEC.md 130.16.8): course 6, `PLAY`, "Playground", target 30 s, palette 0. The step ladder's four rungs (half, 1, 1.5, 2 units), each a dead end reached from the apron only (no staircase between them; the 2-unit top unreachable, asserted), a gap ladder (1, 2, 3 tiles), a Hop-and-boost chain onto the 1.5-unit ledge, a brake strip ending at the void (the camera's fallback case, its depth set on the model) with ice and sand beside it, a bounce mat, a pad for each ball, and a goal on a ROLLING route so the autopilot and the tour finish it; no up-ramp within 6 tiles of the rungs. PREDICTED about 15 - 20KB of RAM and 3 - 4.5KB LZ4, under its 6,275 budget. `BZ_NCRS` 7 moves the sound, song and demo rows up one (23 part rows); the tour gains it. It gets an **AUTHORED demo** (`BZ_NDEMO = BZ_NCRS - 1` is asserted, and the autopilot cannot Hop), whose script gains `hop`, `boost` (raising when its contact does not boost) and `grip` verbs: the only demo that boosts, which the tool asserts. The owner judges the freeze on it, and later it can be exploration's sandbox | `bonanzacourse`; `bonanzademo` (its demo `D`'d to the model's end); `bonanzaexit` (its launches and ways out); `bonanzamega` (a play with a boost on kern_mega, red arm `stretchcs`); the owner's play *Final pass: the PLAYGROUND in every row that names it - `bonanzademo` ok (BZD6 boosts and ends at the goal on both cards), `bonanzaexit` ok (its launches and every way out), `bonanzamega` ok (its Hop and boost on kern_mega's Hercules, the replay to the same end; `stretchcs` red), `bonanzareplay` ok; RAM 34,024, LZB 4,352; its demo misses 0.48 a second on the CGA and 0.07 on the Hercules, speaker ON* |
+| 6.9 | **DONE.** `BZ_PHYSV` moves (SPEC.md 130.16.9): `PHYS_REV` (6) joins `PHYS_CONSTS` so a rule-only change moves it too, and the tool refuses 00h and any EARLIER physics' value (`PHYSV_SHIPPED`: 00h, 9Ah, E6h, A0h; a commit that moves `BZ_PHYSV` appends the value it replaces). The ROUTE demos regenerate from the autopilot (a route the new drag breaks gets its `way` lines moved); `MOON`'s, `PEAK`'s and `PLAY`'s authored demos are written again by `bbcourse.py author` (I11): the build now REFUSES a shipped demo under other physics or one that would be demoted. A 5b `.BZR` is refused, mostly as "Damaged demo file" (its course's identity moved, which is checked first), "Demo from other physics" only where the identity did not. **`BONANZA.DAT` +5 carries `BZ_PHYSV`**: the hostile read accepts any +5, and a file under other physics keeps its identities and loses its bests | `bonanzademo`; `bonanzagame` (red arm `physdat`); `bonanzacourse` items 4 and 9 (controls `physv`, `physv0`, `stalebzd`, `noboostdemo`) *Final pass: `bonanzademo` ok (the hostile set's 18 files, H17 and H18 among them, each refused with its toast on both cards); `bonanzagame` ok with its `physdat` leg, `physdat` red; item 4 and item 9 ok with `physv`, `physv0`, `stalebzd` and `noboostdemo`; BZ_PHYSV 25h* |
+| 6.10 | **DEFERRED to wave 10** (the owner, 2026-11-15: *"Yes to defer performance baseline, moreso as the performance session made a bunch of performance changes."*; SPEC.md 130.17.18). The 108-run re-baseline below is taken by wave 10 on the tree it measures, not at gate 1: physics will move again with the props and mechanics still to come, and the speed pass ([BONANZA-SPEED-2026-11-15](../reports/BONANZA-SPEED-2026-11-15.md)) moved every frame's cost. Wave 10's targets, BENCH's A/B and story 7.7 are anchored on the speed pass's figures until then. **The re-baseline** (a review finding; SPEC.md 130.16.10; *waits for gate 1's round 2, SPEC.md 130.17.12*): `bonanzaperf --baseline`, taken ONCE at the FREEZE commit: every demo (six) through `D` and `B`, both cards, speaker OFF and ON, six runs a configuration for `MILL` (classified by its camera mode) and `PEAK`, three for the rest, 108 runs, each figure with its spread, runs of two or more misses among them, each row keyed to its demo's log (a demo the owner later replaces is re-measured), into a new dated report. Wave 6's own final pass asserts no end-to-end A/B (no like for like exists across a physics change) but ASSERTS the new routines' spans, and reports each demo against 5b's figures under the smoothness rule: PREDICTED about +0.65 - 0.75k a frame of instructions, plus the larger terms that move with the path, the faster balls' pans (`bbcourse.py --pans` predicts them before the code; more than about +1 missed refresh a second on `MILL` or `PEAK` is an owner conversation) and the occluder pass's records. Wave 10's targets, BENCH's A/B (Q-L8: +0.5k over three runs' spread) and story 7.7 are re-anchored on the re-baseline | `bonanzaperf` *Wave 6's half, the final pass (2026-11-14, SPEC.md 130.16.10): every demo through `D`, both cards, speaker OFF and ON, one run each, REPORTED against 5b: the rates inside +1 a second (CGA `MILL` 8.90, `PEAK` 8.76; Hercules 1.68, 3.24, speaker ON), but the misses now CLUSTER into half-rate runs (CGA `PEAK` 45 runs, the longest 43 frames, against 5b's 2 and 13), on gate 1's list; `BENCH` against `503031d4` +1,056 clk busy on the CGA, +47 on the Hercules (not like for like). The re-baseline itself is the freeze's* |
+| 6.11 | **DONE as a BASELINE, not a freeze** (the owner, 2026-11-15: *"Baseline is fine, instead of 'frozen' - I don't like 'frozen' when we haven't done any courses yet and still have to make half the game props and mechanics."*; SPEC.md 130.17.18). Gate 1 closed after round 3b (*"Tested, feels much better"*). The material table, `BOOST`, `BADD`, `PHYS_CONSTS` and the step's rules at `BZ_PHYSV` 11h are the GATE 1 BASELINE: the reference the courses are designed against, changed by an ordinary commit when a prop or mechanic needs it (a new `BZ_PHYSV`, the demos redone, bests cleared), not by a contract renegotiation. The original story follows. **Gate 1: the owner plays, then the physics FREEZE** (SPEC.md 130.16.11). *Round 1 played 2026-11-14; its retune is wave 6b (SPEC.md 130.17), and round 2 plays wave 6b's disk before the freeze.* The playtest disk (`bonanza360.img`, `bonanza.img`) with the PLAYGROUND and a diary note of what to try. The retune is a constants commit (`MATERIALS`' `HOP`, `GRIP`, `BOOST`, `K` or `ACC`, and `palette` lines), checked first with `bbcourse.py --tune` (which values every course compiles under, the step and gap ladders, and every route proof and `AUTHOR` script passed or failed; a retune that breaks a route becomes a route edit, which moves that course's identity), with the route demos regenerated, the authored ones re-authored and the rows the build moved re-run (a palette edit runs `bonanzaexit`). The disk's note puts the known questions first: glass's inverted grip, every ball faster on one arrow, the Grip chain's repeating boost, the easy two-tile gap. Then the freeze commit marks the material table, `BOOST_V`, `PHYS_CONSTS` and the step's rules BINDING (a later change is a contract change: the owner's decision, a new `BZ_PHYSV`, demos and bests redone, the re-baseline re-taken), runs 6.10, and records O3, O6, O14, O15, O17 and O45 (the mouse's buttons follow decision 2) as reviewed. Course geometry, palettes and the camera are not frozen. The owner's own demo recordings start after it | diary entry; the freeze commit's re-baseline |
 
 **As built** (wave 6 BUILT on the host and look-booted, and its final pass
 run on 2026-11-14: stories 6.1 - 6.9 are DONE, 6.10's wave half is
@@ -794,25 +808,25 @@ tunable and how to ask for a retune - are
   units down), and rubber's Hop ALONE crosses from 2 units down (wave 5b's
   224 did not): a KNOWN CONFLICT, PRINTED by item 7 with the shipped
   courses' instances (two on `MILL`), for the owner at gate 1 (SPEC.md
-  128.16.4.2, 128.16.5.3, 128.16.16). And a spring's launch spends the
+  130.16.4.2, 130.16.5.3, 130.16.16). And a spring's launch spends the
   Hop's token (the review's F1): a Hop on a spring's cell never boosts.
 - **6.4 - the drag's price**: `bz_gax`'s worst call is 428 clk as built
   (+48 bytes against about 36), a grounded step +226 - 261 against about
-  215 (SPEC.md 128.16.3.1).
+  215 (SPEC.md 130.16.3.1).
 - **6.6 - the palette** is 21 bytes (14 code, 7 table), in `bz_vinit`'s
-  CGA arm at the local label `.vpal` (SPEC.md 128.16.6).
+  CGA arm at the local label `.vpal` (SPEC.md 130.16.6).
 - **6.7, 6.10 - the pans**: `bbcourse.py --pans` was built at the review
   (it is `bonanzaperf`'s prediction too). It predicts `MILL`'s CGA demo at
   7.44 columns a second against 5b's 3.96, about +5 missed refreshes a
-  second by 128.15.5.4's scale: over the +1 threshold, so on gate 1's list
-  (SPEC.md 128.16.15, 128.16.16). The camera block's worst path is 527 clk
+  second by 130.15.5.4's scale: over the +1 threshold, so on gate 1's list
+  (SPEC.md 130.16.15, 130.16.16). The camera block's worst path is 527 clk
   (a latched ball released and re-tripped), its common frames 0.30 - 0.39k
-  (SPEC.md 128.16.7).
+  (SPEC.md 130.16.7).
 - **6.8 - the PLAYGROUND** was built 128 wide, not 64: RAM **34,024**
   (predicted 15 - 20KB), LZ4 5,371, LZB **4,352** (predicted 2.5 - 3.8KB),
-  under its budget (SPEC.md 128.16.8).
+  under its budget (SPEC.md 130.16.8).
 - **The image**: +368 bytes against about +300, bss +13 (+4 for the sixth
-  tour course) (SPEC.md 128.16.15).
+  tour course) (SPEC.md 130.16.15).
 
 **The step ladder** (PREDICTED by the scratch step with wave 2's drag, at
 the cap with a chord, 70 take-off points 1.5 gu apart; 6.5 prints the real
@@ -823,11 +837,11 @@ one, and the gap ladder beside it):
 | half a unit | every ball rolls up |
 | 1 unit | the Hop of rubber (about 7 points, 128 ms) and glass (about 4, 73 ms); not steel |
 | 1.5 units | rubber's "and again" only (about 7 points, 128 ms, at `BOOST_V` 350) |
-| 2 units | a wall to every ball **from level ground**; a drop's bounce (SPEC.md 128.11.5.3's table), a ramp and a spring are the exceptions |
+| 2 units | a wall to every ball **from level ground**; a drop's bounce (SPEC.md 130.11.5.3's table), a ramp and a spring are the exceptions |
 
 So ball choice becomes route choice with no new code.
 
-**Bytes** (PREDICTED, SPEC.md 128.16.15): the image about +300 (+250 -
+**Bytes** (PREDICTED, SPEC.md 130.16.15): the image about +300 (+250 -
 350), bss +12; rubber's ball part +1,280 bytes of RAM; the six courses -546
 bytes of RAM and -212 LZB (MEASURED, by a scratch reach whose firm-floor
 test admitted sand, so `--sizes` replaces them); the PLAYGROUND about 2.5 -
@@ -837,7 +851,7 @@ test admitted sand, so `--sizes` replaces them); the PLAYGROUND about 2.5 -
 5b's D cost; the faster balls' pans and the occluder pass's moved records
 are larger terms, predicted on the host (`--pans`) and reported.
 
-**Rows** (SPEC.md 128.16.14), run once in wave 6's final pass, R5's soak
+**Rows** (SPEC.md 130.16.14), run once in wave 6's final pass, R5's soak
 before gate 1, then every new red arm once: `bonanzacourse`,
 `bonanzaphys`, `bonanzareplay`, `bonanzaring`, `bonanzaexit`,
 `bonanzaperf`, `bonanzademo`, `bonanzagame`, `bonanzamega`,
@@ -851,7 +865,7 @@ A21, D8, I11.
 #### Wave 6b: Gate 1's retune (M)
 
 **Goal:** the four changes the owner asked for after playing wave 6, then a
-second playtest disk. **The contract is SPEC.md 128.17**, written before
+second playtest disk. **The contract is SPEC.md 130.17**, written before
 the code. Stories 6.10 (the re-baseline) and 6.11 (the freeze) wait for the
 owner's OK on this round.
 
@@ -878,7 +892,7 @@ owner's OK on this round.
 > ["chute"] "slows down" before it then quickly moves over smoothly. We
 > should aim for all of them to be smooth; not slowing down.
 
-**The facts the stories build on** (SPEC.md 128.17, MEASURED on the host
+**The facts the stories build on** (SPEC.md 130.17, MEASURED on the host
 model at `4d69985c` with scratch copies of the tool; no emulator ran):
 - **The boost's window closes ON the contact and has no late side**: the
   second Space edge must fall on the 6 steps ending at the contact step. A
@@ -918,18 +932,18 @@ model at `4d69985c` with scratch copies of the tool; no emulator ran):
 
 | # | story | verified by |
 |---|---|---|
-| 6b.1 | **DONE.** **Grip 6/3/1** (SPEC.md 128.17.3): `MATERIALS`' `GRIP` rubber 6, steel 3, glass 1. Ice's brake becomes `max(1, (GRIP + 2) >> 2)`, so it stays 2, 1, 1 (the plain quarter would make every ball the same on ice and double rubber's ice stop). From the cap Grip stops rubber in 1.8 tiles, steel 4.3, glass 2.3 (2.2 from its chord top, 372; PREDICTED by the axis model). The steel overrun of the PLAYGROUND's strip and glass's inversion go in round 2's notes | `bonanzacourse` item 7 against `axis_feel()` (control `iceplain`); `bonanzaphys` (`gripglass`, `gripsteel`); `--tune` (every course, ladder, route and script) *Final pass (SPEC.md 128.17.14): `bbcourse.py --selfcheck` item 7 Grip 6, 3, 1 against `axis_feel()`, ice 2, 1, 1, control `iceplain` red at its item; `bonanzaphys` `gripglass` and `gripsteel` equal to the model on both cards; `--tune GRIP=6,3,1` passed at the tool stage* |
-| 6b.2 | **DONE.** **The boost armed by a press in the flight, with a late grace** (SPEC.md 128.17.4): a second Space key-down edge any time after the ground Hop's take-off, up to and including the contact step, sets `bz_btok` to 2; the first contact boosts when the token is 2 and rules 1, 3, 4 and 5 hold. **The late grace** (`BGRACE` 3, in `PHYS_CONSTS`): an unarmed first contact that passes those rules and BOUNCES opens 3 steps in which a Space edge converts the rebound into the boost exactly (`gvz += BOOST - rebound`, `gz` lifted by the same for each integration since the contact). Space HELD never arms; the Hop's own edge never arms its flight; one boost a chain as before. No log change. ESTIMATED 3 bytes of bss (`bz_bgr`, `bz_bgd`), about +55 - 70 bytes and about 32 clk a step; **as built** (SPEC.md 128.17.4.3, 128.17.11) **+161 bytes** (the trigger 17, the grace 144 of which 50 are the closing sites), **+2 bss net** (the zeroed block's pad byte `bz_ppad` went), **+1 clk on an ordinary step, +39 on a step the window or grace counts down** (PREDICTED, priced from the code). The mouse's left button arms and converts as Space does | `bonanzaphys` (`armearly`, `armroll`, `armlate` (the grace), `armlate4`, `hoponly`, `armheld`, `ledgehold`, `mashchain`, `gripchain` re-keyed; red arms `heldarm`, `hopedge`, `armwin`, `nograce`, `grace4`, `graceoff`); `bonanzacourse` item 7's offset map, the grace's exactness, ledge case and who-hits-it floors (controls `heldarm`, `hopedge`, `nograce`, `grace4`); the ladders' counts unchanged; `bonanzareplay`'s mouse play *Final pass (SPEC.md 128.17.14): `bonanzaphys` passes on both cards - `armearly`, `armroll`, `armlate` (the grace converts: `boostg`), `armlate4`, `hoponly`, `armheld`, `ledgehold`, `mashchain`, `gripchain` and `gripsteel` equal to the model at every frame; red arms `heldarm`, `hopedge`, `armwin`, `nograce`, `grace4` and `graceoff` red at their own checks, and the carried `pump`, `tokbst`, `rampboost`, `slabcell`, `springtok` and `respawn`; item 7's offset map, exactness, ledge and who-hits-it (81/69/65/94/0/95 against 43/34/33/63/0/25) and its controls red; `bonanzareplay`'s mouse play boosts from a mid-flight click; the guest's `bz_step` equal to `Physics` under unicorn on every course* |
-| 6b.3 | **DONE.** **Three tiles are course knowledge** (SPEC.md 128.17.5): **CD5**, a 3-tile gap onto a lower floor is a rubber rung (the measured ladder: half a unit down from 2 take-off points with the boost, to 22 at 3 units down; rubber's Hop alone from 2 units down; glass from 3; steel never; three tiles level nobody's), with a PLAYABILITY FLOOR (under 6 take-off points is luck: a rung starts at 1.5 units down), and **CD6**, where a boost spot goes (a firm level floor about 2 tiles past the take-off, under about 1.2 units below it). Both join R1's course-design notes. Item 7 prints the ladder as CD5 with each row's verdict, not as a KNOWN CONFLICT; every assertion stays. No grammar and no refusal: `gap3_scan()` lists, and story 11.8 cross-checks the sheets | `bonanzacourse` item 7 (its printed names and verdicts); R1 *Final pass (SPEC.md 128.17.14): `bonanzacourse` item 7 prints CD5 under its name with each row's verdict (`MILL` wy 12 luck, wy 13 a rung), every assertion kept* |
-| 6b.4 | **DONE.** **The camera: LATTICE** (SPEC.md 128.17.6). GLIDE's policy and `bz_hvcam` replaced by one per-axis rule, its per-frame ORDER pinned (128.17.6.2): a band with RETURN HYSTERESIS (`Hr`: 40/45 px across, 16 lines down), targets on a LATTICE (8 columns, 32 lines) with a lead, a pan that only extends forward and never reverses inside the band, one rate a pan that only rises, the urgent edge across at `W / 2` (so no return pan is born fast), tubes PRE-AIMED at their exit, and the heavy rule a bounded DELAY (level 1 side- and axis-aware through `bz_pflag` bits 4 - 7, level 2 one row through on the Hercules, an axis withheld at most 3 steps running). The ground line and its latch, TRICKLE and the edge clause stay; the ring's y half goes. `bbcourse.Glide` becomes the same rule, integer-exact, with the respawn cut modelled and a flag for each control's broken part. `BENCH`'s eight directions are proved under a scripted-camera harness byte, `bz_camscr` (LATTICE off, a fixed cycle, a step toward the ball when the cycle would lose it). ESTIMATED from a sketch about +225 - 285 bytes and +44 bss, +0.2 - 0.6k a frame; **as built** (SPEC.md 128.17.11) **+336 bytes, +18 bss**, and per frame (PREDICTED, priced from the code) **-0.30k at rest** (2.15k against wave 6's 2.45k), **+1.35k with one axis active and +2.7k with both over a rest frame** (3.50k and 4.83k mean, against wave 6's 2.75k out of rest): the camera's extra cost lands on pan frames. Against -22% of the authored courses' priced pan work on the CGA | `bonanzacourse` item 8 running `--camcheck` whole: guarantees 1 - 3 and 5 (the tube exits), the side check on a constructed scenario, the two-row check, the ramp bottom and the dither map (controls `nohyst`, `nocap`, `ringy`, `nopreaim`, `side0`, `noscr`); `bonanzaring`'s CAMERA leg, its own part (red arms `camhyst`, `camcap`, `campreaim`, `camring`, `camside`, `latpad`; `campad` kept on the ground-line block); `bonanzaperf`'s report and its A/B on `MILL`'s route demo (story 6b.7) *Final pass (SPEC.md 128.17.14): `--camcheck` ok with every 128.17.6.6 figure reproduced and its six controls red; `bonanzaring`'s CAMERA leg passes on both cards - the window equal to `Glide`'s on every frame of seven scenarios (11,666 frames), the ramp bottom 0 reversals, `bz_camera`'s worst clean span 6,405 cycles (bound 7,200); red arms `camhyst`, `campreaim`, `camring`, `camside`, `latpad` and `campad` red at their own checks, `camcap` re-found on `PEAK`'s CGA demo and red at the lift stretch's `held` check; the A/B is story 6b.7's* |
-| 6b.5 | **DONE.** **`BZ_PHYSV`, demos and saves** (SPEC.md 128.17.7): `PHYS_REV` 7 and `BGRACE` 3 in `PHYS_CONSTS`, `BZ_PHYSV` 53h PREDICTED, 25h appended to `PHYSV_SHIPPED`; the route demos regenerated (their paths unchanged: no Space or Grip in them), `MOON`'s, `PEAK`'s and `PLAY`'s re-authored; the course parts and identities unchanged; the owner's bests cleared once | `bonanzacourse` items 4 and 9 (control `physv25`); `bonanzademo` (+7 = 25h refused); `bonanzagame` (`physdat` with +5 = 25h) *Final pass (SPEC.md 128.17.14): `bonanzacourse` items 4 and 9 (`physv25` red); `bonanzademo` refuses +7 = 25h at check 5; `bonanzagame`'s `physdat` clears the bests for +5 = 25h; `BZ_PHYSV` 53h* |
-| 6b.6 | **The rows** (SPEC.md 128.17.10), run ONCE in the final pass: `bonanzacourse`, `bonanzaphys`, `bonanzaring`, `bonanzaperf`, `bonanzareplay`, `bonanzademo`, `bonanzagame`, `bonanzamega`, `bonanzawheel`, `bonanzaexit`, `bonanzasound`; then every new red arm once AND every CARRIED arm 128.17.10 lists (`pump`, `tokbst`, `rampboost`, `slabcell`, `springtok`; `camz`, `nosafe`, `nolatch`, `nostretch` and the ring's box, probe and lift arms; the wheel's; `rideoff`, `level1`; `noboost`), each re-proved on 6b's model by `--check` / `--check-reds` before the pass, re-found or retired with a reason if it no longer goes red. `ringcy` retired; `campad` kept on the ground-line block, `latpad` new; `level1` kept on `bz_hv1` (its anchor unchanged: the near-edge bits went into `bz_pnear`). `bonanzacourse`'s and `bonanzaring`'s `secs` re-measured; the CAMERA leg is its own part. **6b's first commit regenerates `docs/INDEX.md`** (`tools/os88index.py`: stale at `4d69985c`, the open-plan count, so `make` fails at `os88index --check` until it is) | the final pass *Final pass (SPEC.md 128.17.14): one scoped soak, 9 of 13 rows ok at once; `bonanzaring` and `bonanzareplay` pass after harness fixes; `bonanzaperf` fails only on the Hercules' `PEAK` `D`, `bz_rwlate` 1 (reproduced: 128.13.17 item 6, now deterministic), and `bonanzawheel` on the CGA's (6) (since 3b) and its (7) rotor rate (86 - 89%, LATTICE's two-row pan frames); 70 emulator red arms run once, 67 red at their own check at once, `camcap` re-found and red, `gatelate` red on the Hercules on a second run, `bonanzaperf`'s `halfcal` retired (no `bz_wover` under LATTICE; red at `bonanzawheel`'s (5)). Not DONE: two rows still fail* |
-| 6b.7 | **DONE.** **The measurement the owner's smoothness rule needs, and the decision it carries** (SPEC.md 128.17.6.6, 128.17.10): `bonanzaperf` REPORTS each demo's runs of two or more misses and the longest run on both cards (wave 6: CGA `PEAK` 45 runs, the longest 43; `MILL` 15 and 33), the pans against `--pans`, the misses of tube frames against the rest, and a `FIRST` fall-and-respawn replay; the like-for-like A/B against `4d69985c` on `MILL`'s route demo, three runs a side (`B` reported only: its series breaks at 6b). **The decision**: LATTICE ships on round 2's disk if `MILL`'s misses a second and longest run are no worse than `4d69985c`'s beyond the spread of its three runs, on both cards; otherwise the figures go to the owner with the disk held. The in-tube one-row rule ships if any run's tube frames miss more often than its other frames | `bonanzaperf` *Final pass (SPEC.md 128.17.14): `--lattice-ab` measured - the CGA's `MILL` misses 5.09 a second against 9.23, but its longest run 39, 46, 16 against 22, 29, 16: WORSE beyond the spread; the Hercules no worse on both. THE DECISION: the disk is HELD and the figures go to the owner. The in-tube rule does not ship (no run triggered it); `FIRST`'s nine falls measured through `B`* |
-| 6b.8 | **DONE** (2026-11-15, SPEC.md 128.17.15): *the owner played the final pass's build as a preview: "Camera end position is much better, feels natural. Keep that. Double bounce with "preprime" works. Grip is better; less overpowered." LATTICE ships (6b.7's hold released), the trigger and Grip stay; the freeze waits for the owner's OK.* **Gate 1, round 2** (SPEC.md 128.17.12): the playtest disk (`bonanza360.img`, `bonanza.img`), built from the commit AFTER 6b's final pass and 6b.7's decision, never from an unverified build, and round 2's notes in [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md): the boost by a second tap in the air or at the landing, while rolling across the apron; that it fires only on a plain level floor (why most of `MILL`'s and `TRIAL`'s landings refuse it, silently); that holding Space does nothing; that steel and glass still need the press at the landing; the Grip chain's repeating boost; steel's Grip a tile before the strip, and ice left as before; the camera at `MILL`'s ramp bottom, out of its chute and cannon, and beside `PEAK`'s lift (a slower row pan there is expected); and a request for the `.BZR` of any boost that still fails. **A "How It Was Built" diary entry for 6b** (the owner's round-1 words, the diagnosis, the two camera designs and the review's changes) in [BOUNCE-BONANZA-DIARY.md](BOUNCE-BONANZA-DIARY.md). 6.10 and 6.11 then wait for the owner's OK | the owner's play; the diary entry *Round 2's notes written into BOUNCE-BONANZA-GATE1.md with the held disk's figures, and the diary entry; waits for the owner's choice of camera and the play* |
-| 6b.9 | **DONE** (2026-11-15). **Gate 1, round 3** (SPEC.md 128.17.16), the owner's notes on round 2: the late grace `BGRACE` 4; **Space HELD at a first contact arms the boost**, onto a floor no higher than the take-off (the take-off gate, `bz_zoff`); **a FALL** (rolling off a ledge, no Hop) **takes the token**, so its landing may boost; one boost, then the ball must stop bouncing, which holds by construction and item 7 asserts. `PHYS_REV` 8, `BZ_PHYSV` FDh, 53h joins `PHYSV_SHIPPED`; MOON's, PEAK's and PLAY's demos re-authored (step counts unchanged). +36 bytes, +2 bss (MEASURED). Round 3's notes head [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md). 6.10 and 6.11 still wait for the owner's OK | `bonanzacourse` item 7 (the offset map to +4, the held press, the falls, the stop-bouncing rule, the ledge case held through its contact; controls `grace5`, `noheld`, `nofall`, `nogate`, `heldarm`, `pump`); `bonanzaphys` (`armlate5`, `armheld` now a boost, `ledgehold`, `fallarm`, `fallnone`; reds `grace5`, `noheld`, `nogate`, `nofall`) *Host: `bbcourse.py --selfcheck` ok; `bonanza_phys.py --check` ok, every red arm assembling and parting at its replay. Final pass (one scoped soak, 2026-11-15): `bonanzacourse`, `bonanzaphys`, `bonanzareplay`, `bonanzademo`, `bonanzagame` ok; `bonanzamega` ok on 86Box; red arms `noheld`, `nogate`, `nofall`, `grace5`, `hopedge`, `takeoff`, `heldarm`, `pump`, `armwin` each red at its own replay on both cards* |
-| 6b.10 | **DONE** (2026-11-15). **Gate 1, round 3b** (SPEC.md 128.17.17): **every launch arms** - the cup's lip-out and a spring under a grounded ball take the token, and a spring under a contact or a tube's DROP or LAUNCH exit takes it unless a boost is SPENT (`bz_bsp`, 1 from a boost until the ball is next on the ground); **the boost ADDS to a fall's bounce** (`min(VZMAX, max(BOOST, rr + BADD))`, `BADD` 149 at MATTAB +14), rule 5 gone. No offscreen frame on either card (the camera model, every route held and mashed, a 6-unit drop). The reach grows: MILL, MOON and PLAY's parts and identities move, PLAY's 2-unit top is reached (PRINTED: a test course). +58 bytes, +2 bss; `BZ_PHYSV` 11h, FDh shipped | `bonanzacourse` item 7 (`noadd`, `springoff`, `nolaunch`, `nospent`); `bonanzaphys` (`boostfall`, `springarm`, `spentspring`); the camera rows, the course parts having moved *Host: `bbcourse.py --selfcheck` ok, `bonanza_phys.py --check` ok; the soak deferred under R5's round rule* |
+| 6b.1 | **DONE.** **Grip 6/3/1** (SPEC.md 130.17.3): `MATERIALS`' `GRIP` rubber 6, steel 3, glass 1. Ice's brake becomes `max(1, (GRIP + 2) >> 2)`, so it stays 2, 1, 1 (the plain quarter would make every ball the same on ice and double rubber's ice stop). From the cap Grip stops rubber in 1.8 tiles, steel 4.3, glass 2.3 (2.2 from its chord top, 372; PREDICTED by the axis model). The steel overrun of the PLAYGROUND's strip and glass's inversion go in round 2's notes | `bonanzacourse` item 7 against `axis_feel()` (control `iceplain`); `bonanzaphys` (`gripglass`, `gripsteel`); `--tune` (every course, ladder, route and script) *Final pass (SPEC.md 130.17.14): `bbcourse.py --selfcheck` item 7 Grip 6, 3, 1 against `axis_feel()`, ice 2, 1, 1, control `iceplain` red at its item; `bonanzaphys` `gripglass` and `gripsteel` equal to the model on both cards; `--tune GRIP=6,3,1` passed at the tool stage* |
+| 6b.2 | **DONE.** **The boost armed by a press in the flight, with a late grace** (SPEC.md 130.17.4): a second Space key-down edge any time after the ground Hop's take-off, up to and including the contact step, sets `bz_btok` to 2; the first contact boosts when the token is 2 and rules 1, 3, 4 and 5 hold. **The late grace** (`BGRACE` 3, in `PHYS_CONSTS`): an unarmed first contact that passes those rules and BOUNCES opens 3 steps in which a Space edge converts the rebound into the boost exactly (`gvz += BOOST - rebound`, `gz` lifted by the same for each integration since the contact). Space HELD never arms; the Hop's own edge never arms its flight; one boost a chain as before. No log change. ESTIMATED 3 bytes of bss (`bz_bgr`, `bz_bgd`), about +55 - 70 bytes and about 32 clk a step; **as built** (SPEC.md 130.17.4.3, 130.17.11) **+161 bytes** (the trigger 17, the grace 144 of which 50 are the closing sites), **+2 bss net** (the zeroed block's pad byte `bz_ppad` went), **+1 clk on an ordinary step, +39 on a step the window or grace counts down** (PREDICTED, priced from the code). The mouse's left button arms and converts as Space does | `bonanzaphys` (`armearly`, `armroll`, `armlate` (the grace), `armlate4`, `hoponly`, `armheld`, `ledgehold`, `mashchain`, `gripchain` re-keyed; red arms `heldarm`, `hopedge`, `armwin`, `nograce`, `grace4`, `graceoff`); `bonanzacourse` item 7's offset map, the grace's exactness, ledge case and who-hits-it floors (controls `heldarm`, `hopedge`, `nograce`, `grace4`); the ladders' counts unchanged; `bonanzareplay`'s mouse play *Final pass (SPEC.md 130.17.14): `bonanzaphys` passes on both cards - `armearly`, `armroll`, `armlate` (the grace converts: `boostg`), `armlate4`, `hoponly`, `armheld`, `ledgehold`, `mashchain`, `gripchain` and `gripsteel` equal to the model at every frame; red arms `heldarm`, `hopedge`, `armwin`, `nograce`, `grace4` and `graceoff` red at their own checks, and the carried `pump`, `tokbst`, `rampboost`, `slabcell`, `springtok` and `respawn`; item 7's offset map, exactness, ledge and who-hits-it (81/69/65/94/0/95 against 43/34/33/63/0/25) and its controls red; `bonanzareplay`'s mouse play boosts from a mid-flight click; the guest's `bz_step` equal to `Physics` under unicorn on every course* |
+| 6b.3 | **DONE.** **Three tiles are course knowledge** (SPEC.md 130.17.5): **CD5**, a 3-tile gap onto a lower floor is a rubber rung (the measured ladder: half a unit down from 2 take-off points with the boost, to 22 at 3 units down; rubber's Hop alone from 2 units down; glass from 3; steel never; three tiles level nobody's), with a PLAYABILITY FLOOR (under 6 take-off points is luck: a rung starts at 1.5 units down), and **CD6**, where a boost spot goes (a firm level floor about 2 tiles past the take-off, under about 1.2 units below it). Both join R1's course-design notes. Item 7 prints the ladder as CD5 with each row's verdict, not as a KNOWN CONFLICT; every assertion stays. No grammar and no refusal: `gap3_scan()` lists, and story 11.8 cross-checks the sheets | `bonanzacourse` item 7 (its printed names and verdicts); R1 *Final pass (SPEC.md 130.17.14): `bonanzacourse` item 7 prints CD5 under its name with each row's verdict (`MILL` wy 12 luck, wy 13 a rung), every assertion kept* |
+| 6b.4 | **DONE.** **The camera: LATTICE** (SPEC.md 130.17.6). GLIDE's policy and `bz_hvcam` replaced by one per-axis rule, its per-frame ORDER pinned (130.17.6.2): a band with RETURN HYSTERESIS (`Hr`: 40/45 px across, 16 lines down), targets on a LATTICE (8 columns, 32 lines) with a lead, a pan that only extends forward and never reverses inside the band, one rate a pan that only rises, the urgent edge across at `W / 2` (so no return pan is born fast), tubes PRE-AIMED at their exit, and the heavy rule a bounded DELAY (level 1 side- and axis-aware through `bz_pflag` bits 4 - 7, level 2 one row through on the Hercules, an axis withheld at most 3 steps running). The ground line and its latch, TRICKLE and the edge clause stay; the ring's y half goes. `bbcourse.Glide` becomes the same rule, integer-exact, with the respawn cut modelled and a flag for each control's broken part. `BENCH`'s eight directions are proved under a scripted-camera harness byte, `bz_camscr` (LATTICE off, a fixed cycle, a step toward the ball when the cycle would lose it). ESTIMATED from a sketch about +225 - 285 bytes and +44 bss, +0.2 - 0.6k a frame; **as built** (SPEC.md 130.17.11) **+336 bytes, +18 bss**, and per frame (PREDICTED, priced from the code) **-0.30k at rest** (2.15k against wave 6's 2.45k), **+1.35k with one axis active and +2.7k with both over a rest frame** (3.50k and 4.83k mean, against wave 6's 2.75k out of rest): the camera's extra cost lands on pan frames. Against -22% of the authored courses' priced pan work on the CGA | `bonanzacourse` item 8 running `--camcheck` whole: guarantees 1 - 3 and 5 (the tube exits), the side check on a constructed scenario, the two-row check, the ramp bottom and the dither map (controls `nohyst`, `nocap`, `ringy`, `nopreaim`, `side0`, `noscr`); `bonanzaring`'s CAMERA leg, its own part (red arms `camhyst`, `camcap`, `campreaim`, `camring`, `camside`, `latpad`; `campad` kept on the ground-line block); `bonanzaperf`'s report and its A/B on `MILL`'s route demo (story 6b.7) *Final pass (SPEC.md 130.17.14): `--camcheck` ok with every 130.17.6.6 figure reproduced and its six controls red; `bonanzaring`'s CAMERA leg passes on both cards - the window equal to `Glide`'s on every frame of seven scenarios (11,666 frames), the ramp bottom 0 reversals, `bz_camera`'s worst clean span 6,405 cycles (bound 7,200); red arms `camhyst`, `campreaim`, `camring`, `camside`, `latpad` and `campad` red at their own checks, `camcap` re-found on `PEAK`'s CGA demo and red at the lift stretch's `held` check; the A/B is story 6b.7's* |
+| 6b.5 | **DONE.** **`BZ_PHYSV`, demos and saves** (SPEC.md 130.17.7): `PHYS_REV` 7 and `BGRACE` 3 in `PHYS_CONSTS`, `BZ_PHYSV` 53h PREDICTED, 25h appended to `PHYSV_SHIPPED`; the route demos regenerated (their paths unchanged: no Space or Grip in them), `MOON`'s, `PEAK`'s and `PLAY`'s re-authored; the course parts and identities unchanged; the owner's bests cleared once | `bonanzacourse` items 4 and 9 (control `physv25`); `bonanzademo` (+7 = 25h refused); `bonanzagame` (`physdat` with +5 = 25h) *Final pass (SPEC.md 130.17.14): `bonanzacourse` items 4 and 9 (`physv25` red); `bonanzademo` refuses +7 = 25h at check 5; `bonanzagame`'s `physdat` clears the bests for +5 = 25h; `BZ_PHYSV` 53h* |
+| 6b.6 | **The rows** (SPEC.md 130.17.10), run ONCE in the final pass: `bonanzacourse`, `bonanzaphys`, `bonanzaring`, `bonanzaperf`, `bonanzareplay`, `bonanzademo`, `bonanzagame`, `bonanzamega`, `bonanzawheel`, `bonanzaexit`, `bonanzasound`; then every new red arm once AND every CARRIED arm 130.17.10 lists (`pump`, `tokbst`, `rampboost`, `slabcell`, `springtok`; `camz`, `nosafe`, `nolatch`, `nostretch` and the ring's box, probe and lift arms; the wheel's; `rideoff`, `level1`; `noboost`), each re-proved on 6b's model by `--check` / `--check-reds` before the pass, re-found or retired with a reason if it no longer goes red. `ringcy` retired; `campad` kept on the ground-line block, `latpad` new; `level1` kept on `bz_hv1` (its anchor unchanged: the near-edge bits went into `bz_pnear`). `bonanzacourse`'s and `bonanzaring`'s `secs` re-measured; the CAMERA leg is its own part. **6b's first commit regenerates `docs/INDEX.md`** (`tools/os88index.py`: stale at `4d69985c`, the open-plan count, so `make` fails at `os88index --check` until it is) | the final pass *Final pass (SPEC.md 130.17.14): one scoped soak, 9 of 13 rows ok at once; `bonanzaring` and `bonanzareplay` pass after harness fixes; `bonanzaperf` fails only on the Hercules' `PEAK` `D`, `bz_rwlate` 1 (reproduced: 130.13.17 item 6, now deterministic), and `bonanzawheel` on the CGA's (6) (since 3b) and its (7) rotor rate (86 - 89%, LATTICE's two-row pan frames); 70 emulator red arms run once, 67 red at their own check at once, `camcap` re-found and red, `gatelate` red on the Hercules on a second run, `bonanzaperf`'s `halfcal` retired (no `bz_wover` under LATTICE; red at `bonanzawheel`'s (5)). Not DONE: two rows still fail* |
+| 6b.7 | **DONE.** **The measurement the owner's smoothness rule needs, and the decision it carries** (SPEC.md 130.17.6.6, 130.17.10): `bonanzaperf` REPORTS each demo's runs of two or more misses and the longest run on both cards (wave 6: CGA `PEAK` 45 runs, the longest 43; `MILL` 15 and 33), the pans against `--pans`, the misses of tube frames against the rest, and a `FIRST` fall-and-respawn replay; the like-for-like A/B against `4d69985c` on `MILL`'s route demo, three runs a side (`B` reported only: its series breaks at 6b). **The decision**: LATTICE ships on round 2's disk if `MILL`'s misses a second and longest run are no worse than `4d69985c`'s beyond the spread of its three runs, on both cards; otherwise the figures go to the owner with the disk held. The in-tube one-row rule ships if any run's tube frames miss more often than its other frames | `bonanzaperf` *Final pass (SPEC.md 130.17.14): `--lattice-ab` measured - the CGA's `MILL` misses 5.09 a second against 9.23, but its longest run 39, 46, 16 against 22, 29, 16: WORSE beyond the spread; the Hercules no worse on both. THE DECISION: the disk is HELD and the figures go to the owner. The in-tube rule does not ship (no run triggered it); `FIRST`'s nine falls measured through `B`* |
+| 6b.8 | **DONE** (2026-11-15, SPEC.md 130.17.15): *the owner played the final pass's build as a preview: "Camera end position is much better, feels natural. Keep that. Double bounce with "preprime" works. Grip is better; less overpowered." LATTICE ships (6b.7's hold released), the trigger and Grip stay; the freeze waits for the owner's OK.* **Gate 1, round 2** (SPEC.md 130.17.12): the playtest disk (`bonanza360.img`, `bonanza.img`), built from the commit AFTER 6b's final pass and 6b.7's decision, never from an unverified build, and round 2's notes in [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md): the boost by a second tap in the air or at the landing, while rolling across the apron; that it fires only on a plain level floor (why most of `MILL`'s and `TRIAL`'s landings refuse it, silently); that holding Space does nothing; that steel and glass still need the press at the landing; the Grip chain's repeating boost; steel's Grip a tile before the strip, and ice left as before; the camera at `MILL`'s ramp bottom, out of its chute and cannon, and beside `PEAK`'s lift (a slower row pan there is expected); and a request for the `.BZR` of any boost that still fails. **A "How It Was Built" diary entry for 6b** (the owner's round-1 words, the diagnosis, the two camera designs and the review's changes) in [BOUNCE-BONANZA-DIARY.md](BOUNCE-BONANZA-DIARY.md). 6.10 and 6.11 then wait for the owner's OK | the owner's play; the diary entry *Round 2's notes written into BOUNCE-BONANZA-GATE1.md with the held disk's figures, and the diary entry; waits for the owner's choice of camera and the play* |
+| 6b.9 | **DONE** (2026-11-15). **Gate 1, round 3** (SPEC.md 130.17.16), the owner's notes on round 2: the late grace `BGRACE` 4; **Space HELD at a first contact arms the boost**, onto a floor no higher than the take-off (the take-off gate, `bz_zoff`); **a FALL** (rolling off a ledge, no Hop) **takes the token**, so its landing may boost; one boost, then the ball must stop bouncing, which holds by construction and item 7 asserts. `PHYS_REV` 8, `BZ_PHYSV` FDh, 53h joins `PHYSV_SHIPPED`; MOON's, PEAK's and PLAY's demos re-authored (step counts unchanged). +36 bytes, +2 bss (MEASURED). Round 3's notes head [BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md). 6.10 and 6.11 still wait for the owner's OK | `bonanzacourse` item 7 (the offset map to +4, the held press, the falls, the stop-bouncing rule, the ledge case held through its contact; controls `grace5`, `noheld`, `nofall`, `nogate`, `heldarm`, `pump`); `bonanzaphys` (`armlate5`, `armheld` now a boost, `ledgehold`, `fallarm`, `fallnone`; reds `grace5`, `noheld`, `nogate`, `nofall`) *Host: `bbcourse.py --selfcheck` ok; `bonanza_phys.py --check` ok, every red arm assembling and parting at its replay. Final pass (one scoped soak, 2026-11-15): `bonanzacourse`, `bonanzaphys`, `bonanzareplay`, `bonanzademo`, `bonanzagame` ok; `bonanzamega` ok on 86Box; red arms `noheld`, `nogate`, `nofall`, `grace5`, `hopedge`, `takeoff`, `heldarm`, `pump`, `armwin` each red at its own replay on both cards* |
+| 6b.10 | **DONE** (2026-11-15). **Gate 1, round 3b** (SPEC.md 130.17.17): **every launch arms** - the cup's lip-out and a spring under a grounded ball take the token, and a spring under a contact or a tube's DROP or LAUNCH exit takes it unless a boost is SPENT (`bz_bsp`, 1 from a boost until the ball is next on the ground); **the boost ADDS to a fall's bounce** (`min(VZMAX, max(BOOST, rr + BADD))`, `BADD` 149 at MATTAB +14), rule 5 gone. No offscreen frame on either card (the camera model, every route held and mashed, a 6-unit drop). The reach grows: MILL, MOON and PLAY's parts and identities move, PLAY's 2-unit top is reached (PRINTED: a test course). +58 bytes, +2 bss; `BZ_PHYSV` 11h, FDh shipped | `bonanzacourse` item 7 (`noadd`, `springoff`, `nolaunch`, `nospent`); `bonanzaphys` (`boostfall`, `springarm`, `spentspring`); the camera rows, the course parts having moved *Host: `bbcourse.py --selfcheck` ok, `bonanza_phys.py --check` ok; the soak deferred under R5's round rule* |
 
-**Open questions** (SPEC.md 128.17.13, each with its default): which
+**Open questions** (SPEC.md 130.17.13, each with its default): which
 "held" the owner meant (a second press, built, or the Hop's press held to
 the landing, priced); the grace's length (3); the Grip chain's repeating
 boost (allowed; a cooldown is the lever); a cue for a refused boost (none);
@@ -948,7 +962,7 @@ change).
 **Goal:** the course clocks and time limits, built so that "nothing off
 screen" is true and the heavy frames are measured before the wave closes.
 
-**The contract is SPEC.md 128.18** (written 2026-11-15, before the code).
+**The contract is SPEC.md 130.18** (written 2026-11-15, before the code).
 Its build order: 7.1; then 7.3, 7.4 and 7.5; then 7.2 (form ii first, the
 measurement Q-71 asks for); then 7.6; then 7.7, which decides the clock's
 form; then 7.8 if the measurement leaves room. The second is 55 steps; the
@@ -956,15 +970,15 @@ limit is steps; `par` is refused from this wave.
 
 | # | story | verified by |
 |---|---|---|
-| 7.1 | **DONE** (SPEC.md 128.18.2; +85 bytes; the SIDE leg waits for 7.2's clocks, no shipped lane can be outside the band). **First: the walk's slice narrowed by COLUMN** as well as row (A12), so a lane in the window's rows but off to the side costs nothing, not about 0.2k a frame plus a RAM sync at a pose change. The owner's "costs nothing off screen" depends on it | `bonanzawheel`: a lane off to the side is never walked; red arm |
-| 7.2 | **DONE, form (ii)** (SPEC.md 128.18.5.1; +136 bytes; the crystal ball with two digit lanes on FIRST, TRIAL, MILL and PEAK; `bonanzawheel`'s CLOCK leg and red `clkfreeze` run once, both cards). **The course clock prop** (C1). Its frame (the crystal ball on a stick by default; a scoreboard, lantern, tower, stone, sundial or balloon per course) is static picture art. The digits are one wheel lane. **The form is decided by one measurement** (Q-71): (i) glyphs of our own font (about 10 glyphs of 5 lines, about 150 bytes) composed in BUSY time into the clock's own PRIVATE blocks, which the tool never shares, then committed as an ordinary lane; or (ii) per-pose digit lanes, 10-11 poses of one 16-byte CGA block each (about 160-350 bytes a digit), no new resident code, translated by `bz_hxlat`, but 2-3 lanes of the 6 per window, and up to 3 pose changes at a minute against the 2 a step. The tool gives the clock its own pose-change bound and refuses a clock lane that can stand in front of the route (O25) | `bonanzaclock` (new soak row): commits once a second, the card equals the oracle, nothing walked off the window; red arm: a commit every frame |
-| 7.3 | **DONE** (SPEC.md 128.18.3: FIRST 15 s, TRIAL 20, MILL 30, MOON 55, PEAK 55, PLAY 40 explicit). **`limit`** replaces `par` (D4), counted in STEPS so that it is the same in a replay and a demo. A clock shows the remaining whole seconds, rounded up. P stops it. The tool computes the limit per course from its routes (Q-72): the slowest finish's route time times a factor, plus one worst-flag fall's allowance, floored at the autopilot's main route times about 1.3. It refuses a course where any finish's route does not fit. In `R` and `D` the limit is enforced as in play | `bonanzaphys` and `bonanzareplay`: the timeout step equals the model's |
-| 7.4 | **DONE** (SPEC.md 128.18.4; `bonanzaphys`'s `timeout`, red `toutoff`; `BZ_PHYSV` D0h). **Timeout** ends the course: until wave 8b it returns to the face; from 8b to the pathway, with a life lost | `bonanzagame` |
-| 7.5 | **DONE** (SPEC.md 128.18.6: `music NAME`; the rule now the tool's table). **`music N`** (G2, S10): a course names its song | `bonanzamusic` |
-| 7.6 | **DONE** (SPEC.md 128.18.6: flag, pad, lip-out, spring, RETURN; the clock's TICK under 10 s, LOW at 30 and 10, TIMEOUT; I9's kick, knock and tube poked; +148 bytes). **The sound events** (G5): wave 4's unmapped counters (a flag, a pad, a lip-out, a spring, a return, a new best), the boost's cue (landed in wave 6, SPEC.md 128.16.4.4; re-voiced here only if the owner asks), the clock's tick, low time at 30 s and 10 s (a tempo-up or a tick under 10 s), and the timeout. Coordinated with the sound plan's session (`docs/plans/BOUNCE-BONANZA-SOUND.md`) | `bonanzasound`, which also closes I9: kick, knock and tube get poked too |
-| 7.7 | **DONE** (SPEC.md 128.18.7: form (ii) SHIPS - CGA MILL 4.02 missed/s against 1.89 - 3.09, PEAK 3.10 against 2.38 - 2.93; the Hercules within 0.3; `bonanzaperf --clock-ab`). **The clocks on the heavy frames, measured before the wave closes** (a review finding): clocks on FIRST and TRIAL, and one on MILL and on PEAK, measured through `D` on both cards with the speaker on, against the HUD's rule of at most 2 more misses a card. If MILL or PEAK fails, their clocks wait for wave 10 and the course's retrofit | `bonanzaperf`; the figures in SPEC.md 128 |
-| 7.8 | **DEFERRED to wave 10** (SPEC.md 128.18.7: the CGA's MILL has about 0.4 missed/s of the rule left after the clocks). The flag pennant refined with the clock's art (C2): a key of its own, so a ball behind it is not drawn over it | look boot |
-| 7.9 | **DONE** (2026-11-15, SPEC.md 128.18.5.3; +7 bytes). **A clock is SOLID** (the owner: *"if it looks solid and has height we shouldn't just roll through it"*): its record carries a post's fields (K 0, KA 0, `ph` 255), its cell is OBS, and `bz_wolf` takes it for a bumper's, so the ball bounces off the ball-and-pole without a kick and nothing lands on it; the reach gets no launch from its top (MILL's cap). `PHYS_REV` 11, `BZ_PHYSV` 21h; the three demos re-authored; FIRST keeps one clock, at (3, 6) | `bonanzaphys` (`clock`, red `clkpass`); `bonanzacourse` items 4 and 10 *Host: `--selfcheck` ok; `bonanza_phys.py --check` ok, `clkpass` assembling; rows at wave 8's final pass* |
+| 7.1 | **DONE** (SPEC.md 130.18.2; +85 bytes; the SIDE leg waits for 7.2's clocks, no shipped lane can be outside the band). **First: the walk's slice narrowed by COLUMN** as well as row (A12), so a lane in the window's rows but off to the side costs nothing, not about 0.2k a frame plus a RAM sync at a pose change. The owner's "costs nothing off screen" depends on it | `bonanzawheel`: a lane off to the side is never walked; red arm |
+| 7.2 | **DONE, form (ii)** (SPEC.md 130.18.5.1; +136 bytes; the crystal ball with two digit lanes on FIRST, TRIAL, MILL and PEAK; `bonanzawheel`'s CLOCK leg and red `clkfreeze` run once, both cards). **The course clock prop** (C1). Its frame (the crystal ball on a stick by default; a scoreboard, lantern, tower, stone, sundial or balloon per course) is static picture art. The digits are one wheel lane. **The form is decided by one measurement** (Q-71): (i) glyphs of our own font (about 10 glyphs of 5 lines, about 150 bytes) composed in BUSY time into the clock's own PRIVATE blocks, which the tool never shares, then committed as an ordinary lane; or (ii) per-pose digit lanes, 10-11 poses of one 16-byte CGA block each (about 160-350 bytes a digit), no new resident code, translated by `bz_hxlat`, but 2-3 lanes of the 6 per window, and up to 3 pose changes at a minute against the 2 a step. The tool gives the clock its own pose-change bound and refuses a clock lane that can stand in front of the route (O25) | `bonanzaclock` (new soak row): commits once a second, the card equals the oracle, nothing walked off the window; red arm: a commit every frame |
+| 7.3 | **DONE** (SPEC.md 130.18.3: FIRST 15 s, TRIAL 20, MILL 30, MOON 55, PEAK 55, PLAY 40 explicit). **`limit`** replaces `par` (D4), counted in STEPS so that it is the same in a replay and a demo. A clock shows the remaining whole seconds, rounded up. P stops it. The tool computes the limit per course from its routes (Q-72): the slowest finish's route time times a factor, plus one worst-flag fall's allowance, floored at the autopilot's main route times about 1.3. It refuses a course where any finish's route does not fit. In `R` and `D` the limit is enforced as in play | `bonanzaphys` and `bonanzareplay`: the timeout step equals the model's |
+| 7.4 | **DONE** (SPEC.md 130.18.4; `bonanzaphys`'s `timeout`, red `toutoff`; `BZ_PHYSV` D0h). **Timeout** ends the course: until wave 8b it returns to the face; from 8b to the pathway, with a life lost | `bonanzagame` |
+| 7.5 | **DONE** (SPEC.md 130.18.6: `music NAME`; the rule now the tool's table). **`music N`** (G2, S10): a course names its song | `bonanzamusic` |
+| 7.6 | **DONE** (SPEC.md 130.18.6: flag, pad, lip-out, spring, RETURN; the clock's TICK under 10 s, LOW at 30 and 10, TIMEOUT; I9's kick, knock and tube poked; +148 bytes). **The sound events** (G5): wave 4's unmapped counters (a flag, a pad, a lip-out, a spring, a return, a new best), the boost's cue (landed in wave 6, SPEC.md 130.16.4.4; re-voiced here only if the owner asks), the clock's tick, low time at 30 s and 10 s (a tempo-up or a tick under 10 s), and the timeout. Coordinated with the sound plan's session (`docs/plans/BOUNCE-BONANZA-SOUND.md`) | `bonanzasound`, which also closes I9: kick, knock and tube get poked too |
+| 7.7 | **DONE** (SPEC.md 130.18.7: form (ii) SHIPS - CGA MILL 4.02 missed/s against 1.89 - 3.09, PEAK 3.10 against 2.38 - 2.93; the Hercules within 0.3; `bonanzaperf --clock-ab`). **The clocks on the heavy frames, measured before the wave closes** (a review finding): clocks on FIRST and TRIAL, and one on MILL and on PEAK, measured through `D` on both cards with the speaker on, against the HUD's rule of at most 2 more misses a card. If MILL or PEAK fails, their clocks wait for wave 10 and the course's retrofit | `bonanzaperf`; the figures in SPEC.md 130 |
+| 7.8 | **DEFERRED to wave 10** (SPEC.md 130.18.7: the CGA's MILL has about 0.4 missed/s of the rule left after the clocks). The flag pennant refined with the clock's art (C2): a key of its own, so a ball behind it is not drawn over it | look boot |
+| 7.9 | **DONE** (2026-11-15, SPEC.md 130.18.5.3; +7 bytes). **A clock is SOLID** (the owner: *"if it looks solid and has height we shouldn't just roll through it"*): its record carries a post's fields (K 0, KA 0, `ph` 255), its cell is OBS, and `bz_wolf` takes it for a bumper's, so the ball bounces off the ball-and-pole without a kick and nothing lands on it; the reach gets no launch from its top (MILL's cap). `PHYS_REV` 11, `BZ_PHYSV` 21h; the three demos re-authored; FIRST keeps one clock, at (3, 6) | `bonanzaphys` (`clock`, red `clkpass`); `bonanzacourse` items 4 and 10 *Host: `--selfcheck` ok; `bonanza_phys.py --check` ok, `clkpass` assembling; rows at wave 8's final pass* |
 
 **Bytes** (PREDICTED): the clock's compose 400-700 (form i) or about 0
 (form ii); the font about 150; the limit about 150.
@@ -979,7 +993,7 @@ limit is steps; `par` is refused from this wave.
 
 | # | story | verified by |
 |---|---|---|
-| 8a.1 | **DONE** (2026-11-15, SPEC.md 128.19.2: the FACE moved, the save and the demo files left for 8b's rewrite; image 36,274 -> 33,670, the part 3,081, the file +282 bytes; MEASURED). **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB (re-measured 2026-11-14: **about 5.6-5.9KB net**, because the once-per-launch code inside the bracket and the calibration stay resident; the per-course titles, names and pars move with it, -45 resident bytes a course; disk +0.45KB; about +0.4 s for each return to the desktop), moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
+| 8a.1 | **DONE** (2026-11-15, SPEC.md 130.19.2: the FACE moved, the save and the demo files left for 8b's rewrite; image 36,274 -> 33,670, the part 3,081, the file +282 bytes; MEASURED). **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB (re-measured 2026-11-14: **about 5.6-5.9KB net**, because the once-per-launch code inside the bracket and the calibration stay resident; the per-course titles, names and pars move with it, -45 resident bytes a course; disk +0.45KB; about +0.4 s for each return to the desktop), moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
 | 8a.2 | **DONE** (2026-11-15: `bonanzamega` PASS on 86Box, the face far-called through the part's code alias, no exception charged). Running code from a part on kern_mega, checked first, as CWORD's overlay part does it | `bonanzamega` on 86Box |
 
 **Inventory:** A19 (O46).
@@ -991,19 +1005,19 @@ and the save.
 
 | # | story | verified by |
 |---|---|---|
-| 8b.1 | **PROTOTYPE DONE** (2026-11-15, SPEC.md 128.19.5: one bracket holds the pathway and every course, `bz_grounds`; fetches inside it quiet through `OP_SAYGATE`; retry and the result card are 8c's). **One FSX bracket holds the pathway and every course.** SPEC.md 53.7 makes the file and memory slots legal throughout a bracket, so `op_fetch` runs inside it: no desktop restore and no flash between courses. Its consequences: the palette is applied at every course and pathway entry; a failed save cannot toast inside the bracket, so it shows on the result card (8c.4); on the Hercules `bz_hgen` is rebuilt before every fetch, because a play overwrites `bz_boxbuf`; on kern_mega the bracket stays `FSXF_FASTTICK`, never `FSXF_REAL`. Retry re-enters the course with NO re-fetch (a target of under 0.5 s), because no course state lives in the part (9.2) | `bonanzagame`: no bracket exit between courses; parts fetched and dropped; retry latency |
-| 8b.2 | **PROTOTYPE DONE** (2026-11-15, SPEC.md 128.19.5: the pathway is a course of its own, ROLLED rather than graph-walked; `node`/`edge` statements; node signs are one-glyph crystal balls; five nodes; the HUD band is 8c's). **The pathway** (E3), authored as a BZC1-format part: an empty grid, the Hercules' 45 word columns. The picture is GENERATED by a deterministic host converter from a graph source file, with placeholder nodes for courses not yet built, so a new world changes the source and not hand art. The node icons are LANES (poses: locked, open, done, the medals), so the full write, the lane commit, `bz_hxlat` and the ball box are all reused with no new draw path. The HUD is a fixed band (lives, title, best, medal, exits found n of m). The part is dropped before a course is fetched | `bonanzapath` (new): the graph walk, the icons, the drop before the fetch, both cards |
+| 8b.1 | **PROTOTYPE DONE** (2026-11-15, SPEC.md 130.19.5: one bracket holds the pathway and every course, `bz_grounds`; fetches inside it quiet through `OP_SAYGATE`; retry and the result card are 8c's). **One FSX bracket holds the pathway and every course.** SPEC.md 53.7 makes the file and memory slots legal throughout a bracket, so `op_fetch` runs inside it: no desktop restore and no flash between courses. Its consequences: the palette is applied at every course and pathway entry; a failed save cannot toast inside the bracket, so it shows on the result card (8c.4); on the Hercules `bz_hgen` is rebuilt before every fetch, because a play overwrites `bz_boxbuf`; on kern_mega the bracket stays `FSXF_FASTTICK`, never `FSXF_REAL`. Retry re-enters the course with NO re-fetch (a target of under 0.5 s), because no course state lives in the part (9.2) | `bonanzagame`: no bracket exit between courses; parts fetched and dropped; retry latency |
+| 8b.2 | **PROTOTYPE DONE** (2026-11-15, SPEC.md 130.19.5: the pathway is a course of its own, ROLLED rather than graph-walked; `node`/`edge` statements; node signs are one-glyph crystal balls; five nodes; the HUD band is 8c's). **The pathway** (E3), authored as a BZC1-format part: an empty grid, the Hercules' 45 word columns. The picture is GENERATED by a deterministic host converter from a graph source file, with placeholder nodes for courses not yet built, so a new world changes the source and not hand art. The node icons are LANES (poses: locked, open, done, the medals), so the full write, the lane commit, `bz_hxlat` and the ball box are all reused with no new draw path. The HUD is a fixed band (lives, title, best, medal, exits found n of m). The part is dropped before a course is fetched | `bonanzapath` (new): the graph walk, the icons, the drop before the fetch, both cards |
 | 8b.3 | **PROTOTYPE DONE** (2026-11-15: open, done and the edges; replay of a done node; the ending card and the post-game are 8c's). **The pathway's rules** (Q-81): any completed node can be replayed from the map; taking a different finish there opens its branch; the final node leads to an ending card and a post-game (exploration of every found node, and a hunt for exits and medals). The layout of one non-scrolling screen of about 20 nodes is fixed here, not in wave 11 | `bonanzapath` |
-| 8b.4 | **DONE except the glyph** (2026-11-15, SPEC.md 128.19.4: `exit E` and `hidden` on `goal` and `cup`, a GOAL cell's flags bits 4 - 7, a cup's +27, the guest's `bz_exit`; TRIAL's goal column split as the test; +19 bytes; the glyph deferred with the art). **Several finishes per course** (D3): `finish K cup|goal at ...` statements. Each finish carries an EXIT number, and the pathway graph maps (course, exit) to the next node, so re-wiring the map never rebuilds a course or changes its identity. Branches may join. `hidden` marks a secret finish (decision 6). Each finish is marked by a GLYPH (a letter or arrow banner in the clock's font), and the same glyph labels its edge on the pathway, because colour cannot carry it on the Hercules or across CGA palettes | the tool: each exit reachable by an autopilot or author route; `bonanzaphys` |
+| 8b.4 | **DONE except the glyph** (2026-11-15, SPEC.md 130.19.4: `exit E` and `hidden` on `goal` and `cup`, a GOAL cell's flags bits 4 - 7, a cup's +27, the guest's `bz_exit`; TRIAL's goal column split as the test; +19 bytes; the glyph deferred with the art). **Several finishes per course** (D3): `finish K cup|goal at ...` statements. Each finish carries an EXIT number, and the pathway graph maps (course, exit) to the next node, so re-wiring the map never rebuilds a course or changes its identity. Branches may join. `hidden` marks a secret finish (decision 6). Each finish is marked by a GLYPH (a letter or arrow banner in the clock's font), and the same glyph labels its edge on the pathway, because colour cannot carry it on the Hercules or across CGA palettes | the tool: each exit reachable by an autopilot or author route; `bonanzaphys` |
 | 8b.5 | **DONE in memory** (2026-11-15: 5 lives, a timeout or Esc costs one, the last ends the game; taken in the save at entry with 8b.6). **Lives are timeouts** (E1, Q-82): start with 5. Running out of time costs one and returns to the pathway. Abandoning a timed course (Esc, or Retry or Map from the pause overlay) costs one as a timeout does; Backspace to the last flag stays free and costs only time. The life is taken in the save at the course's ENTRY and given back on a finish, so switching off cannot refund it. Exploration is exempt | `bonanzagame` |
-| 8b.6 | **DONE, one slot played** (2026-11-15, SPEC.md 128.19.6: `BZS2`, the bests block as before, three 48-byte slots, the life on the disk at a course's entry; New and Erase are 8c's; bests per finish wait for 8c's medals; +263 bytes, +290 bss). **Save v2** (E6): `BONANZA.DAT`, magic `BZS2`, read as hostile as today. Three slots, each with a best and a medal per FINISH, the exits-found bits, and the pathway state (node, lives, unlocked set): about 400 bytes, one sector, **one `int 13h` per save**. A refused write (a protected or swapped floppy) is said on the result card, offers a retry, and the pathway shows "not saved" until a write succeeds. New and Erase (with a confirm) settle O52 | `bonanzagame`'s hostile set, extended |
-| 8b.7 | **DECIDED: unchanged** (SPEC.md 128.19.7: a fall is never a life). **O44 and O7** decided for lives and several finishes: which flag a respawn returns to, and the respawn distance | `bonanzaphys` |
-| 8b.8 | **WAITS for the front window proper** (SPEC.md 128.19.7, 128.19.8.4: the tour goes when that window replaces the face; G still plays it). The tour, the scorecard, `bz_tour`/`bz_ttime`, N's course cycle and M's ball cycle and the 13-line face are removed (E4, F3); `bonanzagame` and `bonanzademo` are rewritten (I12) | rows |
+| 8b.6 | **DONE, one slot played** (2026-11-15, SPEC.md 130.19.6: `BZS2`, the bests block as before, three 48-byte slots, the life on the disk at a course's entry; New and Erase are 8c's; bests per finish wait for 8c's medals; +263 bytes, +290 bss). **Save v2** (E6): `BONANZA.DAT`, magic `BZS2`, read as hostile as today. Three slots, each with a best and a medal per FINISH, the exits-found bits, and the pathway state (node, lives, unlocked set): about 400 bytes, one sector, **one `int 13h` per save**. A refused write (a protected or swapped floppy) is said on the result card, offers a retry, and the pathway shows "not saved" until a write succeeds. New and Erase (with a confirm) settle O52 | `bonanzagame`'s hostile set, extended |
+| 8b.7 | **DECIDED: unchanged** (SPEC.md 130.19.7: a fall is never a life). **O44 and O7** decided for lives and several finishes: which flag a respawn returns to, and the respawn distance | `bonanzaphys` |
+| 8b.8 | **WAITS for the front window proper** (SPEC.md 130.19.7, 130.19.8.4: the tour goes when that window replaces the face; G still plays it). The tour, the scorecard, `bz_tour`/`bz_ttime`, N's course cycle and M's ball cycle and the 13-line face are removed (E4, F3); `bonanzagame` and `bonanzademo` are rewritten (I12) | rows |
 | 8b.9 | **DONE** (2026-11-15: a node's course rolls its own ball). **Who picks the ball** (Q-83, a review finding): a course names its start ball; pads at forks are the player's choice; the pathway node and the intro card show the start ball; exploration may allow any ball, with the tool's NO TRAP still proved for each flag's ball | `bonanzaphys`; the tool |
-| 8b.10 | **WAITS for the sound session** (SPEC.md 128.19.7: course songs and the TIMEOUT effect stand in). The shell's sound events and songs (title, pathway, life lost, game over), with the sound plan's session | `bonanzasound`, `bonanzamusic` |
-| 8b.11 | **A LAST RESORT, only if one disk cannot hold the final set** (the owner, 2026-11-14: "I'd prefer not, but we can see what we need in the end"; SPEC.md 128.15.9): a world's courses as files on a second "Worlds" disk, read as hostile input (O1's reader, about 1KB resident and about 0.13 s a load), with the disk swap at a world gate on the pathway | `bonanzagame`; a hostile set for the course files |
+| 8b.10 | **WAITS for the sound session** (SPEC.md 130.19.7: course songs and the TIMEOUT effect stand in). The shell's sound events and songs (title, pathway, life lost, game over), with the sound plan's session | `bonanzasound`, `bonanzamusic` |
+| 8b.11 | **A LAST RESORT, only if one disk cannot hold the final set** (the owner, 2026-11-14: "I'd prefer not, but we can see what we need in the end"; SPEC.md 130.15.9): a world's courses as files on a second "Worlds" disk, read as hostile input (O1's reader, about 1KB resident and about 0.13 s a load), with the disk swap at a world gate on the pathway | `bonanzagame`; a hostile set for the course files |
 
-**A requirement from wave 5b (SPEC.md 128.15.4.5): never expand a course
+**A requirement from wave 5b (SPEC.md 130.15.4.5): never expand a course
 twice.** `op_fetch` answers CF = 0 WITHOUT decoding when the row is
 already fetched (`apps/os88partsbody.inc`, its `OP_FETCHED` test), exactly
 as when it decoded, and `bz_cexp`'s expansion is not idempotent (WDIFF run
@@ -1020,10 +1034,10 @@ flag ignored) must fail at `bonanzaexit`'s claim compare.
 
 | # | story | verified by |
 |---|---|---|
-| 8c.1 | **KEYS AND LINES DONE** (2026-11-15, SPEC.md 128.19.8.3: 1 2 3 the slot, E the mode, X twice erase; line 0 and line 1 rewritten). **The tour's removal and the artwork band wait for the front window proper** with the owner's art (SPEC.md 128.19.8.4). **The front window** (F1), on the desktop and designed for the CGA's 42 cells first (read docs/INDEX.md first): one artwork band (1bpp for the CGA and Hercules mono desktops; the prompt kept, a deterministic converter, a lazy part); Mode (Timed or Exploration); Slot 1-3 with New and Erase; Camera (GLIDE or TRICKLE); Control (keys or mouse tilt); Sound. The key lines for both controls: arrows roll, Space hop (rubber: again on the landing), Shift brake, P pause, Backspace back to the flag, Esc out; for the mouse, left hop and right brake. Play, Continue, Demos | look boots on the CGA desktop and the Hercules; `bonanzagame` |
-| 8c.2 | **DONE** (2026-11-15, SPEC.md 128.19.8.3: E toggles the slot's EXPLORE; every node open, no clock, no life, no best, exits still found; its own unlocks a later wave's). **Exploration** (E7, Q-84): no clock, lives, medals or bests; its own unlocks per slot, which never unlock anything in timed mode. Its purpose is hunting hidden finishes, counted as "found n of m" in both modes and never needed to progress | `bonanzagame` |
-| 8c.3 | **DONE per course** (2026-11-15, SPEC.md 128.19.8.3: `medals G S` or the tool's from the route; the slot's best a course; GOLD/SILVER signs and the result card's word; per finish waits for finishes' own times). **Medals** (decision 4, Q-85): per finish, `medals G S` from the owner's playtest runs; "completed" is the base icon (any finish in time), and silver and gold above it; the node shows the best over its finishes | `bonanzapath` |
-| 8c.4 | **CARDS DONE** (2026-11-15, SPEC.md 128.19.8.1 - 128.19.8.2: P's card with a retry; the intro, result and game-over cards; medal times and "found n of m" join them with 8c.3). **The cards**: an INTRO card during the fetch (name, start ball, limit, medal times, exits found n of m); a RESULT card after a finish or timeout (time, medal, new best, the exit glyph, "not saved" if so), then the path lighting on the pathway; a PAUSE overlay on P (Resume, Retry, Map, and the time left). None of them is in the play frame | `bonanzagame`; look boots |
+| 8c.1 | **KEYS AND LINES DONE** (2026-11-15, SPEC.md 130.19.8.3: 1 2 3 the slot, E the mode, X twice erase; line 0 and line 1 rewritten). **The tour's removal and the artwork band wait for the front window proper** with the owner's art (SPEC.md 130.19.8.4). **The front window** (F1), on the desktop and designed for the CGA's 42 cells first (read docs/INDEX.md first): one artwork band (1bpp for the CGA and Hercules mono desktops; the prompt kept, a deterministic converter, a lazy part); Mode (Timed or Exploration); Slot 1-3 with New and Erase; Camera (GLIDE or TRICKLE); Control (keys or mouse tilt); Sound. The key lines for both controls: arrows roll, Space hop (rubber: again on the landing), Shift brake, P pause, Backspace back to the flag, Esc out; for the mouse, left hop and right brake. Play, Continue, Demos | look boots on the CGA desktop and the Hercules; `bonanzagame` |
+| 8c.2 | **DONE** (2026-11-15, SPEC.md 130.19.8.3: E toggles the slot's EXPLORE; every node open, no clock, no life, no best, exits still found; its own unlocks a later wave's). **Exploration** (E7, Q-84): no clock, lives, medals or bests; its own unlocks per slot, which never unlock anything in timed mode. Its purpose is hunting hidden finishes, counted as "found n of m" in both modes and never needed to progress | `bonanzagame` |
+| 8c.3 | **DONE per course** (2026-11-15, SPEC.md 130.19.8.3: `medals G S` or the tool's from the route; the slot's best a course; GOLD/SILVER signs and the result card's word; per finish waits for finishes' own times). **Medals** (decision 4, Q-85): per finish, `medals G S` from the owner's playtest runs; "completed" is the base icon (any finish in time), and silver and gold above it; the node shows the best over its finishes | `bonanzapath` |
+| 8c.4 | **CARDS DONE** (2026-11-15, SPEC.md 130.19.8.1 - 130.19.8.2: P's card with a retry; the intro, result and game-over cards; medal times and "found n of m" join them with 8c.3). **The cards**: an INTRO card during the fetch (name, start ball, limit, medal times, exits found n of m); a RESULT card after a finish or timeout (time, medal, new best, the exit glyph, "not saved" if so), then the path lighting on the pathway; a PAUSE overlay on P (Resume, Retry, Map, and the time left). None of them is in the play frame | `bonanzagame`; look boots |
 | 8c.5 | **Gate 2: the owner plays the shell.** The scoped soak and `test-full` run first, at the merge to `elendilon` | diary |
 
 **Rows (8a to 8c):** `bonanzagame`, `bonanzademo`, `bonanzapath` (new),
@@ -1033,79 +1047,79 @@ A19, A20 (the cut's blank, revisited for the shell).
 
 #### Wave 8R: the pathway reworked, the finish, the cards (L)
 
-**Goal:** the owner's path screen (SPEC.md 128.22) in place of 8b's rolled
+**Goal:** the owner's path screen (SPEC.md 130.22) in place of 8b's rolled
 prototype, a finish that never freezes the screen, and the shell's sounds.
 The design discussion and the owner's ten answers (2026-11-16) are SPEC.md
-128.22.1's table. Built by parallel agents (the `story-fanout` skill), the
+130.22.1's table. Built by parallel agents (the `story-fanout` skill), the
 final pass once at the end.
 
 | # | story | verified by |
 |---|---|---|
-| 8R.1 | **The tool** (SPEC.md 128.22.2, 128.22.3, 128.22.4.5): `pages`, `pad`, `icon`, `route` (gate, secret, path), `lives`, `rail`; `PK_SIGN` records and `BZ_NSIGN`; the part's tables and key map; the proofs; `bbcourse.Follow`; the clock-at-every-finish rule (128.22.6) on every shipped course; `path.bbc` rewritten as a two-page prototype map of today's courses | `bonanzacourse` (`--selfcheck`). **BUILT (host: `--selfcheck`, `make`, a host preview of the map; nothing of it is SEEN in the guest until 8R.2 / 8R.3: the guest still runs 8b's prototype loop on the new part)** |
-| 8R.2 | **Signs and the PAGED camera** (128.22.4.1, 128.22.4.3): `PK_SIGN` in the walk, `bz_nst` sized `BZ_NSIGN`, `bz_nset` and its marks; `cam` 2 | `bonanzapath`; `bonanzawheel`, `bonanzaring` unchanged. **BUILT and SEEN** (MartyPC, CGA and Hercules, one look each: the pads', icons', gate's and lives' signs posed and drawn, the title's label through `bz_nset`, the scroll from page 0 to page 1); the rows not yet run (+224 bytes, bss +6) |
-| 8R.3 | **The pathway's loop** (128.22.4.2, 128.22.4.4): `bz_mode` 4 and `bz_follow`; rest, roll, the keys, the gates' and icons' animation, the reveals, the auto-roll after a finish, lives on the counters | `bonanzapath` (rewritten). **BUILT**; SEEN on both cards: rest, the arrows on closed routes, the INFO card, FIRST's finish, the gate sinking and the auto-roll, the icon, the diagonal's two arrows, the roll to MILL, MOON and up the ramp to PEAK, Esc to the title. `bz_follow` = `bbcourse.Follow` at every step under unicorn (`bonanza_path.py --check`). NOT SEEN: a secret route's reveal (the shipped map has none; the row's private-tree leg), a life lost, the game over (row items 7 - 9). `bonanzapath` written, not run (+1,742 bytes, bss +42). **VERIFIED** (Opus, host only): R's stale retry and the INFO card's held guard fixed, the title-less `bz_game8` out of the title's build (-134 bytes in all: image 39,897); `bonanzapath`'s MOON-to-PEAK route opened in its poke (item 6b would have timed out) and its marks read at the walk's entry. **ROW RUN** (8R pathrow, MartyPC): `bonanzapath` MEASURED PASS on CGA and Hercules and the secret leg (the reveal, a life, the game over, the forced fallback now SEEN by the row); reds `nopage`, `nogate`, `nodiag`, `finfall` each red at its item; the first run's failures were the test's (timing, a breakpoint re-armed on a stopped guest), no guest change |
-| 8R.4 | **The finish sequence** (128.22.6): input ignored, clock frozen and flashing, camera held, a goal's fall not killed, the cup's capture, Enter skips, `FIN_STEPS`; timeouts the same - **BUILT, SEEN** on MartyPC (CGA and Hercules, FIRST's goal), verified (Opus: scenery runs on, the ball clipped not hidden, cup/shatter/P/Esc in the sequence), rows not run, VICTORY arm (`BZ_SONG_VICTORY`) not built | `bonanzaexit`, `bonanzaphys`, `bonanzagame` |
-| 8R.5 | **The cards and the save** (128.22.5, 128.22.6, 128.22.7): INTRO and RESULT removed, the INFO card on Space, `BZS3`'s 80-byte slots, the pathway HELD and its fallback | `bonanzagame`'s hostile set; `bonanzapath`. BUILT (wave 8R, shell): the host half and the INFO card SEEN on MartyPC (CGA, Hercules); the rows (`bonanzagame` hostile, `bonanzapath` both ways) NOT RUN here - the lead's final pass |
-| 8R.6 | **Sounds** (128.22.9): PAD, GATE, LIFE, OVER and the VICTORY tune, speaker and AdLib | `bonanzasound`, `bonanzamusic` - **BUILT** (host: the bank, the tune, `bzs_ev`, `bzs_victory`, the selfcheck's checks, renders; NOT heard, NOT yet called by the game or run on a guest; VERIFIED on the host by the Opus verify: the fanfare for a course's play only, it replaces the in-bracket GOAL, the segment guard) |
-| 8R.7 | **Art** (128.22.8): the crystal route material, the glowing pads, `tools/bbicons.py` and the six courses' icons (placeholders for the owner's) | look boots on the CGA and the Hercules. **BUILT (generators, files, host previews; not yet seen in the guest)** |
-| 8R.8 | **The final pass**: the BONANZA rows once, the disks; the owner plays the path screen - **RUN** (2026-11-16, `soak -k bonanza*` on 465b8b4a1, then the failures re-run on 97ec0056c): every row PASS but the known - `bonanzawheel` (6) on the CGA, `bonanzaring`'s probe (R0 3) and its `camhyst` model check, `bonanzaperf`'s Hercules D-of-BZD5 `bz_rwlate` (SPEC.md 128.17.14's open item, reproduced on 2c9a0314: wave 10). New failures found and fixed in the pass: `bonanzapath` (the rewritten row, never run before: its timing and its harness), `bonanzatitle` (the label a SIGN), `bonanzawheel` (9) (the SIDE scene ran for the first time, on TRIAL's new clock, and its plan was wrong). **The owner plays it: open** | diary |
-| 8R.12 | **The music under the INFO card** (128.22.6, the cards): the owner's "Space card on the pathway takes the music to half speed" - `bz_kinfow` waited on `OSAPI_FSX_WAIT` frames and sampled the PIT once per frame, which aliases against the 54.6 Hz sub-tick; it now polls as `bz_pause` does. MEASURED (MartyPC, CGA and Hercules, `bzs_nsub` per guest second): card up 28 -> 56-58, card down 58 (unchanged). **BUILT** (-7 bytes: image 39,907 -> 39,900, bss 0) | `bonanzasound`, `bonanzapath` (not run here) |
-| 8R.15 | **Diagonal tiles** (the owner, round 2: *"the straight path up having to add full tiles makes that apparent"*): a CONTRACT, SPEC.md 128.24 (PLANNED) - a cell split along either diagonal into two halves, each a cell record of its own (section `D`); `half` and `box` in the grammar; the front face and the edge line; the 45-degree wall in fixed point; the pathway's 32 px straight bands; nine open questions for the owner. Its own plan: [BOUNCE-BONANZA-DIAGONAL.md](BOUNCE-BONANZA-DIAGONAL.md), waves D1 - D5 | the owner's decision on 128.24.12 (R3, R4: quarters too); **D1 (the tool) and D2 (the model) BUILT** on `8r2/dtool`, D3 - D5 next |
-| 8R.10 | **The roll** (round 2, twice; the owner: *"When moving from bounce trial to playground, the ball doesn't roll"*, then after the fold *"it just shows the same frame the whole way across ... the ball just slides"*; SPEC.md 128.22.4.2). The first fix (`bz_fold`) was judged by the frame INDEX; by the PIXELS (VRAM at every presented frame, a crop anchored on the ball, its texture identified against the art) the texture moved +2 while the ball moved 6 a frame - a third of the travel, a SKID. The art's period of 8 cannot show a 1:1 roll at 4 px a frame or more, and the shift lock leaves only +2/-2 at 6: the cure is the follower's, **`FOL_VMAXD` 1.5** on a segment whose axes move opposite ways (screen-horizontal), so `px` is at most 3 a step everywhere; the fold kept for two-step frames, now HOLDING a multiple of 4. TRIAL -> PLAY 19 steps -> 33. +35 bytes, bss 0 - **BUILT** (MartyPC CGA and Hercules: texture +3 with `px` +3 every moving frame both ways, `roll2-fix-*.png`; before `roll2-base-*.png`; 86Box 5150+CGA confirms the before; the physics ball in FIRST `roll2-phys-*.png`). **Round 3, by the owner's eye**: 1:1 at 3 px still read as a slide with a flicker - two frames move the texture 6 = -2 mod 8, so every other frame looks alike and a little behind (the owner's diagnosis off a frame-by-frame recording). Mock-ups of redrawn spots, 16-phase art and 2 px a frame; the owner chose **`FOL_VMAXD` 1.0** (2 px a step, a quarter period), the shipped art kept; TRIAL -> PLAY 49 steps (0.89 s). The owner: *"The 2px horizontal works"*, and the vertical routes slowed by one to match in speed: **`FOL_VMAXV` 2.0** (2 lines a step) on a segment whose axes move the same way | `bonanzapath` (the follower: guest = `bbcourse.Follow` under unicorn, green; its MartyPC legs - positions and timings - now see TRIAL -> PLAY's 33 steps); the courses' sprite rows not reached (mode 4 only) |
-| 8R.14 | **14 - 20 courses: the save and every per-course table** (the owner, round 2: "Courses past 7: Plan is 14-20"): `BZ_CRS_MAX` = 23 (`tools/bbcourse.py` refuses more), `BONANZA.DAT` **`BZS4`** - 494 bytes, under one sector (a whole 512 would make every `od_write` a full replace; the Opus verify's fix): 23 entries, the 6-byte tour, three 114-byte slots (exits found and bests a WORD a course, 23 each); read as hostile (length, magic, count 1 - 23, each slot alone, exits and bests of courses past `BZ_NCRS` zero); **no older layout is read** (the owner: nothing is released). SPEC.md 128.22.5 and 128.14.3.3. Rows: `bonanzagame` (hostile set, `--check`, red arms `pastbest`, `datlen`), `bonanzapath`, `bonanzaexit` | SPEC 128.22.5 |
-| 8R.9 | **The gates' look and the map's testability** (round 2, 128.22.2/128.22.8): a GATE not a bar (posts, rails, bars, open middle, WHT with a black outline, tilted/3-4 view), `route 3 2` PLAY -> MILL so MOON is reachable, TRIAL's finish clock off exit 0's goal and off the autopilot, at (14, 18), and the tool's finish-reach proof (goal cells and cups) - **BUILT** (host previews `~/Repos/8r2-logs/gates-*.png` looked at; VERIFIED by the Opus verify, the gates seen in the guest on CGA and Hercules, closed and opened, `verify-gates-*.png`) | `bonanzacourse`, `bonanzapath` |
-| 8R.11 | **The finish's DISSOLVE** (round 2, 128.22.6's dissolve bullet): the owner asked whether the machine can dither the ball out while it rolls, the camera held - MEASURED first: the fade's frames ran 39.9k clocks mean / 64.6k at most on the CGA (79.5k refresh) and 43.7k / 61.6k on the Hercules (93.7k), so it fits. `bz_fdis`: whole 5 steps, seven 2 x 4 ordered-dither densities 5 steps each, gone (ball and shadow) from step 40 (0.73 s); copies of the mask, frame and shadow in `bz_fdb`, the blits unchanged; a cup's capture unchanged | `bonanzaexit`, `bonanzagame`, `bonanzapath` (finish items). **BUILT, MEASURED, SEEN** (MartyPC, CGA and Hercules, FIRST's goal: `bz_fdis` 5.5k - 6.9k clocks a fading frame, every frame in its one refresh, `m.flicker` worst transient 248 / 142 px against 362 / 240 before and 0 once gone; +249 image, +190 bss); the rows not run - the lead's final pass |
-| 8R.13 | **The broken rows fixed** (round 2, the owner: "fix, or remove, the broken tests, other than maybe the late frame one"): nothing removed, every check re-staged so it judges what it was written for. `bonanzaring`'s PROBE (BENCH's world line 0 25 lines higher since round 3b: a centre-column lead-in to the clamp, back / split frames whose shadow fits, two-box frames judged; SPEC.md 128.10.11.2) and its `camhyst` arm (re-found on the dither map, both cards; 128.17.10); `bonanzawheel` (6)'s corner leg made lighter on the SCRIPTED camera (since wave 6 TRICKLE follows the ground line, so the old step took two rows; 128.13.14 item 9) and (9)'s SIDE scene planned by geometry on every course (DECISIONS R1) | `bonanzaring`, `bonanzawheel`; `--check-reds` / `--check` green. **RUN** (rows agent, by hand): red `camhyst` (both cards), `row0`, `late2`, `alias`, `corner`, `nocol` each red at its own check; both rows once on the tree, PASS on both cards (`bonanzaring` with the probe and the CAMERA leg's new `dither` replay; `bonanzawheel` with (6) landing on a step at 50.8k and (9) on TRIAL's clock). `bonanzaperf`'s late frame left to wave 10 (128.17.14) |
+| 8R.1 | **The tool** (SPEC.md 130.22.2, 130.22.3, 130.22.4.5): `pages`, `pad`, `icon`, `route` (gate, secret, path), `lives`, `rail`; `PK_SIGN` records and `BZ_NSIGN`; the part's tables and key map; the proofs; `bbcourse.Follow`; the clock-at-every-finish rule (130.22.6) on every shipped course; `path.bbc` rewritten as a two-page prototype map of today's courses | `bonanzacourse` (`--selfcheck`). **BUILT (host: `--selfcheck`, `make`, a host preview of the map; nothing of it is SEEN in the guest until 8R.2 / 8R.3: the guest still runs 8b's prototype loop on the new part)** |
+| 8R.2 | **Signs and the PAGED camera** (130.22.4.1, 130.22.4.3): `PK_SIGN` in the walk, `bz_nst` sized `BZ_NSIGN`, `bz_nset` and its marks; `cam` 2 | `bonanzapath`; `bonanzawheel`, `bonanzaring` unchanged. **BUILT and SEEN** (MartyPC, CGA and Hercules, one look each: the pads', icons', gate's and lives' signs posed and drawn, the title's label through `bz_nset`, the scroll from page 0 to page 1); the rows not yet run (+224 bytes, bss +6) |
+| 8R.3 | **The pathway's loop** (130.22.4.2, 130.22.4.4): `bz_mode` 4 and `bz_follow`; rest, roll, the keys, the gates' and icons' animation, the reveals, the auto-roll after a finish, lives on the counters | `bonanzapath` (rewritten). **BUILT**; SEEN on both cards: rest, the arrows on closed routes, the INFO card, FIRST's finish, the gate sinking and the auto-roll, the icon, the diagonal's two arrows, the roll to MILL, MOON and up the ramp to PEAK, Esc to the title. `bz_follow` = `bbcourse.Follow` at every step under unicorn (`bonanza_path.py --check`). NOT SEEN: a secret route's reveal (the shipped map has none; the row's private-tree leg), a life lost, the game over (row items 7 - 9). `bonanzapath` written, not run (+1,742 bytes, bss +42). **VERIFIED** (Opus, host only): R's stale retry and the INFO card's held guard fixed, the title-less `bz_game8` out of the title's build (-134 bytes in all: image 39,897); `bonanzapath`'s MOON-to-PEAK route opened in its poke (item 6b would have timed out) and its marks read at the walk's entry. **ROW RUN** (8R pathrow, MartyPC): `bonanzapath` MEASURED PASS on CGA and Hercules and the secret leg (the reveal, a life, the game over, the forced fallback now SEEN by the row); reds `nopage`, `nogate`, `nodiag`, `finfall` each red at its item; the first run's failures were the test's (timing, a breakpoint re-armed on a stopped guest), no guest change |
+| 8R.4 | **The finish sequence** (130.22.6): input ignored, clock frozen and flashing, camera held, a goal's fall not killed, the cup's capture, Enter skips, `FIN_STEPS`; timeouts the same - **BUILT, SEEN** on MartyPC (CGA and Hercules, FIRST's goal), verified (Opus: scenery runs on, the ball clipped not hidden, cup/shatter/P/Esc in the sequence), rows not run, VICTORY arm (`BZ_SONG_VICTORY`) not built | `bonanzaexit`, `bonanzaphys`, `bonanzagame` |
+| 8R.5 | **The cards and the save** (130.22.5, 130.22.6, 130.22.7): INTRO and RESULT removed, the INFO card on Space, `BZS3`'s 80-byte slots, the pathway HELD and its fallback | `bonanzagame`'s hostile set; `bonanzapath`. BUILT (wave 8R, shell): the host half and the INFO card SEEN on MartyPC (CGA, Hercules); the rows (`bonanzagame` hostile, `bonanzapath` both ways) NOT RUN here - the lead's final pass |
+| 8R.6 | **Sounds** (130.22.9): PAD, GATE, LIFE, OVER and the VICTORY tune, speaker and AdLib | `bonanzasound`, `bonanzamusic` - **BUILT** (host: the bank, the tune, `bzs_ev`, `bzs_victory`, the selfcheck's checks, renders; NOT heard, NOT yet called by the game or run on a guest; VERIFIED on the host by the Opus verify: the fanfare for a course's play only, it replaces the in-bracket GOAL, the segment guard) |
+| 8R.7 | **Art** (130.22.8): the crystal route material, the glowing pads, `tools/bbicons.py` and the six courses' icons (placeholders for the owner's) | look boots on the CGA and the Hercules. **BUILT (generators, files, host previews; not yet seen in the guest)** |
+| 8R.8 | **The final pass**: the BONANZA rows once, the disks; the owner plays the path screen - **RUN** (2026-11-16, `soak -k bonanza*` on 465b8b4a1, then the failures re-run on 97ec0056c): every row PASS but the known - `bonanzawheel` (6) on the CGA, `bonanzaring`'s probe (R0 3) and its `camhyst` model check, `bonanzaperf`'s Hercules D-of-BZD5 `bz_rwlate` (SPEC.md 130.17.14's open item, reproduced on 2c9a0314: wave 10). New failures found and fixed in the pass: `bonanzapath` (the rewritten row, never run before: its timing and its harness), `bonanzatitle` (the label a SIGN), `bonanzawheel` (9) (the SIDE scene ran for the first time, on TRIAL's new clock, and its plan was wrong). **The owner plays it: open** | diary |
+| 8R.12 | **The music under the INFO card** (130.22.6, the cards): the owner's "Space card on the pathway takes the music to half speed" - `bz_kinfow` waited on `OSAPI_FSX_WAIT` frames and sampled the PIT once per frame, which aliases against the 54.6 Hz sub-tick; it now polls as `bz_pause` does. MEASURED (MartyPC, CGA and Hercules, `bzs_nsub` per guest second): card up 28 -> 56-58, card down 58 (unchanged). **BUILT** (-7 bytes: image 39,907 -> 39,900, bss 0) | `bonanzasound`, `bonanzapath` (not run here) |
+| 8R.15 | **Diagonal tiles** (the owner, round 2: *"the straight path up having to add full tiles makes that apparent"*): a CONTRACT, SPEC.md 130.24 (PLANNED) - a cell split along either diagonal into two halves, each a cell record of its own (section `D`); `half` and `box` in the grammar; the front face and the edge line; the 45-degree wall in fixed point; the pathway's 32 px straight bands; nine open questions for the owner. Its own plan: [BOUNCE-BONANZA-DIAGONAL.md](BOUNCE-BONANZA-DIAGONAL.md), waves D1 - D5 | the owner's decision on 130.24.12 (R3, R4: quarters too); **D1 (the tool) and D2 (the model) BUILT** on `8r2/dtool`, D3 - D5 next |
+| 8R.10 | **The roll** (round 2, twice; the owner: *"When moving from bounce trial to playground, the ball doesn't roll"*, then after the fold *"it just shows the same frame the whole way across ... the ball just slides"*; SPEC.md 130.22.4.2). The first fix (`bz_fold`) was judged by the frame INDEX; by the PIXELS (VRAM at every presented frame, a crop anchored on the ball, its texture identified against the art) the texture moved +2 while the ball moved 6 a frame - a third of the travel, a SKID. The art's period of 8 cannot show a 1:1 roll at 4 px a frame or more, and the shift lock leaves only +2/-2 at 6: the cure is the follower's, **`FOL_VMAXD` 1.5** on a segment whose axes move opposite ways (screen-horizontal), so `px` is at most 3 a step everywhere; the fold kept for two-step frames, now HOLDING a multiple of 4. TRIAL -> PLAY 19 steps -> 33. +35 bytes, bss 0 - **BUILT** (MartyPC CGA and Hercules: texture +3 with `px` +3 every moving frame both ways, `roll2-fix-*.png`; before `roll2-base-*.png`; 86Box 5150+CGA confirms the before; the physics ball in FIRST `roll2-phys-*.png`). **Round 3, by the owner's eye**: 1:1 at 3 px still read as a slide with a flicker - two frames move the texture 6 = -2 mod 8, so every other frame looks alike and a little behind (the owner's diagnosis off a frame-by-frame recording). Mock-ups of redrawn spots, 16-phase art and 2 px a frame; the owner chose **`FOL_VMAXD` 1.0** (2 px a step, a quarter period), the shipped art kept; TRIAL -> PLAY 49 steps (0.89 s). The owner: *"The 2px horizontal works"*, and the vertical routes slowed by one to match in speed: **`FOL_VMAXV` 2.0** (2 lines a step) on a segment whose axes move the same way | `bonanzapath` (the follower: guest = `bbcourse.Follow` under unicorn, green; its MartyPC legs - positions and timings - now see TRIAL -> PLAY's 33 steps); the courses' sprite rows not reached (mode 4 only) |
+| 8R.14 | **14 - 20 courses: the save and every per-course table** (the owner, round 2: "Courses past 7: Plan is 14-20"): `BZ_CRS_MAX` = 23 (`tools/bbcourse.py` refuses more), `BONANZA.DAT` **`BZS4`** - 494 bytes, under one sector (a whole 512 would make every `od_write` a full replace; the Opus verify's fix): 23 entries, the 6-byte tour, three 114-byte slots (exits found and bests a WORD a course, 23 each); read as hostile (length, magic, count 1 - 23, each slot alone, exits and bests of courses past `BZ_NCRS` zero); **no older layout is read** (the owner: nothing is released). SPEC.md 130.22.5 and 130.14.3.3. Rows: `bonanzagame` (hostile set, `--check`, red arms `pastbest`, `datlen`), `bonanzapath`, `bonanzaexit` | SPEC 130.22.5 |
+| 8R.9 | **The gates' look and the map's testability** (round 2, 130.22.2/130.22.8): a GATE not a bar (posts, rails, bars, open middle, WHT with a black outline, tilted/3-4 view), `route 3 2` PLAY -> MILL so MOON is reachable, TRIAL's finish clock off exit 0's goal and off the autopilot, at (14, 18), and the tool's finish-reach proof (goal cells and cups) - **BUILT** (host previews `~/Repos/8r2-logs/gates-*.png` looked at; VERIFIED by the Opus verify, the gates seen in the guest on CGA and Hercules, closed and opened, `verify-gates-*.png`) | `bonanzacourse`, `bonanzapath` |
+| 8R.11 | **The finish's DISSOLVE** (round 2, 130.22.6's dissolve bullet): the owner asked whether the machine can dither the ball out while it rolls, the camera held - MEASURED first: the fade's frames ran 39.9k clocks mean / 64.6k at most on the CGA (79.5k refresh) and 43.7k / 61.6k on the Hercules (93.7k), so it fits. `bz_fdis`: whole 5 steps, seven 2 x 4 ordered-dither densities 5 steps each, gone (ball and shadow) from step 40 (0.73 s); copies of the mask, frame and shadow in `bz_fdb`, the blits unchanged; a cup's capture unchanged | `bonanzaexit`, `bonanzagame`, `bonanzapath` (finish items). **BUILT, MEASURED, SEEN** (MartyPC, CGA and Hercules, FIRST's goal: `bz_fdis` 5.5k - 6.9k clocks a fading frame, every frame in its one refresh, `m.flicker` worst transient 248 / 142 px against 362 / 240 before and 0 once gone; +249 image, +190 bss); the rows not run - the lead's final pass |
+| 8R.13 | **The broken rows fixed** (round 2, the owner: "fix, or remove, the broken tests, other than maybe the late frame one"): nothing removed, every check re-staged so it judges what it was written for. `bonanzaring`'s PROBE (BENCH's world line 0 25 lines higher since round 3b: a centre-column lead-in to the clamp, back / split frames whose shadow fits, two-box frames judged; SPEC.md 130.10.11.2) and its `camhyst` arm (re-found on the dither map, both cards; 130.17.10); `bonanzawheel` (6)'s corner leg made lighter on the SCRIPTED camera (since wave 6 TRICKLE follows the ground line, so the old step took two rows; 130.13.14 item 9) and (9)'s SIDE scene planned by geometry on every course (DECISIONS R1) | `bonanzaring`, `bonanzawheel`; `--check-reds` / `--check` green. **RUN** (rows agent, by hand): red `camhyst` (both cards), `row0`, `late2`, `alias`, `corner`, `nocol` each red at its own check; both rows once on the tree, PASS on both cards (`bonanzaring` with the probe and the CAMERA leg's new `dither` replay; `bonanzawheel` with (6) landing on a step at 50.8k and (9) on TRIAL's clock). `bonanzaperf`'s late frame left to wave 10 (130.17.14) |
 
-**What wave 8 keeps** and what it loses are SPEC.md 128.22's opening
-paragraph; 128.19.5's prototype is superseded where 128.22 says so.
+**What wave 8 keeps** and what it loses are SPEC.md 130.22's opening
+paragraph; 130.19.5's prototype is superseded where 130.22 says so.
 
 #### Wave 9: Mechanics as parts (L)
 
 **Goal** (the owner, 2026-11-16): *"the ability to build out all the props,
 tile types and mechanics in a way that doesn't overload the renderer or bloat
 course size"* - the last engine wave before the course pipeline. **The
-contract is SPEC.md 128.25** (written 2026-11-16, before any code; nothing of
+contract is SPEC.md 130.25** (written 2026-11-16, before any code; nothing of
 it is built). It replaces this section's earlier text, which predated wave
-8R: what changed and why is in 128.25.1's table and the diary's entry of
+8R: what changed and why is in 130.25.1's table and the diary's entry of
 2026-11-16 (*wave 9: the contract*). The apex question that went before it is
 [BONANZA-APEX-2026-11-16](../reports/BONANZA-APEX-2026-11-16.md).
 
-**Built beside the diagonal tiles** (SPEC.md 128.24,
+**Built beside the diagonal tiles** (SPEC.md 130.24,
 [BOUNCE-BONANZA-DIAGONAL.md](BOUNCE-BONANZA-DIAGONAL.md)), by another session
-on the same branch; the order agreed is SPEC.md 128.25.2: 9.0 lands first and
+on the same branch; the order agreed is SPEC.md 130.25.2: 9.0 lands first and
 alone, 9.1's hook sites before the diagonal's guest wave D3, and whoever lands
 second re-authors MOON's, PEAK's and PLAYGROUND's demos.
 
 **The test course is PLAYGROUND**, grown as needed; every new check is on
 it, because the current courses are to be dropped as the new ones arrive
-(SPEC.md 128.25.13).
+(SPEC.md 130.25.13).
 
 | # | story | verified by |
 |---|---|---|
-| 9.0 | **The Y0 search** (128.25.3): the tool tries the picture's eight block alignments for a play course and keeps the smallest that meets the bounds with the fewest records; the refusals that hang on the block grid pin their alignment. Every play course's identity moves once | `--selfcheck` (item 6's eight counts; a red arm forcing MOON's worst alignment at Hop 366 refuses); `make bonanza`; the compile time reported. **BUILT** (host): +4 on every play course but BENCH (+6) and TRIAL (+0); MOON 2,624 -> 2,529 records, PEAK 3,081 -> 3,001; PEAK's compile about 20 -> 26 s; the demos re-stamp unchanged. **It moved the camera**: a heavy frame fell on PEAK's cannon exit, so guarantee 5 (128.17.6.5) is now held BY CONSTRUCTION - a pan a tube made fast (`BZL_PRE`, the axis record 16 -> 18 bytes) is never withheld - with controls `noprex` (new, `bonanzaring`'s `camprex`) and `nopreaim` re-aimed at the pan work left after an exit; image 40,181 -> 40,207, bss +4. Rows for the final pass: `bonanzaring` (the camera leg and its two arms), `bonanzacourse` |
-| 9.1 | **The hook table** (128.25.6.2, 128.25.6.3): `bz_fhk`, the six sites, the family part's header and far pointers, the stamp check, `uses` and its refusals, the family list in BZG1 and the identity; a NULL family (every hook a `retf`) proves the dispatch. Landed before D3 | `--selfcheck` (the refusals); `bonanzaphys` on PLAYGROUND with the null family; `bonanzaperf`'s step price with no family within 0.1k a step. **BUILT** (host-proved; SPEC.md 128.25.6, 128.25.15): the null family is the PROBE (ID 1, kind 16; every hook the smallest VISIBLE thing, no physics), on PLAYGROUND's apron where its demo rolls; the demo re-authored with its runs unchanged (identity 9D5Eh -> 06D2h). The family list sits at BZC2 +45 / +46 inside the props (BZG1's header is full); no kind table; every family row `OP_COMP`. Image +449 (40,656), bss +50 (10,714). PROVED under unicorn (`bonanza_phys.py --check`): the guest's `bz_step` = the model at every step on PLAYGROUND's demo and the probe scenario, and on MOON's and PEAK's demos with no family; the step with no family +2.0 instructions (about 0.03k). Rows for the final pass: `bonanzaphys`, `bonanzareplay`, `bonanzacourse`, `bonanzamega`, `bonanzaperf`, `bonanzaexit` |
-| 9.2 | **Per-play state and resets** (128.25.7): `bz_fst`, the slots, `ATTEMPT` / `RESPAWN` (and `FLAG`'s layout), the CELL overlay at `bz_wtail`'s start, the model's same; the reach over each element's states; NO TRAP per flag under the classes; every finish with no pickup | `--selfcheck` (red arm: a crack on the only route past a flag forced `ATTEMPT` refuses); `bonanzaphys`, `bonanzareplay` red arms. **BUILT** (host-proved; SPEC.md 128.25.7): `bz_fst` and the slots in `bz_pinit`'s zeroed state, `bz_frst` (the respawn's RESPAWN mask, before the place), the CELL overlay into `bz_nbr` and `bz_fref`, the model's window snapshot (`_FamPhysics`); NO TRAP under the classes (`trap_presets`) with the red arm as a test-only WALL family on a bridge past a flag; every finish with no pickup by construction (`Physics.nopick`). The reach over a form other than the cell's own is wired as `FAMILIES`' `forms` and refused until GLASS (9.5) teaches it the first |
-| 9.3 | **BUILT (agent arena).** **The arena** (128.25.4, 128.25.4.3, 20.12.15): `OP_ARENA` rows, `op_areserve`, the regrow in steps, rebanking after a move, `SEG_SUB`/`SEG_SUBC` on kern_mega, in `apps/os88parts.inc`; BONANZA's small parts moved in; `BZ_CRS_MAXCLAIM` fixed (the fanfare it omits) and split from `BZ_CRS_ARENA` | `bonanzaexit` (3 of 8 claims, the arena empty after every way out); `bonanzamega` (a forced move under a play); the standard's own gates (`make`) |
-| 9.4 | **DONE** (2026-11-16, SPEC.md 128.25.5.1: V2 exact for all three, its phase table rank-coded; packed 5,974 -> 1,772; routine 1,229 bytes; a three-ball launch's generation 1.59 M clocks PRICED, **1.67 M cycles = 0.35 s MEASURED** on MartyPC, against the owner's 0.75 s target (the first build: 7.9 M, 1.66 s); a PLAYGROUND launch 3.74 s against 3.34 s with no generator, net +0.40 s; shipped; glass's shatter stays literal). **The balls generated at fetch** (128.25.5): `BZB3` stored, V1 then V2, `BZB2` written byte for byte; 128.11.9.1's table corrected (rubber's stretch) | `make bonanza-check`: the generator under an emulated 8086 equals `build_ball2`, every material; red arms (a stored row, a rank class, the routine's byte step) differ; `bzballchk.py --clocks` the price; the packed bytes MEASURED |
-| 9.5 | **GLASS** (128.25.8): `crack` and `glass`, on PLAYGROUND's glass section | `bonanzaphys` (each ball on a crack, a fall through, the respawn restoring it; a path revealed tile by tile); red arms; the owner's look and play. **BUILT** (SPEC.md 128.25.18; host-proved): `apps/bonanza/fam/glass.asm` (ID 2, 559 bytes, 452 packed), `bbcourse.GlassFamily`; a crack's state a BYTE an element (one counter each, so a crack PATH is never refused), landings read off `bz_fair`/`bz_fnl` in CONTACT (no seventh hook); the reach over the broken form (`reach_forms`, unioned outside `build_reach`); 2 x 2-block lanes so a path shares no block; the picture drawn without the glass tiles; PLAYGROUND's section (four cracks, four glass tiles, a far platform with a steel pad), its demo re-authored (identity only); the walk's skip taught to walk a marked family lane (7 bytes: a revealed tile was otherwise never drawn). Image +17, bss +4. SEEN on MartyPC (CGA, Hercules). `bonanza_phys --check`: four scenarios equal under unicorn, red arms `glscell`, `glsrsp`; `--selfcheck` items 2, 6, 7. The owner's play: open The REVEALED look is now the owner's pick of eleven filmed (2026-11-17): a clear pane, its outline and a glint joined along the run in 2 x 3-block lanes (SPEC.md 128.25.18; PLAYGROUND +86 bytes packed). |
-| 9.6 | **DONE on its branch, INTEGRATED** (2026-11-16; at integration: family ID 6, home `fetch`, the PLAYGROUND yard and ridge moved left of the mat - glass holds FF's left edge - the ridge the jump's alone by `ridge_apex`, the lane marks `call far [bz_fmkp]` after `w9/crackfix`; image 47,086, bss 10,995 on the integrated tree; SPEC.md 128.25.19: the part, the model, the resident working values `bz_wacc` / `bz_vup` and the Hop, the cue, the PICKUP sound; +381 image (+374 as built, +12 the verifier's zero-cost clamp, -1 the cue rebuilt, -4 its verifier's idle signal), +11 bss; THE CUE REBUILT on the ball's own blit after the cue-report (the owner's decision): 2 x 2 sparkles and the flash folded into `bz_blit`, a resting ball recomposed only when the cue's look changes, the flash style a build knob `BZ_CUEFLASH` (DITHER2, DITHER4, BLINK2, BLINK4 filmed; **BLINK4 the owner's pick**, BLINK2 noted as a future GHOST pickup; the knob and the losing styles since REMOVED, the source BLINK4 alone) - MEASURED about 1.45k a frame with the sparkles, 2.3k on a flash frame (were 1.8k, 6.1k), +0.03k with no pickup (~/Repos/w9-logs/cuefix-report.md; the resting ball's idle signal fixed by its verifier, ~/Repos/w9-logs/cuefix-verify.md); then the owner's per-shift sparkle table and HOPPING sparkles (three places each round the ball, 8 frames a place, offset clocks): about 1.2k a frame with the sparkles (blit +0.92k), image 47,369 (+64 on the DITHER2 tree, +150 on it built BLINK4), bss 10,984 (~/Repos/w9-logs/spark-report.md); then the owner's FULLY RESOLVED sparkle tables (about 360 bytes approved, 182 spent: 3-byte entries per card, place and shift, a copy of the pairs' code per card) and the places recomputed only at a hop: MEASURED about 0.95k a frame with the sparkles (blit +0.65k CGA, +0.68k Hercules; `bz_cuef` 0.29k), 1.5k a hop frame, the flash's on/off frames' `bz_cuef` 1.0k -> 0.44k, R1 0 missed; image 47,551, bss 10,987 (~/Repos/w9-logs/spark2-report.md); the unicorn scenario equal, the hourglass revisited after a RETURN and kept, with four red arms; SEEN on both cards; VERIFIED, ~/Repos/w9-logs/pickups-verify.md; the sparkles' places BALANCED, the owner's pick OVER of four options - eight places mirrored left/right, two on the ball's face drawn after it - after measuring the first set at 83% of its pixel-time right of the centre: +33 bytes, about 0.93k a sparkle frame, SPEC.md 128.25.19, ~/Repos/w9-logs/sparkbal-report.md, sparkover-report.md). **PICKUPS** by the recipe (128.25.6.8, 128.25.9): hourglass (hidden in exploration), speed, jump stacked with the boost; the sparkles and the dither flash in the ball's box; the `PICKUP` sound event | `bonanzaphys`; `bonanzaperf` (the sparkles' frames); the owner's look and play |
-| 9.7 | **DONE** (2026-11-16): SPEC.md 128.25.6.8 rewritten as eight steps from what GLASS, PICKUPS and the crack fix took - the HOME field, the ID as table order (`BZ_FID_<NAME>`), consts and element fields, working values not `MATERIALS`, the REACH pass, resident engine bytes for physics and cues, lane marks only through `bz_fmkp`, proofs in `_sc_*` sections and re-checking the camera's PLAYGROUND scenarios after a layout change (`camhyst` was disarmed by one); the original six steps and PICKUPS' findings kept below as the record. **The recipe written down**: SPEC.md 128.25.6.8 checked against what 9.5 and 9.6 actually took, corrected | the diary |
-| 9.8 | **BUILT** (2026-11-16, SPEC.md 128.25.10, 128.25.20, 128.25.6.9). **Today's props as families**: ROTOR (the windmill's doorway), SPRING (the POST slot: the bumper stays resident, a clock's collision) and TUBE (the drain, the capture, the transit), all home RESIDENT (the owner: fetched once at the start, the arena's floor, 72 paragraphs); the lift, pads, flags, clocks, signs and the cup resident. Image 46,924 -> 46,372 (-552), bss 0; BONANZA's open +0.9 - 1.1 s, a launch unchanged; MILL's cap waived by 6 bytes. PROVED on the host (unicorn: MILL/MOON/PEAK demos and 39 scenarios, the reds on the parts); SEEN on MartyPC's CGA (MILL's windmill, PEAK's cannon). **At integration (the owner's decision): the RESIDENT BUNDLE** - the three resident parts in ONE row fetched once at the start (SPEC.md 128.25.6.9): image +24 (46,405 -> 46,429), the same 72-paragraph floor, 197 bytes less on the disk, the open 8.87 s (6 reads) against 9.62 - 9.84 s (8) - SEEN on MartyPC's CGA, MILL's demo through its windmill and tubes from the bundle | `bonanzaphys`, `bonanzareplay`, `bonanzawheel`, `bonanzaring`, `bonanzaperf`, `bonanzamega`, `bonanzaexit`, `bonanzademo`, `bonanzagame`, `bonanzacourse` |
-| 9.9 | **DONE** (2026-11-16): one scoped soak (`bonanza*`, `pins`, `pinsrt`, `heapcheck`; 18 rows, 32 min) on e8b362500: 14 ok, 4 FAIL - `bonanzacourse` (the `nohyst` control disarmed by PLAYGROUND's moves: re-anchored, `w9/hyst`), `bonanzaring` (the TEST read the stored BZB3 balls raw since 9.4: the reference drew a black ball; `w9/ringf`), `bonanzamega` (a REAL kern_mega bug: `bz_fbfind`'s segment sum carried on a selector and every resident family was refused - MILL, MOON, SUMMIT never started; one `clc`, +1 byte; and case 1's claim count missed the arena; `w9/mega`), `pins` (five BONANZA claims registered in tests/pins.txt, three older than wave 9; the ARENA held window-long is a debt, N); the four re-run on 1f2892612: all ok. `make test-full`: 63 ok, 1 FAIL - `guidelock-full` (WARENA.O88 has no guide line: WireArena's, older than wave 9, also on `elendilon`). `make budget-check`: every kernel under. Open: the owner plays PLAYGROUND's new sections (the pickups yard's new place unlooked-at on MartyPC); the Hercules sparkles; bonanzaring's Hercules MILL PWAIT scene flaky (1 miss in 3); no red arm for the kern_mega carry; the arena movable (owner's call) **The final pass**: the rows of 128.25.13 once, the disks; the owner plays PLAYGROUND's new sections | diary |
-| 9.10 | **Grounded faces** (SPEC.md 128.27; the owner, 2026-11-16, after the variants were priced: the diary's entry). Every face over the void hangs to ONE ground plane a course - its lowest floor less 3 units - instead of 3 units; `float <shape>` keeps today's 3-unit faces where a course means to float (the PLAYGROUND's chamfered platform); refusals for a half, trailing words and a float that floats nothing. Tool-only: no guest code, no grid byte but five PLAYGROUND cells' `OCCG`, `BZ_PHYSV` unchanged. The course budget's 1.5 x line becomes REPORTED, never refused (128.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The three authored demos written again by `bbcourse.py author` (their `ident` lines alone moved) | `--selfcheck` items 14 (the rule, the floating twin, every course; negative controls), 2 (`float`'s refusals), 1 (the cross-commit check with the rule off), 3 (the tube column both looks), 12 (the budget reported), 8R (the re-stamp retired); red arms run by hand on a patched copy; the previews looked at on CGA and Hercules. **BUILT, host-checked**; the rows of 128.27.9 in the final pass |
-| 9.11 | **MAIN and the tour, decoupled from the course count** (SPEC.md 128.26.8; the owner, 2026-11-17: *"1 and 2 seem good; those are both knob/test only now"*). Before the courses grow from six to about twenty: MAIN's scorecard lines dropped (MAIN is seven lines whatever the courses), and the tour a short NAMED list, `tools/bbcourse.py`'s `TOUR`, emitted as `BZ_TOUR`/`BZ_NTOUR` with `BZ_CRS_TOURX` its XOR - the six it always was, so no row's numbers move. A seventh tour-less course (a scratch copy of FIRST) builds the whole package | `--selfcheck` item 4's tour line (the list, the three emitted names, four refusals); `bonanzagame` and `bonanzaexit` walk `BZ_TOUR` (named, not run); **BUILT, host-checked** (image +13, shell part -187, MEASURED) |
-| 9.12 | **DONE** (2026-11-17; SPEC.md 128.25.5.2). **The balls generated ONCE**: the three `BZB3` balls ride the resident bundle (`BZ_P_FBUN`, read once at the open), generated there and held for the instance (the owner: one read, kept while the window is open, desktop included). MEASURED (CGA): a PLAYGROUND launch 5.18 -> 3.79 s first, 4.04 -> 2.47 s after, 1 read; the open +0.44 s. Image -77; the arena held window-long now 32 KB (the owner reviews RAM at the game's end) | rows run green (14) |
-| 9.13 | **DONE** (2026-11-17; SPEC.md 128.25.6.9). **GLASS and PICKUPS resident**, and the RULE: a new family is resident unless a reason moves it out; the probe stays fetched (test only). PLAYGROUND's first launch -0.56 s (one read); bundle +1,056 RAM | host checks |
-| 9.14 | **DONE** (2026-11-17; SPEC.md 128.25.9, 128.25.19). **The pickup cue settled**: BLINK4 (the flash A/B removed: the source IS BLINK4) and the sparkles BALANCED - the old place set put 83% of the sparkle time right of the ball; the owner picked OVER (MIRROR's eight places, two on the ball's face; +33 bytes, ~0.93k a sparkle frame). Pickups first played by the owner on a one-off "Pickup Test" build: "the jump noticeably adds height, and the speed noticeably adds speed" | rows run green |
-| 9.15 | **DONE** (2026-11-17; SPEC.md 128.25.18, 128.25.18.1, 128.27.2.1, 128.32). **Cracked tiles and glass, final shapes**: glass look 11 (one clear pane, 2 x 3-block lanes; glass paths may TURN, the corner pair grouped); crack hole sizes `small`/`band`/`wide`; the round-1 vanishing column (3-unit `float`, kept for a course or two); and **the THIN BRIDGE** (`float <shape> thick <units>`: cracks on it are a 2 x 3 walkway that vanishes tile by tile, full tiles at its ends) - **the recommended cracked tile**. **GROUP LANES** kept as an option (SPEC.md 128.32; +123 image): overlapping lanes group (every pose combination pre-rendered) instead of being refused. PLAYGROUND carries a crack lab and a group lab | rows run green after triage |
+| 9.0 | **The Y0 search** (130.25.3): the tool tries the picture's eight block alignments for a play course and keeps the smallest that meets the bounds with the fewest records; the refusals that hang on the block grid pin their alignment. Every play course's identity moves once | `--selfcheck` (item 6's eight counts; a red arm forcing MOON's worst alignment at Hop 366 refuses); `make bonanza`; the compile time reported. **BUILT** (host): +4 on every play course but BENCH (+6) and TRIAL (+0); MOON 2,624 -> 2,529 records, PEAK 3,081 -> 3,001; PEAK's compile about 20 -> 26 s; the demos re-stamp unchanged. **It moved the camera**: a heavy frame fell on PEAK's cannon exit, so guarantee 5 (130.17.6.5) is now held BY CONSTRUCTION - a pan a tube made fast (`BZL_PRE`, the axis record 16 -> 18 bytes) is never withheld - with controls `noprex` (new, `bonanzaring`'s `camprex`) and `nopreaim` re-aimed at the pan work left after an exit; image 40,181 -> 40,207, bss +4. Rows for the final pass: `bonanzaring` (the camera leg and its two arms), `bonanzacourse` |
+| 9.1 | **The hook table** (130.25.6.2, 130.25.6.3): `bz_fhk`, the six sites, the family part's header and far pointers, the stamp check, `uses` and its refusals, the family list in BZG1 and the identity; a NULL family (every hook a `retf`) proves the dispatch. Landed before D3 | `--selfcheck` (the refusals); `bonanzaphys` on PLAYGROUND with the null family; `bonanzaperf`'s step price with no family within 0.1k a step. **BUILT** (host-proved; SPEC.md 130.25.6, 130.25.15): the null family is the PROBE (ID 1, kind 16; every hook the smallest VISIBLE thing, no physics), on PLAYGROUND's apron where its demo rolls; the demo re-authored with its runs unchanged (identity 9D5Eh -> 06D2h). The family list sits at BZC2 +45 / +46 inside the props (BZG1's header is full); no kind table; every family row `OP_COMP`. Image +449 (40,656), bss +50 (10,714). PROVED under unicorn (`bonanza_phys.py --check`): the guest's `bz_step` = the model at every step on PLAYGROUND's demo and the probe scenario, and on MOON's and PEAK's demos with no family; the step with no family +2.0 instructions (about 0.03k). Rows for the final pass: `bonanzaphys`, `bonanzareplay`, `bonanzacourse`, `bonanzamega`, `bonanzaperf`, `bonanzaexit` |
+| 9.2 | **Per-play state and resets** (130.25.7): `bz_fst`, the slots, `ATTEMPT` / `RESPAWN` (and `FLAG`'s layout), the CELL overlay at `bz_wtail`'s start, the model's same; the reach over each element's states; NO TRAP per flag under the classes; every finish with no pickup | `--selfcheck` (red arm: a crack on the only route past a flag forced `ATTEMPT` refuses); `bonanzaphys`, `bonanzareplay` red arms. **BUILT** (host-proved; SPEC.md 130.25.7): `bz_fst` and the slots in `bz_pinit`'s zeroed state, `bz_frst` (the respawn's RESPAWN mask, before the place), the CELL overlay into `bz_nbr` and `bz_fref`, the model's window snapshot (`_FamPhysics`); NO TRAP under the classes (`trap_presets`) with the red arm as a test-only WALL family on a bridge past a flag; every finish with no pickup by construction (`Physics.nopick`). The reach over a form other than the cell's own is wired as `FAMILIES`' `forms` and refused until GLASS (9.5) teaches it the first |
+| 9.3 | **BUILT (agent arena).** **The arena** (130.25.4, 130.25.4.3, 20.12.16): `OP_ARENA` rows, `op_areserve`, the regrow in steps, rebanking after a move, `SEG_SUB`/`SEG_SUBC` on kern_mega, in `apps/os88parts.inc`; BONANZA's small parts moved in; `BZ_CRS_MAXCLAIM` fixed (the fanfare it omits) and split from `BZ_CRS_ARENA` | `bonanzaexit` (3 of 8 claims, the arena empty after every way out); `bonanzamega` (a forced move under a play); the standard's own gates (`make`) |
+| 9.4 | **DONE** (2026-11-16, SPEC.md 130.25.5.1: V2 exact for all three, its phase table rank-coded; packed 5,974 -> 1,772; routine 1,229 bytes; a three-ball launch's generation 1.59 M clocks PRICED, **1.67 M cycles = 0.35 s MEASURED** on MartyPC, against the owner's 0.75 s target (the first build: 7.9 M, 1.66 s); a PLAYGROUND launch 3.74 s against 3.34 s with no generator, net +0.40 s; shipped; glass's shatter stays literal). **The balls generated at fetch** (130.25.5): `BZB3` stored, V1 then V2, `BZB2` written byte for byte; 130.11.9.1's table corrected (rubber's stretch) | `make bonanza-check`: the generator under an emulated 8086 equals `build_ball2`, every material; red arms (a stored row, a rank class, the routine's byte step) differ; `bzballchk.py --clocks` the price; the packed bytes MEASURED |
+| 9.5 | **GLASS** (130.25.8): `crack` and `glass`, on PLAYGROUND's glass section | `bonanzaphys` (each ball on a crack, a fall through, the respawn restoring it; a path revealed tile by tile); red arms; the owner's look and play. **BUILT** (SPEC.md 130.25.18; host-proved): `apps/bonanza/fam/glass.asm` (ID 2, 559 bytes, 452 packed), `bbcourse.GlassFamily`; a crack's state a BYTE an element (one counter each, so a crack PATH is never refused), landings read off `bz_fair`/`bz_fnl` in CONTACT (no seventh hook); the reach over the broken form (`reach_forms`, unioned outside `build_reach`); 2 x 2-block lanes so a path shares no block; the picture drawn without the glass tiles; PLAYGROUND's section (four cracks, four glass tiles, a far platform with a steel pad), its demo re-authored (identity only); the walk's skip taught to walk a marked family lane (7 bytes: a revealed tile was otherwise never drawn). Image +17, bss +4. SEEN on MartyPC (CGA, Hercules). `bonanza_phys --check`: four scenarios equal under unicorn, red arms `glscell`, `glsrsp`; `--selfcheck` items 2, 6, 7. The owner's play: open The REVEALED look is now the owner's pick of eleven filmed (2026-11-17): a clear pane, its outline and a glint joined along the run in 2 x 3-block lanes (SPEC.md 130.25.18; PLAYGROUND +86 bytes packed). |
+| 9.6 | **DONE on its branch, INTEGRATED** (2026-11-16; at integration: family ID 6, home `fetch`, the PLAYGROUND yard and ridge moved left of the mat - glass holds FF's left edge - the ridge the jump's alone by `ridge_apex`, the lane marks `call far [bz_fmkp]` after `w9/crackfix`; image 47,086, bss 10,995 on the integrated tree; SPEC.md 130.25.19: the part, the model, the resident working values `bz_wacc` / `bz_vup` and the Hop, the cue, the PICKUP sound; +381 image (+374 as built, +12 the verifier's zero-cost clamp, -1 the cue rebuilt, -4 its verifier's idle signal), +11 bss; THE CUE REBUILT on the ball's own blit after the cue-report (the owner's decision): 2 x 2 sparkles and the flash folded into `bz_blit`, a resting ball recomposed only when the cue's look changes, the flash style a build knob `BZ_CUEFLASH` (DITHER2, DITHER4, BLINK2, BLINK4 filmed; **BLINK4 the owner's pick**, BLINK2 noted as a future GHOST pickup; the knob and the losing styles since REMOVED, the source BLINK4 alone) - MEASURED about 1.45k a frame with the sparkles, 2.3k on a flash frame (were 1.8k, 6.1k), +0.03k with no pickup (~/Repos/w9-logs/cuefix-report.md; the resting ball's idle signal fixed by its verifier, ~/Repos/w9-logs/cuefix-verify.md); then the owner's per-shift sparkle table and HOPPING sparkles (three places each round the ball, 8 frames a place, offset clocks): about 1.2k a frame with the sparkles (blit +0.92k), image 47,369 (+64 on the DITHER2 tree, +150 on it built BLINK4), bss 10,984 (~/Repos/w9-logs/spark-report.md); then the owner's FULLY RESOLVED sparkle tables (about 360 bytes approved, 182 spent: 3-byte entries per card, place and shift, a copy of the pairs' code per card) and the places recomputed only at a hop: MEASURED about 0.95k a frame with the sparkles (blit +0.65k CGA, +0.68k Hercules; `bz_cuef` 0.29k), 1.5k a hop frame, the flash's on/off frames' `bz_cuef` 1.0k -> 0.44k, R1 0 missed; image 47,551, bss 10,987 (~/Repos/w9-logs/spark2-report.md); the unicorn scenario equal, the hourglass revisited after a RETURN and kept, with four red arms; SEEN on both cards; VERIFIED, ~/Repos/w9-logs/pickups-verify.md; the sparkles' places BALANCED, the owner's pick OVER of four options - eight places mirrored left/right, two on the ball's face drawn after it - after measuring the first set at 83% of its pixel-time right of the centre: +33 bytes, about 0.93k a sparkle frame, SPEC.md 130.25.19, ~/Repos/w9-logs/sparkbal-report.md, sparkover-report.md). **PICKUPS** by the recipe (130.25.6.8, 130.25.9): hourglass (hidden in exploration), speed, jump stacked with the boost; the sparkles and the dither flash in the ball's box; the `PICKUP` sound event | `bonanzaphys`; `bonanzaperf` (the sparkles' frames); the owner's look and play |
+| 9.7 | **DONE** (2026-11-16): SPEC.md 130.25.6.8 rewritten as eight steps from what GLASS, PICKUPS and the crack fix took - the HOME field, the ID as table order (`BZ_FID_<NAME>`), consts and element fields, working values not `MATERIALS`, the REACH pass, resident engine bytes for physics and cues, lane marks only through `bz_fmkp`, proofs in `_sc_*` sections and re-checking the camera's PLAYGROUND scenarios after a layout change (`camhyst` was disarmed by one); the original six steps and PICKUPS' findings kept below as the record. **The recipe written down**: SPEC.md 130.25.6.8 checked against what 9.5 and 9.6 actually took, corrected | the diary |
+| 9.8 | **BUILT** (2026-11-16, SPEC.md 130.25.10, 130.25.20, 130.25.6.9). **Today's props as families**: ROTOR (the windmill's doorway), SPRING (the POST slot: the bumper stays resident, a clock's collision) and TUBE (the drain, the capture, the transit), all home RESIDENT (the owner: fetched once at the start, the arena's floor, 72 paragraphs); the lift, pads, flags, clocks, signs and the cup resident. Image 46,924 -> 46,372 (-552), bss 0; BONANZA's open +0.9 - 1.1 s, a launch unchanged; MILL's cap waived by 6 bytes. PROVED on the host (unicorn: MILL/MOON/PEAK demos and 39 scenarios, the reds on the parts); SEEN on MartyPC's CGA (MILL's windmill, PEAK's cannon). **At integration (the owner's decision): the RESIDENT BUNDLE** - the three resident parts in ONE row fetched once at the start (SPEC.md 130.25.6.9): image +24 (46,405 -> 46,429), the same 72-paragraph floor, 197 bytes less on the disk, the open 8.87 s (6 reads) against 9.62 - 9.84 s (8) - SEEN on MartyPC's CGA, MILL's demo through its windmill and tubes from the bundle | `bonanzaphys`, `bonanzareplay`, `bonanzawheel`, `bonanzaring`, `bonanzaperf`, `bonanzamega`, `bonanzaexit`, `bonanzademo`, `bonanzagame`, `bonanzacourse` |
+| 9.9 | **DONE** (2026-11-16): one scoped soak (`bonanza*`, `pins`, `pinsrt`, `heapcheck`; 18 rows, 32 min) on e8b362500: 14 ok, 4 FAIL - `bonanzacourse` (the `nohyst` control disarmed by PLAYGROUND's moves: re-anchored, `w9/hyst`), `bonanzaring` (the TEST read the stored BZB3 balls raw since 9.4: the reference drew a black ball; `w9/ringf`), `bonanzamega` (a REAL kern_mega bug: `bz_fbfind`'s segment sum carried on a selector and every resident family was refused - MILL, MOON, SUMMIT never started; one `clc`, +1 byte; and case 1's claim count missed the arena; `w9/mega`), `pins` (five BONANZA claims registered in tests/pins.txt, three older than wave 9; the ARENA held window-long is a debt, N); the four re-run on 1f2892612: all ok. `make test-full`: 63 ok, 1 FAIL - `guidelock-full` (WARENA.O88 has no guide line: WireArena's, older than wave 9, also on `elendilon`). `make budget-check`: every kernel under. Open: the owner plays PLAYGROUND's new sections (the pickups yard's new place unlooked-at on MartyPC); the Hercules sparkles; bonanzaring's Hercules MILL PWAIT scene flaky (1 miss in 3); no red arm for the kern_mega carry; the arena movable (owner's call) **The final pass**: the rows of 130.25.13 once, the disks; the owner plays PLAYGROUND's new sections | diary |
+| 9.10 | **Grounded faces** (SPEC.md 130.27; the owner, 2026-11-16, after the variants were priced: the diary's entry). Every face over the void hangs to ONE ground plane a course - its lowest floor less 3 units - instead of 3 units; `float <shape>` keeps today's 3-unit faces where a course means to float (the PLAYGROUND's chamfered platform); refusals for a half, trailing words and a float that floats nothing. Tool-only: no guest code, no grid byte but five PLAYGROUND cells' `OCCG`, `BZ_PHYSV` unchanged. The course budget's 1.5 x line becomes REPORTED, never refused (130.27.5): "we wanted to hit 'seconds per course for one 360k disk for 20 courses' but it is very obvious that is not going to happen now. So that limit is the thing wrong; we'll end up with less courses, or two disks." The three authored demos written again by `bbcourse.py author` (their `ident` lines alone moved) | `--selfcheck` items 14 (the rule, the floating twin, every course; negative controls), 2 (`float`'s refusals), 1 (the cross-commit check with the rule off), 3 (the tube column both looks), 12 (the budget reported), 8R (the re-stamp retired); red arms run by hand on a patched copy; the previews looked at on CGA and Hercules. **BUILT, host-checked**; the rows of 130.27.9 in the final pass |
+| 9.11 | **MAIN and the tour, decoupled from the course count** (SPEC.md 130.26.8; the owner, 2026-11-17: *"1 and 2 seem good; those are both knob/test only now"*). Before the courses grow from six to about twenty: MAIN's scorecard lines dropped (MAIN is seven lines whatever the courses), and the tour a short NAMED list, `tools/bbcourse.py`'s `TOUR`, emitted as `BZ_TOUR`/`BZ_NTOUR` with `BZ_CRS_TOURX` its XOR - the six it always was, so no row's numbers move. A seventh tour-less course (a scratch copy of FIRST) builds the whole package | `--selfcheck` item 4's tour line (the list, the three emitted names, four refusals); `bonanzagame` and `bonanzaexit` walk `BZ_TOUR` (named, not run); **BUILT, host-checked** (image +13, shell part -187, MEASURED) |
+| 9.12 | **DONE** (2026-11-17; SPEC.md 130.25.5.2). **The balls generated ONCE**: the three `BZB3` balls ride the resident bundle (`BZ_P_FBUN`, read once at the open), generated there and held for the instance (the owner: one read, kept while the window is open, desktop included). MEASURED (CGA): a PLAYGROUND launch 5.18 -> 3.79 s first, 4.04 -> 2.47 s after, 1 read; the open +0.44 s. Image -77; the arena held window-long now 32 KB (the owner reviews RAM at the game's end) | rows run green (14) |
+| 9.13 | **DONE** (2026-11-17; SPEC.md 130.25.6.9). **GLASS and PICKUPS resident**, and the RULE: a new family is resident unless a reason moves it out; the probe stays fetched (test only). PLAYGROUND's first launch -0.56 s (one read); bundle +1,056 RAM | host checks |
+| 9.14 | **DONE** (2026-11-17; SPEC.md 130.25.9, 130.25.19). **The pickup cue settled**: BLINK4 (the flash A/B removed: the source IS BLINK4) and the sparkles BALANCED - the old place set put 83% of the sparkle time right of the ball; the owner picked OVER (MIRROR's eight places, two on the ball's face; +33 bytes, ~0.93k a sparkle frame). Pickups first played by the owner on a one-off "Pickup Test" build: "the jump noticeably adds height, and the speed noticeably adds speed" | rows run green |
+| 9.15 | **DONE** (2026-11-17; SPEC.md 130.25.18, 130.25.18.1, 130.27.2.1, 130.32). **Cracked tiles and glass, final shapes**: glass look 11 (one clear pane, 2 x 3-block lanes; glass paths may TURN, the corner pair grouped); crack hole sizes `small`/`band`/`wide`; the round-1 vanishing column (3-unit `float`, kept for a course or two); and **the THIN BRIDGE** (`float <shape> thick <units>`: cracks on it are a 2 x 3 walkway that vanishes tile by tile, full tiles at its ends) - **the recommended cracked tile**. **GROUP LANES** kept as an option (SPEC.md 130.32; +123 image): overlapping lanes group (every pose combination pre-rendered) instead of being refused. PLAYGROUND carries a crack lab and a group lab | rows run green after triage |
 | 9.16 | **DONE** (2026-11-17). **The speed pass the labs forced**: PLAYGROUND's void fall had lost retraces (19 vs 10); profiled by routine: the quiet walk never held (unsynced out-of-band lanes) and the families' CELL hooks walked every prop on a refill. Fixed (+40): `.nxo`, `.cm`, CELL window-first; then the owner's F4 (glass CELL O(1) while nothing is broken), F6 (per-hook family dispatch lists, -435 clk a dispatch) and F3 (the quiet test O(1), -84 image): the void fall's mean frame 19.0k -> 17.35k, under the labs-free tree. The GROUND test now accounts for missed retraces and reports them | rows (`bonanzaring` with the pacing report) |
 | 9.17 | **DONE** (2026-11-17). **Housekeeping**: decided A/Bs removed (the owner: "we don't keep A/Bs we decided against") - `BZ_CUEFLASH`, `BZPARTZ`/`--fmt-ab`, `--lattice-ab`/`--clock-ab`, `BZ_NOEARLYSTEP` and its runtime switch (the ring/wheel oracles now model the shipped early step), bbcourse's 8-byte records (`--rec`; the identity form kept); the test runner records and warns when its checkout moves under a run (a mid-run merge had produced six false reds); a kern_mega bug found by the final pass (`bz_fbfind`'s carry refused every resident family) fixed | the rows |
 
 **Wave 9 is CLOSED** (2026-11-17). Carried, by decision: the arena's window-long RAM (the owner's end-of-game review, tests/pins.txt N); the probe's CELL not made O(1) (a test family). Owner's open choices were all answered (DECISIONS: the vanishing column kept, glass turns yes, `wide` fine on Hercules, the `bz_fmark` trim to wave 10).
 
 
-**Open questions** (SPEC.md 128.25.14): one timed pickup kind a course; the
+**Open questions** (SPEC.md 130.25.14): one timed pickup kind a course; the
 lift and the tube; steel and glass on a cracked tile; the defaults; the glass
 path's hint.
 
@@ -1209,7 +1223,7 @@ record):
 
 | # | verdict | today (MEASURED unless said) |
 |---|---|---|
-| T1 | **retired: holds** | 8R.13 made the light corner scene lighter (SPEC.md 128.13.14 item 9: `bz_tw` 44 - 54k, ten tries); `bonanzawheel` passes (the int5 soak of 2026-11-17). A test scene's construction: nothing a player sees |
+| T1 | **retired: holds** | 8R.13 made the light corner scene lighter (SPEC.md 130.13.14 item 9: `bz_tw` 44 - 54k, ten tries); `bonanzawheel` passes (the int5 soak of 2026-11-17). A test scene's construction: nothing a player sees |
 | T2 | **retired as a target; kept as `bonanzaperf`'s guard** | BENCH D: CGA busy 35,747 (`bz_hvoff` 1, OFF, 0 misses) / 38,327 (ON, 2); Hercules 37,005 / 40,219 (0). Re-anchor the A/B on this tree, not 5b's `503031d4` |
 | T3 | **retired: met** | MILL B 9 / 33 against 47 / 151 (target 25 / 75); in play units MILL's demo 5 / 9 |
 | T4 | **holds: the worst course** | PEAK D 64 / 147 - 152 (was 205 / 293), Hercules D ON 53 (was 96); R 24 - 32 / 72 - 83, Hercules 12 / 28. Its lever is the occluder pass (O1 below); its easing at wave 13 meets T11 |
@@ -1263,10 +1277,10 @@ measured against wave 6's re-baseline (6.10).
 | T7 | Half-rate sound, and sound in the retrace wait's idle time (G4) | speaker 3.3k average | measured; the owner listens and decides |
 | T8 | Box writes (A4), wheel commits (A2), the preparation and the walk (A3), `bz_wlate` (A13), TRIAL on the Hercules (A14), the two-box rotor frame (A15, priced at 88k and never measured) | open | each measured; fixed or recorded |
 | T9 | The image (A5): a byte budget with the 20 courses' resident rows in it (R4) | 32,640 and growing | set from 8a's code part |
-| T10 | 4-byte occluder records in RAM as well | **moved into wave 5b's story 5b.2** (2026-11-14, BONANZA-SIZE-2026-11-14); held here only if 5b ships its fallback C. **HELD HERE: 5b shipped C** (SPEC.md 128.15.5.4: on the CGA D missed 23.5 more refreshes than C on MILL's and PEAK's demos summed, past the owner's +2; MEASURED like for like, D's pass cost +380 - +448 clk a frame, median). A return needs a cheaper walk, or MILL's camera off its tipping point (wave 13's rebuild). *Re-opened 2026-11-14: the owner's smoothness rule replaces the +2, and 5b's next final pass re-measures D (SPEC.md 128.15.5.4).* **DONE IN 5b: D SHIPS** *(the re-measurement: at most +0.16 missed refreshes a second over C on either card, no new stutter; SPEC.md 128.15.5.4). PEAK's claim 47,148 bytes, 17,876 under 65,024; the six courses 42,084 bytes less RAM* | about -13KB of RAM on PEAK; about +280 clk on a typical occluder frame, about +1,200 worst (ESTIMATED, SPEC.md 128.15.5.2; the report's +30 and +450 under-priced the keys and the rows) |
+| T10 | 4-byte occluder records in RAM as well | **moved into wave 5b's story 5b.2** (2026-11-14, BONANZA-SIZE-2026-11-14); held here only if 5b ships its fallback C. **HELD HERE: 5b shipped C** (SPEC.md 130.15.5.4: on the CGA D missed 23.5 more refreshes than C on MILL's and PEAK's demos summed, past the owner's +2; MEASURED like for like, D's pass cost +380 - +448 clk a frame, median). A return needs a cheaper walk, or MILL's camera off its tipping point (wave 13's rebuild). *Re-opened 2026-11-14: the owner's smoothness rule replaces the +2, and 5b's next final pass re-measures D (SPEC.md 130.15.5.4).* **DONE IN 5b: D SHIPS** *(the re-measurement: at most +0.16 missed refreshes a second over C on either card, no new stutter; SPEC.md 130.15.5.4). PEAK's claim 47,148 bytes, 17,876 under 65,024; the six courses 42,084 bytes less RAM* | about -13KB of RAM on PEAK; about +280 clk on a typical occluder frame, about +1,200 worst (ESTIMATED, SPEC.md 130.15.5.2; the report's +30 and +450 under-priced the keys and the rows) |
 | T11 | **A per-course miss budget** for the pipeline, set from T3 and T4 (for example at most X misses per 1,000 steps, CGA, speaker ON) | none | a course acceptance criterion |
 | T12 | **The ghost, measured** (decision 7): a knob build draws a second ball box from a recorded log on FIRST's, MILL's and PEAK's demos, both cards, speaker ON; misses, box-bound refusals and lane lateness reported. Taken once, since it decides the design | predicted +12-15k a frame | Q-L6 answered from it |
-| T13 | **HELD (the owner, 2026-11-17): fold AV's mask into a residual group's lay** (SPEC.md 128.29.5). In a VOID cell `bz_amodel` lays its words AFTER the walk, so a word that a residual record's group also lays is laid twice (two lays are one under the AND: exact, and the walk untouched). Folding the model's mask into that group's `bz_omsk` before its one `bz_olay` saves the second lay. Deferred because it touches the walk that every occluder frame runs (each group's lay would test for a model word), for AV's fall frames only | PREDICTED about -1k a PEAK fall frame (the model lays about 1.2 words more than today's records there), about twice that on a two-box frame | measured against the AV speed pass's fall legs (SPEC.md 128.29.9) when taken; no other gated frame may move |
+| T13 | **HELD (the owner, 2026-11-17): fold AV's mask into a residual group's lay** (SPEC.md 130.29.5). In a VOID cell `bz_amodel` lays its words AFTER the walk, so a word that a residual record's group also lays is laid twice (two lays are one under the AND: exact, and the walk untouched). Folding the model's mask into that group's `bz_omsk` before its one `bz_olay` saves the second lay. Deferred because it touches the walk that every occluder frame runs (each group's lay would test for a model word), for AV's fall frames only | PREDICTED about -1k a PEAK fall frame (the model lays about 1.2 words more than today's records there), about twice that on a two-box frame | measured against the AV speed pass's fall legs (SPEC.md 130.29.9) when taken; no other gated frame may move |
 
 A11 (O33: the lift slab on even lines, or accept the residue), A16 (the
 O24 and O26 tunables) and G3 (`BZS_FMCAP`) go to the owner with these
@@ -1278,6 +1292,41 @@ measurements.
 #### Wave 11: The tutorial and the course pipeline (M)
 
 **NOTE (the owner, 2026-11-18):** the pipeline below is a DRAFT, worked out while the first real course is made; the courses are new (waves 12 and 13), not reworks - read 11.1 and 11.2 as "the first new courses teach this", FIRST and TRIAL themselves are reference courses.
+
+**Wave 11 opens (2026-11-18): the review, the guide and the stories it
+adds.**
+- The owner reviewed every test course. The rules are G1 - G22 in the
+  course design guide, [bonanza-courses/README.md](bonanza-courses/README.md),
+  which also lists the pieces taken from the test courses (the future
+  standard parts) and keeps a table of prop patterns, filled in as courses
+  use each prop.
+- Stories 11.11 - 11.15 below turn the checkable rules into the tool's
+  refusals. 11.16 is the first real course.
+- **The pipeline is PEN IN, then iterate FAST** (the owner, 2026-11-18;
+  the guide's section 3). A course is imagined, drawn and argued over on
+  paper before the engine. In the engine, a revision is an edit, a compile
+  and a disk, in minutes. No soak, long test, demo or performance check
+  sits inside that loop: they are batched once a course settles, possibly
+  after several courses, or run in the background.
+- **The order:**
+  1. the guide (done);
+  2. the first course's design sheet, on paper:
+     [FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md), attempt 1, PEN-IN;
+  3. the cheap checks (11.11, 11.13) once the sheet settles, so the course
+     goes into the engine against them;
+  4. the course in the engine (11.16), with the clock frames (11.14) and
+     parts (11.15) it needs;
+  5. 11.12, demos and performance, batched.
+- The older stories (11.4 - 11.8) are taken when that course needs them.
+
+| # | story | verified by |
+|---|---|---|
+| 11.11 | **Length and the camera on jumps** (G1, G3). The slowest finish's route under 25 s is refused, and so is a design sheet's target under it (BENCH, the labs and the pathway are exempt). `pans` gains an AIRBORNE column: the horizontal columns panned while the ball is off the floor, on every route and author script, listed per jump with its route step. A pan on an intended jump is refused, unless the sheet names that jump as an exception | `--selfcheck` with red arms (a short course; a jump that pans); `--pans` |
+| 11.12 | **No softlock** (G7). `trap_check` (today: from flags and pads) extended to every cell in the start's reach closure, for each ball the course can give there, under every family reset preset: a finish, a flag's respawn or a fall must stay reachable. Today's MILL (the left windmill's ledge) and MOON (the dead-end pathway) are its red arms. A price on the host is taken first, since PEAK's reach analysis already dominates its 15 s compile | `--selfcheck`; red arms MILL and MOON as they stand |
+| 11.13 | **The clock rules** (G9 - G12). A clock in the window at the START, as `finish_clock_rule` already requires at each finish. Never two clocks' digits inside one window, checked over the camera model of every route and author script, on both cards. No clock post on a route cell. The LONGEST stretch of route without a clock's digits in the window, refused past 15 s; it replaces `clock_visibility`'s share as the figure printed. Red arms: TRIAL (two in one window), SUMMIT (a clock on the route) | `--selfcheck`; red arms |
+| 11.14 | **Clock art** (G11, G23). Several frames in one course where positions demand it: standing on a lone PILLAR, FLOATING, a SIDE BRACKET that hangs a clock one tile off a pathway's edge. Tool art chosen per clock (`clock WX WY frame F`), with the occluder posts each needs and monochrome forms for the Hercules. **Priced first**: the bytes of standard-part clocks (kit pieces shared across courses) against custom clock art per course, so the owner can choose between per-course art as the rule and standard parts with custom art only occasionally. High quality either way | `--sizes`; `--png` previews, both cards; one look boot |
+| 11.15 | **The first standard parts** (the guide's section 5; the kit's K3). Each piece the first course uses is made a named part: the pit (PLAYGROUND), the double hump (HUMPS), the hill of ramps (SUMMIT), as the course asks for them. The kit is re-cut only when the owner asks | `--selfcheck` item 17; `--sizes` |
+| 11.16 | **The first real course, FIRST ROLL** (tutorial 1: roll, brake, ramps, and **drops kill you, and you learn the timing**). Pen-in: its design sheet [FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md) with the sketch's pictures, revised with the owner. Then the `.bbc` and playtest disks, iterated fast. Then, batched: its routes and demos, and the miss measurement (T11, decided on this course) | the owner's play |
 
 **The pipeline, per course:**
 1. **A design sheet**, `docs/plans/bonanza-courses/<NAME>.md`: the world,
@@ -1315,11 +1364,11 @@ measurements.
 | 11.3 | The graph source (8b.2) filled in (SUGGESTION): 2 single nodes, then columns of 2-3 nodes, about 10 courses on any path to the final course, 20 in all, including 2 secrets reached by hidden finishes | `bonanzapath` |
 | 11.4 | The pipeline's tool support: per-finish `author` scripts, the budget, a playtest-disk target | host |
 | 11.5 | **The visibility rule** (CD1; BONANZA-SIZE-2026-11-14 section 3.5 (c)). It runs in `bbcourse.py` at compile and in `--selfcheck`, and switches 5b.6's report into a REFUSAL. Every spring, pad and cup (mark, pin and flag) must be at least 75% visible in the static picture, and every tube mouth at least 50%. The route demo and every authored demo are run through the model. Any stretch outside a tube where the ball is more than 50% hidden for over 0.5 s (27 steps) is refused, unless the course declares it `hidden` (a deliberate secret); a declared stretch must turn less than 30 degrees. Every course prints its hidden stretches and what hides them. BENCH is exempt. **Cost: 0 on the 5150; about 0.6 s a course on the host.** The design rules go into the design sheet: springs, climbs, tube runs and drop landings go AWAY from the camera (-x or -y); a near rail stands one or two units above the floor it guards, and flat where it can (one unit still stops a roll and a rubber Hop) | a red arm: today's PEAK refused (springs, cup and pad at 0%, a 3.00 s hidden stretch); MOON refused until retrofitted |
-| 11.6 | **The RAM levers for long courses** (CD3; the report's section 6), landed before the first course over about 70 s. Both cost 0 clk a frame and a step. Grid rows overlapped through ROWTAB: PEAK -788 bytes of RAM, and ROWTAB then ships one byte a row. Map rows at a constant stride of 108 bytes with a row-base table: PEAK -2.4KB, and the tool refuses art or a lane in a row's outer 10 words. With 5b.2, one part then holds about 212 block rows, about 79 s at MOON's and PEAK's pace. **A 90 s course is designed at 0.425 s a block row or slower**, or the owner chooses the grid in a claim of its own (the eighth of eight). **Past that, the TWO-PART COURSE is the documented escape** (SPEC.md 128.15.8, CD3; the owner, 2026-11-14): the picture in one part and the rest in another, which also spends one more claim; taken only when a course actually exceeds one part, and its clocks (a segment switch per laid group in the occluder lay, a few hundred clk a frame at worst, ESTIMATED) measured then. **And the replay log is checked**: `bz_rlog`'s 4,096 bytes could truncate a jittery mouse play after about 25 s (PREDICTED), so a 90 s course's log is sized or its encoding tightened before its demos are recorded | `--selfcheck`; `bonanzacourse`; `bonanzaring`; a long mouse play through `W` |
+| 11.6 | **The RAM levers for long courses** (CD3; the report's section 6), landed before the first course over about 70 s. Both cost 0 clk a frame and a step. Grid rows overlapped through ROWTAB: PEAK -788 bytes of RAM, and ROWTAB then ships one byte a row. Map rows at a constant stride of 108 bytes with a row-base table: PEAK -2.4KB, and the tool refuses art or a lane in a row's outer 10 words. With 5b.2, one part then holds about 212 block rows, about 79 s at MOON's and PEAK's pace. **A 90 s course is designed at 0.425 s a block row or slower**, or the owner chooses the grid in a claim of its own (the eighth of eight). **Past that, the TWO-PART COURSE is the documented escape** (SPEC.md 130.15.8, CD3; the owner, 2026-11-14): the picture in one part and the rest in another, which also spends one more claim; taken only when a course actually exceeds one part, and its clocks (a segment switch per laid group in the occluder lay, a few hundred clk a frame at worst, ESTIMATED) measured then. **And the replay log is checked**: `bz_rlog`'s 4,096 bytes could truncate a jittery mouse play after about 25 s (PREDICTED), so a 90 s course's log is sized or its encoding tightened before its demos are recorded | `--selfcheck`; `bonanzacourse`; `bonanzaring`; a long mouse play through `W` |
 | 11.7 | **The demos as a bit stream** (the report's section 3.4): a Huffman code for the key (with an escape for any other key) and Elias gamma for the run count, expanded into BZR1 pairs when a demo is copied into `bz_rlog`, with the header trimmed. The demos are joined into one indexed part. This saves about 8.5KB at twenty courses, at 0 clk a frame and about 28 ms at the copy | `bonanzademo`; the tool's round trip |
-| 11.8 | **CD5 and CD6 checked against the design sheets** (SPEC.md 128.17.5): each course's design sheet names its intended rubber rungs and boost spots; the pipeline cross-checks them against `gap3_scan()`'s listing and the floor's verdict (a rung under 6 take-off points is refused as an intended route), and, if the owner wants one, a `boost` spot declaration the tool tests against rules 4 and 5 | `bonanzacourse`; the sheets |
-| 11.9 | **TWO-SEGMENT COURSES** (SPEC.md 128.30; the owner, 2026-11-17: unmerged work pushes even PLAYGROUND past one part, and *"this must not hurt frame performance"*). A course whose one-part form is refused becomes a PICTURE part (`M B I R K O` and `L`, the lanes' pose maps) and a WORLD part (`G C D F T W P`), each up to 65,024 bytes; chosen from a map of every reader (128.30.2) because no hot routine then reads both parts - 0 clk a frame and a step, where 128.15.8's picture-only split costs about 400 clk a laid occluder group and about 500 a committed lane (PREDICTED, 128.30.3). A course that fits one part, and a build with none over, is today's byte for byte. **BUILT** (2026-11-17, 128.30.9; diary): the shipped package `cmp`-equal; the test course TWOSG (67,264 bytes as one part) plays to its goal as two parts on MartyPC on both cards, 235 steps as the model; the emulator rows not run (the final pass's). **PLAYGROUND SHIPS AS TWO PARTS** (128.30.11: the shaped-floor section back, 65,513 bytes as one part): MEASURED +83 bytes of package, +6,450 of `BONANZA.O88`, 130 of 354 clusters, the launch +0.9 s, 16KB less heap in its play, the frame unchanged | `--selfcheck` items 1, 3, 10, 11 and 15; `make bonanzatwoseg`; `cmp` of the shipped parts and package; `bonanzacourse`, `bonanzaring`, `bonanzaphys`, `bonanzareplay`, `bonanzaexit`, `bonanzamega`, `pins` |
-| 11.10 | **The pathway carries no occluders** (SPEC.md 128.31; the owner, 2026-11-17: "for pathway: yes, drop the occlusion"). Its follower is always grounded and no pathway cell was OCCG, so its 452 records were never laid; the tool now compiles a `pathway` course with none: RAM 24,150 -> 21,994, LZB 7,153 -> 6,551 (MEASURED). The pathway's growth (14 - 20 pads, the 1,024-block cap, a split pathway) is PARKED. **BUILT** (2026-11-17) | `--selfcheck` item 8R and its red arm; `bonanzacourse`, `bonanzapath`, `bonanzaring`, `bonanzatitle`, `bonanzaexit`, `bonanzamega` |
+| 11.8 | **CD5 and CD6 checked against the design sheets** (SPEC.md 130.17.5): each course's design sheet names its intended rubber rungs and boost spots; the pipeline cross-checks them against `gap3_scan()`'s listing and the floor's verdict (a rung under 6 take-off points is refused as an intended route), and, if the owner wants one, a `boost` spot declaration the tool tests against rules 4 and 5 | `bonanzacourse`; the sheets |
+| 11.9 | **TWO-SEGMENT COURSES** (SPEC.md 130.30; the owner, 2026-11-17: unmerged work pushes even PLAYGROUND past one part, and *"this must not hurt frame performance"*). A course whose one-part form is refused becomes a PICTURE part (`M B I R K O` and `L`, the lanes' pose maps) and a WORLD part (`G C D F T W P`), each up to 65,024 bytes; chosen from a map of every reader (130.30.2) because no hot routine then reads both parts - 0 clk a frame and a step, where 130.15.8's picture-only split costs about 400 clk a laid occluder group and about 500 a committed lane (PREDICTED, 130.30.3). A course that fits one part, and a build with none over, is today's byte for byte. **BUILT** (2026-11-17, 130.30.9; diary): the shipped package `cmp`-equal; the test course TWOSG (67,264 bytes as one part) plays to its goal as two parts on MartyPC on both cards, 235 steps as the model; the emulator rows not run (the final pass's). **PLAYGROUND SHIPS AS TWO PARTS** (130.30.11: the shaped-floor section back, 65,513 bytes as one part): MEASURED +83 bytes of package, +6,450 of `BONANZA.O88`, 130 of 354 clusters, the launch +0.9 s, 16KB less heap in its play, the frame unchanged | `--selfcheck` items 1, 3, 10, 11 and 15; `make bonanzatwoseg`; `cmp` of the shipped parts and package; `bonanzacourse`, `bonanzaring`, `bonanzaphys`, `bonanzareplay`, `bonanzaexit`, `bonanzamega`, `pins` |
+| 11.10 | **The pathway carries no occluders** (SPEC.md 130.31; the owner, 2026-11-17: "for pathway: yes, drop the occlusion"). Its follower is always grounded and no pathway cell was OCCG, so its 452 records were never laid; the tool now compiles a `pathway` course with none: RAM 24,150 -> 21,994, LZB 7,153 -> 6,551 (MEASURED). The pathway's growth (14 - 20 pads, the 1,024-block cap, a split pathway) is PARKED. **BUILT** (2026-11-17) | `--selfcheck` item 8R and its red arm; `bonanzacourse`, `bonanzapath`, `bonanzaring`, `bonanzatitle`, `bonanzaexit`, `bonanzamega` |
 
 **Inventory:** D1, D2, D5 (as each course is retrofitted), D9, D10
 (watch items the tool enforces).
@@ -1346,7 +1395,7 @@ as each wave arrives.
   rotor, spring, tube, glass (cracks, glass paths, the thin bridge - the
   default cracked tile - and group lanes) and pickups (speed, jump,
   hourglass). A new family (wind, conveyors ...) lands with the first
-  course that uses it, by the recipe (SPEC.md 128.25.6.8), resident by
+  course that uses it, by the recipe (SPEC.md 130.25.6.8), resident by
   default.
 - **Wave 12** builds world 1's courses one at a time through the pipeline,
   each with a playtest disk to the owner; **wave 13** world 2's.
@@ -1402,7 +1451,7 @@ C9's groundwork, B9 (the elements tuned as the courses use them).
 | world (SUGGESTION) | arriving |
 |---|---|
 | 16: Moonglass | the **shatter-glass and fling-rubber traps**, with steel immune (B4; steel's stun on hard FALLS is kept, Q-L4), gates by material, magnets (steel only), more glass |
-| 17: Peak and water | **WATER**. It is not a family: a ball IN the water's cell is drawn whole over it (an occluder lays only for a ball behind the face, SPEC.md 128.10.8), and "steel sinks, rubber and glass float" needs two floor heights in a cell where BZG1 has one. So it needs a grid section (a water flag and a bed height, added through BZC2's tagged directory), per-ball reach, and a submerged draw path (a masked compose or dithered frames, with their bytes per ball part): a resident engine change, its own SPEC.md contract and its own price. Then steel sinks and rolls on the bed; rubber and glass float (Q-L7) |
+| 17: Peak and water | **WATER**. It is not a family: a ball IN the water's cell is drawn whole over it (an occluder lays only for a ball behind the face, SPEC.md 130.10.8), and "steel sinks, rubber and glass float" needs two floor heights in a cell where BZG1 has one. So it needs a grid section (a water flag and a bed height, added through BZC2's tagged directory), per-ball reach, and a submerged draw path (a masked compose or dithered frames, with their bytes per ball part): a resident engine change, its own SPEC.md contract and its own price. Then steel sinks and rolls on the bed; rubber and glass float (Q-L7) |
 
 ### R7 The owner's open questions, each with a recommended default
 
@@ -1419,7 +1468,7 @@ C9's groundwork, B9 (the elements tuned as the courses use them).
 these to see how they feel, but this seems like a fine starting point."
 Wave 6 ships the defaults, and gate 1's play tunes them.
 
-*As SPEC.md 128.16 pins them (the contract, 2026-11-14):* Q-61 ships as
+*As SPEC.md 130.16 pins them (the contract, 2026-11-14):* Q-61 ships as
 rubber **252**, glass 224, steel 160 - 256 refuses `MOON` at the occluder
 bound and 240 - 248 refuse `PEAK`, MEASURED; Q-62 as `BOOST_V` **350**, a
 contact flight's apex of 9.3 px (story 6.2's first default, "about 318",
@@ -1453,7 +1502,7 @@ routes and scripts still pass.
 | Q-91 | Mechanics per course | At most 3 families and 1 timed pickup kind; all family parts in one claim |
 | Q-92 | Pickups | Hourglass +10 s once per attempt; speed raises acceleration and a bounded top speed; jump never stacks with the boost; every finish reachable without any |
 | Q-L1 | Music | One song per world, plus title, pathway and game over: about 7-8 songs |
-| Q-L2 | BENCH and the disk (O48) | BENCH stays in the package (compact, 6,884 bytes LZ4 or 5,471 LZB) and `B` stays the benchmark. If the owner retires it from the play disk, it becomes a knob build proved byte-identical. **The disk plan itself, DECIDED 2026-11-14** (SPEC.md 128.15.9, 128.15.15): **LZB for the course parts** (`BZPARTZ=lzb`, the default): "'a stronger compression mode for the courses': lzb I assume? That would be fine." PEAK's LZB launch is an UPPER BOUND of about +1.6 s over LZ4 (about 5.2 s against 3.6 s, PRICED with the as-built expansion; 3.9-4.0 s today), above the +0.9 s the owner was quoted; the final pass measures it and the owner is told the measured figure. *MEASURED in 5b's final pass on the shipped C build (SPEC.md 128.15.9): PEAK's launch about 4.2 s on the CGA and 4.5 s on the Hercules with LZB parts, about +0.3 - 0.4 s over LZ4 (3.8 / 4.2 s); `bonanza360.img` 83 clusters (LZ4 parts 94)*. LZB for the IMAGE is still offered, not taken. **One disk, 18 - 20 courses**: "I'd prefer not, but we can see what we need in the end. 20 is a rough want, too; it could be 19, or 18 total." The Worlds disk (8b.11) is a last resort, only if one disk cannot hold the final set |
+| Q-L2 | BENCH and the disk (O48) | BENCH stays in the package (compact, 6,884 bytes LZ4 or 5,471 LZB) and `B` stays the benchmark. If the owner retires it from the play disk, it becomes a knob build proved byte-identical. **The disk plan itself, DECIDED 2026-11-14** (SPEC.md 130.15.9, 130.15.15): **LZB for the course parts** (`BZPARTZ=lzb`, the default): "'a stronger compression mode for the courses': lzb I assume? That would be fine." PEAK's LZB launch is an UPPER BOUND of about +1.6 s over LZ4 (about 5.2 s against 3.6 s, PRICED with the as-built expansion; 3.9-4.0 s today), above the +0.9 s the owner was quoted; the final pass measures it and the owner is told the measured figure. *MEASURED in 5b's final pass on the shipped C build (SPEC.md 130.15.9): PEAK's launch about 4.2 s on the CGA and 4.5 s on the Hercules with LZB parts, about +0.3 - 0.4 s over LZ4 (3.8 / 4.2 s); `bonanza360.img` 83 clusters (LZ4 parts 94)*. LZB for the IMAGE is still offered, not taken. **One disk, 18 - 20 courses**: "I'd prefer not, but we can see what we need in the end. 20 is a rough want, too; it could be 19, or 18 total." The Worlds disk (8b.11) is a last resort, only if one disk cannot hold the final set |
 | Q-L3 | `bonanzawheel` (6)'s lever (A1) | Try a lighter preparation first; a corner case at the window's top second; a test course last |
 | Q-L4 | Steel's stun with trap immunity | Keep the stun on hard falls; the immunity is to traps only |
 | Q-L5 | The camera's vertical (O9) | The ground line, in wave 6 |
@@ -1643,7 +1692,7 @@ From docs/FIELD-MACHINES.md, the owner's 5150 #1 has:
 - **CPU and RAM:** an 8088 at 4.77 MHz and **640 KB** (256 KB on the
   board, plus an AST SixPakPlus).
   *The target is 640 KB (the owner, 2026-11-17); 256 KB is checked once at
-  the end, for a possible limited build - SPEC.md 128.7.*
+  the end, for a possible limited build - SPEC.md 130.7.*
 - **Video:** a **Hercules GB101 and an IBM CGA, both live**. It boots on the
   Hercules, and Control Panel → Display moves the desktop to the CGA.
 - **Input:** a serial mouse on COM1.
@@ -1807,14 +1856,14 @@ list.
 The border colour (3D9h) is also free: for example, a flash when the time
 gets low.
 
-**Superseded by SPEC.md 128.14.5** (wave 4). The HUD is a 2-word x 6-line
+**Superseded by SPEC.md 130.14.5** (wave 4). The HUD is a 2-word x 6-line
 clock panel INSET from the window's bottom-left corner, not an 8 x 12 box
 in a corner, and it does not "scroll into the slack": the old copy leaves
 the window only when a step's lines reach the panel's height, which a CGA
-step never does (128.14.5.3 prices this placement and keeps the inset).
+step never does (130.14.5.3 prices this placement and keeps the inset).
 It is a fifth box group that composes every layer and lays the panel last,
 and it defaults to REST on both cards because a box that follows the
-camera costs 8.3 - 11.5k on the frames that already miss (128.14.5.8).
+camera costs 8.3 - 11.5k on the frames that already miss (130.14.5.8).
 
 ### 2.8 Smoother options, considered
 
@@ -1875,10 +1924,10 @@ whose pixels can occlude, and gives it:
 After the ball is composited into its box, any marked block that is in front
 of the ball is laid back over it through its mask. That is typically 0–4
 blocks, so it is cheap. Some depth cases are ambiguous: a block's pixels
-can have several depths and tops. Wave 1's answer (SPEC.md 128.10.4.4) is to
+can have several depths and tops. Wave 1's answer (SPEC.md 130.10.4.4) is to
 split rather than flag: one record for each block, occluding cell and 2 px
 band of tops, so every pixel is keyed to within 2 px. What the tool REFUSES
-at build time is the cost - since wave 2 (SPEC.md 128.11.4), more than 4
+at build time is the cost - since wave 2 (SPEC.md 130.11.4), more than 4
 records in one block or 128 in a block row, after an exact merge of the
 records no reachable position tells apart (wave 1's 24 a block row and 8
 laid were the wrong quantities) - so ambiguity and expense land as
@@ -1982,7 +2031,7 @@ decides whether that is needed; kern_small would refuse it anyway.
     v += a;  v = clamp(v, vmax(surface))
     move in at most 4-unit sub-steps; resolve walls and edges per sub-step
     (wave 1: not needed while the ground speed stays under the ball's
-    radius a step, SPEC.md 128.10.7.2)
+    radius a step, SPEC.md 130.10.7.2)
 
 **Walls** reflect the normal component with **restitution e** (0.3 on
 stone, 0.85 on a bumper rail). The tangential component keeps most of its
@@ -2033,7 +2082,7 @@ fit for this style of game, so neither row below is planned before wave 6.
 | **Mouse as a trackball** (Marble Madness's arcade control) | the mouse's *relative* motion becomes impulse | **a new slot.** `OSAPI_MOUSE` is clamped to the screen, and `OSAPI_MOUSE_FEED` is for drivers only. Its resident cost is tens of bytes on every budgeted kernel, to be priced exactly if chosen. **Owner decision D2** |
 | Game-port joystick (201h) | read once a frame. A full-scale poll is about 1.1 ms. §53.7 does not forbid the port | none. Optional; no game port is known on 5150 #1 |
 
-**Superseded in part by SPEC.md 128.14.8** (wave 4). The mouse as a tilt
+**Superseded in part by SPEC.md 130.14.8** (wave 4). The mouse as a tilt
 stick IS built in wave 4, not wave 6, and it is not centred on the screen:
 the neutral is the pointer at the play's first frame and at each respawn,
 the full range a quarter of the bracket display each way, read inside the
@@ -2143,7 +2192,7 @@ window. The 144 - 157 ms window rewrite is hidden by a two-step "iris" (a
 black box closing on the ball) or simply by the CGA border flash. It is a
 beat the player expects, not a hitch. A respawn whose cell is already on
 the window is no cut: the ball is placed and the camera pans (SPEC.md
-128.10.8, open question O5).
+130.10.8, open question O5).
 
 ### 6.5 Predicted budget for one CGA frame (79.6k clocks)
 
@@ -2215,7 +2264,7 @@ obstacle.
 | **Spring pad** | sets v_z high to reach an upper tier; the shadow sells the height | static, plus the second shadow box |
 | **The cup** | the goal. The ball must arrive slower than a capture speed, or it lips out over the rim | static |
 
-**Superseded in part by SPEC.md 128.14.4** (wave 4). What wave 4 builds of
+**Superseded in part by SPEC.md 130.14.4** (wave 4). What wave 4 builds of
 this table: the CUP (a grounded ball under the capture speed holes out; a
 faster one lips out with a small pop and rolls on), the SPRING pad, the
 MOAT BRIDGE as a one-tile plank over VOID (no water), and the CLOWN MOUTH
@@ -2284,7 +2333,7 @@ against the lanes above.
 ## 10. Sound
 
 *Superseded by the owner's brief of 2026-11-13 - the speaker AND the AdLib,
-music and an impact a ball: SPEC.md 128.20 and
+music and an impact a ball: SPEC.md 130.20 and
 [BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md). The original plan:*
 
 The PC speaker only, through `apps/os88spkfx.inc` and the `snd` slots. Both
@@ -2326,28 +2375,28 @@ keys.
 - [x] The same on the Hercules field. *Same row, same result.*
 - [x] The phase-torus ball at the 4 pre-shifts, with its box. *Looked at
       on both cards; the Hercules mid tone is stripes, not the course's
-      checker (SPEC.md 128.3).*
+      checker (SPEC.md 130.3).*
 - [x] A MartyPC cycle count for each item in section 6.5's table. This is
       one measurement, taken once, because it *decides the design*: 60 Hz
       or 30 Hz, and whether `FSXF_RATE` is needed. *Decided: the full
       refresh on both cards, and `FSXF_RATE` is not needed. The table is
-      SPEC.md 128.8.*
+      SPEC.md 130.8.*
 
-**Wave 0b: the camera and the optimisation round** (SPEC.md 128.9; the
-review's findings 7, 9, 11, 12, 13; the numbers are SPEC.md 128.8's). The
+**Wave 0b: the camera and the optimisation round** (SPEC.md 130.9; the
+review's findings 7, 9, 11, 12, 13; the numbers are SPEC.md 130.8's). The
 owner's first play (86Box, CGA): slow scrolling is jerky, fast scrolling is
 smooth.
 - [x] Three camera modes, `C` to cycle: GLIDE (rest or pan fast, with a
       lead; the default), FOLLOW (velocity-matched, even cadence), TRICKLE
       (wave 0's, for the A/B). The owner picks by feel.
-      *Cadence measured per mode and card (SPEC.md 128.9): at a slow ball
+      *Cadence measured per mode and card (SPEC.md 130.9): at a slow ball
       FOLLOW steps as often as TRICKLE; only GLIDE turns the hops into pans.*
 - [x] The Hercules ball takes the course's checker for its mid level.
       *Selfcheck: 0 of 24,596 mid pixels wrong; looked at, zoomed.*
 - [x] Box compose (23.5k clk, the largest working part): column-major fill
       with a `movsw`/`add di` chain, an unclipped word-wise ball path, no
       MUL.
-      *23.5k -> 11.5k clk on both cards (SPEC.md 128.9's table).*
+      *23.5k -> 11.5k clk on both cards (SPEC.md 130.9's table).*
 - [x] The column writer: find the wrap row once, unroll per block.
 - [x] The row writer: word columns outermost (the two CGA misses are
       two-row frames: rows 19k there).
@@ -2356,27 +2405,27 @@ smooth.
       `bz_boxw`.
 - [x] Do not write the overlap of two boxes twice; do not re-compose an
       idle ball.
-- [x] The box at window row 0 (SPEC.md 128.2 rule 4's open corner).
-      *Built; the wave-0b course cannot reach it (SPEC.md 128.9 item 6), so
+- [x] The box at window row 0 (SPEC.md 130.2 rule 4's open corner).
+      *Built; the wave-0b course cannot reach it (SPEC.md 130.9 item 6), so
       `bz_late` = 0 is true by construction until a later wave's physics
       reach the window's first row - that wave owes it a probe that does.*
 
 *Resolved (5a.4, I13): the dead shift entries went with wave 1's `BZB1`
 (story 1.4), and GLIDE's fast test is the ball's travel over four frames
-since wave 2 (SPEC.md 128.11.11.1). As found by wave 0b's review:* each ball part carries 15,360 bytes that
+since wave 2 (SPEC.md 130.11.11.1). As found by wave 0b's review:* each ball part carries 15,360 bytes that
 can never be drawn (`bz_boxc` takes shift `s = px & 3`, already fixed by the
 frame's `px & 7`, so only 64 of the 4 x 64 shift/frame entries are reached).
 Indexing the frames by `f` alone (`16 + 320 + 64 x 80` bytes a part) saves
 about 15KB per heap claim and the disk bytes of both parts, and drops the
-`5040 s` term from `bz_boxc`; SPEC.md 128.3 pins the part's size this round,
+`5040 s` term from `bz_boxc`; SPEC.md 130.3 pins the part's size this round,
 so it is a later wave's change. GLIDE's "fast" test is `|v|` against the
-full refresh's step rate (SPEC.md 128.9); the ball's travel a frame is the
+full refresh's step rate (SPEC.md 130.9); the ball's travel a frame is the
 rate-proof form, a later wave's change made with the route re-checked.
 
 **Wave 1: the course pipeline and physics v1** (the contract is SPEC.md
-128.10, written before the code and revised after three review lenses).
+130.10, written before the code and revised after three review lenses).
 Decided there, against this plan: the map stays FLAT, one word a block
-cell, and metatiles (section 3) are not taken (SPEC.md 128.10.1); a course
+cell, and metatiles (section 3) are not taken (SPEC.md 130.10.1); a course
 is two PARTS, one a card, each carrying the picture, the occluders AND the
 physics grid - one fetch and one claim a launch, as wave 0b - and not a
 data file (open question O1, which a file's hostile bytes make a priced
@@ -2384,18 +2433,18 @@ validation pass, not a free addition); the physics cell is one tile in
 ground units, the ball is a CIRCLE pushed out of walls along the contact's
 normal, it leaves the ground when the floor falls away faster than gravity
 and keeps the floor's vertical speed, and a ball two tiles past every solid
-cell is respawned (SPEC.md 128.10.7); ramps are at most 4 half units a tile
+cell is respawned (SPEC.md 130.10.7); ramps are at most 4 half units a tile
 (2 along both axes) so the camera can follow, and the speed caps are set so
-D4's rubber rebound can clear 4 units (128.10.7.2), and the ground cap
+D4's rubber rebound can clear 4 units (130.10.7.2), and the ground cap
 (1.5 gu a step) is under the ball's 6 gu radius, so plan 5.2's sub-steps
 are not needed; occluders are records cut per (block, cell, 2 px band
 of tops), laid back over the NEW footprint's blocks only, with a margin that
 keeps a rolling ball whole on the ground in front of it (SPEC.md
-128.10.4.4); wave 1 is the wave that probes the row-0 box (SPEC.md
-128.10.11.2). Every cost below is PREDICTED until the final pass.
+130.10.4.4); wave 1 is the wave that probes the row-0 box (SPEC.md
+130.10.11.2). Every cost below is PREDICTED until the final pass.
 - [x] **1.1 A course is text.** `apps/bonanza/courses/bench.bbc` ("Proving
       Ground", `K = 0`: wave 0b's test course in the format of SPEC.md
-      128.10.3, its ramps inside the limits, the return leg's steps made a
+      130.10.3, its ramps inside the limits, the return leg's steps made a
       climbable ramp, and its holes off the autopilot's legs)
       and `first.bbc` ("First Roll", `K = 1`, the worked example and the
       course Enter plays) compile with ONE `tools/bbcourse.py` run over the
@@ -2415,13 +2464,13 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       occluders, the grid); `Y0` the least that holds every reachable
       footprint, the reach bounded by the OPEN rule and the launch apex.
       The tool checks every part it wrote and prints the sizes and counts
-      SPEC.md 128.10.10 quotes. *Verified: `bonanzacourse` items 3 and 6 (the
+      SPEC.md 130.10.10 quotes. *Verified: `bonanzacourse` items 3 and 6 (the
       decode back on both cards, with its negative control); the `--png`
       previews looked at on both cards.*
       *Final pass: `bonanzacourse` items 3 and 6 on both courses (the moved
       map word caught); the `--png` previews looked at on both cards;
       `bonanzaring`'s glass equal to the picture on both cards. Parts 54,214
-      (`BENCH`) and 10,614 (`FIRST`) bytes a card, over SPEC.md 128.10.10's
+      (`BENCH`) and 10,614 (`FIRST`) bytes a card, over SPEC.md 130.10.10's
       predictions (its measured table).*
 - [x] **1.3 The ground knows its shape.** The grid in `BZG1` inside each
       course part: heights, slopes, kinds (4 - 15 reserved for a later
@@ -2436,9 +2485,9 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       the lowered depth and the cleared OCC flag caught). NOT ticked: the
       bounds are not met - 79 / 29 on `BENCH` and 32 / 23 on `FIRST` against
       24 / 8, refused provisionally at 96 / 32 - and the choice is the owner's
-      (SPEC.md 128.10.12 O8).*
+      (SPEC.md 130.10.12 O8).*
       *Closed by wave 2's story 2.2 (the owner's O8: the exact merge and the
-      per-BLOCK bounds of SPEC.md 128.11.4.2, at most 4 records a block and
+      per-BLOCK bounds of SPEC.md 130.11.4.2, at most 4 records a block and
       128 a block row): `bonanzacourse` ok in wave 2's final pass on all
       three courses, the bounds met by the merged records.*
 - [x] **1.4 The ball part loses what it never drew.** `BZB1`, 64 frames each
@@ -2499,16 +2548,16 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       both cards. *Verified: `bonanzaring` (every direction on the glass)
       and `bonanzaperf` (the floor, the instruments, the OCC frames and the
       two-box frames) in the final pass, with the A/B leg against wave 0b;
-      SPEC.md 128.10.9's predictions - busy about 45 - 48% of a CGA refresh
+      SPEC.md 130.10.9's predictions - busy about 45 - 48% of a CGA refresh
       and 39 - 41% of a Hercules one - get their measured column.*
       *Final pass: `bonanzaring` every direction on both cards; `bonanzaperf
       --ab` - busy 46.5% of a CGA refresh (59.96 Hz) and 39.4% of a Hercules
-      one (50.87 Hz), inside 128.10.9's predictions, 0 misses, against wave
-      0b's 43.3% / 37.0% on its own course (SPEC.md 128.10.9's measured
+      one (50.87 Hz), inside 130.10.9's predictions, 0 misses, against wave
+      0b's 43.3% / 37.0% on its own course (SPEC.md 130.10.9's measured
       table).*
 - [x] **1.9 The row-0 box, reached at last.** A poked probe holds the
       ball's box at window row 0 while GLIDE pans up and across (play
-      reaches row 0 only in the air, SPEC.md 128.10.4.1). *Verified: `bonanzaring`'s probe - at least five frames
+      reaches row 0 only in the air, SPEC.md 130.10.4.1). *Verified: `bonanzaring`'s probe - at least five frames
       a card with the boxes at window row 0 and an entering column, the
       card equal to the picture at `bz_tf` and `bz_presented`, `bz_late` 0 -
       and its red arm `row0` (the whole column first, item 6's order
@@ -2520,11 +2569,11 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       column). It failed first: the guest's beam reckoning, a FASTTICK
       interrupt and an overrunning probe, all measured and fixed - and the
       probe moved to the top clamp, where play reaches row 0 (SPEC.md
-      128.10.11.2, 128.9 item 6).*
+      130.10.11.2, 130.9 item 6).*
 - [x] **1.10 kern_mega, built and RUN.** Every new segment is a part's own,
       used whole (the grid at `GRIDOFF` inside the course part), nothing
       written through CS and no patched immediate (the map stride is read
-      from the part's header), no `PKG_MEGA` arm (SPEC.md 128.10.6.4).
+      from the part's header), no `PKG_MEGA` arm (SPEC.md 130.10.6.4).
       *Verified: `bonanzamega` in the final pass - kern_mega on 86Box's
       `286-mega-multimon`, the window on its Hercules display, the
       benchmark and a play: no fault, no leak; red arm `segadd`.*
@@ -2535,15 +2584,15 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       for `bonanza-course-check` and the new rows, the Bonanza row in
       docs/HEAP-CLAIMS.md (both claims pinned, bucket C; the
       `tests/pins.txt` lines `bz_cseg` and `op:BZ_P_BALC` stand), SPEC.md
-      128.10's measured tables, the diary's wave-1 entry, and
+      130.10's measured tables, the diary's wave-1 entry, and
       `docs/INDEX.md` regenerated. *Verified: `make` (the doc gates) and
       `tools/os88index.py --check`.*
       *Final pass: README's status, the face's title, `make help` (`os88help
-      --check`), the HEAP-CLAIMS row, SPEC.md 128.10.9 and 128.10.10's
+      --check`), the HEAP-CLAIMS row, SPEC.md 130.10.9 and 130.10.10's
       measured tables, the diary's entries, `docs/INDEX.md` current
       (`os88index.py --check`), `checkdocs` 0 problems.*
 
-**Wave 2: feel** (the contract is SPEC.md 128.11, written before the code
+**Wave 2: feel** (the contract is SPEC.md 130.11, written before the code
 and revised after three reviews of it).
 Decided there, against this plan: the ball is picked on the desktop (`M`,
 starting from the course's own `ball`), and section 5.5's swap pads are wave
@@ -2551,9 +2600,9 @@ starting from the course's own `ball`), and section 5.5's swap pads are wave
 most `e` times the ball's downward speed, so a bounce never climbs above the
 height its energy came from - a rubber-only route is a drop and a bounce to
 a ledge BELOW it, and climbing stays ramps and the spring pad (SPEC.md
-128.11.5.3); Space at a contact replaces the rebound with at least a Hop but
+130.11.5.3); Space at a contact replaces the rebound with at least a Hop but
 never adds to it, so it cannot pump a bounce and the reachable set stays
-bounded (SPEC.md 128.11.4.4); an airborne ball lands on a floor up to 4 px
+bounded (SPEC.md 130.11.4.4); an airborne ball lands on a floor up to 4 px
 above it, as a rolling one climbs it; a goal is a finish line crossed in the
 air too; the materials' constants and each material's force, drag and brake
 on each surface are generated tables, PROVISIONAL until the owner has rolled
@@ -2565,7 +2614,7 @@ grounded ball (`OCCG`), and kept out of a box of its own while the ball's
 cell can be hidden; open question O8 is answered by building the Hercules
 table and part on the guest (one part a course and one a ball on the disk),
 an exact merge of the records and a per-BLOCK bound, not by narrowing the
-reachable set to pits (option c, measured and declined: SPEC.md 128.11.4.5).
+reachable set to pits (option c, measured and declined: SPEC.md 130.11.4.5).
 Sound (section 10) stays wave 4's. Every cost and size below is PREDICTED
 until the final pass; the rows run once, after the last batch.
 - [x] **2.1 One part a course, one a ball.** The disk carries the CGA's
@@ -2643,7 +2692,7 @@ until the final pass; the rows run once, after the last batch.
       judged: red arm `shiftmap` and the fake-shift case, a SKIP on
       86Box (its keyboard sends no fake shift and its automation drops
       an explicit E0 2A); the BIOS shift-flag read is right by
-      construction (SPEC.md 128.11.7.2) and still wants a 101-key
+      construction (SPEC.md 130.11.7.2) and still wants a 101-key
       machine to prove it.*
 - [x] **2.5 Three balls, and a hard fall is a mechanic (D4).** Rubber
       bounces (a 6-unit drop rebounds 3.7 units and carries 4.8 tiles, then
@@ -2716,7 +2765,7 @@ until the final pass; the rows run once, after the last batch.
       `boxfirst`, `pass2` and `late2` red (`late2` after the probe's
       split frames). Found and fixed: a CGA row-0 box after a sync found
       already high was late; `bz_vr` now takes the next rise (SPEC.md
-      128.11.10.3, +47 bytes). `bonanzaperf`'s TRIAL leg: boxes 0 / 1 /
+      130.11.10.3, +47 bytes). `bonanzaperf`'s TRIAL leg: boxes 0 / 1 /
       2 on 733 / 430 / 36 CGA frames.*
 - [x] **2.9 A course that needs the rubber ball.** `TRIAL`, "Bounce Trial"
       (`K = 2`): a 6-unit drop onto a floor at least 4 tiles deep and a
@@ -2737,7 +2786,7 @@ until the final pass; the rows run once, after the last batch.
       the route to the goal at step 500 with no fall on either card;
       `FIRST` finished with each ball. DEVIATION: the flights cross
       `OCC` cells (92 airborne steps; the screen-row layout could not be
-      crossed by the one-arrow autopilot, SPEC.md 128.11.13). The plays
+      crossed by the one-arrow autopilot, SPEC.md 130.11.13). The plays
       by eye were the physics and engine stages' look boots on `TRIAL`.*
 - [x] **2.10 Replays.** A play is logged as one key byte a step,
       run-length coded in 4,096 bytes of bss with the current run in two
@@ -2792,8 +2841,8 @@ until the final pass; the rows run once, after the last batch.
       about 5,700, claims while playing `BENCH` about 57.5KB. *Verify:
       `bonanzaperf` - the floor and the instruments on both legs, the A/B
       leg against wave 1 (`2df3f469`, fetched, or SKIP with the reason), the
-      misses and the camera's rows panned per bounce; SPEC.md 128.11.15 and
-      128.11.16 get their measured columns.*
+      misses and the camera's rows panned per bounce; SPEC.md 130.11.15 and
+      130.11.16 get their measured columns.*
       *Final pass: `bonanzaperf --ab` ok - `BENCH` busy 42,485 clk,
       53.4% of a CGA refresh, and 42,805, 45.5% of a Hercules one (wave
       1 measured alongside: 37,043, 46.5%, and 36,842, 39.2%), 0 misses;
@@ -2803,12 +2852,12 @@ until the final pass; the rows run once, after the last batch.
       the CGA and 2 on the Hercules against a target of 0 - 6 and 2 on
       the fall and the flight (the fallback layout's allowance) and 2 on
       the steep ramp's grounded descent, which no allowance covers
-      (reported, SPEC.md 128.11.15). Image 14,200, bss 5,805, `BENCH`
+      (reported, SPEC.md 130.11.15). Image 14,200, bss 5,805, `BENCH`
       with rubber 57,528 bytes of parts beside a 19,968-byte region.
-      SPEC.md 128.11.15 and 128.11.16 carry the measured columns.*
+      SPEC.md 130.11.15 and 130.11.16 carry the measured columns.*
 - [x] **2.14 The record.** README, the face's lines and keys, `make help`
       for the new row, `BZ_COURSES` with `trial.bbc`, docs/HEAP-CLAIMS.md's
-      Bonanza row and `tests/pins.txt`'s line REWORDED as SPEC.md 128.11.3.1
+      Bonanza row and `tests/pins.txt`'s line REWORDED as SPEC.md 130.11.3.1
       says (one part a course, one a material, keyed `bz_bseg`) with the new
       sizes, the diary's wave-2 entries, `docs/INDEX.md` current. *Verify:
       `make` (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
@@ -2820,14 +2869,14 @@ until the final pass; the rows run once, after the last batch.
       owner kept GLIDE (the default) and TRICKLE ("classic") and dropped
       FOLLOW ("the most jerky"): `C` toggles the two in play and on the
       desktop, the face names the mode, and FOLLOW's code is deleted
-      (SPEC.md 128.11.11.1). *Verified: `bonanzaring`/`bonanzaexit` cycle two
+      (SPEC.md 130.11.11.1). *Verified: `bonanzaring`/`bonanzaexit` cycle two
       modes, a held `C` is one toggle, and the look boot shows both.*
       *Final pass: `bonanzaexit` ok - C counted at its handler, a held C
       one toggle on both cards; `bonanzaring` and `bonanzaperf` run
       GLIDE and replay TRICKLE (rows panned over TRIAL's bounces: 251
       against 137 on the CGA). The look boot was the engine stage's.*
 
-**Wave 3: obstacles and the wheel** (the contract is SPEC.md 128.12, written
+**Wave 3: obstacles and the wheel** (the contract is SPEC.md 130.12, written
 before the code, and revised once by three reviewers' findings before any
 code). Decided there, against this plan: a LANE is a rectangle of the
 course's block map (at most 4 words by 3 block rows) whose poses are sets of
@@ -2843,7 +2892,7 @@ passes it, the wheel spinning in the idle wait; the CGA's lowest lines on a
 busy frame get one LEAD commit after the flip), its rate cap is the STEP
 CLOCK (a rotor's phase is `(n + seed) AND (P - 1)`, the seeds spreading the
 pose CHANGES so at most two rotors change on a step), and it banks nothing
-(SPEC.md 128.12.5.1 says row by row what is taken and why); the boxes stay
+(SPEC.md 130.12.5.1 says row by row what is taken and why); the boxes stay
 FOUR (a second lane touching the ball waits a frame, display only, so
 bumpers may stand in a cluster); the moving platform is a sprite with a lip
 along `s`, not a lane, which carries the ball through a hop; the windmill is
@@ -2860,7 +2909,7 @@ and column (wave 2's `TRIAL` misses); a log carries its course's identity;
 so it measures the engine, and a fourth course, `MILL`, carries the
 obstacles. Every cost and size in the stories is PREDICTED until the final
 pass; the rows run once, after the last batch.
-The consistency check's five resolutions are SPEC.md 128.12.15: the rotor
+The consistency check's five resolutions are SPEC.md 130.12.15: the rotor
 drawn from the last step's phase, IN's whole 3 x 3 free of `OCC`, the
 platform simulated always and drawn only when shown, explicit windmill
 seeds where needed, and the Hercules beam checks reported, not asserted.
@@ -2869,9 +2918,9 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       (`BZC1` +28 / +30) holds up to 16 records in wave 3 (the format's limit
       is a word); the grid gains ONE bit, `OBS`, and keeps bits 4 - 5 for
       `edge`, the window refill listing its `OBS` cells and their props;
-      every refusal of SPEC.md 128.12.3.3 (the exits checked by the model per
+      every refusal of SPEC.md 130.12.3.3 (the exits checked by the model per
       ball, the facing of a windmill's doorway and a DROP's mouth, a
-      platform's speed) and every bound of 128.12.4.6 fires at its line; the
+      platform's speed) and every bound of 130.12.4.6 fires at its line; the
       seeds spread the rotors' pose changes and the tool proves at most two a
       step in every window; `BENCH`, `FIRST` and `TRIAL` compile to wave 2's
       bytes but for the identity word. *Verify: `bonanzacourse` items 1 - 4
@@ -2893,8 +2942,8 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       `defer`; `bonanzacourse` item 5 over every pose, its
       rotor-off-the-house refusal.*
       *Final pass: `bonanzaring`'s `MILL` leg ok on both cards (card = oracle; AHEAD and the CGA's LEAD from
-      the LOW scenario, SPEC.md 128.12.18), red arm `contact` red - but red arm `defer` stayed GREEN: open.*
-      *Wave 3b's final pass: red arm `defer` red on the DEFER scene (SPEC.md 128.13.16).*
+      the LOW scenario, SPEC.md 130.12.18), red arm `contact` red - but red arm `defer` stayed GREEN: open.*
+      *Wave 3b's final pass: red arm `defer` red on the DEFER scene (SPEC.md 130.13.16).*
 - [ ] **3.3 The wheel.** Calibrated at the launch over the whole commit
       (three sizes, eight samples each, an idempotent commit), trimmed by its
       own overruns, ordered by the beam (ahead first, then behind, spinning
@@ -2909,9 +2958,9 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       *Final pass: `bonanzawheel` FAILS (6) on the CGA - no wheel commit lands on the corner's diagonal
       step (its `bz_tw` 79 - 98k clk after the rise); red arms `nobeam` (green), `alias`, `lanestale` (red
       at (2)/(7), not their own) and `corner` (no valid leg) open. Everything else in the row passes: SPEC.md
-      128.12.18.*
+      130.12.18.*
       *Wave 3b's final pass: every red arm but `corner` and `alias` judged and red; (6) still FAILS on the
-      CGA (SPEC.md 128.13.16): open.*
+      CGA (SPEC.md 130.13.16): open.*
 - [x] **3.4 The windmill.** A ball rolled at the doorway on the house face is
       knocked back while a blade is down (at 0.625 of its speed) and
       swallowed by the tunnel while it is up, from the front or along the
@@ -2939,7 +2988,7 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       (Hercules) frames, red arm `litsteps` red.*
 - [x] **3.6 The lift** (the moving platform; the owner's preview read the
       first design's slide along the screen's vertical as a lift, and it is
-      one now: SPEC.md 128.12.16 items 6 and 7). A slab with a lip moves up
+      one now: SPEC.md 130.12.16 items 6 and 7). A slab with a lip moves up
       and down a one-cell shaft between a low rim and one `L` units over it,
       at most 0.75 lines a step; a ball on it is carried to the other rim
       and does not SPIN on the way, a Hop on it lands back on it, a ball
@@ -2983,8 +3032,8 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       of every missed frame.*
       *Final pass: measured, the claim NOT met: `TRIAL` with the heavy rule missed 14 (CGA) and 9 (Hercules)
       against wave 2's 8 and 2 (O28, the owner's).*
-      *Wave 3b's final pass: level 1 is the slab-near-edge clause alone (SPEC.md 128.13.6); `TRIAL` 5 - 8
-      (CGA) and 4 (Hercules) misses OFF, `bz_nhvy` 0 (SPEC.md 128.13.16).*
+      *Wave 3b's final pass: level 1 is the slab-near-edge clause alone (SPEC.md 130.13.6); `TRIAL` 5 - 8
+      (CGA) and 4 (Hercules) misses OFF, `bz_nhvy` 0 (SPEC.md 130.13.16).*
 - [x] **3.9 Replays with moving obstacles.** Obstacles are a function of the
       step count, so a `MILL` play recorded on the CGA replays on the Hercules
       to the same state at every step, through knock-backs, kicks and
@@ -3023,14 +3072,14 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       18,800 bytes, bss about 6,010, `MILL`'s part about 22 - 30KB,
       `BONANZA.O88` about 58 - 61KB, still on the 360KB `bonanzadisk`.
       *Verify: `bonanzaperf` (its five legs and the A/B), `bonanzawheel`,
-      `bonanzaexit`'s heap reads; SPEC.md 128.12.10 and 128.12.11 get their
+      `bonanzaexit`'s heap reads; SPEC.md 130.12.10 and 130.12.11 get their
       measured columns.*
       *Final pass: measured, the targets NOT met: `BENCH` busy 44.6k / 44.8k (met); `MILL` no overrun and no
       lane late (met, after the promotion); `MILL`'s misses 111 (CGA) and 13, on the lift's stretch, not
       only the flight and the fall; the ride's line-change frames 120% / 104%; the image 23,227 bytes, bss
-      6,542, `MILL`'s part 33,906, `BONANZA.O88` 68,235, still on the 360KB disk. SPEC.md 128.12.18.*
+      6,542, `MILL`'s part 33,906, `BONANZA.O88` 68,235, still on the 360KB disk. SPEC.md 130.12.18.*
       *Wave 3b's final pass: `MILL` 47 (CGA) and 17 misses OFF, the ride's line changes 83% / 71% with no
-      miss; the CGA's lift stretch still misses 6 - 9 (SPEC.md 128.13.16): open.*
+      miss; the CGA's lift stretch still misses 6 - 9 (SPEC.md 130.13.16): open.*
 - [x] **3.13 The record.** README and the face's course list, `BZ_COURSES`
       with `mill.bbc`, docs/HEAP-CLAIMS.md's Bonanza row with `MILL`'s size,
       the new row's registration in `tests/suite.py` with its predicted
@@ -3040,12 +3089,12 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       *Final pass: the doc gates, `os88index --check` and `checkdocs` pass, `BZ_COURSES` carries `mill.bbc`,
       docs/HEAP-CLAIMS.md MILL's 33,906, the rows' `secs` registered MEASURED; README has carried no
       Bonanza entry since wave 0: left open.*
-      *Wave 3b: README lists `make bonanzadisk` (SPEC.md 128.13.9).*
+      *Wave 3b: README lists `make bonanzadisk` (SPEC.md 130.13.9).*
 
-**Wave 3b: the performance round** (the contract is SPEC.md 128.13,
+**Wave 3b: the performance round** (the contract is SPEC.md 130.13,
 written before the code; the owner, 2026-11-13: "do the performance wave
 next, then move on past sound"). Designed from MEASURED scratch runs on
-wave 3's build (SPEC.md 128.13.3): a line-change frame of the ride spends
+wave 3's build (SPEC.md 130.13.3): a line-change frame of the ride spends
 59k of its 96k on two overlapping boxes that each lay the slab and the
 ball; with the ball BESIDE the lift the frame is the slab's own box and the
 ball's, about 71k on both cards; the raster lane writer is 88% (CGA) and
@@ -3075,7 +3124,7 @@ batch.
       *Final pass: `bonanzaring`'s RIDE BOX frames card = oracle (49 CGA, 47 Hercules), red arm `ridebox`
       red; the ride's line-change frames 65.8k (83%) and 66.7k (71%), no miss OFF and `bz_late` 0 on both
       cards (ASSERTED; ON reported: 0 on the speaker, 7 with the AdLib machine's sound), red arm `rideoff`
-      red; the corner ride one box on every line change, 0 misses OFF. SPEC.md 128.13.16.*
+      red; the corner ride one box on every line change, 0 misses OFF. SPEC.md 130.13.16.*
 - [x] **3b.2 A crowded frame draws the lift a frame later, and a kicked
       post lights at once.** When the ball's and its shadow's groups are
       two boxes (a fast or airborne ball), the lift's box waits one frame
@@ -3095,7 +3144,7 @@ batch.
       *Final pass: the PWAIT scene card = oracle on both cards (13 / 12 waited frames, a waited frame with
       an entering row meeting the slab on each, the platform box at most 21 / 22 lines), red arm `pwait2`
       red at the one-wait rule; `bonanzawheel` (12) every kick lit on its frame; 4 - 5% of `MILL`'s lift line
-      changes waited (OFF). SPEC.md 128.13.16.*
+      changes waited (OFF). SPEC.md 130.13.16.*
 - [ ] **3b.3 Boxes go to the card faster.** A 3- or 4-word box with no
       overlap band is written a card row at a time by unrolled moves,
       about 160 clk a line less (wave 3 measured 490 a 4-word line where
@@ -3106,7 +3155,7 @@ batch.
       *Final pass: the whole-row path takes 1,385 clk off `BENCH`'s CGA box writes, but the A/B's asserted
       2.0k is NOT met: mean busy 1,284 under `e781df53`'s (Hercules 514, reported) - BENCH's boxes are 3
       words, where the block saves ~80 clk a line, not 4-word's 160. `wrapbox` frames (the ring's-end scene,
-      8 a card) card = oracle, red arm `fastwrap` red. Open: SPEC.md 128.13.16.*
+      8 a card) card = oracle, red arm `fastwrap` red. Open: SPEC.md 130.13.16.*
 - [ ] **3b.4 The wheel commits faster.** A commit is one column-major pass
       from the pose map - the map's words stored as they are read (through
       DS, never the stack's SS), a block's lines by the column writer's
@@ -3119,12 +3168,12 @@ batch.
       kind; red arms `alias`, `corner`, `costtab`; `bonanzaring`'s card =
       oracle and the map on `MILL`, red arm `mapskip`; on kern_mega
       `bonanzamega`'s `mapcs` re-pointed at the pass's map store (SPEC.md
-      128.13.11).*
+      130.13.11).*
       *Final pass: a whole rotor's pass 8,917 / 8,890 clk (PREDICTED 7.0k), a post's 6,648 / 6,626; whole
       commits 0.99 of their price after `BZ_WPATH`; card = oracle and oracle check 5 on `MILL`, red arms
       `mapskip`, `costtab`, `mapcs` red. `bonanzawheel` (6) still FAILS on the CGA - the corner lane commits
       only AHEAD (by 67.3k) and the step frame's test lands near 65k - so `alias` and `corner` are unjudged.
-      Open: SPEC.md 128.13.16.*
+      Open: SPEC.md 130.13.16.*
 - [ ] **3b.5 Less to prepare, less to walk.** Per-lane tables filled once
       a play, a whole lane's cost from a table filled after the
       calibration, the trim's MUL and DIV only under 100: a preparation
@@ -3137,12 +3186,12 @@ batch.
       ASSERTED, the promotions reported).*
       *Final pass: `bonanzawheel` (2), (5), (7), (9), (12) and (13) pass on both cards (`bz_lnext` exact on
       522 / 446 rotor-frames), red arms `lnext` and `pskip` red; `MILL`'s `bz_wover` and `bz_wlate` 0 on every
-      benchmark after `BZ_WPATH` (one overrun a run before it). SPEC.md 128.13.16.*
+      benchmark after `BZ_WPATH` (one overrun a run before it). SPEC.md 130.13.16.*
       *The verification: UNTICKED - the checks pass, but the stated result does not hold. The preparation
       measured 5.06k / 5.11k (met); the commit it is weighed with is 8.9k, not 7.2k (3b.4), so the CGA's wait
       holds one rotor and a post, not two; the walk's -1.5k was never measured alone - `MILL`'s sim+camera fell
       1.6k (CGA) and 0.4k (Hercules) against `e781df53`, the steps a frame not separated. Open with 3b.4:
-      SPEC.md 128.13.17 item 4.*
+      SPEC.md 130.13.17 item 4.*
 - [x] **3b.6 `TRIAL` is no worse for the heavy rule** (O28 and O35,
       answered by measurement). Level 1 keeps only its slab-near-edge
       clause; the occluder-pass and two-box clauses go; level 2 (a frame
@@ -3155,25 +3204,25 @@ batch.
       `bbcourse.Heavy` and `Glide` changed.*
       *Final pass: `TRIAL` `bz_nhvy` 0 (ASSERTED), misses 5 - 8 (CGA) and 4 (Hercules) OFF against wave 2's
       8 / 2 and wave 3's 14 / 9; red arm `level1` red; `MILL` three ways reported; `bonanzacourse` passes.
-      SPEC.md 128.13.16.*
+      SPEC.md 130.13.16.*
       *The verification: the Hercules' 4 is OVER the PREDICTED ~1 and wave 2's allowance of 2 - GLIDE's
       two-row frames down the steep ramp (frames 135 - 139), with no heavy frame; reported, a deviation from
-      the prediction, not from the story's claim. SPEC.md 128.13.17 item 7.*
+      the prediction, not from the story's claim. SPEC.md 130.13.17 item 7.*
 - [x] **3b.7 The lift stretch, measured with sound's reserve spent.** No
       miss on the ride's line-change frames on either card (3b.1); on
       `MILL`'s lift stretch with the ball beside the lift, at most 3 missed
       refreshes on the Hercules (PREDICTED 0 - 1); on the CGA a REPORTED
       residue (PREDICTED 15 - 20 of about 280 frames: the slab's own box
       and the ball's are two different pictures and nothing in this round
-      removes that tail), each missed frame written into SPEC.md 128.13.4.5
+      removes that tail), each missed frame written into SPEC.md 130.13.4.5
       with its parts - the owner's O33 (the slab on even lines) is the
       lever. *Verify: `bonanzaperf`'s padded `MILL` and ride legs.*
       *Final pass: the ride's line changes no miss (OFF, ASSERTED) on both cards; the Hercules' lift stretch
       2 missed refreshes ON (at most 3 ASSERTED); the CGA's REPORTED: 6 - 9 OFF and 48 ON (PREDICTED 15 -
-      20), every missed frame the slab's box and the ball's - O33 stands. SPEC.md 128.13.16.*
+      20), every missed frame the slab's box and the ball's - O33 stands. SPEC.md 130.13.16.*
       *The verification: every missed frame (CGA OFF 9, ON 48; Hercules ON 2) is now written into SPEC.md
-      128.13.4.5 with its parts, boxes, steps and the sound's share; the CGA's ON tail is a two-step chain (45
-      of 48 over a refresh without the sound's own clk). SPEC.md 128.13.17 item 5.*
+      130.13.4.5 with its parts, boxes, steps and the sound's share; the CGA's ON tail is a two-step chain (45
+      of 48 over a refresh without the sound's own clk). SPEC.md 130.13.17 item 5.*
 - [ ] **3b.8 Every red arm meets its case.** `defer` on a DEFER scene (a
       post really drawn lit, then due and waiting with cells outside every
       box), `nobeam` on a BEAM sweep keyed to due frames, `alias` on the
@@ -3186,22 +3235,22 @@ batch.
       each arm run once in the final pass, red at its own check.*
       *Final pass: all 63 red arms went red at their own check after three red-arm fixes (`contact`,
       `litsteps`, `halfcal`) and the ring's-end scene - but `bonanzawheel` (6) still fails on the CGA, so
-      `corner` and `alias` are unjudged. Open: SPEC.md 128.13.16.*
+      `corner` and `alias` are unjudged. Open: SPEC.md 130.13.16.*
 - [ ] **3b.9 A smaller image.** The step's wall and floor macros in one
       instance (-530 bytes, about +150 clk a step on a course with no
       props near the ball: O34), level 1's two clauses gone (-25), the
       raster lane writer gone (-323 against the pass's +260): the image
       about 23,020 bytes (wave 3: 23,227), bss about 6,993 (+256 of it the
       32-line buffers), `BONANZA.O88` about 68,105, the course parts byte
-      for byte wave 3's. *Verify: `nasm` spans in SPEC.md 128.13.8's
+      for byte wave 3's. *Verify: `nasm` spans in SPEC.md 130.13.8's
       measured column; `bonanzaphys` and `bonanzareplay` equal to the model
       at every frame on the merged step; `bonanzaexit`'s heap reads.*
       *Final pass: `bonanzaphys`, `bonanzareplay` and `bonanzaexit` pass on the merged step; but the image
       is 27,362 bytes (23,706 without the sound's 3,656: +479 over wave 3, not the -206 PREDICTED), bss
-      7,357, `BONANZA.O88` 77,275. Open: not smaller. SPEC.md 128.13.8, 128.13.16.*
+      7,357, `BONANZA.O88` 77,275. Open: not smaller. SPEC.md 130.13.8, 130.13.16.*
       *The verification's fixes add 59 bytes (the results face's 13 lines on the CGA): 27,421, bss 7,358,
-      `BONANZA.O88` 77,323. SPEC.md 128.13.17.*
-- [x] **3b.10 Room for sound, and what the engine asks of it.** *Closed in 5a.4 (A17).* *SUPERSEDED by SPEC.md 128.13.15: the sound landed first, so no pad and no hook were built; its measured price is 128.20.7 and 128.13.16.* Sound may
+      `BONANZA.O88` 77,323. SPEC.md 130.13.17.*
+- [x] **3b.10 Room for sound, and what the engine asks of it.** *Closed in 5a.4 (A17).* *SUPERSEDED by SPEC.md 130.13.15: the sound landed first, so no pad and no hook were built; its measured price is 130.20.7 and 130.13.16.* Sound may
       spend 2,048 clk a frame at one hook (after the LEAD, before the
       frame's last mark, BX preserved), reading physics' event counters;
       the step, the wheel, the wait and the beam-raced writes are places
@@ -3211,21 +3260,21 @@ batch.
       the reserve spent; the CGA's heaviest frames already miss without
       it, which the SPEC says plainly. *Verify: `bonanzaperf`'s `MILL` and
       ride legs run with `bz_spad` 1.*
-      *Superseded by SPEC.md 128.13.15: the sound arrived first, so no pad and no hook were built; every
-      target was measured OFF and ON instead (128.13.16). Left open as written.*
+      *Superseded by SPEC.md 130.13.15: the sound arrived first, so no pad and no hook were built; every
+      target was measured OFF and ON instead (130.13.16). Left open as written.*
 - [x] **3b.11 The record.** `bbcourse.Heavy` mirrors the promotion, the
       slab's waits and the post rule; the top-level README lists `make
       bonanzadisk`; the seven stale "PREDICTED" `tests/suite.py` texts say
       what each row asserts; `tools/bbcourse.py` pyflakes-clean; the
-      diary's 3b entries; SPEC.md 128.13 gets its MEASURED columns.
+      diary's 3b entries; SPEC.md 130.13 gets its MEASURED columns.
       *Verify: `make` (the doc gates, `checkreadme`), `tools/os88index.py
       --check`, `checkdocs` 0 problems, `python3 -m pyflakes
       tools/bbcourse.py`.*
       *Final pass: `make` (the doc gates), `os88index --check`, `checkdocs` 0 problems, `pyflakes
       tools/bbcourse.py` clean; README lists `make bonanzadisk`; the suite texts carry the measured secs;
-      the diary's 3b entry; SPEC.md 128.13.16.*
+      the diary's 3b entry; SPEC.md 130.13.16.*
 
-**Wave 4: a game** (the contract is SPEC.md 128.14, written before the
+**Wave 4: a game** (the contract is SPEC.md 130.14, written before the
 code). A TOUR of the five courses after `BENCH`, raced for time against
 par, with no lives: a fall costs the way back from the last checkpoint
 (D4 stays a mechanic), and each new course has an optional hard-fall
@@ -3264,10 +3313,10 @@ demo carries).
       `bonanzagame`'s autopilot tours on both cards (each time the
       model's steps, the total their sum, the two stops, the withheld
       keys, the pause).*
-      **Built** (SPEC.md 128.14.21): the tour, both faces with every line
+      **Built** (SPEC.md 130.14.21): the tour, both faces with every line
       held to 42 cells by the assembler, PAUSE; checked on the host (unicorn)
       and looked at, one boot a card.
-      *Verified in the final pass (SPEC.md 128.14.26 item 7): `bonanzagame` on
+      *Verified in the final pass (SPEC.md 130.14.26 item 7): `bonanzagame` on
       both cards - the autopilot tour FIRST 158, TRIAL 500, MILL 676, MOON
       2,040, PEAK 1,902 steps, each the model's, total 5,276; the tour stopped
       in course 3 and on the face; the eight withheld keys; PAUSE (no step
@@ -3284,10 +3333,10 @@ demo carries).
       reads the file back off the floppy on the host and drives the
       hostile set; red arms `besttime`, `datlen`, `replaybest` and
       `noappdata`, each red at its own check.*
-      **Built** (SPEC.md 128.14.21 item 5): written, read back off the floppy
+      **Built** (SPEC.md 130.14.21 item 5): written, read back off the floppy
       on the host and by a new instance's entry, one boot a card; the
       hostile set checked on the host (unicorn).
-      *Verified in the final pass (SPEC.md 128.14.26 items 7, 11): the file
+      *Verified in the final pass (SPEC.md 130.14.26 items 7, 11): the file
       read back off the floppy (the expected 64 bytes) on both cards; the
       hostile set (short, magic, identity, zero, tour XOR, count) each as the
       checks say and rewritten whole; R, D, V and another ball left it absent;
@@ -3308,14 +3357,14 @@ demo carries).
       `bonanzaphys` `flag`, `flagmat`, `padswap`, `cup`, `spring`,
       `return` with red arms `ckpt`, `ckmat`, `padftg`, `cupv` and
       `springsum`; one look boot a card.*
-      *Verified in the final pass (SPEC.md 128.14.26): `bonanzacourse` (its
+      *Verified in the final pass (SPEC.md 130.14.26): `bonanzacourse` (its
       items and controls, `trap` and `underhud` among them); `bonanzaphys`
       `flag`, `flagmat` (MOON and PEAK), `padswap`, `cup-128`, `cup-lip`,
       `cup-stun`, `cup-shatter`, `spring` and `return` equal to the model at
       every frame on both cards; red arms `ckpt`, `ckmat`, `padftg`, `cupv`,
       `springsum` each red at its own check; `bonanzaring`'s W4 part (capture,
       lip-out, flag, pad swap) card = oracle.*
-- [x] **4.4 The HUD clock on the glass - OPTIONAL, BUILT LAST** (the owner, SPEC.md 128.14.16: OFF by default; ships only if REST/FOLLOW add at most 2 `MILL` misses a card with the speaker on and none on `BENCH`, else removed; the clock is on the results face either way). The course time (`SS.T`) sits on
+- [x] **4.4 The HUD clock on the glass - OPTIONAL, BUILT LAST** (the owner, SPEC.md 130.14.16: OFF by default; ships only if REST/FOLLOW add at most 2 `MILL` misses a card with the speaker on and none on `BENCH`, else removed; the clock is on the results face either way). The course time (`SS.T`) sits on
       an opaque 2-word by 6-line panel, inset from the window's bottom-left
       corner so no entering row or column ever meets it. It is drawn as a
       fifth box group that composes every layer and lays the panel last,
@@ -3331,17 +3380,17 @@ demo carries).
       `noblank`); `bonanzagame`'s digits and REST's no-HUD-box-on-a-scroll-
       frame under GLIDE and TRICKLE (red arms `hudhold` and `hudtime`);
       `bonanzawheel` (14) with red arm `hudrect`.*
-      **Built, not yet shipped** (SPEC.md 128.14.23): behind
+      **Built, not yet shipped** (SPEC.md 130.14.23): behind
       `%define BZ_HUD`, OFF by default, `H` cycling OFF / REST / FOLLOW;
       host-checked and looked at on both cards (REST on the CGA, FOLLOW on
       the Hercules: the card's rect equal to the panel on every shown frame
       of `MILL`'s demo). +1,465 image bytes and +222 bss.
-      *CLOSED - REMOVED, it did not fit (SPEC.md 128.14.5, 128.14.26 item 1):
+      *CLOSED - REMOVED, it did not fit (SPEC.md 130.14.5, 130.14.26 item 1):
       `MILL`'s route demo through `D`, the speaker on, missed 93 refreshes on
       the CGA with the HUD OFF and 158 at REST (+65), 24 on the Hercules OFF
       and 69 at FOLLOW (+45), against a bound of +2 a card. Its code, fifth
       box group and `H` key are gone (the package is the define-off build
-      byte for byte); the blank stays. 128.14.16 item 3: either outcome
+      byte for byte); the blank stays. 130.14.16 item 3: either outcome
       closes the story.*
 - [x] **4.5 Moonlit Green (`MOON`, K = 4).** A night round of about 100
       block rows (PREDICTED 44 - 48KB). It teaches the flags, the cup and
@@ -3357,14 +3406,14 @@ demo carries).
       with no fall on both cards, NO TRAP, the branch printed);
       `bonanzaphys` `cup`, `flag`, `flagmat` and `padswap`; a look on
       both cards; its demo's legs.*
-      *Verified in the final pass (SPEC.md 128.14.26): `bonanzacourse` (51,240
+      *Verified in the final pass (SPEC.md 130.14.26): `bonanzacourse` (51,240
       bytes, 127 block rows; route 2,040 steps to the cup with no fall; NO
       TRAP); `bonanzaphys` `flag`, `flagmat-moon`, `return` equal to the model
       at every frame on both cards; `bonanzaring`'s W4 part (its shipped demo:
       the capture, a flag raised, a pad swap, every full write blanked);
       `D` of `BZD4` to the model's end, CGA 16 / 48 misses (speaker OFF / ON),
       Hercules 10 / 23; the tour's `MOON` 2,040 steps.*
-- [ ] **4.6 Summit Rush (`SUMMIT`, NAME `PEAK`, K = 5; SPEC.md 128.14.17 item 1).** The long demo course, a
+- [ ] **4.6 Summit Rush (`SUMMIT`, NAME `PEAK`, K = 5; SPEC.md 130.14.17 item 1).** The long demo course, a
       descent of about 128 block rows (PREDICTED 55 - 60KB, the largest a
       part holds). Rubber down steep-ramp chains and an ice chute, a
       windmill and a DROP (or an optional glass staircase past them),
@@ -3375,7 +3424,7 @@ demo carries).
       final pass measures more. Its shipped demo is AUTHORED (a fall, a
       RETURN, every swap, both springs, the branch). *Verify: as 4.5,
       plus `spring` and `return`.*
-      **Built and verified but its misses, open** (SPEC.md 128.14.26 items 6
+      **Built and verified but its misses, open** (SPEC.md 130.14.26 items 6
       and 7): `bonanzacourse`, `bonanzaphys` (`spring`, `cup-128`, `cup-lip`,
       `cup-stun`, `cup-shatter`, `flagmat-peak`) and its demo to the cup on
       both cards pass, and its launch is 3.9 - 4.0 s. `D` of `BZD5` misses
@@ -3393,11 +3442,11 @@ demo carries).
       *Verified in the final pass: `bonanzaphys`'s scenarios compare the new
       counters with the model on both cards; `bonanzasound` passes. As built
       the sound's fetches go home through a bracket round `bz_launch`, `S`
-      and `V` rather than `bz_pfetch` inside `bzsound.inc` (SPEC.md 128.14.22
+      and `V` rather than `bz_pfetch` inside `bzsound.inc` (SPEC.md 130.14.22
       item 1: the sound code is the other session's).*
 - [x] Sound (section 10), widened by the owner to the speaker AND the AdLib, a
       title and five course themes and an impact a ball: built in parallel,
-      SPEC.md 128.20 and [BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md),
+      SPEC.md 130.20 and [BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md),
       whose stories S9 - S11 stay open.
 - [x] **4.8 Demos to and from the disk.** `W` saves the held log through
       the Save dialog as `<NAME>.BZR`. `L` loads one through the Open
@@ -3414,13 +3463,13 @@ demo carries).
       nothing fetched or leaked, the first three refused with no read,
       the double-click's size legs); red arms `nosum`, `readfirst`,
       `stageleak`, `inplace`, `nohome` and `argsize`.*
-      **Built** (SPEC.md 128.14.22 items 1 - 5): W, L with its hostile pass,
+      **Built** (SPEC.md 130.14.22 items 1 - 5): W, L with its hostile pass,
       the association and the double-click, home round every desktop fetch;
       checked on the host (unicorn: `bz_lchk` against `bbcourse.check_log`,
       L's and the double-click's whole path with the kernel stubbed) and
       looked at, one boot a card (the save into `SYSTEM` read back off the
       floppy, a play after it, L, the double-click on the Hercules).
-      *Verified in the final pass (SPEC.md 128.14.26 items 8, 11):
+      *Verified in the final pass (SPEC.md 130.14.26 items 8, 11):
       `bonanzademo` on both cards - W into `SYSTEM` read back off the floppy,
       the play after it from home, L, R and D to the model's end, the 16-file
       hostile set each refused with the log, rows and claims as before, the
@@ -3442,23 +3491,23 @@ demo carries).
       and REST, `MILL`'s also FOLLOW: the model's end state, `bz_wover`
       and `bz_wlate` 0, every miss reported with its parts against its
       prediction; D against R once); `bonanzacourse`'s demo item.*
-      **Built** (SPEC.md 128.14.22 items 6 - 8): D as mode 3, its results
+      **Built** (SPEC.md 130.14.22 items 6 - 8): D as mode 3, its results
       page, the 65,535-frame stop; V through the five demo parts. Looked at:
       `MOON`'s shipped demo through D to its cup on both cards.
-      *Verified in the final pass (SPEC.md 128.14.26 item 6): every shipped
+      *Verified in the final pass (SPEC.md 130.14.26 item 6): every shipped
       demo through D on both cards, sound OFF and ON, to the model's end with
       `bz_wover` and `bz_wlate` 0, every miss reported; D against R +4.1k a
       frame on the CGA, +3.3k on the Hercules; `bonanzacourse`'s demo item.*
 - [x] **4.10 The mouse as a tilt stick.** With `T` at MOUSE, the pointer's
       offset from where it was at the play's first frame (and at each
-      respawn) sets each axis's arrow and a CAP on 128.11.7.1's force
+      respawn) sets each axis's arrow and a CAP on 130.11.7.1's force
       level, over a quarter of the bracket display each way. The left
       button hops and the right grips. The log records the caps (TILT
       runs of three bytes), so a replay reads no mouse, and a keyboard
       step is wave 2's step exactly. *Verify: `bonanzaphys` `tilt` (red
       arm `tiltcap`); `bonanzareplay`'s mouse play on `MOON` replayed on
       the Hercules, its busy reported (red arm `tiltmap`).*
-      **Built** (SPEC.md 128.14.22 items 9 - 11): T, the stick
+      **Built** (SPEC.md 130.14.22 items 9 - 11): T, the stick
       (`bbcourse.TiltStick` its model), TILT logs, the capped ramp; checked on
       the host against the models and looked at, one boot a card (a mouse play
       recorded and replayed to the same end).
@@ -3472,9 +3521,9 @@ demo carries).
       250 clusters or when the owner wants BONANZA on a shared disk.
       Separate course files (O1), a second disk and a code part are priced
       and not taken. *Verify: the build's printed part sizes and
-      `bonanza360.img`'s clusters, written into SPEC.md 128.14.9.1's table
+      `bonanza360.img`'s clusters, written into SPEC.md 130.14.9.1's table
       as MEASURED.*
-      *Measured (SPEC.md 128.14.9.1, 128.14.26 item 9): `BONANZA.O88` 125,162
+      *Measured (SPEC.md 130.14.9.1, 130.14.26 item 9): `BONANZA.O88` 125,162
       bytes, 130 of `bonanza360.img`'s 354 clusters with `SYSTEM\APPDATA`
       and the README; one file.*
 - [x] **4.12 kern_mega and every way out.** No `PKG_MEGA` arm is needed.
@@ -3485,7 +3534,7 @@ demo carries).
       the Hercules display, the HUD FOLLOW and REST, `W`, `L`, a
       double-click, `D`; red arm `stageseg`); `bonanzaexit` (red arm
       `padleak`).*
-      *Verified in the final pass (SPEC.md 128.14.26 item 2): `bonanzamega`
+      *Verified in the final pass (SPEC.md 130.14.26 item 2): `bonanzamega`
       on 86Box - PEAK's demo by D with its three balls on the Hercules
       display, W and L through the dialogs and D of what L read, the
       double-click opening a second BONANZA with the file, no fault charged
@@ -3498,38 +3547,38 @@ demo carries).
       at most 0.5k clk a frame on the CGA (PREDICTED +0.15 - 0.3k), and B
       draws no HUD box on either card. Every shipped demo is measured with
       the HUD OFF and at REST on both cards, and `MILL`'s also with
-      FOLLOW, each set beside SPEC.md 128.14.5.8's and 128.14.6's
+      FOLLOW, each set beside SPEC.md 130.14.5.8's and 130.14.6's
       predictions; REST shows no HUD box on a scroll frame but a release.
       *Verify: `bonanzaperf` (red arm `hudon`).*
-      **Open** (SPEC.md 128.14.26 items 4 - 6): every shipped demo measured
+      **Open** (SPEC.md 130.14.26 items 4 - 6): every shipped demo measured
       through `D` on both cards, sound OFF and ON, each to the model's end
       with `bz_wover` and `bz_wlate` 0; the HUD's legs moot (removed). But
       the BENCH A/B is **+522 / +531 on the CGA** (two runs) against the
       +500 asserted, +317 on the Hercules, and `bonanzaperf`'s Hercules lift
-      stretch (128.13.4.5, at most 3) missed 3 in one run and 4 in the next.
-- [x] **4.14 The record.** SPEC.md 128.14 gets its MEASURED columns, and
+      stretch (130.13.4.5, at most 3) missed 3 in one run and 4 in the next.
+- [x] **4.14 The record.** SPEC.md 130.14 gets its MEASURED columns, and
       the diary its wave 4 entries. `apps/bonanza/README.md` gains the
       tour, the keys and the demos. `tests/pins.txt` and
       docs/HEAP-CLAIMS.md gain the three ball words and the staging claim.
       The plan's stories are ticked with their evidence. *Verify: `make`
       (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
       problems.*
-      *Done in the final pass: SPEC.md 128.14.26 (MEASURED), 128.14.5 and
-      128.14.23 marked removed, the README's keys without `H`, the diary's
+      *Done in the final pass: SPEC.md 130.14.26 (MEASURED), 130.14.5 and
+      130.14.23 marked removed, the README's keys without `H`, the diary's
       wave 4 entry; `make` (fast tier 44), `checkdocs` 0 problems,
       `os88index --check` current. After the verifier: the HUD's removal
-      carried into every binding row it touched - 128.14.1, 128.14.2,
-      128.14.3.1, 128.14.3.2's line 3 and 128.14.3.4's keys (no `H`, at most
-      four boxes) - and `BONANZA.DAT`'s count rule stated (128.14.17 item 6),
-      SPEC.md 128.14.27.*
+      carried into every binding row it touched - 130.14.1, 130.14.2,
+      130.14.3.1, 130.14.3.2's line 3 and 130.14.3.4's keys (no `H`, at most
+      four boxes) - and `BONANZA.DAT`'s count rule stated (130.14.17 item 6),
+      SPEC.md 130.14.27.*
 - [x] **4.15 Round openings (the owner, 2026-11-13).** *"For entrances/exits
       with a rounded portion on a dither, they are ending up not quite
       round."* Every arch (a windmill's doorway, every exit mouth) is a
       semicircle-topped door sheared as a whole with its face, its size,
       columns and sill unchanged, with a one-pixel solid rim on the
       checkered `+x` face; a tube's IN hole is a disc and its OUT rim a ring,
-      rimmed solid on a patterned top (SPEC.md 128.14.20). `MILL`'s part
-      changes in those pixels alone (a recorded deviation from 128.14.6),
+      rimmed solid on a patterned top (SPEC.md 130.14.20). `MILL`'s part
+      changes in those pixels alone (a recorded deviation from 130.14.6),
       `BENCH` and `TRIAL` stay byte for byte, so the BENCH A/B is unaffected.
       *Verified on the host: `bbcourse.py --selfcheck` (the `bonanzacourse`
       row's command) items 1 (MILL 3b's but for its openings,
@@ -3538,11 +3587,11 @@ demo carries).
       square hole each failing); previews before and after on both cards;
       one look boot a card on `MILL`'s house mouth and chute mouth.*
 
-Still open from wave 3b, and not this wave's (SPEC.md 128.13.17): 3b.4
+Still open from wave 3b, and not this wave's (SPEC.md 130.13.17): 3b.4
 and 3b.8 (`bonanzawheel` (6) on the CGA), 3b.3's BENCH 2.0k, and 3b.9's
 image.
 
-Still open from wave 4's final pass (SPEC.md 128.14.26): 4.6's `PEAK` misses
+Still open from wave 4's final pass (SPEC.md 130.14.26): 4.6's `PEAK` misses
 over O54's prediction (easing its chains is the owner's call), 4.13's BENCH
 A/B (CGA +522 - 531 against +500) and the Hercules' `MILL` lift stretch (3
 and 4 missed in two runs, at most 3), and `bonanzaring`'s `contact` red arm
@@ -3550,7 +3599,7 @@ going red at a coverage check rather than at `bz_tf`. The row now FAILS a
 wheel commit over the ball's old footprint by the rule itself (green on the
 right build, both cards). The arm still needs a scene in which the broken
 wheel has room to commit such a lane: in the DEFER scene it never loads one
-before the promotion takes it (SPEC.md 128.14.27 item 3).
+before the promotion takes it (SPEC.md 130.14.27 item 3).
 
 *Both "still open" lists above are now carried by [Toward a
 release](#toward-a-release): the wheel, BENCH's A/B, PEAK's and MILL's
@@ -3565,7 +3614,7 @@ italics below it.*
       course author places "every so often" - a lane whose poses are digits
       in a small font of our own made to sit in the course's isometric look
       (not giant numerals), on the course itself so it scrolls with it and
-      raises none of the HUD's problems (SPEC.md 128.14.16), committed by the
+      raises none of the HUD's problems (SPEC.md 130.14.16), committed by the
       wheel once a second while shown and costing nothing off screen. **It
       counts down the course's TIME LIMIT** (the owner, 2026-11-14: target
       times per course, the pressure to finish, in place of lives), and an
@@ -3605,10 +3654,10 @@ the machines are wave 14 there. kern_mega, the refusals and the four
 geometries are done in practice and are ticked in wave 5a (story 5a.4).*
 - [~] Hercules polish (pair art, its blank budget).
       *Now wave 14 (H1).*
-- [x] kern_mega, through the ordinary FASTTICK bracket (SPEC.md 128.1).
+- [x] kern_mega, through the ordinary FASTTICK bracket (SPEC.md 130.1).
       *Done in practice (`bonanzamega` passes on 86Box); ticked in 5a.4 (H2), re-checked in wave 14.*
 - [x] EGA, MDA and kern_small refuse with reasons.
-      *The refusals are built (SPEC.md 128.1); ticked in 5a.4 (H3), re-checked in wave 14.*
+      *The refusals are built (SPEC.md 130.1); ticked in 5a.4 (H3), re-checked in wave 14.*
 - [~] VGA runs the CGA arm. *Wave 14 (H5).*
 - [x] Disks: `make bonanzadisk` in four geometries. The package is `local`
       in `apps/RETIRED.txt` until the owner says it ships.
@@ -3666,21 +3715,21 @@ it needs a composite monitor to judge. Not before the game is.
   a design choice, not a rewrite).
 - **Occlusion ambiguity.** The authoring tool keys every occluding pixel
   to within 2 px (records split by band of tops) and refuses a course past
-  its record bounds (SPEC.md 128.10.4.4), so this risk lands as
+  its record bounds (SPEC.md 130.10.4.4), so this risk lands as
   course-design constraints, not run-time bugs.
 - **`BENCH` sits on the block bound.** Wave 2's bound is 4 records a block
-  (SPEC.md 128.11.4.2) and `BENCH`'s fullest block holds exactly 4 before
+  (SPEC.md 130.11.4.2) and `BENCH`'s fullest block holds exactly 4 before
   and after the merge, so the next route or geometry change can refuse it.
   The refusal names the block; moving the geometry, or the owner pricing a
   bound of 5, is the answer - never a quiet raise.
 - **A fall behind geometry on the CGA.** With the occluder pass at its
   bound, a falling ball over a cell that can hide it is predicted at 1.06 -
-  1.11 CGA refreshes (SPEC.md 128.11.15): it presents a frame late and is
+  1.11 CGA refreshes (SPEC.md 130.11.15): it presents a frame late and is
   counted. `TRIAL`'s flights are built to cross no such cell; wave 4's
-  courses will meet it. Since wave 3b (SPEC.md 128.13.6) that frame has no camera
+  courses will meet it. Since wave 3b (SPEC.md 130.13.6) that frame has no camera
   relief either - the heavy rule's occluder-pass clause is gone - so wave
   4's courses price it or route around it.
 - **Feel numbers off a model.** Wave 2's materials, surfaces and course
-  rules are the host model's discrete figures (SPEC.md 128.11.5), checked
+  rules are the host model's discrete figures (SPEC.md 130.11.5), checked
   against the guest frame by frame - but whether they FEEL right is the
   owner's play, and every one of them is PROVISIONAL until then (O11).
