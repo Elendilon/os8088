@@ -432,7 +432,7 @@ def bbc(out):
             "float": "a lone floating pillar"}[kind]))
         if kind == "float":
             L.append("float tile %d %d" % (px, py))
-        L.append("clock %d %d" % (px, py))
+        L.append("clock %d %d frame pin" % (px, py))   # the owner's pick of the four (2026-11-18)
     L.append("")
     L.append("# the autopilot's route")
     for x, y in ROUTE:
