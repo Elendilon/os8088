@@ -292889,6 +292889,13 @@ resident, 10 bytes of bss, ~300 in the part. **Open, the owner's to tune**:
 the framings' distances (`BZV_TXP`, `BZV_TYP`), the pan's speed, the
 tracking thresholds.
 
+**kern_mega** (V3, `bonanzamega` case 0v, 86Box's `286-mega-multimon`): the
+VGA's arm runs there as designed, with no `PKG_MEGA` arm - the part
+far-called through its code alias, the balls' copies a selector claim
+addressed by offsets alone, every segment loaded whole from a variable. A
+benchmark of 1,200 frames and a play, every part row and claim the
+desktop's after each, no fault.
+
 **The edges' brake is a CAP** (V3, found by `bonanzaring`'s VGA card): the
 step's size at most the largest n whose stopping distance n (n + 1) / 2 fits
 in the distance left - not one less a frame, which a TRACK pushing the step
