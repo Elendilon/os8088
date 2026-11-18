@@ -452,7 +452,7 @@ FAMILIES = (
      "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
-                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 40,
+                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 44,
      "home": HOME_RESIDENT},
     {"name": "rotor", "id": 3, "rev": 1, "hooks": H_PROP, "slot": 0,
      "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
@@ -13580,7 +13580,13 @@ class GlassFamily(Family):
             p.fref = 1
         elif p.mat != MAT_GLASS and v < 2:
             p.fst[k] = 1 + (CRACK_TS if p.mat == MAT_STEEL else CRACK_TR)
-            p.fsl[slot][0] += 1
+            sb = p.fsl[slot]                # STEP's walk, +2 lo and +3 hi (SPEC.md 128.25.18.2): the
+            if not sb[0]:                   # first counting crack is the whole range, a later one widens
+                sb[2] = sb[3] = i           # it; stale while the count is 0 (the guest's are too).  The
+            else:                           # model's step still walks every record: every counting crack
+                sb[2] = min(sb[2], i)       # lies in the range, so the state is the same
+                sb[3] = max(sb[3], i)
+            sb[0] += 1
 
     def step(self, p, slot):
         if not p.fsl[slot][0]:
