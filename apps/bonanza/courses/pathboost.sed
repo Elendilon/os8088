@@ -1,4 +1,4 @@
-# BZBOOST=1 (Makefile; SPEC.md 128.40.6): the pathway with the BOOST PADS test course - applied to path.bbc at
+# BZBOOST=1 (Makefile; SPEC.md 130.40.6): the pathway with the BOOST PADS test course - applied to path.bbc at
 # build time, so the knob's pathway is the shipped one with these lines changed and nothing else.  Pad 0
 # becomes BOOS (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to TRIAL.  BOOS's exit 1
 # goes straight left to FIRST (pad 6), a dead end as PEAK is, so every shipped course stays on the map.  FIRST's

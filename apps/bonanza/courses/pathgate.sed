@@ -1,4 +1,4 @@
-# BZGATE=1 (Makefile; SPEC.md 128.41.6): the pathway with the GATES test course - applied to path.bbc at
+# BZGATE=1 (Makefile; SPEC.md 130.41.6): the pathway with the GATES test course - applied to path.bbc at
 # build time, so the knob's pathway is the shipped one with these lines changed and nothing else.  Pad 0
 # becomes GATE (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to TRIAL.  GATE's exit 1
 # goes straight left to FIRST (pad 6), a dead end as PEAK is, so every shipped course stays on the map.  FIRST's

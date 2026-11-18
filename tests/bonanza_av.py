@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""BONANZA's AV (SPEC.md 128.29): the occluder pass with the MODEL in VOID cells, the package's own bz_occ
+"""BONANZA's AV (SPEC.md 130.29): the occluder pass with the MODEL in VOID cells, the package's own bz_occ
 under unicorn against tools/bbcourse.py's binding model (bbcourse.AGrid, amodel_*) and the part's records -
-the host half of the guest's model, the precedent being SPEC.md 128.15.5.2's D/C proof.
+the host half of the guest's model, the precedent being SPEC.md 130.15.5.2's D/C proof.
 
     make bonanzadisk && python3 tests/bonanza_av.py [--n N] [--seed S] [--price] [--red amodel]
 
@@ -15,24 +15,24 @@ buffer with every block word of the footprint laid ONCE under the AND of the mas
 every record of the part (decode_part: the bytes the guest walks) whose verdict holds (s_b < s', z_b + m <
 top) and, where the model runs (AGrid.runs: GF_ANA, the ball's cell VOID and not OBS), the model's mask -
 each pixel at or under the least edge of the counting front cells in its column cleared, the checker ORed in
-(128.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
+(130.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
 guest lays in cannot show.  ASSERTED at every position: the buffer EXACTLY the host's, [bz_nlay] moved by the
 records the host's verdicts lay, [bz_namod] by 1 exactly where the model runs, the stack balanced.
 
 The positions, per course (every BZ_COURSES course, the pathway and the title): --n VOID positions (a reach
 cell the model runs in, a random point of it, a random height of its range and fraction, airborne), n / 30
 FALLS of ten consecutive frames from a VOID position (the ball dropping 1 - 6 px a frame and drifting up to an
-eighth of a cell: the guest's cell cache, SPEC.md 128.29.5, used, re-counted and left as a fall uses it) and
+eighth of a cell: the guest's cell cache, SPEC.md 130.29.5, used, re-counted and left as a fall uses it) and
 n / 3 others (any reach cell, grounded or airborne); one in five with the window clipping the footprint (its
 top line or its left word inside it).
 
---price: the pass's executed instructions at the VOID positions priced by 128.11.15's method (each at max(EU
+--price: the pass's executed instructions at the VOID positions priced by 130.11.15's method (each at max(EU
 + EA, 4.34 a byte), x 1.05; bonanza_dsplit's table), the AV part against the course compiled --occ off
 (today's records, GF_ANA clear: the model never runs) at the same positions - the fall frames' cost, PRICED.
 --red amodel: the guest with the right half's + 4 made + 12 (every right-half edge a line low) must fail.
---red aneigh: the guest's neighbour reuse (SPEC.md 128.29.5) keeping the old shadows on the new row 1 must fail.
+--red aneigh: the guest's neighbour reuse (SPEC.md 130.29.5) keeping the old shadows on the new row 1 must fail.
 --red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
-SPEC.md 128.29.5: the FALLS above are what reach it) must fail.
+SPEC.md 130.29.5: the FALLS above are what reach it) must fail.
 """
 import argparse
 import os
@@ -49,7 +49,7 @@ import bonanza_dsplit as D     # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS = D.CS, D.PS
-PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 128.30)
+PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 130.30)
 BOXD, BOXW = 20, 4
 LINES = 200
 CHKW = (0x3333, 0xCCCC)
@@ -84,7 +84,7 @@ class Pass:
         self.c, self.sym = c, sym
         self.g = D.Guest(binp, sym, c.cga)
         self.g.w("bz_cseg", PS, 2)
-        if getattr(c, "wcga", None):            # a TWO-PART course (SPEC.md 128.30): the picture part at PS
+        if getattr(c, "wcga", None):            # a TWO-PART course (SPEC.md 130.30): the picture part at PS
             self.g.mu.mem_write(PS2 * 16, bytes(c.wcga))    # (bz_mseg: the walk, the masks, the lay), the
             self.g.w("bz_cseg", PS2, 2)                     # world part at PS2 (bz_cseg: the grid, the model's
         if "bz_mseg" in sym:                                # reads)
@@ -193,11 +193,11 @@ def positions(c, ag, n, rnd):
     while i < (n if rcs else 0):
         rc = rnd.choice(rcs)
         for _ in range(1 + rnd.randrange(3)):       # (one to three a cell in a row: the guest's cell-top test
-            z = rnd.randrange(rc.zlo, rc.zhi + 1)   # remembers the cell, SPEC.md 128.29.5)
+            z = rnd.randrange(rc.zlo, rc.zhi + 1)   # remembers the cell, SPEC.md 130.29.5)
             out.append(((16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096),
                         (z << 8) + rnd.randrange(256), 1, True))
             i += 1
-    for i in range(max(1, n // 15)):            # FALLS (the speed pass, SPEC.md 128.29.5): ten frames from a
+    for i in range(max(1, n // 15)):            # FALLS (the speed pass, SPEC.md 130.29.5): ten frames from a
         rc = rnd.choice(rcs) if rcs else None   # VOID position, the ball dropping 1 - 6 px a frame and drifting
         if rc is None:                          # up to an eighth of a cell, so that a run keeps its cell, its
             break                               # columns or its count set for a while and then leaves them

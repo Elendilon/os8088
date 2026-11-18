@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.11.14, 128.11.17.2).
+"""BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 130.10.6.4, 130.11.14, 130.11.17.2).
 
     make mega bonanzadisk && python3 tests/bonanza_mega.py [--keep]
     python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs|stageseg|expcs   (a red arm, below)
@@ -10,7 +10,7 @@ the course part, with the grid inside it, and the ball part - is a part's own,
 from op_seg, loaded into DS or ES and used WHOLE, every offset under the
 part's 65,024 bytes; nothing writes through CS and no immediate is patched
 (the map stride is read from the part's header).  So the SHIPPED package
-needs no PKG_MEGA arm (128.10.6.4), and this row is where that is proved by
+needs no PKG_MEGA arm (130.10.6.4), and this row is where that is proved by
 running it, not by reading it.
 
 It boots build/mega.img on 86Box's `286-mega-multimon` (vm/286-victory's AMI
@@ -26,7 +26,7 @@ BONANZA plays on a CGA or a Hercules only - and then:
   2  Enter, a play of FIRST, left by Esc after 100 frames;
   3  a play with a HOP (Space) and GRIP (Left Shift held ALONE for 2 steps,
      then the GREY Right with it), left by Esc, then its REPLAY by R run to
-     its end; and "3. the fake-shift release" (SPEC.md 128.13.7 item 6):
+     its end; and "3. the fake-shift release" (SPEC.md 130.13.7 item 6):
      with both held, kbd_track's map is read at 2Ah - CLEAR means this
      machine sent the fake-shift release (86Box does, MEASURED), and then
      every step logged while both were held has bits 1 and 5 (Right, Grip),
@@ -34,14 +34,14 @@ BONANZA plays on a CGA or a Hercules only - and then:
      state (nstep, gx, gy, gz and the velocities, read in the package's bss)
      is the play's - every launch on the Hercules BUILDS BZ_HTAB in the
      package's bss and TRANSLATES both fetched parts in place through their
-     own selectors (SPEC.md 128.11.3, 128.11.14);
+     own selectors (SPEC.md 130.11.3, 130.11.14);
 
      Keys are held for STEPS, never frames: 86Box paces the Hercules'
      retrace nothing like a real card's (about nine frames a step on this
      machine), and a key is recorded only by a step that runs while it is
      down - a Hop held 4 frames fell between two steps in the first final
      pass and the play logged 19 steps in 120 frames;
-  4  THE FAKE SHIFTS (128.11.7.2): with NumLock on, a play in which the GREY
+  4  THE FAKE SHIFTS (130.11.7.2): with NumLock on, a play in which the GREY
      Right arrow (E0 4D: a 101-key keyboard sends E0 2A first with NumLock
      on) is held for 30 steps, left by Esc: every key byte the play
      RECORDED has bit 5 (Grip) clear.  (86Box's keyboard sends no fake
@@ -51,7 +51,7 @@ BONANZA plays on a CGA or a Hercules only - and then:
      keyboard sends no fake shift, the case could not go red, and it reports
      SKIP with that reason (asserting nothing about it);
 
-  5  MILL (wave 3, SPEC.md 128.12.12): the model's log from MILL's start -
+  5  MILL (wave 3, SPEC.md 130.12.12): the model's log from MILL's start -
      the knock-back, the windmill's tunnel, a kick, the chute and the cannon
      - poked into bz_rlog with MILL's identity and replayed by R on the
      Hercules: the lanes' map words written through the course part's own
@@ -62,10 +62,10 @@ BONANZA plays on a CGA or a Hercules only - and then:
      next step's input: bz_hold 255, then the frame count seen to move);
      the end state the model's;
 
-  7  WAVE 4 (SPEC.md 128.14.14): PEAK's shipped demo (V) through D on the
+  7  WAVE 4 (SPEC.md 130.14.14): PEAK's shipped demo (V) through D on the
      Hercules: the launch fetches the course and ALL THREE ball parts (two
      claims inside: the course and the ARENA the balls share, SPEC.md
-     128.25.4), its end state the model's replay of the demo, and at
+     130.25.4), its end state the model's replay of the demo, and at
      least one respawn's cut after the first full write - each blanked by
      an OUT to 3B8h, no fault;
   8  W through the Save form into the instance's folder (B:'s root, as
@@ -74,7 +74,7 @@ BONANZA plays on a CGA or a Hercules only - and then:
      to the model's end - L's staging claim used whole through its selector;
   9  LAST, the DOUBLE-CLICK of PEAKA.BZR in B:'s Disk window: a second
      BONANZA opens holding it (bz_rlog, [bz_lsv] 2);
- 10  WAVE 6 (SPEC.md 128.16.12, 128.16.14), before 7 - 9: the PLAYGROUND on
+ 10  WAVE 6 (SPEC.md 130.16.12, 130.16.14), before 7 - 9: the PLAYGROUND on
      the Hercules ([bz_crsel] and [bz_matsel] poked to it and its ball,
      Enter): the launch fetches the course and its THREE ball rows (its three
      pads: 1 + 3 claims inside), so rubber's part with its STRETCH entry is
@@ -82,7 +82,7 @@ BONANZA plays on a CGA or a Hercules only - and then:
      a play with a Hop and its BOOST - Space held for STEPS, the second
      press MID-FLIGHT, when a model poked from the guest's state says the
      Hop's first contact is bonanza_replay.BOOST_AHEAD (12) steps off or
-     nearer (wave 6b, SPEC.md 128.17.4.2, 128.17.10: an edge anywhere in the
+     nearer (wave 6b, SPEC.md 130.17.4.2, 130.17.10: an edge anywhere in the
      flight arms it; three tries) - so the stretch is DRAWN there; left by Esc: [bz_nboost] at least 1, the model's run of the log
      the play's end and boosting too; then its REPLAY by R to the same end;
      no fault, no leak;
@@ -112,17 +112,17 @@ the row FAILS at its own check:
             `mov [cs:di], al`): an exception in the fault log, charged to the
             package, at the first Hercules launch
   mapcs     the commit's PASS stores a block's map word through CS (wave
-            3b, SPEC.md 128.13.11: bz_wprect.col's `mov [cs:bx], si`): an
+            3b, SPEC.md 130.13.11: bz_wprect.col's `mov [cs:bx], si`): an
             exception in the fault log at MILL's launch (the calibration
             commits through the pass)
   stageseg  (wave 4) L's copy reaches the staging claim by adding a paragraph
             to its segment: an exception in the fault log at case 8's L
   shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: 86Box sends
             the fake-shift RELEASE (E0 AA) before a grey arrow pressed with
-            Left Shift held (MEASURED, SPEC.md 128.13.3.4), so the map loses
+            Left Shift held (MEASURED, SPEC.md 130.13.3.4), so the map loses
             Grip under it: red at "3. the fake-shift release" (a SKIP of
             that check leaves this arm unjudged, and it says so)
-  expcs     (wave 5b, SPEC.md 128.15.11) ROWTAB's stores (bz_cexp's form 5)
+  expcs     (wave 5b, SPEC.md 130.15.11) ROWTAB's stores (bz_cexp's form 5)
             through a CS override: on kern_mega a code selector takes no
             write - a #GP charged to BONANZA at the first launch (B)
   stretchcs (wave 6) the stretch entry's translation written through CS
@@ -131,7 +131,7 @@ the row FAILS at its own check:
             launch (every launch on the Hercules that fetches rubber's part
             would fault the same way)
 
-WAVE 5B (SPEC.md 128.15.11, 128.15.13): every launch above fetches its course
+WAVE 5B (SPEC.md 130.15.11, 130.15.13): every launch above fetches its course
 part in BZC2's STORED form and expands it in place (bz_cexp) through the
 part's own LDT selector, before bz_hgen and bz_hxlat - B's BENCH, FIRST, MILL
 and PEAK among them - so the no-fault and no-leak checks are the expansion's
@@ -221,7 +221,7 @@ def _kernel_reset(cs, ip):
     deliberate shutdown in mega_svc_lo (kernel/mega.inc: `lmsw` cannot clear
     PE, so the 40:67 vector is set and the CPU triple-faulted)?  That reset is
     the kernel's code doing what it is for, as the BIOS's own at F000 is, and
-    SPEC.md 128.10.11.3 excludes both; any other reset is a failure."""
+    SPEC.md 130.10.11.3 excludes both; any other reset is a failure."""
     if cs not in KERNEL_CS:
         return False
     syms = os88box.load_map(os.path.join(B, "megak", "kernel.map"))
@@ -329,7 +329,7 @@ def claims(b, pkg, hs, equ, sels=False):
 
 
 def crs_parts(k):
-    """course K's parts (SPEC.md 128.30.4): 2 when the build's bzcrs2.lst lists
+    """course K's parts (SPEC.md 130.30.4): 2 when the build's bzcrs2.lst lists
     its WORLD part (BZ<K>W.BIN), else 1"""
     p = os.path.join(R.at("build/bonanza-art"), "bzcrs2.lst")
     if not os.path.exists(p):
@@ -339,7 +339,7 @@ def crs_parts(k):
 
 def course_claims(what, b, pkg, hs, eq, k):
     """inside a play of course K: its parts' claims are the package's - for a
-    two-part course (SPEC.md 128.30.5) the picture part's [bz_mseg] and the
+    two-part course (SPEC.md 130.30.5) the picture part's [bz_mseg] and the
     world part's [bz_cseg] two distinct claims of the instance, for one part
     [bz_cseg] alone (bz_mseg its alias or the same word's value).  Matched
     by LINEAR base: the words hold op_seg's LDT selectors (b.lin reads their
@@ -352,7 +352,7 @@ def course_claims(what, b, pkg, hs, eq, k):
     if crs_parts(k) == 2:
         want(cs and ms and lc != lm and lc in bases and lm in bases,
              "%s: the two-part course's picture part ([bz_mseg] %04Xh, at %s) and world part ([bz_cseg] %04Xh, "
-             "at %s) are two claims of the instance (SPEC.md 128.30.5; its claims at %s)" % (
+             "at %s) are two claims of the instance (SPEC.md 130.30.5; its claims at %s)" % (
                  what, ms, "%X" % lm if lm is not None else "-", cs, "%X" % lc if lc is not None else "-", have))
     else:
         want(cs and ms == cs and lc in bases, "%s: the course's one part ([bz_cseg] %04Xh, [bz_mseg] %04Xh, at "
@@ -394,7 +394,7 @@ def phys(b, pkg):
 
 
 def log_keys(b, pkg):
-    """the key bytes of the play bz_rlog holds (its runs; SPEC.md 128.11.12.1)"""
+    """the key bytes of the play bz_rlog holds (its runs; SPEC.md 130.11.12.1)"""
     raw = b.memr(pkg.a("bz_rlog"), 4096)
     if raw[:4] != b"BZR1":
         return []
@@ -407,27 +407,27 @@ def log_keys(b, pkg):
 
 def title_rows(n):
     """the desktop's title holds two rows while the window is open (SPEC.md
-    128.20.6): the sound part and song 0, after the courses' - the rows a
+    130.20.6): the sound part and song 0, after the courses' - the rows a
     package with sound has past 3 + BZ_NCRS (none for one without)"""
     inc = os.path.join(R.at("build/bonanza-art"), "bzsnd.inc")
     if not os.path.exists(inc):
         return set()
-    # the sound's row is BZ_P_CRS + BZ_NCRS (SPEC.md 128.20.3; BZ_P_CRS 0 since 128.25.5.2, the balls
-    # in the resident bundle), whatever follows the songs (wave 4's demos, 128.14.7.4) - not counted back
+    # the sound's row is BZ_P_CRS + BZ_NCRS (SPEC.md 130.20.3; BZ_P_CRS 0 since 130.25.5.2, the balls
+    # in the resident bundle), whatever follows the songs (wave 4's demos, 130.14.7.4) - not counted back
     # from the last row
     import bonanza_exit as X
     R.CRS_K["bench"]                            # (fills the table: bzcourse.inc's BZ_NCRS courses)
     snd = X.CRS_ROW0 + dict.__len__(R.CRS_K)
-    # wave 8a (SPEC.md 128.19.2): the SHELL part, the last row, is held on the desktop as the title is,
+    # wave 8a (SPEC.md 130.19.2): the SHELL part, the last row, is held on the desktop as the title is,
     # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
-    # (wave 8b, 128.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
-    shell = n - 1 - R.after_shell()             # (SPEC.md 128.23: and the title's two rows after it)
-    # story 9.8 (SPEC.md 128.25.6.9): and the RESIDENT BUNDLE, fetched at the start, never dropped (the
-    # three balls in it since 128.25.5.2)
+    # (wave 8b, 130.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
+    shell = n - 1 - R.after_shell()             # (SPEC.md 130.23: and the title's two rows after it)
+    # story 9.8 (SPEC.md 130.25.6.9): and the RESIDENT BUNDLE, fetched at the start, never dropped (the
+    # three balls in it since 130.25.5.2)
     return ({shell} if snd >= 3 else set()) | X.title_rows()
 
 
-SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (128.19.2)
+SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (130.19.2)
 
 
 def check_after(what, pkg, base_rows, base_claims, got_claims):
@@ -442,7 +442,7 @@ def check_after(what, pkg, base_rows, base_claims, got_claims):
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
 
 
-# ---- wave 4 (SPEC.md 128.14.14): PEAK, W, L, D and the double-click -------------------------
+# ---- wave 4 (SPEC.md 130.14.14): PEAK, W, L, D and the double-click -------------------------
 SAVENAME = "PEAKA.BZR"
 
 
@@ -483,7 +483,7 @@ def bonanzas(b):
 def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=None, eq=None):
     """KEY (d or r) on the held log DEMO on the Hercules, to its end: the bracket
     the Hercules', the course and the arena (holding its INSIDE ball rows,
-    128.25.4) claimed while it runs, the end state the model's replay of DEMO
+    130.25.4) claimed while it runs, the end state the model's replay of DEMO
     on CRS"""
     b.tap(key, gap=300)
     b.until(lambda: pkg.byte("bz_fs") == 1, "%s's bracket" % what, 60000, 100)
@@ -492,10 +492,10 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
              what, pkg.byte("bz_mode"), pkg.byte("bz_herc"), pkg.byte("bz_err")))
     if inside is not None:                      # INSIDE: the course's ball rows (all in the arena)
         got = claims(b, pkg, hs, eq)
-        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls (and the song) are
+        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the balls (and the song) are
                                                     # ONE claim, the arena - the desktop title's (pkg.ar0)
                                                     # becomes the demo's, as play_case counts it
-        np = crs_parts(R.CRS_K[crs])            # SPEC.md 128.30.5: a two-part course holds a claim a part
+        np = crs_parts(R.CRS_K[crs])            # SPEC.md 130.30.5: a two-part course holds a claim a part
         want(len(got) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "%s: inside, the course "
              "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, "
              "the arena %d on the desktop)" % (what, np, inside, len(got), len(base_claims), pkg.ar0))
@@ -513,7 +513,7 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
 
 
 def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
-    """7 - 9 (SPEC.md 128.14.14 bonanzamega): PEAK's shipped demo by D on the
+    """7 - 9 (SPEC.md 130.14.14 bonanzamega): PEAK's shipped demo by D on the
     Hercules with its three balls - the launch fetching the course and all three ball parts
     through their own selectors, a respawn's cut blanking the card (an OUT to
     3B8h, no fault); W into the instance's folder through the Save form and L
@@ -532,7 +532,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     # respawn cuts (one inside the window scrolls instead), and which of
     # PEAK's do on the Hercules moved between two runs of the final pass of
     # wave 4 (1 and 2 full writes) - as bonanzaring's W4 replays already
-    # report it (SPEC.md 128.14.24 item 2)
+    # report it (SPEC.md 130.14.24 item 2)
     want(cuts >= 1, "7. D of PEAK's demo: %d full write(s) - the first, BLANKED (bz_blank's OUT "
          "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (cuts, max(cuts - 1, 0)))
     check_after("7. D of PEAK's demo", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
@@ -586,7 +586,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
         want(False, "9. the double-click opened no second BONANZA")
 
 
-# ---- MILL on the Hercules (SPEC.md 128.12.12) ------------------------------------
+# ---- MILL on the Hercules (SPEC.md 130.12.12) ------------------------------------
 def memw(b, addr, data):
     for i in range(0, len(data), 512):
         b.cmd("memw 0x%X %s" % (addr + i, bytes(data[i:i + 512]).hex()))
@@ -617,7 +617,7 @@ def mill_replay(b, pkg, keys, what, poke=None):
     {name: bytes} written into the bss in the first frame's bz_hold SPIN - bz_hold
     poked 255 and the frame count seen to move, so the guest is in bz_t0's spin
     before its steps, the one place a poke is the step's input (bonanzawheel's
-    harness byte, SPEC.md 128.12.5.6).  -> (bz_nstep at the poke, the end state)"""
+    harness byte, SPEC.md 130.12.5.6).  -> (bz_nstep at the poke, the end state)"""
     log = R.make_log(keys, R.CRS_K["mill"], R.course("mill").ball)
     memw(b, pkg.a("bz_rlog"), log + bytes(BB.RLOG_SIZE - len(log)))
     b.tap("r", gap=300)
@@ -670,7 +670,7 @@ def ride_poke(pkg, b):
 def mill_cases(b, pkg, base_rows, base_claims, hs, eq):
     """5 and 6: MILL on the Hercules - every launch translates MILL's blocks and
     its platform's frames through BZ_HTAB, and every lane's map words are written
-    through the course part's own selector (128.12.12)"""
+    through the course part's own selector (130.12.12)"""
     import bonanza_phys as P
     keys, p, ev = mill_route_log()
     kinds = {(e[0], R.course("mill").part["props"][e[2]]["kind"]) for e in ev}
@@ -712,7 +712,7 @@ class _PkgS(object):
 
 
 def play_case(b, pkg, base_rows, base_claims, hs, eq):
-    """10 (wave 6, SPEC.md 128.16.14 bonanzamega): the PLAYGROUND on kern_mega's
+    """10 (wave 6, SPEC.md 130.16.14 bonanzamega): the PLAYGROUND on kern_mega's
     Hercules - its three ball rows through their selectors, a play with a Hop
     and its boost, its replay to the same end"""
     import bonanza_replay as RP
@@ -721,16 +721,16 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
     nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
     memw(b, pkg.a("bz_crsel"), bytes([k]))
     memw(b, pkg.a("bz_matsel"), bytes([c.ball]))
-    b.tap("f", gap=300)                         # (F: a free play - Enter is the game since wave 8b, 128.19.5)
+    b.tap("f", gap=300)                         # (F: a free play - Enter is the game since wave 8b, 130.19.5)
     b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "the PLAYGROUND's play", 60000, 100)
     want(pkg.byte("bz_crs") == k and pkg.byte("bz_mode") == 0 and pkg.byte("bz_herc") == 1,
          "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
-    ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4): the balls, the sound part, the song
+    ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the balls, the sound part, the song
                                                 # and the fanfare are ONE claim, the arena - the desktop title's
                                                 # (pkg.ar0) become the play's
-    np = crs_parts(k)                           # SPEC.md 128.30.11: PLAYGROUND is TWO parts, a claim each
+    np = crs_parts(k)                           # SPEC.md 130.30.11: PLAYGROUND is TWO parts, a claim each
     want(len(inside) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "10. inside: the course "
          "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the "
          "arena %d on the desktop)" % (np, nballs, len(inside), len(base_claims), pkg.ar0))
@@ -815,7 +815,7 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: NAME in insts(b), "BONANZA to start", 60000, 100)
         b.ui_done(limit_ms=60000)
         pkg = Pkg(b, sym)
-        if "bz_dev" in sym:                             # SPEC.md 128.26.6: the instruments' keys (B, R, F's free
+        if "bz_dev" in sym:                             # SPEC.md 130.26.6: the instruments' keys (B, R, F's free
             b.cmd("memw 0x%X 01" % pkg.a("bz_dev"))     # play), which this row drives - the window's are a player's
         # the window onto the Hercules: display 1 sits RIGHT of the VGA ([vid_dlay] 0)
         d1 = b.memr(b.sym("vid_ctx") + G.VID_CTX_SZ, G.VID_CTX_SZ)
@@ -830,12 +830,12 @@ def run(img_b, keep, tmp, cases=None):
         want(x + w // 2 >= vx1, "0. BONANZA's window dragged onto the Hercules: its centre at x %d, display 1 "
              "from %d" % (x + w // 2, vx1))
         base_rows, base_claims = pkg.rows(), claims(b, pkg, hs, eq)
-        pkg.ar0 = 1 if pkg.word("op_arena") else 0      # the title's arena (128.25.4)
+        pkg.ar0 = 1 if pkg.word("op_arena") else 0      # the title's arena (130.25.4)
         print("   desktop: %d part rows, fetched: %s (held: %s); the instance's claims %s" % (
             len(base_rows), [i for i, (f, _) in enumerate(base_rows) if f & OP_FETCHED],
             sorted(title_rows(len(base_rows))), base_claims), flush=True)
         import bonanza_exit as X
-        k = X.kit_row()                                 # SPEC.md 128.37.5: the kit fetched at the open, HELD
+        k = X.kit_row()                                 # SPEC.md 130.37.5: the kit fetched at the open, HELD
         want(k is None or base_rows[k][0] & OP_FETCHED,
              "0. the kit (row %s) held on the desktop after the open" % k)
         if cases is not None:                           # (a red arm's run: its own case alone)
@@ -847,7 +847,7 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: pkg.byte("bz_fs") == 1, "the benchmark's bracket", 60000, 100)
         want(pkg.byte("bz_herc") == 1, "1. the bracket is the Hercules' ([bz_herc] %d)" % pkg.byte("bz_herc"))
         inside = claims(b, pkg, hs, eq)
-        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 128.25.4, 128.25.6.9): the course a claim, the
+        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4, 130.25.6.9): the course a claim, the
                                                     # ball, the sound part and the song in the ARENA - which since
                                                     # the resident bundle is claimed at bz_entry, so the desktop's
                                                     # arena (pkg.ar0) is the bracket's, not a second claim
@@ -876,7 +876,7 @@ def run(img_b, keep, tmp, cases=None):
         steps(b, pkg, 10, "the play's first steps")
         hold(b, pkg, "space", 4)                        # a Hop from the ground
         # Grip (Left Shift) ALONE for 2 steps, so "Grip recorded" is judged apart from
-        # the grey arrow (SPEC.md 128.13.7 item 6); then the grey Right with it
+        # the grey arrow (SPEC.md 130.13.7 item 6); then the grey Right with it
         b.cmd("key down 0x%X" % os88box.keycode("lshift"))
         steps(b, pkg, 2, "Grip held alone")
         b.cmd("key down 0x%X" % os88box.keycode("right"))
@@ -899,7 +899,7 @@ def run(img_b, keep, tmp, cases=None):
         keys = log_keys(b, pkg)
         want(log[:4] == b"BZR1" and log[6] & 1 and any(k & 0x10 for k in keys) and any(k & 0x20 for k in keys),
              "3. the play's log: BZR1, COMPLETE, %d steps, with a Hop (bit 4) and Grip (bit 5) recorded" % len(keys))
-        # 3. THE FAKE-SHIFT RELEASE (SPEC.md 128.13.3.4, 128.13.7 item 6): 86Box sends E0 AA before a grey
+        # 3. THE FAKE-SHIFT RELEASE (SPEC.md 130.13.3.4, 130.13.7 item 6): 86Box sends E0 AA before a grey
         # arrow pressed with Left Shift held, and kbd_track's map takes it for Left Shift's release; the
         # package reads Grip from the BIOS's flags, which ignore it.  2Ah CLEAR with both held: this
         # machine sent the release, and every step logged while both were held has Right and Grip
@@ -977,7 +977,7 @@ class _Done(Exception):
 
 
 REDS = {
-    # the grid by segment arithmetic: on a selector, another descriptor (SPEC.md 128.10.6.4)
+    # the grid by segment arithmetic: on a selector, another descriptor (SPEC.md 130.10.6.4)
     "segadd": [("bzphys.inc", "bz_step:\n    push cx\n    push es\n    mov es, [bz_cseg]\n",
                 "bz_step:\n    push cx\n    push es\n"
                 "    mov ax, [bz_goff]           ; RED segadd: the grid at (cseg + GRIDOFF >> 4):0\n"
@@ -993,14 +993,14 @@ REDS = {
                   "    int 16h\n    test al, 2\n    jz .ms\n",
                   "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
                   "    call OSAPI_KEY_DOWN\n    jnc .ms\n")],
-    # wave 3b (SPEC.md 128.13.11): the commit's PASS stores a block's map word through CS - a
+    # wave 3b (SPEC.md 130.13.11): the commit's PASS stores a block's map word through CS - a
     # code selector on kern_mega takes no write: an exception at MILL's launch (the calibration's
     # idempotent commit is the pass itself) or its first commit
     "mapcs": [("bzwheel.inc", "    mov [bx], si                ; ...into the map\n    add si, [bp + 8]            ; SI",
                "    mov [cs:bx], si             ; RED mapcs: the pass's map store through CS\n"
                "    add si, [bp + 8]            ; SI")],
 }
-# wave 4 (SPEC.md 128.14.14): L's copy reaches the staging claim by ADDING A PARAGRAPH to its segment (the
+# wave 4 (SPEC.md 130.14.14): L's copy reaches the staging claim by ADDING A PARAGRAPH to its segment (the
 # head from seg:0, the rest from seg + 1:0 - the same bytes in real mode): on a selector, another descriptor
 REDS["stageseg"] = [("bonanza.asm", "    pop ds                      ; DS = the claim, ES = ours\n    pop es\n"
                      "    xor si, si\n    mov di, bz_rlog\n    rep movsb\n",
@@ -1008,13 +1008,13 @@ REDS["stageseg"] = [("bonanza.asm", "    pop ds                      ; DS = the 
                      "    xor si, si\n    mov di, bz_rlog\n    sub cx, 16                  ; RED stageseg\n"
                      "    push cx\n    mov cx, 16\n    rep movsb\n    pop cx\n    mov si, ds\n    inc si\n"
                      "    mov ds, si\n    xor si, si\n    rep movsb\n")]
-# wave 5b (SPEC.md 128.15.11): ROWTAB's stores through a CS override - written where the part's selector
+# wave 5b (SPEC.md 130.15.11): ROWTAB's stores through a CS override - written where the part's selector
 # is meant, a code selector on kern_mega: a #GP at the first launch's expansion
 REDS["expcs"] = [("bonanza.asm", "    lea ax, [bx + 32]\nbz_cxramp:                      ; CX words from AX, DX apart\n",
                   "    lea ax, [bx + 32]\n.red:\n    mov [cs:di], ax             ; RED expcs: ROWTAB through CS\n"
                   "    inc di\n    inc di\n    add ax, dx\n    loop .red\n    ret\n"
                   "bz_cxramp:                      ; CX words from AX, DX apart\n")]
-# wave 6 (SPEC.md 128.16.14): the stretch entry's translation written through CS - rubber's part only
+# wave 6 (SPEC.md 130.16.14): the stretch entry's translation written through CS - rubber's part only
 REDS["stretchcs"] = [("bonanza.asm", "    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries or rubber's\n",
                       "    cmp byte [es:BZB_NSTR], 0   ; RED stretchcs: the stretch's first byte through CS\n"
                       "    je .rsc\n    mov al, [es:BZ_BAL_SHAOFF]\n    mov [cs:BZ_BAL_SHAOFF], al\n.rsc:\n"
@@ -1039,7 +1039,7 @@ def main():
             sys.exit("bonanza_mega: build/%s is not built - `make mega bonanzadisk`" % f)
     tmp = tempfile.mkdtemp(prefix="bonanzamega")
     try:
-        print("bonanza_mega: the parts are %s (the parts table's format byte, SPEC.md 128.15.9): every course "
+        print("bonanza_mega: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): every course "
               "part decoded through OSAPI_DECOMP and expanded through its selector" % R.part_fmt().upper(),
               flush=True)
         if a.red:

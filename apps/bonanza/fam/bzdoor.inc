@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/bzdoor.inc - THE WINDMILL'S DOORWAY as the ROTOR family's
-; (SPEC.md 128.25.20.2): step 5's question, asked where the ball's circle meets
+; (SPEC.md 130.25.20.2): step 5's question, asked where the ball's circle meets
 ; the doorway's edge (bz_step's .wdoor and .ndoor, bz_swalls' .edoor).
 ; =============================================================================
 
