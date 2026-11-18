@@ -585,5 +585,15 @@ is not lifted. Lanes redrawn on change only (`bz_fmark`); the channel's opening 
   drawbridge) whatever art fits it - a crumbling wall between two blocks, a
   portcullis that rises into an arch, a doorway that opens - as an animation
   of a fixed, generic frame count, with wider gates where the art needs it.
-  OPEN; the four built styles stay as presets until it lands. Not started:
-  the owner held new agents at the weekly capacity limit (2026-11-18).
+  The four built styles stay as presets.
+  - [x] **BUILT on `bb-gateart` (2026-11-18), SPEC.md 128.41.12**: a gate's
+    art is a `.bba` of 4 frames (shut -> open) under
+    `apps/bonanza/courses/gates/`, its own footprint (`# foot`, `# cells`
+    1 - 3), named per gate (`art <name>`) or per course (`gateart`); the
+    frames are the channel's (one 2-bit frame a channel in the slot, a
+    step every 8), the cell opens at frame 3; the tool cuts the frames'
+    change into lanes. GATE carries three: a crumbling wall between two
+    blocks, a portcullis rising into its arch, a door swinging open.
+    Shipped courses byte for byte; resident 0; the part +115 bytes.
+  - [ ] a drawbridge art on a course (built, unproved), a timed bridge's
+    art, per-pose occluders (SPEC.md 128.41.12.6).
