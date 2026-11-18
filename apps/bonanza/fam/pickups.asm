@@ -1,6 +1,6 @@
 ; =============================================================================
-; apps/bonanza/fam/pickups.asm - BONANZA's PICKUPS FAMILY (SPEC.md 128.25.9,
-; 128.25.19): three kinds, each taken when the ball's centre is in its cell
+; apps/bonanza/fam/pickups.asm - BONANZA's PICKUPS FAMILY (SPEC.md 130.25.9,
+; 130.25.19): three kinds, each taken when the ball's centre is in its cell
 ; (CONTACT) and its one state bit, COLLECTED, clear -
 ;   hourglass (19)  +BZ_PU_HGSEC on the limit (bz_tsec; the clocks' next second
 ;                   shows it), once an attempt (ATTEMPT), and HIDDEN while
@@ -23,7 +23,7 @@
 ; written again because a part cannot call the package.
 ; bbcourse.PickupFamily is the model, step for step.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; probe is (build/bonanza-art/bzlink.inc: no code label).  Entered by `call
 ; far` with DS = ES = the package, AL = the slot, AH = the argument (CONTACT,
 ; POSE: the kind), BX = the element; `retf`.
@@ -43,7 +43,7 @@ org 0
     db 0
     dw pu_reset, 0, pu_contact, pu_step, pu_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 %if BZ_K_SPEED != BZ_K_HOURGLASS + 1 || BZ_K_JUMP != BZ_K_HOURGLASS + 2
  %error "the pickups' kinds are one run (the part's +9, +10)"

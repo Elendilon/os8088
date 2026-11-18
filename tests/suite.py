@@ -327,6 +327,26 @@ FAST = [
         "int 19h they existed to read it at, and passed. m.sym() follows the "
         "slide; a deliberate unslid use is a line in tests/coldsym.txt. "
         "VERIFIED TO FAIL on the three rows' old forms"),
+    Row("hostwait", "full", py("tests/unit/t_hostwait.py"), 1.0,
+        "FULL (owner, 2026-11-15): the commonly-done-wrong class - every row "
+        "author reaches for a host sleep - so it is paid at integration, not "
+        "per `make`. 0.9 s cold on four cores (the misses parsed in "
+        "parallel, each walk pruned to the subtrees holding a token; "
+        "`--selfcheck` holds that equal to the full walk over every file), "
+        "~0.05 s off its change cache in build/. "
+        "A ROW DOES NOT PACE THE GUEST IN HOST SECONDS, AS A RATCHET: every "
+        "tests/*.py is walked (AST, so comments never count) for time.sleep "
+        "outside a poll, time.time()/monotonic() deadlines, fixed ports and "
+        "/tmp paths - the four that go red under a loaded soak and green "
+        "alone - and for the guest-clock waste (launch boot=N, click "
+        "settle=N, advance(frames=), poll > 0.05, required=False). Each "
+        "(file, kind) count must EQUAL tests/hostwait.txt's line: above is a "
+        "new host wait, below is a stale line, and `--update` lowers it in "
+        "one command (it never raises one without --raise and a reason). "
+        "VERIFIED TO FAIL: a time.sleep(2) after a click in tests/dispcp.py "
+        "names the file, kind and line; a `# host:` mark removed from "
+        "tests/hibernate.py names its deadline; a line left one high says "
+        "to --update (docs/plans/soak-speed-2/flake.md)"),
     Row("bochssleep", "soak", py("tests/unit/t_bochssleep.py"), 1.5,
         "SOAK (owner, 2026-11-11): about the suite's own harness and "
         "fixtures, not the OS - the release soak runs every row "
@@ -369,7 +389,8 @@ FAST = [
         "alone reported every package as not shipping, and a substring test "
         "for WIRE.O88 matched THEWIRE.O88. FAST for t_movable's argument - it "
         "is a rule about what apps/ means, so it belongs in front of the next "
-        "make rather than the next soak run"),
+        "make rather than the next soak run",
+        wants=("build/livepayload.txt",)),
     Row("excitebikeclean", "soak", py("tests/unit/t_excitebike_clean.py"), 0.2,
         "EXCITEBIKE carries nothing from a NES ROM or its disassembly "
         "(SPEC.md 102.2, docs/plans/EXCITEBIKE-PLAN.md section 0). The art and "
@@ -700,7 +721,7 @@ FAST = [
         "figures were measured on, entry for entry. Soak because it "
         "rebuilds the corpus with numpy (seconds, not a fast row)",
         needs=("numpy",)),
-    Row("waverack", "soak", py("tests/waverack.py"), 150.0,
+    Row("waverack", "soak", py("tests/waverack.py"), 90.0,
         "WaveRack's document (SPEC.md 123.3-123.5) on QEMU, because what "
         "is asserted is behaviour: every tools/wrsim.py fixture on `make "
         "waverackfix`'s floppy opened through File > Open and the Standard "
@@ -715,7 +736,7 @@ FAST = [
         "the window after the zoom equal to a forced full repaint",
         needs=("qemu", "nasm", "pil"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/wrfix.img", "build/waverack.bin")),
-    Row("waverackplay", "soak", py("tests/waverackplay.py"), 480.0,
+    Row("waverackplay", "soak", py("tests/waverackplay.py"), 150.0,
         "WaveRack's transport (SPEC.md 123.6, 123.8, 123.9) on QEMU's SB16, "
         "its output captured by the wav audiodev at the rate the card plays "
         "and each play a slice held to tools/wrsim.py's convert(): "
@@ -738,7 +759,7 @@ FAST = [
         needs=("qemu", "nasm", "numpy"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/wrfix.img", "build/waverack.bin",
                "build/mixercfg/SYSTEM.CFG")),
-    Row("waverackedit", "soak", py("tests/waverackedit.py"), 420.0,
+    Row("waverackedit", "soak", py("tests/waverackedit.py"), 60.0,
         "WaveRack's edits and saves (SPEC.md 123.3, 123.9, 123.10) on QEMU, "
         "on a floppy the row builds (the fixtures in MEDIA/, a filler leaving "
         "300 KB free): TONE8.WAV cut, pasted, pasted back where it came from "
@@ -755,10 +776,10 @@ FAST = [
         "it gone; a Save As refused for want of space before a byte is "
         "written; the 64-piece refusal; and the close box asking about an "
         "edited document, Discard closing it with no claim left",
-        needs=("qemu", "nasm"), serial=True, timeout=900,
+        needs=("qemu", "nasm"), serial=True, timeout=1500,
         wants=("build/os8088.img", "build/waverack.o88",
                "build/waverack.bin")),
-    Row("waverackdisk", "soak", py("tests/waverackdisk.py"), 1500.0,
+    Row("waverackdisk", "soak", py("tests/waverackdisk.py"), 400.0,
         "WaveRack PLAYING THROUGH DISK READS (SPEC.md 123.6) on MartyPC, "
         "because the defect is time: disk.inc holds sch_lock across every "
         "int 13h, so nothing converts while anything reads. Each leg runs "
@@ -776,32 +797,87 @@ FAST = [
         "CLUSTERS (os88hdd.py --spc 64): Wave 4 refused it; this one opens, "
         "plays and saves on it, the saved file read back off the VHD byte "
         "for byte",
-        needs=("marty", "nasm"), serial=True, timeout=3600,
+        needs=("marty", "nasm"), serial=True, timeout=1800,
         wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/sound.drv", "build/mixercfg/SYSTEM.CFG")),
-    Row("waverackrec", "soak", py("tests/waverackrec.py"), 2400.0,
-        "WaveRack RECORDS (SPEC.md 123.7) on MartyPC, whose SB 2.01 ADC "
-        "records a flat 80h, because a take is time: the card writes the "
-        "ring by DMA while disk.inc holds sch_lock across every int 13h. "
-        "Every take is read back off the disk on the host and held to "
-        "tools/wrsim.py's take_header byte for byte, its frames = what "
+    # waverackrec IS FIVE ROWS, one a leg (docs/plans/soak-speed-2/games.md):
+    # every leg boots its own machine and shares nothing with the next but
+    # the package build and a 2 MB fixture written in a second, so one
+    # 2,400 s row was the soak's longest pole for no shared state at all.
+    # Run apart - and `script:private` lifting the script lock, every scratch
+    # being mkdtemp's or launch's (os88test.lane_locks) - the lane runs the
+    # legs at once. `-k 'waverackrec*'` is the old row.
+    Row("waverackrec", "soak", py("tests/waverackrec.py", "--leg", "hdd"),
+        300.0,
+        "WaveRack RECORDS (SPEC.md 123.7) onto a HARD DISK on MartyPC, whose "
+        "SB 2.01 ADC records a flat 80h, because a take is time: the card "
+        "writes the ring by DMA while disk.inc holds sch_lock across every "
+        "int 13h. Every take is read back off the disk on the host and held "
+        "to tools/wrsim.py's take_header byte for byte, its frames = what "
         "WaveRack wrote = the card's own count, every byte 80h, no "
-        "overrun. HARD DISK first: 60 s at 11,025 Hz (the tick priced by "
-        "breakpoints; INPUT GAIN's table read out of the ring claim against "
-        "wrsim) and at 15,000 Hz on a VHD of small clusters, a take while a "
-        "second WaveRack scans 2 MB (and does not offer the live take), "
-        "Pause and Record again (the frames are the two streams summed), "
-        "and a take killed with the machine: unfinished on the VHD, then "
-        "File > Recover Take on the next boot opens it dirty and marks "
-        "WAVERACK.TAK done. 32 KB CLUSTERS (a VGA XT, os88hdd.py --spc 64): "
-        "both rates, the header one cluster, the face photographed. FLOPPY "
-        "second: 30 s onto 1.44 MB, then DISK FULL (the take kept, whole "
-        "writes). And QEMU's SB16: 'No input from the card', no file left. "
-        "CALLS (US-11, written in wave 6a): a -DWR_CALLS build counts the "
-        "drawing primitives a tick idle, recording, playing and for one cut "
-        "on the XT, and prices wr_redraw's tick while recording",
-        needs=("marty", "qemu", "nasm"), serial=True, timeout=5400,
+        "overrun. 60 s at 11,025 Hz (the tick priced by breakpoints; INPUT "
+        "GAIN's table read out of the ring claim against wrsim) and at "
+        "15,000 Hz on a VHD of small clusters, a take while a second "
+        "WaveRack scans 2 MB (and does not offer the live take), Pause and "
+        "Record again (the frames are the two streams summed), and a take "
+        "killed with the machine: unfinished on the VHD, then File > "
+        "Recover Take on the next boot opens it dirty and marks WAVERACK.TAK "
+        "done. Its sibling legs are waverackrec-clu, -fd, -calls and -q",
+        needs=("marty", "nasm"), serial=True, timeout=1800,
+        locks=("script:private",),
+        wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/sound.drv", "build/mixercfg/SYSTEM.CFG",
+               "build/wrfix.img")),
+    Row("waverackrec-clu", "soak", py("tests/waverackrec.py", "--leg",
+                                      "bigclu"), 200.0,
+        "WaveRack RECORDS onto 32 KB CLUSTERS (waverackrec's bigclu leg, "
+        "SPEC.md 123.7): a VGA XT on a 321 MB VHD of os88hdd.py --spc 64, "
+        "60 s at 11,025 Hz and at 15,000 Hz, the header one cluster and "
+        "every write 32 KB, each take read back off the VHD against "
+        "wrsim.take_header with frames = the card's count and no overrun, "
+        "the colour face photographed mid-take",
+        needs=("marty", "nasm"), serial=True, timeout=1200,
+        locks=("script:private",),
+        wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/sound.drv", "build/mixercfg/SYSTEM.CFG",
+               "build/wrfix.img")),
+    Row("waverackrec-fd", "soak", py("tests/waverackrec.py", "--leg",
+                                     "floppy"), 90.0,
+        "WaveRack RECORDS onto a FLOPPY (waverackrec's floppy leg, SPEC.md "
+        "123.7): a 1.44 MB B: filled so a 30 s take at 8,000 Hz fits and a "
+        "second runs out of room - 11,025 Hz refused there first ('Floppy: "
+        "use 8,000 Hz'), the first take read back whole, the second DISK "
+        "FULL ('Disk full: take kept') with whole writes",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        locks=("script:private",),
+        wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/sound.drv", "build/mixercfg/SYSTEM.CFG",
+               "build/wrfix.img")),
+    Row("waverackrec-calls", "soak", py("tests/waverackrec.py", "--leg",
+                                        "calls"), 90.0,
+        "WaveRack's redraw cost on the target (waverackrec's calls leg, "
+        "US-11): a -DWR_CALLS build counts the drawing primitives a tick "
+        "idle, recording, playing the take and for one cut on the 5150 + "
+        "Hercules + XT-IDE, and prices wr_redraw's tick while recording and "
+        "a full repaint each way in guest cycles",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        locks=("script:private",),
+        wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
+               "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/sound.drv", "build/mixercfg/SYSTEM.CFG",
+               "build/wrfix.img")),
+    Row("waverackrec-q", "soak", py("tests/waverackrec.py", "--leg",
+                                    "noinput"), 30.0,
+        "WaveRack's Record with NO INPUT (waverackrec's noinput leg, SPEC.md "
+        "123.7) on QEMU's SB16, which captures nothing: 11,025 Hz onto the B: "
+        "floppy refused ('Floppy: use 8,000 Hz'); at 8,000 Hz Record answers "
+        "'No input from the card', the heap as it was and no VOICE file left",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        locks=("script:private",),
         wants=("build/os8088.img", "build/waverack.o88", "build/waverack.bin",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/sound.drv", "build/mixercfg/SYSTEM.CFG",
@@ -834,6 +910,7 @@ FAST = [
         "times in a live play, red on a stock QEMU (OS88_QEMUVT=0 by "
         "hand)",
         needs=("qemu", "qemuvt", "nasm", "mtools", "numpy"), serial=True,
+        locks=("script:private",),   # (every Rig a mkdtemp: games.md)
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
@@ -843,7 +920,7 @@ FAST = [
                                "--skip", "playwav", "--skip", "pause",
                                "--skip", "wavdirs", "--skip", "xtpeak",
                                "--skip", "mainstall"),
-        750.0,
+        320.0,
         "XTMP3's engine (SPEC.md 121.5-121.7, docs/xtmp3/ENGINE.md) over the "
         "STUB backend (`make xtmp3stub`: a tone whose cost a rung is set by "
         "X3STUB.CFG), on QEMU because what is asserted is behaviour: the "
@@ -878,6 +955,7 @@ FAST = [
         "no underrun are xtmp3rate's, on a fixed-speed guest (-icount); "
         "everything here is behaviour and keeps QEMU's own clock",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
+        locks=("script:private",),   # (every Rig a mkdtemp: games.md)
         timeout=2700,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
@@ -1573,6 +1651,19 @@ FAST = [
         "at all, and whether five named packages' small arm still assembles "
         "is not 'did you obviously break the OS'. It follows t_buildmatrix "
         "down"),
+    Row("soaksnap", "soak", py("tests/unit/t_soaksnap.py"), 1.1,
+        "SOAK: about the suite's own runner, not the OS "
+        "(docs/WRITING-TESTS.md 2.1). tools/os88soak.py runs a frozen soak "
+        "INSIDE a snapshot of the checkout - a commit object made with a "
+        "throw-away index, checked out into a reused git worktree under "
+        "build/soak/src/ (docs/plans/SOAK-PARALLEL.md 14.4) - so the session "
+        "that started it may edit, commit, `make` and `make marty` while it "
+        "runs. Checks on a scratch repository, with no emulator and no make, "
+        "that the snapshot carries the working tree and touches none of the "
+        "operator's index, refs or files; that a reused slot rewrites only "
+        "what differs and keeps its warm build/; that a live or resumable "
+        "run's slot is never re-pointed or pruned; and that MartyPC's binary "
+        "is a copy while its instance registry is the shared one."),
     Row("smallreq", "soak", py("tests/unit/t_smallreq.py"), 0.1,
         "SPEC.md 24.5 on the BUILT floppy: nothing on a small disk may need "
         "something kern_small has not got. Every one of those omissions is a "
@@ -2080,7 +2171,8 @@ FAST = [
         "and a plain `make` rebuilds an existing one first), because a list "
         "can name a file that never lands. It reads that artefact rather than running `make "
         "print-`, which registry refuses and rightly: a knob in the "
-        "environment makes $(VIDSTAMP) delete build/kernel.bin"),
+        "environment makes $(VIDSTAMP) delete build/kernel.bin",
+        wants=("build/livepayload.txt",)),
     Row("catdisk", "fast", py("tests/unit/t_catdisk.py"), 0.1,
         "SPEC.md 24.6's three category disks, checked for the one thing they "
         "ARE: packages at the ROOT with no folder to click into, MEDIA/ and "
@@ -2102,7 +2194,8 @@ FAST = [
         "through compression, os88mini baking the shipped bytes and not the "
         "reduction, DOS.O88 setting the bit, and every shipped ASSOC.DAT being "
         "version 2 with the glyph in DOS's row. Host-only, one package format "
-        "and three tools, which is why it is here beside `pkg` and not in soak"),
+        "and three tools, which is why it is here beside `pkg` and not in soak",
+        wants=("build/livepayload.txt",)),
     Row("stikcard", "soak", py("tests/unit/t_stikcard.py"), 0.6,
         "SOAK (owner, 2026-11-12: Sticky Apps' card format). a Sticky App carries a CARD (SPEC.md 110.12) - name, description and "
         "32x32 picture in the clear prefix behind flags bit 7: the validator's "
@@ -3183,7 +3276,7 @@ FULL = [
         "and boots it to a desktop, so what this adds is the THREE-adapter "
         "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
-    Row("thewire", "soak", py("tests/thewire.py"), 160.0,
+    Row("thewire", "soak", py("tests/thewire.py"), 60.0,
         "THE WIRE, end to end over a real card (SPEC.md 92.12): a host HTTP "
         "server on 8092 serves a fixture catalog packed by tools/os88wire.py "
         "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
@@ -3365,6 +3458,20 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("inputchk", "soak", py("tests/unit/t_inputchk.py"), 0.1,
+        "SPEC.md 136.4: INPUTCHK reads the kernel's 'MO' debug block by "
+        "offset - the one shipped reader SPEC.md 57.3 names - so "
+        "apps/inputchk/moblk.inc must equal kernel/mouse.inc's real layout "
+        "(every MOS_*, MOP_*, MOC_* member, the descriptor's four words read "
+        "off the image), the two bytes the keyboard section reads past the "
+        "span (mou_p2cmdr, and kern_big's mou_p2m1 at KBO_P2M1, SPEC.md "
+        "136.11.1) must be where it reads them, and the three 'ID' words "
+        "build/inputchk_kid.inc carries must be what the map says they are. "
+        "Upstream registers its twin in FAST, because any KERNEL change can "
+        "break it and only `make` runs on every kernel change; here it is "
+        "soak until the owner adds it to tests/tierlock.txt (WRITING-TESTS "
+        "2.0). Reads kernel.map and kernel-full.bin, assembles "
+        "nothing"),
     Row("wirefleetlink", "soak", py("tests/wirefleetlink.py"), 140.0,
         "WireFleet two UART peers: turn rules, private fleets, lost result, save/load/reconnect, duplicate commands/chat, malformed frames, victory and cleanup (SPEC.md 114/115)",
         needs=("qemu", "nasm", "pil"), wants=("build/wireflet.img", "build/os8088.img"), timeout=300),
@@ -4626,6 +4733,33 @@ SOAK = [
         "...and that off a 360KB disk, with the head slack. Needs `make "
         "msegw`.",
         needs=("marty",), serial=True, wants=("build/msegwz360.img",)),
+    Row("msegb", "soak", py("tests/multiseg.py", "1440", "--big"), 30.0,
+        "SPEC.md 20.12.15: ONE PART PASSES 64KB. MSEG built -DMSEG_BIG, "
+        "OP_BIG on parts 1, 2 and the lazy 6, each padded past 65,024 bytes "
+        "by tests/multiseg/mkwide.py: two big rows read straight into the "
+        "carve, and a big lazy row fetched on a key and moved down onto its "
+        "claim. Every byte of all three is read back out of the guest and "
+        "compared with the padded module, and each row is asserted past "
+        "65,024 with the flag, so a padding that shrank cannot pass it. "
+        "Needs `make msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegb.img",)),
+    Row("msegb360", "soak", py("tests/multiseg.py", "360", "--big"), 30.0,
+        "...and off a 360KB disk, where the head slack is non-zero and the "
+        "lazy part's move-down copies past 64KB in pieces. Needs `make "
+        "msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegb360.img",)),
+    Row("msegbz", "soak", py("tests/multiseg.py", "1440", "--comp", "--big"),
+        30.0,
+        "...and COMPRESSED: part 2 packs to 75KB and expands to 122KB through "
+        "OSAPI_LZ_BIG, the plain 71KB part 1 is moved down through the "
+        "compressed carve OP_CHUNK at a time, and the lazy part 6 packs past "
+        "64KB and expands on its fetch. Needs `make msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegbz.img",)),
+    Row("msegbz360", "soak", py("tests/multiseg.py", "360", "--comp",
+                                "--big"), 30.0,
+        "...and that off a 360KB disk, with the head slack. Needs `make "
+        "msegb`.",
+        needs=("marty",), serial=True, wants=("build/msegbz360.img",)),
     Row("msegnomem", "soak", py("tests/msegnomem.py"), 30.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
@@ -4738,7 +4872,10 @@ SOAK = [
         "rd_rom unchecked and RDG_RXDSBUG. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
-        needs=("nasm", "unicorn", "rgbds"), timeout=900),
+        # (timeout 900 -> 2400: a CPU-bound host row at 715 s idle is 1.3x
+        # from the kill at a load of 8 agents on 4 cores; goal 2 of
+        # docs/plans/soak-speed-2/games.md)
+        needs=("nasm", "unicorn", "rgbds"), timeout=2400),
     Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 93.0,
         "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
         "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
@@ -4933,7 +5070,7 @@ SOAK = [
     Row("rdgmove", "soak", py("tests/rdgmove.py"), 85.0,
         "NO-PINNING A1: REALDMG's claims MOVE while a game runs "
         "(docs/REALDMG-SPEC.md section 14.4). GBBANK8.GB (tools/gbours.py, "
-        "ours: gbbank.asm at 8 banks with 32KB of RAM, 16 checked switches a "
+        "ours: gbbank.asm at 8 banks with 8KB of RAM, 16 checked switches a "
         "frame) checks every bank switch by its bytes and by code run from "
         "4000-7FFF, recompiled; a compaction is posted from outside at the "
         "TRIVIAL rank and the frames, the damage memory, the recompiler's "
@@ -5513,8 +5650,8 @@ SOAK = [
         "alone. The probe is assembled into a private tree with a map.",
         needs=("marty",)),
     Row("bonanzaassets", "soak", ["python3", "tools/bonanza_assets.py", "--selfcheck"], 0.5,
-        "WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): rubber's STRETCH frame at +8,256 (BZB2 +14 = 1 rubber, 0 steel and glass), its ellipse 12 x 16 with its black ring, mask and frame at every shift and parity, the copies identical, no frame bit under a kept pixel; the part sizes 9,536 / 8,256 / 13,376; control: one stretch frame bit set under a kept pixel, caught at the stretch check alone. "
-        "BONANZA's three balls (SPEC.md 128.11.9, 128.11.17.2), host only: two "
+        "WAVE 6 (SPEC.md 130.16.4.4, 130.16.14): rubber's STRETCH frame at +8,256 (BZB2 +14 = 1 rubber, 0 steel and glass), its ellipse 12 x 16 with its black ring, mask and frame at every shift and parity, the copies identical, no frame bit under a kept pixel; the part sizes 9,536 / 8,256 / 13,376; control: one stretch frame bit set under a kept pixel, caught at the stretch check alone. "
+        "BONANZA's three balls (SPEC.md 130.11.9, 130.11.17.2), host only: two "
         "runs byte-identical file for file; BZB2's layout for rubber, steel "
         "and glass; every roll frame decoded back to the material's look at "
         "its own shift; each material's mask the same disc at every shift but "
@@ -5529,8 +5666,8 @@ SOAK = [
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
     Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 450.0,
-        "GATE 1 ROUND 3B (SPEC.md 128.17.17): ITEM 4 - BZ_MATTAB +14 BADD; ITEM 7 - the boost ADDED to a fall's bounce off 1 - 3 units (control noadd), BADD equal to the level grace's bgd, a spring's launch takes the token (control springoff), every spring and airborne tube exit on MILL's and PEAK's routes arms (control nolaunch), the spent rule through springs and tubes and at PEAK's spring (control nospent); PLAY's 2-unit top PRINTED (reached); item 6's spring control without the boost; nohyst held red at the dither map, its ramp bottom PRINTED. GATE 1 ROUND 3 (SPEC.md 128.17.16): ITEM 7 - BGRACE 4 (the offset map to +4, the grace exact at k = 1 .. 4, control grace5 for grace4); Space HELD through the first contact boosts, released before it does not (control noheld); a FALL off a ledge takes the token (16 of 16 eligible drops boost held, none with no Space; control nofall); one boost, then the ball must stop bouncing (control pump); the ledge case held THROUGH its contact refused by the take-off gate (controls heldarm, nogate); who-hits-it at least wave 6's and round 2's, holding 100%; BZ_PHYSV FDh, 53h in PHYSV_SHIPPED. WAVE 6B (SPEC.md 128.17.3 - 128.17.9, 128.17.10): ITEM 7 - Grip 6, 3, 1 against axis_feel(), ice's brakes 2, 1, 1 (max(1, (GRIP + 2) >> 2)) and every brake at least 1; the boost's trigger: the offset map at rest and rolling on PLAY's apron (every second press from the first edge after the Hop to BGRACE steps after the first contact boosts, none from BGRACE + 1), the late grace EXACT at k = 1 .. BGRACE on the apron and every ladder case, the ledge case, the accidental cases (a single tap, a Hop held any length, mashing), the mouse's button, who-hits-it PRINTED with each column at least wave 6's (_w6trig's maps, never a literal); CD5's table under its name with each row's verdict under the 6-point floor; the ladders' counts against wave 6's trigger. ITEM 4: BZ_PHYSV (53h) not in PHYSV_SHIPPED, which holds 25h. ITEM 8: --camcheck WHOLE (LATTICE's guarantees 1 - 3 and 5 over every demo and autopilot on both cards, the side check on SIDE_SCEN, the two-row check, MILL's ramp bottom, the dither map at 8, 15 and 25 steps ASSERTED, 40 and 60 PRINTED, the half-rate pass REPORTED) and BENCH's eight directions under bz_camscr ASSERTED (LATTICE's PRINTED). Host controls, each red at its own item: iceplain, heldarm, hopedge, nograce, grace4, graceoff (item 7); nohyst, nocap, ringy, nopreaim, side0, noscr (item 8); physv25 (item 4); wave 6's carried. The course parts and identities unchanged. secs: 363 s MEASURED on the host (beside other host checks) x 1.25; --camcheck alone about 64 s of it. WAVE 6 (SPEC.md 128.16.13, 128.16.14): ITEM 7 - the material table printed from Physics and asserted against axis_feel() (the axis model under the round-up drag equal to wave 2's written row), the STEP LADDER and the GAP LADDER (no ball crosses three tiles level, the boost included, every window position; onto a lower floor - half a unit to 3 units down - steel never and no Hop alone down to 1.5 units, the boost's and the deeper Hop's crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed by gap3_scan()), a Hop on a spring's cell never boosts (the spring's launch spends the token), no gain after a 1.5- or 2-unit drop and the 1-unit drop's boost with sqf 0, one boost a chain, the token at the first contact only, the Grip chain, firm level floors only (MILL's lift slab among them), the PLAYGROUND's rungs dead ends and its 2-unit top outside reach_closure(), its rungs' and notches' sweeps, the brake strip's Grip and play_fall() with nosafe and nolatch, ledge_gaps() per ball, the up-ramp distance per ball, all seven courses under their bounds and budgets; ITEM 1 re-anchored on 503031d4 (that commit's tool from git on this tree's six course texts against this tool with the reach's 5b inputs, the stored parts byte for byte; a SKIP is a failure); ITEM 4 BZ_PHYSV not 00h and not in PHYSV_SHIPPED; ITEM 8 BENCH's eight directions with the ground-line Glide; ITEM 9 a stale or demoted shipped .bzd refused, BZD6 boosting, reaching the ledge and ending at the goal, a course in AUTHOR without its .bzd refused; the palette statement's refusals (item 2). Host controls, each at its own item: boost400 and boost300 (the import assertions), boostrise, slabboost, noclear, springtok, remwide, gap3, physv, physv0, stalebzd, noboostdemo, deadend. The RAM forms' identities (wave 6): BENCH C0B1h, FIRST E9F8h, TRIAL 465Bh, MILL DAE0h, MOON 4472h, PEAK 57DBh, PLAY 18E6h; the six courses 179,134 bytes of RAM, 43,024 LZ4, 34,850 LZB, the PLAYGROUND 34,024 / 5,371 / 4,352 (MEASURED on the host by the tool). secs: the tool stage's 4 min 20 s over the seven courses (re-taken in the final pass). "
-        "WAVE 5b (SPEC.md 128.15.12.3, 128.15.13): every course's model written back as BZC1 is "
+        "GATE 1 ROUND 3B (SPEC.md 130.17.17): ITEM 4 - BZ_MATTAB +14 BADD; ITEM 7 - the boost ADDED to a fall's bounce off 1 - 3 units (control noadd), BADD equal to the level grace's bgd, a spring's launch takes the token (control springoff), every spring and airborne tube exit on MILL's and PEAK's routes arms (control nolaunch), the spent rule through springs and tubes and at PEAK's spring (control nospent); PLAY's 2-unit top PRINTED (reached); item 6's spring control without the boost; nohyst held red at the dither map, its ramp bottom PRINTED. GATE 1 ROUND 3 (SPEC.md 130.17.16): ITEM 7 - BGRACE 4 (the offset map to +4, the grace exact at k = 1 .. 4, control grace5 for grace4); Space HELD through the first contact boosts, released before it does not (control noheld); a FALL off a ledge takes the token (16 of 16 eligible drops boost held, none with no Space; control nofall); one boost, then the ball must stop bouncing (control pump); the ledge case held THROUGH its contact refused by the take-off gate (controls heldarm, nogate); who-hits-it at least wave 6's and round 2's, holding 100%; BZ_PHYSV FDh, 53h in PHYSV_SHIPPED. WAVE 6B (SPEC.md 130.17.3 - 130.17.9, 130.17.10): ITEM 7 - Grip 6, 3, 1 against axis_feel(), ice's brakes 2, 1, 1 (max(1, (GRIP + 2) >> 2)) and every brake at least 1; the boost's trigger: the offset map at rest and rolling on PLAY's apron (every second press from the first edge after the Hop to BGRACE steps after the first contact boosts, none from BGRACE + 1), the late grace EXACT at k = 1 .. BGRACE on the apron and every ladder case, the ledge case, the accidental cases (a single tap, a Hop held any length, mashing), the mouse's button, who-hits-it PRINTED with each column at least wave 6's (_w6trig's maps, never a literal); CD5's table under its name with each row's verdict under the 6-point floor; the ladders' counts against wave 6's trigger. ITEM 4: BZ_PHYSV (53h) not in PHYSV_SHIPPED, which holds 25h. ITEM 8: --camcheck WHOLE (LATTICE's guarantees 1 - 3 and 5 over every demo and autopilot on both cards, the side check on SIDE_SCEN, the two-row check, MILL's ramp bottom, the dither map at 8, 15 and 25 steps ASSERTED, 40 and 60 PRINTED, the half-rate pass REPORTED) and BENCH's eight directions under bz_camscr ASSERTED (LATTICE's PRINTED). Host controls, each red at its own item: iceplain, heldarm, hopedge, nograce, grace4, graceoff (item 7); nohyst, nocap, ringy, nopreaim, side0, noscr (item 8); physv25 (item 4); wave 6's carried. The course parts and identities unchanged. secs: 363 s MEASURED on the host (beside other host checks) x 1.25; --camcheck alone about 64 s of it. WAVE 6 (SPEC.md 130.16.13, 130.16.14): ITEM 7 - the material table printed from Physics and asserted against axis_feel() (the axis model under the round-up drag equal to wave 2's written row), the STEP LADDER and the GAP LADDER (no ball crosses three tiles level, the boost included, every window position; onto a lower floor - half a unit to 3 units down - steel never and no Hop alone down to 1.5 units, the boost's and the deeper Hop's crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed by gap3_scan()), a Hop on a spring's cell never boosts (the spring's launch spends the token), no gain after a 1.5- or 2-unit drop and the 1-unit drop's boost with sqf 0, one boost a chain, the token at the first contact only, the Grip chain, firm level floors only (MILL's lift slab among them), the PLAYGROUND's rungs dead ends and its 2-unit top outside reach_closure(), its rungs' and notches' sweeps, the brake strip's Grip and play_fall() with nosafe and nolatch, ledge_gaps() per ball, the up-ramp distance per ball, all seven courses under their bounds and budgets; ITEM 1 re-anchored on 503031d4 (that commit's tool from git on this tree's six course texts against this tool with the reach's 5b inputs, the stored parts byte for byte; a SKIP is a failure); ITEM 4 BZ_PHYSV not 00h and not in PHYSV_SHIPPED; ITEM 8 BENCH's eight directions with the ground-line Glide; ITEM 9 a stale or demoted shipped .bzd refused, BZD6 boosting, reaching the ledge and ending at the goal, a course in AUTHOR without its .bzd refused; the palette statement's refusals (item 2). Host controls, each at its own item: boost400 and boost300 (the import assertions), boostrise, slabboost, noclear, springtok, remwide, gap3, physv, physv0, stalebzd, noboostdemo, deadend. The RAM forms' identities (wave 6): BENCH C0B1h, FIRST E9F8h, TRIAL 465Bh, MILL DAE0h, MOON 4472h, PEAK 57DBh, PLAY 18E6h; the six courses 179,134 bytes of RAM, 43,024 LZ4, 34,850 LZB, the PLAYGROUND 34,024 / 5,371 / 4,352 (MEASURED on the host by the tool). secs: the tool stage's 4 min 20 s over the seven courses (re-taken in the final pass). "
+        "WAVE 5b (SPEC.md 130.15.12.3, 130.15.13): every course's model written back as BZC1 is "
         "ef59209a's part byte for byte (that commit's tool run from git; EXIT 77 when it cannot be "
         "had) and every BZ<K>.BIN is its STORED form; ITEM 10, the compact form: expand(stored) == "
         "RAM with the IN-PLACE SIMULATION, the directory's place-and-size rules, "
@@ -5538,7 +5675,7 @@ SOAK = [
         "side of the clamps, MTAB, the identity three ways, the follow-up's CELLS exceptions (a subset of the "
         "lifts' shafts: none), and seven controls (ROWPLANES low bytes "
         "first, SB one lower, a wrapping key, WDIFF a record short, MTAB an entry short, the I/R "
-        "boundary moved, the CELLS rule without SAFE's OBS clause); ITEM 11, the ghost dither and the visibility audit (SPEC.md 128.15.10): every K mask "
+        "boundary moved, the CELLS rule without SAFE's OBS clause); ITEM 11, the ghost dither and the visibility audit (SPEC.md 130.15.10): every K mask "
         "holds the checker (the kept lattice x + y ODD, the shadow's dark pixels' complement) in both RAM forms "
         "and the masks deduplicated again, no K mask all-keep (the records laying nothing once dithered left out "
         "of the part and kept by the rule), the balls' masks and the slab "
@@ -5548,11 +5685,11 @@ SOAK = [
         "checker not stripped; the rule's composite fed the dithered masks), and the audit printed for every "
         "course in REPORT mode (marks against 75% and 50%, hidden stretches over 0.5 s); ITEM 12, the budget: PEAK as a 30 s course refused, target 45, a doubled "
         "and a missing target refused, each course's LZ4 and LZB bytes against its budget. The RAM forms' "
-        "identities (SPEC.md 128.15.10.6): BENCH 32F8h, FIRST 22C8h, TRIAL B164h, MILL DAE0h, MOON EA76h, PEAK "
-        "0F13h; the six courses (D, the shipped 4-byte record: SPEC.md 128.15.5.4; the dither and the follow-up in): "
+        "identities (SPEC.md 130.15.10.6): BENCH 32F8h, FIRST 22C8h, TRIAL B164h, MILL DAE0h, MOON EA76h, PEAK "
+        "0F13h; the six courses (D, the shipped 4-byte record: SPEC.md 130.15.5.4; the dither and the follow-up in): "
         "179,680 bytes of RAM, 43,247 LZ4 and 35,062 LZB packed (MEASURED on the host). secs MEASURED in 5b's "
         "re-take on the shipped D build (179.4 s alone; 188.1 s in 5b's first final pass's scoped soak). "
-        "WAVE 4 (SPEC.md 128.14.14, 128.14.18 item 9, 128.14.20): its comparisons with 573eec83's "
+        "WAVE 4 (SPEC.md 130.14.14, 130.14.18 item 9, 130.14.20): its comparisons with 573eec83's "
         "parts are carried by 5b's with ef59209a's; every refusal of the new statements (checkpoint, pad, cup, "
         "spring, par, way's branch; NO TRAP) with the controls a cup on a "
         "ramp and a second cup accepted; the records of kinds 5 - 8, BZG1's flags and pad mask, "
@@ -5562,9 +5699,9 @@ SOAK = [
         "MOON's and PEAK's routes; ROUND OPENINGS (item 3) with five controls; every shipped demo "
         "replayed by the model to its end, another physics re-stamped or demoted, another build "
         "of its course failing (item 9, its identity control). secs MEASURED in wave 4's final pass "
-        "(131 s). WAVE 3 (SPEC.md 128.12.13.1): the four courses (MILL too), BENCH, FIRST and "
+        "(131 s). WAVE 3 (SPEC.md 130.12.13.1): the four courses (MILL too), BENCH, FIRST and "
         "TRIAL byte for byte wave 2's parts (848ade16's tool run from git) but BZG1 +18, "
-        "the IDENTITY (128.12.8's position-sensitive checksum, printed; MILL with its two "
+        "the IDENTITY (130.12.8's position-sensitive checksum, printed; MILL with its two "
         "windmills' seeds exchanged must have another) - EXIT 77 when that commit cannot be "
         "had, never a pass; every prop grammar and bound refusal (tube, windmill, bumper, "
         "lift, a 17th prop, a 7th lane in a window, three rotor changes on a step, a windmill "
@@ -5578,7 +5715,7 @@ SOAK = [
         "under, boarding), each with its negative control; MILL's route in the CGA's 1,093 "
         "steps and the Hercules's 1,289, every kick LIT on its frame for 8 frames on the "
         "heavy-rule model. Wave 2's: "
-        "BONANZA's course compiler and physics model (SPEC.md 128.11.17.1), "
+        "BONANZA's course compiler and physics model (SPEC.md 130.11.17.1), "
         "host only, on every course of the Makefile's BZ_COURSES (bench, first, "
         "trial): (1) two compiles byte-identical; (2) every grammar and bound "
         "refusal fires (a block over 4 records, a block row over 128, ice or "
@@ -5597,7 +5734,7 @@ SOAK = [
         "eight negative controls each failing its own run; (8) BENCH's route, "
         "TRIAL's, FIRST with each ball, and GLIDE's eight directions at step "
         "rates 0.96 - 1.04. secs MEASURED on the host for wave 3 (78.9 s; 64 s at the tool "
-        "stage, the review's seed-exchange control compiling MILL twice more). secs MEASURED in 6b's final pass (409.7 s, the host busy with the unicorn jobs; SPEC.md 128.17.14). "
+        "stage, the review's seed-exchange control compiling MILL twice more). secs MEASURED in 6b's final pass (409.7 s, the host busy with the unicorn jobs; SPEC.md 130.17.14). "
         "CPUS 4 (w9, tri2): since bd7bc0b8a --selfcheck forks its sections and compiles BB_JOBS at a time (min(4, "
         "cores)), so its CPU runs about 4x its wall and the runner's CPU-charged timeout (4 x secs + 30) killed it: "
         "TIMEOUT at 1670 CPU s after 562 s of wall beside four emulators on c5cb1f176, where the whole check is "
@@ -5605,11 +5742,11 @@ SOAK = [
         "that CPU over 4 cores; BB_JOBS left at its default under the soak (1 would make the row serial).",
         cpus=4),
     Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 755.0,
-        "8R (the final pass of 7a644820e): the Hercules' `wrapcommit` (SPEC.md 128.13.5.1) is the LOW scenario's again - since wave 6's final pass held the ball RESTING, post 4 (the one MILL lane crossing the ring's end) had no rest at window line 160 and low_plan fell silently to post 6, leaving the feature to the MILL benchmark's one commit of post 4 a run or none; a crossing post may now stand up to LOW_NEAR (24) px off LOW_F (post 4 at line 144: AHEAD 4, BEHIND 2, 6 wrapcommits; bonanzawheel's LOW leg keeps line 160). And the CGA's required LEAD: the LOW scenario's dark frames had become too early for it (LEADs 3, 1, then 0 of three on 7a644820e, run-to-run phase noise on top) - on the CGA the MILL play's LOW runs 12 cycles, each dark frame held LOW_DARK (8 - 11 x 256 PIT counts: LEAD 2, 6, 6 in three runs). "
-        "8R.13 (SPEC.md 128.10.11.2, 128.17.10): the PROBE re-found on BENCH's world line 0 raised 25 lines since round 3b (the start settles at R0 3 / 1, the edge's shadow off the window): a LEAD-IN at the window's centre column pulls the window to the top clamp (not judged), then BACK frames (the right-most x whose shadow box fits: multi-box) alternate with SPLIT frames at the edge; a two-ball-box frame with no shadow box is judged like a multi-box one and the one-box lateness check names a frame of ONE box (MEASURED CGA 21 / 21, Hercules 18 / 18; row0 and late2 red at their checks). CAMHYST re-found on the dither map (no RAMP_PATTERNS pattern reverses with Hr 0 since round 3b): the `dither` replay, PLAY's demo to step 14 then taps of 60, Hr 0 reversing on both cards at 0.8x - 1.25x the step rate on the model; the arm runs on both cards, red at the reversal check. "
-        "WAVE 6B (SPEC.md 128.17.6, 128.17.10): BENCH's leg pokes [bz_camscr] 1 (the SCRIPTED camera, 128.17.6.7: the eight directions are the scroll engine's; LATTICE's own on BENCH are bbcourse item 8's to report) and back to 0 after. THE CAMERA LEG (part `camera`, its own: its arms run alone), GLIDE (LATTICE), both cards, each replay FOUND on the model and every check it makes proved on the shipped model first (--check-reds' camera_check): MILL's ramp bottom from RAMP_POKE (brake and ease 8; climb tries), MILL's route demo (two keeps, the chute, the cannon; the lift stretch where the uncapped model locks, CGA frame 591), PEAK's demo (the lift stretch, CGA 1723 - 1780), PEAK's autopilot to its cannon exit and 90 frames past (a log of the autopilot's own keys; Hercules exit at model frame 1144), TRIAL's 6-unit drop (bonanzaphys's bounce) and the constructed SIDE scenario (bbcourse.SIDE_SCEN). At every bz_presented the SEMANTIC checks first, on the guest's own state: the footprint inside the window outside tubes; no axis's held (bz_lax/bz_lay +4) over LAT_H2, nor over LAT_H1 after a level-1 withhold; level 1 withholding (bz_nwc/bz_nwr moved) only toward the edge whose bz_pflag bit (4 - 7) is set; for 90 frames after each tube exit no pan born fast, no rate rising, the pans running at the exit never withheld (guarantee 5); on the drop no two-row frame the model does not take. THEN the window against bbcourse.Glide fed the guest's heavy inputs (GuestHeavy: bz_heavy, bz_hedr, bz_hedc, the near bits - a lane promoted by the beam race, bz_wpro, is not in Heavy); a parting is recorded once and the replay runs on, so an arm goes red at its own check. At the end the ramp bottom's reversals from the green (none) and bz_camera's worst CLEAN span (entry to return, no sch_isr inside) at most LAT_PRICE 5,760 clocks (128.17.11's worst, a tube frame) + 25%. Red arms: camhyst (Hr 0: the climb tries reverse, Hercules), camcap (no cap: MILL's CGA demo, the held check), campreaim (no pre-aim: PEAK's cannon exit on the Hercules, guarantee 5 - not MILL's chute, whose transit pan carries its latched rate past the exit), camring (the rows read the travel ring - its y half put back in the arm as Glide's `_ringy` keeps it, the guest having deleted it: TRIAL's drop, the two-row check, CGA frame 32 and Hercules 27 on the model), camside (level 1 side-blind: the side check), latpad (bz_lattice padded ~5k clocks: the camera's span). Each camera arm's guest was run under unicorn against the arm's model (Glide _nohyst, _nocap, _nopreaim, _ringy, _side0) on its scenario at the nominal rate and is that model on every frame. `ringcy` RETIRED (rows never read the ring); campad kept on the ground-line block; GROUND's nolatch re-proved against LATTICE (its row pan HALTS before the kill, its window parting from the shipped camera's at CGA frame 221); camz, nosafe, nostretch re-proved by --check-reds; the box, probe and lift arms (ridebox, pwait2, fastwrap, mapskip and the rest of REDS) re-run in the final pass, their scenarios depending on which frames pan. secs: PREDICTED (wave 6's 410 s + the camera leg, about 6,600 CGA and 5,600 Hercules frames at ~12 s a 700), re-measured in the final pass. WAVE 6 (SPEC.md 128.16.7, 128.16.14): THE GROUND LEG (part `ground`), each scenario PROVED on the model first (--check-reds) - the PLAYGROUND's bounce chain onto the 1.5-unit ledge (bonanzaphys's boostclimb) and its boostdrop (the boost at an impact past 384), TRIAL's 6-unit drop (bonanzaphys's bounce) and the brake strip's fall into the void (bbcourse.play_fall's run, to the step before the kill) - replayed in GLIDE and in TRICKLE on both cards: in GLIDE the window (bz_R0, bz_c0) equals bbcourse.Glide's off the same log every frame; in both the footprint inside the window and, on the void fall, no row reversal while airborne; every stretch frame (bz_stf > 0) card = oracle with the oracle composing the stretch; the ground-line block's span (bz_camera.gline .. .cyd, MartyPC's cycles) at most CAM_PRICE 527 (the block's worst path, SPEC.md 128.16.7) + 25%, spans with an sch_isr entry inside left out. TRICKLE has no host model, so its windows are not compared (a deviation, SPEC.md 128.16.14 amended). Red arms: camz (the bounce chain), nosafe (the void fall's footprint, against its own model Glide(_nosafe)), nolatch (the CGA's void fall, at the window against the SHIPPED Glide: on the guest's pacing the unlatched camera reaches the kill before it reverses a row), ringcy (TRIAL's drop), nostretch (card = oracle), campad (the span, a ~430-clk pad); `contact` runs on the CGA alone (the Hercules' MILL route brings no candidate under the wheel). THE FINAL PASS (SPEC.md 128.16.14): the LOW scenario and bonanzawheel's STALE scene cut on an airborne point and then hold the ball RESTING (rest_in_window: an airborne ball's camera line is the GROUND line), and a probe frame whose shadow would fall off the window goes 40 px back; MEASURED the block's worst 470 cycles, means 360 - 436; the probe 13 multi-box frames on the CGA, 8 on the Hercules. secs: 325 s re-run alone beside two rows, x 1.25. "
-        "BONANZA's two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, "
-        "128.11.10, 128.11.17.2). The ORACLE is bbcourse's picture with the "
+        "8R (the final pass of 7a644820e): the Hercules' `wrapcommit` (SPEC.md 130.13.5.1) is the LOW scenario's again - since wave 6's final pass held the ball RESTING, post 4 (the one MILL lane crossing the ring's end) had no rest at window line 160 and low_plan fell silently to post 6, leaving the feature to the MILL benchmark's one commit of post 4 a run or none; a crossing post may now stand up to LOW_NEAR (24) px off LOW_F (post 4 at line 144: AHEAD 4, BEHIND 2, 6 wrapcommits; bonanzawheel's LOW leg keeps line 160). And the CGA's required LEAD: the LOW scenario's dark frames had become too early for it (LEADs 3, 1, then 0 of three on 7a644820e, run-to-run phase noise on top) - on the CGA the MILL play's LOW runs 12 cycles, each dark frame held LOW_DARK (8 - 11 x 256 PIT counts: LEAD 2, 6, 6 in three runs). "
+        "8R.13 (SPEC.md 130.10.11.2, 130.17.10): the PROBE re-found on BENCH's world line 0 raised 25 lines since round 3b (the start settles at R0 3 / 1, the edge's shadow off the window): a LEAD-IN at the window's centre column pulls the window to the top clamp (not judged), then BACK frames (the right-most x whose shadow box fits: multi-box) alternate with SPLIT frames at the edge; a two-ball-box frame with no shadow box is judged like a multi-box one and the one-box lateness check names a frame of ONE box (MEASURED CGA 21 / 21, Hercules 18 / 18; row0 and late2 red at their checks). CAMHYST re-found on the dither map (no RAMP_PATTERNS pattern reverses with Hr 0 since round 3b): the `dither` replay, PLAY's demo to step 14 then taps of 60, Hr 0 reversing on both cards at 0.8x - 1.25x the step rate on the model; the arm runs on both cards, red at the reversal check. "
+        "WAVE 6B (SPEC.md 130.17.6, 130.17.10): BENCH's leg pokes [bz_camscr] 1 (the SCRIPTED camera, 130.17.6.7: the eight directions are the scroll engine's; LATTICE's own on BENCH are bbcourse item 8's to report) and back to 0 after. THE CAMERA LEG (part `camera`, its own: its arms run alone), GLIDE (LATTICE), both cards, each replay FOUND on the model and every check it makes proved on the shipped model first (--check-reds' camera_check): MILL's ramp bottom from RAMP_POKE (brake and ease 8; climb tries), MILL's route demo (two keeps, the chute, the cannon; the lift stretch where the uncapped model locks, CGA frame 591), PEAK's demo (the lift stretch, CGA 1723 - 1780), PEAK's autopilot to its cannon exit and 90 frames past (a log of the autopilot's own keys; Hercules exit at model frame 1144), TRIAL's 6-unit drop (bonanzaphys's bounce) and the constructed SIDE scenario (bbcourse.SIDE_SCEN). At every bz_presented the SEMANTIC checks first, on the guest's own state: the footprint inside the window outside tubes; no axis's held (bz_lax/bz_lay +4) over LAT_H2, nor over LAT_H1 after a level-1 withhold; level 1 withholding (bz_nwc/bz_nwr moved) only toward the edge whose bz_pflag bit (4 - 7) is set; for 90 frames after each tube exit no pan born fast, no rate rising, the pans running at the exit never withheld (guarantee 5); on the drop no two-row frame the model does not take. THEN the window against bbcourse.Glide fed the guest's heavy inputs (GuestHeavy: bz_heavy, bz_hedr, bz_hedc, the near bits - a lane promoted by the beam race, bz_wpro, is not in Heavy); a parting is recorded once and the replay runs on, so an arm goes red at its own check. At the end the ramp bottom's reversals from the green (none) and bz_camera's worst CLEAN span (entry to return, no sch_isr inside) at most LAT_PRICE 5,760 clocks (130.17.11's worst, a tube frame) + 25%. Red arms: camhyst (Hr 0: the climb tries reverse, Hercules), camcap (no cap: MILL's CGA demo, the held check), campreaim (no pre-aim: PEAK's cannon exit on the Hercules, guarantee 5 - not MILL's chute, whose transit pan carries its latched rate past the exit), camring (the rows read the travel ring - its y half put back in the arm as Glide's `_ringy` keeps it, the guest having deleted it: TRIAL's drop, the two-row check, CGA frame 32 and Hercules 27 on the model), camside (level 1 side-blind: the side check), latpad (bz_lattice padded ~5k clocks: the camera's span). Each camera arm's guest was run under unicorn against the arm's model (Glide _nohyst, _nocap, _nopreaim, _ringy, _side0) on its scenario at the nominal rate and is that model on every frame. `ringcy` RETIRED (rows never read the ring); campad kept on the ground-line block; GROUND's nolatch re-proved against LATTICE (its row pan HALTS before the kill, its window parting from the shipped camera's at CGA frame 221); camz, nosafe, nostretch re-proved by --check-reds; the box, probe and lift arms (ridebox, pwait2, fastwrap, mapskip and the rest of REDS) re-run in the final pass, their scenarios depending on which frames pan. secs: PREDICTED (wave 6's 410 s + the camera leg, about 6,600 CGA and 5,600 Hercules frames at ~12 s a 700), re-measured in the final pass. WAVE 6 (SPEC.md 130.16.7, 130.16.14): THE GROUND LEG (part `ground`), each scenario PROVED on the model first (--check-reds) - the PLAYGROUND's bounce chain onto the 1.5-unit ledge (bonanzaphys's boostclimb) and its boostdrop (the boost at an impact past 384), TRIAL's 6-unit drop (bonanzaphys's bounce) and the brake strip's fall into the void (bbcourse.play_fall's run, to the step before the kill) - replayed in GLIDE and in TRICKLE on both cards: in GLIDE the window (bz_R0, bz_c0) equals bbcourse.Glide's off the same log every frame; in both the footprint inside the window and, on the void fall, no row reversal while airborne; every stretch frame (bz_stf > 0) card = oracle with the oracle composing the stretch; the ground-line block's span (bz_camera.gline .. .cyd, MartyPC's cycles) at most CAM_PRICE 527 (the block's worst path, SPEC.md 130.16.7) + 25%, spans with an sch_isr entry inside left out. TRICKLE has no host model, so its windows are not compared (a deviation, SPEC.md 130.16.14 amended). Red arms: camz (the bounce chain), nosafe (the void fall's footprint, against its own model Glide(_nosafe)), nolatch (the CGA's void fall, at the window against the SHIPPED Glide: on the guest's pacing the unlatched camera reaches the kill before it reverses a row), ringcy (TRIAL's drop), nostretch (card = oracle), campad (the span, a ~430-clk pad); `contact` runs on the CGA alone (the Hercules' MILL route brings no candidate under the wheel). THE FINAL PASS (SPEC.md 130.16.14): the LOW scenario and bonanzawheel's STALE scene cut on an airborne point and then hold the ball RESTING (rest_in_window: an airborne ball's camera line is the GROUND line), and a probe frame whose shadow would fall off the window goes 40 px back; MEASURED the block's worst 470 cycles, means 360 - 436; the probe 13 multi-box frames on the CGA, 8 on the Hercules. secs: 325 s re-run alone beside two rows, x 1.25. "
+        "BONANZA's two-way ring on MartyPC's CGA and Hercules (SPEC.md 130.2, "
+        "130.11.10, 130.11.17.2). The ORACLE is bbcourse's picture with the "
         "SHADOW (an AND mask of the ball part), the MATERIAL's sprite (its "
         "vertical phase off the ground line, squash and shatter frames: "
         "bbcourse.sprite) and the occluder records laid over the footprint; "
@@ -5628,7 +5765,7 @@ SOAK = [
         "cell (its old and new footprints two boxes, the shadow a third) and "
         "that frame checked; on EVERY frame, off breakpoints "
         "on bz_col and bz_boxw, the column's rows and the boxes in RASTER "
-        "ORDER (128.11.10.3) and the occluder walk entered at most once. (4) "
+        "ORDER (130.11.10.3) and the occluder walk entered at most once. (4) "
         "the row-0 probe, every frame MULTI-BOX (the ball poked at window row "
         "0, its shadow a box below; every other frame from the seventh SPLIT, "
         "the ball 40 px back so its two footprints are two boxes at row 0 and "
@@ -5637,7 +5774,7 @@ SOAK = [
         "interrupts back on after bz_tb's POPF before the second box, and "
         "bz_latechk's verdict on every box agreeing with MartyPC's cycle "
         "counter on the CGA (the Hercules' blank holds every box: reported). "
-        "WAVE 3 (SPEC.md 128.12.13.2): the oracle's map holds each lane's DRAWN pose "
+        "WAVE 3 (SPEC.md 130.12.13.2): the oracle's map holds each lane's DRAWN pose "
         "(bz_ldrw; at bz_tf the contact lane's bz_cold) and the platform at its drawn line "
         "(bz_pline), over or under the ball by the ORACLE's own rule (z_b + m < hP + I, s_b <= "
         "sP); BENCH's leg pokes bz_hvoff 1 (wave 2's eight directions); the MILL LEG (B, "
@@ -5648,7 +5785,7 @@ SOAK = [
         "whose wheel commit meets the ball's old footprint, and at each tube exit the "
         "footprint inside the window; a POKED MILL play rides the slab and lies under it "
         "(the slab OVER the ball); the probe's ball now in the edge clause's 24 px (its "
-        "frames HEAVY). WAVE 3B (SPEC.md 128.13.12): every MILL frame's boxes read at its first "
+        "frames HEAVY). WAVE 3B (SPEC.md 130.13.12): every MILL frame's boxes read at its first "
         "bz_boxc (bz_ts + 9) - at most 4 words x 32 lines, a platform box at most 30; ORACLE "
         "CHECK 5, a committed lane's map words in the course part its DRAWN pose's; every frame "
         "of any leg whose 3- or 4-word box writes a whole row across the ring's end checked "
@@ -5666,17 +5803,17 @@ SOAK = [
         "world-anchored), so the MILL play ends in a RING'S-END SCENE that does (8 frames a card, "
         "`fastwrap` judged there), and on the Hercules the LOW scenario takes the post whose "
         "columns cross it (post 4: every LOW commit a `wrapcommit`). secs MEASURED in wave 3b's "
-        "final pass (147 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): the oracle's hidden ball is "
+        "final pass (147 s, SPEC.md 130.13.16). WAVE 4 (SPEC.md 130.14.14): the oracle's hidden ball is "
         "bz_hidn (a tube or HOLED OUT); the W4 part replays MOON's shipped demo and bonanzaphys's "
         "cup-128 and cup-lip (PEAK) - the card = oracle on every full write, the "
         "capture frame, every lip-out, every flag raised, every pad swap - and THE BLANK off an io "
         "breakpoint on 3D8h / 3B8h (enable bit clear before every full write's first row and at its "
-        "flip, set again the next frame). Red arm `--red noblank`. WAVE 5B (SPEC.md 128.15.10.3, 128.15.13): "
+        "flip, set again the next frame). Red arm `--red noblank`. WAVE 5B (SPEC.md 130.15.10.3, 130.15.13): "
         "the oracle lays each record's pixels LESS the ghost checker's (bbcourse.ghost); red arm `--red "
         "nodither`, made at the DATA (build/bonanza-art copied with every BZ<K>.BIN the tool's UNDITHERED "
         "compile, the shipped identity stamped in: the shipped build less the dither), must fail card != oracle. The parts are BZC2's (the map at +48: "
         "oracle check 5 reads BZC_MAP out of bonanza.asm, and the course compiles to D's "
-        "4-byte records, SPEC.md 128.15.5.4); MILL's lift frames (the play's ride and pover: the "
+        "4-byte records, SPEC.md 130.15.5.4); MILL's lift frames (the play's ride and pover: the "
         "slab whole, under and over the ball) card = oracle on the dithered masks; the W4 part adds PEAK's "
         "shipped demo with EVERY frame inside its hidden stretches checked (bbcourse's visibility audit of the "
         "demo: the moat corridor among them), at least 20 such frames and at least one drawing a GHOST "
@@ -5684,13 +5821,13 @@ SOAK = [
         "steps 8 over the 4-byte records, skipping every second record of a block word) must fail card != "
         "oracle on the W4 part (BENCH's few occluded frames never met a skipped record on the CGA; MOON's "
         "demo did, on both cards). Every private tree packs its parts in the shipped build's format (part_fmt, SPEC.md "
-        "128.15.9). " + "secs MEASURED in 5b's re-take on the shipped D build (293.7 s, PEAK's demo leg in; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (753.4 s re-run alone beside three rows; SPEC.md 128.17.14).",
+        "130.15.9). " + "secs MEASURED in 5b's re-take on the shipped D build (293.7 s, PEAK's demo leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (753.4 s re-run alone beside three rows; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 630.0,
-        "WAVE 6B (SPEC.md 128.17.10, story 6b.7): every figure REPORTED, both cards, against wave 6's final pass and 128.17.6.6 - per demo through D (sound OFF and ON) and B: misses, missed refreshes a second, runs of two or more misses and the longest run, columns and rows a second against --pans (LATTICE's prediction and wave 6's policy's beside it), two-row frames against the host's, and THE FRAMES IN A TUBE (bz_lexit's logged hit) - their misses against the run's other frames, a run whose tube frames miss more often printed as 128.17.6.8's IN-TUBE RULE'S TRIGGER; leg `fall`, FIRST's autopilot (four falls and respawns) recorded as a log of its own keys and replayed through R, each fall's misses, missed refreshes and runs (128.17.6.6 risk 8). THE LIKE-FOR-LIKE A/B and 6b.7's DECISION are the final pass's by-hand run, `python3 tests/bonanza_perf.py --lattice-ab` (exit 77 when 4d69985c is not in the clone, never a pass): MILL's route demo through D, three runs a side against 4d69985c (wave 6's GLIDE; its tree built out of git with its own art and demos, MEASURED on the host to build, the two MILL demos' key bytes identical, physv 25h and 53h), ASSERTED free of Space and Grip and the same keys, B beside it REPORTED (its series breaks at 6b), and THE DECISION printed: LATTICE ships if on both cards this build's missed refreshes a second and longest run (their three runs' mean) are no worse than 4d69985c's beyond its three runs' spread (at most their maximum), else the figures go to the owner with the disk held. No new red arm: halfcal, rideoff and level1 re-run (level1's anchor is bz_hv1's text, unchanged by 6b: the near-edge bits went into bz_pnear). secs: PREDICTED (+ the fall leg), re-measured in the final pass. WAVE 6 (SPEC.md 128.16.10, 128.16.14): every shipped demo BZD1 - BZD6 through D, both cards, REPORTED: missed refreshes a second off each frame's flip, runs of two or more misses and the longest run, MILL's columns panned against the host's prediction (no longer 5b's two modes), GLIDE's columns and rows panned a second against the host's prediction (the demo through bbcourse.Glide at the card's step rate), the occluder pass's span a frame; TRIAL's camera replays against wave 2's 251 / 137; --ab's default 5b's commit 503031d4, its BENCH and its own demos REPORTED beside (no like-for-like assertion until the freeze re-anchors it). --baseline is the FREEZE commit's (108 runs, a new dated report), not this wave's. THE FINAL PASS (SPEC.md 128.16.10, one run each, speaker ON): CGA MILL 8.90 missed refreshes a second (108 columns, the host's 106), PEAK 8.76; Hercules 1.68 and 3.24; the misses CLUSTER (CGA PEAK 45 runs of two or more, the longest 43 frames) - REPORTED for gate 1; --ab's BENCH +1,056 clk busy on the CGA, +47 on the Hercules (its archive now carries tools/os88lz.py, which 503031d4's bbcourse imports). secs: 573 s in the soak's lane beside three arm runs on four cores. "
+        "WAVE 6B (SPEC.md 130.17.10, story 6b.7): every figure REPORTED, both cards, against wave 6's final pass and 130.17.6.6 - per demo through D (sound OFF and ON) and B: misses, missed refreshes a second, runs of two or more misses and the longest run, columns and rows a second against --pans (LATTICE's prediction and wave 6's policy's beside it), two-row frames against the host's, and THE FRAMES IN A TUBE (bz_lexit's logged hit) - their misses against the run's other frames, a run whose tube frames miss more often printed as 130.17.6.8's IN-TUBE RULE'S TRIGGER; leg `fall`, FIRST's autopilot (four falls and respawns) recorded as a log of its own keys and replayed through R, each fall's misses, missed refreshes and runs (130.17.6.6 risk 8). THE LIKE-FOR-LIKE A/B and 6b.7's DECISION are the final pass's by-hand run, `python3 tests/bonanza_perf.py --lattice-ab` (exit 77 when 4d69985c is not in the clone, never a pass): MILL's route demo through D, three runs a side against 4d69985c (wave 6's GLIDE; its tree built out of git with its own art and demos, MEASURED on the host to build, the two MILL demos' key bytes identical, physv 25h and 53h), ASSERTED free of Space and Grip and the same keys, B beside it REPORTED (its series breaks at 6b), and THE DECISION printed: LATTICE ships if on both cards this build's missed refreshes a second and longest run (their three runs' mean) are no worse than 4d69985c's beyond its three runs' spread (at most their maximum), else the figures go to the owner with the disk held. No new red arm: halfcal, rideoff and level1 re-run (level1's anchor is bz_hv1's text, unchanged by 6b: the near-edge bits went into bz_pnear). secs: PREDICTED (+ the fall leg), re-measured in the final pass. WAVE 6 (SPEC.md 130.16.10, 130.16.14): every shipped demo BZD1 - BZD6 through D, both cards, REPORTED: missed refreshes a second off each frame's flip, runs of two or more misses and the longest run, MILL's columns panned against the host's prediction (no longer 5b's two modes), GLIDE's columns and rows panned a second against the host's prediction (the demo through bbcourse.Glide at the card's step rate), the occluder pass's span a frame; TRIAL's camera replays against wave 2's 251 / 137; --ab's default 5b's commit 503031d4, its BENCH and its own demos REPORTED beside (no like-for-like assertion until the freeze re-anchors it). --baseline is the FREEZE commit's (108 runs, a new dated report), not this wave's. THE FINAL PASS (SPEC.md 130.16.10, one run each, speaker ON): CGA MILL 8.90 missed refreshes a second (108 columns, the host's 106), PEAK 8.76; Hercules 1.68 and 3.24; the misses CLUSTER (CGA PEAK 45 runs of two or more, the longest 43 frames) - REPORTED for gate 1; --ab's BENCH +1,056 clk busy on the CGA, +47 on the Hercules (its archive now carries tools/os88lz.py, which 503031d4's bbcourse imports). secs: 573 s in the soak's lane beside three arm runs on four cores. "
         "BONANZA's frame cost on MartyPC's 4.77 MHz XT, CGA and Hercules "
-        "(SPEC.md 128.11.15, 128.11.17.2): the BENCH benchmark's 1,200 frames "
+        "(SPEC.md 130.11.15, 130.11.17.2): the BENCH benchmark's 1,200 frames "
         "under LOGGED breakpoints on the frame marks (wave 2's bz_tcmid and its "
         "column's end among them: every mark closes a part, as bz_mark does) "
         "and the writers - period, misses, every part's mean and share, boxes "
@@ -5705,17 +5842,17 @@ SOAK = [
         "out of git in a temporary tree with its own art, never FETCHED by the row "
         "(the SKIP names the command); when the commit is not in the clone the leg says "
         "SKIP with the reason and the run exits 77 (never a pass). A guest-cycle count, so host load cannot move "
-        "it. WAVE 3 (SPEC.md 128.12.13.2): the marks gain bz_tw (rows .. bz_tw, the WHEEL "
+        "it. WAVE 3 (SPEC.md 130.12.13.2): the marks gain bz_tw (rows .. bz_tw, the WHEEL "
         "bz_tw .. bz_tv, idle: busy is reported WITHOUT it, the wheel's beside); the A/B is "
         "against WAVE 2 (848ade16, its own art, its BZ_PARTS order), this tree's BENCH leg "
         "run with bz_hvoff 1, the SOUND OFF (S poked: wave 2 has none; its price is SPEC.md "
-        "128.20.7's) and 0 misses ASSERTED; a second BENCH leg and TRIAL's with the "
+        "130.20.7's) and 0 misses ASSERTED; a second BENCH leg and TRIAL's with the "
         "heavy rule (busy, rows, columns, full writes, withheld, the busy of every miss: "
         "reported); the MILL leg ASSERTS bz_wover 0 and bz_wlate 0 and reports the wheel's "
         "commits, leads, skips, the contact and platform boxes, the must-draw frames' busy and "
         "every miss with its busy; the RIDE leg (the ball poked onto the slab, two traverses) "
-        "reports the busy of its line-change and unchanged frames. WAVE 3B (SPEC.md 128.13.12, "
-        "128.13.15): every leg with the sound OFF and ON (the speaker at S's AUTO), no pad; the "
+        "reports the busy of its line-change and unchanged frames. WAVE 3B (SPEC.md 130.13.12, "
+        "130.13.15): every leg with the sound OFF and ON (the speaker at S's AUTO), no pad; the "
         "A/B against WAVE 3 (e781df53, its own art in a private tree): BENCH OFF with bz_hvoff 1 "
         "on both, 0 misses ASSERTED but the step phase's, its mean busy at least 2.0k clk under "
         "wave 3's on the CGA ASSERTED; MILL OFF three ways (this build, bz_hvoff 1, wave 3: busy "
@@ -5731,28 +5868,28 @@ SOAK = [
         "Red arms `--red rideoff|level1` (`halfcal` retired here in 6b's final pass: no bz_wover under LATTICE; the CGA ride's line-change misses "
         "with the merge back at 24 lines; TRIAL's bz_nhvy with level 1's two clauses back). "
         "With no A/B run a BENCH miss on a frame of more than one step is the step phase's, "
-        "REPORTED; a one-step miss fails (since 6b only on a frame that pans nothing: B's pans are LATTICE's, SPEC.md 128.17.14). secs MEASURED in wave 3b's final pass (155 s, SPEC.md "
-        "128.13.16). WAVE 4 (SPEC.md 128.14.14, 128.14.16, 128.14.17 item 7): THE DEMO LEGS - every "
+        "REPORTED; a one-step miss fails (since 6b only on a frame that pans nothing: B's pans are LATTICE's, SPEC.md 130.17.14). secs MEASURED in wave 3b's final pass (155 s, SPEC.md "
+        "130.13.16). WAVE 4 (SPEC.md 130.14.14, 130.14.16, 130.14.17 item 7): THE DEMO LEGS - every "
         "shipped demo through D on both cards, sound OFF and ON: its end the model's, bz_wover and "
         "bz_wlate 0, ASSERTED; busy, misses, pads, springs, lip-outs REPORTED; D's OVERHEAD against "
         "R reported; --ab now 573eec83 (3b), BENCH's mean busy at most +0.5k on BOTH cards "
-        "ASSERTED (the final pass's by-hand run). WAVE 5B (SPEC.md 128.15.5.4, 128.15.9, 128.15.13): the "
+        "ASSERTED (the final pass's by-hand run). WAVE 5B (SPEC.md 130.15.5.4, 130.15.9, 130.15.13): the "
         "occluder pass's span a frame logged (bz_occ.gate to bz_pover); a by-hand A/B, "
         "`python3 tests/bonanza_perf.py --ab`: --ab's default now ef59209a (the last "
         "BZC1 tree, 5a's package byte for byte, built with its own art and demos and packed in the shipped "
         "parts' format), BENCH's mean busy at most +0.5k over it on BOTH cards ASSERTED, the standing guard "
         "on the frame's cost; (5b's third, --rec-ab, the D/C acceptance, ran in its final pass and again "
         "under the owner's smoothness rule, 2026-11-14, and left with the losing arm: D ships, SPEC.md "
-        "128.15.5.4; --fmt-ab, the parts' format A/B, left with the LZ4/LZB knob once LZB was decided, "
-        "128.15.9). "
-        "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (627.6 s re-run alone beside three rows; SPEC.md 128.17.14).",
+        "130.15.5.4; --fmt-ab, the parts' format A/B, left with the LZ4/LZB knob once LZB was decided, "
+        "130.15.9). "
+        "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (627.6 s re-run alone beside three rows; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 705.0,
-        "GATE 1 ROUND 3B (SPEC.md 128.17.17): every frame also bz_bsp; boostfall now BOOSTS at the bounce plus BADD (red noadd); springnot becomes springarm (the launch takes the token; red springoff for springtok); new spentspring (a boost whose bounce rides PEAK's spring: one boost; red nospent); hopedge, nofall, takeoff and slabcell re-anchored. GATE 1 ROUND 3 (SPEC.md 128.17.16): armlate4 becomes armlate5 (red grace5 for grace4); armheld now BOOSTS (red noheld); ledgehold holds Space through the ledge contact (reds heldarm, nogate); new fallarm (rubber rolled off PLAY's 1-unit top, no Hop, a tap 2 steps after the take-off: a boost; red nofall) and fallnone (no Space: no boost); hopedge and takeoff re-anchored on the moved token write. WAVE 6B (SPEC.md 128.17.4, 128.17.10): every frame also bz_bgr and bz_bgd (Physics.state6's two new values), and each new replay ends with the model's nboost on the guest, checked by name; wave 6's boost replays re-proved on 6b's model and kept (their second press 2 steps before the contact now ARMS the flight); new replays on both cards, FOUND and PROVED on the model: armearly (the second press 14 steps before the first contact: a boost wave 6's window refused), armroll (rubber at the cap with a chord, the second press mid-flight: a boost), armlate (2 steps after a bouncing first contact: the GRACE converts at k = 2), armlate4 (BGRACE + 1 after: nboost 0), hoponly (one tap: no boost), armheld (Space held from the Hop through the contact: no boost), ledgehold (a Hop at the half-unit lip, Space held 4 steps, its first contact on the ledge: no boost), mashchain (rubber at the cap, Space tapped every 2 steps through three contacts: one boost), gripchain RE-KEYED (mid-flight taps: two boost cycles 51 steps apart), gripsteel (steel at the cap, Grip 3: stopped in the axis model's steps; gripglass kept at Grip 1). Red arms, each at its own replay: heldarm (Space HELD arms: ledgehold), hopedge (the Hop's own edge arms: hoponly), armwin (wave 6's token-and-window test: armearly), nograce (no grace: armlate), grace4 (a 4-step grace in the rule: armlate4), graceoff (the conversion without its k - 1 lift: armlate's state). The CARRIED arms pump, tokbst, rampboost, slabcell, springtok re-anchored on 6b's bz_land/bz_bok and re-proved by --check (each scenario's broken model parts); every new and carried arm's guest was run under unicorn against the shipped model on its scenario before registration and parts there (the shipped guest equal at every step on all twenty boost and Grip replays). secs: PREDICTED (wave 6's 430 s + ten replays a card), re-measured in the final pass. WAVE 6 (SPEC.md 128.16.3.1, 128.16.4, 128.16.14): every frame also bz_btok, bz_stf, bz_nboost, bz_drx and bz_dry against Physics.state6(); new replays FOUND and PROVED on the model (--check), both cards: boost, boostclimb, boostdrop, boostfall, pumpchk, bouncefirst, gripchain, rampnot (a ramp of TRIAL's, searched), sandnot, matnot, liftnot (MILL), springnot (a Hop on PEAK's spring: the launch spends the token), steelglass-steel/-glass, drag-rest, drag-cap, gripglass; every expected value the model's or MATERIALS' (no retunable literal); THE DRAG'S COST: drag-rest replayed again under breakpoints at bz_gax's entry and return, every CLEAN dragged call (no sch_isr entry inside) at most DRAG_PRICE 428 + 25%; hopagain is glass's now. Red arms: pump (pumpchk), rampboost (rampnot), tokbst (bouncefirst), slabcell (liftnot), ceildrag (drag-rest), slowdrag (the drag's span), springtok (springnot). "
+        "GATE 1 ROUND 3B (SPEC.md 130.17.17): every frame also bz_bsp; boostfall now BOOSTS at the bounce plus BADD (red noadd); springnot becomes springarm (the launch takes the token; red springoff for springtok); new spentspring (a boost whose bounce rides PEAK's spring: one boost; red nospent); hopedge, nofall, takeoff and slabcell re-anchored. GATE 1 ROUND 3 (SPEC.md 130.17.16): armlate4 becomes armlate5 (red grace5 for grace4); armheld now BOOSTS (red noheld); ledgehold holds Space through the ledge contact (reds heldarm, nogate); new fallarm (rubber rolled off PLAY's 1-unit top, no Hop, a tap 2 steps after the take-off: a boost; red nofall) and fallnone (no Space: no boost); hopedge and takeoff re-anchored on the moved token write. WAVE 6B (SPEC.md 130.17.4, 130.17.10): every frame also bz_bgr and bz_bgd (Physics.state6's two new values), and each new replay ends with the model's nboost on the guest, checked by name; wave 6's boost replays re-proved on 6b's model and kept (their second press 2 steps before the contact now ARMS the flight); new replays on both cards, FOUND and PROVED on the model: armearly (the second press 14 steps before the first contact: a boost wave 6's window refused), armroll (rubber at the cap with a chord, the second press mid-flight: a boost), armlate (2 steps after a bouncing first contact: the GRACE converts at k = 2), armlate4 (BGRACE + 1 after: nboost 0), hoponly (one tap: no boost), armheld (Space held from the Hop through the contact: no boost), ledgehold (a Hop at the half-unit lip, Space held 4 steps, its first contact on the ledge: no boost), mashchain (rubber at the cap, Space tapped every 2 steps through three contacts: one boost), gripchain RE-KEYED (mid-flight taps: two boost cycles 51 steps apart), gripsteel (steel at the cap, Grip 3: stopped in the axis model's steps; gripglass kept at Grip 1). Red arms, each at its own replay: heldarm (Space HELD arms: ledgehold), hopedge (the Hop's own edge arms: hoponly), armwin (wave 6's token-and-window test: armearly), nograce (no grace: armlate), grace4 (a 4-step grace in the rule: armlate4), graceoff (the conversion without its k - 1 lift: armlate's state). The CARRIED arms pump, tokbst, rampboost, slabcell, springtok re-anchored on 6b's bz_land/bz_bok and re-proved by --check (each scenario's broken model parts); every new and carried arm's guest was run under unicorn against the shipped model on its scenario before registration and parts there (the shipped guest equal at every step on all twenty boost and Grip replays). secs: PREDICTED (wave 6's 430 s + ten replays a card), re-measured in the final pass. WAVE 6 (SPEC.md 130.16.3.1, 130.16.4, 130.16.14): every frame also bz_btok, bz_stf, bz_nboost, bz_drx and bz_dry against Physics.state6(); new replays FOUND and PROVED on the model (--check), both cards: boost, boostclimb, boostdrop, boostfall, pumpchk, bouncefirst, gripchain, rampnot (a ramp of TRIAL's, searched), sandnot, matnot, liftnot (MILL), springnot (a Hop on PEAK's spring: the launch spends the token), steelglass-steel/-glass, drag-rest, drag-cap, gripglass; every expected value the model's or MATERIALS' (no retunable literal); THE DRAG'S COST: drag-rest replayed again under breakpoints at bz_gax's entry and return, every CLEAN dragged call (no sch_isr entry inside) at most DRAG_PRICE 428 + 25%; hopagain is glass's now. Red arms: pump (pumpchk), rampboost (rampnot), tokbst (bouncefirst), slabcell (liftnot), ceildrag (drag-rest), slowdrag (the drag's span), springtok (springnot). "
         "BONANZA's physics on the guest EQUALS bbcourse.Physics (SPEC.md "
-        "128.11.8, 128.11.17.2) on MartyPC's CGA and Hercules, EXACTLY, at "
-        "every frame's bz_presented - the eight values and 128.11.8.1's (the "
+        "130.11.8, 130.11.17.2) on MartyPC's CGA and Hercules, EXACTLY, at "
+        "every frame's bz_presented - the eight values and 130.11.8.1's (the "
         "arrows' levels, the Hop window, the last key byte, mst, mct, sqf, "
         "lvz) and the event counters: (1) BENCH's benchmark; (2) wave 1's four "
         "POKED on FIRST (pit with its CUT, lip now a rubber bounce, rail now a "
@@ -5765,28 +5902,28 @@ SOAK = [
         "parting from it). Red arms `--red slope|respawn|takeoff|bounce|edge|"
         "stun|shatter|absimpact|airwall` (by hand, a broken copy in a "
         "temporary directory), each required to fail at its own scenario. "
-        "WAVE 3 (SPEC.md 128.12.13.2): 128.12.6.6's state (bz_ps, bz_wol, the tube, bz_onp, "
+        "WAVE 3 (SPEC.md 130.12.13.2): 130.12.6.6's state (bz_ps, bz_wol, the tube, bz_onp, "
         "every kick, the counters; not the display state) compared at every frame too; on "
         "MILL fifteen more replays, found and proved on the model (the gate's phase SEARCHED): "
         "knock, pass, side, keep, kick (diagonal), cluster, post (dropped onto it: a Hop's 4 px "
         "apex is under the 8 px top), the LIFT's ride, hop, land, under, fall (into the shaft "
         "with the slab low) and board, launch, drop with each ball. Red arms "
         "`--red gate|kick|carry|carrys|stick|exit` each required to fail at its own replay. Steps "
-        "4 - 6 are one instance since wave 3b (SPEC.md 128.13.8), so every replay runs both "
-        "paths' code. secs MEASURED in wave 3b's final pass (143 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md "
-        "128.14.14): replays found and proved on the model on MOON and PEAK - flag (a pit past flag 0 "
+        "4 - 6 are one instance since wave 3b (SPEC.md 130.13.8), so every replay runs both "
+        "paths' code. secs MEASURED in wave 3b's final pass (143 s, SPEC.md 130.13.16). WAVE 4 (SPEC.md "
+        "130.14.14): replays found and proved on the model on MOON and PEAK - flag (a pit past flag 0 "
         "respawns on it), flagmat (a glass shatter past PEAK's flag 3 respawns there as glass; MOON's "
         "flag 2 as rubber), padswap (every pad: bz_mat, the record and ftg the model's every frame), "
         "cup (128 holes out, 256 pops with bz_nlip 1, a stunned steel ball holes out after its stun, a "
         "shattering glass one does not), spring (rubber onto PEAK's upper tier, the max not the sum, no "
         "launch on a shatter), return (bz_nret 1, bz_nfall unchanged), tilt (a TILT log, caps 0 - 8, "
         "8 -> 2 under a held arrow: 8, 6, 4, 2) - each on both cards, the new counters compared. Red "
-        "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 128.17.14).",
+        "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 185.0,
-        "WAVE 6B (SPEC.md 128.17.4, 128.17.10): the PLAYGROUND play's boost taken by a MID-FLIGHT second press (Space again when the model poked from the guest says the first contact is 12 steps off or nearer: it arms the flight); the `mouse` leg adds a MOUSE play on the PLAYGROUND (record_mouse_boost: under T MOUSE the left button is the key byte's Space bit - a click the Hop, a mid-flight second click arming the boost, each level re-sent until the guest's mouse_btn agrees): the model's run of its TILT log equals the play's end and BOOSTS from the edge armed in flight (a `boost`, not the grace's `boostg`), the log's Space edges the two clicks, and the Hercules replays it equal to the model at every frame. No new red arm. secs: PREDICTED (+ the mouse boost play and its replay), re-measured in the final pass. WAVE 6 (SPEC.md 128.16.14): leg `play` - the PLAYGROUND recorded on the CGA with keys decided at each bz_presented off the guest's own state (a Hop, Space inside its window for the BOOST, Right + Down to the brake strip's lane, Left Shift, Left + Down onto the strip, Left Shift to rest), the model run off the log equal to the play every frame, its run boosting and holding Grip on the strip; replayed on the Hercules; the inject leg's rubber log boosts at its Hop's contact now. No new red: hopbit covers Space's bit. "
-        "BONANZA's replays (SPEC.md 128.11.12, 128.11.17.2) on MartyPC: "
+        "WAVE 6B (SPEC.md 130.17.4, 130.17.10): the PLAYGROUND play's boost taken by a MID-FLIGHT second press (Space again when the model poked from the guest says the first contact is 12 steps off or nearer: it arms the flight); the `mouse` leg adds a MOUSE play on the PLAYGROUND (record_mouse_boost: under T MOUSE the left button is the key byte's Space bit - a click the Hop, a mid-flight second click arming the boost, each level re-sent until the guest's mouse_btn agrees): the model's run of its TILT log equals the play's end and BOOSTS from the edge armed in flight (a `boost`, not the grace's `boostg`), the log's Space edges the two clicks, and the Hercules replays it equal to the model at every frame. No new red arm. secs: PREDICTED (+ the mouse boost play and its replay), re-measured in the final pass. WAVE 6 (SPEC.md 130.16.14): leg `play` - the PLAYGROUND recorded on the CGA with keys decided at each bz_presented off the guest's own state (a Hop, Space inside its window for the BOOST, Right + Down to the brake strip's lane, Left Shift, Left + Down onto the strip, Left Shift to rest), the model run off the log equal to the play every frame, its run boosting and holding Grip on the strip; replayed on the Hercules; the inject leg's rubber log boosts at its Hop's contact now. No new red: hopbit covers Space's bit. "
+        "BONANZA's replays (SPEC.md 130.11.12, 130.11.17.2) on MartyPC: "
         "RECORD on the CGA - N to TRIAL, Enter, real keys held and released "
         "through the debug server for 600 frames (every arrow, Space, Left "
         "Shift, the chord off H's lip and over the gap), Esc - and the log "
@@ -5800,25 +5937,25 @@ SOAK = [
         "shattered and respawned) replayed against the model. Red arms "
         "`--red hopbit|framekeys` (the recorder without Space's bit; once a "
         "frame, not a step), each required to make the model part from the "
-        "play. WAVE 3 (SPEC.md 128.12.8, 128.12.13.2): every log carries its course's "
+        "play. WAVE 3 (SPEC.md 130.12.8, 130.12.13.2): every log carries its course's "
         "IDENTITY; MILL recorded on the CGA with REAL keys for 700 frames - no key for the "
         "delay that makes the first approach a KNOCK-BACK, then the arrows the autopilot "
         "decides off the guest's screen state - through a knock-back, a windmill's capture, "
         "a kick and a tube's capture, the model run off the log equal to the play; replayed "
         "on the Hercules; and the same log with its +14 identity changed REFUSED (bz_err 3, "
         "nothing played, the face's \"Another course's log\"). Red arms `--red propclock|"
-        "noident`. secs MEASURED in wave 3b's final pass (55 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md "
-        "128.14.14): a MOUSE play on MOON under T MOUSE, the pointer driven round the anchor on both "
-        "axes (os88mouse's absolute verbs): the log TILT, each frame's tilt byte 128.14.8.1's mapping "
+        "noident`. secs MEASURED in wave 3b's final pass (55 s, SPEC.md 130.13.16). WAVE 4 (SPEC.md "
+        "130.14.14): a MOUSE play on MOON under T MOUSE, the pointer driven round the anchor on both "
+        "axes (os88mouse's absolute verbs): the log TILT, each frame's tilt byte 130.14.8.1's mapping "
         "of the pointer placed (bbcourse.TiltStick), a respawn re-anchoring, the log replayed on the "
         "Hercules equal at every frame; its busy against the keyboard play reported. Red arm `--red "
-        "tiltmap`. secs MEASURED in 5b's re-take on the shipped D build (78.9 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (183.9 s re-run alone; SPEC.md 128.17.14).",
+        "tiltmap`. secs MEASURED in 5b's re-take on the shipped D build (78.9 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (183.9 s re-run alone; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 485.0,
-        "WAVE 6B (SPEC.md 128.17.10): unchanged; re-run because the image moved. WAVE 6 (SPEC.md 128.16.6, 128.16.14): the PLAYGROUND every way out (its three ball rows fetched and dropped), the claim leg over seven courses, a stopped tour at BZ_NTOUR + 2; THE PALETTE: on the CGA bz_vinit.vpal reached first with AL the course's BZ_CRS_PALS byte and the ball's body RENDERED (m.fbuf, nearest of the CGA's sixteen) in the colour that byte selects - the PLAYGROUND's 10h light red, FIRST's 30h light magenta - every index in its byte's colour; on the Hercules bz_vinit.vpal never hit; after each bracket the desktop renders only the colours (both of them) its capture before it held, the menu band left out (not the bitmap: BONANZA's window is in it and its face changes after a play). Red arms: nopal (the CGA), hercpal (the Hercules). "
+        "WAVE 6B (SPEC.md 130.17.10): unchanged; re-run because the image moved. WAVE 6 (SPEC.md 130.16.6, 130.16.14): the PLAYGROUND every way out (its three ball rows fetched and dropped), the claim leg over seven courses, a stopped tour at BZ_NTOUR + 2; THE PALETTE: on the CGA bz_vinit.vpal reached first with AL the course's BZ_CRS_PALS byte and the ball's body RENDERED (m.fbuf, nearest of the CGA's sixteen) in the colour that byte selects - the PLAYGROUND's 10h light red, FIRST's 30h light magenta - every index in its byte's colour; on the Hercules bz_vinit.vpal never hit; after each bracket the desktop renders only the colours (both of them) its capture before it held, the menu band left out (not the bitmap: BONANZA's window is in it and its face changes after a play). Red arms: nopal (the CGA), hercpal (the Hercules). "
         "BONANZA leaves nothing behind and a held key is one press (SPEC.md "
-        "128.10.6.2, 128.11.3.1, 128.11.11.2) on MartyPC's CGA and Hercules: "
+        "130.10.6.2, 130.11.3.1, 130.11.11.2) on MartyPC's CGA and Hercules: "
         "with EACH BALL (M: rubber, steel, glass), every way out - Esc, F and "
         "Alt+Enter from a play of FIRST, the goal (the ball poked onto it), a "
         "REPLAY's end and Esc in a replay (logs the row writes) - and B's "
@@ -5831,27 +5968,27 @@ SOAK = [
         "it advances EXACTLY once; pressed, up 0.2 s, pressed it advances "
         "twice. Red arms `--red leak|crepeat|overswallow` (by hand, a broken "
         "copy in a temporary directory), each required to fail at its own "
-        "check. WAVE 3 (SPEC.md 128.12.13.2): the part rows 3 + BZ_NCRS with MILL (row 6), "
+        "check. WAVE 3 (SPEC.md 130.12.13.2): the part rows 3 + BZ_NCRS with MILL (row 6), "
         "and on MILL every way out - Esc, F, Alt+Enter, its goal, a replay's end and Esc in "
         "one, its benchmark - and Esc while the ball is HIDDEN in a tube. secs MEASURED in "
-        "wave 3b's final pass (103 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): the part rows "
+        "wave 3b's final pass (103 s, SPEC.md 130.13.16). WAVE 4 (SPEC.md 130.14.14): the part rows "
         "3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO; MOON and PEAK (their three ball rows fetched and "
         "dropped), every way out of a TOUR course (the cup, Esc, F, Alt+Enter) and a tour stopped on "
         "the face, D's end, V's fetch and drop, L, W and the double-click, each with the claims as "
-        "before. Red arm `--red padleak` (the sound part's row kept at the cup; the third ball row until SPEC.md 128.25.5.2, whose balls are held for the instance). WAVE 5B (SPEC.md 128.15.4.5, "
-        "128.15.13): THE CLAIM LEG - every launch (FIRST, MILL, MOON, PEAK, BENCH by B, the tour's FIRST and "
+        "before. Red arm `--red padleak` (the sound part's row kept at the cup; the third ball row until SPEC.md 130.25.5.2, whose balls are held for the instance). WAVE 5B (SPEC.md 130.15.4.5, "
+        "130.15.13): THE CLAIM LEG - every launch (FIRST, MILL, MOON, PEAK, BENCH by B, the tour's FIRST and "
         "MOON at the cup, D's FIRST demo, and one launch of TRIAL added for it, Enter then Esc) stops at the "
         "kernel's fsx_run (after bz_cexp and bz_hxlat, before the lanes' writer) and the course claim "
         "(bz_cseg, found in the heap map) equals the tool's RAM form on the CGA, its "
         "htab() translation on the Hercules, byte for byte - all six courses compared. Red arms `--red "
         "expoff1|rowtab1|cellsafe` (WDIFF a record short, ROWTAB NROWS - 1 words: red at FIRST, the first "
         "launch; the guest's SAFE rule without OBS: red at MILL), each at the claim leg. secs MEASURED in "
-        "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 128.17.14).",
+        "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 115.0,
-        "8R (the final pass of 7a644820e): the SECRET leg models TRIAL's poke BEFORE the plays - compiled after TRIAL came up (~4 host s since the Y0 search, SPEC.md 128.25.3, about 20 guest s at MartyPC's pace) it ran out TRIAL's 20 s limit, and the poke landed on the pathway the timeout went back to. "
-        "WAVE 8R (SPEC.md 128.22.4, 128.22.10; REWRITTEN - wave 8b's rolled prototype, 128.19.5, is gone): "
+        "8R (the final pass of 7a644820e): the SECRET leg models TRIAL's poke BEFORE the plays - compiled after TRIAL came up (~4 host s since the Y0 search, SPEC.md 130.25.3, about 20 guest s at MartyPC's pace) it ran out TRIAL's 20 s limit, and the poke landed on the pathway the timeout went back to. "
+        "WAVE 8R (SPEC.md 130.22.4, 130.22.10; REWRITTEN - wave 8b's rolled prototype, 130.19.5, is gone): "
         "THE PATHWAY's loop on MartyPC's CGA and Hercules, reached as the title session does (Enter on the "
         "face, P on the title), every item on guest state: a new game RESTS on pad 0 (5 lives, every gate "
         "closed); no arrow moves it, Space shows pad 0's course's INFO card (bz_kinfow); Enter plays FIRST, "
@@ -5879,21 +6016,21 @@ SOAK = [
         needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzatitle", "soak", py("tests/bonanza_title.py"), 60.0,
-        "THE TITLE SCREEN (SPEC.md 128.23) on MartyPC's CGA and Hercules, in one bracket: Enter opens the "
+        "THE TITLE SCREEN (SPEC.md 130.23) on MartyPC's CGA and Hercules, in one bracket: Enter opens the "
         "title (its course, a title demo, the header's FIXED window); the window never moves over 40 "
         "frames; 3, 2 and S change the slot and its label lane is drawn at pose 1 + slot; the title demo's "
         "end (stopped at bz_tlog) equals the model's replay of the same .bzt - position, falls, tube rides, "
         "springs, BZ_TSTEPS steps; a course demo follows and a key brings the title back; P plays the game "
         "in the slot shown and its Esc is the title again, and Enter does the same (the owner, 2026-11-18); Esc on the title leaves with the claims as "
         "before; the title again, its course demo, and Alt+Enter there is the WINDOW, never the title (SPEC.md "
-        "128.23.4.1, the owner's report; red arm chain: red at check 8 - the leg adds ~20 s guest, its secs "
+        "130.23.4.1, the owner's report; red arm chain: red at check 8 - the leg adds ~20 s guest, its secs "
         "NOT re-measured). Red arm view (the first frame centred on the ball, not the header's window): red at "
         "check 2. secs MEASURED: 26.3 s the CGA alone, each card a boot.",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 118.0,
-        "WAVE 6B (SPEC.md 128.17.8, 128.17.10): case 10's boost is pressed MID-FLIGHT (Space again when the model poked from the guest says the first contact is bonanza_replay.BOOST_AHEAD, 12, steps off or nearer: it arms the flight), the stretch still drawn from rubber's translated part on kern_mega's Hercules; no PKG_MEGA arm (the trigger, the grace and LATTICE are package code and bss, no segment arithmetic). stretchcs re-runs. WAVE 6 (SPEC.md 128.16.12, 128.16.14): case 10, the PLAYGROUND on kern_mega's Hercules - the course and its three ball rows through their selectors (rubber's stretch translated), a play with a Hop and its BOOST (Space held for steps, the second press when a model poked from the guest's state puts the contact 1 - 3 steps off), bz_nboost >= 1, the model's run of its log its end, its replay by R the same end; no fault, no leak. Red arm stretchcs (the stretch entry's translation through CS): case 10 alone, an exception charged to BONANZA at the PLAYGROUND's launch. THE FINAL PASS: the Hop's flight loop steps the HELD 86Box machine one step a pass (at most 120; it read the held machine and hung 37 minutes in the soak); secs: 74 s re-run, x 1.25. "
-        "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 128.11.14) and "
+        "WAVE 6B (SPEC.md 130.17.8, 130.17.10): case 10's boost is pressed MID-FLIGHT (Space again when the model poked from the guest says the first contact is bonanza_replay.BOOST_AHEAD, 12, steps off or nearer: it arms the flight), the stretch still drawn from rubber's translated part on kern_mega's Hercules; no PKG_MEGA arm (the trigger, the grace and LATTICE are package code and bss, no segment arithmetic). stretchcs re-runs. WAVE 6 (SPEC.md 130.16.12, 130.16.14): case 10, the PLAYGROUND on kern_mega's Hercules - the course and its three ball rows through their selectors (rubber's stretch translated), a play with a Hop and its BOOST (Space held for steps, the second press when a model poked from the guest's state puts the contact 1 - 3 steps off), bz_nboost >= 1, the model's run of its log its end, its replay by R the same end; no fault, no leak. Red arm stretchcs (the stretch entry's translation through CS): case 10 alone, an exception charged to BONANZA at the PLAYGROUND's launch. THE FINAL PASS: the Hop's flight loop steps the HELD 86Box machine one step a pass (at most 120; it read the held machine and hung 37 minutes in the soak); secs: 74 s re-run, x 1.25. "
+        "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 130.11.14) and "
         "this RUNS it: build/mega.img on 86Box's 286-mega-multimon with "
         "build/bonanza.img in B:, BONANZA's window DRAGGED onto the Hercules, "
         "so every launch BUILDS BZ_HTAB in the package's bss and TRANSLATES "
@@ -5910,33 +6047,33 @@ SOAK = [
         "shiftmap (Grip through OSAPI_KEY_DOWN 2Ah) at the fake-shift case. "
         "Keys are held for STEPS, never frames: 86Box paces the Hercules' "
         "retrace nothing like a real card (about nine frames a step). No time "
-        "is asserted: 86Box is not cycle-exact. WAVE 3 (SPEC.md 128.12.12): MILL on the "
+        "is asserted: 86Box is not cycle-exact. WAVE 3 (SPEC.md 130.12.12): MILL on the "
         "Hercules - the model's log from the start (a knock-back, the windmill's tunnel, a "
         "kick, the chute and the cannon) and bonanzaphys's ride (poked in bz_t0's bz_hold "
         "spin) replayed to the model's end state, no part or claim left; red arm `--red "
-        "mapcs` (the map words written through CS: an exception). WAVE 3B (SPEC.md 128.13.7 "
-        "item 6, 128.13.12): case 3 holds Grip alone 2 steps, then the grey Right with it, and "
+        "mapcs` (the map words written through CS: an exception). WAVE 3B (SPEC.md 130.13.7 "
+        "item 6, 130.13.12): case 3 holds Grip alone 2 steps, then the grey Right with it, and "
         "'3. the fake-shift release' - 2Ah CLEAR in kbd_track's map with both held (86Box sends "
         "E0 AA), then every step logged with both held has Right and Grip, ASSERTED (SKIP when "
         "2Ah stays set); `shiftmap` is red there; `mapcs` re-pointed at the PASS's map store "
         "(through CS: an exception at MILL's launch, the calibration committing through it). "
-        "secs MEASURED in wave 3b's final pass (26 s, SPEC.md 128.13.16). WAVE 4 (SPEC.md 128.14.14): "
+        "secs MEASURED in wave 3b's final pass (26 s, SPEC.md 130.13.16). WAVE 4 (SPEC.md 130.14.14): "
         "BONANZA.O88's row in B:'s window computed from the floppy's root (SYSTEM\\APPDATA's folder "
         "lists first, 19.4); PEAK's shipped demo by D on the Hercules "
         "(four claims inside: the course and all three balls), its end the model's, a respawn's cut "
         "blanked with no fault; W through the Save form and L through the Open form, D of what L read; "
         "LAST the double-clicked PEAKA.BZR opening a second BONANZA holding it. Red arm `--red "
         "stageseg` (L's copy adding a paragraph to the staging selector: an exception). WAVE 5B (SPEC.md "
-        "128.15.11, 128.15.13): every launch fetches its course part STORED and expands it in place (bz_cexp) "
+        "130.15.11, 130.15.13): every launch fetches its course part STORED and expands it in place (bz_cexp) "
         "through the part's own LDT selector, the parts in the shipped format (LZB, decoded by OSAPI_DECOMP, "
         "printed), so the no-fault and no-leak checks are the expansion's too; red arm `--red expcs` (ROWTAB's "
         "stores through a CS override: a #GP charged to BONANZA at the first launch). secs MEASURED in "
-        "5b's re-take on the shipped D build (63.6 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (118.0 s in the soak's lane; SPEC.md 128.17.14).",
+        "5b's re-take on the shipped D build (63.6 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (118.0 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("86box", "nasm"), timeout=900,
         wants=("build/mega.img", "build/bonanza.img")),
     Row("bonanzamusic", "soak", ["python3", "tools/bbmusic.py", "--selfcheck"], 1.0,
-        "WAVE 6 (SPEC.md 128.16.4.4): rubber's BOOST effect present and not its HOP's (by name or by content), steel's and glass's none; control: rubber's BOOST mapped to its HOP's effect, caught. "
-        "BONANZA's music and effects packer (SPEC.md 128.20.2, 128.20.8), host only: the "
+        "WAVE 6 (SPEC.md 130.16.4.4): rubber's BOOST effect present and not its HOP's (by name or by content), steel's and glass's none; control: rubber's BOOST mapped to its HOP's effect, caught. "
+        "BONANZA's music and effects packer (SPEC.md 130.20.2, 130.20.8), host only: the "
         "two one-octave pitch tables against the equal-tempered Hz and F-numbers, monotone "
         "between notes; every song's notes, gates, instruments and volumes as bbmusic.Seq "
         "keys them from the PACKED part, held to the ones the parse of the source keys, "
@@ -5945,11 +6082,11 @@ SOAK = [
         "five impacts present and no two balls sharing one; packing twice the same bytes. "
         "secs measured on the host (0.9 s, rounded up)"),
     Row("bonanzasound", "soak", py("tests/bonanza_sound.py"), 60.0,
-        "WAVE 6B (SPEC.md 128.17.10): re-run on the moved image, no change in logic and no new arm (noboost "
+        "WAVE 6B (SPEC.md 130.17.10): re-run on the moved image, no change in logic and no new arm (noboost "
         "carried): FIRST plays under LATTICE and 6b's bss, and the grace's conversion counts bz_nboost one to "
         "three steps after a bounce's bz_nbnc. "
-        "WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): bz_nboost poked with each ball - rubber's slot holds its BOOST effect (another record than its HOP's), steel's and glass's key nothing, and a landing poked in the same frame keys no LAND (one effect keyed). Red arm noboost (bz_nboost out of bzs_ctab): the rubber poke keys no effect. "
-        "BONANZA's SOUND held to tools/bbmusic.py's model on MartyPC (SPEC.md 128.20): "
+        "WAVE 6 (SPEC.md 130.16.4.4, 130.16.14): bz_nboost poked with each ball - rubber's slot holds its BOOST effect (another record than its HOP's), steel's and glass's key nothing, and a landing poked in the same frame keys no LAND (one effect keyed). Red arm noboost (bz_nboost out of bzs_ctab): the rubber poke keys no effect. "
+        "BONANZA's SOUND held to tools/bbmusic.py's model on MartyPC (SPEC.md 130.20): "
         "stopped at bzs_tp (a step just sounded), every voice's key, note, gate, "
         "instrument, volume, macro place, age and pitch word and the song's order row, row, "
         "groove step and sub-ticks left against bbmusic.Seq stepped bzs_nsub sub-ticks. "
@@ -5963,14 +6100,14 @@ SOAK = [
         "loud; the window's close giving the chip back (opl_xown). Both legs price a "
         "frame's sound over 120 frames (bzs_frame to .fend) and REPORT it. Red arms "
         "`--red groove|mat` (by hand; `--check` assembles them), each red at its own "
-        "check. WAVE 5B (SPEC.md 128.15.9): the sound part and the songs are packed in the parts table's "
+        "check. WAVE 5B (SPEC.md 130.15.9): the sound part and the songs are packed in the parts table's "
         "format (LZB, shipped; printed) and decoded in it; the row is unchanged in logic and a red "
-        "tree packs in the same format. secs MEASURED in 5b's final pass (32.3 s, both legs). secs MEASURED in 6b's final pass (60.0 s in the soak's lane; SPEC.md 128.17.14).",
+        "tree packs in the same format. secs MEASURED in 5b's final pass (32.3 s, both legs). secs MEASURED in 6b's final pass (60.0 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzagame", "soak", py("tests/bonanza_game.py"), 920.0,
-        "WAVE 6B (SPEC.md 128.17.7, 128.17.10): the physdat leg gains a third file under other physics, +5 = 25h (wave 6's: the owner's round-1 BONANZA.DAT) - every best and the tour's CLEARED once, the file rewritten whole at the next best with +5 = BZ_PHYSV (53h); the control (+5 = this build's) keeps them. No new red arm: physdat re-runs. WAVE 6 (SPEC.md 128.16.9, 128.16.14): the tour is six courses with the PLAYGROUND; leg physdat - a BONANZA.DAT with this build's identities and a best on every course at +5 = 00h and at +5 = A0h loads with every best and the tour's cleared and is rewritten whole with +5 = BZ_PHYSV at the next best; the same file at +5 = BZ_PHYSV keeps them (BZ_PHYSV read out of the build's bzcourse.inc). Red arm physdat (+5 not checked): the cleared-bests check. "
-        "BONANZA's GAME (SPEC.md 128.14.3, 128.14.14) on MartyPC's CGA and Hercules, driven by "
+        "WAVE 6B (SPEC.md 130.17.7, 130.17.10): the physdat leg gains a third file under other physics, +5 = 25h (wave 6's: the owner's round-1 BONANZA.DAT) - every best and the tour's CLEARED once, the file rewritten whole at the next best with +5 = BZ_PHYSV (53h); the control (+5 = this build's) keeps them. No new red arm: physdat re-runs. WAVE 6 (SPEC.md 130.16.9, 130.16.14): the tour is six courses with the PLAYGROUND; leg physdat - a BONANZA.DAT with this build's identities and a best on every course at +5 = 00h and at +5 = A0h loads with every best and the tour's cleared and is rewritten whole with +5 = BZ_PHYSV at the next best; the same file at +5 = BZ_PHYSV keeps them (BZ_PHYSV read out of the build's bzcourse.inc). Red arm physdat (+5 not checked): the cleared-bests check. "
+        "BONANZA's GAME (SPEC.md 130.14.3, 130.14.14) on MartyPC's CGA and Hercules, driven by "
         "the AUTOPILOT (bz_apilot, a harness byte: a play takes its key bytes from bz_auto, "
         "recorded as a play's): V, R and D of FIRST's demo, D of MOON's to its cup and a free play "
         "with ANOTHER ball (M) each leaving BONANZA.DAT ABSENT (read off the floppy on the host); P "
@@ -5980,17 +6117,17 @@ SOAK = [
         "(stopped, the file UNCHANGED); a third stopped by Esc on the FACE, with G, N, M, B, R, D, L "
         "and V doing nothing during it; a HOSTILE BONANZA.DAT set (short, bad magic, another "
         "identity, a best of 0, a tour of another XOR, a count of 9) each refused whole or in part "
-        "as 128.14.3.3 / 128.14.17 item 6 say and the file rewritten whole at the next best; a disk "
+        "as 130.14.3.3 / 130.14.17 item 6 say and the file rewritten whole at the next best; a disk "
         "WITHOUT SYSTEM\\APPDATA toasting `Best times not saved` once; REPORTED the disk "
-        "calls and every tour course's launch time (wave 5b, SPEC.md 128.15.13: on the BZC2 parts, expanded "
+        "calls and every tour course's launch time (wave 5b, SPEC.md 130.15.13: on the BZC2 parts, expanded "
         "at the fetch, in the shipped parts' format, printed). `--check` (host): the model's tour, the tour XOR against "
         "bzcourse.inc, the hostile set decided, every red arm assembled. Red arms `--red "
-        "besttime|datlen|replaybest|noappdata`. secs MEASURED in 5b's re-take on the shipped D build (321.2 s, SPEC.md 128.15.13). secs MEASURED in 6b's final pass (917.2 s in the soak's lane; SPEC.md 128.17.14).",
+        "besttime|datlen|replaybest|noappdata`. secs MEASURED in 5b's re-take on the shipped D build (321.2 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (917.2 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzademo", "soak", py("tests/bonanza_demo.py"), 690.0,
-        "WAVE 6B (SPEC.md 128.17.7, 128.17.10): V's six demos D'd to the model's end on both cards (the route demos regenerated with 53h, MOON's, PEAK's and the PLAYGROUND's re-authored); the hostile set gains H19, +7 = 25h (wave 6's BZ_PHYSV: a log saved from the owner's round-1 disk), refused at check 5 with `Demo from other physics`. No new red arm. WAVE 6 (SPEC.md 128.16.8, 128.16.14): V's six demos each D'd to the model's end on both cards, bz_nboost among the end state (BZD6, the PLAYGROUND's, boosts); the hostile set's physics cases H09 (+7 = BZ_PHYSV ^ 5Ah), H17 (+7 = A0h, 5b's) and H18 (+7 = 00h), each THIS build's log with only +7 changed, refused at check 5 with bz_t_phys. "
-        "BONANZA's recorded demos on the disk (SPEC.md 128.14.7, 128.14.14) on MartyPC's CGA and "
+        "WAVE 6B (SPEC.md 130.17.7, 130.17.10): V's six demos D'd to the model's end on both cards (the route demos regenerated with 53h, MOON's, PEAK's and the PLAYGROUND's re-authored); the hostile set gains H19, +7 = 25h (wave 6's BZ_PHYSV: a log saved from the owner's round-1 disk), refused at check 5 with `Demo from other physics`. No new red arm. WAVE 6 (SPEC.md 130.16.8, 130.16.14): V's six demos each D'd to the model's end on both cards, bz_nboost among the end state (BZD6, the PLAYGROUND's, boosts); the hostile set's physics cases H09 (+7 = BZ_PHYSV ^ 5Ah), H17 (+7 = A0h, 5b's) and H18 (+7 = 00h), each THIS build's log with only +7 changed, refused at check 5 with bz_t_phys. "
+        "BONANZA's recorded demos on the disk (SPEC.md 130.14.7, 130.14.14) on MartyPC's CGA and "
         "Hercules: a free play of MILL by the autopilot, W through the Save dialog into SYSTEM, the "
         "file read back on the host equal to bz_rlog and the model's log, then a play of MILL "
         "fetching from HOME; L of it back (bz_rlog, the log line its name), R to the model's end, "
@@ -6003,18 +6140,18 @@ SOAK = [
         "(tools/heapmap.py), the first three never reaching bz_lfile's read; and the double-click's "
         "own three (4,097 bytes, 15 bytes, a bad identity). `--check` (host): each file's refusal "
         "decided by bbcourse.check_log, every red arm assembled. Red arms `--red nosum|readfirst|"
-        "stageleak|inplace|nohome|argsize`. WAVE 5B (SPEC.md 128.15.7, 128.15.13): V's five demos carry "
+        "stageleak|inplace|nohome|argsize`. WAVE 5B (SPEC.md 130.15.7, 130.15.13): V's five demos carry "
         "wave 5b's identities (each its course's, none a wave 4 one); the hostile set's another-build's-"
         "identity file (H08) is MOON's shipped demo as a wave 4 build wrote it (identity EB84h), refused by "
         "L's identity check (`Damaged demo file`); and the same log put in the log and R pressed is refused "
         "by the launch's (bz_err 3, no step) with the face's `Another course's log`. secs MEASURED in "
-        "5b's re-take on the shipped D build (283.9 s, the wave4 leg in; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (687.8 s in the soak's lane; SPEC.md 128.17.14).",
+        "5b's re-take on the shipped D build (283.9 s, the wave4 leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (687.8 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 162.0,
-        "8R.13 (SPEC.md 128.13.14 item 9): (6) the CORNER leg made lighter - since wave 6 TRICKLE follows an airborne ball's GROUND line, so the old scene panned every frame and its step took two rows (bz_tw 59 - 68k, never admitted); it now runs under the SCRIPTED camera (bz_camscr, bz_scnt poked a frame: steering, D, then DL), the ball resting, MILL's post 6 (no rotor or clock shown), only its first row shown; bz_tw 44 - 54k REPORTED with its parts, CORNER_TRIES 10; alias and corner red at the cells check. (9) the SIDE scene pans by the same script, its plan the lanes' geometry on every course (TRIAL's finish clock, PLAYGROUND's when TRIAL's moves); nocol red at (9). "
-        "WAVE 6B (SPEC.md 128.17.10): unchanged in logic; re-run because MILL's benchmark pans differently under LATTICE (the wheel's frames move with the camera); its arms (costtab, lnext, pskip and the rest) re-run once in the final pass. WAVE 6 (SPEC.md 128.16.14): unchanged in logic; re-run on the new parts and physics (MILL's benchmark rolls under the fractional drag). THE FINAL PASS: the STALE scene (9) cuts on its airborne point, then holds the ball RESTING in the band and puts the row's point at rest above it (bonanza_ring.rest_in_window): held airborne, the camera followed the GROUND line under it and TRICKLE panned 36 rows before the row; (9) now judges the rotor on both cards. (6) still fails on the CGA, as since 3b. secs: 76 s re-run, x 1.25. "
-        "BONANZA's WHEEL (SPEC.md 128.12.5, 128.12.13.2, 128.12.15) on MartyPC's CGA and "
+        "8R.13 (SPEC.md 130.13.14 item 9): (6) the CORNER leg made lighter - since wave 6 TRICKLE follows an airborne ball's GROUND line, so the old scene panned every frame and its step took two rows (bz_tw 59 - 68k, never admitted); it now runs under the SCRIPTED camera (bz_camscr, bz_scnt poked a frame: steering, D, then DL), the ball resting, MILL's post 6 (no rotor or clock shown), only its first row shown; bz_tw 44 - 54k REPORTED with its parts, CORNER_TRIES 10; alias and corner red at the cells check. (9) the SIDE scene pans by the same script, its plan the lanes' geometry on every course (TRIAL's finish clock, PLAYGROUND's when TRIAL's moves); nocol red at (9). "
+        "WAVE 6B (SPEC.md 130.17.10): unchanged in logic; re-run because MILL's benchmark pans differently under LATTICE (the wheel's frames move with the camera); its arms (costtab, lnext, pskip and the rest) re-run once in the final pass. WAVE 6 (SPEC.md 130.16.14): unchanged in logic; re-run on the new parts and physics (MILL's benchmark rolls under the fractional drag). THE FINAL PASS: the STALE scene (9) cuts on its airborne point, then holds the ball RESTING in the band and puts the row's point at rest above it (bonanza_ring.rest_in_window): held airborne, the camera followed the GROUND line under it and TRICKLE panned 36 rows before the row; (9) now judges the rotor on both cards. (6) still fails on the CGA, as since 3b. secs: 76 s re-run, x 1.25. "
+        "BONANZA's WHEEL (SPEC.md 130.12.5, 130.12.13.2, 130.12.15) on MartyPC's CGA and "
         "Hercules: MILL's benchmark (bz_crs poked) under stops on bz_ldrw's two writers "
         "(found by their bytes), bz_wcommit (its return address: AHEAD, BEHIND or the LEAD) "
         "and bz_presented, logged marks in bz_wcore (its CLI, the pass's call and "
@@ -6029,11 +6166,11 @@ SOAK = [
         "card's changed bytes read; (7) each shown rotor's poses at 90% of its rate and never "
         "more; (8) the trim at 100; (9) a lane brought in by a strip shows its TRUE pose on "
         "the card; (10) on replays of bonanzaphys's knock and pass logs the rotor shown "
-        "closed at every knock and open at every capture (128.12.15 item 1's one-phase "
+        "closed at every knock and open at every capture (130.12.15 item 1's one-phase "
         "allowance); (11) a LEAD only for the marked lane, one a frame, never heavy; (12) "
         "every KICK shows its post LIT on the kick's frame or the next and for 8 frames on "
         "the glass (the owner's preview). (3) and (5) ASSERTED on the CGA, REPORTED on the "
-        "Hercules (128.12.15 item 5). WAVE 3B (SPEC.md 128.13.7, 128.13.12): the probes at the "
+        "Hercules (130.12.15 item 5). WAVE 3B (SPEC.md 130.13.7, 130.13.12): the probes at the "
         "PASS (bz_wcore is PUSHF CLI CALL bz_wpass CALL bz_clk_sample POPF RET; (3) the pass's "
         "span); (5) each commit's OWN cost', a whole lane's (bz_lcf) within 15% and a clipped "
         "one's span at most 1.15 x its price, a commit priced at nothing failing, the pass's "
@@ -6046,13 +6183,13 @@ SOAK = [
         "`--red repeat|ahead|nobeam|kmod|halfcal|alias|corner|lanestale|gatelate|litsteps|costtab|"
         "lnext|pskip` (by hand; `--check` assembles them all), each required to fail at its own "
         "check (`halfcal` the CGA's: the Hercules' commits all leave more slack than it takes). (6) "
-        "FAILS on the CGA in wave 3b's final pass (SPEC.md 128.13.16: the corner lane can only be "
+        "FAILS on the CGA in wave 3b's final pass (SPEC.md 130.13.16: the corner lane can only be "
         "committed AHEAD, by 67.3k clk, and the step frame's test lands at about 65k). secs MEASURED "
-        "in wave 3b's final pass (64 s, SPEC.md 128.13.16). The sound is OFF (S poked): with it on the rotors "
-        "show ~2 poses in 36 fewer, SPEC.md 128.20.7. WAVE 5B (SPEC.md 128.15.13): unchanged in logic - its "
+        "in wave 3b's final pass (64 s, SPEC.md 130.13.16). The sound is OFF (S poked): with it on the rotors "
+        "show ~2 poses in 36 fewer, SPEC.md 130.20.7. WAVE 5B (SPEC.md 130.15.13): unchanged in logic - its "
         "models read the tool's RAM form (the props, the lanes' pose maps and the cells at that form's "
         "offsets, which moved), the form the guest holds after bz_cexp; re-run on the BZC2 parts, a red tree "
-        "packed in the shipped parts' format. secs MEASURED in 5b's re-take on the shipped D build (69.0 s, (6) failing on the CGA as before; SPEC.md 128.15.13). secs MEASURED in 6b's final pass (118.6 - 161.6 s over three runs; SPEC.md 128.17.14).",
+        "packed in the shipped parts' format. secs MEASURED in 5b's re-take on the shipped D build (69.0 s, (6) failing on the CGA as before; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (118.6 - 161.6 s over three runs; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",
@@ -6815,7 +6952,9 @@ SOAK = [
         "every difference named in tests/excitebike_ref_deviations.txt "
         "(otherwise 'SKIP: EXCITEBIKE_REF not found', exit 0). Budget is "
         "wall-heavy: 2.6 minutes, all of it guest steps",
-        needs=("marty", "nasm"), timeout=600,
+        # (timeout 600 -> 1500: it was 1.25x the declared wall, and the
+        # declared wall is 3x the idle one; docs/plans/soak-speed-2/games.md)
+        needs=("marty", "nasm"), timeout=1500,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikelap", "soak", py("tests/excitebike_perf.py", "--lap"), 110.0,
         "EXCITEBIKE wave 3 frame rate over a WHOLE COURSE (SPEC.md 102.6, PERFORMANCE.md "
@@ -8716,7 +8855,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
+    Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 45.0,
         "A stale button record must not answer a REUSED window slot "
         "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "
         "Goto again, all on one slot through Sheet's own in-window bar: the "
@@ -8801,9 +8940,13 @@ SOAK = [
         "360KB LZB system disk, and traces the widget to READY: exactly two "
         "fpg_opbegins, every DOS.O88 read, the loader's probe of the "
         "document and every module read but dos_load's one-sector probe "
-        "inside one, each filling its trough, at most two phases of 100 ms "
-        "or more outside them (the kernel's header read and HIBER.DRV, as at "
-        "e7bd353b) and at most 4 widget ups. VERIFIED TO FAIL on f4c112c6: "
+        "inside one, each filling its trough, at most three phases of 100 ms "
+        "or more outside them and EACH NAMED by what it read - A:'s "
+        "ASSOC.DAT (its cache holds B:'s), the kernel's read of DOS.O88's "
+        "header, HIBER.DRV - since whether the header read reaches 100 ms "
+        "is where DOS.O88 lands on the disk (22 ms inside a track already "
+        "read, 404 across a track boundary: 10af988a moved it five "
+        "clusters) - and at most 4 widget ups. VERIFIED TO FAIL on f4c112c6: "
         "1 operation, the probe outside, five module reads outside and eight "
         "long phases. Measured 9s.",
         needs=("marty",), serial=True,
@@ -9699,7 +9842,12 @@ SOAK = [
         "sentinels untouched, CF = 0, every register kept; kbd_down agrees "
         "with the copy on all 128 make codes; on kern_mega fsx_rkeep keeps the "
         "cell for a FSXF_REAL bracket. kern_big required; smallk, megak and "
-        "emuk when built. A negative control patches the copy one word short "
+        "emuk when built. kern_small REFUSES the cell (the owner, 2026-11-15: "
+        "the 128KB machine is locked under its 70.5KB heap rung, so the body "
+        "is compiled out and the label is OSAPI_MOUSE_REL's refusal) and is "
+        "held to that instead - AX = 1, CF = 1, nothing else moved, the map "
+        "never armed; until this said so the row was red there from d7553e79. "
+        "A negative control patches the copy one word short "
         "and must see it. RED with the arm's `call kbd_down` dropped (the "
         "poison comes back) and with fsx_rkeep's row taken out. 1s is 0.3 "
         "measured",
@@ -9822,7 +9970,30 @@ SOAK = [
         "own variables: up to its raised height with no drop of the feet, "
         "off onto the tower, the lift home. Red on e9ca8cff: 14 failures.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
+    Row("warotcga", "soak", py("tests/warotcga.py"), 14.0,
+        "WIRE ARENA'S ROTATION WINDOW STAYS ABOVE THE DOCK (SPEC.md 128.6; "
+        "the owner, 2026-11-15: free-for-all's ran into the dock on a CGA). "
+        "MartyPC's 5150 CGA, the dock from vid_dock_y0: free-for-all's eight "
+        "arenas in two columns of four, the frame above the dock and every "
+        "box inside it, the fifth beside the first; Right and Left move "
+        "between the columns and Space toggles the far column's arena; team "
+        "deathmatch's five stay one column. Red with the window held to one "
+        "column (three failures).",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
+    Row("wahudset", "soak", py("tests/wahudset.py"), 12.0,
+        "WIREARENA SAYS A SETTING WHEN A KEY CHANGES IT (SPEC.md 128.2; the "
+        "owner, 2026-11-15: 'right now I just have to see what changes'). "
+        "A match alone on MartyPC's 5150 CGA: F2, F5, F3, V twice, + and - "
+        "each put 'Detail Low', 'Detail Very High', 'Detail Medium', "
+        "'Vsync on', 'Vsync off', 'Columns 80', 'Columns 40' in the HUD's "
+        "message - read out of wa_hmsg AND off row 24 of text memory, the "
+        "setting itself agreeing; the width's message drawn on the new "
+        "screen. Red with the detail keys' wa_hudset call taken out (three "
+        "failures).",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wamono", "soak", py("tests/wamono.py"), 9.0,
         "WIREARENA ON A HERCULES DRAWS MONOCHROME ATTRIBUTES. wa_setmode "
         "chose the mono table by FSI_SEG == B000h, and on kern_mega that "
@@ -9836,7 +10007,7 @@ SOAK = [
         "kern_mega port, mega-wamono on 86Box's mr286 with a Hercules, red "
         "on the shipped source before the fix.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("waarenas", "soak", py("tests/waarenas.py"), 60.0,
         "WIREARENA'S HEDGE AND TWIN, AND THE LIMITS THEY RETIRED "
         "(docs/plans/completed/WIREARENA-ARENAS-PLAN.md 4, WIREARENA-HEDGES-PLAN.md "
@@ -9871,7 +10042,7 @@ SOAK = [
         "failures), and with wa_flcross answering 'clear' (both floor-line "
         "checks).",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wactf", "soak", py("tests/wactf.py"), 40.0,
         "WIREARENA'S CAPTURE THE FLAG, ONE MACHINE "
         "(docs/plans/completed/WIREARENA-CTF-PLAN.md 2, 6, waves C1 and C2), on the "
@@ -9901,7 +10072,7 @@ SOAK = [
         "(16 counted both times, 1 brown cell): the owner's stray blocks "
         "after a respawn.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wamodes", "soak", py("tests/wamodes.py"), 25.0,
         "WIREARENA'S MODES, ONE MACHINE (docs/plans/completed/WIREARENA-MODES-PLAN.md "
         "2, 3, 5, wave M1), off the game's own variables: Mode at team "
@@ -9931,7 +10102,7 @@ SOAK = [
         "wc_hgoal returning at once (blue never takes the hill in two "
         "minutes).",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("waflines", "soak", py("tests/waflines.py"), 11.0,
         "WIREARENA'S FLOOR LINES AGAINST AN EXACT REFEREE "
         "(docs/plans/completed/WIREARENA-ARENAS-PLAN.md 4.5). The drawer cuts each "
@@ -9963,7 +10134,7 @@ SOAK = [
         "tower), and the direct cut's side sign turned or its bottom cut "
         "16 units out (4 checks each).",
         needs=("marty", "nasm"), cpus=4,
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wafiglod", "soak", py("tests/wafiglod.py"), 52.0,
         "WIREARENA'S SMALL FIGURE BEGINS WHERE THE DETAIL LEVEL SAYS "
         "(docs/plans/completed/WIREARENA-ARENAS-PLAN.md 5, HEIGHTS-PLAN 9.11). A "
@@ -9980,7 +10151,7 @@ SOAK = [
         "threshold a constant (23 at Low and Medium) and with the level's "
         "key not syncing CONFIG (19 at High).",
         needs=("marty", "nasm"), cpus=4,
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wastill", "soak", py("tests/wastill.py"), 40.0,
         "WIREARENA'S STANDING VIEW DRAWS THE MOVING VIEW'S PICTURE "
         "(docs/plans/completed/WIREARENA-ARENAS-PLAN.md 5). The renderer keeps work "
@@ -10008,10 +10179,17 @@ SOAK = [
         "a pickup is drawn (the blink: the pack where the pose before saw "
         "it).",
         needs=("marty", "nasm"), cpus=4,
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wasetup", "soak", py("tests/wasetup.py"), 7.0,
         "WIREARENA'S MATCH SETUP DRAWS WHAT CHANGED, ONCE (WIREARENA-NET-"
-        "PLAN 9.4). The owner saw the whole window flash on every click and "
+        "PLAN 9.4). Alone, the drop-downs centred between row 0 and the "
+        "bottom row (Nick, Play, Keys, 4 from the bottom). "
+        "With the focus in the nick, the Arena list drops over "
+        "it as over nothing, and once it goes the window is pixel-identical "
+        "to the start - no caret left (red with the pass drawing while a "
+        "list is down: the field drawn back over the list, its caret "
+        "restored by the list's bank - the owner, before release). "
+        "The owner saw the whole window flash on every click and "
         "key: every row and both buttons were redrawn per input. On the "
         "5150 with a CGA, the pointer off the window: Down settles within "
         "6 frames with 0 transient pixels; Up again leaves the window "
@@ -10021,7 +10199,7 @@ SOAK = [
         "the same, with no pick. Red with the old full redraw on a focus "
         "move: 11 frames, 192 transient pixels.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("waroutes", "soak", py("tests/waroutes.py"), 50.0,
         "WIREARENA'S BOTS WALK THE ROUTE GRAPH (docs/plans/completed/WIREARENA-AI-"
         "PLAN.md 3). arenagen's graph replaced the dummies' three patrol "
@@ -10034,7 +10212,7 @@ SOAK = [
         "tower, drops off, and the lift goes home. Red with the branch "
         "never taken (4 checks) or the bot not counted as a rider.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wabots", "soak", py("tests/wabots.py"), 40.0,
         "WIREARENA'S BOTS SEE, FACE AND SHOOT BACK (docs/plans/completed/WIREARENA-"
         "AI-PLAN.md 4). The Game menu sets the difficulty; a bot's look "
@@ -10046,7 +10224,7 @@ SOAK = [
         "saw them, gets there and roams again. Red with the turn's sign "
         "reversed (no turn, no shot) or a wrong accuracy table.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wascore", "soak", py("tests/wascore.py"), 16.0,
         "WIREARENA'S DEATHS, RESPAWNS AND SCORE (docs/plans/completed/WIREARENA-AI-"
         "PLAN.md 5). Three robots' names, all different; a pistol kill is "
@@ -10060,7 +10238,7 @@ SOAK = [
         "set 40 and 80 columns. Red with the chooser taking the first point "
         "or a bot's kill not credited.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wabotarms", "soak", py("tests/wabotarms.py"), 30.0,
         "WIREARENA'S BOTS ARM THEMSELVES (docs/plans/completed/WIREARENA-AI-PLAN.md "
         "3.3, B4). A bot reaching the ramp platform's spawn takes what is "
@@ -10072,7 +10250,7 @@ SOAK = [
         "close shotgun hit 60. Red with nothing taken at nodes (the spawn "
         "and the fetch) or a bot's rocket passing through the player.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("wactflink", "soak", py("tests/wactflink.py"), 25.0,
         "WIREARENA'S CAPTURE THE FLAG LINKED (docs/plans/"
         "completed/WIREARENA-CTF-PLAN.md 7, wave C3): two QEMUs on a socket cable, "
@@ -10086,7 +10264,7 @@ SOAK = [
         "Red with the guest ignoring FLAG events (wc_evin returning at "
         "once) and with the host not sending them (wc_send): 4 checks each.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=200),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=200),
     Row("wamodeslink", "soak", py("tests/wamodeslink.py"), 32.0,
         "WIREARENA'S MODES LINKED (docs/plans/completed/WIREARENA-MODES-PLAN.md 8, "
         "wave M4): two QEMUs on a socket cable, the shipped package, "
@@ -10100,7 +10278,7 @@ SOAK = [
         "guest's pickups the host's rolls. Red with the guest ignoring GAME "
         "and NEXT (wc_gin, wc_nin returning at once): 8 checks.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=200),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=200),
     Row("walink", "soak", py("tests/walink.py"), 32.0,
         "WIREARENA OVER A NULL MODEM (docs/plans/completed/WIREARENA-LINK-PLAN.md, "
         "L1): two QEMUs on a socket cable, the shipped package. Each window "
@@ -10122,7 +10300,7 @@ SOAK = [
         "Red with the damage word ignored, TAKE unsent, the guest's bot "
         "hits ignored or the damage word's attribution dropped.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=200),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=200),
     Row("walinknet", "soak", py("tests/walink.py", "--net"), 35.0,
         "WIREARENA OVER ETHERNET (docs/plans/completed/WIREARENA-LINK-PLAN.md 12, "
         "E1): walink's whole match - lobby, SNAP, kills on both boards, a "
@@ -10134,7 +10312,7 @@ SOAK = [
         "frame of the EtherType on the wire parses with binascii's CRC. "
         "Red with the peer's station address never recorded.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=220),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=220),
     Row("walinkudp", "soak", py("tests/walink.py", "--udp"), 40.0,
         "WIREARENA ON UDP, FOUND BY BROADCAST (docs/plans/completed/WIREARENA-NET-"
         "PLAN.md 3): walink's match on two QEMU NE2000s behind a relay that "
@@ -10144,7 +10322,7 @@ SOAK = [
         "Every datagram on port 30088 parses with binascii's CRC; garbage "
         "datagrams are dropped and counted.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=240),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=240),
     Row("walinkip", "soak", py("tests/walink.py", "--udp-ip"), 40.0,
         "WIREARENA JOINED BY ADDRESS (WIREARENA-NET-PLAN 6): as walinkudp, "
         "but the relay drops every broadcast to WireArena's port, as a "
@@ -10152,7 +10330,42 @@ SOAK = [
         "the setup's Address row. B's HELLO reaches A only by address, and "
         "the whole match follows.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=240),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=240),
+    Row("walinkmega", "soak", py("tests/walink.py", "--mega"), 60.0,
+        "WIREARENA LINKED ON kern_mega (WIREARENA-LINK-PLAN L3.3): walink's "
+        "whole match with BOTH machines kern_mega - plain QEMU on "
+        "build/mega.img, as tests/pciether.py runs it, the shipped "
+        "WIRERENA.O88 in B:, the region and its carve LDT selectors read "
+        "through pciether's MQemu. The null modem through SERIAL.DRV's "
+        "verbs under protected mode and the older driver's byte-a-call "
+        "fallback, the kill, the rocket, the pickups, the faults, the "
+        "host's bots, the lift, every frame on the wire valid. Its checks "
+        "are walink's, red with walink's breaks; this leg adds the kernel.",
+        needs=("qemu", "nasm"),
+        wants=("build/wirerena.img", "build/mega.img",
+               "build/megak/kernel.map"), timeout=300),
+    Row("walinkmeganet", "soak", py("tests/walink.py", "--mega", "--net"),
+        60.0,
+        "walinkmega on raw Ethernet: ETHER.DRV's raw verbs on two kern_mega "
+        "NE2000s (walinknet's relay), the frames staged in the region's "
+        "own selector (SPEC.md 77.10).",
+        needs=("qemu", "nasm"),
+        wants=("build/wirerena.img", "build/mega.img",
+               "build/megak/kernel.map"), timeout=300),
+    Row("walinkmegaudp", "soak", py("tests/walink.py", "--mega", "--udp"),
+        60.0,
+        "walinkmega on UDP, found by broadcast: DHCP and ETHER.DRV's UDP "
+        "port on two kern_mega machines (walinkudp's hub).",
+        needs=("qemu", "nasm"),
+        wants=("build/wirerena.img", "build/mega.img",
+               "build/megak/kernel.map"), timeout=300),
+    Row("walinkmegaip", "soak", py("tests/walink.py", "--mega", "--udp-ip"),
+        60.0,
+        "walinkmega joined by address: walinkip's router drops the "
+        "broadcasts, and the kern_mega guest types the host's address.",
+        needs=("qemu", "nasm"),
+        wants=("build/wirerena.img", "build/mega.img",
+               "build/megak/kernel.map"), timeout=300),
     Row("walink4", "soak", py("tests/walink4.py"), 46.0,
         "WIREARENA, FOUR MACHINES (WIREARENA-NET-PLAN 4): four QEMU NE2000s "
         "on walinkudp's hub. Each binds the other three by broadcast; one "
@@ -10164,7 +10377,7 @@ SOAK = [
         "alone as gone. Red with the damage in the shared working record, "
         "and with the lobby's quiet-peer drop off.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=420),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=420),
     Row("walink4ip", "soak", py("tests/walink4.py", "--ip"), 31.0,
         "WIREARENA, THREE JOINED BY ADDRESS (WIREARENA-NET-PLAN 6.1): "
         "walink4's relay dropping every broadcast to WireArena's port; B "
@@ -10173,7 +10386,7 @@ SOAK = [
         "match of three follows with every player seen by both others. Red "
         "with PEERS never sent.",
         needs=("qemu", "nasm"),
-        wants=("build/warena.img", "build/os8088.img"), timeout=240),
+        wants=("build/wirerena.img", "build/os8088.img"), timeout=240),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/completed/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "
@@ -10191,7 +10404,7 @@ SOAK = [
         "Low alone. Red with the dice "
         "fixed, R dead, the reach broken or a death mapped wrong.",
         needs=("marty", "nasm"),
-        wants=("build/os8088-360.img", "build/warena360.img")),
+        wants=("build/os8088-360.img", "build/wirerena360.img")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 40.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "
@@ -12201,7 +12414,7 @@ SOAK = [
         "Does FTPD's Setup page keep a caret it cannot type into? "
         "(SPEC.md 77.45.4)",
         needs=("marty",), serial=True),
-    Row("ftpd", "soak", py("tests/ftpd.py"), 360.0,
+    Row("ftpd", "soak", py("tests/ftpd.py"), 270.0,
         "SPEC.md 77: the FTP server driven by Python's own ftplib through "
         "QEMU's forwarded ports. 8f (77.25.1): LIST and NLST of a folder that "
         "is not there answer 550 inside the timeout with the control "
@@ -12485,7 +12698,7 @@ SOAK = [
         needs=("marty",),
         wants=("build/smallapps360.img", "build/small360.img"),
         serial=True),
-    Row("sheetdel", "soak", py("tests/sheetdel.py"), 120.0,
+    Row("sheetdel", "soak", py("tests/sheetdel.py"), 35.0,
         "SPEC.md 81.79: File > Delete, and the No that must not delete. The "
         "kernel file dialog has only OPEN and SAVE modes, so the picker is an "
         "Open and a flag tells sh_ondlg what was meant by it - which makes "
@@ -12499,7 +12712,7 @@ SOAK = [
         "over the file just deleted. Read off the VOLUME, because 'is the "
         "file gone' is a question about the disk",
         needs=("marty",), serial=True),
-    Row("sheetcalc", "soak", py("tests/sheetcalc.py"), 120.0,
+    Row("sheetcalc", "soak", py("tests/sheetcalc.py"), 30.0,
         "SPEC.md 81.78: Calculation: Manual really leaves a formula STALE, "
         "and Options > Calculate Now catches it up. sh_drawgrid re-evaluates "
         "every formula cell on EVERY repaint, so Manual is not a label on a "
@@ -13590,6 +13803,22 @@ SOAK = [
         "surfacing twenty steps later. Ends with the same navigation run "
         "both ways on one machine: settle-and-hope against read-the-answer.",
         needs=("marty",), serial=True),
+    Row("qemu-uilayer", "soak",
+        ["env", "OS88_EMU=qemu"] + py("tests/uilayer.py"), 35.0,
+        "uilayer UNCHANGED on QEMU ($OS88_EMU=qemu, tools/os88qemuapi.py): "
+        "the os88marty API answered by a private QEMU, so every os88ui verb "
+        "and failure path a MartyPC row uses runs there as written - the "
+        "worked example of one row, the emulator chosen (docs/plans/"
+        "soak-speed-2/qemubox.md). Measured 31s on a loaded box",
+        needs=("qemu",)),
+    Row("qemuapi", "soak", py("tests/qemuapi.py"), 10.0,
+        "tools/os88qemuapi.py's own row: os88ui boot/open_drive/open/"
+        "menu_pick, key_taken's stored entry read back, a write through the "
+        "GDB stub, the tick clock moving and standing, fbuf, and the "
+        "refusals NAMED. RED with the backend's mouse sending nothing (stuck "
+        "at 320,240) or Digit keys mapped wrong (the ring holds 0086). "
+        "Measured 6s",
+        needs=("qemu",)),
     Row("bptrace", "soak", py("tests/bptrace.py"), 30.0,
         "Can the harness drive the UI with BREAKPOINTS ARMED? It could not "
         "until os88marty.bp_trace: every os88ui and os88mouse verb confirms "
@@ -22332,7 +22561,7 @@ SOAK = [
         "18.8.2.1), different from the source's and from the other clone's "
         "- red on all three with DSK_VOLID emptied",
         needs=("marty",), serial=True),
-    Row("sheetfmt", "soak", py("tests/sheetfmt.py"), 180.0,
+    Row("sheetfmt", "soak", py("tests/sheetfmt.py"), 90.0,
         "SPEC.md 81.38: do SHEET's three file formats say what they mean? "
         "The host authors a SYLK file from the published grammar, the guest "
         "opens it by ASSOCIATION and saves it as BIFF3, SYLK and DIF, and "
@@ -22342,7 +22571,7 @@ SOAK = [
         "inside, because in both cases the writer and the reader made the "
         "SAME mistake and cancelled it",
         needs=("marty",), serial=True),
-    Row("sheetdec", "soak", py("tests/sheetdec.py"), 600.0,
+    Row("sheetdec", "soak", py("tests/sheetdec.py"), 80.0,
         "SPEC.md 81.10.10: a formula saved in Normal format comes back as a "
         "FORMULA. SHEET's own round trip - SYLK in, Normal out (checked by "
         "the host's decode_rpn against the document's function table), "
@@ -22352,7 +22581,7 @@ SOAK = [
         "three of them cached with a result that is not a number at all. "
         "It found IF losing a text branch on its way to passing",
         needs=("marty",), serial=True),
-    Row("sheeteval", "soak", py("tests/sheeteval.py"), 240.0,
+    Row("sheeteval", "soak", py("tests/sheeteval.py"), 30.0,
         "SPEC.md 81.49-81.52: what SHEET's evaluator answers, checked by the "
         "host - the row an evaluator parity gap goes into when it closes. "
         "CHOOSE returning the value it picked (it was an integer function: "
@@ -22363,7 +22592,7 @@ SOAK = [
         "totals, and IF keeping a text branch. Each "
         "fix fails its own cases against the binary before it",
         needs=("marty",), serial=True),
-    Row("sheetbool", "soak", py("tests/sheetbool.py"), 300.0,
+    Row("sheetbool", "soak", py("tests/sheetbool.py"), 55.0,
         "SPEC.md 81.51: what SHEET's readers make of a LOGICAL value. The "
         "host authors a DIF, a CSV, a dBASE and a BIFF3 file holding TRUE "
         "and FALSE, SHEET opens each and saves Normal, and the BOOLERR "
@@ -22371,7 +22600,7 @@ SOAK = [
         "TRUE indicator left the cell blank, and CSV and dBASE made labels "
         "of them - ten of its checks fail against that binary",
         needs=("marty",), serial=True),
-    Row("sheetxl2", "soak", py("tests/sheetxl2.py"), 420.0,
+    Row("sheetxl2", "soak", py("tests/sheetxl2.py"), 35.0,
         "SPEC.md 81.52: SHEET opens EXCEL 2.1's OWN FILES. Excel 2.1 saves "
         "BIFF2 and the reader took BIFF3/4 only, so one opened empty. Arm A "
         "is a BIFF2 file the host authors - every cell record, tAttr's one-"
@@ -22382,7 +22611,7 @@ SOAK = [
         "the host reads in Excel's file. Arm B found a fold defect: a SUM "
         "over formula cells that fold ranges of their own lost its range",
         needs=("marty",), serial=True),
-    Row("sheetspill", "soak", py("tests/sheetspill.py"), 180.0,
+    Row("sheetspill", "soak", py("tests/sheetspill.py"), 20.0,
         "SPEC.md 81.54: a label wider than its column runs on into the "
         "EMPTY cells to its right, as Excel draws it, and stops at the first "
         "that holds anything; a formula's text RESULT runs on too. Read off "
@@ -22390,7 +22619,7 @@ SOAK = [
         "inside each cell. Five of its checks fail against the binary that "
         "clipped every label to its own cell",
         needs=("marty",), serial=True),
-    Row("sheetnumfmt", "soak", py("tests/sheetnumfmt.py"), 300.0,
+    Row("sheetnumfmt", "soak", py("tests/sheetnumfmt.py"), 70.0,
         "SPEC.md 81.55: Excel 2.1d's twenty-one number formats. SHEET had "
         "four, and a date showed as its serial. The host writes a BIFF3 file "
         "of twenty cells in different formats; each cell's TEXT is read off "
@@ -22399,7 +22628,7 @@ SOAK = [
         "every format and writes Excel's 21 FORMAT records. 24 of its 27 "
         "checks fail against the binary before",
         needs=("marty",), serial=True),
-    Row("sheetcolw", "soak", py("tests/sheetcolw.py"), 360.0,
+    Row("sheetcolw", "soak", py("tests/sheetcolw.py"), 70.0,
         "SPEC.md 81.56: each column its own width. SHEET had one for the "
         "whole sheet and skipped a file's COLWIDTH records. The host's SYLK "
         "sets A to 20 and C to 3; the grid's lines are measured off the "
@@ -22407,21 +22636,21 @@ SOAK = [
         "land there, Column Width widens only its column, SYLK and Normal "
         "carry the widths, and Insert Column moves them with their columns",
         needs=("marty",), serial=True),
-    Row("sheetundo", "soak", py("tests/sheetundo.py"), 360.0,
+    Row("sheetundo", "soak", py("tests/sheetundo.py"), 70.0,
         "SPEC.md 81.57: Edit > Undo and Redo, Excel 2.1's one level. An "
         "entry undone and redone, a paste, a clear through its dialog and an "
         "inserted column each undone, and a format after a paste ending Undo "
         "rather than letting it put the paste back - read off the glass, "
         "then the saved document checked whole",
         needs=("marty",), serial=True),
-    Row("sheetside", "soak", py("tests/sheetside.py"), 300.0,
+    Row("sheetside", "soak", py("tests/sheetside.py"), 35.0,
         "SPEC.md 81.58: Insert and Delete Row move a cell's BORDERS with it "
         "(and its notes, by the same routine). They moved the cells alone. "
         "With gridlines off a border is the only ink on an edge: an insert "
         "must carry it down, a delete bring it back, deleting its own row "
         "take it away, and the saved file keep it on its cell",
         needs=("marty",), serial=True),
-    Row("sheetrowh", "soak", py("tests/sheetrowh.py"), 400.0,
+    Row("sheetrowh", "soak", py("tests/sheetrowh.py"), 45.0,
         "SPEC.md 81.60: each row its own height, in points as Excel keeps "
         "it. A BIFF3 file's ROW records set the rows the glass then measures "
         "(a default-flagged one ignored), the tall row's text sits low, a "
@@ -22430,14 +22659,14 @@ SOAK = [
         "twips back, Insert and Undo carry them, and scrolling onto a tall "
         "row shows it whole with no blit by the standard height",
         needs=("marty",), serial=True),
-    Row("sheetsort", "soak", py("tests/sheetsort.py"), 400.0,
+    Row("sheetsort", "soak", py("tests/sheetsort.py"), 70.0,
         "SPEC.md 81.61: Data > Sort orders every constant as Excel does - "
         "numbers, labels in any case, logicals, errors, formulas by their "
         "results - where labels, logicals and errors sat the sort out; and "
         "an error constant survives Fill Right, Copy/Paste and typing, "
         "which stored 0, pasted 0 and made a label",
         needs=("marty",), serial=True),
-    Row("sheetmsub", "soak", py("tests/sheetmsub.py"), 400.0,
+    Row("sheetmsub", "soak", py("tests/sheetmsub.py"), 25.0,
         "SPEC.md 81.84: subroutines - a defined name called like a function "
         "runs from that cell, ARGUMENT binds in the order it EXECUTES, and "
         "RETURN's value comes back by evaluating the calling cell a second "
@@ -22447,7 +22676,7 @@ SOAK = [
         "design review caught losing the call until a pending call outranked "
         "every other control in the step",
         needs=("marty",), serial=True),
-    Row("sheetmref", "soak", py("tests/sheetmref.py"), 400.0,
+    Row("sheetmref", "soak", py("tests/sheetmref.py"), 25.0,
         "SPEC.md 81.85: the reference family - OFFSET, ABSREF, RELREF, "
         "REFTEXT, TEXTREF, DEREF, SELECTION, CALLER, and ACTIVE.CELL as a "
         "reference. A reference function answers its top-left VALUE and "
@@ -22456,21 +22685,21 @@ SOAK = [
         "subroutine, the manual's own #REF! for TEXTREF, and an expression "
         "refused as a target",
         needs=("marty",), serial=True),
-    Row("sheetmctl", "soak", py("tests/sheetmctl.py"), 900.0,
+    Row("sheetmctl", "soak", py("tests/sheetmctl.py"), 45.0,
         "SPEC.md 81.86: macro control - ERROR(FALSE) and ERROR(TRUE,ref), "
         "RESTART(1) two subroutines deep, ALERT's type 1 answering OK and "
         "Cancel, the Single Step dialog (Step, then Continue), Esc raising it "
         "mid-loop and Halt ending the run, CANCEL.KEY(FALSE) ignoring Esc, "
         "WAIT on the timer, and a run's dialog being modal to the sheet",
         needs=("marty",), serial=True),
-    Row("sheetminfo", "soak", py("tests/sheetminfo.py"), 400.0,
+    Row("sheetminfo", "soak", py("tests/sheetminfo.py"), 25.0,
         "SPEC.md 81.87: macro information - thirty rows of GET.CELL, "
         "GET.FORMULA, GET.NAME, GET.DEF, GET.NOTE, NAMES, GET.DOCUMENT, "
         "GET.WINDOW, GET.WORKSPACE and DIRECTORY against a fixture that fixes "
         "each answer, including a DIRECTORY walk into a folder and a refused "
         "one that must leave the instance where it stood",
         needs=("marty",), serial=True),
-    Row("sheetmcmd", "soak", py("tests/sheetmcmd.py"), 400.0,
+    Row("sheetmcmd", "soak", py("tests/sheetmcmd.py"), 40.0,
         "SPEC.md 81.88: command equivalents, slice 3a - Format (ALIGNMENT, "
         "FORMAT.FONT, FORMAT.NUMBER, BORDER, CELL.PROTECTION, COLUMN.WIDTH, "
         "ROW.HEIGHT), Edit (FILL.DOWN, INSERT, EDIT.DELETE, PASTE.SPECIAL, "
@@ -22478,46 +22707,46 @@ SOAK = [
         "SET.DATABASE, each read back through the GET.* functions 81.87 "
         "verified",
         needs=("marty",), serial=True),
-    Row("sheetmcmd2", "soak", py("tests/sheetmcmd2.py"), 400.0,
+    Row("sheetmcmd2", "soak", py("tests/sheetmcmd2.py"), 30.0,
         "SPEC.md 81.89: command equivalents, slice 3b - FORMULA.GOTO/FIND/"
         "FIND.NEXT, DEFINE/SET/DELETE.NAME, NOTE, SORT, RUN as a subroutine, "
         "VSCROLL/VLINE/HSCROLL, SELECT.END both ways, UNLOCKED.NEXT/PREV "
         "wrapping, SELECT.LAST.CELL, and FIND.PREV refused into ERROR's ref",
         needs=("marty",), serial=True),
-    Row("sheetmcmd3", "soak", py("tests/sheetmcmd3.py"), 400.0,
+    Row("sheetmcmd3", "soak", py("tests/sheetmcmd3.py"), 30.0,
         "SPEC.md 81.90: command equivalents, slice 3c - FORMULA.FILL moving "
         "relative references both ways, DATA.SERIES linear and growth, "
         "FILE.DELETE (off the volume itself) and its refusal, SAVE.AS "
         "writing the very file the answers are read from, and OPEN ending "
         "the run with the other document in the window",
         needs=("marty",), serial=True),
-    Row("sheetmfile", "soak", py("tests/sheetmfile.py"), 400.0,
+    Row("sheetmfile", "soak", py("tests/sheetmfile.py"), 25.0,
         "SPEC.md 81.91: macro text files - FOPEN/FREADLN/FREAD/FPOS/FSIZE over "
         "a file the host wrote, a read-only channel refusing FWRITE, "
         "FWRITELN/FWRITE and an FPOS overwrite checked as BYTES off the "
         "volume, and #N/A for a missing file and for one bigger than a "
         "channel's share of the module claim's tail",
         needs=("marty",), serial=True),
-    Row("sheetmevt", "soak", py("tests/sheetmevt.py"), 400.0,
+    Row("sheetmevt", "soak", py("tests/sheetmevt.py"), 30.0,
         "SPEC.md 81.92: ON.KEY - Ctrl+Q and F7 bound to counting macros and "
         "PRESSED with no run going, F7 unbound again, and x bound to nothing "
         "so that typing it over a cell leaves the cell empty",
         needs=("marty",), serial=True),
-    Row("sheetmmenu", "soak", py("tests/sheetmmenu.py"), 400.0,
+    Row("sheetmmenu", "soak", py("tests/sheetmmenu.py"), 30.0,
         "SPEC.md 81.95: custom menus - a menu after Help built from a range, "
         "a command added, ticked, greyed and renamed, then USED with the "
         "mouse (the renamed one runs, the greyed one does not); a menu too "
         "wide for the bar refused; the custom bar made, shown and picked "
         "from, and SHOW.BAR()/DELETE.BAR/DELETE.MENU putting SHEET's own back",
         needs=("marty",), serial=True),
-    Row("sheetmdbox", "soak", py("tests/sheetmdbox.py"), 400.0,
+    Row("sheetmdbox", "soak", py("tests/sheetmdbox.py"), 40.0,
         "SPEC.md 81.96: DIALOG.BOX - a dialog described by a range, typed "
         "at, clicked and Tabbed through, then Entered: the text, check box, "
         "option group and number box results in the seventh column and the "
         "answer 1; Esc and Cancel answering FALSE; OK by the mouse; and a "
         "list box refused",
         needs=("marty",), serial=True),
-    Row("chartname", "soak", py("tests/chartname.py"), 300.0,
+    Row("chartname", "soak", py("tests/chartname.py"), 20.0,
         "SPEC.md 82.15: CHART charts the range Sheet NAMED, not the lowest "
         "column - THE FIRST TEST CHART HAS EVER HAD, and it exists because "
         "of what that cost: the filter NEVER RAN, ct_reset_series having "
@@ -22533,7 +22762,7 @@ SOAK = [
         "the same scaled words and only [ch_e10] would differ",
         needs=("marty",), serial=True,
         wants=("build/chart.o88", "build/os8088-360.img")),
-    Row("chartread", "soak", py("tests/chartread.py"), 300.0,
+    Row("chartread", "soak", py("tests/chartread.py"), 35.0,
         "SPEC.md 82.18: CHART's THREE readers are one reader. Check 0 "
         "(82.14.2): before any file the canvas is WHITE - ct_entry copied "
         "only the header into a claim nobody zeroes, so the window showed "
@@ -22569,7 +22798,7 @@ SOAK = [
         "Fixed in the same commit; restoring it fails 8 alone",
         needs=("marty",), serial=True,
         wants=("build/chart.o88", "build/os8088-360.img")),
-    Row("chartgal", "soak", py("tests/chartgal.py"), 600.0,
+    Row("chartgal", "soak", py("tests/chartgal.py"), 45.0,
         "SPEC.md 82.4/82.6: the Gallery actually DRAWS seven different "
         "charts - THE FIRST CHART ROW THAT LOOKS AT PIXELS. chartname and "
         "chartread both read numbers out of bss, and no amount of that can "
@@ -22595,7 +22824,7 @@ SOAK = [
         "MUTATION on one run. Both comparisons are exact again",
         needs=("marty",), serial=True,
         wants=("build/chart.o88", "build/os8088-360.img")),
-    Row("chart2ser", "soak", py("tests/chart2ser.py"), 300.0,
+    Row("chart2ser", "soak", py("tests/chart2ser.py"), 35.0,
         "SPEC.md 82.8/82.8.1: CHART keeps the TWO lowest columns, and "
         "DEMOTES. chartgal proves Scatter and Combination draw differently "
         "from the other five; this is the data model under them, which 82.8 "
@@ -22619,7 +22848,7 @@ SOAK = [
         "which this row first reported as a shared maximum",
         needs=("marty",), serial=True,
         wants=("build/chart.o88", "build/os8088-360.img")),
-    Row("chartexp", "soak", py("tests/chartexp.py"), 300.0,
+    Row("chartexp", "soak", py("tests/chartexp.py"), 40.0,
         "SPEC.md 82.13: the series' decimal exponent, at both ends and in "
         "the middle. ch_scale picks one E per series to fit signed words, "
         "capped at CH_E10_MAX 4 and CH_E10_MIN -9, and [ch_e10] is how the "
@@ -22638,7 +22867,7 @@ SOAK = [
         "because scaling an empty second series writes ch_e10 too",
         needs=("marty",), serial=True,
         wants=("build/chart.o88", "build/os8088-360.img")),
-    Row("sheettable", "soak", py("tests/sheettable.py"), 400.0,
+    Row("sheettable", "soak", py("tests/sheettable.py"), 30.0,
         "SPEC.md 81.114: Data > Table, the last menu command Excel 2.1d has "
         "that SHEET did not. A result cell is the governing formula "
         "evaluated with an input value substituted into an input cell "
@@ -22658,7 +22887,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheettbl2", "soak", py("tests/sheettbl2.py"), 520.0,
+    Row("sheettbl2", "soak", py("tests/sheettbl2.py"), 50.0,
         "SPEC.md 81.114.7: a Data > Table is PROTECTED and clears "
         "all-or-nothing. sheettable proves the numbers; this proves the "
         "thing that makes them a table - the Reference Guide's 'you cannot "
@@ -22685,7 +22914,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheettblbiff", "soak", py("tests/sheettblbiff.py"), 520.0,
+    Row("sheettblbiff", "soak", py("tests/sheettblbiff.py"), 25.0,
         "SPEC.md 81.114.10: a Data > Table survives SAVE AND LOAD. Until "
         "this stage a table saved to any format kept its NUMBERS and "
         "silently stopped being a table. Excel writes one as a FORMULA "
@@ -22710,7 +22939,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheettblshift", "soak", py("tests/sheettblshift.py"), 560.0,
+    Row("sheettblshift", "soak", py("tests/sheettblshift.py"), 50.0,
         "SPEC.md 81.114.9: a Data > Table's stored RECTANGLE follows the "
         "grid. Insert/Delete Row/Column move the cells and move a result "
         "cell's MARK with them for free - it is a bit in the border byte, "
@@ -22735,7 +22964,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheettblcalc", "soak", py("tests/sheettblcalc.py"), 520.0,
+    Row("sheettblcalc", "soak", py("tests/sheettblcalc.py"), 50.0,
         "SPEC.md 81.114.8: a Data > Table RECALCULATES, and Excel's three "
         "modes decide when. A result cell holds a STORED value, so this "
         "app's whole recalculation - advance [sh_pass] and let sh_eval_cell "
@@ -22765,7 +22994,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheetsize", "soak", py("tests/sheetsize.py"), 400.0,
+    Row("sheetsize", "soak", py("tests/sheetsize.py"), 25.0,
         "SPEC.md 81.112: SHEET's window RESIZES and its grid re-lays itself "
         "to the new box. The grow box dragged in 160x24 and back out, with "
         "the kernel's W_W/W_H, the package's sh_cw/sh_ch and the walk counts "
@@ -22778,13 +23007,13 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheet.o88",
                "build/os8088-360.img")),
-    Row("sheetmkind", "soak", py("tests/sheetmkind.py"), 400.0,
+    Row("sheetmkind", "soak", py("tests/sheetmkind.py"), 45.0,
         "SPEC.md 81.97: the reader half - a host-written BIFF2 macro sheet "
         "(BOF dt 0040H) whose formulas are a ptg-58H command, a variable and "
         "a fixed extension function and RETURN, saved Normal: dt 0040H and "
         "all four formulas back; a worksheet opened next saves as 0010H",
         needs=("marty",), serial=True),
-    Row("sheetmtail", "soak", py("tests/sheetmtail.py"), 400.0,
+    Row("sheetmtail", "soak", py("tests/sheetmtail.py"), 25.0,
         "SPEC.md 81.98: the pulldown leaves nothing behind it - Data's panel "
         "hangs past the window over the dock, is banked, and closing it "
         "leaves every row below the window as it was; with the window "
@@ -22792,54 +23021,54 @@ SOAK = [
         "bank clips at the last row",
         needs=("marty",), serial=True),
     Row("sheetmtailvga", "soak", py("tests/sheetmtail.py", "--card", "vga"),
-        400.0,
+        35.0,
         "SPEC.md 81.98.1: the pulldown's save-under on the FOUR-PLANE path "
         "(os8088_xt_vga, 640x480): the bank is taken, closing changes nothing "
         "the panel covered, and the bank path lands on the same pixels as a "
         "full repaint - the A/B that caught the stale status line",
         needs=("marty",), serial=True),
-    Row("sheetmsep", "soak", py("tests/sheetmsep.py"), 400.0,
+    Row("sheetmsep", "soak", py("tests/sheetmsep.py"), 35.0,
         "SPEC.md 81.109: every built-in pulldown carries Excel's group "
         "separators as a hairline at row_top + 10, exactly where sh_msep "
         "says and nowhere else, and no panel grew - 12 * n + 4, so no row "
         "moved",
         needs=("marty",), serial=True),
-    Row("sheetrefcyc", "soak", py("tests/sheetrefcyc.py"), 400.0,
+    Row("sheetrefcyc", "soak", py("tests/sheetrefcyc.py"), 25.0,
         "SPEC.md 81.108: Formula > Reference and F4, Excel's own - the "
         "reference at the caret round A1 > $A$1 > A$1 > $A1 > A1, by key and "
         "by menu, live only mid-formula, and a function's name left alone",
         needs=("marty",), serial=True),
-    Row("sheetopts", "soak", py("tests/sheetopts.py"), 400.0,
+    Row("sheetopts", "soak", py("tests/sheetopts.py"), 30.0,
         "SPEC.md 81.106: the Options menu in Excel's order off the glass, "
         "Display... (kind 1: Formulas, Gridlines) and Workspace... (kind 2: "
         "R1C1, the reference box then reads R1C1) setting their flags, and "
         "Formula > Reference greyed",
         needs=("marty",), serial=True),
-    Row("sheetclip", "soak", py("tests/sheetclip.py"), 400.0,
+    Row("sheetclip", "soak", py("tests/sheetclip.py"), 25.0,
         "SPEC.md 81.105 (upstream issue #152): sh_repaint arms its own clip "
         "region - Data > Chart Column opens the Chart over SHEET and then "
         "repaints SHEET, and SHEET's ink stays out of the Chart and its "
         "FRAME is whole (37 of 398 edge pixels without the clip)",
         needs=("marty",), serial=True),
-    Row("sheetstatus", "soak", py("tests/sheetstatus.py"), 400.0,
+    Row("sheetstatus", "soak", py("tests/sheetstatus.py"), 20.0,
         "SPEC.md 81.104: the status bar in Excel's shape on the 1bpp CGA - "
         "a divider down the strip at right - SH_SB_DIVX, and the indicator "
         "INVERTED in a solid 1px-ringed black box (its gaps black), the "
         "message still black on white",
         needs=("marty",), serial=True),
-    Row("sheettitle", "soak", py("tests/sheettitle.py"), 400.0,
+    Row("sheettitle", "soak", py("tests/sheettitle.py"), 25.0,
         "SPEC.md 81.103: the window names the document - 'Sheet - <NAME>' "
         "from the first frame for a double-clicked document (composed at "
         "entry, never in a paint, 11.92), renamed by File > New, and the "
         "caption strip really redrawn",
         needs=("marty",), serial=True),
-    Row("sheetkeys", "soak", py("tests/sheetkeys.py"), 400.0,
+    Row("sheetkeys", "soak", py("tests/sheetkeys.py"), 60.0,
         "SPEC.md 81.101: the modern keyboard shortcuts on the cycle-accurate "
         "CGA - the captions the pulldowns draw, Ctrl+C/V copy, Ctrl+Z undo, "
         "Ctrl+X move, Ctrl+D fill, nothing pasted mid-entry, F3/Shift+F3/"
         "Ctrl+G/F5/Ctrl+F/Ctrl+N open their dialogs, and Ctrl+S saves",
         needs=("marty",), serial=True),
-    Row("sheetnote", "soak", py("tests/sheetnote.py"), 300.0,
+    Row("sheetnote", "soak", py("tests/sheetnote.py"), 30.0,
         "SPEC.md 81.119: a cell NOTE survives a save. 81.38's shape with the "
         "ends swapped - the host cannot author a NOTE record, so the GUEST "
         "writes the file and the HOST reads it with a ten-line parser that "
@@ -22847,20 +23076,20 @@ SOAK = [
         "reader-only mutation fails ONE check while the host still finds the "
         "record, which is what the independent parser is for",
         needs=("marty",), serial=True),
-    Row("sheetask", "soak", py("tests/sheetask.py"), 300.0,
+    Row("sheetask", "soak", py("tests/sheetask.py"), 25.0,
         "SPEC.md 81.118: SHEET asks before it throws a workbook away - "
         "[sh_modified] 0 on open, 1 on an entry, 0 on a save that kept "
         "everything and 1 again after; then the CLOSE BOX refuses and puts "
         "75.3's Save/Discard/Cancel up, and Discard closes it. The four "
         "flag readings are what stop a stuck 1 passing the close test",
         needs=("marty",), serial=True),
-    Row("sheetdlgclose", "soak", py("tests/sheetdlgclose.py"), 400.0,
+    Row("sheetdlgclose", "soak", py("tests/sheetdlgclose.py"), 45.0,
         "SPEC.md 81.100: a dialog's CLOSE BOX leaves its engine usable - the "
         "list (Format Number) and input (Goto) dialogs closed by their boxes "
         "clear their window words, and Paste Function and Define Name then "
         "open; the kernel only HIDES an unowned window (75.1)",
         needs=("marty",), serial=True),
-    Row("sheetdlgcga", "soak", py("tests/sheetdlgcga.py"), 400.0,
+    Row("sheetdlgcga", "soak", py("tests/sheetdlgcga.py"), 35.0,
         "SPEC.md 81.100: SHEET's tall fixed dialogs keep their height on a "
         "CGA (WF_KEEPH, 11.93) - Gallery 169 and Border 159 rows against a "
         "155-row band, still on the display, and closing each leaves "
@@ -22868,12 +23097,12 @@ SOAK = [
         "and Data Form as controls",
         needs=("marty",), serial=True),
     Row("sheetmtailherc", "soak",
-        py("tests/sheetmtail.py", "--card", "herc"), 400.0,
+        py("tests/sheetmtail.py", "--card", "herc"), 25.0,
         "SPEC.md 81.98.1: the same save-under photographs on the Hercules "
         "machine (os8088_5150_herc_gla, 720x348): one plane, but the "
         "four-bank interleave and 90-byte row are its own",
         needs=("marty",), serial=True),
-    Row("sheetmbiff", "soak", py("tests/sheetmbiff.py"), 400.0,
+    Row("sheetmbiff", "soak", py("tests/sheetmbiff.py"), 20.0,
         "SPEC.md 81.83: a macro cell's FORMULA survives a Normal save. Every "
         "one of 81.63's twenty was 0xFF in sh_rpn_fid, so BIFF got the cached "
         "value and the macro was gone. Byte-level on purpose: SELECT and "
@@ -22882,7 +23111,7 @@ SOAK = [
         "and both be wrong - which is why 81.68 refused to guess. Both "
         "tables and both ptgs, and a dotted name through the lexer",
         needs=("marty",), serial=True),
-    Row("sheetparse", "soak", py("tests/sheetparse.py"), 400.0,
+    Row("sheetparse", "soak", py("tests/sheetparse.py"), 35.0,
         "SPEC.md 81.82: Data > Parse splits one column at FIXED CHARACTER "
         "POSITIONS, not at a delimiter. 'New York' must survive as one "
         "field - Guess's rule is two spaces - and the boundaries guessed "
@@ -22891,20 +23120,20 @@ SOAK = [
         "typed by their spelling as a CSV field is, and no brackets is a "
         "refusal rather than a no-op that eats the column",
         needs=("marty",), serial=True),
-    Row("sheetjust", "soak", py("tests/sheetjust.py"), 400.0,
+    Row("sheetjust", "soak", py("tests/sheetjust.py"), 30.0,
         "SPEC.md 81.81: Format > Justify re-wraps a paragraph down the left "
         "column at the width of the WHOLE selection, a blank cell divides "
         "the range into sections justified inside their own rows, and a "
         "value in the left column refuses the block rather than being "
         "skipped - with a marker cell proving the save that shows it landed",
         needs=("marty",), serial=True),
-    Row("sheetfunc", "soak", py("tests/sheetfunc.py"), 400.0,
+    Row("sheetfunc", "soak", py("tests/sheetfunc.py"), 25.0,
         "SPEC.md 81.62: all 48 text, information and transcendental "
         "functions, each evaluated from a formula cached with a wrong value "
         "and read back from SHEET's SYLK save - the gate the move of the "
         "three families into the chart module was checked against, on both builds",
         needs=("marty",), serial=True),
-    Row("sheetmacro", "soak", py("tests/sheetmacro.py"), 400.0,
+    Row("sheetmacro", "soak", py("tests/sheetmacro.py"), 35.0,
         "SPEC.md 81.63: the macro language - FOR/NEXT nested and stepping "
         "down, WHILE with ACTIVE.CELL and SELECT(\"R[1]C\"), IF with GOTO "
         "and BREAK (the branch not taken runs no command), FORMULA, "
@@ -22912,7 +23141,7 @@ SOAK = [
         "ALERT then INPUT pausing a run - started from Macro > Run by name "
         "and by reference; and a macro command in a worksheet formula inert",
         needs=("marty",), serial=True),
-    Row("sheetdb", "soak", py("tests/sheetdb.py"), 400.0,
+    Row("sheetdb", "soak", py("tests/sheetdb.py"), 30.0,
         "SPEC.md 81.65: the eleven DATABASE functions - DAVERAGE DCOUNT "
         "DCOUNTA DMAX DMIN DPRODUCT DSTDEV DSTDEVP DSUM DVAR DVARP - each "
         "evaluated from a formula cached with a wrong value and read back "
@@ -22923,7 +23152,7 @@ SOAK = [
         "DCOUNTA counting anything non-blank, over a Fruit row whose own "
         "Amount is deliberately the text \"N/A\"",
         needs=("marty",), serial=True),
-    Row("sheetcell", "soak", py("tests/sheetcell.py"), 300.0,
+    Row("sheetcell", "soak", py("tests/sheetcell.py"), 20.0,
         "SPEC.md 81.66: CELL's nine attributes - width row col protect "
         "address contents format prefix type - checked against the real "
         "text of Microsoft Excel Functions and Macros. type_of_info matched "
@@ -22932,7 +23161,7 @@ SOAK = [
         "cell answers (\"format\" is \"G\", \"prefix\" is \"\", \"protect\" "
         "is 1)",
         needs=("marty",), serial=True),
-    Row("sheetmatrix", "soak", py("tests/sheetmatrix.py"), 300.0,
+    Row("sheetmatrix", "soak", py("tests/sheetmatrix.py"), 25.0,
         "SPEC.md 81.67: TRANSPOSE MMULT MDETERM MINVERSE, each publishing "
         "only its array's top-left element (Sheet has no array-formula "
         "entry) - TRANSPOSE on a label and a number, MMULT and MDETERM on "
@@ -22945,7 +23174,7 @@ SOAK = [
         "exponential curve, the const=FALSE arm through the origin, and a "
         "non-positive y answering #VALUE! out of fp_ln",
         needs=("marty",), serial=True),
-    Row("sheetfin", "soak", py("tests/sheetfin.py"), 300.0,
+    Row("sheetfin", "soak", py("tests/sheetfin.py"), 35.0,
         "SPEC.md 81.37 / 82.16.10: SHEET's thirteen financial functions, "
         "computed by SHEET and checked against the host's own arithmetic. "
         "Every formula is authored with a WRONG cached value, so a pass means "
@@ -22955,7 +23184,7 @@ SOAK = [
         "off the glass (81.48), and MIRR discounted from the wrong period - "
         "which SPEC's own reference table had done too",
         needs=("marty",), serial=True),
-    Row("sheetdbcmd", "soak", py("tests/sheetdbcmd.py"), 450.0,
+    Row("sheetdbcmd", "soak", py("tests/sheetdbcmd.py"), 45.0,
         "SPEC.md 81.71: Data > Find, Extract and Delete - 81.65's criteria "
         "engine driven from the MENU, over 81.69's two defined names. Find "
         "selecting the first matching record whole and then stepping to the "
@@ -22964,7 +23193,7 @@ SOAK = [
         "fields, and Delete compacting the database while the cell one row "
         "below it stays put - which is what separates it from Edit > Delete",
         needs=("marty",), serial=True),
-    Row("sheetrecord", "soak", py("tests/sheetrecord.py"), 450.0,
+    Row("sheetrecord", "soak", py("tests/sheetrecord.py"), 45.0,
         "SPEC.md 81.74 and 81.107: the macro recorder, and Start Recorder "
         "greyed until a range exists and continuing the same macro over "
         "Stop's own RETURN(). 81.68 is titled \"the way the "
@@ -22975,7 +23204,7 @@ SOAK = [
         "absolute R1C1, Stop writing its own RETURN(), and a redundant click "
         "recording nothing at all",
         needs=("marty",), serial=True),
-    Row("sheethide", "soak", py("tests/sheethide.py"), 400.0,
+    Row("sheethide", "soak", py("tests/sheethide.py"), 35.0,
         "SPEC.md 81.73: a hidden row and a hidden column - Format > Column "
         "Width 0, Excel's own way, on the line that used to refuse it. What "
         "this really gates is the MAPPING hiding broke: a visible slot's "
@@ -22987,7 +23216,7 @@ SOAK = [
         "heading drag rides with it: the edge moves 24px and widens ONE "
         "column by exactly that",
         needs=("marty",), serial=True),
-    Row("sheetseries", "soak", py("tests/sheetseries.py"), 450.0,
+    Row("sheetseries", "soak", py("tests/sheetseries.py"), 50.0,
         "SPEC.md 81.72: Data > Series - two dialogs in sequence (the type as "
         "a radio column, the step as a text field) over a direction derived "
         "from the selection's shape. Linear with a FRACTIONAL step of 2.5, "
@@ -22996,7 +23225,7 @@ SOAK = [
         "column whose first cell is a label skipped whole while the one "
         "beside it in the same selection still fills",
         needs=("marty",), serial=True),
-    Row("sheetform", "soak", py("tests/sheetform.py"), 450.0,
+    Row("sheetform", "soak", py("tests/sheetform.py"), 30.0,
         "SPEC.md 81.71.5: Data > Form - one record at a time, the sixth "
         "dialog engine and the first one that lives in the chart module behind "
         "resident thunks, so this gates that arrangement as much as the "
@@ -23005,7 +23234,7 @@ SOAK = [
         "user's own selection back rather than leaving it on the last field "
         "edited. It found `Veg` drawn over `Fruit` reading `Vegit`",
         needs=("marty",), serial=True),
-    Row("sheetfreeze", "soak", py("tests/sheetfreeze.py"), 400.0,
+    Row("sheetfreeze", "soak", py("tests/sheetfreeze.py"), 30.0,
         "SPEC.md 81.70: Options > Freeze Panes. Nothing a file holds can "
         "show a freeze, so every assertion is a cell's text read off the "
         "glass with the kernel's own glyphs: the split refused on A1 in its "
@@ -23435,7 +23664,7 @@ SOAK = [
         "repaint identity",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/network360.img")),
-    Row("telansi", "soak", py("tests/telansi.py"), 210.0,
+    Row("telansi", "soak", py("tests/telansi.py"), 95.0,
         "SPEC.md 70.9/70.10/70.12: the ANSI-BBS PARSER on the machine, against "
         "tools/ansisim.py - the same state machine in Python, and the "
         "contract's second reader the way htmsim.py is the browser's. Thirteen "
@@ -23915,7 +24144,7 @@ SOAK = [
                "build/pciether.drv", "build/kernel.sys",
                "build/browser.o88", "build/browser.map"),
         locks=("port:8090",)),
-    Row("brdownload", "soak", py("tests/brdownload.py"), 180.0,
+    Row("brdownload", "soak", py("tests/brdownload.py"), 25.0,
         "SPEC.md 71.20: Save Link As streams a 32 KiB unknown-length binary "
         "response through the NE2000 into cluster-aligned disk writes; the "
         "test confirms no total is invented and compares the saved FAT file "
@@ -23924,16 +24153,63 @@ SOAK = [
         wants=("build/browser.o88", "build/ether360.img"),
         locks=("port:8090",)),
     Row("brdownload-length", "soak",
-        py("tests/brdownload.py", "--content-length"), 180.0,
+        py("tests/brdownload.py", "--content-length"), 25.0,
         "SPEC.md 71.20: the same 32 KiB Save Link As transfer with a declared "
         "Content-Length, checking the displayed total and exact saved bytes.",
         needs=("qemu",), serial=True,
         wants=("build/browser.o88", "build/ether360.img"),
         locks=("port:8090",)),
     Row("brdownload-auto", "soak",
-        py("tests/brdownload.py", "--automatic"), 180.0,
+        py("tests/brdownload.py", "--automatic"), 25.0,
         "SPEC.md 71.20: an ordinary click on a non-rendered file URL opens the "
         "existing Save dialog automatically before the byte-exact download.",
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
+    Row("brdownload-ctype", "soak",
+        py("tests/brdownload.py", "--content-type"), 180.0,
+        "SPEC.md 71.20.4: a link with a PAGE suffix (.cgi) whose 200 answers "
+        "application/octet-stream and filename=\"DOWNLOAD.BIN\" navigates, and the Browser turns the fetch "
+        "into a download at the headers - the Save dialog opens, the page and "
+        "history come back as they were, the file is byte-exact under the "
+        "header's name (the URL would say GET.CGI), and the "
+        "server sees the link fetched twice (the cut page fetch, then the "
+        "Download Manager's). Where it said `Response is not HTML` after "
+        "draining the whole file and throwing it away.",
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
+    Row("brdownload-cancel", "soak",
+        py("tests/brdownload.py", "--cancel-active"), 180.0,
+        "SPEC.md 71.20.3: Cancel during a transfer deletes only the temporary "
+        "file, leaves the old DOWNLOAD.BIN byte for byte, closes the manager, "
+        "and the download then STAYS DL_CANCEL - where a cancel request left "
+        "standing turned it back into CANCELREADY every tick, the UI deleted "
+        "the gone partial again and failed, for as long as the Browser ran.",
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
+    Row("brdownload-close", "soak",
+        py("tests/brdownload.py", "--close-active"), 180.0,
+        "SPEC.md 71.20.3: the title-bar close during a transfer is a cancel "
+        "request, with brdownload-cancel's checks.",
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
+    Row("brdownload-failexit", "soak",
+        py("tests/brdownload.py", "--fail-exit"), 180.0,
+        "SPEC.md 71.20.3: a body cut short ends in DL_FAIL with no file left, "
+        "and Exit then dismisses the manager. It fell through to a cancel "
+        "request, re-deleted the gone partial and stayed on `Could not delete "
+        "partial file` - and under `Saved as .$$$` would delete the only copy.",
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
+    Row("brdownload-failclose", "soak",
+        py("tests/brdownload.py", "--fail-close"), 180.0,
+        "SPEC.md 71.20.3: the same failed transfer, dismissed by the title-bar "
+        "close box, which did nothing: it re-entered the raced-cancel path "
+        "that keeps an error on the glass.",
         needs=("qemu",), serial=True,
         wants=("build/browser.o88", "build/ether360.img"),
         locks=("port:8090",)),
@@ -24052,7 +24328,7 @@ SOAK = [
         "true only since READY stopped re-probing (SPEC.md 34.13.2)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/midisys720.img",)),
-    Row("ethcfg", "soak", py("tests/ethcfg.py"), 90.0,
+    Row("ethcfg", "soak", py("tests/ethcfg.py"), 30.0,
         "SPEC.md 72.7: the Ethernet Setup window - Manual, an address typed "
         "into its field, Ok applying it to the driver's LIVE addresses, the "
         "mode greying Renew, and the setting SURVIVING A REBOOT once the "
@@ -24103,7 +24379,7 @@ SOAK = [
         "take-back removed fails 4 rows, `\\` not a separator 2, a "
         "seven-character stem 8, a folder's dot kept as the leaf's 1",
         needs=("nasm", "unicorn")),
-    Row("telzm", "soak", py("tests/telzm.py"), 300.0,
+    Row("telzm", "soak", py("tests/telzm.py"), 70.0,
         "SPEC.md 70.11/70.12: ZMODEM RECEIVE end to end, with the bytes read "
         "back OFF THE DISK. tools/os88bbs.py's pure-Python sender sends two "
         "batches over one boot: first the rows of its own MANGLE83_CASES as "
@@ -24722,6 +24998,81 @@ def _box86_ports(base):
 
 _PORTED_FROM = FAST + FULL + SOAK   # (a few soak-tier rows sit in the FAST list)
 SOAK += _mega_ports(_PORTED_FROM) + _box86_ports(_PORTED_FROM)
+
+
+def _shared(rows, groups):
+    """ONE BOOT FOR SEVERAL ROWS' LEGS (tests/vidshare.py; SOAK-SPEED 3,
+    docs/plans/soak-speed-2/vid.md). Each group's rows ran one script on
+    one machine off one system disk, each with a 360KB B: of its own, and
+    paid a boot apiece; the group is ONE row now, `--shared LEG=ARGS ...`,
+    that boots once and gives every leg a restore of that desktop with its
+    own disk in B:. The legs keep the rows' names, arguments and reasons
+    (registered above, as they were, and taken out here), and the row's
+    output names the leg that failed. `secs` is the group's own: 1.25x
+    its wall in one scoped soak at --marty-jobs 1, the box at load ~8-10."""
+    import shlex
+    by = {r.name: r for r in rows}
+    gone, made = set(), {}
+    for name, secs, legs in groups:
+        rs = [by[n] for n in legs]
+        if any(r.cmd[:2] != rs[0].cmd[:2] for r in rs):
+            raise SystemExit("suite: %s's legs run different scripts" % name)
+        made[legs[0]] = Row(
+            name, "soak", rs[0].cmd[:2] + ["--shared"] + [
+                "%s=%s" % (r.name, shlex.join(r.cmd[2:])) for r in rs],
+            float(secs),
+            "ONE BOOT for %d legs (tests/vidshare.py) - %s" % (
+                len(rs), " || ".join("%s: %s" % (r.name, r.why)
+                                     for r in rs)),
+            needs=tuple(sorted(set(n for r in rs for n in r.needs))),
+            serial=True,
+            wants=tuple(sorted(set(w for r in rs for w in r.wants))))
+        gone.update(legs)
+    return [made.get(r.name, r) for r in rows
+            if r.name not in gone or r.name in made]
+
+
+# (the rows the ports above name - vidpage, vidfskeysvga4 - stay rows of
+# their own: a kern_mega port boots Bochs, which has no fork snapshot)
+SOAK = _shared(SOAK, (
+    ("vidpage2sh", 165, ("vidkpart", "vidpagemx", "vidpagely",
+                         "vidpagelymx", "vidpagebn", "vidpagebnmx")),
+    ("vidpage3sh", 180, ("vidpage3mx", "vidkpart3mx", "vidpage4mx",
+                         "vidpagefmx3", "vidpagefmx3o")),
+    ("vidpage4sh", 150, ("vidpage4v", "vidpagefmx4", "vidpagefmx4o",
+                         "vidpagefv4")),
+    ("vidpagepoolsh", 90, ("vidpagepool4v", "vidpagepoolf")),
+    ("vidpagensh", 185, ("vidpage8n", "vidpage6n", "vidpagefv8n",
+                         "vidpagefv6n")),
+    ("vidpagehercsh", 55, ("vidpageherc", "vidkparth")),
+    ("vidfskeys8sh", 145, ("vidfskeysvga8", "vidfskeysmodex",
+                           "vidfskeysflip")),
+    ("vidfskeys4sh", 285, ("vidfskeysvga4m3", "vidfskeysink",
+                           "vidfskeysvga4pl", "vidkpartfs")),
+    ("vidfskeyscgash", 120, ("vidfskeyscga4", "vidfskeysc160",
+                             "vidfskeysc512", "vidfskeystext")),
+    ("vidplaycgash", 145, ("vidplay", "vidplayring", "vidplay3",
+                           "vidplaybig", "vidplaycomp")),
+    ("vidv2vgash", 75, ("vidv2", "vidv2mx", "vidv24")),
+    ("vidv2enc1sh", 155, ("vidv2pgmx", "vidv2flmx", "vidv2pg4")),
+    ("vidv2enc2sh", 105, ("vidv2lp", "vidv2ly4")),
+    ("vidv2hercsh", 35, ("vidv2herc", "vidv2shd")),
+    ("vidmodexsh", 100, ("vidmodex2", "vidmodexfl", "vidmodexflh",
+                         "vidmodexflo")),
+    ("vidmodexsh2", 80, ("vidmodexflc", "vidmodexrk", "vidmodexrs")),
+    ("vidcgash", 55, ("vidcga4", "vidcga4p", "vidc160", "vidc512",
+                       "vidtext")),
+    ("vidcgavgash", 50, ("vidcga4vga", "vidc160vga", "vidtextvga")),
+    ("vidcgahercsh", 25, ("vidtextherc", "vidtexthercno")),
+    ("vidscreensh", 140, ("vidscreen", "vidscreeno")),
+    ("vidscreennsh", 95, ("vidscreenb", "vidscreenn", "vidscreennc",
+                           "vidscreenno")),
+    ("videmssh", 140, ("videms", "videmshyb", "videmsslow", "videmswrap")),
+    ("vidpalsh", 140, ("vidpal", "vidpallayer", "vidpalloop",
+                       "vidpalrep0")),
+    ("vidrepeatsh", 80, ("vidrepeat", "vidrepeatshd", "vidkpartrep")),
+    ("vidprevhercsh", 165, ("vidprevherc", "vidprevshd", "vidkpartpv")),
+))
 
 
 def rows():

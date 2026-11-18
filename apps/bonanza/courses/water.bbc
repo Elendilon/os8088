@@ -1,4 +1,4 @@
-# Water Test - BONANZA's WATER test course (SPEC.md 128.36), built only by the BZWATER=1 knob, as
+# Water Test - BONANZA's WATER test course (SPEC.md 130.36), built only by the BZWATER=1 knob, as
 # shapes.bbc is by BZSHAPES=1.  It is NOT a shipped course: the knob adds it to BZ_COURSES and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #

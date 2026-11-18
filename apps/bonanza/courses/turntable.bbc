@@ -1,4 +1,4 @@
-# Turntable Test - BONANZA's QUARTER-TURN TURNTABLE test course (SPEC.md 128.43), built only by the BZTURN=1
+# Turntable Test - BONANZA's QUARTER-TURN TURNTABLE test course (SPEC.md 130.43), built only by the BZTURN=1
 # knob (make BUILD=<tree> BZTURN=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes
 # it the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A turntable is
 # HALF FILLED and turns a quarter turn every second (64 steps); it carries nothing: a cell that turns into a gap

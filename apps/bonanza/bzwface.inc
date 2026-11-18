@@ -1,7 +1,7 @@
 ;;; =============================================================================
-;;; apps/bonanza/bzwface.inc - BONANZA's PLAYER FACE (SPEC.md 128.26.1, 128.26.2),
+;;; apps/bonanza/bzwface.inc - BONANZA's PLAYER FACE (SPEC.md 130.26.1, 130.26.2),
 ;;; assembled into the SHELL PART beside the instruments' face (bzface.inc), which
-;;; paints instead while the harness byte bz_dev is set (128.26.6).
+;;; paints instead while the harness byte bz_dev is set (130.26.6).
 ;;;
 ;;; The window: the title centred near the top, the ledge with the rubber marble
 ;;; on its right running off the content's right edge, and - the RESIDENT's,
@@ -287,7 +287,7 @@ bzw_blitsl:
 
 ; bzw_blitsh - the ledge (SI) from content x AX (> its left edge) to its right
 ; edge: column c = AX - lx shifted to a byte's start, a row at a time into
-; bz_font, as many rows a BLIT1 as fit (SPEC.md 128.26.2: nothing twice)
+; bz_font, as many rows a BLIT1 as fit (SPEC.md 130.26.2: nothing twice)
 bzw_blitsh:
     push ax
     mov bx, ax

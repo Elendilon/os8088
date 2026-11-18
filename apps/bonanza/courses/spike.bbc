@@ -1,4 +1,4 @@
-# Spike Test - BONANZA's SPIKES test course (SPEC.md 128.38), built only by the BZSPIKE=1 knob, as
+# Spike Test - BONANZA's SPIKES test course (SPEC.md 130.38), built only by the BZSPIKE=1 knob, as
 # water.bbc is by BZWATER=1.  NOT a shipped course: the knob adds it to BZ_COURSES and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #

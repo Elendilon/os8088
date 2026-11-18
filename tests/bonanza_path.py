@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 128.22.4, wave 8R;
-rewritten from wave 8b's rolled prototype, 128.19.5).
+"""bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 130.22.4, wave 8R;
+rewritten from wave 8b's rolled prototype, 130.19.5).
 
 BONANZA on MartyPC, CGA and Hercules.  Enter on the face opens the TITLE and
-P there plays THE GAME (SPEC.md 128.23.4, `enter_game`): the pathway comes up
+P there plays THE GAME (SPEC.md 130.23.4, `enter_game`): the pathway comes up
 in the bracket, the FOLLOWER's play (bz_mode 4).  Every item is asserted on
 the guest's own state (bz_* reads, breakpoints on its labels), its timing on
 the guest's clock:
@@ -122,7 +122,7 @@ def path_k():
     return BB_PATH
 
 
-# ---- the part's tables (SPEC.md 128.22.3) -----------------------------------------------------------
+# ---- the part's tables (SPEC.md 130.22.3) -----------------------------------------------------------
 
 def tables_of(t):
     """{pads, routes, keys} out of the tables' bytes T (from PTHOFF)"""
@@ -188,7 +188,7 @@ def on_path(g):
 
 
 def to_title(g):
-    """SPEC.md 128.23.4: the TITLE up - its course fetched and its demo's frame
+    """SPEC.md 130.23.4: the TITLE up - its course fetched and its demo's frame
     loop reached (a key typed before bz_play starts is drained)"""
     M.until(g.m, lambda _: g.b("bz_tmode") == 1 and g.b("bz_crs") == path_k() + 1 and g.w("bz_cseg") != 0,
             "the title", guest=60)
@@ -196,7 +196,7 @@ def to_title(g):
 
 
 def enter_game(g, what="the pathway", title=False):
-    """Enter on the face opens the TITLE (128.23.4) - or, TITLE, it is up - and
+    """Enter on the face opens the TITLE (130.23.4) - or, TITLE, it is up - and
     P there plays the game: the pathway's play REACHED (bz_t0)"""
     if not title:
         g.key("Enter")
@@ -614,7 +614,7 @@ def run_secret(tag, fails):
         rt = next(r for r in T["routes"] if r["secret"])
         hid, vend = T["pads"][rt["b"]], T["pads"][rt["a"]]
         # the host's work BEFORE the plays: TRIAL's compile is ~4 host s since the Y0 search (SPEC.md
-        # 128.25.3; 1 s before it), ~20 GUEST s at MartyPC's pace - done after TRIAL came up it ran out
+        # 130.25.3; 1 s before it), ~20 GUEST s at MartyPC's pace - done after TRIAL came up it ran out
         # TRIAL's own 20 s limit, and the poke landed on the pathway the timeout went back to
         trial = R.course("trial", src=os.path.join(crs, "trial.bbc"), art=art)
         p = BB.Physics(trial, play=True, mat=trial.ball).poke(8, 18)

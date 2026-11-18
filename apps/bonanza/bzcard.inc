@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzcard.inc - THE CARDS (wave 8c, SPEC.md 128.19.8): a box of
+; apps/bonanza/bzcard.inc - THE CARDS (wave 8c, SPEC.md 130.19.8): a box of
 ; text drawn INSIDE the bracket, over the frozen frame, and taken away by a
 ; full write of the next one ([bz_freq], the frame loop's).
 ;
@@ -201,7 +201,7 @@ bz_card:
 .rule:
     mov ax, 0ffffh
 .st:
-    cmp byte [bz_vga], 0        ; THE VGA's cell (SPEC.md 128.45.4): the part's
+    cmp byte [bz_vga], 0        ; THE VGA's cell (SPEC.md 130.45.4): the part's
     je .cst                     ; store, a byte a plane at P y + S + c0 + cell
     BZ_VCALL BZV_CARD
     jmp short .nx
@@ -278,7 +278,7 @@ bz_knum:
     loop .o
     ret
 
-; bz_kinfo - THE INFO CARD (128.22.6): AL = the pad's course K.  Its NAME; its
+; bz_kinfo - THE INFO CARD (130.22.6): AL = the pad's course K.  Its NAME; its
 ; ball; LIMIT s; GOLD s and SILVER s; BEST s.t and the medal won, or NOT
 ; PLAYED; EXITS n OF m (the exits found of those the course has); and NOT
 ; SAVED while the last write of BONANZA.DAT was refused.  The slot is the one

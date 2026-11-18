@@ -2,10 +2,10 @@
 
 *A dated measurement of one tree: `3ba74532a`, branch `bounce-bonanza`. It
 prices the owner's idea of a SHARED KIT: standard picture blocks, occluder
-masks, FIELD shape tables (SPEC.md 128.28.2) and other reusable art held once
+masks, FIELD shape tables (SPEC.md 130.28.2) and other reusable art held once
 instead of once a course. The owner's bar: it is worth doing if it saves
 about 3x what it costs (2x might do), counting the ~20 release courses. The
-goal is the game on ONE 360KB disk (128.15.8, 128.27.5). The work was done on
+goal is the game on ONE 360KB disk (130.15.8, 130.27.5). The work was done on
 the host only. No guest, course, tool or SPEC.md byte changed, and no
 emulator ran. The scripts are in the session's scratch directory, `kit/`:
 `dump.py`, `kitlib.py`, `attrib.py`, `kit.py`, `kitmap.py`, `recs.py`,
@@ -22,7 +22,7 @@ emulator ran. The scripts are in the session's scratch directory, `kit/`:
   but not written.
 - **PREDICTED**: an extrapolation, with its model stated.
 
-LZB is the format the parts ship in (128.15.9). "The study set" is the eight
+LZB is the format the parts ship in (130.15.9). "The study set" is the eight
 courses FIRST, TRIAL, MILL, MOON, PEAK (`summit.bbc`), PLAYGROUND and the
 `BZSHAPES` knob's SHAPE and PITS. Together they pack to **52,365 bytes of LZB**
 (MEASURED). BENCH, the pathway and the title are left out: the first is the
@@ -180,7 +180,7 @@ the map's bytes are layout, not art.
 
 ## 2. Relocatable occlusion (question 2)
 
-**What remains.** Under AV (128.29) the VOID-cell records are computed, and
+**What remains.** Under AV (130.29) the VOID-cell records are computed, and
 the shipped records are the residual plus every non-VOID position. Over the
 study set they are 6,028 records, packed to **8,361 bytes** (`R`, 16% of the
 courses), plus 2,192 of masks and 519 of `OCCIDX` counts. Per record that is
@@ -235,7 +235,7 @@ internal records only.
 
 ### 3.1 Referenced in place, from its own segment: refused
 
-Every picture reader takes `DS` = the picture part (`bz_mseg`, 128.30.5). In
+Every picture reader takes `DS` = the picture part (`bz_mseg`, 130.30.5). In
 the same loop it reads the map word through `DS:BX` and the block's lines
 through `DS:SI`:
 - `bz_row`'s `BZ_RWORD`: `mov si, [bx]`, `movsw`, ...;
@@ -289,23 +289,23 @@ not drop."*
     course.**
 - **Against reading and decoding those bytes today.** The pieces a course
   takes from the kit are 500 - 1,700 packed bytes it no longer reads: 1 - 3
-  sectors at 35.6 ms (128.15.4.6's figure), about 35 - 120 ms. They are also
+  sectors at 35.6 ms (130.15.4.6's figure), about 35 - 120 ms. They are also
   about 5KB less to LZB-decode, at 60 - 200 clk a byte (LZ4's 63.8;
   `kernel/lz.inc`'s literal path 207), about 0.06 - 0.2 s. So **a launch
   with the kit held is about 0.1 - 0.2 s SHORTER** (PRICED).
 - **When the kit is not held** it is fetched at the launch and dropped
   after the copy. That costs one more `op_fetch` (one more `int 13h` run,
-  under 0.4 s, 128.30.8) and the kit's decode: about **+0.15 s for the small
+  under 0.4 s, 130.30.8) and the kit's decode: about **+0.15 s for the small
   kit** (1.3KB packed, 3.8KB raw) and **+0.5 s for the pairwise kit** (5.3KB,
   14.3KB). That is the price on the machine without room.
 - **Code**, PRICED: the KITREF form (the bitmap copy, the walk, one copy
   loop parameterised by the piece size) about 70 - 90 bytes; the kit's
-  fetch, hold, release and drop beside `bz_phold`/`bz_phrel` (128.22.7)
+  fetch, hold, release and drop beside `bz_phold`/`bz_phrel` (130.22.7)
   about 60 - 100; a part row and `bzcourse.inc` fields. **About 150 - 200
   bytes of package image and 4 of bss**, nothing in the kernel and nothing
   in `os88parts.inc`. kern_mega: the kit is a claim with an LDT selector
   from `op_seg`, and the copy reads through it. No `PKG_MEGA` arm (nothing
-  adds to a segment). kern_small refuses BONANZA already (128.1).
+  adds to a segment). kern_small refuses BONANZA already (130.1).
 - **How it converges with the dictionary.** Both decode out of the held
   kit; the dictionary is this design plus a prefix. If the +210 bytes a
   course is ever wanted, it is added later, with the kit copied in front of
@@ -317,17 +317,17 @@ not drop."*
 | | bytes |
 |---|---|
 | the region: image 49,732 + bss 11,431 + header and stack | **about 61.7KB** |
-| the resident bundle (the balls and the resident families, held for the instance, 128.25.5.2) | 33,376 |
+| the resident bundle (the balls and the resident families, held for the instance, 130.25.5.2) | 33,376 |
 | the title (desktop) / the shell part (desktop) | 28,672 / 12,072 |
 | a course: PEAK (largest one-part) / PLAYGROUND (two parts) | 41,503 / 45,320 + 14,979 = 60,299 |
-| the pathway, when held (128.22.7) | 21,930 |
+| the pathway, when held (130.22.7) | 21,930 |
 | the arena's play parts (sound, song, fanfare, families) | about 3 - 4KB |
 | **a PLAYGROUND play** | **about 159KB without the pathway, about 181KB with it** |
 
 - **A 640KB machine** (about 540KB of heap beside kern_big's 100KB) holds a
   15KB kit beside all of it with room. **Hold it.**
 - **BONANZA's stated machine is a 256KB 5150, about 156KB of heap**
-  (128.10.10, 128.14.11). The 20.5KB of headroom measured there was with a
+  (130.10.10, 130.14.11). The 20.5KB of headroom measured there was with a
   42.5KB region. The region is now about 61.7KB, and the sum above is
   already about 159KB for PLAYGROUND without a kit (PREDICTED; **an open
   question for the owner whatever the kit decides**). On that machine the
@@ -335,7 +335,7 @@ not drop."*
   dropped right after the copy, the arena regrown down. The peak is course +
   kit for a moment. The small kit (3.8KB) makes that peak cheap; the
   pairwise kit (14.3KB) may not fit beside PLAYGROUND there.
-- **The hold rule** is 128.22.7's, extended: keep the kit when the largest
+- **The hold rule** is 130.22.7's, extended: keep the kit when the largest
   free run still takes `BZ_CRS_MAXCLAIM` + `BZ_CRS_ARMAX` with the kit held;
   otherwise drop it after each assembly. Keep the pathway in preference to
   the kit: the pathway saves a whole part's read.
@@ -344,7 +344,7 @@ not drop."*
 
 ## 4. Alignment (question 4)
 
-The block patterns depend on `Y0` (128.25.3), and on `X0`, which is a
+The block patterns depend on `Y0` (130.25.3), and on `X0`, which is a
 multiple of 8 on every course. `align.py` compiled FIRST, TRIAL, MILL, MOON
 and PEAK at all eight `k`:
 
@@ -381,7 +381,7 @@ and PEAK at all eight `k`:
 ## 5. Extrapolation to ~20 courses (question 5)
 
 **A plausible standard kit** (PREDICTED from the measured kits):
-- the pairwise kit's art: floors, faces down to the ground (128.27),
+- the pairwise kit's art: floors, faces down to the ground (130.27),
   outlines and corners, at Y0 in {0, 4} (mod 8), about 570 blocks and 144
   masks, **5.3KB of LZB**;
 - the FIELD library for the standard chutes:
@@ -397,7 +397,7 @@ and PEAK at all eight `k`:
 rows.
 
 **The model.** A release course averages today's study-set size, 6.5KB of
-LZB. That is low: 128.15.8's plan is about 209 bytes a target second, and
+LZB. That is low: 130.15.8's plan is about 209 bytes a target second, and
 1,170 s over 20 courses is about 12KB a course. A saving is a fraction of a
 course:
 
@@ -423,7 +423,7 @@ courses at 46.2KB of parts and about 72KB of everything else (MEASURED,
 `make bonanzadisk` at this tree). Thirteen more courses at today's 6.9KB
 average are about 90KB more: about **214 of 354 clusters, on one disk with
 no kit**. The disk binds only if courses average about 12KB, which is
-128.15.8's per-second plan and PLAYGROUND's size (about 72 + 20 x 12 = 312KB
+130.15.8's per-second plan and PLAYGROUND's size (about 72 + 20 x 12 = 312KB
 plus slack). In that case the kit's 28 - 60KB is the difference. **The kit
 is insurance for the courses to come, and it pays for itself even on
 today's courses** (3.4x), which is why it is still recommended. Say if that
@@ -457,7 +457,7 @@ is not the priority.
 | (later) | relocatable FIELD-piece records; the dictionary | a few hundred bytes | if K3's courses show them worth it |
 
 Every course's identity moves once at K1 (the block order changes, so the
-map words change), and the demos re-stamp with it, as at 128.25.3.
+map words change), and the demos re-stamp with it, as at 130.25.3.
 
 **The 3x test**, MEASURED where stated:
 - the small kit: **3.4x on today's 8 courses**, about 8x over 20 courses

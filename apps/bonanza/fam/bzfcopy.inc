@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/bzfcopy.inc - the package's helpers a FAMILY PART needs,
-; COPIED (SPEC.md 128.25.6.2: a part names no code label of the package, so a
+; COPIED (SPEC.md 130.25.6.2: a part names no code label of the package, so a
 ; call into it cannot assemble).  Each answers exactly what the package's
 ; routine of the same name answers; a part asks for the ones it calls with
 ; %define FC_<NAME> before including this.  Written once here for every part
