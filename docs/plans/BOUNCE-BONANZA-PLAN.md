@@ -1413,10 +1413,11 @@ C9's groundwork, B9 (the elements tuned as the courses use them).
 
 - H1: the Hercules' pair art and its blank budget. F4: decide the vertical
   phase's wobble (a second frame set costs 5,120 bytes a claim).
-- **H5: VGA runs the CGA arm**, tested on MartyPC's `os8088_xt_vga` (VGA
-  is not a QEMU case). The per-course palette must reach the colours
-  there. Whether a VGA honours 3D9h or needs the attribute controller is
-  checked first.
+- ~~**H5: VGA runs the CGA arm**~~ - **RETIRED, replaced by the VGA's own
+  arm** (the owner's D4, 2026-11-17: SPEC.md 130.46, plan
+  docs/plans/BOUNCE-BONANZA-VGA.md): mode 0Dh, a 64 KB ring with a pel pan,
+  the art converted once to planar pairs, its own camera. The per-course
+  palette reaches the colours through the attribute controller (BZV_INIT).
 - kern_mega re-verified with the family parts, the shell's code part and
   the pathway, on 86Box.
 - The EGA, MDA and kern_small refusals re-checked; four disk geometries.
@@ -3660,7 +3661,9 @@ geometries are done in practice and are ticked in wave 5a (story 5a.4).*
       *Done in practice (`bonanzamega` passes on 86Box); ticked in 5a.4 (H2), re-checked in wave 14.*
 - [x] EGA, MDA and kern_small refuse with reasons.
       *The refusals are built (SPEC.md 130.1); ticked in 5a.4 (H3), re-checked in wave 14.*
-- [~] VGA runs the CGA arm. *Wave 14 (H5).*
+- [x] ~~VGA runs the CGA arm~~ - *H5 retired: the VGA has its own arm (SPEC.md
+      130.46, docs/plans/BOUNCE-BONANZA-VGA.md), built and tested in its own
+      waves V0 - V3.*
 - [x] Disks: `make bonanzadisk` in four geometries. The package is `local`
       in `apps/RETIRED.txt` until the owner says it ships.
       *The four images are built since wave 0 (the Makefile's `bonanzadisk`); ticked in 5a.4 (H4). Shipping is wave 15's checklist, on the owner's word.*
