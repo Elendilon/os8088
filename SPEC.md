@@ -281233,9 +281233,10 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
   shipped courses the same bytes. No file is an empty kit (every course
   then carries its own pieces, as before).
 - **It is GENERATED, never written by hand**: `python3 tools/bbcourse.py kit`
-  compiles `KIT_POOL`'s courses (every play course under
-  `apps/bonanza/courses/`: BENCH, FIRST, TRIAL, MILL, MOON, PEAK, PLAYGROUND,
-  SHAPE, PITS - the knob's two included, the pathway and the title not)
+  compiles `KIT_POOL`'s courses (the PATHWAY's: FIRST, TRIAL, MILL,
+  PLAYGROUND, MOON, PEAK, and ROLL, FIRST's successor on pad 0 - no test
+  course, the owner's rule of 2026-11-18; until then BENCH, SHAPE and PITS
+  were in it too)
   WITHOUT the kit (`_hack` `nokit`), and keeps:
   - **B**: every block at least `KIT_MIN` = 3 of them hold, the black block
     first (every course's block 0, 130.10.4);
@@ -283987,3 +283988,81 @@ step's size at most the largest n whose stopping distance n (n + 1) / 2 fits
 in the distance left - not one less a frame, which a TRACK pushing the step
 back up each frame out-ran (MILL's demo: held at 3 - 4, then clamped 3 to 0
 at the edge). Last frame's step met the cap, so it falls at most one a frame.
+
+### 130.47 THE LOOK and cast shadows (the owner, 2026-11-18; on `bb-depthcue`)
+
+*THE LOOK (130.47.2, 130.47.3) is how every course is drawn - the owner played it and made it the default,
+and its knob was deleted with it. Cast shadows (130.47.5) are a knob, off by default.*
+
+#### 130.47.1 The problem, and what was tried
+
+The projection has an exact alias: a cell at `(wx + 1, wy + 1)` two units higher lands on the same pixels as
+`(wx, wy)` (130.10.2: `y = 8 (wx + wy) - z`, 16 lines a step either way), and the top's colour, `(wx + wy) & 1`
+(130.10.4.1), is the same on both - so a floor one tile back and two units down continues the checker
+seamlessly, and a rail's top two units over the floor reads as floor (ROLL lost a pillar rail to it). Faces
+hang to the ground (130.27), so walls at different depths tile into one, and `Canvas.outline` has one weight of
+line, so a seam inside a wall and a step in depth look alike.
+
+The owner compared host prototypes on ROLL and MILL and then played four builds. REJECTED, and deleted rather
+than kept as options: contour lines on depth breaks (1 px vanished beside the seams, 2 px "drawn on in
+mspaint"), seams removed inside a flat wall (a style the owner declined), a dithered CONTACT BAND on the lower
+floor behind a break (3, 2 and 1 px; in play it "read as fuzz when moving, instead of boundary"), and wall tops
+as a capstone ring, a 25% dither, hatching, a grating, bricks and a magenta dither. KEPT: the checker by height
+and the cyan dither wall top (THE LOOK, every course), and cast shadows (`BZSHADOW=1`).
+
+#### 130.47.2 The checker by height
+
+A FLOOR or GOAL top's colour is `(wx + wy + z0 / 4) & 1` (`z0` in half units, so the term steps every 2 units,
+16 px): the alias flips its colour. Ramps and goals keep their sub-checker. A course's rails and much of its
+real map then fall out of step with the floor, which is the cue.
+
+#### 130.47.3 The wall top
+
+A WALL top (not a bumper: those stay magenta) is a 50% dither of cyan and white (`(x + y)` odd cyan), so a top
+the ball is not meant to roll on says so. Every WALL takes it; a per-tile choice is for course design later.
+The Hercules shows its 2-level translation (130.11.3), which the owner checked and found fine.
+
+#### 130.47.4 Demos
+
+A course's identity (130.15.7) covers its picture. THE LOOK moved every identity once, and MOON's, PEAK's and
+PLAYGROUND's demos were written again by `bbcourse.py author` with the kit's re-cut (130.37.2) - the same
+runs, their `ident` lines alone changed. Cast shadows move the picture's ink and nothing the replay meets, so
+a `BZSHADOW` build re-stamps each demo with its own identity and says so, as 130.22.6 does for the clocks; the
+replay check after it (the goal on the last step) still runs.
+
+#### 130.47.5 Cast shadows (`BZSHADOW=1`)
+
+The owner's verdict: "good art, not good info" - a shadow says where something tall stands over lower floor,
+not the depth that was missing - and its bytes are fewer courses to a disk. Kept for a disk that can afford
+it (a 1.44MB VGA disk), off by default. Of four light directions only this one cast shadows worth having.
+
+While it renders, the canvas keeps for each pixel the geometry that drew it (a top or a face), that geometry's
+own height there (a face's pixel is its top edge's height less its lines below it) and its cell. The light
+comes from `-x+y` (screen up-left; the sw faces stay the lit ones, the se faces the shaded) and rises 1 px of
+height a gu, so a two-unit (16 px) step casts a shadow one tile long. A TOP pixel at world `(gx, gy, z)` is in
+shadow when, marching toward the light in 2 gu steps, another cell's top stands above the ray: a whole cell's
+own sloped PLANE (a ramp casts the ramp, not a block at its top corner), a split cell its records' highest
+corner, a FIELD cell its `hmax`. A shadowed pixel is darkened by the 50% dither (`(x + y)` even black); faces
+receive none.
+
+No shadow falls on, or from, a cell that moves or vanishes - a see-saw's, a turntable's, a bridge's, a guard
+rail's, glass, a membrane, any prop's own cell - since a picture that differed between its poses would widen
+its lanes (the first band prototype took TILT's plate from 6 lanes to 7).
+
+PLAYGROUND, the stress test, is near `BLK_MAX` (1,024) and shadows take it over: a course over
+`BLK_MAX` with them is compiled again WITHOUT them, and the run says so on stderr. Whether PLAYGROUND shrinks or
+the occluders leave the picture's part to lift the limit is the owner's later call.
+
+#### 130.47.6 Cost (MEASURED on the host, LZB)
+
+The pathway's courses (FIRST, TRIAL, MILL, PLAYGROUND, MOON, PEAK) and ROLL, and the kit's part:
+
+| | courses | `BZKIT.BIN` | total |
+|---|---|---|---|
+| before THE LOOK, the nine-course kit | 55,006 | 4,509 | 59,515 |
+| THE LOOK, the same kit | 56,876 | 4,509 | 61,385 |
+| THE LOOK, the kit re-cut on the pathway (130.37.2) | 54,331 | 3,948 | 58,279 |
+
+So THE LOOK cost 1,870 bytes against a kit cut before it, and the re-cut more than paid it back. Cast shadows
+on top: MILL 6,505 to about 7,000, ROLL 9,262 to about 10,200 (measured against the earlier kit: MILL +486,
+ROLL +906).

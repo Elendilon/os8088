@@ -210,7 +210,8 @@ KIT_MIN = 3                   # a block or a mask joins the kit when this many p
 KIT_Y0 = 4                    # the ONE alignment (the owner, 2026-11-17): a play course's Y0 is 4 (mod 8)
 KIT_HDR = 32                  # BZK1's header: magic, NCLS, an 8-byte entry a class, padding
 KIT_BMMAX = 512               # a class's bitmap, bytes: bz_cxkit copies it to bz_boxbuf (4 BZ_BOXB >= 512)
-KIT_POOL = ("bench", "first", "trial", "mill", "moon", "summit", "playground", "shapes", "pits")
+KIT_POOL = ("first", "trial", "mill", "playground", "moon", "summit", "roll")   # the PATHWAY's courses and ROLL
+                              # (FIRST's successor on pad 0), in pad order: no test course (the owner, 2026-11-18)
 # the course budget (SPEC.md 130.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
 ROOM = 239 * 1024             # 244,736: the report's section 7
 PLAN_SECS = 1170              # CD3's set: six of 30 s, nine of 60 s, five of 90 s
@@ -7089,6 +7090,15 @@ class Canvas:
         # wave 3: the tile that drew each pixel last, 256 wx + wy (-1 none),
         # kept only for a course with a windmill (the house check, 130.12.3.3)
         self.obuf = [array("i", [-1]) * w for _ in range(h)] if owners else None
+        # SPEC.md 130.47.5: with CAST SHADOWS, the geometry each pixel shows: lk 0 none, 1 a top (a plane), 2 a
+        # face (vertical); lz its height there, whole px (a face's own, not its top edge's); lo its cell
+        self.lwhich = None
+        if SHADOW:
+            self.lk = [bytearray(w) for _ in range(h)]
+            self.lz = [array("h", [0]) * w for _ in range(h)]
+            self.lo = [array("i", [-1]) * w for _ in range(h)]
+        else:
+            self.lk = None
 
     def fill(self, sp, colour, s, top, owner=-1):
         """colour: an index or (x, y) -> index; top: (x, y) -> whole px"""
@@ -7107,6 +7117,27 @@ class Canvas:
                     tr[x] = top(x, y)
                     if orow is not None:
                         orow[x] = owner
+        if self.lk is not None:
+            self._look_fill(sp, owner)
+
+    def _look_fill(self, sp, owner):
+        """130.47.5: a face's pixel is lk 2 at its top edge's height less its lines below that edge (the face is
+        vertical); anything else drawn is a plane, lk 1, at the top function's height"""
+        face = self.lwhich in ("sw", "se", "front", "post")
+        ymin = {}
+        if face:
+            for y, runs in sp.items():
+                for a, b in runs:
+                    for x in range(a, b):
+                        if y < ymin.get(x, y + 1):
+                            ymin[x] = y
+        for y, runs in sp.items():
+            kr, zr, orow, tr = self.lk[y], self.lz[y], self.lo[y], self.tbuf[y]
+            for a, b in runs:
+                for x in range(a, b):
+                    kr[x] = 2 if face else 1
+                    zr[x] = tr[x] - (y - ymin[x]) if face else tr[x]
+                    orow[x] = owner
 
     def outline(self, sp, left=False, also=None):
         """black on each pixel with nothing of sp above it (left: and each run's first); also: spans whose
@@ -7712,6 +7743,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
     for sp0, which, s, mk, left, t, (wx, wy) in ops:
         sp = _shift(sp0, y0)
         own = 256 * wx + wy
+        cv.lwhich = which
         if which in ("paint", "tline"):             # wave 3: a mark on what is drawn (130.24.6.1: a TB edge line)
             ink = mk(y0)
             for y, runs in sp.items():
@@ -7769,7 +7801,8 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.outline(sp, left=True)
         else:
             if t.kind == KIND_WALL:
-                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else WHT, s, top, own)   # a bumper rail: magenta
+                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else (WHT if _NOLOOK else WALL_INK), s, top, own)
+                                                    # a bumper rail: magenta (130.47.3: a wall's dither top)
             elif t.kind != KIND_GOAL and t.surf != SURF_NORMAL:
                 cv.fill(sp, _surface_ink(t.surf, x0, y0), s, top, own)
             elif t.kind == KIND_GOAL or t.sx or t.sy:
@@ -7784,9 +7817,80 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                             for x in range(a, b):
                                 row[x] = ink
             else:
-                cv.fill(sp, WHT if (wx + wy) & 1 else CYN, s, top, own)
+                cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else t.z0 // 4)) & 1 else CYN, s, top, own)
+                                                    # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
+    if SHADOW and _SHADOW_OK:
+        look_shadow(cv, tiles, x0, y0)
     return cv
+
+
+_NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_hack "nolook"): the ink before
+                        # THE LOOK, for the cross-commit check against a tool that predates it
+
+
+def WALL_INK(x, y):
+    """SPEC.md 130.47.3: a WALL top - cyan and white, 50%, so a top the ball is not meant to roll on says so"""
+    return CYN if (x + y) & 1 else WHT
+
+
+def _shadow_heights(tiles):
+    """130.47.5: {cell: (z, sx, sy) in px} - a cell's top plane, z at its back corner, so a point (fx, fy) inside
+    it (0..1) stands at z + sx fx + sy fy; a split cell or a FIELD cell, which have no plane of their own,
+    stand at their highest (a split's records' highest corner, a FIELD cell's hmax)"""
+    out = {}
+    for c, t in tiles.items():
+        if isinstance(t, Tile):
+            out[c] = (4 * t.z0, 4 * t.sx, 4 * t.sy)
+        elif isinstance(t, Split):
+            hs = [4 * max(r.corners()) for r in t.halves if r is not None]
+            if hs:
+                out[c] = (max(hs), 0, 0)
+        elif isinstance(t, FieldTile):
+            out[c] = (t.hmax / 4.0, 0, 0)
+    return out
+
+
+def look_shadow(cv, tiles, x0, y0):
+    """SPEC.md 130.47.5: a TOP pixel (lk 1) at world (gx, gy, z) is in SHADOW when, marching from it toward the
+    light (SHADOW_DIR) in 2 gu steps, another cell's top stands above the ray (z + SHADOW_R s); a shadowed
+    pixel is darkened by the 50% dither ((x + y) even black).  Never on or from a cell that moves (_SHADOW_DYN).
+    The march stops at the course's greatest rise over this pixel (the highest top less z, over SHADOW_R)"""
+    H = _shadow_heights(tiles)
+    if not H:
+        return
+    top = max(z + max(0, sx) + max(0, sy) for z, sx, sy in H.values())
+    dx, dy = SHADOW_DIR
+    n = math.hypot(dx, dy)
+    dx, dy = dx / n, dy / n
+    dyn = _SHADOW_DYN
+    for y in range(cv.h):
+        kr, zr, orow, row = cv.lk[y], cv.lz[y], cv.lo[y], cv.rows[y]
+        for x in range(y & 1, cv.w, 2):             # (only (x + y) even pixels can darken)
+            if kr[x] != 1 or row[x] == BLK:
+                continue
+            o = orow[x]
+            if o >= 0 and (o >> 8, o & 255) in dyn:
+                continue
+            z = zr[x]
+            smax = (top - z) / SHADOW_R
+            if smax <= 0:
+                continue
+            a = x + 0.5 - x0
+            b = 2 * (y - y0 + 0.5 + z)
+            gx, gy = (a + b) / 2.0, (b - a) / 2.0
+            own = (int(gx // 16), int(gy // 16))
+            s = 2.0
+            while s <= smax:
+                cx, cy = gx + dx * s, gy + dy * s
+                c = (int(cx // 16), int(cy // 16))
+                if c != own:
+                    p = H.get(c)
+                    if p is not None and c not in dyn and \
+                            p[0] + p[1] * (cx / 16.0 - c[0]) + p[2] * (cy / 16.0 - c[1]) > z + SHADOW_R * s:
+                        row[x] = BLK
+                        break
+                s += 2.0
 
 
 # =============================================================================
@@ -9220,6 +9324,15 @@ def _ball_cols():
 
 FSHOW = 8                     # SPEC.md 130.28.6, the SHOW rule: the most lit ball px a FIELD cell's airborne pose may
 #                               show that the per-pixel rule hides, when nothing else needs those pixels
+# SPEC.md 130.47.5: CAST SHADOWS (make's BZSHADOW=1, the run's --shadow), OFF by default - the owner, 2026-11-18:
+# "good art, not good info", kept for a disk that can afford it.  Light from -x+y, a shadow 1 gu long for each
+# px of height
+SHADOW = False
+_SHADOW_DYN = frozenset()     # this compile's cells that MOVE or vanish: no shadow on or from them (130.47.5)
+_SHADOW_OK = True             # off for a course over BLK_MAX with shadows (compile_course's retry, 130.47.5)
+_SHADOW_IN = False
+SHADOW_DIR = (-1.0, 1.0)      # toward the light, world gu (normalised where it is used)
+SHADOW_R = 1.0                # the light's rise, px of height a gu
 FSHOW_ALL = False             # SPEC.md 130.28.6: the SHOW rule on every course (the run's --fshow, make's BZFSHOW=1); OFF
 #                               by default - the owner, 2026-11-17, kept it as a TOGGLE; a course's `fshow` turns it on
 
@@ -10037,6 +10150,28 @@ def _course_limit(c, src, fname):
 
 
 def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
+    """(SPEC.md 130.47.5: with CAST SHADOWS a course over BLK_MAX with them is compiled again without them, and
+    the run says so - PLAYGROUND, the stress test, is the one)"""
+    global _SHADOW_IN, _SHADOW_OK
+    if not SHADOW or _SHADOW_IN:
+        return _compile_cached(source, fname, occluders, _hack, crsinfo)
+    _SHADOW_IN = True
+    try:
+        try:
+            _SHADOW_OK = True
+            return _compile_cached(source, fname, occluders, _hack, crsinfo)
+        except CourseError as e:
+            if "over the %d a map word" % BLK_MAX not in str(e):
+                raise
+            sys.stderr.write("bbcourse --shadow: %s; compiled again WITHOUT the shadows (SPEC.md 130.47.5)\n" % e)
+            _SHADOW_OK = False
+            _VANISH_MEMO.clear()
+            return _compile_cached(source, fname, occluders, _hack, crsinfo)
+    finally:
+        _SHADOW_IN, _SHADOW_OK = False, True
+
+
+def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
     _hack: --selfcheck's negative controls' switches, and nothing else's.
@@ -10058,9 +10193,10 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None)
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK
     hack = _hack or {}
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
+    _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
@@ -10075,6 +10211,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _FAST_EXTRA = ()
         _DOWN_S0 = False
         _HM_FTOP = False
+        _NOLOOK = False
         _REACH_MEMO = saved
 
 
@@ -10306,6 +10443,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if src.seesaws and not hack.get("notiltpost"):  # SPEC.md 130.42.5: each see-saw's fulcrum
             o_ = tilt_ops(src.seesaws, o_, x0)
         return o_
+    global _SHADOW_DYN                              # SPEC.md 130.47.5: no shadow on or from what moves or vanishes
+    _SHADOW_DYN = frozenset(set(gcells) | set(rails) | ttcells | bridges | {c_ for sw in src.seesaws for c_ in sw["cells"]}
+                          | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
+                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW else frozenset()
     ops = _ops_of(tiles)
     # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
     # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
@@ -19152,7 +19293,8 @@ def _dump(obj, f, gids=None):
 
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
-_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS"))
+_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
+                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
 
 
@@ -19691,6 +19833,13 @@ def check_demo(c, K, log, idents, where):
         restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the course moved by clocks its "
                        "replay never meets (SPEC.md 130.22.6)" % (where, struct.unpack_from("<H", log, 14)[0],
                                                                   idents[K]))
+        struct.pack_into("<H", log, 14, idents[K])
+        bad = check_log(bytes(log), len(idents), idents, physv=log[7])
+    if bad and bad[0] == 4 and SHADOW:
+        # SPEC.md 130.47.5: the shadows move the picture's ink and nothing the replay meets, so a BZSHADOW build
+        # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
+        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the shadows moved the picture "
+                       "only (SPEC.md 130.47.5)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
     if bad:
@@ -28186,7 +28335,8 @@ def _sc_crosscommit(X, res):
                 # (that tool had no Y0 search; and SPEC.md 130.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
-                                                "occ": "off"})      # (and SPEC.md 130.29's AV off: today's records)
+                                                "occ": "off", "nolook": True})
+                # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -31768,8 +31918,9 @@ def main_demo(argv):
 # PLAYGROUND's.  Not shipped and not in the tour: --selfcheck item 15 compiles it, `make bonanzatwoseg` adds it to a
 # private build as course 7
 TWOSEG_EXT = ("\n# SPEC.md 130.30.7: the lane run on down the screen off the platform's foot, until one part refuses "
-              "the course\nfloor box 15 17 81 106 flat 2.5\n")     # (to 106, was 121, when PLAYGROUND's crack and
-# group labs merged, 2026-11-17: its picture part 67,504 bytes at 121, over 130.30.4.1's 65,024; 63,202 at 106)
+              "the course\nfloor box 15 17 81 92 flat 2.5\n")      # (to 106, was 121, when PLAYGROUND's crack and
+# group labs merged, 2026-11-17: its picture part 67,504 bytes at 121, over 130.30.4.1's 65,024; 63,202 at 106;
+# to 92 when THE LOOK's wall tops landed, 2026-11-18 (130.47.3): 68,002 at 106, 64,868 at 95)
 
 
 def twoseg_text():
@@ -32175,7 +32326,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL
+    global OCC_MODE, FSHOW_ALL, SHADOW
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -32223,6 +32374,9 @@ def main():
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 130.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
+    ap.add_argument("--shadow", action="store_true",
+                    help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
+                         "of height, a 50%% dither on the tops they fall on; off by default")
     ap.add_argument("--guide", action="store_true",
                     help="the course guide's checks (wave 11: G1, G3, G9 - G12) on each `guide` course, over its "
                          "route and any --log demos; writes nothing")
@@ -32236,6 +32390,7 @@ def main():
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
+    SHADOW = a.shadow
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
     only = None
