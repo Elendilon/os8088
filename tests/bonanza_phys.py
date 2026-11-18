@@ -3362,14 +3362,16 @@ def mill_replays():
         B2["at"], [(e[1], e[2], e[4]) for e in evs(p, "kick")]), evs(p, "kick") and not p.nfall,
         red={"_kick_k": True})
     CK = mill_rec(BB.PK_CLOCK)                  # wave 7 (SPEC.md 128.18.5.3): a clock is a post with no kick
-    pk = mill_poke(CK["at"][0] - 2, CK["at"][1], BB.VMAXG, 0)
+    # (from the RIGHT, rolling -x: since SPEC.md 128.18.5.4 MILL's clock stands at the floor's front-left corner,
+    # (6, 13), with no floor to its left)
+    pk = mill_poke(CK["at"][0] + 2, CK["at"][1], -BB.VMAXG, 0)
     keys = [0] * 60
     p, _ = ev_of("mill", 0, pk, keys)
     hit = evs(p, "kick")
     add("clock", 0, pk, keys, "rolled at the cap into MILL's clock at %s: stopped by its ball's post, back at "
         "%s of %d (no kick: K 0), never past its centre" % (CK["at"], [e[4] for e in hit[:1]], BB.VMAXG),
-        hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx < 0 and not p.nfall
-        and p.gx >> 8 < CK["cx"])
+        hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx > 0 and not p.nfall
+        and p.gx >> 8 > CK["cx"])
     pk = mill_poke(16, 19, 0, 64)
     keys = [0] * 60
     p, _ = ev_of("mill", 0, pk, keys)

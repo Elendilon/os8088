@@ -59,12 +59,14 @@ floor rect  31 11 34 14  flat 6
 floor rect   7 15 10 18  flat 4
 surface bounce rect 7 15 10 18
 # FF, the gap ladder's far floor, joined to the apron on its right; the three
-# notches, 1, 2 and 3 tiles; FF's rails and the goal
+# notches, 1, 2 and 3 tiles; FF's rails and the goal.  The front rail has a GAP at wx 17 (2026-11-17): the
+# WIND YARD's gust gate, below
 floor rect  10 20 23 29  flat 4
 hole  rect  10 20 19 21
 hole  rect  13 21 19 22
 hole  rect  16 22 19 23
-wall  rect  10 29 19 30  flat 4.5
+wall  rect  10 29 17 30  flat 4.5
+wall  rect  18 29 19 30  flat 4.5
 wall  rect  23 23 24 29  flat 4.5
 goal  rect  19 29 23 31  flat 4
 # the brake strip's run-up, ice | normal | sand, the side lanes' rails, the
@@ -126,7 +128,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass pickups
+uses probe glass pickups wind water spike magnet archway boost gate
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -217,3 +219,105 @@ chute 2 round depth 10 way 18 9 4 way 18 5 way 24 5 6 way 24 9 4
 chute 1 round depth 5 way 26 8 4 way 26 4 way 28 4 way 28 8
 floor rect   8  3 17 10  flat 4
 pit   12 6 4 radius 3 depth 16
+
+# 2026-11-17, the props round: the WIND YARD (SPEC.md 128.34) and the GUARD RAIL (128.35), in FRONT of FF, its
+# floor at FF's height and FLOATING (faces 3 units deep, not to the basin's ground: the picture's bytes).  Out
+# through the gap in FF's front rail (wx 17), the ball(s) each gate is for taken on FF's pads beside the gap:
+#  - the GUST GATE: the stub out of the gap, one wide, a GUSTING fan in the gap blowing +x off the stub's open
+#    side, 64 steps in every 256 (its WISP over the stub) - every ball crosses between gusts; glass, blown twice
+#    as hard, has the shortest window;
+#  - the HUB (its pads moved to the prop alley's arch, 2026-11-18: FF's steel and glass pads are two cells away);
+#  - the THIN PATH east (wy 36), a STEADY fan blowing +y off its front edge, strength 10 (two static squiggle
+#    clusters): rubber and glass go over whatever they do, steel leans into it and crosses to the END PLATE,
+#    its HOURGLASS steel's prize; a see-through GUARD RAIL on the plate's far and front edges stops a steel
+#    ball that arrives at speed without hiding it (MEASURED on the model: steel across at every speed tried,
+#    rubber and glass over the edge);
+#  - the PIT WIND west: a `lift` updraft over the hub's west column and a one-column pit, flagged (its
+#    streamer), and the LEDGE 2.5 units up beyond it: glass rolled onto it is launched with no Hop, held -x
+#    lands on the ledge by its HOURGLASS (glass's prize, apex 62 - 72 px); rubber and steel are not lifted and
+#    roll into the pit.  A fall off the hub, the thin path or into the pit respawns on the hub; off the stub,
+#    at the start.
+floor rect  17 29 18 33  flat 4
+floor rect  15 33 22 38  flat 4
+floor rect  22 36 26 37  flat 4
+floor rect  26 35 29 38  flat 4
+floor rect  12 34 14 37  flat 6.5
+float rect  17 30 18 33
+float rect  15 33 22 38
+float rect  22 36 26 37
+float rect  26 35 29 38
+float rect  12 34 14 37
+# (the end plate's FRONT guard, `guard rect 26 38 29 39`, is left off: with the clocks occluding
+# (SPEC.md 128.18.5.4) the course reached 257 occluder masks of the 256 a record's mask byte names;
+# the far guard below still stops a fast steel ball)
+guard rect  29 36 30 38
+prop blower 17 29  face +x  region 17 30 17 32  strength 8  gust 64 192
+prop blower 22 36  face +y  region 22 36 25 36  strength 10
+prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag
+prop hourglass 27 36
+prop hourglass 12 35
+
+# PROP ALLEY (2026-11-18, the props round's merged families on the owner's stress test; SPEC.md 128.33 - 128.40):
+# in FRONT of the wind yard's hub, 2 units up, floating.  Down the RAMP off the hub's front (21, 38 - 41, half a
+# unit a tile - every ball climbs back up it, a -y BOOST PAD at its foot pushing a slow steel ball on); the SPINE
+# (18 - 23, 42 - 43) west and east of its foot.  Its pieces, each for the ball(s) named:
+#  - the WATER column in the hub's front row (18, 37): rubber and glass ride over it, steel sinks to the bed and
+#    leaves by the FRONT ARCH onto the SPIKES at its mouth (18, 39 - 40), which steel rides and rubber pops on -
+#    steel's shortcut down, the owner's pairing of the two steel-only mechanisms;
+#  - a POP-UP SPIKE row on the spine's 1-wide neck (22, 42): every ball going east times it;
+#  - the HOVER LANE (wy 42): an ARCHWAY over a STEEL PAD (24, 42) - under its 2-unit arch no ball can Hop or
+#    boost over the pad, so every ball leaves it as steel - then a 2-cell gap under two HANGING MAGNETS on posts
+#    behind it: steel hovers across (MEASURED on the model: rubber, glass and steel all reach the far plate);
+#  - the MEMBRANE LANE (wy 44): the same gap bridged by the crystal MEMBRANE, glass's alone (rubber and steel
+#    fall through);
+#  - the FAR PLATE (28 - 31, 42 - 44), which the basin's exit (below) also reaches.
+floor rect  21 38 22 42  ramp y 38 42 4 2
+floor rect  18 42 24 44  flat 2
+floor rect  18 38 19 42  flat 2
+floor rect  24 42 26 43  flat 2
+floor rect  23 44 28 45  flat 2
+floor rect  26 41 28 42  flat 4
+floor rect  28 42 32 45  flat 2
+float rect  18 42 24 44
+float rect  18 38 19 42
+float rect  24 42 26 43
+float rect  23 44 28 45
+float rect  26 41 28 42
+float rect  28 42 32 45
+water tile  18 37  top 4 bed 2
+arch  18 37 +y
+prop spikes 18 39 19 41
+prop popspikes 22 42 period 128 on 64 seed 5
+hole  tile  22 43
+archway tile 24 42 along x
+pad steel 24 42
+prop magnet 26 41 face down +y
+prop magnet 27 41 face down +y
+prop membrane 26 44 28 45
+prop boost 21 42 face -y strength 40
+
+# THE BASIN'S EXIT (the owner, 2026-11-18: "a lift to that bottom area that you can't get out of"): a ball off
+# the brake strip's side lands in the BASIN 8 units down (rubber bounces, steel is stunned, glass shatters and
+# respawns) and could leave it only by the hole.  The course's LIFT (one a course, SPEC.md 128.12.4.6) stands in
+# its front-right corner (33, 33): its slab docks at the basin's floor and at the HIGH RIM (32, 33), 8 units
+# up; nothing stands in the shaft's screen column in front of it (the slab is drawn behind what does).  From
+# the rim, south: a PLATE (32, 34) that opens the GATE on the 1-wide neck (32, 35) (SPEC.md 128.41), a timed
+# DRAWBRIDGE (31 - 32, 38), half-unit steps up to the far plate.  MEASURED on the model: rubber and steel ride
+# up and walk the whole exit when they board with the slab low; a fall respawns in the basin.  A HUMP (SPEC.md
+# 128.44) stands on the hub, a dome over its middle.
+floor tile  32 33  flat 0
+hole  tile  33 33
+floor rect  31 34 33 41  flat 0
+hole  tile  31 35
+floor tile  32 41  flat 0.5
+floor tile  32 42  flat 1
+floor tile  32 43  flat 1.5
+float tile  32 33
+float rect  31 34 33 41
+float rect  32 41 33 44
+float rect  31 38 33 39  thick 0.5
+prop platform 33 33 8 dwell 21
+prop plate 32 34 channel ring
+prop gate 32 35 channel ring along y
+prop bridge 31 38 33 39 period 256 on 128 seed 17
+hump 17 35 4 height 5
