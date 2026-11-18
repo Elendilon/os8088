@@ -26,13 +26,22 @@ course.
 
 ### 1.2 The camera
 
-- **G2. Vertical first; horizontal sparingly.** Horizontal scrolling moves 8
-  px a step and reads as jerky; vertical moves 2 lines a step and reads as
-  smooth (the plan's section 2). Courses run mostly up or down the screen,
-  and a horizontal stretch is a deliberate choice, not the default.
+- **G2. Horizontal pans happen on the ground, at moments the design chose.**
+  *(Softened 2026-11-18, after FIRST ROLL's first play: "we may not be able
+  to avoid more horizontal; we want to keep the courses visually
+  interesting, and I think that rule is making that hard.")* Vertical
+  scrolling is smoother than horizontal (2 lines a step against 8 px), so
+  vertical runs are welcome. But a course is free to go across where that
+  makes it more interesting. What matters is WHERE the camera pans: on the
+  ground, at a turn or a flat, never during a jump (G3), and not back and
+  forth on every leg. A course whose whole picture fits one window may also
+  hold the camera still across, if the owner takes the per-course
+  horizontal lock (FIRST-ROLL.md, section 2).
 - **G3. A jump never needs a horizontal pan.** Plan each jump (take-off,
   flight and landing) so the camera does not scroll sideways while the ball
-  is in the air. *Check: story 11.11, a report of the columns panned while
+  is in the air. **A CANNON's throw is exempt**: the player is not steering
+  it (the owner, 2026-11-18). **A SPRING's is not**: the player steers it, so
+  a spring flight should not pan, with exceptions per use after a playtest. *Check: story 11.11, a report of the columns panned while
   airborne on every route and author script, and a refusal on an intended
   jump.*
 
@@ -106,8 +115,13 @@ course.
   clock can only stand where the same thing is always behind it: in
   practice, where only the VOID is behind its head. The pillar under it is
   fine. Where a course cannot be designed round that, its clocks are custom.
-  The sketches check it (FIRST ROLL's `first/sketch.py` places each clock
-  with only void behind its head), and so will the tool (11.14).
+  **The owner leaned to CUSTOM art (2026-11-18, FIRST ROLL's first play):**
+  *"None of the clocks is fully tiled behind void, and I'm starting to think
+  course design with that as a requirement is going to be very hard ...
+  I'm thinking the custom art might be the way to go here."* So a clock is
+  placed for the CAMERA: whole in view where it serves, never partly behind
+  a block (FIRST ROLL's start clock was, and it looked bad). What is behind
+  it no longer decides where it goes.
 
 ### 1.6 Balls
 
@@ -196,9 +210,18 @@ moves.
   - G3: MILL (16 columns in one flight) and SUMMIT;
   - G11: MILL with a clock on its route;
   - G12: SUMMIT (23.5 s with no clock in view).
-- **Open (the owner's)**: MILL's 16-column flight is very likely its cannon
-  throw, which the review liked. Is a LAUNCHER's throw (cannon, spring)
-  exempt from G3, which was written about jumps?
+- **Answered (the owner, 2026-11-18)**: a cannon's throw is exempt from G3
+  (the check skips a flight that leaves a tube); a spring's is not, with
+  exceptions per use after a playtest.
+- **Discovered on FIRST ROLL's first play: a zigzag course still pans.**
+  LATTICE frames the window at positions 128 px apart and LEADS in the
+  direction of travel, so its no-pan band is only about 110 px. A vertical
+  course alternates +x and +y legs, and every leg of 4-wide pads crosses
+  that band. The owner's 30 s play panned 16 - 24 columns five times, twice
+  in the air. Re-laying the course to a 168 px route swing still left five
+  or six sweeps. The course's whole picture is 320 px across, so ONE fixed
+  horizontal framing would show all of it. That is a camera change (a
+  per-course horizontal lock), and it is the owner's decision.
 
 ## 2. The design sheet (`<NAME>.md`)
 
