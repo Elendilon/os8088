@@ -21951,11 +21951,12 @@ BZTURNSTAMP := $(BUILD)/.bzturn-$(or $(BZTURN),0)
 $(BZTURNSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzturn-*
 	@touch $@
-#> [Knobs] BZROLL=1 :: Bounce Bonanza with FIRST ROLL, the shipped course 1 in the making (docs/plans/bonanza-courses/FIRST-ROLL.md): the pathway's pad 0 in FIRST's place, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/roll BZROLL=1 bonanzadisk)
+#> [Knobs] BZROLL=1 :: Bounce Bonanza with the real courses in the making - FIRST ROLL on pad 0 in FIRST's place (Play Game, Enter plays it) and ISLAND HOP on pad 1 in TRIAL's (docs/plans/bonanza-courses/) - a knob build, into a private tree (make BUILD=build/roll BZROLL=1 bonanzadisk)
 # BZROLL=1 (wave 11, story 11.16; BZTURN's precedent) adds apps/bonanza/courses/roll.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
 # with apps/bonanza/courses/pathroll.sed applied: pad 0 becomes ROLL in FIRST's place (ROLL has one finish, so
-# its exit 0 goes where FIRST's did).  The playtest build of the pen-in-then-iterate loop (the course guide,
+# its exit 0 goes where FIRST's did), and, since course 2 was penned in, ISLAND HOP's hop.bbc too, pad 1 in TRIAL's
+# place.  The playtest build of the pen-in-then-iterate loop (the course guide,
 # section 3): refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
 # knob-less one.  When the course ships it moves into BZ_COURSES and the knob goes.
 BZROLL ?=
@@ -21968,7 +21969,7 @@ ifeq ($(BZROLL),1)
 ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZHUMP) $(BZTURN)),)
 $(error BZROLL=1 with another pad-0 test course knob: each makes its course the pathway's pad 0 - build one at a time)
 endif
-BZ_COURSES += apps/bonanza/courses/roll.bbc
+BZ_COURSES += apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
 BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathroll.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathroll.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)

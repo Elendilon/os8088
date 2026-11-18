@@ -6158,3 +6158,30 @@ agent; *"Then move on to course 2 on paper, yourself."*
 **Tested**: each leg run green on MartyPC, each red arm run and seen red.
 **Not yet**: kern_mega's case 0v (running), the scoped soak, the rows'
 `secs` re-measured from it.
+
+## 2026-11-18 (First Roll's clocks; Island Hop in the engine)
+
+**First Roll's clocks.** The clock agent drew four styles beside crystal
+(`pin`, `tee`, `board`, `lamp`), every shipped course byte-identical. The
+owner: *"Use pin, but also, tell future clock agents: 'cyan reads as grey
+checker on Hercules' - it reads fine with the solid black numbers on top of
+it, I think I've had this discussion with a few clock designers now. I don't
+like flat squares in general, because they don't blend in with the art
+usually (which is why none of the others work, except maybe lamp). Pin kind
+of works because it is a sign hanging from a pole, which somewhat fits the
+art."* So pin's window went back to cyan, and the guide's G23 carries both
+points as the brief for the next clock designer.
+
+**Island Hop, revision 2** (HOP.md). Four discoveries on the way in, each
+worth more than this course:
+- *Observed*: a step UP taken moving +x or +y has no visible riser in this
+  projection; attempt 1's lesson step read as one flat slab. The re-laid
+  course climbs only up the screen (-x or -y) and drops only down it.
+- *Observed*: NO TRAP never pressed Space, so any course built on the Hop
+  failed at its first gap. `trap hop` (SPEC.md 130.14.4.1.1) proves it with
+  the Hop and "and again" swept over take-off steps; about 25 s a compile.
+- *Observed*: three-unit float faces hide most of a 2-tile gap; at `thick 1`
+  the void shows. A respawn's run-up matters as much as the gap: from rest
+  on a 4-tile island the first layout's turn left no speed for the gap.
+- *Proposed, not yet seen on the glass*: `palette 0 ground 1`, islands on a
+  blue sea. Recoloured previews only; the playtest disk is the first look.
