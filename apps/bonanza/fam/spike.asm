@@ -81,8 +81,10 @@ sp_reset:
     call sp_walk
 .l:
     jcxz .x
-    cmp byte [es:si], BZ_FK_POPSPIKES
-    jb .n
+    mov al, [es:si]             ; (popspikes and membranes alone: the kinds
+    sub al, BZ_FK_POPSPIKES     ; past them are other families')
+    cmp al, 1
+    ja .n
     inc dx
 .n:
     add si, 32
@@ -257,13 +259,13 @@ sp_step:
 .x:
     retf
 
-; AL = a membrane's element + 1, or 0 -> its lane MARKED.  Preserves all but BX.
+; AL = a membrane's element + 1, or 0 -> its lane MARKED.  BH 0 on entry (STEP's
+; BX is the record count by then: a byte).  Preserves all but BL.
 sp_tmark:
     or al, al
     jz .x
     dec ax
     mov bl, al
-    xor bh, bh
     call far [bz_fmkp]
 .x:
     ret
