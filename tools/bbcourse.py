@@ -726,9 +726,18 @@ def fam_bundle(parts, balls):
             "%s: not a family part of this build ('BF', its ID, +11 zero)" % f["name"]
         n = (len(b) + 15) >> 4
         assert 0 < n < 256, "%s: %d paragraphs, the bundle's step is a byte" % (f["name"], n)
+        fam_maskcheck(f, b)
         b[FAM_HDR_PARAS] = n
         out += b + bytes(16 * n - len(b))
     return bytes(out)
+
+
+def fam_maskcheck(f, b):
+    """a built part's hook mask (+8) inside its FAMILIES row's: BZ_FHENT, the hook lists' pool, counts the
+    row's (fam_hook_entries), so a part with a hook its row lacks would write past the pool"""
+    if b[8] & ~f["hooks"]:
+        raise CourseError("%s: the part's hook mask %02Xh has a hook its FAMILIES row (%02Xh) lacks: the "
+                          "row's `hooks` is what sizes the hook lists (SPEC.md 128.25.6.3)" % (f["name"], b[8], f["hooks"]))
 
 
 def fam_partfiles(d):
@@ -746,6 +755,8 @@ def main_fbundle(argv):
     if argv[0] == "famparts":
         print(" ".join("--part %s" % p for p in fam_partfiles(d)))
         return 0
+    for f in FAM_FETCH:                             # (the bundle's own check covers the resident ones)
+        fam_maskcheck(f, open(os.path.join(d, "bzf-%s.bin" % f["name"]), "rb").read())
     b = fam_bundle(dict((f["name"], open(os.path.join(d, "bzf-%s.bin" % f["name"]), "rb").read()) for f in FAM_RES),
                    fam_balls(argv[2] if len(argv) > 2 else os.path.join(d, "bonanza-art")))
     with open(os.path.join(d, FBUN_FILE), "wb") as fo:
@@ -790,6 +801,20 @@ def is_fam(kind):
     """a family ELEMENT (128.25.6.4's record: FSB, its class): a family kind that is not own-layout (story
     9.8's are never seen here - the tool keeps their own numbers); never the GROUP's 255 (SPEC.md 128.32.4)"""
     return FAM_K0 <= kind < PK_GROUP
+
+
+def fam_slots():
+    """BZ_FAMMAX (SPEC.md 128.25.6.5): the engine's slots - one for every family of the build, the most a
+    course's list can name (`uses` refuses a family twice and one not in FAMILIES), so no course meets a
+    family limit and the slots move only when a family is added, never with a course"""
+    return len(FAMILIES)
+
+
+def fam_hook_entries():
+    """BZ_FHENT (SPEC.md 128.25.6.3): the hook lists' pool - each family's hooks counted once (its mask's
+    bits), so the lists of a course naming EVERY family fit; `fbundle` checks each built part's mask (+8)
+    is inside its row's"""
+    return sum(bin(f["hooks"]).count("1") for f in FAMILIES)
 
 
 def fam_fetched(fams):
@@ -16049,7 +16074,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_FK0          equ %d       ; the first FAMILY kind (16 - 255)" % FAM_K0,
               "BZ_FSTB         equ %d        ; bz_fst's bytes: the largest course's state bits / 8 (at least 1)" % max(
                   [(sum(p_["bits"] for p_ in c_.props if is_fam(p_["kind"])) + 7) // 8 for c_ in allc] + [1]),
-              "BZF_SLOT        equ %d        ; a family's slot, bytes (bz_fsl: three of them)" % FSLOT,
+              "BZF_SLOT        equ %d        ; a family's slot, bytes (bz_fsl: BZ_FAMMAX of them)" % FSLOT,
               "BZF_HDR         equ %d       ; the family part's header: 'BF', ID, FAMV, the stamp, the mask, the "
               "kinds, 0, six entries" % FAM_HDR,
               "BZ_NFAM         equ %d        ; the families' largest ID: ID 1 - BZ_NFAM (a gap allowed)" % FAMILIES[-1]["id"],
@@ -16059,9 +16084,10 @@ def emit_inc(courses, path=None, title=None):
               "BZ_NFROW        equ %d        ; the family part rows" % fam_nrows(),
               "BZF_HPARAS      equ %d       ; a part's header byte: its paragraphs inside the bundle (0 alone)"
               % FAM_HDR_PARAS,
-              "BZ_FAMMAX       equ %d        ; families a course's list holds at most: FETCHED ones (3) and "
-              "RESIDENT ones (SPEC.md 128.25.6.9), the courses' longest, never under 3" % max(
-                  [len(getattr(getattr(c_, "src", None), "uses", ())) for c_ in allc] + [FAM_MAX]),
+              "BZ_FAMMAX       equ %d       ; the slots (bz_frec, bz_fsl): EVERY family of the build, so a "
+              "course may name them all (SPEC.md 128.25.6.5)" % fam_slots(),
+              "BZ_FHENT        equ %d       ; the hook lists' entries (bz_fhl): every family's hooks, summed "
+              "(SPEC.md 128.25.6.3)" % fam_hook_entries(),
               "BZ_FH_RESET     equ %d        ; the hook mask's bits (bz_fhk, the part's +8)" % H_RESET,
               "BZ_FH_ENTER     equ %d" % H_ENTER,
               "BZ_FH_CONTACT   equ %d" % H_CONTACT,
@@ -22682,8 +22708,42 @@ def _w9_checks(res):
             fired, msg = "4th family" in str(e), str(e)
         for n in extra:
             FAM_BY_NAME.pop(n)
-        res.append(("2 refused (wave 9): a fourth family (uses probe and three test rows)%s" % (
+        res.append(("2 refused (wave 9): a fourth FETCHED family (uses probe and three test rows)%s" % (
             "" if fired else " -- got: " + msg), fired))
+    # SPEC.md 128.25.6.5: NO FAMILY LIMIT - a course of FIVE families (the shift's four, before) compiles, its
+    # list in the part; the engine's slots and hook lists are the whole family table's (bonanza_phys's
+    # `every family` fetches all of them under unicorn, its red fam4 the old limit); red: a built part whose
+    # hook mask has a bit its FAMILIES row lacks - which BZ_FHENT does not count - is refused by fbundle's check
+    t5 = (_W4C + "uses probe glass pickups magnet wind\nprop probe 6 8 reset respawn\nprop glass 9 8\n"
+          "prop jump 8 5 for 3\nprop magnet 13 8 face -x range 4 strength 48\nprop blower 5 5 face +x region 6 5 9 7\n")
+    try:
+        c5 = compile_course(t5, fname="<5 families>", occluders=False)
+        fo5 = struct.unpack_from("<H", c5.cga, 46)[0]
+        ok = c5.cga[45] == 5 and [c5.cga[fo5 + 2 * j] for j in range(5)] == [
+            FAM_BY_NAME[n]["id"] for n in ("probe", "glass", "pickups", "magnet", "wind")]
+        msg = "its list %s" % [c5.cga[fo5 + 2 * j] for j in range(c5.cga[45])]
+    except CourseError as e:
+        ok, msg = False, str(e)
+    ok = ok and fam_slots() == len(FAMILIES) and fam_hook_entries() == sum(
+        sum(1 for b in range(len(HOOK_NAMES)) if f["hooks"] >> b & 1) for f in FAMILIES)
+    pb = bytearray(FAM_HDR)
+    pb[0:4] = b"BF" + bytes((1, famv(FAM_BY_NAME["probe"])))
+    pb[8] = FAM_BY_NAME["probe"]["hooks"]
+    try:
+        fam_maskcheck(FAM_BY_NAME["probe"], pb)
+        ctl = True
+    except CourseError:
+        ctl = False
+    pb[8] |= H_PROP                                 # (the probe's row has no PROP hook)
+    try:
+        fam_maskcheck(FAM_BY_NAME["probe"], pb)
+        red = False
+    except CourseError as e:
+        red = "lacks" in str(e)
+    res.append(("2 no family limit (128.25.6.5): five families on one course compile (%s); BZ_FAMMAX %d slots, "
+                "BZ_FHENT %d hook entries - the whole family table; red: a part with a hook its row lacks refused%s"
+                % (msg, fam_slots(), fam_hook_entries(), "" if ctl and red else " -- control %s, red %s" % (ctl, red)),
+                ok and ctl and red))
     # the list in the part and in the identity: a course naming the probe carries BZC2 +45 NFAM 1 and
     # +46 FAMOFF -> (ID 1, FAMV), NFST 1, the RESPAWN mask; a probe's FAMV moved moves the identity
     t = _W4C + "uses probe\nprop probe 6 6 reset respawn\nprop probe 8 6 reset attempt\n"

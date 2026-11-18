@@ -18,6 +18,14 @@ is RAM every play pays; with five or six more, some may go home `fetch`
 (128.25.6.9) - a decision for when they are built. A lane is at most 32 x 24
 px, and at most 6 FAST lanes meet a window.
 
+**How many families a course may name: ALL of them** (2026-11-18, SPEC.md
+128.25.6.5). Until then a course named at most four (the hook lists' shift),
+which kept every other family of a round off PLAYGROUND. The engine's slots
+and hook lists are now sized to the build's whole family table, so any
+course may name every family; each new family costs 14 + 8 x its hooks
+bytes of bss. Only the FETCHED families (home `fetch`, the probe) keep a cap
+of 3.
+
 ## The list
 
 ### Chosen - doable now (families, no resident change)

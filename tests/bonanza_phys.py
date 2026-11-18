@@ -363,10 +363,10 @@ class Reader:
 
     def statef(self, raw):
         """wave 9's state (SPEC.md 128.25.6.6, 128.25.7.2): bz_fst's BZ_FSTB
-        bytes and the three slots' bytes (bz_fsl), as the guest holds them"""
+        bytes and every slot's bytes (bz_fsl, BZ_FAMMAX of them), as the guest holds them"""
         s, lo = self.g.sym, self.lo
         fst = raw[s["bz_fst"] - lo:s["bz_fsl"] - lo]
-        fsl = raw[s["bz_fsl"] - lo:s["bz_fsl"] - lo + BB.FAM_MAX * BB.FSLOT]
+        fsl = raw[s["bz_fsl"] - lo:s["bz_fsl"] - lo + guest_fsl_bytes()]
         return (bytes(fst), bytes(fsl))
 
     def state6(self, raw):
@@ -487,6 +487,14 @@ def compare(name, frames, st, s2, ext, p):
     if got != want:
         return "%s frame %d: the counters %s against the model's %s" % (name, frames, got, want)
     return None
+
+
+def guest_fsl_bytes(art=None):
+    """bz_fsl's bytes as the guest has them: BZ_FAMMAX slots (SPEC.md 128.25.6.5: one for every family of
+    the build, bbcourse.fam_slots), not bbcourse.FAM_MAX's three (the FETCHED families' cap)"""
+    import re
+    t = open(os.path.join(art or R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_FAMMAX\s+equ\s+(\d+)", t, re.M).group(1)) * BB.FSLOT
 
 
 def statef_diff(gf, p):
@@ -1880,7 +1888,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
         if gs != p.state():
             bad.append("step %d: the ball %s, the model's %s" % (i, gs, p.state()))
         if p.fam:
-            d = statef_diff((g.rb("bz_fst", g.sym["bz_fsl"] - g.sym["bz_fst"]), g.rb("bz_fsl", BB.FAM_MAX * BB.FSLOT)), p)
+            d = statef_diff((g.rb("bz_fst", g.sym["bz_fsl"] - g.sym["bz_fst"]), g.rb("bz_fsl", guest_fsl_bytes())), p)
             if d:
                 bad.append("step %d: %s" % (i, d))
             if g.r("bz_fref", 1, False) != p.fref:
@@ -2126,6 +2134,21 @@ def fam_host():
                                         else "STAYED GREEN (CF %s)" % cf))
         if not red:
             fails.append("red bunwalk stayed green: a bundle header's step one paragraph off went unnoticed")
+    # SPEC.md 128.25.6.5: NO FAMILY LIMIT - the slots (BZ_FAMMAX) and the hook lists' pool (BZ_FHENT) are the
+    # whole family table's, so a course naming EVERY family fetches them all and every hook's list holds each
+    # one that has the hook, in slot order; red `fam4` (the list build stopped at four slots: the limit the
+    # shift made, before) goes red at the fifth
+    ok_, what = every_family(binp, lst, sym, fam)
+    out.append("every family on one course (%d, %d hook entries): %s" % (
+        len(BB.FAMILIES), BB.fam_hook_entries(), what if not ok_ else "every slot and every hook's list right"))
+    if not ok_:
+        fails.append("every family on one course: %s" % what)
+    at = open(binp, "rb").read().find(b"\x3a\x0e" + struct.pack("<H", sym["bz_fnf"]), sym["bz_ffetch"])
+    assert 0 < at - sym["bz_ffetch"] < 300, "red fam4: bz_ffetch's list build's slot bound not found"
+    ok_, what = every_family(binp, lst, sym, fam, ((at, b"\x80\xf9\x04\x90"),))   # cmp cl, 4; nop
+    out.append("red fam4: %s" % ("red: " + what if not ok_ else "STAYED GREEN"))
+    if ok_:
+        fails.append("red fam4 stayed green: a list build that stops at four families went unnoticed")
     # wave 9 (SPEC.md 128.25.19): THE PICKUPS SCENARIO, and its red arms - the STEP entry 0 (no timer
     # runs down: the slot parts at the first step after the speed's take), the RESET entry 0 (the RETURN
     # while the speed runs leaves it running: the slot), and the cap without bz_vup (bz_gax.clamp's
@@ -2190,6 +2213,56 @@ MG_SCENES = (
                                                                  "magnets (a RETURN while one wiggles)"),
     ("rail-rubber", BB.MAT_RUBBER, (20, 10, 0, 200),   170, None, "rubber slides off the tilted rail"),
 )
+
+
+def every_family(binp, lst, sym, fam, patch=()):
+    """SPEC.md 128.25.6.5: PEAK's part with its family list replaced by EVERY family of the build (ID order,
+    each its FAMV), through bz_crshdr and bz_ffetch under unicorn -> (ok, what): bz_fnf and bz_fhk, each
+    slot record's ID and FAMV, and each hook's list (bz_fhs, bz_fhl) against what the parts' heads say -
+    hook by hook, every slot in order whose mask has it and whose entry is not 0, packed"""
+    part = bytearray(R.course("peak").cga)
+    struct.pack_into("<BH", part, 45, len(BB.FAMILIES), len(part))
+    part += bytes(x for f in BB.FAMILIES for x in (f["id"], BB.famv(f))) + b"\0"     # (NFST 0: no mask)
+    g = UGuest(binp, lst, sym, part, fam, patch)
+    g.w("bz_cseg", UPS, 2)
+    if "bz_mseg" in sym:
+        g.w("bz_mseg", UPS, 2)
+    g.w("bz_crs", R.CRS_K["peak"], 1)
+    g.w("bz_fs", 1, 1)
+    g.call("bz_crshdr")
+    cf = g.call("bz_ffetch")[1]
+    if cf:
+        return False, "bz_ffetch refused it (CF 1)"
+    nf = g.r("bz_fnf", 1, False)
+    if nf != len(BB.FAMILIES):
+        return False, "bz_fnf %d, not %d" % (nf, len(BB.FAMILIES))
+    rec = g.rb("bz_frec", 6 * nf)
+    heads, fhk = [], 0
+    for j, f in enumerate(BB.FAMILIES):
+        dseg, cseg, fid, fv = struct.unpack_from("<HHBB", rec, 6 * j)
+        if (fid, fv) != (f["id"], BB.famv(f)):
+            return False, "slot %d holds ID %d FAMV %02Xh, not %s's" % (j, fid, fv, f["name"])
+        h = bytes(g.mu.mem_read(dseg * 16, 26))
+        if h[:2] != b"BF" or h[2] != f["id"]:
+            return False, "slot %d's data segment %04Xh holds no %s head" % (j, dseg, f["name"])
+        heads.append((h, cseg))
+        fhk |= h[8]
+    if g.r("bz_fhk", 1, False) != fhk:
+        return False, "bz_fhk %02Xh, the parts' masks ORed %02Xh" % (g.r("bz_fhk", 1, False), fhk)
+    fhs = struct.unpack("<8H", g.rb("bz_fhs", 16))
+    pool = g.rb("bz_fhl", fhs[7] - sym["bz_fhl"]) if fhs[7] >= sym["bz_fhl"] else b""
+    for b in range(7):
+        want = b"".join(struct.pack("<HHBBBB", h[12 + 2 * b] | h[13 + 2 * b] << 8, cseg, j, h[9], h[10], 0)
+                        for j, (h, cseg) in enumerate(heads) if h[8] >> b & 1 and h[12 + 2 * b] | h[13 + 2 * b])
+        got = pool[fhs[b] - sym["bz_fhl"]:fhs[b + 1] - sym["bz_fhl"]]
+        if fhs[b] > fhs[b + 1] or bytes(x for i, x in enumerate(got) if i % 8 != 7) != \
+                bytes(x for i, x in enumerate(want) if i % 8 != 7):
+            return False, "the %s hook's list: slots %s, the parts' heads say %s" % (
+                BB.HOOK_NAMES[b], list(got[4::8]), list(want[4::8]))
+    if fhs[7] - sym["bz_fhl"] > 8 * BB.fam_hook_entries():
+        return False, "the lists end %d bytes into the pool, past BZ_FHENT's %d" % (
+            fhs[7] - sym["bz_fhl"], 8 * BB.fam_hook_entries())
+    return True, ""
 
 
 def mg_poke(mat, at):
