@@ -228,9 +228,10 @@ Each is priced in bytes or clocks. None is built; the owner picks.
      reads as drops.
    - It also SAVES bytes, since most of the picture is those columns.
    - It is the standard column tile's twin, for the kit.
-2. **Floor decals with `art`** (now allowed on play courses, SPEC.md
-   130.23.2): painted on floor tops, so the ball rolls over them and no
-   occlusion is needed.
+2. **Decals with `art`** (now allowed on play courses, SPEC.md 130.23.2).
+   An art pixel takes the occlusion of the surface it is painted on, so a
+   decal on a floor or a face IS part of it, front tiles included. Measured:
+   the occluder records and masks are identical with and without.
    - A START mark on the plateau, chevrons down the lip's ramp, a warning
      ring round the hole, a painted finish banner on the goal plateau.
    - A few hundred bytes each (the unique blocks they make).

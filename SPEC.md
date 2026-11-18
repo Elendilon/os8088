@@ -273536,14 +273536,31 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   very sparingly. And avoid blowing up the size budget."*). The same
   statement on any course but the pathway. On a play course `(X, Y)` is a
   pixel of the PICTURE: x from its left edge (`16 (wx - wy) + x0` is a
-  cell's centre), y from its top (`8 (wx + wy) - h + y0`). It is the same
-  topmost layer: no collision, no physics, NO OCCLUSION (the ball is
-  always drawn over it). So art belongs on floor tops (decals the ball
-  rolls over) and over the void behind and beside the course, never in
-  front of a place the ball can pass behind. Its cost is the picture blocks
-  it makes unique, which `--sizes` and the build's part report show. An
-  occluding art (a depth key of its own) is not built: when a course wants
-  one, it is a contract of its own, used sparingly.
+  cell's centre), y from its top (`8 (wx + wy) - h + y0`). No collision, no
+  physics.
+  - **Its occlusion is whatever is UNDER it** (the owner's question: *"its
+    pixels, ignore it and use whatever is under it's occlusion"*). The
+    canvas keeps, for every pixel, the cell row that drew it and that
+    geometry's height (`Canvas.sbuf`, `tbuf`), and the occluder masks are
+    cut from those, never from colours. ART writes a pixel's COLOUR only, so
+    each art pixel keeps the depth of the surface it was painted on, and an
+    occluder lays the block's pixels, art included, over the ball exactly
+    when that surface would hide it.
+    - On a floor top or a face, art becomes part of that floor or face.
+    - Over the void it has no depth, and the ball is always drawn over it
+      (a backdrop).
+    - The ghost dither (130.15.10) applies to it as to the surface under it.
+  - **MEASURED** (FIRST ROLL, two 6 x 4 decals, one on the hill's second
+    landing and one on the goal plateau's front): 1,339 occluder records and
+    174 masks with and without them, every record equal in column, key and
+    mask, its mask OFFSET moved by 96 bytes (six new blocks before the mask
+    table); the grid identical.
+  - **Its cost is the picture blocks it makes unique** (here 6 blocks, 96
+    bytes of RAM before packing), which `--sizes` and the build's part
+    report show.
+  - An art pixel with a depth of its OWN (art standing up in front of
+    something it does not lie on) is not built. When a course wants one, it
+    is a contract of its own, used sparingly.
 - **`label N COL ROW glyphs "TEXT" [ink C]`**: a lane of ONE block at cell
   `(COL, ROW)` of the CGA window (0 - 39, 0 - 24), posed by `bz_nst[N]` (0 -
   15): pose 0 the bare picture, pose `1 + i` the `i`-th character of TEXT
