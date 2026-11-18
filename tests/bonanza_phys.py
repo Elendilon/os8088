@@ -2940,7 +2940,7 @@ def sp_scenes():
 def sp_verdict(name, p, zs):
     """what a SPIKE scene is for, on the model at its end (ZS: the ball's (cell, z px, air) every step)"""
     kinds = [e[0] for e in p.events]
-    on = [z for c_, z, a in zs if c_ in SP_CELLS and not a]
+    on = [z for c_, z, a, _t in zs if c_ in SP_CELLS and not a]
     if name in ("spike-steel", "pop-steel", "water-spike"):
         tip = [z for z in on]
         ok = "shatter" not in kinds and "stun" not in kinds and p.nfall == 0 and tip and min(tip) == max(tip)
@@ -2958,11 +2958,13 @@ def sp_verdict(name, p, zs):
     if name == "pop-down":
         ok = "shatter" not in kinds and p.nfall == 0 and (p.gy >> 12) >= 18
         return ok, "rubber crossed the far row down, to %s" % ((p.gx >> 12, p.gy >> 12),)
+    torn = [z[3] for z in zs]                   # (130.38.5: the membranes' lanes TORN, every step)
     if name == "mem-glass":
-        ok = p.nfall == 0 and any(c_ in MEM_CELLS for c_, _z, a in zs)
-        return ok, "glass on the membrane, no fall, at %s" % ((p.gx >> 12, p.gy >> 12),)
-    ok = p.nfall >= 1 and "shatter" not in kinds
-    return ok, "rubber fell through the membrane (%d respawn)" % p.nfall
+        ok = p.nfall == 0 and any(z[0] in MEM_CELLS for z in zs) and not any(torn)
+        return ok, "glass on the membrane, no fall, never torn, at %s" % ((p.gx >> 12, p.gy >> 12),)
+    ok = p.nfall >= 1 and "shatter" not in kinds and max(torn) == 1 and torn[-1] == 0
+    return ok, "rubber fell through the membrane (%d respawn); the web TORN for %d steps, one cell at a time, " \
+        "mended after" % (p.nfall, sum(torn))
 
 
 MAT_N = ("rubber", "steel", "glass")
@@ -2978,7 +2980,9 @@ def sp_reds():
              "working values"),
             ("spmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "pop-rise", "never drawn"),
             ("spfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "pop-rise", None),
-            ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"))
+            ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"),
+            ("sptear", ("    lea bp, [bx + 1]\n", ""), "mem-rubber", "POSE"),
+            ("sptmark", ("    mov ax, bp\n    call sp_tmark\n", ""), "mem-rubber", "never drawn"))
 
 
 def spike_host(binp, lst, sym):
@@ -2998,9 +3002,10 @@ def spike_host(binp, lst, sym):
         p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=0)
         q = model("spike", mat, poke, src=SP_SRC)
         zs = []
+        mems = [pr for pr in q.props if pr["kind"] == BB.SP_KM]
         for k_ in keys:
             q.step(k_)
-            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, sum(q.fpose(pr) for pr in mems)))
         ok, saw = sp_verdict(name, q, zs)
         out.append("spike %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
         fails += ["spike %s: %s" % (name, b) for b in bad] + ([] if ok else ["spike %s is not what it is for: %s"
