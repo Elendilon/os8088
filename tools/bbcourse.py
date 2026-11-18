@@ -29459,6 +29459,10 @@ def hump_laid(c, fd):
     a hump to a cell past it (every second gu), and how many such poses lose any"""
     X0, Y0, X1, Y1 = hump_box(fd)
     most = nany = 0
+    faces = set()                               # (a CLOCK's face is an occluder too, SPEC.md 128.18.5.4: what it lays
+    for p_ in c.props:                          # is the clock's, not the hump's)
+        if p_["kind"] == PK_CLOCK and p_.get("face_pix"):
+            faces |= set(p_["face_pix"])
     for wy in range(Y0 - HUMP_BACK, Y1 + 2):
         for wx in range(X0 - HUMP_BACK, X1 + 2):
             t = c.tiles.get((wx, wy))
@@ -29472,7 +29476,7 @@ def hump_laid(c, fd):
                         continue
                     gx, gy = 16 * wx + u, 16 * wy + v
                     px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
-                    hid = _arch_laid(c, px, py, wx + wy, z, False)
+                    hid = _arch_laid(c, px, py, wx + wy, z, False) - faces
                     k = sum(1 for p_ in ball_pixels(px, py) if p_ in hid)
                     most, nany = max(most, k), nany + (k > 0)
     return most, nany

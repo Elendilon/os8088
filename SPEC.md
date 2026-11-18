@@ -273836,7 +273836,8 @@ an archway's lintel) is geometry keyed at its cell; the clock now is too.
 
 **What was wrong, measured** (the tool's composite by the records, AV's
 model included: a ball every 2 gu over each reachable cell behind a clock, at
-its lowest and its highest height, the clocks where they stand now): on
+its lowest and its highest height; MILL's clocks at (6, 13) and (22, 22),
+TRIAL's at (4, 10), (18, 18) and (14, 18)): on
 `FIRST`, `TRIAL` and `MILL`, of 1,831 such positions whose ball meets a
 clock's face, **1,053 drew the ball over a face pixel** - up to 208, the
 whole ball - and with the clock keyed, **none**. The other direction
@@ -273881,15 +273882,16 @@ position counts toward a run when the ball is wholly laid over WITH the
 clock's own pixels and not without them (a ball a wall hides anyway is the
 picture's, as before). A run past **`CLOCK_HIDE` (16 gu)** is REFUSED, naming
 the clock. MEASURED, the longest runs: `FIRST` 0 and 2, `TRIAL` 0, 4 and 2,
-`MILL` 0 and 8, `MOON` 16, `PEAK` 0 and 0, `PLAY` 8; the knob courses 0 - 8.
+`MILL` 0 and 0, `MOON` 16, `PEAK` 0 and 0, `PLAY` 8; the knob courses 0 - 8.
 A clock stays readable: it is laid OVER the ball, never under it.
 
-**Two placements moved** (the rule's cost, each refused by an existing bound
-until moved, `a course that then meets a bound is edited`, 128.37.6):
+**Three placements moved** (the rule's cost, each refused by an existing check
+until moved: *a course that then meets a bound is edited*, 128.37.6):
 
 | course | was | now | why |
 |---|---|---|---|
 | `MILL` | (8, 11) | **(6, 13)**, the front-left corner | at (8, 11) it stood in front of both windmills' doorways and set OCCG in their IN 3 x 3 (128.12.4.6: a must-draw rotor's frame runs no occluder pass) |
+| `MILL` | (22, 22), the finish clock | **(18, 27)**, the goal floor's front-left corner | it stood in front of the DROP's exit (20, 20) and made the fall cross an OCC cell (`--selfcheck` item 8: a flight from an exit runs no occluder pass); the finish clock rule (128.22.6) and the finish reach hold there |
 | `TRIAL` | (18, 17) | **(18, 18)**, the lower floor's front row | its post added a fifth record to a block the ramp's foot already held at the bound of 4 (128.11.4.2) |
 
 **What it costs** (MEASURED, `make bonanzadisk` before and after):
@@ -273903,7 +273905,7 @@ until moved, `a course that then meets a bound is edited`, 128.37.6):
 |---|---|---|---|---|---|
 | `FIRST` | 9,048 -> 9,636 | 1,639 -> 1,936 | 81 -> 120 | 20 -> 44 | 43 (0) -> 45 (4) |
 | `TRIAL` | 15,078 -> 15,816 | 3,404 -> 3,730 | 297 -> 354 | 30 -> 61 | 118 (9) -> 119 (22) |
-| `MILL` | 26,129 -> 26,785 | 7,577 -> 7,891 | 394 -> 445 | 50 -> 76 | 195 (45) -> 211 (58) |
+| `MILL` | 26,129 -> 27,101 | 7,577 -> 8,055 | 394 -> 449 | 50 -> 82 | 195 (45) -> 202 (49) |
 | `MOON` | 38,867 -> 38,965 | 8,667 -> 8,710 | 1,588 -> 1,590 | 91 -> 96 | 457 (202), the same |
 | `PEAK` | 41,503 -> 42,093 | 10,300 -> 10,549 | 1,544 -> 1,570 | 75 -> 102 | 486 (211) -> 487 (212) |
 | `PLAY` (picture part) | 49,746 -> 50,096 | 15,615 -> 15,787 | 1,768 -> 1,788 | 186 -> 201 | 584 (100) -> 593 (115) |
@@ -273916,9 +273918,8 @@ until moved, `a course that then meets a bound is edited`, 128.37.6):
   move. The 360 KB `bonanza360.img` holds 130 of 354 clusters (129), the
   1.44 MB one 255 (253).
 - **The route audit** (128.15.10.4): `TRIAL`'s route has the ball over half
-  hidden on 12 of 499 steps (0 before), wholly on none; `MILL`'s one
-  over-half stretch of 0.60 s from step 466, behind its finish clock
-  (22, 22). Reported, as the audit always is.
+  hidden on 12 of 499 steps (0 before), wholly on none; every other course's
+  route as before. Reported, as the audit always is.
 - **Identities**: every course with a clock moves (new records); the
   authored demos of `MOON` and `PEAK` re-authored, identity only (1,983 and
   2,172 steps, unchanged); `PLAY`'s (1,504 steps) needs the same and is
