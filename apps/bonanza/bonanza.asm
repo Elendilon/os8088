@@ -5274,6 +5274,8 @@ bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h
                                 ; wave 6, SPEC.md 130.16.6: bz_vinit)
 bz_clocks:  BZ_CRS_LOCKS        ; ...their horizontal LOCKs, the CGA's c0 then the
                                 ; Hercules', FFh FFh none (SPEC.md 130.45: bz_vinit)
+bz_cbots:   BZ_CRS_BOTS         ; ...their BOTTOM LINEs, a word each, 0 none
+                                ; (SPEC.md 130.45.4: bz_vinit's bottom stop)
 bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 130.26.8): byte k its k-th course;
             BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
