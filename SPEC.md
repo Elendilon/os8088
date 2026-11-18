@@ -281144,9 +281144,10 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
   shipped courses the same bytes. No file is an empty kit (every course
   then carries its own pieces, as before).
 - **It is GENERATED, never written by hand**: `python3 tools/bbcourse.py kit`
-  compiles `KIT_POOL`'s courses (every play course under
-  `apps/bonanza/courses/`: BENCH, FIRST, TRIAL, MILL, MOON, PEAK, PLAYGROUND,
-  SHAPE, PITS - the knob's two included, the pathway and the title not)
+  compiles `KIT_POOL`'s courses (the PATHWAY's: FIRST, TRIAL, MILL,
+  PLAYGROUND, MOON, PEAK, and ROLL, FIRST's successor on pad 0 - no test
+  course, the owner's rule of 2026-11-18; until then BENCH, SHAPE and PITS
+  were in it too)
   WITHOUT the kit (`_hack` `nokit`), and keeps:
   - **B**: every block at least `KIT_MIN` = 3 of them hold, the black block
     first (every course's block 0, 130.10.4);
@@ -283895,7 +283896,8 @@ at the edge). Last frame's step met the cap, so it falls at most one a frame.
 
 ### 130.47 THE LOOK and cast shadows (the owner, 2026-11-18; on `bb-depthcue`)
 
-*Two knobs, both off by default: with neither, every course compiles byte for byte as before.*
+*THE LOOK (130.47.2, 130.47.3) is how every course is drawn - the owner played it and made it the default,
+and its knob was deleted with it. Cast shadows (130.47.5) are a knob, off by default.*
 
 #### 130.47.1 The problem, and what was tried
 
@@ -283911,15 +283913,15 @@ than kept as options: contour lines on depth breaks (1 px vanished beside the se
 mspaint"), seams removed inside a flat wall (a style the owner declined), a dithered CONTACT BAND on the lower
 floor behind a break (3, 2 and 1 px; in play it "read as fuzz when moving, instead of boundary"), and wall tops
 as a capstone ring, a 25% dither, hatching, a grating, bricks and a magenta dither. KEPT: the checker by height
-and the cyan dither wall top (THE LOOK, `BZLOOK=1`), and cast shadows (`BZSHADOW=1`).
+and the cyan dither wall top (THE LOOK, every course), and cast shadows (`BZSHADOW=1`).
 
-#### 130.47.2 The checker by height (`BZLOOK=1`)
+#### 130.47.2 The checker by height
 
 A FLOOR or GOAL top's colour is `(wx + wy + z0 / 4) & 1` (`z0` in half units, so the term steps every 2 units,
 16 px): the alias flips its colour. Ramps and goals keep their sub-checker. A course's rails and much of its
 real map then fall out of step with the floor, which is the cue.
 
-#### 130.47.3 The wall top (`BZLOOK=1`)
+#### 130.47.3 The wall top
 
 A WALL top (not a bumper: those stay magenta) is a 50% dither of cyan and white (`(x + y)` odd cyan), so a top
 the ball is not meant to roll on says so. Every WALL takes it; a per-tile choice is for course design later.
@@ -283927,10 +283929,11 @@ The Hercules shows its 2-level translation (130.11.3), which the owner checked a
 
 #### 130.47.4 Demos
 
-A course's identity (130.15.7) covers its picture, so either knob moves every identity and a shipped demo's
-check 4 would refuse it. Both move the picture's ink and nothing the replay meets, so a knob build re-stamps
-each demo with the build's identity and says so, as 130.22.6 does for the clocks; the replay check after it
-(the goal on the last step) still runs.
+A course's identity (130.15.7) covers its picture. THE LOOK moved every identity once, and MOON's, PEAK's and
+PLAYGROUND's demos were written again by `bbcourse.py author` with the kit's re-cut (130.37.2) - the same
+runs, their `ident` lines alone changed. Cast shadows move the picture's ink and nothing the replay meets, so
+a `BZSHADOW` build re-stamps each demo with its own identity and says so, as 130.22.6 does for the clocks; the
+replay check after it (the goal on the last step) still runs.
 
 #### 130.47.5 Cast shadows (`BZSHADOW=1`)
 
@@ -283951,18 +283954,20 @@ No shadow falls on, or from, a cell that moves or vanishes - a see-saw's, a turn
 rail's, glass, a membrane, any prop's own cell - since a picture that differed between its poses would widen
 its lanes (the first band prototype took TILT's plate from 6 lanes to 7).
 
-PLAYGROUND, the stress test, is at 979 of `BLK_MAX` (1,024) today and shadows take it over: a course over
+PLAYGROUND, the stress test, is near `BLK_MAX` (1,024) and shadows take it over: a course over
 `BLK_MAX` with them is compiled again WITHOUT them, and the run says so on stderr. Whether PLAYGROUND shrinks or
 the occluders leave the picture's part to lift the limit is the owner's later call.
 
-#### 130.47.6 Cost (MEASURED on the host, LZB against the shipped kit, not re-cut)
+#### 130.47.6 Cost (MEASURED on the host, LZB)
 
-| | MILL | ROLL | 21 courses, PLAYGROUND out |
+The pathway's courses (FIRST, TRIAL, MILL, PLAYGROUND, MOON, PEAK) and ROLL, and the kit's part:
+
+| | courses | `BZKIT.BIN` | total |
 |---|---|---|---|
-| today | 6,592 | 9,807 | |
-| `BZLOOK=1` | 6,802 | 10,373 | +3.3% blocks, +2.4% LZB (ROLL +566 the worst) |
-| `BZSHADOW=1` | 7,078 | 10,713 | |
-| both | 7,288 | 11,282 | |
+| before THE LOOK, the nine-course kit | 55,006 | 4,509 | 59,515 |
+| THE LOOK, the same kit | 56,876 | 4,509 | 61,385 |
+| THE LOOK, the kit re-cut on the pathway (130.37.2) | 54,331 | 3,948 | 58,279 |
 
-The kit is not re-cut (130.37: the owner's call), so a new block is the course's own; a re-cut would win some
-back, unmeasured.
+So THE LOOK cost 1,870 bytes against a kit cut before it, and the re-cut more than paid it back. Cast shadows
+on top: MILL 6,505 to about 7,000, ROLL 9,262 to about 10,200 (measured against the earlier kit: MILL +486,
+ROLL +906).
