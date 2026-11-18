@@ -292878,3 +292878,61 @@ step's size at most the largest n whose stopping distance n (n + 1) / 2 fits
 in the distance left - not one less a frame, which a TRACK pushing the step
 back up each frame out-ran (MILL's demo: held at 3 - 4, then clamped 3 to 0
 at the edge). Last frame's step met the cap, so it falls at most one a frame.
+
+### 130.47 THE LOOK: depth cues in the picture (the owner, 2026-11-18; EXPERIMENTAL on `bb-depthcue`)
+
+*A knob, off by default: with `BZLOOK` empty every course compiles byte for byte as before. The owner plays the
+four builds and picks; nothing here is the shipped look until then.*
+
+#### 130.47.1 The problem
+
+The projection has an exact alias: a cell at `(wx + 1, wy + 1)` two units higher lands on the same pixels as
+`(wx, wy)` (130.10.2: `y = 8 (wx + wy) - z`, 16 lines a step either way), and the top's colour, `(wx + wy) & 1`
+(130.10.4.1), is the same on both - so a floor one tile back and two units down continues the checker
+seamlessly, and a rail's top two units over the floor reads as floor (ROLL lost a pillar rail to it). Faces
+hang to the ground (130.27), so walls at different depths tile into one; and `Canvas.outline` has one weight
+of line, so a seam inside a wall and a step in depth look alike. Host prototypes priced and drawn on ROLL and
+MILL (the owner's comparison, 2026-11-18): contour lines (1 px invisible beside the seams, 2 px "drawn on in
+mspaint"), seam removal (a style the owner declined) and a contact band (kept, thinner) - THE LOOK is what
+survived.
+
+#### 130.47.2 The checker by height
+
+A FLOOR or GOAL top's colour is `(wx + wy + z0 / 4) & 1` (`z0` in half units, so the term steps every 2 units,
+16 px): the alias flips its colour. Ramps and goals keep their sub-checker. A course's rails and much of its
+real map then fall out of step with the floor, which is the cue. Cost about 0.4% (LZB, 21 courses).
+
+#### 130.47.3 The wall top
+
+A WALL top (not a bumper: those stay magenta) is drawn in the knob's pattern, so a top the ball is not meant
+to roll on says so: `dither` (cyan and white, 50%), `capstone` (white with a cyan ring 2 - 3.5 gu inside its
+edges), `rose` (magenta and white, 50%: "a block of the same material"), `grating` (white with cyan bars every
+4 gu both ways in world units, one continuous grid over a run of tops). A per-tile choice is for course design
+later; here every WALL takes it. The Hercules shows each as its 2-level translation (130.11.3).
+
+#### 130.47.4 The contact band
+
+Each pixel's view depth is `y + z` (its line plus its own world height; a face's pixel is its top edge's
+height less its lines below it), continuous across a surface and over a top's edge onto its own face. Two
+4-neighbours more than 3 apart are a DEPTH BREAK, the greater nearer. Where the far side is a TOP, it is
+darkened for 2 px away from the break by a 50% dither (`(x + y)` even black), staying on that surface, leaving
+pixels already black. A hint, not an outline: the near edge keeps its own 1 px line and nothing else. No band
+where either side's cell is within one cell (Chebyshev) of a cell that moves or vanishes - a see-saw's, a
+turntable's, a bridge's, a guard rail's, glass, a membrane, any prop's own cell - since a band that differed
+between poses would widen their lanes (TILT's plate went from 6 lanes to 7 without the rule).
+
+#### 130.47.5 The block limit
+
+PLAYGROUND, the stress test, is at 979 of `BLK_MAX` (1,024) today and the band takes it over. Under THE LOOK
+a course over `BLK_MAX` with the band is compiled again WITHOUT it, and the run says so on stderr. Whether
+PLAYGROUND shrinks or the occluders leave the picture's part to lift the limit is the owner's later call.
+
+#### 130.47.6 Cost (MEASURED with the host prototype, 21 courses, PLAYGROUND out, against the shipped kit)
+
+| | blocks | LZB | worst |
+|---|---|---|---|
+| B + dither tops | +3.3% | +2.4% | ROLL +566 |
+| B + dither tops + the band | +8.8% | +5.9% | ROLL +1,108 |
+
+The kit is not re-cut (130.37: the owner's call), so a new block is the course's own; a re-cut would win some
+back, unmeasured.
