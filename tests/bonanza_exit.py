@@ -989,8 +989,8 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
         if len(base_rows) != shell_row() + 1 + R.after_shell():
             fails.append("the package has %d part rows, not %d courses, %d world parts, the sound, %d songs, "
-                         "%d shipped demos, the shell, the pathway, the title's two and the families' "
-                         "(SPEC.md 128.11.3.1, 128.30.4.4, 128.20.3, 128.14.7.4, 128.19.2, 128.19.5, 128.23)" % (
+                         "%d shipped demos, the shell, the pathway, the title's two, the families' and the VGA's "
+                         "(SPEC.md 128.11.3.1, 128.30.4.4, 128.20.3, 128.14.7.4, 128.19.2, 128.19.5, 128.23, 128.41.6)" % (
                              len(base_rows), dict.__len__(R.CRS_K), ncrs2(), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)

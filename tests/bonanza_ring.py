@@ -4361,14 +4361,16 @@ def shell_part(td, src, art, binp):
 
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
-    8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
-    one a family, where SRC's package carries them"""
+    8b, 128.19.5), the title's two (SPEC.md 128.23), (wave 9, 128.25.6.2)
+    one a family, and (SPEC.md 128.41.6) the VGA part's, the last, where SRC's
+    package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     if "BZ_P_FBUN" in asm:                      # 128.25.6.9: a row a FETCH family, and the bundle's
         nf = BB.fam_nrows()
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf   # (128.37: the kit)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf \
+        + ("BZ_P_VGA" in asm)                   # (128.37: the kit; 128.41.6: the VGA's part)
 
 
 def fam_parts(td, src, art):
