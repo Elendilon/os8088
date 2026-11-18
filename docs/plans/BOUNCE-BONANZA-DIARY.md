@@ -4858,3 +4858,40 @@ Wave 10 started from a list written long before the engine looked like this. A r
 The per-course budget was not adopted. The owner's reasoning: decide it on the first real course, by how it plays, not on test courses.
 
 The same day the course plan changed shape. No existing course ships: FIRST, TRIAL, MILL, MOON, PEAK and the rest become reference and test courses, and the game's courses are new, taking lessons and pieces from them. The pipeline is worked out while making the first one.
+
+## 2026-11-18 (a TIMED see-saw, and the gates in four styles)
+
+Two follow-ups from the owner. *"Weight is good ... I would like the option of
+timed, though, which ignores weight and just see-saws on a custom per use
+timer"*, and *"do we have the option of using different gate art per course?"*
+
+- **The timed see-saw** (SPEC.md 128.42.11). `period 32|64|128|256 [flat F]
+  [seed S]` on a `seesaw`: the popspike's timer on the step counter's low
+  byte, the plate FLAT for the last F steps of each half period, its rest in
+  the first half and its other end in the second - 0, 1, 2, 1, 0, never an
+  end to an end. `flat` rather than `hold` because the flat window is what a
+  player times. RESET puts each timed plate at its timer's pose (a respawn
+  never leaves one at rest against the clock); STEP moves it to its pose on
+  n + 1 and carries a grounded ball with the weight's own carry, so the
+  floor never passes through the ball and a timed plate can LIFT one. The
+  weight path skips a timed plate and is otherwise the code it was.
+- **Discovered**: a weight plate may tip on any step, so a timed plate in the
+  same window always risks a whole plate's lanes turning beside another's.
+  The window bound now counts timed lanes whole at their worst step, which
+  refuses the two together; TILT's CLOCKWORK lives a screen south of the
+  weight plates for that reason (and `width` is only 64 or 128, which ruled
+  out east). The first LIFT had its ledge at the plate's top height; steel,
+  stopped 2 px short against the ledge's wall at a sloped end, never got
+  over - at 1.5 units every ball steps off.
+- **The gate styles** (SPEC.md 128.41.11): `gatestyle` per course, `style` per
+  gate or bridge - grille (today's, the default), crystal shards, white
+  pickets with planked decks, a portcullis grid with an iron-plate deck. Tool
+  only; GATE with no style is GATE byte for byte. On a 15 px gate the
+  plaque is half the width, so the styles are told by silhouette; the decks'
+  marks are weakest on a Hercules checker tile (planks best, facets least).
+- **Measured**: the part 648 -> 824 bytes, the bundle +176, `bonanza.bin`
+  unchanged, bss +0, every shipped course part `cmp`-identical. **Run**:
+  `--selfcheck --only tilt` and `--only gate`, the unicorn halves `tilt_host`
+  (eleven scenes equal at every step, ten red arms red) and `gt_host` (27
+  equal, five red), `make bonanzadisk`, the BZTILT and BZGATE knob builds.
+  **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
