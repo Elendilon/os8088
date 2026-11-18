@@ -304,14 +304,18 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ;   KHP_STRRUN     font_str_run, a transparent string in one pass (text-6)
 ;   KHP_LAZYEND    cur_lazyend's early "not moved" (pointer-6; pays with O4)
 ;
-; ...and one ON IN EVERY KERNEL, kern_small included, because it is a fix to
-; the scheduler rather than a trade (SPEC.md 53.2.4):
+; ...and one ON IN kern_big, kern_emu and kern_mega, a fix to the scheduler
+; rather than a trade (SPEC.md 53.2.4) - and OFF on kern_small, whose heap
+; rung is LOCKED (guard 1b) and was met exactly when this landed: its 34
+; bytes crossed it. kern_small refuses FSXF_RATE, so its brackets see the
+; 18.2 Hz tick alone and the path saves the least there:
 ;
 ;   KHP_FSXSOLO    an IRQ0 inside an fsx bracket with one eligible task
-;                  resumes it without sch_switch (+40 .text, +34 on
-;                  kern_small; ~400 cycles off every IRQ0 of a full-screen
-;                  game with no kept worker)
-%define KHP_FSXSOLO
+;                  resumes it without sch_switch (+40 .text; ~400 cycles
+;                  off every IRQ0 of a full-screen game with no kept worker)
+%ifndef KERN_SMALL
+ %define KHP_FSXSOLO
+%endif
 %ifdef KERN_MEGA
  %define KHP_FRAME
  %define KHP_FPG
