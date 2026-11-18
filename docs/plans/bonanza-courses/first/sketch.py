@@ -95,22 +95,15 @@ Z = 26                                   # the start's height, units
 # (a +x leg moves right on the screen, a +y leg left; the CGA's dead zone is
 # 160 px, 10 tiles of wx - wy); the lip, the hole and the chute's mouth lie
 # on ONE straight line, so going forward means going over the hole.
-# A  the start and the hill of ramps (unchanged): ramps alternate +y and +x
+# A  the start and the hill of ramps, UNRAILED (revision 5: the owner, "the guard here is that its so
+#    wide"): ramps alternate +y and +x; no rail and no back wall
 floor("A", 4, 4, 8, 8, Z)                                    # P0 the start
-WALLS += [(3, 3, 8, 4, Z + 2), (3, 4, 4, 8, Z + 2)]
-rail(8, 4, 8, 8)
 ramp("A", "y", 4, 8, 8, 10, Z, Z - 2)                        # R1
-rail(4, 8, 4, 10); rail(8, 8, 8, 10)
 floor("A", 4, 10, 8, 14, Z - 2)                              # L1
-rail(4, 10, 4, 14); rail(4, 14, 8, 14)
 ramp("A", "x", 8, 10, 10, 14, Z - 2, Z - 4)                  # R2
-rail(8, 10, 10, 10); rail(8, 14, 10, 14)
 floor("A", 10, 10, 14, 14, Z - 4)                            # L2
-rail(10, 10, 14, 10); rail(14, 10, 14, 14)
 ramp("A", "y", 10, 14, 14, 16, Z - 4, Z - 6)                 # R3
-rail(10, 14, 10, 16); rail(14, 14, 14, 16)
 floor("A", 10, 16, 14, 20, Z - 6)                            # L3
-rail(10, 16, 10, 20); rail(10, 20, 14, 20); rail(14, 19, 14, 20)
 # B  the ledge: two tiles wide, its FRONT edge open to the void
 floor("B", 14, 17, 20, 19, Z - 6)
 WALLS += [(14, 16, 20, 17, Z - 4)]
@@ -119,65 +112,66 @@ WALLS += [(14, 16, 20, 17, Z - 4)]
 floor("C", 20, 16, 23, 20, Z - 6)                            # M, flag 0
 WALLS += [(20, 15, 23, 16, Z - 4)]
 rail(23, 16, 23, 20); rail(20, 19, 20, 20)
-ramp("C", "y", 20, 20, 23, 22, Z - 6, Z - 7)                 # the lip ramp
-rail(20, 20, 20, 22); rail(23, 20, 23, 22)
-floor("T", 19, 22, 24, 26, Z - 10)                           # T, 3 units under the lip
-rail(19, 22, 19, 26); rail(24, 22, 24, 26); rail(19, 22, 20, 22); rail(23, 22, 24, 22)
-rail(19, 26, 21, 26); rail(23, 26, 24, 26)                   # T's far edge: open only at the chute's mouth
-HOLES |= {(21, 24)}
+ramp("C", "y", 20, 20, 23, 24, Z - 6, Z - 8)                 # the lip ramp: 4 tiles, as the prototype's
+rail(20, 20, 20, 24); rail(23, 20, 23, 24)
+floor("T", 19, 24, 24, 28, Z - 10)                           # T, 2 units under the lip
+rail(19, 24, 19, 28); rail(24, 24, 24, 28); rail(19, 24, 20, 24); rail(23, 24, 24, 24)
+rail(19, 28, 21, 28); rail(23, 28, 24, 28)                   # T's far edge: open only at the chute's mouth
+HOLES |= {(21, 25)}                                          # ONE BLOCK OUT from the ramp's foot, in the path (the prototype's)
 # D  the CHUTE: a shaped two-wide channel, UNFENCED, straight on from the
 #    lip (+y), round one corner along +x into D3.  D3's rails come back up
 #    as it exits; K3's far end stays OPEN for the full-speed overshoot
-chute("D", [(22, 26, Z - 10), (22, 29, Z - 11), (29, 29, Z - 13.5)], 1.0)
-floor("D", 29, 28, 31, 30, Z - 13.5)                        # D3, flat: the rails come back up one tile on
-rail(29, 28, 31, 28); rail(30, 30, 31, 30)                # one tile on from the chute's exit
-floor("D", 31, 28, 34, 31, Z - 13.5)                         # K3, level with D3, its far end open
-rail(31, 28, 34, 28); rail(31, 30, 31, 31)
+chute("D", [(22, 28, Z - 10), (22, 31, Z - 11), (29, 31, Z - 13.5)], 1.0)
+floor("D", 29, 30, 31, 32, Z - 13.5)                        # D3, flat: the rails come back up one tile on
+rail(29, 30, 31, 30); rail(30, 32, 31, 32)                # one tile on from the chute's exit
+floor("D", 31, 30, 34, 33, Z - 13.5)                         # K3, level with D3, its far end open
+rail(31, 30, 34, 30); rail(31, 32, 31, 33)
 # E  the steps: one unit each, down onto floor; flag 1 on the last
-floor("E", 31, 31, 34, 33, Z - 14.5)
-floor("E", 31, 33, 34, 35, Z - 15.5)
-floor("E", 31, 35, 34, 38, Z - 16.5)
-for y0, y1 in ((31, 33), (33, 35), (35, 38)):
+floor("E", 31, 33, 34, 35, Z - 14.5)
+floor("E", 31, 35, 34, 37, Z - 15.5)
+floor("E", 31, 37, 34, 40, Z - 16.5)
+for y0, y1 in ((33, 35), (35, 37), (37, 40)):
     rail(31, y0, 31, y1)
-rail(34, 31, 34, 33); rail(34, 33, 34, 35); rail(34, 35, 34, 36); rail(31, 38, 34, 38)
+rail(34, 33, 34, 35); rail(34, 35, 34, 37); rail(34, 37, 34, 38); rail(31, 40, 34, 40)
 # W  the walk: two tiles wide, BOTH edges open: +x, a railed elbow, +y
-floor("W", 34, 36, 38, 38, Z - 16.5)                         # W1, level
-floor("W", 38, 36, 40, 39, Z - 16.5)
-rail(40, 36, 40, 39); rail(38, 36, 40, 36); rail(38, 38, 38, 39)
-ramp("W", "y", 38, 39, 40, 43, Z - 16.5, Z - 18.5)
+floor("W", 34, 38, 38, 40, Z - 16.5)                         # W1, level
+floor("W", 38, 38, 40, 41, Z - 16.5)
+rail(40, 38, 40, 41); rail(38, 38, 40, 38); rail(38, 40, 38, 41)
+ramp("W", "y", 38, 41, 40, 43, Z - 16.5, Z - 17.5)          # 2 tiles (revision 5: the lip took 2)
 # F  the leap: a railed elbow, a run-up along +x (no rail across its entry:
 #    rails protect, never block), a ONE-tile gap, a landing 2 units under the lip
-floor("F", 38, 43, 41, 46, Z - 18.5)
+floor("F", 38, 43, 41, 46, Z - 17.5)
 rail(38, 43, 38, 46); rail(38, 46, 41, 46); rail(40, 43, 41, 43)
-ramp("F", "x", 41, 43, 45, 46, Z - 18.5, Z - 20.5)
+ramp("F", "x", 41, 43, 45, 46, Z - 17.5, Z - 19.5)
 rail(41, 43, 45, 43); rail(41, 46, 45, 46)
-floor("G", 46, 42, 50, 47, Z - 22.5)                           # the landing
+floor("G", 46, 42, 50, 47, Z - 21.5)                           # the landing
 rail(46, 42, 50, 42); rail(50, 42, 50, 47)
 # H  the finish: a short ramp down and a wide goal plateau, all in view
-ramp("G", "y", 46, 47, 50, 49, Z - 22.5, Z - 23.5)
+ramp("G", "y", 46, 47, 50, 49, Z - 21.5, Z - 22.5)
 rail(46, 47, 46, 49); rail(50, 47, 50, 49)
-floor("H", 45, 49, 51, 54, Z - 23.5)
+floor("H", 45, 49, 51, 54, Z - 22.5)
 rail(45, 49, 45, 54); rail(45, 54, 51, 54); rail(51, 49, 51, 54); rail(45, 49, 46, 49); rail(50, 49, 51, 49)
 GOAL = {(x, y) for x in range(45, 51) for y in range(52, 54)}
 
 START = (5.5, 5.5)
 # a flag stands just BEFORE what can kill, so a fall never replays a long stretch
-FLAGS = [(20.5, 17.5, "flag 0"), (32.5, 36.5, "flag 1")]
-# clocks, each on a lone pillar: (wx, wy, the pillar's floor z, name).  Placed
-# by hand for the CAMERA (in view where they serve, never behind a block),
-# the owner having leaned to CUSTOM clock art (2026-11-18): what is behind a
-# clock no longer decides its place.  iso() still labels the backdrop
-CLOCKS = [(10.5, 5.5, Z - 2, "start"), (32.5, 25.5, Z - 12, "middle"), (43.5, 53.5, Z - 25.5, "finish")]
+FLAGS = [(20.5, 17.5, "flag 0"), (32.5, 38.5, "flag 1")]
+# clocks (revision 5, the owner's mark-ups): (wx, wy, the tile's floor z, name, KIND):
+#   "tile"  - a floor tile LEVEL with the path, one block out from it (the start's);
+#   "block" - on top of an EXISTING block: the rail's wall tile becomes a floor tile at its height;
+#   "float" - a lone floating pillar (revision 4's)
+CLOCKS = [(8.5, 5.5, Z, "start", "tile"), (18.5, 26.5, Z - 8.5, "middle", "block"),
+          (45.5, 48.5, Z - 20.5, "finish", "block")]
 PLACED = {}
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(5.5, 5.5), (6, 9), (6, 12.5), (9, 12), (12, 12.5), (12, 15), (12, 18), (14, 18), (20, 18),
-         (21.5, 18), (21.5, 21), (21.5, 23.5), (21.5, 26), (21.5, 28.5), (25, 28.5), (29, 28.5),
-         (32.5, 29.5), (32.5, 33), (32.5, 36.5), (35, 37), (38.5, 37), (39, 38), (39, 41), (39, 44),
+         (21.5, 18), (20.4, 21), (20.4, 24.5), (20.4, 26.5), (21.5, 27.5), (21.5, 30.5), (25, 30.5), (29, 30.5),
+         (32.5, 31.5), (32.5, 35), (32.5, 38.5), (35, 39), (38.5, 39), (39, 40), (39, 42), (39, 44),
          (40, 44.5), (43, 44.5), (48, 44.5), (48, 47), (48, 53)]
 LABELS = [(6, 6, "A start"), (12, 12, "A hill"), (17, 18, "B ledge"), (21.5, 17, "C lip"),
-          (21.5, 24, "T"), (24, 28.5, "D chute"), (32.5, 29.5, "K3 open"),
-          (32.5, 33, "E steps"), (36, 37, "W walk"), (43, 44.5, "F leap"),
+          (21.5, 26, "T"), (24, 30.5, "D chute"), (32.5, 31.5, "K3 open"),
+          (32.5, 35, "E steps"), (36, 39, "W walk"), (43, 44.5, "F leap"),
           (48, 52, "H goal")]
 
 # --- drawing ----------------------------------------------------------------
@@ -296,7 +290,7 @@ def iso(out):
     rx = [Q(x, y, zat(x, y))[0] for x, y in ROUTE]
     mid = int((min(rx) + max(rx)) // 2)
     BACK = {}
-    for i, (x, y, z, name) in enumerate(CLOCKS):
+    for i, (x, y, z, name, kind) in enumerate(CLOCKS):
         PLACED[i] = (x, y, z + 4, name)               # the head stands about 4 units over its pillar's floor
         cx, cy = Q(x, y, z + 6)
         cx, cy = int(cx), int(cy)
@@ -355,6 +349,7 @@ course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
 lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
+stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
 ball rubber
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
 # the PLAYTEST's limit, given by hand: the autopilot cannot steer a chute yet (no `way` may sit on a FIELD
@@ -398,7 +393,10 @@ def bbc(out):
         for x in range(x0, x1):
             for y in range(y0, y1):
                 walls[(x, y)] = max(walls.get((x, y), -99), z)
+    taken = {(int(x), int(y)) for x, y, _z, _n, kind in CLOCKS if kind == "block"}
     for (x, y), z in sorted(walls.items()):
+        if (x, y) in taken:                     # a clock stands on this block: its tile is the clock's
+            continue
         if (x, y) in guards:
             L.append("guard tile %3d %3d                # see-through: a ball in the chute is behind it" % (x + OFF, y + OFF))
         else:
@@ -413,11 +411,14 @@ def bbc(out):
     for x, y, t in FLAGS:
         L.append("checkpoint %d %d ball rubber   # %s" % (int(x) + OFF, int(y) + OFF, t))
     L.append("")
-    L.append("# clocks: each on a lone one-tile pillar, only void behind its head (the sketch's placement)")
-    for x, y, z, name in PLACED.values():
+    L.append("# clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block")
+    for x, y, z, name, kind in CLOCKS:
         px, py = int(x) + OFF, int(y) + OFF
-        L.append("floor tile %d %d  flat %g   # the %s clock's pillar" % (px, py, round((z - 4) * 2) / 2, name))
-        L.append("float tile %d %d                # its faces hang 3 units: a lone pillar, not a column to the ground" % (px, py))
+        L.append("floor tile %d %d  flat %g   # the %s clock's tile (%s)" % (px, py, z, name, {
+            "tile": "level with the path, one block out", "block": "on top of the rail block it replaces",
+            "float": "a lone floating pillar"}[kind]))
+        if kind == "float":
+            L.append("float tile %d %d" % (px, py))
         L.append("clock %d %d" % (px, py))
     L.append("")
     L.append("# the autopilot's route")

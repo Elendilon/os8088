@@ -5851,3 +5851,71 @@ commits, a V20, the owner's eye.
   its early exit jumping past the new `ret`, into the tick loop inside the
   call. TRIAL's demo hung on the VGA at its third frame; bisected in three
   builds (the pre-merge, the merge, the last commit).
+
+## 2026-11-18 (FIRST ROLL revision 5, and the camera's BOTTOM STOP)
+
+The owner marked up playtest 3: the sketch with the hill's rails circled,
+two screenshots with clocks moved by hand. They wrote:
+
+> The lock works, and is good for this course. Send me a course image each
+> iteration, so I can mark things on it for the next. ... Lets try removing
+> the rails from the first upper section; the guard here is that its so
+> wide. We may or may not keep the idea; I just want to see if it looks and
+> plays good.
+>
+> Then, the lip and hole; I'm not getting dumped into the hole like I was
+> on the old first roll. Goal is to put the hole right in their "natural"
+> path, and make them take an action to avoid it. I think the 4 tilted, one
+> block out worked? We might need to make walk's ramp 2 shorter to fit
+> that?
+>
+> Clocks: I think these will probably end up with me hand placing them a
+> few times, to try things out. Attached to things to try; the first one is
+> one, level block out. The bottom is on top an existing block. The
+> obscured/hidden/low click is no good; we may need a camera rule here "the
+> finish is already fully in view, don't scroll down more on horizontal
+> locked courses".
+
+And while it was being built:
+
+> The look and feel of these is more important than the exact times rules
+> please, since we're switching to "owner place" instead. And the camera
+> movement should mean we can cross the finish with it in view up there,
+> because it is in the screenshot. Scrolling to where lattice did before it
+> moved again, then stopping, works; maybe that needs to be a flag set in
+> the course data instead of a general rule.
+
+**Built:**
+- revision 5 (the sheet has it):
+  - the hill unrailed;
+  - the prototype's lip (4 tiles, the hole one block out);
+  - the walk's ramp 2 shorter;
+  - the clocks as mocked up;
+- `stop down` (SPEC.md 130.45.4), a course flag: the camera scrolls no
+  further down once every finish is wholly in view (its lowest front corner
+  plus three units of face). It costs 39 bytes of code and a word a course,
+  with the model matching;
+- the shipped finish-clock rule, on a locked and stopped course, checks the
+  window the camera RESTS in at the finish, so the clock can stand up on
+  the block where the owner put it.
+
+**Found on the way.** The first place tried for the middle clock was on
+the landing's RIGHT rail. The real preview showed it drawn in front of the
+landing, hiding the hole completely. On the left rail it stands behind the
+path.
+
+The hole itself reads as a dithered notch: the faces behind it show through
+the void. It is in the natural path, but quiet, and the owner's eye
+decides.
+
+**Red, on purpose**:
+- a second `stop`;
+- a course with no finish.
+
+**Run**:
+- the tool and previews;
+- the model's steered run (37.2 s to the goal, 0 columns panned, every
+  clock in view where it serves);
+- the playtest build.
+
+**Not run**: the guest (fork rule 5); the camera rows (the final pass's).

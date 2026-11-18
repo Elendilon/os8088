@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 3, revision 4 with the horizontal LOCK** (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 4, revision 5** (the owner's mark-ups on playtest 3) (`apps/bonanza/courses/roll.bbc`,
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,25 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 5, from playtest 3's mark-ups:**
+  - **the hill has no rails and no back wall** (*"the guard here is that
+    its so wide. We may or may not keep the idea; I just want to see if it
+    looks and plays good"*);
+  - **the lip is the prototype's**: a 4-tile ramp falling 2 units onto the
+    landing, and the hole ONE BLOCK OUT from its foot, in the natural path
+    (*"I'm not getting dumped into the hole like I was on the old first
+    roll"*). Everything after it moved 2 rows down, and the walk's ramp is
+    2 tiles shorter to take them back;
+  - **the clocks follow the owner's mock-ups** (look and feel over timing;
+    the owner will hand-place them):
+    - the start clock sits on a tile one block out from the plateau, level
+      with it;
+    - the middle clock stands on top of the landing's left rail block (on
+      the right rail it stood in front of the landing and hid the hole);
+    - the finish clock stands on top of the block at the goal plateau's
+      back-left;
+  - **the camera stops once the finish is in view**: `stop down`, a course
+    flag (SPEC.md 130.45.4).
 - **Revision 2:**
   - the three railed corners became a SHAPED CHUTE: two tiles wide,
     unfenced, the rails back up on its exit, the far end of the corner
