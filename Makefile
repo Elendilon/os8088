@@ -21698,6 +21698,7 @@ endif
 BZGATESTAMP := $(BUILD)/.bzgate-$(or $(BZGATE),0)
 $(BZGATESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzgate-*
+	@touch $@
 #> [Knobs] BZTILT=1 :: Bounce Bonanza with its SEE-SAW test course, TILT (SPEC.md 128.42): a ledge only light glass reaches, a gate the ball's weight lays down, a rocker - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/tilt BZTILT=1 bonanzadisk)
 # BZTILT=1 (SPEC.md 128.42.7, BZBOOST's precedent) adds apps/bonanza/courses/tilt.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
@@ -21724,6 +21725,33 @@ endif
 BZTILTSTAMP := $(BUILD)/.bztilt-$(or $(BZTILT),0)
 $(BZTILTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bztilt-*
+	@touch $@
+#> [Knobs] BZTURN=1 :: Bounce Bonanza with its QUARTER-TURN TURNTABLE test course, TURN (SPEC.md 128.43): half-filled tables turning a quarter turn a second, crossed on the turn - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/turn BZTURN=1 bonanzadisk)
+# BZTURN=1 (SPEC.md 128.43.7, BZBOOST's precedent) adds apps/bonanza/courses/turntable.bbc to BZ_COURSES (after
+# the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
+# with apps/bonanza/courses/pathturn.sed applied: pad 0 becomes TURN, FIRST gets pad 6 beside it.  Pad 0 is one
+# course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
+# knob-less one.
+BZTURN ?=
+ifeq ($(filter $(BZTURN),1),)
+ifneq ($(BZTURN),)
+$(error BZTURN=$(BZTURN) is 1 or empty)
+endif
+endif
+ifeq ($(BZTURN),1)
+ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZHUMP)),)
+$(error BZTURN=1 with BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT or BZHUMP=1: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/turntable.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathturn.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathturn.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathturn.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZTURNSTAMP := $(BUILD)/.bzturn-$(or $(BZTURN),0)
+$(BZTURNSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzturn-*
 	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
@@ -21755,7 +21783,7 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
-BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw
+BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
@@ -21794,7 +21822,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZFSHOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs

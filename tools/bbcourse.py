@@ -535,7 +535,7 @@ FAMILIES = (
     # BP_FFLAT) pushes every ball S.  CONSTS + BP_GSH, BP_SSH: the defaults, to retune as they are used
     {"name": "boost", "id": 10, "rev": 2, "hooks": H_CONTACT | H_STEP | H_POSE, "slot": 2, "consts": (12, 24, 2, 2),
      "kinds": ({"name": "boost", "kind": FAM_K0 + 32, "bits": 0, "cls": CL_ATTEMPT, "art": "boost",
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 12,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 20,
      "home": HOME_RESIDENT},
     # SPIKES (SPEC.md 128.38, the props round's P5 and P8): ID 11 (BOOST 10 another branch's: a GAP here, BZ_FTAB
     # fills it), kinds SP_K (56) on.  Each a FLAT FLOOR cell rewritten PER BALL by CELL (WATER's trick): a SPIKE
@@ -600,6 +600,18 @@ FAMILIES = (
                 "forms": ("own", "tilt"), "states": (0,), "pickup": False},
                {"name": "seesawlane", "kind": FAM_K0 + 65, "bits": 0, "cls": CL_ATTEMPT, "art": "tilt",
                 "forms": ("own",), "states": (0,), "pickup": False}), "paras": 41,
+     "home": HOME_RESIDENT},
+    # THE QUARTER-TURN TURNTABLE (SPEC.md 128.43, the props round's P11): an N x N table (2 or 3) HALF FILLED,
+    # turning a quarter turn every Q steps (32 or 64), the cells switching - it carries nothing: a cell that
+    # turns to a gap drops the ball.  Each switching cell an element (a 3 x 3's centre is the PIVOT, a plain
+    # floor): +18 TZ its floor's z0, +19 SEQ (bit r floor at rotation r, the nibble twice), +20 QSH, +21 QMASK,
+    # +22 SEED, +23 WAT (the warning's first step of a quarter, Q none).  CELL: a gap's window copy a NEAR VOID
+    # (the membrane's), and the centre's too while the ball is below its top (fallen in); STEP marks a pose that
+    # changes and refills the window; POSE 0 floor, 1 the warning, 2 a gap.  STATELESS, no slot.  ID 15 (the
+    # props round's fixed assignment: gates 13, see-saw 14 are a GAP here); kind FAM_K0 + 72; CONSTS TT_*
+    {"name": "turntable", "id": 15, "rev": 1, "hooks": H_STEP | H_POSE | H_CELL, "slot": 0, "consts": "TT",
+     "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
+                "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 20,
      "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6     # GLASS's constants (its row's CONSTS, the part's equates):
@@ -697,6 +709,14 @@ TL_WMAX = 2                   # ...and ACROSS it
 TL_THICK = 4                  # px: the plate's faces over the void (a thin slab, `float ... thick 0.5`)
 TL_LANES = 6                  # lanes a plate (they all turn on one step: WIN_CHG, SPEC.md 128.19.10)
 TL_POST = 3                   # half units: the fulcrum's post under the pivot, its height below the FLAT plate
+# THE TURNTABLE's constants (SPEC.md 128.43): TT_VOID, TT_QUARTERS and TT_SIZES in its FAMV (its row's "TT")
+TT_K = FAM_K0 + 72            # its kind (88: the props round's run for it)
+TT_SIZES = (2, 3)             # an N x N table; a 3 x 3's centre is its PIVOT (a plain floor, never switching)
+TT_QUARTERS = (32, 64)        # steps a quarter turn (0.53 s, 1.07 s at 60 steps a second): 4 Q divides the step's
+                              # low byte's 256, so one byte times every table
+TT_QDEF = 64                  # ...when not written: "a quarter turn every second or so"
+TT_WDEF = 16                  # the WARNING: steps before a turn a floor cell about to open shows its seam (0.27 s)
+TT_VOID = 6                   # half units: a gap's NEAR VOID under the floor (the membrane's, a broken crack's)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -829,7 +849,7 @@ def famv(f):
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
-                     "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                     "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
@@ -841,6 +861,8 @@ def famv(f):
         b += bytes((AR_TOPB, AR_RSH))
     elif f.get("consts") == "TL":               # THE SEE-SAW's (128.42): the weight by ball, the transit
         b += bytes(TL_DW + (TL_TS,))
+    elif f.get("consts") == "TT":               # THE TURNTABLE's (128.43): the near void's depth, the quarters,
+        b += bytes((TT_VOID,) + TT_QUARTERS + TT_SIZES)     # the sizes
     elif f.get("consts") == "WA":               # WATER's (128.36): the sink, the raised HTHR, the restitution's
         b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)
         b += bytes((WA_FBSH,))                  # (128.36.10's bob)  # shift, the bob, the ripple's phase,
@@ -1484,6 +1506,130 @@ def membrane_pix(cx, cy, nb):
     return out
 
 
+# THE TURNTABLE (SPEC.md 128.43.5): its art.  The table is ONE OBJECT, a crystal PLATTER: its cells are not drawn as
+# tiles (no checker, no columns), and in their place a geometry op draws a rounded-square platter (a squircle,
+# exponent TT_SQ, so it covers its cells but for their outer corners' last few px) - a pinwheel of eight facets
+# round a gem HUB (white and cyan in turn, magenta seams), a bevelled rim lit on the back left, a black outline -
+# with its FRONT EDGE a half unit thick (magenta, lit left and dithered right as every wall face) and a short
+# SPINDLE under the hub.  Each switching cell's 2 x 2-block lane (a popspike's) holds its poses: 1 the WARNING, a
+# dotted seam where a PORT will open; 2 the GAP, the port open - black, its far inner wall magenta, its near lip
+# lit.  White, black and the faces' magenta: the Hercules reads it as white, black and grey.
+TT_SQ = 4                     # the platter's squircle exponent (2 a disc; 4 a rounded square)
+TT_RIM = 4                    # px: the platter's front edge (half a unit)
+TT_SPIN = (6, 10)             # the spindle under the hub: px wide, px below the rim
+TT_PORT = (7.0, 3.2)          # the port's half axes, px (u, v): inside the lane's |u| < 8, |v| < 4
+
+
+def tt_platter_pix(tab, x0, z4):
+    """TAB's platter (Y0 = 0) -> {cell: {(x, y): ink}}: its top pixels by the cell under them, its front edge's by
+    the cell of the top's edge above them, the spindle the hub's cell's (a 2 x 2's back cell, a 3 x 3's pivot)"""
+    N, (ax, ay) = tab["N"], tab["at"]
+    Rq = N / 2.0 - 0.03
+    hx, hy = 16 * (ax - ay) + x0, 8 * (ax + ay + N) - z4     # the hub, on the screen
+    top, cell = {}, {}
+    for y in range(hy - 8 * N - 2, hy + 8 * N + 2):
+        for x in range(hx - 16 * N - 2, hx + 16 * N + 2):
+            a_, b_ = (x + 0.5 - x0) / 16.0, (y + 0.5 + z4) / 8.0
+            fx, fy = (a_ + b_) / 2.0, (b_ - a_) / 2.0
+            dx, dy = fx - ax - N / 2.0, fy - ay - N / 2.0
+            q = (abs(dx) ** TT_SQ + abs(dy) ** TT_SQ) ** (1.0 / TT_SQ) / Rq
+            if q > 1.0:
+                continue
+            r = math.hypot(dx, dy)
+            th = math.atan2(dy, dx)
+            sec = int((th + math.pi) / (math.pi / 4)) & 7
+            seam = r * abs(math.sin(4 * th)) < 0.05 and r > 0.2
+            if r < 0.1:
+                ink = WHT
+            elif r < 0.17:
+                ink = BLK
+            elif q > 0.86:
+                ink = WHT if dx + dy < -0.4 * N else CYN
+            elif seam:
+                ink = MAG
+            else:
+                ink = WHT if sec & 1 else CYN
+            top[(x, y)] = ink
+            cell[(x, y)] = (min(ax + N - 1, max(ax, int(math.floor(fx)))), min(ay + N - 1, max(ay, int(math.floor(fy)))))
+    for (x, y) in list(top):                        # the outline
+        if any((x + ex, y + ey) not in top for ex, ey in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            top[(x, y)] = BLK
+    out = {}
+    for xy, ink in top.items():
+        out.setdefault(cell[xy], {})[xy] = ink
+    cols = {}
+    for (x, y) in top:
+        cols[x] = max(cols.get(x, y), y)
+    xl, xr = min(cols), max(cols)
+    rim = set()
+    for x, ye in cols.items():                      # the front edge, under the top's lowest pixel of each column
+        for k in range(1, TT_RIM + 1):
+            if (x, ye + k) in top:
+                continue
+            last = k == TT_RIM or x in (xl, xr)
+            ink = BLK if last or x in (xl, xr) else MAG if x < hx else (MAG if (x + ye + k) & 1 else BLK)
+            out.setdefault(cell[(x, ye)], {})[(x, ye + k)] = ink
+            rim.add((x, ye + k))
+    w, dn = TT_SPIN
+    sc = (ax, ay) if N == 2 else (ax + 1, ay + 1)
+    yb = max(y for (x, y) in rim if hx - w // 2 <= x < hx + w // 2)
+    for y in range(yb + 1, yb + dn + 1):
+        for x in range(hx - w // 2, hx + w // 2):
+            side = x in (hx - w // 2, hx + w // 2 - 1) or y == yb + dn
+            out.setdefault(sc, {})[(x, y)] = BLK if side else (MAG if x < hx else (MAG if (x + y) & 1 else BLK))
+    return out
+
+
+def tt_ops(tables, ops, x0, z4s):
+    """SPEC.md 128.43.5: each table's platter as 'post' ops (geometry, keyed its cell's s, every pixel's top the
+    platter's), put into the back-to-front order after the whole of its cell's row - arch_ops' way.  Z4S: {id(table):
+    its top, px}"""
+    rops = []
+    for tab in tables:
+        H = z4s[id(tab)]
+        for (wx, wy), pix in tt_platter_pix(tab, x0, H).items():
+            mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, H)
+            rops.append(((wx + wy, 1 << 30, wx), (_spans_of(pix), "post", wx + wy, mk, False, None, (wx, wy))))
+    rops.sort(key=lambda r: r[0])
+    out, i = [], 0
+    for op in ops:
+        k = (op[6][0] + op[6][1], op[6][0], 0)
+        while i < len(rops) and rops[i][0] < k:
+            out.append(rops[i][1])
+            i += 1
+        out.append(op)
+    out += [r[1] for r in rops[i:]]
+    return out
+
+
+def tt_lane_rect(cx, cy):
+    """a switching cell's lane: the 2 x 2 blocks round its top's centre (a popspike's, a crack's)"""
+    return ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
+
+
+def tt_hole_pix(cx, cy, seam=False):
+    """a switching cell's PORT round its top's centre (half axes TT_PORT: always inside the lane): open (the GAP) -
+    black, the far inner wall a 2-row magenta band, the near lip lit white; SEAM (the WARNING) - its outline alone,
+    every other pixel black -> {(x, y): ink}"""
+    pu, pv = TT_PORT
+
+    def ins(u, v, sh=0.0, k=1.0):
+        return ((u + 0.5) / (pu * k)) ** 2 + ((v + 0.5 - sh) / (pv * k)) ** 2 < 1.0
+    out = {}
+    for v in range(-4, 4):
+        for u in range(-8, 8):
+            if ins(u, v):
+                edge = not all(ins(u + du, v + dv) for du, dv in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                if seam:
+                    if edge and not (u + v) & 1:
+                        out[(cx + u, cy + v)] = BLK
+                    continue
+                out[(cx + u, cy + v)] = BLK if edge or ins(u, v, 2.0) else MAG
+            elif not seam and v >= 0 and ins(u, v, 0.0, 1.22):
+                out[(cx + u, cy + v)] = WHT
+    return out
+
+
 GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
 
 
@@ -1738,6 +1884,8 @@ def _parse_fprop(toks, where, ln):
         return _parse_blower(toks, where, ln, fam, kr)
     if kr["kind"] in (SP_K, SP_KP, SP_KM):
         return _parse_spike(toks, where, ln, fam, kr)
+    if kr["kind"] == TT_K:
+        return _parse_turn(toks, where, ln, fam, kr)
     if kr["kind"] == WD_K2:
         raise CourseError("%s: a wisp is the tool's: a gusting blower without a `flag` makes its own (SPEC.md "
                           "128.34.11)" % where)
@@ -1950,6 +2098,154 @@ def _sp_check(f, props, tiles):
                     raise CourseError("%s:%d: %s on (%d, %d) beside the water at (%d, %d): a spiked cell and a "
                                       "water cell never touch, edge or corner (SPEC.md 128.38)"
                                       % (f, p["line"], nm, at[0], at[1], at[0] + dx, at[1] + dy))
+
+
+TT_SYNTAX = ("prop turntable <wx> <wy> size 2|3 fill <cells> [quarter 32|64] [seed <s>] [warn <steps>] "
+             "[turn cw|ccw]: <cells> the table's rows from its back (wy), 'o' a floor and '.' a gap, a '/' between "
+             "rows optional")
+
+
+def tt_rotate(N, i, j, ccw=False):
+    """the cell (i, j) of an N x N table (i along x, j along y) after ONE quarter turn: clockwise on the screen
+    ((1, 0) -> (0, 1): +x, right and down, turns to +y, left and down), or counter-clockwise"""
+    return (j, N - 1 - i) if ccw else (N - 1 - j, i)
+
+
+def tt_seqs(N, fill, ccw=False):
+    """{(i, j): SEQ} - bit r set when the cell is a FLOOR after r quarter turns - for every SWITCHING cell (a 3 x 3's
+    centre, the pivot, is none); FILL {(i, j): floor}"""
+    out = {}
+    for j in range(N):
+        for i in range(N):
+            if N == 3 and (i, j) == (1, 1):
+                continue
+            seq, c = 0, (i, j)
+            for r in range(4):          # the floor at (i, j) after r turns came from the cell r turns back
+                if fill[c]:
+                    seq |= 1 << r
+                for _ in range(3):      # (one turn back is three forward)
+                    c = tt_rotate(N, c[0], c[1], ccw)
+            out[(i, j)] = seq
+    return out
+
+
+def _parse_turn(toks, where, ln, fam, kr):
+    """THE TURNTABLE (SPEC.md 128.43): one element a SWITCHING cell of the N x N table at (wx, wy) on (its back
+    corner), each carrying the table's timer and its own SEQ.  Refused here: a size not 2 or 3, a fill of the
+    wrong length or with other characters, a fill not HALF filled (2 of a 2 x 2's 4; 4 of a 3 x 3's ring of 8,
+    its pivot a floor), a fill a quarter turn leaves as it was (nothing would switch), a quarter not 32 or 64, a
+    seed past its period (4 Q), a warning not under a quarter"""
+    if len(toks) < 4:
+        raise CourseError("%s: %s" % (where, TT_SYNTAX))
+    at = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))
+    d = {"size": None, "fill": None, "quarter": TT_QDEF, "seed": 0, "warn": TT_WDEF, "turn": "cw"}
+    i = 4
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if t not in d or i + 1 >= len(toks) or toks[i + 1][0] != 'w':
+            raise CourseError("%s: %s" % (where, TT_SYNTAX))
+        v = toks[i + 1][1]
+        d[t] = v if t in ("fill", "turn") else _int(toks[i + 1], where, t)
+        i += 2
+    N = d["size"]
+    if N not in TT_SIZES:
+        raise CourseError("%s: a turntable's size is 2 or 3 (an N x N table), not %s" % (where, N))
+    if d["fill"] is None:
+        raise CourseError("%s: %s" % (where, TT_SYNTAX))
+    cells = d["fill"].replace("/", "")
+    if len(cells) != N * N or set(cells) - set("o."):
+        raise CourseError("%s: a %d x %d turntable's fill is %d cells of 'o' (a floor) and '.' (a gap), not %r"
+                          % (where, N, N, N * N, d["fill"]))
+    fill = dict(((k % N, k // N), cells[k] == "o") for k in range(N * N))
+    if N == 3 and not fill[(1, 1)]:
+        raise CourseError("%s: a 3 x 3 turntable's centre is its PIVOT, a floor ('o'): it never switches" % where)
+    sw = [c for c in fill if not (N == 3 and c == (1, 1))]
+    if 2 * sum(1 for c in sw if fill[c]) != len(sw):
+        raise CourseError("%s: a turntable is HALF filled: %d of its %d switching cells floors, not %d (SPEC.md "
+                          "128.43)" % (where, len(sw) // 2, len(sw), sum(1 for c in sw if fill[c])))
+    if d["turn"] not in ("cw", "ccw"):
+        raise CourseError("%s: a turntable turns cw or ccw, not %r" % (where, d["turn"]))
+    seqs = tt_seqs(N, fill, d["turn"] == "ccw")
+    if all(s in (0, 15) for s in seqs.values()):
+        raise CourseError("%s: the turntable's fill %r is the same after a quarter turn: no cell would switch "
+                          "(SPEC.md 128.43)" % (where, d["fill"]))
+    Q = d["quarter"]
+    if Q not in TT_QUARTERS:
+        raise CourseError("%s: a turntable's quarter turn is %s steps, not %s" % (
+            where, " or ".join(map(str, TT_QUARTERS)), Q))
+    if not 0 <= d["seed"] < 4 * Q:
+        raise CourseError("%s: a turntable's seed %d is not under its period %d (four quarters)"
+                          % (where, d["seed"], 4 * Q))
+    if not 0 <= d["warn"] < Q:
+        raise CourseError("%s: a turntable's warning %d steps is not under its quarter turn %d (0 none)"
+                          % (where, d["warn"], Q))
+    tab = {"line": ln, "at": at, "N": N, "fill": fill, "Q": Q, "seed": d["seed"], "warn": d["warn"],
+           "ccw": d["turn"] == "ccw"}
+    qsh = Q.bit_length() - 1
+    off = tt_sweep(N, d["turn"] == "ccw")
+    return [{"line": ln, "kind": kr["kind"], "fam": fam, "at": (at[0] + i, at[1] + j), "cls": CL_ATTEMPT,
+             "seed": None, "tseq": seqs[(i, j)], "tqsh": qsh, "tseed": (d["seed"] + off[(i, j)]) % (4 * Q),
+             "twat": Q - d["warn"], "ttab": tab}
+            for (i, j) in sorted(seqs, key=lambda c: (c[1], c[0]))]
+
+
+def tt_sweep(N, ccw=False):
+    """{(i, j): its phase OFFSET} - a turn SWEEPS round the ring, one cell a step in the way it turns (the cell at
+    (0, 0) first, so the change is one pose a step a table: 128.19.10's WIN_CHG, and it reads as turning).  A cell
+    with offset k turns k steps BEFORE a cell with offset 0"""
+    ring, c = [], (0, 0)
+    for _ in range(4 * (N - 1)):                    # (the ring's cells, walked in the turn's way from (0, 0))
+        ring.append(c)
+        i, j = c
+        if ccw:
+            c = (i, j + 1) if i == 0 and j < N - 1 else (i + 1, j) if j == N - 1 and i < N - 1 else \
+                (i, j - 1) if i == N - 1 and j > 0 else (i - 1, j)
+        else:
+            c = (i + 1, j) if j == 0 and i < N - 1 else (i, j + 1) if i == N - 1 and j < N - 1 else \
+                (i - 1, j) if j == N - 1 and i > 0 else (i, j - 1)
+    assert c == (0, 0) and len(set(ring)) == len(ring)
+    return dict((cell, len(ring) - 1 - k) for k, cell in enumerate(ring))
+
+
+def tt_pose(pr, n):
+    """THE TURNTABLE (SPEC.md 128.43): a cell's pose on step n (its low byte) - 2 a GAP (its SEQ's bit for the
+    rotation ((n + SEED) & 255) >> QSH & 3 clear), 1 the WARNING (a floor whose next rotation is a gap, in the
+    quarter's last steps: (n + SEED) & QMASK >= WAT), 0 a floor"""
+    m = (n + pr["tseed"]) & 255
+    r = (m >> pr["tqsh"]) & 3
+    if not pr["tseq"] >> r & 1:
+        return 2
+    if (m & ((1 << pr["tqsh"]) - 1)) >= pr["twat"] and not pr["tseq"] >> ((r + 1) & 3) & 1:
+        return 1
+    return 0
+
+
+def _tt_check(f, props, tiles):
+    """THE TURNTABLE's refusals over the course's elements (SPEC.md 128.43): every cell of a table on one height,
+    on NORMAL ground; a 3 x 3's pivot a FLAT FLOOR at that height (not another prop's)"""
+    tabs = {}
+    for p in props:
+        if p["kind"] == TT_K:
+            tabs.setdefault(id(p["ttab"]), (p["ttab"], []))[1].append(p)
+    for tab, els in tabs.values():
+        z = {tiles[p["at"]].z0 for p in els}
+        if len(z) != 1:
+            raise CourseError("%s:%d: the turntable at (%d, %d) stands on %d heights (%s units): its cells are one "
+                              "flat floor (SPEC.md 128.43)" % (f, tab["line"], tab["at"][0], tab["at"][1], len(z),
+                                                             ", ".join(_units(v) for v in sorted(z))))
+        for p in els:
+            if tiles[p["at"]].surf != SURF_NORMAL:
+                raise CourseError("%s:%d: the turntable's cell (%d, %d) is %s: it stands on NORMAL ground (SPEC.md "
+                                  "128.43)" % (f, tab["line"], p["at"][0], p["at"][1], SURFACES[tiles[p["at"]].surf]))
+        if tab["N"] == 3:
+            pc = (tab["at"][0] + 1, tab["at"][1] + 1)
+            t = tiles.get(pc)
+            if not isinstance(t, Tile) or t.kind != KIND_FLOOR or t.sx or t.sy or t.z0 not in z:
+                raise CourseError("%s:%d: the turntable's PIVOT (%d, %d) is not a FLAT FLOOR at its height (SPEC.md "
+                                  "128.43)" % (f, tab["line"], pc[0], pc[1]))
+            if any(q["at"] == pc for q in props if not q.get("noclaim")):
+                raise CourseError("%s:%d: the turntable's PIVOT (%d, %d) belongs to another prop (SPEC.md 128.43)"
+                                  % (f, tab["line"], pc[0], pc[1]))
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
@@ -5685,6 +5981,9 @@ def build_props(src, tiles, fname):
             props[-1].update(low=t.z0 - 1, tip=t.z0 + 1, mz=t.z0, surf=t.surf)    # popspike's timer
             if sp["kind"] == SP_KP:
                 props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
+        if sp["kind"] == TT_K:                      # THE TURNTABLE (SPEC.md 128.43): its floor's z0, its SEQ and its
+            props[-1].update(tz=t.z0, tseq=sp["tseq"], tqsh=sp["tqsh"], tseed=sp["tseed"], twat=sp["twat"],
+                             ttab=sp["ttab"])   # table's timer
         if "bp" in sp:                              # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
             props[-1]["bp"] = sp["bp"]
         if sp["kind"] in GT_KINDS:                  # SPEC.md 128.41.3: the channel (GT_TIMED a timed bridge's), a
@@ -5738,6 +6037,7 @@ def build_props(src, tiles, fname):
         d.update(tl_geom(sw))
         props.append(d)
     _sp_check(f, props, tiles)
+    _tt_check(f, props, tiles)
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -5777,10 +6077,10 @@ def build_props(src, tiles, fname):
         props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                       "num": lb["num"], "label": lb})
     nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "gate", "bridge")))
+                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge")))
     if nlane > PROP_MAX:
         lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "gate", "bridge"))]
+                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge"))]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -9152,6 +9452,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             raise CourseError("%s:%d: guard (%d, %d) is a prop's cell (SPEC.md 128.35.1)"
                               % (fname, rails[c_].line, c_[0], c_[1]))
     undrawn = gcells | set(rails)
+    tt_tabs = {}                                    # SPEC.md 128.43.5: a TURNTABLE's cells (its pivot's too) are
+    for p in props:                                 # drawn as its platter, not as tiles
+        if p["kind"] == TT_K and not hack.get("nottart"):
+            tt_tabs[id(p["ttab"])] = (p["ttab"], p["z4"])
+    ttcells = {(t["at"][0] + i, t["at"][1] + j) for t, _z in tt_tabs.values() for i in range(t["N"])
+               for j in range(t["N"])}
+    undrawn = undrawn | ttcells
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
@@ -9189,6 +9496,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             o_ = prop_ops(tl_, o_, props, x0)
         if rails and not hack.get("guardsolid"):    # (guardfront: a red arm's switch, the rail keyed 8 rows nearer)
             o_ = guard_ops(tl_, o_, x0, 8 if hack.get("guardfront") else 0)
+        if tt_tabs:                                 # SPEC.md 128.43.5: each turntable's PLATTER
+            o_ = tt_ops([t for t, _z in tt_tabs.values()], o_, x0, dict((k, z) for k, (_t, z) in tt_tabs.items()))
         if src.archways:                            # SPEC.md 128.39.5: each archway's LINTEL (arkey: a red arm, keyed
             o_ = arch_ops(src.archways, o_, x0, 0 if hack.get("arkey") else 1)   # at its own row)
         if warch:                                   # SPEC.md 128.36: each water column's arches
@@ -9486,6 +9795,27 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                   if 8 * rect[0] <= x < 8 * (rect[0] + 2) and 8 * rect[1] <= y < 8 * (rect[1] + 2)
                   and 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
             p["fpix"] = poses = {0: {}, 1: q1}
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                          "line": p["line"]})
+        elif p["kind"] == TT_K:                     # THE TURNTABLE (SPEC.md 128.43): the table's ring and hub
+            wx, wy = p["at"]                        # PAINTED before this loop; each switching cell's lane here
+            sF = wx + wy
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+            if cx & 7:
+                raise CourseError("%s:%d: a turntable cell (%d, %d): its top's centre x %d is not on a block (the "
+                                  "origin's x must be a multiple of 8, SPEC.md 128.43)" % (fname, p["line"], wx, wy, cx))
+            rect = tt_lane_rect(cx, cy)
+            poses = {0: {}}
+            for q, seam in ((1, True), (2, False)):
+                want = tt_hole_pix(cx, cy, seam)
+                poses[q] = {(x, y): c for (x, y), c in want.items()
+                            if 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
+                if 2 * len(poses[q]) < len(want):
+                    raise CourseError("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
+                                      "over by geometry in front of it (SPEC.md 128.43: a mechanic seen when the "
+                                      "ball is not on it)" % (fname, p["line"], wx, wy, "warning" if seam else "hole",
+                                                              len(want) - len(poses[q]), len(want)))
+            p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
         elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.40.5): the FLASH - a crack's 2 x 2
@@ -10053,6 +10383,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif p["kind"] in (SP_K, SP_KP):        # SPIKES (128.38): +18 LOW, +19 TIP; a popspike's +20 ON,
                 rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["low"], p["tip"],
                                    p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
+            elif p["kind"] == TT_K:                 # THE TURNTABLE (128.43): +18 TZ, +19 SEQ (twice), +20 QSH,
+                rec += struct.pack("<BBbBBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["tz"],
+                                   p["tseq"] | p["tseq"] << 4, p["tqsh"], (1 << p["tqsh"]) - 1, p["tseed"],
+                                   p["twat"])           # +21 QMASK, +22 SEED, +23 WAT
             elif p["kind"] == SP_KM:                # ...a membrane's +18 its floor's z0
                 rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["mz"])
             elif p["kind"] in GT_KINDS:             # SPEC.md 128.41.3: +18 the channel (GT_TIMED), +19 a gate's way or
@@ -10523,7 +10857,7 @@ def _rects(c):
 def _events(meet):
     """SPEC.md 128.32.7: the EVENT lanes' share of a window's changes on one step - 1 (a ball touches one
     thing at a time), or the most of the window's lanes any one element's change marks (a group member's)"""
-    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4])]
+    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4]) and L[4]["kind"] != TT_K]
     if not ev:
         return 0
     per = {}
@@ -10541,6 +10875,16 @@ def _tilt_chg(meet):
         if L[4]["kind"] == FK_TILTL:
             per[L[4]["tlp"]] = per.get(L[4]["tlp"], 0) + 1
     return max(per.values()) - 1 if per else 0
+
+
+def _tt_changes(meet):
+    """THE TURNTABLE (SPEC.md 128.43): its cells' share of a window's pose changes on one step - every turntable
+    lane meeting the window that changes on the same step, at the worst of the 256 steps the low byte times (a
+    table's cells turn together: a half-filled 2 x 2 changes 2 or 4 of them at a turn, a 3 x 3's ring up to 8)"""
+    tt = [L[4] for L in meet if L[4]["kind"] == TT_K]
+    if not tt:
+        return 0
+    return max(sum(1 for r in tt if tt_pose(r, n) != tt_pose(r, n + 1)) for n in range(256))
 
 
 def _meet(r, x0, y0, x1, y1):
@@ -10645,15 +10989,16 @@ def check_bounds(c):
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
                 chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
                     + sum(1 for L in meet if L[4].get("always")) \
-                    + _events(meet) + _tilt_chg(meet)
+                    + _events(meet) + _tilt_chg(meet) + _tt_changes(meet)
                 _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
                     "Hercules" if herc else "CGA", R, C))
                 most_chg = max(most_chg, chg)
                 if chg > WIN_CHG:
                     raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
-                                      "(rotors %d, clock digits %d, events %d), over %d (SPEC.md 128.19.10)" % (
+                                      "(rotors %d, clock digits %d, events and turntables %d), over %d (SPEC.md 128.19.10)" % (
                                           c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
-                                          sum(1 for L in meet if lane_digit(L[4])), _events(meet), WIN_CHG))
+                                          sum(1 for L in meet if lane_digit(L[4])),
+                                          _events(meet) + _tt_changes(meet), WIN_CHG))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
@@ -12403,6 +12748,14 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd != KIND_FLOOR | SURF_SAND << 4 or sl or not fl & FL_OBS or fl & FL_SAFE or z0 != d["top"]:
                 bad("prop %d" % d["i"], "a water cell's grid cell is not a sand FLAT FLOOR at its top with OBS")
+        elif d["kind"] == TT_K:                     # THE TURNTABLE (SPEC.md 128.43): NORMAL FLAT FLOOR at TZ, OBS,
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]     # not SAFE
+                                                 + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
+                if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
+                else (0, 0, 0, 0)
+            if kd != KIND_FLOOR or sl or not fl & FL_OBS or fl & FL_SAFE or z0 != d["tz"]:
+                bad("prop %d" % d["i"], "a turntable's grid cell is not a normal FLAT FLOOR at its TZ with OBS, not "
+                    "SAFE")
         elif d["kind"] in (SP_K, SP_KP, SP_KM):     # SPIKES (SPEC.md 128.38): NORMAL FLAT FLOOR, OBS, not SAFE
             z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
@@ -12598,6 +12951,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     d.update(low=low_, tip=tip_)
                 if pop:
                     d.update(on=on_, smask=sm_, sseed=ss_)
+                continue
+            if kr["kind"] == TT_K:                  # THE TURNTABLE (SPEC.md 128.43): TZ, SEQ, the table's timer
+                tz_, sq_, qs_, qm_, ts_, tw_ = struct.unpack_from("<bBBBBB", p, r + 18)
+                if cls != CL_ATTEMPT or fsb_ or p[r + 24:r + 32] != bytes(8) or sq_ >> 4 != sq_ & 15 \
+                        or sq_ & 15 in (0, 15) or (1 << qs_) not in TT_QUARTERS or qm_ != (1 << qs_) - 1 \
+                        or ts_ >= 4 << qs_ or not 0 < tw_ <= 1 << qs_ or not d["lane"] or d["lane"]["poses"] != 3:
+                    bad("prop %d" % d["i"], "a turntable's record (+18 %d, SEQ %02Xh, timer %d / %d / %d / %d)"
+                        % (tz_, sq_, qs_, qm_, ts_, tw_))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, tz=tz_,
+                         tseq=sq_ & 15, tqsh=qs_, tseed=ts_, twat=tw_)
                 continue
             if kr["kind"] == WD_K:                  # WIND (SPEC.md 128.34.3, 128.34.11): the blower's fields
                 wd, ws, x0_, y0_, x1_, y1_, won, wmask, wseed, wtop = struct.unpack_from("<BB4BHHHH", p, r + 18)
@@ -13785,6 +14148,46 @@ class TiltFamily(Family):
         return p.fst[p.props[p.props[i]["tlp"]]["fsb"] >> 3]
 
 
+class TurnFamily(Family):
+    """THE TURNTABLE (SPEC.md 128.43.4).  An element is a SWITCHING cell (tt_pose: 0 floor, 1 the warning, 2 a gap,
+    from the step's low byte).  No slot.  CELL: each element in the window that is a gap at n - or is the window's
+    CENTRE with the ball's whole-px z under its top (4 TZ: fallen into its hole, so a closing hole never lifts it)
+    - a NEAR VOID (TZ less TT_VOID half units, kind and surface 0, its flags kept: the membrane's); every other
+    element the grid's FLOOR (the guest writes it back: its window keeps cells when it moves, bz_win9i; this
+    window is always refilled from the grid, so it already holds it).  STEP: an
+    element whose pose differs between n and n + 1 MARKS its lane (the guest's bz_fmark) and, in the window, asks
+    for the refill (bz_fref).  POSE: tt_pose"""
+    row = FAM_BY_NAME["turntable"]
+
+    def cell(self, p, slot, win):
+        cx, cy = min(k[0] for k in win) + 1, min(k[1] for k in win) + 1
+        n = p.nstep & 255
+        Z = _sw(p.gz >> 8)
+        for pr in p.props:
+            if pr["kind"] != TT_K or pr["at"] not in win:
+                continue
+            if _TT_NOVOID:
+                continue
+            if tt_pose(pr, n) == 2 or (pr["at"] == (cx, cy) and Z < 4 * pr["tz"] and not _TT_NOFALLEN):
+                c = win[pr["at"]]
+                c[0], c[3], c[5] = pr["tz"] - TT_VOID, KIND_VOID, 0
+
+    def step(self, p, slot):
+        n = p.nstep & 255
+        wx, wy = p.wcell
+        for pr in p.props:
+            if pr["kind"] == TT_K and tt_pose(pr, n) != tt_pose(pr, n + 1) \
+                    and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
+                p.fref = 1
+
+    def pose(self, p, slot, i):
+        return tt_pose(p.props[i], p.nstep & 255)
+
+
+_TT_NOFALLEN = False          # (--selfcheck's red arms: `fallen`, a closing hole under a fallen ball made a floor;
+_TT_NOVOID = False            # `novoid`, a gap left a floor)
+
+
 class OwnFamily(Family):
     """story 9.8 (SPEC.md 128.25.20): ROTOR, SPRING and TUBE - the guest's parts
     hold today's rules (the doorway, the spring, the tube), which the model
@@ -13799,7 +14202,8 @@ class OwnFamily(Family):
 FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
              "tube": OwnFamily("tube"),
              "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily(),
-             "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily(), "gate": GateFamily(), "seesaw": TiltFamily()}
+             "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily(), "gate": GateFamily(), "seesaw": TiltFamily(),
+             "turntable": TurnFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -28105,7 +28509,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20}
 
 
 def _av_floats_want(c):
@@ -29006,6 +29410,126 @@ def _sc_hump(X, res):
                 % cd.hump_vis[0][1], cd.hump_vis[0][1] == 0 and fired))
 
 
+_TTB = ('course T "t"\nwidth 64\norigin 224\nuses turntable\nfloor rect 4 4 12 9 flat 2\nstart 5 5\n')
+TT_TEST = os.path.join(COURSE_DIR, "turntable.bbc")
+
+
+def _turn_cases():
+    """(what, text, the refusal's words): SPEC.md 128.43.5's refusals, each a string here"""
+    T = _TTB
+    return (("a turntable of size 4", T + "prop turntable 8 5 size 4 fill oooooooo........\n", "size is 2 or 3"),
+            ("a fill of the wrong length", T + "prop turntable 8 5 size 2 fill ooo\n", "fill is 4 cells"),
+            ("a fill with another character", T + "prop turntable 8 5 size 2 fill oo/xx\n", "fill is 4 cells"),
+            ("a 2 x 2 three quarters filled", T + "prop turntable 8 5 size 2 fill oo/o.\n", "HALF filled"),
+            ("a 3 x 3 with its pivot a gap", T + "prop turntable 8 5 size 3 fill ooo/o.o/...\n", "PIVOT, a floor"),
+            ("a 3 x 3 ring of corners (a quarter turn leaves it)",
+             T + "prop turntable 8 5 size 3 fill o.o/.o./o.o\n", "same after a quarter turn"),
+            ("a quarter of 48 steps", T + "prop turntable 8 5 size 2 fill oo/.. quarter 48\n", "32 or 64 steps"),
+            ("a seed past its period", T + "prop turntable 8 5 size 2 fill oo/.. quarter 32 seed 128\n",
+             "seed 128 is not under"),
+            ("a warning a whole quarter", T + "prop turntable 8 5 size 2 fill oo/.. warn 64\n", "warning 64"),
+            ("a turn neither way", T + "prop turntable 8 5 size 2 fill oo/.. turn up\n", "cw or ccw"),
+            ("a table on two heights", T + "floor tile 9 6 flat 2.5\nprop turntable 8 5 size 2 fill oo/..\n",
+             "2 heights"),
+            ("a table on ice", T + "surface ice rect 8 5 10 7\nprop turntable 8 5 size 2 fill oo/..\n",
+             "NORMAL ground"),
+            ("a table over the void", T + "prop turntable 11 7 size 2 fill oo/..\n", "not a FLAT FLOOR"),
+            ("a 3 x 3 whose pivot is a ramp", T + "floor tile 9 6 ramp x 9 10 2 2.5\n"
+             "prop turntable 8 5 size 3 fill ooo/.oo/...\n", "PIVOT"),
+            ("a table on another prop's cell", T.replace("uses turntable", "uses turntable") + "pad steel 8 5\n"
+             "prop turntable 8 5 size 2 fill oo/..\n", "already belongs"),
+            ("a turntable with no `uses turntable`", T.replace("uses turntable\n", "") +
+             "prop turntable 8 5 size 2 fill oo/..\n", "does not name"),
+            ("seven tables turning on one step in one window", T.replace("4 4 12 9", "4 4 20 12").replace(
+                "width 64\norigin 224", "width 128\norigin 320") + "".join(
+                "prop turntable %d %d size 2 fill oo/..\n" % (8 + 3 * (k % 4), 4 + 3 * (k // 4)) for k in range(7)),
+             "pose changes can land on one step"))
+
+
+TT_SC = (("A early", MAT_RUBBER, (9, 6), 40), ("A on time", MAT_RUBBER, (9, 6), 216),
+         ("A steel", MAT_STEEL, (9, 6), 200), ("A glass", MAT_GLASS, (9, 6), 232),
+         ("C from the island", MAT_RUBBER, (12, 6), 136), ("B to the pivot", MAT_STEEL, (6, 9), 160),
+         ("fallen", MAT_RUBBER, (9, 6), 9))
+
+
+def tt_model_scenes(c, arm=None):
+    """each of TT_SC on TURN's model: the ball poked at rest, WAIT steps, then rolled on +x (+y for B) until it
+    reaches its far side (x 12, the island; x 15, the goal plate; the pivot) or 150 steps (ARM: "novoid" the gaps
+    left floors, "fallen" _TT_NOFALLEN) -> {name: (falls, the end's cell, z px)}"""
+    global _TT_NOFALLEN, _TT_NOVOID
+    _TT_NOFALLEN, _TT_NOVOID = arm == "fallen", arm == "novoid"
+    out = {}
+    try:
+        for name, mat, at, wait in TT_SC:
+            p = Physics(c, play=True, mat=mat).poke(*at)
+            for _ in range(wait):
+                p.step(0)
+            far = (lambda q: (q.gx >> 12, q.gy >> 12) == (6, 11)) if name[0] == "B" else \
+                (lambda q, x=(15 if name[0] == "C" else 12): (q.gx >> 12) >= x)
+            for _ in range(150):
+                p.step(K_L | K_D if name[0] == "B" else K_R | K_D)
+                if (far(p) or p.nfall) and name != "fallen":
+                    break
+            out[name] = (p.nfall, (p.gx >> 12, p.gy >> 12), p.gz >> 8)
+    finally:
+        _TT_NOFALLEN = _TT_NOVOID = False
+    return out
+
+
+def _sc_turn(X, res):
+    """--selfcheck's section `turn` (SPEC.md 128.43): the refusals, TURN's records, cells, lanes, sweep, reach and
+    art, the window's change bound, the scenes on the model and its red arms"""
+    for what, text, want in _turn_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders="one step" in want)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (turntable, 128.43): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(TT_TEST)
+    g = Grid(c.cga)
+    recs = [r for r in c.part["props"] if r["kind"] == TT_K]
+    cok = all(g.cell(*r["at"])[3] == KIND_FLOOR and g.cell(*r["at"])[5] == SURF_NORMAL
+              and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS and g.cell(*r["at"])[0] == r["tz"]
+              and r["lane"] and r["lane"]["poses"] == 3 and r["tseq"] not in (0, 15) for r in recs)
+    piv = g.cell(6, 11)
+    res.append(("3 turntable (128.43.3): TURN's %d switching cells are normal FLAT FLOORs at TZ with OBS and not SAFE, "
+                "each a lane of 3 poses and a SEQ that switches (%s); the disc's PIVOT (6, 11) a plain floor, no "
+                "element" % (len(recs), sorted(set(r["tseq"] for r in recs))),
+                cok and len(recs) == 16 and piv[3] == KIND_FLOOR and not piv[4] & FL_OBS
+                and all(r["at"] != (6, 11) for r in recs)))
+    # the sweep: a table's cells turn one a step, so at most one of a table's lanes changes on any step
+    els = [q for q in c.props if q["kind"] == TT_K]
+    worst = max(sum(1 for r in els if r["at"][0] >= 10 and tt_pose(r, n) != tt_pose(r, n + 1)) for n in range(256))
+    one = all(sum(1 for r in els if r["line"] == ln and tt_pose(r, n) != tt_pose(r, n + 1)) <= 1
+              for ln in set(r["line"] for r in els) for n in range(256))
+    res.append(("4 turntable (128.43.4): a turn SWEEPS - no table changes two of its lanes on one step; the chain's "
+                "two tables, out of phase, at most %d change on a step together" % worst, one and worst == 1))
+    by = dict(((q.wx, q.wy), q) for q in c.reach)
+    c0 = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (noforms)", _hack={"noforms": True})
+    by0 = dict(((q.wx, q.wy), q) for q in c0.reach)
+    tr = [r for r in recs if r["at"] in by]
+    res.append(("6 turntable (128.43.6): the reach takes a switching cell's VOID - zlo %s px; with `noforms` its "
+                "floor %s" % (sorted({by[r["at"]].zlo for r in tr}), sorted({by0[r["at"]].zlo for r in tr if r["at"] in by0})),
+                tr and all(by[r["at"]].zlo == 4 * (r["tz"] - TT_VOID) and by0[r["at"]].zlo == 4 * r["tz"] for r in tr)))
+    cn = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (no art)", _hack={"nottart": True})
+    res.append(("10 turntable (128.43.5): the PLATTERS are in the picture, the tables' cells not drawn as tiles (the course part %d bytes; %d with the "
+                "art's control `nottart`, its tiles drawn instead); every port and seam pose drawn" % (len(c.cga), len(cn.cga)),
+                c.cga != cn.cga and all(len(r["fpix"][2]) > len(r["fpix"][1]) > 0 for r in c.props
+                                        if r["kind"] == TT_K)))
+    good = tt_model_scenes(c)
+    want = {"A early": lambda v: v[0] >= 1, "A on time": lambda v: v[0] == 0 and v[1][0] >= 12,
+            "A steel": lambda v: v[0] == 0 and v[1][0] >= 12, "A glass": lambda v: v[0] == 0 and v[1][0] >= 12,
+            "C from the island": lambda v: v[0] == 0 and v[1][0] >= 15,
+            "B to the pivot": lambda v: v[0] == 0 and v[1] == (6, 11), "fallen": lambda v: v[0] >= 1}
+    res.append(("11 turntable (128.43.4): on the model - %s" % ", ".join("%s %s" % (k, v) for k, v in good.items()),
+                all(want[k](v) for k, v in good.items())))
+    for arm, scn in (("novoid", "A early"), ("fallen", "fallen")):
+        bad = tt_model_scenes(c, arm)
+        res.append(("11 turntable red %s: %s %s (it must part from %s)" % (arm, scn, bad[scn], good[scn]),
+                    bad[scn] != good[scn]))
+
+
 def _sc_boost(X, res):
     """--selfcheck's section `boost` (SPEC.md 128.40.8): the refusals, the test course's records and lanes, the
     scenes on the model (against the course less its pads), and the model's red arms"""
@@ -29328,7 +29852,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt")
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn")
 
 
 def _selfcheck(paths, res, skipped, S):
