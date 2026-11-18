@@ -281592,3 +281592,31 @@ never changing by more than 1 a frame. The props merge does not move these
 (V2b's build: 50.7k busy, 53 misses). **Cost** (against the merge before V2c): 97
 bytes resident (the hook, the rows' allowance, the start's multiply, the
 divisor's miss count), 11 of bss, 325 in the part.
+
+#### 128.45.13 PLAYGROUND on the 8088 (the owner's replay, 2026-11-18)
+
+**The owner**: PLAYGROUND, the stress course, plays smooth on the CGA but
+on the VGA slows *"even the music"*. **Measured** (MartyPC, the 8088 at
+4.77 MHz, the owner's `PLAY.BZR`, 20 guest seconds, a CS:IP sample every
+15 - 45k clocks): the VGA presents **24 - 26 frames a second** and the game
+falls to **46 - 47 steps** of 54.6 (the music is the steps' clock); the CGA
+48 frames and 53 steps. LATTICE measures the same as 128.45.12's camera:
+the camera is not the cause.
+
+| | VGA | CGA |
+|---|---|---|
+| a step (physics and the props' family parts) | ~35k clocks | ~35k clocks |
+| a frame's drawing | ~37k (V1's column: ~52k) | ~26k |
+| an entering column | 44.6k, **22.5k** unrolled | 15.3k |
+| an entering row (one line VGA, two CGA) | 7.5k | 19.2k |
+| waiting for the retrace | 28% | 20% |
+
+**A cliff, not a slope**: a VGA frame there averages ~135k clocks against
+the held divisor's 136k (two refreshes), so most overrun by a little and
+present at the third rise; the next frame carries more steps (1.84 for
+1.56) and stays over. ~15k clocks a frame less tips it back to 35 Hz. The
+column (BZV_COL) is now an unrolled eight-line block body entered at the
+first line by a table - its last block written whole, at most 7 lines past
+the window's foot (off the glass, rewritten as rows when they enter) - and
+halves its cost; the rest of the 15k is the row writer, the box writer and
+the blit's (open).
