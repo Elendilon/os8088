@@ -7795,7 +7795,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.outline(sp, left=True)
         else:
             if t.kind == KIND_WALL:
-                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else WALL_INK, s, top, own)
+                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else (WHT if _NOLOOK else WALL_INK), s, top, own)
                                                     # a bumper rail: magenta (130.47.3: a wall's dither top)
             elif t.kind != KIND_GOAL and t.surf != SURF_NORMAL:
                 cv.fill(sp, _surface_ink(t.surf, x0, y0), s, top, own)
@@ -7811,11 +7811,16 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                             for x in range(a, b):
                                 row[x] = ink
             else:
-                cv.fill(sp, WHT if (wx + wy + t.z0 // 4) & 1 else CYN, s, top, own)   # (130.47.2: by height too)
+                cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else t.z0 // 4)) & 1 else CYN, s, top, own)
+                                                    # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
     if SHADOW and _SHADOW_OK:
         look_shadow(cv, tiles, x0, y0)
     return cv
+
+
+_NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_hack "nolook"): the ink before
+                        # THE LOOK, for the cross-commit check against a tool that predates it
 
 
 def WALL_INK(x, y):
@@ -9882,9 +9887,10 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK
     hack = _hack or {}
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
+    _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
@@ -9899,6 +9905,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _FAST_EXTRA = ()
         _DOWN_S0 = False
         _HM_FTOP = False
+        _NOLOOK = False
         _REACH_MEMO = saved
 
 
@@ -28009,7 +28016,8 @@ def _sc_crosscommit(X, res):
                 # (that tool had no Y0 search; and SPEC.md 130.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
-                                                "occ": "off"})      # (and SPEC.md 130.29's AV off: today's records)
+                                                "occ": "off", "nolook": True})
+                # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
