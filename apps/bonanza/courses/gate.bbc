@@ -75,5 +75,6 @@ wall tile 9 5 flat 3           # the crumble's two blocks, a unit proud
 wall tile 11 5 flat 3
 prop gate 8 5 channel box along y art door
 prop gate 10 5 channel ring along y art crumble
+prop plate 10 6 channel ring   # (a second ring plate, right before the wall: the ball waits while it crumbles)
 prop gate 12 5 channel plus along y art portcullis
 goal tile 10 3 flat 2
