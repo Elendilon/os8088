@@ -2383,7 +2383,7 @@ bz_title8:
 ; -----------------------------------------------------------------------------
 ; bz_tround - inside the bracket, the mode set: THE TITLE'S ROUNDS (128.23.4).
 ; A title demo (random, never the last one shown) on the title course, its
-; keys bz_exitchk's title arm's: P plays THE GAME (bz_grounds, its end back
+; keys bz_exitchk's title arm's: P or Enter plays THE GAME (bz_grounds, its end back
 ; here), S / 1 2 3 the slot, Esc leaves the bracket; its end plays a random
 ; COURSE DEMO, which any key ends; then the title again.  Each round's parts
 ; are given back before the next's are fetched.
