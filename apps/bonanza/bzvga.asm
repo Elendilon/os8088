@@ -900,6 +900,34 @@ bzv_blit:
     mov cx, [bz_bw]
     push ds
     mov ds, [bz_vbseg]
+    cmp cx, 3                   ; THE WHOLE ROW (130.46.13): three words, the
+    jne .part                   ; copy's rows 6 bytes - so the source runs on
+    or bx, bx                   ; by itself - and the box's next row 2 bytes
+    jz .sh3                     ; on: unrolled, no per-row saves or loop
+.r3:
+%rep 3
+    lodsw
+    and ax, [es:di]
+    or ax, [bx + si - 2]
+    stosw
+%endrep
+    inc di
+    inc di
+    dec dx
+    jnz .r3
+    jmp short .laid
+.sh3:
+%rep 3
+    lodsw
+    and ax, [es:di]
+    stosw
+%endrep
+    inc di
+    inc di
+    dec dx
+    jnz .sh3
+    jmp short .laid
+.part:
     or bx, bx
     jz .sh
 .r:                             ; mask AND, frame OR
