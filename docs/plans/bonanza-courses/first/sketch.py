@@ -17,9 +17,10 @@ SECTION = {}
 RAILS = []           # (x0, y0, x1, y1) a guard rail along a tile edge
 WALLS = []           # (x0, y0, x1, y1, z) a solid block
 HOLES = set()
+ARCHES = [(43, 43, 44, 45, "x", 3)]                          # (the owner: "where it was before"; a passage needs a floor past it)                          # (x0, y0, x1, y1, along, under): SPEC.md 130.39
 # revision 8 (the owner's edit of the diagonal variant): half cells made VOID - (wx, wy, side): the start
 # plateau's corners and its front corner on a diagonal, and the hill landings' outer corners
-HALVES = [(4, 4, "up"), (7, 4, "right"), (4, 7, "left"), (7, 7, "down"),
+HALVES = [(4, 4, "up"), (7, 4, "right"), (4, 7, "left"), (7, 7, "down"), (4, 10, "up"),
           (4, 13, "left"), (13, 10, "right"), (10, 19, "left"), (13, 19, "down")]
 NOTES = []           # (wx, wy, z, text)
 
@@ -144,10 +145,13 @@ rail(40, 38, 40, 41); rail(38, 38, 40, 38)   # the elbow's lone left block gone:
 ramp("W", "y", 38, 41, 40, 43, Z - 16.5, Z - 17.5)          # 2 tiles (revision 5: the lip took 2)
 # F  the leap: a railed elbow, a run-up along +x (no rail across its entry:
 #    rails protect, never block), a ONE-tile gap, a landing 2 units under the lip
-floor("F", 38, 43, 41, 46, Z - 17.5)
-rail(38, 43, 38, 46); rail(38, 46, 41, 46); rail(40, 43, 41, 43)
-ramp("F", "x", 41, 43, 45, 46, Z - 17.5, Z - 19.5)
-rail(41, 43, 45, 43); rail(41, 46, 45, 46)
+#    (revision 9: TWO wide from the walk on, so a real ARCHWAY - SPEC.md 130.39, at most 2 x 2 flat cells -
+#    stands over its first flat cell; its legs take the rail blocks' places, `under 3` so a Hop passes)
+floor("F", 38, 43, 40, 45, Z - 17.5)                         # the elbow, 2 x 2
+rail(38, 43, 38, 45); rail(38, 45, 40, 45)
+ramp("F", "x", 40, 43, 43, 45, Z - 17.5, Z - 19)             # the run-up, 2 wide
+floor("F", 43, 43, 45, 45, Z - 19)                           # the ARCHWAY's cell (x 43) and the lip's (x 44), flat:
+rail(40, 43, 45, 43); rail(40, 45, 45, 45)                   # the arch stands where the banner did, by the leap
 floor("G", 46, 42, 50, 47, Z - 21.5)                           # the landing
 rail(46, 42, 50, 42); rail(50, 42, 50, 47)
 # H  the finish: a short ramp down and a wide goal plateau, all in view
@@ -172,7 +176,7 @@ PLACED = {}
 ROUTE = [(5.5, 5.5), (6, 9), (6, 12.5), (9, 12), (12, 12.5), (12, 15), (12, 18), (14, 18), (20, 18),
          (21.5, 18), (20.4, 21), (20.4, 24.5), (20.4, 26.5), (21.5, 27.5), (21.5, 30.5), (25, 30.5), (29, 30.5),
          (32.5, 31.5), (32.5, 35), (32.5, 38.5), (35, 39), (38.5, 39), (39, 40), (39, 42), (39, 44),
-         (40, 44.5), (43, 44.5), (48, 44.5), (48, 47), (48, 53)]
+         (40.5, 44), (43, 44), (48, 44.2), (48, 47), (48, 53)]
 LABELS = [(6, 6, "A start"), (12, 12, "A hill"), (17, 18, "B ledge"), (21.5, 17, "C lip"),
           (21.5, 26, "T"), (24, 30.5, "D chute"), (32.5, 31.5, "K3 open"),
           (32.5, 35, "E steps"), (36, 39, "W walk"), (43, 44.5, "F leap"),
@@ -352,6 +356,7 @@ HEAD_TXT = """
 course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
+uses archway              # the ARCHWAY before the leap (SPEC.md 130.39)
 lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
 stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
 ball rubber
@@ -410,6 +415,9 @@ def bbc(out):
         L.append("hole  tile %d %d" % (x + OFF, y + OFF))
     for x, y, side in HALVES:
         L.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x + OFF, y + OFF))
+    for x0, y0, x1, y1, along, under in ARCHES:
+        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 130.39: a Hop passes under it"
+                 % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, along, under))
     L.append("goal  rect %d %d %d %d  flat %g" % (min(g[0] for g in GOAL) + OFF, min(g[1] for g in GOAL) + OFF,
                                                max(g[0] for g in GOAL) + 1 + OFF, max(g[1] for g in GOAL) + 1 + OFF,
                                                CELLS[min(GOAL)][0]))
