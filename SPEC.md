@@ -269453,8 +269453,8 @@ new:
   so FIRST keeps ONE clock, at (3, 6), the plateau's front-left corner,
   which none of them crosses; the wheel's SIDE search reads `TRIAL`'s.
 - **Proved by**: `bonanza_phys`'s replay `clock` (MILL, rolled at the cap
-  into (8, 11): one post hit on the clock's record, back below the cap,
-  never past its centre) and its red arm `clkpass` (the kind left as
+  into (8, 11) - since 128.18.5.4 into (6, 13), from the right: one post
+  hit on the clock's record, back below the cap, never past its centre) and its red arm `clkpass` (the kind left as
   CLOCK: the ball rolls through, red at `clock`); --selfcheck item 4 with
   the clocks' cells among the props' OBS cells, and item 10's `no_obs`
   control on the courses where a prop's cell would be SAFE but for its
@@ -269567,7 +269567,9 @@ rolled behind every clock never drawn over a face pixel; the longest
 wholly-hidden run within `CLOCK_HIDE`. Red arms: `clocknoocc` (the face left
 a mark, unkeyed: FIRST's face unkeyed and a ball drawn over it at 5 of 58
 positions - caught) and `clockvisb` (the bound at 1 position: FIRST's clock
-at (11, 4) refused at its 2). No guest byte moves, so the rows that read a
+at (11, 4) refused at its 2). `bonanza_phys`'s replay `clock` rolls into MILL's
+clock at its new cell from the right (268 of 384 back, as before). No guest
+byte moves, so the rows that read a
 clock's lanes (`bonanzawheel`'s CLOCK leg, `bonanzaring`'s glass on FIRST)
 see only the parts' new records, as on any course edit.
 
