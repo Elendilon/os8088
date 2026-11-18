@@ -51,6 +51,7 @@ bzv_v6: jmp near bzv_boxw           ; BZV_BOXW
 bzv_v7: jmp near bzv_blit           ; BZV_BLIT
 bzv_v8: jmp near bzv_wprect         ; BZV_WPRECT
 bzv_v9: jmp near bzv_card           ; BZV_CARD
+bzv_v10: jmp near bzv_roll          ; BZV_ROLL
     times BZV_VEC + BZV_VECB * BZV_NVEC - ($ - $$) db 0
     times ($ - $$) - BZV_VEC - BZV_VECB * BZV_NVEC db 0
 
@@ -180,6 +181,7 @@ bzv_init:
     mov byte [bz_vfrm], 0       ; (128.41.10)
     mov byte [bz_vlate], 0
     mov byte [bz_vpan], 0
+    mov byte [bz_vrv], 0        ; the roll's phases start from the true ones (128.41.11)
     push ds
     pop es
     mov di, bz_wb0
@@ -1185,3 +1187,76 @@ bzv_conv:
     pop bx
     pop ax
     ret
+; -----------------------------------------------------------------------------
+; bzv_roll - BZV_ROLL (SPEC.md 128.41.11): the roll's DISPLAYED phases.  The
+; texture repeats every 8, so at 35 Hz a ball moving 4 or more a frame reads as
+; turning BACKWARDS (the wagon wheel).  Shown, a phase advances at most 3 a
+; frame and never against the ball: y, free, steps toward the true phase by at
+; most 3 (and to it when that is a forward step of 3 or less); x keeps its low
+; 2 bits (the sprite's shift) and picks bit 2 so that its step has the ball's
+; sign.  Display only: physics, replays and bz_frm's meaning are untouched.
+; AL = the true PHY, AH = the true x phase, CX = G; out AL, AH as shown.
+; Clobbers BX, DX.
+; -----------------------------------------------------------------------------
+bzv_roll:
+    cmp byte [bz_vrv], 0
+    jne .y
+    mov byte [bz_vrv], 1
+    jmp short .keep             ; the first frame shows the true phases
+.y:
+    mov dx, cx
+    sub dx, [bz_vG]             ; DX = the frame's G step
+    mov bl, al
+    sub bl, [bz_vpy]
+    and bl, 7                   ; BL = d, the true phase less the shown
+    or dx, dx
+    jz .x                       ; still: the true phase
+    js .yn
+    cmp bl, 4                   ; forward: d of 0 .. 3 is the true phase
+    jb .x
+    cmp dx, 3
+    jbe .yf
+    mov dx, 3
+.yf:
+    mov al, [bz_vpy]
+    add al, dl
+    jmp short .ym
+.yn:
+    or bl, bl                   ; backward: d of 0 or 5 .. 7
+    jz .x
+    cmp bl, 5
+    jae .x
+    neg dx
+    cmp dx, 3
+    jbe .yb
+    mov dx, 3
+.yb:
+    mov al, [bz_vpy]
+    sub al, dl
+.ym:
+    and al, 7
+.x:
+    mov bl, ah
+    sub bl, [bz_vpxd]
+    and bl, 7                   ; BL = d for x; d and d ^ 4 are the choices
+    mov dl, [bz_px]
+    sub dl, [bz_vpxp]           ; the ball's x step, signed (a byte: small)
+    js .xn
+    cmp bl, 4                   ; still or right: d of 0 .. 3
+    jb .keep
+    xor ah, 4
+    jmp short .keep
+.xn:
+    or bl, bl                   ; left: d of 0 or 5 .. 7
+    jz .keep
+    cmp bl, 5
+    jae .keep
+    xor ah, 4
+.keep:
+    mov [bz_vpy], al
+    mov [bz_vpxd], ah
+    mov [bz_vG], cx
+    mov dl, [bz_px]
+    mov [bz_vpxp], dl
+    retf
+
