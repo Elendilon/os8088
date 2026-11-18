@@ -445,8 +445,37 @@ bzv_col:
 ; time in raster order (128.41.4 rule 5): each line's even bytes to plane 0,
 ; its odd to plane 1 - no conversion (128.41.5).  A later box overlapping an
 ; earlier one writes the same bytes again (the CGA's band skip is a saving,
-; not a rule).  All kept.
+; not a rule).  ONE BODY A WIDTH (1 - 4 words), unrolled: per line the map
+; mask twice and a `movsb` / `inc si` a byte, the buffer's and the card's
+; steps folded into four adds (V1's measure: 785 clocks a line looped, the
+; bar 500).  All kept.
 ; =============================================================================
+%macro BZV_BWL 1                ; a line of %1 words, the loop round its box
+.w%1:
+    mov ax, 0102h
+    out dx, ax
+ %rep %1
+    movsb
+    inc si
+ %endrep
+    sub si, 2 * %1 - 1          ; back to the line's first odd byte
+    sub di, %1
+    mov ax, 0202h
+    out dx, ax
+ %rep %1
+    movsb
+    inc si
+ %endrep
+ %if 8 - 2 * %1 - 1 == -1
+    dec si
+ %else
+    add si, 8 - 2 * %1 - 1      ; the buffer's next line
+ %endif
+    add di, BZV_P - %1          ; the card's
+    dec bp
+    jnz .w%1
+    jmp .done
+%endmacro
 bzv_boxw:
     push ax
     push bx
@@ -466,34 +495,19 @@ bzv_boxw:
     mov bp, [si + 6]            ; BP = h
     mov si, [si + 8]            ; SI = the buffer
     mov dx, 3c4h
-.line:
-    push si
-    push di
-    mov ax, 0102h
-    out dx, ax
-    mov cx, bx
-.e:
-    lodsw                       ; (AL the even byte: plane 0)
-    stosb
-    loop .e
-    pop di
-    pop si
-    push si
-    push di
-    mov ax, 0202h
-    out dx, ax
-    mov cx, bx
-.o:
-    lodsw
-    mov al, ah                  ; (AH the odd: plane 1)
-    stosb
-    loop .o
-    pop di
-    pop si
-    add si, 8
-    add di, BZV_P
-    dec bp
-    jnz .line
+    or bp, bp
+    jz .done
+    dec bx
+    cmp bx, 3
+    ja .done                    ; (w 1 - 4: a box is BZ_BOXW words at most)
+    shl bx, 1
+    jmp [cs:.wtab + bx]
+.wtab:      dw .w1, .w2, .w3, .w4
+    BZV_BWL 1
+    BZV_BWL 2
+    BZV_BWL 3
+    BZV_BWL 4
+.done:
     pop es
     pop bp
     pop di

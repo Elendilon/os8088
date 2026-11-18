@@ -255764,7 +255764,8 @@ change.
 card pixels). Everything else is **refused on the desktop with the reason**
 (`CGA OR HERC ONLY`): VGA and EGA because the CGA arm's ring has not been
 proved on their CRTCs (a VGA's mode-4 address wrap is not a 6845's, and a
-guessed answer is not a fact, §47), MDA because it has no graphics.
+guessed answer is not a fact, §47), MDA because it has no graphics. *(Since 128.41 the VGA plays its own arm, in mode 0Dh, and the toast reads
+`CGA, HERC OR VGA ONLY`; EGA and MDA are refused as here.)*
 
 **Kernels.** kern_big, and **kern_mega through the ordinary bracket**
 (`FSXF_FASTTICK`, as Excitebike, §102.11): an `FSXF_REAL` bracket swaps in an
@@ -284392,3 +284393,47 @@ The pixel camera, the panning and the pacing rules (V2); `bonanzaring`'s VGA
 card and the other rows' legs (V3); the field run (V4). V1 is checked by the
 host builds, `vgaprobe`, and a boot to look on MartyPC's `os8088_xt_vga` and
 86Box's `xt-v20-vga`.
+
+#### 128.41.9 V1, as built and measured (2026-11-18)
+
+V1 is built: a VGA play runs every course, the pathway, the title and the
+cards in mode 0Dh, scrolling one line and one column a step (the panning
+stays 0 until V2).
+
+| | |
+|---|---|
+| the package | resident image **+630 bytes** (50,036 -> 50,666), bss **+28** (12,145 -> 12,173): the adapter, `bz_setcard`, `bz_vprep`/`bz_vdrop`, `bz_snew`/`bz_vstart`/`bz_vcol`, a dispatch at each writer, the AV model's per-card constants and checker, the sequencer's blank. Image and bss now leave **2,697** bytes of the segment |
+| `BZVGA.BIN` | **3,280 bytes** (2,695 packed), the last row; held only through a VGA launch's bracket |
+| the claim | `[bz_vbseg]`, **62,496 bytes**, the three balls' copies, converted again only when the held balls change |
+| `BZV_FLIP` | kept in the ABI and never called: the CGA's `bz_flip` writes CR0Ch/0Dh on 3D4h, the VGA's own start address, and in byte mode its AX is the byte address |
+| the box writer | one unrolled body a width (1 - 4 words): **508 clocks a line** with the instrument mark's ~1k a frame inside it (785 looped), against the bar of 500 (MEASURED, MartyPC, BENCH's benchmark, 319 frames with boxes, 5,298 lines) |
+
+**The proof (V1)**: BENCH's benchmark on MartyPC's `os8088_xt_vga`, every
+presented frame's card memory - planes 0 and 1 decoded at `S` with `P` 42 -
+against `bonanza_ring`'s host picture of that frame (course, lanes as drawn,
+shadow, sprite, occluders): **600 frames, 0 pixels differ, all nine step
+directions**. Its first run found the one defect it was built to: a left
+step's column written at the right edge (`bz_vcol` took its sign from an
+`inc` in between). A look on 86Box's `xt-v20-vga` (the OTI-067, a period
+VGA BIOS) drew the same course, pathway and cards. The check is a scratch
+script today; it becomes `bonanzaring`'s VGA card in V3.
+
+**The frame on the 8088** (MEASURED, MartyPC, the 1,200-frame benchmark,
+mean CPU clocks a frame, against the CGA arm on `os8088_5150_cga` at this
+commit):
+
+| | CGA | VGA |
+|---|---|---|
+| sim + camera | 18,199 | 20,737 |
+| box compose | 10,752 | 14,471 |
+| rows (the VGA's: and the column) | 2,001 | 5,441 |
+| flip + columns | 2,081 | 1,064 |
+| box write | 5,758 | 9,357 (looped; the unrolled writer since) |
+| busy | 38,792 | 51,070 |
+| misses (1.5 refreshes) | 4 in 1,200 | **410 in 1,200** |
+
+The VGA's 68.1k-clock refresh holds the busy frame, but a third of the
+frames miss one: the edge wait under CLI takes the NEXT rise whenever the
+frame ends inside MartyPC's long vsync (31 scanlines). That is V2's to
+settle with the held divisor (128.41.1, D3: 35 Hz on the 8088 is the
+owner's accepted floor).

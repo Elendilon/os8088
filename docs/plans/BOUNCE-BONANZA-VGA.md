@@ -659,26 +659,35 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   `box-vgaprobe`, `box-vgaprobe-v20`, `box-vgaprobe-286` (86Box), each seen
   red with `--red swap`, and MartyPC's with `--red split` too.
 
-### V1: the arm, playable at today's steps (M-L)
+### V1: the arm, playable at today's steps (M-L) - BUILT (SPEC.md 128.41.9)
 
-- [ ] The SPEC.md subsection written (the next free 128.N): sections 2-7 of this file, as the contract.
-- [ ] `bz_card` (0 CGA, 1 Hercules, 2 VGA); `bz_adapter` accepts
-      `VID_VGA` + `FSXM_VGA0D` in both copies; the face's adapter line
-      and Play Game ungreyed on VGA.
-- [ ] `BZVGA.BIN` part, fetched on the desktop; `bz_vinit`'s VGA arm (CR13,
-      AC 12h, the palette, `BZ_MLIMV`, the beam words `bz_wkv`).
-- [ ] The converter (section 3): the blocks and occluder masks in place at
-      the fetch, the ball in play into a claim (8-pixel placement, shifts
-      baked in), rebuilt on a material change; its claim measured.
-- [ ] The writers: rows (1 line each, `bz_lsh` = 0), the column (before the
-      start, 2.2), the boxes (de-interleaved, against the 500-a-line bar),
-      the full write (screen-off), the wheel's commits, the cards.
-- [ ] The frame order of 2.4 (start, edge, pan), at first with `pan` = 0
-      and the camera in whole columns. So **vertical smoothness (1 line)
-      arrives in this wave** and horizontal stays 8 px.
-- [ ] The exit: page 0 parked, the exit mode set (`bonanzaexit`'s leg).
-- *Check*: a boot to look on `os8088_xt_vga`, the benchmark's numbers in
-  the window; rows named: `bonanzaring`, `bonanzaperf`, `bonanzaexit`.
+- [x] The SPEC.md subsection written: **128.41**, before the code.
+- [x] `bz_cardk` (1 CGA, 2 Hercules, 3 VGA), `bz_vga`; `bz_adapter` accepts
+      `VID_VGA` + `FSXM_VGA0D` in both copies; the face's adapter line, the
+      refusal `CGA, HERC OR VGA ONLY`, and Play Game ungreyed on VGA.
+- [x] `BZVGA.BIN`, the last part row, fetched on the desktop by the first
+      course's `bz_cload` and held through the bracket; `bz_vinit`'s VGA arm
+      (CR13 21, AC 12h 03h, the course's palette, `BZV_MLIM`, the wheel's
+      words).
+- [x] The converter: blocks, occluder masks and the slab's sprites in place
+      at the fetch; ALL THREE balls (not only the one in play: the material
+      can change mid-course, `bz_setmat`) into two copies each, one claim of
+      62,496 bytes, converted again only when the held balls change. The
+      dissolve's CGA copies converted as they are laid (its fade only).
+- [x] The writers: rows (one line each, `bz_lsh` 0), the column (before the
+      start, in the gutter), the boxes (de-interleaved, unrolled per width:
+      **508 clocks a line** with the mark inside, the bar 500), the full
+      write (the sequencer's blank), the wheel's commits, the cards' cells,
+      the blit (8-pixel placement, the cue's sparkles from a VGA table).
+- [x] The frame order of 2.4 (start, edge under CLI every frame, pan 0), the
+      camera in whole columns and one-line rows.
+- [x] The exit: the start address home, the exit mode set (the kernel's).
+- *Checked*: BENCH's benchmark on `os8088_xt_vga`, every presented frame's
+  card memory against `bonanza_ring`'s host picture - 600 frames, 0 pixels,
+  all nine directions (a scratch script; `bonanzaring`'s VGA card in V3);
+  looks on MartyPC and 86Box's `xt-v20-vga`; the 8088's frame MEASURED
+  (busy 51.1k clocks, 410 misses in 1,200: V2's divisor). Rows named:
+  `bonanzaring`, `bonanzaperf`, `bonanzaexit` (their VGA legs are V3's).
 
 ### V2: smooth (M)
 
