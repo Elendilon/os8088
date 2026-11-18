@@ -59,7 +59,7 @@ of 3.
 
 | | what | why |
 |---|---|---|
-| P12 | **HUMPS** - fits the theme; cheap to make, expensive to USE, as shapes are | the FIELD cell's height tables (128.28) already describe any height pattern; a hump rises ABOVE the lip, so it hides what is behind it - occluders the pit never needed. A **standard hump** (one shared table set, 128.28.4's STANDARD PROFILES rule) keeps its data down |
+| P12 | **HUMPS** - fits the theme; cheap to make, expensive to USE, as shapes are | the FIELD cell's height tables (128.28) already describe any height pattern; a hump rises ABOVE the lip, so it hides what is behind it - occluders the pit never needed. A **standard hump** (one shared table set, 128.28.4's STANDARD PROFILES rule) keeps its data down. **BUILT, tool only** on `bb-hump` (SPEC.md 128.44, below): 0 resident bytes, no family |
 
 ### Tabled
 
@@ -412,3 +412,33 @@ there is no resident change.
       step (N hanging magnets: N SLOW lanes, no FAST one); the law judged by
       the owner on the test course.
 - [ ] **M.8** A shipped course that uses magnets (home `resident` since the merge).
+
+## P12 HUMPS - built (branch `bb-hump`, SPEC.md 128.44, tool only)
+
+No family, no resident byte, no `BZ_PHYSV` change (the round's reserved ID 16 stays free): a hump is FIELD cells
+whose tables rise ABOVE the cell's base, and the guest's FIELD code runs them as they stand (proved under unicorn).
+`hump <x> <y> <z> [along x|y <n> [open]] [height <px>]`: a raised-cosine DOME on the 2 x 2 cells round a cell
+corner, or a RIDGE along an axis (domed ends, or `open` against a wall or the void - a speed bump nothing rolls
+round); STANDARD heights LOW 6 px and HIGH 10 px (2 - 11 allowed, 11 the slope bound); the rim level with the
+floor round it (refused otherwise). Physics: none of its own - a hump is a RUN-UP gate. Steel stalls at a LOW
+hump's foot and needs three cells of run at a HIGH one; rubber and glass need about half a cell at a HIGH one;
+nothing takes off over a crest; rubber does not bounce off a face (it is a hill, not a wall). The ink: the shapes'
+two magentas in BANDS of height (rings on a dome, stripes on a ridge), readable on the Hercules. Occluders: raised
+facets topped in 2 px steps, so a HIGH hump lays up to 42 lit px over a grounded ball behind it (a LOW one none:
+the margin). The visibility rule is MEASURED per hump and is met BY CONSTRUCTION (11 px under a 16 px ball, a level
+rim). The knob build `BZHUMP=1` puts the HUMP test course on the pathway's pad 0.
+
+- [x] **H.1** SPEC.md 128.44: the contract and the record.
+- [x] **H.2** The tool: the statement and its 15 refusals, `hump_cells`, the open ends and the level rim
+      (`hump_ends`), `HumpInk`, the raised facets' tops (`HTOPQ`), the visibility rule (`hump_vis`, with its
+      attribution); `--selfcheck` section `hump` with red arms `slope`, `hmtop`, `hmnoattr` - MEASURED red.
+- [x] **H.3** The guest: no code. tests/bonanza_dfield.py runs HUMP (CELLS, seven scripted runs, the fuzz):
+      every step equal; `symswap` red on six of the seven.
+- [x] **H.4** The knob course HUMP: three LOW domes and a LOW ridge, the HIGH open ridge across a bridge (steel
+      needs the bridge's run), a HIGH dome in front of a glass pad; no shipped course, demo or identity moved
+      (MEASURED, `cmp`, 20 of 20 files).
+- [x] **H.5** LOOKED AT once on MartyPC, CGA and Hercules (the knob tree): the humps as the previews draw them, a ball rolled past them on both cards.
+- [ ] **H.6** The per-step cost MEASURED (the final pass's `bonanzaphys` / `bonanzaperf` rows on a `BZHUMP=1`
+      build; PREDICTED as a chute's FIELD step, +0.4 - 0.9k clk).
+- [ ] **H.7** The owner's answers (SPEC.md 128.44.9): the heights, the bands, a kicker, a bumper hump.
+- [ ] **H.8** A shipped course that uses humps.
