@@ -52,6 +52,7 @@ bzv_v7: jmp near bzv_blit           ; BZV_BLIT
 bzv_v8: jmp near bzv_wprect         ; BZV_WPRECT
 bzv_v9: jmp near bzv_card           ; BZV_CARD
 bzv_v10: jmp near bzv_roll          ; BZV_ROLL
+bzv_v11: jmp near bzv_cam           ; BZV_CAM
     times BZV_VEC + BZV_VECB * BZV_NVEC - ($ - $$) db 0
     times ($ - $$) - BZV_VEC - BZV_VECB * BZV_NVEC db 0
 
@@ -1187,6 +1188,143 @@ bzv_conv:
     pop bx
     pop ax
     ret
+; -----------------------------------------------------------------------------
+; bzv_cam - BZV_CAM (SPEC.md 128.45.12): the VGA's own camera, a follower
+; with a dead zone, in 1/256 px, stepped [bz_vdiv] 70 Hz ticks a frame.  BP =
+; bz_camera's centre line (world lines).  Sets bz_R0n, bz_c0n, bz_vcx (the
+; display's left px, for bz_vstart) and bz_vsm.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_cam:
+    mov ax, [bz_vx0]            ; RESYNC: the camera holds what was shown
+    cmp ax, [bz_vcx]
+    je .xs
+    mov [bz_vcx], ax
+    xor ax, ax
+    mov [bz_vvx], ax
+    mov [bz_vcxf], al
+.xs:
+    mov ax, [bz_R0]
+    cmp ax, [bz_vcy]
+    je .ys
+    mov [bz_vcy], ax
+    xor ax, ax
+    mov [bz_vvy], ax
+    mov [bz_vcyf], al
+.ys:
+    mov al, [bz_vdiv]
+.tick:
+    push ax
+    mov ax, [bz_px]             ; across: the ball's centre in the display
+    add ax, 8
+    sub ax, [bz_vcx]
+    mov di, bz_vcx
+    mov dx, BZV_ZXL
+    mov bx, BZV_ZXR
+    mov si, BZV_VXM
+    call .axis
+    mov ax, bp                  ; down: the centre line in it
+    sub ax, [bz_vcy]
+    mov di, bz_vcy
+    mov dx, BZV_ZYL
+    mov bx, BZV_ZYR
+    mov si, BZV_VYM
+    call .axis
+    pop ax
+    dec al
+    jnz .tick
+    mov ax, [bz_px]             ; THE HARD MARGINS
+    add ax, 8
+    mov dx, ax
+    sub dx, [bz_vcx]
+    mov di, bz_vcx
+    mov bx, BZV_MX
+    mov cx, 320 - BZV_MX
+    call .hard
+    mov ax, bp
+    mov dx, ax
+    sub dx, [bz_vcy]
+    mov di, bz_vcy
+    mov bx, BZV_MY
+    mov cx, 200 - BZV_MY
+    call .hard
+    mov ax, [bz_vcy]            ; the engine's window: R0 the camera's line,
+    mov [bz_R0n], ax            ; c0 kept while vcx is in its 16 px of slack
+    mov ax, [bz_vcx]
+    mov bx, [bz_c0]
+    mov [bz_c0n], bx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    sub ax, bx
+    cmp ax, 16
+    jbe .c                      ; (unsigned: below c0 8 too)
+    or ax, ax                   ; ...else the NEAREST column that holds it:
+    mov ax, [bz_vcx]            ; left, vcx >> 3 (vcx in its first 8 px);
+    js .cl                      ; right, (vcx - 9) >> 3 (its last 8)
+    sub ax, 9
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    jmp short .cs
+.cl:
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+.cs:
+    mov [bz_c0n], ax
+.c:
+    mov byte [bz_vsm], 1
+    retf
+; one axis's tick: AX = rel, DX/BX = the zone's ends, SI = |v|'s most, DI ->
+; the position word, its velocity word, its fraction byte
+.axis:
+    cmp ax, bx
+    jle .lo
+    sub ax, bx                  ; e = rel - hi
+    jmp short .e
+.lo:
+    sub ax, dx                  ; e = rel - lo, if negative
+    jl .e
+    xor ax, ax
+.e:
+    mov cl, 3
+    shl ax, cl
+    add ax, [di + 2]            ; v + 8 e
+    mov dx, ax
+    sar dx, 1
+    sar dx, 1
+    sub ax, dx                  ; ... - (v >> 2)
+    cmp ax, si
+    jle .v1
+    mov ax, si
+.v1:
+    neg si
+    cmp ax, si
+    jge .v2
+    mov ax, si
+.v2:
+    mov [di + 2], ax
+    add [di + 4], al            ; the position += v (24.8)
+    mov al, ah
+    cbw
+    adc [di], ax
+    ret
+; the hard margin: AX = the ball's coordinate, DX = rel, BX/CX = its least
+; and most in the display, DI as .axis
+.hard:
+    cmp dx, bx
+    jl .h3                      ; too near the left/top: the position = c - BX
+    mov bx, cx
+    cmp dx, bx
+    jle .h4                     ; too near the right/bottom: c - CX
+.h3:
+    sub ax, bx
+    mov [di], ax
+    mov word [di + 2], 0
+    mov byte [di + 4], 0
+.h4:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; bzv_roll - BZV_ROLL (SPEC.md 128.45.11): the roll's DISPLAYED phases.  The
 ; texture repeats every 8, so at 35 Hz a ball moving 4 or more a frame reads as

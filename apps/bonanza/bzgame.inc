@@ -274,6 +274,13 @@ VAR bz_vpy,1                    ; ...the shown PHY
 VAR bz_vpxd,1                   ; ...the shown x phase
 VAR bz_vpxp,1                   ; ...px's low byte then
 VAR bz_vG,2                     ; ...and G then
+VAR bz_vcx,2                    ; 128.45.12, the VGA's camera: the display's left px,
+VAR bz_vvx,2                    ; ...its velocity (1/256 px a tick)
+VAR bz_vcxf,1                   ; ...its fraction (the three in this order: BZV_CAM)
+VAR bz_vcy,2                    ; ...its top line, its velocity, its fraction
+VAR bz_vvy,2
+VAR bz_vcyf,1
+VAR bz_vsm,1                    ; ...1: BZV_CAM ran this frame (bz_vstart shows bz_vcx)
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
 VAR bz_vwr1,2                   ; has no writable memory of its own, 128.45.6)
 VAR bz_vwx,2
@@ -2177,12 +2184,10 @@ bz_camera:
     jne .muse                   ; its numbers stay comparable (bz_cmode is
     xor al, al                  ; left as it was)
 .muse:
-    xchg al, [bz_cuse]          ; GLIDE again after TRICKLE (C): LATTICE
-    or al, al                   ; starts at rest, its bands at the window
-    jz .ncs0                    ; as it stands
-    cmp byte [bz_cuse], 0
-    jne .ncs0
-    call bz_latrst
+    xchg al, [bz_cuse]          ; a change of mode (C): LATTICE starts at
+    cmp al, [bz_cuse]           ; rest, its bands at the window as it stands
+    je .ncs0                    ; (the VGA's A/B runs it as the second mode,
+    call bz_latrst              ; 128.45.12)
 .ncs0:
     cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
     jne .ncs                    ; (bz_scnt bit 7): a cut (128.17.6.7)
@@ -2348,8 +2353,18 @@ bz_camera:
 .cgl:
     add bp, ax                  ; BP = cy + 8
 .cyd:
+    cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (128.45.12),
+    je .gl                      ; the benchmark's LATTICE, and LATTICE as the
+    cmp byte [bz_mode], 1       ; A/B's second mode
+    je .lat
+    cmp byte [bz_cuse], 0
+    jne .lat
+    BZ_VCALL BZV_CAM
+    jmp .moved
+.gl:
     cmp byte [bz_cuse], 0
     jne .trickle
+.lat:
     call bz_lattice             ; GLIDE: LATTICE (wave 6b, 128.17.6.2)
     jmp .moved
 .trickle:
@@ -2422,7 +2437,12 @@ bz_camera:
     mov dx, ax
     call bz_abs
     cmp dx, BZ_MAXR
+    jbe .rok
+    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: four, 128.45.12)
+    je .full
+    cmp dx, BZV_MAXR
     ja .full
+.rok:
     mov ax, [bz_c0n]
     sub ax, [bz_c0]
     mov dx, ax
@@ -3853,9 +3873,17 @@ bz_snew:
     jne .whole
     mov ax, [bz_S]
     add ax, [bz_dc]
+    cmp byte [bz_vga], 0
+    jne .vs
     mov bx, [bz_dr]
     shl bx, 1
     add ax, [bz_wtab + 4 + bx]
+    jmp short .S
+.vs:
+    mov bx, ax                  ; the VGA's: S + dc + P dr (its four rows a
+    mov ax, [bz_dr]             ; frame pass the table's five, 128.45.12)
+    imul word [bz_rb]
+    add ax, bx
     jmp short .S
 .whole:
     mov ax, [bz_R0n]
@@ -3941,6 +3969,14 @@ bz_vstart:
     shl bx, 1
     shl bx, 1                   ; BX = c0n 8
     lea dx, [bx + 8]            ; DX = t
+    cmp byte [bz_vsm], 0        ; THE VGA's CAMERA ran (128.45.12): its x0,
+    je .flt                     ; and the filter's taps held at the centre
+    mov byte [bz_vsm], 0
+    mov [bz_vt1], dx
+    mov [bz_vt2], dx
+    mov cx, [bz_vcx]
+    jmp short .l1
+.flt:
     mov cx, [bz_vt1]
     shl cx, 1
     add cx, dx
@@ -3952,6 +3988,7 @@ bz_vstart:
     push word [bz_vt1]
     pop word [bz_vt2]
     mov [bz_vt1], dx
+.l1:
     cmp cx, bx
     jge .l2
     mov cx, bx

@@ -281496,3 +281496,77 @@ shows a step of 4, the half period, which has no direction of its own. **Cost**:
 24 bytes resident (the call and the reset), 6 of bss, 300 in the part.
 **Checked** (MartyPC, FIRST's free play, the arrows held, 599 presents): 9
 frames whose true x phase stepped against the ball, 0 shown.
+
+#### 128.45.12 V2c: the VGA's own camera (BZV_CAM)
+
+**The owner (2026-11-18)**: the ball rolls fine, but the camera *"does
+judder ... 'how it chooses to move', not 'the VGA timing is wrong'"*.
+LATTICE (128.17.6.2) rests or moves fast because the CGA scrolls 8 px and 2
+lines and the Hercules coarser (128.9) - a camera that eased would hop -
+and it won there over every other mode. The VGA scrolls 1 px both ways, so
+its play gets a camera of its own: **the VGA's camera, not a mode**. The
+benchmark (`bz_mode` 1) keeps LATTICE on every card, so its numbers stay
+comparable; the CGA and the Hercules are untouched.
+
+**The follower** (the part's `BZV_CAM`, from `bz_camera` where LATTICE
+would run): a camera position per axis in 1/256 px - `bz_vcx` the display's
+left px, `bz_vcy` its top line (= `R0`, a VGA row being a line) - and a
+velocity, stepped `[bz_vdiv]` times a frame (so a 70 Hz tick whatever the
+rate). Per tick and axis, with `rel` the ball's offset in the display (its
+centre `px + 8` across; the ground line's centre line, `bz_camera`'s BP,
+down):
+
+- `e` = how far `rel` lies outside the DEAD ZONE (`BZV_ZXL` .. `BZV_ZXR` =
+  128 .. 192 px across, `BZV_ZYL` .. `BZV_ZYR` = 84 .. 116 lines down), 0
+  inside it;
+- `v += 8 e; v -= v >> 2` (arithmetic), then `|v|` at most `BZV_VXM` (1,024:
+  4 px a tick) or `BZV_VYM` (512: 2 lines);
+- the position += `v`.
+
+Inside the zone `e` is 0 and the camera coasts to rest; a ball running at
+full speed (2 px a step) holds about 8 px past the zone's edge. After the
+ticks, a HARD MARGIN: the ball centre at least `BZV_MX` (48) px and the
+centre line `BZV_MY` (40) lines inside the display, the position snapped
+and that axis's velocity zeroed if not.
+
+**The engine's window from it**: `R0n` = `bz_vcy`'s whole line; `c0n` = c0
+while `bz_vcx` lies in [c0 8, c0 8 + 16] (the window's 16 px of slack,
+128.45.10), else the NEAREST column that holds it - `bz_vcx >> 3` moving
+left, `(bz_vcx - 9) >> 3` moving right - so a camera that crossed one
+column moves the window one (re-centring it cost two, a full write). `bz_camera`'s tail clamps it to the
+course and turns a larger step into a full write, as for every mode; **the
+VGA's step allowance is 4 rows** (`BZV_MAXR`; `BZ_MAXR` 2 elsewhere), and
+`bz_snew` computes a VGA step's start as `S + dc + P dr` (a multiply) rather
+than out of the five-entry table. `bz_vstart` shows `bz_vcx` (clamped into
+the window) where V2a's filter would, and holds the filter's taps at the
+window's centre for the frame a mode hands back to it.
+
+**Resync**: the camera owns nothing the engine does not show. At its start
+`bz_vcx` is compared with the last displayed `bz_vx0` and `bz_vcy` with
+`bz_R0`; a difference (the first frame, a cut or full write, a clamp at
+the course's edge, a frame another camera ran) takes the shown position,
+fraction 0, that axis's velocity 0.
+
+**Held to LATTICE**: the benchmark, a FIXED or PAGED window, the finish
+hold, a cut and a harness's scripted camera run what they run on the CGA;
+the follower is only ever LATTICE's replacement in a play.
+
+**The A/B (until the owner has dialled it in, then removed)**: on the VGA
+`C`'s second mode is LATTICE instead of TRICKLE, so the two can be played
+back to back; the face still names TRICKLE. `bz_camera` resets LATTICE on
+any change of mode (it did on the change back to GLIDE alone).
+
+**Tuned on the host** (a full-speed run, stop, reverse and a wiggle at 35
+Hz, the integer rule above): the display's frame-to-frame step changes by
+at most 2 px (LATTICE's column pan by 2 - 4 against its rest), the ball's
+centre within 113 - 207 px of the display's 320.
+
+**Measured** (MartyPC, the 8088 at 4.77 MHz, BENCH's autopilot route run
+on the camera - a scratch patch of the benchmark's LATTICE branch - 800
+frames): every presented frame's engine window 0 pixels off the host
+picture, the glass 40 of 40 exact; the display's steps a frame -2 .. 2 px
+across (596 of 799 still) and -1 .. 2 lines down; ONE full write (the
+first frame, as LATTICE's), 35 Hz held as under LATTICE. FIRST's free play
+with the arrows held, 500 frames: 0 pixels (the clock faces' digits, which
+that check does not draw, aside). **Cost**: 87 bytes resident, 11 of bss,
+284 in the part.
