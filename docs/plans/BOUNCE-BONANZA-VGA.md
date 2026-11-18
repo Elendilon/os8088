@@ -748,7 +748,10 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
       vclock), `bonanzareplay` (the CGA's logs on the VGA) and `bonanzaexit`
       (every way out's rows and claims; red arm vgakeep) VGA legs - each
       run green, each red arm seen red.
-- [ ] `bonanzamega` case 0v: the VGA's arm on kern_mega's Paradise.
+- [x] `bonanzamega` case 0v: the VGA's arm on kern_mega's Paradise - a
+      benchmark of 1,200 frames and a play, `[bz_vga]` 1, the balls' copies
+      a selector claim, every row and claim the desktop's after each; the
+      row green with its fault check (no `PKG_MEGA` arm, as designed).
 - [x] SPEC.md 130.1's adapter paragraph and the face's greying line were
       V1's; H5 closed in BOUNCE-BONANZA-PLAN.md (D4); `tools/bzprof.py`,
       the sampling profiler of 130.46.13, kept for the optimisation round.
