@@ -24543,8 +24543,8 @@ def _plat_runs(c, **kw):
     # never moves: the owner's preview), then off onto the high rim
     p = _plat_at(c, P, n_dep - 4, **kw)
     g0 = (p.gx, p.gy, p.gz)
-    turn = lambda q: (sprite(q, 0), sprite(q, 1)[0], sprite(q, 1)[1] & ~8)   # the Hercules's PHY bit 0
-    f0 = turn(p)                                                            # is py's parity (130.11.9.2)
+    turn = lambda q: sprite(q, 0)       # (the CGA's roll phases: the Hercules' vertical one follows the line's
+    f0 = turn(p)                        # parity too, G - ((G ^ py) & 1), 130.11.9.2, which the rising lift moves)
     spin = 0
     for _ in range(n_arr - n_dep + 8):
         p.step(0)
