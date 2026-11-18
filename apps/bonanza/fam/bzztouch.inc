@@ -1,7 +1,7 @@
 ; =============================================================================
-; apps/bonanza/fam/bzztouch.inc - the TOUCH TEST (SPEC.md 128.12.6.1 - 128.12.6.2),
+; apps/bonanza/fam/bzztouch.inc - the TOUCH TEST (SPEC.md 130.12.6.1 - 130.12.6.2),
 ; ONE source: the tube's drain and the windmill's doorway ask it.  Included by
-; the TUBE family's part and by the ROTOR family's (SPEC.md 128.25.20).  bz_h4 is the includer's (the package's, or a
+; the TUBE family's part and by the ROTOR family's (SPEC.md 130.25.20).  bz_h4 is the includer's (the package's, or a
 ; part's copy, fam/bzfcopy.inc).
 ; =============================================================================
 %ifnmacro BZ_Q64
@@ -18,8 +18,8 @@
 %endif
 
 ; bz_ztouch - CF = 1 when the ball's z is at most the centre cell's floor at
-; its point plus BZ_CLIMB (a drain's capture, a doorway's touch: 128.12.6.1,
-; 128.12.6.2), exactly: z <= 64 (h4 + 16) <=> floor((z - 1) / 64) < h4 + 16.
+; its point plus BZ_CLIMB (a drain's capture, a doorway's touch: 130.12.6.1,
+; 130.12.6.2), exactly: z <= 64 (h4 + 16) <=> floor((z - 1) / 64) < h4 + 16.
 ; bz_ztouchp: at the point DL = u, DH = v.  Clobbers AX, BX, CX, DX, SI.
 bz_ztouch:
     mov dl, [bz_gx + 1]

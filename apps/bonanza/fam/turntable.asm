@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/turntable.asm - BONANZA's QUARTER-TURN TURNTABLE FAMILY
-; (SPEC.md 128.43, the props round's P11), held equal to bbcourse.TurnFamily at
+; (SPEC.md 130.43, the props round's P11), held equal to bbcourse.TurnFamily at
 ; every step.
 ;
 ; An N x N table (2 or 3), HALF FILLED, turning a quarter turn every Q steps
@@ -22,7 +22,7 @@
 ;         with the ball's whole-px z ([bz_gz + 1]) under its top, 4 TZ: the
 ;         ball has fallen into its hole, and a hole that closes over it must
 ;         not lift it - a NEAR VOID: TZ less 6 half units, kind and surface 0,
-;         its flags kept (the membrane's: SPEC.md 128.38); every other
+;         its flags kept (the membrane's: SPEC.md 130.38); every other
 ;         element in the window written back a FLOOR (TZ, KIND_FLOOR): the
 ;         window KEEPS its cells when it moves one cell (bz_win9i), and a cell
 ;         the centre's rule voided must not stay void once the centre leaves.
@@ -32,7 +32,7 @@
 ;         so every other element costs the one test.
 ;   POSE  the element's pose.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; others are (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -61,7 +61,7 @@ TT_KFLOOR   equ 1               ; a floor's kind byte: KIND_FLOOR, SURF_NORMAL (
     db 0
     dw 0, 0, 0, tt_step, tt_pose, tt_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; CELL: the window's gaps (and a fallen ball's centre) a NEAR VOID

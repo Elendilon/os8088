@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/gate.asm - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE
-; family (SPEC.md 128.41, the props round's P6 and P7), held equal to
+; family (SPEC.md 130.41, the props round's P6 and P7), held equal to
 ; bbcourse.GateFamily at every step.
 ;
 ; Four kinds, each a FLAT FLOOR cell of the grid with OBS:
@@ -22,7 +22,7 @@
 ; when in the window.  POSE: a plate 1 pressed, a key 1 not taken, a gate 1
 ; shut, a bridge 1 up.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the package,
 ; AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -51,7 +51,7 @@ GT_SEED     equ 23
     db 0
     dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; RESET: the course's timed bridges counted

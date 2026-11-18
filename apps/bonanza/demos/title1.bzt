@@ -1,4 +1,4 @@
-# Bounce Bonanza's TITLE DEMO 1 (SPEC.md 128.23.3), written by `python3 tools/bbcourse.py tauthor`
+# Bounce Bonanza's TITLE DEMO 1 (SPEC.md 130.23.3), written by `python3 tools/bbcourse.py tauthor`
 # from bbcourse.TITLE_AUTHOR[1] and the model: the rubber ball dropped onto UR, down the ramp just off the front, back, sprung onto UR and down the ramp off the glass (the owner, 2026-11-16: no pause, less off the glass, end off it).  0 falls, 1 tube rides; the build
 # replays it from its start and checks every `expect`.
 tdemo   1

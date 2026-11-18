@@ -1,4 +1,4 @@
-# Bounce Trial - BONANZA's course 2 (SPEC.md 128.11.13): the course D4 is judged
+# Bounce Trial - BONANZA's course 2 (SPEC.md 130.11.13): the course D4 is judged
 # on, built for the RUBBER ball.  Everything wave 2 adds is on it, each where
 # the route passes it:
 #  - a 6-unit drop off the start tier H onto a floor F four tiles deep, and
@@ -6,7 +6,7 @@
 #    reaches G: rubber's (a fall of 6 units rebounds at 615, 3.7 units), never
 #    steel's (stunned on F: a fall of 2 units or more) nor glass's (shattered
 #    on F: 3 or more), and no Hop (4.5 px at most) climbs 2 units.  No up-ramp
-#    is within five tiles of the gap (SPEC.md 128.11.5.3);
+#    is within five tiles of the gap (SPEC.md 130.11.5.3);
 #  - a STEEP ramp (2 units a tile, r = -4) four tiles long, so a ball thrown
 #    off its crest at the cap lands on it, not on its foot;
 #  - ICE between BUMPER rails (walls with a bounce surface: 230/256 to every
@@ -14,7 +14,7 @@
 #  - a MAT (a bounce floor) off the route, beside the steep ramp, 8 units
 #    below its crest.
 # The gap runs TOWARD THE VIEWER (along +wx): the screen-row layout (the gap
-# along a cell row, 128.11.13's shadow row) was tried first and kept its flight
+# along a cell row, 130.11.13's shadow row) was tried first and kept its flight
 # off every OCC cell, but the autopilot rolls a screen row on ONE arrow, and one
 # arrow's top speed (189 - 252 an axis, the round-up drag's dead band) is
 # under the 256 its bounce needs to carry the gap - so the route could not
@@ -46,7 +46,7 @@ surface bounce rect 11 19 19 20
 floor rect   9 17 11 19  flat 2
 surface sand   rect  9 17 11 19
 goal  rect   8 17  9 18  flat 2
-# wave 8b (SPEC.md 128.19.4): a SECOND finish, the goal column's front cell, exit 1 - a
+# wave 8b (SPEC.md 130.19.4): a SECOND finish, the goal column's front cell, exit 1 - a
 # test of several finishes, not a design (the owner: no course here ships as it is)
 goal  rect   8 18  9 19  flat 2 exit 1
 # the mat, off the route beside the steep ramp
@@ -55,7 +55,7 @@ surface bounce rect 19 13 21 17
 
 start 5 11
 
-# The autopilot's route (the benchmark's TRIAL leg, SPEC.md 128.11.13): off
+# The autopilot's route (the benchmark's TRIAL leg, SPEC.md 130.11.13): off
 # H's lip at speed, its bounces on F carry it over the gap onto G, down the
 # steep ramp, back along the ice and over the sand to the goal - no fall in
 # 1,289 steps (`bbcourse.py --selfcheck` item 8).
@@ -66,22 +66,22 @@ way  17 18
 way  13 18
 way   8 18
 
-# Wave 4 (SPEC.md 128.14.3.1): par, the autopilot's time on the route (500 steps,
+# Wave 4 (SPEC.md 130.14.3.1): par, the autopilot's time on the route (500 steps,
 # 9.2 s) and a third, PROVISIONAL (O41).  It writes nothing into the part.
-# wave 7 (SPEC.md 128.18.3): `par` is refused; the tool's limit from the route applies
-# Wave 5b (SPEC.md 128.15.8): the design time (CD3), the early class until its retrofit; the
+# wave 7 (SPEC.md 130.18.3): `par` is refused; the tool's limit from the route applies
+# Wave 5b (SPEC.md 130.15.8): the design time (CD3), the early class until its retrofit; the
 # course budget reads it (6275 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 30
 
-# wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
+# wave 7 (SPEC.md 130.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
 # seconds left of the limit; placed beside the route for the clock's measurement
 clock 4 10
-# (2026-11-18, SPEC.md 128.18.5.4: a clock is an OCCLUDER now; at (18, 17) its post added a fifth record to
+# (2026-11-18, SPEC.md 130.18.5.4: a clock is an OCCLUDER now; at (18, 17) its post added a fifth record to
 # a block the ramp's foot already filled to the bound of 4 - one cell nearer, on the floor's front row)
 clock 18 18
 
-# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity.  Wave 8R round 2 (R1): it
 # stood at (9, 17), SOLID in front of the goal column, and walled exit 0's goal cell off from the sand (the

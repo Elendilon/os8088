@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 128.36, the
+; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 130.36, the
 ; owner's design P1), held equal to bbcourse.WaterFamily at every step.
 ;
 ; A water cell is FLOOR at its top H in the grid (flat, sand, OBS); its element
@@ -36,7 +36,7 @@
 ; ACTIVE ripple's entry step (low byte), +6 the ALWAYS ripples, +7 the ACTIVE
 ; ripple (its element + 1, 0 none).
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -70,7 +70,7 @@ WR_ALWAYS   equ 2
     db 0
     dw wa_reset, 0, 0, wa_step, wa_pose, wa_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; RESET: the ALWAYS ripples counted
@@ -98,7 +98,7 @@ wa_cell:
     call wa_slot                ; DI = the slot
 %if BZ_WA_FBSH                  ; BP = rubber's and glass's floor under the
                                 ; top, half units: the bob's phase (the top,
-                                ; or the float line; SPEC.md 128.36.10)
+                                ; or the float line; SPEC.md 130.36.10)
     mov al, [bz_nstep]
     mov cl, BZ_WA_FBSH
     shr al, cl
@@ -132,7 +132,7 @@ wa_cell:
     shl bx, 1
     shl bx, 1
     mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less BP
-    sub ax, bp                  ; (SPEC.md 128.36.10) ...
+    sub ax, bp                  ; (SPEC.md 130.36.10) ...
     or byte [di + WA_IN], 2
     cmp byte [bz_mat], BZ_MAT_STEEL
     jne .h
@@ -276,7 +276,7 @@ wa_step:
     mov byte [bz_fref], 1
 .bb:
 %if BZ_WA_FBSH
-    test byte [di + WA_IN], 2   ; the bob's flip (SPEC.md 128.36.10), a
+    test byte [di + WA_IN], 2   ; the bob's flip (SPEC.md 130.36.10), a
     jz .rp                      ; water cell in the window and not steel -
     cmp byte [bz_mat], BZ_MAT_STEEL ; the next window rewritten; into the
     je .rp                      ; dip a ball resting on the water goes down
