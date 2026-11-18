@@ -5530,6 +5530,44 @@ course falls 23 units and every section stands on a column down to the
 ground. FLOATING sections (faces 3 units deep) would cut that, and are worth
 trying when the layout settles.
 
+## 2026-11-18 (the AUTOPILOT through shapes)
+
+- **The ask**: *"Bounce Bonanza's autopilot can't steer through shapes, and
+  we're going to have those on our courses."* SPEC.md 130.28.10.
+- **Observed** (the model): a route could not even name a chute cell - a
+  `way` on a FIELD cell was refused, because the guest's WAYS form read a
+  plane's slopes from the cell's +1, where a FIELD cell keeps its shape. With
+  the refusal lifted, 130.6's screen-space law rolled SHAPE's first chute and
+  then sat at the foot of its end taper for ever: the waypoint on the plate
+  sits up the screen by the plate's height, so `dy` read about 0, the ball
+  pushed Right alone - half of it into the bank - and braked toward the way
+  as the proportional law does at every way. The screen velocity also jumps
+  by `dz` wherever the ball rides a bank (spikes of +-150 a step).
+- **Tried and dropped**: correcting `dy` by the ball's own cell's `z0`
+  (wrong whenever the target is at another height - the plate past a taper);
+  a per-axis speed floor (it pressed Up for a 1 px error and pinned the ball
+  to the bank); no braking at all (flew out of the 1-wide corners).
+- **Built**: a FIELD way is written at GROUND height and marked by x's bit 0;
+  toward one, `bz_auto` steers on the ground point (`by + gz`) against the
+  ground's velocity `(gvx + gvy) >> 1`, and doubles the wanted velocity until
+  an axis reaches 256 (1 px a step) - a cruise floor along the same
+  direction, off at the last way. Plane ways steer exactly as before, so no
+  shipped course moves (PLAYGROUND's chutes are off its route).
+- **Measured**: SHAPE's route through all three chutes 1,895 steps (limit 55 s,
+  medals 40 / 52), PITS's through both chutes, the dish and across the deep
+  pit 2,339 (65 s); the guest equal to the model at every step of both under
+  unicorn; `bz_auto` +111 bytes, `bz_cxway` +26, image +137, bss 0; every
+  shipped part, demo and identity unchanged.
+- **Discovered**: a deep (16 px) pit's ring cannot be ridden from inside -
+  a ball low in the bowl cannot climb the steep lip on the arrows, as the pit
+  was designed. Crossing it fast on a line that misses the hole works left to
+  right; right to left from a 5-cell run-up stalled. An author routes across
+  a pit, and the route check says when the autopilot does not finish.
+- **Run**: `--selfcheck --only splitphys`, `tests/bonanza_dfield.py` (and its
+  two new red arms), `make` (the fast tier), the BZSHAPES=1 knob disk.
+  **Not run**: soak rows (`bonanzaphys`'s field leg would be the one), and
+  nothing on MartyPC - the autopilot's cost per step is not measured.
+
 ## 2026-11-18 (VGA, V0: what the cards do when the picture moves)
 
 The owner, on the plan for a VGA arm (docs/plans/BOUNCE-BONANZA-VGA.md):
