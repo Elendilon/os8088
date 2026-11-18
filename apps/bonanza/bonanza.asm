@@ -3292,7 +3292,9 @@ bz_cxramp:                      ; CX words from AX, DX apart
 ;   x = 16 a + X0 - 8,  y = 8 s - 2 (2 z0 + sx + sy) + Y0 - 5,
 ; s = wx + wy, a = wx - wy, z0, sx and sy the tile's CELL's, found as
 ; bzphys.inc finds a cell: ROWTAB[s - SMIN] + 4 ((a - AMIN) >> 1).  NWAY
-; counts; way w's words end before way w + 1's stored pair.
+; counts; way w's words end before way w + 1's stored pair.  A way on a FIELD
+; cell (SPEC.md 130.28.10) is at GROUND height, y = 8 s + Y0 - 5 (its +1 is a
+; shape, not slopes), and MARKED: bit 0 of its x flipped (bz_auto's test).
 bz_cxway:
     push es
     pop ds                      ; DS = ES = the part
@@ -3325,7 +3327,11 @@ bz_cxway:
     mov si, [si]                ; ROWTAB[r]
     add si, bp
     lodsw                       ; AL = z0, AH = sy : sx (signed nibbles)
+    mov ch, [si]                ; +2: the kind (low nibble)
     pop si
+    and ch, 15
+    cmp ch, BZ_KFIELD
+    je .fld
     mov ch, ah
     sar ch, cl                  ; CH = sy
     shl ah, cl
@@ -3343,11 +3349,19 @@ bz_cxway:
     sub dx, ax
     add dx, [bx + BZG_Y0]
     sub dx, 5
+.y:
     xchg ax, dx
     stosw                       ; y
     pop cx
     loop .way
     ret
+.fld:                           ; a FIELD way (130.28.10): x marked, y at the
+    xor word [di - 2], 1        ; ground's height
+    mov cl, 3
+    shl dx, cl
+    add dx, [bx + BZG_Y0]
+    sub dx, 5
+    jmp short .y
 ; 7 CELLS (SPEC.md 130.15.6): each cell as in RAM but two fields, each stored
 ; as its difference from the RULE: a VOID cell's z0 as z0 - rule_z0 (8 bits),
 ; and every cell's SAFE bit XOR rule_safe.  The rule, as the tool builds the

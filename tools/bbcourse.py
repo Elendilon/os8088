@@ -6190,6 +6190,20 @@ def path_costs(c):
     return pic, kinds
 
 
+BZ_FVMIN = 256                  # SPEC.md 130.28.10: the autopilot's CRUISE floor toward a FIELD way
+
+
+def way_xy(t, wx, wy, x0, y0):
+    """a route's point for way tile T at (wx, wy) (SPEC.md 130.10.4.5): the ball's picture top-left on the
+    tile's centre, on its floor - x = 16 a + X0 - 8, y = 8 s + 8 - (4 z0 + 2 (sx + sy)) + Y0 - 13.  A FIELD
+    tile's (SPEC.md 130.28.10) is at GROUND height (y = 8 s + Y0 - 5: no z0, and its +1 is a shape, not
+    slopes) and MARKED by bit 0 of x flipped, which the autopilot reads as "steer on the ground" """
+    x = 16 * (wx - wy) + x0 - 8
+    if isinstance(t, FieldTile):
+        return (x ^ 1, 8 * (wx + wy) + y0 - 5)
+    return (x, 8 * (wx + wy) + 8 - (4 * t.z0 + 2 * (t.sx + t.sy)) + y0 - 13)
+
+
 def split_anchors(src, tiles, f):
     """SPEC.md 130.24.4: every statement that stands on a cell's CENTRE - start, way, a material pad, a
     pathway pad, checkpoint, clock, cup, spring, a route's gate, a tube's cells, a windmill, a bumper, a
@@ -6209,7 +6223,7 @@ def split_anchors(src, tiles, f):
         if isinstance(tiles.get(tuple(cell)), Split):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is SPLIT: it stands on the cell's centre, which "
                               "is on the diagonal (SPEC.md 130.24.4)" % (f, ln, what, cell[0], cell[1]))
-        if isinstance(tiles.get(tuple(cell)), FieldTile):
+        if isinstance(tiles.get(tuple(cell)), FieldTile) and what not in ("a way", "a branch's way"):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is a FIELD cell (a %s): it stands on a flat "
                               "cell's centre (SPEC.md 130.28.3)" % (f, ln, what, cell[0], cell[1],
                                                                    tiles[tuple(cell)].piece))
@@ -10737,10 +10751,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     # the route: the ball's picture top-left on each way tile's centre
     route = []
     for (wx, wy), ln in src.ways:
-        t = tiles[(wx, wy)]
-        sx_ = 16 * (wx - wy) + x0
-        sy_ = 8 * (wx + wy) + 8 - (4 * t.z0 + 2 * (t.sx + t.sy)) + y0
-        route.append((sx_ - 8, sy_ - 13))
+        route.append(way_xy(tiles[(wx, wy)], wx, wy, x0, y0))
     # ---- the part (SPEC.md 130.15.4): its MODEL, then the RAM forms and the stored form -------------
     # the ghost dither (SPEC.md 130.15.10.1): the checker ORed into every MERGED record's mask - the
     # merge ran on the undithered masks, and r["mask"] stays undithered for the rule's models - and the
@@ -10982,7 +10993,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             raise CourseError("%s:%d: way (%d, %d): a way's tile is stored in two bytes, 0 - 255 each"
                               % (fname, ln, wx, wy))
         cl, t = cells.get((wx, wy)), tiles[(wx, wy)]
-        if cl is None or (cl[0], _nib(cl[1] & 15), _nib(cl[1] >> 4)) != (t.z0, t.sx, t.sy):
+        fld = cl is not None and cl[2] & 15 == KIND_FIELD     # (130.28.3: a FIELD way's slopes read as 0)
+        if cl is None or (cl[0], 0 if fld else _nib(cl[1] & 15), 0 if fld else _nib(cl[1] >> 4)) != (t.z0, t.sx, t.sy):
             raise CourseError("%s:%d: way (%d, %d): its cell holds z0 %s, sx %s, sy %s, where the tile says %d, %d, "
                               "%d - the guest's route (found through ROWTAB) would differ from the tool's"
                               % (fname, ln, wx, wy, cl and cl[0], cl and _nib(cl[1] & 15), cl and _nib(cl[1] >> 4),
@@ -12817,6 +12829,10 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
                     raise CourseError("%s: way %d (%d, %d) is outside the grid" % (fname, w, wx, wy))
                 co = struct.unpack_from("<H", b, rtab + 2 * r)[0] + 4 * k
                 z0 = struct.unpack_from("<b", b, co)[0]
+                if b[co + 2] & 15 == KIND_FIELD:    # SPEC.md 130.28.10: a FIELD way - ground height, x marked
+                    wrw(S + 4 * w, (16 * a + x0 - 8) ^ 1)
+                    wrw(S + 4 * w + 2, 8 * s + y0 - 5)
+                    continue
                 sl = b[co + 1]
                 y = 8 * s + 8 - (4 * z0 + 2 * (_nib(sl & 15) + _nib(sl >> 4))) + y0 - 13
                 wrw(S + 4 * w, 16 * a + x0 - 8)
@@ -14852,7 +14868,7 @@ class Physics:
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
                  _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
                  _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False, _nolift=False,
-                 _ffblock=False):
+                 _ffblock=False, _auto_plane=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -14866,6 +14882,7 @@ class Physics:
         self.mat = mat
         self.m = MATERIALS[mat]
         self._slope_sign = _slope_sign
+        self._auto_plane = _auto_plane              # (a red arm: 130.6's law on a FIELD way, SPEC.md 130.28.10)
         self._takeoff_zero = _takeoff_zero
         self._ef_zero, self._east_w1, self._no_stun = _ef_zero, _east_w1, _no_stun
         self._abs_impact, self._no_airclimb, self._hop_add = _abs_impact, _no_airclimb, _hop_add
@@ -15530,8 +15547,13 @@ class Physics:
         nway = len(self.route)
         while True:
             wx, wy = self.route[self.wp]
-            dx = wx - (self.bx >> 8)
-            dy = wy - (self.by >> 8)
+            fld = (wx ^ self.x0) & 1 and not self._auto_plane     # SPEC.md 130.28.10: a FIELD way
+            if fld:
+                dx = (wx ^ 1) - (self.bx >> 8)
+                dy = wy - ((self.by + self.gz) >> 8)    # the ball's GROUND point
+            else:
+                dx = wx - (self.bx >> 8)
+                dy = wy - (self.by >> 8)
             if self.wp >= nway - 1:
                 break
             if abs(dx) < AUTO_REACH and abs(dy) < AUTO_REACH:
@@ -15539,12 +15561,18 @@ class Physics:
                 continue
             break
         keys = 0
-        ax = _clamp(8 * dx, AUTO_VMAX) - self.vx
+        wvx, wvy, vy = _clamp(8 * dx, AUTO_VMAX), _clamp(8 * dy, AUTO_VMAX), self.vy
+        if fld:
+            vy = (self.gvx + self.gvy) >> 1             # the ground's velocity, no dz
+            if self.wp < nway - 1 and (wvx or wvy):     # the CRUISE floor, along the same direction
+                while max(abs(wvx), abs(wvy)) < BZ_FVMIN:
+                    wvx, wvy = 2 * wvx, 2 * wvy
+        ax = wvx - self.vx
         if ax > AUTO_ACC // 2:
             keys |= K_R
         elif ax < -(AUTO_ACC // 2):
             keys |= K_L
-        ay = _clamp(8 * dy, AUTO_VMAX) - self.vy
+        ay = wvy - vy
         if ay > AUTO_ACC // 2:
             keys |= K_D
         elif ay < -(AUTO_ACC // 2):
@@ -24444,9 +24472,9 @@ CGA_STEPS, HERC_STEPS = 1093, 1289
 
 
 def _way_point(c, t):
-    """the ball's picture top-left on tile t's centre, on its floor (130.10.4.5)"""
-    tl = c.tiles[t]
-    return (16 * (t[0] - t[1]) + c.x0 - 8, 8 * (t[0] + t[1]) + 8 - (4 * tl.z0 + 2 * (tl.sx + tl.sy)) + c.y0 - 13)
+    """the ball's picture top-left on tile t's centre, on its floor (130.10.4.5); a FIELD tile's at ground
+    height, marked (SPEC.md 130.28.10)"""
+    return way_xy(c.tiles[t], t[0], t[1], c.x0, c.y0)
 
 
 def _route_stats(c, steps):
@@ -26862,7 +26890,6 @@ def _field_cases():
         ("a pit's hole not under its radius", S + "pit 22 28 2 radius 2 depth 8 hole 2\n", "under its radius"),
         ("two chutes on one cell", S + "chute 1 round depth 4 way 9 10 2 way 9 16\n", "is laid by this chute"),
         ("the start on a FIELD cell", S.replace("start 7 7", "start 14 12"), "which is a FIELD cell"),
-        ("a way on a FIELD cell", S + "way 14 12\n", "which is a FIELD cell"),
         ("a pad on a FIELD cell", S + "pad steel 14 12\n", "which is a FIELD cell"),
         ("a spring on a FIELD cell", S + "spring 14 12 400\n", "which is a FIELD cell"),
         ("a split cell in a FIELD cell's 3 x 3", S + "floor half left tile 15 10 flat 3\n", "is in the 3 x 3"),
@@ -26913,6 +26940,39 @@ def _field_join_checks(res):
                 up == 0 and flat > 0 and rup > 0 and rflat >= flat))
 
 
+def _auto_run(c, **kw):
+    """the autopilot on course C's route until the goal or 8,000 steps -> (Physics, steps)"""
+    p = Physics(c, play=True, **kw)
+    n = 0
+    while n < 8000 and not p.goal:
+        p.step(p.auto())
+        n += 1
+    return p, n
+
+
+def _field_auto_checks(res):
+    """SPEC.md 130.28.10: the autopilot through shapes - SHAPE's route (all three chutes) and PITS's (both
+    chutes, the dish, the deep pit crossed) reach the goal with no fall; a FIELD way is marked and at ground
+    height in the RAM form, and expand(stored) writes it so; red: 130.6's plane law on the FIELD ways
+    (_auto_plane) sticks in SHAPE's first chute"""
+    for f in ("shapes.bbc", "pits.bbc"):
+        path = os.path.join(COURSE_DIR, f)
+        c = compile_course(open(path).read(), path)
+        nf = sum(1 for t, _ln in c.src.ways if isinstance(c.tiles[t], FieldTile))
+        mark = all(((x ^ c.x0) & 1) == isinstance(c.tiles[t], FieldTile)
+                   for (x, _y), (t, _ln) in zip(Physics(c).route, c.src.ways))
+        p, n = _auto_run(c)
+        res.append(("7 %s (SPEC.md 130.28.10): the autopilot drives its route through its shapes (%d of %d ways "
+                    "FIELD, each marked) to the goal in %d steps, %d falls" % (c.name, nf, len(c.src.ways), n,
+                                                                             p.nfall),
+                    nf > 0 and mark and p.goal and p.nfall == 0 and expand(c.stored, c.name) == bytes(c.cga)))
+        if f == "shapes.bbc":
+            q, m = _auto_run(c, _auto_plane=True)
+            res.append(("7 %s red (130.28.10): 130.6's plane law on its FIELD ways stops at way %d of %d, %s"
+                        % (c.name, q.wp, len(c.src.ways), "the goal" if q.goal else "no goal in %d steps" % m),
+                        not q.goal))
+
+
 def _field_checks(res):
     """SPEC.md 130.28's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
     cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
@@ -26956,6 +27016,7 @@ def _field_checks(res):
                 len(c.ftabs) > 16 and hi and all(c.cells[cl][1] & 0x80 for cl, _t in hi) and drop == len(hi)))
     _field_occ_checks(cs, res)
     _field_join_checks(res)
+    _field_auto_checks(res)
     # the SEAM rule's red arm, and the reader's
     c = cs["CHUTE"]
     tl = dict(c.tiles)
