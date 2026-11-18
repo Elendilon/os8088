@@ -285881,23 +285881,43 @@ centre `px + 8` across; the ground line's centre line, `bz_camera`'s BP,
 down):
 
 - `e` = how far `rel` lies outside the DEAD ZONE (`BZV_ZXL` .. `BZV_ZXR` =
-  128 .. 192 px across, `BZV_ZYL` .. `BZV_ZYR` = 84 .. 116 lines down), 0
-  inside it;
+  80 .. 240 px across, `BZV_ZYL` .. `BZV_ZYR` = 66 .. 134 lines down -
+  LATTICE's bands, 128.17.6.2; the first build's 64 px and 32 lines moved
+  the camera at TRIAL's finish), 0 inside it;
 - `v += 8 e; v -= v >> 2` (arithmetic), then `|v|` at most `BZV_VXM` (1,024:
-  4 px a tick) or `BZV_VYM` (512: 2 lines).
+  4 px a tick) or `BZV_VYM` (1,024: 4 lines).
 
 **The display moves in WHOLE, STEADY steps** (the owner's second look:
 *"smoothness is not 'few pixels' but 'consistent timing and amount of
 pixels'"*). The position is a whole px (line) and moves each frame by the
 axis's SHOWN STEP `s` (the byte after the velocity), signed, at most
-`BZV_SXM` (8 px, a column) or `BZV_SYM` (4 lines, the rows' allowance).
+`BZV_SXM` (8 px, a column) or `BZV_SYM` (8 lines, the rows' allowance: a
+fast ball, and the pathway's marble at ~4.7 px a frame, outran 4).
 After the ticks `s` moves ONE toward the frame's velocity `v [bz_vdiv]`
 (1/256 px) when that lies more than `BZV_HYS` (192, 3/4 px) past `s 256`,
 else stays: a run is uniform, never V2c's first 0, 1, 0, 1 of a velocity
 rounded each frame. A HARD MARGIN - the ball centre at least `BZV_MX`
-(48) px and the centre line `BZV_MY` (40) lines inside the display - sets
-`s` to the most step toward the ball at once; there is no snap (the first
-build's snap became a full write: the owner's "skip").
+(48) px and the centre line `BZV_MY` (40) lines inside the display - moves
+`s` one more toward the ball each frame it is past (never a jump to the
+most, and never a snap: the first build's snap became a full write, the
+owner's "skip").
+
+**The course's edges**: the step shrinks by one a frame while the edge it
+runs toward is nearer than its stopping distance `s (s + 1) / 2`, and never
+passes it - the camera arrives at an edge at rest instead of being clamped
+there mid-pan (a stop in one frame: the owner's jerk rolling into TRIAL's
+finish, whose goal is at the course's edge).
+
+**The finish** (128.22.6 holds the camera): on the VGA `bz_camera` calls
+`BZV_COAST` instead - no ball, zone or margin, each axis's step one nearer
+0 a frame (the edges braked), so a camera still moving comes to rest over
+a few frames rather than in one.
+
+**A PAGED window** (128.22.4.3; a course with `GF_PAGED`): `BZV_PAGE` moves
+each axis to its target - the page's top line, page 0's columns with the
+display on their middle - on a trapezoid: one more line a frame up to the
+most, held, and braked on the stopping distance to arrive exactly (the
+CGA's `BZ_MAXR` rows a frame is 2 lines on the VGA).
 
 **The engine's window from it**: `R0n` = `bz_vcy`'s whole line; `c0n` = c0
 while `bz_vcx` lies in [c0 8, c0 8 + 16] (the window's 16 px of slack,
