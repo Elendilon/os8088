@@ -37,8 +37,8 @@ of 3.
 | P3 | **WIND / BLOWERS**: magnets reversed, weighted glass x2, rubber x1, steel x1/4 | STEP pushes in the blower's region (BUILT on branch `bb-wind`: SPEC.md 128.34; about 0.2 - 0.45k a blower a step, 0.23k fixed, PREDICTED) | SQUIGGLES in the air and spinning ground fans as the hint (a pennant an option); across the crumbling bridge the owner's favourite; an UPDRAFT, and a PIT WIND that lifts glass with no jump - BUILT, below |
 | P4 | **BOOST PADS** (chevrons): before full courses are built, not post-release | a family pad pushing in its record's direction | a family rather than a surface: a surface moves `BZ_PHYSV` and re-authors every demo; a family moves only the FAMV of courses using it. **BUILT** on branch `bb-boost`: SPEC.md 128.40, below |
 | P5 | **SPIKE PIT**: glass shatters, rubber POPS, steel is pushed up to the spikes' height and rolls on - a MATERIAL GATE | CELL per ball (the water trick): floor at spike height for steel, a kill for the others; **POP-UP SPIKES** the same family on a timer, two poses | rubber's POP is new sprite frames (the ball generator, 128.25.5). **BUILT** on `bb-spike` with P8, SPEC.md 128.38 and the section below |
-| P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit |
-| P7 | **DRAWBRIDGE** | cells VOID <-> FLOOR on a timer or a switch, a lane a bridge cell | pairs with P6 |
+| P6 | **SWITCH PLATES, KEYS, GATES** - an option, not the primary mechanic | a plate or key sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's state-driven cell) | keys can reuse the pickups' COLLECTED bit. **BUILT** with P7 as ONE family on `bb-gate` (SPEC.md 128.41, the section below): a channel bit in the slot, not a COLLECTED bit |
+| P7 | **DRAWBRIDGE** | cells VOID <-> FLOOR on a timer or a switch, a lane a bridge cell | pairs with P6. **BUILT** with it (SPEC.md 128.41) |
 | P8 | **GLASS-ONLY: a crystal MEMBRANE** | a tile that is FLOOR for glass only (the CELL-per-ball trick) | the owner asked for a glass-only idea; the updraft (P3) is the other. **BUILT** on `bb-spike`, the SPIKE family's third kind (SPEC.md 128.38) |
 
 ### Chosen - moderate
@@ -442,3 +442,32 @@ rim). The knob build `BZHUMP=1` puts the HUMP test course on the pathway's pad 0
       build; PREDICTED as a chute's FIELD step, +0.4 - 0.9k clk).
 - [ ] **H.7** The owner's answers (SPEC.md 128.44.9): the heights, the bands, a kicker, a bumper hump.
 - [ ] **H.8** A shipped course that uses humps.
+
+## P6 + P7 SWITCHES, KEYS, GATES and the DRAWBRIDGE - built (branch `bb-gate`, SPEC.md 128.41)
+
+Family ID 13, kinds 72 - 75 (`plate`, `key`, `gate`, `bridge`), home `resident`, a 515-byte part; no resident
+engine byte but `BZ_FTAB`'s, `BZ_PHYSV` and every shipped course, demo and identity unchanged (MEASURED, `cmp`).
+A plate (rolled over, grounded) or a key (touched) OPENS its CHANNEL - one of four, each its GLYPH (ring, plus,
+box, cross) black on a white plaque on every element of it, so the pairing reads on CGA and Hercules - for the
+ATTEMPT (latching: the slot's bit, kept by a respawn, zeroed by a play's start). A gate is a WALL while shut and
+never closes in an attempt; a drawbridge cell is FLOOR while down and a near void while up, switched (lowered by
+its channel) or timed (a popspike's timer, a rect's cells a step apart); a ball under the deck when it comes down
+is not lifted. Lanes redrawn on change only (`bz_fmark`); the channel's opening counts the pickup's sound.
+
+- [x] **G.1** SPEC.md 128.41: the decisions (D1 - D8) and the statements, then the record.
+- [x] **G.2** The tool: the statements and refusals (20 string cases), the records, the reader, `GateFamily`,
+      the plaque art (plate, key, grille, hole), the timed bridges in the turns check; `--selfcheck` section
+      `gate` (refusals, records, the glyphs' pairing, nine scenes for every ball on the model each with its
+      control, red arms `noopen`, `nowall`, `lift`) - MEASURED green, every arm red.
+- [x] **G.3** The part `fam/gate.asm` (515 bytes), equal to the model in 27 unicorn scenes (`gt_host`); red
+      arms `gtwall`, `gtmark`, `gtstep`, `gtlift`, `gtup`, each MEASURED red.
+- [x] **G.4** The knob course GATE (`BZGATE=1`, pad 0): plate -> gate, key -> gate, a timed drawbridge, a
+      switched drawbridge, all three balls.
+- [x] **G.5** No shipped course, demo or identity moved (MEASURED, `cmp`); the bundle +528 bytes of RAM, the
+      package +298, the image +1, bss +0.
+- [x] **G.6** LOOKED AT once on MartyPC, CGA and Hercules (the `BZGATE=1` tree; the diary says what was seen).
+- [ ] **G.7** The per-step cost MEASURED (the final pass's `bonanzaphys` / `bonanzaperf` rows on a
+      `BZGATE=1` tree; PREDICTED in SPEC.md 128.41.9).
+- [ ] **G.8** The owner's answers (SPEC.md 128.41.10): latching, the bridge's hole art, a warning pose, four
+      channels.
+- [ ] **G.9** A shipped course that uses them.

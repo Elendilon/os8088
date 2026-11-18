@@ -1,0 +1,60 @@
+# Gate Test - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE test course (SPEC.md 128.41), built only by the
+# BZGATE=1 knob (make BUILD=<tree> BZGATE=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES
+# and makes it the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
+# A PLATE (rolled over) or a KEY (touched) opens its CHANNEL for the attempt: every gate of it opens and every
+# bridge of it comes down.  Each channel is its GLYPH, black on white, on all of its elements.
+#
+# START is a plate at 2 units with a pad for each ball and two switch plates (RING, BOX).  From it:
+#  - east, the RING GATE (wy 8 - 9): a corridor shut by two ring gates until the ring plate is rolled over;
+#    a goal (exit 1) behind them;
+#  - south, the KEY GATE (wx 9 - 10): a lane shut by two plus gates; the PLUS KEY waits in a nook beside it;
+#    a goal behind them;
+#  - south-east, the TIMED DRAWBRIDGE (wy 11 - 12): six cells over the void, down 128 steps in every 256 (2.3 s each way);
+#    caught up, the ball falls; a goal across it;
+#  - west, the BOX DRAWBRIDGE (wy 10 - 11): two cells up until the box plate is rolled over; a goal across it.
+course GATE "Gate Test"
+width  128
+origin 320
+ball   rubber
+
+uses gate
+
+floor rect 8 8 14 14 flat 2   # the start plate
+pad rubber 9 9
+pad steel 10 9
+pad glass 11 9
+start 10 11
+prop plate 12 12 channel ring
+prop plate 9 13 channel box
+
+# THE RING GATE: the corridor east, its two gates, a goal behind them
+floor rect 14 8 24 10 flat 2
+prop gate 18 8 channel ring along x
+prop gate 18 9 channel ring along x
+goal tile 22 8 flat 2 exit 1
+
+# THE KEY GATE: the lane south, its two gates; the key's nook beside it; a goal behind them
+floor rect 9 14 11 24 flat 2
+floor rect 11 15 13 17 flat 2
+prop key 12 16 channel plus
+prop gate 9 19 channel plus along y
+prop gate 10 19 channel plus along y
+goal tile 9 22 flat 2
+
+# THE TIMED DRAWBRIDGE: six thin cells over the void, down 128 steps of every 256
+floor rect 14 11 24 13 flat 2
+float rect 16 11 19 13 thick 0.5
+prop bridge 16 11 19 13 period 256 on 128
+goal tile 22 12 flat 2
+
+# THE BOX DRAWBRIDGE: two thin cells, up until the box plate is rolled over
+floor rect 3 10 8 12 flat 2
+float rect 6 10 7 12 thick 0.5
+prop bridge 6 10 7 12 channel box
+goal tile 4 11 flat 2
+
+target 60
+way 10 11
+way 12 11
+way 12 9
+way 21 9
