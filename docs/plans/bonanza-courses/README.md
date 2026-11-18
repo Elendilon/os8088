@@ -101,6 +101,13 @@ course.
     standard one can be designed in easily.
   Either way every clock is held to the same bar of quality. *Story 11.14
   prices both routes before the second course is drawn.*
+  **What decides it is the ART BEHIND a clock.** A clock's picture BAKES IN
+  whatever is behind it, since nothing is composited at load. So a standard
+  clock can only stand where the same thing is always behind it: in
+  practice, where only the VOID is behind its head. The pillar under it is
+  fine. Where a course cannot be designed round that, its clocks are custom.
+  The sketches check it (FIRST ROLL's `first/sketch.py` places each clock
+  with only void behind its head), and so will the tool (11.14).
 
 ### 1.6 Balls
 
@@ -130,10 +137,12 @@ course.
   example after a keyed gate) is a valid use.
 - **G19. Fast sections are entered fast.** A straightaway (MOON) is built to
   be arrived at with speed.
-- **G20. Flags come after something.** Not right after the start (MOON's
-  first flag came far too soon). A flag on the platform after a challenge
-  (SUMMIT's after the stairs or windmill; MOON's "drop down, jump the gap,
-  flag") is the model.
+- **G20. A flag stands just BEFORE what can kill.** *(Revised 2026-11-18,
+  from FIRST ROLL's pen-in: "We should flag right BEFORE what we think will
+  kill them, not after, and avoid making them redo long sections.")* A fall
+  then replays only the hazard, never a long stretch before it. There is no
+  flag where nothing ahead can kill: FIRST ROLL has none past its leap. Not
+  right after the start either (MOON's first flag came far too soon).
 - **G21. Helping props are a difficulty setting.** Rails beside a bumper
   field (MILL) make an early course easy. A later course can use the same
   shape without them, or without the bumpers (CD2).
@@ -142,6 +151,13 @@ course.
   either side. An obstacle that rewards thinking without a single exact
   answer is the model for the early courses. The "exactly this speed" kind
   is for later courses, and only under G4.
+
+- **G24. Rails protect; on an easy course they never block.** A rail
+  stands where a fall would be, never across the way the player is going
+  (FIRST ROLL's first sketch had a rail stub across the leap's run-up). The
+  STYLE is a choice per course, and even per rail: the see-through GUARD
+  RAIL exists to fix occlusion, and the classic BLOCK RAIL suits an open
+  course where it hides little. This is a style choice, not a rule.
 
 ### 1.8 Already binding, from 2026-11-14 (the plan's R1)
 
