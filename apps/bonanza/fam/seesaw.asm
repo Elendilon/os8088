@@ -31,6 +31,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 TL_NX       equ 18              ; the plate's record
 TL_NY       equ 19
@@ -69,9 +70,10 @@ tl_reset:
     xor ax, ax
     mov [di], ax
     mov [di + 2], al
-    call tl_walk
+    call tl_walk                ; (the family's own records: 130.25.6.10)
 .r:
     jcxz .m
+    call tl_recp
     call tl_timed
     jz .n
     mov al, [bz_nstep]
@@ -80,7 +82,7 @@ tl_reset:
     mov [bx], al
     inc byte [di + 2]
 .n:
-    add si, 32
+    inc bp
     dec cx
     jmp short .r
 .m:
@@ -90,9 +92,11 @@ tl_reset:
 
 ; CELL: every plate cell in the window written from its plate's pose
 tl_cell:
-    call tl_walk                ; ES:SI the records, CX their count
+    call tl_slot
+    call tl_walk                ; ES = the course, BP its list, CX its count
 .r:
     jcxz .x
+    call tl_recp
     cmp byte [es:si], BZ_FK_SEESAW
     jne .n
     push cx
@@ -124,7 +128,7 @@ tl_cell:
     jnz .wy
     pop cx
 .n:
-    add si, 32
+    inc bp
     dec cx
     jmp short .r
 .x:
@@ -141,9 +145,11 @@ tl_step:
     cmp byte [di + 2], 0        ; no timed plate: nothing to walk
     je .x
     call tl_walk
-    xor bx, bx                  ; BX = the record's index
 .t:
     jcxz .x
+    call tl_recp
+    mov bl, [ds:bp]             ; BX = the record's index
+    xor bh, bh
     call tl_timed
     jz .tn
     mov al, [bz_nstep]          ; AL = its pose on n + 1
@@ -174,8 +180,7 @@ tl_step:
     pop cx
     pop bx
 .tn:
-    add si, 32
-    inc bx
+    inc bp
     dec cx
     jmp short .t
 .x:
@@ -191,19 +196,20 @@ tl_weigh:
     je .off
     call tl_bcell               ; DL, DH = the ball's cell
     call tl_walk
-    xor bx, bx                  ; BX = the record's index
 .f:
     jcxz .off
+    call tl_recp
     cmp byte [es:si], BZ_FK_SEESAW
     jne .fn
+    mov bl, [ds:bp]             ; BX = the record's index
+    xor bh, bh
     call tl_on
     jae .fn
     test byte [es:si + TL_FL], TLF_TIME
     jz .on                      ; (on a TIMED plate: no weight)
     jmp short .off
 .fn:
-    add si, 32
-    inc bx
+    inc bp
     dec cx
     jmp short .f
 .off:
@@ -377,16 +383,17 @@ tl_cellz:
     ret
 
 ; AL = a plate's element (0FFh: every plate) -> each of its lanes MARKED
-; (bz_fmark).  Preserves all but ES.
+; (bz_fmark).  DI = the slot.  Preserves all but ES.
 tl_mark:
     push ax
     push bx
     push cx
     push si
+    push bp
     call tl_walk
-    xor bx, bx
 .l:
     jcxz .x
+    call tl_recp
     cmp byte [es:si], BZ_FK_SEESAWLANE
     jne .n
     cmp al, 0ffh
@@ -394,13 +401,15 @@ tl_mark:
     cmp [es:si + TL_PLATE], al
     jne .n
 .m:
+    mov bl, [ds:bp]
+    xor bh, bh
     call far [bz_fmkp]
 .n:
-    add si, 32
-    inc bx
+    inc bp
     dec cx
     jmp short .l
 .x:
+    pop bp
     pop si
     pop cx
     pop bx
@@ -493,13 +502,16 @@ tl_rec:
     pop cx
     ret
 
-; -> ES:SI the course's first record, CX the records.  Preserves all else.
+; DI = the slot -> ES = the course, BP = the slot's list of its records
+; (DS), CX their count (bzfwalk.inc).  Preserves all else.
 tl_walk:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
+    push bx
+    call tl_fw
+    mov bp, bx
+    pop bx
     ret
+    BZ_FWALK tl_fw
+    BZ_FREC tl_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 %if BZF_SLOT != 8

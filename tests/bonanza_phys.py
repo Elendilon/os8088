@@ -1804,7 +1804,7 @@ def _cellb(c):
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
-def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None):
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
@@ -1812,7 +1812,11 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     snapshot and each element's POSE through bz_ltrue.  SRC: a course file
     the build does not ship (a knob build's: MAGNETS', SPEC.md 130.33.10;
     WIND's, 130.34.8), compiled here and played as course K (default
-    PLAYGROUND's K), its time limit the model's.  -> (model, failures)"""
+    PLAYGROUND's K), its time limit the model's.  SLICE: the wheel walk's
+    lanes [lo, hi) (bz_lr0, bz_lr1), default every lane - bz_fmark marks
+    and wakes nothing outside it (SPEC.md 130.19.10 item 11), so a pose
+    change there must leave its lane UNmarked, and one inside it marked.
+    -> (model, failures)"""
     c = R.course(crs, src=src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
     g.w("bz_cseg", UPS, 2)
@@ -1857,6 +1861,9 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     lanes += [pr for pr in p.props if pr["kind"] == BB.PK_GROUP]     # SPEC.md 130.32: the GROUP lanes too
     if lanes:                                   # (bz_pread's count, which a RESET's marks walk: the lane
         g.w("bz_nlane", sum(1 for pr in p.props if pr.get("lane")), 1)  # records are the first)
+    lo, hi = slice if slice is not None else (0, 255)   # (130.19.10 item 11: the walk's slice, which no walk
+    g.w("bz_lr0", lo, 1)                                # moves here)
+    g.w("bz_lr1", hi, 1)
     alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 130.19.10 item 10: EVERY lane's KICK and
     for i, k in enumerate(keys):                            # HOLD too (bz_pkick, bz_lhold: a post's)
         g.w("bz_keys", k, 1)
@@ -1873,6 +1880,11 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
         if lanes:                               # SPEC.md 130.25.6.3: a step that moves an element's
             for pr, q0 in zip(lanes, pose0):    # pose MARKS its lane and makes the next walk (bz_lqt 0,
                 q1 = p.fpose(pr)                # bz_nset's rule: the quiet walk reads no mark)
+                if not lo <= pr["i"] < hi:      # (off the slice: never marked, 130.19.10 item 11)
+                    if g.r("bz_latt", 1, False, pr["i"]):
+                        bad.append("step %d: element %d off the slice [%d, %d) MARKED (pose %d -> %d)" % (
+                            i, pr["i"], lo, hi, q0, q1))
+                    continue
                 if q1 != q0 and (not g.r("bz_latt", 1, False, pr["i"]) or g.r("bz_lqt", 1, False)):
                     bad.append("step %d: element %d's pose %d -> %d, but bz_latt %d, bz_lqt %d (never drawn)" % (
                         i, pr["i"], q0, q1, g.r("bz_latt", 1, False, pr["i"]), g.r("bz_lqt", 1, False)))
@@ -2752,8 +2764,8 @@ def water_reds():
                         "    mov byte [bz_surf], 0FFh\n"), "water-steel", "working values"),
             ("warefill", ("    mov [di], al\n    mov byte [bz_fref], 1\n", "    mov [di], al\n"), "water-pad",
              "the window"),
-            ("wafloat", ("    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less BP\n    sub ax, bp ",
-                         "    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less BP\n    nop\n    nop "),
+            ("wafloat", ("    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less CH\n    sub al, ch ",
+                         "    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less CH\n    nop\n    nop "),
              "water-rubber", "the window"),
             ("wabsnap", ("    sub word [bz_gz], 4 << 8\n    sbb word [bz_gz + 2], 0\n", ""), "water-float", "the ball"),
             ("wabflip", ("    mov byte [bz_fref], 1\n    test al, 1 << BZ_WA_FBSH\n", "    test al, 1 << BZ_WA_FBSH\n"),
@@ -2761,7 +2773,8 @@ def water_reds():
             ("waact", ("    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n    call far [bz_fmkp]\n.x:\n    retf\n\n"
                        "; POSE", "    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n.x:\n    retf\n\n; POSE"),
              "water-rubber", "never drawn"),
-            ("waalw", ("    jz .wn\n    call far [bz_fmkp]\n", "    jz .wn\n"), "water-deep", "never drawn"))
+            ("waalw", ("    xor bh, bh\n    call far [bz_fmkp]\n    pop bx\n.wn:", "    xor bh, bh\n    pop bx\n.wn:"),
+             "water-deep", "never drawn"))
 
 
 def water_host(binp, lst, sym, fam):
@@ -3269,6 +3282,19 @@ def tt_host(binp, lst, sym):
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    # SPEC.md 130.19.10 item 11: tt-rest's flips with the walk's slice EMPTY - nothing marked, the walk not
+    # woken (every lane off it); red ttslice, bz_fmark's slice test gone (its lane marked though off it)
+    name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == "tt-rest")
+    for arm, pp in (("ttslice-green", ()), ("ttslice", (("bz_fm1", b"\x90" * 12),))):
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, slice=(0, 0))
+        hit = next((b for b in bad if "off the slice" in b), None)
+        if arm == "ttslice-green":
+            out.append("turntable tt-rest, the slice empty: %s" % ("; ".join(bad)[:200] or "nothing marked"))
+            fails += ["turntable tt-rest (the slice empty): %s" % b for b in bad]
+        else:
+            out.append("red %s (tt-rest): %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+            if not hit:
+                fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     return out, fails
 
 
@@ -3407,7 +3433,8 @@ def mill_replays():
     keys = [0] * (n_arr + 8) + [hi_out] * 60
     p = run_keys("mill", 0, pk, keys)
     q = model("mill", 0, pk)
-    turn = lambda r: (BB.sprite(r, 0), BB.sprite(r, 1)[0], BB.sprite(r, 1)[1] & ~8)
+    turn = lambda r: BB.sprite(r, 0)    # (the roll's phases, the CGA's: the Hercules' vertical one follows the
+                                        # LINE's parity too, SPEC.md 130.11.9.2, which a rising lift moves)
     f0, spin = turn(q), 0
     for k in keys[:n_arr + 8]:
         q.step(k)

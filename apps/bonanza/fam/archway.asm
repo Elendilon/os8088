@@ -28,6 +28,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 AR_CLR      equ 18              ; the element's record: its clearance (word)
 
@@ -51,12 +52,11 @@ ar_cell:
     mov [di + 2], ax
     mov [di + 4], ax
     mov dx, [bz_gz + 1]         ; DX = Z
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
+    call ar_walk                ; the family's own records (130.25.6.10):
+    mov bp, bx                  ; BP the list, CX its count
     jcxz .x
 .r:
+    call ar_recp
     cmp byte [es:si], BZ_FK_ARCHWAY
     jne .n
     mov al, [es:si + 2]         ; AL = wx - the window's wx + 1, 0 - 2
@@ -94,7 +94,7 @@ ar_cell:
     jge .n
     mov [di + 2], ax            ; HI = min(HI, C)
 .n:
-    add si, 32
+    inc bp
     loop .r
 .x:
     retf
@@ -127,6 +127,9 @@ ar_step:
     mov byte [bz_fref], 1
 .x:
     retf
+
+    BZ_FWALK ar_walk
+    BZ_FREC ar_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 %if BZF_SLOT != 8

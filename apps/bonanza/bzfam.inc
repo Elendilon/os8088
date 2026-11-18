@@ -65,6 +65,11 @@ VAR bz_fhl,BZ_FHENT * BZF_HE    ; hook b's list runs from the word bz_fhs[b] to
 VAR bz_fmkp,4                   ; bz_fmark's far pointer, which every dispatch writes:
                                 ; a hook MARKS a lane by `call far [bz_fmkp]`
 VAR bz_frec,BZ_FAMMAX * BZF_REC ; the slot records
+VAR bz_fls,BZ_FAMMAX * 2        ; per slot, ITS RECORDS (bz_flist, a play's start;
+VAR bz_flst,BZ_PROPALL          ; SPEC.md 130.25.6.10): +0 its list's start in
+                                ; bz_flst, +1 their count - each a record's
+                                ; index, in record order: the records whose
+                                ; kind is the family's run
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -146,17 +151,19 @@ bz_fh0:
 ; family part reaches it by `call far [bz_fmkp]`, which every dispatch points
 ; here, BX the element (its lane).  A GROUP MEMBER (SPEC.md 130.32.5: its
 ; record's flag GRP, +8 - +15 its group lanes, 0FFh after the last) marks
-; every lane it lists.  Preserves everything.
+; every lane it lists.  A lane OUTSIDE the walk's slice [bz_lr0, bz_lr1) is
+; neither marked nor makes the walk (130.19.10 item 11): entering the range
+; marks it anyway (item 6), so a popspike flipping off the screen costs the
+; frame nothing.  Preserves everything.
 ; -----------------------------------------------------------------------------
 bz_fmark:
-    mov byte [bz_lqt], 0
     push si                     ; (the COMMON path - a lone element - saves
     push es                     ; only these two and reads the flag first)
     mov es, [bz_cseg]           ; (by the record's flag, never by bz_nlane: a
     call bz_lrecsi              ; RESET at bz_pinit runs before bz_pread sets it)
     test byte [es:si + BZP_FLAGS], BZ_PF_GRP
     jnz .grp
-    mov byte [bz_latt + bx], 1
+    call bz_fm1
     pop es
     pop si
     retf
@@ -168,7 +175,7 @@ bz_fmark:
     mov bl, [es:si + BZP_LROW]  ; (BH 0: an element's index is a byte)
     cmp bl, 0ffh
     je .d
-    mov byte [bz_latt + bx], 1
+    call bz_fm1
     inc si
     loop .l
 .d:
@@ -177,6 +184,73 @@ bz_fmark:
     pop es
     pop si
     retf
+
+; lane BX (BH 0) marked and the walk made, when it is in the slice
+bz_fm1:
+    cmp bl, [bz_lr0]
+    jb .x
+    cmp bl, [bz_lr1]
+    jae .x
+    mov byte [bz_latt + bx], 1
+    mov byte [bz_lqt], 0
+.x:
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_flist - EACH FAMILY'S OWN RECORDS (SPEC.md 130.25.6.10), at a play's start
+; (bz_pinit, before RESET): per slot, the offsets of the records whose kind
+; lies in its part's run (+9 the count, +10 the first), in record order, into
+; bz_flst, and bz_fls the list's start and count.  A family's walk reads its
+; list (BZ_FWALK, bzfwalk.inc), never the whole prop table: the kinds' runs
+; are disjoint, so each record is on one list at most.  DS = ours, [bz_cseg],
+; [bz_poff] and [bz_nprop] the course's.  Preserves ES; clobbers AX, BX, CX,
+; DX, SI, DI, BP.
+; -----------------------------------------------------------------------------
+bz_flist:
+    push es
+    mov di, bz_flst
+    mov bx, bz_frec
+    xor dx, dx                  ; DL = the slot
+.s:
+    cmp dl, [bz_fnf]
+    jae .x
+    mov es, [bx + BZF_RDSEG]
+    mov ax, [es:9]              ; AL the kinds, AH the first
+    mov es, [bz_cseg]
+    xor dh, dh
+    mov bp, dx                  ; BP = 2 slot: its header
+    shl bp, 1
+    mov cx, di
+    sub cx, bz_flst
+    mov [ds:bp + bz_fls], cl    ; (under BZ_PROPALL: a byte)
+    mov si, [bz_poff]
+    mov cl, [bz_nprop]
+    xor ch, ch
+    jcxz .e
+    mov dh, ch                  ; DH = the record's index
+.r:
+    mov ch, [es:si]
+    sub ch, ah
+    cmp ch, al
+    jae .n
+    mov [di], dh
+    inc di
+.n:
+    add si, 32
+    inc dh
+    dec cl
+    jnz .r
+.e:
+    mov ax, di
+    sub ax, bz_flst
+    sub al, [ds:bp + bz_fls]
+    mov [ds:bp + bz_fls + 1], al
+    add bx, BZF_REC
+    inc dl
+    jmp short .s
+.x:
+    pop es
+    ret
 
 ; -----------------------------------------------------------------------------
 ; bz_frst - a RESPAWN's families (SPEC.md 130.25.6.3, 130.25.7.2), from bz_step's

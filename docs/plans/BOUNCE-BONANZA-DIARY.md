@@ -6247,3 +6247,50 @@ worth more than this course:
   MartyPC CGA measurements above. **Not run**: soak rows, `test-full`, a VGA
   timing (MartyPC models no ISA VGA wait states; the owner's 5150 is the
   instrument for that).
+
+## 2026-11-18 (the props' walks: each family its own records, no mark off the slice)
+
+- **The ask** (the owner): the PLAYGROUND demo (enter, hold down and right)
+  ran at ~157k clocks a frame against a ~80k target on the VGA, and *"props
+  that are not on screen, or even if they are on screen are not animating,
+  should cost almost nothing"*; *"if something is offscreen, its lane
+  shouldn't be marked right?"*
+- **Measured first** (`tools/bzprof.py --demo play`, a CS:IP sample every
+  15 - 45k guest clocks, family samples named by matching their bytes in the
+  built parts): SPIKE's STEP 10.0% and GATE's STEP 7.8% of the VGA 8088's
+  time, for a handful of popspikes and timed bridges. Both walked all 66 of
+  PLAYGROUND's records every step and tested each one's kind, and every
+  popspike's flip called `bz_fmark`, which marked its lane and woke the
+  wheel walk wherever the popspike was.
+- **Two changes** (SPEC.md 130.25.6.10, 130.19.10 item 11): `bz_flist` gives
+  each slot a list of its own records' indexes at a play's start, and every
+  per-step or per-refill walk of a family reads its list; and `bz_fmark`
+  drops a mark whose lane is outside the walk's slice, which entering the
+  range marks anyway. GLASS's range fix from the other session (the crack
+  lab) stands beside it, with its CELL walk now on the list too.
+- **Events not needed**: with the lists, SPIKE's and GATE's whole STEP
+  hooks are 2.2% of the VGA's time together, timers included, and the frame
+  rate is at the camera's cap. Scheduling the timers as events would save
+  part of that 2.2% and touch the model; not done.
+- **Measured** (the base 4512c89fe, the same demo): VGA 30.2 -> 36.5 frames
+  a second (the camera's 35 Hz cap), CGA 52.3 -> 59.2 (of 60); the physics
+  steps unchanged at 55.7 - 55.8 a second; `sp_step` 10.0% -> 0.9% and
+  `gt_step` 7.8% -> 1.3% on the VGA.
+- **What it cost**: the package's image +122 and bss +96, leaving **64
+  bytes** under `APP_MAX_SIZE`; the parts +455 bytes, their ceilings +30
+  paragraphs. The first cut used word offsets (192 bytes of bss) and did not
+  fit; byte indexes do.
+- **Found on the way**: the unicorn harness never runs a walk, so its slice
+  was empty and the new rule dropped every mark (440 "never drawn"
+  failures) - the harness now sets the slice to every lane and checks the
+  off-slice rule on its own (`tt-rest` with the slice empty; red
+  `ttslice`). Two renames caught a family's OWN `*_rec` (BX element ->
+  record) as well as the new list helper, and the poses parted at once.
+  MILL's `ride` scenario was already failing at the base: the Hercules'
+  vertical phase follows the line's parity since the diagonal fix, and the
+  scenario's "no spin" mask was the old formula's; it compares the CGA's
+  roll phases now.
+- **Run**: `make` of the BONANZA disks, `tests/bonanza_phys.py --check`,
+  `bzprof` on VGA and CGA at the base and after. **Not run**: soak rows
+  (named for the phase's scoped soak: `bonanzaphys`, `bonanzawheel`,
+  `bonanzaring`, `bonanzaperf`, `bonanzamega`).

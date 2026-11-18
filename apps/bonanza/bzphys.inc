@@ -388,6 +388,8 @@ bz_pinit:
     mov [bz_nprop], al
     call bz_obuild              ; (130.19.10: the owners' index, before the
                                 ; first refill)
+    call bz_flist               ; (130.25.6.10: each family's own records,
+    mov es, [bz_cseg]           ; before its RESET walks them)
     mov ax, BZ_HK_RESET         ; wave 9 (130.25.6.3): the families' RESET, class
     call bz_fall                ; 0 (bz_fst and the slots are zero), before the
                                 ; start's refill reads the state (none: no call)

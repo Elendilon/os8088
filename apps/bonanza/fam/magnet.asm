@@ -33,6 +33,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
     db 'BF'
     db BZ_FID_MAGNET            ; (bzcourse.inc's: the ID is FAMILIES' alone)
@@ -120,14 +121,10 @@ mg_pose:
 ; DH (one at most: the tool's rule) -> its element + 1 in [DI + 6] (0 none) and
 ; its force in +2 - +6 (zeroed by the caller).  Clobbers AX, BX, CX, SI, ES.
 mg_scan:
-    mov cl, [bz_nprop]
-    xor ch, ch
+    call mg_walk                ; (the family's own records: 130.25.6.10)
     jcxz .out
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    xor bx, bx
 .l:
-    inc bx                      ; (BX = the element + 1)
+    call mg_rec
     cmp byte [es:si], BZ_FK_MAGNET
     jne .n
     mov al, dl                  ; AL along, AH across: the cell less the post
@@ -148,11 +145,14 @@ mg_scan:
     cmp al, [es:si + 20]
     jb .hit
 .n:
-    add si, 32
+    inc bx
     loop .l
 .out:
     ret
 .hit:
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
+    inc bx                      ; (the element + 1)
     mov [di + 6], bl
     test byte [es:si + 19], 1
     jnz .down
@@ -237,6 +237,9 @@ mg_stop:
     call far [bz_fmkp]
 .r:
     ret
+
+    BZ_FWALK mg_walk
+    BZ_FREC mg_rec, bx
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 %if BZF_SLOT != 8
