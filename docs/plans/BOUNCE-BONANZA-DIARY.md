@@ -5945,3 +5945,52 @@ decides.
 **Tested**: `make bonanzadisk`; MartyPC: the MILL, MOON and TRIAL demos,
 BENCH's route 800 frames (0 px), FIRST's free play. **Not run**: soak rows,
 the owner's eye.
+
+## 2026-11-18 (FIRST ROLL revision 6, and `art` on play courses)
+
+The owner, on playtest 4:
+
+> The second clock isn't where it was in my screenshot, but it kind of
+> works there; so we'll go with it. The bottom clock and stop down work
+> great. The unwalled hill plays fine, and adds a bit of visual interest.
+> The hole is in the natural path of travel, though easy to avoid which
+> works for a first course.
+>
+> Markup: Lets try the top black circled rails as guardrails, again for
+> visual interest. Then lets move the flag one space down (red mark), so
+> its in the natural path of travel. Finally, an issue that I'm probably
+> going to pass to another session for a generalized fix, but we could take
+> one stab at it here in course design. The tiles in the second black
+> circle give no good indication that surface that one of them is not the
+> same height; or that the "rail" is only one block, not all three. ...
+> we could just remove it and leave that corner open.
+>
+> Finally, make some recommendations - what can we do to add visual
+> interest to the course?
+
+And:
+
+> I don't see any reason to restrict "art" to title only; we can just make
+> sure we use it smartly so it doesn't need collision or physics, and use
+> occlusion on art very sparingly. And avoid blowing up the size budget.
+
+**Revision 6**:
+- the ledge's back rail is a guard rail, its first tile open (a guard may
+  not stand beside a ramp);
+- flag 0 is one space down, in the path;
+- the lone rail block at the corner of the last step is removed. Its
+  general fix (a raised block that reads as a tile) is the other session's.
+
+The course part is 8,622 bytes on the disk.
+
+**`art` on a play course** (SPEC.md 130.23.2): the same statement, in the
+PICTURE's pixels, the topmost layer, with no collision, physics or
+occlusion. Tested with a throwaway decal on a scratch copy: its 16 opaque
+pixels landed exactly where placed and nothing else moved; a decal off the
+picture is refused. The title and the pathway keep their window-relative
+form.
+
+**The recommendations** for visual interest are the sheet's section 7.
+
+**Run**: the tool and previews; the model's steered run (37.2 s, no pans);
+the playtest build. **Not run**: the guest (fork rule 5).

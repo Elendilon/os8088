@@ -45,15 +45,14 @@ floor rect  49  53  55  58  flat 3.5   # H
 chute 2 round depth 8 way 26 32 16 way 26 35 15 way 33 35 12.5
 
 # rails: block rails (wall tiles) on the void side of each railed edge
-wall  tile  18  20  flat 22
-wall  tile  19  20  flat 22
-wall  tile  20  20  flat 22
-wall  tile  21  20  flat 22
-wall  tile  22  20  flat 22
+guard tile  19  20                # see-through
+guard tile  20  20                # see-through
+guard tile  21  20                # see-through
+guard tile  22  20                # see-through
 wall  tile  22  28  flat 18
 wall  tile  22  29  flat 18
 wall  tile  22  31  flat 18
-wall  tile  23  20  flat 22
+guard tile  23  20                # see-through
 wall  tile  23  23  flat 22
 wall  tile  23  24  flat 22
 wall  tile  23  25  flat 21.5
@@ -97,7 +96,6 @@ wall  tile  38  37  flat 13.5
 wall  tile  38  38  flat 13.5
 wall  tile  38  39  flat 12.5
 wall  tile  38  40  flat 12.5
-wall  tile  38  41  flat 11.5
 wall  tile  41  44  flat 11.5
 wall  tile  41  47  flat 10.5
 wall  tile  41  48  flat 10.5
@@ -151,7 +149,7 @@ wall  tile  55  57  flat 5.5
 hole  tile 25 29
 goal  rect 49 56 55 58  flat 3.5
 start 9 9
-checkpoint 24 21 ball rubber   # flag 0
+checkpoint 24 22 ball rubber   # flag 0
 checkpoint 36 42 ball rubber   # flag 1
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block

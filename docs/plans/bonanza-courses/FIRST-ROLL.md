@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 4, revision 5** (the owner's mark-ups on playtest 3) (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 5, revision 6** (the owner's mark-ups on playtests 3 and 4) (`apps/bonanza/courses/roll.bbc`,
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,17 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 6, from playtest 4** (the owner: the middle clock "kind of
+  works there", the bottom clock and `stop down` "work great", the unwalled
+  hill "plays fine, and adds a bit of visual interest", the hole "in the
+  natural path of travel, though easy to avoid which works for a first
+  course"):
+  - the ledge's back rail is a see-through GUARD rail. Its first tile is
+    left open: a guard rail may not stand beside the hill's last ramp;
+  - flag 0 moves one space down, onto the line the ball takes into the
+    run-up;
+  - the lone rail block at the corner of the last step is gone. It read as
+    a tile at the walk's height, and that corner is open now.
 - **Revision 5, from playtest 3's mark-ups:**
   - **the hill has no rails and no back wall** (*"the guard here is that
     its so wide. We may or may not keep the idea; I just want to see if it
@@ -204,3 +215,42 @@ running down to the ground), and none stands behind a block.
 - **The model's steered run** is a scratch script in the session, not a
   row. It follows the sketch's route with a simple steering rule and
   reaches the goal in 35.7 s with no fall.
+
+## 7. Visual interest: recommendations (2026-11-18, for the owner)
+
+Each is priced in bytes or clocks. None is built; the owner picks.
+
+1. **Floating terraces instead of columns** (`float`, faces 3 units deep).
+   - Today every section stands on a column to the ground, so the course
+     reads as one magenta monolith.
+   - Floating the hill's landings, the walk and the leap's landing would
+     show void between the levels: depth, a silhouette and gaps the eye
+     reads as drops.
+   - It also SAVES bytes, since most of the picture is those columns.
+   - It is the standard column tile's twin, for the kit.
+2. **Floor decals with `art`** (now allowed on play courses, SPEC.md
+   130.23.2): painted on floor tops, so the ball rolls over them and no
+   occlusion is needed.
+   - A START mark on the plateau, chevrons down the lip's ramp, a warning
+     ring round the hole, a painted finish banner on the goal plateau.
+   - A few hundred bytes each (the unique blocks they make).
+3. **Backdrop art in the void beside the course**: a sun or moon, a cloud
+   bank, a distant skyline, in the locked window's black margins and never
+   in front of the path. The window never pans across here, so a backdrop
+   stays put like a stage set. Its blocks are the cost, so it is kept
+   small.
+4. **Diagonal tiles** (SPEC.md 130.24) on the outer corners of the
+   landings and the goal plateau, to soften the stair-stepped edges. Tool
+   and picture only.
+5. **A frame at the finish**: an ARCHWAY (SPEC.md 130.39) over the goal
+   line, or two pillars and a painted banner between them. The arch is a
+   family part with lanes; the pillars and banner are picture only.
+6. **Lone pillars and towers in the void** (single floating tiles, as the
+   clock pillars are): rhythm and landmarks down the descent at a tile's
+   bytes each. Placed away from the path, they can never be in the way.
+7. **Palette and light**: the course's CGA palette (`palette`, SPEC.md
+   130.16.6) for a bright first course, chosen by the owner on the glass.
+
+**Suggested first try**: 1 and 2 together on the hill and the lip, one
+playtest, measured against today's 8,622 bytes.
+

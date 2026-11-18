@@ -9872,7 +9872,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             raise CourseError("%s:%d: the title needs a `view`" % (fname, src.title_ln))
     else:
         for what, v in (("view", src.pathway is None and src.view and src.view[2]),
-                        ("art", src.arts and src.arts[0][3]), ("label", src.labels and src.labels[0]["line"])):
+                        ("label", src.labels and src.labels[0]["line"])):    # (ART is any course's: 130.23.2)
             if v:
                 raise CourseError("%s:%d: `%s` is the title's, and this is no `title`" % (fname, v, what))
     props = build_props(src, tiles, fname)
@@ -10067,7 +10067,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     cv = render(tiles, ops, x0, y0, width, lines, owners)
     for afile, ax, ay, aln in src.arts:              # SPEC.md 130.23.2: ART, the topmost layer, no depth
         for (x, y), ink in read_bba(os.path.join(COURSE_DIR, afile), fname, aln).items():
-            px, py = 8 * view[1] + ax + x, view[0] + ay + y      # (the CGA window's pixels, 130.23.2)
+            if view is not None:                    # (the title's: the CGA window's pixels, 130.23.2)
+                px, py = 8 * view[1] + ax + x, view[0] + ay + y
+            else:                                   # (a play course's: the PICTURE's pixels, 130.23.2.1)
+                px, py = ax + x, ay + y
             if not (0 <= px < width and 0 <= py < lines):
                 raise CourseError("%s:%d: art %s's pixel (%d, %d) is off the picture (%d x %d)"
                                   % (fname, aln, afile, x, y, width, lines))
