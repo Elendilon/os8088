@@ -38,7 +38,10 @@ GT_GKD      equ 20              ; a bridge's grid +2 byte
 GT_ON       equ 21              ; a timed bridge's timer
 GT_MASK     equ 22
 GT_SEED     equ 23
-%if BZ_FK_KEY != BZ_FK_PLATE + 1 || BZ_FK_GATE != BZ_FK_PLATE + 2 || BZ_FK_BRIDGE != BZ_FK_PLATE + 3
+GT_ART      equ 24              ; SPEC.md 128.41.12: a gate's or bridge's ART (no lane of
+                                ; its own); an art LANE (kind BZ_FK_GALANE): +19 its channel
+GT_AFR      equ 4               ; an art's frames: the cell opens at the last
+%if BZ_FK_KEY != BZ_FK_PLATE + 1 || BZ_FK_GATE != BZ_FK_PLATE + 2 || BZ_FK_BRIDGE != BZ_FK_PLATE + 3 || BZ_FK_GATELANE != BZ_FK_PLATE + 4
  %error "the gate family's kinds are consecutive: plate, key, gate, bridge"
 %endif
 
@@ -47,7 +50,7 @@ GT_SEED     equ 23
     db BZ_FAMV_GATE
     dw BZL_IMAGE, BZL_BSS
     db BZ_FH_RESET | BZ_FH_CONTACT | BZ_FH_STEP | BZ_FH_POSE | BZ_FH_CELL
-    db 4, BZ_FK_PLATE           ; four kinds: plate, key, gate, bridge
+    db 5, BZ_FK_PLATE           ; five kinds: plate, key, gate, bridge, an art's lane
     db 0
     dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell
 %if $ - $$ != BZF_HDR
@@ -106,6 +109,8 @@ gt_contact:
     ja .n
     cmp [es:si + GT_CH], dl
     jne .n
+    cmp byte [es:si + GT_ART], 0    ; (an art element has no lane to mark)
+    jne .n
     call far [bz_fmkp]          ; (bz_fmark: the walk made; preserves all)
 .n:
     add si, 32
@@ -118,6 +123,39 @@ gt_contact:
 ; window refilled when it is in it
 gt_step:
     call gt_slot
+    mov al, [bz_nstep]          ; SPEC.md 128.41.12 A5: channel c's art frame
+    test al, 1                  ; steps on n AND 7 = 2 c
+    jnz .t
+    and al, 7
+    shr al, 1
+    mov cl, al                  ; CL = c
+    mov dl, 1
+    shl dl, cl
+    test [di], dl               ; open?
+    jz .t
+    mov bl, cl
+    xor bh, bh
+    cmp byte [di + 2 + bx], GT_AFR - 1
+    jae .t
+    inc byte [di + 2 + bx]
+    cmp byte [di + 2 + bx], GT_AFR - 1
+    jb .m
+    mov byte [bz_fref], 1       ; (at the last: the cell opens)
+.m:
+    call gt_walk                ; every art lane of channel c MARKED
+    xor bx, bx
+    jcxz .t
+.ml:
+    cmp byte [es:si], BZ_FK_GATELANE
+    jne .mn
+    cmp [es:si + GT_DECK], al   ; (+19 its channel; AL = c)
+    jne .mn
+    call far [bz_fmkp]
+.mn:
+    add si, 32
+    inc bx
+    loop .ml
+.t:
     cmp byte [di + 1], 0
     je .x
     call gt_walk
@@ -159,6 +197,15 @@ gt_step:
 gt_pose:
     call gt_slot
     call gt_rec
+    cmp ah, BZ_FK_GATELANE      ; an art lane: its channel's frame
+    jne .ng
+    push bx
+    mov bl, [es:si + GT_DECK]
+    xor bh, bh
+    mov al, [di + 2 + bx]
+    pop bx
+    retf
+.ng:
     cmp ah, BZ_FK_BRIDGE
     je .br
     mov cl, [es:si + GT_CH]     ; the channel open: 1
@@ -190,10 +237,7 @@ gt_cell:
     push cx
     or dh, dh
     jnz .br
-    mov cl, [es:si + GT_CH]     ; a gate: shut, a WALL (its surface kept)
-    mov al, [di]
-    shr al, cl
-    test al, 1
+    call gt_open                ; a gate: shut, a WALL (its surface kept)
     jnz .p
     and byte [bz_nbr + bx + 2], 0f0h
     or byte [bz_nbr + bx + 2], BZ_AR_WALL
@@ -229,16 +273,31 @@ gt_cell:
 .x:
     retf
 
-; ES:SI = a bridge's record, DI = the slot -> AL 1 down, 0 up.  Clobbers CL.
-gt_down:
+; ES:SI = a gate's or switched bridge's record, DI = the slot -> ZF clear (and
+; AL 1) when it is OPEN: its channel's bit, or for an ART element its channel's
+; frame at the last (SPEC.md 128.41.12 A6).  Clobbers CL, AL.
+gt_open:
     mov cl, [es:si + GT_CH]
-    cmp cl, BZ_GT_TIMED
-    je .t
+    cmp byte [es:si + GT_ART], 0
+    jne .a
     mov al, [di]
     shr al, cl
     and al, 1
     ret
-.t:
+.a:
+    push bx
+    mov bl, cl
+    xor bh, bh
+    cmp byte [di + 2 + bx], GT_AFR - 1
+    pop bx
+    sbb al, al                  ; (0FFh under the last)
+    inc al                      ; -> 0 shut, 1 open (ZF from inc)
+    ret
+
+; ES:SI = a bridge's record, DI = the slot -> AL 1 down, 0 up.  Clobbers CL.
+gt_down:
+    cmp byte [es:si + GT_CH], BZ_GT_TIMED
+    jne gt_open
     mov al, [bz_nstep]
     add al, [es:si + GT_SEED]
     and al, [es:si + GT_MASK]

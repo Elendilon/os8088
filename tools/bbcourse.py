@@ -30233,6 +30233,8 @@ GT_SC = {
     "timed": ((14, 12), ((21.0, 12.0),), 200, 0),               # across the timed bridge while it is down
     "late": ((14, 12), ((21.0, 12.0),), 200, 60),               # ...too late: it goes up under the ball
     "under": ((14, 12), ((21.0, 12.0),), 300, 200),             # into it while up, and it comes down over the
+    "art": ((10, 7), ((10.5, 3.5),), 300, 0),       # SPEC.md 128.41.12: over the corridor's ring plate into the
+                                                    # CRUMBLE, held until its frame 3, then through it
 }                                                               # falling ball: no lift (the red arm `lift`)
 
 
@@ -30327,7 +30329,72 @@ def _gt_cases():
         ("a style twice", C + P + "prop gate 8 6 channel ring style picket style crystal\n", "not 'style'"),
         ("a style on a plate", C + P + "prop plate 6 6 channel box style picket\nprop gate 8 6 channel box\n"
          "prop gate 9 6 channel ring\n", "not 'style'"),
+        # SPEC.md 128.41.12: the designer's ART (the bad files are _sc_gate's, written to a scratch GT_ADIR)
+        ("an art of no file", C + P + "prop gate 8 6 channel ring art hedge\n", "gate art 'hedge'"),
+        ("an art and a style", C + P + "prop gate 8 6 channel ring art crumble style picket\n", "`art` or `style`"),
+        ("an art on a timed bridge", C + "prop bridge 8 6 period 64 on 8 art crumble\n", "TIMED bridge takes no"),
+        ("a gate's art on a bridge", C + P + "prop bridge 8 6 channel ring art crumble\n", "is a gate's, not"),
+        ("an art on a plate", C + "prop plate 7 7 channel ring art crumble\nprop gate 8 6 channel ring\n",
+         "not 'art'"),
+        ("a gateart twice", C.replace("uses gate", "gateart crumble\ngateart door\nuses gate") + P
+         + "prop gate 8 6 channel ring\n", "gateart takes one art name, once"),
+        ("an art of 3 frames", C + P + "prop gate 8 6 channel ring art bad3\n", "a gate art is 4 frames"),
+        ("an art the same on the Hercules", C + P + "prop gate 8 6 channel ring art badherc\n",
+         "SAME on the Hercules"),
+        ("an art off the picture", C + P + "prop gate 8 6 channel ring art badoff\n", "off the picture"),
+        ("an art hidden behind a wall in front of it", C + P + "wall rect 9 7 11 9 flat 9\n"
+         "prop gate 8 6 channel ring art crumble\n", "is HIDDEN"),
     ]
+
+
+GA_BAD = {          # (--selfcheck's bad gate arts, SPEC.md 128.41.12.3: written to a scratch directory)
+    "bad3": "# frames 3\n# for gate\n# foot 1 2\n# cells 1\n" + "000\n000\n000\n" * 3,
+    "badherc": "# frames 4\n# for gate\n# foot 1 2\n# cells 1\n" + "000\n333\n000\n" + "000\n111\n000\n"
+               + "000\n222\n000\n" + "...\n...\n...\n",
+    "badoff": "# frames 4\n# for gate\n# foot 1 300\n# cells 1\n" + ("000\n" * 302 + "...\n" * 302) * 2,
+}
+
+
+def ga_frames_check(c, early=False, still=False):
+    """SPEC.md 128.41.12 A5, A6 on the model: GATE's CRUMBLE (channel ring, 0) opened on step n0, then STEP and CELL
+    each step - -> (ok, the steps its frame stepped on, the step its cell opened).  Its frame steps on n AND 7 =
+    0 only, one at a time, to 3 within 17 - 24 steps; its cell a WALL while the frame is under 3 and the FLOOR from
+    the step it is 3; its lanes' POSE the frame"""
+    global _GA_EARLY, _GA_STILL
+    _GA_EARLY, _GA_STILL = early, still
+    try:
+        fam = GateFamily()
+        props = c.part["props"]
+        art = next(r for r in props if r["kind"] == GT_KG and r.get("gart") and r["gch"] == 0)
+        lanes = [r for r in props if r["kind"] == GT_KA and props[r["gap"]] is art]
+        res = []
+        for n0 in (1, 5):
+            class P:
+                pass
+            p = P()
+            p.props, p.fsl, p.nstep, p.fref, p.wcell, p.gz = props, [[0] * FSLOT], n0, 0, art["at"], 0
+            p.fsl[0][0] = 1                         # (CONTACT on the ring plate, on step n0)
+            steps, opened, ok = [], None, True
+            for k in range(40):
+                f0 = p.fsl[0][2]
+                fam.step(p, 0)
+                if p.fsl[0][2] != f0:
+                    steps.append(p.nstep)
+                    ok = ok and p.fsl[0][2] == f0 + 1 and p.nstep & 7 == 0
+                win = {(art["at"][0] + dx, art["at"][1] + dy): [4, 0, 0, KIND_FLOOR, 0, 0] for dx in (-1, 0, 1)
+                       for dy in (-1, 0, 1)}
+                fam.cell(p, 0, win)
+                wall = win[art["at"]][3] == KIND_WALL
+                ok = ok and wall == (p.fsl[0][2] < GT_AFR - 1) and all(fam.pose(p, 0, r["i"]) == p.fsl[0][2]
+                                                                     for r in lanes)
+                if not wall and opened is None:
+                    opened = p.nstep - n0
+                p.nstep += 1
+            ok = ok and len(steps) == GT_AFR - 1 and opened is not None and 17 <= opened + 1 <= 24
+            res.append((ok, steps, opened))
+        return all(r[0] for r in res), res
+    finally:
+        _GA_EARLY = _GA_STILL = False
 
 
 class _GtArm(GateFamily):
@@ -30356,7 +30423,8 @@ GT_WANT = {"ring": "through the ring gates (x 19 on), no fall", "ringshut": "sto
            "key": "through the plus gates (y 20 on), no fall", "keyshut": "stopped at the shut gates (y 18 or less)",
            "box": "across the box bridge (x 6 or less), no fall", "boxup": "falls where the bridge is up",
            "timed": "across the timed bridge (x 19 on), no fall", "late": "falls: it goes up under the ball",
-           "under": "rubber and glass fall into it while up and keep falling when it comes down"}
+           "under": "rubber and glass fall into it while up and keep falling when it comes down",
+           "art": "held at the CRUMBLE while it falls (frame 3), then through it (y 4 or less), no fall"}
 
 
 def gt_verdict(name, mat, r):
@@ -30366,7 +30434,8 @@ def gt_verdict(name, mat, r):
             "key": fell is None and y >= 20 and ch == 2, "keyshut": fell is None and y <= 18 and ch == 0,
             "box": fell is None and x <= 6 and ch == 4, "boxup": fell is not None and ch == 0,
             "timed": fell is None and x >= 19, "late": fell is not None,
-            "under": fell is not None or mat == MAT_STEEL}[name]
+            "under": fell is not None or mat == MAT_STEEL,
+            "art": fell is None and y <= 4 and ch & 1}[name]
 
 
 def gt_scenes(c, arm=None, names=None):
@@ -30382,14 +30451,30 @@ def gt_scenes(c, arm=None, names=None):
 def _sc_gate(X, res):
     """--selfcheck's section `gate` (SPEC.md 128.41.8): the refusals, the test course's records and lanes, the art's
     pairing, the scenes on the model, and the model's red arms"""
-    for what, text, want in _gt_cases():
-        try:
-            compile_course(text, fname="<%s>" % what, occluders=False)
-            fired, msg = False, "compiled"
-        except CourseError as e:
-            fired, msg = want in str(e), str(e)
-        res.append(("2 refused (switches, keys, gates, bridges, 128.41.7): %s%s" % (what, "" if fired else
-                                                                                    " -- got: " + msg), fired))
+    global GT_ADIR
+    import shutil
+    import tempfile
+    adir, keep = tempfile.mkdtemp(), GT_ADIR
+    for nm in os.listdir(keep):
+        shutil.copy(os.path.join(keep, nm), adir)
+    for nm, text in GA_BAD.items():
+        with open(os.path.join(adir, nm + ".bba"), "w") as f_:
+            f_.write(text)
+    GT_ADIR = adir
+    _GA_CACHE.clear()
+    try:
+        for what, text, want in _gt_cases():
+            try:
+                compile_course(text, fname="<%s>" % what, occluders=False)
+                fired, msg = False, "compiled"
+            except CourseError as e:
+                fired, msg = want in str(e), str(e)
+            res.append(("2 refused (switches, keys, gates, bridges, 128.41.7, 128.41.12.3): %s%s" % (
+                what, "" if fired else " -- got: " + msg), fired))
+    finally:
+        GT_ADIR = keep
+        _GA_CACHE.clear()
+        shutil.rmtree(adir, ignore_errors=True)
     c = compile_course(GT_TEST)
     src = parse(open(GT_TEST).read(), GT_TEST)
     want = sorted((sp["at"], sp["kind"], GT_TIMED if sp["gch"] is None else sp["gch"], sp["galong"])
@@ -30405,9 +30490,10 @@ def _sc_gate(X, res):
                 "seed a step after the last), +19 a gate's way and a bridge's deck, +20 its grid byte; each a lane of "
                 "2 poses, no state bit, class ATTEMPT; FAMV %02Xh moves with each of its consts" % (
                     len(recs), len(tm), fv),
-                got == want and len(recs) == 15 and moved and len(tm) == 6
+                got == want and len(recs) == 20 and moved and len(tm) == 6
                 and sorted(r["sseed"] for r in tm) == list(range(6))
-                and all(r["lane"] and r["lane"]["poses"] == 2 and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
+                and all((not r["lane"] if r.get("gart") else r["lane"] and r["lane"]["poses"] == 2)
+                        and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
                         and (r["kind"] != GT_KB or (r["deck"] == 4 and r["gkd"] == KIND_FLOOR)) for r in recs)))
     gl = [frozenset(xy for xy, ink in gt_plaque(0, 0, ch).items() if ink == BLK) for ch in range(GT_NCH)]
     res.append(("5 GATES' pairing (128.41.5): the %d channels' glyphs, black on a white plaque, pairwise distinct "
@@ -30432,6 +30518,30 @@ def _sc_gate(X, res):
                 "black and white in each, inside the grille's %d px; GATE's elements %s; GATE with no `style` is "
                 "GATE with `gatestyle grille` (%d bytes)" % (", ".join(GT_STYLES), 2 * GT_BARW + 1, gst, len(c0.cga)),
                 sok and c0.cga == c1.cga and c0.cga != c.cga and len(gst) == 4))
+    # SPEC.md 128.41.12: the designer's ART - GATE's three, their lanes (kind GT_KA, 4 poses, at most GT_ALANES an
+    # art, +18 its gate, +19 its channel), its frames stepped and its cell opened at frame 3, and two red arms
+    arts = [r for r in c.part["props"] if r.get("gart")]
+    gal = [r for r in c.part["props"] if r["kind"] == GT_KA]
+    per = {}
+    for r in gal:
+        per[r["gap"]] = per.get(r["gap"], 0) + 1
+    names = sorted(p_["gart"]["name"] for p_ in c.props if p_.get("gart") is not None and p_.get("gacell") == 0)
+    res.append(("7 GATE ART (128.41.12): %s on GATE, %d art cells (the portcullis two), %d lanes (%s an art), each 4 "
+                "poses naming its gate and channel; the visibility rule %s" % (
+                    ", ".join(names), len(arts), len(gal), "/".join(str(v) for v in per.values()),
+                    ["%s %d" % (v[1], v[4]) for v in c.ga_vis]),
+                names == ["crumble", "door", "portcullis"] and len(arts) == 4 and 3 <= len(per)
+                and all(1 <= v <= GT_ALANES for v in per.values())
+                and all(r["lane"]["poses"] == GT_AFR and c.part["props"][r["gap"]]["gch"] == r["gch"] for r in gal)))
+    ok_, fr_ = ga_frames_check(c)
+    res.append(("7 GATE ART's frames on the model (128.41.12 A5, A6): the crumble's channel opened on steps 1 and 5, "
+                "its frame stepped on %s (n AND 7 = 0), its cell a WALL until frame 3 and the FLOOR from it (%s steps "
+                "after the opening), its lanes' POSE the frame" % (
+                    " and ".join("/".join(map(str, r[1])) for r in fr_), " and ".join(str(r[2]) for r in fr_)), ok_))
+    for arm, kw in (("early (the cell opened at frame 0)", {"early": True}),
+                    ("still (the frame never stepped)", {"still": True})):
+        red = not ga_frames_check(c, **kw)[0]
+        res.append(("7 GATE ART's red arm %s on the model: %s" % (arm, "red" if red else "STAYED GREEN"), red))
     s = gt_scenes(c)
     bad = ["%s %s" % (n_, MAT_NAMES[m_]) for (n_, m_), v in sorted(s.items()) if not gt_verdict(n_, m_, v)]
     res.append(("6 GATES' scenes on the model (128.41.8), every ball: %s%s" % (
