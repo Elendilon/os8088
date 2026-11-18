@@ -283871,6 +283871,12 @@ The row (BZV_ROW) is unrolled as the column is - one 42-cell body entered
 at the row's first cell by a table, used once a plane: 7.5k clocks a line
 to ~4.4k (a longer row than the window's takes the plain loop).
 
+The ball's BLIT (BZV_BLIT) has an unrolled WHOLE-ROW path: three words,
+the converted copy's rows exactly 6 bytes so the source needs no step, the
+box buffer's next row 2 bytes on - no per-row saves or `loop`; a clipped
+ball keeps the general loop. On PLAYGROUND's shipped demo (`tools/bzprof.py
+--demo play`) its share 5.1% to 3.7%, ~8.0k clocks a frame to ~5.8k.
+
 **After** (the same replay, 20 guest seconds): the VGA **~30 frames a
 second (17 - 34) and 53 - 57 steps** - the game in real time - waiting 21%
 (the CGA's 20%); the CGA 45 frames, 54 - 57 steps. BENCH's scripted
