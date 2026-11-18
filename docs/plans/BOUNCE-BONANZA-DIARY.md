@@ -6055,3 +6055,45 @@ its not that hard to roll down a 2 wide path."* Projected back to cells:
 The variant's other corner cuts came with it, as the edit was drawn on it.
 The model's run is unchanged (37.2 s, no fall, no pan). The part is 10,000
 bytes on the disk.
+
+## 2026-11-18 (FIRST ROLL revision 9: a real archway, the chevrons fixed)
+
+The owner, on playtest 6:
+
+> Pretty good. One more block to make diagonal; edited it, and red arrow
+> pointing at it. Arrows: They sit on top of the rails, but we can fix
+> that in the art. Also there are a couple of blue pixels from the
+> underlying tile that make it look weird; but we can fix that with a
+> couple extra black pixels (and added one to the forward arrow to even it
+> out the same visual way). The ball rolls in front of the arch, because
+> its just art and what is actually there is the ramp, which the ball rolls
+> on top of. But we have an actual arch, as a prop, we can use and that
+> should work.
+
+And of the first archway: *"Having the arch further north like that blocks
+off half the ramp. Can it be where it was before, still 2 high above the
+ramp?"*
+
+**Reading the owner's edit.** Their marked-up preview is the same size as
+the one sent, so a pixel diff finds every change:
+- 107 black pixels blacking out the first landing's back corner (its top
+  half: `hole half up`);
+- four single black pixels on the chevrons;
+- the red marks as annotation.
+
+No guessing at coordinates.
+
+**The chevrons.** Art is the topmost layer, so a chevron pixel painted where
+a rail stands in front of the ramp landed on the rail. The generator now
+compiles through a render that keeps each pixel's owner cell
+(`Canvas.obuf`) and paints only where the visible surface is the ramp. The
+owner's four pixels are applied after.
+
+**The archway.** An archway (SPEC.md 130.39) needs flat cells under it, at
+most 2 x 2, and a whole floor beyond it, so the leap's approach became 2
+wide with flat cells for the arch and the lip. The first place (the
+run-up's start) hid half the ramp; it now stands by the lip. `under 3`, so
+a Hop passes. The model still clears the leap: 36.2 s, no fall, no pan.
+
+**Run**: the tool and previews, the model's steered run, the playtest
+build. **Not run**: the guest (fork rule 5).

@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 6, revision 8** (art prototypes; the owner's start platform) (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 7, revision 9** (the archway before the leap; the chevrons fixed)
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,31 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 9, from playtest 6's mark-up** (*"Pretty good."*):
+  - one more diagonal: the first landing's back corner (the owner blacked
+    out its top half; read off their edit by diffing it against the
+    preview);
+  - the CHEVRONS no longer paint over the rails. The generator reads which
+    cell drew each pixel last (the render's owner buffer) and paints only
+    where the lip's ramp is the visible surface. The owner's four black
+    pixels are applied after that (three where the tile showed through
+    the leading arm, one to even the forward arrow);
+  - the banner FRAME is replaced by a real ARCHWAY (SPEC.md 130.39; the
+    owner: *"The ball rolls in front of the arch, because its just art ...
+    But we have an actual arch, as a prop"*). An archway stands over flat
+    cells, at most 2 x 2, with a whole floor past it, so the leap's
+    approach is TWO wide from the walk:
+    - a 2 x 2 elbow;
+    - a 3-tile ramp falling 1.5 units;
+    - the arch's flat cell (`under 3`: a Hop passes);
+    - one flat tile, the lip;
+    - the gap.
+
+    The arch's legs take the rail blocks' places. The arch stands by the
+    leap, where the banner did (*"where it was before"*); the first try,
+    over the run-up's start, hid half the ramp. The landing is now 2.5
+    units below the lip;
+  - MEASURED on the model: 36.2 s, no fall, no pan. The part is 9,807 bytes on the disk.
 - **Revision 8, the owner's edit of the diagonal variant** (*"Add a
   diagonal to the black marked column, and remove the red marked columns.
   This starts them on a visually interesting platform, and its not that
