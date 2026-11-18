@@ -3042,13 +3042,41 @@ def tl_scenes():
             ("rocker", BB.MAT_RUBBER, (7, 11, 0, 0), [W] * 90 + [X] * 60, "rubber over the ROCKER and back: it tips "
              "under the ball each way, and a respawn puts it back at rest"),
             ("rest-respawn", BB.MAT_STEEL, (8, 10, 0, 0), [Y] * 150 + [Y | BB.K_RET] + [0] * 20, "a RETURN while the "
-             "gate is tipped: the respawn puts it back at rest (RESET marks its lanes)")]
+             "gate is tipped: the respawn puts it back at rest (RESET marks its lanes)"),
+            # SPEC.md 128.42.11: the TIMED plates, on their timer whatever the ball weighs
+            ("lift-steel", BB.MAT_STEEL, (28, 25, 0, 0), [Y] * 340, "steel waits at THE LIFT's low end and is "
+             "carried up to the ledge's height, onto the ledge and its goal (exit 0)"),
+            ("lift-rubber", BB.MAT_RUBBER, (28, 25, 0, 0), [Y] * 110, "rubber rides the lift up as it swings: the "
+             "goal"),
+            ("swing-glass", BB.MAT_GLASS, (31, 22, 0, 0), [X] * 120, "glass crosses THE SWING while it passes FLAT "
+             "to the pad"),
+            ("timed-respawn", BB.MAT_RUBBER, (28, 25, 0, 0), [Y] * 70 + [Y | BB.K_RET] + [0] * 30, "a RETURN with "
+             "the lift at its far end: the respawn leaves every timed plate at its TIMER's pose, not at rest")]
 
 
 def tl_verdict(name, p, zs):
-    """what a TILT scene is for, on the model at its end (ZS: the ball's (cell, z px, air, the poses) every step)"""
+    """what a TILT scene is for, on the model at its end (ZS: the ball's (cell, z px, air, the poses, nstep) every
+    step)"""
     poses = [z[3] for z in zs]
     tipped = sorted(set(q for ps in poses for q in enumerate(ps)))
+    tm = [(i, r) for i, r in enumerate(r_ for r_ in p.props if r_["kind"] == BB.FK_TILT) if r["tlf"] & BB.TL_FTIME]
+    if tm:
+        timer = all(z[3][i] == BB.tl_tpose(r, z[4] & 255) for z in zs for i, r in tm)
+    if name.startswith("lift-"):
+        lift = tm[0][0]
+        up = max([b[1] - a[1] for a, b in zip(zs, zs[1:]) if not a[2] and not b[2] and a[3][lift] != b[3][lift]
+                  and b[0] in [(28, y_) for y_ in range(26, 30)]] or [0])
+        ok = p.goal and p.exit == 0 and timer and up > 0
+        return ok, "%s lifted: the goal %s exit %d, the timer's poses %s, a pose change carried it up %d px" % (
+            MAT_N[p.mat], bool(p.goal), p.exit, timer, up)
+    if name == "swing-glass":
+        ok = timer and p.nfall == 0 and max(z[0][0] for z in zs) >= 36
+        return ok, "glass across the swing to x %d, %d respawns, the timer's poses %s" % (
+            max(z[0][0] for z in zs), p.nfall, timer)
+    if name == "timed-respawn":
+        ok = timer and p.nret >= 1 and poses[70][tm[0][0]] != 0
+        return ok, "after the RETURN the lift at %d, not at rest (every step the timer's: %s)" % (
+            poses[70][tm[0][0]], timer)
     if name == "ledge-glass":
         ok = p.goal and p.exit == 1 and p.nfall == 0
         return ok, "glass on the ledge: goal %d exit %d, %d respawn(s), the poses %s" % (p.goal, p.exit, p.nfall,
@@ -3077,7 +3105,16 @@ def tl_reds():
             ("tlfref", ("    mov byte [bz_fref], 1       ; the window refilled\n", ""), "gate-steel", None),
             ("tlweight", ("    mov cl, BZ_TL_DWG\n", "    mov cl, BZ_TL_DWS\n"), "ledge-glass", None),
             ("tlrst", ("    dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell\n",
-                       "    dw 0, 0, 0, tl_step, tl_pose, tl_cell\n"), "rest-respawn", None))
+                       "    dw 0, 0, 0, tl_step, tl_pose, tl_cell\n"), "rest-respawn", None),
+            # SPEC.md 128.42.11: the TIMED plates' - the timer a step late, no carry, RESET leaving them at rest,
+            # no lane marked
+            ("tltpose", ("    mov al, [bz_nstep]          ; AL = its pose on n + 1\n    inc ax\n",
+                         "    mov al, [bz_nstep]          ; AL = its pose on n + 1\n"), "swing-glass", None),
+            ("tltcarry", ("    jae .tc\n    call tl_carry\n", "    jae .tc\n"), "lift-steel", "the ball"),
+            ("tltrst", ("    mov [bx], al\n    inc byte [di + 2]\n", "    inc byte [di + 2]\n"), "timed-respawn",
+             None),
+            ("tltmark", ("    call tl_mark                ; ...its lanes drawn\n    pop ax\n    cmp byte [bz_air], 0",
+                         "    pop ax\n    cmp byte [bz_air], 0"), "swing-glass", "never drawn"))
 
 
 def tilt_host(binp, lst, sym):
@@ -3098,7 +3135,7 @@ def tilt_host(binp, lst, sym):
         zs = []
         for k_ in keys:
             q.step(k_)
-            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, tuple(q.fst[r["fsb"] >> 3] for r in pl)))
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, tuple(q.fst[r["fsb"] >> 3] for r in pl), q.nstep))
         ok, saw = tl_verdict(name, q, zs)
         out.append("tilt %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
         fails += ["tilt %s: %s" % (name, b) for b in bad] + ([] if ok else ["tilt %s is not what it is for: %s"

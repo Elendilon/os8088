@@ -284835,6 +284835,54 @@ step and shows what it is for.
    last quarter second) - one more pose, a few bytes; not built.
 4. Four channels a course, told apart by glyph: enough?
 
+#### 128.41.11 The art's STYLES (2026-11-18, `bb-propfix`; tool only)
+
+The owner: *"do we have the option of using different gate art per course?"*
+Now yes. A course's `gatestyle <S>` (once, anywhere a course statement goes)
+sets the look of every gate and drawbridge it places; an element's own
+`style <S>` (on `prop gate` and `prop bridge` only) overrides it:
+
+    gatestyle grille|crystal|picket|portcullis
+    prop gate   <wx> <wy> channel <C> [along x|y] [style <S>]
+    prop bridge <wx> <wy> [<x1> <y1>] (channel <C> | period ...) [style <S>]
+
+| style | a SHUT gate's bars (its lane's pose 1) | a drawbridge's DECK (the picture) |
+|---|---|---|
+| `grille` (the default: every course that names none) | today's: black posts and rails, bars black and the channel's ink in turn | today's black seam (a trapdoor's outline) |
+| `crystal` | seven SHARDS of the crystal tiles' kind, black-outlined, white and the channel's ink in turn, their tops pointed at 6 - 10 px | the seam and the FACETS: a black X from the centre toward the corners, a black-ringed white jewel at its middle |
+| `picket` | four white PICKETS, black-outlined and pointed, two black rails between them | the seam and PLANKS: black seams across the deck every 4 px of one axis |
+| `portcullis` | an iron GRID: black bars every third column and three black rails, a white sheen beside each bar, the cells the channel's ink, its feet SPIKES (the bottom row only under the bars) | the seam and an IRON PLATE: a black cross bar along each axis, a white boss at their crossing |
+
+Every style keeps the channel's PLAQUE (black glyph on white) where the
+grille's is and inside the grille's 15 px (`GT_BARW`), so the pairing (D5)
+and the lane bound (2 x 3 blocks) are unchanged; each style's structure is
+black and white, which is what the Hercules and CGA mono read (cyan and
+magenta are one grey checker there). An UP bridge's hole, the plates, the
+keys and an open gate's groove are one look in every style.
+
+**What it costs: 0 resident bytes** - no record field, no part code; the art
+is the compile's picture and lanes (`gt_bars_pix`, `gt_deck_pix` with a
+STYLE). A course that names no style compiles byte for byte as before
+(MEASURED: GATE with every `style` taken out equals GATE before this change,
+`cmp` of the course part; every shipped course part unchanged). GATE now
+shows all four: the ring gates `crystal`, the plus gates `portcullis`, the
+timed drawbridge `picket`, the box drawbridge `grille`.
+
+Refused (`--selfcheck --only gate`, item 2): a style of no name (an
+element's or the course's), `gatestyle` twice, `style` twice, a `style` on a
+plate or key. Item 5: the four bars and decks pairwise distinct, the plaque
+whole and both inks in every bar style, within the grille's span; GATE's
+elements as written; GATE with no `style` equals GATE with `gatestyle
+grille`.
+
+LOOKED AT in the tool's previews, both cards: the bars read on both (the
+plaque dominates a 15 px gate, so the styles are told by their silhouette -
+crystal's jagged tops, picket's white posts, portcullis's grid); the decks'
+marks read on white tiles and more weakly on a Hercules checker tile, where
+`picket`'s planks read best and `crystal`'s facets least. Open: a WIDER gate
+(the bars are bounded by the plaque's 7 px and the 15 px span) would let the
+styles differ more; that is a lane-size question, not a style one.
+
 ### 128.42 The SEE-SAW: a tilt plate the ball's weight tips (the props round's P9, 2026-11-17; BUILT on `bb-tilt`)
 
 The props plan's P9 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)):
@@ -284864,7 +284912,7 @@ the DRAWBRIDGE, 128.41) is another branch's, so on this branch ID 13 is a GAP
 #### 128.42.2 The statement
 
     uses seesaw
-    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+]
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] [period 32|64|128|256 [flat <F>] [seed <S>]]
 
 The plate covers `x0 <= wx < x1`, `y0 <= wy < y1` (a floor rect's
 convention), tilting ALONG its axis; its length along it is **2, 4 or 6**
@@ -284889,7 +284937,8 @@ statement lays, or another plate's, is refused.
 | +19 | NY | 0 |
 | +20 | `TL_FAXY` (1: its axis is y) OR `TL_FPLUS` (2: `rest +`) | 0 |
 | +21 | PZ (signed half units) | 0 |
-| +22 - +31 | 0 | 0 |
+| +22 - +24 | a TIMED plate's MASK (period - 1), FLAT, SEED (128.42.11); else 0 | 0 |
+| +25 - +31 | 0 | 0 |
 
 Neither kind owns a cell: no OBS, no owner (the archway's precedent,
 128.39.3), and nothing else may be placed on a plate. The reader refuses any
@@ -284898,8 +284947,9 @@ not 1 - 2, a plate with a lane, a lane that is not 3 poses or names no plate
 on its anchor, and a plate cell in the grid that is not its FLOOR at rest
 (z0 and slopes) or carries OBS or SAFE.
 
-**The SLOT** (2 of `BZF_SLOT`'s 8): +0 the plate the count is for (its
-element + 1, 0 none), +1 the COUNT.
+**The SLOT** (3 of `BZF_SLOT`'s 8): +0 the plate the count is for (its
+element + 1, 0 none), +1 the COUNT, +2 the course's TIMED plates (RESET's
+count, 128.42.11).
 
 #### 128.42.4 The hooks (binding: the guest and `bbcourse.TiltFamily` do exactly this)
 
@@ -285045,6 +285095,96 @@ a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
    the rest picture and the three poses' reach; a ball BEHIND a plate whose
    near end has risen could be drawn over it for a frame or two (not seen on
    the test course, whose plates have nothing behind them).
+
+#### 128.42.11 The TIMED see-saw (2026-11-18, `bb-propfix`)
+
+The owner: *"Weight is good ... I would like the option of timed, though,
+which ignores weight and just see-saws on a custom per use timer."* A
+`period` makes a plate TIMED:
+
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] period P [flat F] [seed S]
+
+**The timer** is a popspike's and the timed drawbridge's (128.38, 128.41.8):
+P one of 32, 64, 128, 256, so its MASK is a byte and the step counter's low
+byte times it; t = (n + S) AND (P - 1), S under P. With H = P / 2: the pose
+is **FLAT (1) for the last F steps of each half** ((t AND (H - 1)) + F > H -
+1), else its REST (0) in the first half and its OTHER END (2) in the
+second - so it swings 0, 1, 2, 1, 0 through FLAT and never jumps an end to an
+end. F is 1 to H - 1, `TL_TFLAT` = 4 (the weight's own transit, `TL_TS`) when
+not written. Why `flat` and not a `hold`: F is what the player times (how
+long the plate is level to cross it), and the ends' hold is then simply H -
+F; and the FLAT test is one AND, one ADD, one compare in the part.
+
+**The rule** (binding: the guest and `bbcourse.TiltFamily` do exactly this):
+the record's +20 gains `TL_FTIME` (4), +22 - +24 MASK, FLAT, SEED. RESET sets
+each timed plate's byte to its pose on `n` (the engine has just cleared it:
+RESPAWN) and counts them into the slot's +2. STEP, after the weight (which
+now skips a timed plate: a ball on one weighs nothing, +0 = 0), and only
+when +2 is not 0: each timed plate's pose on n + 1; where it differs from its
+byte, the byte written, `bz_fref` set, its lanes MARKED, and a ball GROUNDED
+(`bz_air` 0) on one of its cells CARRIED - z the new floor at its point, the
+weight's own carry (`tl_carry`, shared). So the floor never passes through
+the ball, up or down, and a timed plate CAN LIFT the ball (the weight one
+cannot: the ball's own half always goes down). POSE and CELL are the weight
+plate's, from the byte. The weight plate's behaviour is unchanged: its
+scenes are equal at every step on the unicorn as before.
+
+**The lanes and the bound**: a timed plate's lanes all turn on its timer's
+steps, so `check_bounds` counts them WHOLE (they are not event lanes): at the
+worst of the 256 steps, the sum of every timed plate's lanes meeting the
+window that turn on that step, plus a weight plate's (its most, as before).
+Two timed plates in a window are STAGGERED with a `seed`, or refused; a timed
+plate beside a weight plate is refused in any window both meet (the weight
+one may tip on the timer's step). The refusal names the see-saws' share.
+
+**TILT** gains THE CLOCKWORK, out of the weight plates' windows: a corridor
+east off the GATE's far plate to a hub (x 26 - 31, y 20 - 25, 2 units), and
+
+- **THE LIFT**: x 28, y 26 - 29 along y, pivot 1 unit, `rest +`, `period 128
+  flat 16` - its near end level with the hub at rest, its far end 2 units
+  under a LEDGE (1.5 units) and its goal (exit 0). Roll down it to the low
+  end against the ledge's wall and wait: the plate swings, carries the ball
+  up, and the ball rolls off onto the ledge. Every ball; steel on the second
+  swing.
+- **THE SWING**: x 32 - 35, y 22 along x, pivot 2, `period 128 flat 24 seed
+  32` - level with the hub and a dead-end pad only while it passes FLAT.
+
+Its fulcrum is BANDED (a black row every third), told from a weight plate's
+on every card. TILT's part is 34,226 bytes (was 20,954: the corridor and the
+hub).
+
+**The proofs**: `--selfcheck --only tilt` - eight new refusals (a period not
+a popspike's, FLAT 0, FLAT a whole half, a seed past the period, `flat` or
+`seed` with no `period`, `period` twice, two timed plates turning on one
+step in a window, a timed plate in a weight plate's window); item 3 now 5
+plates, 25 lanes, the timed ones' (128, 16, 0) and (128, 24, 32); item 11
+five timed scenes on the model (`lift-steel`, `lift-rubber`, `lift-glass`
+reach the goal, every step at the timer's pose and a pose change carrying the
+ball up; `swing-glass` crosses, `swing-rubber` is stopped) and two red arms
+(`tnocarry`: the carry left out; `untimed`: a timed plate a weight one).
+`tests/bonanza_phys.py --check`'s `tilt_host`: `lift-steel`, `lift-rubber`,
+`swing-glass` and `timed-respawn` (a RETURN with the lift at its far end:
+it stays at its timer's pose) equal at every step, what each is for
+asserted; red arms `tltpose` (the timer read on n: "never drawn" at step
+7), `tltcarry` ("the ball" at step 47), `tltrst` (RESET leaving it at rest:
+`bz_fref` at step 70), `tltmark` ("never drawn") - all red.
+
+**What it costs** (MEASURED: `make bonanzadisk` against `c34ef26fc`):
+
+| | |
+|---|---|
+| the part `bzf-seesaw.bin` | 648 -> **824 bytes (+176)**, `paras` 41 -> 52 (its helpers shared with the weight path: `tl_on`, `tl_bcell`, `tl_sbyte`, `tl_rec`, `tl_carry`) |
+| the RESIDENT BUNDLE, RAM | 32,368 -> **32,544 (+176)** |
+| BONANZA's image `bonanza.bin` | **unchanged** (50,178, `cmp`) |
+| its bss | **+0** (the slot's +2 is `bz_fsl`'s) |
+| `BONANZA.O88` | 122,931 -> **123,073 (+142)** |
+| every shipped course part, demo and the title | unchanged, byte for byte (`cmp`) |
+| FAMV | the row's REV 1 -> 2 and slot 2 -> 3: a course naming `seesaw` (TILT alone) moves its FAMV byte and identity |
+| a step, a course with a timed plate (PREDICTED) | about 40 clocks a record walked plus about 0.15k a timed plate, and on its change the marks and the carry as the weight's tip; a course with none: one compare |
+
+Open: a timed plate's period and flat on TILT (128 and 16, a swing every
+2.3 s) are the owner's to judge; a timed plate cannot share a window with a
+weight one, so a course mixing the two keeps them a screen apart.
 
 ### 128.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 

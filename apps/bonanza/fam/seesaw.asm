@@ -38,8 +38,12 @@ TL_FL       equ 20
 TL_PZ       equ 21
 TL_PLATE    equ 18              ; a lane's: its plate
 TLF_AXY     equ 1               ; +20's flags: the axis is y,
-TLF_PLUS    equ 2               ; ...the rest has the plus end down
-%if TLF_AXY != BZ_TL_FAXY || TLF_PLUS != BZ_TL_FPLUS
+TLF_PLUS    equ 2               ; ...the rest has the plus end down,
+TLF_TIME    equ 4               ; ...it is TIMED (SPEC.md 128.42.11):
+TL_MASK     equ 22              ; +22 its period less 1,
+TL_FLAT     equ 23              ; +23 its steps FLAT each half period,
+TL_SEED     equ 24              ; +24 its seed
+%if TLF_AXY != BZ_TL_FAXY || TLF_PLUS != BZ_TL_FPLUS || TLF_TIME != BZ_TL_FTIME
  %error "the plate's +20 flags are bbcourse's TL_FAXY and TL_FPLUS"
 %endif
 %if BZ_FK_SEESAWLANE != BZ_FK_SEESAW + 1
@@ -58,10 +62,28 @@ TLF_PLUS    equ 2               ; ...the rest has the plus end down
  %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
 %endif
 
-; RESET: the slot zeroed; every lane marked (its plate is back at rest)
+; RESET: the slot zeroed; each TIMED plate's byte its pose on this step (the
+; engine has just put it at rest) and +2 their count; every lane marked
 tl_reset:
     call tl_slot
-    mov word [di], 0
+    xor ax, ax
+    mov [di], ax
+    mov [di + 2], al
+    call tl_walk
+.r:
+    jcxz .m
+    call tl_timed
+    jz .n
+    mov al, [bz_nstep]
+    call tl_tpose
+    call tl_sbyte
+    mov [bx], al
+    inc byte [di + 2]
+.n:
+    add si, 32
+    dec cx
+    jmp short .r
+.m:
     mov al, 0ffh                ; (every plate's lanes)
     call tl_mark
     retf
@@ -69,14 +91,12 @@ tl_reset:
 ; CELL: every plate cell in the window written from its plate's pose
 tl_cell:
     call tl_walk                ; ES:SI the records, CX their count
-    xor bp, bp                  ; BP = the record's index
 .r:
     jcxz .x
     cmp byte [es:si], BZ_FK_SEESAW
     jne .n
     push cx
-    mov bx, bp
-    call tl_bptr
+    call tl_sbyte
     mov ch, [bx]                ; CH = its pose
     xor di, di                  ; DI = the window cell's offset in bz_nbr
     mov dh, [bz_nwin + 1]       ; DH = wy, DL = wx: the window's rows, by
@@ -87,13 +107,7 @@ tl_cell:
     dec dl
     mov bl, 3
 .wx:
-    mov al, dl                  ; one of the plate's cells?
-    sub al, [es:si + 2]
-    cmp al, [es:si + TL_NX]
-    jae .no
-    mov al, dh
-    sub al, [es:si + 3]
-    cmp al, [es:si + TL_NY]
+    call tl_on                  ; one of the plate's cells?
     jae .no
     mov al, ch
     push cx
@@ -111,40 +125,82 @@ tl_cell:
     pop cx
 .n:
     add si, 32
-    inc bp
     dec cx
     jmp short .r
 .x:
     retf
 
-; STEP: the ball's weight on a plate
+; STEP: the ball's weight on a plate; then each TIMED plate to its pose on the
+; next step (SPEC.md 128.42.11): on a change its byte, the refill, its lanes
+; MARKED, and a ball grounded on it CARRIED
 tl_step:
+    push ax
+    call tl_weigh
+    pop ax
+    call tl_slot                ; DI = the slot
+    cmp byte [di + 2], 0        ; no timed plate: nothing to walk
+    je .x
+    call tl_walk
+    xor bx, bx                  ; BX = the record's index
+.t:
+    jcxz .x
+    call tl_timed
+    jz .tn
+    mov al, [bz_nstep]          ; AL = its pose on n + 1
+    inc ax
+    call tl_tpose
+    push bx
+    call tl_sbyte
+    cmp [bx], al
+    mov [bx], al
+    pop bx
+    je .tn
+    mov byte [bz_fref], 1       ; its window refilled
+    push ax
+    mov al, bl
+    call tl_mark                ; ...its lanes drawn
+    pop ax
+    cmp byte [bz_air], 0        ; ...and a grounded ball on it CARRIED
+    jne .tn
+    push bx
+    push cx
+    push dx
+    call tl_bcell
+    call tl_on
+    jae .tc
+    call tl_carry
+.tc:
+    pop dx
+    pop cx
+    pop bx
+.tn:
+    add si, 32
+    inc bx
+    dec cx
+    jmp short .t
+.x:
+    retf
+
+; the WEIGHT (a near proc of STEP's): the ball grounded and whole on a plate's
+; cell - not a timed one's - for BZ_TL_DW<ball> steps tips it
+tl_weigh:
     call tl_slot                ; DI = the slot
     cmp byte [bz_air], 0        ; airborne or shattering: no weight
     jne .off
     cmp byte [bz_mst], BZ_ST_SHAT
     je .off
-    mov cl, 4                   ; DL, DH = the ball's cell
-    mov ax, [bz_gx + 1]
-    shr ax, cl
-    mov dl, al
-    mov ax, [bz_gy + 1]
-    shr ax, cl
-    mov dh, al
+    call tl_bcell               ; DL, DH = the ball's cell
     call tl_walk
     xor bx, bx                  ; BX = the record's index
 .f:
     jcxz .off
     cmp byte [es:si], BZ_FK_SEESAW
     jne .fn
-    mov al, dl
-    sub al, [es:si + 2]
-    cmp al, [es:si + TL_NX]
+    call tl_on
     jae .fn
-    mov al, dh
-    sub al, [es:si + 3]
-    cmp al, [es:si + TL_NY]
-    jb .on
+    test byte [es:si + TL_FL], TLF_TIME
+    jz .on                      ; (on a TIMED plate: no weight)
+    jmp short .off
 .fn:
     add si, 32
     inc bx
@@ -152,7 +208,7 @@ tl_step:
     jmp short .f
 .off:
     mov byte [di], 0
-    retf
+    ret
 .on:                            ; ES:SI the plate, BX its element
     inc bx
     cmp [di], bl
@@ -189,14 +245,14 @@ tl_step:
     xor ah, 2
 .t2:
     push bx
-    call tl_bptr                ; BX = the pose's byte
+    call tl_sbyte               ; BX = the pose's byte
     mov al, [bx]
     cmp al, ah
     jne .go
     mov byte [di + 1], 0        ; at the target: the count 0
     pop bx
 .x:
-    retf
+    ret
 .go:
     inc byte [di + 1]
     mov cl, BZ_TL_TS            ; CL = the steps it takes: from FLAT any ball's,
@@ -227,7 +283,16 @@ tl_step:
     mov al, bl
     call tl_mark                ; ...its lanes drawn
     pop ax
-    call tl_cellz               ; ...and the ball CARRIED: z = the new floor
+    call tl_carry               ; ...and the ball CARRIED
+    ret
+.wait:
+    pop bx
+    ret
+
+; ES:SI = a plate, AL = its new pose, DL, DH = the ball's cell (one of the
+; plate's) -> the ball CARRIED.  Preserves SI, DI, BP.
+tl_carry:
+    call tl_cellz               ; the ball CARRIED: z = the new floor
     mov bl, [bz_gx + 1]         ; at its point, 16 z0 + s w (w its gu in the
     test byte [es:si + TL_FL], TLF_AXY   ; cell along the axis), h4 in
     jz .w2                      ; quarter px
@@ -256,21 +321,16 @@ tl_step:
     mov [bz_gz + 1], ax
     cwd
     mov [bz_gz + 3], dl
-    retf
-.wait:
-    pop bx
-    retf
+    ret
 
 ; POSE: BX = a lane -> AL its plate's pose
 tl_pose:
     mov es, [bz_cseg]
-    mov si, bx
-    mov cl, 5
-    shl si, cl
-    add si, [bz_poff]
+    call tl_rec
     mov bl, [es:si + TL_PLATE]
     xor bh, bh
-    call tl_bptr
+    call tl_rec
+    call tl_sbyte
     mov al, [bx]
     retf
 
@@ -347,21 +407,89 @@ tl_mark:
     pop ax
     ret
 
-; BX = a record's element -> BX = its byte of bz_fst (FSB / 8).  ES = the
-; course.  Preserves all else.
-tl_bptr:
+; -> DL, DH = the ball's cell.  Preserves all else.
+tl_bcell:
+    push ax
     push cx
-    push si
+    mov cl, 4
+    mov ax, [bz_gx + 1]
+    shr ax, cl
+    mov dl, al
+    mov ax, [bz_gy + 1]
+    shr ax, cl
+    mov dh, al
+    pop cx
+    pop ax
+    ret
+
+; ES:SI = a plate, DL, DH = a cell -> CF set when it is one of the plate's.
+; Preserves all but the flags.
+tl_on:
+    push ax
+    mov al, dl
+    sub al, [es:si + 2]
+    cmp al, [es:si + TL_NX]
+    jae .x
+    mov al, dh
+    sub al, [es:si + 3]
+    cmp al, [es:si + TL_NY]
+.x:
+    pop ax
+    ret
+
+; ES:SI = a record -> ZF clear when it is a TIMED plate.  Preserves all else.
+tl_timed:
+    cmp byte [es:si], BZ_FK_SEESAW
+    jne .x                      ; (ZF clear: so set it)
+    test byte [es:si + TL_FL], TLF_TIME
+    ret
+.x:
+    cmp al, al
+    ret
+
+; ES:SI = a TIMED plate, AL = a step's low byte n -> AL its pose: t = (n +
+; SEED) AND MASK, 1 when (t AND MASK / 2) + FLAT > MASK / 2 (the last FLAT
+; steps of each half), else 0 in the first half, 2 in the second.  Preserves
+; all else.
+tl_tpose:
+    push cx
+    add al, [es:si + TL_SEED]
+    and al, [es:si + TL_MASK]
+    mov ch, [es:si + TL_MASK]
+    shr ch, 1                   ; CH = the half period less 1
+    mov cl, al
+    and cl, ch
+    add cl, [es:si + TL_FLAT]
+    cmp cl, ch
+    mov cl, 1
+    ja .r
+    dec cx
+    cmp al, ch
+    jbe .r
+    mov cl, 2
+.r:
+    mov al, cl
+    pop cx
+    ret
+
+; ES:SI = a plate -> BX its byte of bz_fst (FSB / 8).  Preserves all else.
+tl_sbyte:
+    mov bl, [es:si + BZP_FSB]
+    xor bh, bh
+    push cx
+    mov cl, 3
+    shr bx, cl
+    pop cx
+    add bx, bz_fst
+    ret
+
+; BX = a record's element -> SI its record (in [bz_cseg]).  Preserves all else.
+tl_rec:
+    push cx
     mov si, bx
     mov cl, 5
     shl si, cl
     add si, [bz_poff]
-    mov bl, [es:si + BZP_FSB]
-    xor bh, bh
-    mov cl, 3
-    shr bx, cl
-    add bx, bz_fst
-    pop si
     pop cx
     ret
 

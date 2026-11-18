@@ -14,6 +14,11 @@
 #    Roll on and up: past the pivot the plate tips and lays its far end down at the far plate's height, the ball
 #    carried down with it, and on to the goal (exit 0).  Glass, slow to tip it, may run off the top first and fall;
 #  - THE ROCKER (west): a 2-cell see-saw across a gap to a dead-end plate, resting tilted: every ball rocks it.
+#  - THE CLOCKWORK (north, then a long way east, out of the weight plates' windows: SPEC.md 128.42.11): TIMED
+#    see-saws, which ignore the ball's weight and swing on a timer (a fulcrum banded black).  THE LIFT: a plate
+#    whose near end is level with the hub at rest; roll down it to its far end, against the ledge's wall, and wait -
+#    the plate swings and LIFTS the ball to the ledge's height; roll off onto the ledge and its goal (exit 0).
+#    THE SWING: a plate across to a dead-end pad, level only while it passes FLAT - time the crossing.
 course TILT "See-saw Test"
 width 128
 origin 384
@@ -42,6 +47,19 @@ goal tile 8 22 flat 2
 # x 3 at 2 units (a dead end)
 seesaw 4 11 6 13 along x pivot 2 rest +
 floor rect 3 10 4 14 flat 2
+
+# THE CLOCKWORK: a corridor east off the GATE's far plate to the hub x 26 - 31, y 20 - 25 at 2 units
+floor rect 12 21 26 23 flat 2
+floor rect 26 20 32 26 flat 2
+# THE LIFT: x 28, y 26 - 29 along y, its pivot at 1 unit, resting with its PLUS end down (its near end level
+# with the hub, its far end 2 units under the ledge); 128 steps a swing, 16 of each half FLAT
+seesaw 28 26 29 30 along y pivot 1 rest + period 128 flat 16
+floor rect 27 30 31 34 flat 1.5
+goal tile 28 32 flat 1.5
+# THE SWING: x 32 - 35, y 22 along x, its pivot at 2 units (FLAT: level with the hub and the pad), a quarter
+# period on from the lift
+seesaw 32 22 36 23 along x pivot 2 period 128 flat 24 seed 32
+floor rect 36 21 39 24 flat 2
 
 target 60
 way 7 10
