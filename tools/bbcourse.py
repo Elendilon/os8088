@@ -589,6 +589,10 @@ FAMILIES = (
                # pose the channel's FRAME, the slot's +2 + channel)
                {"name": "gatelane", "kind": FAM_K0 + 60, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
                 "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
+     # SPEC.md 128.41.12: the ART's kind and the slot's frames are an EXTENSION every course without art runs
+     # unchanged on (no record of it holds +24 or a kind 76; the frames are bytes it never reads), so FAMV folds
+     # the row as it was - the shipped PLAYGROUND, which names this family, stays byte for byte as it was
+     "famv": {"slot": 2, "kinds": 4},
      "home": HOME_RESIDENT},
     # THE SEE-SAW (SPEC.md 128.42, the props round's P9): a TILT PLATE of 2 - 6 cells along an axis, 1 - 2 across,
     # on a pivot at its middle, in three POSES - its minus end down, FLAT, its plus end down - each a set of slope
@@ -858,8 +862,9 @@ def famv(f):
     """a family's FAMV (SPEC.md 128.25.6.1): the CRC-16 (CCITT) of its ID, REV,
     hooks, slot and each kind's number, bits, class, art and forms, folded to a
     byte as BZ_PHYSV is - never 0"""
-    b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
-    for k in f["kinds"]:
+    fv = f.get("famv", {})                      # (SPEC.md 128.41.12: a row extended compatibly folds as it was)
+    b = bytearray((f["id"], f["rev"] & 255, f["hooks"], fv.get("slot", f["slot"])))
+    for k in f["kinds"][:fv.get("kinds", len(f["kinds"]))]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
                      "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15}[k["art"]], len(k["forms"]), int(k["pickup"])))
