@@ -50,9 +50,20 @@ voice bass pluckbass
 voice chord stab
 
 ; --- the intro: the ball tapped onto the course, C | C7 ------------------------
-lead LI = @horn v13 r2 o4 g8 r16 g16 g8 r8 | c8 e8 g8 b-8 >c8 <b-8 g16 e16 g8 |
+; (revised after the owner's first listen: the speaker's intro read better than
+; the AdLib's.) The speaker plays only the lead and, in its rests, the bass, so
+; the taps on G4 stood alone; the AdLib laid an off-beat C stab - holding G4
+; itself - under every beat of bar 1, and a C7 stab in the roll's own octave
+; under bar 2, so the taps and the roll were buried in their own register, and
+; the horn's soft attack hardly spoke on a short tap. Now the TAPS are the
+; glockenspiel (a struck, percussive note: a ball tapped), bar 1 has no chord
+; at all - the taps, the bass and the beat - and bar 2's C7 is one soft harp
+; chord BELOW the roll, with a single stab pushing into A. The speaker hears
+; the same pitches at the same times (it plays neither chord nor volume),
+; less the horn's one-sub-tick scoop on the three taps.
+lead LI = @glock v14 r2 o4 g8 r16 g16 g8 r8 | @horn v13 c8 e8 g8 b-8 >c8 <b-8 g16 e16 g8 |
 bass BI = o2 c4 >c8 <c8 g4 r8 g8 | c4 >c8 <c8 g4 b-8 >c8 |
-chord CI = @stab v10 o4 r8 q18 [e g >c]4 [e g >c]4 [e g >c]4 [e g >c]4 [e g b-]4 [e g b-]4 [e g b-]4 q6 [e g b-]8
+chord CI = @harp v8 o3 r1 | [g b- >e]2 r4 r8 @stab q6 [g b- >e]8 |
 drum DI = k4 h8 h8 s4 h8 h8 | k4 h8 h8 s8 s16 s16 T8 t8 |
 
 ; The stabs land on every off-beat 8th: a note a quarter long gated (q18) to
