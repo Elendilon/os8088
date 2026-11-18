@@ -2194,7 +2194,8 @@ def fam_host():
     ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 128.39)
     so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
     bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.40)
-    return out + o_ + o2 + wo + ao + so + bo, fails + f_ + f2 + wf + af + sf + bf
+    go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 128.41)
+    return out + o_ + o2 + wo + ao + so + bo + go, fails + f_ + f2 + wf + af + sf + bf + gf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2449,6 +2450,77 @@ def bp_verdict(name, mat):
     return ok and poses == {0, 1}, "with its pads ended on %s%s%s, lit %d steps; without, %s%s" % (
         cell(p1), "" if f1 is None else " (FELL at %d)" % f1, "" if name != "gap" or p1.landed is None
         else ", met the low plate at step %d" % p1.landed, lit, cell(p0), "" if f0 is None else " (fell at %d)" % f0)
+
+
+# ---- SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41.8): the BZGATE=1 knob's test course GATE, compiled
+# from its source and played on the default build's image and parts (the family's part is in every build's
+# resident bundle); its scenes are bbcourse.GT_SC's, judged on the model by bbcourse.gt_verdict -------------
+GT_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "gate.bbc")
+
+
+def gt_parts(src):
+    """the build's family rows with the GATE part assembled from SRC (text)"""
+    import shutil
+    import subprocess
+    with tempfile.TemporaryDirectory() as td:
+        d = os.path.join(td, "bonanza")
+        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+        open(os.path.join(d, "fam", "gate.asm"), "w").write(src)
+        o = os.path.join(td, "part.bin")
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                        "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "gate.asm")],
+                       cwd=ROOT, check=True)
+        return fam_parts({"gate": open(o, "rb").read()})
+
+
+def gt_host(binp, lst, sym, scenes=None):
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE's unicorn half (SPEC.md 128.41.8): every scene of bbcourse.GT_SC
+    for every ball equal at every step (the ball, the slot, the window bz_nbr, every element's POSE and its marks),
+    what each is for asserted on the model (gt_verdict); and the red arms, each assembled from a broken copy of
+    the part's source and each of which must part from the model: `gtwall` (a shut gate's WALL never written: the
+    ball passes it), `gtmark` (an opened channel's marks gone: a gate that opens never drawn), `gtstep` (STEP's
+    entry 0: a timed bridge's turn never marked), `gtlift` (the centre's under-the-deck test gone: a bridge coming
+    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air)
+    -> (lines, failures)"""
+    out, fails = [], []
+    fam = fam_parts()
+    c = R.course("gate", src=GT_SRC)
+    sc = {}
+    for name in scenes or BB.GT_SC:
+        for mat in (BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS):
+            r = BB.gt_play(c, name, mat)
+            at = BB.GT_SC[name][0]
+            poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(at[0], at[1], 0, 0))
+            sc[(name, mat)] = (poke, r[0])
+            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=0)
+            ok = BB.gt_verdict(name, mat, r)
+            out.append("gate %s, %s (%s): %s; fell %s, ended on %s, channels %d" % (
+                name, BB.MAT_NAMES[mat], BB.GT_WANT[name] if mat == BB.MAT_RUBBER else "as rubber's",
+                "; ".join(bad)[:200] or "equal at every step", r[1], r[2], r[3]))
+            fails += ["gate %s, %s: %s" % (name, BB.MAT_NAMES[mat], b) for b in bad] + (
+                [] if ok else ["gate %s, %s is not what it is for: fell %s, ended on %s" % (
+                    name, BB.MAT_NAMES[mat], r[1], r[2])])
+    if scenes:
+        return out, fails
+    gsrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "gate.asm")).read()
+    arms = (("gtwall", "    and byte [bz_nbr + bx + 2], 0f0h\n    or byte [bz_nbr + bx + 2], BZ_AR_WALL\n", "",
+             "the window", ("ringshut", BB.MAT_RUBBER)),
+            ("gtmark", "    call far [bz_fmkp]          ; (bz_fmark: the walk made; preserves all)\n", "",
+             "never drawn", ("ring", BB.MAT_STEEL)),
+            ("gtstep", "    dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell\n",
+             "    dw gt_reset, 0, gt_contact, 0, gt_pose, gt_cell\n", None, ("timed", BB.MAT_GLASS)),
+            ("gtlift", "    cmp [bz_gz + 1], ax\n    jl .up\n", "", "the ball", ("under", BB.MAT_RUBBER)),
+            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)))
+    for arm, a_, b_, want, (name, mat) in arms:
+        assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
+        poke, keys = sc[(name, mat)]
+        _p, bad = urun(binp, lst, sym, "gate", mat, keys, gt_parts(gsrc.replace(a_, b_)), poke=poke, src=GT_SRC,
+                       k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn" % arm)
+    return out, fails
 
 
 def bp_parts(src):

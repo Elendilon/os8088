@@ -284645,3 +284645,192 @@ short). Its route demo (no demo file) reaches the goal in 494 steps with no fall
    bound allows only low.
 4. Rubber does not bounce off a hump (H6). A BUMPER hump (a `bounce` surface
    on a FIELD cell) is not built: 128.28.3 applies no surface to a FIELD cell.
+
+### 128.41 SWITCHES, KEYS, GATES and the DRAWBRIDGE, a family (the props round's P6 and P7, 2026-11-17; BUILT on `bb-gate`)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P6 and P7): *"a plate or key
+sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's
+state-driven cell) ... DRAWBRIDGE: cells VOID <-> FLOOR on a timer or a switch,
+a lane a bridge cell"* - *"an option, not the primary mechanic"*. The props
+round fixed this family's ID (13), its kinds (from `FAM_K0 + 56`, 72), its
+knob (`BZGATE=1`), its art codes (12, 13) and this section's number. It was
+written PLANNED (D1 - D8 and the statement) before the code and is now the
+record of what was built. Figures are MEASURED unless marked PREDICTED.
+
+#### 128.41.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| D1 | ONE family, `gate`, ID 13 (`BZ_FID_GATE`), four kinds: `plate` 72, `key` 73, `gate` 74, `bridge` 75 (`GT_KP` .. `GT_KB`, `BZ_FK_PLATE` ..), home `resident`, `group` | P6 and P7 share their state (a switch's bit) and their art (the channel's glyph), so one part holds both and a course names one family; resident is the owner's default (128.25.6.9) |
+| D2 | the switch state is a CHANNEL: `GT_NCH` = 4 a course, each one BIT of the family's slot (+0); no per-element state bits | four channels are as many as a player can keep apart by eye; the slot is per course and costs no `bz_fst` byte; a plate, key, gate or bridge has nothing of its own to remember once its channel says it all |
+| D3 | LATCHING: a plate or key opens its channel for the ATTEMPT - a respawn keeps it (the engine keeps the slot), a play's start (a retry, a replay) zeroes it | a momentary plate needs the ball to stay on it while the gate is elsewhere - one ball, so a momentary gate is unusable unless it closes on a timer, which is the drawbridge's job; latching also means a GATE NEVER CLOSES during an attempt, so "a gate closing on a ball" cannot happen (D6) |
+| D4 | a PLATE opens on a GROUNDED ball (`bz_air` 0, not shattering) - rolled over, as a boost pad pushes; a KEY on any touch, airborne too, as a pickup is taken | a Hop over a plate is a way not to press it; a key is a pickup |
+| D5 | the PAIRING is the channel's GLYPH - ring, plus, box, cross - 5 x 5 px, BLACK on a 7 x 7 WHITE plaque, on every plate, key, gate and switched bridge of it; the channel's ink (magenta ring and box, cyan plus and cross) only a second cue | on the Hercules and CGA magenta and cyan are the same grey checker; black on white reads on every card (LOOKED AT in the tool's previews, both cards) |
+| D6 | a GATE is a WALL in the window while shut (CELL writes the kind nibble, its surface kept) and its grid's FLOOR once open; it never closes in an attempt (D3), and the tool refuses a gate on the start's cell, so a play never begins inside one | the cracked tile's state-driven cell; a WALL is a column at every height, so nothing hops a shut gate |
+| D7 | a DRAWBRIDGE cell is its grid's FLOOR at its DECK while DOWN, and a NEAR VOID (the deck less 3 units, kind and surface 0: a broken crack's) while UP; a ball on it when it goes up FALLS (expected); one below the deck in its cell when it comes down is NOT lifted - the window's centre keeps the void while the ball's whole-px z is under the deck | the plan's VOID <-> FLOOR; the no-lift rule is the one thing a floor appearing round a falling ball could otherwise do - teleport it up - and the `under` scene with the red arm `lift` holds it |
+| D8 | a bridge is SWITCHED (lowered once its channel opens, then down for the attempt) or TIMED (`period P on N [seed S]`, a popspike's timer: DOWN while ((n + S) AND (P - 1)) < N); a timed rectangle's cells take seeds S, S + 1, ... so they turn one a step | the switched one pairs with P6; the timed one is the plan's "on a timer"; one pose change a step keeps a window's timed lanes to the event budget (128.19.10) and reads as the bridge folding cell by cell |
+
+A channel opening counts `bz_nfev`, the PICKUP's sound - the switch's click
+(no new sound, no resident byte).
+
+#### 128.41.2 The statements
+
+    uses gate
+    prop plate  <wx> <wy> channel ring|plus|box|cross
+    prop key    <wx> <wy> channel <C>
+    prop gate   <wx> <wy> channel <C> [along x|y]
+    prop bridge <wx> <wy> [<x1> <y1>] channel <C>
+    prop bridge <wx> <wy> [<x1> <y1>] period 32|64|128|256 on <N> [seed <S>]
+
+Each element is a family element (128.25.6.4): a FLAT FLOOR cell with OBS of
+its own. `along` is the way the path runs through a gate (its bars stand
+across it; `x` when not written). A bridge's rectangle is one element a cell
+(x1, y1 past the last, as a floor's `rect`); a timed bridge is usually laid
+with `float ... thick 0.5` (128.27.2) so it is drawn a thin deck.
+
+#### 128.41.3 The record and the slot
+
+| at | what |
+|---|---|
+| +16, +17 | FSB 0 (no state bit), the class 0 (ATTEMPT) |
+| +18 | the CHANNEL 0 - 3; a timed bridge `GT_TIMED` (FFh) |
+| +19 | a gate's way (0 x, 1 y); a bridge's DECK, its z0 (signed half units); else 0 |
+| +20 | a bridge's grid +2 byte (kind FLOOR, its surface), which DOWN writes back; else 0 |
+| +21 - +23 | a timed bridge's ON, MASK (P - 1), SEED; else 0 |
+| +24 - +31 | zero |
+
+The reader refuses any other class, an FSB, a channel past 3 (but a bridge's
+FFh), a way past 1, a timer that is not a popspike's, a stray byte, a bridge
+whose grid cell is not its deck with its +20 byte, or an element with no lane
+of 2 poses (none groups on GATE; a group's member is accepted).
+
+**The SLOT** (2 of `BZF_SLOT`'s 8 bytes): +0 the open channels, a bit each;
++1 the course's timed bridges (RESET's count, so STEP walks the records only
+on a course that has one).
+
+#### 128.41.4 The rule (binding: the guest and `bbcourse.GateFamily` do exactly this)
+
+- **RESET** (either class): +1 = the timed bridges.
+- **CONTACT** on a PLATE with the ball grounded and not shattering, or on a
+  KEY: its channel's bit already set, nothing; else set it, `bz_nfev` + 1,
+  `bz_fref` (the next step's full refill writes the window's gates and
+  bridges again) and every element of the channel (a plate, key, gate or
+  bridge whose +18 is it) MARKED by `bz_fmark`. On a gate or a bridge,
+  nothing.
+- **STEP**: +1 not 0, each timed bridge whose DOWN differs between `n` and
+  `n + 1` (`bz_nstep`'s low byte) MARKED, and `bz_fref` set when its cell is
+  in the window.
+- **POSE**: a plate 1 when its channel is open (PRESSED); a key 1 while it is
+  shut (0: taken); a gate 1 while shut; a bridge 1 while UP.
+- **CELL**, each gate or bridge cell in the window, written ABSOLUTE from the
+  record, so a cell the incremental refill (`bz_win9i`) kept is right whatever
+  it held: a shut gate's kind nibble WALL (surface kept); a bridge DOWN, its
+  z0 the deck and its +2 the record's +20 - unless it is the window's centre
+  and the ball's whole-px z (`[bz_gz + 1]`) is under 4 x the deck, which keeps
+  the UP form: z0 the deck less `GT_DROP` (6), +2 zero.
+
+`FAMV` folds the row and its consts (`GT_NCH`, `GT_DROP`, `GT_TIMED`).
+
+#### 128.41.5 The art
+
+Every element's lane is a MARK at its tile's depth clipped by what stands in
+front of it, refused when more than half of its pose 1 is hidden, and its
+top's centre must lie on a block:
+
+| kind | the picture (pose 0) | pose 1 | the lane |
+|---|---|---|---|
+| plate | a black-rimmed square of the channel's ink on the top with the plaque (UP) | the plaque inverted, black with a white glyph (PRESSED) | a crack's 2 x 2 blocks round the top's centre |
+| key | nothing (taken) | the KEY floating over the cell (the pickup icon's path): its bow a black frame round the plaque, its shaft and bit in the channel's ink | the icon's bounds |
+| gate | a black GROOVE across the top (open) | the GRILLE standing across the path (shut): black posts and rails, bars black and the channel's ink, 15 x 10 px, the plaque in its middle | its bounds: 2 x 3 blocks |
+| bridge | the deck: a black seam round the top (a trapdoor's outline) | UP: the top black inside the crack's 2 x 2 blocks (its `band` hole), a switched bridge's plaque in its middle | a crack's 2 x 2 (a run of bridge cells shares no block, so none groups) |
+
+So a channel's opening changes every element of it on one step; the walk's
+candidate list takes six and the rest wait a frame, never lost (128.19.10).
+
+#### 128.41.6 The knob build: GATE (`BZGATE=1`)
+
+`make BUILD=<tree> BZGATE=1 bonanzadisk` (a private tree; refused with every
+other pad-0 knob: `BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`, `BZWATER`,
+`BZARCH`, `BZSPIKE`, `BZBOOST` and the round's `BZTILT`, `BZTURN`, `BZHUMP`)
+adds `apps/bonanza/courses/gate.bbc` after the shipped courses and compiles
+the pathway through `courses/pathgate.sed`: pad 0 becomes GATE (a new game
+rests on it), its exit 0 to TRIAL, its exit 1 to FIRST at pad 6.
+
+**GATE "Gate Test"**: a start plate at 2 units with a pad for each ball and
+two switch plates (RING, BOX), and
+
+- THE RING GATE: a corridor east shut by two ring gates; the ring plate on
+  the start plate opens them; a goal (exit 1) behind;
+- THE KEY GATE: a lane south shut by two plus gates; the PLUS KEY in a nook
+  beside it; a goal behind;
+- THE TIMED DRAWBRIDGE: six thin cells over the void east, down 128 steps of
+  every 256 (2.3 s each way), each cell a step after the last; a goal across;
+- THE BOX DRAWBRIDGE: two thin cells west, up until the box plate is rolled
+  over; a goal across.
+
+#### 128.41.7 The refusals
+
+Each a `--selfcheck` string case (section `gate`, item 2, 20 cases): a plate
+with no channel; a channel of no glyph; a channel twice; a gate along z; a
+way on a plate; a `reset`; a bridge's period not a popspike's, `on` 0, a
+seed past the period; a channel AND a timer; a gate nothing opens (a channel
+with a gate or bridge and no plate or key); a plate that opens nothing; two
+keys of one channel; a gate or bridge on the start's cell; a gate on a ramp;
+on another prop's cell; no `uses gate`; `uses gate` and no element; a gate
+hidden behind a wall in front of it. Two timed bridges turning on one step in
+a window are refused with the popspikes' and gusts' rule.
+
+#### 128.41.8 The proofs
+
+**`--selfcheck --only gate`**: the twenty refusals; item 3, GATE's fifteen
+records (+18 - +23 the source's, the six timed cells' seeds 0 - 5, a lane of
+2 poses each, no FSB, ATTEMPT) and `FAMV` moving with each const; item 5, the
+four glyphs pairwise distinct, black on white; item 6, nine scenes for every
+ball on the model (`GT_SC`, steered to waypoints by `gt_keys`), each paired
+with its control - `ring` (over the ring plate and through its gates) against
+`ringshut` (from beside it: stopped at the gates), `key` against `keyshut`,
+`box` (over the box plate, across its bridge) against `boxup` (falls),
+`timed` (across while down) against `late` (it goes up under the ball), and
+`under` (rubber and glass fall in while it is up and keep falling when it
+comes down); and three red arms on the model, each red: `noopen`, `nowall`,
+`lift`.
+
+**`tests/bonanza_phys.py --check`'s unicorn half, `gt_host`**: GATE compiled
+from its source and played on the default build's image and parts, the
+guest's `bz_step` equal to the model at every step - the ball, the slot, the
+window `bz_nbr`, every element's POSE and its marks - in the 27 scenes (each
+scene for each ball), what each is for asserted on the model; red arms
+assembled from broken copies of the part's source, each of which must part
+from the model: `gtwall`, `gtmark`, `gtstep`, `gtlift`, `gtup`.
+Each red as MEASURED: `gtwall` (the WALL's two writes gone) parts at "the
+window" at step 147 of `ringshut`; `gtmark` "never drawn" at step 0 of
+`ring`; `gtstep` "never drawn" at step 122 of `timed`; `gtlift` parts at "the
+ball" at step 253 of `under` (lifted onto the deck); `gtup` parts at "the
+window" at step 100 of `boxup`. Every one of the 27 scenes is equal at every
+step and shows what it is for.
+
+#### 128.41.9 What it costs, and its home (MEASURED: `make bonanzadisk` against `cdb248a06`)
+
+| | |
+|---|---|
+| the part, `bzf-gate.bin` | **515 bytes** (`paras` 33), the header 24, RESET, CONTACT (with the channel's marking walk), STEP (a popspike's turn test), POSE, CELL (the window's offset in `gt_win`, shared with STEP) and the helpers |
+| resident | **0 bytes of code**; the image `bonanza.bin` 50,036 -> **50,037 (+1)**: `BZ_FTAB`'s byte for ID 13; bss **+0** (the slot is `bz_fsl`'s, no `bz_fst` byte) |
+| the bundle and the package | `bzfbun.bin` 30,864 -> **31,392 (+528, the part's 33 paragraphs)**: the RAM every play pays, a course naming it or not; `BONANZA.O88` 121,892 -> **122,190 (+298)**; `bonanza360.img` 128 clusters either way |
+| a step, a course naming GATE | PREDICTED (counted at the 8088's clocks and fetch floor, not measured): STEP's dispatch and slot test about **0.15k** on a course with no timed bridge; with one, a walk of the course's records about **40 clk a record** plus about **0.15k a timed bridge**; CONTACT on a plate or key about 0.1k (once open), its opening once a walk of the records (about 50 clk a record); CELL at every refill a walk of the records (about 45 clk a record) plus about 0.2k a gate or bridge cell in the window |
+| a course without GATE | nothing (no hook is called for a family the course does not name) |
+| the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway and the title byte for byte as before (MEASURED, `cmp` against the base tree): no identity and no demo moved |
+
+#### 128.41.10 Open questions for the owner
+
+1. LATCHING (D3): plates and keys open for the attempt. A TIMED gate (open
+   N seconds after a plate, then shut - and so a rule for a gate closing on a
+   ball: refuse the close while the ball's centre is in it, as the bridge
+   refuses the lift) is the natural second step if courses want a race.
+2. The drawbridge's art: an UP cell shows a black hole in the middle of its
+   top (the crack's band, a 2 x 2-block lane) with its deck's corners left
+   drawn - the price of a lane a cell that no neighbour's shares. A whole-top
+   hole needs group lanes and a timed run of them changes too many lanes on
+   one step (`GRP` lanes counted per member, 128.32.7: refused at 7).
+3. A warning pose before a timed bridge goes up (a crack's hairline for its
+   last quarter second) - one more pose, a few bytes; not built.
+4. Four channels a course, told apart by glyph: enough?
