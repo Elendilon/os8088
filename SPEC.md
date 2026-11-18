@@ -283288,6 +283288,47 @@ bss** and **2 bytes a course of table** (20 with ten entries). On a locked cours
 across axis's decision and any column it would have panned). An unlocked
 course's frame pays one compare and a branch, a few clocks.
 
+#### 130.45.4 The BOTTOM STOP, `stop down` (the owner, 2026-11-18)
+
+*"we may need a camera rule here 'the finish is already fully in view, don't
+scroll down more on horizontal locked courses'"*, and then: *"Scrolling to
+where lattice did before it moved again, then stopping, works; maybe that
+needs to be a flag set in the course data instead of a general rule."* On
+FIRST ROLL the camera kept scrolling down past the goal plateau into the
+course's columns, and a clock placed up by the goal fell out of view.
+
+    stop down
+
+- **A flag of the course's own**, once, with no arguments, independent of
+  `lock across`.
+- **The BOTTOM LINE** the tool computes: the lowest front corner of any
+  FINISH (every goal cell, every cup's cell; `8 (wx + wy) + 16 - h + y0`,
+  `h` that corner's height in px), plus `FACE8` (24 lines, three units of
+  the face under it). A course with no finish is refused at the line.
+- **`BZ_CRS_BOTS`**: a word a course, beside `BZ_CRS_LOCKS`, the bottom
+  line, 0 for none. It is not in the part.
+- **The guest** (`bz_vinit`, after `bz_rmax`, on the CGA and the Hercules):
+  when the word is not 0,
+  `bz_rmax = min(bz_rmax, max(0, ceil((bottom - BZ_LINES) / rl)))`. Once
+  the finish is wholly in view the window scrolls no further down.
+  Everything else in the camera is unchanged: a ball falling past the bottom
+  line is followed no further, and it is killed below its floor as before.
+- **The model**: `Physics.lockb`, and `Glide` caps its `rmax` the same way
+  before its DOWN axis is built.
+- **The finish-clock rule** (130.22.6) on a course that is both LOCKED and
+  STOPPED: a finish inside the window the camera RESTS in at the finish
+  (across the lock, down the stop: `bbcourse.stopped_window`) is checked
+  against that window, not one centred on it. That is the window the player
+  sees there.
+- **The VGA arm** (130.46) reads the lock from `bz_clocks` in its own half
+  of `bz_vinit`; `bz_cbots` is there for it, and taking it is that arm's
+  work.
+- **Red, on purpose**: a second `stop` and a course with no finish are each
+  refused at the line.
+- **Cost** (MEASURED, the `BZROLL=1` build's listing): **39 bytes of code**
+  in `bz_vinit` and **2 bytes a course** of table (20 with ten entries). Not
+  a frame's clock.
+
 #### 130.45.3 What uses it, and the rows
 
 - **FIRST ROLL** (`roll.bbc`, the `BZROLL=1` knob) is its first and, for
@@ -283649,6 +283690,11 @@ camera holds that framing (moved to on `BZV_PAGE`'s trapezoid if it is not
 there), down follows as ever. (The lock arrived from `bounce-bonanza` while
 this arm was on its own branch: its `bz_vinit` code sat after the VGA's
 early return, so a VGA play read whatever `bz_lockc` held.)
+
+**A STOPPED course** (130.45.4): the VGA's `bz_rmax` is the part's, so
+`bz_vinit`'s VGA arm caps it after `BZV_INIT` the same way - a VGA row is
+a line, so at most `max(0, bottom - BZ_LINES)` - and the camera's edge
+braking stops it there at rest.
 
 **The A/B (until the owner has dialled it in, then removed)**: on the VGA
 `C`'s second mode is LATTICE instead of TRICKLE, so the two can be played

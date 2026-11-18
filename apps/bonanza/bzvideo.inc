@@ -164,6 +164,20 @@ bz_vinit:
 .vl:
     mov [bz_lockc], ax
     BZ_VCALL BZV_INIT
+    mov bl, [bz_crs]            ; ...and the BOTTOM STOP (130.45.4) on the
+    xor bh, bh                  ; part's rmax: a VGA row is a line, so rmax
+    shl bx, 1                   ; at most max(0, bottom - BZ_LINES)
+    mov ax, [bz_cbots + bx]
+    or ax, ax
+    jz .vnb
+    sub ax, BZ_LINES
+    jns .vb
+    xor ax, ax
+.vb:
+    cmp ax, [bz_rmax]
+    jge .vnb
+    mov [bz_rmax], ax
+.vnb:
     ret
 .nvga:
     cmp byte [bz_herc], 0
@@ -234,6 +248,23 @@ bz_vinit:
     shr ax, cl
     sub ax, [bz_H]
     mov [bz_rmax], ax
+    mov bl, [bz_crs]            ; SPEC.md 130.45.4: the BOTTOM STOP - the
+    xor bh, bh                  ; window's foot never passes the course's
+    shl bx, 1                   ; bottom line: rmax at most
+    mov ax, [bz_cbots + bx]     ; ceil((bottom - BZ_LINES) / rl), at least 0
+    or ax, ax
+    jz .nbot
+    sub ax, BZ_LINES
+    jns .bpos
+    xor ax, ax
+.bpos:
+    add ax, [bz_rl]
+    dec ax
+    shr ax, cl                  ; (CL = bz_lsh still)
+    cmp ax, [bz_rmax]
+    jge .nbot
+    mov [bz_rmax], ax
+.nbot:
                                 ; W * dr for dr = -2 .. 2 (bz_tf's S)
     mov ax, [bz_W]
     mov [bz_wtab + 6], ax
