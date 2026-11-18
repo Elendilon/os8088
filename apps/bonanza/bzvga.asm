@@ -376,7 +376,9 @@ bzv_row:
 ; BZV_COL - the entering column [bz_ccol], every line of the NEW window
 ; ([bz_R0n] on, BZV_H of them), before the start address (128.45.4 rule 1):
 ; the gutter's cells, off the glass.  A plane at a time, a block's lines from
-; one map entry.  Preserves nothing (DS, ES the package's again).
+; one map entry, its eight UNROLLED (displacements, no per-line test: 44.6k
+; clocks a column looped, 128.45.12).  Preserves nothing (DS, ES the
+; package's again).
 ; =============================================================================
 bzv_col:
     mov es, [bz_vseg]
@@ -419,34 +421,60 @@ bzv_col:
     mov dx, 3c4h
     out dx, ax
     pop dx
-    mov cx, BZV_H
-.blk:
-    mov bx, [si]                ; the block
-    mov al, dh
-    xor ah, ah
-    add bx, ax
-    mov al, dl
-    shl ax, 1
-    add bx, ax                  ; BX = its line j's byte of the plane
-.ln:
-    mov al, [bx]
-    stosb
-    add di, BZV_P - 1
-    inc bx
-    inc bx
-    dec cx
-    jz .done
-    inc dl
-    cmp dl, 8
-    jb .ln
-    xor dl, dl
+    mov al, dl                  ; the first block entered at its line j: DI
+    mov ah, BZV_P               ; back to where its line 0 would be
+    mul ah
+    sub di, ax
+    mov cl, dl                  ; CX = the blocks, (j + H + 7) / 8: the last
+    xor ch, ch                  ; whole (128.45.12: at most 7 lines past the
+    add cx, BZV_H + 7           ; window's foot, off the glass, rewritten
+    shr cx, 1                   ; when they enter as rows)
+    shr cx, 1
+    shr cx, 1
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [cs:.tab + bx]      ; the entry, line j
+    mov dl, dh
+    xor dh, dh                  ; DX = the plane's byte of a line
+    mov bx, [si]
+    add bx, dx
+    jmp ax
+.k0:
+    mov al, [bx + 0]
+    mov [es:di + 0 * BZV_P], al
+.k1:
+    mov al, [bx + 2]
+    mov [es:di + 1 * BZV_P], al
+.k2:
+    mov al, [bx + 4]
+    mov [es:di + 2 * BZV_P], al
+.k3:
+    mov al, [bx + 6]
+    mov [es:di + 3 * BZV_P], al
+.k4:
+    mov al, [bx + 8]
+    mov [es:di + 4 * BZV_P], al
+.k5:
+    mov al, [bx + 10]
+    mov [es:di + 5 * BZV_P], al
+.k6:
+    mov al, [bx + 12]
+    mov [es:di + 6 * BZV_P], al
+.k7:
+    mov al, [bx + 14]
+    mov [es:di + 7 * BZV_P], al
+    add di, 8 * BZV_P
     add si, bp
-    jmp short .blk
-.done:
+    mov bx, [si]
+    add bx, dx
+    dec cx
+    jnz .k0
     pop dx
     pop di
     pop si
     ret
+.tab:   dw .k0, .k1, .k2, .k3, .k4, .k5, .k6, .k7
 
 ; =============================================================================
 ; BZV_BOXW - box SI (a descriptor: +0 x0 world column, +2 y0 world line, +4 w
