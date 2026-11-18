@@ -30513,7 +30513,8 @@ def _sc_gate(X, res):
     sok = len(set(frozenset(b_.items()) for b_ in bars)) == len(bars) and len(set(decks)) == len(decks) \
         and all(all(b_.get(xy) == v for xy, v in pq.items()) and {BLK, WHT} <= set(b_.values())
                 and max(abs(x) for x, _y in b_) <= GT_BARW for b_ in bars)
-    gst = sorted(set((GT_STYLES[p_["gstyle"]], PK_NAMES[p_["kind"]]) for p_ in c.props if p_["kind"] in (GT_KG, GT_KB)))
+    gst = sorted(set((GT_STYLES[p_["gstyle"]], PK_NAMES[p_["kind"]]) for p_ in c.props if p_["kind"] in (GT_KG, GT_KB)
+                 and p_.get("gart") is None))       # (128.41.12: an ART element takes no style)
     plain = open(GT_TEST).read()
     for nm in GT_STYLES:
         plain = plain.replace(" style %s" % nm, "")
