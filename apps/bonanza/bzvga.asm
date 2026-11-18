@@ -1824,7 +1824,12 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
     mov [di + 4], al
 .bk:
     ret
-; AL = |s| (1 - 8), CX = the distance to the edge -> AL = the |s| allowed
+; AL = |s| (1 - 8), CX = the distance to the edge -> AL = the |s| allowed:
+; the largest n <= |s| whose stopping distance n (n + 1) / 2 is within CX.
+; A CAP, not a nudge of one - so a TRACK pushing the step up each frame cannot
+; out-run it (MILL's demo: the step held at 3 - 4 against a one-a-frame brake
+; and was clamped 3 to 0 at the edge).  Last frame's step met the cap, so
+; the step falls at most one a frame: the braking is smooth
 .bdist:
     or cx, cx
     jg .bd1
@@ -1832,17 +1837,16 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
     ret
 .bd1:
     push bx
-    mov bl, al
     xor bh, bh
-    mov bl, [cs:.tri + bx]      ; its stopping distance
-    cmp cx, bx
-    jae .bd2
-    dec al                      ; nearer: brake one
 .bd2:
-    xor ah, ah
-    cmp cx, ax
+    or al, al
+    jz .bd3
+    mov bl, al
+    mov bl, [cs:.tri + bx]
+    cmp cx, bx
     jae .bd3
-    mov al, cl                  ; never past it
+    dec al
+    jmp short .bd2
 .bd3:
     pop bx
     ret

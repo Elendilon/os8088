@@ -507,12 +507,88 @@ def set_snd(g, on):
 ADLIB = "os8088_5150_sb"       # the 5150 with an AdLib (SOUND.DRV at boot): S's AUTO plays the chip there
 
 
+VGA_MISS_MAX = 60                       # BENCH's misses on the VGA, of 1,200 (MEASURED 27 - 50: SPEC.md 130.46.12)
+VGA_STEPS_MIN = 52.0                    # a guest second's steps over PLAYGROUND's demo: the game in real time (54.6
+                                        # nominal; 46 before the step loop's clock sample, SPEC.md 130.46.13)
+VGA_DEMO_SECS = 15                      # ...the guest seconds measured, after VGA_DEMO_LEAD of lead-in
+VGA_DEMO_LEAD = 3
+
+
+def vga_run(apps=None, src=None, art=None):
+    """THE VGA's LEG (SPEC.md 130.46.12, 130.46.13): BENCH's benchmark on the 8088 - 35 Hz latched, at most
+    VGA_MISS_MAX misses, busy REPORTED (the game's own results); PLAYGROUND's shipped demo through R - at least
+    VGA_STEPS_MIN steps a guest second, the game clock kept (frames a second REPORTED) -> [(label, fails, summ)]"""
+    sym = R.symbols(src, art)
+    out = []
+    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
+                     machine=R.MACHINE["vga"]) as ui:
+        ui.open_drive("B")
+        ui.open("BONANZA.O88")
+        g = R.Bz(ui, "vga", sym)
+        ui.settle()
+        m = g.m
+        set_snd(g, False)
+        bad = []
+        g.key("KeyB")
+        M.until(m, lambda _: g.b("bz_fs") == 1, "the VGA's benchmark runs", guest=60)
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the VGA's benchmark ends", guest=400)
+        m.pause()
+        fr, miss, div = g.w("bz_rframes"), g.w("bz_rmiss"), g.b("bz_vdiv")
+        acc = [struct.unpack("<I", bytes(m.read(g.a("bz_racc") + 4 * i, 4)))[0] * 4 for i in range(7)]
+        m.run()
+        busy = (sum(acc) - acc[3]) // max(1, fr)
+        summ = {"frames": fr, "miss": miss, "div": div, "busy": busy}
+        print("vga BENCH: %d frames at %d Hz, %d misses (at most %d), busy %d clk a frame (REPORTED)" % (
+            fr, 70 // div, miss, VGA_MISS_MAX, busy), flush=True)
+        if div != 2:
+            bad.append("vga BENCH: the divisor %d - the 8088 runs BENCH at 35 Hz (SPEC.md 130.46.10)" % div)
+        if miss > VGA_MISS_MAX:
+            bad.append("vga BENCH: %d misses of %d frames, at most %d (SPEC.md 130.46.12)" % (miss, fr, VGA_MISS_MAX))
+        out.append(("VGA BENCH", bad, summ))
+        bad = []
+        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+        R.CRS_K["bench"]
+        for n in range(3):                      # (the first key after a bracket can land before the face takes
+            try:                                # keys: V again)
+                load_demo(g, R.CRS_K["play"], art)
+                break
+            except M.MartyError:
+                if n == 2:
+                    raise
+                M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+        g.key("KeyR")
+        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "PLAYGROUND's demo runs", guest=120)
+        m.advance(cycles=VGA_DEMO_LEAD * 4772727)
+        m.pause()
+        f0, s0 = g.w("bz_frames"), g.d("bz_nstep")
+        m.run()
+        m.advance(cycles=VGA_DEMO_SECS * 4772727)
+        m.pause()
+        f1, s1, fs = g.w("bz_frames"), g.d("bz_nstep"), g.b("bz_fs")
+        m.run()
+        sps, fps = (s1 - s0) / float(VGA_DEMO_SECS), ((f1 - f0) & 0xFFFF) / float(VGA_DEMO_SECS)
+        print("vga PLAYGROUND's demo: %.1f steps a guest second (at least %.1f), %.1f frames (REPORTED)" % (
+            sps, VGA_STEPS_MIN, fps), flush=True)
+        if not fs:
+            bad.append("vga PLAYGROUND's demo ended inside the %d s measured" % (VGA_DEMO_LEAD + VGA_DEMO_SECS))
+        elif sps < VGA_STEPS_MIN:
+            bad.append("vga PLAYGROUND's demo: %.1f steps a guest second, at least %.1f - the game clock lost "
+                       "time (SPEC.md 130.46.13)" % (sps, VGA_STEPS_MIN))
+        out.append(("VGA PLAYGROUND", bad, {"sps": sps, "fps": fps}))
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the demo ends on Esc", guest=60)
+    return out
+
+
 def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None, sounds=SOUNDS, old=False,
         machine=None):
     """-> [(label, failures, summary)].  Wave 3b's legs (SPEC.md 130.13.12,
     130.13.15; the module's docstring).  OLD: the A/B's other side, wave 3's
     build - BENCH ([bz_hvoff] 1) and MILL alone, no sound.  MACHINE: another
-    MartyPC machine of the card TAG (the AdLib arm's)."""
+    MartyPC machine of the card TAG (the AdLib arm's).  The VGA: vga_run."""
+    if tag == "vga":
+        return [] if old else vga_run(apps, src, art)
     sym = R.symbols(src, art)
     out = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -1606,11 +1682,18 @@ REDS = {
 RED_LEGS = {"rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",))}
 RED_TAGS = {"rideoff": ("cga",)}
 RED_WANT = {"rideoff": "line-change frames", "level1": "bz_nhvy"}
+# the step loop's clock sample taken out (SPEC.md 130.46.13): two or three PLAYGROUND steps outlast a sub-tick and
+# the game loses time on the VGA
+REDS["vclock"] = [("bzgame.inc", "    call bz_clk_sample          ; a sample a step: two or three steps are 70k\n",
+                   "    nop                         ; RED vclock\n    nop\n    nop\n")]
+RED_LEGS["vclock"] = ((), ("off",))
+RED_TAGS["vclock"] = ("vga",)
+RED_WANT["vclock"] = "the game clock lost time"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--adapter", choices=("cga", "herc", "vga", "both", "all"), default="all")
     ap.add_argument("--apps", help="the B: floppy to run instead of build/bonanza360.img")
     ap.add_argument("--src", help="the package source that floppy was built from (default apps/bonanza)")
     ap.add_argument("--art", help="the art directory that source assembled against (default build/bonanza-art)")
@@ -1633,7 +1716,7 @@ def main():
     ap.add_argument("--runs", type=int, help="--baseline only: this many runs a configuration (default 6 for MILL "
                                               "and PEAK, 3 for the rest)")
     a = ap.parse_args()
-    tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
+    tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
@@ -1657,7 +1740,7 @@ def main():
             len(falls), n)
         return
     if a.baseline:
-        baseline(tags, [c.lower() for c in a.course] if a.course else None, a.runs, tuple(a.sound) if a.sound else SOUNDS)
+        baseline(tuple(t_ for t_ in tags if t_ != "vga"), [c.lower() for c in a.course] if a.course else None, a.runs, tuple(a.sound) if a.sound else SOUNDS)
         return
     if a.red:
         tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
