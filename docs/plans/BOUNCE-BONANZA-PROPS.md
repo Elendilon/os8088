@@ -410,6 +410,11 @@ under the pivot. The diary's 2026-11-17 entry "THE SEE-SAW" is how it went.
       2k a refill on TILT).
 - [ ] **T.7** The owner's answers (SPEC.md 128.42.10): the weights, the look,
       steel and slopes, the lanes, the occluders.
+- [x] **T.8** The TIMED see-saw (branch `bb-propfix`, SPEC.md 128.42.11, the owner 2026-11-18): `period
+  P [flat F] [seed S]` ignores the weight and swings on a popspike's timer through FLAT, carrying the
+  ball; TILT's LIFT (a timed plate lifts every ball to a ledge) and SWING; eight refusals, five model
+  scenes, four unicorn scenes and four red arms. The part 648 -> 824 bytes, the bundle +176, the image
+  and bss +0; the weight plate's scenes unchanged.
 
 ## P11 THE QUARTER-TURN TURNTABLE - built (branch `bb-turn`, SPEC.md 128.43)
 
@@ -554,3 +559,7 @@ is not lifted. Lanes redrawn on change only (`bz_fmark`); the channel's opening 
 - [ ] **G.8** The owner's answers (SPEC.md 128.41.10): latching, the bridge's hole art, a warning pose, four
       channels.
 - [ ] **G.9** A shipped course that uses them.
+- [x] **G.9** The art's STYLES (branch `bb-propfix`, SPEC.md 128.41.11, the owner 2026-11-18):
+  `gatestyle` for a course, `style` on a gate or bridge - grille (the default), crystal, picket,
+  portcullis - the bars and the deck, tool only (0 resident bytes); every course naming none
+  byte for byte as before; GATE shows all four.
