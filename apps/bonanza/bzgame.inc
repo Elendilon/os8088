@@ -1508,11 +1508,15 @@ bz_exitchk:
     mov ah, 27                  ; 2026-11-16: the course demo is the title's
     cmp al, ah                  ; too, never a way back to it (SPEC.md
     je .tk                      ; 128.23.4.1); (a key stirs the LFSR)
+    cmp al, 13                  ; Enter is P's (the owner, 2026-11-18): the
+    jne .tnent                  ; pathway on a title demo, the title on a
+    mov al, 'p'                 ; course demo (bz_pwek eats it held there)
+.tnent:
     or al, 20h
     cmp al, 'f'
     je .towin
     mov ah, 1                   ; a course demo: any other key is the title
-    cmp byte [bz_tmode], 2      ; again; a title demo: P plays, S and 1 2 3
+    cmp byte [bz_tmode], 2      ; again; a title demo: P (Enter) plays, S, 1 2 3
     je .tk                      ; the slot, the rest nothing
     mov ah, al
     cmp al, 'p'

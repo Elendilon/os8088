@@ -271625,7 +271625,7 @@ the pathway's rework.)
 | the demos | **four TITLE DEMOS**, text (`apps/bonanza/demos/title<N>.bzt`), each a START STATE (the ball, its position and velocity, airborne or not, and a respawn cell) and a `BZR1` run list, compiled into one part; the build writes the identity and checks each against the model and its own `expect` lines | a title demo starts where the brief puts the ball (dropped from above, already rolling), which a course's `start` cannot say; the identity is the build's so an art change never stales them |
 | their length | **`BZ_TSTEPS` = 832 steps** (15.23 s at 54.62 steps a second), every title demo exactly, the title song's one pass exactly | the brief: about 15 s, all the same length, the music ending with them |
 | the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once - **except Esc, F and Alt+Enter, which leave the bracket as they do on the title** (128.23.4.1) | the brief; the exception the owner's (2026-11-16) |
-| the keys on the title | **P** plays (the game: the pathway loop, 128.19.5, in the same bracket); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
+| the keys on the title | **P** or **Enter** plays (the game: the pathway loop, 128.19.5, in the same bracket; Enter the owner's, 2026-11-18); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
 | the way in | **Enter on the desktop face opens the title** (the bracket); P on the title is what Enter was (the game in the slot shown). F, B, R, D, V and the rest of the face are unchanged | the face stays the instruments' (128.19.3); the title is the game's front |
 | the way back | the pathway's **Esc** and the game's end return to the TITLE, not to the desktop | the game is entered from the title, so it leaves to it |
 | the song | a seventh song, **`attract`**, `apps/bonanza/music/attract.bmu`: one pass of exactly `BZ_TSTEPS` sub-ticks, its last order row silent with `loop` pointing at it, so it ends with the demo; the course's `music attract` picks it | no new player code: a song already plays from its top at every `bzs_open` and is step-locked to the physics in a replay (128.20.6) |
@@ -271764,7 +271764,7 @@ Inside ONE bracket, `bz_title` (resident: it is the bracket's):
 2. **Play it**: `bz_rlog` from demo `d`, `bz_mode` 2, the start block
    applied, `bz_nst[0]` = `1 + bz_slot`, the FIXED window, the course's song
    (`attract`) from its top. Keys, every frame (`bz_exitchk`'s title arm):
-   **P** -> 4; **S**, **1**, **2**, **3** -> `bz_slot` changed, `bz_nst[0]`
+   **P** or **Enter** -> 4; **S**, **1**, **2**, **3** -> `bz_slot` changed, `bz_nst[0]`
    set and the label's lane marked for the walk (a pose change, one block);
    **Esc** (or F, Alt+Enter) -> the bracket ends, the desktop; anything else
    drained and ignored. The demo's last step -> 3.
