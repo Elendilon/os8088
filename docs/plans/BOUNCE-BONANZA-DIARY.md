@@ -5211,3 +5211,30 @@ eye.
   the step changing in 30 of 800 frames across and 24 down. LATTICE, at
   rest most of the time, changes in 8 and 8; whether the camera's runs now
   read as smooth is the owner's to say.
+
+## 2026-11-18 (VGA: PLAYGROUND on the 8088)
+
+- **The owner's replay** (`PLAY.BZR`, PLAYGROUND): on the VGA the game
+  slowed, the music with it; the CGA played it smooth.
+- **A sampling profiler on MartyPC**: the replay on a scratch disk, a CS:IP
+  sample every 15 - 45k guest clocks, resolved against the listings, and
+  frames and steps counted a guest second. LATTICE measured the same as the
+  new camera, which cleared it.
+- **The VGA's entering column cost three times the CGA's** (44.6k clocks):
+  a per-line loop with a block test on every line. Unrolled, entered at the
+  first line by a table: 22.5k. The row likewise: 7.5k to 4.4k.
+- **Then the clock.** Steps a second were 46 of 54.6 - game time lost, not
+  frames dropped. The clock counts sub-ticks by sampling the PIT and loses
+  one when samples are more than a sub-tick apart; the step loop took no
+  sample, and two or three PLAYGROUND steps outlast a sub-tick. One sample a
+  step put both cards in real time (the CGA had been losing ~3%).
+- **And the frame that waited twice.** With the game in real time a slow
+  frame carries three steps, and the VGA fell to 19 fps. The lateness test
+  in `bz_vstart` understood one sub-tick since the last present; past that
+  it called the frame late and showed it a refresh after the next rise.
+  Reducing any number of sub-ticks a refresh at a time: ~30 fps, the game
+  in real time, the wait at the CGA's share.
+
+**Tested**: `make bonanzadisk`, the replay profile on both cards (MartyPC),
+BENCH's scripted camera 400 frames (0 px). **Not run**: soak rows on these
+commits, a V20, the owner's eye.
