@@ -253559,6 +253559,13 @@ trickles.** Three camera MODES ship in wave 0b so the owner can choose by
 feel; `C` in play cycles them, the desktop face names the current one, and
 the choice persists across plays in the session (not on disk).
 
+*Since 130.46.12 (the owner, 2026-11-18: "Glide/trickle are closed tests,
+lattice won"): `C` is gone, in play and on the desktop, and line 3 of the
+face reads `M <ball>  T <control>`. LATTICE (GLIDE's rule) is the CGA's and
+the Hercules' only camera and 130.46.14's the VGA's; TRICKLE remains only
+as a harness's poke of `bz_cmode` (three soak rows hold the window still
+with it), to go when those scenes are reworked.*
+
 | mode | `bz_cmode` | horizontal | vertical |
 |---|---|---|---|
 | **GLIDE** (the default) | 0 | REST until the ball's CENTRE leaves the dead zone (the middle half, unchanged); then PAN toward the target column that puts the ball on the dead zone's TRAILING edge - a quarter-window behind the centre, so the camera LEADS by a quarter-window in the direction of travel (the sign of `vx`, at rest the last one) - rounded so the ball lands inside the edge and clamped to the course; one column every second frame, and every frame while the ball is faster than 4 px a frame or still outside the dead zone; re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball on the band's trailing edge (the camera leads by a sixth of the window), at one row a frame, two while the ball is faster than 2 lines a frame, and one more while one row still leaves the ball outside the band, until reached |

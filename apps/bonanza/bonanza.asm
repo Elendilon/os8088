@@ -443,9 +443,6 @@ bz_onkey:
     cmp al, 'v'
     je .held
 .tour:
-    mov bx, bz_camkey
-    cmp al, 'c'
-    je .held
     mov bx, bz_wkey             ; W: save the held log (130.14.7.1)
     cmp al, 'w'
     je .held
@@ -3916,13 +3913,10 @@ bz_redraw:
     mov al, BZH_REDRAW
     jmp short bz_shcall
 
-; C, M and N on the desktop (one press each, bz_dkey): the next camera mode,
-; ball or course, and the lines that name them redrawn.  N sets the ball to the
-; new course's own (SPEC.md 130.11.5.4).  Every one is the session's.
-bz_camkey:
-    call bz_cnext
-    jmp short bz_line3
-
+; M and N on the desktop (one press each, bz_dkey): the next ball or course,
+; and the lines that name them redrawn.  N sets the ball to the new course's
+; own (SPEC.md 130.11.5.4).  Every one is the session's.  (C, the camera
+; mode, is gone: LATTICE won, and the VGA has its own, 130.46.12.)
 bz_ballkey:
     inc byte [bz_matsel]
     cmp byte [bz_matsel], BZ_NMAT

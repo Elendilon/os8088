@@ -171,7 +171,6 @@ BZ_FVMIN    equ 256             ; ...and its CRUISE floor toward a FIELD way
                                 ; (SPEC.md 130.28.10: bbcourse.BZ_FVMIN)
 BZ_KSC_F    equ 21h             ; the F key's make code
 BZ_KSC_B    equ 30h             ; ...and B's
-BZ_KSC_C    equ 2eh             ; ...and C's: the camera mode (SPEC.md 130.9)
 BZ_KSC_BKSP equ 0eh             ; ...and Backspace's: RETURN (SPEC.md 130.14.4.5)
 BZ_KSC_R    equ 13h             ; ...and R's: the replay (SPEC.md 130.11.12.2)
 BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 130.14.3.1)
@@ -315,7 +314,8 @@ VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
 VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BENCH
                                 ; for the benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
-VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 TRICKLE
+VAR bz_cmode,1                  ; the camera mode: 0 GLIDE (LATTICE), 1 TRICKLE - a
+                                ; HARNESS's poke alone since C went (130.46.12)
 VAR bz_fixed,2                  ; SPEC.md 130.23.2: 1 the course's window is FIXED (+1 zero)
 VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
 VAR bz_fixc,2                   ; bz_crshdr's, from BZG1 +30 / +31
@@ -323,7 +323,6 @@ VAR bz_paged,2                  ; SPEC.md 130.22.4.3: 1 the window is PAGED (+1 
                                 ; BZC2 +44), page 0's at bz_fixr / bz_fixc (bz_crshdr's)
 VAR bz_pgk,2                    ; ...the TARGET page (bz_pgtgt; +1 zero)
 VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
-VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
 VAR bz_gfast,1                  ; GLIDE: 1 while the ball is FAST across: its
                                 ; travel over four frames (130.11.11.1)
@@ -825,7 +824,6 @@ bz_play:
     mov byte [bz_blk], 0        ; (the mode set left the card lit)
     mov word [bz_wp], 1         ; waypoint 0 is the start
     mov byte [bz_first], 1
-    mov byte [bz_ckey], 0ffh    ; C must go down IN play to count (an edge)
     mov byte [bz_bkey], 0ffh    ; (and Backspace, RETURN)
     mov byte [bz_pkey], 0ffh    ; (and P, PAUSE)
     mov word [bz_ptyp], 0       ; (no typed P or Backspace from before: bz_kedge)
@@ -1721,25 +1719,13 @@ bz_drain:
     ret
 
 ; the step's KEY BYTE -> [bz_keys] (SPEC.md 130.11.7.2): the arrows, Space
-; (bit 4, the Hop) and Left Shift (bit 5, Grip) held - and C's key-down EDGE
-; (not its repeat) cycles the camera mode (SPEC.md 130.9).  Left Shift is the
+; (bit 4, the Hop) and Left Shift (bit 5, Grip) held.  Left Shift is the
 ; BIOS's shift flags (int 16h AH = 02h, bit 1), NOT SPEC.md 9.7's map, which
 ; takes a 101-key keyboard's fake shifts (E0 2A before a grey arrow) as Left
 ; Shift held.  Preserves all but the flags.
 bz_input:
     push ax
     push bx
-    xor bl, bl                  ; (bz_exitchk filled bz_kmap this frame)
-    KEYMAP_TEST bz_kmap, BZ_KSC_C
-    jz .cup
-    dec bl                      ; BL = FFh while C is down
-.cup:
-    mov al, bl
-    xchg al, [bz_ckey]          ; AL = last frame's
-    not al
-    and al, bl                  ; down now and not then: the edge
-    jz .bksp
-    call bz_cnext
 .bksp:
     xor bl, bl                  ; Backspace, RETURN (SPEC.md 130.14.4.5): its
     push si                     ; down EDGE (bz_kedge, the typed key) puts bit
@@ -2004,18 +1990,6 @@ bz_tmouse:
     jmp .dn
 .cd:
     mov [di + BZT_CAP], cl
-    ret
-
-; the next camera mode, GLIDE -> TRICKLE -> GLIDE.  Preserves all
-; but the flags.  The camera picks its new state up itself (bz_camera's tail).
-bz_cnext:
-    cmp byte [bz_vga], 0        ; the VGA has one camera (130.46.12): no C
-    jne .out
-    inc byte [bz_cmode]
-    cmp byte [bz_cmode], BZ_CMODES
-    jb .out
-    mov byte [bz_cmode], 0
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2429,7 +2403,7 @@ bz_camera:
 .cyd:
     cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (130.46.12),
     je .gl                      ; the benchmark's LATTICE (C does nothing
-    cmp byte [bz_mode], 1       ; there, bz_cnext)
+    cmp byte [bz_mode], 1       ; on the VGA: C is gone)
     je .lat
     BZ_VCALL BZV_CAM
     jmp .moved
