@@ -166,6 +166,40 @@ on the curve and its one new demand), CD3 longer courses (amended by G1), CD4
 the physics defaults, CD5 three-tile gaps onto a lower floor as a rubber rung,
 CD6 boost spots.
 
+### 1.9 The checks, as built (stories 11.11 and 11.13, 2026-11-18)
+
+A course that says **`guide`** is a real course, held to the checkable
+rules. The prototype and lab courses do not say it, so nothing of theirs
+moves.
+
+- **At every compile, in milliseconds, refused:**
+  - **G9**: a clock's digits inside the CGA window centred on the start.
+  - **G10**: no two clocks' digits fit one CGA window ANYWHERE. This is
+    checked pair by pair, which is stricter than along a route and needs no
+    run.
+- **`bbcourse.py --guide COURSE.bbc [--log DEMO.bzd ...]`**, over every
+  complete run (the autopilot's route when it reaches a finish, and each
+  demo given), on both cards, refused:
+  - **G1**: a run under 25 s.
+  - **G3**: a horizontal pan during a flight. A flight that ends in a fall
+    is not a jump and is not counted, and nor is a tube's.
+  - **G11**: the ball's footprint meets a clock's (solid) cell.
+  - **G12**: more than 15 s with no clock's digits in the window.
+
+  It prints each run's time, flights, pans and longest clockless stretch.
+  With no complete run it says so and refuses nothing, so the playtest loop
+  never waits on a run (section 3).
+- **Broken on purpose, each went red**:
+  - G9: a copy of ROLL with its start clock removed;
+  - G10 and G1: the prototype FIRST (two clocks on one screen; a 2.8 s
+    route);
+  - G3: MILL (16 columns in one flight) and SUMMIT;
+  - G11: MILL with a clock on its route;
+  - G12: SUMMIT (23.5 s with no clock in view).
+- **Open (the owner's)**: MILL's 16-column flight is very likely its cannon
+  throw, which the review liked. Is a LAUNCHER's throw (cannon, spring)
+  exempt from G3, which was written about jumps?
+
 ## 2. The design sheet (`<NAME>.md`)
 
 One per shipped course, written before its `.bbc`; it is the PEN-IN of

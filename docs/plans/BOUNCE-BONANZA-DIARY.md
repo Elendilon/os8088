@@ -5360,3 +5360,73 @@ narrow one, and it is a constraint on course shape that a standard clock
 brings with it.
 
 **Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
+
+## 2026-11-18 (FIRST ROLL in the engine: playtest 1, and the guide's checks)
+
+The owner: *"Agreed, next is in engine and playtest. Checks are good."*
+
+**The course.** `apps/bonanza/courses/roll.bbc` (NAME `ROLL`, title "First
+Roll"):
+- its first draft was written by the sketch (`first/sketch.py --bbc`)
+  straight from the paper design, shifted 4 tiles so walls and pillars stay
+  inside the grid;
+- the rails are BLOCK rails (one wall tile on the void side of a railed
+  edge, 2 units proud). Trying guard rails instead is one keyword;
+- the tool's rules moved three things:
+  - slopes must be whole half units a tile, so the walk, the leap's run-up
+    and the finish ramp drop half a unit a tile;
+  - the chute's second leg drops 2 units, not 1 (four straight cells);
+  - everything after the chute sits a unit lower;
+- the clocks stand on lone one-tile pillars, as a clock must stand on a
+  floor tile today.
+
+**The playtest build** is a knob, `BZROLL=1`, on BZTURN's pattern:
+- ROLL goes after the shipped courses, so no K moves;
+- `pathroll.sed` puts ROLL on pad 0 in FIRST's place (ROLL has one finish,
+  so its exit 0 goes to TRIAL as FIRST's did);
+- `make BUILD=build/roll BZROLL=1 bonanzadisk` builds it, and without the
+  knob the build is the knob-less one.
+
+**Discovered:**
+- **The autopilot cannot follow a chute.** A `way` may not sit on a FIELD
+  cell, so the route stops at the chute's mouth (it took its last way there
+  and drove at the next one, past the chute, straight into the rail). The
+  tool's limit rule therefore has no route to price, and the playtest's
+  limit is given by hand: 60 s. The batched step replaces it with an AUTHOR
+  script.
+- **The tool's model says the halves work:**
+  - the route reaches the chute's mouth in about 12 s, through the hill, the
+    ledge and the lip;
+  - from flag 1 the autopilot rolls the walk, clears the leap at full speed
+    and finishes in 9.4 s;
+  - neither half falls.
+- **A re-emit from the sketch silently dropped hand edits**, the `limit`
+  among them. The first playtest build went out of the tree with no limit
+  and was rebuilt before anything was sent. The sketch now refuses to
+  overwrite an existing `.bbc`.
+
+**The checks (stories 11.11 and 11.13), BUILT.** A `guide` statement marks a
+real course:
+- G9 (a clock seen from the start) and G10 (never two clocks in one window,
+  checked pairwise, anywhere) are refused at every compile;
+- `bbcourse.py --guide` checks G1 (25 s), G3 (no pan during a jump), G11
+  (no clock in the ball's way) and G12 (15 s at most without a clock in
+  view) over every complete run.
+
+Every check was broken on purpose and went red; the guide's section 1.9
+lists the copies. ROLL passes G9 and G10. Its run-based half waits for an
+author script.
+
+**Open for the owner**: MILL's route pans 16 columns in one flight, very
+likely the cannon throw the review liked. Is a launcher's throw exempt from
+G3, which was written about jumps?
+
+**Run**:
+- the tool on ROLL;
+- `--guide` and the red copies above;
+- `make BUILD=build/roll BZROLL=1 bonanzadisk` and the system disks of that
+  tree;
+- `tools/checkdocs.py`.
+
+**Not run**: the guest. Per fork rule 5 the playtest disk is the owner's to
+boot; no emulator row.

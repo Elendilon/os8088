@@ -1,7 +1,9 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **PEN-IN, revision 3, ready for the engine**. On paper only
-(the guide's pipeline, section 3). Nothing here is built. Distances are
+*Status: **IN THE ENGINE, playtest 1** (`apps/bonanza/courses/roll.bbc`,
+built by `make BUILD=build/roll BZROLL=1 bonanzadisk`; section 6). The
+sections below are the pen-in, revision 3, which the engine work only
+adjusted where section 6 says. Distances are
 tiles, heights are units (8 px), and times are PREDICTED from the route's
 length; the tool measures them once the course is in the engine.*
 
@@ -149,3 +151,37 @@ spot to the route that is
 **Next: the engine.** The `.bbc`, `--png` previews and a playtest disk,
 iterated fast (the guide's section 3). The checks 11.11 and 11.13 go in
 beside it when they are cheap; demos and performance are batched later.
+
+## 6. In the engine
+
+The first `.bbc` was written by `first/sketch.py --bbc` from the paper
+design, shifted 4 tiles so walls and pillars stay inside the grid. From here
+on `roll.bbc` is the source, edited by hand. What the engine changed:
+
+- **Rails are BLOCK rails**, one wall tile each on the void side of a railed
+  edge, 2 units over the floor it guards. Changing a rail to a guard rail is
+  one keyword (`wall` -> `guard`), so the style is a cheap thing to try at a
+  playtest.
+- **Slopes are whole half units a tile** (the tool's rule). The walk's ramps,
+  the leap's run-up and the finish ramp drop half a unit a tile. The chute's
+  second leg drops 2 units, not 1, since its four straight cells must fall a
+  whole half unit each. Everything after the chute sits a unit lower than
+  the sketch.
+- **The clocks stand on lone one-tile pillars**, as a clock today must stand
+  on a floor tile (SPEC.md 130.18.5). Their places are the sketch's search.
+  Whether only void is behind each head in the REAL art is the first thing
+  to look at on the disk.
+- **The limit is given by hand (60 s) for the playtest.** The autopilot
+  cannot follow a chute: a `way` may not sit on a FIELD cell, so its route
+  stops at the chute's mouth and the tool's limit rule has no route to
+  price. The batched step replaces it with an AUTHOR script's run and the
+  tool's own rule.
+- **Measured on the tool's model (not the guest)**:
+  - the autopilot's route reaches the chute's mouth in about 12 s, through
+    the hill, the ledge and the lip, with no fall;
+  - from flag 1 it rolls the walk, clears the leap at full speed and
+    finishes in 9.4 s, with no fall.
+  - With the chute and K3 between them, a full autopilot run is about
+    30 s, so a person's is about the 35 s aimed at. PREDICTED; the
+    playtest decides.
+

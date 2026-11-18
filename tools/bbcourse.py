@@ -1120,6 +1120,7 @@ class Source:
         self.music = None           # wave 7 (SPEC.md 130.18.6): (the song's number, line); never in the part
         self.medals = None          # wave 8c (SPEC.md 130.19.8.3): (G, S, line), whole seconds
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
+        self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
         self.pages = None           # ...(N, line)
         self.ppads = []             # ...the pathway's pads: [dict num crs at line]
@@ -3189,6 +3190,11 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: fshow takes nothing, once (the SHOW rule on this course's FIELD cells, "
                                   "SPEC.md 130.28.6)" % where)
             src.fshow = ln
+        elif st == "guide":                         # wave 11 (stories 11.11, 11.13): a REAL course, held to the
+            if src.guide is not None or len(toks) != 1:     # course guide's checkable rules (guide_static_rule,
+                raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
+                                  "docs/plans/bonanza-courses/README.md)" % where)   # guide_run_checks)
+            src.guide = ln
         elif st == "target":                        # wave 5b (SPEC.md 130.15.8): the design time, CD3
             if src.target is not None:
                 raise CourseError("%s: target given twice" % where)
@@ -11140,6 +11146,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                  "cup" if cups else "goal"))
     c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 130.18.3): needs the part
     c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 130.19.8.3)
+    c.guide = src.guide                             # wave 11: the course guide's static half, at every compile
+    c.guide_static = guide_static_rule(c, hack) if c.guide else None
     return c
 
 
@@ -31443,6 +31451,223 @@ def main_author(argv):
     return 0
 
 
+
+# =============================================================================
+# THE COURSE GUIDE's checks (wave 11, stories 11.11 and 11.13;
+# docs/plans/bonanza-courses/README.md, G1, G3, G9 - G12): a course that says
+# `guide` is a real course held to the owner's design rules.  Two halves:
+#  - STATIC, at every compile of a `guide` course (no run, milliseconds):
+#    G9's clock in view at the START, G10's never two clocks on one screen;
+#  - over RUNS (--guide and the selfcheck's item): the length floor (G1), the
+#    pans while airborne (G3), a clock beside the path (G11), the longest
+#    stretch with no clock in view (G12).  A run is the autopilot's route
+#    when it reaches a finish, and every demo log given; with none the
+#    run-based half says so and refuses nothing (the pen-in-then-iterate
+#    loop never waits on a run: the guide's section 3).
+# =============================================================================
+
+GUIDE_MIN_S = 25              # G1: a course's slowest finish at least this long, seconds
+GUIDE_GAP_S = 15              # G12: at most this long with no clock's digits in the window, seconds
+
+
+def _clock_rects(c):
+    """{clock number: [lane rect (bx, by, w, h) in blocks]} of a compiled course"""
+    out = {}
+    for L in c.lanes:
+        p = c.props[L["prop"]]
+        if p["kind"] == PK_CLOCK:
+            out.setdefault(p["num"], []).append(L["rect"])
+    return out
+
+
+def _clock_cells(c):
+    """{clock number: (wx, wy)}"""
+    return {p["num"]: tuple(p["at"]) for p in c.props if p["kind"] == PK_CLOCK}
+
+
+def _rects_in(rs, xa, ya, w=VIEW_W, h=VIEW_H):
+    return all(xa <= 8 * bx and 8 * (bx + bw) <= xa + w and ya <= 8 * by and 8 * (by + bh) <= ya + h
+               for bx, by, bw, bh in rs)
+
+
+def _rects_box(rs):
+    return (min(8 * bx for bx, _by, _w, _h in rs), min(8 * by for _bx, by, _w, _h in rs),
+            max(8 * (bx + w) for bx, _by, w, _h in rs), max(8 * (by + h) for _bx, by, _w, h in rs))
+
+
+def guide_static_rule(c, _hack=None):
+    """G9 (a clock's digits inside the CGA window centred on the start) and G10
+    (no CGA window, ANYWHERE, holds two clocks' digits whole: checked pairwise,
+    which is stricter than along a route and needs none) -> the verdict line;
+    refused naming the clocks.  Only a `guide` course; the rest are exempt"""
+    if not getattr(c, "guide", None):
+        return "%s: not a guide course (exempt)" % c.name
+    hk = _hack or ()
+    clocks = _clock_rects(c)
+    out = []
+    if c.limit:
+        rm = rec_map(c.tiles)
+        wx, wy = c.src.start[0]
+        t = rm.get((wx, wy))
+        sx, sy = 16 * (wx - wy) + c.x0, 8 * (wx + wy) + 8 - (_h4t(t, 8, 8) // 4 if t else 0) + c.y0
+        ok = [n for n, rs in sorted(clocks.items()) if _rects_in(rs, sx - VIEW_W // 2, sy - VIEW_H // 2)]
+        if not ok and "g9" not in hk:
+            raise CourseError("%s: GUIDE G9: no clock's digits lie inside the CGA window centred on the START "
+                              "(px %d - %d, lines %d - %d): a clock face must be in view from the start "
+                              "(docs/plans/bonanza-courses/README.md)" % (c.fname, sx - VIEW_W // 2,
+                                                                          sx + VIEW_W // 2 - 1,
+                                                                          sy - VIEW_H // 2, sy + VIEW_H // 2 - 1))
+        out.append("G9 the start sees clock %s" % (ok[0] if ok else "NONE"))
+    boxes = {n: _rects_box(rs) for n, rs in clocks.items()}
+    ns = sorted(boxes)
+    for i, a in enumerate(ns):
+        for b in ns[i + 1:]:
+            A, B = boxes[a], boxes[b]
+            wspan = max(A[2], B[2]) - min(A[0], B[0])
+            hspan = max(A[3], B[3]) - min(A[1], B[1])
+            if wspan <= VIEW_W and hspan <= VIEW_H and "g10" not in hk:
+                raise CourseError("%s: GUIDE G10: clocks %d and %d fit one CGA window together (%d x %d px of "
+                                  "320 x 200): two clocks never share a screen" % (c.fname, a, b, wspan, hspan))
+    out.append("G10 %d clocks, no two in one window" % len(ns))
+    return "%s: %s" % (c.name, "; ".join(out))
+
+
+def _guide_run(c, herc, keys):
+    """one run through the model at a card's rate, the camera once a frame ->
+    its CamRun, with .touch: every cell the ball's footprint met on the ground
+    (its centre +- RAD gu), and .goal.  KEYS() -> (key, ball) or None (the run
+    is over); None for the autopilot"""
+    p = Physics(c, play=True)
+    r = CamRun(c, herc, p)
+    r.touch = set()
+    n = [0]
+
+    def st():
+        n[0] += 1
+        if n[0] > 8000 or p.goal or p.tout:
+            return False
+        try:
+            if keys is None:
+                p.step(p.auto())
+            else:
+                k = keys()
+                if k is None:
+                    return False
+                p.step(*k)
+        except IndexError:                          # the route ran out
+            return False
+        if not p.air:
+            gx, gy = p.gx >> 8, p.gy >> 8
+            for x in (gx - RAD, gx + RAD):
+                for y in (gy - RAD, gy + RAD):
+                    r.touch.add((x >> 4, y >> 4))
+    while r.frame(st):
+        pass
+    r.goal = p.goal
+    return r
+
+
+def guide_runs(c, logs=()):
+    """the runs the run-based checks read -> {herc: [(name, run)]}: the
+    autopilot's route when it reaches a finish, and each (name, demo log)"""
+    out = {0: [], 1: []}
+    for herc in (0, 1):
+        if c.route and c.has_finish:
+            r = _guide_run(c, herc, None)
+            if r.goal:
+                out[herc].append(("the route", r))
+        for name, log in logs:
+            _k, _mat, kt, _fl = decode_log_t(log)
+            it = iter(kt)
+            r = _guide_run(c, herc, lambda it=it: next(it, None))
+            if r.goal:
+                out[herc].append((name, r))
+    return out
+
+
+def guide_run_checks(c, logs=(), _hack=None):
+    """G1, G3, G11 and G12 over every run (guide_runs) on both cards -> the
+    report lines; refused at the first breach.  A course with no complete run
+    is reported and NOT refused (the playtest loop does not wait on a run)"""
+    hk = _hack or ()
+    runs = guide_runs(c, logs)
+    if not runs[0]:
+        return ["%s: no complete run yet (the autopilot's route does not reach a finish and no demo was given): "
+                "G1, G3, G11 and G12 wait for one" % c.name]
+    clocks, cells = _clock_rects(c), _clock_cells(c)
+    lines = []
+    for herc in (0, 1):
+        W, _H, rl, _lsh = CARDS[herc]
+        card = "Hercules" if herc else "CGA"
+        for name, r in runs[herc]:
+            secs = r.p.nstep / float(SEC_STEPS)
+            # G1: the length floor (on the CGA's run: the step count is the card's nominal rate either way)
+            if herc == 0 and secs < GUIDE_MIN_S and "g1" not in hk:
+                raise CourseError("%s: GUIDE G1: %s finishes in %.1f s, under the floor of %d s"
+                                  % (c.fname, name, secs, GUIDE_MIN_S))
+            # G3: the columns panned while the ball is in the air, flight by flight
+            flights, cur = [], None                 # [first frame, columns, falls before, ended in a fall]
+            for f in r.rows:
+                if f["air"] and not f["tube"]:
+                    if cur is None:
+                        cur = [f["fr"], 0, f["resp"], False]
+                        flights.append(cur)
+                    cur[1] += abs(f["dc"])
+                else:
+                    if cur is not None and f["resp"] != cur[2]:
+                        cur[3] = True                       # a fall, not a jump: it ends in a respawn
+                    cur = None
+            panned = [(fr, n) for fr, n, _r, fell in flights if n and not fell]
+            if panned and "g3" not in hk:
+                raise CourseError("%s: GUIDE G3: on the %s, %s pans %s while the ball is in the air: a jump "
+                                  "never needs a horizontal pan" % (
+                                      c.fname, card, name,
+                                      ", ".join("%d column(s) in the flight from frame %d" % (n, fr)
+                                                for fr, n in panned)))
+            # G11: a clock in the way - the ball's footprint met its (solid) cell
+            hit = sorted(n for n, at in cells.items() if at in r.touch)
+            if hit and "g11" not in hk:
+                raise CourseError("%s: GUIDE G11: %s brushes clock(s) %s: a clock never obstructs a main "
+                                  "pathway" % (c.fname, name, ", ".join(map(str, hit))))
+            # G12: the longest stretch with no clock's digits in the window
+            gap = worst = 0
+            for f in r.rows:
+                ya, xa = f["R0"] * rl, 8 * f["c0"]
+                if any(_rects_in(rs, xa, ya, 8 * W, WIN_LINES) for rs in clocks.values()):
+                    gap = 0
+                else:
+                    gap += 1
+                    worst = max(worst, gap)
+            gs = worst / float(CARD_HZ[herc])
+            if gs > GUIDE_GAP_S and "g12" not in hk:
+                raise CourseError("%s: GUIDE G12: on the %s, %s goes %.1f s with no clock in view, over %d s"
+                                  % (c.fname, card, name, gs, GUIDE_GAP_S))
+            lines.append("%s %s: %.1f s; %d flight(s), %d panned (%s); %s; longest with no clock in view %.1f s"
+                         % (card, name, secs, len(flights), len(panned),
+                            ", ".join("%d col from frame %d" % (n, fr) for fr, n in panned) or "none",
+                            "clock(s) %s touched" % hit if hit else "no clock touched", gs))
+    return lines
+
+
+def main_guide(paths, logs):
+    """--guide: the course guide's checks on each `guide` course - the static
+    half again, then the run-based half over the route and LOGS (demo files)"""
+    rc = 0
+    lg = []
+    for fn in logs:
+        with open(fn, "rb") as f:
+            lg.append((os.path.basename(fn), f.read()))
+    for path in paths:
+        c = compile_course(path)
+        if not c.guide:
+            print("%s: not a guide course (no `guide` statement): nothing to check" % c.name)
+            continue
+        print(c.guide_static)
+        for line in guide_run_checks(c, lg):
+            print("    " + line)
+    return rc
+
+
 def main():
     global OCC_MODE, FSHOW_ALL
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
@@ -31492,12 +31717,17 @@ def main():
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 130.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
+    ap.add_argument("--guide", action="store_true",
+                    help="the course guide's checks (wave 11: G1, G3, G9 - G12) on each `guide` course, over its "
+                         "route and any --log demos; writes nothing")
+    ap.add_argument("--log", action="append", default=[], metavar="BZD",
+                    help="with --guide: a demo log (.bzd) to check as a run; may repeat")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 130.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.only == "list"):
-        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck or --png DIR")
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
+        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
     JOBS[0] = a.jobs
@@ -31517,6 +31747,14 @@ def main():
             ap.error("--camcheck writes nothing and runs alone")
         try:
             return main_camcheck(paths)
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
+    if a.guide:
+        if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans:
+            ap.error("--guide writes nothing and runs alone")
+        try:
+            return main_guide(paths, a.log)
         except CourseError as e:
             print("bbcourse: %s" % e, file=sys.stderr)
             return 1
