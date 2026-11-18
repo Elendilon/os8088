@@ -535,7 +535,7 @@ FAMILIES = (
     # BP_FFLAT) pushes every ball S.  CONSTS + BP_GSH, BP_SSH: the defaults, to retune as they are used
     {"name": "boost", "id": 10, "rev": 2, "hooks": H_CONTACT | H_STEP | H_POSE, "slot": 2, "consts": (12, 24, 2, 2),
      "kinds": ({"name": "boost", "kind": FAM_K0 + 32, "bits": 0, "cls": CL_ATTEMPT, "art": "boost",
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 12,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 20,
      "home": HOME_RESIDENT},
     # SPIKES (SPEC.md 128.38, the props round's P5 and P8): ID 11 (BOOST 10 another branch's: a GAP here, BZ_FTAB
     # fills it), kinds SP_K (56) on.  Each a FLAT FLOOR cell rewritten PER BALL by CELL (WATER's trick): a SPIKE
@@ -563,6 +563,55 @@ FAMILIES = (
     {"name": "archway", "id": 12, "rev": 1, "hooks": H_STEP | H_CELL, "slot": 6, "consts": "AR",
      "kinds": ({"name": "archway", "kind": FAM_K0 + 48, "bits": 0, "cls": CL_ATTEMPT, "art": None,
                 "forms": ("own",), "states": (0,), "pickup": False},), "paras": 16,
+     "home": HOME_RESIDENT},
+    # SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41, the props round's P6 and P7, one family): a PLATE
+    # (rolled over, grounded) or a KEY (touched, collected) OPENS its CHANNEL - one of GT_NCH, each its GLYPH
+    # (ring, plus, box, cross) drawn black on white on every element of it, so the pairing reads on the Hercules
+    # and CGA, where magenta and cyan are the same grey; LATCHING for the attempt (the slot's +0, a bit a
+    # channel: a respawn keeps it, a play's start zeroes it).  A GATE (+18 its channel) is a WALL in the window
+    # while its channel is shut and its grid's FLOOR once open; a DRAWBRIDGE cell (+18 its channel, or GT_TIMED
+    # and a timer +21 ON, +22 MASK, +23 SEED as a popspike's) is its grid's FLOOR at its deck (+19) while DOWN
+    # and a NEAR VOID (a broken crack's) while UP - a ball on it falls; a ball below its deck in its cell is not
+    # lifted onto it when it comes down.  STATELESS elements (the channels are the slot's); a lane each, marked on
+    # change only; ID 13 (the props round's fixed assignment); kinds FAM_K0 + 56 on; home `resident`; group (a
+    # bridge's lanes, the whole top, share blocks with its neighbours': SPEC.md 128.32)
+    {"name": "gate", "id": 13, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL, "slot": 2,
+     "consts": (4, 6, 255), "group": True,
+     "kinds": ({"name": "plate", "kind": FAM_K0 + 56, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
+                "forms": ("own",), "states": (0,), "pickup": False},
+               {"name": "key", "kind": FAM_K0 + 57, "bits": 0, "cls": CL_ATTEMPT, "art": "icon",
+                "forms": ("own",), "states": (0,), "pickup": False},
+               {"name": "gate", "kind": FAM_K0 + 58, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
+                "forms": ("own",), "states": (0,), "pickup": False},
+               {"name": "bridge", "kind": FAM_K0 + 59, "bits": 0, "cls": CL_ATTEMPT, "art": "bridge",
+                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 33,
+     "home": HOME_RESIDENT},
+    # THE SEE-SAW (SPEC.md 128.42, the props round's P9): a TILT PLATE of 2 - 6 cells along an axis, 1 - 2 across,
+    # on a pivot at its middle, in three POSES - its minus end down, FLAT, its plus end down - each a set of slope
+    # cells written into the window by CELL.  The ball's WEIGHT tips it: grounded on one half for TL_DW[ball]
+    # steps (steel 2, rubber 8, glass 24: glass is light), it moves one pose toward that half, and from FLAT on
+    # after TL_TS more; the floor moving under the ball CARRIES it (STEP sets its z on the new floor: never a fall,
+    # never through it).  The PLATE's record holds the geometry and a BYTE of state (the pose, RESPAWN: a respawn
+    # puts every plate back at rest); its LANES are records of their own (the second kind, +18 the plate), the
+    # picture's change between the poses cut into lanes.  ID 14 (the props round's fixed assignment: 13 the gates'
+    # on another branch, so a GAP here); kinds FAM_K0 + 64 on; home `resident`; CONSTS TL_DW, TL_TS
+    {"name": "seesaw", "id": 14, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 2, "consts": "TL",
+     "kinds": ({"name": "seesaw", "kind": FAM_K0 + 64, "bits": 8, "cls": CL_RESPAWN, "art": None,
+                "forms": ("own", "tilt"), "states": (0,), "pickup": False},
+               {"name": "seesawlane", "kind": FAM_K0 + 65, "bits": 0, "cls": CL_ATTEMPT, "art": "tilt",
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 41,
+     "home": HOME_RESIDENT},
+    # THE QUARTER-TURN TURNTABLE (SPEC.md 128.43, the props round's P11): an N x N table (2 or 3) HALF FILLED,
+    # turning a quarter turn every Q steps (32 or 64), the cells switching - it carries nothing: a cell that
+    # turns to a gap drops the ball.  Each switching cell an element (a 3 x 3's centre is the PIVOT, a plain
+    # floor): +18 TZ its floor's z0, +19 SEQ (bit r floor at rotation r, the nibble twice), +20 QSH, +21 QMASK,
+    # +22 SEED, +23 WAT (the warning's first step of a quarter, Q none).  CELL: a gap's window copy a NEAR VOID
+    # (the membrane's), and the centre's too while the ball is below its top (fallen in); STEP marks a pose that
+    # changes and refills the window; POSE 0 floor, 1 the warning, 2 a gap.  STATELESS, no slot.  ID 15 (the
+    # props round's fixed assignment: gates 13, see-saw 14 are a GAP here); kind FAM_K0 + 72; CONSTS TT_*
+    {"name": "turntable", "id": 15, "rev": 1, "hooks": H_STEP | H_POSE | H_CELL, "slot": 0, "consts": "TT",
+     "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
+                "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 20,
      "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6     # GLASS's constants (its row's CONSTS, the part's equates):
@@ -642,6 +691,32 @@ AR_UMIN, AR_UMAX = 4, 8       # `under`, half units over the floor: 2 - 4 units 
 AR_UDEF = 4                   # ...and when not written: 2 units
 AR_HIDE = 16                  # the visibility rule (A10): positions (gu) a rolled ball may be WHOLLY hidden in a row
 AR_PADSEE = 3                 # ...and a pad under an arch keeps at least 1 / AR_PADSEE of its top's pixels
+# SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41): its row's consts are GT_NCH, GT_DROP, GT_TIMED
+GT_KP, GT_KK, GT_KG, GT_KB = FAM_K0 + 56, FAM_K0 + 57, FAM_K0 + 58, FAM_K0 + 59   # plate, key, gate, bridge
+GT_KINDS = (GT_KP, GT_KK, GT_KG, GT_KB)
+GT_NCH = 4                    # CHANNELS a course: the slot's +0, a bit each
+GT_CHANNELS = ("ring", "plus", "box", "cross")  # each channel's GLYPH, its name in the source
+GT_DROP = 6                   # half units: an UP bridge's near void, its kill 3 units under its deck (a broken crack's)
+GT_TIMED = 255                # a bridge's +18 when it runs on a timer, not a channel
+GT_PERIODS = SP_PERIODS       # a timed bridge's period: a popspike's (a power of two, its MASK a byte)
+# THE SEE-SAW's constants (SPEC.md 128.42): TL_DW and TL_TS in its FAMV (its row's "TL")
+FK_TILT, FK_TILTL = FAM_K0 + 64, FAM_K0 + 65    # the plate, a lane of it (80, 81: the props round's run for it)
+TL_DW = (8, 2, 28)            # the WEIGHT: steps grounded on one half before a plate at an END pose moves toward it,
+                              # by ball (rubber, steel, glass: steel heavy, glass light - 0.15, 0.04, 0.51 s)
+TL_TS = 4                     # ...and from FLAT on to the end, any ball (0.07 s): the tip itself never feels slow
+TL_LMIN, TL_LMAX = 2, 6       # a plate's cells ALONG its axis (even: the pivot on a cell edge, FLAT at a half unit)
+TL_WMAX = 2                   # ...and ACROSS it
+TL_THICK = 4                  # px: the plate's faces over the void (a thin slab, `float ... thick 0.5`)
+TL_LANES = 6                  # lanes a plate (they all turn on one step: WIN_CHG, SPEC.md 128.19.10)
+TL_POST = 3                   # half units: the fulcrum's post under the pivot, its height below the FLAT plate
+# THE TURNTABLE's constants (SPEC.md 128.43): TT_VOID, TT_QUARTERS and TT_SIZES in its FAMV (its row's "TT")
+TT_K = FAM_K0 + 72            # its kind (88: the props round's run for it)
+TT_SIZES = (2, 3)             # an N x N table; a 3 x 3's centre is its PIVOT (a plain floor, never switching)
+TT_QUARTERS = (32, 64)        # steps a quarter turn (0.53 s, 1.07 s at 60 steps a second): 4 Q divides the step's
+                              # low byte's 256, so one byte times every table
+TT_QDEF = 64                  # ...when not written: "a quarter turn every second or so"
+TT_WDEF = 16                  # the WARNING: steps before a turn a floor cell about to open shows its seam (0.27 s)
+TT_VOID = 6                   # half units: a gap's NEAR VOID under the floor (the membrane's, a broken crack's)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -666,13 +741,15 @@ assert [f["id"] for f in FAMILIES] == sorted(set(f["id"] for f in FAMILIES)) and
 assert all(f["slot"] <= FSLOT for f in FAMILIES) and len(FKIND) == sum(len(f["kinds"]) for f in FAMILIES)
 assert all(f["home"] in (HOME_FETCH, HOME_RESIDENT) for f in FAMILIES)
 assert all(not k.get("own") or (k["bits"] == 0 and k["kind"] >= FAM_K0) for f in FAMILIES for k in f["kinds"])
-assert all(k["forms"] in (("own",), ("own", "void"), ("own", "bed"), ("own", "bed", "tip"))
+assert all(k["forms"] in (("own",), ("own", "void"), ("own", "bed"), ("own", "bed", "tip"), ("own", "tilt"))
            for _f, k in FKIND_BY_NAME.values()), \
     "a family kind's cell form the reach does not take: own, (GLASS's crack, 128.25.18) its broken VOID and " \
     "(WATER's, 128.36) its BED"
 assert FAM_BY_NAME["wind"]["consts"] == (WD_GSH, WD_SSH, WD_LIFT, WD_SPIN) and [
     k["kind"] for k in FAM_BY_NAME["wind"]["kinds"]] == [WD_K, WD_K2]
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
+assert FAM_BY_NAME["gate"]["consts"] == (GT_NCH, GT_DROP, GT_TIMED) and [
+    k["kind"] for k in FAM_BY_NAME["gate"]["kinds"]] == list(GT_KINDS)
 assert FAM_BY_NAME["boost"]["consts"] == (BP_FLASH, BP_SDEF, BP_GSH, BP_SSH) and FAM_BY_NAME["boost"]["kinds"][0]["kind"] == BP_K
 assert all(k["bits"] in (0, 1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())   # (0: a STATELESS
                                                                                             # kind, WIND's, WATER's)
@@ -772,7 +849,7 @@ def famv(f):
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
-                     "wisp": 7, "boost": 8, "spikes": 11}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                     "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
@@ -782,6 +859,10 @@ def famv(f):
         b += bytes((SHA_STEPS, HARD_SHATTER, 6)) + struct.pack("<4H", *SP_PERIODS)    # depth, the periods
     elif f.get("consts") == "AR":               # THE ARCHWAY's (128.39): the clearance's margin, the rebound
         b += bytes((AR_TOPB, AR_RSH))
+    elif f.get("consts") == "TL":               # THE SEE-SAW's (128.42): the weight by ball, the transit
+        b += bytes(TL_DW + (TL_TS,))
+    elif f.get("consts") == "TT":               # THE TURNTABLE's (128.43): the near void's depth, the quarters,
+        b += bytes((TT_VOID,) + TT_QUARTERS + TT_SIZES)     # the sizes
     elif f.get("consts") == "WA":               # WATER's (128.36): the sink, the raised HTHR, the restitution's
         b += struct.pack("<HHBBB", WA_SINK, WA_HTHR, WA_ESH, WA_BOB, WA_RSH)
         b += bytes((WA_FBSH,))                  # (128.36.10's bob)  # shift, the bob, the ripple's phase,
@@ -1040,6 +1121,7 @@ class Source:
                                     # in z0, clr, top, legs, xs, ys)
         self.waters = []            # SPEC.md 128.36: [dict] `water` statements, in file order
         self.arches = []            # ...and `arch` statements: [dict at side line]
+        self.seesaws = []           # SPEC.md 128.42: [dict] `seesaw` statements, the TILT PLATES (lay_seesaws)
 
 
 def _int(tok, where, what):
@@ -1424,6 +1506,130 @@ def membrane_pix(cx, cy, nb):
     return out
 
 
+# THE TURNTABLE (SPEC.md 128.43.5): its art.  The table is ONE OBJECT, a crystal PLATTER: its cells are not drawn as
+# tiles (no checker, no columns), and in their place a geometry op draws a rounded-square platter (a squircle,
+# exponent TT_SQ, so it covers its cells but for their outer corners' last few px) - a pinwheel of eight facets
+# round a gem HUB (white and cyan in turn, magenta seams), a bevelled rim lit on the back left, a black outline -
+# with its FRONT EDGE a half unit thick (magenta, lit left and dithered right as every wall face) and a short
+# SPINDLE under the hub.  Each switching cell's 2 x 2-block lane (a popspike's) holds its poses: 1 the WARNING, a
+# dotted seam where a PORT will open; 2 the GAP, the port open - black, its far inner wall magenta, its near lip
+# lit.  White, black and the faces' magenta: the Hercules reads it as white, black and grey.
+TT_SQ = 4                     # the platter's squircle exponent (2 a disc; 4 a rounded square)
+TT_RIM = 4                    # px: the platter's front edge (half a unit)
+TT_SPIN = (6, 10)             # the spindle under the hub: px wide, px below the rim
+TT_PORT = (7.0, 3.2)          # the port's half axes, px (u, v): inside the lane's |u| < 8, |v| < 4
+
+
+def tt_platter_pix(tab, x0, z4):
+    """TAB's platter (Y0 = 0) -> {cell: {(x, y): ink}}: its top pixels by the cell under them, its front edge's by
+    the cell of the top's edge above them, the spindle the hub's cell's (a 2 x 2's back cell, a 3 x 3's pivot)"""
+    N, (ax, ay) = tab["N"], tab["at"]
+    Rq = N / 2.0 - 0.03
+    hx, hy = 16 * (ax - ay) + x0, 8 * (ax + ay + N) - z4     # the hub, on the screen
+    top, cell = {}, {}
+    for y in range(hy - 8 * N - 2, hy + 8 * N + 2):
+        for x in range(hx - 16 * N - 2, hx + 16 * N + 2):
+            a_, b_ = (x + 0.5 - x0) / 16.0, (y + 0.5 + z4) / 8.0
+            fx, fy = (a_ + b_) / 2.0, (b_ - a_) / 2.0
+            dx, dy = fx - ax - N / 2.0, fy - ay - N / 2.0
+            q = (abs(dx) ** TT_SQ + abs(dy) ** TT_SQ) ** (1.0 / TT_SQ) / Rq
+            if q > 1.0:
+                continue
+            r = math.hypot(dx, dy)
+            th = math.atan2(dy, dx)
+            sec = int((th + math.pi) / (math.pi / 4)) & 7
+            seam = r * abs(math.sin(4 * th)) < 0.05 and r > 0.2
+            if r < 0.1:
+                ink = WHT
+            elif r < 0.17:
+                ink = BLK
+            elif q > 0.86:
+                ink = WHT if dx + dy < -0.4 * N else CYN
+            elif seam:
+                ink = MAG
+            else:
+                ink = WHT if sec & 1 else CYN
+            top[(x, y)] = ink
+            cell[(x, y)] = (min(ax + N - 1, max(ax, int(math.floor(fx)))), min(ay + N - 1, max(ay, int(math.floor(fy)))))
+    for (x, y) in list(top):                        # the outline
+        if any((x + ex, y + ey) not in top for ex, ey in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            top[(x, y)] = BLK
+    out = {}
+    for xy, ink in top.items():
+        out.setdefault(cell[xy], {})[xy] = ink
+    cols = {}
+    for (x, y) in top:
+        cols[x] = max(cols.get(x, y), y)
+    xl, xr = min(cols), max(cols)
+    rim = set()
+    for x, ye in cols.items():                      # the front edge, under the top's lowest pixel of each column
+        for k in range(1, TT_RIM + 1):
+            if (x, ye + k) in top:
+                continue
+            last = k == TT_RIM or x in (xl, xr)
+            ink = BLK if last or x in (xl, xr) else MAG if x < hx else (MAG if (x + ye + k) & 1 else BLK)
+            out.setdefault(cell[(x, ye)], {})[(x, ye + k)] = ink
+            rim.add((x, ye + k))
+    w, dn = TT_SPIN
+    sc = (ax, ay) if N == 2 else (ax + 1, ay + 1)
+    yb = max(y for (x, y) in rim if hx - w // 2 <= x < hx + w // 2)
+    for y in range(yb + 1, yb + dn + 1):
+        for x in range(hx - w // 2, hx + w // 2):
+            side = x in (hx - w // 2, hx + w // 2 - 1) or y == yb + dn
+            out.setdefault(sc, {})[(x, y)] = BLK if side else (MAG if x < hx else (MAG if (x + y) & 1 else BLK))
+    return out
+
+
+def tt_ops(tables, ops, x0, z4s):
+    """SPEC.md 128.43.5: each table's platter as 'post' ops (geometry, keyed its cell's s, every pixel's top the
+    platter's), put into the back-to-front order after the whole of its cell's row - arch_ops' way.  Z4S: {id(table):
+    its top, px}"""
+    rops = []
+    for tab in tables:
+        H = z4s[id(tab)]
+        for (wx, wy), pix in tt_platter_pix(tab, x0, H).items():
+            mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, H)
+            rops.append(((wx + wy, 1 << 30, wx), (_spans_of(pix), "post", wx + wy, mk, False, None, (wx, wy))))
+    rops.sort(key=lambda r: r[0])
+    out, i = [], 0
+    for op in ops:
+        k = (op[6][0] + op[6][1], op[6][0], 0)
+        while i < len(rops) and rops[i][0] < k:
+            out.append(rops[i][1])
+            i += 1
+        out.append(op)
+    out += [r[1] for r in rops[i:]]
+    return out
+
+
+def tt_lane_rect(cx, cy):
+    """a switching cell's lane: the 2 x 2 blocks round its top's centre (a popspike's, a crack's)"""
+    return ((cx - 8) >> 3, (cy - 4) >> 3, 2, 2)
+
+
+def tt_hole_pix(cx, cy, seam=False):
+    """a switching cell's PORT round its top's centre (half axes TT_PORT: always inside the lane): open (the GAP) -
+    black, the far inner wall a 2-row magenta band, the near lip lit white; SEAM (the WARNING) - its outline alone,
+    every other pixel black -> {(x, y): ink}"""
+    pu, pv = TT_PORT
+
+    def ins(u, v, sh=0.0, k=1.0):
+        return ((u + 0.5) / (pu * k)) ** 2 + ((v + 0.5 - sh) / (pv * k)) ** 2 < 1.0
+    out = {}
+    for v in range(-4, 4):
+        for u in range(-8, 8):
+            if ins(u, v):
+                edge = not all(ins(u + du, v + dv) for du, dv in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                if seam:
+                    if edge and not (u + v) & 1:
+                        out[(cx + u, cy + v)] = BLK
+                    continue
+                out[(cx + u, cy + v)] = BLK if edge or ins(u, v, 2.0) else MAG
+            elif not seam and v >= 0 and ins(u, v, 0.0, 1.22):
+                out[(cx + u, cy + v)] = WHT
+    return out
+
+
 GLASS_DASH = (16, 10)         # the revealed pane's glint: a dash 10 px in every 16 (a tile's period: lanes repeat)
 
 
@@ -1545,12 +1751,114 @@ def _icon_pix(p, x0):
     wx, wy = p["at"]
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"]
+    if p["kind"] == GT_KK:                          # SPEC.md 128.41.5: a KEY, its bow its channel's plaque
+        return gt_key_pix(cx, cy, p["gch"])
     rows = PU_ICONS[p["kind"]]
     out = {}
     for j, row in enumerate(rows):
         for i, ch in enumerate(row):
             if ch != " ":
                 out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else PU_INK[p["kind"]]
+    return out
+
+
+# SWITCHES, KEYS, GATES and the DRAWBRIDGE's art (SPEC.md 128.41.5): every element of a channel carries its GLYPH,
+# 5 x 5 px, BLACK on a WHITE plaque 7 x 7 (black-on-white reads on both 1bpp cards, where magenta and cyan are one
+# grey checker); the channel's INK (magenta for ring and box, cyan for plus and cross) only a second cue
+GT_GLYPHS = ((".###.", "#...#", "#...#", "#...#", ".###."),       # ring
+             ("..#..", "..#..", "#####", "..#..", "..#.."),       # plus
+             ("#####", "#####", "##.##", "#####", "#####"),       # box
+             ("#...#", ".#.#.", "..#..", ".#.#.", "#...#"))       # cross
+GT_INK = (MAG, CYN, MAG, CYN)
+GT_KEY = ("#########", "#.......#", "#.......#", "#.......#", "#.......#", "#.......#", "#.......#", "#.......#",
+          "#########", "   #o#   ", "   #o### ", "   #oooo#", "   #o### ", "   #o#   ", "   ###   ")
+GT_BARH = 9                   # px: a gate's bars over its floor (its posts too); its half width GT_BARW
+GT_BARW = 7
+
+
+def gt_plaque(cx, cy, ch, inv=False):
+    """a channel's PLAQUE centred at (cx, cy): 7 x 7, white with the glyph black (INV: black, the glyph white)"""
+    out = {}
+    for j in range(7):
+        for i in range(7):
+            g = 1 <= i <= 5 and 1 <= j <= 5 and GT_GLYPHS[ch][j - 1][i - 1] == "#"
+            out[(cx - 3 + i, cy - 3 + j)] = (WHT if inv else BLK) if g else (BLK if inv else WHT)
+    return out
+
+
+def gt_key_pix(cx, cy, ch):
+    """a KEY (SPEC.md 128.41.5): its bow a black frame round the channel's plaque, its shaft and bit in the
+    channel's ink, black outlined, its foot PU_ICON_UP px over the floor at (cx, cy)"""
+    out = {}
+    top = cy - PU_ICON_UP - len(GT_KEY)
+    for j, row in enumerate(GT_KEY):
+        for i, c in enumerate(row):
+            if c != " ":
+                out[(cx - 4 + i, top + j)] = BLK if c == "#" else GT_INK[ch] if c == "o" else WHT
+    out.update({xy: c for xy, c in gt_plaque(cx, top + 4, ch).items() if xy[1] > top})
+    return out
+
+
+def gt_base(cx, cy, along):
+    """a gate's BASE, screen x offset u (-GT_BARW .. GT_BARW) -> its y: the line across the path through the top's
+    centre - along x, the cell's y axis (up to the right); along y, its x axis (down to the right)"""
+    return lambda u: cy + (u if along else -u) // 2
+
+
+def gt_bars_pix(cx, cy, ch, along):
+    """a SHUT GATE (SPEC.md 128.41.5): a grille standing across the path on its cell's top - black posts at its
+    ends, black rails top and bottom, bars alternately black and the channel's ink, the plaque in its middle"""
+    b = gt_base(cx, cy, along)
+    out = {}
+    for u in range(-GT_BARW, GT_BARW + 1):
+        for h in range(GT_BARH + (1 if abs(u) == GT_BARW else 0)):
+            ink = BLK if abs(u) == GT_BARW or h in (0, GT_BARH - 1) or u & 1 == 0 else GT_INK[ch]
+            out[(cx + u, b(u) - h)] = ink
+    out.update(gt_plaque(cx, b(0) - GT_BARH // 2, ch))
+    return out
+
+
+def gt_groove_pix(cx, cy, along):
+    """an OPEN gate's groove on its top (in the picture): the base line, black"""
+    b = gt_base(cx, cy, along)
+    return {(cx + u, b(u)): BLK for u in range(-GT_BARW + 1, GT_BARW)}
+
+
+def gt_hole_pix(cx, cy, ch):
+    """an UP bridge (SPEC.md 128.41.5): its top black inside the crack's 2 x 2-block lane (its `band` hole, |u| < 8:
+    a run of bridge cells' lanes share no block, so each is its own lane and none groups), and a switched one's
+    plaque in its middle - which channel lowers it, seen while it is up"""
+    out = {}
+    for v in range(-8, 8):
+        for u in range(-8, 8):
+            if BA.crystal_top_ink(u, v) is not None and abs(u) / 2.0 + abs(v) < CRACK_BAND:
+                out[(cx + u, cy + v)] = BLK
+    if ch != GT_TIMED:
+        out.update(gt_plaque(cx, cy, ch))
+    return out
+
+
+def gt_plate_pix(cx, cy, ch, pressed=0):
+    """a PLATE (SPEC.md 128.41.5) on its top: a black-rimmed square of the channel's ink (|u| / 2 + |v| under 6,
+    the rim past 5), its plaque in the middle; PRESSED, the plaque inverted (black, the glyph white)"""
+    out = {}
+    for v in range(-8, 8):
+        for u in range(-16, 16):
+            d = abs(u) / 2.0 + abs(v)
+            if d < 6.0:
+                out[(cx + u, cy + v)] = BLK if d >= 5.0 else GT_INK[ch]
+    out.update(gt_plaque(cx, cy, ch, pressed))
+    return out
+
+
+def gt_deck_pix(cx, cy):
+    """a DRAWBRIDGE's deck (in the picture): a black seam round its top, a trapdoor's outline"""
+    out = {}
+    for v in range(-8, 8):
+        for u in range(-16, 16):
+            if BA.crystal_top_ink(u, v) is not None and abs(u) / 2.0 + abs(v) >= 6.5 \
+                    and abs(u) / 2.0 + abs(v) < 7.0 + 0.5 * (u & 1):
+                out[(cx + u, cy + v)] = BLK
     return out
 
 
@@ -1576,11 +1884,15 @@ def _parse_fprop(toks, where, ln):
         return _parse_blower(toks, where, ln, fam, kr)
     if kr["kind"] in (SP_K, SP_KP, SP_KM):
         return _parse_spike(toks, where, ln, fam, kr)
+    if kr["kind"] == TT_K:
+        return _parse_turn(toks, where, ln, fam, kr)
     if kr["kind"] == WD_K2:
         raise CourseError("%s: a wisp is the tool's: a gusting blower without a `flag` makes its own (SPEC.md "
                           "128.34.11)" % where)
     if kr["kind"] == BP_K:
         return _parse_boost(toks, where, ln, fam, kr)
+    if kr["kind"] in GT_KINDS:
+        return _parse_gate(toks, where, ln, fam, kr)
     if len(toks) not in (4, 6) or (len(toks) == 6 and toks[4] != ('w', "reset")):
         raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], " reset attempt|respawn"
                                                               if kr["cls"] is None else ""))
@@ -1643,6 +1955,107 @@ def _parse_spike(toks, where, ln, fam, kr):
     return d
 
 
+GT_SYNTAX = {GT_KP: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
+             GT_KK: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
+             GT_KG: "<wx> <wy> channel %s [along x|y]" % "|".join(GT_CHANNELS),
+             GT_KB: "<wx> <wy> [<x1> <y1>] channel %s | period <%s> on <steps> [seed <s>]"
+             % ("|".join(GT_CHANNELS), "|".join(map(str, GT_PERIODS)))}
+
+
+def _parse_gate(toks, where, ln, fam, kr):
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41.2): prop plate|key <wx> <wy> channel C; prop gate
+    <wx> <wy> channel C [along x|y] (the way the path runs through it: its bars stand across it); prop bridge <wx>
+    <wy> [<x1> <y1>] channel C, or ... period P on N [seed S] - DOWN while ((n + S) AND (P - 1)) < N, a
+    popspike's timer.  C one of GT_CHANNELS.  The class is the kind's (ATTEMPT): no `reset`.  A bridge's
+    rectangle is one element a cell, as a spikes floor's.  -> one element, or a list (a bridge's rect)"""
+    k = kr["kind"]
+    use = "prop %s takes %s" % (kr["name"], GT_SYNTAX[k])
+    if len(toks) < 4:
+        raise CourseError("%s: %s" % (where, use))
+    at = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))
+    i, b = 4, (at[0] + 1, at[1] + 1)
+    if k == GT_KB and len(toks) >= 6 and toks[4][1].lstrip('-').isdigit():
+        b, i = (_int(toks[4], where, "x1"), _int(toks[5], where, "y1")), 6
+        if b[0] <= at[0] or b[1] <= at[1]:
+            raise CourseError("%s: bridge's rect %d %d %d %d is empty" % (where, at[0], at[1], b[0], b[1]))
+    d = {"line": ln, "kind": k, "fam": fam, "at": at, "cls": CL_ATTEMPT, "seed": None, "gch": None, "galong": 0,
+         "per": None, "on": None, "sseed": None}
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if t == "reset":
+            raise CourseError("%s: a %s's reset class is its family's (attempt): it takes no `reset`" % (where,
+                                                                                                    kr["name"]))
+        if t == "channel" and i + 1 < len(toks) and d["gch"] is None and d["per"] is None:
+            if toks[i + 1][1] not in GT_CHANNELS:
+                raise CourseError("%s: a channel is %s, not %r" % (where, ", ".join(GT_CHANNELS), toks[i + 1][1]))
+            d["gch"] = GT_CHANNELS.index(toks[i + 1][1])
+            i += 2
+        elif t == "along" and k == GT_KG and i + 1 < len(toks) and toks[i + 1][1] in ("x", "y") and not d["galong"] \
+                and "along" not in [q[1] for q in toks[4:i]]:
+            d["galong"] = 0 if toks[i + 1][1] == "x" else 1
+            i += 2
+        elif t in ("period", "on", "seed") and k == GT_KB and d["gch"] is None and i + 1 < len(toks) \
+                and d[{"period": "per", "on": "on", "seed": "sseed"}[t]] is None:
+            d[{"period": "per", "on": "on", "seed": "sseed"}[t]] = _int(toks[i + 1], where, t)
+            i += 2
+        else:
+            raise CourseError("%s: %s, not %r" % (where, use, toks[i][1]))
+    if d["per"] is not None or d["on"] is not None or d["sseed"] is not None:
+        d["sseed"] = d["sseed"] or 0
+        if d["per"] not in GT_PERIODS:
+            raise CourseError("%s: a timed bridge's period is %s steps, not %s" % (
+                where, ", ".join(map(str, GT_PERIODS)), d["per"]))
+        if d["on"] is None or not 1 <= d["on"] < d["per"]:
+            raise CourseError("%s: a timed bridge's `on` (steps down) is 1 - %d of its period %d" % (
+                where, d["per"] - 1, d["per"]))
+        if not 0 <= d["sseed"] < d["per"]:
+            raise CourseError("%s: a timed bridge's seed %d is not under its period %d" % (where, d["sseed"],
+                                                                                          d["per"]))
+    elif d["gch"] is None:
+        raise CourseError("%s: %s" % (where, use))
+    if k != GT_KB:
+        return d
+    cells = [(x, y) for y in range(at[1], b[1]) for x in range(at[0], b[0])]
+    if d["per"] is not None:                        # (a timed rect: each cell a step after the last, so its lanes
+        return [dict(d, at=c, sseed=(d["sseed"] + j) % d["per"]) for j, c in enumerate(cells)]   # turn one a step)
+    return [dict(d, at=c) for c in cells]
+
+
+def gt_down(pr, n, chans):
+    """a DRAWBRIDGE cell DOWN (a floor) on step n (its low byte) with the channels CHANS open (SPEC.md 128.41.4):
+    a timed one while ((n + seed) AND mask) < on, a switched one once its channel is open"""
+    if pr["gch"] == GT_TIMED:
+        return ((n + pr["sseed"]) & 255 & pr["smask"]) < pr["on"]
+    return bool(chans >> pr["gch"] & 1)
+
+
+def _gt_check(f, props, start):
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE's refusals over the course (SPEC.md 128.41.7): every channel used
+    both OPENED (a plate or a key) and USED (a gate or a switched bridge); one key a channel; no gate or bridge on
+    the start's cell (a gate shut round the ball, a bridge up under it, at a play's start)"""
+    by = {}
+    for p in props:
+        if p["kind"] in GT_KINDS and p.get("gch") not in (None, GT_TIMED):
+            by.setdefault(p["gch"], []).append(p)
+    for ch, ps in sorted(by.items()):
+        opens = [p for p in ps if p["kind"] in (GT_KP, GT_KK)]
+        uses = [p for p in ps if p["kind"] in (GT_KG, GT_KB)]
+        if not opens:
+            raise CourseError("%s:%d: channel %s has a %s and nothing opens it (a plate or a key, SPEC.md 128.41.7)"
+                              % (f, uses[0]["line"], GT_CHANNELS[ch], PK_NAMES[uses[0]["kind"]]))
+        if not uses:
+            raise CourseError("%s:%d: channel %s's %s opens nothing (no gate or bridge of its channel, SPEC.md "
+                              "128.41.7)" % (f, opens[0]["line"], GT_CHANNELS[ch], PK_NAMES[opens[0]["kind"]]))
+        keys = [p for p in ps if p["kind"] == GT_KK]
+        if len(keys) > 1:
+            raise CourseError("%s:%d: a second key of channel %s (line %d): a channel has one key (SPEC.md 128.41.7)"
+                              % (f, keys[1]["line"], GT_CHANNELS[ch], keys[0]["line"]))
+    for p in props:
+        if p["kind"] in (GT_KG, GT_KB) and p["at"] == start:
+            raise CourseError("%s:%d: a %s on the start's cell (%d, %d): a play would begin inside it (SPEC.md "
+                              "128.41.7)" % (f, p["line"], PK_NAMES[p["kind"]], p["at"][0], p["at"][1]))
+
+
 def sp_up(pr, n):
     """SPIKES (SPEC.md 128.38): a popspike UP on step n (its low byte): ((n + seed) AND mask) < on; a spikes
     element always"""
@@ -1685,6 +2098,154 @@ def _sp_check(f, props, tiles):
                     raise CourseError("%s:%d: %s on (%d, %d) beside the water at (%d, %d): a spiked cell and a "
                                       "water cell never touch, edge or corner (SPEC.md 128.38)"
                                       % (f, p["line"], nm, at[0], at[1], at[0] + dx, at[1] + dy))
+
+
+TT_SYNTAX = ("prop turntable <wx> <wy> size 2|3 fill <cells> [quarter 32|64] [seed <s>] [warn <steps>] "
+             "[turn cw|ccw]: <cells> the table's rows from its back (wy), 'o' a floor and '.' a gap, a '/' between "
+             "rows optional")
+
+
+def tt_rotate(N, i, j, ccw=False):
+    """the cell (i, j) of an N x N table (i along x, j along y) after ONE quarter turn: clockwise on the screen
+    ((1, 0) -> (0, 1): +x, right and down, turns to +y, left and down), or counter-clockwise"""
+    return (j, N - 1 - i) if ccw else (N - 1 - j, i)
+
+
+def tt_seqs(N, fill, ccw=False):
+    """{(i, j): SEQ} - bit r set when the cell is a FLOOR after r quarter turns - for every SWITCHING cell (a 3 x 3's
+    centre, the pivot, is none); FILL {(i, j): floor}"""
+    out = {}
+    for j in range(N):
+        for i in range(N):
+            if N == 3 and (i, j) == (1, 1):
+                continue
+            seq, c = 0, (i, j)
+            for r in range(4):          # the floor at (i, j) after r turns came from the cell r turns back
+                if fill[c]:
+                    seq |= 1 << r
+                for _ in range(3):      # (one turn back is three forward)
+                    c = tt_rotate(N, c[0], c[1], ccw)
+            out[(i, j)] = seq
+    return out
+
+
+def _parse_turn(toks, where, ln, fam, kr):
+    """THE TURNTABLE (SPEC.md 128.43): one element a SWITCHING cell of the N x N table at (wx, wy) on (its back
+    corner), each carrying the table's timer and its own SEQ.  Refused here: a size not 2 or 3, a fill of the
+    wrong length or with other characters, a fill not HALF filled (2 of a 2 x 2's 4; 4 of a 3 x 3's ring of 8,
+    its pivot a floor), a fill a quarter turn leaves as it was (nothing would switch), a quarter not 32 or 64, a
+    seed past its period (4 Q), a warning not under a quarter"""
+    if len(toks) < 4:
+        raise CourseError("%s: %s" % (where, TT_SYNTAX))
+    at = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy"))
+    d = {"size": None, "fill": None, "quarter": TT_QDEF, "seed": 0, "warn": TT_WDEF, "turn": "cw"}
+    i = 4
+    while i < len(toks):
+        t = toks[i][1] if toks[i][0] == 'w' else None
+        if t not in d or i + 1 >= len(toks) or toks[i + 1][0] != 'w':
+            raise CourseError("%s: %s" % (where, TT_SYNTAX))
+        v = toks[i + 1][1]
+        d[t] = v if t in ("fill", "turn") else _int(toks[i + 1], where, t)
+        i += 2
+    N = d["size"]
+    if N not in TT_SIZES:
+        raise CourseError("%s: a turntable's size is 2 or 3 (an N x N table), not %s" % (where, N))
+    if d["fill"] is None:
+        raise CourseError("%s: %s" % (where, TT_SYNTAX))
+    cells = d["fill"].replace("/", "")
+    if len(cells) != N * N or set(cells) - set("o."):
+        raise CourseError("%s: a %d x %d turntable's fill is %d cells of 'o' (a floor) and '.' (a gap), not %r"
+                          % (where, N, N, N * N, d["fill"]))
+    fill = dict(((k % N, k // N), cells[k] == "o") for k in range(N * N))
+    if N == 3 and not fill[(1, 1)]:
+        raise CourseError("%s: a 3 x 3 turntable's centre is its PIVOT, a floor ('o'): it never switches" % where)
+    sw = [c for c in fill if not (N == 3 and c == (1, 1))]
+    if 2 * sum(1 for c in sw if fill[c]) != len(sw):
+        raise CourseError("%s: a turntable is HALF filled: %d of its %d switching cells floors, not %d (SPEC.md "
+                          "128.43)" % (where, len(sw) // 2, len(sw), sum(1 for c in sw if fill[c])))
+    if d["turn"] not in ("cw", "ccw"):
+        raise CourseError("%s: a turntable turns cw or ccw, not %r" % (where, d["turn"]))
+    seqs = tt_seqs(N, fill, d["turn"] == "ccw")
+    if all(s in (0, 15) for s in seqs.values()):
+        raise CourseError("%s: the turntable's fill %r is the same after a quarter turn: no cell would switch "
+                          "(SPEC.md 128.43)" % (where, d["fill"]))
+    Q = d["quarter"]
+    if Q not in TT_QUARTERS:
+        raise CourseError("%s: a turntable's quarter turn is %s steps, not %s" % (
+            where, " or ".join(map(str, TT_QUARTERS)), Q))
+    if not 0 <= d["seed"] < 4 * Q:
+        raise CourseError("%s: a turntable's seed %d is not under its period %d (four quarters)"
+                          % (where, d["seed"], 4 * Q))
+    if not 0 <= d["warn"] < Q:
+        raise CourseError("%s: a turntable's warning %d steps is not under its quarter turn %d (0 none)"
+                          % (where, d["warn"], Q))
+    tab = {"line": ln, "at": at, "N": N, "fill": fill, "Q": Q, "seed": d["seed"], "warn": d["warn"],
+           "ccw": d["turn"] == "ccw"}
+    qsh = Q.bit_length() - 1
+    off = tt_sweep(N, d["turn"] == "ccw")
+    return [{"line": ln, "kind": kr["kind"], "fam": fam, "at": (at[0] + i, at[1] + j), "cls": CL_ATTEMPT,
+             "seed": None, "tseq": seqs[(i, j)], "tqsh": qsh, "tseed": (d["seed"] + off[(i, j)]) % (4 * Q),
+             "twat": Q - d["warn"], "ttab": tab}
+            for (i, j) in sorted(seqs, key=lambda c: (c[1], c[0]))]
+
+
+def tt_sweep(N, ccw=False):
+    """{(i, j): its phase OFFSET} - a turn SWEEPS round the ring, one cell a step in the way it turns (the cell at
+    (0, 0) first, so the change is one pose a step a table: 128.19.10's WIN_CHG, and it reads as turning).  A cell
+    with offset k turns k steps BEFORE a cell with offset 0"""
+    ring, c = [], (0, 0)
+    for _ in range(4 * (N - 1)):                    # (the ring's cells, walked in the turn's way from (0, 0))
+        ring.append(c)
+        i, j = c
+        if ccw:
+            c = (i, j + 1) if i == 0 and j < N - 1 else (i + 1, j) if j == N - 1 and i < N - 1 else \
+                (i, j - 1) if i == N - 1 and j > 0 else (i - 1, j)
+        else:
+            c = (i + 1, j) if j == 0 and i < N - 1 else (i, j + 1) if i == N - 1 and j < N - 1 else \
+                (i - 1, j) if j == N - 1 and i > 0 else (i, j - 1)
+    assert c == (0, 0) and len(set(ring)) == len(ring)
+    return dict((cell, len(ring) - 1 - k) for k, cell in enumerate(ring))
+
+
+def tt_pose(pr, n):
+    """THE TURNTABLE (SPEC.md 128.43): a cell's pose on step n (its low byte) - 2 a GAP (its SEQ's bit for the
+    rotation ((n + SEED) & 255) >> QSH & 3 clear), 1 the WARNING (a floor whose next rotation is a gap, in the
+    quarter's last steps: (n + SEED) & QMASK >= WAT), 0 a floor"""
+    m = (n + pr["tseed"]) & 255
+    r = (m >> pr["tqsh"]) & 3
+    if not pr["tseq"] >> r & 1:
+        return 2
+    if (m & ((1 << pr["tqsh"]) - 1)) >= pr["twat"] and not pr["tseq"] >> ((r + 1) & 3) & 1:
+        return 1
+    return 0
+
+
+def _tt_check(f, props, tiles):
+    """THE TURNTABLE's refusals over the course's elements (SPEC.md 128.43): every cell of a table on one height,
+    on NORMAL ground; a 3 x 3's pivot a FLAT FLOOR at that height (not another prop's)"""
+    tabs = {}
+    for p in props:
+        if p["kind"] == TT_K:
+            tabs.setdefault(id(p["ttab"]), (p["ttab"], []))[1].append(p)
+    for tab, els in tabs.values():
+        z = {tiles[p["at"]].z0 for p in els}
+        if len(z) != 1:
+            raise CourseError("%s:%d: the turntable at (%d, %d) stands on %d heights (%s units): its cells are one "
+                              "flat floor (SPEC.md 128.43)" % (f, tab["line"], tab["at"][0], tab["at"][1], len(z),
+                                                             ", ".join(_units(v) for v in sorted(z))))
+        for p in els:
+            if tiles[p["at"]].surf != SURF_NORMAL:
+                raise CourseError("%s:%d: the turntable's cell (%d, %d) is %s: it stands on NORMAL ground (SPEC.md "
+                                  "128.43)" % (f, tab["line"], p["at"][0], p["at"][1], SURFACES[tiles[p["at"]].surf]))
+        if tab["N"] == 3:
+            pc = (tab["at"][0] + 1, tab["at"][1] + 1)
+            t = tiles.get(pc)
+            if not isinstance(t, Tile) or t.kind != KIND_FLOOR or t.sx or t.sy or t.z0 not in z:
+                raise CourseError("%s:%d: the turntable's PIVOT (%d, %d) is not a FLAT FLOOR at its height (SPEC.md "
+                                  "128.43)" % (f, tab["line"], pc[0], pc[1]))
+            if any(q["at"] == pc for q in props if not q.get("noclaim")):
+                raise CourseError("%s:%d: the turntable's PIVOT (%d, %d) belongs to another prop (SPEC.md 128.43)"
+                                  % (f, tab["line"], pc[0], pc[1]))
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
@@ -1951,6 +2512,95 @@ def _parse_water(toks, where, ln):
     return {"cells": frozenset(cells), "top": top, "bed": bed, "rip": rip, "line": ln}
 
 
+def _parse_hump(toks, where, ln):
+    """SPEC.md 128.44.1: hump <x> <y> <z> [along x|y <n>] [height <px>] -> the `fields` entry"""
+    use = "%s: hump takes <x> <y> <z> [along x|y <n>] [height <px>] (SPEC.md 128.44.1)" % where
+    if len(toks) < 4:
+        raise CourseError(use)
+    at = (_int(toks[1], where, "x"), _int(toks[2], where, "y"))
+    z = _height2(toks[3], where)
+    along, n, hgt, i, opn = 0, 0, HUMP_STD[0], 4, False
+    seen = set()
+    while i < len(toks):
+        w = toks[i][1]
+        if w in seen or (w != "open" and i + 1 >= len(toks)):
+            raise CourseError(use)
+        seen.add(w)
+        if w == "open":
+            opn, i = True, i + 1
+        elif w == "along" and i + 2 < len(toks) and toks[i + 1][1] in ("x", "y"):
+            along, n = "xy".index(toks[i + 1][1]), _int(toks[i + 2], where, "n")
+            if not 1 <= n <= HUMP_LMAX:
+                raise CourseError("%s: a ridge runs 1 - %d cells along its axis, not %d (SPEC.md 128.44.1)"
+                                  % (where, HUMP_LMAX, n))
+            i += 3
+        elif w == "height":
+            hgt = _int(toks[i + 1], where, "height")
+            if not HUMP_HMIN <= hgt <= HUMP_HMAX:
+                raise CourseError("%s: a hump stands %d - %d px over its base, not %d (SPEC.md 128.44.1: %d past "
+                                  "the slope bound, 128.28.2)" % (where, HUMP_HMIN, HUMP_HMAX, hgt, HUMP_HMAX + 1))
+            i += 2
+        else:
+            raise CourseError(use)
+    if opn and not n:
+        raise CourseError("%s: `open` is a ridge's: a dome has no ends (hump <x> <y> <z> along x|y <n> open, SPEC.md "
+                          "128.44.1)" % where)
+    return {"what": "hump", "at": at, "z2": z, "height": hgt, "along": along, "n": n, "open": opn, "line": ln}
+def _parse_seesaw(toks, where, ln):
+    """SPEC.md 128.42.2: seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] - a TILT PLATE over the cells
+    x0 <= wx < x1, y0 <= wy < y1, tilting along its axis about the pivot at its middle, PIVOT its height there (the
+    FLAT pose's), at rest with its minus end down (`rest -`, the default) or its plus end"""
+    use = "seesaw takes <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] (SPEC.md 128.42.2)"
+    if len(toks) not in (9, 11) or toks[5] != ('w', "along") or toks[6][1] not in ("x", "y") \
+            or toks[7] != ('w', "pivot") or (len(toks) == 11 and (toks[9] != ('w', "rest")
+                                                                 or toks[10][1] not in ("-", "+"))):
+        raise CourseError("%s: %s" % (where, use))
+    x0, y0, x1, y1 = (_int(toks[k], where, n) for k, n in ((1, "x0"), (2, "y0"), (3, "x1"), (4, "y1")))
+    ay = toks[6][1] == "y"
+    nx, ny = x1 - x0, y1 - y0
+    L, W = (ny, nx) if ay else (nx, ny)
+    if not (TL_LMIN <= L <= TL_LMAX and L % 2 == 0):
+        raise CourseError("%s: a see-saw is %d cells along its axis: 2, 4 or 6 (an even run: its pivot on a cell "
+                          "edge, SPEC.md 128.42.2)" % (where, L))
+    if not 1 <= W <= TL_WMAX:
+        raise CourseError("%s: a see-saw is %d cells across its axis: 1 or 2 (SPEC.md 128.42.2)" % (where, W))
+    pz = _height2(toks[8], where)
+    plus = len(toks) == 11 and toks[10][1] == "+"
+    return {"at": (x0, y0), "nx": nx, "ny": ny, "ay": ay, "pz": pz, "plus": plus, "line": ln,
+            "cells": frozenset((x, y) for x in range(x0, x1) for y in range(y0, y1))}
+
+
+def tl_geom(sw):
+    """a `seesaw` statement as tl_cell's plate: the anchor, the extents, the flags, PZ"""
+    return {"at": sw["at"], "tlnx": sw["nx"], "tlny": sw["ny"], "tlpz": sw["pz"],
+            "tlf": (TL_FAXY if sw["ay"] else 0) | (TL_FPLUS if sw["plus"] else 0)}
+
+
+def tl_tiles(sw, pose, line=0):
+    """{cell: Tile} of a plate in POSE: its floors, normal, laid by the statement"""
+    g = tl_geom(sw)
+    out = {}
+    for c in sorted(sw["cells"]):
+        z0, sx, sy = tl_cell(g, pose, c)
+        out[c] = Tile(KIND_FLOOR, z0, sx, sy, line or sw["line"])
+    return out
+
+
+def lay_seesaws(src, tiles):
+    """SPEC.md 128.42.2: each see-saw's cells LAID as its plate at rest - over cells nothing else lays (the plate
+    tilts over the void, or a pit), never two on one cell"""
+    f = src.fname
+    taken = {}
+    for sw in getattr(src, "seesaws", ()):
+        for c in sorted(sw["cells"]):
+            if c in tiles or c in taken:
+                raise CourseError("%s:%d: the see-saw's cell (%d, %d) is %s: a plate lays its own cells, over the "
+                                  "void (SPEC.md 128.42.2)" % (f, sw["line"], c[0], c[1], "the see-saw of line %d's"
+                                                                % taken[c] if c in taken else "laid already"))
+            taken[c] = sw["line"]
+        tiles.update(tl_tiles(sw, 0))
+
+
 def _parse_archway(toks, where, ln):
     """SPEC.md 128.39.2: archway <shape> along x|y [under <units>] - the cells UNDER an arch the ball rolls through
     along an axis; `under` the underside's height over their floor (2 - 4 units in halves, 2 when not written)"""
@@ -2144,6 +2794,8 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: a pit's depth is 1 - 60 px, not %d" % (where, dep))
             src.fields.append({"what": "pit", "at": at, "z2": z, "radius": rad, "hole": hole, "depth": dep,
                                "line": ln})
+        elif st == "hump":                          # SPEC.md 128.44: hump <x> <y> <z> [along x|y <n>] [height <px>]
+            src.fields.append(_parse_hump(toks, where, ln))
         elif st == "water":                         # SPEC.md 128.36: water rect X0 Y0 X1 Y1 top H bed B [ripple ..]
             src.waters.append(_parse_water(toks, where, ln))
         elif st == "arch":                          # ...and its exit: arch X Y +x|+y (the column's front face)
@@ -2178,6 +2830,8 @@ def parse(text, fname="<course>"):
             if i != len(toks):
                 raise CourseError("%s: float takes a shape and nothing else (but `thick <units>`)" % where)
             src.floats.append((tiles, ln, depth))
+        elif st == "seesaw":                        # SPEC.md 128.42: seesaw X0 Y0 X1 Y1 along x|y pivot H [rest -|+]
+            src.seesaws.append(_parse_seesaw(toks, where, ln))
         elif st == "archway":                       # SPEC.md 128.39: archway <shape> along x|y [under <units>]
             src.archways.append(_parse_archway(toks, where, ln))
         elif st == "guard":                         # SPEC.md 128.35: guard <shape> [height <h>]
@@ -2521,6 +3175,15 @@ FTAB = 289                    # a table's bytes, 17 x 17
 FSHAPE_MAX = 32               # tables a course may have (the shape's five bits: +1's bits 0 - 3 and 7)
 FSLOPE_MAX = 7                # |sx| + |sy| at every point (the floor rate within 7 x 384 / 4 = 672)
 F_PROFILES = ("round", "bank")
+# SPEC.md 128.44: the HUMP - FIELD cells that rise ABOVE their base (the plate round them), laid by the tool alone
+HUMP_R = 16                   # gu: a hump's radius, so a round hump is the 2 x 2 cells round a cell corner
+HUMP_STD = (6, 10)            # px: the STANDARD heights (128.28.4's rule: a course draws from these, 1 table a dome)
+HUMP_HMIN, HUMP_HMAX = 2, 11  # px: the heights a hump may have (11: the dome's slope bound, 128.28.2)
+HUMP_LMAX = 12                # cells: the longest ridge
+HUMP_HIDE = 16                # gu: the visibility rule - positions a ball behind a hump may be WHOLLY hidden in a row
+HUMP_PIECES = ("hump", "ridge")  # the FieldTile pieces a `hump` lays
+HUMP_BACK = 4                 # cells: how far behind a hump the visibility rule looks (a 16 px ball, 11 px hump)
+HUMP_SEE = 3                  # a mechanic behind a hump keeps at least 1 / HUMP_SEE of its top's pixels
 
 
 def fsl(shape, sym):
@@ -2767,6 +3430,37 @@ def pit_cells(f, where):
     return out, hole
 
 
+def hump_profile(d, Hq):
+    """SPEC.md 128.44.2: a hump's height over its base at distance d (gu) from its crest, in quarter px - a raised
+    cosine, Hq at the crest, 0 with no slope at HUMP_R (so the plate round it meets it with no edge); a float"""
+    if d >= HUMP_R:
+        return 0.0
+    return Hq * (1.0 + math.cos(math.pi * d / HUMP_R)) / 2.0
+
+
+def hump_cells(f, where):
+    """SPEC.md 128.44.2: a parsed `hump` -> ({(wx, wy): (piece, fn)}).  The crest is the cell corner (x, y) - a
+    round DOME on the 2 x 2 cells round it - or, `along x|y n`, the segment from it n cells on: a RIDGE, its two
+    ends the dome's halves (caps), its middle 2 cells wide.  f: {"at", "z2", "height", "along", "n", "line"}"""
+    (x, y), z2, n, ax = f["at"], f["z2"], f["n"], f["along"]
+    zl, Hq = 16 * z2, 4 * f["height"]
+    ex, ey = (x + n, y) if ax == 0 else (x, y + n)
+    ax0, ay0, ax1, ay1 = 16 * x, 16 * y, 16 * ex, 16 * ey
+
+    def fn(gx, gy, lip=False):
+        if lip:
+            return zl
+        cx, cy = min(max(gx, ax0), ax1), min(max(gy, ay0), ay1)   # the nearest point of the crest
+        return zl + hump_profile(math.hypot(gx - cx, gy - cy), Hq)
+    out = {}
+    o = 1 if f.get("open") else 0                   # an OPEN ridge: no caps - its run is the crest's n cells
+    for wx in range(x - 1 + (o if ax == 0 else 0), ex + 1 - (o if ax == 0 else 0)):
+        for wy in range(y - 1 + (o if ax == 1 else 0), ey + 1 - (o if ax == 1 else 0)):
+            cap = (wx in (x - 1, ex)) if ax == 0 else (wy in (y - 1, ey))
+            out[(wx, wy)] = ("hump" if n == 0 or cap else "ridge", fn)
+    return out
+
+
 def field_tile(cell, piece, fn, line, where):
     """a FIELD cell's tile: its 17 x 17 world heights sampled from the piece's function, rounded half up,
     checked against the table's range and the slope bound under every symmetry"""
@@ -2835,7 +3529,7 @@ def field_tables_by_statement(tiles):
             continue
         first.setdefault(t.shape, t.line)
         use.setdefault(t.line, set()).add(t.shape)
-        what[t.line] = "pit" if t.piece == "pit" else "chute"
+        what[t.line] = t.piece if t.piece == "pit" else "hump" if t.piece in ("hump", "ridge") else "chute"
     return [(ln, what[ln], sorted(i for i in use[ln] if first[i] == ln),
              sorted(i for i in use[ln] if first[i] != ln)) for ln in sorted(use)]
 
@@ -3207,6 +3901,151 @@ def arch_vis(c, bound=AR_HIDE):
     return out
 
 
+def hump_ends(src, tiles):
+    """SPEC.md 128.44.1: an OPEN ridge's end is a cliff its height (a cross-section): what lies past it is a WALL or
+    the void, never a floor a ball could roll into it from; and a hump's rim is level with the cells round it -
+    a floor or goal beside it is at its base along the whole shared edge (else the hump stands in a step)"""
+    f = src.fname
+    for fd in src.fields:
+        if fd["what"] != "hump":
+            continue
+        X0, Y0, X1, Y1 = hump_box(fd)
+        z = 16 * fd["z2"]
+        for wx in range(X0, X1 + 1):
+            for wy in range(Y0, Y1 + 1):
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nc = (wx + dx, wy + dy)
+                    if X0 <= nc[0] <= X1 and Y0 <= nc[1] <= Y1:
+                        continue
+                    n = tiles.get(nc)
+                    t = tiles[(wx, wy)]
+                    edge = [(16 if dx > 0 else 0, k) if dx else (k, 16 if dy > 0 else 0) for k in range(17)]
+                    raised = any(t.h[v][u] != z for u, v in edge)
+                    if raised:
+                        if n is None or (type(n) is Tile and n.kind == KIND_WALL):
+                            continue
+                        raise CourseError("%s:%d: the open ridge's end at cell (%d, %d) meets (%d, %d), which is not a "
+                                          "wall or the void: a ridge's open end is a cliff its height (SPEC.md 128.44.1)"
+                                          % (f, fd["line"], wx, wy, nc[0], nc[1]))
+                    if isinstance(n, FieldTile) or n is None or (type(n) is Tile and n.kind == KIND_WALL):
+                        continue
+                    for e in tile_recs(n):          # (a split cell is refused in a FIELD cell's 3 x 3)
+                        if e.kind in (KIND_FLOOR, KIND_GOAL):
+                            if dx > 0:
+                                hs = [_h4t(e, 0, v) for u, v in edge]
+                            elif dx < 0:
+                                hs = [_h4t(e, 16, v) for u, v in edge]
+                            elif dy > 0:
+                                hs = [_h4t(e, u, 0) for u, v in edge]
+                            else:
+                                hs = [_h4t(e, u, 16) for u, v in edge]
+                            if any(h_ != z for h_ in hs):
+                                raise CourseError("%s:%d: the hump's cell (%d, %d) meets the floor (%d, %d) off its base "
+                                                  "(%s units): a hump's rim is level with what is round it (SPEC.md "
+                                                  "128.44.1)" % (f, fd["line"], wx, wy, nc[0], nc[1], fd["z2"] / 2))
+
+
+def hump_box(fd):
+    """a parsed `hump`'s cells' bounding box (X0, Y0, X1, Y1), inclusive"""
+    (x, y), n, ax, o = fd["at"], fd["n"], fd["along"], 1 if fd.get("open") else 0
+    if ax == 0:
+        return (x - 1 + o, y - 1, x + n - o, y)
+    return (x - 1, y - 1 + o, x, y + n - o)
+
+
+def hump_vis(c, bound=HUMP_HIDE, see=HUMP_SEE, attr=True):
+    """SPEC.md 128.44.4, the visibility rule: for each hump, a ball rolled GROUNDED along every lane (a cell's
+    middle and 4 gu either side) of the rows and the columns from HUMP_BACK cells behind it to a cell past it, a
+    ground unit at a time, composited by the records: the longest run of positions with EVERY lit pixel laid
+    over may not pass BOUND (a ball length); and every mechanic - a prop on a whole flat floor, a GOAL - on a
+    cell up to HUMP_BACK behind it keeps 1 / SEE of its top's pixels.  -> [(line, worst run, worst (seen, of)
+    or None)]; refused (CourseError) past either"""
+    out = []
+    for fd in c.src.fields:
+        if fd["what"] != "hump":
+            continue
+        X0, Y0, X1, Y1 = hump_box(fd)
+        worst = 0
+        # the hump's own pixels (HP: drawn by one of its cells, keyed s or s + 1) and, for each, what the same
+        # cells FLAT at the base would lay there instead (FLAT: pixel -> its cell's s, inside the flat diamond)
+        hp, flat = set(), {}
+        joined = field_joined(c.tiles)
+        for wx in range(X0, X1 + 1):
+            for wy in range(Y0, Y1 + 1):
+                s_ = wx + wy
+                for op in _field_ops(c.tiles, c.tiles[(wx, wy)], wx, wy, s_, c.x0, None, joined):
+                    for y, runs in op[0].items():
+                        for ra, rb in runs:
+                            for x in range(ra, rb):
+                                if 0 <= y + c.y0 < c.lines and 0 <= x < c.width \
+                                        and c.sbuf[y + c.y0][x] in (s_, s_ + 1):
+                                    hp.add((x, y + c.y0))
+                quad = spans([_scr(2 * wx + q[0], 2 * wy + q[1], 4 * fd["z2"], c.x0)
+                              for q in ((0, 0), (2, 0), (2, 2), (0, 2))])
+                for y, runs in quad.items():
+                    for ra, rb in runs:
+                        for x in range(ra, rb):
+                            flat[(x, y + c.y0)] = s_
+        base = 4 * fd["z2"]
+        for along in (0, 1):
+            lanes = range(Y0 - HUMP_BACK, Y1 + 1) if along == 0 else range(X0 - HUMP_BACK, X1 + 1)
+            g0, g1 = (16 * (X0 - HUMP_BACK), 16 * (X1 + 2)) if along == 0 else (16 * (Y0 - HUMP_BACK), 16 * (Y1 + 2))
+            for ln_ in lanes:
+                for off in (4, 8, 12):
+                    run = 0
+                    for g in range(g0, g1):
+                        gx, gy = (g, 16 * ln_ + off) if along == 0 else (16 * ln_ + off, g)
+                        t = c.tiles.get((gx >> 4, gy >> 4))
+                        if isinstance(t, FieldTile):
+                            z = t.h[gy & 15][gx & 15] // 4
+                        elif type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL):
+                            z = _h4t(t, gx & 15, gy & 15) // 4
+                        else:
+                            run = 0                 # (no ball rolls there)
+                            continue
+                        px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+                        sb = (gx >> 4) + (gy >> 4)
+                        hid = _arch_laid(c, px, py, sb, z, False)
+                        lit = ball_pixels(px, py)
+                        if not all(p_ in hid for p_ in lit):
+                            run = 0
+                            continue
+                        # ...and NOT wholly hidden with the hump's cells flat at its base: the hump's doing
+                        if attr and all(p_ not in hp or (p_ in flat and sb < flat[p_] and z + CLIMB < base)
+                                        for p_ in lit):
+                            run = 0
+                            continue
+                        run += 1
+                        worst = max(worst, run)
+        if worst > bound:
+            raise CourseError("%s:%d: a ball rolled behind the hump is WHOLLY hidden for %d ground units in a row, past "
+                              "one ball length (%d: SPEC.md 128.44.4)" % (c.fname, fd["line"], worst, bound))
+        cells = {p["at"] for p in c.props if isinstance(p.get("at"), tuple)}
+        cells |= {cl for cl, t in c.tiles.items() if type(t) is Tile and t.kind == KIND_GOAL}
+        low = None
+        for (wx, wy) in sorted(cells):
+            t = c.tiles.get((wx, wy))
+            if not (X0 - HUMP_BACK <= wx <= X1 and Y0 - HUMP_BACK <= wy <= Y1) or type(t) is not Tile \
+                    or t.kind not in (KIND_FLOOR, KIND_GOAL) or t.sx or t.sy:
+                continue
+            s_ = wx + wy
+            quad = spans([_scr(2 * wx + q[0], 2 * wy + q[1], 4 * t.z0, c.x0) for q in ((0, 0), (2, 0), (2, 2), (0, 2))])
+            allp = [(x, y + c.y0) for y, runs in quad.items() for ra, rb in runs for x in range(ra, rb)]
+            seen = sum(1 for (x, y) in allp if c.sbuf[y][x] == s_ and c.tbuf[y][x] == 4 * t.z0)
+            # ...and with the hump's cells flat at its base: what the hump alone covers (its pixels outside the flat
+            # diamond, or inside it where the flat cell would not lay over this top) would show
+            bare = seen + sum(1 for p_ in allp if p_ in hp and not (p_ in flat and flat[p_] > s_))
+            if see * seen < len(allp) and (see * bare >= len(allp) or not attr):
+                raise CourseError("%s:%d: the %s on (%d, %d) behind the hump shows %d of its top's %d pixels: under "
+                                  "1 / %d (SPEC.md 128.44.4: a mechanic is seen when the ball is not on it)"
+                                  % (c.fname, fd["line"], "goal" if t.kind == KIND_GOAL else "prop", wx, wy, seen,
+                                     len(allp), see))
+            if low is None or seen * low[1] < low[0] * len(allp):
+                low = (seen, len(allp))
+        out.append((fd["line"], worst, low))
+    return out
+
+
 def _arch_laid(c, px, py, sb, zb, air):
     """the ball pixels the guest's records lay over a ball at top-left (px, py), its row sb, whole height zb"""
     m = 0 if air else CLIMB
@@ -3231,6 +4070,94 @@ def guard_ops(tiles, ops, x0, _key=0):
         pix = guard_pix(t, wx, wy, x0)
         mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, 4 * t.z0)
         rops.append(((wx + wy, wx), (_spans_of(pix), "post", wx + wy + _key, mk, False, t, (wx, wy))))
+    rops.sort(key=lambda r: r[0])
+    out, i = [], 0
+    for op in ops:
+        k = (op[6][0] + op[6][1], op[6][0])
+        while i < len(rops) and rops[i][0] < k:
+            out.append(rops[i][1])
+            i += 1
+        out.append(op)
+    out += [r[1] for r in rops[i:]]
+    return out
+
+
+def tl_lanes(src, props, lanes, tiles, tlpose, ops_of, x0, y0, width, lines, owners, fname):
+    """SPEC.md 128.42.5: each see-saw's picture in each pose against its rest (every other plate at rest), the
+    changed pixels' blocks cut into lanes (cover_blocks: none on another lane's block) - each a record of the lane
+    kind naming its plate, its poses the changed pixels as that pose draws them (pose 0 the picture)"""
+    busy = set()
+    for L in lanes:
+        busy |= _rect_blocks(L["rect"])
+    fam, kr = FKIND[FK_TILTL]
+    rest = render(tiles, ops_of(tiles), x0, y0, width, lines, owners).rows
+    for p in [q for q in props if q["kind"] == FK_TILT]:
+        sw = p["sw"]
+        chg = {}
+        for pose in (1, 2):
+            t2 = dict(tiles)
+            t2.update(tl_tiles(sw, pose))
+            rows = render(t2, ops_of(t2), x0, y0, width, lines, owners).rows
+            for y in range(lines):
+                a_, b_ = rest[y], rows[y]
+                if a_ != b_:
+                    for x in range(width):
+                        if a_[x] != b_[x]:
+                            chg.setdefault((x, y), {})[pose] = b_[x]
+        blocks = {(x >> 3, y >> 3) for (x, y) in chg}
+        hit = sorted(blocks & busy)
+        if hit:
+            raise CourseError("%s:%d: the see-saw's picture changes in block (column %d, row %d), another prop's lane: "
+                              "keep the lanes apart (SPEC.md 128.42.5)" % (fname, sw["line"], hit[0][0], hit[0][1]))
+        rects = cover_blocks(blocks, lambda b: (b[1], b[0]), busy, "%s:%d: the see-saw" % (fname, sw["line"]))
+        if len(rects) > TL_LANES:
+            raise CourseError("%s:%d: the see-saw's picture changes over %d lanes, over the %d a plate may have (its "
+                              "lanes all turn on one step, SPEC.md 128.42.5): a shorter plate" % (
+                                  fname, sw["line"], len(rects), TL_LANES))
+        for rect in rects:
+            busy |= _rect_blocks(rect)
+            poses = {0: {}, 1: {}, 2: {}}
+            for (x, y), d in chg.items():
+                if rect[0] <= x >> 3 < rect[0] + rect[2] and rect[1] <= y >> 3 < rect[1] + rect[3]:
+                    for q, ink in d.items():
+                        poses[q][(x, y)] = ink
+            props.append({"kind": FK_TILTL, "line": sw["line"], "at": p["at"], "mask": 0, "shift": 0, "seed": 0,
+                          "fam": fam, "frow": kr, "cls": CL_ATTEMPT, "art": "tilt", "bits": 0, "z4": p["z4"],
+                          "dur": 0, "ow": 0, "noclaim": True, "tlof": p})
+            lanes.append({"prop": len(props) - 1, "rect": rect, "poses": poses, "st": {}, "kind": FK_TILTL,
+                          "line": sw["line"]})
+        p["tlnl"] = len(rects)
+
+
+def tilt_post_pix(sw, x0):
+    """SPEC.md 128.42.5: a see-saw's FULCRUM (Y0 = 0) - a white wedge outlined black under the pivot's front end, its
+    apex at the FLAT plate's underside, TL_POST half units tall: the one part of it that never moves"""
+    L = (sw["ny"] if sw["ay"] else sw["nx"]) // 2
+    gx, gy = (16 * (sw["at"][0] + sw["nx"]), 16 * (sw["at"][1] + L)) if sw["ay"] else \
+        (16 * (sw["at"][0] + L), 16 * (sw["at"][1] + sw["ny"]))
+    cx, ya = gx - gy + x0, (gx + gy) // 2 - (4 * sw["pz"] - TL_THICK)
+    H = 4 * TL_POST
+    out = {}
+    for k in range(H):
+        hw = 1 + (k * 5) // H                       # its half width, 1 px at the apex, 5 at the foot
+        for x in range(cx - hw, cx + hw + 1):
+            edge = x in (cx - hw, cx + hw) or k == H - 1
+            out[(x, ya + k)] = BLK if edge else WHT
+    return out
+
+
+def tilt_ops(seesaws, ops, x0):
+    """SPEC.md 128.42.5: each see-saw's fulcrum as a 'post' op, put into the back-to-front order just before its
+    plate's pivot cell (so the plate, in any pose, is drawn over it)"""
+    rops = []
+    for sw in seesaws:
+        L = (sw["ny"] if sw["ay"] else sw["nx"]) // 2
+        pc = (sw["at"][0] + sw["nx"] - 1, sw["at"][1] + L - 1) if sw["ay"] else \
+            (sw["at"][0] + L - 1, sw["at"][1] + sw["ny"] - 1)
+        pix = tilt_post_pix(sw, x0)
+        top = 4 * sw["pz"] - TL_THICK
+        mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, top)
+        rops.append(((pc[0] + pc[1], pc[0] - 1), (_spans_of(pix), "post", pc[0] + pc[1], mk, False, None, pc)))
     rops.sort(key=lambda r: r[0])
     out, i = [], 0
     for op in ops:
@@ -3297,6 +4224,8 @@ def build_tiles(src):
         where = "%s:%d" % (f, fd["line"])
         if fd["what"] == "chute":
             cs, hole = chute_cells(fd, where), set()
+        elif fd["what"] == "hump":
+            cs, hole = hump_cells(fd, where), set()
         else:
             cs, hole = pit_cells(fd, where)
         for cell in sorted(set(cs) | hole):
@@ -3335,8 +4264,10 @@ def build_tiles(src):
                         raise CourseError("%s:%d: the split cell (%d, %d) is in the 3 x 3 of the FIELD cell (%d, %d) "
                                           "(SPEC.md 128.28.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
         field_seams(tiles, f)
+        hump_ends(src, tiles)
     lay_guards(src, tiles)
     lay_arches(src, tiles)
+    lay_seesaws(src, tiles)
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         if not (3 <= wx <= 252 and 3 <= wy <= 252):
@@ -5050,8 +5981,16 @@ def build_props(src, tiles, fname):
             props[-1].update(low=t.z0 - 1, tip=t.z0 + 1, mz=t.z0, surf=t.surf)    # popspike's timer
             if sp["kind"] == SP_KP:
                 props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
+        if sp["kind"] == TT_K:                      # THE TURNTABLE (SPEC.md 128.43): its floor's z0, its SEQ and its
+            props[-1].update(tz=t.z0, tseq=sp["tseq"], tqsh=sp["tqsh"], tseed=sp["tseed"], twat=sp["twat"],
+                             ttab=sp["ttab"])   # table's timer
         if "bp" in sp:                              # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
             props[-1]["bp"] = sp["bp"]
+        if sp["kind"] in GT_KINDS:                  # SPEC.md 128.41.3: the channel (GT_TIMED a timed bridge's), a
+            props[-1].update(gch=GT_TIMED if sp["gch"] is None else sp["gch"], galong=sp["galong"],   # gate's way,
+                             deck=t.z0, gkd=KIND_FLOOR | t.surf << 4)   # a bridge's deck and its grid's +2 byte
+            if sp["per"] is not None:
+                props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
             props[-1]["mg"] = sp["mg"] + (4 * t.z0 + MG_CEIL if sp["mg"][1] & MG_DOWN else 0,)
         if sp["kind"] == WD_K and sum(1 for q in props if q["kind"] in (WD_K, WD_K2)) + (2 if sp["won"] and not
@@ -5075,6 +6014,7 @@ def build_props(src, tiles, fname):
                               "frow": wk, "cls": CL_ATTEMPT, "art": "wisp", "bits": 0, "z4": 4 * t.z0, "dur": 0,
                               "ow": 0, "wof": props[-1], "noclaim": True})
     _mg_check(f, props, tiles)
+    _gt_check(f, props, src.start[0] if src.start else None)
     for a in getattr(src, "archways", ()):          # SPEC.md 128.39.3: THE ARCHWAY - an element a cell, NO owner (no
         fam, kr = FKIND[FK_ARCH]                    # OBS: a pad may stand under it), its +18 the CLEARANCE
         if not any(fm is fam for fm in named):
@@ -5084,7 +6024,20 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": a["line"], "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                           "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * a["z0"], "dur": 0,
                           "ow": 0, "clr": a["clr"], "noclaim": True, "arch": a})
+    for sw in getattr(src, "seesaws", ()):         # SPEC.md 128.42.3: THE SEE-SAW - a PLATE's record, anchored on its
+        fam, kr = FKIND[FK_TILT]                    # first cell, NO owner (no OBS); its lanes' records are cut with
+        if not any(fm is fam for fm in named):      # its art (compile_course)
+            raise CourseError("%s:%d: a see-saw is the seesaw family's, which the course does not name (`uses "
+                              "seesaw`, SPEC.md 128.42.2)" % (f, sw["line"]))
+        for c in sorted(sw["cells"]):
+            claim(c, sw["line"], "seesaw")
+        d = {"kind": FK_TILT, "line": sw["line"], "at": sw["at"], "mask": 0, "shift": 0, "seed": 0, "fam": fam,
+             "frow": kr, "cls": CL_RESPAWN, "art": None, "bits": 8, "z4": 4 * tiles[sw["at"]].z0, "dur": 0, "ow": 0,
+             "noclaim": True, "sw": sw}
+        d.update(tl_geom(sw))
+        props.append(d)
     _sp_check(f, props, tiles)
+    _tt_check(f, props, tiles)
     for p_ in props:                                # story 9.8 (SPEC.md 128.25.20.4): an own-layout family
         fm = OWN_FAM.get(p_["kind"])                # kind's family named; a windmill's TUBE too (its capture
         need = [fm] if fm else []                   # and transit are the tube's)
@@ -5124,10 +6077,10 @@ def build_props(src, tiles, fname):
         props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                       "num": lb["num"], "label": lb})
     nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost")))
+                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge")))
     if nlane > PROP_MAX:
         lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost"))]
+                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge"))]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -5187,7 +6140,7 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        elif p["kind"] == FK_ARCH:                  # (SPEC.md 128.39.3: an archway cell is no owner, no OBS)
+        elif p["kind"] in (FK_ARCH, FK_TILT, FK_TILTL):    # (SPEC.md 128.39.3, 128.42.3: no owner, no OBS)
             continue
         elif p["kind"] != PK_SIGN:                  # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
             out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first;
@@ -5553,6 +6506,26 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
             if rc.zhi > o.zhi:
                 o.zhi, o.src = rc.zhi, rc.src
             o.zlo = min(o.zlo, rc.zlo)
+    tilt = [p for p in props if p["kind"] == FK_TILT]   # SPEC.md 128.42.6: THE SEE-SAW - the reach again with every
+    if tilt and not hack.get("noforms"):                # plate in its FLAT pose and in its other end's, unioned
+        took = True
+        for pose in (1, 2):
+            cells2 = dict(cells)
+            tiles2 = dict(tiles)
+            for p in tilt:
+                for c_, t2 in tl_tiles(p["sw"], pose).items():
+                    tiles2[c_] = t2
+                    cells2[c_] = [t2.z0, (t2.sx & 15) | ((t2.sy & 15) << 4)] + list(cells[c_][2:])
+            r2, _r, _e = build_reach(tiles2, cells2, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                     _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+            for rc in r2:
+                o = by.get((rc.wx, rc.wy))
+                if o is None:
+                    by[(rc.wx, rc.wy)] = rc
+                    continue
+                if rc.zhi > o.zhi:
+                    o.zhi, o.src = rc.zhi, rc.src
+                o.zlo = min(o.zlo, rc.zlo)
     return list(by.values()) if took else reach
 
 
@@ -5789,6 +6762,41 @@ class FieldInk:
         return t(x, y) if callable(t) else t
 
 
+class HumpInk(FieldInk):
+    """SPEC.md 128.44.3: a HUMP facet's ink - FieldInk's bending cell LATTICE over BANDS of height: a pixel's height
+    over the lip, by the facet's own map from the screen (its three corners' heights over the lip, Z, quarter px),
+    in bands of STEP quarter px (the hump's height / HUMP_RINGS) - an even band field_ms, an odd one solid magenta,
+    so a dome is rings and a ridge stripes, the two magenta tones the owner chose for shapes (SPEC.md 128.28.6;
+    Hercules: a quarter and a half grey).  A facet at the floor's own height (its tone the floor's, the JOIN
+    rule) keeps the floor's ink"""
+    __slots__ = ("Z", "step")
+
+    def __init__(self, tone, P, G, Z, step, k=None):
+        FieldInk.__init__(self, tone, P, G, k)
+        self.Z, self.step = Z, step
+
+    def bind(self, y0):
+        f = FieldInk.bind(FieldInk(self.tone, self.P, self.G), y0)
+        g = FieldInk.bind(FieldInk(self.tone, self.P, [(z, z) for z in self.Z]), y0)
+        return HumpInk(self.tone, self.P, self.G, self.Z, self.step, f.k + [g.k[0]])
+
+    def __call__(self, x, y):
+        X, Y = 4 * x + 2, 4 * y + 2
+        for ax, ay, a0 in self.k[:2]:
+            g = ax * X + ay * Y + a0
+            if math.floor(g / 16.0) != math.floor((g - 4 * ay) / 16.0):
+                return BLK
+        if self.tone in (WHT, CYN):
+            return self.tone
+        ax, ay, a0 = self.k[2]
+        return MAG if math.floor((ax * X + ay * Y + a0) / self.step) & 1 else field_ms(x, y)
+
+
+HUMP_RINGS = 3                # SPEC.md 128.44.3: a hump's height in this many bands of ink
+_HM_FTOP = False              # (the red arm `hmtop`: a hump's facets topped as a chute's, FTOPQ)
+HTOPQ = 2                     # SPEC.md 128.44.4: a RAISED facet's occluder top, whole px rounded down to 2 px (128.11.4.2)
+
+
 def field_tone(base, plate):
     """SPEC.md 128.28.6: a facet's tone - at the floor's own height (plate: every corner on the lip's
     surface) the plain floor cell's ink there, so the shape's level rim is that floor; anything below it
@@ -5947,8 +6955,17 @@ def _field_ops(tiles, t, wx, wy, s, x0, ground=None, joined=None):
                 (ua, va), (ub, vb), (uc, vc) = tri
                 ha, hb, hc = h[va][ua], h[vb][ub], h[vc][uc]
                 plate = (wx, wy, i, j, kt) in joined    # on the lip AND joined to floor at its height
-                ink = FieldInk(field_tone(base, plate), P, [(gx0 + u_, gy0 + v_) for u_, v_ in tri])
-                topv = (min(ha, hb, hc) // (4 * FTOPQ)) * FTOPQ   # (whole px, in steps of FTOPQ: fewer records)
+                G = [(gx0 + u_, gy0 + v_) for u_, v_ in tri]
+                lo = min(ha, hb, hc)
+                if t.piece in HUMP_PIECES:          # SPEC.md 128.44.3 - 128.44.4: a hump's contours, and a RAISED
+                    zl = [h_ - t.lip[v_][u_] for u_, v_, h_ in ((ua, va, ha), (ub, vb, hb), (uc, vc, hc))]
+                    ink = HumpInk(field_tone(base, plate), P, G, zl, (t.hmax - t.lip[0][0]) / float(HUMP_RINGS))
+                else:
+                    ink = FieldInk(field_tone(base, plate), P, G)
+                if t.piece in HUMP_PIECES and lo > min(t.lip[va][ua], t.lip[vb][ub], t.lip[vc][uc]) and not _HM_FTOP:
+                    topv = (lo // (4 * HTOPQ)) * HTOPQ      # facet's top - its lowest corner, whole px (128.44.4)
+                else:
+                    topv = (lo // (4 * FTOPQ)) * FTOPQ      # (whole px, in steps of FTOPQ: fewer records)
                 mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
                 ops.append((spans(P), "facet", key, mk, ink, t, (wx, wy)))
     return ops
@@ -6626,6 +7643,16 @@ def prop_ops(tiles, ops, props, x0):
             t = tiles[p["at"]]                      # a MARK on the top (pose 0, in the picture); the FLASH's
             p["bp_pix"] = [_bp_mark(tiles, ops, p, x0, q) for q in (0, 1)]      # lit pose the lane's
             add(p["at"], "top", _paint_op(p["bp_pix"][0], p["at"][0] + p["at"][1], t, p["at"]))
+        elif p["kind"] in (GT_KP, GT_KG, GT_KB):    # SPEC.md 128.41.5: the picture's marks on the top - a plate
+            t = tiles[p["at"]]                      # (up), a gate's groove, a bridge's seam (down); their lanes
+            wx, wy = p["at"]                        # the compile's
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"]
+            pix = gt_plate_pix(cx, cy, p["gch"]) if p["kind"] == GT_KP else gt_groove_pix(cx, cy, p["galong"]) \
+                if p["kind"] == GT_KG else gt_deck_pix(cx, cy)
+            sp0 = _op_spans(ops, p["at"], "top")
+            pix = {xy: c for xy, c in pix.items() if any(a <= xy[0] < b for a, b in sp0.get(xy[1], ()))}
+            p["gt_pix"] = pix
+            add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
         elif p["kind"] == WD_K2:                    # WIND (SPEC.md 128.34.11): a WISP's squiggles, its lane's
             p["wisp_pix"] = _wind_squiggles(p["wof"], p["at"], tiles, x0)  # pose 1 (pose 0 the picture)
         elif p["kind"] == WD_K and not p["wflags"] & WD_FFLAG:     # a fan: its spinning poses are the lane's
@@ -8230,8 +9257,9 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None)
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP
     hack = _hack or {}
+    _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 128.44.4's red arm: a hump topped as a chute)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
@@ -8245,6 +9273,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
     finally:
         _FAST_EXTRA = ()
         _DOWN_S0 = False
+        _HM_FTOP = False
         _REACH_MEMO = saved
 
 
@@ -8423,6 +9452,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             raise CourseError("%s:%d: guard (%d, %d) is a prop's cell (SPEC.md 128.35.1)"
                               % (fname, rails[c_].line, c_[0], c_[1]))
     undrawn = gcells | set(rails)
+    tt_tabs = {}                                    # SPEC.md 128.43.5: a TURNTABLE's cells (its pivot's too) are
+    for p in props:                                 # drawn as its platter, not as tiles
+        if p["kind"] == TT_K and not hack.get("nottart"):
+            tt_tabs[id(p["ttab"])] = (p["ttab"], p["z4"])
+    ttcells = {(t["at"][0] + i, t["at"][1] + j) for t, _z in tt_tabs.values() for i in range(t["N"])
+               for j in range(t["N"])}
+    undrawn = undrawn | ttcells
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
@@ -8449,37 +9485,40 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                               "(SPEC.md 128.27.2)" % (fname, fln))
         floats.update((c_, fdep) for c_ in fcells)     # (a later statement's depth wins)
         bridges = (bridges | fcells) if fdep != FACE8 else (bridges - fcells)
+    for sw in src.seesaws:                          # SPEC.md 128.42.5: a see-saw's plate is a THIN slab
+        floats.update((c_, TL_THICK) for c_ in sw["cells"])
     if hack.get("guardsolid"):                      # (a red arm's switch: the guard drawn as the wall it is)
         undrawn = gcells
-    ops = draw_ops({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles, x0,
-                   {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
-    if props:
-        ops = prop_ops(tiles, ops, props, x0)
-    if rails and not hack.get("guardsolid"):        # (guardfront: a red arm's switch, the rail keyed 8 rows nearer)
-        ops = guard_ops(tiles, ops, x0, 8 if hack.get("guardfront") else 0)
-    if src.archways:                                # SPEC.md 128.39.5: each archway's LINTEL (arkey: a red arm, keyed
-        ops = arch_ops(src.archways, ops, x0, 0 if hack.get("arkey") else 1)   # at its own row)
-    if warch:                                       # SPEC.md 128.36: each water column's arches
-        ops, _wpix = water_ops(tiles, ops, warch, x0)
-
-    def _reops(t_):
-        # the picture of `t_` (the tiles less a glass tile, a vanishing crack or a bridge's walkway) drawn by the
-        # SAME pipeline as `ops` above: guard cells drawn as their rails, not as walls, the archways' lintels and
-        # the water's arches after - a re-render that left them out differed from the picture wherever a course
-        # has one, and a vanishing crack's lane took that difference for its own (SPEC.md 128.25.18.1)
-        o_ = draw_ops({k: v for k, v in t_.items() if k not in undrawn and k not in gcells}, x0,
-                      {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
+    def _ops_of(tl_):                               # (SPEC.md 128.42.5: a see-saw's poses are drawn by the same ops)
+        o_ = draw_ops({k: v for k, v in tl_.items() if k not in undrawn} if undrawn else tl_, x0,
+                      {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
         if props:
-            o_ = prop_ops(t_, o_, props, x0)
-        if rails and not hack.get("guardsolid"):
-            o_ = guard_ops(t_, o_, x0, 8 if hack.get("guardfront") else 0)
-        if src.archways:
-            o_ = arch_ops(src.archways, o_, x0, 0 if hack.get("arkey") else 1)
-        if warch:
-            o_, _w = water_ops(t_, o_, warch, x0)
+            o_ = prop_ops(tl_, o_, props, x0)
+        if rails and not hack.get("guardsolid"):    # (guardfront: a red arm's switch, the rail keyed 8 rows nearer)
+            o_ = guard_ops(tl_, o_, x0, 8 if hack.get("guardfront") else 0)
+        if tt_tabs:                                 # SPEC.md 128.43.5: each turntable's PLATTER
+            o_ = tt_ops([t for t, _z in tt_tabs.values()], o_, x0, dict((k, z) for k, (_t, z) in tt_tabs.items()))
+        if src.archways:                            # SPEC.md 128.39.5: each archway's LINTEL (arkey: a red arm, keyed
+            o_ = arch_ops(src.archways, o_, x0, 0 if hack.get("arkey") else 1)   # at its own row)
+        if warch:                                   # SPEC.md 128.36: each water column's arches
+            o_, _wpix = water_ops(tl_, o_, warch, x0)
+        if src.seesaws and not hack.get("notiltpost"):  # SPEC.md 128.42.5: each see-saw's fulcrum
+            o_ = tilt_ops(src.seesaws, o_, x0)
         return o_
-    gtop = min(min(sp) for sp, *_ in ops if sp)
-    gbot = max(max(sp) for sp, *_ in ops if sp)
+    ops = _ops_of(tiles)
+    # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
+    # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
+    # picture wherever a course has one, and a vanishing crack's lane took that difference for its own
+    # (SPEC.md 128.25.18.1, 128.34.12)
+    _reops = _ops_of
+    tlpose = {}                                     # SPEC.md 128.42.5: every see-saw in its FLAT pose, its other end's
+    for pose in ((1, 2) if src.seesaws else ()):
+        t2 = dict(tiles)
+        for sw in src.seesaws:
+            t2.update(tl_tiles(sw, pose))
+        tlpose[pose] = (t2, _ops_of(t2))
+    gtop = min(min(sp) for o_ in [ops] + [v[1] for v in tlpose.values()] for sp, *_ in o_ if sp)
+    gbot = max(max(sp) for o_ in [ops] + [v[1] for v in tlpose.values()] for sp, *_ in o_ if sp)
     for p in props:                                   # the slab over its whole rise
         if p["kind"] == PK_PLATFORM:
             gtop = min(gtop, slab_xy(p, 8 * p["L"], x0, 0)[1])
@@ -8761,6 +9800,27 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             p["fpix"] = poses = {0: {}, 1: q1}
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
+        elif p["kind"] == TT_K:                     # THE TURNTABLE (SPEC.md 128.43): the table's ring and hub
+            wx, wy = p["at"]                        # PAINTED before this loop; each switching cell's lane here
+            sF = wx + wy
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+            if cx & 7:
+                raise CourseError("%s:%d: a turntable cell (%d, %d): its top's centre x %d is not on a block (the "
+                                  "origin's x must be a multiple of 8, SPEC.md 128.43)" % (fname, p["line"], wx, wy, cx))
+            rect = tt_lane_rect(cx, cy)
+            poses = {0: {}}
+            for q, seam in ((1, True), (2, False)):
+                want = tt_hole_pix(cx, cy, seam)
+                poses[q] = {(x, y): c for (x, y), c in want.items()
+                            if 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
+                if 2 * len(poses[q]) < len(want):
+                    raise CourseError("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
+                                      "over by geometry in front of it (SPEC.md 128.43: a mechanic seen when the "
+                                      "ball is not on it)" % (fname, p["line"], wx, wy, "warning" if seam else "hole",
+                                                              len(want) - len(poses[q]), len(want)))
+            p["fpix"] = poses
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
+                          "line": p["line"]})
         elif p["kind"] == BP_K:                     # BOOST PADS (SPEC.md 128.40.5): the FLASH - a crack's 2 x 2
             wx, wy = p["at"]                        # blocks round the top's centre (no neighbour's lane shares
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0     # one: a chain of pads lies edge
@@ -8780,6 +9840,43 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 raise CourseError("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
                                   "over by geometry in front of it (the player must see where the ball goes)"
                                   % (fname, p["line"], wx, wy, whole - len(poses[1]), whole))
+            lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
+        elif p["kind"] in (GT_KP, GT_KG, GT_KB):    # SPEC.md 128.41.5: a PLATE's lane (a crack's 2 x 2 blocks round
+            wx, wy = p["at"]                        # its top's centre, pose 1 PRESSED), a GATE's (its bars' bounds,
+            sF = wx + wy                            # pose 1 SHUT), a BRIDGE's (the crack's wide 4 blocks, pose 1
+            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"]     # UP); pose 0 the picture; MARKS at the
+            nm = PK_NAMES[p["kind"]]                # tile's depth clipped by what stands in front; a pose 1 more
+            if cx & 7:                              # than half hidden is REFUSED
+                raise CourseError("%s:%d: a %s at (%d, %d): its top's centre x %d is not on a block (the origin's "
+                                  "x must be a multiple of 8, SPEC.md 128.41.5)" % (fname, p["line"], nm, wx, wy, cx))
+            if p["kind"] == GT_KP:
+                raw = gt_plate_pix(cx, cy, p["gch"], 1)
+                rect = ((cx - 8) >> 3, (cy - 4 + y0) >> 3, 2, 2)
+            elif p["kind"] == GT_KB:
+                raw = gt_hole_pix(cx, cy, p["gch"])
+                rect = ((cx - 8) >> 3, (cy - 4 + y0) >> 3, 2, 2)
+            else:
+                raw = gt_bars_pix(cx, cy, p["gch"], p["galong"])
+                ys_ = [y + y0 for _, y in raw]
+                rect = ((cx - GT_BARW) >> 3, min(ys_) >> 3, ((cx + GT_BARW) >> 3) - ((cx - GT_BARW) >> 3) + 1,
+                        (max(ys_) >> 3) - (min(ys_) >> 3) + 1)
+                if rect[2] > LANE_WMAX or rect[3] > LANE_HMAX:
+                    raise CourseError("%s:%d: the gate at (%d, %d): its bars span %d x %d blocks, over a lane's %d x %d"
+                                      % (fname, p["line"], wx, wy, rect[2], rect[3], LANE_WMAX, LANE_HMAX))
+
+            def inr(x, y, rect=rect):
+                return 8 * rect[0] <= x < 8 * (rect[0] + rect[2]) and 8 * rect[1] <= y < 8 * (rect[1] + rect[3])
+            q1 = {(x, y + y0): c for (x, y), c in raw.items()
+                  if inr(x, y + y0) and 0 <= y + y0 < lines and 0 <= x < width and cv.sbuf[y + y0][x] <= sF}
+            whole = sum(1 for (x, y) in raw if inr(x, y + y0))
+            if not q1 or 2 * len(q1) < whole:
+                raise CourseError("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
+                                  "by geometry in front of it (the player must see where the ball goes)"
+                                  % (fname, p["line"], nm, wx, wy, whole - len(q1), {GT_KP: "pressed", GT_KG: "shut",
+                                                                                     GT_KB: "up"}[p["kind"]], whole))
+            q0 = {(x, y + y0): c for (x, y), c in p["gt_pix"].items() if inr(x, y + y0) and 0 <= y + y0 < lines
+                  and cv.sbuf[y + y0][x] <= sF}
+            p["fpix"] = poses = {0: q0, 1: q1}
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
         elif _famart(p):                            # GLASS (SPEC.md 128.25.18): a crack's or a glass tile's
             # lane: a crack's 2 x 2 blocks round its top's centre, the band |u| < 8 (a tile's neighbours' lanes are 2
@@ -8938,6 +10035,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 128.22.4.1): a sign, path_signs's lane
             lanes.append({"prop": i, "rect": p["spec"]["rect"], "poses": p["spec"]["poses"], "st": {},
                           "kind": PK_SIGN, "line": p["line"]})
+    if src.seesaws:                                 # SPEC.md 128.42.5: THE SEE-SAW's LANES - the picture's change
+        tl_lanes(src, props, lanes, tiles, tlpose, _ops_of, x0, y0, width, lines, owners, fname)   # between poses
     if len(lanes) > PROP_MAX or len(props) > PROP_ALL:  # (a vanishing crack's companion, 128.25.18.1)
         raise CourseError("%s: %d lanes and %d props with the vanishing cracks' companions, over the %d and %d a "
                           "course holds" % (fname, len(lanes), len(props), PROP_MAX, PROP_ALL))
@@ -9283,8 +10382,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif p["kind"] in (SP_K, SP_KP):        # SPIKES (128.38): +18 LOW, +19 TIP; a popspike's +20 ON,
                 rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["low"], p["tip"],
                                    p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
+            elif p["kind"] == TT_K:                 # THE TURNTABLE (128.43): +18 TZ, +19 SEQ (twice), +20 QSH,
+                rec += struct.pack("<BBbBBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["tz"],
+                                   p["tseq"] | p["tseq"] << 4, p["tqsh"], (1 << p["tqsh"]) - 1, p["tseed"],
+                                   p["twat"])           # +21 QMASK, +22 SEED, +23 WAT
             elif p["kind"] == SP_KM:                # ...a membrane's +18 its floor's z0
                 rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["mz"])
+            elif p["kind"] in GT_KINDS:             # SPEC.md 128.41.3: +18 the channel (GT_TIMED), +19 a gate's way or
+                rec += struct.pack("<BBBbBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["gch"],   # a
+                                   p["galong"] if p["kind"] == GT_KG else p["deck"] if p["kind"] == GT_KB else 0,
+                                   p["gkd"] if p["kind"] == GT_KB else 0,      # bridge's deck, +20 its grid's +2
+                                   p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))  # +21 - +23 its timer
             elif "bp" in p:                         # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
                 rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["bp"])
             elif "mg" in p:                           # MAGNETS (128.33.2): +18 the way, +19 DOWN, +20 the range,
@@ -9295,6 +10403,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                    *(p["wreg"] + (p["won"], p["wmask"], p["wseed"], p["wtop"])))
             elif p["kind"] == FK_ARCH:              # THE ARCHWAY (SPEC.md 128.39.3): +18 the CLEARANCE, whole px
                 rec += struct.pack("<BBh12x", 0, p["cls"], p["clr"])
+            elif p["kind"] == FK_TILT:              # THE SEE-SAW (SPEC.md 128.42.3): +18 NX, +19 NY, +20 the flags,
+                rec += struct.pack("<BBBBBb10x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], p["tlpz"])
+            elif p["kind"] == FK_TILTL:             # ...+21 PZ; a lane's +18 its plate's record
+                rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["tlof"])])
             elif p["kind"] == WD_K2:                # ...a WISP's: +18 its blower's record (SPEC.md 128.34.11)
                 rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["wof"])])
             else:                                   # (MAGNETS' +21 the strength, +22 a hanging one's ceiling)
@@ -9437,6 +10549,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     if src.archways and occluders:                  # SPEC.md 128.39.1 A10: the visibility rule, measured
         c.arch_vis = arch_vis(c, 2 if hack.get("arvis") else AR_HIDE)
+    if occluders and any(fd["what"] == "hump" for fd in src.fields):   # SPEC.md 128.44.4: the visibility rule
+        c.hump_vis = hump_vis(c, attr=not hack.get("hmnoattr"))
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 128.22): the pathway's, None on a course
     c.paged = pth is not None
     c.ident = ident
@@ -9742,7 +10856,7 @@ def _rects(c):
 def _events(meet):
     """SPEC.md 128.32.7: the EVENT lanes' share of a window's changes on one step - 1 (a ball touches one
     thing at a time), or the most of the window's lanes any one element's change marks (a group member's)"""
-    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4])]
+    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4]) and L[4]["kind"] != TT_K]
     if not ev:
         return 0
     per = {}
@@ -9750,6 +10864,26 @@ def _events(meet):
         for e in r.get("ents", ()):
             per[e["m"]] = per.get(e["m"], 0) + 1
     return max([1] + list(per.values()))
+
+
+def _tilt_chg(meet):
+    """SPEC.md 128.42.5: a see-saw's lanes all turn on ONE step - the most of one plate's lanes meeting the window,
+    less the 1 _events already counts for the event lanes"""
+    per = {}
+    for L in meet:
+        if L[4]["kind"] == FK_TILTL:
+            per[L[4]["tlp"]] = per.get(L[4]["tlp"], 0) + 1
+    return max(per.values()) - 1 if per else 0
+
+
+def _tt_changes(meet):
+    """THE TURNTABLE (SPEC.md 128.43): its cells' share of a window's pose changes on one step - every turntable
+    lane meeting the window that changes on the same step, at the worst of the 256 steps the low byte times (a
+    table's cells turn together: a half-filled 2 x 2 changes 2 or 4 of them at a turn, a 3 x 3's ring up to 8)"""
+    tt = [L[4] for L in meet if L[4]["kind"] == TT_K]
+    if not tt:
+        return 0
+    return max(sum(1 for r in tt if tt_pose(r, n) != tt_pose(r, n + 1)) for n in range(256))
 
 
 def _meet(r, x0, y0, x1, y1):
@@ -9793,6 +10927,8 @@ def _wind_turns(c, recs, where):
             gust.append((r, lambda n, b=b: wind_blowing(b, n)))
         elif r["kind"] == SP_KP:                    # SPIKES (SPEC.md 128.38): a POPSPIKE's lane turns on its timer
             gust.append((r, lambda n, r=r: sp_up(r, n)))
+        elif r["kind"] == GT_KB and r.get("gch") == GT_TIMED:     # SPEC.md 128.41.5: a TIMED BRIDGE's too
+            gust.append((r, lambda n, r=r: gt_down(r, n, 0)))
     if len(gust) < 2:
         return
     seen = {}
@@ -9852,15 +10988,16 @@ def check_bounds(c):
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
                 chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
                     + sum(1 for L in meet if L[4].get("always")) \
-                    + _events(meet)
+                    + _events(meet) + _tilt_chg(meet) + _tt_changes(meet)
                 _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
                     "Hercules" if herc else "CGA", R, C))
                 most_chg = max(most_chg, chg)
                 if chg > WIN_CHG:
                     raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
-                                      "(rotors %d, clock digits %d, events %d), over %d (SPEC.md 128.19.10)" % (
+                                      "(rotors %d, clock digits %d, events and turntables %d), over %d (SPEC.md 128.19.10)" % (
                                           c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
-                                          sum(1 for L in meet if lane_digit(L[4])), _events(meet), WIN_CHG))
+                                          sum(1 for L in meet if lane_digit(L[4])),
+                                          _events(meet) + _tt_changes(meet), WIN_CHG))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
@@ -11577,6 +12714,15 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
                 bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
+        elif d["kind"] in GT_KINDS:                 # SPEC.md 128.41.3: a FLAT FLOOR with OBS; a bridge's at its
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]     # deck, its +2
+                                                 + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
+                if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
+                else (0, 0, 0, 0)                   # byte its record's +20
+            if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS \
+                    or (d["kind"] == GT_KB and (z0 != d["deck"] or kd != d["gkd"])):
+                bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS%s" % (
+                    PK_NAMES[d["kind"]], " at its deck" if d["kind"] == GT_KB else ""))
         elif d["kind"] == FK_ARCH:                  # SPEC.md 128.39.3: a FLAT FLOOR, its clearance 2 px over it
             z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
@@ -11585,6 +12731,15 @@ def _read_bzc2(p, pw, fname, split=False):
             clr_ = struct.unpack_from("<h", p, propoff + PROPREC * d["i"] + 18)[0]
             if kd & 15 != KIND_FLOOR or sl or clr_ < 4 * z0 + 4 * AR_UMIN - AR_TOPB:
                 bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance")
+        elif d["kind"] == FK_TILT:                  # SPEC.md 128.42.3: every cell the plate's FLOOR at rest, no OBS,
+            for c_ in [(d["at"][0] + i_, d["at"][1] + j_) for i_ in range(d["tlnx"]) for j_ in range(d["tlny"])]:
+                r_, k_ = c_[0] + c_[1] - smin, (c_[0] - c_[1] - amin) >> 1      # not SAFE
+                z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[r_] + 4 * k_) \
+                    if 0 <= r_ < nrows and 0 <= k_ < kw else (0, 0, 0, 0)
+                z_, sx_, sy_ = tl_cell(d, 0, c_)
+                if kd & 15 != KIND_FLOOR or fl & (FL_OBS | FL_SAFE) or z0 != z_ \
+                        or sl != (sx_ & 15) | ((sy_ & 15) << 4):
+                    bad("prop %d" % d["i"], "a see-saw's cell (%d, %d) is not its plate's floor at rest" % c_)
         elif d["kind"] == FK_WATER:                 # SPEC.md 128.36: a sand FLAT FLOOR with OBS, at its top
             z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
@@ -11592,6 +12747,14 @@ def _read_bzc2(p, pw, fname, split=False):
                 else (0, 0, 0, 0)
             if kd != KIND_FLOOR | SURF_SAND << 4 or sl or not fl & FL_OBS or fl & FL_SAFE or z0 != d["top"]:
                 bad("prop %d" % d["i"], "a water cell's grid cell is not a sand FLAT FLOOR at its top with OBS")
+        elif d["kind"] == TT_K:                     # THE TURNTABLE (SPEC.md 128.43): NORMAL FLAT FLOOR at TZ, OBS,
+            z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]     # not SAFE
+                                                 + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
+                if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
+                else (0, 0, 0, 0)
+            if kd != KIND_FLOOR or sl or not fl & FL_OBS or fl & FL_SAFE or z0 != d["tz"]:
+                bad("prop %d" % d["i"], "a turntable's grid cell is not a normal FLAT FLOOR at its TZ with OBS, not "
+                    "SAFE")
         elif d["kind"] in (SP_K, SP_KP, SP_KM):     # SPIKES (SPEC.md 128.38): NORMAL FLAT FLOOR, OBS, not SAFE
             z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[d["at"][0] + d["at"][1] - smin]
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
@@ -11788,6 +12951,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 if pop:
                     d.update(on=on_, smask=sm_, sseed=ss_)
                 continue
+            if kr["kind"] == TT_K:                  # THE TURNTABLE (SPEC.md 128.43): TZ, SEQ, the table's timer
+                tz_, sq_, qs_, qm_, ts_, tw_ = struct.unpack_from("<bBBBBB", p, r + 18)
+                if cls != CL_ATTEMPT or fsb_ or p[r + 24:r + 32] != bytes(8) or sq_ >> 4 != sq_ & 15 \
+                        or sq_ & 15 in (0, 15) or (1 << qs_) not in TT_QUARTERS or qm_ != (1 << qs_) - 1 \
+                        or ts_ >= 4 << qs_ or not 0 < tw_ <= 1 << qs_ or not d["lane"] or d["lane"]["poses"] != 3:
+                    bad("prop %d" % d["i"], "a turntable's record (+18 %d, SEQ %02Xh, timer %d / %d / %d / %d)"
+                        % (tz_, sq_, qs_, qm_, ts_, tw_))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, tz=tz_,
+                         tseq=sq_ & 15, tqsh=qs_, tseed=ts_, twat=tw_)
+                continue
             if kr["kind"] == WD_K:                  # WIND (SPEC.md 128.34.3, 128.34.11): the blower's fields
                 wd, ws, x0_, y0_, x1_, y1_, won, wmask, wseed, wtop = struct.unpack_from("<BB4BHHHH", p, r + 18)
                 wf, wd = wd & (WD_FLIFT | WD_FFLAG), wd & 7
@@ -11807,6 +12980,22 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     bad("prop %d" % d["i"], "an archway's record (clearance %d)" % clr_)
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=None, dur=0, ow=0, clr=clr_)
                 continue
+            if kr["kind"] == FK_TILT:               # THE SEE-SAW (SPEC.md 128.42.3): +18 NX, +19 NY, +20 the flags,
+                nx_, ny_, tf_, pz_ = struct.unpack_from("<BBBb", p, r + 18)     # +21 PZ; its byte, RESPAWN
+                ln_, wd_ = (ny_, nx_) if tf_ & TL_FAXY else (nx_, ny_)
+                if cls != CL_RESPAWN or fsb_ & 7 or tf_ & ~(TL_FAXY | TL_FPLUS) or ln_ % 2 \
+                        or not TL_LMIN <= ln_ <= TL_LMAX or not 1 <= wd_ <= TL_WMAX or p[r + 22:r + 32] != bytes(10) \
+                        or d["lane"]:
+                    bad("prop %d" % d["i"], "a see-saw's record (%d x %d, flags %d)" % (nx_, ny_, tf_))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=8, art=None, dur=0, ow=0, tlnx=nx_, tlny=ny_,
+                         tlf=tf_, tlpz=pz_)
+                continue
+            if kr["kind"] == FK_TILTL:              # ...a LANE of one: +18 its plate (checked below), else zero
+                if cls != CL_ATTEMPT or fsb_ or p[r + 19:r + 32] != bytes(13) or not d["lane"] \
+                        or d["lane"]["poses"] != 3:
+                    bad("prop %d" % d["i"], "a see-saw lane's record")
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, tlp=p[r + 18])
+                continue
             if kr["kind"] == WD_K2:                 # ...a WISP: +18 its blower, a gusting one without a flag
                 wb = p[r + 18]
                 q = out[wb] if wb < len(out) else None
@@ -11823,6 +13012,24 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                         or p[r + 20:r + 32] != bytes(12) or not d["lane"] or d["lane"]["poses"] != 2:
                     bad("prop %d" % d["i"], "a boost pad's record (face %d, strength %d)" % (bd, bs))
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, bp=(bd, bs))
+                continue
+            if kr["kind"] in GT_KINDS:              # SPEC.md 128.41.3: +18 the channel, +19 a gate's way or a
+                gc, g19, gkd, on_, sm_, ss_ = struct.unpack_from("<BbBBBB", p, r + 18)    # bridge's deck, +20 its
+                k_ = kr["kind"]                     # grid byte, +21 - +23 a timed bridge's timer
+                tm = k_ == GT_KB and gc == GT_TIMED
+                if cls != CL_ATTEMPT or fsb_ or p[r + 24:r + 32] != bytes(8) \
+                        or not (gc < GT_NCH or tm) or (k_ == GT_KG and g19 not in (0, 1)) \
+                        or (k_ in (GT_KP, GT_KK) and g19) or (k_ != GT_KB and gkd) \
+                        or (k_ == GT_KB and gkd & 15 != KIND_FLOOR) \
+                        or (tm and (sm_ + 1 not in GT_PERIODS or not 1 <= on_ <= sm_ or ss_ > sm_)) \
+                        or (not tm and (on_ or sm_ or ss_)) \
+                        or not (d["lane"] or d.get("grp")) or (d["lane"] and d["lane"]["poses"] != 2):
+                    bad("prop %d" % d["i"], "a %s's record (channel %d, +19 %d, +20 %02Xh, timer %d / %d / %d)"
+                        % (kr["name"], gc, g19, gkd, on_, sm_, ss_))
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, gch=gc,
+                         galong=g19 if k_ == GT_KG else 0, deck=g19 if k_ == GT_KB else 0, gkd=gkd)
+                if tm:
+                    d.update(on=on_, smask=sm_, sseed=ss_)
                 continue
             mg = fam.get("consts") == "MG"          # (MAGNETS' +18 - +22: 128.33.2)
             if mg:
@@ -11850,6 +13057,11 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if q is None or q.get("partner") != d["i"] or q.get("comp") == d.get("comp") or q["at"] != d["at"] \
                     or q["fsb"] != d["fsb"] or (d["comp"] and d["i"] < q["i"]):
                 bad("prop %d" % d["i"], "a vanishing crack's partner %d" % d["partner"])
+    for d in out:                                   # (SPEC.md 128.42.3: a see-saw lane's plate, on its anchor)
+        if d["kind"] == FK_TILTL:
+            q = out[d["tlp"]] if d["tlp"] < len(out) else None
+            if q is None or q["kind"] != FK_TILT or q["at"] != d["at"]:
+                bad("prop %d" % d["i"], "a see-saw lane's plate %d" % d["tlp"])
     for d in out:                                  # SPEC.md 128.32.4: a GROUP's entries, and its members' lists
         r = propoff + PROPREC * d["i"]
         if d["kind"] == PK_GROUP:
@@ -11865,7 +13077,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     bad("prop %d" % d["i"], "a GROUP's entry %d (member %d, kind %d, mult %d)" % (k, m, kd, mu))
                     break
                 cmap = [(cm >> (2 * q)) & 3 for q in range(GRP_QMAX)]
-                nq = {"crack": 4, "glass": 2, "pennant": 2, "icon": 2}.get(mm.get("art"), GRP_QMAX)
+                nq = {"crack": 4, "glass": 2, "pennant": 2, "icon": 2, "gate": 2, "bridge": 2}.get(mm.get("art"),
+                                                                                                 GRP_QMAX)
                 ncls = max(cmap[:nq]) + 1
                 ents.append({"m": m, "kind": kd, "cmap": cmap[:nq], "mult": mu, "ncls": ncls})
                 mult *= ncls
@@ -12770,6 +13983,210 @@ class ArchFamily(Family):
             p.fref = 1
 
 
+class GateFamily(Family):
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41.4).  Slot: +0 the OPEN channels (a bit each; a play's
+    start zeroes it, a respawn keeps it: LATCHING for the attempt), +1 the course's timed bridges (RESET's count, so
+    STEP walks only for them).  CONTACT: a PLATE with the ball grounded and not shattering, or a KEY (any touch),
+    OPENS its channel - once: bz_nfev counted (the pickup's sound), a refill asked for (bz_fref), every element of
+    the channel MARKED (the guest's bz_fmark: the display's).  STEP: a timed bridge whose state flips between n and
+    n + 1 marked, and the window refilled when it is in it.  POSE: a plate 1 pressed; a key 1 while its channel is
+    shut (0 taken); a gate 1 shut; a bridge 1 UP.  CELL: a SHUT gate's cell a WALL (its surface kept); a bridge cell
+    DOWN its grid's FLOOR at its deck - unless it is the window's centre with the ball's whole-px z under the deck,
+    which keeps it the NEAR VOID an UP bridge is (its deck less GT_DROP, kind and surface 0): written ABSOLUTE from
+    the record, so a cell the incremental refill kept is written right"""
+    row = FAM_BY_NAME["gate"]
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][1] = sum(1 for pr in p.props if pr["kind"] == GT_KB and pr["gch"] == GT_TIMED) & 255
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        if pr["kind"] == GT_KP:
+            if p.air or p.mst == ST_SHATTER:
+                return
+        elif pr["kind"] != GT_KK:
+            return
+        sb = p.fsl[slot]
+        if sb[0] >> pr["gch"] & 1 or _GT_NOOPEN:
+            return
+        sb[0] |= 1 << pr["gch"]
+        p.nfev = p.nfev + 1 & 0xFFFF
+        p.fref = 1
+
+    def step(self, p, slot):
+        if not p.fsl[slot][1]:
+            return
+        n = p.nstep & 255
+        wx, wy = p.wcell
+        for pr in p.props:
+            if pr["kind"] == GT_KB and pr["gch"] == GT_TIMED and gt_down(pr, n, 0) != gt_down(pr, n + 1, 0) \
+                    and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
+                p.fref = 1
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        ch = p.fsl[slot][0]
+        if pr["kind"] == GT_KB:
+            return 0 if gt_down(pr, p.nstep & 255, ch) else 1
+        op = ch >> pr["gch"] & 1
+        return op if pr["kind"] == GT_KP else 1 - op
+
+    def cell(self, p, slot, win):
+        ch = p.fsl[slot][0]
+        cx, cy = min(k[0] for k in win) + 1, min(k[1] for k in win) + 1
+        Z = _sw(p.gz >> 8)
+        n = p.nstep & 255
+        for pr in p.props:
+            if pr["kind"] not in (GT_KG, GT_KB) or pr["at"] not in win:
+                continue
+            c = win[pr["at"]]
+            if pr["kind"] == GT_KG:
+                if not ch >> pr["gch"] & 1 and not _GT_NOWALL:
+                    c[3] = KIND_WALL
+            elif gt_down(pr, n, ch) and not (pr["at"] == (cx, cy) and Z < 4 * pr["deck"] and not _GT_LIFT):
+                c[0], c[3], c[5] = pr["deck"], KIND_FLOOR, pr["gkd"] >> 4
+            else:
+                c[0], c[3], c[5] = pr["deck"] - GT_DROP, KIND_VOID, 0
+
+
+_GT_NOOPEN = False            # (--selfcheck's red arms on the model: nothing opens a channel, a shut gate not
+_GT_NOWALL = False            # walled, a bridge coming down lifting a ball under its deck onto it)
+_GT_LIFT = False
+TL_FAXY, TL_FPLUS = 1, 2     # a plate's record +20: bit 0 its axis is y, bit 1 its REST pose has the PLUS end down
+_TL_NOCARRY = False           # (--selfcheck's red arms: the carry left out, the weight read off the wrong half)
+_TL_WRONG = False
+
+
+def tl_len(pr):
+    """a plate's cells along its axis"""
+    return pr["tlny"] if pr["tlf"] & TL_FAXY else pr["tlnx"]
+
+
+def tl_in(pr, c):
+    """is cell C one of the plate's?"""
+    return 0 <= c[0] - pr["at"][0] < pr["tlnx"] and 0 <= c[1] - pr["at"][1] < pr["tlny"]
+
+
+def tl_slope(pr, pose):
+    """the plate's slope in POSE (0 its rest, 1 FLAT, 2 the other end): +1 when its MINUS end is down (the floor
+    rising along +x or +y), -1 its plus end"""
+    return (-1 if pr["tlf"] & TL_FPLUS else 1) * (1 - pose)
+
+
+def tl_cell(pr, pose, c):
+    """-> (z0, sx, sy) of the plate's cell C in POSE: z0 = PZ + s (k - L / 2), k the cell's place along the axis"""
+    sl = tl_slope(pr, pose)
+    ay = pr["tlf"] & TL_FAXY
+    k = c[1] - pr["at"][1] if ay else c[0] - pr["at"][0]
+    z0 = pr["tlpz"] + sl * (k - tl_len(pr) // 2)
+    return (z0, 0, sl) if ay else (z0, sl, 0)
+
+
+class TiltFamily(Family):
+    """THE SEE-SAW (SPEC.md 128.42.4).  A PLATE's record: +16 FSB (a byte of bz_fst: its POSE, 0 the rest, 1 FLAT, 2
+    the other end; RESPAWN), +18 its cells along x, +19 along y, +20 TL_FAXY | TL_FPLUS, +21 PZ (its FLAT z0, half
+    units); its anchor is its first cell.  A LANE's: +18 its plate's record.  Slot: +0 the plate the count is for
+    (its element + 1, 0 none), +1 the COUNT.
+    RESET: the slot zeroed (the engine has put every plate at rest).  CELL: every plate cell in the window written
+    from its plate's pose (z0 and the slopes byte; kind, surface and flags kept).  STEP: the ball GROUNDED and not
+    shattering, its cell a plate's - else +0 = 0.  A new plate: +0 it, the count 0.  The ball's place along the axis
+    (whole gu) against the pivot's (16 anchor + 8 L): equal, nothing; below, the TARGET is the pose with the minus
+    end down, above, the plus end.  At the target: the count 0.  Else the count one more, and at TL_TS (the plate
+    FLAT) or TL_DW[the ball] (at an end), the count 0 and the pose one toward the target: its byte written, the
+    refill asked (bz_fref), every lane of the plate MARKED, and the ball CARRIED - z the new floor at its point, the
+    fraction its quarter pixels.  POSE: a lane's plate's pose"""
+    row = FAM_BY_NAME["seesaw"]
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][0] = p.fsl[slot][1] = 0
+
+    def cell(self, p, slot, win):
+        for pr in p.props:
+            if pr["kind"] != FK_TILT:
+                continue
+            pose = p.fst[pr["fsb"] >> 3]
+            for c in win:
+                if tl_in(pr, c):
+                    win[c][0], win[c][1], win[c][2] = tl_cell(pr, pose, c)
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        cx, cy = p.gx >> 12, p.gy >> 12
+        pr = None
+        if not p.air and p.mst != ST_SHATTER:
+            pr = next((q for q in p.props if q["kind"] == FK_TILT and tl_in(q, (cx, cy))), None)
+        if pr is None:
+            sb[0] = 0
+            return
+        if sb[0] != pr["i"] + 1:
+            sb[0], sb[1] = pr["i"] + 1, 0
+        ay = pr["tlf"] & TL_FAXY
+        a = ((p.gy if ay else p.gx) >> 8) & 0xFFFF
+        c = 16 * pr["at"][1 if ay else 0] + 8 * tl_len(pr)
+        if a == c:
+            return
+        t = 1 if (a < c) != _TL_WRONG else -1           # the slope that puts the ball's half down
+        tgt = 1 - t * (-1 if pr["tlf"] & TL_FPLUS else 1)
+        k = pr["fsb"] >> 3
+        pose = p.fst[k]
+        if pose == tgt:
+            sb[1] = 0
+            return
+        sb[1] += 1
+        if sb[1] < (TL_TS if pose == 1 else TL_DW[p.mat]):
+            return
+        sb[1] = 0
+        pose += 1 if tgt > pose else -1
+        p.fst[k] = pose
+        p.fref = 1
+        if not _TL_NOCARRY:
+            z0, sx, sy = tl_cell(pr, pose, (cx, cy))
+            p.gz = (16 * z0 + sx * ((p.gx >> 8) & 15) + sy * ((p.gy >> 8) & 15)) << 6
+
+    def pose(self, p, slot, i):
+        return p.fst[p.props[p.props[i]["tlp"]]["fsb"] >> 3]
+
+
+class TurnFamily(Family):
+    """THE TURNTABLE (SPEC.md 128.43.4).  An element is a SWITCHING cell (tt_pose: 0 floor, 1 the warning, 2 a gap,
+    from the step's low byte).  No slot.  CELL: each element in the window that is a gap at n - or is the window's
+    CENTRE with the ball's whole-px z under its top (4 TZ: fallen into its hole, so a closing hole never lifts it)
+    - a NEAR VOID (TZ less TT_VOID half units, kind and surface 0, its flags kept: the membrane's); every other
+    element the grid's FLOOR (the guest writes it back: its window keeps cells when it moves, bz_win9i; this
+    window is always refilled from the grid, so it already holds it).  STEP: an
+    element whose pose differs between n and n + 1 MARKS its lane (the guest's bz_fmark) and, in the window, asks
+    for the refill (bz_fref).  POSE: tt_pose"""
+    row = FAM_BY_NAME["turntable"]
+
+    def cell(self, p, slot, win):
+        cx, cy = min(k[0] for k in win) + 1, min(k[1] for k in win) + 1
+        n = p.nstep & 255
+        Z = _sw(p.gz >> 8)
+        for pr in p.props:
+            if pr["kind"] != TT_K or pr["at"] not in win:
+                continue
+            if _TT_NOVOID:
+                continue
+            if tt_pose(pr, n) == 2 or (pr["at"] == (cx, cy) and Z < 4 * pr["tz"] and not _TT_NOFALLEN):
+                c = win[pr["at"]]
+                c[0], c[3], c[5] = pr["tz"] - TT_VOID, KIND_VOID, 0
+
+    def step(self, p, slot):
+        n = p.nstep & 255
+        wx, wy = p.wcell
+        for pr in p.props:
+            if pr["kind"] == TT_K and tt_pose(pr, n) != tt_pose(pr, n + 1) \
+                    and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
+                p.fref = 1
+
+    def pose(self, p, slot, i):
+        return tt_pose(p.props[i], p.nstep & 255)
+
+
+_TT_NOFALLEN = False          # (--selfcheck's red arms: `fallen`, a closing hole under a fallen ball made a floor;
+_TT_NOVOID = False            # `novoid`, a gap left a floor)
+
+
 class OwnFamily(Family):
     """story 9.8 (SPEC.md 128.25.20): ROTOR, SPRING and TUBE - the guest's parts
     hold today's rules (the doorway, the spring, the tube), which the model
@@ -12784,7 +14201,8 @@ class OwnFamily(Family):
 FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily("rotor"), "spring": OwnFamily("spring"),
              "tube": OwnFamily("tube"),
              "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily(),
-             "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily()}
+             "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily(), "gate": GateFamily(), "seesaw": TiltFamily(),
+             "turntable": TurnFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -16144,6 +17562,17 @@ def emit_inc(courses, path=None, title=None):
               "BZ_BP_GSH       equ %d        ; the push's weighting: glass S + (S >> this)" % BP_GSH,
               "BZ_BP_SSH       equ %d        ; ...steel S - (S >> this)" % BP_SSH,
               "BZ_BP_FFLAT     equ %d        ; record +18's flag over the face: `flat`, no weighting" % BP_FFLAT,
+              "; SWITCHES, KEYS, GATES and the DRAWBRIDGE's constants (SPEC.md 128.41; bbcourse GT_*)",
+              "BZ_GT_TIMED     equ %d      ; a bridge's +18 when it runs on a timer" % GT_TIMED,
+              "BZ_GT_DROP      equ %d        ; an UP bridge's near void: its deck less this (half units)" % GT_DROP,
+              "BZ_GT_NCH       equ %d        ; channels: the slot's +0, a bit each" % GT_NCH,
+              "; THE SEE-SAW's constants (SPEC.md 128.42; bbcourse TL_*)",
+              "BZ_TL_DWR       equ %d        ; the weight: steps on a half before an END pose moves, rubber" % TL_DW[0],
+              "BZ_TL_DWS       equ %d        ; ...steel" % TL_DW[1],
+              "BZ_TL_DWG       equ %d       ; ...glass" % TL_DW[2],
+              "BZ_TL_TS        equ %d        ; ...and from FLAT, any ball" % TL_TS,
+              "BZ_TL_FAXY      equ %d        ; a plate's record +20: its axis is y" % TL_FAXY,
+              "BZ_TL_FPLUS     equ %d        ; ...its rest pose has the plus end down" % TL_FPLUS,
               "; PICKUPS' constants (SPEC.md 128.25.19; bbcourse PU_*)",
               "BZ_PU_HGSEC     equ %d" % PU_HGSEC, "BZ_PU_SACC      equ %d" % PU_SACC,
               "BZ_PU_SVUP      equ %d" % PU_SVUP, "BZ_PU_JHOP      equ %d" % PU_JHOP,
@@ -26159,6 +27588,103 @@ def _sc_spike(X, res):
                     bad[scn] != good[scn]))
 
 
+_TLK = ('course T "t"\nwidth 64\norigin 224\nuses seesaw\nfloor rect 4 4 8 8 flat 2\nstart 5 5\n')
+TL_TEST = os.path.join(COURSE_DIR, "tilt.bbc")
+
+
+def _tilt_cases():
+    """(what, text, the refusal's words): SPEC.md 128.42.2's and 128.42.5's refusals"""
+    T = _TLK
+    return (("a see-saw 3 cells long (its pivot inside a cell)", T + "seesaw 8 5 11 6 along x pivot 2\n", "2, 4 or 6"),
+            ("a see-saw 8 cells long", T + "seesaw 8 5 16 6 along x pivot 2\n", "2, 4 or 6"),
+            ("a see-saw 3 cells across", T + "seesaw 8 4 10 7 along x pivot 2\n", "1 or 2"),
+            ("a see-saw over a floor", T + "seesaw 6 5 8 6 along x pivot 2\n", "laid already"),
+            ("two see-saws on one cell", T + "seesaw 8 5 12 6 along x pivot 2\nseesaw 9 5 10 7 along y pivot 2\n",
+             "the see-saw of line"),
+            ("a see-saw with no axis", T + "seesaw 8 5 10 6 pivot 2\n", "seesaw takes"),
+            ("a see-saw resting neither way", T + "seesaw 8 5 10 6 along x pivot 2 rest up\n", "seesaw takes"),
+            ("a see-saw with no `uses seesaw`", T.replace("uses seesaw\n", "") + "seesaw 8 5 10 6 along x pivot 2\n",
+             "does not name"),
+            ("a see-saw whose picture changes over more lanes than one step may turn",
+             T + "seesaw 8 4 14 6 along x pivot 2\n", "lanes, over the"))
+
+
+TL_SC = (("ledge-glass", MAT_GLASS, (7, 10, 0, 0), K_R | K_D, 200), ("ledge-rubber", MAT_RUBBER, (7, 10, 0, 0),
+                                                                     K_R | K_D, 200),
+         ("ledge-steel", MAT_STEEL, (7, 10, 0, 0), K_R | K_D, 200), ("gate-steel", MAT_STEEL, (8, 10, 0, 0),
+                                                                    K_D | K_L, 200),
+         ("gate-rubber", MAT_RUBBER, (8, 14, 0, 0), K_D | K_L, 150), ("rocker", MAT_RUBBER, (7, 11, 0, 0),
+                                                                     K_U | K_L, 75))
+
+
+def tl_model_scenes(c, nocarry=False, wrong=False):
+    """each of TL_SC on TILT's model -> {name: (goal, exit, landings, respawns, the poses the plates took, the most
+    any step's z moved while grounded)}"""
+    global _TL_NOCARRY, _TL_WRONG
+    out = {}
+    _TL_NOCARRY, _TL_WRONG = nocarry, wrong
+    try:
+        for name, mat, (wx, wy, gx, gy), k, n in TL_SC:
+            p = Physics(c, play=True, mat=mat).poke(wx, wy, gx, gy)
+            pl = [q for q in p.props if q["kind"] == FK_TILT]
+            seen = set()
+            for _ in range(n):
+                p.step(k)
+                seen |= {(i, p.fst[q["fsb"] >> 3]) for i, q in enumerate(pl)}
+            out[name] = (p.goal, p.exit, p.nland, p.nfall, tuple(sorted(seen)))
+    finally:
+        _TL_NOCARRY = _TL_WRONG = False
+    return out
+
+
+def _sc_tilt(X, res):
+    """--selfcheck's section `tilt` (SPEC.md 128.42): the refusals, the test course's records, cells, lanes, reach
+    and art, the scenes on the model and its red arms"""
+    for what, text, want in _tilt_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (see-saw, 128.42): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(TL_TEST)
+    g = Grid(c.cga)
+    pl = [r for r in c.part["props"] if r["kind"] == FK_TILT]
+    ln = [r for r in c.part["props"] if r["kind"] == FK_TILTL]
+    cok = all(g.cell(*q)[:4] == (tl_cell(r, 0, q) + (KIND_FLOOR,)) and not g.cell(*q)[4] & (FL_OBS | FL_SAFE)
+              for r in pl for q in [(r["at"][0] + i, r["at"][1] + j) for i in range(r["tlnx"]) for j in range(r["tlny"])])
+    per = [sum(1 for q in ln if q["tlp"] == r["i"]) for r in pl]
+    lok = all(q["lane"]["poses"] == 3 and c.part["props"][q["tlp"]]["kind"] == FK_TILT for q in ln) \
+        and all(1 <= n_ <= TL_LANES for n_ in per) and all(not r["lane"] and r["cls"] == CL_RESPAWN and r["bits"] == 8
+                                                         for r in pl)
+    res.append(("3 see-saw (128.42): TILT's %d plates are their FLOORs at rest, slopes and all, no OBS, not SAFE, a "
+                "byte of state each (RESPAWN); their %d lanes (%s a plate) each of 3 poses naming its plate" % (
+                    len(pl), len(ln), "/".join(map(str, per))), cok and lok and len(pl) == 3))
+    by = dict(((q.wx, q.wy), q) for q in c.reach)
+    c0 = compile_course(open(TL_TEST).read(), fname=TL_TEST + " (noforms)", _hack={"noforms": True})
+    by0 = dict(((q.wx, q.wy), q) for q in c0.reach)
+    end = (15, 10)                                  # (the LEDGE's high end: 4 units at rest, 2 tipped)
+    res.append(("6 see-saw (128.42): the reach takes every plate's FLAT and other poses - the ledge plate's high end "
+                "zlo %s px (%s with `noforms`, the rest pose alone)" % (by[end].zlo, by0[end].zlo),
+                by[end].zlo < by0[end].zlo))
+    cn = compile_course(open(TL_TEST).read(), fname=TL_TEST + " (no post)", _hack={"notiltpost": True})
+    res.append(("10 see-saw (128.42): the fulcrums are in the picture (the course part %d bytes; %d with the control "
+                "`notiltpost`, the part differing), every lane's poses 1 and 2 drawn" % (len(c.cga), len(cn.cga)),
+                c.cga != cn.cga))
+    good = tl_model_scenes(c)
+    want = {"ledge-glass": lambda v: v[:2] == (1, 1) and v[3] == 0,
+            "ledge-rubber": lambda v: not v[0] and (0, 2) in v[4], "ledge-steel": lambda v: not v[0] and (0, 2) in v[4],
+            "gate-steel": lambda v: v[:2] == (1, 0) and v[2] == 0 and (1, 2) in v[4],
+            "gate-rubber": lambda v: v[:2] == (1, 0) and (1, 2) in v[4],
+            "rocker": lambda v: (2, 2) in v[4]}
+    res.append(("11 see-saw (128.42): on the model - %s" % ", ".join("%s %s" % (k, v) for k, v in good.items()),
+                all(want[k](v) for k, v in good.items())))
+    for arm, scn, kw in (("nocarry", "gate-steel", {"nocarry": True}), ("wrong", "ledge-steel", {"wrong": True})):
+        bad = tl_model_scenes(c, **kw)
+        res.append(("11 see-saw red %s: %s %s (it must part from %s)" % (arm, scn, bad[scn], good[scn]),
+                    bad[scn] != good[scn]))
+
+
 def _sc_water(X, res):
     """--selfcheck's section `water` (SPEC.md 128.36)"""
     _water_checks(res)
@@ -26982,7 +28508,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20}
 
 
 def _av_floats_want(c):
@@ -27718,6 +29244,291 @@ def bp_ok(s, s0):
     return ok and all(v[4] <= 1 for v in s.values()) and all(v[3] > 0 for v in s.values())
 
 
+# =============================================================================
+# SPEC.md 128.44: HUMPS - FIELD cells raised over the plate (tool only)
+# =============================================================================
+
+HM_TEST = os.path.join(COURSE_DIR, "humps.bbc")
+_HMBASE = """course HUMPS "Humps"
+width 128
+origin 480
+floor rect 4 4 24 24 flat 2
+start 5 22
+goal tile 22 22 flat 2
+"""
+
+
+def _hump_cases():
+    """SPEC.md 128.44.1's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
+    B = _HMBASE
+    return [
+        ("a hump with no height", B + "hump 8 8\n", "hump takes"),
+        ("an unknown word", B + "hump 8 8 2 tall\n", "hump takes"),
+        ("height given twice", B + "hump 8 8 2 height 6 height 8\n", "hump takes"),
+        ("a hump 1 px high", B + "hump 8 8 2 height 1\n", "stands 2 - 11 px"),
+        ("a hump 12 px high (past the slope bound)", B + "hump 8 8 2 height 12\n", "stands 2 - 11 px"),
+        ("a ridge 0 cells long", B + "hump 8 8 2 along x 0\n", "a ridge runs 1 - 12"),
+        ("a ridge 13 cells long", B + "hump 8 8 2 along y 13\n", "a ridge runs 1 - 12"),
+        ("an open dome", B + "hump 8 8 2 open\n", "`open` is a ridge's"),
+        ("an open ridge's end at a floor", B + "hump 8 8 2 along x 2 open\n", "the open ridge's end"),
+        ("a hump's rim off the plate's height", B + "hump 8 8 3\n", "off its base"),
+        ("two humps on one cell", B + "hump 8 8 2\nhump 9 8 2\n", "is laid by this hump"),
+        ("a hump over a chute", B + "chute 1 round depth 4 way 7 12 2 way 12 12\nhump 10 12 2\n", "is laid by this"),
+        ("the start on a hump", B.replace("start 5 22", "start 8 8") + "hump 8 8 2\n", "which is a FIELD cell"),
+        ("a pad on a hump", B + "hump 8 8 2\npad steel 8 8\n", "which is a FIELD cell"),
+        ("a spring on a hump", B + "hump 8 8 2\nspring 8 8 400\n", "which is a FIELD cell"),
+    ]
+
+
+# SPEC.md 128.44.4's attribution: a floor 3 units under the plate, two cells behind a HIGH dome - the PLATE's edge
+# hides a ball rolled along it, the dome adds nothing: compiled; red `hmnoattr` (the sweep blind to who hides it)
+# refuses it
+_HMDEEP = _HMBASE + "floor rect 8 9 16 10 flat -1\nhump 12 12 2 height 10\n"
+
+
+def hump_runs(c, _slope_sign=1):
+    """SPEC.md 128.44.5's scenes on the model, on HUMP: (name, material, start gx (gu), its lane gy, the far side
+    gx, steps) held +x (Right and Down) from rest -> {(name, mat): (crossed, the step it crossed or None, walls)}"""
+    out = {}
+    for name, mats, x0, gy, far, n in (
+            ("low, two cells of run", (MAT_RUBBER, MAT_STEEL, MAT_GLASS), 80, 128, 152, 300),
+            ("low, from rest at its foot", (MAT_RUBBER, MAT_STEEL, MAT_GLASS), 112, 128, 152, 300),
+            ("high bump, from the bridge's start", (MAT_STEEL,), 264, 112, 376, 300),
+            ("high bump, half a cell of run", (MAT_STEEL, MAT_GLASS), 328, 112, 376, 300),
+            ("high bump, a cell of run", (MAT_RUBBER,), 320, 112, 376, 300)):
+        for mat in mats:
+            p = Physics(c, play=True, mat=mat, _slope_sign=_slope_sign)
+            p.tsec = 0
+            _field_poke(p, x0 >> 4, gy >> 4, (x0 & 15) << 8, (gy & 15) << 8, 0, 0)
+            at = None
+            for k in range(n):
+                p.step(K_R | K_D)
+                if (p.gx >> 8) > far and at is None:
+                    at = k + 1
+                    break
+            out[(name, mat)] = (at is not None and p.nfall == 0, at,
+                                sum(1 for e in p.events if e[0] in ("wall", "corner", "undo")))
+    return out
+
+
+HM_WANT = {("low, two cells of run", MAT_RUBBER): True, ("low, two cells of run", MAT_STEEL): True,
+           ("low, two cells of run", MAT_GLASS): True, ("low, from rest at its foot", MAT_RUBBER): True,
+           ("low, from rest at its foot", MAT_STEEL): False, ("low, from rest at its foot", MAT_GLASS): True,
+           ("high bump, from the bridge's start", MAT_STEEL): True,
+           ("high bump, half a cell of run", MAT_STEEL): False, ("high bump, half a cell of run", MAT_GLASS): True,
+           ("high bump, a cell of run", MAT_RUBBER): True}
+
+
+def hump_laid(c, fd):
+    """the most lit ball px the records lay over a GROUNDED ball at the floor in the box from HUMP_BACK cells behind
+    a hump to a cell past it (every second gu), and how many such poses lose any"""
+    X0, Y0, X1, Y1 = hump_box(fd)
+    most = nany = 0
+    for wy in range(Y0 - HUMP_BACK, Y1 + 2):
+        for wx in range(X0 - HUMP_BACK, X1 + 2):
+            t = c.tiles.get((wx, wy))
+            for u in range(0, 16, 2):
+                for v in range(0, 16, 2):
+                    if isinstance(t, FieldTile):
+                        z = t.h[v][u] // 4
+                    elif type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL):
+                        z = _h4t(t, u, v) // 4
+                    else:
+                        continue
+                    gx, gy = 16 * wx + u, 16 * wy + v
+                    px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+                    hid = _arch_laid(c, px, py, wx + wy, z, False)
+                    k = sum(1 for p_ in ball_pixels(px, py) if p_ in hid)
+                    most, nany = max(most, k), nany + (k > 0)
+    return most, nany
+
+
+def _sc_hump(X, res):
+    """--selfcheck's section `hump` (SPEC.md 128.44.7): the refusals, the HUMP test course's cells, tables, scenes on
+    the model, occluders and visibility rule, and the red arms"""
+    for what, text, want in _hump_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (humps, 128.44.1): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(HM_TEST)
+    humps = [fd for fd in c.src.fields if fd["what"] == "hump"]
+    cells = {cl: t for cl, t in c.tiles.items() if isinstance(t, FieldTile) and t.piece in HUMP_PIECES}
+    want = set()
+    for fd in humps:
+        X0, Y0, X1, Y1 = hump_box(fd)
+        want |= {(x, y) for x in range(X0, X1 + 1) for y in range(Y0, Y1 + 1)}
+    rel = {cl: max(max(r) for r in t.rel()) for cl, t in cells.items()}
+    hts = {fd["line"]: max(rel[(x, y)] for x in range(hump_box(fd)[0], hump_box(fd)[2] + 1)
+                           for y in range(hump_box(fd)[1], hump_box(fd)[3] + 1)) for fd in humps}
+    rims = all(t.z0 == 2 * 2 and all(t.h[v][u] >= 64 for v in range(17) for u in range(17)) for t in cells.values())
+    res.append(("3 humps (128.44.2): HUMP's %d humps lay %d FIELD cells, each based on the plate (z0 4, no point "
+                "under it), their crests %s quarter px over it (4 x the height)" % (
+                    len(humps), len(cells), "/".join(str(hts[fd["line"]]) for fd in humps)),
+                set(cells) == want and rims and all(hts[fd["line"]] == 4 * fd["height"] for fd in humps)))
+    tabs = field_tables_by_statement(c.tiles)
+    added = sum(len(a) for _l, w, a, _s in tabs if w == "hump")
+    res.append(("3 humps (128.44.2, 128.28.4's STANDARD profiles): %d tables for %d humps - a dome one, the LOW domes "
+                "and the LOW ridge's caps one table between them; by statement %s" % (
+                    len(c.ftabs), len(humps), "; ".join("line %d adds %d shares %d" % (l_, len(a), len(sh))
+                                                         for l_, _w, a, sh in tabs)),
+                len(c.ftabs) == added == 4 and [len(a) for _l, _w, a, _s in tabs] == [1, 0, 0, 1, 1, 1]))
+    r = hump_runs(c)
+    res.append(("5 humps (128.44.5): the scenes on the model, held from rest - %s; no wall at any rim" % "; ".join(
+        "%s %s %s" % (n_, MAT_NAMES[m_], "over in %d" % v[1] if v[0] else "STALLS") for (n_, m_), v in sorted(r.items())),
+        all(r[k][0] == w for k, w in HM_WANT.items()) and not any(v[2] for v in r.values())))
+    ra = hump_runs(c, _slope_sign=-1)
+    res.append(("5 humps red `slope` (the hump's slope pushing the other way): the stalls cross",
+                any(ra[k][0] != w for k, w in HM_WANT.items())))
+    low = [hump_laid(c, fd) for fd in humps if fd["height"] < 8]
+    high = [hump_laid(c, fd) for fd in humps if fd["height"] >= 8]
+    res.append(("13 humps (128.44.4): a grounded ball behind a HIGH hump is laid under it (most %s lit px, on %s "
+                "poses); behind a LOW one never (most %s: the margin, BZ_CLIMB)" % (
+                    "/".join(str(m) for m, _n in high), "/".join(str(n) for _m, n in high),
+                    "/".join(str(m) for m, _n in low)),
+                all(m >= 20 for m, _n in high) and all(m == 0 for m, _n in low)))
+    ct = compile_course(HM_TEST, _hack={"hmtop": True})
+    hr = [hump_laid(ct, fd)[0] for fd in ct.src.fields if fd["what"] == "hump" and fd["height"] >= 8]
+    res.append(("13 humps red `hmtop` (a hump's facets topped as a chute's, FTOPQ): the HIGH humps lay at most %s px"
+                % "/".join(str(m) for m in hr), all(m < 20 for m in hr)))
+    res.append(("13 humps (128.44.4, the visibility rule): the longest a rolled ball is WHOLLY hidden by a hump, and "
+                "the least of a mechanic's top seen behind one - %s" % "; ".join(
+                    "line %d: %d gu%s" % (l_, w, "" if pd is None else ", %d of %d px" % pd) for l_, w, pd in c.hump_vis),
+                all(w <= HUMP_HIDE and (pd is None or HUMP_SEE * pd[0] >= pd[1]) for _l, w, pd in c.hump_vis)
+                and any(pd is not None for _l, _w, pd in c.hump_vis)))
+    cd = compile_course(_HMDEEP, fname="<deep>", _hack={"no_finish": True})
+    try:
+        compile_course(_HMDEEP, fname="<deep, hmnoattr>", _hack={"no_finish": True, "hmnoattr": True})
+        fired = False
+    except CourseError as e:
+        fired = "WHOLLY hidden" in str(e)
+    res.append(("13 humps (128.44.4): a floor 3 units under the plate behind a HIGH dome compiles (the plate hides "
+                "the ball there, the dome adds %d gu); red `hmnoattr` (the sweep blind to who hides it) refuses it"
+                % cd.hump_vis[0][1], cd.hump_vis[0][1] == 0 and fired))
+
+
+_TTB = ('course T "t"\nwidth 64\norigin 224\nuses turntable\nfloor rect 4 4 12 9 flat 2\nstart 5 5\n')
+TT_TEST = os.path.join(COURSE_DIR, "turntable.bbc")
+
+
+def _turn_cases():
+    """(what, text, the refusal's words): SPEC.md 128.43.5's refusals, each a string here"""
+    T = _TTB
+    return (("a turntable of size 4", T + "prop turntable 8 5 size 4 fill oooooooo........\n", "size is 2 or 3"),
+            ("a fill of the wrong length", T + "prop turntable 8 5 size 2 fill ooo\n", "fill is 4 cells"),
+            ("a fill with another character", T + "prop turntable 8 5 size 2 fill oo/xx\n", "fill is 4 cells"),
+            ("a 2 x 2 three quarters filled", T + "prop turntable 8 5 size 2 fill oo/o.\n", "HALF filled"),
+            ("a 3 x 3 with its pivot a gap", T + "prop turntable 8 5 size 3 fill ooo/o.o/...\n", "PIVOT, a floor"),
+            ("a 3 x 3 ring of corners (a quarter turn leaves it)",
+             T + "prop turntable 8 5 size 3 fill o.o/.o./o.o\n", "same after a quarter turn"),
+            ("a quarter of 48 steps", T + "prop turntable 8 5 size 2 fill oo/.. quarter 48\n", "32 or 64 steps"),
+            ("a seed past its period", T + "prop turntable 8 5 size 2 fill oo/.. quarter 32 seed 128\n",
+             "seed 128 is not under"),
+            ("a warning a whole quarter", T + "prop turntable 8 5 size 2 fill oo/.. warn 64\n", "warning 64"),
+            ("a turn neither way", T + "prop turntable 8 5 size 2 fill oo/.. turn up\n", "cw or ccw"),
+            ("a table on two heights", T + "floor tile 9 6 flat 2.5\nprop turntable 8 5 size 2 fill oo/..\n",
+             "2 heights"),
+            ("a table on ice", T + "surface ice rect 8 5 10 7\nprop turntable 8 5 size 2 fill oo/..\n",
+             "NORMAL ground"),
+            ("a table over the void", T + "prop turntable 11 7 size 2 fill oo/..\n", "not a FLAT FLOOR"),
+            ("a 3 x 3 whose pivot is a ramp", T + "floor tile 9 6 ramp x 9 10 2 2.5\n"
+             "prop turntable 8 5 size 3 fill ooo/.oo/...\n", "PIVOT"),
+            ("a table on another prop's cell", T.replace("uses turntable", "uses turntable") + "pad steel 8 5\n"
+             "prop turntable 8 5 size 2 fill oo/..\n", "already belongs"),
+            ("a turntable with no `uses turntable`", T.replace("uses turntable\n", "") +
+             "prop turntable 8 5 size 2 fill oo/..\n", "does not name"),
+            ("seven tables turning on one step in one window", T.replace("4 4 12 9", "4 4 20 12").replace(
+                "width 64\norigin 224", "width 128\norigin 320") + "".join(
+                "prop turntable %d %d size 2 fill oo/..\n" % (8 + 3 * (k % 4), 4 + 3 * (k // 4)) for k in range(7)),
+             "pose changes can land on one step"))
+
+
+TT_SC = (("A early", MAT_RUBBER, (9, 6), 40), ("A on time", MAT_RUBBER, (9, 6), 216),
+         ("A steel", MAT_STEEL, (9, 6), 200), ("A glass", MAT_GLASS, (9, 6), 232),
+         ("C from the island", MAT_RUBBER, (12, 6), 136), ("B to the pivot", MAT_STEEL, (6, 9), 160),
+         ("fallen", MAT_RUBBER, (9, 6), 9))
+
+
+def tt_model_scenes(c, arm=None):
+    """each of TT_SC on TURN's model: the ball poked at rest, WAIT steps, then rolled on +x (+y for B) until it
+    reaches its far side (x 12, the island; x 15, the goal plate; the pivot) or 150 steps (ARM: "novoid" the gaps
+    left floors, "fallen" _TT_NOFALLEN) -> {name: (falls, the end's cell, z px)}"""
+    global _TT_NOFALLEN, _TT_NOVOID
+    _TT_NOFALLEN, _TT_NOVOID = arm == "fallen", arm == "novoid"
+    out = {}
+    try:
+        for name, mat, at, wait in TT_SC:
+            p = Physics(c, play=True, mat=mat).poke(*at)
+            for _ in range(wait):
+                p.step(0)
+            far = (lambda q: (q.gx >> 12, q.gy >> 12) == (6, 11)) if name[0] == "B" else \
+                (lambda q, x=(15 if name[0] == "C" else 12): (q.gx >> 12) >= x)
+            for _ in range(150):
+                p.step(K_L | K_D if name[0] == "B" else K_R | K_D)
+                if (far(p) or p.nfall) and name != "fallen":
+                    break
+            out[name] = (p.nfall, (p.gx >> 12, p.gy >> 12), p.gz >> 8)
+    finally:
+        _TT_NOFALLEN = _TT_NOVOID = False
+    return out
+
+
+def _sc_turn(X, res):
+    """--selfcheck's section `turn` (SPEC.md 128.43): the refusals, TURN's records, cells, lanes, sweep, reach and
+    art, the window's change bound, the scenes on the model and its red arms"""
+    for what, text, want in _turn_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders="one step" in want)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (turntable, 128.43): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    c = compile_course(TT_TEST)
+    g = Grid(c.cga)
+    recs = [r for r in c.part["props"] if r["kind"] == TT_K]
+    cok = all(g.cell(*r["at"])[3] == KIND_FLOOR and g.cell(*r["at"])[5] == SURF_NORMAL
+              and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS and g.cell(*r["at"])[0] == r["tz"]
+              and r["lane"] and r["lane"]["poses"] == 3 and r["tseq"] not in (0, 15) for r in recs)
+    piv = g.cell(6, 11)
+    res.append(("3 turntable (128.43.3): TURN's %d switching cells are normal FLAT FLOORs at TZ with OBS and not SAFE, "
+                "each a lane of 3 poses and a SEQ that switches (%s); the disc's PIVOT (6, 11) a plain floor, no "
+                "element" % (len(recs), sorted(set(r["tseq"] for r in recs))),
+                cok and len(recs) == 16 and piv[3] == KIND_FLOOR and not piv[4] & FL_OBS
+                and all(r["at"] != (6, 11) for r in recs)))
+    # the sweep: a table's cells turn one a step, so at most one of a table's lanes changes on any step
+    els = [q for q in c.props if q["kind"] == TT_K]
+    worst = max(sum(1 for r in els if r["at"][0] >= 10 and tt_pose(r, n) != tt_pose(r, n + 1)) for n in range(256))
+    one = all(sum(1 for r in els if r["line"] == ln and tt_pose(r, n) != tt_pose(r, n + 1)) <= 1
+              for ln in set(r["line"] for r in els) for n in range(256))
+    res.append(("4 turntable (128.43.4): a turn SWEEPS - no table changes two of its lanes on one step; the chain's "
+                "two tables, out of phase, at most %d change on a step together" % worst, one and worst == 1))
+    by = dict(((q.wx, q.wy), q) for q in c.reach)
+    c0 = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (noforms)", _hack={"noforms": True})
+    by0 = dict(((q.wx, q.wy), q) for q in c0.reach)
+    tr = [r for r in recs if r["at"] in by]
+    res.append(("6 turntable (128.43.6): the reach takes a switching cell's VOID - zlo %s px; with `noforms` its "
+                "floor %s" % (sorted({by[r["at"]].zlo for r in tr}), sorted({by0[r["at"]].zlo for r in tr if r["at"] in by0})),
+                tr and all(by[r["at"]].zlo == 4 * (r["tz"] - TT_VOID) and by0[r["at"]].zlo == 4 * r["tz"] for r in tr)))
+    cn = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (no art)", _hack={"nottart": True})
+    res.append(("10 turntable (128.43.5): the PLATTERS are in the picture, the tables' cells not drawn as tiles (the course part %d bytes; %d with the "
+                "art's control `nottart`, its tiles drawn instead); every port and seam pose drawn" % (len(c.cga), len(cn.cga)),
+                c.cga != cn.cga and all(len(r["fpix"][2]) > len(r["fpix"][1]) > 0 for r in c.props
+                                        if r["kind"] == TT_K)))
+    good = tt_model_scenes(c)
+    want = {"A early": lambda v: v[0] >= 1, "A on time": lambda v: v[0] == 0 and v[1][0] >= 12,
+            "A steel": lambda v: v[0] == 0 and v[1][0] >= 12, "A glass": lambda v: v[0] == 0 and v[1][0] >= 12,
+            "C from the island": lambda v: v[0] == 0 and v[1][0] >= 15,
+            "B to the pivot": lambda v: v[0] == 0 and v[1] == (6, 11), "fallen": lambda v: v[0] >= 1}
+    res.append(("11 turntable (128.43.4): on the model - %s" % ", ".join("%s %s" % (k, v) for k, v in good.items()),
+                all(want[k](v) for k, v in good.items())))
+    for arm, scn in (("novoid", "A early"), ("fallen", "fallen")):
+        bad = tt_model_scenes(c, arm)
+        res.append(("11 turntable red %s: %s %s (it must part from %s)" % (arm, scn, bad[scn], good[scn]),
+                    bad[scn] != good[scn]))
+
+
 def _sc_boost(X, res):
     """--selfcheck's section `boost` (SPEC.md 128.40.8): the refusals, the test course's records and lanes, the
     scenes on the model (against the course less its pads), and the model's red arms"""
@@ -27809,6 +29620,204 @@ def _bp_hop(c, arm=None):
         _BpArm.arm = None
 
 
+GT_TEST = os.path.join(ROOT, "apps", "bonanza", "courses", "gate.bbc")      # the BZGATE=1 knob's course
+# SWITCHES, KEYS, GATES and the DRAWBRIDGE's scenes on it (SPEC.md 128.41.8): name -> (the poke's tile, the
+# WAYPOINTS steered to (cells, x.5 the cell's middle), the steps, the steps held still first) - the same scenes
+# tests/bonanza_phys.py's gt_host holds the guest to.  Each pairs with its CONTROL (the same route from a tile that
+# presses nothing, or at the wrong time)
+GT_SC = {
+    "ring": ((12, 12), ((12.5, 9.0), (21.0, 9.0)), 300, 0),     # over the ring plate, then through its gates
+    "ringshut": ((12, 10), ((12.5, 9.0), (21.0, 9.0)), 300, 0), # ...from beside it: the shut gates stop it
+    "key": ((12, 16), ((10.0, 16.5), (10.0, 21.5)), 300, 0),    # the plus key in its nook, then through its gates
+    "keyshut": ((10, 15), ((10.0, 16.5), (10.0, 21.5)), 300, 0),
+    "box": ((9, 13), ((8.5, 11.0), (4.5, 11.0)), 300, 0),       # over the box plate, then across its bridge
+    "boxup": ((10, 11), ((8.5, 11.0), (4.5, 11.0)), 300, 0),    # ...without it: the bridge is up, the ball falls
+    "timed": ((14, 12), ((21.0, 12.0),), 200, 0),               # across the timed bridge while it is down
+    "late": ((14, 12), ((21.0, 12.0),), 200, 60),               # ...too late: it goes up under the ball
+    "under": ((14, 12), ((21.0, 12.0),), 300, 200),             # into it while up, and it comes down over the
+}                                                               # falling ball: no lift (the red arm `lift`)
+
+
+def gt_keys(p, wps, st):
+    """steer P to the waypoints WPS (cells, floats) one axis at a time, the larger first; ST [the waypoint, the
+    steps still to wait] -> the step's keys (the brake at the end)"""
+    if st[1]:
+        st[1] -= 1
+        return K_GRIP
+    while st[0] < len(wps):
+        tx, ty = wps[st[0]]
+        dx, dy = tx * 4096 - p.gx, ty * 4096 - p.gy
+        if abs(dx) < 1024 and abs(dy) < 1024:
+            if abs(p.gvx) + abs(p.gvy) > 64 and st[0] + 1 < len(wps):
+                return K_GRIP                       # (slow at a turn, or the old way carries it off)
+            st[0] += 1
+            continue
+        if abs(dx) >= abs(dy):
+            d, v, k = dx, p.gvx, (K_R | K_D if dx > 0 else K_L | K_U)
+        else:
+            d, v, k = dy, p.gvy, (K_D | K_L if dy > 0 else K_R | K_U)
+        if v * d > 0 and abs(d) < 24 * abs(v):
+            return K_GRIP                           # (braking into a turn)
+        return k
+    return K_GRIP
+
+
+def gt_play(c, name, mat, fm=None):
+    """scene NAME of GT_SC for ball MAT on course C's model (FM: the family model to use, a red arm's) -> (its keys,
+    the step it respawned or None, the end (wx, wy, z px), the channels open at the end, the poses the course's
+    elements took (a set of (element, pose)), the most element poses changed on one step)"""
+    at, wps, n, wait = GT_SC[name]
+    old = FAM_MODEL["gate"]
+    if fm is not None:
+        FAM_MODEL["gate"] = fm
+    try:
+        p = Physics(c, play=True, mat=mat).poke(at[0], at[1], 0, 0)
+        els = [pr for pr in p.props if pr["kind"] in GT_KINDS]
+        st, keys, fell, seen, chg = [0, wait], [], None, set(), 0
+        q0 = [p.fpose(pr) for pr in els]
+        for i in range(n):
+            k = gt_keys(p, wps, st)
+            keys.append(k)
+            p.step(k)
+            q1 = [p.fpose(pr) for pr in els]
+            chg = max(chg, sum(a != b for a, b in zip(q0, q1)))
+            seen |= {(pr["i"], q) for pr, q in zip(els, q1)}
+            q0 = q1
+            if p.respawned and fell is None:
+                fell = i
+        return keys, fell, (p.gx >> 12, p.gy >> 12, p.gz >> 8), p.fsl[0][0], seen, chg
+    finally:
+        FAM_MODEL["gate"] = old
+
+
+def _gt_cases():
+    """(what, text, the refusal's substring): 128.41.7's refusals"""
+    C = _W4C + "uses gate\n"
+    P = "prop plate 7 7 channel ring\n"
+    return [
+        ("a plate with no channel", C + "prop plate 6 6\n", "takes <wx> <wy> channel"),
+        ("a channel of no glyph", C + "prop plate 6 6 channel star\n", "a channel is ring"),
+        ("a channel twice", C + "prop plate 6 6 channel ring channel box\n", "not 'channel'"),
+        ("a gate along z", C + P + "prop gate 8 6 channel ring along z\n", "not 'along'"),
+        ("a plate with a way", C + P + "prop plate 6 6 channel ring along x\nprop gate 8 6 channel ring\n",
+         "not 'along'"),
+        ("a key with a reset class", C + "prop key 6 6 channel ring reset attempt\n", "takes no `reset`"),
+        ("a bridge of no period", C + "prop bridge 8 6 period 100 on 50\n", "period is 32, 64, 128, 256"),
+        ("a bridge down 0 steps", C + "prop bridge 8 6 period 64 on 0\n", "`on` (steps down) is 1 - 63"),
+        ("a bridge's seed past its period", C + "prop bridge 8 6 period 64 on 8 seed 64\n", "is not under"),
+        ("a bridge with a channel and a timer", C + P + "prop bridge 8 6 channel ring period 64 on 8\n",
+         "not 'period'"),
+        ("a gate nothing opens", C + "prop gate 8 6 channel ring\n", "nothing opens it"),
+        ("a plate that opens nothing", C + P, "opens nothing"),
+        ("two keys of one channel", C + "prop key 6 7 channel ring\nprop key 7 7 channel ring\n"
+         "prop gate 9 6 channel ring\n", "second key"),
+        ("a gate on the start", C + P + "prop gate 5 6 channel ring\n", "start's cell"),
+        ("a bridge on the start", C + P + "prop bridge 5 6 channel ring\n", "start's cell"),
+        ("a gate on a ramp", C + P + "prop gate 14 6 channel ring\n", "not a FLAT FLOOR"),
+        ("a gate on the cup's cell", C + P + "prop gate 12 6 channel ring\n", "cup"),
+        ("a gate with no `uses gate`", _W4C + "prop plate 7 7 channel ring\nprop gate 8 6 channel ring\n",
+         "does not name"),
+        ("`uses gate` and no element", C, "no element of it is placed"),
+        ("a gate hidden behind a wall in front of it", C + P + "wall rect 9 7 11 9 flat 9\n"
+         "prop gate 8 6 channel ring\n", "is HIDDEN"),
+    ]
+
+
+class _GtArm(GateFamily):
+    """the model's red arms (--selfcheck `gate`): ARM "noopen" (nothing opens a channel), "nowall" (a shut gate not
+    walled), "lift" (a bridge coming down lifts a ball under its deck onto it)"""
+    arm = None
+
+    def contact(self, p, slot, i):
+        global _GT_NOOPEN
+        _GT_NOOPEN = self.arm == "noopen"
+        try:
+            GateFamily.contact(self, p, slot, i)
+        finally:
+            _GT_NOOPEN = False
+
+    def cell(self, p, slot, win):
+        global _GT_NOWALL, _GT_LIFT
+        _GT_NOWALL, _GT_LIFT = self.arm == "nowall", self.arm == "lift"
+        try:
+            GateFamily.cell(self, p, slot, win)
+        finally:
+            _GT_NOWALL = _GT_LIFT = False
+
+
+GT_WANT = {"ring": "through the ring gates (x 19 on), no fall", "ringshut": "stopped at the shut gates (x 17 or less)",
+           "key": "through the plus gates (y 20 on), no fall", "keyshut": "stopped at the shut gates (y 18 or less)",
+           "box": "across the box bridge (x 6 or less), no fall", "boxup": "falls where the bridge is up",
+           "timed": "across the timed bridge (x 19 on), no fall", "late": "falls: it goes up under the ball",
+           "under": "rubber and glass fall into it while up and keep falling when it comes down"}
+
+
+def gt_verdict(name, mat, r):
+    """is scene NAME's result R (gt_play's) for ball MAT what it is for (SPEC.md 128.41.8)?"""
+    fell, (x, y, _z), ch = r[1], r[2], r[3]
+    return {"ring": fell is None and x >= 19 and ch == 1, "ringshut": fell is None and x <= 17 and ch == 0,
+            "key": fell is None and y >= 20 and ch == 2, "keyshut": fell is None and y <= 18 and ch == 0,
+            "box": fell is None and x <= 6 and ch == 4, "boxup": fell is not None and ch == 0,
+            "timed": fell is None and x >= 19, "late": fell is not None,
+            "under": fell is not None or mat == MAT_STEEL}[name]
+
+
+def gt_scenes(c, arm=None, names=None):
+    """every GT_SC scene for every ball on C's model (ARM: _GtArm's) -> {(name, mat): gt_play's result}"""
+    fm = None
+    if arm:
+        fm = _GtArm()
+        fm.arm = arm
+    return dict(((name, mat), gt_play(c, name, mat, fm)) for name in (names or GT_SC)
+                for mat in (MAT_RUBBER, MAT_STEEL, MAT_GLASS))
+
+
+def _sc_gate(X, res):
+    """--selfcheck's section `gate` (SPEC.md 128.41.8): the refusals, the test course's records and lanes, the art's
+    pairing, the scenes on the model, and the model's red arms"""
+    for what, text, want in _gt_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (switches, keys, gates, bridges, 128.41.7): %s%s" % (what, "" if fired else
+                                                                                    " -- got: " + msg), fired))
+    c = compile_course(GT_TEST)
+    src = parse(open(GT_TEST).read(), GT_TEST)
+    want = sorted((sp["at"], sp["kind"], GT_TIMED if sp["gch"] is None else sp["gch"], sp["galong"])
+                  for sp in src.props if sp["kind"] in GT_KINDS)
+    recs = [r for r in c.part["props"] if r["kind"] in GT_KINDS]
+    got = sorted((r["at"], r["kind"], r["gch"], r["galong"]) for r in recs)
+    tm = [r for r in recs if r["kind"] == GT_KB and r["gch"] == GT_TIMED]
+    row = FAM_BY_NAME["gate"]
+    fv = famv(row)
+    moved = all(famv(dict(row, consts=tuple(v ^ (j == k) for j, v in enumerate(row["consts"])))) != fv
+                for k in range(len(row["consts"])))
+    res.append(("3 GATES' records (128.41.3): %d elements, +18 the channel (FFh the %d timed bridge cells, each its "
+                "seed a step after the last), +19 a gate's way and a bridge's deck, +20 its grid byte; each a lane of "
+                "2 poses, no state bit, class ATTEMPT; FAMV %02Xh moves with each of its consts" % (
+                    len(recs), len(tm), fv),
+                got == want and len(recs) == 15 and moved and len(tm) == 6
+                and sorted(r["sseed"] for r in tm) == list(range(6))
+                and all(r["lane"] and r["lane"]["poses"] == 2 and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
+                        and (r["kind"] != GT_KB or (r["deck"] == 4 and r["gkd"] == KIND_FLOOR)) for r in recs)))
+    gl = [frozenset(xy for xy, ink in gt_plaque(0, 0, ch).items() if ink == BLK) for ch in range(GT_NCH)]
+    res.append(("5 GATES' pairing (128.41.5): the %d channels' glyphs, black on a white plaque, pairwise distinct "
+                "(each element of a channel carries its plaque)" % GT_NCH,
+                len(set(gl)) == GT_NCH and all(set(gt_plaque(0, 0, ch).values()) == {BLK, WHT} for ch in range(GT_NCH))))
+    s = gt_scenes(c)
+    bad = ["%s %s" % (n_, MAT_NAMES[m_]) for (n_, m_), v in sorted(s.items()) if not gt_verdict(n_, m_, v)]
+    res.append(("6 GATES' scenes on the model (128.41.8), every ball: %s%s" % (
+        "; ".join("%s: %s" % (n_, GT_WANT[n_]) for n_ in GT_SC), " -- NOT: " + ", ".join(bad) if bad else ""),
+        not bad))
+    for arm, names in (("noopen", ("ring", "key", "box")), ("nowall", ("ringshut", "keyshut")), ("lift", ("under",))):
+        sa = gt_scenes(c, arm, names)
+        red = any(not gt_verdict(n_, m_, sa[(n_, m_)]) for n_ in names for m_ in (MAT_RUBBER, MAT_STEEL, MAT_GLASS))
+        res.append(("6 GATES' red arm %s on the model: the scenes %s %s" % (
+            arm, "/".join(names), "no longer show what they are for" if red else "STAY GREEN"), red))
+
+
 SC_SPLIT = {"grammar": 4}      # a section run as N slices in the parallel run (its function takes part=(k, n))
 
 
@@ -27842,7 +29851,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch")
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn")
 
 
 def _selfcheck(paths, res, skipped, S):

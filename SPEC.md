@@ -280147,3 +280147,802 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
    ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
    one thing it cannot do today.
+
+### 128.44 HUMPS: FIELD cells raised over the plate (the props round's P12, 2026-11-17; BUILT on `bb-hump`, tool only)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P12): *"HUMPS - fits the
+theme; cheap to make, expensive to USE, as shapes are ... the FIELD cell's
+height tables (128.28) already describe any height pattern; a hump rises ABOVE
+the lip, so it hides what is behind it - occluders the pit never needed. A
+standard hump (one shared table set, 128.28.4's STANDARD PROFILES rule) keeps
+its data down."* The props round fixed this section's number and the knob
+(`BZHUMP=1`), and reserved family ID 16 (kinds from `FAM_K0 + 80`, art code 16)
+**if** a hump needed a family. **It needs none**: a hump is FIELD cells, laid by
+the tool, run by the guest's FIELD code as it stands. Figures are MEASURED
+unless marked PREDICTED.
+
+#### 128.44.1 The decisions, the statement and its refusals
+
+| | decision | why |
+|---|---|---|
+| H1 | a hump is FIELD cells (128.28) whose tables rise ABOVE the cell's base: `z0` the plate's height, every table byte the height over it | 128.28.2's cell has always allowed it (no point below `16 z0`, any byte a height); the guest reads a table, never a shape, so a dome is a chute's corner by another table - **no resident byte, no family, no `BZ_PHYSV` or `PHYS_REV` change** (H6) |
+| H2 | the profile is a RAISED COSINE, `H (1 + cos(pi d / 16)) / 2` at `d` gu from the crest, 0 from 16 gu out | zero slope at the crest and at the foot: the plate meets it with no edge (no step for 128.28.5.3's edge tests to catch) and a ball resting on the crest is not on a corner |
+| H3 | two shapes: a round DOME on the 2 x 2 cells round a cell CORNER, and a RIDGE along an axis (the crest a segment `n` cells long), its ends the dome's halves (caps) or, `open`, cut square | a dome is one table under the square's symmetries (its four cells are one shape); a ridge's middle is one more (its two sides mirror), its caps the dome's |
+| H4 | two STANDARD heights, LOW 6 px (the default) and HIGH 10 px; any of 2 - 11 px allowed, costing its own tables | 128.28.4's STANDARD PROFILES rule: a course drawing from the two standards pays one table a dome height and one a ridge height. 11 px is the dome's slope bound (`abs(sx) + abs(sy) <= 7` at the 45-degree points, 12 refused); MEASURED: the HUMP course's six humps use 4 tables |
+| H5 | a hump's RIM is level with every floor or goal it touches; an `open` ridge's end meets a WALL or the VOID | a hump is a bump IN a floor, never a step: the rim refusal keeps every edge test a FIELD-to-floor one at equal heights, and a square end against a floor would be a cliff its height (a wall a ball could not see) |
+| H6 | no physics of its own: rubber does NOT bounce off a hump's face, steel is not special-cased | a hump is a hill, not a wall: its steepest face (7 quarter px a gu at the dome's diagonal, 4.3 along an axis at 10 px) is a ramp's, so every ball CLIMBS it against the step's own slope force (`BZ_GSL`) - and the materials already differ where it matters (steel's arrow force, `ACC` 2, is the least of the three, its drag the least too), so steel needs the speed and stalls without it (128.44.5) with no rule written for it |
+| H7 | the ink: the shapes' two magentas (128.28.6) in BANDS of height - a third of the hump's height each, `field_ms` the outer and the crest, solid magenta between - under the bending cell lattice; a facet at the floor's own height keeps the floor's ink (the JOIN rule) | the owner's shape colours, magenta only; bands turn a dome into rings and a ridge into stripes, which reads as RAISED where the parity checker alone read as a flat diamond (four inks tried on the preview: parity checker, black contours, contours on solid magenta, bands - bands the only one that reads on both cards: on the Hercules a quarter and a half grey against the floor's white and half grey; black contours vanished into the stripes) |
+| H8 | a RAISED facet (any corner above the lip) is topped at its LOWEST corner in 2 px steps (`HTOPQ`), not 128.28.6's 16 px (`FTOPQ`) | `FTOPQ` rounds a 10 px hump's top down to the plate's height, so no ball behind it would ever be laid under it - the very occlusion the plan named. 1 px steps put a fifth record in a block (over 128.11.4.2's four); 2 px meet the bound on HUMP |
+
+    hump <x> <y> <z> [along x|y <n> [open]] [height <px>]
+
+- `<x> <y>`: a cell CORNER - the dome's crest, or the ridge's first end;
+  `<z>` the base (the plate's height, units, 128.10.3). A dome lays the cells
+  `x - 1 .. x` by `y - 1 .. y`; `along x <n>` the crest from `(x, y)` to
+  `(x + n, y)` and the cells `x - 1 .. x + n` by `y - 1 .. y` (`open`: `x ..
+  x + n - 1`, no caps), and `along y` likewise.
+- **Laid** with the chutes and pits, after every room, surface and hole
+  (128.28.3): its cells REPLACE what was there, as a chute's do.
+- **Refused**, each at its line (`--selfcheck` section `hump`, 15 cases): a
+  missing or unknown word, a word given twice; a height outside 2 - 11 px; a
+  ridge outside 1 - 12 cells; `open` on a dome; an open end that meets a floor;
+  a rim off the floor round it; two humps (or a hump and a chute or pit) on one
+  cell; and every FIELD-cell refusal of 128.28.3 on a hump's cell (`start`, a
+  `pad`, a `spring`, a `way`, every prop) - the visibility rule's two refusals
+  are 128.44.4's.
+
+#### 128.44.2 The cells and the tables
+
+`bbcourse.hump_cells` gives each cell its piece (`hump` for a dome's or a cap's,
+`ridge` for a ridge's middle) and the height function; 128.28.4's sampling,
+rounding, normalising and table search do the rest unchanged. A cell's `z0` is
+the base (no point under it); its table's largest byte is `4 H` at the crest's
+corner or edge. **The tables, MEASURED** (HUMP, `field_tables_by_statement`):
+the three LOW domes and the LOW ridge's four caps share ONE table; the LOW
+ridge's middle adds one; the HIGH open ridge one; the HIGH dome one - **4 of
+32**, 1,156 bytes of section `F`.
+
+#### 128.44.3 The picture
+
+The FIELD picture (128.28.6) unchanged - facets, back to front, culled when
+facing away, the faces against the void by the ground rule - with `HumpInk`
+(H7) for a hump's facets. The back slope of a hump steeper than the view is
+culled, as a pit's near bank is: what is behind shows over the crest. An open
+ridge's end over the void hangs its face to the ground plane like any FIELD
+cell's.
+
+#### 128.44.4 Occluders and the visibility rule
+
+- **The records**: a raised facet keyed as any FIELD facet (`s`, or `s + 1` in
+  the front half of its row) and topped by H8, so 128.10.4.4's rule lays the
+  hump over a ball BEHIND it lower than the facet. MEASURED on HUMP (a grounded
+  ball at every second gu, 4 cells behind a hump to one past it): the HIGH
+  dome lays up to **42 lit px** of a grounded ball (53 poses lose some), the
+  HIGH ridge **29** (69 poses); a LOW hump lays **none** over a grounded ball -
+  6 px is within the margin (`BZ_CLIMB`, 4 px) once the depth is counted - its
+  records are for an airborne ball. Red `hmtop` (the facets topped by `FTOPQ`):
+  the HIGH humps lay 1 and 0 px.
+- **OCCG** (128.11.4.3) follows by its own derivation: the plate cells behind a
+  HIGH hump gain it (HUMP: 11 OCCG cells, 2 without the humps' raised tops).
+- **The visibility rule** (the owner's, the props plan's item 4: partial
+  occlusion fine; a mechanic seen when the ball is not on it; the BALL wholly
+  hidden for at most a ball length, 16 px of travel), MEASURED by
+  `bbcourse.hump_vis` on every hump of every course: a ball rolled grounded
+  along every lane (a cell's middle and 4 gu either side) of the rows and
+  columns from `HUMP_BACK` (4) cells behind the hump to one past it, a gu at a
+  time, through the records - the longest run of positions where EVERY lit
+  pixel is laid over **and the hump is why** (with the hump's cells flat at its
+  base the ball would not be wholly hidden) may not pass `HUMP_HIDE` (16 gu);
+  and every mechanic - a prop on a whole flat floor, a goal - up to `HUMP_BACK`
+  cells behind it keeps a third of its top's pixels (`HUMP_SEE`, the archway's
+  third, 128.39.1 A10), again only where the hump is why. Both are refusals.
+  **By construction a hump cannot break them**: it stands at most 11 px over a
+  rim level with the floor behind it, and a ball is 16 px tall, so a ball at
+  that floor always shows its top, and a lower floor behind is first hidden by
+  the plate's own edge (`--selfcheck`: a floor 3 units under the plate two
+  cells behind a HIGH dome compiles, the dome adding 0 gu; red `hmnoattr`, the
+  sweep blind to WHO hides, refuses it at 96 gu). HUMP: 0 gu for all six; the
+  glass pad behind the HIGH dome shows 256 of its 256 px.
+
+#### 128.44.5 Physics: what a hump does to each ball (the model; the guest equal)
+
+No rule of its own (H6): every figure here is 128.11.8's step on FIELD cells.
+**MEASURED** (the model, the arrows held along the crest's normal from REST at
+a distance from the hump's foot; LOW 6 px, HIGH 10 px):
+
+| run-up from rest | rubber | steel | glass |
+|---|---|---|---|
+| LOW, at its foot | over | **stalls** | over |
+| LOW, a cell (16 gu) | over | over | over |
+| HIGH, at its foot | stalls | stalls | stalls |
+| HIGH, half a cell | over | **stalls** | over |
+| HIGH, a cell | over | stalls | over |
+| HIGH, three cells (48 gu) | over | over | over |
+
+So a hump is a RUN-UP gate, and a material one where it is placed: the HIGH
+bump in front of a pocket with no room to run lets rubber and glass out and
+holds steel. Coasting (no key) from its foot, the least speed that crests a
+LOW hump is 320 (rubber), 256 (steel, the least drag) and 384 (glass); a HIGH
+one, 384, 320 and none. A ball does NOT take off over the HIGH bump's crest even at the speed cap (MEASURED, all three)
+(the raised cosine's crest is too round for 128.28.5.4's take-off at 384), and
+nothing ever meets a wall at a rim (the scenes count none). Dropped onto a
+hump's flank, a ball lands on the slope as on any FIELD cell (rubber bounces).
+
+**The guest equals the model** (tests/bonanza_dfield.py, the host half of
+`bonanzaphys`'s field leg, now with HUMP among its courses): CELLS on HUMP's
+stored form; seven scripted runs (a LOW dome rolled over from rest; steel
+stalled at its foot; steel over the HIGH bump from the bridge's start and at
+the speed cap; glass across the HIGH dome off its crest line; rubber along the
+LOW ridge's crest; rubber dropped onto the HIGH dome's flank) and the fuzz's
+share of its 150 runs near HUMP's cells - **every step equal**. The existing
+arm `symswap` goes red on six of the seven hump runs (the symmetries a dome's
+four cells are laid by); no hump-only arm exists because no hump-only code
+does.
+
+#### 128.44.6 The knob build: HUMP (`BZHUMP=1`)
+
+`make BUILD=<tree> BZHUMP=1 bonanzadisk` (a private tree; `make help` lists it)
+adds `apps/bonanza/courses/humps.bbc` after the shipped courses (not on the
+TOUR) and compiles the pathway through `courses/pathhump.sed`: pad 0 becomes
+HUMP, so title, Play Game, Enter plays it; its exit 0 goes up to TRIAL, its
+exit 1 to FIRST on pad 6 (pathboost.sed's shape). It is refused with every
+other pad-0 knob (`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`, `BZWATER`,
+`BZARCH`, `BZSPIKE`, `BZBOOST`, and the round's `BZGATE`, `BZTILT`, `BZTURN`).
+
+HUMP "Hump Test", a plate at 2 units: the start with a pad for each ball;
+THE LOW HUMPS - three LOW domes and a LOW ridge every ball rolls over (steel
+with a cell of run-up); THE SPEED BUMP - a bridge 2 wide east of the plate, a
+HIGH `open` ridge across it (its ends over the void, so nothing rolls round
+it), the bridge's five cells of run-up enough for steel, and its goal (exit 0)
+past it beside a landing that carries its clock (a clock post ON the bridge kicks a ball off it); THE HIDE - a HIGH dome in front of a glass pad, a ball rolled behind
+it laid under, the exit 1 goal beyond. `limit 99` (a test course: the tool's own limit is
+short). Its route demo (no demo file) reaches the goal in 494 steps with no fall.
+**LOOKED AT once on MartyPC**, CGA and Hercules (`os8088_5150_cga_gla`, `os8088_5150_herc_gla`, the knob tree): the domes, the ridge and the bump drawn as the previews draw them, rubber rolled east past the glass pad behind the HIGH dome and north to the bridge; on the Hercules the humps read as quarter-grey patches with a half-grey ring. The look was of the layout before the clock moved off the bridge; the humps were the same.
+
+#### 128.44.7 The proofs
+
+- `bbcourse.py --selfcheck --only hump`: the 15 refusals; HUMP's cells (based
+  on the plate, crests `4 H`) and its 4 tables (which statement adds and
+  shares which); the scenes on the model (128.44.5's table, no wall at any rim;
+  red `slope`, the slope force reversed: the stalls cross); the occluders (red
+  `hmtop`); the visibility rule on HUMP and its attribution (red `hmnoattr`).
+  Every red arm MEASURED red.
+- tests/bonanza_dfield.py (128.44.5); `symswap` red on the hump runs.
+- No shipped course, demo or identity moved: every file `bbcourse.py -o`
+  writes for the shipped build (`BZ0` - `BZ6.BIN`, `BZ6W.BIN`, `BZD1` -
+  `BZD6.BIN`, the pathway, the title and its demo, the kit, `bzcourse.inc`) is
+  byte for byte the base tree's (MEASURED, `cmp`, 20 of 20); no `.asm` or
+  `.inc` moved, so `BONANZA.O88` is the same bytes.
+
+#### 128.44.8 What it costs
+
+| | |
+|---|---|
+| resident | **0 bytes**: no code, no table, no bss; no family (ID 16 stays free) |
+| the bundle, the package, the shipped disks | **nothing**: the shipped build is byte-identical (128.44.7) |
+| the knob build | `bonanza.bin` image 50,036 -> 50,077 and bss 12,145 -> 12,147: the eighth course's per-course table rows, the knob's alone; `BONANZA.O88` 121,892 -> 125,795 (HUMP's part, LZB 3,253 of 25,716 RAM) |
+| a course, MEASURED (HUMP against itself with no hump statements) | RAM 19,732 -> 25,716 (+5,984 for six humps, about 1KB each), blocks 128 -> 217, records 45 -> 183, masks 8 -> 80, 4 tables (1,156 bytes of `F`); LZ4 1,916 -> 3,983. A hump's crest is a LAUNCH (the reach's apex, 128.10.4.1): on an earlier layout one LOW dome at the back alone cost +2,401, raising the picture's first line, against +1,199 for a HIGH dome in front |
+| a step | the FIELD step's own (128.28.8: +0.4 - 0.9k clk a step on a FIELD cell, MEASURED on chutes; PREDICTED the same on a hump - the same instructions, a different table) and, behind a HIGH hump, the occluder pass on `OCCG` cells (128.10.9's 55 clk a record passed, 1.4k a record laid); MartyPC NOT run on it |
+
+#### 128.44.9 Open questions for the owner
+
+1. The two standard heights (6 and 10 px) and the run-ups they ask
+   (128.44.5): the owner's to judge on HUMP. 11 px is the ceiling the slope
+   bound allows; a taller hump would want a 3 x 3 dome (radius 24 gu, three
+   tables), not built.
+2. The ink: bands (H7) against the parity checker the other shapes use - the
+   preview reads as raised on both cards; the owner's eye decides.
+3. A ball does not take off over a crest (128.44.5): a sharper crest (a
+   "kicker") would launch a fast ball, at the cost of a profile the slope
+   bound allows only low.
+4. Rubber does not bounce off a hump (H6). A BUMPER hump (a `bounce` surface
+   on a FIELD cell) is not built: 128.28.3 applies no surface to a FIELD cell.
+
+### 128.41 SWITCHES, KEYS, GATES and the DRAWBRIDGE, a family (the props round's P6 and P7, 2026-11-17; BUILT on `bb-gate`)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P6 and P7): *"a plate or key
+sets a bit; a gate cell WALL <-> FLOOR with a lane redraw (the cracked tile's
+state-driven cell) ... DRAWBRIDGE: cells VOID <-> FLOOR on a timer or a switch,
+a lane a bridge cell"* - *"an option, not the primary mechanic"*. The props
+round fixed this family's ID (13), its kinds (from `FAM_K0 + 56`, 72), its
+knob (`BZGATE=1`), its art codes (12, 13) and this section's number. It was
+written PLANNED (D1 - D8 and the statement) before the code and is now the
+record of what was built. Figures are MEASURED unless marked PREDICTED.
+
+#### 128.41.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| D1 | ONE family, `gate`, ID 13 (`BZ_FID_GATE`), four kinds: `plate` 72, `key` 73, `gate` 74, `bridge` 75 (`GT_KP` .. `GT_KB`, `BZ_FK_PLATE` ..), home `resident`, `group` | P6 and P7 share their state (a switch's bit) and their art (the channel's glyph), so one part holds both and a course names one family; resident is the owner's default (128.25.6.9) |
+| D2 | the switch state is a CHANNEL: `GT_NCH` = 4 a course, each one BIT of the family's slot (+0); no per-element state bits | four channels are as many as a player can keep apart by eye; the slot is per course and costs no `bz_fst` byte; a plate, key, gate or bridge has nothing of its own to remember once its channel says it all |
+| D3 | LATCHING: a plate or key opens its channel for the ATTEMPT - a respawn keeps it (the engine keeps the slot), a play's start (a retry, a replay) zeroes it | a momentary plate needs the ball to stay on it while the gate is elsewhere - one ball, so a momentary gate is unusable unless it closes on a timer, which is the drawbridge's job; latching also means a GATE NEVER CLOSES during an attempt, so "a gate closing on a ball" cannot happen (D6) |
+| D4 | a PLATE opens on a GROUNDED ball (`bz_air` 0, not shattering) - rolled over, as a boost pad pushes; a KEY on any touch, airborne too, as a pickup is taken | a Hop over a plate is a way not to press it; a key is a pickup |
+| D5 | the PAIRING is the channel's GLYPH - ring, plus, box, cross - 5 x 5 px, BLACK on a 7 x 7 WHITE plaque, on every plate, key, gate and switched bridge of it; the channel's ink (magenta ring and box, cyan plus and cross) only a second cue | on the Hercules and CGA magenta and cyan are the same grey checker; black on white reads on every card (LOOKED AT in the tool's previews, both cards) |
+| D6 | a GATE is a WALL in the window while shut (CELL writes the kind nibble, its surface kept) and its grid's FLOOR once open; it never closes in an attempt (D3), and the tool refuses a gate on the start's cell, so a play never begins inside one | the cracked tile's state-driven cell; a WALL is a column at every height, so nothing hops a shut gate |
+| D7 | a DRAWBRIDGE cell is its grid's FLOOR at its DECK while DOWN, and a NEAR VOID (the deck less 3 units, kind and surface 0: a broken crack's) while UP; a ball on it when it goes up FALLS (expected); one below the deck in its cell when it comes down is NOT lifted - the window's centre keeps the void while the ball's whole-px z is under the deck | the plan's VOID <-> FLOOR; the no-lift rule is the one thing a floor appearing round a falling ball could otherwise do - teleport it up - and the `under` scene with the red arm `lift` holds it |
+| D8 | a bridge is SWITCHED (lowered once its channel opens, then down for the attempt) or TIMED (`period P on N [seed S]`, a popspike's timer: DOWN while ((n + S) AND (P - 1)) < N); a timed rectangle's cells take seeds S, S + 1, ... so they turn one a step | the switched one pairs with P6; the timed one is the plan's "on a timer"; one pose change a step keeps a window's timed lanes to the event budget (128.19.10) and reads as the bridge folding cell by cell |
+
+A channel opening counts `bz_nfev`, the PICKUP's sound - the switch's click
+(no new sound, no resident byte).
+
+#### 128.41.2 The statements
+
+    uses gate
+    prop plate  <wx> <wy> channel ring|plus|box|cross
+    prop key    <wx> <wy> channel <C>
+    prop gate   <wx> <wy> channel <C> [along x|y]
+    prop bridge <wx> <wy> [<x1> <y1>] channel <C>
+    prop bridge <wx> <wy> [<x1> <y1>] period 32|64|128|256 on <N> [seed <S>]
+
+Each element is a family element (128.25.6.4): a FLAT FLOOR cell with OBS of
+its own. `along` is the way the path runs through a gate (its bars stand
+across it; `x` when not written). A bridge's rectangle is one element a cell
+(x1, y1 past the last, as a floor's `rect`); a timed bridge is usually laid
+with `float ... thick 0.5` (128.27.2) so it is drawn a thin deck.
+
+#### 128.41.3 The record and the slot
+
+| at | what |
+|---|---|
+| +16, +17 | FSB 0 (no state bit), the class 0 (ATTEMPT) |
+| +18 | the CHANNEL 0 - 3; a timed bridge `GT_TIMED` (FFh) |
+| +19 | a gate's way (0 x, 1 y); a bridge's DECK, its z0 (signed half units); else 0 |
+| +20 | a bridge's grid +2 byte (kind FLOOR, its surface), which DOWN writes back; else 0 |
+| +21 - +23 | a timed bridge's ON, MASK (P - 1), SEED; else 0 |
+| +24 - +31 | zero |
+
+The reader refuses any other class, an FSB, a channel past 3 (but a bridge's
+FFh), a way past 1, a timer that is not a popspike's, a stray byte, a bridge
+whose grid cell is not its deck with its +20 byte, or an element with no lane
+of 2 poses (none groups on GATE; a group's member is accepted).
+
+**The SLOT** (2 of `BZF_SLOT`'s 8 bytes): +0 the open channels, a bit each;
++1 the course's timed bridges (RESET's count, so STEP walks the records only
+on a course that has one).
+
+#### 128.41.4 The rule (binding: the guest and `bbcourse.GateFamily` do exactly this)
+
+- **RESET** (either class): +1 = the timed bridges.
+- **CONTACT** on a PLATE with the ball grounded and not shattering, or on a
+  KEY: its channel's bit already set, nothing; else set it, `bz_nfev` + 1,
+  `bz_fref` (the next step's full refill writes the window's gates and
+  bridges again) and every element of the channel (a plate, key, gate or
+  bridge whose +18 is it) MARKED by `bz_fmark`. On a gate or a bridge,
+  nothing.
+- **STEP**: +1 not 0, each timed bridge whose DOWN differs between `n` and
+  `n + 1` (`bz_nstep`'s low byte) MARKED, and `bz_fref` set when its cell is
+  in the window.
+- **POSE**: a plate 1 when its channel is open (PRESSED); a key 1 while it is
+  shut (0: taken); a gate 1 while shut; a bridge 1 while UP.
+- **CELL**, each gate or bridge cell in the window, written ABSOLUTE from the
+  record, so a cell the incremental refill (`bz_win9i`) kept is right whatever
+  it held: a shut gate's kind nibble WALL (surface kept); a bridge DOWN, its
+  z0 the deck and its +2 the record's +20 - unless it is the window's centre
+  and the ball's whole-px z (`[bz_gz + 1]`) is under 4 x the deck, which keeps
+  the UP form: z0 the deck less `GT_DROP` (6), +2 zero.
+
+`FAMV` folds the row and its consts (`GT_NCH`, `GT_DROP`, `GT_TIMED`).
+
+#### 128.41.5 The art
+
+Every element's lane is a MARK at its tile's depth clipped by what stands in
+front of it, refused when more than half of its pose 1 is hidden, and its
+top's centre must lie on a block:
+
+| kind | the picture (pose 0) | pose 1 | the lane |
+|---|---|---|---|
+| plate | a black-rimmed square of the channel's ink on the top with the plaque (UP) | the plaque inverted, black with a white glyph (PRESSED) | a crack's 2 x 2 blocks round the top's centre |
+| key | nothing (taken) | the KEY floating over the cell (the pickup icon's path): its bow a black frame round the plaque, its shaft and bit in the channel's ink | the icon's bounds |
+| gate | a black GROOVE across the top (open) | the GRILLE standing across the path (shut): black posts and rails, bars black and the channel's ink, 15 x 10 px, the plaque in its middle | its bounds: 2 x 3 blocks |
+| bridge | the deck: a black seam round the top (a trapdoor's outline) | UP: the top black inside the crack's 2 x 2 blocks (its `band` hole), a switched bridge's plaque in its middle | a crack's 2 x 2 (a run of bridge cells shares no block, so none groups) |
+
+So a channel's opening changes every element of it on one step; the walk's
+candidate list takes six and the rest wait a frame, never lost (128.19.10).
+
+#### 128.41.6 The knob build: GATE (`BZGATE=1`)
+
+`make BUILD=<tree> BZGATE=1 bonanzadisk` (a private tree; refused with every
+other pad-0 knob: `BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`, `BZWATER`,
+`BZARCH`, `BZSPIKE`, `BZBOOST` and the round's `BZTILT`, `BZTURN`, `BZHUMP`)
+adds `apps/bonanza/courses/gate.bbc` after the shipped courses and compiles
+the pathway through `courses/pathgate.sed`: pad 0 becomes GATE (a new game
+rests on it), its exit 0 to TRIAL, its exit 1 to FIRST at pad 6.
+
+**GATE "Gate Test"**: a start plate at 2 units with a pad for each ball and
+two switch plates (RING, BOX), and
+
+- THE RING GATE: a corridor east shut by two ring gates; the ring plate on
+  the start plate opens them; a goal (exit 1) behind;
+- THE KEY GATE: a lane south shut by two plus gates; the PLUS KEY in a nook
+  beside it; a goal behind;
+- THE TIMED DRAWBRIDGE: six thin cells over the void east, down 128 steps of
+  every 256 (2.3 s each way), each cell a step after the last; a goal across;
+- THE BOX DRAWBRIDGE: two thin cells west, up until the box plate is rolled
+  over; a goal across.
+
+#### 128.41.7 The refusals
+
+Each a `--selfcheck` string case (section `gate`, item 2, 20 cases): a plate
+with no channel; a channel of no glyph; a channel twice; a gate along z; a
+way on a plate; a `reset`; a bridge's period not a popspike's, `on` 0, a
+seed past the period; a channel AND a timer; a gate nothing opens (a channel
+with a gate or bridge and no plate or key); a plate that opens nothing; two
+keys of one channel; a gate or bridge on the start's cell; a gate on a ramp;
+on another prop's cell; no `uses gate`; `uses gate` and no element; a gate
+hidden behind a wall in front of it. Two timed bridges turning on one step in
+a window are refused with the popspikes' and gusts' rule.
+
+#### 128.41.8 The proofs
+
+**`--selfcheck --only gate`**: the twenty refusals; item 3, GATE's fifteen
+records (+18 - +23 the source's, the six timed cells' seeds 0 - 5, a lane of
+2 poses each, no FSB, ATTEMPT) and `FAMV` moving with each const; item 5, the
+four glyphs pairwise distinct, black on white; item 6, nine scenes for every
+ball on the model (`GT_SC`, steered to waypoints by `gt_keys`), each paired
+with its control - `ring` (over the ring plate and through its gates) against
+`ringshut` (from beside it: stopped at the gates), `key` against `keyshut`,
+`box` (over the box plate, across its bridge) against `boxup` (falls),
+`timed` (across while down) against `late` (it goes up under the ball), and
+`under` (rubber and glass fall in while it is up and keep falling when it
+comes down); and three red arms on the model, each red: `noopen`, `nowall`,
+`lift`.
+
+**`tests/bonanza_phys.py --check`'s unicorn half, `gt_host`**: GATE compiled
+from its source and played on the default build's image and parts, the
+guest's `bz_step` equal to the model at every step - the ball, the slot, the
+window `bz_nbr`, every element's POSE and its marks - in the 27 scenes (each
+scene for each ball), what each is for asserted on the model; red arms
+assembled from broken copies of the part's source, each of which must part
+from the model: `gtwall`, `gtmark`, `gtstep`, `gtlift`, `gtup`.
+Each red as MEASURED: `gtwall` (the WALL's two writes gone) parts at "the
+window" at step 147 of `ringshut`; `gtmark` "never drawn" at step 0 of
+`ring`; `gtstep` "never drawn" at step 122 of `timed`; `gtlift` parts at "the
+ball" at step 253 of `under` (lifted onto the deck); `gtup` parts at "the
+window" at step 100 of `boxup`. Every one of the 27 scenes is equal at every
+step and shows what it is for.
+
+#### 128.41.9 What it costs, and its home (MEASURED: `make bonanzadisk` against `cdb248a06`)
+
+| | |
+|---|---|
+| the part, `bzf-gate.bin` | **515 bytes** (`paras` 33), the header 24, RESET, CONTACT (with the channel's marking walk), STEP (a popspike's turn test), POSE, CELL (the window's offset in `gt_win`, shared with STEP) and the helpers |
+| resident | **0 bytes of code**; the image `bonanza.bin` 50,036 -> **50,037 (+1)**: `BZ_FTAB`'s byte for ID 13; bss **+0** (the slot is `bz_fsl`'s, no `bz_fst` byte) |
+| the bundle and the package | `bzfbun.bin` 30,864 -> **31,392 (+528, the part's 33 paragraphs)**: the RAM every play pays, a course naming it or not; `BONANZA.O88` 121,892 -> **122,190 (+298)**; `bonanza360.img` 128 clusters either way |
+| a step, a course naming GATE | PREDICTED (counted at the 8088's clocks and fetch floor, not measured): STEP's dispatch and slot test about **0.15k** on a course with no timed bridge; with one, a walk of the course's records about **40 clk a record** plus about **0.15k a timed bridge**; CONTACT on a plate or key about 0.1k (once open), its opening once a walk of the records (about 50 clk a record); CELL at every refill a walk of the records (about 45 clk a record) plus about 0.2k a gate or bridge cell in the window |
+| a course without GATE | nothing (no hook is called for a family the course does not name) |
+| the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway and the title byte for byte as before (MEASURED, `cmp` against the base tree): no identity and no demo moved |
+
+#### 128.41.10 Open questions for the owner
+
+1. LATCHING (D3): plates and keys open for the attempt. A TIMED gate (open
+   N seconds after a plate, then shut - and so a rule for a gate closing on a
+   ball: refuse the close while the ball's centre is in it, as the bridge
+   refuses the lift) is the natural second step if courses want a race.
+2. The drawbridge's art: an UP cell shows a black hole in the middle of its
+   top (the crack's band, a 2 x 2-block lane) with its deck's corners left
+   drawn - the price of a lane a cell that no neighbour's shares. A whole-top
+   hole needs group lanes and a timed run of them changes too many lanes on
+   one step (`GRP` lanes counted per member, 128.32.7: refused at 7).
+3. A warning pose before a timed bridge goes up (a crack's hairline for its
+   last quarter second) - one more pose, a few bytes; not built.
+4. Four channels a course, told apart by glyph: enough?
+
+### 128.42 The SEE-SAW: a tilt plate the ball's weight tips (the props round's P9, 2026-11-17; BUILT on `bb-tilt`)
+
+The props plan's P9 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)):
+*"the tilt is cell slopes (2 - 3 poses through CELL); the floor moving under a
+resting ball is the lift's carry adapted, not new physics"*. The props round
+fixed this family's ID (14), its kinds (from `FAM_K0 + 64`, 80), its knob
+(`BZTILT=1`), its art code (14) and this section's number; 13 (the GATES and
+the DRAWBRIDGE, 128.41) is another branch's, so on this branch ID 13 is a GAP
+`BZ_FTAB` fills with 0FFh. Figures are MEASURED unless marked PREDICTED.
+
+#### 128.42.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `seesaw`, ID 14, two kinds: **80** `seesaw` (the PLATE, a record a plate) and **81** `seesawlane` (a LANE of one, made by the tool), hooks RESET, STEP, POSE, CELL, home **`resident`** | the owner's default for a new family (128.25.6.9) |
+| D2 | **three POSES**: 0 its REST (one end down), 1 FLAT, 2 its other end down; each a set of SLOPE cells (sx or sy 1 or -1, z0 continuous across the plate) written into the window by CELL | the plan's "2 - 3 poses"; FLAT is a real pose, not only a transit, so the tip is SEEN (two lane changes, never one jump of 2 units) and a plate the ball leaves mid-tip simply stays level |
+| D3 | **what tips it: the ball's WEIGHT**, the classic see-saw - grounded on one HALF of the plate, that half goes DOWN. From an END pose after `TL_DW[ball]` steps on the half: **steel 2 (0.04 s), rubber 8 (0.15 s), glass 28 (0.51 s)** - steel is heavy, glass is light; from FLAT on after `TL_TS` = 4 steps (0.07 s), any ball | the brief's own suggestion ("steel tips it faster, glass lighter"), and affordable: the slot's count and a compare. A TIMER see-saw was the other choice; weight makes it a puzzle the player solves with the ball they carry (128.42.7: glass reaches a ledge the others tip away) |
+| D4 | **nothing feels slow**: the whole tip, end to end, is 6 steps for steel (0.11 s), 16 for rubber (0.29 s), 36 for glass (0.66 s) - glass's lag is the point of glass, and is felt as lightness, not as waiting | the owner's rule |
+| D5 | **the ball when the pose changes under it: CARRIED, always** - the step that changes the pose sets the grounded ball's z to the new floor at its point (16 z0 + s w, in quarter px), up or down. Never a fall, never a landing, never through the floor | the lift's carry (128.12.6.4) adapted: the lift adds its rise to z; a plate's floor is known exactly at the ball's point, so z is SET. MEASURED on the unicorn: `gate-glass` rides the plate 8 px down in one step with no landing event; `tlcarry` (the carry left out) goes red |
+| D6 | only a GROUNDED, whole ball tips a plate (`bz_air` 0, not shattering); an airborne ball weighs nothing; a ball exactly on the pivot line tips nothing | so every pose change has the ball ON the plate, which is what makes D5's carry always defined |
+| D7 | a plate's state is a BYTE of `bz_fst` (its pose), class **RESPAWN**: a respawn (a fall, a shatter, a RETURN) puts every plate back at rest, and RESET marks every lane | a puzzle the player can always restart; and NO TRAP never meets a plate left tipped the wrong way |
+| D8 | **the lanes are the picture's CHANGE**: the tool renders the whole picture with the plate in each pose (every other plate at rest), takes the pixels that differ from the rest picture, and cuts their blocks into lanes (`cover_blocks`, none on another prop's lane block); each lane a record of kind 81 naming its plate, of 3 poses | a plate is 2 - 6 cells, far past one 32 x 24 lane; the change is exact by construction (the same renderer draws every pose), on both cards |
+| D9 | **a plate's lanes all turn on one step**: at most `TL_LANES` (6) a plate, and the window bound counts them all (`_tilt_chg`: the most of one plate's lanes meeting a window, in place of the 1 the event lanes count, 128.19.10) | the window's `WIN_CHG` 6; the test course's plates cut into 5, 6 and 4 lanes - so a course with clock digits in the same window refuses a 6-lane plate there (the TILT course carries no clock for that reason) |
+| D10 | **the art**: the plate a THIN slab (its faces 4 px over the void, `float`'s machinery), the floor's own tiles at their slopes; under its pivot's front end a FULCRUM, a white wedge outlined black, drawn just behind the plate's pivot cell so the plate in any pose lies over it | readable on both cards: the slab is the floor's tile inks (the course's own), the fulcrum white on black. LOOKED AT in the previews (`--png`, all three poses) and once on MartyPC, CGA and Hercules (the `BZTILT=1` tree: rubber up the LEDGE's plate, the plate tipping under it, and back over the pivot) |
+| D11 | **visibility** (the owner's rule): the plate is a floor, drawn whole in every pose; the fulcrum is the one part that never moves, so the mechanic is seen with the ball nowhere near | nothing new hides the ball |
+
+#### 128.42.2 The statement
+
+    uses seesaw
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+]
+
+The plate covers `x0 <= wx < x1`, `y0 <= wy < y1` (a floor rect's
+convention), tilting ALONG its axis; its length along it is **2, 4 or 6**
+(even: the pivot lies on a cell edge, so FLAT is a whole half unit) and its
+width across **1 or 2**. `pivot` is the plate's height at the pivot (the FLAT
+pose's), in units; `rest -` (the default) rests it with its MINUS end (low
+x or y) down, `rest +` its plus end. Pose P's slope is
+s = (1 - P), negated for `rest +`; its cell k along the axis is a slope cell
+at z0 = PZ + s (k - L/2) half units - so each cell rises half a unit along
+it, and an end moves a unit between REST and FLAT and two between the ends.
+
+The statement LAYS its own cells (at rest, NORMAL surface): a cell another
+statement lays, or another plate's, is refused.
+
+#### 128.42.3 The records and the slot
+
+| at | the plate (kind 80) | a lane (kind 81) |
+|---|---|---|
+| +2, +3 | its first cell (x0, y0) | its plate's first cell |
+| +16, +17 | FSB (a byte, a multiple of 8), class 1 RESPAWN | 0, class 0 |
+| +18 | NX, its cells along x | its PLATE's record |
+| +19 | NY | 0 |
+| +20 | `TL_FAXY` (1: its axis is y) OR `TL_FPLUS` (2: `rest +`) | 0 |
+| +21 | PZ (signed half units) | 0 |
+| +22 - +31 | 0 | 0 |
+
+Neither kind owns a cell: no OBS, no owner (the archway's precedent,
+128.39.3), and nothing else may be placed on a plate. The reader refuses any
+other class, an FSB not a byte's, a length that is not 2, 4 or 6 or a width
+not 1 - 2, a plate with a lane, a lane that is not 3 poses or names no plate
+on its anchor, and a plate cell in the grid that is not its FLOOR at rest
+(z0 and slopes) or carries OBS or SAFE.
+
+**The SLOT** (2 of `BZF_SLOT`'s 8): +0 the plate the count is for (its
+element + 1, 0 none), +1 the COUNT.
+
+#### 128.42.4 The hooks (binding: the guest and `bbcourse.TiltFamily` do exactly this)
+
+- **RESET**: the slot zeroed; every lane MARKED (`bz_fmark`) - the engine has
+  just cleared every plate's byte (RESPAWN), so each is back at rest.
+- **CELL**, every refill: every plate cell in the window written from its
+  plate's pose - +0 its z0 and +1 its slopes byte; kind, surface and flags
+  kept. Idempotent (written from the record), as a kept cell needs.
+- **STEP**, every step: the ball grounded and not shattering, its cell a
+  plate's - else +0 = 0. A plate not +0's: +0 it, the count 0. The ball's
+  place along the axis (whole gu) against the pivot's (16 x0 + 8 L): equal,
+  nothing; below, the TARGET is the pose with the minus end down (0 at
+  `rest -`, 2 at `rest +`), above, the plus end's. At the target: the count
+  0. Else the count one more, and at `TL_TS` (the plate FLAT) or `TL_DW[the
+  ball]` (at an end): the count 0 and the pose ONE toward the target - its
+  byte written, `bz_fref` set (the next step's window rewritten), every lane
+  of the plate MARKED, and the ball CARRIED: z = 16 z0 + s w quarter px (w
+  its gu in the cell along the axis), the fraction its quarter pixels.
+- **POSE**: a lane's plate's pose.
+
+`Physics` needs nothing new: the carry is z, which the grounded step 6
+already takes as the floor (`gz = h`), and the window is the family
+snapshot `_FamPhysics` already keeps.
+
+#### 128.42.5 The picture, the lanes and the bounds
+
+The compile draws the whole op list once more for the plates in FLAT and in
+their other end (`_ops_of`, every op family the picture has, so a pose is
+drawn exactly as the rest is), and the picture's top and bottom take all
+three. `tl_lanes`, after every other lane is placed: for each plate the
+picture in poses 1 and 2 against the rest picture, the changed pixels, their
+blocks cut into lanes of at most 4 x 3 blocks (`cover_blocks`, the
+pathway's reveal cutter) refusing a block another prop's lane holds; more
+than `TL_LANES` lanes refused ("a shorter plate"). `check_bounds` counts a
+plate's lanes meeting a window as that many pose changes on one step.
+
+The fulcrum (`tilt_post_pix`): a wedge 12 px tall, 3 px wide at the apex and
+11 at the foot, white outlined black, under the pivot line's FRONT end, its
+apex at the FLAT plate's underside (`TL_THICK` = 4 px under PZ); a 'post' op
+keyed just before the plate's pivot cell (`tilt_ops`). `_hack notiltpost` is
+its control.
+
+#### 128.42.6 The reach and the refusals
+
+The reach takes every plate in its FLAT pose and in its other end's as well
+as at rest (the `tilt` form, `reach_forms`), unioned cell by cell: the
+occluders, the bounds and every proof see all three. `_hack noforms` is the
+control (`--selfcheck` item 6: the ledge plate's high end's `zlo` 16 px with
+the forms, 28 without).
+
+Refused, naming the line (`--selfcheck` section `tilt`, item 2): a length
+other than 2, 4 or 6; a width other than 1 - 2; a cell already laid; two
+plates on one cell; no `along`; a `rest` that is neither `-` nor `+`; a plate
+without `uses seesaw`; a plate whose change cuts into more than `TL_LANES`
+lanes. (Nothing else may be placed on a plate's cell: the one-prop-a-cell
+claim.)
+
+#### 128.42.7 The test course: `BZTILT=1`, TILT
+
+`apps/bonanza/courses/tilt.bbc`, TILT "See-saw Test", on no shipped disk: the
+knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathtilt.sed`: FIRST moves to pad 6, TILT's exit 1 goes to it), refused
+with every other pad-0 knob (`BZSHAPES`, `BZMAGNET`, `BZWIND`, `BZRAIL`,
+`BZWATER`, `BZARCH`, `BZSPIKE`, `BZBOOST`, and the round's `BZGATE`,
+`BZTURN`, `BZHUMP`):
+
+    make BUILD=build/tilt BZTILT=1 bonanzadisk
+
+A start plate at 2 units with a pad for each ball; then
+
+- **THE LEDGE** (east): a 4 x 1 plate along x, pivot 3, resting with its near
+  end at the start plate's 2 units and its far end at 4, beside a LEDGE at
+  3.5 units and its goal (exit 1). Steel and rubber tip it as soon as they are
+  past the pivot, and the ledge becomes a 1.5-unit wall; GLASS, light, rolls
+  off the top onto the ledge first (the plate FLAT by then: the ledge 4 px up,
+  a climb). One see-saw used to reach a ledge, and a glass-only gate.
+- **THE GATE** (south): a 1 x 4 plate along y, pivot 3, resting with its far end
+  UP, 2 units over the far plate - a wall to roll at. Roll up it (steel needs
+  a run-up: it does not climb a slope from rest) and past the pivot the plate
+  lays its far end down at the far plate's height, the ball carried down
+  with it, on to the goal (exit 0). Every ball; glass tips it late, near the
+  top, and rides it down.
+- **THE ROCKER** (west): a 2 x 2 plate across a gap to a one-cell dead end,
+  `rest +`: every ball rocks it, each way.
+
+No clock: a 6-lane plate and a clock's digits in one window are over
+`WIN_CHG` (D9). No shipped course, demo or identity moves (MEASURED, `cmp`).
+
+#### 128.42.8 The proofs (BUILT, MEASURED red)
+
+`--selfcheck --only tilt`: the nine refusals (item 2); TILT's records, cells
+at rest and lanes - 3 plates, 15 lanes, 5 / 6 / 4 a plate, each 3 poses
+(item 3); the reach and its control (item 6); the fulcrum and its control
+(item 10); six scenes on the model - glass reaches the ledge's goal, rubber
+and steel tip the plate and do not, steel and rubber through the gate to its
+goal, the rocker taking all three poses (item 11) - and two model red arms,
+`nocarry` (the carry left out: steel lands on the gate) and `wrong` (the
+weight read off the other half: the ledge plate LIFTS steel onto the ledge).
+
+`tests/bonanza_phys.py --check`'s unicorn half (`tilt_host`): the guest's
+`bz_step` with the build's bundle against the model at EVERY step - the
+ball, the slot, `bz_fst`, `bz_fref`, the window, each lane's pose through
+`bz_ltrue` and its mark - on TILT compiled from the tree: `ledge-glass`,
+`ledge-steel`, `ledge-rubber`, `gate-steel`, `gate-glass`, `rocker`,
+`rest-respawn`, each also judged for what it is for. Red arms, the part
+assembled from a patched `seesaw.asm`: `tlcell` (CELL's entry 0: the window),
+`tlcarry` (the carry's z not written: the ball), `tlmark` (no lane marked:
+never drawn), `tlfref` (no refill asked), `tlweight` (glass weighed as steel:
+the ball), `tlrst` (RESET's entry 0: the respawn's lanes never marked) - all
+six go red.
+
+#### 128.42.9 What it costs (MEASURED: `make bonanzadisk` against `cdb248a06`)
+
+| | |
+|---|---|
+| the part `bzf-seesaw.bin` | **648 bytes**, `paras` 41 |
+| BONANZA's image | 50,036 -> **50,038 (+2)**: `BZ_FTAB`'s rows for IDs 13 (a gap) and 14 |
+| its bss | **+0** (the slot is `bz_fsl`'s; the state `bz_fst`'s) |
+| the RESIDENT BUNDLE, RAM | 30,864 -> **31,520 (+656)**: every play's RAM, a course naming it or not |
+| `BONANZA.O88` | 121,892 -> **122,298 (+406)** |
+| every shipped course part, demo and the title | unchanged, byte for byte (`cmp`) |
+| a step, a course naming it (PREDICTED, counted at the 8088's clocks, not measured) | STEP: the dispatch and the airborne test about 0.1k on an airborne ball; grounded, a walk of the records - about 35 clocks a record, about 0.8k on TILT's 22 - and about 0.3k more on a plate, 0.6k on the step it tips (the marks, the carry). CELL, a refill: about 35 clocks a record and about 0.5k a plate whose cells it tests, about 2k on TILT |
+| a course without it | nothing (no hook is called for a family the course does not name) |
+
+The final pass measures the per-step cost (`bonanzaphys` / `bonanzaperf` on
+a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
+
+#### 128.42.10 Open questions for the owner
+
+1. **The weights**: steel 2, rubber 8, glass 28 steps on a half before a plate
+   moves (and 4 from FLAT). Glass's 28 is what the LEDGE needs (24 left it 2
+   gu short of the ledge on the model); the owner's to judge on TILT.
+2. **The look**: the plate is the floor's own tiles on a thin slab, with a
+   white fulcrum; a plate of its own colour (a crystal plank?) is an art
+   choice.
+3. **Steel and slopes**: steel does not climb a 1-in-1 plate from rest (its
+   force is under the slope's), so a see-saw it must cross wants a run-up -
+   the GATE has one. A gentler slope is the tool's one constant if wanted.
+4. **The lanes**: a 4-cell plate is 5 - 6 lanes turning on one step, a whole
+   `WIN_CHG`; a clock's digits in the same window are refused with it. A
+   lighter picture (no faces on a tilting plate) would cut lanes.
+5. **A tilting plate and the occluders**: the occluder records are cut from
+   the rest picture and the three poses' reach; a ball BEHIND a plate whose
+   near end has risen could be drawn over it for a frame or two (not seen on
+   the test course, whose plates have nothing behind them).
+
+### 128.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P11): *"TURNTABLE,
+quarter-turn: half filled, a quarter turn every second or so, the cells
+switching; it does not carry the ball (a cell that turns to a gap drops
+you)"*, several SLOW lanes. NOT the plan's tabled smooth turntable (one that
+rotates continuously and CARRIES the ball): nothing here moves the ball. The
+props round fixed this family's ID (15), its kinds (from `FAM_K0 + 72`, 88),
+its art code (15 in `famv`), its knob (`BZTURN=1`) and this section's number
+before it was built beside GATES (13, 128.41), the SEE-SAW (14, 128.42) and
+HUMPS (128.44); on this branch IDs 13 and 14 are a GAP (`BZ_FTAB` fills them
+with 0FFh). **No resident engine code, no surface, `BZ_PHYSV` unmoved.**
+Written PLANNED before the code; figures below are MEASURED unless marked
+PREDICTED.
+
+#### 128.43.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `turntable`, ID 15, one kind `turntable` (`TT_K` = 88, `BZ_FK_TURNTABLE`), hooks STEP, POSE, CELL, home `resident`, NO slot (stateless) | the owner's default home; everything a cell needs is in its record and the step counter |
+| D2 | the FOOTPRINT is **2 x 2 or 3 x 3** (`size`); a 3 x 3's centre is the **PIVOT**, a plain floor that never switches | a 2 x 2 is the smallest table that turns; a 3 x 3 turns round a fixed middle, which gives the crossing its best shape (below). 4 x 4 and up: refused - a bigger table is more lanes for the same idea, and its sweep (D5) would outlast a turn's warning |
+| D3 | **HALF FILLED, and it must switch**: 2 of a 2 x 2's 4 cells, 4 of a 3 x 3's ring of 8 (the pivot a floor); a fill a quarter turn leaves unchanged (a 3 x 3's four corners, or its four edges) is refused | the owner's "half filled"; a table that does not switch is not this prop. Allowed: every other half (a 2 x 2's domino or diagonal; a 3 x 3's half disc, an L, a zigzag...) |
+| D4 | the **PERIOD**: a quarter turn every `quarter` Q = **64 steps (1.07 s) by default, or 32 (0.53 s)**; `seed` its phase (0 - 4Q - 1); `turn cw|ccw` | "every second or so"; 4Q divides the step counter's low byte's 256, so one byte times every table and two tables of one course stay in a fixed phase forever |
+| D5 | **the turn SWEEPS**: a table's cells change one a STEP round its ring in the way it turns (cell `(0, 0)` first; a 2 x 2's turn takes 4 steps, 67 ms, a 3 x 3's 8, 133 ms) - each cell's record carries the table's seed plus its place in the sweep | it reads as TURNING rather than blinking; and a table then changes at most ONE lane a step, so it costs the window's `WIN_CHG` (6, 128.19.10) one pose change however big it is - a 3 x 3 half disc changing its 4 cells on one step would leave only 2 for everything else, and with a clock (2 digits) and the event lanes (1) no 3 x 3 could be on screen at all |
+| D6 | a **WARNING**: a floor whose next rotation is a gap shows its SEAM (the hole's outline, dotted) for the last `warn` W = **16 steps (0.27 s)** of a quarter (0: none; refused at Q or more) | fair play: nothing drops the ball without a visible tell first; 16 steps is long enough to read, short enough that nothing feels slow (a quarter is still 64) |
+| D7 | **it carries nothing**: a cell that turns into a GAP is a NEAR VOID (the membrane's, 128.38: the floor less 3 units, kind and surface 0, its flags kept), so a ball on it - rolling or at rest - falls and respawns | the plan's rule; no carry physics, so no resident change |
+| D8 | **a hole that closes does not lift a ball out of it**: the window's CENTRE stays a void while the ball's whole-px z is under the cell's top | without it the engine's landing test (`gz <= h`) would pop a ball that fell into a hole back up 1 - 3 units the step the hole closed (SEEN on the model: rubber run into C's closing hole crossed to the goal plate) |
+| D9 | the ART (redone after the owner's first look, 2026-11-18: *"a circle on top of squares/columns" won't work*): the table is ONE OBJECT, a crystal PLATTER. Its cells (the pivot's too) are NOT drawn as tiles - no checker, no columns - and a geometry op (`tt_ops`, arch_ops' way: 'post' ops keyed each cell's s, so the occluders lay its front edge over a ball that falls through) draws in their place a rounded-square platter (squircle, exponent 4): a pinwheel of eight facets, white and cyan in turn with magenta seams, round a white gem HUB ringed black; a bevelled rim lit on the back left; a black outline; a FRONT EDGE half a unit thick (magenta, solid left, dithered right, as every wall face); a short SPINDLE under the hub. Each switching cell's lane holds pose 1 the SEAM (a dotted outline where a PORT will open) and pose 2 the open PORT (black, its far inner wall magenta, its near lip lit white) | on the Hercules cyan and magenta are one grey, so it reads as white facets, grey facets and black - a platter, not floor; the neighbours' faces hang into the space the cells left, as next to a glass tile |
+| D10 | VISIBILITY (the owner's rule): the platter is a thin slab (half a unit), so it hides only what is under it - a ball that drops through a port, which its front edge covers as a tile's face did; a port or seam more than half drawn over by geometry in front is refused | a mechanic is seen when the ball is not on it |
+
+#### 128.43.2 The statement
+
+    uses turntable
+    prop turntable <wx> <wy> size 2|3 fill <cells> [quarter 32|64] [seed <s>] [warn <steps>] [turn cw|ccw]
+
+`(wx, wy)` is the table's back corner (its smallest x and y). `<cells>` is
+the table's rows from the back (wy), each N cells along x: `o` a floor, `.` a
+gap, a `/` between rows optional (`oo/..`, `ooo/.oo/...`). Every cell of the
+table must be a FLAT FLOOR the course laid, on one height, on NORMAL ground;
+a 3 x 3's pivot too. One element is laid a SWITCHING cell (4 for a 2 x 2, 8
+for a 3 x 3), each claiming its cell (OBS, never SAFE) as every element does.
+
+A cell is a FLOOR after r quarter turns when the cell r turns BACK in the
+fill is (the turn: clockwise on the screen maps `(i, j)` to `(N - 1 - j, i)`,
+so +x - right and down - turns to +y - left and down). So `fill oo/..` turns
+its floors from the back row to the right column, the front row, the left
+column, and round again.
+
+#### 128.43.3 The record
+
+| at | what |
+|---|---|
+| +16, +17 | FSB 0, the class `ATTEMPT` (no state bits: STATELESS) |
+| +18 | TZ: its floor's z0 (half units, signed) |
+| +19 | SEQ: bit r set when it is a FLOOR after r turns (r 0 - 3), the nibble written TWICE so bit r + 1 is the next rotation's with no wrap |
+| +20, +21 | QSH (Q = 1 << QSH: 5 or 6) and QMASK (Q - 1) |
+| +22 | SEED: the table's seed plus the cell's place in the sweep, mod 4Q |
+| +23 | WAT = Q - W: the step of a quarter its warning starts (Q: none) |
+| +24 - +31 | zero |
+
+`read_part` refuses any other (a SEQ that does not switch, a timer that is
+not one of the two, a lane that is not of 3 poses), and a grid cell that is
+not a NORMAL FLAT FLOOR at TZ with OBS, not SAFE.
+
+#### 128.43.4 The rule (binding: the guest and `bbcourse.TurnFamily` do exactly this)
+
+With n the step counter's low byte (`bz_nstep`) and m = (n + SEED) AND 255:
+the rotation r = (m >> QSH) AND 3, the step of the quarter t = m AND QMASK;
+the cell's POSE (`tt_pose`) is **2, a GAP**, when SEQ's bit r is clear; **1,
+the WARNING**, when it is set, bit r + 1 is clear and t >= WAT; **0, a FLOOR**,
+otherwise.
+
+- **CELL** (every refill): each element in the window that is a GAP, or is
+  the window's CENTRE with the ball's whole-px z (`[bz_gz + 1]`) under 4 TZ,
+  is written a NEAR VOID - z0 TZ less 6 half units, its kind byte 0 (VOID,
+  surface 0), its slope and flags kept; every other element in the window is
+  written back a FLOOR (z0 TZ, kind byte `KIND_FLOOR`): the window KEEPS the
+  cells it already holds when it moves one cell (`bz_win9i`), and a cell the
+  centre's rule made a void must not stay one once the centre has left it
+  (SEEN on the unicorn: the model, which refills from the grid, and the guest
+  parted at step 94 of `tt-fallen` until the write-back).
+- **STEP** (every step): each element whose pose differs between n and n + 1
+  is MARKED (`bz_fmark`) and, in the window, asks for the refill (`bz_fref`).
+  A pose can change only where t of n + 1 is 0 (the turn) or WAT (the
+  warning), so the part tests that first and every other element costs the
+  one test (`ttfast` is that filter's red arm).
+- **POSE**: the element's pose.
+
+No RESET (nothing to clear), no CONTACT, no ENTER. A course without the
+family runs exactly the code it ran.
+
+#### 128.43.5 The refusals, the art and the window
+
+Refused, naming the line (`--selfcheck` section `turn`, item 2, sixteen
+string cases and the lane bound): a size not 2 or 3; a fill of the wrong
+length or with another character; a fill not half filled; a 3 x 3 whose
+pivot is a gap; a fill a quarter turn leaves as it was; a quarter not 32 or
+64; a seed not under 4Q; a warning not under Q; a turn not `cw` or `ccw`; a
+table on two heights, off NORMAL ground, over the void or a ramp (a cell not
+a FLAT FLOOR); a 3 x 3 whose pivot is not a FLAT FLOOR at the table's height
+or is another prop's; a cell another prop holds; the kind without `uses
+turntable`; a table's top centre x not on a block (the origin's x a multiple
+of 8, as a popspike's); a hole or seam more than half hidden.
+
+**The window's change bound** (128.19.10): a turntable lane is SLOW; its share
+of a window's pose changes on one step is counted EXACTLY - every turntable
+lane meeting the window that changes on the same step, at the worst of the 256
+steps the low byte times (`_tt_changes`) - beside the rotors', the clock
+digits' and the event lanes' 1 (turntable lanes are taken out of that 1), and
+refused past `WIN_CHG`. With the sweep (D5) a table costs 1; two tables in one
+window cost 2 only when their sweeps overlap, so a course phases them apart
+(TURN's two chain tables: at most 1 between them, MEASURED by item 4). The
+`seven tables turning on one step` case is refused.
+
+#### 128.43.6 The reach
+
+Every element's kind takes the `void` form (GLASS's, 128.25.18): the reach is
+taken a second time with every switching cell a NEAR VOID and the two unioned,
+so the occluders, the bounds and every proof see both (TURN's switching cells'
+zlo -8 px, their floor 16; `noforms` the control, item 6). A crossing's TIMING
+is not the reach's: the reach says the far side is reachable, the scenes
+below say when.
+
+#### 128.43.7 The test course: `BZTURN=1`
+
+`apps/bonanza/courses/turntable.bbc`, TURN "Turntable Test", on no shipped
+disk: the knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathturn.sed`, BZBOOST's shape; refused with every other pad-0 knob,
+BZGATE, BZTILT and BZHUMP's names included), so Play Game, Enter plays it:
+
+    make BUILD=build/turn BZTURN=1 bonanzadisk
+
+A start plate at 2 units with a pad for each ball and the finish (exit 0)
+beside the start. East, THE CHAIN to exit 1: table A (`10 6`, a domino
+`oo/..`), a one-cell ISLAND, table C (`13 6`, the same domino, seed 96: a
+quarter and a half out of phase with A), the goal plate. Rolled from rest at
+A's edge with the key held, every ball crosses A in about a quarter of the
+cycle's start times and falls in the rest (MEASURED on the model: rubber, steel and
+glass 8 of 32 start times each); from the island C opens at another time, so
+the crossing is two timed rides with a wait between. South, THE DISC: a 3 x 3
+(`5 10`, `ooo/.oo/...`, seed 32) whose middle column is never open end to
+end - step on, wait on the PIVOT for the turn, step off (a dead end). No
+shipped course, demo or identity moves (MEASURED, `cmp`).
+
+#### 128.43.8 The proofs
+
+- `--selfcheck --only turn`: the refusals (item 2); TURN's records and cells
+  (item 3: 16 switching cells, normal FLAT FLOORs at TZ with OBS, not SAFE,
+  each a 3-pose lane, the pivot no element); the SWEEP (item 4: no table
+  changes two lanes on one step; the chain's two tables at most 1 together);
+  the reach's void form and its control (item 6); the art and its control
+  `nottart` (item 10); the scenes on the model (item 11: A rolled on early
+  falls; on time rubber, steel and glass cross; C from the island; steel onto
+  the pivot; the fallen ball falls on) and two model red arms, `novoid` (a gap
+  left a floor: the early roll crosses) and `fallen` (D8 off: the fallen ball
+  is lifted out and runs on to the goal plate) - both MEASURED red.
+- `tests/bonanza_phys.py --check`'s unicorn half (`tt_host`): the guest's
+  `bz_step` with the build's bundle against the model at EVERY step - the
+  ball, the window, `bz_fref`, every element's pose through `bz_ltrue` and its
+  mark - on TURN compiled from the tree: `tt-early`, `tt-ontime`, `tt-steel`,
+  `tt-glass`, `tt-island`, `tt-pivot`, `tt-fallen`, `tt-rest` (glass at rest
+  on a cell that opens under it), each also judged on the model for what it is
+  for. Red arms, the part assembled from a patched `turntable.asm`: `ttcell`
+  (CELL never called: the window), `ttfallen` (D8 off: the ball), `ttkept`
+  (no floor written back: the window), `ttmark` (a change unmarked: never
+  drawn), `ttwarn` (no warning: the pose), `ttfast` (the filter skipping the
+  turn: never drawn), `ttfref` (no refill on a change).
+
+#### 128.43.9 What it costs
+
+MEASURED: `make bonanzadisk` against the base `cdb248a06` (a clean tree of it,
+built the same way), and the knob tree `make BUILD=build/turn BZTURN=1
+bonanzadisk`.
+
+| | before | after | |
+|---|---|---|---|
+| the part `bzf-turntable.bin` | - | **315 bytes**, `paras` 20 | 296 packed (lzb) |
+| BONANZA's image | 50,036 | 50,039 | **+3**: `bz_ftab`'s rows for IDs 13 and 14 (a gap: GATES', the SEE-SAW's) and 15 |
+| its bss | 12,145 | 12,145 | 0 (the knob tree 12,147: its courses' tables) |
+| the RESIDENT BUNDLE, RAM | 30,864 | 31,184 | **+320, every play's RAM and the window's** (the part in 20 paragraphs) |
+| the bundle, packed (lzb) | 5,363 | 5,541 | +178 |
+| `BONANZA.O88` | 121,892 | 122,118 | +226 |
+| every shipped course part, demo, sound, title and pathway file | | | unchanged, byte for byte (`cmp` of `build/bonanza-art/BZ*.BIN`) |
+
+**Per step (PREDICTED, not measured on MartyPC):** a course that does not
+name the family pays nothing new. Naming it, STEP walks the records: about 50
+clocks a record of another kind, about 110 a turntable cell on a step where it
+cannot change (the filter: one add, one and, two compares), and on the step a
+cell turns or warns about 300 for the two poses, 314 for `bz_fmark` and 60 for
+the window - so on TURN (16 cells among 27 records) about 2.3k clocks a
+common step and about 3k on a step a cell changes (one a step a table: the
+sweep). CELL on a refill: about 50 clocks a record and about 250 a turntable
+cell in the window. The refills STEP asks for: one a step during a sweep or a
+warning start whose cell is in the window - at most 4 (a 2 x 2) or 8 (a 3 x 3)
+refills a quarter turn, plus the warnings. The final pass's `bonanzaphys` /
+`bonanzaperf` rows on a `BZTURN=1` tree are where these become MEASURED.
+
+#### 128.43.10 Open questions for the owner
+
+1. **The port's size.** A gap is an open PORT (14 x 7 px) in the middle of its cell while the whole cell is a void:
+   the 2 x 2-block lane keeps a table's neighbouring lanes apart. A whole-cell opening would need GROUP lanes
+   (128.32) - a 2 x 2's four cells one group of 3^4 poses, a 3 x 3's ring far past `GRP_QMAX` - so it is not
+   built. The platter's outer corners are trimmed a few px (the squircle) while the cells are whole squares.
+2. **The period and the warning**: 64 steps a quarter and a 16-step seam are
+   the defaults to judge on TURN; `quarter 32` is the fast table.
+3. **The sweep** (D5) is 4 or 8 steps; a table that turns in ONE step would
+   cost its cells' count of `WIN_CHG` and is not offered.
+4. **A shipped course** that uses it.
