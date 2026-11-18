@@ -4768,3 +4768,85 @@ art, six model scenes, two model red arms red), `tilt_host` under unicorn
 green; `t_bits` wanted the part's flag equates local), and one MartyPC look on
 the CGA and the Hercules (rubber tipping the LEDGE's plate and back). **Not
 run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-17 (the QUARTER-TURN TURNTABLE: holes that go round)
+
+P11, built as a family on `bb-turn` (ID 15, SPEC.md 128.43). The plan's words
+were "half filled, a quarter turn every second or so, the cells switching; it
+does not carry the ball", and the smooth carrying turntable stays tabled.
+
+- **The shape of the data.** Every switching cell is its own element (one
+  record a cell, as SPIKES lays a rect), and a cell needs only FOUR BITS of
+  pattern: is it a floor after 0, 1, 2, 3 quarter turns. The tool works those
+  out from the `fill` (`oo/..`) by turning it backwards; the part never
+  rotates anything. Written twice in the byte, the next rotation's bit is one
+  shift away with no wrap, so the WARNING (a floor about to open) costs one
+  more test.
+- **The sweep, found by the budget.** The first version turned a whole table
+  on one step. The window's change bound (`WIN_CHG` 6) then priced a 3 x 3
+  half disc at 4 changes a turn, so with a clock (2 digits) and the event
+  lanes (1) no 3 x 3 could share a screen with anything. Offsetting each
+  cell's phase by its place round the ring makes the turn SWEEP - one cell a
+  step, 67 ms for a 2 x 2, 133 for a 3 x 3 - which costs a table ONE change a
+  step and, it turns out, reads more like turning than a blink does. The
+  count is now exact (`_tt_changes`: the worst of the 256 steps), not a sum of
+  worst cases.
+- **The ball under a closing hole.** On the model a ball that had fallen a
+  unit into a hole was popped back up when the hole closed - the landing test
+  (`gz <= h`) does not care how the ball got under the floor. So the window's
+  CENTRE stays a void while the ball is under its top. The unicorn then found
+  the guest's half of the bug the model cannot have: the window KEEPS its
+  cells when it moves one cell (`bz_win9i`), so the void stayed in the cell
+  the ball had just left, and the guest parted from the model at step 94.
+  CELL now writes every turntable floor back too (+2 bytes net); red arm
+  `ttkept` holds it.
+- **The art, black and white.** On the Hercules cyan and magenta are one
+  grey, so the table is told by a black RING and a white HUB painted on its
+  tops, and each cell's lane (a popspike's 2 x 2 blocks) holds a black HOLE or
+  a dotted SEAM. A whole-cell hole would need group lanes; the lens is the
+  crack's idiom, and it is the owner's question whether it is big enough.
+- **TURN.** The chain - two dominoes a quarter and a half apart with a
+  one-cell island between - and the disc, whose middle column is never open
+  end to end, so a crossing waits on the pivot. On the model every ball
+  crosses A from 8 of 32 start times and falls from the rest.
+- **Bytes.** The part 315 (20 paragraphs); the bundle +320 RAM, +178 packed;
+  `BONANZA.O88` +226; the image +3 (`BZ_FTAB` 13 - 15); bss 0; every shipped
+  course, demo and identity byte for byte as before.
+- **LOOKED AT** once on MartyPC, CGA and Hercules (`build/turn`): the tables
+  at rest through a turn (holes and seams moving round the hubs), and rubber
+  held east across A - falling through, respawning, crossing to the island on
+  the turn and falling into C. Readable on both cards.
+
+**Tested**: `make`, `make bonanzadisk`, `make BUILD=build/turn BZTURN=1
+bonanzadisk`, `--selfcheck --only turn` (16 refusals and the bound, records,
+sweep, reach, art, model scenes; red arms `novoid`, `fallen` red), `tt_host`
+(eight scenes equal at every step; red arms `ttcell`, `ttfallen`, `ttkept`,
+`ttmark`, `ttwarn`, `ttfast`, `ttfref` all red), `checkdocs`. **Not run**: soak
+rows, `test-full`, the whole `bonanza_phys --check`; the per-step cost is
+PREDICTED.
+
+## 2026-11-18 (the TURNTABLE becomes a platter)
+
+The owner, from the screenshots: *"The turntable art won't work like this; as a
+circle on top of squares/columns. Can we remove the squares/columns, and make
+the art fit in to the art style of the rest of the props better?"*
+
+- **Not tiles any more.** The tables' cells (and a 3 x 3's pivot) join the
+  UNDRAWN set glass and the guard rail already use, so the renderer draws no
+  top, no checker and no column for them; the neighbours' faces hang into the
+  space as beside a glass tile. In their place `tt_ops` adds the platter as
+  geometry ('post' ops keyed each cell's s, the archway lintel's way), so the
+  occluders still lay its front edge over a ball that drops through a port.
+- **The look.** A rounded square (squircle, exponent 4: it reads round but
+  covers its cells but for the outer corners' last few px), a pinwheel of
+  eight facets white and cyan in turn with magenta seams round a gem hub, a
+  bevel lit on the back left, a black outline, a half-unit magenta front edge
+  (solid left, dithered right like every wall face) and a short spindle under
+  the hub. A gap is an open PORT - black, its far inner wall magenta, its near
+  lip lit - and the warning its dotted seam. On the Hercules: white facets,
+  grey facets, black ports.
+- **What did not move**: the part (315 bytes), the bundle, the image, the lane
+  budget (a 2 x 2-block lane a cell, one change a step a table), the guest
+  (`tt_host`: eight scenes equal, every red arm red), every shipped course
+  (`cmp`). TURN's course part 18,997 -> 19,513.
+- **LOOKED AT** once on MartyPC per card, and the tool's previews of every pose.

@@ -2196,7 +2196,8 @@ def fam_host():
     bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.40)
     go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 128.41)
     to, tf = tilt_host(binp, lst, sym)             # THE SEE-SAW (SPEC.md 128.42)
-    return out + o_ + o2 + wo + ao + so + bo + go + to, fails + f_ + f2 + wf + af + sf + bf + gf + tf
+    tto, ttf = tt_host(binp, lst, sym)             # THE TURNTABLE (SPEC.md 128.43)
+    return out + o_ + o2 + wo + ao + so + bo + go + to + tto, fails + f_ + f2 + wf + af + sf + bf + gf + tf + ttf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,

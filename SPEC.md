@@ -285045,3 +285045,212 @@ a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
    the rest picture and the three poses' reach; a ball BEHIND a plate whose
    near end has risen could be drawn over it for a frame or two (not seen on
    the test course, whose plates have nothing behind them).
+
+### 128.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
+
+The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P11): *"TURNTABLE,
+quarter-turn: half filled, a quarter turn every second or so, the cells
+switching; it does not carry the ball (a cell that turns to a gap drops
+you)"*, several SLOW lanes. NOT the plan's tabled smooth turntable (one that
+rotates continuously and CARRIES the ball): nothing here moves the ball. The
+props round fixed this family's ID (15), its kinds (from `FAM_K0 + 72`, 88),
+its art code (15 in `famv`), its knob (`BZTURN=1`) and this section's number
+before it was built beside GATES (13, 128.41), the SEE-SAW (14, 128.42) and
+HUMPS (128.44); on this branch IDs 13 and 14 are a GAP (`BZ_FTAB` fills them
+with 0FFh). **No resident engine code, no surface, `BZ_PHYSV` unmoved.**
+Written PLANNED before the code; figures below are MEASURED unless marked
+PREDICTED.
+
+#### 128.43.1 The decisions, in one table
+
+| | decision | why |
+|---|---|---|
+| D1 | one family, `turntable`, ID 15, one kind `turntable` (`TT_K` = 88, `BZ_FK_TURNTABLE`), hooks STEP, POSE, CELL, home `resident`, NO slot (stateless) | the owner's default home; everything a cell needs is in its record and the step counter |
+| D2 | the FOOTPRINT is **2 x 2 or 3 x 3** (`size`); a 3 x 3's centre is the **PIVOT**, a plain floor that never switches | a 2 x 2 is the smallest table that turns; a 3 x 3 turns round a fixed middle, which gives the crossing its best shape (below). 4 x 4 and up: refused - a bigger table is more lanes for the same idea, and its sweep (D5) would outlast a turn's warning |
+| D3 | **HALF FILLED, and it must switch**: 2 of a 2 x 2's 4 cells, 4 of a 3 x 3's ring of 8 (the pivot a floor); a fill a quarter turn leaves unchanged (a 3 x 3's four corners, or its four edges) is refused | the owner's "half filled"; a table that does not switch is not this prop. Allowed: every other half (a 2 x 2's domino or diagonal; a 3 x 3's half disc, an L, a zigzag...) |
+| D4 | the **PERIOD**: a quarter turn every `quarter` Q = **64 steps (1.07 s) by default, or 32 (0.53 s)**; `seed` its phase (0 - 4Q - 1); `turn cw|ccw` | "every second or so"; 4Q divides the step counter's low byte's 256, so one byte times every table and two tables of one course stay in a fixed phase forever |
+| D5 | **the turn SWEEPS**: a table's cells change one a STEP round its ring in the way it turns (cell `(0, 0)` first; a 2 x 2's turn takes 4 steps, 67 ms, a 3 x 3's 8, 133 ms) - each cell's record carries the table's seed plus its place in the sweep | it reads as TURNING rather than blinking; and a table then changes at most ONE lane a step, so it costs the window's `WIN_CHG` (6, 128.19.10) one pose change however big it is - a 3 x 3 half disc changing its 4 cells on one step would leave only 2 for everything else, and with a clock (2 digits) and the event lanes (1) no 3 x 3 could be on screen at all |
+| D6 | a **WARNING**: a floor whose next rotation is a gap shows its SEAM (the hole's outline, dotted) for the last `warn` W = **16 steps (0.27 s)** of a quarter (0: none; refused at Q or more) | fair play: nothing drops the ball without a visible tell first; 16 steps is long enough to read, short enough that nothing feels slow (a quarter is still 64) |
+| D7 | **it carries nothing**: a cell that turns into a GAP is a NEAR VOID (the membrane's, 128.38: the floor less 3 units, kind and surface 0, its flags kept), so a ball on it - rolling or at rest - falls and respawns | the plan's rule; no carry physics, so no resident change |
+| D8 | **a hole that closes does not lift a ball out of it**: the window's CENTRE stays a void while the ball's whole-px z is under the cell's top | without it the engine's landing test (`gz <= h`) would pop a ball that fell into a hole back up 1 - 3 units the step the hole closed (SEEN on the model: rubber run into C's closing hole crossed to the goal plate) |
+| D9 | the ART (redone after the owner's first look, 2026-11-18: *"a circle on top of squares/columns" won't work*): the table is ONE OBJECT, a crystal PLATTER. Its cells (the pivot's too) are NOT drawn as tiles - no checker, no columns - and a geometry op (`tt_ops`, arch_ops' way: 'post' ops keyed each cell's s, so the occluders lay its front edge over a ball that falls through) draws in their place a rounded-square platter (squircle, exponent 4): a pinwheel of eight facets, white and cyan in turn with magenta seams, round a white gem HUB ringed black; a bevelled rim lit on the back left; a black outline; a FRONT EDGE half a unit thick (magenta, solid left, dithered right, as every wall face); a short SPINDLE under the hub. Each switching cell's lane holds pose 1 the SEAM (a dotted outline where a PORT will open) and pose 2 the open PORT (black, its far inner wall magenta, its near lip lit white) | on the Hercules cyan and magenta are one grey, so it reads as white facets, grey facets and black - a platter, not floor; the neighbours' faces hang into the space the cells left, as next to a glass tile |
+| D10 | VISIBILITY (the owner's rule): the platter is a thin slab (half a unit), so it hides only what is under it - a ball that drops through a port, which its front edge covers as a tile's face did; a port or seam more than half drawn over by geometry in front is refused | a mechanic is seen when the ball is not on it |
+
+#### 128.43.2 The statement
+
+    uses turntable
+    prop turntable <wx> <wy> size 2|3 fill <cells> [quarter 32|64] [seed <s>] [warn <steps>] [turn cw|ccw]
+
+`(wx, wy)` is the table's back corner (its smallest x and y). `<cells>` is
+the table's rows from the back (wy), each N cells along x: `o` a floor, `.` a
+gap, a `/` between rows optional (`oo/..`, `ooo/.oo/...`). Every cell of the
+table must be a FLAT FLOOR the course laid, on one height, on NORMAL ground;
+a 3 x 3's pivot too. One element is laid a SWITCHING cell (4 for a 2 x 2, 8
+for a 3 x 3), each claiming its cell (OBS, never SAFE) as every element does.
+
+A cell is a FLOOR after r quarter turns when the cell r turns BACK in the
+fill is (the turn: clockwise on the screen maps `(i, j)` to `(N - 1 - j, i)`,
+so +x - right and down - turns to +y - left and down). So `fill oo/..` turns
+its floors from the back row to the right column, the front row, the left
+column, and round again.
+
+#### 128.43.3 The record
+
+| at | what |
+|---|---|
+| +16, +17 | FSB 0, the class `ATTEMPT` (no state bits: STATELESS) |
+| +18 | TZ: its floor's z0 (half units, signed) |
+| +19 | SEQ: bit r set when it is a FLOOR after r turns (r 0 - 3), the nibble written TWICE so bit r + 1 is the next rotation's with no wrap |
+| +20, +21 | QSH (Q = 1 << QSH: 5 or 6) and QMASK (Q - 1) |
+| +22 | SEED: the table's seed plus the cell's place in the sweep, mod 4Q |
+| +23 | WAT = Q - W: the step of a quarter its warning starts (Q: none) |
+| +24 - +31 | zero |
+
+`read_part` refuses any other (a SEQ that does not switch, a timer that is
+not one of the two, a lane that is not of 3 poses), and a grid cell that is
+not a NORMAL FLAT FLOOR at TZ with OBS, not SAFE.
+
+#### 128.43.4 The rule (binding: the guest and `bbcourse.TurnFamily` do exactly this)
+
+With n the step counter's low byte (`bz_nstep`) and m = (n + SEED) AND 255:
+the rotation r = (m >> QSH) AND 3, the step of the quarter t = m AND QMASK;
+the cell's POSE (`tt_pose`) is **2, a GAP**, when SEQ's bit r is clear; **1,
+the WARNING**, when it is set, bit r + 1 is clear and t >= WAT; **0, a FLOOR**,
+otherwise.
+
+- **CELL** (every refill): each element in the window that is a GAP, or is
+  the window's CENTRE with the ball's whole-px z (`[bz_gz + 1]`) under 4 TZ,
+  is written a NEAR VOID - z0 TZ less 6 half units, its kind byte 0 (VOID,
+  surface 0), its slope and flags kept; every other element in the window is
+  written back a FLOOR (z0 TZ, kind byte `KIND_FLOOR`): the window KEEPS the
+  cells it already holds when it moves one cell (`bz_win9i`), and a cell the
+  centre's rule made a void must not stay one once the centre has left it
+  (SEEN on the unicorn: the model, which refills from the grid, and the guest
+  parted at step 94 of `tt-fallen` until the write-back).
+- **STEP** (every step): each element whose pose differs between n and n + 1
+  is MARKED (`bz_fmark`) and, in the window, asks for the refill (`bz_fref`).
+  A pose can change only where t of n + 1 is 0 (the turn) or WAT (the
+  warning), so the part tests that first and every other element costs the
+  one test (`ttfast` is that filter's red arm).
+- **POSE**: the element's pose.
+
+No RESET (nothing to clear), no CONTACT, no ENTER. A course without the
+family runs exactly the code it ran.
+
+#### 128.43.5 The refusals, the art and the window
+
+Refused, naming the line (`--selfcheck` section `turn`, item 2, sixteen
+string cases and the lane bound): a size not 2 or 3; a fill of the wrong
+length or with another character; a fill not half filled; a 3 x 3 whose
+pivot is a gap; a fill a quarter turn leaves as it was; a quarter not 32 or
+64; a seed not under 4Q; a warning not under Q; a turn not `cw` or `ccw`; a
+table on two heights, off NORMAL ground, over the void or a ramp (a cell not
+a FLAT FLOOR); a 3 x 3 whose pivot is not a FLAT FLOOR at the table's height
+or is another prop's; a cell another prop holds; the kind without `uses
+turntable`; a table's top centre x not on a block (the origin's x a multiple
+of 8, as a popspike's); a hole or seam more than half hidden.
+
+**The window's change bound** (128.19.10): a turntable lane is SLOW; its share
+of a window's pose changes on one step is counted EXACTLY - every turntable
+lane meeting the window that changes on the same step, at the worst of the 256
+steps the low byte times (`_tt_changes`) - beside the rotors', the clock
+digits' and the event lanes' 1 (turntable lanes are taken out of that 1), and
+refused past `WIN_CHG`. With the sweep (D5) a table costs 1; two tables in one
+window cost 2 only when their sweeps overlap, so a course phases them apart
+(TURN's two chain tables: at most 1 between them, MEASURED by item 4). The
+`seven tables turning on one step` case is refused.
+
+#### 128.43.6 The reach
+
+Every element's kind takes the `void` form (GLASS's, 128.25.18): the reach is
+taken a second time with every switching cell a NEAR VOID and the two unioned,
+so the occluders, the bounds and every proof see both (TURN's switching cells'
+zlo -8 px, their floor 16; `noforms` the control, item 6). A crossing's TIMING
+is not the reach's: the reach says the far side is reachable, the scenes
+below say when.
+
+#### 128.43.7 The test course: `BZTURN=1`
+
+`apps/bonanza/courses/turntable.bbc`, TURN "Turntable Test", on no shipped
+disk: the knob adds it to `BZ_COURSES` and makes it the pathway's pad 0
+(`pathturn.sed`, BZBOOST's shape; refused with every other pad-0 knob,
+BZGATE, BZTILT and BZHUMP's names included), so Play Game, Enter plays it:
+
+    make BUILD=build/turn BZTURN=1 bonanzadisk
+
+A start plate at 2 units with a pad for each ball and the finish (exit 0)
+beside the start. East, THE CHAIN to exit 1: table A (`10 6`, a domino
+`oo/..`), a one-cell ISLAND, table C (`13 6`, the same domino, seed 96: a
+quarter and a half out of phase with A), the goal plate. Rolled from rest at
+A's edge with the key held, every ball crosses A in about a quarter of the
+cycle's start times and falls in the rest (MEASURED on the model: rubber, steel and
+glass 8 of 32 start times each); from the island C opens at another time, so
+the crossing is two timed rides with a wait between. South, THE DISC: a 3 x 3
+(`5 10`, `ooo/.oo/...`, seed 32) whose middle column is never open end to
+end - step on, wait on the PIVOT for the turn, step off (a dead end). No
+shipped course, demo or identity moves (MEASURED, `cmp`).
+
+#### 128.43.8 The proofs
+
+- `--selfcheck --only turn`: the refusals (item 2); TURN's records and cells
+  (item 3: 16 switching cells, normal FLAT FLOORs at TZ with OBS, not SAFE,
+  each a 3-pose lane, the pivot no element); the SWEEP (item 4: no table
+  changes two lanes on one step; the chain's two tables at most 1 together);
+  the reach's void form and its control (item 6); the art and its control
+  `nottart` (item 10); the scenes on the model (item 11: A rolled on early
+  falls; on time rubber, steel and glass cross; C from the island; steel onto
+  the pivot; the fallen ball falls on) and two model red arms, `novoid` (a gap
+  left a floor: the early roll crosses) and `fallen` (D8 off: the fallen ball
+  is lifted out and runs on to the goal plate) - both MEASURED red.
+- `tests/bonanza_phys.py --check`'s unicorn half (`tt_host`): the guest's
+  `bz_step` with the build's bundle against the model at EVERY step - the
+  ball, the window, `bz_fref`, every element's pose through `bz_ltrue` and its
+  mark - on TURN compiled from the tree: `tt-early`, `tt-ontime`, `tt-steel`,
+  `tt-glass`, `tt-island`, `tt-pivot`, `tt-fallen`, `tt-rest` (glass at rest
+  on a cell that opens under it), each also judged on the model for what it is
+  for. Red arms, the part assembled from a patched `turntable.asm`: `ttcell`
+  (CELL never called: the window), `ttfallen` (D8 off: the ball), `ttkept`
+  (no floor written back: the window), `ttmark` (a change unmarked: never
+  drawn), `ttwarn` (no warning: the pose), `ttfast` (the filter skipping the
+  turn: never drawn), `ttfref` (no refill on a change).
+
+#### 128.43.9 What it costs
+
+MEASURED: `make bonanzadisk` against the base `cdb248a06` (a clean tree of it,
+built the same way), and the knob tree `make BUILD=build/turn BZTURN=1
+bonanzadisk`.
+
+| | before | after | |
+|---|---|---|---|
+| the part `bzf-turntable.bin` | - | **315 bytes**, `paras` 20 | 296 packed (lzb) |
+| BONANZA's image | 50,036 | 50,039 | **+3**: `bz_ftab`'s rows for IDs 13 and 14 (a gap: GATES', the SEE-SAW's) and 15 |
+| its bss | 12,145 | 12,145 | 0 (the knob tree 12,147: its courses' tables) |
+| the RESIDENT BUNDLE, RAM | 30,864 | 31,184 | **+320, every play's RAM and the window's** (the part in 20 paragraphs) |
+| the bundle, packed (lzb) | 5,363 | 5,541 | +178 |
+| `BONANZA.O88` | 121,892 | 122,118 | +226 |
+| every shipped course part, demo, sound, title and pathway file | | | unchanged, byte for byte (`cmp` of `build/bonanza-art/BZ*.BIN`) |
+
+**Per step (PREDICTED, not measured on MartyPC):** a course that does not
+name the family pays nothing new. Naming it, STEP walks the records: about 50
+clocks a record of another kind, about 110 a turntable cell on a step where it
+cannot change (the filter: one add, one and, two compares), and on the step a
+cell turns or warns about 300 for the two poses, 314 for `bz_fmark` and 60 for
+the window - so on TURN (16 cells among 27 records) about 2.3k clocks a
+common step and about 3k on a step a cell changes (one a step a table: the
+sweep). CELL on a refill: about 50 clocks a record and about 250 a turntable
+cell in the window. The refills STEP asks for: one a step during a sweep or a
+warning start whose cell is in the window - at most 4 (a 2 x 2) or 8 (a 3 x 3)
+refills a quarter turn, plus the warnings. The final pass's `bonanzaphys` /
+`bonanzaperf` rows on a `BZTURN=1` tree are where these become MEASURED.
+
+#### 128.43.10 Open questions for the owner
+
+1. **The port's size.** A gap is an open PORT (14 x 7 px) in the middle of its cell while the whole cell is a void:
+   the 2 x 2-block lane keeps a table's neighbouring lanes apart. A whole-cell opening would need GROUP lanes
+   (128.32) - a 2 x 2's four cells one group of 3^4 poses, a 3 x 3's ring far past `GRP_QMAX` - so it is not
+   built. The platter's outer corners are trimmed a few px (the squircle) while the cells are whole squares.
+2. **The period and the warning**: 64 steps a quarter and a 16-step seam are
+   the defaults to judge on TURN; `quarter 32` is the fast table.
+3. **The sweep** (D5) is 4 or 8 steps; a table that turns in ONE step would
+   cost its cells' count of `WIN_CHG` and is not offered.
+4. **A shipped course** that uses it.
