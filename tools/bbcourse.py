@@ -575,7 +575,7 @@ FAMILIES = (
     # lifted onto it when it comes down.  STATELESS elements (the channels are the slot's); a lane each, marked on
     # change only; ID 13 (the props round's fixed assignment); kinds FAM_K0 + 56 on; home `resident`; group (a
     # bridge's lanes, the whole top, share blocks with its neighbours': SPEC.md 128.32)
-    {"name": "gate", "id": 13, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL, "slot": 2,
+    {"name": "gate", "id": 13, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL, "slot": 6,
      "consts": (4, 6, 255), "group": True,
      "kinds": ({"name": "plate", "kind": FAM_K0 + 56, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
                 "forms": ("own",), "states": (0,), "pickup": False},
@@ -584,7 +584,15 @@ FAMILIES = (
                {"name": "gate", "kind": FAM_K0 + 58, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
                 "forms": ("own",), "states": (0,), "pickup": False},
                {"name": "bridge", "kind": FAM_K0 + 59, "bits": 0, "cls": CL_ATTEMPT, "art": "bridge",
-                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 33,
+                "forms": ("own", "void"), "states": (0,), "pickup": False},
+               # SPEC.md 128.41.12: a LANE of a designer's gate ART (the tool's: +18 its gate, +19 the channel; its
+               # pose the channel's FRAME, the slot's +2 + channel)
+               {"name": "gatelane", "kind": FAM_K0 + 60, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 40,
+     # SPEC.md 128.41.12: the ART's kind and the slot's frames are an EXTENSION every course without art runs
+     # unchanged on (no record of it holds +24 or a kind 76; the frames are bytes it never reads), so FAMV folds
+     # the row as it was - the shipped PLAYGROUND, which names this family, stays byte for byte as it was
+     "famv": {"slot": 2, "kinds": 4},
      "home": HOME_RESIDENT},
     # THE SEE-SAW (SPEC.md 128.42, the props round's P9): a TILT PLATE of 2 - 6 cells along an axis, 1 - 2 across,
     # on a pivot at its middle, in three POSES - its minus end down, FLAT, its plus end down - each a set of slope
@@ -694,6 +702,13 @@ AR_PADSEE = 3                 # ...and a pad under an arch keeps at least 1 / AR
 # SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41): its row's consts are GT_NCH, GT_DROP, GT_TIMED
 GT_KP, GT_KK, GT_KG, GT_KB = FAM_K0 + 56, FAM_K0 + 57, FAM_K0 + 58, FAM_K0 + 59   # plate, key, gate, bridge
 GT_KINDS = (GT_KP, GT_KK, GT_KG, GT_KB)
+GT_KA = FAM_K0 + 60           # SPEC.md 128.41.12: a gate ART's lane (76), +18 its gate's record, +19 the channel
+GT_AFR = 4                    # ...an art's FRAMES: 0 shut (a bridge up) .. 3 open (down); the cell opens AT frame 3
+GT_ASTEP = 8                  # ...steps between frames: channel c's frame steps on n AND 7 = 2 c (two channels never
+GT_ALANES = 6                 # ...on one step); lanes an art may cut into (they all turn on one step, WIN_CHG)
+GT_ACELLS = 3                 # ...cells a gate's art may span across its path
+GT_FART = 1                   # ...a gate's or switched bridge's +24: it has art (no lane of its own)
+GT_ADIR = os.path.join(COURSE_DIR, "gates")     # ...where `art <name>` finds <name>.bba
 GT_NCH = 4                    # CHANNELS a course: the slot's +0, a bit each
 GT_CHANNELS = ("ring", "plus", "box", "cross")  # each channel's GLYPH, its name in the source
 GT_DROP = 6                   # half units: an UP bridge's near void, its kill 3 units under its deck (a broken crack's)
@@ -751,7 +766,7 @@ assert FAM_BY_NAME["wind"]["consts"] == (WD_GSH, WD_SSH, WD_LIFT, WD_SPIN) and [
     k["kind"] for k in FAM_BY_NAME["wind"]["kinds"]] == [WD_K, WD_K2]
 assert FAM_BY_NAME["glass"]["consts"] == (CRACK_TS, CRACK_TR, CRACK_LATE)
 assert FAM_BY_NAME["gate"]["consts"] == (GT_NCH, GT_DROP, GT_TIMED) and [
-    k["kind"] for k in FAM_BY_NAME["gate"]["kinds"]] == list(GT_KINDS)
+    k["kind"] for k in FAM_BY_NAME["gate"]["kinds"]] == list(GT_KINDS) + [GT_KA]
 assert FAM_BY_NAME["boost"]["consts"] == (BP_FLASH, BP_SDEF, BP_GSH, BP_SSH) and FAM_BY_NAME["boost"]["kinds"][0]["kind"] == BP_K
 assert all(k["bits"] in (0, 1, 2, 3, 4, 5, 6, 7, 8) for _f, k in FKIND_BY_NAME.values())   # (0: a STATELESS
                                                                                             # kind, WIND's, WATER's)
@@ -847,8 +862,9 @@ def famv(f):
     """a family's FAMV (SPEC.md 128.25.6.1): the CRC-16 (CCITT) of its ID, REV,
     hooks, slot and each kind's number, bits, class, art and forms, folded to a
     byte as BZ_PHYSV is - never 0"""
-    b = bytearray((f["id"], f["rev"] & 255, f["hooks"], f["slot"]))
-    for k in f["kinds"]:
+    fv = f.get("famv", {})                      # (SPEC.md 128.41.12: a row extended compatibly folds as it was)
+    b = bytearray((f["id"], f["rev"] & 255, f["hooks"], fv.get("slot", f["slot"])))
+    for k in f["kinds"][:fv.get("kinds", len(f["kinds"]))]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
                      "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15}[k["art"]], len(k["forms"]), int(k["pickup"])))
@@ -1080,6 +1096,7 @@ class Source:
         self.width = None
         self.origin = None
         self.gstyle = None          # SPEC.md 128.41.11: `gatestyle`, the course's gate art STYLE (None: GRILLE)
+        self.gart = {}              # SPEC.md 128.41.12: `gateart` / `bridgeart`, {GT_KG | GT_KB: (name, line)}
         self.rooms = []
         self.holes = []
         self.start = None           # ((wx, wy), line)
@@ -2018,8 +2035,9 @@ def _parse_spike(toks, where, ln, fam, kr):
 
 GT_SYNTAX = {GT_KP: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
              GT_KK: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
-             GT_KG: "<wx> <wy> channel %s [along x|y] [style %s]" % ("|".join(GT_CHANNELS), "|".join(GT_STYLES)),
-             GT_KB: "<wx> <wy> [<x1> <y1>] channel %s | period <%s> on <steps> [seed <s>], [style %s]"
+             GT_KG: "<wx> <wy> channel %s [along x|y] [style %s | art <name>]" % ("|".join(GT_CHANNELS),
+                                                                                "|".join(GT_STYLES)),
+             GT_KB: "<wx> <wy> [<x1> <y1>] channel %s | period <%s> on <steps> [seed <s>], [style %s | art <name>]"
              % ("|".join(GT_CHANNELS), "|".join(map(str, GT_PERIODS)), "|".join(GT_STYLES))}
 
 
@@ -2048,7 +2066,7 @@ def _parse_gate(toks, where, ln, fam, kr):
         if b[0] <= at[0] or b[1] <= at[1]:
             raise CourseError("%s: bridge's rect %d %d %d %d is empty" % (where, at[0], at[1], b[0], b[1]))
     d = {"line": ln, "kind": k, "fam": fam, "at": at, "cls": CL_ATTEMPT, "seed": None, "gch": None, "galong": 0,
-         "per": None, "on": None, "sseed": None, "gstyle": None}
+         "per": None, "on": None, "sseed": None, "gstyle": None, "gartn": None}
     while i < len(toks):
         t = toks[i][1] if toks[i][0] == 'w' else None
         if t == "reset":
@@ -2070,6 +2088,9 @@ def _parse_gate(toks, where, ln, fam, kr):
         elif t == "style" and k in (GT_KG, GT_KB) and i + 1 < len(toks) and d["gstyle"] is None:
             d["gstyle"] = _gt_style(toks[i + 1], where)   # SPEC.md 128.41.11: this gate's or bridge's look
             i += 2
+        elif t == "art" and k in (GT_KG, GT_KB) and i + 1 < len(toks) and d["gartn"] is None:
+            d["gartn"] = toks[i + 1][1]             # SPEC.md 128.41.12: the designer's art, gates/<name>.bba
+            i += 2
         else:
             raise CourseError("%s: %s, not %r" % (where, use, toks[i][1]))
     if d["per"] is not None or d["on"] is not None or d["sseed"] is not None:
@@ -2085,12 +2106,97 @@ def _parse_gate(toks, where, ln, fam, kr):
                                                                                           d["per"]))
     elif d["gch"] is None:
         raise CourseError("%s: %s" % (where, use))
+    if d["gartn"] is not None and d["gstyle"] is not None:
+        raise CourseError("%s: a %s takes `art` or `style`, not both (SPEC.md 128.41.12)" % (where, kr["name"]))
+    if d["gartn"] is not None and d["per"] is not None:
+        raise CourseError("%s: a TIMED bridge takes no `art` (not built: SPEC.md 128.41.12.6)" % where)
     if k != GT_KB:
         return d
     cells = [(x, y) for y in range(at[1], b[1]) for x in range(at[0], b[0])]
     if d["per"] is not None:                        # (a timed rect: each cell a step after the last, so its lanes
         return [dict(d, at=c, sseed=(d["sseed"] + j) % d["per"]) for j, c in enumerate(cells)]   # turn one a step)
     return [dict(d, at=c) for c in cells]
+
+
+_GA_CACHE = {}
+
+
+def ga_load(name, where, kind):
+    """a designer's gate ART (SPEC.md 128.41.12): apps/bonanza/courses/gates/NAME.bba, a `.bba` (read_bba) of GT_AFR
+    frames stacked top to bottom (frame 0 SHUT - a bridge UP - and the last OPEN), its header lines `# frames 4`,
+    `# for gate|bridge`, `# foot FX FY` (the pixel on the top centre of the element's first cell) and `# cells N`
+    (a gate's width across its path, 1 - GT_ACELLS; a bridge's 1).  KIND GT_KG or GT_KB, the element it is for.
+    -> {"name", "frames": [{(x - FX, y - FY): ink}] (foot-relative), "cells", "for"}"""
+    if not re.match(r"^[a-z0-9_-]{1,32}$", name):
+        raise CourseError("%s: a gate art's name is 1 - 32 of a - z, 0 - 9, _ and -, not %r (SPEC.md 128.41.12)"
+                          % (where, name))
+    path = os.path.join(GT_ADIR, name + ".bba")
+    if path not in _GA_CACHE:
+        try:
+            with open(path, "r", encoding="ascii", newline="") as f:
+                text = f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            raise CourseError("%s: gate art %r: %s (SPEC.md 128.41.12)" % (where, name, e))
+        hdr = {}
+        for m in re.finditer(r"^#\s*(frames|for|foot|cells)\s+(.*?)\s*$", text, re.M):
+            if m.group(1) in hdr:
+                raise CourseError("%s: gate art %r: a second `# %s` line" % (where, name, m.group(1)))
+            hdr[m.group(1)] = m.group(2)
+        try:
+            nfr = int(hdr.get("frames", "0"))
+            fx, fy = (int(v) for v in hdr.get("foot", "").split())
+            cells = int(hdr.get("cells", "0"))
+        except ValueError:
+            raise CourseError("%s: gate art %r: its header needs `# frames %d`, `# for gate|bridge`, `# foot FX FY` "
+                              "and `# cells N` (SPEC.md 128.41.12)" % (where, name, GT_AFR))
+        fr = hdr.get("for")
+        rows = [r for r in text.split("\n") if r and not r.startswith("#")]
+        if nfr != GT_AFR or fr not in ("gate", "bridge") or not 1 <= cells <= (GT_ACELLS if fr == "gate" else 1) \
+                or not rows or len(rows) % GT_AFR:
+            raise CourseError("%s: gate art %r: %d frames (%d rows), for %r, %d cells - a gate art is %d frames of "
+                              "one height, for a gate (1 - %d cells) or a bridge (1) (SPEC.md 128.41.12)"
+                              % (where, name, nfr, len(rows), fr, cells, GT_AFR, GT_ACELLS))
+        pix = read_bba(path, where.rsplit(":", 1)[0], 0)
+        h = len(rows) // GT_AFR
+        if not (0 <= fx < len(rows[0]) and 0 <= fy < h):
+            raise CourseError("%s: gate art %r: its foot (%d, %d) is outside its %d x %d frame" % (
+                where, name, fx, fy, len(rows[0]), h))
+        frames = [{(x - fx, y - k * h - fy): ink for (x, y), ink in pix.items() if k * h <= y < (k + 1) * h}
+                  for k in range(GT_AFR)]
+        mono = [frozenset((xy, min(c, 3 - c) and 1 or c) for xy, c in f_.items()) for f_ in frames]   # (1, 2 grey)
+        for k in range(GT_AFR - 1):
+            if mono[k] == mono[k + 1]:
+                raise CourseError("%s: gate art %r: frames %d and %d are the SAME on the Hercules (cyan and magenta "
+                                  "are one grey there): draw the change in black and white (SPEC.md 128.41.12 A9)"
+                                  % (where, name, k, k + 1))
+        _GA_CACHE[path] = {"name": name, "frames": frames, "cells": cells, "for": fr}
+    a = _GA_CACHE[path]
+    if a["for"] != ("gate" if kind == GT_KG else "bridge"):
+        raise CourseError("%s: gate art %r is a %s's, not a %s's (SPEC.md 128.41.12)" % (
+            where, name, a["for"], "gate" if kind == GT_KG else "bridge"))
+    import copy
+    return copy.deepcopy(a)                     # (never the cache's own: par_map refers to a global by its path)
+
+
+def _ga_resolve(src, fname):
+    """SPEC.md 128.41.12 A3, A4: each gate or switched bridge its ART - its own `art`, else (no `style` of its own)
+    the course's `gateart` / `bridgeart` - loaded; a gate of N cells made N gate elements, `along x` the cells
+    (wx, wy + i), `along y` (wx + i, wy), the first carrying the art (gacell 0)"""
+    more = []
+    for sp in src.props:
+        if sp.get("kind") not in (GT_KG, GT_KB):
+            continue
+        nm, ln = sp.get("gartn"), sp["line"]
+        if nm is None and sp.get("gstyle") is None and sp.get("per") is None and sp["kind"] in src.gart:
+            nm, _l = src.gart[sp["kind"]]
+        if nm is None:
+            continue
+        sp["gart"] = ga_load(nm, "%s:%d" % (fname, ln), sp["kind"])
+        sp["gacell"] = 0
+        for i in range(1, sp["gart"]["cells"]):
+            at = (sp["at"][0], sp["at"][1] + i) if not sp["galong"] else (sp["at"][0] + i, sp["at"][1])
+            more.append(dict(sp, at=at, gacell=i))
+    src.props.extend(more)
 
 
 def gt_down(pr, n, chans):
@@ -2821,6 +2927,11 @@ def parse(text, fname="<course>"):
             if len(toks) != 2 or toks[1][1] not in ("64", "128"):
                 raise CourseError("%s: width is 64 or 128" % where)
             src.width = int(toks[1][1])
+        elif st in ("gateart", "bridgeart"):         # SPEC.md 128.41.12: the course's default gate (bridge) ART
+            kk = GT_KG if st == "gateart" else GT_KB
+            if kk in src.gart or len(toks) != 2:
+                raise CourseError("%s: %s takes one art name, once (SPEC.md 128.41.12)" % (where, st))
+            src.gart[kk] = (toks[1][1], ln)
         elif st == "gatestyle":                     # SPEC.md 128.41.11: the course's gate art STYLE
             if src.gstyle is not None or len(toks) != 2:
                 raise CourseError("%s: gatestyle takes one of %s, once (SPEC.md 128.41.11)" % (where,
@@ -3123,6 +3234,7 @@ def parse(text, fname="<course>"):
                                   % (where, len(fam_fetched([f for f, _l in src.uses])), FAM_MAX))
         else:
             raise CourseError("%s: unknown statement '%s'" % (where, st))
+    _ga_resolve(src, fname)                         # SPEC.md 128.41.12: each gate's and bridge's designer art
     if src.pathway is None:                         # wave 8R: the pathway's statements are refused elsewhere
         for what, v in (("pages", src.pages), ("pad N", src.ppads), ("icon", src.icons),
                         ("route", src.routes), ("lives", src.lives), ("rail", src.rail)):
@@ -4012,7 +4124,7 @@ CLOCK_HIDE = AR_HIDE          # SPEC.md 128.18.5.4: ground units a ball rolled b
                               # row (the owner's visibility rule: one ball length, the archway's A10)
 
 
-def clock_vis(c, bound=CLOCK_HIDE):
+def clock_vis(c, bound=CLOCK_HIDE, arts=False):
     """SPEC.md 128.18.5.4: each clock (not the pathway's lives counters, which cut no occluder) against a ball
     BEHIND it.  A ball rolled GROUNDED, a ground unit at a time, along x on each of the three cell rows behind the
     clock and along y on each of the three columns behind it (the cell's middle and 4 gu either side), over every
@@ -4025,9 +4137,14 @@ def clock_vis(c, bound=CLOCK_HIDE):
     for rc in c.reach:
         zr.setdefault((rc.wx, rc.wy), rc)
     for p in c.props:
-        if p["kind"] != PK_CLOCK or p.get("place") or p.get("frame") == "lives" or not p.get("face_pix"):
+        if arts:                                    # SPEC.md 128.41.12 A8: a gate ART's keyed pixels, the same rule
+            if not p.get("ga_face"):
+                continue
+            face = set(p["ga_face"])
+        elif p["kind"] != PK_CLOCK or p.get("place") or p.get("frame") == "lives" or not p.get("face_pix"):
             continue
-        face = set(p["face_pix"])
+        else:
+            face = set(p["face_pix"])
         (cx_, cy_) = p["at"]
         met = over = worst = 0
         for ax in (0, 1):
@@ -4057,10 +4174,11 @@ def clock_vis(c, bound=CLOCK_HIDE):
                         run = run + 1 if all(q in hid for q in lit) and not all(q in hid - mine for q in lit) else 0
                         worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled behind the clock at (%d, %d) is WHOLLY hidden for %d ground units "
-                              "in a row, past one ball length (%d: SPEC.md 128.18.5.4)" % (
-                                  c.fname, p["line"], cx_, cy_, worst, bound))
-        out.append((p["num"], p["at"], met, over, worst))
+            raise CourseError("%s:%d: a ball rolled behind the %s at (%d, %d) is WHOLLY hidden for %d ground units "
+                              "in a row, past one ball length (%d: SPEC.md %s)" % (
+                                  c.fname, p["line"], "gate art" if arts else "clock", cx_, cy_, worst, bound,
+                                  "128.41.12 A8" if arts else "128.18.5.4"))
+        out.append((p.get("num"), p["at"], met, over, worst))
     return out
 
 
@@ -4299,6 +4417,89 @@ def tl_lanes(src, props, lanes, tiles, tlpose, ops_of, x0, y0, width, lines, own
             lanes.append({"prop": len(props) - 1, "rect": rect, "poses": poses, "st": {}, "kind": FK_TILTL,
                           "line": sw["line"]})
         p["tlnl"] = len(rects)
+
+
+def ga_pixels(p, x0, y0):
+    """SPEC.md 128.41.12 A4, A8: an art element's frames placed - its foot on its first cell's top centre, mirrored
+    `along y` - -> ([{(x, y): ink} a frame, picture coordinates], {(x, y): the cell (0 - N-1) whose column is
+    nearest})"""
+    a = p["gart"]
+    wx, wy = p["at"]
+    cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0
+    sg = -1 if p["galong"] else 1
+    frames, cell = [], {}
+    for fr in a["frames"]:
+        frames.append({(cx + sg * ax, cy + ay): ink for (ax, ay), ink in fr.items()})
+        for (ax, ay) in fr:
+            cell[(cx + sg * ax, cy + ay)] = max(0, min(a["cells"] - 1, int(round(-ax / 16.0))))
+    return frames, cell
+
+
+def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
+    """SPEC.md 128.41.12 A7, A8: each ART element's four frames over the bare picture, each pixel at the depth of
+    the cell under it (shown where nothing in front of that cell drew: cv.sbuf <= its s); a pixel equal in every
+    frame the PICTURE's, the rest's blocks cut into lanes (cover_blocks, none on another lane's block), each a
+    record of kind GT_KA naming its gate, its pose the frame.  Frame 0's pixels (and the static ones) are GEOMETRY
+    keyed at their cell (s, the cell's floor plus the rise to the slice's highest pixel: a clock's occluder,
+    128.18.5.4).  Refused: a pixel off the picture, frame 0 more than half hidden, more than GT_ALANES lanes"""
+    busy = set()
+    for L in lanes:
+        busy |= _rect_blocks(L["rect"])
+    fam, kr = FKIND[GT_KA]
+    for p in [q for q in props if q.get("gart") is not None and q.get("gacell") == 0]:
+        wx, wy = p["at"]
+        where = "%s:%d: the %s art %r at (%d, %d)" % (fname, p["line"], PK_NAMES[p["kind"]], p["gart"]["name"], wx,
+                                                       wy)
+        frames, cell = ga_pixels(p, x0, y0)
+        off = [xy for xy in cell if not (0 <= xy[0] < width and 0 <= xy[1] < lines)]
+        if off:
+            raise CourseError("%s: its pixel (%d, %d) is off the picture (SPEC.md 128.41.12)" % (where, off[0][0],
+                                                                                                 off[0][1]))
+        cy0 = 8 * (wx + wy) + 8 - p["z4"] + y0
+        tops = {}
+        for xy, i in cell.items():
+            tops[i] = max(tops.get(i, 0), cy0 + 8 * i - xy[1])
+        tops = {i: p["z4"] + max(0, h) for i, h in tops.items()}
+        shown = {xy for xy, i in cell.items() if cv.sbuf[xy[1]][xy[0]] <= wx + wy + i}
+        f0 = frames[0]
+        if 2 * sum(1 for xy in f0 if xy in shown) < len(f0):
+            raise CourseError("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
+                              "(SPEC.md 128.41.12: the player must see the gate)" % (
+                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)))
+        ink = {xy: [fr.get(xy, cv.rows[xy[1]][xy[0]]) for fr in frames] for xy in shown}
+        key = {xy: (wx + wy + cell[xy], tops[cell[xy]]) for xy in shown if xy in f0}
+        if hack.get("ganokey"):
+            key = {}
+        p["ga_face"] = {xy: ink[xy][0] for xy in key}       # (the keyed pixels: clock_vis's face)
+        chg = {xy for xy, v in ink.items() if len(set(v)) > 1}
+        for xy, v in ink.items():                   # the static pixels: the picture's, keyed as frame 0's
+            if xy not in chg:
+                cv.rows[xy[1]][xy[0]] = v[0]
+                if xy in key:
+                    cv.sbuf[xy[1]][xy[0]], cv.tbuf[xy[1]][xy[0]] = key[xy]
+        blocks = {(x >> 3, y >> 3) for (x, y) in chg}
+        hit = sorted(blocks & busy)
+        if hit:
+            raise CourseError("%s: its frames change block (column %d, row %d), another prop's lane: keep the lanes "
+                              "apart (SPEC.md 128.41.12)" % (where, hit[0][0], hit[0][1]))
+        rects = cover_blocks(blocks, lambda b: (b[1], b[0]), busy, where)
+        if len(rects) > GT_ALANES:
+            raise CourseError("%s: its frames change over %d lanes, over the %d an art may have (they all turn on "
+                              "one step, SPEC.md 128.41.12 A7): a smaller change between frames" % (
+                                  where, len(rects), GT_ALANES))
+        for rect in rects:
+            busy |= _rect_blocks(rect)
+
+            def inr(xy, rect=rect):
+                return rect[0] <= xy[0] >> 3 < rect[0] + rect[2] and rect[1] <= xy[1] >> 3 < rect[1] + rect[3]
+            poses = {f: {xy: v[f] for xy, v in ink.items() if inr(xy)} for f in range(GT_AFR)}
+            st = {0: {xy: k for xy, k in key.items() if inr(xy)}}
+            props.append({"kind": GT_KA, "line": p["line"], "at": p["at"], "mask": 0, "shift": 0, "seed": 0,
+                          "fam": fam, "frow": kr, "cls": CL_ATTEMPT, "art": "galane", "bits": 0, "z4": p["z4"],
+                          "dur": 0, "ow": 0, "noclaim": True, "gaof": p, "gch": p["gch"]})
+            lanes.append({"prop": len(props) - 1, "rect": rect, "poses": poses, "st": st, "kind": GT_KA,
+                          "line": p["line"]})
+        p["ganl"] = len(rects)
 
 
 def tilt_post_pix(sw, x0):
@@ -6162,6 +6363,8 @@ def build_props(src, tiles, fname):
             props[-1].update(gch=GT_TIMED if sp["gch"] is None else sp["gch"], galong=sp["galong"],   # gate's way,
                              deck=t.z0, gkd=KIND_FLOOR | t.surf << 4,   # a bridge's deck and its grid's +2 byte;
                              gstyle=sp["gstyle"] if sp.get("gstyle") is not None else src.gstyle or 0)  # its look
+            if sp.get("gart") is not None:          # SPEC.md 128.41.12: the designer's ART (no lane of its own)
+                props[-1].update(gart=sp["gart"], gacell=sp["gacell"])
             if sp["per"] is not None:
                 props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
@@ -6313,7 +6516,8 @@ def prop_cells(props):
         if p["kind"] == PK_PLATFORM:
             for c in p["track"]:
                 out[c] = i
-        elif p["kind"] in (FK_ARCH, FK_TILT, FK_TILTL):    # (SPEC.md 128.39.3, 128.42.3: no owner, no OBS)
+        elif p["kind"] in (FK_ARCH, FK_TILT, FK_TILTL, GT_KA):    # (SPEC.md 128.39.3, 128.42.3, 128.41.12: no
+                                                                # owner, no OBS)
             continue
         elif p["kind"] != PK_SIGN:                  # (wave 7: a clock is a post's obstacle, 128.18.5.3; its
             out.setdefault(p["at"], i)              # digits share the cell, and the scan's owner is the first;
@@ -7816,6 +8020,8 @@ def prop_ops(tiles, ops, props, x0):
             t = tiles[p["at"]]                      # a MARK on the top (pose 0, in the picture); the FLASH's
             p["bp_pix"] = [_bp_mark(tiles, ops, p, x0, q) for q in (0, 1)]      # lit pose the lane's
             add(p["at"], "top", _paint_op(p["bp_pix"][0], p["at"][0] + p["at"][1], t, p["at"]))
+        elif p.get("gart") is not None:             # SPEC.md 128.41.12: an ART gate's or bridge's picture is the
+            p["gt_pix"] = {}                        # art's frame 0, drawn with its lanes (ga_lanes)
         elif p["kind"] in (GT_KP, GT_KG, GT_KB):    # SPEC.md 128.41.5: the picture's marks on the top - a plate
             t = tiles[p["at"]]                      # (up), a gate's groove, a bridge's seam (down); their lanes
             wx, wy = p["at"]                        # the compile's
@@ -10026,6 +10232,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                   "over by geometry in front of it (the player must see where the ball goes)"
                                   % (fname, p["line"], wx, wy, whole - len(poses[1]), whole))
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
+        elif p.get("gart") is not None:             # SPEC.md 128.41.12: an ART element has no lane of its own
+            pass
         elif p["kind"] in (GT_KP, GT_KG, GT_KB):    # SPEC.md 128.41.5: a PLATE's lane (a crack's 2 x 2 blocks round
             wx, wy = p["at"]                        # its top's centre, pose 1 PRESSED), a GATE's (its bars' bounds,
             sF = wx + wy                            # pose 1 SHUT), a BRIDGE's (the crack's wide 4 blocks, pose 1
@@ -10230,6 +10438,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                           "kind": PK_SIGN, "line": p["line"]})
     if src.seesaws:                                 # SPEC.md 128.42.5: THE SEE-SAW's LANES - the picture's change
         tl_lanes(src, props, lanes, tiles, tlpose, _ops_of, x0, y0, width, lines, owners, fname)   # between poses
+    if any(p.get("gart") is not None for p in props):   # SPEC.md 128.41.12: the designer's gate ART, its frames
+        ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack)
     if len(lanes) > PROP_MAX or len(props) > PROP_ALL:  # (a vanishing crack's companion, 128.25.18.1)
         raise CourseError("%s: %d lanes and %d props with the vanishing cracks' companions, over the %d and %d a "
                           "course holds" % (fname, len(lanes), len(props), PROP_MAX, PROP_ALL))
@@ -10582,10 +10792,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif p["kind"] == SP_KM:                # ...a membrane's +18 its floor's z0
                 rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["mz"])
             elif p["kind"] in GT_KINDS:             # SPEC.md 128.41.3: +18 the channel (GT_TIMED), +19 a gate's way or
-                rec += struct.pack("<BBBbBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["gch"],   # a
+                rec += struct.pack("<BBBbBBBBB7x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["gch"],   # a
                                    p["galong"] if p["kind"] == GT_KG else p["deck"] if p["kind"] == GT_KB else 0,
                                    p["gkd"] if p["kind"] == GT_KB else 0,      # bridge's deck, +20 its grid's +2
-                                   p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))  # +21 - +23 its timer
+                                   p.get("on", 0), p.get("smask", 0), p.get("sseed", 0),  # +21 - +23 its timer,
+                                   GT_FART if p.get("gart") is not None else 0)   # +24 its ART (128.41.12)
+            elif p["kind"] == GT_KA:                # SPEC.md 128.41.12: an art's lane, +18 its gate, +19 the channel
+                rec += struct.pack("<BBBB12x", 0, p["cls"], jofid[id(p["gaof"])], p["gch"])
             elif "bp" in p:                         # BOOST PADS (SPEC.md 128.40.3): +18 the face, +19 S
                 rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], *p["bp"])
             elif "mg" in p:                           # MAGNETS (128.33.2): +18 the way, +19 DOWN, +20 the range,
@@ -10744,6 +10957,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if src.archways and occluders:                  # SPEC.md 128.39.1 A10: the visibility rule, measured
         c.arch_vis = arch_vis(c, 2 if hack.get("arvis") else AR_HIDE)
     c.clock_vis = clock_vis(c, 1 if hack.get("clockvisb") else CLOCK_HIDE) if occluders and pth is None else []
+    c.ga_vis = clock_vis(c, 1 if hack.get("gavisb") else CLOCK_HIDE, arts=True) if occluders and pth is None else []
     if occluders and any(fd["what"] == "hump" for fd in src.fields):   # SPEC.md 128.44.4: the visibility rule
         c.hump_vis = hump_vis(c, attr=not hack.get("hmnoattr"))
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 128.22): the pathway's, None on a course
@@ -11051,7 +11265,7 @@ def _rects(c):
 def _events(meet):
     """SPEC.md 128.32.7: the EVENT lanes' share of a window's changes on one step - 1 (a ball touches one
     thing at a time), or the most of the window's lanes any one element's change marks (a group member's)"""
-    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4]) and L[4]["kind"] != TT_K
+    ev = [L[4] for L in meet if not lane_fast(L[4]) and not lane_digit(L[4]) and L[4]["kind"] not in (TT_K, GT_KA)
           and not L[4].get("tltime")]
     if not ev:
         return 0
@@ -11078,6 +11292,16 @@ def _tilt_chg(meet, recs):
         w += max(sum(n for q, n in tim.items() if tl_tpose(recs[q], k) != tl_tpose(recs[q], k + 1))
                  for k in range(256))
     return w
+
+
+def _ga_chg(meet):
+    """SPEC.md 128.41.12 A5: a gate ART's lanes turn on its CHANNEL's frame steps, and two channels never step on
+    one step - the most of one channel's art lanes meeting the window"""
+    per = {}
+    for L in meet:
+        if L[4]["kind"] == GT_KA:
+            per[L[4]["gch"]] = per.get(L[4]["gch"], 0) + 1
+    return max(per.values()) if per else 0
 
 
 def _tt_changes(meet):
@@ -11192,7 +11416,7 @@ def check_bounds(c):
                                               c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
                 chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
                     + sum(1 for L in meet if L[4].get("always")) \
-                    + _events(meet) + _tilt_chg(meet, c.part["props"]) + _tt_changes(meet)
+                    + _events(meet) + _tilt_chg(meet, c.part["props"]) + _tt_changes(meet) + _ga_chg(meet)
                 _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
                     "Hercules" if herc else "CGA", R, C))
                 most_chg = max(most_chg, chg)
@@ -11202,7 +11426,7 @@ def check_bounds(c):
                                           c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
                                           sum(1 for L in meet if lane_digit(L[4])),
                                           _events(meet) + _tt_changes(meet), WIN_CHG,
-                                          "; see-saws' lanes %d more (a timed one's timer: give it a `seed`, or keep "
+                                          "; gate art lanes %d" % _ga_chg(meet) + "; see-saws' lanes %d more (a timed one's timer: give it a `seed`, or keep "
                                           "it out of a weight one's windows, SPEC.md 128.42.11)"
                                           % _tilt_chg(meet, c.part["props"]) if _tilt_chg(meet, c.part["props"]) else ""))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
@@ -13205,6 +13429,13 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=8, art=None, dur=0, ow=0, tlnx=nx_, tlny=ny_,
                          tlf=tf_, tlpz=pz_, tlmask=tm_, tlflat=tfl_, tlseed=ts_)
                 continue
+            if kr["kind"] == GT_KA:                 # SPEC.md 128.41.12: an art's LANE, +18 its gate, +19 the channel
+                if cls != CL_ATTEMPT or fsb_ or p[r + 19] >= GT_NCH or p[r + 20:r + 32] != bytes(12) \
+                        or not d["lane"] or d["lane"]["poses"] != GT_AFR:
+                    bad("prop %d" % d["i"], "a gate art lane's record")
+                d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art="galane", dur=0, ow=0, gap=p[r + 18],
+                         gch=p[r + 19])
+                continue
             if kr["kind"] == FK_TILTL:              # ...a LANE of one: +18 its plate (checked below), else zero
                 if cls != CL_ATTEMPT or fsb_ or p[r + 19:r + 32] != bytes(13) or not d["lane"] \
                         or d["lane"]["poses"] != 3:
@@ -13231,9 +13462,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, bp=(bd, bs))
                 continue
             if kr["kind"] in GT_KINDS:              # SPEC.md 128.41.3: +18 the channel, +19 a gate's way or a
-                gc, g19, gkd, on_, sm_, ss_ = struct.unpack_from("<BbBBBB", p, r + 18)    # bridge's deck, +20 its
-                k_ = kr["kind"]                     # grid byte, +21 - +23 a timed bridge's timer
+                gc, g19, gkd, on_, sm_, ss_, ga_ = struct.unpack_from("<BbBBBBB", p, r + 18)    # bridge's deck,
+                k_ = kr["kind"]                     # +20 its grid byte, +21 - +23 a timed bridge's timer, +24 ART
                 tm = k_ == GT_KB and gc == GT_TIMED
+                if ga_ and k_ in (GT_KG, GT_KB) and not tm and ga_ == GT_FART and not d["lane"] and not d.get("grp") \
+                        and cls == CL_ATTEMPT and not fsb_ and p[r + 25:r + 32] == bytes(7) and gc < GT_NCH \
+                        and not (on_ or sm_ or ss_) and (k_ == GT_KB or (g19 in (0, 1) and not gkd)) \
+                        and (k_ == GT_KG or gkd & 15 == KIND_FLOOR):
+                    d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, gch=gc,
+                             galong=g19 if k_ == GT_KG else 0, deck=g19 if k_ == GT_KB else 0, gkd=gkd, gart=True)
+                    continue
                 if cls != CL_ATTEMPT or fsb_ or p[r + 24:r + 32] != bytes(8) \
                         or not (gc < GT_NCH or tm) or (k_ == GT_KG and g19 not in (0, 1)) \
                         or (k_ in (GT_KP, GT_KK) and g19) or (k_ != GT_KB and gkd) \
@@ -13274,6 +13512,12 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if q is None or q.get("partner") != d["i"] or q.get("comp") == d.get("comp") or q["at"] != d["at"] \
                     or q["fsb"] != d["fsb"] or (d["comp"] and d["i"] < q["i"]):
                 bad("prop %d" % d["i"], "a vanishing crack's partner %d" % d["partner"])
+    for d in out:                                   # (SPEC.md 128.41.12: an art lane's gate, on its anchor, its channel)
+        if d["kind"] == GT_KA:
+            q = out[d["gap"]] if d["gap"] < len(out) else None
+            if q is None or q["kind"] not in (GT_KG, GT_KB) or not q.get("gart") or q["at"] != d["at"] \
+                    or q["gch"] != d["gch"]:
+                bad("prop %d" % d["i"], "a gate art lane's gate %d" % d["gap"])
     for d in out:                                   # (SPEC.md 128.42.3: a see-saw lane's plate, on its anchor)
         if d["kind"] == FK_TILTL:
             q = out[d["tlp"]] if d["tlp"] < len(out) else None
@@ -14231,9 +14475,15 @@ class GateFamily(Family):
         p.fref = 1
 
     def step(self, p, slot):
+        n = p.nstep & 255
+        sb = p.fsl[slot]
+        c = (n & 7) >> 1                            # SPEC.md 128.41.12 A5: channel c's art FRAME steps on n AND 7
+        if not n & 1 and sb[0] >> c & 1 and sb[2 + c] < GT_AFR - 1 and not _GA_STILL:   # = 2 c
+            sb[2 + c] += 1
+            if sb[2 + c] == GT_AFR - 1:
+                p.fref = 1
         if not p.fsl[slot][1]:
             return
-        n = p.nstep & 255
         wx, wy = p.wcell
         for pr in p.props:
             if pr["kind"] == GT_KB and pr["gch"] == GT_TIMED and gt_down(pr, n, 0) != gt_down(pr, n + 1, 0) \
@@ -14243,6 +14493,8 @@ class GateFamily(Family):
     def pose(self, p, slot, i):
         pr = p.props[i]
         ch = p.fsl[slot][0]
+        if pr["kind"] == GT_KA:                     # SPEC.md 128.41.12: an art lane, its channel's frame
+            return p.fsl[slot][2 + pr["gch"]]
         if pr["kind"] == GT_KB:
             return 0 if gt_down(pr, p.nstep & 255, ch) else 1
         op = ch >> pr["gch"] & 1
@@ -14257,15 +14509,19 @@ class GateFamily(Family):
             if pr["kind"] not in (GT_KG, GT_KB) or pr["at"] not in win:
                 continue
             c = win[pr["at"]]
-            if pr["kind"] == GT_KG:
-                if not ch >> pr["gch"] & 1 and not _GT_NOWALL:
+            op = ch >> pr["gch"] & 1 if not pr.get("gart") else \
+                p.fsl[slot][2 + pr["gch"]] >= (0 if _GA_EARLY else GT_AFR - 1)   # (128.41.12 A6: an art's at its
+            if pr["kind"] == GT_KG:                                             # last frame)
+                if not op and not _GT_NOWALL:
                     c[3] = KIND_WALL
-            elif gt_down(pr, n, ch) and not (pr["at"] == (cx, cy) and Z < 4 * pr["deck"] and not _GT_LIFT):
+            elif (op if pr.get("gart") else gt_down(pr, n, ch)) and not (pr["at"] == (cx, cy) and Z < 4 * pr["deck"] and not _GT_LIFT):
                 c[0], c[3], c[5] = pr["deck"], KIND_FLOOR, pr["gkd"] >> 4
             else:
                 c[0], c[3], c[5] = pr["deck"] - GT_DROP, KIND_VOID, 0
 
 
+_GA_STILL = False             # (--selfcheck's red arms on the model, SPEC.md 128.41.12: an art's frame never stepped;
+_GA_EARLY = False             # its cell opened with the channel, at frame 0)
 _GT_NOOPEN = False            # (--selfcheck's red arms on the model: nothing opens a channel, a shut gate not
 _GT_NOWALL = False            # walled, a bridge coming down lifting a ball under its deck onto it)
 _GT_LIFT = False
@@ -29983,6 +30239,8 @@ GT_SC = {
     "timed": ((14, 12), ((21.0, 12.0),), 200, 0),               # across the timed bridge while it is down
     "late": ((14, 12), ((21.0, 12.0),), 200, 60),               # ...too late: it goes up under the ball
     "under": ((14, 12), ((21.0, 12.0),), 300, 200),             # into it while up, and it comes down over the
+    "art": ((10, 7), ((10.5, 3.5),), 300, 0),       # SPEC.md 128.41.12: over the corridor's ring plate into the
+                                                    # CRUMBLE, held until its frame 3, then through it
 }                                                               # falling ball: no lift (the red arm `lift`)
 
 
@@ -30077,7 +30335,72 @@ def _gt_cases():
         ("a style twice", C + P + "prop gate 8 6 channel ring style picket style crystal\n", "not 'style'"),
         ("a style on a plate", C + P + "prop plate 6 6 channel box style picket\nprop gate 8 6 channel box\n"
          "prop gate 9 6 channel ring\n", "not 'style'"),
+        # SPEC.md 128.41.12: the designer's ART (the bad files are _sc_gate's, written to a scratch GT_ADIR)
+        ("an art of no file", C + P + "prop gate 8 6 channel ring art hedge\n", "gate art 'hedge'"),
+        ("an art and a style", C + P + "prop gate 8 6 channel ring art crumble style picket\n", "`art` or `style`"),
+        ("an art on a timed bridge", C + "prop bridge 8 6 period 64 on 8 art crumble\n", "TIMED bridge takes no"),
+        ("a gate's art on a bridge", C + P + "prop bridge 8 6 channel ring art crumble\n", "is a gate's, not"),
+        ("an art on a plate", C + "prop plate 7 7 channel ring art crumble\nprop gate 8 6 channel ring\n",
+         "not 'art'"),
+        ("a gateart twice", C.replace("uses gate", "gateart crumble\ngateart door\nuses gate") + P
+         + "prop gate 8 6 channel ring\n", "gateart takes one art name, once"),
+        ("an art of 3 frames", C + P + "prop gate 8 6 channel ring art bad3\n", "a gate art is 4 frames"),
+        ("an art the same on the Hercules", C + P + "prop gate 8 6 channel ring art badherc\n",
+         "SAME on the Hercules"),
+        ("an art off the picture", C + P + "prop gate 8 6 channel ring art badoff\n", "off the picture"),
+        ("an art hidden behind a wall in front of it", C + P + "wall rect 9 7 11 9 flat 9\n"
+         "prop gate 8 6 channel ring art crumble\n", "is HIDDEN"),
     ]
+
+
+GA_BAD = {          # (--selfcheck's bad gate arts, SPEC.md 128.41.12.3: written to a scratch directory)
+    "bad3": "# frames 3\n# for gate\n# foot 1 2\n# cells 1\n" + "000\n000\n000\n" * 3,
+    "badherc": "# frames 4\n# for gate\n# foot 1 2\n# cells 1\n" + "000\n333\n000\n" + "000\n111\n000\n"
+               + "000\n222\n000\n" + "...\n...\n...\n",
+    "badoff": "# frames 4\n# for gate\n# foot 1 300\n# cells 1\n" + ("000\n" * 302 + "...\n" * 302) * 2,
+}
+
+
+def ga_frames_check(c, early=False, still=False):
+    """SPEC.md 128.41.12 A5, A6 on the model: GATE's CRUMBLE (channel ring, 0) opened on step n0, then STEP and CELL
+    each step - -> (ok, the steps its frame stepped on, the step its cell opened).  Its frame steps on n AND 7 =
+    0 only, one at a time, to 3 within 17 - 24 steps; its cell a WALL while the frame is under 3 and the FLOOR from
+    the step it is 3; its lanes' POSE the frame"""
+    global _GA_EARLY, _GA_STILL
+    _GA_EARLY, _GA_STILL = early, still
+    try:
+        fam = GateFamily()
+        props = c.part["props"]
+        art = next(r for r in props if r["kind"] == GT_KG and r.get("gart") and r["gch"] == 0)
+        lanes = [r for r in props if r["kind"] == GT_KA and props[r["gap"]] is art]
+        res = []
+        for n0 in (1, 5):
+            class P:
+                pass
+            p = P()
+            p.props, p.fsl, p.nstep, p.fref, p.wcell, p.gz = props, [[0] * FSLOT], n0, 0, art["at"], 0
+            p.fsl[0][0] = 1                         # (CONTACT on the ring plate, on step n0)
+            steps, opened, ok = [], None, True
+            for k in range(40):
+                f0 = p.fsl[0][2]
+                fam.step(p, 0)
+                if p.fsl[0][2] != f0:
+                    steps.append(p.nstep)
+                    ok = ok and p.fsl[0][2] == f0 + 1 and p.nstep & 7 == 0
+                win = {(art["at"][0] + dx, art["at"][1] + dy): [4, 0, 0, KIND_FLOOR, 0, 0] for dx in (-1, 0, 1)
+                       for dy in (-1, 0, 1)}
+                fam.cell(p, 0, win)
+                wall = win[art["at"]][3] == KIND_WALL
+                ok = ok and wall == (p.fsl[0][2] < GT_AFR - 1) and all(fam.pose(p, 0, r["i"]) == p.fsl[0][2]
+                                                                     for r in lanes)
+                if not wall and opened is None:
+                    opened = p.nstep - n0
+                p.nstep += 1
+            ok = ok and len(steps) == GT_AFR - 1 and opened is not None and 17 <= opened + 1 <= 24
+            res.append((ok, steps, opened))
+        return all(r[0] for r in res), res
+    finally:
+        _GA_EARLY = _GA_STILL = False
 
 
 class _GtArm(GateFamily):
@@ -30106,7 +30429,8 @@ GT_WANT = {"ring": "through the ring gates (x 19 on), no fall", "ringshut": "sto
            "key": "through the plus gates (y 20 on), no fall", "keyshut": "stopped at the shut gates (y 18 or less)",
            "box": "across the box bridge (x 6 or less), no fall", "boxup": "falls where the bridge is up",
            "timed": "across the timed bridge (x 19 on), no fall", "late": "falls: it goes up under the ball",
-           "under": "rubber and glass fall into it while up and keep falling when it comes down"}
+           "under": "rubber and glass fall into it while up and keep falling when it comes down",
+           "art": "held at the CRUMBLE while it falls (frame 3), then through it (y 4 or less), no fall"}
 
 
 def gt_verdict(name, mat, r):
@@ -30116,7 +30440,8 @@ def gt_verdict(name, mat, r):
             "key": fell is None and y >= 20 and ch == 2, "keyshut": fell is None and y <= 18 and ch == 0,
             "box": fell is None and x <= 6 and ch == 4, "boxup": fell is not None and ch == 0,
             "timed": fell is None and x >= 19, "late": fell is not None,
-            "under": fell is not None or mat == MAT_STEEL}[name]
+            "under": fell is not None or mat == MAT_STEEL,
+            "art": fell is None and y <= 4 and ch & 1}[name]
 
 
 def gt_scenes(c, arm=None, names=None):
@@ -30132,14 +30457,30 @@ def gt_scenes(c, arm=None, names=None):
 def _sc_gate(X, res):
     """--selfcheck's section `gate` (SPEC.md 128.41.8): the refusals, the test course's records and lanes, the art's
     pairing, the scenes on the model, and the model's red arms"""
-    for what, text, want in _gt_cases():
-        try:
-            compile_course(text, fname="<%s>" % what, occluders=False)
-            fired, msg = False, "compiled"
-        except CourseError as e:
-            fired, msg = want in str(e), str(e)
-        res.append(("2 refused (switches, keys, gates, bridges, 128.41.7): %s%s" % (what, "" if fired else
-                                                                                    " -- got: " + msg), fired))
+    global GT_ADIR
+    import shutil
+    import tempfile
+    adir, keep = tempfile.mkdtemp(), GT_ADIR
+    for nm in os.listdir(keep):
+        shutil.copy(os.path.join(keep, nm), adir)
+    for nm, text in GA_BAD.items():
+        with open(os.path.join(adir, nm + ".bba"), "w") as f_:
+            f_.write(text)
+    GT_ADIR = adir
+    _GA_CACHE.clear()
+    try:
+        for what, text, want in _gt_cases():
+            try:
+                compile_course(text, fname="<%s>" % what, occluders=False)
+                fired, msg = False, "compiled"
+            except CourseError as e:
+                fired, msg = want in str(e), str(e)
+            res.append(("2 refused (switches, keys, gates, bridges, 128.41.7, 128.41.12.3): %s%s" % (
+                what, "" if fired else " -- got: " + msg), fired))
+    finally:
+        GT_ADIR = keep
+        _GA_CACHE.clear()
+        shutil.rmtree(adir, ignore_errors=True)
     c = compile_course(GT_TEST)
     src = parse(open(GT_TEST).read(), GT_TEST)
     want = sorted((sp["at"], sp["kind"], GT_TIMED if sp["gch"] is None else sp["gch"], sp["galong"])
@@ -30155,9 +30496,10 @@ def _sc_gate(X, res):
                 "seed a step after the last), +19 a gate's way and a bridge's deck, +20 its grid byte; each a lane of "
                 "2 poses, no state bit, class ATTEMPT; FAMV %02Xh moves with each of its consts" % (
                     len(recs), len(tm), fv),
-                got == want and len(recs) == 15 and moved and len(tm) == 6
+                got == want and len(recs) == 20 and moved and len(tm) == 6
                 and sorted(r["sseed"] for r in tm) == list(range(6))
-                and all(r["lane"] and r["lane"]["poses"] == 2 and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
+                and all((not r["lane"] if r.get("gart") else r["lane"] and r["lane"]["poses"] == 2)
+                        and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
                         and (r["kind"] != GT_KB or (r["deck"] == 4 and r["gkd"] == KIND_FLOOR)) for r in recs)))
     gl = [frozenset(xy for xy, ink in gt_plaque(0, 0, ch).items() if ink == BLK) for ch in range(GT_NCH)]
     res.append(("5 GATES' pairing (128.41.5): the %d channels' glyphs, black on a white plaque, pairwise distinct "
@@ -30172,7 +30514,8 @@ def _sc_gate(X, res):
     sok = len(set(frozenset(b_.items()) for b_ in bars)) == len(bars) and len(set(decks)) == len(decks) \
         and all(all(b_.get(xy) == v for xy, v in pq.items()) and {BLK, WHT} <= set(b_.values())
                 and max(abs(x) for x, _y in b_) <= GT_BARW for b_ in bars)
-    gst = sorted(set((GT_STYLES[p_["gstyle"]], PK_NAMES[p_["kind"]]) for p_ in c.props if p_["kind"] in (GT_KG, GT_KB)))
+    gst = sorted(set((GT_STYLES[p_["gstyle"]], PK_NAMES[p_["kind"]]) for p_ in c.props if p_["kind"] in (GT_KG, GT_KB)
+                 and p_.get("gart") is None))       # (128.41.12: an ART element takes no style)
     plain = open(GT_TEST).read()
     for nm in GT_STYLES:
         plain = plain.replace(" style %s" % nm, "")
@@ -30182,6 +30525,30 @@ def _sc_gate(X, res):
                 "black and white in each, inside the grille's %d px; GATE's elements %s; GATE with no `style` is "
                 "GATE with `gatestyle grille` (%d bytes)" % (", ".join(GT_STYLES), 2 * GT_BARW + 1, gst, len(c0.cga)),
                 sok and c0.cga == c1.cga and c0.cga != c.cga and len(gst) == 4))
+    # SPEC.md 128.41.12: the designer's ART - GATE's three, their lanes (kind GT_KA, 4 poses, at most GT_ALANES an
+    # art, +18 its gate, +19 its channel), its frames stepped and its cell opened at frame 3, and two red arms
+    arts = [r for r in c.part["props"] if r.get("gart")]
+    gal = [r for r in c.part["props"] if r["kind"] == GT_KA]
+    per = {}
+    for r in gal:
+        per[r["gap"]] = per.get(r["gap"], 0) + 1
+    names = sorted(p_["gart"]["name"] for p_ in c.props if p_.get("gart") is not None and p_.get("gacell") == 0)
+    res.append(("7 GATE ART (128.41.12): %s on GATE, %d art cells (the portcullis two), %d lanes (%s an art), each 4 "
+                "poses naming its gate and channel; the visibility rule %s" % (
+                    ", ".join(names), len(arts), len(gal), "/".join(str(v) for v in per.values()),
+                    ["%s %d" % (v[1], v[4]) for v in c.ga_vis]),
+                names == ["crumble", "door", "portcullis"] and len(arts) == 4 and 3 <= len(per)
+                and all(1 <= v <= GT_ALANES for v in per.values())
+                and all(r["lane"]["poses"] == GT_AFR and c.part["props"][r["gap"]]["gch"] == r["gch"] for r in gal)))
+    ok_, fr_ = ga_frames_check(c)
+    res.append(("7 GATE ART's frames on the model (128.41.12 A5, A6): the crumble's channel opened on steps 1 and 5, "
+                "its frame stepped on %s (n AND 7 = 0), its cell a WALL until frame 3 and the FLOOR from it (%s steps "
+                "after the opening), its lanes' POSE the frame" % (
+                    " and ".join("/".join(map(str, r[1])) for r in fr_), " and ".join(str(r[2]) for r in fr_)), ok_))
+    for arm, kw in (("early (the cell opened at frame 0)", {"early": True}),
+                    ("still (the frame never stepped)", {"still": True})):
+        red = not ga_frames_check(c, **kw)[0]
+        res.append(("7 GATE ART's red arm %s on the model: %s" % (arm, "red" if red else "STAYED GREEN"), red))
     s = gt_scenes(c)
     bad = ["%s %s" % (n_, MAT_NAMES[m_]) for (n_, m_), v in sorted(s.items()) if not gt_verdict(n_, m_, v)]
     res.append(("6 GATES' scenes on the model (128.41.8), every ball: %s%s" % (
