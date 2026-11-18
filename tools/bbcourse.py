@@ -662,8 +662,6 @@ TT_QUARTERS = (32, 64)        # steps a quarter turn (0.53 s, 1.07 s at 60 steps
 TT_QDEF = 64                  # ...when not written: "a quarter turn every second or so"
 TT_WDEF = 16                  # the WARNING: steps before a turn a floor cell about to open shows its seam (0.27 s)
 TT_VOID = 6                   # half units: a gap's NEAR VOID under the floor (the membrane's, a broken crack's)
-TT_HOLE = 4.5                 # the hole's art: |u| / 2 + |v| under this, |v| < 4 (inside the 2 x 2-block lane)
-TT_RING = 0.06                # the table's RING (cells), drawn at radius N / 2 - 0.1 round the hub
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -1423,30 +1421,99 @@ def membrane_pix(cx, cy, nb):
     return out
 
 
-# THE TURNTABLE (SPEC.md 128.43): its art.  The PICTURE holds the table as one round thing lying on the floor - a
-# black RING of radius N / 2 - 0.1 cells round the HUB (the table's centre: a white bolt, black outlined) over its
-# cells' tops - and each switching cell's 2 x 2-block lane (a popspike's, round its top's centre) its poses: 1 the
-# WARNING (the hole's seam, dotted black), 2 the GAP (the hole, black).  Black and white only: both cards read it.
-def tt_ring_pix(tab, x0, y0, z4):
-    """the ring and the hub over every cell of TAB's tops -> {(x, y): ink}, with the cell's depth key s (wx + wy)
-    beside each: {(x, y): (ink, s)}"""
+# THE TURNTABLE (SPEC.md 128.43.5): its art.  The table is ONE OBJECT, a crystal PLATTER: its cells are not drawn as
+# tiles (no checker, no columns), and in their place a geometry op draws a rounded-square platter (a squircle,
+# exponent TT_SQ, so it covers its cells but for their outer corners' last few px) - a pinwheel of eight facets
+# round a gem HUB (white and cyan in turn, magenta seams), a bevelled rim lit on the back left, a black outline -
+# with its FRONT EDGE a half unit thick (magenta, lit left and dithered right as every wall face) and a short
+# SPINDLE under the hub.  Each switching cell's 2 x 2-block lane (a popspike's) holds its poses: 1 the WARNING, a
+# dotted seam where a PORT will open; 2 the GAP, the port open - black, its far inner wall magenta, its near lip
+# lit.  White, black and the faces' magenta: the Hercules reads it as white, black and grey.
+TT_SQ = 4                     # the platter's squircle exponent (2 a disc; 4 a rounded square)
+TT_RIM = 4                    # px: the platter's front edge (half a unit)
+TT_SPIN = (6, 10)             # the spindle under the hub: px wide, px below the rim
+TT_PORT = (7.0, 3.2)          # the port's half axes, px (u, v): inside the lane's |u| < 8, |v| < 4
+
+
+def tt_platter_pix(tab, x0, z4):
+    """TAB's platter (Y0 = 0) -> {cell: {(x, y): ink}}: its top pixels by the cell under them, its front edge's by
+    the cell of the top's edge above them, the spindle the hub's cell's (a 2 x 2's back cell, a 3 x 3's pivot)"""
     N, (ax, ay) = tab["N"], tab["at"]
-    R = N / 2.0 - 0.1
+    Rq = N / 2.0 - 0.03
+    hx, hy = 16 * (ax - ay) + x0, 8 * (ax + ay + N) - z4     # the hub, on the screen
+    top, cell = {}, {}
+    for y in range(hy - 8 * N - 2, hy + 8 * N + 2):
+        for x in range(hx - 16 * N - 2, hx + 16 * N + 2):
+            a_, b_ = (x + 0.5 - x0) / 16.0, (y + 0.5 + z4) / 8.0
+            fx, fy = (a_ + b_) / 2.0, (b_ - a_) / 2.0
+            dx, dy = fx - ax - N / 2.0, fy - ay - N / 2.0
+            q = (abs(dx) ** TT_SQ + abs(dy) ** TT_SQ) ** (1.0 / TT_SQ) / Rq
+            if q > 1.0:
+                continue
+            r = math.hypot(dx, dy)
+            th = math.atan2(dy, dx)
+            sec = int((th + math.pi) / (math.pi / 4)) & 7
+            seam = r * abs(math.sin(4 * th)) < 0.05 and r > 0.2
+            if r < 0.1:
+                ink = WHT
+            elif r < 0.17:
+                ink = BLK
+            elif q > 0.86:
+                ink = WHT if dx + dy < -0.4 * N else CYN
+            elif seam:
+                ink = MAG
+            else:
+                ink = WHT if sec & 1 else CYN
+            top[(x, y)] = ink
+            cell[(x, y)] = (min(ax + N - 1, max(ax, int(math.floor(fx)))), min(ay + N - 1, max(ay, int(math.floor(fy)))))
+    for (x, y) in list(top):                        # the outline
+        if any((x + ex, y + ey) not in top for ex, ey in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            top[(x, y)] = BLK
     out = {}
-    for j in range(N):
-        for i in range(N):
-            wx, wy = ax + i, ay + j
-            cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - z4 + y0
-            for v in range(-8, 8):
-                for u in range(-16, 16):
-                    if BA._diamond(u, v) > 1.0:
-                        continue
-                    a_, b_ = (u + 0.5) / 16.0, (v + 0.5) / 8.0
-                    fx, fy = i + 0.5 + (a_ + b_) / 2.0 - N / 2.0, j + 0.5 + (b_ - a_) / 2.0 - N / 2.0
-                    d = math.hypot(fx, fy)
-                    ink = WHT if d < 0.09 else BLK if d < 0.15 or abs(d - R) < TT_RING else None
-                    if ink is not None:
-                        out[(cx + u, cy + v)] = (ink, wx + wy)
+    for xy, ink in top.items():
+        out.setdefault(cell[xy], {})[xy] = ink
+    cols = {}
+    for (x, y) in top:
+        cols[x] = max(cols.get(x, y), y)
+    xl, xr = min(cols), max(cols)
+    rim = set()
+    for x, ye in cols.items():                      # the front edge, under the top's lowest pixel of each column
+        for k in range(1, TT_RIM + 1):
+            if (x, ye + k) in top:
+                continue
+            last = k == TT_RIM or x in (xl, xr)
+            ink = BLK if last or x in (xl, xr) else MAG if x < hx else (MAG if (x + ye + k) & 1 else BLK)
+            out.setdefault(cell[(x, ye)], {})[(x, ye + k)] = ink
+            rim.add((x, ye + k))
+    w, dn = TT_SPIN
+    sc = (ax, ay) if N == 2 else (ax + 1, ay + 1)
+    yb = max(y for (x, y) in rim if hx - w // 2 <= x < hx + w // 2)
+    for y in range(yb + 1, yb + dn + 1):
+        for x in range(hx - w // 2, hx + w // 2):
+            side = x in (hx - w // 2, hx + w // 2 - 1) or y == yb + dn
+            out.setdefault(sc, {})[(x, y)] = BLK if side else (MAG if x < hx else (MAG if (x + y) & 1 else BLK))
+    return out
+
+
+def tt_ops(tables, ops, x0, z4s):
+    """SPEC.md 128.43.5: each table's platter as 'post' ops (geometry, keyed its cell's s, every pixel's top the
+    platter's), put into the back-to-front order after the whole of its cell's row - arch_ops' way.  Z4S: {id(table):
+    its top, px}"""
+    rops = []
+    for tab in tables:
+        H = z4s[id(tab)]
+        for (wx, wy), pix in tt_platter_pix(tab, x0, H).items():
+            mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, H)
+            rops.append(((wx + wy, 1 << 30, wx), (_spans_of(pix), "post", wx + wy, mk, False, None, (wx, wy))))
+    rops.sort(key=lambda r: r[0])
+    out, i = [], 0
+    for op in ops:
+        k = (op[6][0] + op[6][1], op[6][0], 0)
+        while i < len(rops) and rops[i][0] < k:
+            out.append(rops[i][1])
+            i += 1
+        out.append(op)
+    out += [r[1] for r in rops[i:]]
     return out
 
 
@@ -1456,19 +1523,25 @@ def tt_lane_rect(cx, cy):
 
 
 def tt_hole_pix(cx, cy, seam=False):
-    """the GAP's hole round the top's centre (|u| / 2 + |v| < TT_HOLE, |v| < 4: always inside the lane), black;
-    SEAM: only its rim, every other pixel (the WARNING) -> {(x, y): ink}"""
-    def ins(u, v):
-        return abs(v) < 4 and abs(u) < 8 and abs(u) / 2.0 + abs(v) < TT_HOLE
+    """a switching cell's PORT round its top's centre (half axes TT_PORT: always inside the lane): open (the GAP) -
+    black, the far inner wall a 2-row magenta band, the near lip lit white; SEAM (the WARNING) - its outline alone,
+    every other pixel black -> {(x, y): ink}"""
+    pu, pv = TT_PORT
+
+    def ins(u, v, sh=0.0, k=1.0):
+        return ((u + 0.5) / (pu * k)) ** 2 + ((v + 0.5 - sh) / (pv * k)) ** 2 < 1.0
     out = {}
     for v in range(-4, 4):
         for u in range(-8, 8):
-            if not ins(u, v):
-                continue
-            if seam and (all(ins(u + du, v + dv) for du, dv in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-                         or (u + v) & 1):
-                continue
-            out[(cx + u, cy + v)] = BLK
+            if ins(u, v):
+                edge = not all(ins(u + du, v + dv) for du, dv in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                if seam:
+                    if edge and not (u + v) & 1:
+                        out[(cx + u, cy + v)] = BLK
+                    continue
+                out[(cx + u, cy + v)] = BLK if edge or ins(u, v, 2.0) else MAG
+            elif not seam and v >= 0 and ins(u, v, 0.0, 1.22):
+                out[(cx + u, cy + v)] = WHT
     return out
 
 
@@ -8625,6 +8698,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             raise CourseError("%s:%d: guard (%d, %d) is a prop's cell (SPEC.md 128.35.1)"
                               % (fname, rails[c_].line, c_[0], c_[1]))
     undrawn = gcells | set(rails)
+    tt_tabs = {}                                    # SPEC.md 128.43.5: a TURNTABLE's cells (its pivot's too) are
+    for p in props:                                 # drawn as its platter, not as tiles
+        if p["kind"] == TT_K and not hack.get("nottart"):
+            tt_tabs[id(p["ttab"])] = (p["ttab"], p["z4"])
+    ttcells = {(t["at"][0] + i, t["at"][1] + j) for t, _z in tt_tabs.values() for i in range(t["N"])
+               for j in range(t["N"])}
+    undrawn = undrawn | ttcells
     if gcells:
         for at, d in glass_first(tiles, props, src.start[0]).items():
             next(p for p in props if p["at"] == at and p.get("art") == "glass")["jag"] = d
@@ -8659,6 +8739,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         ops = prop_ops(tiles, ops, props, x0)
     if rails and not hack.get("guardsolid"):        # (guardfront: a red arm's switch, the rail keyed 8 rows nearer)
         ops = guard_ops(tiles, ops, x0, 8 if hack.get("guardfront") else 0)
+    if tt_tabs:                                     # SPEC.md 128.43.5: each turntable's PLATTER
+        ops = tt_ops([t for t, _z in tt_tabs.values()], ops, x0, dict((k, z) for k, (_t, z) in tt_tabs.items()))
     if src.archways:                                # SPEC.md 128.39.5: each archway's LINTEL (arkey: a red arm, keyed
         ops = arch_ops(src.archways, ops, x0, 0 if hack.get("arkey") else 1)   # at its own row)
     if warch:                                       # SPEC.md 128.36: each water column's arches
@@ -8779,13 +8861,6 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 side = ((bx_ - 1, by_), (bx_, by_ + 1)) if x < ccx else ((bx_ + 1, by_), (bx_, by_ - 1))
                 if not any(n_ in tiles and n_ not in bwalk and n_ not in gcells for n_ in side):
                     cv.rows[xy[1]][x] = balt[xy]
-    tt_done = set()                                 # THE TURNTABLE (SPEC.md 128.43): each table's ring and hub
-    for p in props:                                 # PAINTED in the picture before any lane is cut (so every pose
-        if p["kind"] == TT_K and id(p["ttab"]) not in tt_done and not hack.get("nottart"):   # is cut against the
-            tt_done.add(id(p["ttab"]))              # final picture), clipped by what is in front
-            for (x, y), (ink, sF) in tt_ring_pix(p["ttab"], x0, y0, p["z4"]).items():
-                if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sF:
-                    cv.rows[y][x] = ink
     lanes = []
     cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
     for i, p in enumerate(props):
@@ -28079,8 +28154,8 @@ def _sc_turn(X, res):
                 "floor %s" % (sorted({by[r["at"]].zlo for r in tr}), sorted({by0[r["at"]].zlo for r in tr if r["at"] in by0})),
                 tr and all(by[r["at"]].zlo == 4 * (r["tz"] - TT_VOID) and by0[r["at"]].zlo == 4 * r["tz"] for r in tr)))
     cn = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (no art)", _hack={"nottart": True})
-    res.append(("10 turntable (128.43.5): the rings and hubs are in the picture (the course part %d bytes; %d with the "
-                "art's control `nottart`, the part differing); every hole and seam pose drawn" % (len(c.cga), len(cn.cga)),
+    res.append(("10 turntable (128.43.5): the PLATTERS are in the picture, the tables' cells not drawn as tiles (the course part %d bytes; %d with the "
+                "art's control `nottart`, its tiles drawn instead); every port and seam pose drawn" % (len(c.cga), len(cn.cga)),
                 c.cga != cn.cga and all(len(r["fpix"][2]) > len(r["fpix"][1]) > 0 for r in c.props
                                         if r["kind"] == TT_K)))
     good = tt_model_scenes(c)
