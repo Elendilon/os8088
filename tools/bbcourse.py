@@ -1122,6 +1122,7 @@ class Source:
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
+        self.stopd = None           # SPEC.md 130.45.4: `stop down`'s line - the BOTTOM STOP at the finish
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
         self.pages = None           # ...(N, line)
         self.ppads = []             # ...the pathway's pads: [dict num crs at line]
@@ -3195,6 +3196,11 @@ def parse(text, fname="<course>"):
             if src.lockx is not None or len(toks) != 2 or toks[1] != ('w', "across"):
                 raise CourseError("%s: lock takes `across`, once (the camera held across, SPEC.md 130.45)" % where)
             src.lockx = ln
+        elif st == "stop":                          # SPEC.md 130.45.4: the BOTTOM STOP, a course's flag
+            if src.stopd is not None or len(toks) != 2 or toks[1] != ('w', "down"):
+                raise CourseError("%s: stop takes `down`, once (the camera stops once the finish is in view, "
+                                  "SPEC.md 130.45.4)" % where)
+            src.stopd = ln
         elif st == "guide":                         # wave 11 (stories 11.11, 11.13): a REAL course, held to the
             if src.guide is not None or len(toks) != 1:     # course guide's checkable rules (guide_static_rule,
                 raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
@@ -11164,6 +11170,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 130.18.3): needs the part
     c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 130.19.8.3)
     c.lockx = lock_across(c, src.lockx) if src.lockx else None   # SPEC.md 130.45: (CGA c0, Hercules c0) or None
+    c.lockb = lock_bottom(c) if src.stopd else None # SPEC.md 130.45.4: the BOTTOM LINE (`stop down`), or None
     c.guide = src.guide                             # wave 11: the course guide's static half, at every compile
     c.guide_static = guide_static_rule(c, hack) if c.guide else None
     return c
@@ -14883,6 +14890,7 @@ class Physics:
                 course._grid = Grid(part, course.wcga)     # are only read by the model)
             self.grid = course._grid
             self.lockx = getattr(course, "lockx", None)   # SPEC.md 130.45: read by Glide
+            self.lockb = getattr(course, "lockb", None)   # SPEC.md 130.45.4: the bottom stop
         else:
             self.grid = Grid(part)
         self.play = play
@@ -16800,6 +16808,9 @@ class Glide:
         self.want_r = self.want_c = False
         self.W, self.H, self.rl, self.lsh = CARDS[herc]
         self.rmax = brows * 8 // self.rl - self.H
+        lb = getattr(phys, "lockb", None)          # SPEC.md 130.45.4: the BOTTOM STOP, before the DOWN axis
+        if lb:
+            self.rmax = min(self.rmax, max(0, -(-(lb - WIN_LINES) // self.rl)))
         self.cmax = cols - self.W
         self.R0 = self.c0 = 0
         self.first = True
@@ -17982,6 +17993,11 @@ def emit_inc(courses, path=None, title=None):
               "%endmacro",
               "; SPEC.md 130.45: each course's horizontal LOCK, the CGA's c0 then the Hercules', a byte",
               "; each (`lock across`; FFh FFh none).  Not in the part: no identity moves",
+              "; SPEC.md 130.45.4: each course's BOTTOM LINE, the lowest picture line a floor shows, a word",
+              "; each (0 none; a `lock across` course's)",
+              "%macro BZ_CRS_BOTS 0",
+              "    dw " + ", ".join(str(getattr(c, "lockb", None) or 0) for c in allc),
+              "%endmacro",
               "%macro BZ_CRS_LOCKS 0",
               "    db " + ", ".join("%d, %d" % getattr(c, "lockx") if getattr(c, "lockx", None) else "0FFh, 0FFh"
                                  for c in allc),
@@ -18687,8 +18703,11 @@ def finish_clock_rule(c, _hack=None):
         if p["kind"] == PK_CLOCK:
             clocks.setdefault(p["num"], []).append(L["rect"])
     seen = []
-    for what, x, y in finish_points(c):
+    sw = stopped_window(c)                          # SPEC.md 130.45.4: a locked, stopped course's finish is seen
+    for what, x, y in finish_points(c):             # in the window the camera RESTS in, not one centred on it
         xa, ya = x - VIEW_W // 2, y - VIEW_H // 2
+        if sw and sw[0] <= x - 16 and x + 16 <= sw[0] + VIEW_W and sw[1] <= y - 16 and y + 16 <= sw[1] + VIEW_H:
+            xa, ya = sw
         ok = [n for n, rs in sorted(clocks.items())
               if all(xa <= 8 * bx and 8 * (bx + w) <= xa + VIEW_W and ya <= 8 * by and 8 * (by + h) <= ya + VIEW_H
                      for bx, by, w, h in rs)]
@@ -31585,6 +31604,33 @@ def lock_across(c, ln):
                                   c.fname, ln, hi - lo, lo, hi, "Hercules" if herc else "CGA", 8 * W))
         out.append(c0)
     return tuple(out)
+
+
+def lock_bottom(c):
+    """SPEC.md 130.45.4 (`stop down`): the BOTTOM LINE - the lowest front corner of any FINISH (every goal
+    cell, every cup's cell) plus FACE8, three units of the face under it: once the finish is wholly in view
+    the camera scrolls no further down"""
+    rm = rec_map(c.tiles)
+    out = 0
+    cells = [k for k, t in rm.items() if t.kind == KIND_GOAL] + [tuple(p["at"]) for p in c.props
+                                                                  if p["kind"] == PK_CUP]
+    for k in cells:
+        t = rm.get(tuple(k[:2]))
+        if t is not None:
+            out = max(out, 8 * (k[0] + k[1]) + 16 - _h4t(t, 16, 16) // 4 + c.y0 + FACE8)
+    if not out:
+        raise CourseError("%s: stop down needs a finish (a goal or a cup) to stop at" % c.fname)
+    return out
+
+
+def stopped_window(c, herc=0):
+    """SPEC.md 130.45.4: the window a LOCKED and STOPPED course rests in at its finish - (x px, top line), its
+    across the lock and its down the bottom stop - or None for any other course"""
+    if not (getattr(c, "lockx", None) and getattr(c, "lockb", None)):
+        return None
+    W, H, rl, _lsh = CARDS[herc]
+    rmax = min(c.brows * 8 // rl - H, max(0, -(-(c.lockb - WIN_LINES) // rl)))
+    return 8 * c.lockx[herc], rmax * rl
 
 
 # =============================================================================

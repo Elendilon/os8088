@@ -234,6 +234,23 @@ bz_vinit:
     shr ax, cl
     sub ax, [bz_H]
     mov [bz_rmax], ax
+    mov bl, [bz_crs]            ; SPEC.md 130.45.4: the BOTTOM STOP - the
+    xor bh, bh                  ; window's foot never passes the course's
+    shl bx, 1                   ; bottom line: rmax at most
+    mov ax, [bz_cbots + bx]     ; ceil((bottom - BZ_LINES) / rl), at least 0
+    or ax, ax
+    jz .nbot
+    sub ax, BZ_LINES
+    jns .bpos
+    xor ax, ax
+.bpos:
+    add ax, [bz_rl]
+    dec ax
+    shr ax, cl                  ; (CL = bz_lsh still)
+    cmp ax, [bz_rmax]
+    jge .nbot
+    mov [bz_rmax], ax
+.nbot:
                                 ; W * dr for dr = -2 .. 2 (bz_tf's S)
     mov ax, [bz_W]
     mov [bz_wtab + 6], ax
