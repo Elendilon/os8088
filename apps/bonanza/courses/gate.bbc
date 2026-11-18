@@ -12,6 +12,8 @@
 #  - south-east, the TIMED DRAWBRIDGE (wy 11 - 12): six cells over the void, down 128 steps in every 256 (2.3 s each way);
 #    caught up, the ball falls; a goal across it;
 #  - west, the BOX DRAWBRIDGE (wy 10 - 11): two cells up until the box plate is rolled over; a goal across it.
+# THE ART's STYLES (SPEC.md 128.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
+# the timed drawbridge's deck PICKET (planks), the box drawbridge the default GRILLE (its plain seam).
 course GATE "Gate Test"
 width  128
 origin 320
@@ -29,22 +31,22 @@ prop plate 9 13 channel box
 
 # THE RING GATE: the corridor east, its two gates, a goal behind them
 floor rect 14 8 24 10 flat 2
-prop gate 18 8 channel ring along x
-prop gate 18 9 channel ring along x
+prop gate 18 8 channel ring along x style crystal
+prop gate 18 9 channel ring along x style crystal
 goal tile 22 8 flat 2 exit 1
 
 # THE KEY GATE: the lane south, its two gates; the key's nook beside it; a goal behind them
 floor rect 9 14 11 24 flat 2
 floor rect 11 15 13 17 flat 2
 prop key 12 16 channel plus
-prop gate 9 19 channel plus along y
-prop gate 10 19 channel plus along y
+prop gate 9 19 channel plus along y style portcullis
+prop gate 10 19 channel plus along y style portcullis
 goal tile 9 22 flat 2
 
 # THE TIMED DRAWBRIDGE: six thin cells over the void, down 128 steps of every 256
 floor rect 14 11 24 13 flat 2
 float rect 16 11 19 13 thick 0.5
-prop bridge 16 11 19 13 period 256 on 128
+prop bridge 16 11 19 13 period 256 on 128 style picket
 goal tile 22 12 flat 2
 
 # THE BOX DRAWBRIDGE: two thin cells, up until the box plate is rolled over
