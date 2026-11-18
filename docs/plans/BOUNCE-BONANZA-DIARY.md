@@ -4850,3 +4850,11 @@ the art fit in to the art style of the rest of the props better?"*
   (`tt_host`: eight scenes equal, every red arm red), every shipped course
   (`cmp`). TURN's course part 18,997 -> 19,513.
 - **LOOKED AT** once on MartyPC per card, and the tool's previews of every pose.
+
+### Wave 10 closed, and the course plan reset (2026-11-18)
+
+Wave 10 started from a list written long before the engine looked like this. A re-baseline measured play as the player gets it (replay mode, not the benchmark, whose own measuring inflated CGA misses four to six times) and found that the old list had mostly been done, retired or overtaken. What remained was a handful of real levers. The occluder fast path, dropping measurement-only clock samples in play, and a kernel fix (the timer tick no longer switches tasks inside a full-screen game when nothing else can run - a kernel miss the owner was not pleased to find) took PEAK, the heaviest course, from about 43 missed refreshes per 1,000 steps to about 23. One lever was refused on sight: leaving the shadow out of a second box would have meant no shadow from any real height. Three re-ordering ideas were measured and found worthless; only doing less work helps.
+
+The per-course budget was not adopted. The owner's reasoning: decide it on the first real course, by how it plays, not on test courses.
+
+The same day the course plan changed shape. No existing course ships: FIRST, TRIAL, MILL, MOON, PEAK and the rest become reference and test courses, and the game's courses are new, taking lessons and pieces from them. The pipeline is worked out while making the first one.
