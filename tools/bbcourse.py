@@ -31633,18 +31633,21 @@ def guide_run_checks(c, logs=(), _hack=None):
                 raise CourseError("%s: GUIDE G1: %s finishes in %.1f s, under the floor of %d s"
                                   % (c.fname, name, secs, GUIDE_MIN_S))
             # G3: the columns panned while the ball is in the air, flight by flight
-            flights, cur = [], None                 # [first frame, columns, falls before, ended in a fall]
+            # [first frame, columns, falls before, ended in a fall, thrown out of a tube].  A CANNON's throw is
+            # exempt (the owner, 2026-11-18: the player is not steering it); a spring's is not
+            flights, cur, intube = [], None, False
             for f in r.rows:
                 if f["air"] and not f["tube"]:
                     if cur is None:
-                        cur = [f["fr"], 0, f["resp"], False]
+                        cur = [f["fr"], 0, f["resp"], False, intube]
                         flights.append(cur)
                     cur[1] += abs(f["dc"])
                 else:
                     if cur is not None and f["resp"] != cur[2]:
                         cur[3] = True                       # a fall, not a jump: it ends in a respawn
                     cur = None
-            panned = [(fr, n) for fr, n, _r, fell in flights if n and not fell]
+                intube = f["tube"]
+            panned = [(fr, n) for fr, n, _r, fell, thrown in flights if n and not fell and not thrown]
             if panned and "g3" not in hk:
                 raise CourseError("%s: GUIDE G3: on the %s, %s pans %s while the ball is in the air: a jump "
                                   "never needs a horizontal pan" % (

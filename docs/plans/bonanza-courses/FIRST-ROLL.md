@@ -1,53 +1,65 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 1** (`apps/bonanza/courses/roll.bbc`,
-built by `make BUILD=build/roll BZROLL=1 bonanzadisk`; section 6). The
-sections below are the pen-in, revision 3, which the engine work only
-adjusted where section 6 says. Distances are
-tiles, heights are units (8 px), and times are PREDICTED from the route's
-length; the tool measures them once the course is in the engine.*
+*Status: **IN THE ENGINE, playtest 2, revision 4** (`apps/bonanza/courses/roll.bbc`,
+built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
+moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
+its header lines travel in the sketch, so nothing hand-made is lost. Once
+the layout settles, the `.bbc` is edited by hand. Distances are tiles,
+heights are units (8 px). Times MEASURED on the tool's model are marked; the
+rest are PREDICTED.*
 
 This is the shipped course 1. The prototype course of the same title
 (`apps/bonanza/courses/first.bbc`) and the other prototype courses are to be
 removed later, with their tests rewritten (the plan's story 11.17). Until
-then this course is built under a working name of its own in the tool, and
-it takes FIRST when the prototype goes.
+then this course is built under a working name of its own in the tool,
+`ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
 - **Revision 2:**
   - the three railed corners became a SHAPED CHUTE: two tiles wide,
-    unfenced, its rails back up on the exit, K3's far end open for a
-    full-speed overshoot;
-  - flag 0 moved to T's exit, flag 1 to the turn at the foot of E;
+    unfenced, the rails back up on its exit, the far end of the corner
+    after it open for a full-speed overshoot;
+  - flag 1 moved to the turn at the foot of the steps;
   - there is no flag past the leap.
 - **Revision 3:**
-  - **flag 0 moves to the top of C's run-up, BEFORE the lip** (the guide's
-    G20: a flag stands just before what can kill, and a fall never replays
-    a long stretch);
-  - **the rail stub across the leap's run-up is gone** (G24: on an easy
-    course rails protect, they never block);
-  - **every clock stands where only the void is behind its head**, which a
-    standard-part clock needs, since its art bakes in what is behind it.
-    The pillar under it is fine;
-  - **the rails are probably BLOCK rails** (the classic style; this course is
-    open enough that they hide little). The owner decides at the first
-    play.
+  - flag 0 is at the top of the lip's run-up, BEFORE the lip (G20);
+  - the rail stub across the leap's run-up is gone (G24);
+  - the rails are BLOCK rails.
+- **Revision 4, from the first play** (the owner: *"30s for me, not trying
+  hard just going"*):
+  - **the lip, the hole and the chute's mouth lie on one straight line.**
+    The chute now continues the lip's direction (+y) before turning, so
+    going forward means going over the hole (*"the user is not guided
+    'forward' ... so naturally we steer, and then miss the hole"*);
+  - **the route is re-laid to swing less across the screen**: every +x leg
+    balanced by a +y leg, 168 px of swing in the sketch against 216.
+    Section 2 says why that is not enough on its own;
+  - **the clocks are placed for the camera, not for the void behind them**
+    (the owner leaned to custom clock art). They float on lone pillars, none
+    partly behind a block, and the middle one moves later in the course, so
+    no stretch goes 15 s without one;
+  - **two things the engine forced**:
+    - the chute is 8 px deep, not 10 (10 put 5 occluder records in one block
+      of its sloping second leg, over the bound of 4);
+    - the course is 3 units shallower overall, because its occluder records'
+      tops may span at most 255 px. The corner after the chute (K3) is level
+      with the apron before it, and the walk's first leg is level.
 
 | field | value |
 |---|---|
 | place | tutorial 1: the first node of the pathway, no branch |
 | world | the tutorial (none) |
-| families | **none**: tiles, holes, one shaped chute (FIELD cells, SPEC.md 130.28) and rails. The chute and the rails are tool work, with no family part |
+| families | **none**: tiles, holes, one shaped chute (FIELD cells, SPEC.md 130.28) and rails |
 | start ball | rubber, the whole way (G13) |
 | finishes | one, the goal plateau; no secret |
-| target time | **about 35 s** (G1). The sketch's route is 87 tiles, about 30 - 35 s (PREDICTED). The length is settled by the owner's play in the engine |
-| pace | about 950 picture lines, about 120 block rows, so about 0.29 s a block row: one part, well inside the limits |
-| palette | the owner's choice: a bright daytime palette, to read as the first course |
-| clocks | three, placed so a STANDARD-PART clock fits (section 3; G23) |
-| rails | block rails, probably (G24); decided at the first play |
+| target time | **about 35 s** (G1). MEASURED on the model: a steered run of the sketch's route finishes in 35.7 s with no fall; the owner's first play (revision 3) was 31.4 s, "not trying hard" |
+| pace | about 950 picture lines, about 120 block rows: one part |
+| palette | the owner's choice |
+| clocks | three, on floating pillars, placed for the camera; custom art (G23) |
+| rails | block rails (*"The block rails look good"*); one see-through guard rail was tried beside the chute's exit and refused by the tool (section 6) |
 | song | the owner's choice |
 | the new demand (CD2) | **reading an edge**: drops kill you, and the player learns the timing at a lip, when to let the ball run and when to slow it |
-| what it teaches | roll and steer; brake; ramps; a shaped chute; **drops kill you, and you need to learn the timing** (the lesson the prototype FIRST ROLL got right); a Hop is always allowed and never required |
+| what it teaches | roll and steer; brake; ramps; a shaped chute (*"you actually have to be slightly cautious in, which is good"*); **drops kill you, and you need to learn the timing**; a Hop is always allowed and never required |
 | help it gives (CD2) | rails on nearly every edge; ramps that funnel to the centre; a chute that guides with no rail; a flag just before each hazard |
 
 ![the plan, from above](first/plan.png)
@@ -61,127 +73,110 @@ clocks, pink the flags.*
 
 *Above: the same course in the game's projection, drawn as plain blocks with
 none of the real art. The cyan boxes are one CGA window (320 x 200) at the
-start, at the chute's mouth and at the goal. The two vertical lines are the
-CGA camera's dead zone (160 px). `first/sketch.py` draws both pictures and
-places the clocks.*
+start, the middle and the goal; the two vertical lines are the CGA camera's
+dead zone (160 px). `first/sketch.py` draws both pictures.*
 
 ## 1. The course, section by section
 
-Times are cumulative and PREDICTED.
+Times are cumulative, from the model's steered run of revision 4.
 
 | | section | what happens | what it teaches | 0 - s |
 |---|---|---|---|---|
-| A | **the start and the hill** | A railed plateau, then three ramps, alternately along +y and +x (the shape of SUMMIT's opening hill), each throwing onto a flat landing that a rail closes, so the throw turns the ball onto the next ramp | rolling, steering, what a ramp does to speed; nothing here can hurt | 0 - 9 |
-| B | **the ledge** | Two tiles wide, a wall behind and its FRONT EDGE OPEN. Holding Down drifts the ball off the front; the edge's chord (Down+Right) runs it straight | **drops kill you**: the first fall respawns at the start, 9 s back, which the owner judged right | 9 - 12 |
-| C | **flag 0, then the lip** | Flag 0 at the top of the run-up. The run-up and a ramp end in a lip 3 units above a wide landing, T. A HOLE sits where the straight full-speed landing falls. Slowing down (then steering round it), a Hop (over it), or either side of the ramp (past it) all succeed. Holding straight on fails | **timing at a lip**: the prototype FIRST ROLL's good jump, re-planned so its flight crosses about 32 px on screen, inside the dead zone (G3). A fall replays only the lip | 12 - 15 |
-| T | **the landing** | Wide and railed, but for the chute's mouth | | 15 |
-| D | **the chute** | A shaped channel two tiles wide (`chute 2 round`, about 10 px deep, like PLAYGROUND's), with NO rails: its shape guides the ball. It runs from T's exit along +x, round a corner down +y, and round a corner along +x, falling about 2 units. The rails come back up on D3 as it exits; K3's far end is OPEN | the shaped floor; then **braking**: a ball out of the chute at full speed overshoots K3 into the void, and Shift is the answer. A fall respawns at flag 0: the lip and the chute again, about 8 s | 15 - 23 |
-| E | **the steps, then flag 1** | Three one-unit steps down onto floor, railed, turning off K3. Flag 1 is on the last step, before the walk and the leap | dropping onto a floor is fine; only the void kills | 23 - 25 |
-| W | **the walk** | Two tiles wide, both edges open, an easy bend: a straight ramp, a railed elbow, a ramp the other way | steering with the drop on either side; going steady rather than slow | 25 - 30 |
-| F | **the leap** | A run-up along +x, railed along its sides and open at its entry, into a ramp, a ONE-tile gap in the void, and a landing 2 units under the lip | the mirror of C: here **too slow** drops into the gap, so the player keeps the speed the run-up gives (G4: the run-up is in plain view, and the arrow held down is the whole answer). A fall respawns at flag 1, about 7 s back | 30 - 32 |
-| H | **the finish** | The landing, a short ramp down, and a wide, railed goal plateau, the goal line across its far rows, all of it in view (G5). No flag: nothing here can kill | | 32 - 35 |
+| A | **the start and the hill** | A railed plateau, then three ramps, alternately along +y and +x (SUMMIT's opening hill), each throwing onto a flat landing that a rail closes, so the throw turns the ball onto the next ramp | rolling, steering, what a ramp does to speed; nothing here can hurt | 0 - 8 |
+| B | **the ledge** | Two tiles wide, a wall behind and its FRONT EDGE OPEN | **drops kill you**: the first fall respawns at the start | 8 - 11 |
+| C | **flag 0, then the lip** | Flag 0 on the run-up. A ramp ends in a lip 3 units above a wide landing, T. A HOLE sits where the straight full-speed landing falls, and the chute's mouth is straight on beyond it, so the way forward goes over the hole. Slowing down then steering round it, a Hop over it, or either side of the ramp all succeed. Holding straight on fails | **timing at a lip**. A fall replays only the lip | 11 - 15 |
+| D | **the chute** | Two tiles wide, 8 px deep, NO rails: straight on from the lip (+y), round one corner, then along +x, falling about 2.5 units. A flat apron (D3) follows, its rails up one tile after the chute; the corner after it (K3) is level, its far end OPEN | the shaped floor; then **braking**: out of the chute at full speed the ball overshoots K3 into the void. A fall respawns at flag 0 | 15 - 22 |
+| E | **the steps, then flag 1** | Three one-unit steps down onto floor, railed. Flag 1 on the last step | dropping onto a floor is fine; only the void kills | 22 - 25 |
+| W | **the walk** | Two tiles wide, both edges open: a level leg along +x, a railed elbow, a ramp along +y | steering with the drop on either side | 25 - 31 |
+| F | **the leap** | A railed elbow and run-up along +x (no rail across its entry), a ONE-tile gap, a landing 2 units under the lip | the mirror of C: **too slow** drops into the gap. A fall respawns at flag 1 | 31 - 33 |
+| H | **the finish** | A short ramp down onto a wide, railed goal plateau, all of it in view (G5). No flag: nothing here can kill | | 33 - 36 |
 
-**C and F are the course's pair** (the owner: "Leap is good"): one punishes
-too much speed, the other too little. Together they are the lesson the
-owner named: drops kill you, and you learn the timing. The chute's open end
-at K3 is the same lesson in a third form, coming out of a shape rather than
-off a lip.
+## 2. The camera (G2, G3): why a zigzag still pans, and the question it raises
 
-## 2. The camera plan (G2, G3)
+**MEASURED on the model**, from the owner's first play (its log replayed
+through the tool's physics and camera, the replay reaching the goal in 31.4
+s with no fall, as the play did):
+- the ball swung 229 px across the screen;
+- the camera panned 16 - 24 columns (128 - 192 px) five times, at 2.4,
+  7.8, 21, 25.5 and 28.8 s;
+- two of the pans came in the air: down the steps, and during the leap.
 
-- **Down the screen.** Every run alternates +x and +y (or uses Down, the
-  grid diagonal), so the course falls about 950 lines and swings at most
-  216 px across. There are no long horizontal runs.
-- **The swing is a little more than the dead zone.** The CGA's is 160 px
-  and the Hercules' 180 px, so the camera should make a framing move
-  (LATTICE's 8 columns) or two. The intent is for those moves to come on the
-  ground, in the chute or at K3. **To check (story 11.11)**: where they
-  actually fall, and whether a tighter swing removes them.
-- **The two jumps do not pan.** C's flight runs along +y, about 2 tiles,
-  32 px left. F's runs along +x, 2 tiles including the gap, 32 px right.
-  Both are about 32 px, against a dead zone of 160 px. **To check**: 11.11's
-  airborne column; the sketch cannot model the camera's position at take-off.
+**Why.** LATTICE frames the window at positions 128 px apart and LEADS in
+the direction of travel. In practice its no-pan band is only about 110 px.
+A vertical course alternates +x and +y legs (Down is the grid's diagonal),
+and every leg between 4-wide pads crosses that band.
+
+**Revision 4 narrowed the swing** (168 px in the sketch, 196 px on the
+model's steered run), but the steered run still pans five or six times on
+each card, twice in the air.
+
+**The course's whole picture is 320 px across** (80 - 400), one CGA window.
+With the camera held at that framing for the whole run (column 10, MEASURED
+by pinning it in the model):
+- nothing pans across, so no jump pans (G3 by construction);
+- every clock is in view where it serves;
+- the longest stretch with no clock in view is 10.5 s on the CGA and 11.4 s
+  on the Hercules (with today's camera: 12.8 s on the CGA and 15.2 s on the
+  Hercules, which fails G12).
+
+**The owner's decision**: a per-course HORIZONTAL LOCK. A course whose
+picture fits one window would hold the camera at one framing across. It is
+a camera change, so it needs a SPEC contract, a field in the course's
+header, the guest's camera and the tool's model to match, and the camera
+rows. In return it removes work from every frame on such a course, and
+makes "vertical first" (G2) a property rather than a fight with the camera.
 
 ## 3. The clocks (G9 - G12, G23)
 
-**What is behind a clock decides whether it can be a standard part.** A
-clock's picture bakes in whatever is behind it, since nothing is composited
-at load. A standard-part clock therefore stands only where the same thing
-is behind it at every use: in practice, only the void behind its head. The
-pillar under it is fine. The sketch places each clock itself: the nearest
-spot to the route that is
-- inside that point's CGA window;
-- with only void behind the clock's head;
-- with no floor or wall in or next to its pillar's cell.
+Custom art (G23), so each clock is placed for the camera. All three float
+on lone one-tile pillars (`float`: their faces hang 3 units rather than
+running down to the ground), and none stands behind a block.
 
-| clock | placed for | where (the sketch's) | seen |
-|---|---|---|---|
-| start | the start | over the void behind the start plateau's back-left corner, its head above the back wall | from the start; through A |
-| middle | the chute's mouth | over the void left of T's column | from T through the chute and K3, about 15 - 23 s |
-| finish | the goal | over the void in front of the goal plateau's left corner | from the leap onward and from the goal line |
+| clock | where | in view (MEASURED, the model's steered run, today's camera, CGA) |
+|---|---|---|
+| start | right of the start plateau, off the hill | 0 - 2.6 s (0 - 4.8 s on the Hercules) |
+| middle | above the far corner after the chute (K3), high enough to clear its back rail | 15.5 - 23.0 s |
+| finish | left of the goal plateau, low enough that every goal cell's centred window holds it (the shipped finish-clock rule, SPEC.md 130.22.6) | 31.3 - 32.5 s on today's camera, which frames right after the leap and loses it before the goal; to the goal with the lock |
 
-- **Never two on one screen**: the clocks are more than 350 lines apart.
-- **The longest stretch without a clock in view**: about the middle of A to
-  T, and K3 to F, each about 6 - 8 s (PREDICTED), under 15 s.
-- **To check in the engine**: what is behind each clock in the real art,
-  not the sketch's blocks (11.14's tool check); whether the finish clock, in
-  front of the plateau, hides any of it (the visibility check, 11.5). If a
-  place cannot be kept clear, that clock is custom.
+- G9 (start) and G10 (never two on one screen) pass at compile.
+- The longest stretch with none in view is 12.8 s on the CGA and 14.1 s on
+  the Hercules on today's camera (G12 passes, narrowly), and 10.5 s and
+  11.4 s with the horizontal lock.
 
 ## 4. Surfaces, lifts, pads and props
 
-- **None but the chute.** No sand, no ice, no lift, no pad, no family. The
-  first course is the bare physics and one shaped floor. Its hazards are
-  edges and one hole (G16 - G18). Course 2 (Hop, rubber's "and again", a
-  spring) brings the first prop.
-- **The chute is a candidate STANDARD PART** (the guide's section 5): a
-  two-wide, two-corner S that drops about 2 units.
+- **None but the chute.** No sand, no ice, no lift, no pad, no family.
+  Course 2 (Hop, rubber's "and again", a spring) brings the first prop.
+- **The chute is a candidate STANDARD PART** (the guide's section 5).
 
-## 5. The owner's answers, and what is left
+## 5. The owner's answers
 
 | question | answer (2026-11-18) |
 |---|---|
 | C and F, the pair | "Leap is good" |
-| the ledge so early | "this pacing looks pretty good"; and the flags go just BEFORE what can kill (G20) |
-| rails | "about right"; the style (guard or block) after the first play, probably block (G24) |
-| the clocks' art | standard parts still open. They need a void behind the head; if a course cannot be designed round that, custom (G23) |
-| the name | the prototype courses go later (story 11.17), and this course takes FIRST then |
-| length | decided by the owner's play in the engine |
-
-**Next: the engine.** The `.bbc`, `--png` previews and a playtest disk,
-iterated fast (the guide's section 3). The checks 11.11 and 11.13 go in
-beside it when they are cheap; demos and performance are batched later.
+| the ledge so early | "this pacing looks pretty good"; flags go just BEFORE what can kill (G20) |
+| rails | block rails, *"The block rails look good"* |
+| the clocks' art | custom, leaning (G23) |
+| the name | the prototype courses go later (story 11.17); this course takes FIRST then |
+| length | 30 s for the owner "not trying hard" on revision 3 |
+| the cannon and the spring (G3) | a cannon's throw is exempt; a spring's is not, exceptions per use after a playtest |
 
 ## 6. In the engine
 
-The first `.bbc` was written by `first/sketch.py --bbc` from the paper
-design, shifted 4 tiles so walls and pillars stay inside the grid. From here
-on `roll.bbc` is the source, edited by hand. What the engine changed:
-
-- **Rails are BLOCK rails**, one wall tile each on the void side of a railed
-  edge, 2 units over the floor it guards. Changing a rail to a guard rail is
-  one keyword (`wall` -> `guard`), so the style is a cheap thing to try at a
-  playtest.
-- **Slopes are whole half units a tile** (the tool's rule). The walk's ramps,
-  the leap's run-up and the finish ramp drop half a unit a tile. The chute's
-  second leg drops 2 units, not 1, since its four straight cells must fall a
-  whole half unit each. Everything after the chute sits a unit lower than
-  the sketch.
-- **The clocks stand on lone one-tile pillars**, as a clock today must stand
-  on a floor tile (SPEC.md 130.18.5). Their places are the sketch's search.
-  Whether only void is behind each head in the REAL art is the first thing
-  to look at on the disk.
+- **The tool's rules shaped revision 4**:
+  - slopes are whole half units a tile;
+  - a block of the picture holds at most 4 occluder records, so the chute is
+    8 px deep;
+  - the occluder records' tops span at most 255 px, so the course is 3
+    units shallower;
+  - a see-through guard rail stands only beside flat floors of ONE height,
+    so the rail at the chute's exit is a block rail and starts one tile
+    after the chute.
+  - A level chute leg was tried and dropped: a slow ball cannot climb the
+    end taper out of a level channel.
 - **The limit is given by hand (60 s) for the playtest.** The autopilot
-  cannot follow a chute: a `way` may not sit on a FIELD cell, so its route
-  stops at the chute's mouth and the tool's limit rule has no route to
-  price. The batched step replaces it with an AUTHOR script's run and the
-  tool's own rule.
-- **Measured on the tool's model (not the guest)**:
-  - the autopilot's route reaches the chute's mouth in about 12 s, through
-    the hill, the ledge and the lip, with no fall;
-  - from flag 1 it rolls the walk, clears the leap at full speed and
-    finishes in 9.4 s, with no fall.
-  - With the chute and K3 between them, a full autopilot run is about
-    30 s, so a person's is about the 35 s aimed at. PREDICTED; the
-    playtest decides.
-
+  cannot follow a chute yet (another session is on it), so the tool's limit
+  rule has no route to price. The batched step replaces it.
+- **The model's steered run** is a scratch script in the session, not a
+  row. It follows the sketch's route with a simple steering rule and
+  reaches the goal in 35.7 s with no fall.
