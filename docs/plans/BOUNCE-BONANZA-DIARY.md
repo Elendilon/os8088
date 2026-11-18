@@ -5140,3 +5140,37 @@ already exists:
 The plan's wave 11 now carries the stories that close those gaps (11.11 -
 11.15). Nothing was built or run for this entry: the guide, this diary entry
 and the plan were written, and `tools/checkdocs.py` was run.
+
+## 2026-11-18 (gates the designer draws)
+
+The owner, on the four gate styles: they read as "a slight recolor of the
+same gate"; what was wanted is for a course's designer to feed a gate
+WHATEVER art fits the course - a crumbling wall between two blocks, a
+portcullis rising into an arch, a door that opens - at a fixed frame count.
+SPEC.md 130.41.12 is the result.
+
+- **Four frames, the channel's clock.** A gate's art is a `.bba` of four
+  frames, shut to open, with its own footprint (`# foot` places it, `# cells`
+  makes it 1 - 3 gate cells wide). The guest keeps ONE 2-bit frame per
+  CHANNEL in the slot, stepped every 8 steps at a phase of its own, so two
+  channels never change a frame on one step and every art of a channel plays
+  together. The cell stays a wall until the open frame is on the glass.
+- **The see-saw's trick, again.** The tool draws each frame over the bare
+  picture at the gate's depth, puts what never changes (the portcullis's
+  arch) in the picture and cuts what does into lanes: GATE's three arts are
+  2, 1 and 2 lanes.
+- **A trap in the identity.** Adding a kind and slot bytes moved the gate
+  family's FAMV - and PLAYGROUND names the gate family, so its part, its
+  identity and its demo moved with it. The art is an extension no old record
+  can reach, so the row now folds its FAMV as it was; every shipped course is
+  byte for byte as before (the whole compile `cmp`'d).
+- **Another trap**: the parallel compile ships objects that live in module
+  globals by their PATH; an art dict straight out of the loader's cache came
+  back as a key the parent had never seen. The loader hands out copies.
+- **Layout lesson**: the first GATE layout hid two of the three arts behind
+  blocks two units proud in front of them. Blocks a unit proud, and void
+  between the corridors, let the art stand above what is in front.
+- MEASURED: the part 515 -> 630 bytes, resident 0, the three arts +2,524
+  bytes of GATE's part against presets in the same places; the model's
+  frames item and the unicorn's 30 scenes equal, four red arms red. LOOKED
+  AT in the tool's previews (CGA and Hercules), not on MartyPC.
