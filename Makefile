@@ -22994,7 +22994,7 @@ $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 	python3 tools/bzwinart.py -o $(BZ_ART)
-# THE VGA PART (SPEC.md 130.45.6): the VGA's writers and its one-off converter, LINKED as the
+# THE VGA PART (SPEC.md 130.46.6): the VGA's writers and its one-off converter, LINKED as the
 # shell part is; the package's last row, after the families' (BZ_P_VGA)
 $(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)

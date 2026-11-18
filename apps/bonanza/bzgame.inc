@@ -257,26 +257,26 @@ VAR bz_mode,1
 VAR bz_fs,1
 VAR bz_err,1
 VAR bz_herc,1
-VAR bz_vga,1                    ; SPEC.md 130.45.2: 1 a VGA play (bz_herc 0 then)
+VAR bz_vga,1                    ; SPEC.md 130.46.2: 1 a VGA play (bz_herc 0 then)
 VAR bz_cardk,1                  ; ...bz_adapter's 1 CGA, 2 Hercules, 3 VGA (bz_setcard)
-VAR bz_vfp,4                    ; 130.45.6: BZVGA.BIN's far vector (bz_vprep: its
+VAR bz_vfp,4                    ; 130.46.6: BZVGA.BIN's far vector (bz_vprep: its
                                 ; code alias; BZ_VCALL writes the offset)
-VAR bz_vbseg,2                  ; 130.45.5: the three balls' converted copies, a claim
+VAR bz_vbseg,2                  ; 130.46.5: the three balls' converted copies, a claim
 VAR bz_smask,2                  ; the start address's ring: 0FFFh, the VGA's 0FFFFh
 VAR bz_vpal0,4                  ; the VGA's AC 0 - 3 for the course (BZV_INIT's)
-VAR bz_vx0,2                    ; 130.45.10: the display's left, world px
+VAR bz_vx0,2                    ; 130.46.10: the display's left, world px
 VAR bz_vpan,1                   ; ...its panning, x0 & 7, written at the rise
 VAR bz_vt1,2                    ; ...the last two frames' targets, px (the filter)
 VAR bz_vt2,2
 VAR bz_vdiv,1                   ; the held divisor, 1 or 2 (70 or 35 Hz)
 VAR bz_vfrm,1                   ; the short test: frames seen, of 64,
 VAR bz_vlate,1                  ; ...and those late
-VAR bz_vrv,1                    ; 130.45.11: the roll's shown phases valid (BZV_ROLL)
+VAR bz_vrv,1                    ; 130.46.11: the roll's shown phases valid (BZV_ROLL)
 VAR bz_vpy,1                    ; ...the shown PHY
 VAR bz_vpxd,1                   ; ...the shown x phase
 VAR bz_vpxp,1                   ; ...px's low byte then
 VAR bz_vG,2                     ; ...and G then
-VAR bz_vcx,2                    ; 130.45.12, the VGA's camera: the display's left px,
+VAR bz_vcx,2                    ; 130.46.12, the VGA's camera: the display's left px,
 VAR bz_vvx,2                    ; ...its velocity (1/256 px a tick)
 VAR bz_vcxf,1                   ; ...its SHOWN step, px a frame, signed (the three in
                                 ; this order: BZV_CAM)
@@ -285,7 +285,7 @@ VAR bz_vvy,2
 VAR bz_vcyf,1
 VAR bz_vsm,1                    ; ...1: BZV_CAM ran this frame (bz_vstart shows bz_vcx)
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
-VAR bz_vwr1,2                   ; has no writable memory of its own, 130.45.6)
+VAR bz_vwr1,2                   ; has no writable memory of its own, 130.46.6)
 VAR bz_vwx,2
 VAR bz_vwx1,2
 VAR bz_vwbr,2
@@ -479,6 +479,7 @@ VAR bz_rl,2
 VAR bz_bend,2
 VAR bz_crtc,2
 VAR bz_cmax,2
+VAR bz_lockc,2                  ; SPEC.md 130.45: the course's locked c0 on this card, FFFFh none
 VAR bz_rmax,2
 VAR bz_vrport,2
 VAR bz_vrbits,2
@@ -978,7 +979,7 @@ bz_t0:
 .stl:
     call bz_clk_sample          ; a sample a step: two or three steps are 70k
     loop .step                  ; - 105k clocks on PLAYGROUND, past the clock's
-    jmp short .camera           ; one sub-tick (87k), and lost game time (130.45.13)
+    jmp short .camera           ; one sub-tick (87k), and lost game time (130.46.13)
 .fst:
     call bz_fstep
     cmp byte [bz_fcnt], 1
@@ -1018,7 +1019,7 @@ bz_tr:                          ; slab when it is OVER the ball (130.12.4.5)
     cmp byte [bz_full], 0
     jne bz_tw
     call bz_rows
-    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 130.45.4 rule 1): the entering
+    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 130.46.4 rule 1): the entering
     je bz_tw                    ; column too, before the start address, in the
     call bz_vcol                ; gutter the glass does not show
 bz_tw:
@@ -1037,14 +1038,14 @@ bz_tv:                          ; parts keep their numbers)
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
     jne bz_tf                   ; bz_tb's POPF opens them after the FIRST box
     call bz_r0pend
-    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 130.45.4 rules 2 - 4): the
+    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 130.46.4 rules 2 - 4): the
     je .vr                      ; start address first, then the EDGE under CLI
     call bz_vstart              ; every frame (bz_r0p), then the panning
 .vr:
     call bz_vr
     cmp byte [bz_vga], 0
     je bz_tf
-    mov al, [bz_vpan]           ; the display's panning (130.45.10)
+    mov al, [bz_vpan]           ; the display's panning (130.46.10)
     BZ_VCALL BZV_PAN
 bz_tf:
     mov bx, 3 * 4
@@ -1067,7 +1068,7 @@ bz_tf:
     mov [bz_vt1], bx            ; (the filter at rest on it)
     mov [bz_vt2], bx
     mov byte [bz_vpan], 0
-    mov byte [bz_vrv], 0        ; ...and the roll's shown phases (130.45.11)
+    mov byte [bz_vrv], 0        ; ...and the roll's shown phases (130.46.11)
     inc ax
     push ax
     xor al, al
@@ -2222,7 +2223,7 @@ bz_camera:
     cmp byte [bz_fcnt], 0       ; THE FINISH SEQUENCE (130.22.6): the camera
     je .nfs                     ; holds - no step, no scroll, no pan running
     cmp byte [bz_vga], 0        ; (the VGA's own camera COASTS to rest, as a
-    je .fh                      ; smooth one stopped dead jerks: 130.45.12)
+    je .fh                      ; smooth one stopped dead jerks: 130.46.12)
     cmp byte [bz_cuse], 0
     jne .fh
     BZ_VCALL BZV_COAST
@@ -2247,7 +2248,7 @@ bz_camera:
     xchg al, [bz_cuse]          ; a change of mode (C): LATTICE starts at
     cmp al, [bz_cuse]           ; rest, its bands at the window as it stands
     je .ncs0                    ; (the VGA's A/B runs it as the second mode,
-    call bz_latrst              ; 130.45.12)
+    call bz_latrst              ; 130.46.12)
 .ncs0:
     cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
     jne .ncs                    ; (bz_scnt bit 7): a cut (130.17.6.7)
@@ -2290,6 +2291,10 @@ bz_camera:
     shr ax, 1
     shr ax, 1
     shr ax, 1
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 2: a LOCKED course's
+    je .nlk                     ; window across is its lock (a FIXED or a
+    mov ax, [bz_lockc]          ; PAGED window, set below, wins)
+.nlk:
     mov [bz_c0n], ax
 %if BZ_TITLE
     cmp byte [bz_fixed], 0      ; SPEC.md 130.23.2: a FIXED window is the
@@ -2413,7 +2418,7 @@ bz_camera:
 .cgl:
     add bp, ax                  ; BP = cy + 8
 .cyd:
-    cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (130.45.12),
+    cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (130.46.12),
     je .gl                      ; the benchmark's LATTICE, and LATTICE as the
     cmp byte [bz_mode], 1       ; A/B's second mode
     je .lat
@@ -2466,6 +2471,9 @@ bz_camera:
 .vdone:
     mov [bz_R0n], si
     ; horizontal: the dead zone [left + W*2, left + W*6] px
+    mov si, [bz_c0]
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 4: a LOCKED course
+    jne .hdone                  ; never moves across
     mov ax, [bz_px]
     add ax, 8                   ; the ball's centre px
     mov bx, [bz_c0]
@@ -2498,7 +2506,7 @@ bz_camera:
     call bz_abs
     cmp dx, BZ_MAXR
     jbe .rok
-    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: four, 130.45.12)
+    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: four, 130.46.12)
     je .full
     cmp dx, BZV_MAXR
     ja .full
@@ -2600,7 +2608,7 @@ bz_scyc:                        ; the script's cycle: (row, column), R DR D DL
 bz_camera.paged:
     call bz_pgtgt               ; AX = the target page's R0
     cmp byte [bz_vga], 0        ; THE VGA: a planned move, its rows lines
-    je .pg0                     ; (130.45.12)
+    je .pg0                     ; (130.46.12)
     BZ_VCALL BZV_PAGE
     jmp bz_camera.moved
 .pg0:
@@ -2761,7 +2769,7 @@ bz_sprite:
     add ah, dl                  ; (DL 0 or 4: the shift px & 3 is kept)
     and ah, 7
     cmp byte [bz_vga], 0        ; the VGA shows the phases BZV_ROLL picks:
-    je .fx                      ; never a backward roll at 35 Hz (130.45.11)
+    je .fx                      ; never a backward roll at 35 Hz (130.46.11)
     pop cx
     push cx                     ; CX = G
     BZ_VCALL BZV_ROLL
@@ -2913,6 +2921,8 @@ bz_lattice:
     inc word [bz_nhedge]
 .lt:
     mov dx, [bz_c0]             ; ACROSS
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 3: a LOCKED course
+    jne .xr                     ; skips the axis whole (bz_lax untouched)
     mov si, bz_lax
     cmp byte [si + BZL_S], 0    ; at rest inside its band: no step, and
     jne .x                      ; nothing changes (steps 1 and 4, inline)
@@ -3931,7 +3941,7 @@ bz_csplit:
 ; bz_snew - AX = the new window's start address: S = (W*R0 + c0) mod 4096,
 ; KEPT (SPEC.md 130.9 item 4) - a step adds the column step and W*dr (a
 ; five-entry table, dr = -2 .. 2) to the shown S - or, on a full write, made
-; whole: W*R0 = rb*R0 / 2.  On the VGA (130.45.3) the table is P*dr, a full
+; whole: W*R0 = rb*R0 / 2.  On the VGA (130.46.3) the table is P*dr, a full
 ; write's P*R0 + c0, and the ring 64 KB ([bz_smask]).  Clobbers BX, DX.
 bz_snew:
     cmp byte [bz_full], 0
@@ -3946,7 +3956,7 @@ bz_snew:
     jmp short .S
 .vs:
     mov bx, ax                  ; the VGA's: S + dc + P dr (its four rows a
-    mov ax, [bz_dr]             ; frame pass the table's five, 130.45.12)
+    mov ax, [bz_dr]             ; frame pass the table's five, 130.46.12)
     imul word [bz_rb]
     add ax, bx
     jmp short .S
@@ -3965,7 +3975,7 @@ bz_snew:
     and ax, [bz_smask]
     ret
 
-; bz_vstart - the VGA's start address, before the edge (SPEC.md 130.45.4 rule
+; bz_vstart - the VGA's start address, before the edge (SPEC.md 130.46.4 rule
 ; 2): AX = bz_snew's to CR0Ch/0Dh and [bz_S], and bz_r0p 1 - bz_vr then takes
 ; the EDGE and shuts interrupts at it, every frame.  Late - past BZ_VBAND PIT
 ; counts after the last rise, so within BZ_VSMARG of the display's end - the
@@ -3975,9 +3985,9 @@ BZ_VSMARG   equ 12 * 38         ; 12 scanlines (a scanline 38 PIT counts)
 BZ_VBAND    equ BZ_VREF - 24 * 38 ; the display's end (12 lines before the rise
                                 ; in mode 0Dh's timing) less BZ_VSMARG
 BZ_VLATE    equ 2               ; late frames in a window of 64 that latch 35 Hz
-                                ; (130.45.12: was 8, and a steady 70 Hz camera
+                                ; (130.46.12: was 8, and a steady 70 Hz camera
                                 ; missed one frame in 17 below it)
-BZ_VREF     equ 17025           ; a mode 0Dh refresh, PIT counts (MEASURED, 130.45.7)
+BZ_VREF     equ 17025           ; a mode 0Dh refresh, PIT counts (MEASURED, 130.46.7)
 bz_vstart:
     mov byte [bz_r0p], 0        ; (an extra wait below takes its rise with IRQs on)
     call bz_clk_sample
@@ -3990,7 +4000,7 @@ bz_vstart:
     ja .late                    ; (more sub-ticks than a frame steps: unknown)
 .sub:                           ; each whole sub-tick, BZ_SUB counts, reduced
     or ax, ax                   ; a refresh at a time: a long frame finds its
-    jz .in                      ; phase as a short one does (130.45.13: it
+    jz .in                      ; phase as a short one does (130.46.13: it
     dec ax                      ; was "late" past one sub-tick, and waited a
     add dx, BZ_SUB              ; whole extra refresh)
 .red:
@@ -4008,7 +4018,7 @@ bz_vstart:
 .ph:
     cmp dx, BZ_VBAND
     jae .late
-    ; THE HELD DIVISOR (SPEC.md 130.45.10): presenting every second refresh, a
+    ; THE HELD DIVISOR (SPEC.md 130.46.10): presenting every second refresh, a
     ; frame done before the first rise after the last present waits it out
     cmp byte [bz_vdiv], 2
     jne .m1
@@ -4018,7 +4028,7 @@ bz_vstart:
     jmp short .test
 .m1:
     or bx, bx                   ; at 70 Hz a refresh already past is a MISS,
-    jz .test                    ; however early in the next one (130.45.12)
+    jz .test                    ; however early in the next one (130.46.12)
     inc byte [bz_vlate]
     jmp short .test
 .late:
@@ -4027,7 +4037,7 @@ bz_vstart:
 .test:                          ; THE DIVISOR'S TEST: 64-frame windows, and
     cmp byte [bz_vdiv], 2       ; the first with BZ_VLATE late latches 35 Hz for the
     je .write                   ; rest of the play - one way, so the rate never
-    inc byte [bz_vfrm]          ; alternates (130.45.10; BZ_VLATE)
+    inc byte [bz_vfrm]          ; alternates (130.46.10; BZ_VLATE)
     cmp byte [bz_vfrm], 64
     jb .write
     mov byte [bz_vfrm], 0
@@ -4037,10 +4047,10 @@ bz_vstart:
     mov byte [bz_vdiv], 2
     add word [bz_mlim], BZ_VREF ; (a miss is now 2.5 refreshes)
 .write:
-    mov byte [bz_r0p], 1        ; (the presenting rise: under CLI, 130.45.4)
+    mov byte [bz_r0p], 1        ; (the presenting rise: under CLI, 130.46.4)
     call bz_snew
     mov [bz_S], ax              ; the ENGINE's window's start (c0n its first column)
-    ; THE DISPLAY (130.45.10): x0, pixels, the target - (c0n + 1) 8, the
+    ; THE DISPLAY (130.46.10): x0, pixels, the target - (c0n + 1) 8, the
     ; 320 px LATTICE frames in the 42-column window's middle - FILTERED, (t +
     ; 2 t' + t'') / 4 over this frame's and the last two: a column's pan
     ; reads 2, 4, 2 px, LATTICE's column every second frame a steady 4, every
@@ -4051,7 +4061,7 @@ bz_vstart:
     shl bx, 1
     shl bx, 1                   ; BX = c0n 8
     lea dx, [bx + 8]            ; DX = t
-    cmp byte [bz_vsm], 0        ; THE VGA's CAMERA ran (130.45.12): its x0,
+    cmp byte [bz_vsm], 0        ; THE VGA's CAMERA ran (130.46.12): its x0,
     je .flt                     ; and the filter's taps held at the centre
     mov byte [bz_vsm], 0
     mov [bz_vt1], dx
@@ -4092,7 +4102,7 @@ bz_vstart:
     jmp bz_flip                 ; (CR0Ch/0Dh on 3D4h: the CGA's own registers)
 
 ; bz_vcol - the VGA's entering column, every row of the NEW window, before
-; the start address (130.45.4 rule 1): moving right the window's last column,
+; the start address (130.46.4 rule 1): moving right the window's last column,
 ; left its first.  Preserves nothing.
 bz_vcol:
     mov ax, [bz_dc]
@@ -4200,7 +4210,7 @@ bz_unblank:
     pop ax
 .x:
     ret
-.vga:                           ; the VGA (SPEC.md 130.45.4): the sequencer's
+.vga:                           ; the VGA (SPEC.md 130.46.4): the sequencer's
     mov ah, al                  ; SR01 bit 5, screen off, while AL's bit 3
     mov dx, 3c4h                ; (video) is clear
     mov al, 1

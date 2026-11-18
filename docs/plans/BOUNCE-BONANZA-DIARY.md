@@ -5568,6 +5568,48 @@ trying when the layout settles.
   **Not run**: soak rows (`bonanzaphys`'s field leg would be the one), and
   nothing on MartyPC - the autopilot's cost per step is not measured.
 
+## 2026-11-18 (the horizontal LOCK, SPEC.md 130.45)
+
+The owner, on the course's size and the camera:
+
+> "every section stands on a column down to the ground": I think this will
+> be the first tile that should go in the standard set, in its normal
+> configurations; I'm surprised its not there already. But we'll work on
+> that later. 8.8K is less than I was expecting honestly, already.
+>
+> "a per-course horizontal lock": Yes. We won't use this often due to
+> visual interest, but for the intro course it fits fine, and it gives a
+> "smoother" introduction.
+
+**Built**:
+- `lock across` in the tool;
+- `BZ_CRS_LOCKS` beside `BZ_CRS_PALS`: two bytes a course, nothing in the
+  part, so no identity or demo moved;
+- `bz_lockc` read in `bz_vinit`;
+- the first frame and a cut set to the lock;
+- LATTICE and TRICKLE skip the across axis;
+- `Glide` doing the same, through `Physics.lockx`, so every model of the
+  camera (the rows' oracle included) follows without a call site changing.
+
+**Measured**:
+- 51 bytes of code, 2 of bss, 20 of table, from the listing;
+- FIRST ROLL locks at CGA column 10 and Hercules 7;
+- on the model's steered run, 0 columns panned on either card, and a
+  longest clockless stretch of 10.5 s and 11.4 s.
+
+**Red, on purpose**:
+- SUMMIT with `lock across`, refused at its line (352 px against the CGA's
+  320);
+- a second `lock` statement, refused.
+
+**The standard column tile** (a section standing on a column to the
+ground, in its normal configurations) is noted for the kit's standard set,
+later.
+
+**Run**: the tool; the playtest build `BZROLL=1`; the default `make` and
+`bonanzadisk` (the unlocked build); `checkdocs`. **Not run**: the camera
+rows (the final pass's, fork rule 10); the guest (fork rule 5).
+
 ## 2026-11-18 (VGA, V0: what the cards do when the picture moves)
 
 The owner, on the plan for a VGA arm (docs/plans/BOUNCE-BONANZA-VGA.md):

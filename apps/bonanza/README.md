@@ -91,7 +91,7 @@ The songs are text (`apps/bonanza/music/*.bmu`) packed by `tools/bbmusic.py`,
 which also renders them to WAV on the host:
 `python3 tools/bbmusic.py wav -o DIR`.
 
-Needs a CGA, a Hercules or a VGA card (the VGA in mode 0Dh, SPEC.md 130.45;
+Needs a CGA, a Hercules or a VGA card (the VGA in mode 0Dh, SPEC.md 130.46;
 an EGA or an MDA is refused with the reason) and kern_big or kern_mega; the 128KB machine's kernel refuses it.
 
 Build:
