@@ -2731,12 +2731,13 @@ bz_sprite:
 .nf:
     add al, dh
     and al, 7                   ; PHY
-    cmp byte [bz_herc], 0
-    je .phy
-    and al, 6
-    mov ah, [bz_py]
-    and ah, 1
-    or al, ah
+    cmp byte [bz_herc], 0       ; the Hercules: PHY's low bit is py's (a line
+    je .phy                     ; pair's parity, 130.11.9.2) - G less one when
+    mov ah, [bz_py]             ; theirs differ, so the phase still steps WITH
+    xor ah, al                  ; the ball (it was (G & 6) | (py & 1): 1, 0, 3,
+    and ah, 1                   ; 2 ... when py - G is odd, the roll reversing
+    sub al, ah                  ; every other step on a diagonal)
+    and al, 7
 .phy:
     cmp byte [bz_mst], BZ_ST_STUN ; the dazed wobble: two lines every 4 steps
     jne .f
