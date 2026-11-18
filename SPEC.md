@@ -285925,7 +285925,7 @@ while `bz_vcx` lies in [c0 8, c0 8 + 16] (the window's 16 px of slack,
 left, `(bz_vcx - 9) >> 3` moving right - so a camera that crossed one
 column moves the window one (re-centring it cost two, a full write). `bz_camera`'s tail clamps it to the
 course and turns a larger step into a full write, as for every mode; **the
-VGA's step allowance is 4 rows** (`BZV_MAXR`; `BZ_MAXR` 2 elsewhere), and
+VGA's step allowance is 8 rows** (`BZV_MAXR`; `BZ_MAXR` 2 elsewhere), and
 `bz_snew` computes a VGA step's start as `S + dc + P dr` (a multiply) rather
 than out of the five-entry table. `bz_vstart` shows `bz_vcx` (clamped into
 the window) where V2a's filter would, and holds the filter's taps at the
