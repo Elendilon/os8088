@@ -11438,6 +11438,9 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     order, sec, end = part_layout(m, recb, bzc2)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
+    if recb == 4 and len(masks) > 256:             # (a 4-byte record names its mask in ONE byte: a refusal,
+        raise CourseError("%s: %d occluder masks, over the 256 a 4-byte record's mask byte names "
+                          "(SPEC.md 128.15.5)" % (fname, len(masks)))     # not a ValueError in here)
     blkoff, occidx, occrec = sec["B"][0], sec["I"][0], sec["R"][0]
     maskoff, gridoff = sec["K"][0], sec["G"][0]
     celloff, rowtab, routeoff = sec["C"][0], sec["T"][0], sec["W"][0]
@@ -11709,6 +11712,9 @@ def _encode2(m, recb, ident=0, fname="<course>"):
     (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
+    if recb == 4 and len(masks) > 256:             # (a 4-byte record names its mask in ONE byte: a refusal,
+        raise CourseError("%s: %d occluder masks, over the 256 a 4-byte record's mask byte names "
+                          "(SPEC.md 128.15.5)" % (fname, len(masks)))     # not a ValueError in here)
     rl, pm = _props_runs(m)
     blkoff, occidx, occrec, maskoff, loff = sa["B"][0], sa["I"][0], sa["R"][0], sa["K"][0], sa["L"][0]
     gridoff, celloff, rowtab, routeoff = sb["G"][0], sb["C"][0], sb["T"][0], sb["W"][0]
