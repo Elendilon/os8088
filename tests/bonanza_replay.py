@@ -970,8 +970,8 @@ def run_all(legs, apps=None, src=None):
         if delay is None:
             fails.append("record MILL: no delay makes the autopilot's first approach a knock-back (the model)")
             return fails
-    for tag in ("cga", "herc"):
-        if tag == "herc" and "replay" not in legs and "inject" not in legs and "mill" not in legs \
+    for tag in ("cga", "herc", "vga"):         # (the VGA, SPEC.md 130.46: the CGA's logs replayed there too)
+        if tag != "cga" and "replay" not in legs and "inject" not in legs and "mill" not in legs \
                 and "mouse" not in legs and "play" not in legs:
             break
         booted, sym = boot(tag, apps, src)
@@ -1010,7 +1010,7 @@ def run_all(legs, apps=None, src=None):
                     if not f:
                         logs["playg"], ends["playg"] = log, end
                 fails += f
-            if "play" in legs and tag == "herc" and "playg" in logs:
+            if "play" in legs and tag in ("herc", "vga") and "playg" in logs:
                 log = logs["playg"]
                 k, mat = log[4], log[5]
                 f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["playg"],
@@ -1028,7 +1028,7 @@ def run_all(legs, apps=None, src=None):
                     if not f:
                         logs["mill"], ends["mill"] = log, end
                 fails += f
-            if "mill" in legs and tag == "herc" and "mill" in logs:
+            if "mill" in legs and tag in ("herc", "vga") and "mill" in logs:
                 log = logs["mill"]
                 k, mat = log[4], log[5]
                 f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["mill"],

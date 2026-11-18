@@ -283879,3 +283879,9 @@ exact, one full write; FIRST's free play 300, 0 pixels. **Cost**: nothing
 resident, 10 bytes of bss, ~300 in the part. **Open, the owner's to tune**:
 the framings' distances (`BZV_TXP`, `BZV_TYP`), the pan's speed, the
 tracking thresholds.
+
+**The edges' brake is a CAP** (V3, found by `bonanzaring`'s VGA card): the
+step's size at most the largest n whose stopping distance n (n + 1) / 2 fits
+in the distance left - not one less a frame, which a TRACK pushing the step
+back up each frame out-ran (MILL's demo: held at 3 - 4, then clamped 3 to 0
+at the edge). Last frame's step met the cap, so it falls at most one a frame.

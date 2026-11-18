@@ -379,8 +379,16 @@ def claim_check(g, what):
     launch's OSAPI_FSX_RUN call, after bz_cexp and bz_hxlat, before the lanes'
     writer: the course claim ([bz_cseg], found in the heap map, its claim at
     least the part's length) equal byte for byte to the tool's RAM form (CGA)
-    or its htab() translation (Hercules).  -> failures"""
+    or its htab() translation (Hercules).  On the VGA the course's art is
+    converted IN PLACE to planar pairs (BZV_CONV, SPEC.md 130.46.5) at
+    bz_cload, so the claim is no byte-for-byte copy of either: the leg is not
+    run there (bonanzaring's VGA card checks every converted pixel instead,
+    on the card).  -> failures"""
     m = g.m
+    if g.tag == "vga":
+        print("vga THE CLAIM LEG: not run on the VGA (its art converted in place, SPEC.md 130.46.5; "
+              "bonanzaring's VGA card checks it on the card)", flush=True)
+        return []
     k = g.b("bz_crs")
     R.CRS_K["bench"]                            # (fills the course table)
     name = [n for n in R.CRS_K if R.CRS_K[n] == k][0]
@@ -539,6 +547,8 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     # become the play's: two claims however many balls, and no fanfare term
     ar_in = 1 if g.w("op_arena") else 0
     np = 1 if wrow is None else 2               # (130.30.5: the picture part and the world part, a claim each)
+    if g.tag == "vga":                          # (130.46.6: the VGA's code part and the balls' converted
+        np += 2                                 # copies, both held through the bracket)
     if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in or not ar_in:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + the "
                      "course's %d part(s) + the arena (%d on the desktop, %d here): %s" % (
@@ -1031,8 +1041,9 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             f, line = one(g, "esc", base_rows, base_claims, R.course("trial").ball, crs="trial")
             print("%s %s" % (tag, line), flush=True)
             fails += f
-        if pal and not fails:                   # wave 6 (SPEC.md 130.16.6): the colour select
-            fails += palette_leg(g)
+        if pal and not fails and tag != "vga":  # wave 6 (SPEC.md 130.16.6): the colour select - the CGA's
+            fails += palette_leg(g)             # 3D9h (the VGA's four colours are its attribute controller's,
+                                                # BZV_INIT, and bonanzaring's VGA glass compares them)
         if keys and not fails:
             fails += held_keys(g)
         if w4 and not fails:                    # (last: it closes the window)
@@ -1041,7 +1052,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         seen = CLAIMED.get(tag, set())
         print("%s THE CLAIM LEG (SPEC.md 130.15.13): the course claim = the tool's RAM form at fsx_run on %s" % (
             tag, ", ".join(sorted(n.upper() for n in seen)) or "no launch"), flush=True)
-        if cover and not fails and seen != set(dict.keys(R.CRS_K)):
+        if cover and not fails and tag != "vga" and seen != set(dict.keys(R.CRS_K)):
             fails.append("the claim leg compared %s, not all %d shipped courses (SPEC.md 130.15.13)" % (
                 sorted(seen), dict.__len__(R.CRS_K)))
     return fails
@@ -1090,10 +1101,10 @@ RED_RUN["cellsafe"] = {"ways": ("esc",), "mats": (), "bench": False, "mill": Tru
 # Hercules branch removed (the labelled write runs there)
 REDS["nopal"] = [("bzvideo.inc", ".vpal:\n    out dx, al\n",
                   ".vpal:\n    nop                         ; RED nopal: no write\n")]
-REDS["hercpal"] = [("bzvideo.inc", "    mov [bz_vseg], ax\n    cmp byte [bz_herc], 0\n    jne .herc\n"
+REDS["hercpal"] = [("bzvideo.inc", ".nvga:\n    cmp byte [bz_herc], 0\n    jne .herc\n"
                     "    mov bl, [bz_crs]            ; the CGA: the course's colour select\n"
                     "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n",
-                    "    mov [bz_vseg], ax\n    mov bl, [bz_crs]            ; RED hercpal: the write on the Hercules too\n"
+                    ".nvga:\n    mov bl, [bz_crs]            ; RED hercpal: the write on the Hercules too\n"
                     "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n"
                     "    cmp byte [bz_herc], 0\n    jne .herc\n")]
 for _r in ("nopal", "hercpal"):
@@ -1120,11 +1131,17 @@ RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % snd_row(),  # BZ
             "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT",
             "kitlate": "the kit (row", "kitdrop": lambda: "held part row %d is not fetched" % kit_row()}
 RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card
+# the VGA's part and the balls' converted copies never dropped after a launch (bz_vdrop a RET): the rows and the
+# claims after the bracket are not the desktop's (SPEC.md 130.46.6)
+REDS["vgakeep"] = [("bonanza.asm", "bz_vdrop:\n", "bz_vdrop:\n    ret                         ; RED vgakeep\n")]
+RED_RUN["vgakeep"] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False}
+RED_TAGS["vgakeep"] = ("vga",)
+RED_WANT["vgakeep"] = "is still FETCHED after the launch"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--adapter", choices=("cga", "herc", "vga", "both", "all"), default="all")
     ap.add_argument("--no-keys", action="store_true", help="the ways out only")
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
@@ -1133,7 +1150,7 @@ def main():
         for line in R.check_reds(REDS, "bonanza_exit"):
             print(line)
         return
-    tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
+    tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.red and a.red in RED_TAGS:
         tags = tuple(t for t in tags if t in RED_TAGS[a.red]) or RED_TAGS[a.red]
     if a.red:

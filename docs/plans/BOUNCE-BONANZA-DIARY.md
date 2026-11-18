@@ -6126,3 +6126,35 @@ agent; *"Then move on to course 2 on paper, yourself."*
 
   The first layout doubled back over itself after the spring and was
   re-laid before it was shown.
+
+## 2026-11-18 (VGA, V3: the rows)
+
+- **`C` went first** - the owner: *"Glide/trickle are closed tests, lattice
+  won"*. Out of play, the desktop and the face's line 3 on every card, 69
+  resident bytes less; TRICKLE's path stays only as a harness poke three
+  soak rows use to hold the window still.
+- **The scratch oracles became row parts.** `bonanzaring`'s VGA card is the
+  planar decoder, the glass comparison and the roll model from the V1 - V2b
+  scratch scripts, plus what a scratch script never had: a negative control
+  (the window one byte off must differ), a positive one (the panning must
+  have run), and five red arms, each run and seen red.
+- **The first run of the camera part found a real bug.** On MILL's demo the
+  step went from -3 to 0 at the course's edge: the edge brake took one off a
+  frame, and the TRACK put one back, so the brake never won until the
+  distance ran out. The brake is now a cap on the step's stopping distance,
+  which by construction can only fall one a frame.
+- **Two old red arms had gone quietly stale** under the VGA arm's own
+  lines - `colfirst` (bonanzaring) and `hercpal` (bonanzaexit) anchored on
+  code that V1 had moved. Their host check found both; both are
+  re-anchored and were seen red again.
+- **The legs elsewhere**: `bonanzaexit` on the VGA (all 94 ways out, two
+  more claims inside the bracket, none after); `bonanzareplay` replays the
+  CGA's logs on the VGA to the model's end; `bonanzaperf` holds BENCH at 35
+  Hz with 19 misses and PLAYGROUND's game clock at 54.7 steps a second -
+  51.1 with the step loop's clock sample taken out, the red arm.
+- **`tools/bzprof.py`**: the sampling profiler that found 130.46.13's
+  faults, kept for the optimisation round.
+
+**Tested**: each leg run green on MartyPC, each red arm run and seen red.
+**Not yet**: kern_mega's case 0v (running), the scoped soak, the rows'
+`secs` re-measured from it.
