@@ -4288,8 +4288,9 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     assemble(src, art, binp)
     shell = shell_part(td, src, art, binp)      # wave 8a (128.19.2): LINKED against this tree's package
     fams = fam_parts(td, src, art)              # wave 9 (128.25.6.2): ...and so is every family part
+    vga = vga_part(td, src, art)                # SPEC.md 128.41.6: ...and the VGA's part
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88]
-                   + part_args(art, src, shell, fams)
+                   + part_args(art, src, shell, fams, vga)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88] + list(extra)
                    + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
@@ -4359,6 +4360,19 @@ def shell_part(td, src, art, binp):
     return out
 
 
+def vga_part(td, src, art):
+    """SPEC.md 128.41.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
+    bzvga.asm against the bzlink.inc shell_part wrote for the tree's package.
+    -> its path, or None for a tree with none (an earlier wave's)"""
+    inc = os.path.join(td, "bzlink-inc")
+    if not os.path.exists(os.path.join(src, "bzvga.asm")) or not os.path.exists(os.path.join(inc, "bzlink.inc")):
+        return None
+    out = os.path.join(td, "bzvga.bin")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                    "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzvga.asm")], cwd=ROOT, check=True)
+    return out
+
+
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
     8b, 128.19.5), the title's two (SPEC.md 128.23), (wave 9, 128.25.6.2)
@@ -4400,7 +4414,7 @@ def fam_parts(td, src, art):
     return out
 
 
-def part_args(art, src=None, shell=None, fams=None):
+def part_args(art, src=None, shell=None, fams=None, vga=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
     rows 0 - 2 the rubber, steel and glass balls (before SPEC.md 128.25.5.2:
     the bundle carries them since), then course K's one part
@@ -4436,6 +4450,8 @@ def part_args(art, src=None, shell=None, fams=None):
     elif "BZ_P_FAM" in asm:                     # wave 9 (128.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
+    if "BZ_P_VGA" in asm:                       # SPEC.md 128.41.6: the VGA's part, the last row
+        out += ["--part", vga or at("build/bzvga.bin")]
     return out
 
 
