@@ -689,18 +689,27 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   (busy 51.1k clocks, 410 misses in 1,200: V2's divisor). Rows named:
   `bonanzaring`, `bonanzaperf`, `bonanzaexit` (their VGA legs are V3's).
 
-### V2: smooth (M)
+### V2: smooth (M) - V2a BUILT (SPEC.md 128.41.10); V2b the owner's call
 
-- [ ] The pixel camera of section 5: `bz_x0`/`bz_y0`, LATTICE's output in
-      px and lines, the 41-column clip.
-- [ ] The pel pan at the edge.
-- [ ] Pacing rules 1-4 of section 6: the camera on game time; N held
-      (D3); the ball and camera drawn interpolated; the edge wait as the
-      only pacing, and the flip-gap assertion.
-- *Check*: a boot to look on MartyPC and on 86Box `xt-v20-vga` and
-  `286-victory`, a held
-  pan captured frame by frame (`pace` on MartyPC, timed screenshots on
-  86Box); rows named: `bonanzaring` (pace), `bonanzareplay`.
+- [x] The pixel camera, as a DISPLAY over LATTICE rather than inside it:
+      the engine's window 42 columns (P 44), LATTICE unchanged, the display a
+      320 px slice at x0 following LATTICE's target through a three-tap
+      filter (a column's pan 2, 4, 2 px; LATTICE's every-second-frame pan a
+      steady 4; never outside the window).
+- [x] The pel pan at the rise, x0 & 7.
+- [x] Pacing rule 2 (D3): 64-frame windows, the first with 8 late frames
+      latching 35 Hz one way. Rule 1 is NOT taken: LATTICE's cadence stays a
+      function of frames (128.9), as on the CGA, so the cards agree.
+- [x] Rule 4: the edge wait is the only pacing (it was already).
+- [ ] **V2b: rule 3, the ball drawn between steps.** Display only, but every
+      user of `bz_px` and the ring row's oracle change with it. Left until the
+      owner has looked at V2a on the glass: at 35 Hz a frame holds one or two
+      physics steps, and whether that judder against the even pan shows is
+      the question.
+- *Checked*: the oracle on MartyPC - LATTICE 600 frames and the scripted
+  camera 400, 0 pixels in card memory, the rendered glass (the panning
+  applied) exact on every sampled frame; the 8088's benchmark: 35 Hz held,
+  50 misses in 1,200 (V1: 410).
 
 ### V3: the rows, kern_mega and the record (M)
 

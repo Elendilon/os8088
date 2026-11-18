@@ -4604,3 +4604,33 @@ MartyPC (600 frames, twice: before and after the unrolled writer), the
 benchmark's instruments on MartyPC's VGA and CGA, looks on MartyPC and on
 86Box's `xt-v20-vga`. **Not run**: soak rows (`bonanzaring` and the rest
 have no VGA leg until V3), `test-full`, kern_mega, the field.
+
+## 2026-11-18 (VGA, V2a: the pel pan and the held divisor)
+
+The owner tested V1 ("I think it works") and asked for V2.
+
+- **LATTICE stays as it is; the display follows it.** LATTICE is the
+  engine's camera in whole columns, and every part of the engine (lanes,
+  boxes, cards, the writers) shares its window. So the VGA's engine window
+  grew to 42 columns (stride 44, still a two-column gutter) and the display
+  became a 320-pixel slice inside it, at a pixel x0 of its own.
+- **Three followers tried on the host first.** A fixed 4 px a frame
+  rode its clamp at 8 under the scripted camera; a trapezoid wandered 3 - 5;
+  "half the gap" alternated 3, 5, 3, 5 - visible judder. Filtering the
+  TARGET instead, (t + 2 t' + t'') / 4, gives a column's pan as 2, 4, 2,
+  LATTICE's usual pan as a steady 4, a fast one as 8, and never lags more
+  than the window's 8 px of slack.
+- **The divisor's short test was too short.** The first 64 frames (a ball at
+  rest) kept 70 Hz, and the play then missed one frame in eleven. Watching
+  in 64-frame windows and latching 35 Hz one way on the first bad window
+  fixed it: 50 misses of 2.5 refreshes in 1,200 frames, against V1's 410.
+- **The glass agrees.** The oracle now also compares MartyPC's rendered
+  frame - the pel pan applied by the card - with the display's slice: exact
+  on every sampled frame, under LATTICE and under the scripted camera.
+- **Not built: the ball between steps.** At 35 Hz a frame holds one or two
+  physics steps. Whether that shows against the smooth pan is for the owner
+  to judge on the glass before it is built.
+
+**Tested**: `make`, `make bonanzadisk`, the oracle on MartyPC (600 + 400
+frames, card memory and glass), the 8088's benchmark instruments. **Not
+run**: soak rows, kern_mega, the field.

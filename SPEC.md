@@ -280073,3 +280073,62 @@ frames miss one: the edge wait under CLI takes the NEXT rise whenever the
 frame ends inside MartyPC's long vsync (31 scanlines). That is V2's to
 settle with the held divisor (128.41.1, D3: 35 Hz on the 8088 is the
 owner's accepted floor).
+
+#### 128.41.10 V2: the panning and the held divisor (BUILT, 2026-11-18)
+
+**The cost**: resident image 50,666 -> **50,877 (+211)**, bss +10; `BZVGA.BIN` 3,280 -> **3,502**.
+
+**The geometry changes for the panning.** The stride `P` is **44** bytes
+(CR13 22) and the ENGINE's window `W` **42** columns: every rule of
+128.41.3 and 128.41.4 holds with these numbers (the gutter is two columns;
+no two window cells share a byte, `|44 dr + db| <= 8,797`). LATTICE, the
+writers, the boxes, the lanes and the cards all work in the 42-column
+window exactly as they did in 40, and LATTICE frames the same centre (a
+42-column window's middle is the 40-column one's).
+
+**The display is a 320-pixel slice of it, at `x0`** (world px, `[bz_vx0]`):
+the start address written is `S + (x0 >> 3) - c0`, the pel panning `x0 &
+7` ([bz_vpan], at the rise, 128.41.4 rule 4). `x0` follows LATTICE's target
+`t = (c0 + 1) 8` - its 40 columns in the middle - through a three-tap
+filter, `x0 = (t + 2 t' + t'' + 2) / 4` over this frame's target and the
+last two (`[bz_vt1]`, `[bz_vt2]`):
+
+| LATTICE | the display, px a frame |
+|---|---|
+| one column's pan | 2, 4, 2 |
+| a column every second frame (its pan) | a steady 4 |
+| a column every frame (fast) | 8 |
+| a column every third frame | 2, 4, 2 repeating |
+
+`x0` lags `t` by at most 8 px, so the slice never leaves the window
+`[c0 8, c0 8 + 16]` (and is clamped to it all the same). A full write puts
+the display on the target with the panning 0. **LATTICE is unchanged**: its
+cadence is still a function of frames (128.9), and its state is the
+engine's window; the filter is display only, so replays, demos and the
+CGA's and Hercules' pictures are untouched.
+
+**The held divisor** (the owner's D3): `bz_vstart` counts frames that ended
+late (past `BZ_VBAND`, or a refresh) in windows of 64; the first window
+with **8 or more** latches `[bz_vdiv]` 2 for the rest of the play - one
+way, so the rate never alternates - and from then a frame done before the
+first rise after the last present waits that rise out (interrupts on) and
+presents at the second: **35 Hz**, a miss then 2.5 refreshes (`[bz_mlim]`
++ `BZ_VREF`). `bz_vinit` starts every play at 70 Hz.
+
+**Measured** (MartyPC, BENCH's benchmark, 1,200 frames; the 8088 at 4.77
+MHz): the divisor latched to 35 Hz early, busy **49.9k** clocks a frame,
+**50 misses** of 2.5 refreshes (V1's 410 of 1.5): the frames that end in
+the band before the second rise, which wait a refresh rather than risk the
+real chip's shear. **The proof**: every presented frame's ENGINE window in
+card memory against the host picture, and MartyPC's rendered frame (the
+panning applied) against the display's slice of one of the last three
+frames: LATTICE's camera 600 frames, 0 pixels, the glass 30 of 30 exact;
+the scripted camera (every direction, 35 Hz) 400 frames, 0 pixels, the
+glass 40 of 40.
+
+**Not built (V2b, the owner's to decide on the glass)**: the ball drawn
+between physics steps (plan 6, rule 3). At 35 Hz a frame holds one or two
+of the 54.6 Hz steps, so a rolling ball moves 1 - 2 steps a frame against a
+display that pans evenly; whether that judder shows, and is worth an
+interpolated drawing (display only, but every user of `bz_px`, the oracle's
+included), is a question for the PVGA1A and a look.

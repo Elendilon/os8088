@@ -262,6 +262,13 @@ VAR bz_vfp,4                    ; 128.41.6: BZVGA.BIN's far vector (bz_vprep: it
 VAR bz_vbseg,2                  ; 128.41.5: the three balls' converted copies, a claim
 VAR bz_smask,2                  ; the start address's ring: 0FFFh, the VGA's 0FFFFh
 VAR bz_vpal0,4                  ; the VGA's AC 0 - 3 for the course (BZV_INIT's)
+VAR bz_vx0,2                    ; 128.41.10: the display's left, world px
+VAR bz_vpan,1                   ; ...its panning, x0 & 7, written at the rise
+VAR bz_vt1,2                    ; ...the last two frames' targets, px (the filter)
+VAR bz_vt2,2
+VAR bz_vdiv,1                   ; the held divisor, 1 or 2 (70 or 35 Hz)
+VAR bz_vfrm,1                   ; the short test: frames seen, of 64,
+VAR bz_vlate,1                  ; ...and those late
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
 VAR bz_vwr1,2                   ; has no writable memory of its own, 128.41.6)
 VAR bz_vwx,2
@@ -1049,7 +1056,7 @@ bz_tv:                          ; parts keep their numbers)
     call bz_vr
     cmp byte [bz_vga], 0
     je bz_tf
-    xor al, al                  ; (V1: the panning is 0)
+    mov al, [bz_vpan]           ; the display's panning (128.41.10)
     BZ_VCALL BZV_PAN
 bz_tf:
     mov bx, 3 * 4
@@ -1060,8 +1067,25 @@ bz_tf:
     jne .shown
 .new:
     call bz_snew
-    call bz_flip
     mov [bz_S], ax
+    cmp byte [bz_vga], 0
+    je .fl
+    mov bx, [bz_c0n]            ; the VGA's full write: the display on the
+    inc bx                      ; window's middle 40 columns, panning 0
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov [bz_vx0], bx
+    mov [bz_vt1], bx            ; (the filter at rest on it)
+    mov [bz_vt2], bx
+    mov byte [bz_vpan], 0
+    inc ax
+    push ax
+    xor al, al
+    BZ_VCALL BZV_PAN
+    pop ax
+.fl:
+    call bz_flip
 .shown:
     mov ax, [bz_R0n]
     mov [bz_R0], ax
@@ -3871,12 +3895,13 @@ BZ_VBAND    equ BZ_VREF - 24 * 38 ; the display's end (12 lines before the rise
                                 ; in mode 0Dh's timing) less BZ_VSMARG
 BZ_VREF     equ 17025           ; a mode 0Dh refresh, PIT counts (MEASURED, 128.41.7)
 bz_vstart:
-    mov byte [bz_r0p], 1
+    mov byte [bz_r0p], 0        ; (an extra wait below takes its rise with IRQs on)
     call bz_clk_sample
     mov ax, [bz_subs]
     sub ax, [bz_vsubs]
     mov dx, [bz_vpit]
     sub dx, [bz_pitl]
+    xor bx, bx                  ; BX = refreshes since the last present's rise
     cmp ax, 1
     ja .late                    ; (a whole sub-tick: past a refresh, unknown)
     jb .in
@@ -3885,17 +3910,79 @@ bz_vstart:
     cmp dx, BZ_VREF             ; a refresh past: where in the next one
     jb .ph
     sub dx, BZ_VREF
+    inc bx
     jmp short .in
 .ph:
     cmp dx, BZ_VBAND
-    jb .write
+    jae .late
+    ; THE HELD DIVISOR (SPEC.md 128.41.10): presenting every second refresh, a
+    ; frame done before the first rise after the last present waits it out
+    cmp byte [bz_vdiv], 2
+    jne .test
+    or bx, bx
+    jnz .test
+    call bz_vr                  ; (no CLI: a refresh's wait with IRQs on)
+    jmp short .test
 .late:
+    inc byte [bz_vlate]         ; ...the short test's count
     call bz_vr                  ; the rise first, then the start after it
+.test:                          ; THE DIVISOR'S TEST: 64-frame windows, and
+    cmp byte [bz_vdiv], 2       ; the first with 8 late latches 35 Hz for the
+    je .write                   ; rest of the play - one way, so the rate never
+    inc byte [bz_vfrm]          ; alternates (128.41.10)
+    cmp byte [bz_vfrm], 64
+    jb .write
+    mov byte [bz_vfrm], 0
+    cmp byte [bz_vlate], 8
+    mov byte [bz_vlate], 0
+    jb .write
+    mov byte [bz_vdiv], 2
+    add word [bz_mlim], BZ_VREF ; (a miss is now 2.5 refreshes)
 .write:
+    mov byte [bz_r0p], 1        ; (the presenting rise: under CLI, 128.41.4)
     call bz_snew
-    call bz_flip                ; (CR0Ch/0Dh on 3D4h: the CGA's own registers)
-    mov [bz_S], ax
-    ret
+    mov [bz_S], ax              ; the ENGINE's window's start (c0n its first column)
+    ; THE DISPLAY (128.41.10): x0, pixels, the target - (c0n + 1) 8, the
+    ; 320 px LATTICE frames in the 42-column window's middle - FILTERED, (t +
+    ; 2 t' + t'') / 4 over this frame's and the last two: a column's pan
+    ; reads 2, 4, 2 px, LATTICE's column every second frame a steady 4, every
+    ; frame a steady 8 - lagging at most 8 px, so never out of the window
+    ; [c0n 8, c0n 8 + 16] (clamped all the same)
+    mov bx, [bz_c0n]
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1                   ; BX = c0n 8
+    lea dx, [bx + 8]            ; DX = t
+    mov cx, [bz_vt1]
+    shl cx, 1
+    add cx, dx
+    add cx, [bz_vt2]
+    inc cx
+    inc cx
+    sar cx, 1
+    sar cx, 1                   ; CX = (t + 2 t' + t'' + 2) / 4
+    push word [bz_vt1]
+    pop word [bz_vt2]
+    mov [bz_vt1], dx
+    cmp cx, bx
+    jge .l2
+    mov cx, bx
+.l2:
+    add bx, 16
+    cmp cx, bx
+    jle .l3
+    mov cx, bx
+.l3:
+    mov [bz_vx0], cx
+    mov dl, cl
+    and dl, 7
+    mov [bz_vpan], dl           ; the panning, at the rise
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    sub cx, [bz_c0n]
+    add ax, cx                  ; the DISPLAY's start: S + its first column's offset
+    jmp bz_flip                 ; (CR0Ch/0Dh on 3D4h: the CGA's own registers)
 
 ; bz_vcol - the VGA's entering column, every row of the NEW window, before
 ; the start address (128.41.4 rule 1): moving right the window's last column,
