@@ -128,7 +128,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass pickups wind water spike magnet archway boost
+uses probe glass pickups wind water spike magnet archway boost gate
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -256,35 +256,47 @@ prop blower 22 36  face +y  region 22 36 25 36  strength 10
 prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag
 prop hourglass 27 36
 prop hourglass 12 35
-pad glass  20 35
 
 # PROP ALLEY (draft)
-floor rect  21 38 22 42  ramp y 38 42 4 0
-floor rect  18 42 24 44  flat 0
-floor rect  18 38 19 42  flat 0
-floor rect  24 42 26 43  flat 0
-floor rect  23 44 29 45  flat 0
-floor rect  26 41 29 42  flat 2
-floor rect  29 42 32 45  flat 0
+floor rect  21 38 22 42  ramp y 38 42 4 2
+floor rect  18 42 24 44  flat 2
+floor rect  18 38 19 42  flat 2
+floor rect  24 42 26 43  flat 2
+floor rect  23 44 28 45  flat 2
+floor rect  26 41 28 42  flat 4
+floor rect  28 42 32 45  flat 2
 float rect  18 42 24 44
 float rect  18 38 19 42
 float rect  24 42 26 43
-float rect  23 44 29 45
-float rect  26 41 29 42
-float rect  29 42 32 45
-water tile  18 37  top 4 bed 0
+float rect  23 44 28 45
+float rect  26 41 28 42
+float rect  28 42 32 45
+water tile  18 37  top 4 bed 2
 arch  18 37 +y
 prop spikes 18 39 19 41
 prop popspikes 22 42 period 128 on 64 seed 5
-prop popspikes 22 43 period 128 on 64 seed 6
+hole  tile  22 43
 archway tile 24 42 along x
 pad steel 24 42
 prop magnet 26 41 face down +y
 prop magnet 27 41 face down +y
-prop magnet 28 41 face down +y
-prop membrane 26 44 29 45
+prop membrane 26 44 28 45
 prop boost 21 42 face -y strength 40
-prop hourglass 31 43
-floor rect  19 38 20 41  flat 4
-float rect  19 38 20 41
-prop platform 19 41 4 dwell 42 seed 245
+
+# BASIN EXIT (draft)
+floor tile  32 33  flat 0
+hole  tile  33 33
+floor rect  31 34 33 41  flat 0
+hole  tile  31 35
+floor tile  32 41  flat 0.5
+floor tile  32 42  flat 1
+floor tile  32 43  flat 1.5
+float tile  32 33
+float rect  31 34 33 41
+float rect  32 41 33 44
+float rect  31 38 33 39  thick 0.5
+prop platform 33 33 8 dwell 21
+prop plate 32 34 channel ring
+prop gate 32 35 channel ring along y
+prop bridge 31 38 33 39 period 256 on 128 seed 17
+hump 17 35 4 height 5
