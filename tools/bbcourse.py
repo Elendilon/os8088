@@ -7083,10 +7083,10 @@ class Canvas:
         # wave 3: the tile that drew each pixel last, 256 wx + wy (-1 none),
         # kept only for a course with a windmill (the house check, 130.12.3.3)
         self.obuf = [array("i", [-1]) * w for _ in range(h)] if owners else None
-        # SPEC.md 130.47.4: with THE LOOK, the geometry each pixel shows: lk 0 none, 1 a top (a plane), 2 a face
-        # (vertical); lz its height there, whole px (a face's own, not its top edge's); lo its cell, 256 wx + wy
+        # SPEC.md 130.47.5: with CAST SHADOWS, the geometry each pixel shows: lk 0 none, 1 a top (a plane), 2 a
+        # face (vertical); lz its height there, whole px (a face's own, not its top edge's); lo its cell
         self.lwhich = None
-        if LOOK is not None or SHADOW:
+        if SHADOW:
             self.lk = [bytearray(w) for _ in range(h)]
             self.lz = [array("h", [0]) * w for _ in range(h)]
             self.lo = [array("i", [-1]) * w for _ in range(h)]
@@ -7114,7 +7114,7 @@ class Canvas:
             self._look_fill(sp, owner)
 
     def _look_fill(self, sp, owner):
-        """130.47.4: a face's pixel is lk 2 at its top edge's height less its lines below that edge (the face is
+        """130.47.5: a face's pixel is lk 2 at its top edge's height less its lines below that edge (the face is
         vertical); anything else drawn is a plane, lk 1, at the top function's height"""
         face = self.lwhich in ("sw", "se", "front", "post")
         ymin = {}
@@ -7794,8 +7794,8 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.outline(sp, left=True)
         else:
             if t.kind == KIND_WALL:
-                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else (WHT if LOOK is None else look_wall_ink(t, wx, wy, x0, y0)),
-                        s, top, own)                # a bumper rail: magenta (130.47.3: THE LOOK's wall top)
+                cv.fill(sp, MAG if t.surf == SURF_BOUNCE else (LOOK_WALL if LOOK else WHT), s, top, own)
+                                                    # a bumper rail: magenta (130.47.3: THE LOOK's wall top)
             elif t.kind != KIND_GOAL and t.surf != SURF_NORMAL:
                 cv.fill(sp, _surface_ink(t.surf, x0, y0), s, top, own)
             elif t.kind == KIND_GOAL or t.sx or t.sy:
@@ -7810,17 +7810,20 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                             for x in range(a, b):
                                 row[x] = ink
             else:
-                cv.fill(sp, WHT if (wx + wy + (0 if LOOK is None else t.z0 // 4)) & 1 else CYN, s, top, own)
+                cv.fill(sp, WHT if (wx + wy + (t.z0 // 4 if LOOK else 0)) & 1 else CYN, s, top, own)   # (130.47.2)
             cv.outline(sp, also=_shift(left, y0) if left else None)
-    if _LOOK_BAND and SHADOW:
+    if SHADOW and _SHADOW_OK:
         look_shadow(cv, tiles, x0, y0)
-    elif _LOOK_BAND and LOOK is not None:
-        look_band(cv)
     return cv
 
 
+def LOOK_WALL(x, y):
+    """SPEC.md 130.47.3: a WALL top under THE LOOK - cyan and white, 50%"""
+    return CYN if (x + y) & 1 else WHT
+
+
 def _shadow_heights(tiles):
-    """130.47.8: {cell: (z, sx, sy) in px} - a cell's top plane, z at its back corner, so a point (fx, fy) inside
+    """130.47.5: {cell: (z, sx, sy) in px} - a cell's top plane, z at its back corner, so a point (fx, fy) inside
     it (0..1) stands at z + sx fx + sy fy; a split cell or a FIELD cell, which have no plane of their own,
     stand at their highest (a split's records' highest corner, a FIELD cell's hmax)"""
     out = {}
@@ -7837,9 +7840,9 @@ def _shadow_heights(tiles):
 
 
 def look_shadow(cv, tiles, x0, y0):
-    """SPEC.md 130.47.8: a TOP pixel (lk 1) at world (gx, gy, z) is in SHADOW when, marching from it toward the
+    """SPEC.md 130.47.5: a TOP pixel (lk 1) at world (gx, gy, z) is in SHADOW when, marching from it toward the
     light (SHADOW_DIR) in 2 gu steps, another cell's top stands above the ray (z + SHADOW_R s); a shadowed
-    pixel is darkened by the 50% dither ((x + y) even black).  Never on or from a cell that moves (_LOOK_DYN).
+    pixel is darkened by the 50% dither ((x + y) even black).  Never on or from a cell that moves (_SHADOW_DYN).
     The march stops at the course's greatest rise over this pixel (the highest top less z, over SHADOW_R)"""
     H = _shadow_heights(tiles)
     if not H:
@@ -7848,7 +7851,7 @@ def look_shadow(cv, tiles, x0, y0):
     dx, dy = SHADOW_DIR
     n = math.hypot(dx, dy)
     dx, dy = dx / n, dy / n
-    dyn = _LOOK_DYN
+    dyn = _SHADOW_DYN
     for y in range(cv.h):
         kr, zr, orow, row = cv.lk[y], cv.lz[y], cv.lo[y], cv.rows[y]
         for x in range(y & 1, cv.w, 2):             # (only (x + y) even pixels can darken)
@@ -7876,73 +7879,6 @@ def look_shadow(cv, tiles, x0, y0):
                         row[x] = BLK
                         break
                 s += 2.0
-
-
-def look_wall_ink(t, wx, wy, x0, y0):
-    """SPEC.md 130.47.3: a WALL top's pattern under THE LOOK - dither (cyan and white, 50%), capstone (white, a
-    cyan ring 2 - 3.5 gu inside its edges), rose (magenta and white, 50%), grating (white, cyan bars every 4 gu
-    both ways, in WORLD units, so a run of wall tops is one continuous grid)"""
-    if LOOK == "dither":
-        return lambda x, y: CYN if (x + y) & 1 else WHT
-    if LOOK == "rose":
-        return lambda x, y: MAG if (x + y) & 1 else WHT
-    wf = _top_world(t, wx, wy, x0)
-    if LOOK == "grating":
-        def ink(x, y):
-            gx, gy = wf(x, y - y0)
-            return CYN if (gx % 4.0) < 1.2 or (gy % 4.0) < 1.2 else WHT
-        return ink
-
-    def ink(x, y):
-        gx, gy = wf(x, y - y0)
-        e = min(gx - 16 * wx, 16 * wx + 16 - gx, gy - 16 * wy, 16 * wy + 16 - gy)
-        return CYN if 2.0 <= e < 3.5 else WHT
-    return ink
-
-
-def look_band(cv):
-    """SPEC.md 130.47.4: THE CONTACT BAND.  A pixel's view depth is y + z (its line plus its own height: 130.10.2's
-    (gx + gy) / 2), continuous across a surface and across a top's edge onto its own face; two 4-neighbours more
-    than LOOK_TH apart are a DEPTH BREAK, the greater the nearer.  Where the FAR side is a top, it is darkened
-    for LOOK_BANDW px away from the break, a 50% dither ((x + y) even black), staying on that surface; already
-    black pixels are left.  Not where either side's cell is within one cell (Chebyshev) of one that moves
-    (_LOOK_DYN): a band there would differ between its poses and widen its lanes"""
-    H, W = cv.h, cv.w
-    lk, lz, lo, rows = cv.lk, cv.lz, cv.lo, cv.rows
-
-    def dyn(o):
-        return o >= 0 and (o >> 8, o & 255) in _LOOK_DYN
-    marks = []
-    for y in range(H):
-        k0, z0r, o0 = lk[y], lz[y], lo[y]
-        k1 = lk[y + 1] if y + 1 < H else None
-        z1r = lz[y + 1] if y + 1 < H else None
-        o1 = lo[y + 1] if y + 1 < H else None
-        for x in range(W):
-            if not k0[x]:
-                continue
-            d = y + z0r[x]
-            for (yy, xx, kk, dd, oo) in ((y, x + 1, k0[x + 1] if x + 1 < W else 0, y + z0r[x + 1] if x + 1 < W else 0,
-                                          o0[x + 1] if x + 1 < W else -1),
-                                         (y + 1, x, k1[x] if k1 is not None else 0, y + 1 + z1r[x] if k1 is not None
-                                          else 0, o1[x] if k1 is not None else -1)):
-                if not kk or abs(dd - d) <= LOOK_TH:
-                    continue
-                if dyn(o0[x]) or dyn(oo):
-                    continue
-                if dd < d:                          # (yy, xx) is the far side
-                    marks.append((yy, xx, yy - y, xx - x, dd))
-                else:
-                    marks.append((y, x, y - yy, x - xx, d))
-    for (y, x, dy, dx, d0) in marks:
-        if lk[y][x] != 1:
-            continue
-        for k in range(LOOK_BANDW):
-            yy, xx = y + k * dy, x + k * dx
-            if not (0 <= yy < H and 0 <= xx < W) or lk[yy][xx] != 1 or abs(yy + lz[yy][xx] - d0 - k * dy) > LOOK_TH:
-                break
-            if (xx + yy) & 1 == 0 and rows[yy][xx] != BLK:
-                rows[yy][xx] = BLK
 
 
 # =============================================================================
@@ -9076,21 +9012,17 @@ def _ball_cols():
 
 FSHOW = 8                     # SPEC.md 130.28.6, the SHOW rule: the most lit ball px a FIELD cell's airborne pose may
 #                               show that the per-pixel rule hides, when nothing else needs those pixels
-# SPEC.md 130.47: THE LOOK, the depth cues - EXPERIMENTAL, the owner's to play (make's BZLOOK, the run's --look).
-# None: today's picture, byte for byte.  A wall-top name: a top's checker colour by its height as well as its
-# cell (130.47.2), a WALL top in that pattern (130.47.3), and the 2 px CONTACT BAND on a lower top where a nearer
-# surface stands in front of it (130.47.4), never beside a cell that moves (_LOOK_DYN).
-LOOK = None
-LOOK_TOPS = ("dither", "capstone", "rose", "grating")
-LOOK_BANDW = 2                # the band's width, px, on the far top away from the break
-LOOK_TH = 3                   # a depth break: two neighbouring pixels' view depths (y + z) more than this apart
-_LOOK_DYN = frozenset()       # this compile's cells that MOVE or vanish (and so their pictures' lanes): no band by them
-_LOOK_BAND = True             # off for a course over BLK_MAX with it (compile_course's retry, 130.47.5)
-_LOOK_IN = False
-# SPEC.md 130.47.8: CAST SHADOWS (make's BZSHADOW=1, the run's --shadow), OFF by default - the owner, 2026-11-18:
+# SPEC.md 130.47: THE LOOK (make's BZLOOK=1, the run's --look), OFF by default: a top's checker colour by its
+# height as well as its cell (130.47.2) and a WALL top in a cyan and white dither (130.47.3).  Off, today's
+# picture, byte for byte.
+LOOK = False
+# SPEC.md 130.47.5: CAST SHADOWS (make's BZSHADOW=1, the run's --shadow), OFF by default - the owner, 2026-11-18:
 # "good art, not good info", kept for a disk that can afford it.  Light from -x+y, a shadow 1 gu long for each
-# px of height; with it on, it REPLACES THE LOOK's contact band
+# px of height
 SHADOW = False
+_SHADOW_DYN = frozenset()     # this compile's cells that MOVE or vanish: no shadow on or from them (130.47.5)
+_SHADOW_OK = True             # off for a course over BLK_MAX with shadows (compile_course's retry, 130.47.5)
+_SHADOW_IN = False
 SHADOW_DIR = (-1.0, 1.0)      # toward the light, world gu (normalised where it is used)
 SHADOW_R = 1.0                # the light's rise, px of height a gu
 FSHOW_ALL = False             # SPEC.md 130.28.6: the SHOW rule on every course (the run's --fshow, make's BZFSHOW=1); OFF
@@ -9910,27 +9842,25 @@ def _course_limit(c, src, fname):
 
 
 def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
-    """(SPEC.md 130.47.5: under THE LOOK a course over BLK_MAX with the band is compiled again without it, and
+    """(SPEC.md 130.47.5: with CAST SHADOWS a course over BLK_MAX with them is compiled again without them, and
     the run says so - PLAYGROUND, the stress test, is the one)"""
-    global _LOOK_IN, _LOOK_BAND
-    if (LOOK is None and not SHADOW) or _LOOK_IN:
+    global _SHADOW_IN, _SHADOW_OK
+    if not SHADOW or _SHADOW_IN:
         return _compile_cached(source, fname, occluders, _hack, crsinfo)
-    _LOOK_IN = True
+    _SHADOW_IN = True
     try:
         try:
-            _LOOK_BAND = True
+            _SHADOW_OK = True
             return _compile_cached(source, fname, occluders, _hack, crsinfo)
         except CourseError as e:
             if "over the %d a map word" % BLK_MAX not in str(e):
                 raise
-            sys.stderr.write("bbcourse%s%s: %s; compiled again WITHOUT the %s (SPEC.md 130.47.5)\n"
-                             % (" --look " + LOOK if LOOK else "", " --shadow" if SHADOW else "", e,
-                                "shadows" if SHADOW else "contact band"))
-            _LOOK_BAND = False
+            sys.stderr.write("bbcourse --shadow: %s; compiled again WITHOUT the shadows (SPEC.md 130.47.5)\n" % e)
+            _SHADOW_OK = False
             _VANISH_MEMO.clear()
             return _compile_cached(source, fname, occluders, _hack, crsinfo)
     finally:
-        _LOOK_IN, _LOOK_BAND = False, True
+        _SHADOW_IN, _SHADOW_OK = False, True
 
 
 def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None):
@@ -10203,10 +10133,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if src.seesaws and not hack.get("notiltpost"):  # SPEC.md 130.42.5: each see-saw's fulcrum
             o_ = tilt_ops(src.seesaws, o_, x0)
         return o_
-    global _LOOK_DYN                                # SPEC.md 130.47.4: no band beside what moves or vanishes
-    _LOOK_DYN = frozenset(set(gcells) | set(rails) | ttcells | bridges | {c_ for sw in src.seesaws for c_ in sw["cells"]}
+    global _SHADOW_DYN                              # SPEC.md 130.47.5: no shadow on or from what moves or vanishes
+    _SHADOW_DYN = frozenset(set(gcells) | set(rails) | ttcells | bridges | {c_ for sw in src.seesaws for c_ in sw["cells"]}
                           | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
-                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if (LOOK is not None or SHADOW) else frozenset()
+                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW else frozenset()
     ops = _ops_of(tiles)
     # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
     # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
@@ -19041,7 +18971,7 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
-                      "_LOOK_DYN", "_LOOK_IN"))   # (130.47: per-compile scratch; LOOK and _LOOK_BAND DO key it)
+                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47: per-compile scratch; LOOK, SHADOW, _SHADOW_OK key it)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
 
 
@@ -19582,12 +19512,12 @@ def check_demo(c, K, log, idents, where):
                                                                   idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
-    if bad and bad[0] == 4 and (LOOK is not None or SHADOW):
-        # SPEC.md 130.47.6: THE LOOK moves the picture's ink and nothing the replay meets, so a knob build
-        # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
-        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: THE LOOK (%s) moved the picture "
-                       "only (SPEC.md 130.47.6)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K],
-                                                    " + ".join(([LOOK] if LOOK else []) + (["shadows"] if SHADOW else []))))
+    if bad and bad[0] == 4 and (LOOK or SHADOW):
+        # SPEC.md 130.47.4: THE LOOK or the shadows move the picture's ink and nothing the replay meets, so a knob
+        # build re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
+        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: %s moved the picture "
+                       "only (SPEC.md 130.47.4)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K],
+                                                    " + ".join((["the look"] if LOOK else []) + (["shadows"] if SHADOW else []))))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
     if bad:
@@ -32120,12 +32050,12 @@ def main():
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 130.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
-    ap.add_argument("--look", choices=LOOK_TOPS, default=None,
-                    help="SPEC.md 130.47's depth cues, EXPERIMENTAL (make's BZLOOK=): a top's checker by its height, "
-                         "the 2 px contact band, and this wall-top pattern; off by default (today's picture)")
+    ap.add_argument("--look", action="store_true",
+                    help="SPEC.md 130.47's look (make's BZLOOK=1): a top's checker colour by its height, and WALL "
+                         "tops in a cyan and white dither; off by default (today's picture)")
     ap.add_argument("--shadow", action="store_true",
-                    help="SPEC.md 130.47.8's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
-                         "of height, a 50%% dither on the tops they fall on; off by default; replaces --look's band")
+                    help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
+                         "of height, a 50%% dither on the tops they fall on; off by default")
     ap.add_argument("--guide", action="store_true",
                     help="the course guide's checks (wave 11: G1, G3, G9 - G12) on each `guide` course, over its "
                          "route and any --log demos; writes nothing")
@@ -32139,7 +32069,7 @@ def main():
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
-    LOOK = a.look or None
+    LOOK = a.look
     SHADOW = a.shadow
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
