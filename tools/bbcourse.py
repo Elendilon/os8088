@@ -544,13 +544,13 @@ FAMILIES = (
     # bz_mrec's HARD, HSTEPS and HTHR while the window's centre is one); a POPSPIKE the same on a timer (+20 ON,
     # +21 MASK, +22 SEED), an ordinary floor while down, its lane the spikes; a MEMBRANE floor for glass alone,
     # a NEAR VOID (a broken crack's) for the others.  STATELESS; home `resident`; CONSTS SP_*
-    {"name": "spike", "id": 11, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 7, "consts": "SP",
+    {"name": "spike", "id": 11, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "SP",
      "kinds": ({"name": "spikes", "kind": FAM_K0 + 40, "bits": 0, "cls": CL_ATTEMPT, "art": None,
                 "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
                {"name": "popspikes", "kind": FAM_K0 + 41, "bits": 0, "cls": CL_ATTEMPT, "art": "spikes",
                 "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
-               {"name": "membrane", "kind": FAM_K0 + 42, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 29,
+               {"name": "membrane", "kind": FAM_K0 + 42, "bits": 0, "cls": CL_ATTEMPT, "art": "web",
+                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 35,
      "home": HOME_RESIDENT},
     # THE ARCHWAY (SPEC.md 128.39, the props round's P10): an arch over a path that a ball ROLLS UNDER - a
     # CEILING.  Each archway cell an element (+18 its CLEARANCE, whole px), anchored on its cell but NO owner (no
@@ -851,7 +851,7 @@ def famv(f):
     for k in f["kinds"]:
         b += bytes((k["kind"], k["bits"], 255 if k["cls"] is None else k["cls"],
                     {None: 0, "pennant": 1, "crack": 2, "glass": 3, "icon": 4, "magnet": 5, "wind": 6,
-                     "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15}[k["art"]], len(k["forms"]), int(k["pickup"])))
+                     "wisp": 7, "boost": 8, "spikes": 11, "gate": 12, "bridge": 13, "tilt": 14, "turn": 15, "web": 16}[k["art"]], len(k["forms"]), int(k["pickup"])))
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (128.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
@@ -1492,20 +1492,93 @@ def spike_pix(cx, cy, feet, blade=SPIKE_BLADE):
     return out
 
 
-def membrane_pix(cx, cy, nb):
-    """the MEMBRANE (SPEC.md 128.38): a crystal FILM over the void - the revealed glass's pane outline and its
-    dashed glint (glass_pane_ink, over the top and its membrane neighbours `nb`), and inside it a sparse white
-    stipple, one pixel in 32 - thin, and readable on both cards (white on whatever lies behind)"""
+MEM_STRANDS = (0.1, 0.9)     # the NET's two ropes, across the run (a cell's fraction)
+MEM_LACE = (0.0, 0.5)         # the lacing's zigzags, each's phase (a cell's fraction): two cross, a lattice
+MEM_SAG = (2, 5)              # px: a rope's sag at the middle of its span, 2 + a cell's worth up to 5
+MEM_HOLE = (0.32, 0.2)        # the TEAR: the lacing alone, |f - 1/2| < the first along the run and the second
+MEM_HANG = 4                  # clear of each rope across it; each cut thread hangs MEM_HANG px
+
+
+def membrane_art(cells):
+    """the MEMBRANE (SPEC.md 128.38.5): a NET of thin white THREADS strung over the void - each maximal run of
+    membrane cells along its longer axis carries two ROPES (MEM_STRANDS) from the floor at one end to the floor
+    at the other, SAGGING to the middle (MEM_SAG), laced by two crossing zigzag threads (MEM_LACE); every thread underlined black
+    (the spikes' outline rule: it reads on a white top and the Hercules' dither alike).  NOT the glass path's
+    outline and glint: threads that hold the lightest ball and no other (the see-saw's weights).  CELLS: {(wx,
+    wy): (cx, cy)} the tops' centres -> ({(wx, wy): {(x, y): ink}}, {(wx, wy): (sag px at the cell's centre,
+    its run along x)})"""
+    out, sags = {}, {}
+    xs, ys = {w[0] for w in cells}, {w[1] for w in cells}
+    xrun = len(xs) >= len(ys)
+    d = (1, 0) if xrun else (0, 1)
+    seen = set()
+    for c0 in sorted(cells):
+        if c0 in seen:
+            continue
+        a = c0
+        while (a[0] - d[0], a[1] - d[1]) in cells:
+            a = (a[0] - d[0], a[1] - d[1])
+        run = [a]
+        while (run[-1][0] + d[0], run[-1][1] + d[1]) in cells:
+            run.append((run[-1][0] + d[0], run[-1][1] + d[1]))
+        seen.update(run)
+        L = len(run)
+        S = min(MEM_SAG[1], MEM_SAG[0] + L)
+        n = 64 * L
+
+        def put(t, q):
+            k = min(L - 1, int(t))              # the cell the point is over, along the run
+            cx, cy = cells[run[k]]
+            fx, fy = (t - k, q) if xrun else (q, t - k)
+            sag = S * 4.0 * (t / L) * (1.0 - t / L)
+            x = int(math.floor(cx + 16.0 * (fx - fy) + 0.5))
+            y = int(math.floor(cy + 8.0 * (fx + fy) - 8.0 + sag + 0.5))
+            out.setdefault(run[k], {})[(x, y)] = WHT
+        for q in MEM_STRANDS:
+            for k in range(n + 1):
+                put(k * L / float(n), q)
+        q0, q1 = MEM_STRANDS
+        for ph in MEM_LACE:                     # the lacing: zigzags a cell's period, crossing each other
+            for k in range(n + 1):
+                t = k * L / float(n)
+                put(t, q0 + (q1 - q0) * (1.0 - abs(2.0 * ((t + ph) % 1.0) - 1.0)))
+        allp = set()
+        for w in run:
+            allp.update(out.get(w, {}))
+        for w in run:
+            pix = out.get(w, {})
+            for (x, y) in list(pix):
+                if (x, y + 1) not in allp:
+                    pix.setdefault((x, y + 1), BLK)
+        for k, w in enumerate(run):
+            sags[w] = (S * 4.0 * ((k + 0.5) / L) * (1.0 - (k + 0.5) / L), xrun)
+    return out, sags
+
+
+def membrane_tear(cx, cy, sag, xrun, web):
+    """the membrane's TORN pose (SPEC.md 128.38.5) on the cell whose top's centre is (cx, cy), the net SAG px
+    below it there and its run along x if XRUN: the LACING round the cell's middle (`web`: {(x, y): ink} as
+    painted, every cell's; MEM_HOLE) GONE - None, the picture behind to show - while both ROPES hold, and each
+    white thread the hole cut HANGING from the cut, MEM_HANG px and a black tip -> {(x, y): ink or None}"""
+    ha, hg = MEM_HOLE
+    q0, q1 = MEM_STRANDS
+
+    def ins(x, y):
+        u, v = x + 0.5 - cx, y + 0.5 - cy - sag
+        fx, fy = (u / 16.0 + v / 8.0 + 1.0) / 2.0, (v / 8.0 - u / 16.0 + 1.0) / 2.0
+        f, g = (fx, fy) if xrun else (fy, fx)
+        return abs(f - 0.5) < ha and q0 + hg < g < q1 - hg and abs(u) < 7.5
     out = {}
-    for v in range(-8, 9):
-        for u in range(-16, 17):
-            if BA._diamond(u, v) > 1.0:
-                continue
-            ink = glass_pane_ink(u, v, cx, nb)
-            if ink is None and v % 4 == 2 and (cx + u + 4 * ((cy + v) // 4)) % 8 == 0:
-                ink = WHT
-            if ink is not None:
-                out[(cx + u, cy + v)] = ink
+    for (x, y) in web:
+        if ins(x, y):
+            out[(x, y)] = None
+    for (x, y), ink in sorted(web.items()):
+        if ink != WHT or ins(x, y) or not any(ins(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1))):
+            continue
+        for k in range(1, MEM_HANG + 1):    # the cut end hangs: a strand dropping from it
+            if (x, y + k) not in web or ins(x, y + k):
+                out[(x, y + k)] = WHT
+        out.setdefault((x, y + MEM_HANG + 1), BLK)
     return out
 
 
@@ -6185,10 +6258,10 @@ def build_props(src, tiles, fname):
         props.append({"kind": PK_SIGN, "line": lb["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                       "num": lb["num"], "label": lb})
     nlane = sum(1 for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge")))
+                                     or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge", "web")))
     if nlane > PROP_MAX:
         lp = [p for p in props if (p["kind"] in (PK_WINDMILL, PK_BUMPER, PK_CHECKPOINT, PK_CLOCK, PK_SIGN)
-                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge"))]
+                                   or _pennant(p) or _famart(p) or p.get("art") in ("magnet", "spikes", "boost", "turn", "gate", "bridge", "web"))]
         raise CourseError("%s:%d: a %d%s prop with a lane, over the %d a course holds"
                           % (f, sorted(p.get("wline", p["line"]) for p in lp)[PROP_MAX], PROP_MAX + 1, "th",
                              PROP_MAX))
@@ -9738,6 +9811,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     cv.rows[xy[1]][x] = balt[xy]
     lanes = []
     cv_rows0 = [bytes(r) for r in cv.rows]          # (a vanishing crack's broken pose: the picture's change)
+    mem_art = None                                  # (SPEC.md 128.38.5: the membranes' net, made once)
     for i, p in enumerate(props):
         if p.get("comp") is not None:               # (a vanishing crack's companion: its lane laid with it)
             continue
@@ -9884,15 +9958,39 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             sF = wx + wy                            # front, as a pennant is); a popspike's slits in the picture,
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"] + y0     # its blades its lane's pose 1
             if p["kind"] == SP_KM:
-                mm = set(q["at"] for q in props if q["kind"] == SP_KM)
-                nb = tuple((dx, dy, 0) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (wx + dx, wy + dy) in mm)
-                pix = membrane_pix(cx, cy, nb)
+                if mem_art is None:
+                    mem_art = membrane_art({q["at"]: (16 * (q["at"][0] - q["at"][1]) + x0,
+                                                      8 * (q["at"][0] + q["at"][1]) + 8 - q["z4"] + y0)
+                                            for q in props if q["kind"] == SP_KM})
+                pix = mem_art[0].get(p["at"], {})
+                # its TORN pose (a non-glass ball fallen through): its lane (every cell's threads, as each is
+                # clipped; the lane is laid under `nospikeart` too, its control: the picture's art alone left out)
+                web = {}
+                for w_, d_ in mem_art[0].items():
+                    for (x, y), ink in d_.items():
+                        if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= w_[0] + w_[1]:
+                            web[(x, y)] = ink
+                q1 = {}
+                for (x, y), ink in membrane_tear(cx, cy, *mem_art[1][p["at"]], web=web).items():
+                    if 0 <= x < width and 0 <= y < lines and (ink is None or cv.sbuf[y][x] <= sF):
+                        q1[(x, y)] = cv_rows0[y][x] if ink is None else ink
+                if not q1:
+                    raise CourseError("%s:%d: the membrane at (%d, %d) is HIDDEN: geometry in front of it covers "
+                                      "the whole of its tear" % (fname, p["line"], wx, wy))
+                xs, ys = [x for x, _ in q1], [y for _, y in q1]
+                c0, r0 = min(xs) >> 3, min(ys) >> 3
+                rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
+                p["fpix"] = poses = {0: {}, 1: q1}
+                tear = {"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]}
             else:
                 pix = spike_pix(cx, cy, SPIKE_FEET if p["kind"] == SP_K else SPIKE_POPFEET,
                                 SPIKE_BLADE if p["kind"] == SP_K else SPIKE_SLIT)
             for (x, y), ink in (pix.items() if not hack.get("nospikeart") else ()):    # (--selfcheck's control)
                 if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sF:
                     cv.rows[y][x] = ink
+            if p["kind"] == SP_KM:
+                lanes.append(tear)
+                continue
             if p["kind"] != SP_KP:
                 continue
             if cx & 7:
@@ -13057,7 +13155,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 low_, tip_, on_, sm_, ss_ = struct.unpack_from("<bbBBB", p, r + 18)    # a membrane's z0
                 pop = kr["kind"] == SP_KP           # (its grid cell: the caller's check, below)
                 if cls != CL_ATTEMPT or fsb_ \
-                        or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or d["lane"])) \
+                        or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or not d["lane"]
+                                                     or d["lane"]["poses"] != 2)) \
                         or (kr["kind"] != SP_KM and (tip_ != low_ + 2
                                                      or p[r + (23 if pop else 20):r + 32] != bytes(9 if pop else 12)
                                                      or bool(d["lane"]) != pop
@@ -14005,17 +14104,20 @@ class SpikeFamily(Family):
     """SPIKES (SPEC.md 128.38): the SPIKE floor, the POPSPIKE (its spikes on a timer, sp_up) and the glass-only
     MEMBRANE, each a FLAT FLOOR cell at its base in the grid rewritten PER BALL by CELL.  Slot: +0 the material
     STEP last saw, +1 IN (the window's centre a killing spike at the last refill), +2 HARD, +3 HSTEPS and +4
-    HTHR (word) as they were before it, +6 the course's popspikes (RESET's count).
+    HTHR (word) as they were before it, +6 the course's popspikes and membranes (RESET's count: STEP's walk), +7
+    TORN, the torn membrane's element + 1 (0 none).
     CELL: a spike (or a popspike UP) holds TIP for steel, LOW for every other ball; a popspike DOWN its base for
     every ball; a membrane, for every ball but glass, a NEAR VOID (z0 less 6 half units, kind and surface 0, its
     flags kept).  With the centre a spike or an UP popspike and the ball not steel, HARD SHATTER, HSTEPS
     SHA_STEPS and HTHR 0 (kept once, on the way in); with it not and IN set, put back.  STEP: a material that
     changed asks for a refill; a popspike whose pose flips between n and n + 1 MARKS its lane (the guest's
-    bz_fmark) and refills the window when it is in it.  POSE: a popspike 1 up"""
+    bz_fmark) and refills the window when it is in it; TORN is the membrane at the window's centre while the ball
+    is not glass and its whole-px z is under 4 z0 (fallen through its web), and a change marks both lanes.
+    POSE: a popspike 1 up; a membrane 1 TORN"""
     row = FAM_BY_NAME["spike"]
 
     def reset(self, p, slot, cls):
-        p.fsl[slot][6] = sum(1 for pr in p.props if pr["kind"] == SP_KP) & 255
+        p.fsl[slot][6] = sum(1 for pr in p.props if pr["kind"] in (SP_KP, SP_KM)) & 255
 
     def cell(self, p, slot, win):
         sb = p.fsl[slot]
@@ -14056,13 +14158,21 @@ class SpikeFamily(Family):
             return
         n = p.nstep & 255
         wx, wy = p.wcell
+        Z = _sw(p.gz >> 8)
+        torn = 0
         for pr in p.props:
             if pr["kind"] == SP_KP and sp_up(pr, n) != sp_up(pr, n + 1) \
                     and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
                 p.fref = 1
+            elif pr["kind"] == SP_KM and p.mat != MAT_GLASS and pr["at"] == (wx, wy) and Z < 4 * pr["mz"]:
+                torn = pr["i"] + 1
+        sb[7] = torn
 
     def pose(self, p, slot, i):
+        if p.props[i]["kind"] == SP_KM:
+            return int(p.fsl[slot][7] == i + 1)
         return int(sp_up(p.props[i], p.nstep & 255))
+
 _AR_NOWALL = False            # (--selfcheck's red arms: the CELL hook's wall left out, the STEP cap left out)
 _AR_NOCAP = False
 
@@ -27716,10 +27826,10 @@ def _sc_spike(X, res):
               and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS
               and (r["mz"] == g.cell(*r["at"])[0] if r["kind"] == SP_KM else
                    (r["low"], r["tip"]) == (g.cell(*r["at"])[0] - 1, g.cell(*r["at"])[0] + 1)) for r in recs)
-    lok = all(bool(r["lane"]) == (r["kind"] == SP_KP) for r in recs) and all(r["lane"]["poses"] == 2 for r in pk)
+    lok = all(bool(r["lane"]) == (r["kind"] != SP_K) for r in recs) and all(r["lane"]["poses"] == 2 for r in pk + mk)
     res.append(("3 spikes (128.38): SPIKE's %d spikes, %d popspikes and %d membrane cells are normal FLAT FLOORs at "
                 "their base with OBS and not SAFE, +18 LOW and +19 TIP a half unit either side of it (a membrane's +18 "
-                "its z0); a popspike alone has a lane, of 2 poses (timers %s)" % (
+                "its z0); a popspike and a membrane have a lane, of 2 poses (UP; TORN, 128.38.5) and spikes none (timers %s)" % (
                     len(sk), len(pk), len(mk), sorted(set((r["on"], r["smask"] + 1) for r in pk))),
                 cok and lok and len(sk) == 24 and len(pk) == 6 and len(mk) == 4))
     by = dict(((q.wx, q.wy), q) for q in c.reach)
