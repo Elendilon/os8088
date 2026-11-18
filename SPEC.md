@@ -283893,87 +283893,76 @@ in the distance left - not one less a frame, which a TRACK pushing the step
 back up each frame out-ran (MILL's demo: held at 3 - 4, then clamped 3 to 0
 at the edge). Last frame's step met the cap, so it falls at most one a frame.
 
-### 130.47 THE LOOK: depth cues in the picture (the owner, 2026-11-18; EXPERIMENTAL on `bb-depthcue`)
+### 130.47 THE LOOK and cast shadows (the owner, 2026-11-18; on `bb-depthcue`)
 
-*A knob, off by default: with `BZLOOK` empty every course compiles byte for byte as before. The owner plays the
-four builds and picks; nothing here is the shipped look until then.*
+*Two knobs, both off by default: with neither, every course compiles byte for byte as before.*
 
-#### 130.47.1 The problem
+#### 130.47.1 The problem, and what was tried
 
 The projection has an exact alias: a cell at `(wx + 1, wy + 1)` two units higher lands on the same pixels as
 `(wx, wy)` (130.10.2: `y = 8 (wx + wy) - z`, 16 lines a step either way), and the top's colour, `(wx + wy) & 1`
 (130.10.4.1), is the same on both - so a floor one tile back and two units down continues the checker
 seamlessly, and a rail's top two units over the floor reads as floor (ROLL lost a pillar rail to it). Faces
-hang to the ground (130.27), so walls at different depths tile into one; and `Canvas.outline` has one weight
-of line, so a seam inside a wall and a step in depth look alike. Host prototypes priced and drawn on ROLL and
-MILL (the owner's comparison, 2026-11-18): contour lines (1 px invisible beside the seams, 2 px "drawn on in
-mspaint"), seam removal (a style the owner declined) and a contact band (kept, thinner) - THE LOOK is what
-survived.
+hang to the ground (130.27), so walls at different depths tile into one, and `Canvas.outline` has one weight of
+line, so a seam inside a wall and a step in depth look alike.
 
-#### 130.47.2 The checker by height
+The owner compared host prototypes on ROLL and MILL and then played four builds. REJECTED, and deleted rather
+than kept as options: contour lines on depth breaks (1 px vanished beside the seams, 2 px "drawn on in
+mspaint"), seams removed inside a flat wall (a style the owner declined), a dithered CONTACT BAND on the lower
+floor behind a break (3, 2 and 1 px; in play it "read as fuzz when moving, instead of boundary"), and wall tops
+as a capstone ring, a 25% dither, hatching, a grating, bricks and a magenta dither. KEPT: the checker by height
+and the cyan dither wall top (THE LOOK, `BZLOOK=1`), and cast shadows (`BZSHADOW=1`).
+
+#### 130.47.2 The checker by height (`BZLOOK=1`)
 
 A FLOOR or GOAL top's colour is `(wx + wy + z0 / 4) & 1` (`z0` in half units, so the term steps every 2 units,
 16 px): the alias flips its colour. Ramps and goals keep their sub-checker. A course's rails and much of its
-real map then fall out of step with the floor, which is the cue. Cost about 0.4% (LZB, 21 courses).
+real map then fall out of step with the floor, which is the cue.
 
-#### 130.47.3 The wall top
+#### 130.47.3 The wall top (`BZLOOK=1`)
 
-A WALL top (not a bumper: those stay magenta) is drawn in the knob's pattern, so a top the ball is not meant
-to roll on says so: `dither` (cyan and white, 50%), `capstone` (white with a cyan ring 2 - 3.5 gu inside its
-edges), `rose` (magenta and white, 50%: "a block of the same material"), `grating` (white with cyan bars every
-4 gu both ways in world units, one continuous grid over a run of tops). A per-tile choice is for course design
-later; here every WALL takes it. The Hercules shows each as its 2-level translation (130.11.3).
+A WALL top (not a bumper: those stay magenta) is a 50% dither of cyan and white (`(x + y)` odd cyan), so a top
+the ball is not meant to roll on says so. Every WALL takes it; a per-tile choice is for course design later.
+The Hercules shows its 2-level translation (130.11.3), which the owner checked and found fine.
 
-#### 130.47.4 The contact band
+#### 130.47.4 Demos
 
-Each pixel's view depth is `y + z` (its line plus its own world height; a face's pixel is its top edge's
-height less its lines below it), continuous across a surface and over a top's edge onto its own face. Two
-4-neighbours more than 3 apart are a DEPTH BREAK, the greater nearer. Where the far side is a TOP, it is
-darkened for 2 px away from the break by a 50% dither (`(x + y)` even black), staying on that surface, leaving
-pixels already black. A hint, not an outline: the near edge keeps its own 1 px line and nothing else. No band
-where either side's cell is within one cell (Chebyshev) of a cell that moves or vanishes - a see-saw's, a
-turntable's, a bridge's, a guard rail's, glass, a membrane, any prop's own cell - since a band that differed
-between poses would widen their lanes (TILT's plate went from 6 lanes to 7 without the rule).
+A course's identity (130.15.7) covers its picture, so either knob moves every identity and a shipped demo's
+check 4 would refuse it. Both move the picture's ink and nothing the replay meets, so a knob build re-stamps
+each demo with the build's identity and says so, as 130.22.6 does for the clocks; the replay check after it
+(the goal on the last step) still runs.
 
-#### 130.47.5 The block limit
+#### 130.47.5 Cast shadows (`BZSHADOW=1`)
 
-PLAYGROUND, the stress test, is at 979 of `BLK_MAX` (1,024) today and the band takes it over. Under THE LOOK
-a course over `BLK_MAX` with the band is compiled again WITHOUT it, and the run says so on stderr. Whether
-PLAYGROUND shrinks or the occluders leave the picture's part to lift the limit is the owner's later call.
+The owner's verdict: "good art, not good info" - a shadow says where something tall stands over lower floor,
+not the depth that was missing - and its bytes are fewer courses to a disk. Kept for a disk that can afford
+it (a 1.44MB VGA disk), off by default. Of four light directions only this one cast shadows worth having.
 
-#### 130.47.6 Demos
+While it renders, the canvas keeps for each pixel the geometry that drew it (a top or a face), that geometry's
+own height there (a face's pixel is its top edge's height less its lines below it) and its cell. The light
+comes from `-x+y` (screen up-left; the sw faces stay the lit ones, the se faces the shaded) and rises 1 px of
+height a gu, so a two-unit (16 px) step casts a shadow one tile long. A TOP pixel at world `(gx, gy, z)` is in
+shadow when, marching toward the light in 2 gu steps, another cell's top stands above the ray: a whole cell's
+own sloped PLANE (a ramp casts the ramp, not a block at its top corner), a split cell its records' highest
+corner, a FIELD cell its `hmax`. A shadowed pixel is darkened by the 50% dither (`(x + y)` even black); faces
+receive none.
 
-A course's identity (130.15.7) covers its picture, so THE LOOK moves every identity and a shipped demo's
-check 4 would refuse it. THE LOOK moves the picture's ink and nothing the replay meets, so a knob build
-re-stamps each demo with the build's identity and says so, as 130.22.6 does for the clocks; the replay check
-after it (the goal on the last step) still runs.
+No shadow falls on, or from, a cell that moves or vanishes - a see-saw's, a turntable's, a bridge's, a guard
+rail's, glass, a membrane, any prop's own cell - since a picture that differed between its poses would widen
+its lanes (the first band prototype took TILT's plate from 6 lanes to 7).
 
-#### 130.47.7 Cost (MEASURED with the host prototype, 21 courses, PLAYGROUND out, against the shipped kit)
+PLAYGROUND, the stress test, is at 979 of `BLK_MAX` (1,024) today and shadows take it over: a course over
+`BLK_MAX` with them is compiled again WITHOUT them, and the run says so on stderr. Whether PLAYGROUND shrinks or
+the occluders leave the picture's part to lift the limit is the owner's later call.
 
-| | blocks | LZB | worst |
+#### 130.47.6 Cost (MEASURED on the host, LZB against the shipped kit, not re-cut)
+
+| | MILL | ROLL | 21 courses, PLAYGROUND out |
 |---|---|---|---|
-| B + dither tops | +3.3% | +2.4% | ROLL +566 |
-| B + dither tops + the band | +8.8% | +5.9% | ROLL +1,108 |
+| today | 6,592 | 9,807 | |
+| `BZLOOK=1` | 6,802 | 10,373 | +3.3% blocks, +2.4% LZB (ROLL +566 the worst) |
+| `BZSHADOW=1` | 7,078 | 10,713 | |
+| both | 7,288 | 11,282 | |
 
 The kit is not re-cut (130.37: the owner's call), so a new block is the course's own; a re-cut would win some
 back, unmeasured.
-
-#### 130.47.8 Cast shadows (`BZSHADOW=1`, OFF by default)
-
-The owner's verdict on the host prototypes (2026-11-18): the contact band read as fuzz in motion, and of
-four light directions only one cast shadows that matter - "good art, not good info", since a shadow says
-where something tall stands over lower floor, not the depth that was missing - and they cost bytes, so
-fewer courses to a disk. Kept as a renderer for a disk that can afford it (a 1.44MB VGA disk), off by
-default; with it on, it REPLACES the contact band (130.47.4).
-
-The light comes from `-x+y` (screen up-left; the sw faces stay the lit ones, the se faces the shaded), and
-rises 1 px of height a gu, so a two-unit (16 px) step casts a shadow one tile long. A TOP pixel at world
-`(gx, gy, z)` (130.47.4's buffers) is in shadow when, marching toward the light in 2 gu steps, another cell's
-top stands above the ray: a whole cell's own sloped PLANE (so a ramp casts the ramp, not a block at its top
-corner); a split cell its records' highest corner; a FIELD cell its `hmax`. A shadowed pixel is darkened by
-the 50% dither (`(x + y)` even black). Faces receive none. No shadow falls on, or from, a cell that moves
-(130.47.4's set). The same block-limit retry (130.47.5) drops the shadows for a course they put over
-`BLK_MAX`, and the same re-stamp (130.47.6) carries the demos.
-
-Cost (MEASURED, the host): MILL 6,592 LZB today, 7,078 with shadows alone, 7,288 with the dither look and
-shadows; ROLL 9,807, 10,713 and 11,282.

@@ -21996,20 +21996,20 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-#> [Knobs] BZLOOK=dither|capstone|rose|grating :: Bounce Bonanza's depth cues, EXPERIMENTAL (SPEC.md 130.47): a top's checker colour by its height, the 2 px contact band on a lower floor behind a drop, and that WALL-top pattern - off by default (today's picture); a knob build, into a private tree (make BUILD=build/look-dither BZROLL=1 BZLOOK=dither bonanzadisk)
-# BZLOOK (the owner, 2026-11-18: "One of each walltop, with 2px 50%, and B") passes --look to bbcourse.py.
-# Empty, every course is byte for byte today's.  STAMPED, so a change recompiles the courses.
+#> [Knobs] BZLOOK=1 :: Bounce Bonanza's LOOK (SPEC.md 130.47): a top's checker colour by its height, and WALL tops in a cyan and white dither, so a rail reads as a rail - off by default (today's picture); a knob build, into a private tree (make BUILD=build/look BZROLL=1 BZLOOK=1 bonanzadisk)
+# BZLOOK=1 (the owner, 2026-11-18: of four wall tops and a contact band, "Dither wins") passes --look to
+# bbcourse.py. Empty, every course is byte for byte today's. STAMPED, so a change recompiles the courses.
 BZLOOK ?=
+ifeq ($(filter $(BZLOOK),1),)
 ifneq ($(BZLOOK),)
-ifeq ($(filter $(BZLOOK),dither capstone rose grating),)
-$(error BZLOOK=$(BZLOOK) is dither, capstone, rose, grating or empty)
+$(error BZLOOK=$(BZLOOK) is 1 or empty)
 endif
 endif
 BZLOOKSTAMP := $(BUILD)/.bzlook-$(or $(BZLOOK),0)
 $(BZLOOKSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzlook-*
 	@touch $@
-#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.8): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes; with BZLOOK it replaces the contact band (make BUILD=build/shadow BZROLL=1 BZSHADOW=1 bonanzadisk)
+#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZROLL=1 BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
 BZSHADOW ?=
@@ -22076,7 +22076,7 @@ $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py to
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
                    $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZLOOKSTAMP) $(BZSHADOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZLOOK),--look $(BZLOOK)) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZLOOK),--look) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
