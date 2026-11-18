@@ -14242,7 +14242,8 @@ slice of ~0 cycles to the same freed slot — harmless, once per task death, and
 cheaper than the reasoning needed to remove it safely.
 
 Inside an fsx bracket the WALK itself is skipped as well when the outgoing
-task is the only one §53.2's whitelist could pick (§53.2.4, `KHP_FSXSOLO`):
+task is the only one §53.2's whitelist could pick (§53.2.4, `KHP_FSXSOLO`,
+not on kern_small):
 the same no-change resume, reached without visiting `[sch_top]` slots first.
 - `sch_cycles` — MAX_TASKS dwords in .bss (lo word first): per-task CPU
   time in PIT cycles (1.19318 MHz), wrapping mod 2^32. Readers snapshot
@@ -112475,7 +112476,7 @@ pool unchanged), `.text` +6
 unchanged; kern_big and kern_small byte-identical. `megaparvb` and
 `megaparvp` are the gates (KERN-MEGA-PLAN 14.180 has the measurement).
 
-### 53.2.4 A bracket with ONE eligible task resumes it without the scan (`KHP_FSXSOLO`, every kernel)
+### 53.2.4 A bracket with ONE eligible task resumes it without the scan (`KHP_FSXSOLO`, every kernel but kern_small)
 
 **What can run inside a bracket** is exactly §53.2's whitelist, and nothing
 else: the exclusive task (task 0, §53.1 refuses any other), **its kept
@@ -112580,8 +112581,13 @@ locked to the 60 Hz refresh. A bracket that keeps a worker pays +54 an IRQ0
 of its 18.2 ISR switches a second (0.03%). The rest of an IRQ0 is the ISR's
 frame and the tick's duties, which a bracket still owes.
 
-It is behind `KHP_FSXSOLO` in `kernel/kernel.asm`'s KHP block, **defined on all four kernels**; undefined,
-`sch_switch` assembles to the body it replaced, byte for byte.
+It is behind `KHP_FSXSOLO` in `kernel/kernel.asm`'s KHP block, **defined on
+kern_big, kern_emu and kern_mega**; undefined, `sch_switch` assembles to the
+body it replaced, byte for byte. **kern_small leaves it off** (2026-11-18,
+the owner's call at the merge with `elendilon`): its heap rung is LOCKED
+(guard 1b, `HEAP_SEG` <= 0x0E60) and `elendilon` met it exactly, so the
+path's 34 bytes crossed it - and kern_small refuses `FSXF_RATE`, so its
+brackets take the 18.2 Hz tick alone and the path saves the least there.
 
 ### 53.3 Entry silences what it strands (binding)
 
