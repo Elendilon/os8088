@@ -1,4 +1,4 @@
-"""bonanzatitle - THE TITLE SCREEN on the glass (SPEC.md 128.23).
+"""bonanzatitle - THE TITLE SCREEN on the glass (SPEC.md 130.23).
 
 BONANZA on MartyPC, CGA and Hercules. Enter on the face opens the TITLE in
 the bracket, and in that one bracket:
@@ -24,7 +24,7 @@ the bracket, and in that one bracket:
   7. Esc on the title leaves the bracket; the instance's claims are as before
      Enter;
   8. the title again (Enter), its demo run out to the COURSE DEMO, and there
-     Alt+Enter is the WINDOW, never the title (SPEC.md 128.23.4.1: the owner,
+     Alt+Enter is the WINDOW, never the title (SPEC.md 130.23.4.1: the owner,
      2026-11-16, "esc/alt enter will sometimes return to the title screen").
 
 Red arm `chain`: the course demo's leave not read (bz_tround goes round to
@@ -53,11 +53,11 @@ import bonanza_ring as R        # noqa: E402
 import bonanza_exit as X        # noqa: E402
 
 REDS = {
-    # SPEC.md 128.23.2: the fixed window's FIRST frame taken out - the window is centred on the ball (the
+    # SPEC.md 130.23.2: the fixed window's FIRST frame taken out - the window is centred on the ball (the
     # every-frame hold then keeps it there), never the header's
-    "view": [("bzgame.inc", "    cmp byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window is the\n",
+    "view": [("bzgame.inc", "    cmp byte [bz_fixed], 0      ; SPEC.md 130.23.2: a FIXED window is the\n",
               "    cmp byte [bz_fixed], 1      ; RED view: the first frame centred as a course's\n")],
-    # SPEC.md 128.23.4.1: Esc, F and Alt+Enter in the chain's COURSE demo leave the bracket - the
+    # SPEC.md 130.23.4.1: Esc, F and Alt+Enter in the chain's COURSE demo leave the bracket - the
     # leave taken out, so the title comes round again (the owner's report, 2026-11-16)
     "chain": [("bonanza.asm", "    cmp byte [bz_twhy], 27      ; Esc, F or Alt+Enter leave the bracket as\n",
                "    cmp byte [bz_twhy], 26      ; RED chain: the course demo's leave not read\n")],
@@ -75,7 +75,7 @@ def on_title(g):
 
 
 def label_lane(g):
-    """the title's label's lane index: its one SIGN lane (SPEC.md 128.22.4.1: a PK_SIGN since wave 8R)"""
+    """the title's label's lane index: its one SIGN lane (SPEC.md 130.22.4.1: a PK_SIGN since wave 8R)"""
     n = g.b("bz_nlane")
     knd = g.m.read(g.a("bz_lknd"), n)
     ks = [i for i in range(n) if knd[i] == BB.PK_SIGN]
@@ -212,6 +212,16 @@ def run(tag, apps=None, src=None):
             tag, slot + 1, "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("6. P's game was slot %d, not the one shown (3)" % (slot + 1))
+        # --- 6b. Enter is P's (the owner, 2026-11-18): the pathway, its Esc the title -----------
+        X.at_t0(g, lambda g_: None)
+        g.key("Enter")
+        M.until(m, lambda _: g.b("bz_crs") == title_k() - 1 and g.w("bz_cseg") != 0 and g.b("bz_tmode") == 0,
+                "the pathway (Enter)", guest=60)
+        X.at_t0(g, lambda g_: None)
+        g.key("Escape")
+        M.until(m, lambda _: on_title(g), "the title again (Enter's pathway's Esc)", guest=60)
+        print("%s 6b. Enter on the title went to the pathway; its Esc was the title again: yes" % tag,
+              flush=True)
         # --- 7. Esc on the title: the desktop, the claims as before -----------------------------
         X.at_t0(g, lambda g_: None)
         g.key("Escape")

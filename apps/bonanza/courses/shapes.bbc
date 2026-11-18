@@ -1,8 +1,8 @@
-# Shape Test - BONANZA's FIELD-cell test course (SPEC.md 128.28), built only by the BZSHAPES=1 knob (the
+# Shape Test - BONANZA's FIELD-cell test course (SPEC.md 130.28), built only by the BZSHAPES=1 knob (the
 # owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I can easily
 # launch").  It is NOT a shipped course: the knob adds it and pits.bbc to BZ_COURSES and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  Two courses,
-# not one: a course holds 16 shape tables (SPEC.md 128.28.2), and every profile, width and slope of a
+# not one: a course holds 16 shape tables (SPEC.md 130.28.2), and every profile, width and slope of a
 # chute takes 3 - 7 of them.
 #
 # A level plate at 2 units with every shape set into it, so wherever a ball leaves a shape it lands on
@@ -32,7 +32,7 @@ clock 28 23
 clock  6 23
 clock 28  4
 target 60
-# the ROUTE (SPEC.md 128.28.10): the autopilot through all three chutes - into each on a plate way, a way in
+# the ROUTE (SPEC.md 130.28.10): the autopilot through all three chutes - into each on a plate way, a way in
 # each of its legs and on its end taper (FIELD ways: steered on the ground, at a cruise), out on a plate way
 way 5 4
 way 8 11

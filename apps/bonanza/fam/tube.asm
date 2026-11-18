@@ -1,10 +1,10 @@
 ; =============================================================================
-; apps/bonanza/fam/tube.asm - BONANZA's TUBE FAMILY (SPEC.md 128.25.20, story
-; 9.8): the tube's rules (SPEC.md 128.12.6.1) out of the resident image - the
+; apps/bonanza/fam/tube.asm - BONANZA's TUBE FAMILY (SPEC.md 130.25.20, story
+; 9.8): the tube's rules (SPEC.md 130.12.6.1) out of the resident image - the
 ; drain at step 4, a capture (a windmill's open doorway's too: a windmill is a
 ; tube with a door) and step 1's transit - behind the PROP hook (bit 6), which
 ; the engine asks only through bz_fone with DL = BZ_FK_TUBE (fam/bzthunk.inc).
-; Home RESIDENT (SPEC.md 128.25.6.9): fetched once at the package's start.
+; Home RESIDENT (SPEC.md 130.25.6.9): fetched once at the package's start.
 ; The rules are fam/bztube.inc's and fam/bzztouch.inc's, ONE source; the
 ; helpers they call are fam/bzfcopy.inc's copies.  No slot, no state bit: the
 ; tube's state is the package's own (bz_tube, bz_tseg, bz_tcnt, bz_tsin).
@@ -23,9 +23,9 @@ org 0
     db 1, BZ_FK_TUBE            ; one kind: its KEY
     db 0
     dw 0, 0, 0, 0, 0, 0         ; hooks 0 - 5: none
-    dw tu_prop                  ; hook 6, PROP: +24 (SPEC.md 128.25.20.2)
+    dw tu_prop                  ; hook 6, PROP: +24 (SPEC.md 130.25.20.2)
 %if $ - $$ != BZF_HDR + 2
- %error "a part with the PROP hook has a 26-byte header (SPEC.md 128.25.20.2)"
+ %error "a part with the PROP hook has a 26-byte header (SPEC.md 130.25.20.2)"
 %endif
 
 ; PROP: AH the question, BX the element -> AL

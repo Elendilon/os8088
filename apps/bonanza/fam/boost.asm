@@ -1,12 +1,12 @@
 ; =============================================================================
-; apps/bonanza/fam/boost.asm - BONANZA's BOOST PADS (SPEC.md 128.40): a plate of
+; apps/bonanza/fam/boost.asm - BONANZA's BOOST PADS (SPEC.md 130.40): a plate of
 ; CHEVRONS on a flat floor that pushes a GROUNDED ball whose centre is on it
 ; along its FACE (+x, -x, +y, -y) by its STRENGTH S WEIGHTED BY THE BALL (the
 ; owner's defaults: glass S + (S >> 2), rubber S, steel S - (S >> 2)), or S on
 ; a `flat` pad (record +18 bit 2, BZ_BP_FFLAT): CONTACT adds the push to
 ; bz_gvx or bz_gvy, and the next step's force block clamps
 ; what it left to the caps (VMAXG + bz_vup), as WIND's push relies on.  Not
-; rubber's BOOST (SPEC.md 128.16.4: the Hop's rebound turned into height, the
+; rubber's BOOST (SPEC.md 130.16.4: the Hop's rebound turned into height, the
 ; token bz_btok and bz_nboost) - that is a ball's, in the air; this is a
 ; floor's, along the ground, for every ball.
 ;
@@ -19,11 +19,11 @@
 ; RESET: a play's start zeroes the slot, and a respawn lets a flash run out.
 ; bbcourse.BoostFamily is the model, step for step.
 ;
-; A pad's record (SPEC.md 128.40.3): +18 the face (0 +x, 1 -x, 2 +y, 3 -y:
+; A pad's record (SPEC.md 130.40.3): +18 the face (0 +x, 1 -x, 2 +y, 3 -y:
 ; bit 1 the y axis, bit 0 the minus sign) OR BZ_BP_FFLAT, +19 S, +20 - +31
 ; zero.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Entered by `call far` with DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -33,7 +33,7 @@ org 0
 %include "bzcourse.inc"
 %include "bzlink.inc"
 
-BP_DIR      equ 18              ; the record's fields (SPEC.md 128.40.3)
+BP_DIR      equ 18              ; the record's fields (SPEC.md 130.40.3)
 BP_STR      equ 19
 
     db 'BF'
@@ -45,7 +45,7 @@ BP_STR      equ 19
     db 0
     dw 0, 0, bp_contact, bp_step, bp_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 %if BZF_SLOT != 8
  %error "bp_slot's three shifts are BZF_SLOT = 8 (bbcourse.FSLOT)"

@@ -9,7 +9,7 @@ ball, random held arrows, Hops and Grip, until the ball falls or N steps pass.
 Every step's position is kept as the guest's occluder pass sees it (px, py,
 s_b, z_b, air).  Then, against the SHIPPED merged records:
   - the records some sampled position lays a pixel of (a LOWER bound on what a
-    perfect reach would need; the conservative reach of SPEC.md 128.11.4.4 is
+    perfect reach would need; the conservative reach of SPEC.md 130.11.4.4 is
     the upper bound, and the truth lies between);
   - the same over the non-VOID positions only;
   - for every sampled position in a VOID cell, the share of the ball's lit

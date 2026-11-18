@@ -12,7 +12,7 @@ result, each bench in an emulator of its own, four at a time.
 WHAT: P40 P80 (the play bench), B40 B80 (the spin), O40 (the open arena's
 play bench), H40 H80 (the heights arena's five views), A<n>-<width> (any
 arena's play bench at each of its views: A3-40 the hedge, A4-40 the twin). --tree is the checkout
-whose build/warena360.img is measured (default: this one); the system disk
+whose build/wirerena360.img is measured (default: this one); the system disk
 and MartyPC are this checkout's.
 """
 import sys, os, argparse, concurrent.futures as cf, subprocess, json
@@ -34,9 +34,9 @@ if os.path.abspath(a.tree) == ROOT:    # (B and P: a test build's since
     sys.path.insert(0, os.path.join(ROOT, "tests"))    # NET-PLAN 9.9 - this
     sys.path.insert(0, os.path.join(ROOT, "tools"))    # checkout's WABENCH=1
     import walift                       # tree; another checkout's build/
-    APPS = os.path.join(walift.bench_build(), "warena360.img")  # made with it)
+    APPS = os.path.join(walift.bench_build(), "wirerena360.img")  # made with it)
 else:
-    APPS = os.path.join(a.tree, "build/warena360.img")
+    APPS = os.path.join(a.tree, "build/wirerena360.img")
 
 
 def one(w):
@@ -47,13 +47,15 @@ def one(w):
     with os88ui.boot(os.path.join(ROOT, "build/os8088-360.img"),
                      apps=APPS, verbose=False) as ui:
         m = ui.m
-        ui.path("B:/WARENA.O88"); m.advance(cycles=F // 2); m.go()
+        ui.path("B:/WIRERENA.O88"); m.advance(cycles=F // 2); m.go()
         sys.path.insert(0, os.path.join(ROOT, "tests"))
         import walift             # (the setup by its keys: the Game
         walift.start_keys(m, *ITEM[w])  # menu's Play items went)
         m.advance(cycles=F)
         if a.level:
             m.key("F%d" % a.level); m.advance(cycles=F // 4)
+        if a.level == 5:          # (Very High turns vsync on: off again,
+            m.key("KeyV"); m.advance(cycles=F // 4)   # so its numbers compare)
         def hud():
             b = m.read(0xB8000 + 24 * W * 2, W * 2)
             return bytes(b[0::2]).decode("cp437")
