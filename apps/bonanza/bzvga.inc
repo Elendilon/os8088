@@ -53,6 +53,15 @@ BZV_MY      equ 40
 BZV_MAXR    equ 8               ; the VGA's rows a frame before a full write
 BZV_SXM     equ 8               ; the shown step's most a frame: a column across,
 BZV_SYM     equ BZV_MAXR        ; ...the rows' allowance down
+BZV_TXP     equ 120             ; 130.46.12's FRAMING: the ball this far from the
+BZV_TYP     equ 76              ; trailing edge (LATTICE's T, 128.17.6.2's 3 W, 76)
+BZV_PXT     equ 2               ; a PAN's most step a 70 Hz tick (4 a 35 Hz frame)
+BZV_PYT     equ 2
+BZV_XLA     equ 32              ; a PAN's look-ahead: extended while the ball at
+BZV_YLA     equ 24              ; its target is within this of the zone's far edge
+BZV_JUMP    equ 16              ; a ball move past this a frame is a jump, not motion
+BZV_TON     equ 12              ; TRACK at a ball's 12/16 px a tick (~52 px a
+BZV_TOFF    equ 6               ; second) its way; leave it below 6/16
 BZV_HYS     equ 192             ; its hysteresis, 1/256 px: the step moves one
                                 ; when the velocity is 3/4 px past it
 ; a ball part's copy: its 16-byte head, then every 5-byte row as 6 (SPEC.md

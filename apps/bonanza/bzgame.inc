@@ -276,13 +276,20 @@ VAR bz_vpy,1                    ; ...the shown PHY
 VAR bz_vpxd,1                   ; ...the shown x phase
 VAR bz_vpxp,1                   ; ...px's low byte then
 VAR bz_vG,2                     ; ...and G then
-VAR bz_vcx,2                    ; 130.46.12, the VGA's camera: the display's left px,
-VAR bz_vvx,2                    ; ...its velocity (1/256 px a tick)
-VAR bz_vcxf,1                   ; ...its SHOWN step, px a frame, signed (the three in
-                                ; this order: BZV_CAM)
-VAR bz_vcy,2                    ; ...its top line, its velocity, its shown step
+VAR bz_vcx,2                    ; 130.46.12, the VGA's camera, an axis in this order
+VAR bz_vvx,2                    ; (BZV_CAM's +0 - +8): the display's left px, the
+VAR bz_vcxf,1                   ; ball's smoothed velocity (1/16 px a tick), the
+VAR bz_vcxm,1                   ; shown step (px a frame, signed), the state (0
+VAR bz_vcxt,2                   ; REST, 1 PAN, 2 / 3 TRACK on / back), the pan's
+VAR bz_vcxb,2                   ; target, the last ball (8000h none)
+VAR bz_vcy,2                    ; ...down: its top line and the rest likewise
 VAR bz_vvy,2
 VAR bz_vcyf,1
+VAR bz_vcym,1
+VAR bz_vcyt,2
+VAR bz_vcyb,2
+VAR bz_vemax,2                  ; ...an axis's most position this frame (BZV_CAM's)
+VAR bz_vball,2                  ; ...the ball's coordinate this axis (BZV_CAM's)
 VAR bz_vsm,1                    ; ...1: BZV_CAM ran this frame (bz_vstart shows bz_vcx)
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
 VAR bz_vwr1,2                   ; has no writable memory of its own, 130.46.6)

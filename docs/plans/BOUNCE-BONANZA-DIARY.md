@@ -5851,3 +5851,29 @@ commits, a V20, the owner's eye.
   its early exit jumping past the new `ret`, into the tick loop inside the
   call. TRIAL's demo hung on the VGA at its third frame; bisected in three
   builds (the pre-merge, the merge, the last commit).
+
+## 2026-11-18 (VGA, V2d: framings and tracking)
+
+- **The owner played the whole game on it**: *"a huge improvement. Ending
+  zones seem great"* - and one thing left: at a slow, steady pace the camera
+  inched (a bit, stop, a bit, stop). That was the follower meeting the dead
+  zone's edge: one step of 1 px outran the slow ball, the ball fell back
+  inside, the step died, and again.
+- **Four options were put to the owner**; they took the hybrid: LATTICE's
+  FRAMINGS, reached on the same trapezoid the finish and the pages use, for
+  a slow ball; TRACKING at the ball's own speed for a fast one; a coast to
+  rest at the stopping distance between them.
+- **Measured on the shipped demos** rather than by key pulses (a pulsed
+  ball on FIRST never left the zone, and on MILL hardly moved) - the
+  owner's PLAYGROUND replay no longer matches its re-authored course. MILL,
+  MOON and TRIAL: no move of 4 frames or fewer, every one 15 - 79.
+- **Two bugs the demos showed at once.** A pan stopped short by a ball
+  turning back aimed at the stopping distance INCLUDING this frame's step,
+  re-asked every frame - so it held its speed and ran past the ball to the
+  far margin, then swung back (MOON). And a respawn inside the window read
+  as 63 lines of velocity and was tracked; a move of more than 16 px a
+  frame is now a jump.
+
+**Tested**: `make bonanzadisk`; MartyPC: the MILL, MOON and TRIAL demos,
+BENCH's route 800 frames (0 px), FIRST's free play. **Not run**: soak rows,
+the owner's eye.

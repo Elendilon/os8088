@@ -283572,7 +283572,9 @@ benchmark (`bz_mode` 1) keeps LATTICE on every card, so its numbers stay
 comparable; the CGA and the Hercules are untouched.
 
 **The follower** (the part's `BZV_CAM`, from `bz_camera` where LATTICE
-would run): a camera position per axis in 1/256 px - `bz_vcx` the display's
+would run; **its follower and shown-step rules are 130.46.14's since V2d** -
+the zone, the margins, the edges, the lock, the finish and the resync below
+stand): a camera position per axis in 1/256 px - `bz_vcx` the display's
 left px, `bz_vcy` its top line (= `R0`, a VGA row being a line) - and a
 velocity, stepped `[bz_vdiv]` times a frame (so a 70 Hz tick whatever the
 rate). Per tick and axis, with `rel` the ball's offset in the display (its
@@ -283738,3 +283740,54 @@ to ~4.4k (a longer row than the window's takes the plain loop).
 second (17 - 34) and 53 - 57 steps** - the game in real time - waiting 21%
 (the CGA's 20%); the CGA 45 frames, 54 - 57 steps. BENCH's scripted
 camera, 400 frames: 0 pixels, the glass exact.
+
+#### 130.46.14 V2d: framings and tracking (the owner's third look, 2026-11-18)
+
+**The owner**: *"when I'm not moving quickly but am moving consistently, it
+tends to 'inch' forward... move forward a bit, smoothly; then stop; then
+move forward a bit"* - the follower of 130.46.12 at the dead zone's edge:
+a slow ball leaves the zone, the step reaches 1 (faster than the ball), the
+ball falls back inside, the step runs down to 0, and again. LATTICE's
+framings (128.17.6.2's lattice targets) exist to avoid exactly this. The
+owner chose the hybrid of the options put to them: framings for a slow
+ball, tracking for a fast one.
+
+`BZV_CAM` now runs each axis in one of three STATES (its struct: +0 the
+position, +2 the ball's velocity `vb` in 1/16 px a 70 Hz tick smoothed as
+`vb += (move - vb) / 8` a frame, +4 the shown step, +5 the state, +6 a
+pan's target, +8 the last ball):
+
+- **REST** (0): the ball in the dead zone (130.46.12's, LATTICE's band);
+  the step runs down to 0.
+- **PAN** (1): leaving the zone at less than `BZV_TON` (12/16 px a tick,
+  ~52 px a second) its way, the camera moves to a FRAMING - the ball
+  `BZV_TXP` (120 px) / `BZV_TYP` (76 lines) from the trailing edge, as
+  LATTICE places it - on `BZV_PAGE`'s trapezoid, at most `BZV_PXT` /
+  `BZV_PYT` (2) a tick. The framing moves on while the ball at the target
+  would be within `BZV_XLA` (32 px) / `BZV_YLA` (24 lines) of the zone's
+  far edge (so a pan never stops to start again), and a ball that turns
+  back out of the zone behind stops it where the step can stop - the
+  position + s (|s| - 1) / 2, braking from that frame. Arrived and still:
+  REST.
+- **TRACK** (2 on, 3 back): a ball leaving (or panned after) at `BZV_TON`
+  or more its way is followed at its own speed - the step moved one toward
+  `vb 16 [bz_vdiv] + 8 (rel - the trailing place)` (1/256 px a frame) past
+  `BZV_HYS`, at most `BZV_SXM` / `BZV_SYM` - and when `vb` falls below
+  `BZV_TOFF` (6/16) the camera coasts to rest at its stopping distance (a
+  PAN there, which never overshoots).
+- **The hard margins** start a PAN toward the ball (or keep a TRACK that
+  way); a ball's move of more than `BZV_JUMP` (16 px) in a frame - a
+  respawn inside the window, a tube's exit - is a jump, not motion: `vb`
+  0, so the camera frames the new place rather than tracking it.
+- The course's edges (braking), the lock, the finish's coast and the
+  resync (which zeroes the state) are 130.46.12's.
+
+**Measured** (MartyPC, the shipped demos on the VGA, every move a run of
+frames the display moved): MILL, MOON and TRIAL - **no move of 4 frames or
+fewer**, every one 15 - 79 frames, rests of tens to hundreds of frames;
+the one 1-frame rest left is a reversal after a respawn (a pan braked to 0
+and turned). BENCH's route on the camera, 800 frames: 0 pixels, the glass
+exact, one full write; FIRST's free play 300, 0 pixels. **Cost**: nothing
+resident, 10 bytes of bss, ~300 in the part. **Open, the owner's to tune**:
+the framings' distances (`BZV_TXP`, `BZV_TYP`), the pan's speed, the
+tracking thresholds.
