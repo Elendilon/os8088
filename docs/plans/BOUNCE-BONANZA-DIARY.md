@@ -5945,3 +5945,184 @@ decides.
 **Tested**: `make bonanzadisk`; MartyPC: the MILL, MOON and TRIAL demos,
 BENCH's route 800 frames (0 px), FIRST's free play. **Not run**: soak rows,
 the owner's eye.
+
+## 2026-11-18 (FIRST ROLL revision 6, and `art` on play courses)
+
+The owner, on playtest 4:
+
+> The second clock isn't where it was in my screenshot, but it kind of
+> works there; so we'll go with it. The bottom clock and stop down work
+> great. The unwalled hill plays fine, and adds a bit of visual interest.
+> The hole is in the natural path of travel, though easy to avoid which
+> works for a first course.
+>
+> Markup: Lets try the top black circled rails as guardrails, again for
+> visual interest. Then lets move the flag one space down (red mark), so
+> its in the natural path of travel. Finally, an issue that I'm probably
+> going to pass to another session for a generalized fix, but we could take
+> one stab at it here in course design. The tiles in the second black
+> circle give no good indication that surface that one of them is not the
+> same height; or that the "rail" is only one block, not all three. ...
+> we could just remove it and leave that corner open.
+>
+> Finally, make some recommendations - what can we do to add visual
+> interest to the course?
+
+And:
+
+> I don't see any reason to restrict "art" to title only; we can just make
+> sure we use it smartly so it doesn't need collision or physics, and use
+> occlusion on art very sparingly. And avoid blowing up the size budget.
+
+**Revision 6**:
+- the ledge's back rail is a guard rail, its first tile open (a guard may
+  not stand beside a ramp);
+- flag 0 is one space down, in the path;
+- the lone rail block at the corner of the last step is removed. Its
+  general fix (a raised block that reads as a tile) is the other session's.
+
+The course part is 8,622 bytes on the disk.
+
+**`art` on a play course** (SPEC.md 130.23.2): the same statement, in the
+PICTURE's pixels, the topmost layer, with no collision, physics or
+occlusion. Tested with a throwaway decal on a scratch copy: its 16 opaque
+pixels landed exactly where placed and nothing else moved; a decal off the
+picture is refused. The title and the pathway keep their window-relative
+form.
+
+**The recommendations** for visual interest are the sheet's section 7.
+
+**Run**: the tool and previews; the model's steered run (37.2 s, no pans);
+the playtest build. **Not run**: the guest (fork rule 5).
+
+## 2026-11-18 (FIRST ROLL revision 7: the first art prototypes)
+
+The owner, on the recommendations:
+
+> Tested that last build; the corner block is still there. the rest of the
+> changes on that round look very good. For the previous list: 1: Floating:
+> For another course we'll use that, but not this one. 4: Quick screenshot
+> of this look, and I'll decide. 5: Oh, I think I like that; but we have
+> to be careful about how much view we block off. Add one to the screenshot
+> right before the leap, across the rail blocks; at a good height, we're
+> not trying to prevent a jump here. 6: I like this maybe combined with
+> art; worth a try, anyway. 7: We can try a couple, but I think this
+> palette is kind of the "default look", which is good to have the first
+> course in. Then, make some art prototypes on the course; it needs to fit
+> in, look natural; so same style as the general art and game, and high
+> quality.
+
+Before that, on whether art can share the floor's occlusion: *"Instead of
+'always on top' or 'always below' just 'its pixels, ignore it and use
+whatever is under it's occlusion'."* That is how the tool already works.
+Measured, and SPEC.md 130.23.2 is corrected (an hour earlier it said the
+ball is always drawn over art, which was wrong).
+
+**The corner block**: the circle covered two lone blocks. The first try
+removed the one by the steps; the one the owner meant was its twin at the
+walk's elbow ("The ball is behind it, but otherwise yes"). It is gone now.
+
+**The art's source** is `first/decals.py`, a host generator kept beside the
+sketch:
+- shapes in WORLD coordinates (a disc on a floor, chevrons on a ramp, a
+  cloth on an upright plane), projected with the tool's own formula;
+- filled in the four colours with a one-pixel black line;
+- written as `.bba` files and a marked block of course lines, so a re-run
+  replaces only its own.
+
+**The prototypes** are the sheet's revision 7. Measured: the pillars cost
+12 blocks and 47 occluder records, the art 57 blocks, and the part 841
+bytes on the disk (9,463).
+
+**Looked at**, in the tool's preview at 4x:
+- the tee reads as a painted disc;
+- the chevrons point downhill, thin on the dithered ramp (thicker is one
+  number in the generator);
+- the banner hangs cleanly between the pillars, clear of the run-up;
+- the pennants are small.
+
+**Run**: the tool and previews; the model's steered run (37.2 s, no fall,
+no pan); the playtest build. **Not run**: the guest (fork rule 5).
+
+**Revision 8**, the same day. The owner edited the diagonal variant's
+screenshot: *"Add a diagonal to the black marked column, and remove the red
+marked columns. This starts them on a visually interesting platform, and
+its not that hard to roll down a 2 wide path."* Projected back to cells:
+- the black mark is the start plateau's front corner, now cut on a
+  diagonal;
+- the red marks are the first ramp's outer columns, so the ramp is 2 wide.
+
+The variant's other corner cuts came with it, as the edit was drawn on it.
+The model's run is unchanged (37.2 s, no fall, no pan). The part is 10,000
+bytes on the disk.
+
+## 2026-11-18 (FIRST ROLL revision 9: a real archway, the chevrons fixed)
+
+The owner, on playtest 6:
+
+> Pretty good. One more block to make diagonal; edited it, and red arrow
+> pointing at it. Arrows: They sit on top of the rails, but we can fix
+> that in the art. Also there are a couple of blue pixels from the
+> underlying tile that make it look weird; but we can fix that with a
+> couple extra black pixels (and added one to the forward arrow to even it
+> out the same visual way). The ball rolls in front of the arch, because
+> its just art and what is actually there is the ramp, which the ball rolls
+> on top of. But we have an actual arch, as a prop, we can use and that
+> should work.
+
+And of the first archway: *"Having the arch further north like that blocks
+off half the ramp. Can it be where it was before, still 2 high above the
+ramp?"*
+
+**Reading the owner's edit.** Their marked-up preview is the same size as
+the one sent, so a pixel diff finds every change:
+- 107 black pixels blacking out the first landing's back corner (its top
+  half: `hole half up`);
+- four single black pixels on the chevrons;
+- the red marks as annotation.
+
+No guessing at coordinates.
+
+**The chevrons.** Art is the topmost layer, so a chevron pixel painted where
+a rail stands in front of the ramp landed on the rail. The generator now
+compiles through a render that keeps each pixel's owner cell
+(`Canvas.obuf`) and paints only where the visible surface is the ramp. The
+owner's four pixels are applied after.
+
+**The archway.** An archway (SPEC.md 130.39) needs flat cells under it, at
+most 2 x 2, and a whole floor beyond it, so the leap's approach became 2
+wide with flat cells for the arch and the lip. The first place (the
+run-up's start) hid half the ramp; it now stands by the lip. `under 3`, so
+a Hop passes. The model still clears the leap: 36.2 s, no fall, no pan.
+
+**Run**: the tool and previews, the model's steered run, the playtest
+build. **Not run**: the guest (fork rule 5).
+
+## 2026-11-18 (First Roll's song; course 2 penned in)
+
+The owner: *"I think lets call First Roll's visuals good for now"*; a new
+song for it, *"The track it currently plays is one of my favorites, but I
+want to use that on course 3"*; *"50s is fine"* for the limit; demos stay
+the autopilot's until the courses are decided; custom clock art by an
+agent; *"Then move on to course 2 on paper, yourself."*
+
+- **First Roll's song**, `firstroll.bmu`, by a sub-agent:
+  - F major, 136.5 BPM, a 35.2 s loop, 1,202 bytes;
+  - written from the house style (it read the course songs as scores and
+    rendered them);
+  - in `NON_COURSE`, so no other course's default song moves.
+- **The limit** is the tool's: the autopilot, which steers chutes now,
+  takes 31.0 s, so the limit is 50 s.
+- **Course 2, "Island Hop"** (HOP.md, `hop/sketch.py`), attempt 1:
+  - floating islands;
+  - a 1-tile Hop, then a 1-tile Hop down;
+  - a 1-unit STEP that teaches "and again" without being able to kill
+    (531 ms with it against 128 ms without, from the step ladder);
+  - flag 0, then a 2-tile gap that needs it (348 ms against 73);
+  - a spring throwing the ball back up the screen, away from the camera,
+    onto a high island in space nothing else uses;
+  - a long ramp down, then the step and the gap again, unrailed, as the
+    test.
+
+  The first layout doubled back over itself after the spring and was
+  re-laid before it was shown.
