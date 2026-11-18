@@ -12,7 +12,8 @@
 ; COUNTING to its break (T = BZ_CRACK_TS steel, BZ_CRACK_TR rubber), 0FFh
 ; BROKEN - which the CELL hook makes a VOID in the window, its kill the floor
 ; less 3 units.  A glass tile's is a bit, REVEALED.  The slot's +0 counts the
-; cracks counting, so STEP walks nothing while it is 0; its +1 the cracks
+; cracks counting, so STEP walks nothing while it is 0 (and +2 - +3 while it
+; is not, the range of records they lie in); its +1 the cracks
 ; BROKEN, so CELL walks nothing while that is 0 (SPEC.md 128.19.10 item 8).  A TOUCH is the
 ; centre in the element's cell having begun step 6 grounded (bz_fair 0) or a
 ; contact this step (bz_nland moved from bz_fnl); the latter is an IMPACT.
@@ -128,6 +129,20 @@ gl_contact:
     mov al, BZ_CRACK_TS + 1
 .tr:
     mov [si], al
+    cmp byte [di], 0            ; STEP's walk (+2 lo, +3 hi, SPEC.md
+    jne .grow                   ; 128.25.18.2): the first counting crack is
+    mov [di + 2], bl            ; the whole range ...
+    mov [di + 3], bl
+    jmp short .cnt
+.grow:                          ; ... a later one widens it (BL: the element,
+    cmp bl, [di + 2]            ; under 256)
+    jae .ghi
+    mov [di + 2], bl
+.ghi:
+    cmp bl, [di + 3]
+    jbe .cnt
+    mov [di + 3], bl
+.cnt:
     inc byte [di]
 .mark:
     call gl_mark                ; its lane MARKED and the next walk made
@@ -140,29 +155,48 @@ gl_contact:
     or [si], al
     jmp short .mark
 
-; STEP: each counting crack counted down; at its end BROKEN, a refill asked for
+; STEP: each counting crack counted down; at its end BROKEN, a refill asked
+; for.  Only the records +2 - +3 are walked (every counting crack lies there,
+; CONTACT widens the range as one starts), each crack's byte read inline off
+; its record's FSB, and the walk ends once it has met as many counting cracks
+; as +0 holds: it was every record and a gl_byte each, ~10,000 clocks a step
+; on PLAYGROUND's 30 (SPEC.md 128.25.18.2)
 gl_step:
     call gl_slot
-    cmp byte [di], 0
-    je .out
+    mov dl, [di]                ; DL: the counting cracks still to meet
+    or dl, dl
+    jz .out
+    push bp
     mov es, [bz_cseg]
-    mov cl, [bz_nprop]
+    mov al, [di + 2]
+    xor ah, ah
+    mov bx, ax                  ; BX = lo, the element
+    mov si, ax
+    mov cl, 5
+    shl si, cl
+    add si, [bz_poff]           ; SI = its record
+    mov cl, [di + 3]
+    sub cl, al
     xor ch, ch
-    mov si, [bz_poff]
-    xor bx, bx
+    inc cx                      ; hi - lo + 1 records
+    mov dh, BZ_FK_CRACK
 .l:
-    cmp byte [es:si], BZ_FK_CRACK
+    cmp [es:si], dh
     jne .n
     cmp byte [es:si + GL_COMP], 0   ; (a companion's byte is its crack's)
     jne .n
-    push si
-    call gl_byte
-    mov al, [si]
+    mov al, [es:si + BZP_FSB]   ; its byte: bz_fst + FSB / 8
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    xor ah, ah
+    mov bp, ax
+    mov al, [ds:bp + bz_fst]
     cmp al, 2
-    jb .p
+    jb .n
     cmp al, GL_BROKEN
-    je .p
-    dec ax
+    je .n
+    dec ax                      ; (AL 2 - T + 1: AH stays 0)
     cmp al, 1
     jne .keep
     mov al, GL_BROKEN           ; its last step: broken
@@ -176,13 +210,15 @@ gl_step:
 .mk:
     call gl_mark                ; its lane marked, the next walk made
 .st:
-    mov [si], al
-.p:
-    pop si
+    mov [ds:bp + bz_fst], al
+    dec dl                      ; every counting crack met: done
+    jz .done
 .n:
     add si, 32
     inc bx
     loop .l
+.done:
+    pop bp
 .out:
     retf
 

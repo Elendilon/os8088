@@ -4895,3 +4895,40 @@ timer"*, and *"do we have the option of using different gate art per course?"*
   (eleven scenes equal at every step, ten red arms red) and `gt_host` (27
   equal, five red), `make bonanzadisk`, the BZTILT and BZGATE knob builds.
   **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-18 (the crack lab's slowdown: GLASS's STEP walked every prop)
+
+- **The report** (the owner, a 5150, VGA and CGA): on PLAYGROUND, down and
+  right held from the start, the frame rate falls hard in the crack lab -
+  over the edge on VGA, badly on CGA - though an idle crack draws nothing.
+- **Found by measuring, not reading**: the owner's 421-step log (its
+  identity re-stamped to this tree's PLAYGROUND, the same keys) replayed on
+  MartyPC's CGA 5150 under the frame marks, then the guest's PC sampled
+  every 1,997 clocks and binned by step. The sim+camera part rose from ~20k
+  to 36k clocks a frame in the lab, and the one routine that grew by
+  thousands was in a segment outside the package: GLASS's part, `gl_step`
+  and `gl_byte`, **~10,000 clocks a physics step**, only while a crack was
+  COUNTING under the ball (steps ~205 - 280), 0 before and ~1,000 after.
+- **Why**: STEP walked all 30 of PLAYGROUND's prop records and called
+  `gl_byte` (segment load, two shifts by CL, three pushes and pops) for
+  every crack, every step, once any one crack was counting - a cost set by
+  how many props the COURSE has, not by how many cracks are touched. So an
+  idle crack is free, as the owner said, but the first crack touched made
+  all of them pay; a frame tipped past its retrace runs two steps the next.
+- **The fix** (SPEC.md 128.25.18.2): the slot's +2/+3 keep the lowest and
+  highest record index of a crack that began counting (CONTACT sets or
+  widens them); STEP walks only that range, reads each byte inline off the
+  FSB, and stops once it has met as many counting cracks as the count. The
+  model mirrors the two bytes and still walks every record - the state is
+  the same either way, which is what `--check` holds it to.
+- **Measured**: GLASS 8,761 -> 1,897 clocks a step over the counting
+  stretch; missed refreshes there 13 -> 7, busy mean 63.5k -> 55.0k. The
+  part +65 bytes (paras 40 -> 44), `BONANZA.O88` +72, nothing resident in
+  the image or bss. What remains is the lab's picture (crack poses turning,
+  a second box, camera rows, the floating bridge's occluders) and the
+  respawn's one repaint at step 317. **Run**: `tests/bonanza_phys.py
+  --check` (every GLASS scenario equal at every step, slot bytes included),
+  the owner's log under unicorn (equal), `make`, `make bonanzadisk`, the two
+  MartyPC CGA measurements above. **Not run**: soak rows, `test-full`, a VGA
+  timing (MartyPC models no ISA VGA wait states; the owner's 5150 is the
+  instrument for that).

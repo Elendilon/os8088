@@ -278948,6 +278948,9 @@ none is wasted: on PLAYGROUND the four cracks are bytes 0 - 3, the probe bit
 32, the glass tiles 33 - 36 (`BZ_FSTB` 5). The slot's +0 counts the cracks
 COUNTING, so STEP walks the records only while one is; its +1 counts the
 cracks BROKEN (128.19.10 item 8), so CELL walks them only while one is.
+Its +2 and +3 are the STEP walk's RANGE (128.25.18.2): the lowest and the
+highest record index of a crack that began counting since the count was
+last 0, so STEP walks those records and no others.
 
 **One counter an element, not one in the slot** (the brief's choice, made):
 the limit "one crack counting at a time" would refuse the owner's own
@@ -278969,9 +278972,9 @@ it ran.
 | hook | GLASS |
 |---|---|
 | RESET (either class) | the slot's +0 0 and its +1 the cracks BROKEN counted again (every crack is `RESPAWN`, which the engine's mask has just cleared; a glass tile is `ATTEMPT` and keeps); every crack's and glass tile's lane MARKED |
-| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1; the broken count +1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1; glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
+| CONTACT, a crack | on a touch, not broken: an IMPACT by glass on a WHOLE crack -> 1; any other impact -> BROKEN (a count ended: the slot's count less 1; the broken count +1), `bz_fref` set; no impact (rolled on), steel or rubber, the byte under 2 -> `T + 1` counting, the slot's count + 1 and the walk's range (+2, +3) widened to take the element (set to it alone when the count was 0); glass rolling: nothing. The lane MARKED at each change (every GLASS mark is `bz_fmark`'s, 128.25.6.3) |
 | CONTACT, a glass tile | on a touch, REVEALED; its lane marked when it was not |
-| STEP | while the slot's count is not 0, every counting crack one less; the last -> BROKEN, `bz_fref` set, the count less 1, the broken count +1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
+| STEP | while the slot's count is not 0, every counting crack one less - walking only the records +2 to +3, and stopping once it has met as many counting cracks as the count (128.25.18.2); the last -> BROKEN, `bz_fref` set, the count less 1, the broken count +1; the lane marked at the break and where the pose turns (the count reaching `CRACK_LATE` + 1) |
 | POSE | a crack: 0 whole, 1 cracked (an impact, or a count's first steps), 2 its last `CRACK_LATE`, 3 broken; a glass tile: its bit |
 | CELL | nothing while the broken count is 0; else every BROKEN crack in the window whose cell is still a FLOOR there: z0 less 6 half units (3 units, its kill: 128.10.4.3's as a hole's) and +2 (kind and surface) 0, its flags kept (OBS: the prop path still finds it). Idempotent, as it must be: `bz_win9i` keeps cells from the last window |
 
@@ -279217,6 +279220,45 @@ its control `_hack novanish` one holed lane; refused: a hole of no size,
 whose grounded neighbours' faces would show past its lanes; GROUPED, each
 group lane re-rendered from its members' own art: two wide cracks edge to
 edge, two bridge cracks touching at a corner).
+
+##### 128.25.18.2 The STEP walk's range (the owner's field report, 2026-11-18)
+
+**The report**: PLAYGROUND, down and right held from the start, on a 5150 -
+the frame rate falls hard once the ball reaches the crack lab, past the
+edge on VGA, badly on CGA. **The cause, MEASURED** (the owner's log
+replayed on MartyPC's CGA 5150, the guest PC sampled every 1,997 clocks):
+while any crack is COUNTING, STEP walked EVERY prop record of the course -
+30 on PLAYGROUND - and fetched each crack's byte through `gl_byte` (a far
+segment load, two shifts by CL, three pushes and pops): **about 10,000
+clocks a physics step**, 0 before the lab and back to under 1,000 after it.
+At up to two steps a frame that is a quarter of a CGA refresh, which tipped
+frames past their retrace; a missed frame then runs more steps the next,
+each paying it again. The cost grew with the course's PROPS, not with the
+cracks touched: an idle crack cost nothing, but one counting crack made
+every record pay.
+
+**The fix**: the slot's +2 and +3 hold the lowest and highest record index
+of a crack that began counting (CONTACT sets both to the element when the
+count was 0, else widens them to take it; nothing else writes them, so
+they are stale while the count is 0 and the next start replaces them).
+Every counting crack lies inside the range by construction, so STEP walks
+`+3 - +2 + 1` records, reads each crack's byte inline off its record's
+FSB, and leaves the walk once it has met as many counting cracks as the
+count says. The state it reaches is the full walk's, step for step: the
+model (`GlassFamily`) keeps the two bytes as the guest does and walks
+every record as before, and `tests/bonanza_phys.py --check` holds the two
+equal, the slot's bytes included. CELL, which walks only while a crack is
+BROKEN and only on a window refill, is unchanged.
+
+**Measured** (the same log and machine): GLASS's clocks a step over the
+counting stretch (steps 200 - 279) 8,761 -> 1,897; its frames missing their
+refresh 13 -> 7 of 73 - 80, the frame's busy mean 63.5k -> 55.0k clocks and
+its sim+camera part 36.1k -> 28.3k. What the lab still costs over the apron
+is its PICTURE - the crack lanes' poses drawn as they turn (a second box), the
+camera's rows and the floating bridge's occluders - and the respawn's one
+repaint. **Bytes**: the GLASS part 636 -> 701 (+65; its `paras` 40 -> 44,
+the resident bundle +64 in RAM), `BONANZA.O88` +72 on the disk; no byte of
+the package's image or bss, no kernel byte.
 
 #### 128.25.19 PICKUPS as built (story 9.6)
 
