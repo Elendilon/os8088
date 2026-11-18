@@ -259,7 +259,7 @@ prop hourglass 12 35
 pad glass  20 35
 
 # PROP ALLEY (draft)
-floor rect  20 38 22 42  ramp y 38 42 4 0
+floor rect  21 38 22 42  ramp y 38 42 4 0
 floor rect  18 42 24 44  flat 0
 floor rect  18 38 19 42  flat 0
 floor rect  24 42 26 43  flat 0
@@ -283,6 +283,8 @@ prop magnet 26 41 face down +y
 prop magnet 27 41 face down +y
 prop magnet 28 41 face down +y
 prop membrane 26 44 29 45
-prop boost 20 42 face -y strength 40
 prop boost 21 42 face -y strength 40
 prop hourglass 31 43
+floor rect  19 38 20 41  flat 4
+float rect  19 38 20 41
+prop platform 19 41 4 dwell 42 seed 245
