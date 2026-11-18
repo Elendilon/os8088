@@ -215,28 +215,25 @@ bz_adname:
 .out:
     ret
 
-; line 3: the settings and their keys, `C <camera>  M <ball>  T <control>`;
-; a tour rolls each course's own ball, so M is not offered in one
+; line 3: the settings and their keys, `M <ball>  T <control>`; a tour
+; rolls each course's own ball, so M is not offered in one
 bz_l3:
-    mov si, bz_s_camk
+    call bz_intour              ; (no C since the camera became LATTICE alone,
+    mov si, bz_s_ctlk + 2       ; and the VGA's own: the line starts at M, or
+    jc .l                       ; in a tour at T)
+    mov si, bz_s_ballk + 2
     call bz_lstr
-    mov bl, [bz_cmode]
-    xor bh, bh
-    shl bx, 1
-    mov si, [cs:bz_s_cmodes + bx]
-    call bz_lcat
-    call bz_intour
-    jc .l
-    mov si, bz_s_ballk
-    call bz_lcat
     mov bl, [bz_matsel]
     xor bh, bh
     shl bx, 1
     mov si, [cs:bz_s_mats + bx]
     call bz_lcat
-.l:
     mov si, bz_s_ctlk           ; T: KEYS or MOUSE (SPEC.md 130.14.8)
     call bz_lcat
+    jmp short .k
+.l:
+    call bz_lstr
+.k:
     mov si, bz_s_keyb
     cmp byte [bz_ctl], 0
     je .c
@@ -998,15 +995,11 @@ BZS bz_s_herc,  'Adapter: Hercules, 360x200 pair pixels'
 BZS bz_s_vga,   'Adapter: VGA, 320x200, two planes'
 BZS bz_s_noad,  'CGA, HERC OR VGA ONLY'
 BZS bz_s_small, 'NEEDS MORE MEMORY (128KB kernel)'
-BZS bz_s_camk,  'C '
 BZS bz_s_ballk, '  M '
 bz_s_mats:  dw bz_s_rubber, bz_s_steel, bz_s_glass
 BZS bz_s_rubber, 'RUBBER'
 BZS bz_s_steel, 'STEEL'
 BZS bz_s_glass, 'GLASS'
-bz_s_cmodes: dw bz_s_glide, bz_s_trickle   ; bz_cmode's (SPEC.md 130.11.11.1)
-BZS bz_s_glide, 'GLIDE'
-BZS bz_s_trickle, 'TRICKLE'
 BZS bz_s_hint,  'Arrows roll  Space hop  L.Shift grip'
 BZS bz_s_mhint, 'Mouse tilts  left hop  right grip'
 BZS bz_s_demo,  'demo'
@@ -1084,7 +1077,7 @@ BZ_FIT 2v, 1 + bz_s_vga_n
 BZ_FIT 2s, 1 + bz_s_small_n
 BZ_FIT 2e, 1 + bz_s_err_n
 BZ_FIT 2d, 1 + bz_s_err2_n
-BZ_FIT 3, 1 + bz_s_camk_n + bz_s_trickle_n + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
+BZ_FIT 3, 1 + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
 BZ_FIT 4, 1 + bz_s_sndk_n + BZ_SNDW
 BZ_FIT 5, 1 + bz_s_repk_n + bz_s_savk_n + bz_s_ldk_n
 BZ_FIT 5b, 1 + bz_s_benk_n + bz_s_ldk_n
@@ -1105,7 +1098,7 @@ BZ_FIT r4, 1 + bz_s_worst_n + 10 + bz_s_mean_n
 BZ_FIT r5, 1 + bz_s_p0_n + 10 + bz_s_clk_n
 BZ_FIT r11, 1 + bz_s_cols_n + 5 + bz_s_rows_n + 5 + bz_s_full_n + 5 + bz_s_late_n + 5
 BZ_FIT r12, 1 + bz_s_back_n
-%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_trickle_n < bz_s_glide_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
+%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
  %error "BZ_FIT measures each line by its widest choice: the choices above moved"
 %endif
 

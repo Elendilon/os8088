@@ -38,9 +38,10 @@ and asserts, against what was read on the desktop BEFORE that launch:
      segment, [bz_mat] the ball M chose (a replay's the log's, B's BENCH's),
      and the claims two more than on the desktop.
 
-THE DESKTOP KEYS (130.11.11.2), last: for each of C, M and N - counted by a
-logged breakpoint on its handler (bz_camkey, bz_ballkey, bz_crskey), since C's
-two modes would hide an odd count - HELD for 1.5 s (MartyPC's keyboard
+THE DESKTOP KEYS (130.11.11.2), last: for each of M and N (C, the camera
+mode, went with TRICKLE: 130.46.12) - counted by a logged breakpoint on its
+handler (bz_ballkey, bz_crskey), since a short cycle would hide an odd count -
+HELD for 1.5 s (MartyPC's keyboard
 repeats after 0.5 s, ten times a second) it advances EXACTLY ONCE; pressed,
 released for 0.2 s and pressed again it advances TWICE.
 
@@ -156,7 +157,7 @@ import bonanza_phys as P       # noqa: E402
 OP_ROW, OP_T_ROWS, OP_R_FLAG, OP_R_ZKB = 8, 10, 1, 6        # apps/os88parts.inc
 OP_LAZY, OP_FETCHED = 8, 32
 WAYS = ("esc", "f", "altenter", "goal", "replayend", "replayesc")
-HANDLERS = (("KeyC", "bz_camkey"), ("KeyM", "bz_ballkey"), ("KeyN", "bz_crskey"))
+HANDLERS = (("KeyM", "bz_ballkey"), ("KeyN", "bz_crskey"))
 
 
 class Q(object):
