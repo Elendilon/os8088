@@ -106,7 +106,7 @@ ramp("A", "y", 10, 14, 14, 16, Z - 4, Z - 6)                 # R3
 floor("A", 10, 16, 14, 20, Z - 6)                            # L3
 # B  the ledge: two tiles wide, its FRONT edge open to the void
 floor("B", 14, 17, 20, 19, Z - 6)
-WALLS += [(14, 16, 20, 17, Z - 4)]
+rail(15, 17, 20, 17, "guard")                                # its back: a see-through GUARD rail, its first tile open beside the hill's ramp (revision 6)
 # C  flag 0 on M, then the lip: a ramp, a 3-unit step down onto T, a hole
 #    where the straight full-speed landing falls, the chute straight beyond it
 floor("C", 20, 16, 23, 20, Z - 6)                            # M, flag 0
@@ -132,7 +132,7 @@ floor("E", 31, 35, 34, 37, Z - 15.5)
 floor("E", 31, 37, 34, 40, Z - 16.5)
 for y0, y1 in ((33, 35), (35, 37), (37, 40)):
     rail(31, y0, 31, y1)
-rail(34, 33, 34, 35); rail(34, 35, 34, 37); rail(34, 37, 34, 38); rail(31, 40, 34, 40)
+rail(34, 33, 34, 35); rail(34, 35, 34, 37); rail(31, 40, 34, 40)   # (34, 37) open: its lone block read as a tile (revision 6)
 # W  the walk: two tiles wide, BOTH edges open: +x, a railed elbow, +y
 floor("W", 34, 38, 38, 40, Z - 16.5)                         # W1, level
 floor("W", 38, 38, 40, 41, Z - 16.5)
@@ -155,7 +155,7 @@ GOAL = {(x, y) for x in range(45, 51) for y in range(52, 54)}
 
 START = (5.5, 5.5)
 # a flag stands just BEFORE what can kill, so a fall never replays a long stretch
-FLAGS = [(20.5, 17.5, "flag 0"), (32.5, 38.5, "flag 1")]
+FLAGS = [(20.5, 18.5, "flag 0"), (32.5, 38.5, "flag 1")]
 # clocks (revision 5, the owner's mark-ups): (wx, wy, the tile's floor z, name, KIND):
 #   "tile"  - a floor tile LEVEL with the path, one block out from it (the start's);
 #   "block" - on top of an EXISTING block: the rail's wall tile becomes a floor tile at its height;
@@ -398,7 +398,7 @@ def bbc(out):
         if (x, y) in taken:                     # a clock stands on this block: its tile is the clock's
             continue
         if (x, y) in guards:
-            L.append("guard tile %3d %3d                # see-through: a ball in the chute is behind it" % (x + OFF, y + OFF))
+            L.append("guard tile %3d %3d                # see-through" % (x + OFF, y + OFF))
         else:
             L.append("wall  tile %3d %3d  flat %g" % (x + OFF, y + OFF, round(z * 2) / 2))
     L.append("")

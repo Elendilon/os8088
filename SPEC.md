@@ -282516,6 +282516,20 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   the ball is drawn over it. Refused if any opaque pixel falls outside the
   picture. The Hercules gets it through `htab()` like every other pixel
   (130.11.3). **BUILT** (T1.2).
+- **`art` on a PLAY course** (the owner, 2026-11-18: *"I don't see any
+  reason to restrict 'art' to title only; we can just make sure we use it
+  smartly so it doesn't need collision or physics, and use occlusion on art
+  very sparingly. And avoid blowing up the size budget."*). The same
+  statement on any course but the pathway. On a play course `(X, Y)` is a
+  pixel of the PICTURE: x from its left edge (`16 (wx - wy) + x0` is a
+  cell's centre), y from its top (`8 (wx + wy) - h + y0`). It is the same
+  topmost layer: no collision, no physics, NO OCCLUSION (the ball is
+  always drawn over it). So art belongs on floor tops (decals the ball
+  rolls over) and over the void behind and beside the course, never in
+  front of a place the ball can pass behind. Its cost is the picture blocks
+  it makes unique, which `--sizes` and the build's part report show. An
+  occluding art (a depth key of its own) is not built: when a course wants
+  one, it is a contract of its own, used sparingly.
 - **`label N COL ROW glyphs "TEXT" [ink C]`**: a lane of ONE block at cell
   `(COL, ROW)` of the CGA window (0 - 39, 0 - 24), posed by `bz_nst[N]` (0 -
   15): pose 0 the bare picture, pose `1 + i` the `i`-th character of TEXT
