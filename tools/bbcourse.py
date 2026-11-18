@@ -7877,7 +7877,10 @@ def lives_face_pix(p, x0, y0):
     return out
 
 
-def clock_face_pix(p, x0, y0, style="crystal"):
+_CLOCK_PLINTH_OWN = False   # (an experiment's switch: the plinth at its own top, a second record a block)
+
+
+def clock_face_pix(p, x0, y0, style="crystal", tops=None):
     """a clock's STATIC ART on the canvas (wave 7, SPEC.md 128.18.5.2): the
     style's (`crystal`, the default; a course's own later).  Lit from the
     upper left as the course's blocks are: a soft dithered SHADOW cast to the
@@ -7886,21 +7889,25 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     collar; the crystal BALL - cyan, shaded to the lower right by a cyan and
     magenta dither, a white rim of light to the upper left, a glint and a
     finial - with the digits' window left plain cyan.  -> {(x, y): ink},
-    later layers over earlier"""
+    later layers over earlier.  TOPS (a dict, SPEC.md 128.18.5.4): filled with each pixel's GEOMETRY top, whole
+    px over the world's zero - the plinth's its top's (the floor + 4), the post's, dish's, ball's and finial's
+    the clock's crown; the shadow is paint on the tile's top, no geometry, so none of its pixels is there"""
     if p.get("frame") == "lives":
         return lives_face_pix(p, x0, y0)
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     out = {}
+    layer = {}                                  # each pixel's last writer: "shadow", "plinth" or the rest's "geo"
 
-    def put(x, y, ink):
+    def put(x, y, ink, part="geo"):
         out[(x, y)] = ink
+        layer[(x, y)] = part
     # the SHADOW, on the tile's top below and to the right of the plinth: every other pixel black
     for y in range(cy - 2, cy + 5):
         for x in range(cx - 6, cx + 14):
             e = ((x - cx - 4) / 10.0) ** 2 + ((y - cy - 1) / 3.6) ** 2
             if e <= 1.0 and (x + y) & 1:
-                put(x, y, BLK)
+                put(x, y, BLK, "shadow")
     # the PLINTH: a diamond top (half-width 7, half-height 3) raised 4 px, two faces under it
     ph, pw, pt = 4, 9, 4
     top_y = cy - ph
@@ -7910,14 +7917,14 @@ def clock_face_pix(p, x0, y0, style="crystal"):
         for y in range(int(math.floor(y_lo)), int(math.ceil(y_hi)) + 1):
             if y_lo - 0.5 <= y <= y_hi + 0.5:
                 edge = y <= y_lo + 0.5 or y >= y_hi - 0.5
-                put(x, y, BLK if edge else WHT)
+                put(x, y, BLK if edge else WHT, "plinth")
         for y in range(int(math.ceil(y_hi)) + 1, int(math.ceil(y_hi)) + ph + 1):    # the faces
             if x == cx - pw or x == cx + pw or y == int(math.ceil(y_hi)) + ph or x == cx:
-                put(x, y, BLK)
+                put(x, y, BLK, "plinth")
             elif x < cx:
-                put(x, y, MAG)
+                put(x, y, MAG, "plinth")
             else:
-                put(x, y, MAG if (x + y) & 1 else BLK)
+                put(x, y, MAG if (x + y) & 1 else BLK, "plinth")
     # the POST: black edges, a lit column and a shaded one, from the plinth's top to the dish
     dish_y = fy + ry - 1
     for y in range(dish_y + 2, top_y + 1):
@@ -7957,6 +7964,11 @@ def clock_face_pix(p, x0, y0, style="crystal"):
     btop = min(y for (x, y) in out if x == fx and y <= fy)       # the finial, on the ball's top
     for (dx, dy, ink) in ((-2, -1, BLK), (-1, -1, MAG), (0, -1, MAG), (1, -1, BLK), (-1, -2, WHT), (0, -2, MAG)):
         put(fx + dx, btop + dy, ink)
+    if tops is not None:                        # SPEC.md 128.18.5.4: the geometry's tops; a shadow pixel nothing
+        crown = p["z4"] + cy - min(y for (_x, y) in out)    # later drew over is paint on the floor: none
+        for xy, part in layer.items():
+            if part != "shadow":
+                tops[xy] = p["z4"] + ph if part == "plinth" and _CLOCK_PLINTH_OWN else crown
     return out
 
 
@@ -10004,21 +10016,29 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_SIGN, "line": p["line"]})
         elif p["kind"] == PK_CLOCK:                 # wave 7 (SPEC.md 128.18.5): a clock's digit
-            # the crystal ball and its stick are a MARK at the clock's depth (as a flag's pennant: what the
-            # picture draws in front of the clock's cell hides them), painted once, by the units' record;
-            # a clock more than half hidden is REFUSED.  Each digit is a lane of one block, its poses the
+            # the crystal ball and its stick are painted at the clock's depth (what the picture draws in front
+            # of the clock's cell hides them), once, by the units' record, and KEYED there as geometry (below:
+            # SPEC.md 128.18.5.4, an occluder over a ball behind); a clock more than half hidden is REFUSED.  Each digit is a lane of one block, its poses the
             # blank and 0 - 9, the glyph only where the ball is drawn
             sC = p["at"][0] + p["at"][1]
             if p["place"] == 0:
-                face = clock_face_pix(p, x0, y0)
+                ftops = {}
+                face = clock_face_pix(p, x0, y0, tops=ftops)
                 shown_ = {(x, y): c for (x, y), c in face.items()
                           if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sC}
                 if 2 * len(shown_) < len(face):
                     raise CourseError("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
                                       "pixels are drawn over by geometry in front of it or lie outside the picture"
                                       % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)))
+                # SPEC.md 128.18.5.4: the plinth, the post, the dish and the crystal ball are GEOMETRY keyed at the
+                # clock's cell (a post's, 128.12.6.3), so the occluder cut lays them over a ball behind and below
+                # them, as it does a flag's staff; the shadow stays paint on the tile.  (The lives counter's
+                # pathway cuts no occluder, 128.31; _hack clocknoocc: --selfcheck's red arm, the mark it was)
+                keyed = p.get("frame") != "lives" and not hack.get("clocknoocc")
                 for (x, y), ink in shown_.items():
                     cv.rows[y][x] = ink
+                    if keyed and (x, y) in ftops:
+                        cv.sbuf[y][x], cv.tbuf[y][x] = sC, ftops[(x, y)]
                 p["face_pix"] = shown_
                 clock_seen = set(shown_)
             else:
