@@ -55,9 +55,12 @@ as in SPEC.md 128.18.
 
 5. **Most of the renderer is reused unchanged.** The ball, the box compose,
    the occluders, the shadow, physics, props, lanes and LATTICE's framings
-   all work in world pixels and in the CGA's 2bpp format. The box keeps
-   being composed in 2bpp and is **converted to planes at write time**
-   through a 512-byte table. Only the writers are new:
+   all work in world pixels, and compose is bitwise. The art is
+   **converted ONCE, at load, into "planar pairs"** (8 pixels as plane 0's
+   byte then plane 1's); compose then runs unchanged and the box writer only
+   splits even and odd bytes into the two planes (section 3). Nothing is
+   converted per frame and nothing converted goes on a disk. Only the
+   writers are new, with the converter and the ball's 8-pixel placement:
    - rows, the column, boxes, the full write, the wheel's commits, cards;
    - the flip and pan;
    - `bz_vinit`'s VGA arm.
@@ -309,36 +312,67 @@ rise, is the whole reason for the split.
 
 ---
 
-## 3. Art and compose
+## 3. Art and compose: converted ONCE, at load
 
-**Compose is untouched.** The box buffers stay 2bpp, in world word columns
-and lines. `bz_boxc`, `bz_blit`, `bz_occ`, the shadow, the ball's four
-shifts and the occluder masks all run as they do on the CGA. That is most of
-the game's drawing code and all of its tests' oracles.
+**The owner's rule (2026-11-18): convert once, up front, and do nothing
+expensive every frame.** Nothing is converted per frame, and nothing
+converted is stored on a disk: the arm re-lays the art in RAM when it is
+fetched, as the Hercules arm already translates its blocks and balls in
+place (`bz_hxlat`, 128.11.3). The 360 KB disk gains only the converter's
+code, a few hundred bytes in `BZVGA.BIN` (ESTIMATED).
 
-**Converting a 2bpp word to two plane bytes.**
-- A CGA byte holds 4 pixels as `hl hl hl hl`.
-- Plane 0 wants the 4 low bits as a nibble, plane 1 the 4 high bits.
-- A 256-entry table of words gives both nibbles. A block line (one word, 8
-  px) is two lookups and two nibble merges: about 60-80 clocks
-  **(ESTIMATED)**.
-- The box writer converts each line into a small line buffer and writes it
-  in two passes: map mask 1 for plane 0, then map mask 2 for plane 1.
+**The layout: a PLANAR PAIR.** Eight pixels are one word, as on the CGA,
+but the word is plane 0's byte (bit 7 the leftmost pixel) then plane 1's.
+A CGA word holds the same 16 bits in another order (`hl hl hl hl` twice).
 
-**The course's blocks need a decision between two shapes; V0 measured
-them and took (b).**
-- **(a) Convert at write.** Rows, the column and the wheel go through the
-  same table. This costs no memory. A row is 41 words, about 3k clocks of
-  conversion a line **(ESTIMATED)**.
-- **(b) A planar copy of the blocks.** It is built at launch beside the 2bpp
-  ones (which compose still reads), at 16 bytes a block, so at most 16 KB.
-  It is a claim dropped with the bracket, like the course part. Rows and
-  the column then copy bytes straight through.
-- The target is 640 KB, so (b)'s claim is affordable.
-- **DECIDED (V0): (b), the planar copy.** On MartyPC's 8088 a 41-cell
-  row-line costs **6,068 clocks from planar blocks against 13,516
-  converted**, net of the measurement (section 13): 2.2x. A one-line step a
-  frame is then 6.1k of the 68.1k refresh rather than 13.5k.
+**Why compose needs no change.** Every operation compose performs is
+BITWISE, pixel by pixel: the fill copies block words, the ball is mask AND
+then frame OR, the shadow is an AND, an occluder lays
+`((buf ^ blk) & mask) ^ blk`. A fixed reordering of the bits inside every
+input reorders the bits of the result the same way and changes nothing
+else. So when the blocks, the occluder masks and the ball's frames, masks
+and shadow are all re-laid as planar pairs, `bz_boxc`, `bz_occ` and the
+shadow run unchanged and compose a planar-pair box.
+
+**The one thing that is not bitwise is WHERE the ball goes.** The CGA
+places a ball row at a 4-pixel byte (`px >> 2`), with four pre-shifted
+copies (`px & 3`). A planar pair has no 4-pixel unit: the ball is placed at
+an 8-pixel word (`px >> 3`), so its converted copies carry the 0-7 pixel
+shift themselves. A row becomes 4 words (20 pixels plus up to 7 of shift
+fit 32), and the VGA arm's blit is `bz_blit`'s word path at 4 words.
+- **Roll frames** already carry `px & 7` in the frame number (`f`, 128.5),
+  so each needs ONE shift, plus the pathway's fold (`bz_fold` adds 4) as a
+  second: 64 frames x 2 x 16 rows x 8 bytes = **16 KB**.
+- **The disc's mask**: 8 shifts x 16 rows x 8 bytes = 1 KB.
+- **Squash, stretch, shatter, the shadow**: 8 shifts each, from the four
+  the ball part stores (the converter shifts by 4 more pixels).
+- **Only the ball in play is converted**, at the bracket's start and when
+  the material changes, into one claim dropped with the bracket: about
+  **20 - 30 KB (ESTIMATED; V1 measures the claim)**.
+
+**The course's blocks are converted IN PLACE** (planar pairs are the same
+16 bytes a block), so there is no second copy of them, and rows, the column,
+the wheel and compose all read the one layout. V0's RP figure was taken on
+exactly this layout (plane 0 at `+2L`, plane 1 at `+2L+1`): **6,068 clocks a
+41-cell row-line on the 8088**, against 13,516 converting as it goes (13.3).
+
+**The box writer de-interleaves, it does not convert:** per line, map mask
+1 and the even bytes, map mask 2 and the odd ones. About **250 clocks a
+4-word line, 6k a 24-line box, on the 8088 (PREDICTED** from 13.3's byte
+costs: 8 bytes at ~18 clocks plus two `out`s and the loop). Against 1,376 a
+line converted the plain way, that is the per-frame saving the rule asks
+for. V1 measures it against a bar of 500 a line.
+
+**What this costs once.** The blocks (at most 1,024 x 16 bytes) and the
+ball's set are converted through a 512-byte table at the fetch, about 60
+clocks a word on the 8088 (ESTIMATED): of the order of a quarter of a second
+for a big course plus a ball, paid on the desktop or behind a transition,
+never in play.
+
+**VGA art of its own** (16 colours, planes 2 and 3) would be NEW parts, not
+a conversion, and would not fit the 360 KB disk. If it is ever made, it
+ships on a separate 1.44 MB disk (the owner, 2026-11-18). The 4-colour arm
+needs nothing on any disk.
 
 **The palette.** Each course's four CGA colours (`bz_cpals`, 128.19) map to
 EGA 6-bit values in the attribute controller's registers 0-3:
@@ -493,8 +527,9 @@ writers, the wheel's commit writer, the card glyph writer and the
 conversion table, about **3-4 KB (ESTIMATED)**.
 
 **Memory.**
-- The planar block copy, if V0 picks it: at most 16 KB, a claim dropped
-  with the bracket.
+- The blocks are converted in place: no claim.
+- The ball in play, converted: about 20 - 30 KB (ESTIMATED), one claim
+  dropped with the bracket and rebuilt when the material changes (section 3).
 - No other new claim.
 - The target is 640 KB (128.7), and the VGA machine has 640 KB.
 
@@ -616,7 +651,9 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   - [x] the latch models, and `BZ_VSMARG`;
   - [x] the byte/row/box costs;
   - [x] `wb0`.
-- [x] Decide `P` (42 or 44) and the block shape (a or b): **42 and (b)**.
+- [x] Decide `P` (42 or 44) and the block shape (a or b): **42, and
+      planar** - converted once at load, in place (the owner, 2026-11-18;
+      section 3).
 - [x] Go/no-go on the design: **GO** (section 13).
 - *Check*: the probe's own row, red-tested: `vgaprobe` (MartyPC) and
   `box-vgaprobe`, `box-vgaprobe-v20`, `box-vgaprobe-286` (86Box), each seen
@@ -630,9 +667,12 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
       and Play Game ungreyed on VGA.
 - [ ] `BZVGA.BIN` part, fetched on the desktop; `bz_vinit`'s VGA arm (CR13,
       AC 12h, the palette, `BZ_MLIMV`, the beam words `bz_wkv`).
+- [ ] The converter (section 3): the blocks and occluder masks in place at
+      the fetch, the ball in play into a claim (8-pixel placement, shifts
+      baked in), rebuilt on a material change; its claim measured.
 - [ ] The writers: rows (1 line each, `bz_lsh` = 0), the column (before the
-      start, 2.2), the boxes (the 2bpp-to-planar table), the full write
-      (screen-off), the wheel's commits, the cards.
+      start, 2.2), the boxes (de-interleaved, against the 500-a-line bar),
+      the full write (screen-off), the wheel's commits, the cards.
 - [ ] The frame order of 2.4 (start, edge, pan), at first with `pan` = 0
       and the camera in whole columns. So **vertical smoothness (1 line)
       arrives in this wave** and horizontal stays 8 px.
@@ -821,16 +861,17 @@ higher. 86Box is not cycle-accurate, and its figures are relative only.
 - **GO.** The ring, the wrap and the split order hold on every instrument.
 - **P = 42**: one column a frame is all LATTICE asks, and nothing measured
   argues for a wider gutter.
-- **Blocks: (b), a planar copy** (section 3): 2.2x cheaper a row-line.
+- **Blocks: planar, converted once at load** (section 3; in place, as the
+  Hercules arm translates its own): 2.2x cheaper a row-line than converting
+  as it goes.
 - **`BZ_VSMARG` = 12 scanlines** before the display's end, and **the rise
   and its panning under CLI every frame** (2.4).
-- **The box writer is V1's risk.** Converted the plain way (a call a word),
-  a 24-line ball box is about **33k clocks on the 8088**, half a 70 Hz
-  refresh. V1 writes it unrolled, with no call and both tables inline,
-  against a bar of **500 clocks a 4-word line** (12k a box), measured with
-  the probe's method. If the bar cannot be met, the fallback is to compose
-  the box in planar form directly, which means a planar copy of the ball's
-  frames and masks as well (a later claim; the compose code changes with it).
+- **The box writer is no longer a risk** (the owner's rule, 2026-11-18:
+  convert once, up front). Converted every frame the plain way, a 24-line
+  ball box was about 33k clocks on the 8088, half a 70 Hz refresh. Instead
+  the art is converted at load into planar pairs (section 3), compose runs
+  unchanged, and the box writer only de-interleaves: about 250 clocks a line
+  (PREDICTED), measured in V1 against a bar of 500.
 - **The 8088 will likely run at 35 Hz** (PREDICTED from the CGA arm's busy
   time and the costs above; D7 accepts it). The V20 and the 286 have the
   headroom for 70.
