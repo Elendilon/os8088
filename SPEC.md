@@ -271148,9 +271148,11 @@ drawn by `tools/bbcourse.py`'s `_CLOCK_DRAW`. Each is static art round the
 SAME digits' window (`clock_face_geom`'s place and size, plain inside), so
 the digits' lanes, the record, the occluder key (130.18.5.4, one crown top,
 the shadow paint) and the post's physics (130.18.5.3) are the crystal's; a
-style moves only the picture's blocks. The four new ones light the window
-WHITE rather than cyan, because on the Hercules cyan is the same grey checker
-as magenta and black digits on it barely read there:
+style moves only the picture's blocks. `pin` is FIRST ROLL's (the owner,
+2026-11-18) and lights the window CYAN like crystal - *"it reads fine with
+the solid black numbers on top of it"* on the Hercules; the other three, not
+chosen ("flat squares" that do not blend with the art), still light it
+WHITE:
 - **`pin`**, the mini-golf flagstick: a pole banded white and magenta in a cup
   sunk in the tile, a white knob on top, the digits on a bevelled magenta
   plate clamped to it, and a magenta pennant with a white "1" (course 1)

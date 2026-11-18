@@ -1122,6 +1122,7 @@ class Source:
         self.medals = None          # wave 8c (SPEC.md 130.19.8.3): (G, S, line), whole seconds
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
+        self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
         self.stopd = None           # SPEC.md 130.45.4: `stop down`'s line - the BOTTOM STOP at the finish
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
@@ -3207,6 +3208,10 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
                                   "docs/plans/bonanza-courses/README.md)" % where)   # guide_run_checks)
             src.guide = ln
+        elif st == "trap":                          # wave 11 (SPEC.md 130.14.4.1.1): a course built on the Hop,
+            if src.traphop is not None or len(toks) != 2 or toks[1] != ("w", "hop"):   # its NO TRAP: Space too
+                raise CourseError("%s: trap takes `hop`, once (SPEC.md 130.14.4.1.1)" % where)
+            src.traphop = ln
         elif st == "target":                        # wave 5b (SPEC.md 130.15.8): the design time, CD3
             if src.target is not None:
                 raise CourseError("%s: target given twice" % where)
@@ -8594,7 +8599,7 @@ def _clock_pin(p, x0, y0, tops):
                 a.put(x, y, WHT)
             else:
                 a.put(x, y, MAG)
-    a.window(WHT, BLK)
+    a.window(CYN, BLK)
     for y in (py1 - 1, py0 + 1):                    # the CLAMPS, above and below the plate
         a.pattern(("KWWMMK",), cx - 3, y)
     return a.done(tops)
@@ -11465,6 +11470,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             mk["IN"], mk["OUT"] = p["hole_pix"][0], p["rim_pix"][0]
         if mk:
             c.prop_pix[i] = {w: frozenset((x, y + y0) for (x, y) in pix) for w, pix in mk.items()}
+    c.traphop = src.traphop                         # (wave 11: NO TRAP with the Hop, 130.14.4.1.1)
     if occluders and not hack.get("no_trap") and any(p["kind"] in (PK_CHECKPOINT, PK_PAD) for p in props):
         bad = trap_check(c)
         if bad:
@@ -11486,6 +11492,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
 
 TRAP_RUN = 128                            # steps a run holds its direction
 TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
+TRAP_HOP_AT = tuple(range(0, TRAP_RUN, 16))  # `trap hop` (130.14.4.1.1): the take-off steps a Hop is tried at
+TRAP_AGAIN = 2                            # ... and its "and again": a second press this many steps after it
 
 
 def trap_presets(c):
@@ -11527,8 +11535,12 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
     out = set()
     hit = False
     cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
+    runs = [(k, ()) for k in TRAP_DIRS]
+    if getattr(c, "traphop", None):            # `trap hop` (130.14.4.1.1): a Hop and its "and again" at every
+        runs += [(k, (t, t + TRAP_AGAIN))       # TRAP_HOP_AT take-off step of every direction's run (the pair
+                 for k in TRAP_DIRS for t in TRAP_HOP_AT]   # reaches what a lone Hop does; an over-Hop is railed)
     for ph in phases:
-        for k in TRAP_DIRS:
+        for k, hops in runs:
             p = Physics(c, play=True, mat=mat)
             p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
             if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
@@ -11541,7 +11553,7 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
                 if st_ >= TRAP_RUN and not p.air and not p.tube:
                     break                       # (a run ends grounded)
                 n0 = len(p.events)
-                p.step(k)
+                p.step(k | (K_HOP if st_ in hops else 0))
                 if p.nfall or p.nret:
                     break
                 here = (p.gx >> 12, p.gy >> 12)
