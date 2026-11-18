@@ -4717,3 +4717,54 @@ BUILD=build/gate BZGATE=1 bonanzadisk`; `bbcourse.py --selfcheck --only gate`
 (27 scenes equal at every step; red arms `gtwall`, `gtmark`, `gtstep`,
 `gtlift`, `gtup` red); one MartyPC look on each card. **Not run**: soak rows,
 `test-full`, the per-step cost.
+
+## 2026-11-17 (THE SEE-SAW: a plate the ball's weight tips)
+
+The props plan's P9, built as a family beside the GATES, the TURNTABLE and
+the HUMPS (the round fixed its ID, 14, its kinds, 80 on, its knob and SPEC.md
+128.42 beforehand); branch `bb-tilt`.
+
+- **What tips it.** A timer would have been the cheap answer, but the plan
+  asked for the classic see-saw, and weight turned out to cost a count and a
+  compare: the ball grounded on one half for a few steps moves the plate one
+  pose toward that half down. The interesting part is the consequence. The
+  half the ball is on always goes DOWN, so a weight see-saw can never LIFT the
+  ball: it lowers it, or lays a far end down as a bridge. A ledge is reached
+  only by getting off the high end before the plate reacts - which made the
+  weights the mechanic. Steel tips it in 2 steps, rubber in 8, glass in 28:
+  on the test course glass alone reaches the ledge, and steel and rubber tip
+  the plate away under themselves. The plan's "roll onto the low end, it tips,
+  roll up to a higher ledge" became "only something light gets up there".
+- **The number came off the model.** At glass 24 the ball arrived 2 gu short
+  of the ledge as the plate went to its far end; 28, and the ledge set at 3.5
+  units so that it is a 4 px climb from the FLAT pose too, gives glass the
+  ledge with a few steps to spare and rubber (12 steps to the far end) none.
+- **The carry.** The plan said "the lift's carry adapted". The lift adds its
+  rise to z; a plate knows its floor exactly at the ball's point, so the step
+  that changes a pose SETS z on the new floor. The grounded step's own floor
+  test then sees no gap either way: no fall, no landing (`gate-glass` rides 8
+  px down in one step with no landing event), and `tlcarry` and the model's
+  `nocarry` go red.
+- **The lanes were the surprise.** A plate is 2 - 6 cells and a lane at most
+  4 x 3 blocks, and every lane of a plate turns on the same step. The tool now
+  draws the whole picture three times (the plate at rest, FLAT and its other
+  end), takes the pixels that differ and cuts their blocks into lanes with
+  the pathway's reveal cutter. A 4 x 2 plate cut into ten lanes - over the
+  window's six pose changes a step - so the test course's plates are 4 x 1,
+  1 x 4 and 2 x 2 (5, 6 and 4 lanes), and it carries no clock (two clock
+  digits in a window plus a 6-lane plate is seven).
+- **Steel does not climb.** A slope of half a unit a cell pulls harder than
+  steel's arrows push, so steel from rest stalls on a plate's rising half: the
+  GATE gives it a run-up. The weight then tips the gate at once.
+- **The look.** The plate is the floor's own tiles on a thin slab (`float`'s
+  faces, 4 px), and a white fulcrum outlined black stands under the pivot's
+  front end, drawn just behind the plate so any pose lies over it.
+
+**Tested**: `make bonanzadisk` (every shipped course part, demo and the title
+byte for byte as before: `cmp`), `make BUILD=build/tilt BZTILT=1
+bonanzadisk`, `--selfcheck --only tilt` (nine refusals, records, reach,
+art, six model scenes, two model red arms red), `tilt_host` under unicorn
+(seven scenes equal at every step, six red arms red), `make` (the fast tier
+green; `t_bits` wanted the part's flag equates local), and one MartyPC look on
+the CGA and the Hercules (rubber tipping the LEDGE's plate and back). **Not
+run**: soak rows, `test-full`; the per-step cost is PREDICTED.
