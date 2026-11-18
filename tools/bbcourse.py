@@ -2174,7 +2174,8 @@ def ga_load(name, where, kind):
     if a["for"] != ("gate" if kind == GT_KG else "bridge"):
         raise CourseError("%s: gate art %r is a %s's, not a %s's (SPEC.md 128.41.12)" % (
             where, name, a["for"], "gate" if kind == GT_KG else "bridge"))
-    return a
+    import copy
+    return copy.deepcopy(a)                     # (never the cache's own: par_map refers to a global by its path)
 
 
 def _ga_resolve(src, fname):
