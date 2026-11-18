@@ -270539,6 +270539,24 @@ FRONT of the flag's cell (a key over its row, painter's order), and a flag
 whose flying pennant is more than half hidden is refused (`HIDDEN`).
 Previews looked at on both cards before the course ships (story 4.3).
 
+###### 130.14.4.1.1 `trap hop`: NO TRAP with the Hop pressed
+
+*(Wave 11, ISLAND HOP, 2026-11-18.)* NO TRAP's runs hold one of the eight
+directions from a ball at rest on a cell's centre and never press Space
+(`trap_succ`), so a course BUILT on the Hop - a gap only a Hop crosses, a
+step only rubber's "and again" climbs - is refused at its first flag however
+playable it is: ISLAND HOP was, at its first 2-tile gap. A course that says
+`trap hop` (once; nothing else on the line) is proved with Space as well:
+beside the eight plain runs, each direction is run again with a Hop pressed
+at every take-off step of `TRAP_HOP_AT` (every 16th of the run's
+`TRAP_RUN`, 128) and its "and again" pressed `TRAP_AGAIN` (2) steps later,
+so a flight takes the stronger of the two presses; a lone Hop reaches what
+the pair does or less, an over-Hop being the course's rails' to catch.
+Nothing else changes: the same states, the same cache, the same verdict
+and refusal. The cost is the runs - nine times as many a cell (ISLAND HOP:
+about 25 s against under 1 s), which is why it is a course's choice rather
+than every course's. A course without the line compiles exactly as before.
+
 ##### 130.14.4.2 Records, the grid and the header
 
 Prop records (130.12.3.1), the kind's own 16 bytes at +16:
