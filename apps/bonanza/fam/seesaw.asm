@@ -91,14 +91,12 @@ tl_reset:
 ; CELL: every plate cell in the window written from its plate's pose
 tl_cell:
     call tl_walk                ; ES:SI the records, CX their count
-    xor bp, bp                  ; BP = the record's index
 .r:
     jcxz .x
     cmp byte [es:si], BZ_FK_SEESAW
     jne .n
     push cx
-    mov bx, bp
-    call tl_bptr
+    call tl_sbyte
     mov ch, [bx]                ; CH = its pose
     xor di, di                  ; DI = the window cell's offset in bz_nbr
     mov dh, [bz_nwin + 1]       ; DH = wy, DL = wx: the window's rows, by
@@ -109,13 +107,7 @@ tl_cell:
     dec dl
     mov bl, 3
 .wx:
-    mov al, dl                  ; one of the plate's cells?
-    sub al, [es:si + 2]
-    cmp al, [es:si + TL_NX]
-    jae .no
-    mov al, dh
-    sub al, [es:si + 3]
-    cmp al, [es:si + TL_NY]
+    call tl_on                  ; one of the plate's cells?
     jae .no
     mov al, ch
     push cx
@@ -133,7 +125,6 @@ tl_cell:
     pop cx
 .n:
     add si, 32
-    inc bp
     dec cx
     jmp short .r
 .x:
@@ -254,7 +245,7 @@ tl_weigh:
     xor ah, 2
 .t2:
     push bx
-    call tl_bptr                ; BX = the pose's byte
+    call tl_sbyte               ; BX = the pose's byte
     mov al, [bx]
     cmp al, ah
     jne .go
@@ -335,13 +326,11 @@ tl_carry:
 ; POSE: BX = a lane -> AL its plate's pose
 tl_pose:
     mov es, [bz_cseg]
-    mov si, bx
-    mov cl, 5
-    shl si, cl
-    add si, [bz_poff]
+    call tl_rec
     mov bl, [es:si + TL_PLATE]
     xor bh, bh
-    call tl_bptr
+    call tl_rec
+    call tl_sbyte
     mov al, [bx]
     retf
 
@@ -494,21 +483,13 @@ tl_sbyte:
     add bx, bz_fst
     ret
 
-; BX = a record's element -> BX = its byte of bz_fst (FSB / 8).  ES = the
-; course.  Preserves all else.
-tl_bptr:
+; BX = a record's element -> SI its record (in [bz_cseg]).  Preserves all else.
+tl_rec:
     push cx
-    push si
     mov si, bx
     mov cl, 5
     shl si, cl
     add si, [bz_poff]
-    mov bl, [es:si + BZP_FSB]
-    xor bh, bh
-    mov cl, 3
-    shr bx, cl
-    add bx, bz_fst
-    pop si
     pop cx
     ret
 

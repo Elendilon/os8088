@@ -599,7 +599,7 @@ FAMILIES = (
      "kinds": ({"name": "seesaw", "kind": FAM_K0 + 64, "bits": 8, "cls": CL_RESPAWN, "art": None,
                 "forms": ("own", "tilt"), "states": (0,), "pickup": False},
                {"name": "seesawlane", "kind": FAM_K0 + 65, "bits": 0, "cls": CL_ATTEMPT, "art": "tilt",
-                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 55,
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 52,
      "home": HOME_RESIDENT},
     # THE QUARTER-TURN TURNTABLE (SPEC.md 128.43, the props round's P11): an N x N table (2 or 3) HALF FILLED,
     # turning a quarter turn every Q steps (32 or 64), the cells switching - it carries nothing: a cell that
