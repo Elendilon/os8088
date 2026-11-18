@@ -43,6 +43,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 SP_IN       equ 1               ; the slot's bytes
 SP_HARD     equ 2
@@ -78,16 +79,17 @@ SP_MZ       equ 18              ; a membrane's: its floor's z0
 sp_reset:
     call sp_slot
     xor dx, dx
-    call sp_walk
+    call sp_walk                ; (the family's own records: 130.25.6.10)
 .l:
     jcxz .x
-    mov al, [es:si]             ; (popspikes and membranes alone: the kinds
-    sub al, BZ_FK_POPSPIKES     ; past them are other families')
+    call sp_rec
+    mov al, [es:si]             ; (popspikes and membranes alone)
+    sub al, BZ_FK_POPSPIKES
     cmp al, 1
     ja .n
     inc dx
 .n:
-    add si, 32
+    inc bx
     dec cx
     jmp short .l
 .x:
@@ -97,12 +99,14 @@ sp_reset:
 ; CELL: the window's cells of the family for this ball, then the centre's rule
 sp_cell:
     call sp_slot                ; DI = the slot
-    call sp_walk                ; ES:SI the records, CX their count
+    call sp_walk                ; ES = the course, BP its list, CX its count
+    mov bp, bx
     xor dx, dx                  ; DL = the centre kills, DH = the kind less SPIKES
     or cx, cx
     jnz .r
     jmp .done
 .r:
+    call sp_recp
     mov dh, [es:si]
     sub dh, BZ_FK_SPIKES
     cmp dh, 2
@@ -154,7 +158,7 @@ sp_cell:
     mov [bz_nbr + bx], al
     mov byte [bz_nbr + bx + 2], 0
 .n:
-    add si, 32
+    inc bp
     dec cx
     jz .done
     jmp .r
@@ -196,10 +200,10 @@ sp_step:
 .p:
     cmp byte [di + SP_NWALK], 0
     je .x
-    call sp_walk
-    xor bx, bx                  ; (CX > 0: NWALK counted records)
+    call sp_walk                ; (CX > 0: NWALK counted them)
     xor bp, bp
 .l:
+    call sp_rec
     cmp byte [es:si], BZ_FK_MEMBRANE
     je .mem
     cmp byte [es:si], BZ_FK_POPSPIKES
@@ -217,7 +221,11 @@ sp_step:
     sbb dh, dh
     cmp dl, dh
     je .nx
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     call far [bz_fmkp]          ; its lane MARKED
+    pop bx
     mov al, [es:si + 2]         ; ...and in the window: the refill
     sub al, [bz_nwin]
     inc al
@@ -230,7 +238,6 @@ sp_step:
     ja .nx
     mov byte [bz_fref], 1
 .nx:
-    add si, 32
     inc bx
     loop .l
     jmp short .t
@@ -246,7 +253,11 @@ sp_step:
     shl ax, 1
     cmp [bz_gz + 1], ax
     jge .nx
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     lea bp, [bx + 1]
+    pop bx
     jmp short .nx
 .t:
     mov ax, bp                  ; a change: the lanes of the one it was and
@@ -259,13 +270,13 @@ sp_step:
 .x:
     retf
 
-; AL = a membrane's element + 1, or 0 -> its lane MARKED.  BH 0 on entry (STEP's
-; BX is the record count by then: a byte).  Preserves all but BL.
+; AL = a membrane's element + 1, or 0 -> its lane MARKED.  Preserves all but BX.
 sp_tmark:
     or al, al
     jz .x
     dec ax
     mov bl, al
+    xor bh, bh
     call far [bz_fmkp]
 .x:
     ret
@@ -300,13 +311,9 @@ sp_pose:
     neg al
     retf
 
-; -> ES:SI the course's first record, CX the records.  Preserves all else.
-sp_walk:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    ret
+    BZ_FWALK sp_walk
+    BZ_FREC sp_rec, bx
+    BZ_FREC sp_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 %if BZF_SLOT != 8

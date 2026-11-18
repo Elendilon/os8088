@@ -31,6 +31,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 GT_CH       equ 18              ; the record: the channel (BZ_GT_TIMED)
 GT_DECK     equ 19              ; a bridge's deck (a gate's way: the art's)
@@ -60,17 +61,18 @@ GT_AFR      equ 4               ; an art's frames: the cell opens at the last
 ; RESET: the course's timed bridges counted
 gt_reset:
     call gt_slot
-    call gt_walk
+    call gt_walk                ; (the family's own records: 130.25.6.10)
     xor dx, dx
     jcxz .x
 .l:
+    call gt_lrec
     cmp byte [es:si], BZ_FK_BRIDGE
     jne .n
     cmp byte [es:si + GT_CH], BZ_GT_TIMED
     jne .n
     inc dx
 .n:
-    add si, 32
+    inc bx
     loop .l
 .x:
     mov [di + 1], dl
@@ -100,9 +102,9 @@ gt_contact:
     inc word [bz_nfev]          ; (the pickup's sound)
     mov byte [bz_fref], 1
     call gt_walk                ; every element of the channel MARKED
-    xor bx, bx
     jcxz .out
 .l:
+    call gt_lrec
     mov al, [es:si]
     sub al, BZ_FK_PLATE
     cmp al, 3
@@ -111,9 +113,12 @@ gt_contact:
     jne .n
     cmp byte [es:si + GT_ART], 0    ; (an art element has no lane to mark)
     jne .n
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     call far [bz_fmkp]          ; (bz_fmark: the walk made; preserves all)
+    pop bx
 .n:
-    add si, 32
     inc bx
     loop .l
 .out:
@@ -143,25 +148,28 @@ gt_step:
     mov byte [bz_fref], 1       ; (at the last: the cell opens)
 .m:
     call gt_walk                ; every art lane of channel c MARKED
-    xor bx, bx
     jcxz .t
 .ml:
+    call gt_lrec
     cmp byte [es:si], BZ_FK_GATELANE
     jne .mn
     cmp [es:si + GT_DECK], al   ; (+19 its channel; AL = c)
     jne .mn
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     call far [bz_fmkp]
+    pop bx
 .mn:
-    add si, 32
     inc bx
     loop .ml
 .t:
     cmp byte [di + 1], 0
     je .x
     call gt_walk
-    xor bx, bx
 .l:
     jcxz .x
+    call gt_lrec
     cmp byte [es:si], BZ_FK_BRIDGE
     jne .nx
     cmp byte [es:si + GT_CH], BZ_GT_TIMED
@@ -179,14 +187,15 @@ gt_step:
     sbb dh, dh
     cmp dl, dh
     je .nx
-    call far [bz_fmkp]          ; its lane MARKED
-    push bx                     ; ...and in the window: the refill
-    call gt_win
+    push bx                     ; its lane MARKED
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
+    call far [bz_fmkp]
+    call gt_win                 ; ...and in the window: the refill
     pop bx
     jc .nx
     mov byte [bz_fref], 1
 .nx:
-    add si, 32
     inc bx
     dec cx
     jmp short .l
@@ -225,9 +234,11 @@ gt_pose:
 ; CELL: a shut gate's cell a WALL; a bridge's written from its record
 gt_cell:
     call gt_slot                ; DI = the slot
-    call gt_walk                ; ES:SI the records, CX their count
+    call gt_walk                ; ES = the course, BP its list, CX its count
+    mov bp, bx
     jcxz .x
 .r:
+    call gt_recp
     mov dh, [es:si]
     sub dh, BZ_FK_GATE          ; DH 0 a gate, 1 a bridge
     cmp dh, 1
@@ -267,7 +278,7 @@ gt_cell:
 .p:
     pop cx
 .n:
-    add si, 32
+    inc bp
     dec cx
     jnz .r
 .x:
@@ -343,13 +354,9 @@ gt_rec:
     pop cx
     ret
 
-; -> ES:SI the course's first record, CX the records.  Preserves all else.
-gt_walk:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    ret
+    BZ_FWALK gt_walk
+    BZ_FREC gt_lrec, bx
+    BZ_FREC gt_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 %if BZF_SLOT != 8

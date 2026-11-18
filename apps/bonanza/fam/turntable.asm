@@ -41,6 +41,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 TT_TZ       equ 18              ; the record
 TT_SEQ      equ 19
@@ -66,9 +67,11 @@ TT_KFLOOR   equ 1               ; a floor's kind byte: KIND_FLOOR, SURF_NORMAL (
 
 ; CELL: the window's gaps (and a fallen ball's centre) a NEAR VOID
 tt_cell:
-    call tt_walk                ; ES:SI the records, CX their count
+    call tt_walk                ; ES = the course, BP its list, CX its count
+    mov bp, bx
     jcxz .x
 .r:
+    call tt_recp
     cmp byte [es:si], BZ_FK_TURNTABLE
     jne .n
     mov al, [es:si + 2]         ; AL = wx - the window's wx + 1, 0 - 2
@@ -109,7 +112,7 @@ tt_cell:
     mov [bz_nbr + bx], dl       ; (a floor written back too: a cell the
     mov [bz_nbr + bx + 2], dh   ; window KEEPS when it moves, bz_win9i, may
 .n:                             ; hold the void the centre's rule wrote)
-    add si, 32
+    inc bp
     loop .r
 .x:
     retf
@@ -118,9 +121,9 @@ tt_cell:
 ; refilled when it is in it
 tt_step:
     call tt_walk
-    xor bx, bx
 .l:
     jcxz .x
+    call tt_rec
     cmp byte [es:si], BZ_FK_TURNTABLE
     jne .nx
     mov al, [bz_nstep]          ; t of n + 1: 0 (a turn) or WAT (the warning)
@@ -139,7 +142,11 @@ tt_step:
     call tt_at
     cmp al, dl
     je .nx
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     call far [bz_fmkp]          ; its lane MARKED
+    pop bx
     mov al, [es:si + 2]         ; ...and in the window: the refill
     sub al, [bz_nwin]
     inc ax
@@ -152,7 +159,6 @@ tt_step:
     ja .nx
     mov byte [bz_fref], 1
 .nx:
-    add si, 32
     inc bx
     dec cx
     jmp short .l
@@ -200,13 +206,9 @@ tt_at:
     pop cx
     ret
 
-; -> ES:SI the course's first record, CX the records.  Preserves all else.
-tt_walk:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    ret
+    BZ_FWALKA tt_walk
+    BZ_FREC tt_rec, bx
+    BZ_FREC tt_recp, bp
 
 %if BZN_C != 16
  %error "the window's centre is its fifth cell (BZN_C 16): tt_cell's compare"

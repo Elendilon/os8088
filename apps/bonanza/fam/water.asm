@@ -45,6 +45,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 WA_IN       equ 1               ; the slot's bytes
 WA_HTHR     equ 2
@@ -77,16 +78,17 @@ WR_ALWAYS   equ 2
 wa_reset:
     call wa_slot
     xor dx, dx
-    call wa_walk
+    call wa_walk                ; (the family's own records: 130.25.6.10)
 .l:
     jcxz .x
+    call wa_lrec
     cmp byte [es:si], BZ_FK_WATER
     jne .n
     test byte [es:si + WA_RIP], WR_ALWAYS
     jz .n
     inc dx
 .n:
-    add si, 32
+    inc bx
     dec cx
     jmp short .l
 .x:
@@ -96,22 +98,25 @@ wa_reset:
 ; CELL: the window's water cells for this ball, then the centre's rules
 wa_cell:
     call wa_slot                ; DI = the slot
-%if BZ_WA_FBSH                  ; BP = rubber's and glass's floor under the
-                                ; top, half units: the bob's phase (the top,
-                                ; or the float line; SPEC.md 130.36.10)
-    mov al, [bz_nstep]
-    mov cl, BZ_WA_FBSH
+    call wa_walk                ; ES = the course, BP its list, CL its count
+    mov bp, bx                  ; (a byte: 255 props at most)
+%if BZ_WA_FBSH                  ; CH = rubber's and glass's floor under the
+    mov al, [bz_nstep]          ; top, half units: the bob's phase (the top,
+    mov ch, BZ_WA_FBSH          ; or the float line; SPEC.md 130.36.10)
+    xchg cl, ch
     shr al, cl
-    and ax, 1
-    mov bp, ax
+    xchg cl, ch
+    and al, 1
+    mov ch, al
 %else
-    mov bp, 1
+    mov ch, 1
 %endif
-    call wa_walk                ; ES:SI the records, CX their count
     xor dx, dx                  ; DX = the centre's element's record, 0 none
     and byte [di + WA_IN], 1    ; (bit 1: a water cell in the window, below)
-    jcxz .done
+    or cl, cl
+    jz .done
 .r:
+    call wa_recp
     cmp byte [es:si], BZ_FK_WATER
     jne .n
     mov al, [es:si + 2]         ; AL = wx - the window's wx + 1, 0 - 2
@@ -131,8 +136,8 @@ wa_cell:
     xor bh, bh
     shl bx, 1
     shl bx, 1
-    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less BP
-    sub ax, bp                  ; (SPEC.md 130.36.10) ...
+    mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less CH
+    sub al, ch                  ; (SPEC.md 130.36.10) ...
     or byte [di + WA_IN], 2
     cmp byte [bz_mat], BZ_MAT_STEEL
     jne .h
@@ -143,8 +148,9 @@ wa_cell:
     jne .n
     mov dx, si
 .n:
-    add si, 32
-    loop .r
+    inc bp
+    dec cl
+    jnz .r
 .done:
     xor bl, bl                  ; BL = the new ACTIVE ripple (0 none)
     or dx, dx
@@ -302,16 +308,19 @@ wa_step:
     cmp byte [di + WA_NALW], 0  ; every ALWAYS ripple flips
     je .ac
     call wa_walk
-    xor bx, bx
 .wl:
     jcxz .ac
+    call wa_lrec
     cmp byte [es:si], BZ_FK_WATER
     jne .wn
     test byte [es:si + WA_RIP], WR_ALWAYS
     jz .wn
+    push bx
+    mov bl, [bx]                ; (its element: the list's byte)
+    xor bh, bh
     call far [bz_fmkp]
+    pop bx
 .wn:
-    add si, 32
     inc bx
     dec cx
     jmp short .wl
@@ -354,13 +363,9 @@ wa_pose:
 .x:
     retf
 
-; -> ES:SI the course's first record, CX the records.  Preserves all else.
-wa_walk:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    ret
+    BZ_FWALK wa_walk
+    BZ_FREC wa_lrec, bx
+    BZ_FREC wa_recp, bp
 
 ; BX = an element -> ES:SI its record.  Preserves all else.
 wa_rec:

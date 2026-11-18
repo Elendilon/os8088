@@ -272121,6 +272121,23 @@ the skip's kinds, three taken jumps) - item 6 below.
    camera's pans fall on different frames); the per-frame means are the
    measure. The labs-free tree of item 7 (a428af6d0) was 17,604 a frame.
 
+11. **(the owner, 2026-11-18) A mark off the walk's slice is no mark.**
+   `bz_fmark` (130.25.6.3) marked a lane and made the next walk wherever the
+   lane was: a popspike or a timed bridge flipping off the screen woke a
+   walk that then found nothing in its slice to draw. A lane outside the
+   slice `[bz_lr0, bz_lr1)` is now neither marked nor makes the walk
+   (`bz_fm1`, for a lone element and for each lane a group member lists).
+   Nothing is lost: a lane off the slice is off the range, and ENTERING the
+   range marks it (item 6's "any lane" row) - the slice moves only with the
+   range, and the lanes it takes in are the ones whose rows did not meet the
+   last range, which every lane off the slice is. At a play's start the
+   slice is empty and `bz_pread` marks every lane. `bonanzaphys`'s unicorn
+   half now sets the slice to every lane (so a pose change must still be
+   marked), checks that a lane off the slice is never marked, and plays
+   `tt-rest` with the slice EMPTY: nothing marked, the walk never woken; red
+   `ttslice` (the slice test NOPed) goes red there. MEASURED with
+   130.25.6.10.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
@@ -276067,6 +276084,63 @@ after the sum, in the shipped build (no `PKG_MEGA` arm: the routine is
 every kernel's): BONANZA's image **+1 byte** (47,096 -> 47,097), bss
 unchanged. SEEN after it: `bonanzamega` green, MILL's route and the ride
 replayed on the Hercules to the model's end.
+
+##### 130.25.6.10 Each family walks its OWN records (the owner, 2026-11-18)
+
+*"Props that are not on screen, or even if they are on screen are not
+animating, should cost almost nothing."* The family hooks that walk the
+course's props walked EVERY record and tested its kind: on PLAYGROUND's 66
+records SPIKE's STEP and GATE's STEP were 10.0% and 7.8% of a VGA 8088's
+time in the play demo (`tools/bzprof.py --demo play`), for a handful of
+popspikes and timed bridges.
+
+**The lists.** At a play's start `bz_flist` (`bz_pinit`, after `bz_obuild`
+and before the families' RESET) writes, for each slot, the INDEXES of the
+course's records whose kind lies in the slot's part's run (its +9 count, +10
+first kind) into `bz_flst` (a byte each, `BZ_PROPALL` of them), in record
+order, and `bz_fls` the list's start and count (2 bytes a slot). The runs are
+disjoint, so a record is on one list at most and the lists together are never
+longer than the prop table. A hook walks its list through `fam/bzfwalk.inc`
+(`BZ_FWALK`: DI the slot's bytes -> ES the course, BX the list, CX its count;
+`BZ_FWALKA` from the hook's AL; `BZ_FREC`: the index at [BX] or [BP] -> SI its
+record) and never reads a record of another family's kind. The ORDER is the
+records', so a walk that keeps the last of several (SPIKE's torn membrane)
+keeps the same one.
+
+**What walks a list**: SPIKE's RESET, CELL and STEP; GATE's RESET, CONTACT,
+STEP (the channel art and the timed bridges) and CELL; TURNTABLE's CELL and
+STEP; WATER's RESET, CELL and STEP; SEESAW's RESET, CELL, STEP, WEIGHT and
+MARK; MAGNET's scan; GLASS's CELL; ARCHWAY's CELL. WIND already kept a list of
+its own (130.34); GLASS's STEP walks its counting range (130.25.18.2);
+PICKUPS' and the PROBE's RESETs still walk every record (once a play and a
+respawn).
+
+**State**: none moves. Every walk visits the same records it visited
+before, in the same order, minus records it skipped by kind, so the slots,
+`bz_fst`, the window and the poses are the full walks', step for step.
+`bonanzaphys --check` holds every family scenario guest == model at every
+step, and its red arms are re-anchored on the new text (`wafloat`,
+`waalw`).
+
+**MEASURED** (MartyPC, the PLAYGROUND demo `bzprof --demo play`, 20 guest
+seconds, with 130.19.10 item 11 beside it; the base 4512c89fe):
+
+| | VGA 8088 (`os8088_xt_vga`) before -> after | CGA 5150 before -> after |
+|---|---|---|
+| frames a second (mean) | 30.2 -> **36.5** (the 35 Hz camera's cap) | 52.3 -> **59.2** (of 60) |
+| physics steps a second | 55.8 -> 55.7 | 55.8 -> 55.7 |
+| `sp_step` | 10.0% -> 0.9% | 9.0% -> 1.4% |
+| `gt_step` | 7.8% -> 1.3% | 8.4% -> under 1.2% (off the top 20) |
+| `bz_vr` (waiting for the retrace: the time left over) | 22.7% -> 32.6% | 20.2% -> 29.5% |
+
+**Bytes**: `BONANZA.O88`'s image +122 (`bz_flist`, `bz_fm1`) and bss +96
+(`bz_fls` 30, `bz_flst` 66): image + bss 64,960 of `APP_MAX_SIZE`'s 65,024,
+**64 bytes left**. The parts +455 in all (spike 559 -> 628, gate 630 -> 697,
+turntable 315 -> 371, water 684 -> 752, seesaw 824 -> 886, magnet 408 ->
+449, glass 701 -> 751, archway 233 -> 275: each its walk and record helpers),
+their ceilings +30 paragraphs (`FAMILIES`' paras: spike 40, gate 44,
+turntable 24, water 47, seesaw 56, magnet 29, glass 48, archway 18). No
+kernel byte.
 
 #### 130.25.7 Per-play state and resets (story 9.2)
 

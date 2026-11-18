@@ -23,6 +23,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 GL_BROKEN   equ 0FFh
 GL_PARTNER  equ 18              ; EXPLORATORY (SPEC.md 130.25.18.1): a vanishing
@@ -258,12 +259,11 @@ gl_cell:
     call gl_slot
     cmp byte [di + 1], 0
     je .x
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    xor bx, bx
+    call gl_walk                ; the family's own records (130.25.6.10):
+    mov bp, bx                  ; BP the list, CX its count
+    jcxz .x
 .r:
+    call gl_recp
     cmp byte [es:si], BZ_FK_CRACK
     jne .n
     mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2 (the
@@ -284,10 +284,12 @@ gl_cell:
     shl dx, 1
     shl dx, 1
     mov di, dx
-    push si
-    call gl_byte                ; (preserves DI)
-    cmp byte [si], GL_BROKEN
-    pop si
+    mov bl, [es:si + BZP_FSB]   ; its byte (gl_byte's, inline)
+    xor bh, bh
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    cmp byte [bz_fst + bx], GL_BROKEN
     jne .n
     mov al, [bz_nbr + di + 2]
     and al, 15
@@ -296,8 +298,7 @@ gl_cell:
     sub byte [bz_nbr + di], 6
     mov byte [bz_nbr + di + 2], 0
 .n:
-    add si, 32
-    inc bx
+    inc bp
     loop .r
 .x:
     retf
@@ -326,6 +327,9 @@ gl_mark:
 .o:
     pop bx
     ret
+
+    BZ_FWALK gl_walk
+    BZ_FREC gl_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 gl_slot:
