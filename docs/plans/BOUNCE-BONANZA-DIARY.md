@@ -4513,3 +4513,56 @@ hardly help it"), glass x1.25 ("or it's an uncontrollable rocket").
 bonanzadisk`, `--selfcheck` section `boost` (22 items, six model red arms
 red), `bp_host` (twelve scenes equal, seven red arms red). **Not run**: soak
 rows, `test-full`, a MartyPC look (the art did not change).
+
+## 2026-11-18 (VGA, V0: what the cards do when the picture moves)
+
+The owner, on the plan for a VGA arm (docs/plans/BOUNCE-BONANZA-VGA.md):
+mode 0Dh, LATTICE by pixel pans, 70 or 35 Hz on a short test, this arm as
+H5's replacement, four colours, and *"VGA can target a higher spec system if
+it needs to (V20+), though if it works on 4.77 that's great"*. Then:
+*"check the realdmg crtc branch. It ran multiple real pc tests. Note that one
+ended up jerky: it kept skipping whole sets of scrolls."* That branch was
+`gameboy-CRTC-scrolling-deferred`, RealDMG's (named RealDMG there), and its field probe became V0.
+
+- **The probe came over, not a new one.** `tests/vgaprobe/` flips between two
+  pairs that draw one picture, (page A, pan 4) and (page B, pan 0), at a
+  chosen phase after vsync. It needed a window class (this tree's windows
+  take one now), a split ORDER (the start at the phase, the panning at the
+  next rise: the arm's), a COST page and a null measurement.
+- **The instrument was wrong first.** The first sweep called every phase
+  "shimmer"; the second called every split phase still. The truth: a pair
+  taken a frame apart does not shimmer, it stands still 4 px out. The row
+  reads where the probe's vertical line SITS, not whether frames differ.
+- **86Box's Paradise cannot pan.** The plan put the 5150 #2's PVGA1A into the
+  new XT profiles. Held still, (A, pan 4) showed A unpanned: this 86Box's
+  `vid_paradise.c` sets `hoverride`, which zeroes the panning at every frame
+  top. It does not wrap at 64 KB either. The profiles carry an OTI-067,
+  which does both, and the real PVGA1A is the field run's alone.
+- **Two adapter bugs on the way.** A row's "vga" always became an OTI-067
+  whatever profile it named (`$OS88_86BOX_CARD` now, and a profile's own VGA
+  kept), and `necv20` was missing from the XT CPU list, so the V20 machine
+  was given a 1.2 MB drive and GLaBIOS answered "Disk Boot Fail. You
+  monster."
+- **Two red arms that were not red.** "Late" (the start written straight
+  after the rise) and "margin" (written in the last lines before it) both
+  stayed green on the emulators: MartyPC and 86Box take the start AT the
+  rise, so a start after it simply waits for the next one with its panning.
+  Only the real chip, which takes it by blanking, punishes the margin. The
+  red that is red everywhere swaps the halves: the panning at the phase,
+  the start at the rise.
+- **The stray failures were an interrupt.** MartyPC missed once at line 423,
+  inside the window; 86Box's 4.77 MHz XT missed once a run at a different
+  phase. The probe waited for the rise with interrupts on and checked the
+  keyboard between a start and its rise: an IRQ0 at the rise put the
+  panning past the frame's top. With the rise and its panning under CLI and
+  the keys after them: none in nine runs. So the arm takes its rise that way
+  every frame, not only for a box at row 0.
+- **The numbers that decide** (MartyPC's 8088, net): a row-line from planar
+  blocks 6,068 clocks, converted from 2bpp 13,516, so the blocks get a
+  planar copy. A 4-word box line converted the plain way is 1,376: a ball
+  box would be half a 70 Hz refresh. V1's box writer has a bar, 500 a line.
+
+**Tested**: `make` (the fast tier), `make vgaprobe`; `tests/vgaprobe.py` on
+MartyPC (three greens, `--red swap` and `--red split` red) and on 86Box's
+OTI-067 on the 8088 XT (two greens), the V20 and the mr286 (green, `--red
+swap` red). **Not run**: soak rows beyond these, `test-full`, the field.

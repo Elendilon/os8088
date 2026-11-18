@@ -82,9 +82,9 @@ as in SPEC.md 128.18.
      second opinion on the latch order and the wrap, and the
      higher-spec machine the owner allows (section 10).
 
-8. **RealBoy has already scrolled a VGA with the CRTC, on real iron, and
-   dropped it** (branch `gameboy-CRTC-scrolling-deferred`, REALBOY-SPEC
-   15.3-15.4; section 12 here). Three of its lessons bind this plan:
+8. **RealDMG has already scrolled a VGA with the CRTC, on real iron, and
+   dropped it** (branch `gameboy-CRTC-scrolling-deferred`, REALDMG-SPEC
+   15.3, and REALBOY-SPEC 15.4 on that branch; section 12 here). Three of its lessons bind this plan:
    - **The PVGA1A applies the pel pan LIVE, on every line.** Its
      `tests/vgaprobe/` measured this in the field. So the start address
      must be written before vertical **blanking** begins, not merely before
@@ -100,7 +100,7 @@ as in SPEC.md 128.18.
      such gap (6, rule 4).
 
 **Recommendation:** build it in five waves, V0-V4 (section 9). **V0 is a
-probe and the go/no-go.** RealBoy's `tests/vgaprobe/` already answered the
+probe and the go/no-go.** RealDMG's `tests/vgaprobe/` already answered the
 real PVGA1A for two of the three things the design rests on: the 64 KB
 wrap, and when the start address and pel pan are taken. V0 brings it over
 and runs it on MartyPC and the 86Box profiles, so each instrument's model
@@ -199,10 +199,14 @@ LATTICE never exceeds.
 
 The one fact this rests on is that the VGA's CRTC address counter **wraps at
 64 KB in 0Dh**, so a window that straddles the wrap reads continuously.
-- **The PVGA1A wraps: MEASURED in the field** by RealBoy's VGAPROBE (its
-  W test, on the Victory's PVGA1A; REALBOY-PLAN's scroll round: "The
+- **The PVGA1A wraps: MEASURED in the field** by RealDMG's VGAPROBE (its
+  W test, on the Victory's PVGA1A; REALDMG-PLAN's scroll round: "The
   address wraps at 64KB"). That is the 5150 #2's chip.
-- MartyPC and 86Box are checked in V0 with the same probe.
+- **MartyPC and 86Box's OTI-067 wrap: MEASURED in V0** (section 13), with
+  the same probe.
+- **86Box's PVGA1A does NOT wrap** at this pin: it reads on past 64 KB
+  (MEASURED in V0). That is the emulation, not the chip, and it is one of
+  two reasons 86Box's Paradise is not used for this work (section 13).
 - Some SVGAs do not wrap (the probe's own note); a card that fails W is
   what the fallback is for.
 - **Fallback if a card does not wrap:** re-home the window before it
@@ -213,31 +217,39 @@ The one fact this rests on is that the VGA's CRTC address counter **wraps at
 ### 2.4 The latch order: three models, one order that suits all of them
 
 A scroll writes two things: the start address (CR0Ch/0Dh) and the pel pan
-(AC 13h). The cards in reach take them at different moments:
+(AC 13h). The cards in reach take them at different moments. **V0 measured
+the emulators' columns** (section 13):
 
 | card | start address taken | pel pan taken | source |
 |---|---|---|---|
-| **PVGA1A (real)** | by the start of vertical BLANKING | **LIVE, on every line**: a write during display tears below the beam | **MEASURED**, VGAPROBE's sweep on the Victory (REALBOY-PLAN, scroll round) |
-| 86Box's PVGA1A | at vsync start | at the next frame's top | vgaprobe's header, REALBOY-SPEC 15.4 |
-| QEMU | | at the retrace's end | REALBOY-SPEC 15.4 |
+| **PVGA1A (real)** | by the start of vertical BLANKING | **LIVE, on every line**: a write during display tears below the beam | **MEASURED**, VGAPROBE's sweep on the Victory (REALDMG-PLAN, scroll round) |
+| **MartyPC** | **at the vsync rise**: the pair written together just after it is a frame apart | **LIVE**: the pair written together during the display tears below the beam | **MEASURED**, V0 |
+| **86Box, OTI-067** | **at the vsync rise** (as MartyPC) | **at the frame's top** (`svga_poll` at `vc == vtotal`) | **MEASURED**, V0, and its source |
+| 86Box, PVGA1A | | **never**: `vid_paradise.c` sets `hoverride`, which zeroes the pan at every frame top; nor does it wrap | **MEASURED**, V0, and its source |
+| QEMU | | at the retrace's end | REALBOY-SPEC 15.4 on that branch |
 | IBM VGA (Abrash), Lemmings' experience | at the retrace | at once | `apps/lemmings/lemblit.inc:434` |
-| MartyPC | ? | models 0Dh's pan (SPEC.md 102.7.5); when is V0's question | |
+
+**Every card in reach takes the START by the vsync rise, the real chip as
+early as blanking**, and the PAN either live or at the frame's top.
 
 The probe's summary for the real chip: a start and a pan written TOGETHER
 land on one frame only if written **after the last displayed line and
 before vertical blanking starts**. In standard 0Dh timing (display ends at
 scanline 400, blanking at 406, sync at 412) that is **6 scanlines, about
-190 µs**. RealBoy retimed its frame to get a 2.9 ms border, then wrote the
+190 µs**. RealDMG retimed its frame to get a 2.9 ms border, then wrote the
 flip from the foreground when a clock said the beam was there.
 
 **This arm does not write them together.** It splits them so that each
 lands well inside its own safe interval on every model above:
 
-1. **The start address, during display**, at least `BZ_VSMARG` before the
-   predicted start of blanking. This comes after the rows and the column,
-   both off-glass (2.2). On every model it is taken at the next blanking,
-   sync or retrace, never sooner. It changes nothing on the glass until
-   then, because it is the whole frame's origin, not a line's.
+1. **The start address, at least `BZ_VSMARG` before the display's end**.
+   This comes after the rows and the column, both off-glass (2.2). Every
+   card in reach takes it at the next display's end, never sooner. It
+   changes nothing on the glass until then, because it is the whole frame's
+   origin, not a line's. V0: the split order stood still at every phase
+   from the first line after the rise to 12 lines short of the display's
+   end, on MartyPC and on 86Box's OTI-067 on all three machines, in every
+   run.
 2. **The edge**: wait for the retrace's rising edge ("out of it, then into
    it", `FSXW_VSYNC`'s two phases), not the level `bz_vr` tests today.
 3. **At the rise, the pel pan** (AC 13h with bit 5 set so the screen stays
@@ -249,17 +261,37 @@ lands well inside its own safe interval on every model above:
 4. The boxes, in raster order (128.2 rule 4's beam race, against the VGA's
    beam words, 4.2).
 
-**The deadline is BLANKING, not the retrace** (the probe's finding). The
-loop already times the retrace's rise off the PIT (`bz_vedge`), and the
-period is known, so the start of blanking is predicted as the next rise
-less 6 scanlines.
-- If step 1 would land later than that, less the margin, the arm instead
-  waits for the rise, lets the old frame stand for one more refresh, and
-  then does 1-3 in the next. That is a counted miss and never a shear.
-- 3DAh is read once as a cross-check, as RealBoy's `rw_pgtry` does: bit 3
-  set means the frame is already too late.
-- `BZ_VSMARG` starts at 12 scanlines (about 380 µs, 450 PIT counts,
-  ESTIMATED) and V0 sets it.
+**The deadline is the DISPLAY'S END, not the retrace** (the field probe's
+finding, and V0's on both emulators). The loop already times the
+retrace's rise off the PIT (`bz_vedge`), and the period is known, so the
+display's end is predicted as the next rise less the bottom blank
+(449 - 37 - 400 = 12 scanlines in standard 0Dh timing, MEASURED: the rise to
+the first displayed line is 1,167-1,176 µs on MartyPC and 1,172 µs on
+86Box).
+- The one hazard is the band between the display's end and the rise. On
+  the real PVGA1A a start written there is taken a frame after the panning
+  that follows it (the field probe). The emulators take the start later, at
+  the rise, so they cannot redden this band; but every one of them still
+  misbehaved somewhere inside it (MartyPC and 86Box, single phases at lines
+  439-445 of the 449), and never once outside it.
+- If step 1 would land in that band, the arm instead waits for the rise,
+  lets the old frame stand for one more refresh, then writes the start (it
+  is safe from the rise on: V0 found a start written just after the rise is
+  taken at the next display's end, with the panning that follows) and does
+  2 and 3 at the next rise. That is a counted miss and never a shear.
+- 3DAh is read once as a cross-check, as RealDMG's `rw_pgtry` does: bit 3
+  set means the frame is already past the rise.
+- **`BZ_VSMARG` is 12 scanlines** (381 µs, 455 PIT counts) before the
+  display's end: 18 scanlines (570 µs) clear of the real chip's latch at
+  blanking, and of every failure V0 saw.
+- **The rise and the panning are taken with interrupts OFF, always** (a V0
+  finding). With them on, an IRQ0 landing at the rise put the panning past
+  the frame's top: a stray failure INSIDE the window on MartyPC (one run in
+  four, at line 423) and on 86Box's 4.77 MHz XT (one in every run, at a
+  different phase each time). With the rise and its panning taken under
+  CLI, none in nine runs. SPEC.md 128.4 does this on the CGA only when a box
+  sits at window row 0; on VGA it is every frame. The cost is the edge wait
+  itself, which is idle, plus about 30 clocks of panning.
 
 **The pan must not be written in the display either**, on a live-pan card:
 that tears the picture below the beam. Step 3's position, right at the
@@ -293,8 +325,8 @@ the game's drawing code and all of its tests' oracles.
 - The box writer converts each line into a small line buffer and writes it
   in two passes: map mask 1 for plane 0, then map mask 2 for plane 1.
 
-**The course's blocks need a decision between two shapes; V0 measures
-them.**
+**The course's blocks need a decision between two shapes; V0 measured
+them and took (b).**
 - **(a) Convert at write.** Rows, the column and the wheel go through the
   same table. This costs no memory. A row is 41 words, about 3k clocks of
   conversion a line **(ESTIMATED)**.
@@ -302,8 +334,11 @@ them.**
   ones (which compose still reads), at 16 bytes a block, so at most 16 KB.
   It is a claim dropped with the bracket, like the course part. Rows and
   the column then copy bytes straight through.
-- The target is 640 KB, so (b)'s claim is affordable. (b) is the default
-  if V0 shows conversion costs more than a frame's row budget.
+- The target is 640 KB, so (b)'s claim is affordable.
+- **DECIDED (V0): (b), the planar copy.** On MartyPC's 8088 a 41-cell
+  row-line costs **6,068 clocks from planar blocks against 13,516
+  converted**, net of the measurement (section 13): 2.2x. A one-line step a
+  frame is then 6.1k of the 68.1k refresh rather than 13.5k.
 
 **The palette.** Each course's four CGA colours (`bz_cpals`, 128.19) map to
 EGA 6-bit values in the attribute controller's registers 0-3:
@@ -402,9 +437,9 @@ rhythm.
    physics steps.** The steps come at the FASTTICK's 54.6 Hz and the
    display runs at 70 (or 35). At 70 Hz, 0.78 steps fall in a refresh, so
    about one refresh in five shows no step, and the ball and a smoothly
-   panning window would visibly stutter. RealBoy saw exactly this, 60 Hz
+   panning window would visibly stutter. RealDMG saw exactly this, 60 Hz
    content on a 70 Hz display: "a steady picture with a MICROSTUTTER"
-   (REALBOY-SPEC 15.4). It cured it by retiming the refresh to the game's
+   (REALBOY-SPEC 15.4 on that branch). It cured it by retiming the refresh to the game's
    60 Hz. Retiming to 54.6 Hz is not on offer: it is below what a VGA
    monitor is expected to accept.
    - So the drawn position is
@@ -417,19 +452,19 @@ rhythm.
      on the CGA. The drawing lags it by at most one step (18.3 ms).
    - The CGA and Hercules arms are unchanged. Their steps are 8 px and 2-4
      lines, so the beat does not show there.
-4. **The flip never depends on luck.** RealBoy's second scheme wrote its
+4. **The flip never depends on luck.** RealDMG's second scheme wrote its
    flip only when the foreground happened to look while the beam was in a
    2.9 ms border. Whenever one frame ran long (a key's work, a jump), its
    border fell inside the next draw, and the next, until the phase drifted
    back. The owner's field run saw the picture held for **100-300 ms at
-   each key press**: whole runs of scrolls skipped. RealBoy refused to wait
+   each key press**: whole runs of scrolls skipped. RealDMG refused to wait
    for the retrace because the wait cost it ~7 ms on every draw.
    - BONANZA's loop is already paced by **waiting** for the retrace (128.4),
      and the wait's time is not wasted: the wheel and the early step use
      it. So a long frame costs exactly one refresh, and the next frame is
      back on the edge.
    - The wait is bounded (`bz_vrlim`), and a timeout is counted.
-   - The pace row (section 8) asserts the RealBoy signature never appears:
+   - The pace row (section 8) asserts the RealDMG signature never appears:
      over a held pan with keys tapped, **no gap between two flips is longer
      than N + 1 refreshes**.
 
@@ -502,7 +537,7 @@ The tests' ring decoder is hard-coded to the 6845's banks today
 (`tests/bonanza_ring.py`), so V3 adds the planar decoder beside it rather
 than generalising it.
 
-**The probe (V0)** is RealBoy's `tests/vgaprobe/`, brought over and
+**The probe (V0)** is RealDMG's `tests/vgaprobe/`, brought over and
 extended (section 9, V0). It is a capability package in `tests/`, not a
 branch in BONANZA. In 0Dh, on MartyPC, QEMU and 86Box, it shows:
 - (1) a window straddling the 64 KB wrap, read back from the rendered frame;
@@ -562,7 +597,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 
 ### V0: the probe and the go/no-go (S)
 
-- [ ] **Bring `tests/vgaprobe/` over** from `gameboy-CRTC-scrolling-deferred`
+- [x] **Bring `tests/vgaprobe/` over** from `gameboy-CRTC-scrolling-deferred`
       (with its `make vgaprobe` rule), rather than writing a new probe. It
       already asks the latch timing (the phase sweep), the 64 KB wrap (W)
       and the frame's timing (T). Add to it:
@@ -570,23 +605,22 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
     section 3, and a box line, on the 8088;
   - the split order of 2.4 as a fourth sweep mode, which must stand still
     at every phase from display to the rise.
-- [ ] Run its sweep on MartyPC `os8088_xt_vga` and on the 86Box profiles,
+- [x] Run its sweep on MartyPC `os8088_xt_vga` and on the 86Box profiles,
       and record each one's model in 2.4's table, so every later row knows
       which model it is testing. The real PVGA1A's answer is already in.
-- [ ] The two 86Box profiles, `vm/xt-vga` and `vm/xt-v20-vga` (section 8),
-      each booted to the desktop once.
-- [ ] Results written into this file:
-  - [ ] the wrap, on MartyPC and 86Box (the real PVGA1A: wraps, MEASURED);
-  - [ ] the latch models, and `BZ_VSMARG`;
-  - [ ] the byte/row/box costs;
-  - [ ] `wb0`.
-- [ ] Decide `P` (42 or 44) and the block shape (a or b).
-- [ ] Go/no-go on the design. A failed wrap means the re-home fallback
-      (2.3). A shear MartyPC cannot show means the field run carries that
-      answer alone.
-- *Check*: the probe's own row, red-tested: the pair written together in
-  the display must tear on a live-pan model, and must shimmer on any model
-  when written after blanking.
+- [x] The two 86Box profiles, `vm/xt-vga` and `vm/xt-v20-vga` (section 8),
+      each booted to the desktop once. **With an OTI-067, not the PVGA1A**:
+      86Box's Paradise neither pans nor wraps (section 13).
+- [x] Results written into this file (section 13):
+  - [x] the wrap, on MartyPC and 86Box (the real PVGA1A: wraps, MEASURED);
+  - [x] the latch models, and `BZ_VSMARG`;
+  - [x] the byte/row/box costs;
+  - [x] `wb0`.
+- [x] Decide `P` (42 or 44) and the block shape (a or b): **42 and (b)**.
+- [x] Go/no-go on the design: **GO** (section 13).
+- *Check*: the probe's own row, red-tested: `vgaprobe` (MartyPC) and
+  `box-vgaprobe`, `box-vgaprobe-v20`, `box-vgaprobe-286` (86Box), each seen
+  red with `--red swap`, and MartyPC's with `--red split` too.
 
 ### V1: the arm, playable at today's steps (M-L)
 
@@ -693,20 +727,21 @@ colours as the default.
   If D1 is taken, 2.8's row gets a pointer here.
 - **A 54.6 Hz simulation on a 70 Hz display.** Interpolation (6, rule 3)
   is the answer. If a judder survives it on the glass, the fallback is
-  RealBoy's: retime the refresh. 60 Hz at 525 lines makes 1.10 steps a
+  RealDMG's: retime the refresh. 60 Hz at 525 lines makes 1.10 steps a
   refresh, a smaller beat than 70's 0.78, but still a beat.
 
 ---
 
-## 12. What RealBoy's CRTC round taught (branch `gameboy-CRTC-scrolling-deferred`)
+## 12. What RealDMG's CRTC round taught (branch `gameboy-CRTC-scrolling-deferred`)
 
-RealBoy (the Game Boy emulator package) followed a game's scroll with the
+RealDMG (the Game Boy emulator package) followed a game's scroll with the
 VGA's CRTC twice. Both attempts drew the right picture, were run on the
 owner's hardware, and were refused or deferred. Its record is
-REALBOY-SPEC 15.3 and 15.4 and REALBOY-PLAN's scroll round, all on that
-branch.
+REALDMG-SPEC 15.3 and REALDMG-PLAN's scroll round (both in this tree) and
+REALBOY-SPEC 15.4 (only on that branch, where the package is still called
+RealBoy).
 
-| RealBoy | what happened | BONANZA's VGA arm |
+| RealDMG | what happened | BONANZA's VGA arm |
 |---|---|---|
 | **15.3: one page, start and pan follow SCX/SCY** | Mario and the status bar **jittered by the scroll's step every draw**. The lines were composed for the NEW origin while the card still showed the OLD one, on 86Box and on the Victory alike | Not this arm's shape. The world is stored **sheared**: a cell's VRAM address never depends on the scroll. Rows and the column are written off-glass, and the boxes only after the edge, so nothing is ever drawn for an origin the card is not showing |
 | 15.3: the cure needed a retrace wait, ~7 ms a draw, more than the scroll saved on a 286 | refused on cost | BONANZA already waits for the retrace every frame, and spends that time on the wheel and the early step (128.4) |
@@ -716,7 +751,86 @@ branch.
 | Pre-shifted copies; "motion reuse" of lines | refused on memory and on cost on a 286 | not needed: the sheared ring writes only entering rows and the column |
 | The VGA retrace interrupt | "not in 86Box, varies by clone. Not generic" | not used. The edge is polled, as everywhere in this tree |
 
-The difference that matters: RealBoy had to **follow** a game it did not
+The difference that matters: RealDMG had to **follow** a game it did not
 write, whose frame takes longer than a refresh and whose scroll moves
 under it. BONANZA **owns** its frame: it chooses when to scroll, by how
 much, and in what order its writes happen.
+
+---
+
+## 13. V0's results (2026-11-18)
+
+The probe is RealDMG's `tests/vgaprobe/`, brought over, given a split
+order (O), a cost page (C) and a class for this tree's windows, and driven
+by `tests/vgaprobe.py` (the `vgaprobe` row; its 86Box ports
+`box-vgaprobe`, `-v20`, `-286`). Each phase is judged off four consecutive
+completed frames by where the probe's vertical line sits: pixel 6 means the
+start and the panning came from one pair, pixel 2 from different pairs.
+**A pair taken a frame apart does not shimmer**, as the probe's on-screen
+legend says: (A, pan 0) and (B, pan 4) draw one picture, 4 pixels out, so
+the row reads the line's POSITION, not the frames' difference.
+
+### 13.1 The machines
+
+| | CPU | card | BIOS |
+|---|---|---|---|
+| MartyPC `os8088_xt_vga` | 8088, 4.77 MHz, cycle-exact | MartyPC's VGA | GLaBIOS + BOCHS VGABIOS |
+| 86Box `vm/xt-vga` (new) | 8088, 4.77 MHz | OTI-067 | GLaBIOS + Oak's |
+| 86Box `vm/xt-v20-vga` (new) | V20, 10 MHz | OTI-067 | GLaBIOS + Oak's |
+| 86Box `at286-port` | 286, 16 MHz (the owner's mr286) | OTI-067 | MR BIOS + Oak's |
+
+**86Box's PVGA1A was the plan and cannot be used**: at this pin
+`vid_paradise.c` sets `svga->hoverride`, which zeroes the panning at every
+frame's top, so it never pans; and in mode 0Dh it reads past 64 KB instead
+of wrapping (both MEASURED, the first also read off the source). The real
+PVGA1A does both, so the 5150 #2's own card is the field run's (V4) alone.
+`$OS88_86BOX_CARD` now names a card for a row, a name asking for a VGA
+keeps a `$OS88_86BOX_VM` profile's own, and the adapter knows a V20 profile
+is an XT (`necv20` was missing from its list: GLaBIOS said "Disk Boot Fail").
+
+### 13.2 What each machine does
+
+| | MartyPC | 86Box OTI-067 (all three) | real PVGA1A (field) |
+|---|---|---|---|
+| frame | 14,266 - 14,279 µs, **70.07 Hz** | 14,266 - 14,276 µs | |
+| vsync | 980 µs (31 scanlines: MartyPC's, not a VGA's 2) | 525 - 534 µs | |
+| rise to the first displayed line (`wb0`) | **1,166 - 1,176 µs**: 36.8 scanlines, **18.4 game lines** (PREDICTED 18) | 1,172 - 1,175 µs | |
+| start taken | at the vsync rise | at the vsync rise | by blanking |
+| panning taken | live | at the frame's top | live |
+| 64 KB wrap | **yes** | **yes** | yes |
+| split order, the rise to 12 lines short of the display's end | **still, every phase, every run** | **still, every phase, every run** | (V4) |
+| split order, the last 12 lines before the rise | single failures at 439 - 445 | single failures at 439 - 446 | fails by blanking |
+| together, in the display | tears below the beam | still | tears below the beam |
+
+### 13.3 Costs (CPU clocks, net of the measurement's own; the least of 16)
+
+| | 8088 4.77 (MartyPC) | 8088 4.77 (86Box) | V20 10 MHz (86Box) | 286 16 MHz (86Box) |
+|---|---|---|---|---|
+| a byte stored (`rep stosb`, 320) | **10.5** | 16.1 | 6.9 | 5.2 |
+| a byte moved from RAM (`rep movsb`, 320) | **18.3** | 23.6 | 9.3 | 5.0 |
+| a 41-cell row-line, PLANAR blocks | **6,068** | 6,540 | 2,488 | 1,312 |
+| the same, 2bpp converted | **13,516** | ~13,000 | 5,536 | 1,992 |
+| a 4-word box line converted (a call a word) | **1,376** | 1,328 | 596 | 208 |
+
+MartyPC is the 8088's truth for the CPU; its VGA bus is a floor (an 8-bit
+ISA VGA's wait states are not charged), so the field run's numbers will be
+higher. 86Box is not cycle-accurate, and its figures are relative only.
+
+### 13.4 What V0 decided, and what it hands V1
+
+- **GO.** The ring, the wrap and the split order hold on every instrument.
+- **P = 42**: one column a frame is all LATTICE asks, and nothing measured
+  argues for a wider gutter.
+- **Blocks: (b), a planar copy** (section 3): 2.2x cheaper a row-line.
+- **`BZ_VSMARG` = 12 scanlines** before the display's end, and **the rise
+  and its panning under CLI every frame** (2.4).
+- **The box writer is V1's risk.** Converted the plain way (a call a word),
+  a 24-line ball box is about **33k clocks on the 8088**, half a 70 Hz
+  refresh. V1 writes it unrolled, with no call and both tables inline,
+  against a bar of **500 clocks a 4-word line** (12k a box), measured with
+  the probe's method. If the bar cannot be met, the fallback is to compose
+  the box in planar form directly, which means a planar copy of the ball's
+  frames and masks as well (a later claim; the compose code changes with it).
+- **The 8088 will likely run at 35 Hz** (PREDICTED from the CGA arm's busy
+  time and the costs above; D7 accepts it). The V20 and the 286 have the
+  headroom for 70.

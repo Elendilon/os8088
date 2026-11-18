@@ -217,6 +217,13 @@ VMMFM := $(CURDIR)/vm/xt-mfm
 VMCGA := $(CURDIR)/vm/xt-cga
 VMHERC := $(CURDIR)/vm/xt-hercules
 VMEGA := $(CURDIR)/vm/xt-ega
+# The VGA XTs (docs/plans/BOUNCE-BONANZA-VGA.md V0): GLaBIOS (the 5150 #2's
+# BIOS) with an OTI-067 at 4.77 MHz, and the same with a V20 at 10 MHz - the
+# cheapest machine BONANZA's VGA arm is meant to hold 70 Hz on. NOT the
+# 5150 #2's PVGA1A: this 86Box's Paradise never pans (vid_paradise.c sets
+# hoverride) and does not wrap at 64KB, where the real chip does both
+VMXTVGA := $(CURDIR)/vm/xt-vga
+VMXTV20VGA := $(CURDIR)/vm/xt-v20-vga
 # The DUAL-DISPLAY machine (SPEC.md 39.12-39.19): the same XT with BOTH mono
 # cards in it, each on its own monitor window.
 VMMULTI := $(CURDIR)/vm/xt-multimon
@@ -2505,7 +2512,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
               drivers/thmpal/thmrows.inc apps/os88la.inc apps/os88ub.inc
 
 .PHONY: stkdiag kbddiag small emu mega kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
-        xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
+        xt-hercules xt-ega xt-vga xt-v20-vga xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
         286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium pentium-pciether pentium-ess \
@@ -6660,15 +6667,23 @@ $(BUILD)/xmtest.img: $(BUILD)/xmtest.o88 tools/os88disk.py
 # VGAPROBE (tests/vgaprobe/vgaprobe.asm): a FIELD instrument for RealDMG's
 # scrolling research - when a real VGA latches the start address and the pel
 # panning, whether its CRTC wraps at 64KB, and the frame's timing. On demand:
-# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB floppy with it.
+# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB and a 360KB floppy
+# with it. BONANZA's VGA arm reuses it (docs/plans/BOUNCE-BONANZA-VGA.md V0:
+# the split order, the cost page); tests/vgaprobe.py is its row.
 .PHONY: vgaprobe
-vgaprobe: $(BUILD)/vgaprobe.img
+vgaprobe: $(BUILD)/vgaprobe.img $(BUILD)/vgaprobe360.img
 $(BUILD)/vgaprobe.bin: tests/vgaprobe/vgaprobe.asm apps/os88api.inc apps/os88pit.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/vgaprobe/vgaprobe.asm
 $(BUILD)/vgaprobe.o88: $(BUILD)/vgaprobe.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/vgaprobe.bin -o $@
 $(BUILD)/vgaprobe.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/vgaprobe.o88
+# ...and at 360KB, for an XT (vm/xt-vga, MartyPC's os8088_xt_vga, the 5150
+# #2) - BONANZA's VGA arm's V0 drives it there (tests/vgaprobe.py,
+# docs/plans/BOUNCE-BONANZA-VGA.md)
+$(BUILD)/vgaprobe360.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/vgaprobe.o88
+	@python3 tools/os88disk.py --verify $@
 
 $(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
@@ -19526,6 +19541,15 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 xt-ega: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VMEGA)/86box.cfg
 	$(BOX) -P $(VMEGA) -N
+
+# The VGA XTs above, with the VGA scroll probe in B: (make vgaprobe).
+# tests/vgaprobe.py drives either headless (OS88_EMU=86box OS88_86BOX_VM=...)
+xt-vga: $(IMG360) $(BUILD)/vgaprobe360.img
+	@$(UNPROTECT) $(VMXTVGA)/86box.cfg
+	$(BOX) -P $(VMXTVGA) -N
+xt-v20-vga: $(IMG360) $(BUILD)/vgaprobe360.img
+	@$(UNPROTECT) $(VMXTV20VGA)/86box.cfg
+	$(BOX) -P $(VMXTV20VGA) -N
 
 # ...and the same XT with BOTH of them in it: SPEC.md 39.12-39.19's extended
 # desktop on the machine it was written for. A CGA at B8000 and a Hercules at

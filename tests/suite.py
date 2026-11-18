@@ -5014,6 +5014,24 @@ SOAK = [
         "effect) that must be REFUSED - a guard nobody has seen fire is a "
         "guard nobody knows is alive",
         needs=("nasm",)),
+    Row("vgaprobe", "soak", py("tests/vgaprobe.py"), 15.0,
+        "VGAPROBE (tests/vgaprobe/, brought over from RealDMG's deferred CRTC branch for "
+        "BONANZA's VGA arm, docs/plans/BOUNCE-BONANZA-VGA.md V0) on MartyPC's "
+        "os8088_xt_vga, mode 0Dh: the start address and the pel panning written "
+        "TOGETHER and SPLIT (the start at a phase, the panning at the next rise "
+        "with interrupts off: the arm's order) at phases across the frame, each "
+        "judged off four consecutive completed frames by where the probe's "
+        "vertical line sits (pixel 6 the pair matched, pixel 2 mismatched): "
+        "still, wrong, tear or shimmer. Asserts the split order still from the "
+        "first displayed lines to 12 short of the display's end (BZ_VSMARG), "
+        "that SOME phase is not still (together just after the rise is a frame "
+        "apart on every model; MartyPC's panning is live, so together in the "
+        "display tears), the 64KB wrap, and the five planar write costs net of "
+        "the measurement's own. Red: --red swap (the halves swapped: panning at "
+        "the phase, start at the rise) and --red split (the panning written "
+        "with the start) both fail the split assertion. secs MEASURED 12.5 s "
+        "alone. The probe is assembled into a private tree with a map.",
+        needs=("marty",)),
     Row("bonanzaassets", "soak", ["python3", "tools/bonanza_assets.py", "--selfcheck"], 0.5,
         "WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): rubber's STRETCH frame at +8,256 (BZB2 +14 = 1 rubber, 0 steel and glass), its ellipse 12 x 16 with its black ring, mask and frame at every shift and parity, the copies identical, no frame bit under a kept pixel; the part sizes 9,536 / 8,256 / 13,376; control: one stretch frame bit set under a kept pixel, caught at the stretch check alone. "
         "BONANZA's three balls (SPEC.md 128.11.9, 128.11.17.2), host only: two "
