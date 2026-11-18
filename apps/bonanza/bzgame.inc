@@ -974,8 +974,9 @@ bz_t0:
     cmp byte [bz_fcnt], 0       ; play's sequence goes on (128.22.6)
     je .camera
 .stl:
-    loop .step
-    jmp short .camera
+    call bz_clk_sample          ; a sample a step: two or three steps are 70k
+    loop .step                  ; - 105k clocks on PLAYGROUND, past the clock's
+    jmp short .camera           ; one sub-tick (87k), and lost game time (128.45.13)
 .fst:
     call bz_fstep
     cmp byte [bz_fcnt], 1
@@ -3922,10 +3923,19 @@ bz_vstart:
     mov dx, [bz_vpit]
     sub dx, [bz_pitl]
     xor bx, bx                  ; BX = refreshes since the last present's rise
-    cmp ax, 1
-    ja .late                    ; (a whole sub-tick: past a refresh, unknown)
-    jb .in
-    add dx, BZ_SUB
+    cmp ax, BZ_STEPS
+    ja .late                    ; (more sub-ticks than a frame steps: unknown)
+.sub:                           ; each whole sub-tick, BZ_SUB counts, reduced
+    or ax, ax                   ; a refresh at a time: a long frame finds its
+    jz .in                      ; phase as a short one does (128.45.13: it
+    dec ax                      ; was "late" past one sub-tick, and waited a
+    add dx, BZ_SUB              ; whole extra refresh)
+.red:
+    cmp dx, BZ_VREF
+    jb .sub
+    sub dx, BZ_VREF
+    inc bx
+    jmp short .red
 .in:
     cmp dx, BZ_VREF             ; a refresh past: where in the next one
     jb .ph

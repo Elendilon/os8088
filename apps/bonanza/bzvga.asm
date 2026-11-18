@@ -334,8 +334,30 @@ bzv_row:
     shl si, 1
     mov bp, si                  ; BP = the line's word in a block
     mov ds, [bz_mseg]           ; DS = the course's PICTURE part
-    mov si, ax
+    mov bx, ax                  ; BX = the first cell's map entry
     mov dx, 3c4h
+    cmp cx, BZV_W               ; (a row is at most the window's 42 cells;
+    ja .slow                    ; a longer one takes the plain loop)
+    mov si, BZV_W               ; UNROLLED (128.45.13): the body's cell k
+    sub si, cx                  ; reads map entry [BX + 2 k], so the row's
+    sub bx, si                  ; first cell is entered at k0 = 42 - CX,
+    sub bx, si                  ; BX moved back 2 k0
+    shl si, 1
+    mov cx, [cs:.rtab + si]     ; CX = the entry
+    mov ax, 0102h               ; plane 0
+    out dx, ax
+    push bx
+    push di
+    call cx
+    pop di
+    pop bx
+    mov ax, 0202h               ; plane 1
+    out dx, ax
+    inc bp
+    call cx
+    jmp .out
+.slow:
+    mov si, bx
     push si
     push di
     push cx
@@ -361,6 +383,191 @@ bzv_row:
     mov al, [bx]
     stosb
     loop .p1
+    jmp .out
+; the body: cell k's map entry at [BX + 2 k], its line's byte at the entry +
+; BP (DS: BP alone would address SS), to ES:DI ascending
+%if BZV_W != 42
+ %error "the row body below is 42 cells: BZV_W's"
+%endif
+
+.r0:
+    mov si, [bx + 0]
+    mov al, [ds:bp + si]
+    stosb
+.r1:
+    mov si, [bx + 2]
+    mov al, [ds:bp + si]
+    stosb
+.r2:
+    mov si, [bx + 4]
+    mov al, [ds:bp + si]
+    stosb
+.r3:
+    mov si, [bx + 6]
+    mov al, [ds:bp + si]
+    stosb
+.r4:
+    mov si, [bx + 8]
+    mov al, [ds:bp + si]
+    stosb
+.r5:
+    mov si, [bx + 10]
+    mov al, [ds:bp + si]
+    stosb
+.r6:
+    mov si, [bx + 12]
+    mov al, [ds:bp + si]
+    stosb
+.r7:
+    mov si, [bx + 14]
+    mov al, [ds:bp + si]
+    stosb
+.r8:
+    mov si, [bx + 16]
+    mov al, [ds:bp + si]
+    stosb
+.r9:
+    mov si, [bx + 18]
+    mov al, [ds:bp + si]
+    stosb
+.r10:
+    mov si, [bx + 20]
+    mov al, [ds:bp + si]
+    stosb
+.r11:
+    mov si, [bx + 22]
+    mov al, [ds:bp + si]
+    stosb
+.r12:
+    mov si, [bx + 24]
+    mov al, [ds:bp + si]
+    stosb
+.r13:
+    mov si, [bx + 26]
+    mov al, [ds:bp + si]
+    stosb
+.r14:
+    mov si, [bx + 28]
+    mov al, [ds:bp + si]
+    stosb
+.r15:
+    mov si, [bx + 30]
+    mov al, [ds:bp + si]
+    stosb
+.r16:
+    mov si, [bx + 32]
+    mov al, [ds:bp + si]
+    stosb
+.r17:
+    mov si, [bx + 34]
+    mov al, [ds:bp + si]
+    stosb
+.r18:
+    mov si, [bx + 36]
+    mov al, [ds:bp + si]
+    stosb
+.r19:
+    mov si, [bx + 38]
+    mov al, [ds:bp + si]
+    stosb
+.r20:
+    mov si, [bx + 40]
+    mov al, [ds:bp + si]
+    stosb
+.r21:
+    mov si, [bx + 42]
+    mov al, [ds:bp + si]
+    stosb
+.r22:
+    mov si, [bx + 44]
+    mov al, [ds:bp + si]
+    stosb
+.r23:
+    mov si, [bx + 46]
+    mov al, [ds:bp + si]
+    stosb
+.r24:
+    mov si, [bx + 48]
+    mov al, [ds:bp + si]
+    stosb
+.r25:
+    mov si, [bx + 50]
+    mov al, [ds:bp + si]
+    stosb
+.r26:
+    mov si, [bx + 52]
+    mov al, [ds:bp + si]
+    stosb
+.r27:
+    mov si, [bx + 54]
+    mov al, [ds:bp + si]
+    stosb
+.r28:
+    mov si, [bx + 56]
+    mov al, [ds:bp + si]
+    stosb
+.r29:
+    mov si, [bx + 58]
+    mov al, [ds:bp + si]
+    stosb
+.r30:
+    mov si, [bx + 60]
+    mov al, [ds:bp + si]
+    stosb
+.r31:
+    mov si, [bx + 62]
+    mov al, [ds:bp + si]
+    stosb
+.r32:
+    mov si, [bx + 64]
+    mov al, [ds:bp + si]
+    stosb
+.r33:
+    mov si, [bx + 66]
+    mov al, [ds:bp + si]
+    stosb
+.r34:
+    mov si, [bx + 68]
+    mov al, [ds:bp + si]
+    stosb
+.r35:
+    mov si, [bx + 70]
+    mov al, [ds:bp + si]
+    stosb
+.r36:
+    mov si, [bx + 72]
+    mov al, [ds:bp + si]
+    stosb
+.r37:
+    mov si, [bx + 74]
+    mov al, [ds:bp + si]
+    stosb
+.r38:
+    mov si, [bx + 76]
+    mov al, [ds:bp + si]
+    stosb
+.r39:
+    mov si, [bx + 78]
+    mov al, [ds:bp + si]
+    stosb
+.r40:
+    mov si, [bx + 80]
+    mov al, [ds:bp + si]
+    stosb
+.r41:
+    mov si, [bx + 82]
+    mov al, [ds:bp + si]
+    stosb
+.r42:
+    ret
+.rtab:
+    dw .r0, .r1, .r2, .r3, .r4, .r5, .r6, .r7
+    dw .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15
+    dw .r16, .r17, .r18, .r19, .r20, .r21, .r22, .r23
+    dw .r24, .r25, .r26, .r27, .r28, .r29, .r30, .r31
+    dw .r32, .r33, .r34, .r35, .r36, .r37, .r38, .r39
+    dw .r40, .r41, .r42
+.out:
     pop es
     pop ds
     pop bp

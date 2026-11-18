@@ -285982,5 +285982,32 @@ present at the third rise; the next frame carries more steps (1.84 for
 column (BZV_COL) is now an unrolled eight-line block body entered at the
 first line by a table - its last block written whole, at most 7 lines past
 the window's foot (off the glass, rewritten as rows when they enter) - and
-halves its cost; the rest of the 15k is the row writer, the box writer and
-the blit's (open).
+halves its cost.
+
+**Two clock faults under it, found by that replay** (both cards' code, the
+first one's fix shared):
+
+1. **The steps lost game time.** The clock counts FASTTICK sub-ticks by
+   sampling the PIT, and a stretch between two samples longer than one
+   sub-tick (87k clocks) loses one (the header of THE CLOCK). `bz_step`
+   takes no sample, and two or three PLAYGROUND steps run back to back are
+   70k - 105k clocks: the VGA lost 16% of its steps, the CGA ~3%, and the
+   music (the steps' clock) slowed with them. The step loop now samples
+   once a step (3 bytes, ~0.3k clocks a step; the steps themselves, and so
+   replays, unchanged).
+2. **A long VGA frame waited a whole extra refresh.** `bz_vstart` found
+   where in the refresh a frame ended from the sub-ticks since the last
+   present, but knew only 0 or 1 of them: past that it called the frame
+   late - waited a rise, wrote the start, and showed it a refresh later.
+   Every PLAYGROUND frame over ~175k clocks paid that refresh. Now each
+   whole sub-tick (up to `BZ_STEPS`) is reduced a refresh at a time, so a
+   long frame finds its phase as a short one does.
+
+The row (BZV_ROW) is unrolled as the column is - one 42-cell body entered
+at the row's first cell by a table, used once a plane: 7.5k clocks a line
+to ~4.4k (a longer row than the window's takes the plain loop).
+
+**After** (the same replay, 20 guest seconds): the VGA **~30 frames a
+second (17 - 34) and 53 - 57 steps** - the game in real time - waiting 21%
+(the CGA's 20%); the CGA 45 frames, 54 - 57 steps. BENCH's scripted
+camera, 400 frames: 0 pixels, the glass exact.
