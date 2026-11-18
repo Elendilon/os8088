@@ -283696,10 +283696,12 @@ early return, so a VGA play read whatever `bz_lockc` held.)
 a line, so at most `max(0, bottom - BZ_LINES)` - and the camera's edge
 braking stops it there at rest.
 
-**The A/B (until the owner has dialled it in, then removed)**: on the VGA
-`C`'s second mode is LATTICE instead of TRICKLE, so the two can be played
-back to back; the face still names TRICKLE. `bz_camera` resets LATTICE on
-any change of mode (it did on the change back to GLIDE alone).
+**No A/B** (the owner, 2026-11-18: *"it basically always moves like
+lattice, except for one section in MILL where it smoothly followed the ball
+vertically ... which felt natural. I think we can remove C"*): on the VGA
+`C` does nothing (`bz_cnext` returns), the play's camera is always this
+one and the finish always coasts; `bz_camera`'s mode change resets LATTICE
+on the return to GLIDE alone, as before V2c.
 
 **The rate** (130.46.10's divisor, revised here): a window of 64 frames
 latches 35 Hz at `BZ_VLATE` = **2** late frames (it was 8), and at 70 Hz a

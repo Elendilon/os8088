@@ -2009,6 +2009,8 @@ bz_tmouse:
 ; the next camera mode, GLIDE -> TRICKLE -> GLIDE.  Preserves all
 ; but the flags.  The camera picks its new state up itself (bz_camera's tail).
 bz_cnext:
+    cmp byte [bz_vga], 0        ; the VGA has one camera (130.46.12): no C
+    jne .out
     inc byte [bz_cmode]
     cmp byte [bz_cmode], BZ_CMODES
     jb .out
@@ -2231,8 +2233,6 @@ bz_camera:
     je .nfs                     ; holds - no step, no scroll, no pan running
     cmp byte [bz_vga], 0        ; (the VGA's own camera COASTS to rest, as a
     je .fh                      ; smooth one stopped dead jerks: 130.46.12)
-    cmp byte [bz_cuse], 0
-    jne .fh
     BZ_VCALL BZV_COAST
     jmp .moved
 .fh:
@@ -2252,10 +2252,12 @@ bz_camera:
     jne .muse                   ; its numbers stay comparable (bz_cmode is
     xor al, al                  ; left as it was)
 .muse:
-    xchg al, [bz_cuse]          ; a change of mode (C): LATTICE starts at
-    cmp al, [bz_cuse]           ; rest, its bands at the window as it stands
-    je .ncs0                    ; (the VGA's A/B runs it as the second mode,
-    call bz_latrst              ; 130.46.12)
+    xchg al, [bz_cuse]          ; GLIDE again after TRICKLE (C): LATTICE
+    or al, al                   ; starts at rest, its bands at the window
+    jz .ncs0                    ; as it stands
+    cmp byte [bz_cuse], 0
+    jne .ncs0
+    call bz_latrst
 .ncs0:
     cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
     jne .ncs                    ; (bz_scnt bit 7): a cut (130.17.6.7)
@@ -2426,11 +2428,9 @@ bz_camera:
     add bp, ax                  ; BP = cy + 8
 .cyd:
     cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (130.46.12),
-    je .gl                      ; the benchmark's LATTICE, and LATTICE as the
-    cmp byte [bz_mode], 1       ; A/B's second mode
+    je .gl                      ; the benchmark's LATTICE (C does nothing
+    cmp byte [bz_mode], 1       ; there, bz_cnext)
     je .lat
-    cmp byte [bz_cuse], 0
-    jne .lat
     BZ_VCALL BZV_CAM
     jmp .moved
 .gl:
